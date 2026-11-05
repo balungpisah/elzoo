@@ -38,7 +38,7 @@
     },
     "config": {
       "status": "not_applicable",
-      "contract": "Explicit function inputs/state determine behavior; no ambient or mutable runtime settings are supplied."
+      "contract": "This recipe exercises default encode/decode only. JSON values are data; selectable upstream encoding/decoding options are outside this scoped Contract."
     },
     "control": {
       "status": "not_applicable",

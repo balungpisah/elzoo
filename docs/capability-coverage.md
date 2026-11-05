@@ -177,6 +177,50 @@ cleanup, integrity mismatch, stale signed URL/access revocation, duplicate job
 completion and retention expiry. A content hash is an integrity identifier, not
 permission to read; the ready SHA-256 recipe alone does not implement this case.
 
+### C9 — Resell an LLM endpoint with metering and versioned pricing
+
+Flow: authenticate tenant → authorize model/route → reserve quota/budget →
+select an eligible provider → dispatch/stream → reconcile observed usage →
+apply a versioned price template → post an attributable charge or adjustment.
+
+Capability IDs: `domain/authorization`, `domain/quota`, `domain/metering`,
+`domain/pricing`, `domain/journal`, `workflow/budget`, `delivery/model-routing`,
+`integration/ai-model`, `integration/secrets`, `state/outbox`, `state/audit-log`,
+`delivery/data-stream`, `delivery/idempotency` and `delivery/retry-timeout`.
+These responsibilities are deferred, not a ready endpoint/billing product.
+
+Metering records unit-tagged usage and provenance: input/output/cached tokens,
+requests, image units or audio duration. Tokenizer estimates used for admission
+are separate from provider-reported or otherwise reconciled billable usage.
+The upstream model/version/tokenizer and usage source belong on that record.
+Quota governs allocation/admission; metering does not itself grant allocation.
+
+Pricing maps accepted usage to currency amounts using an immutable versioned
+rate/template and explicit currency, decimal precision, rounding, tier and
+minimum-charge rules. Templates may support custom usage dimensions; arbitrary
+LLM-generated pricing code is not a trusted billing policy. Changing a rate
+must not silently reprice earlier usage. Billing aggregates/settles charges;
+a balanced journal is a separate persistence/financial invariant.
+
+Model routing selects among eligible declared provider capabilities using
+explicit policy (model/features, tenant permissions, region, capacity, price,
+health freshness). The provider Adapter translates requests/results; it does
+not own routing or pricing. No assumption that similarly named models support
+identical tools, structured output or token accounting. An authorized route
+must not leak credentials or fall back to an unapproved provider.
+
+Design tests before implementation: duplicate usage/webhooks cannot double
+charge; concurrent reservations cannot overspend the allowed allocation; price
+changes are version-bound; failed or interrupted streaming still reconciles
+incurred usage; a timeout or fallback after dispatch can mean two provider costs
+and must preserve separate attempts under one business request; missing usage
+is unknown rather than zero; late corrections produce attributable adjustments;
+customer price and provider cost remain distinct; currency/units cannot mix.
+Use existing provider SDK/tokenizer, decimal, ledger and payment implementations
+where their actual Contracts fit. No tokenizer, pricing DSL, router or billing
+engine is implemented by this case. Publish scoped tasks and select providers
+only after this case's contract and failure scenarios are accepted.
+
 ## Reuse map and limits
 
 | Responsibility | Shared cases | Existing usable subset | Missing contract / reuse direction |
@@ -198,6 +242,10 @@ upgraded by this study, and none of these complete workflows is claimed ready.
 The umbrella handles domain/value-types, domain/saas-controls and
 integration/auth-policy retain their existing IDs; they group or translate the
 narrower contracts rather than authorizing duplicate engines.
+
+C9 adds separately deferred `domain/metering`, `domain/pricing` and
+`delivery/model-routing` handles. The C9 design tests must be resolved before
+any billing or model-routing implementation task is dispatched.
 
 ## Choosing the next build slice
 

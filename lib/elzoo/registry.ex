@@ -161,8 +161,6 @@ defmodule Elzoo.Registry do
       &ensure!(Map.has_key?(providers, &1), "unknown provider #{&1}: #{id}")
     )
 
-    validate_operations!(piece)
-
     applications = Map.get(piece, "applications", [])
     ensure!(is_list(applications), "invalid OTP applications: #{id}")
 
@@ -246,6 +244,8 @@ defmodule Elzoo.Registry do
           :ok
       end
     end)
+
+    validate_operations!(piece)
   end
 
   defp validate_operations!(piece) do
@@ -266,6 +266,20 @@ defmodule Elzoo.Registry do
       )
 
       nonempty!(entry["contract"], "#{face} contract/reason: #{id}")
+
+      if entry["status"] == "supported" do
+        evidence = entry["evidence"]
+        ensure!(is_list(evidence) and evidence != [], "missing #{face} test evidence: #{id}")
+
+        Enum.each(evidence, fn file ->
+          ensure!(
+            file in piece["files"] and is_binary(file) and
+              String.ends_with?(file, "_test.exs") and
+              Enum.any?(piece["grounding"], &(&1["kind"] == "test" and &1["file"] == file)),
+            "invalid #{face} test evidence: #{id}"
+          )
+        end)
+      end
 
       if entry["status"] == "inherited" do
         ensure!(

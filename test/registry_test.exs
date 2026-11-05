@@ -153,6 +153,13 @@ defmodule Elzoo.RegistryTest do
     original = File.read!(Path.join(root, file))
 
     for {change, expected} <- [
+          {&update_in(&1, ["operations", "config"], fn entry -> Map.delete(entry, "evidence") end),
+           ~r/missing config test evidence/},
+          {&put_in(&1, ["operations", "config", "evidence"], []), ~r/missing config test evidence/},
+          {&put_in(&1, ["operations", "config", "evidence"], ["README.md"]),
+           ~r/invalid config test evidence/},
+          {&put_in(&1, ["operations", "config", "evidence"], ["test/missing_test.exs"]),
+           ~r/invalid config test evidence/},
           {&Map.delete(&1, "operations"), ~r/declare telemetry\/config\/control/},
           {&put_in(&1, ["operations", "config", "status"], "automatic"), ~r/invalid config/},
           {&put_in(&1, ["operations", "control", "contract"], ""), ~r/control contract/},

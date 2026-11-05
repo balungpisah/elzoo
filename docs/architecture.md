@@ -373,7 +373,7 @@ The following claims are the ones the bootstrap may make now:
 | OTP supervision restarts a unit | `X,U` | runtime test exercises `Supervisor` restart; volatile state is reset on restart |
 | Jason can encode tested strings and errors are translated | `X,U,A` | [`pieces/integration/cure-json/lib/elzoo/json_boundary.ex`](../pieces/integration/cure-json/lib/elzoo/json_boundary.ex) and the bridge’s own tests; Jason implementation and Cure `@extern` signature remain foreign assumptions |
 | volatile state may accept a redelivered key after restart | `X` | runtime test explicitly shows this; it is a limitation, not a bug |
-| Cure's selected source has no unaudited holes or hidden axioms | `X` | runtime test runs `Cure.Audit.Ledger` over the production Cure files; this is not a compiler soundness audit |
+| Cure's selected source has no unaudited holes or hidden axioms | `X` | owning-bundle tests audit all five pure Cure files; the cure-json test separately records the sixth file's explicit Jason extern assumption. This is not a compiler soundness audit |
 | durable hop is at-least-once | `A` until Phase 2 | requires a real log/outbox/recovery test; no bootstrap claim |
 | OTP process is an OS/security boundary | — | explicitly false; use an OS process or service for that requirement |
 | all old Zoo catalogue rows are implemented | — | explicitly false; see curated dispositions and dropped aliases |

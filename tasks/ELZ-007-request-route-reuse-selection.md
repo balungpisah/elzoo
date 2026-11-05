@@ -2,7 +2,7 @@
 
 - Phase: P1 message resilience
 - Catalogue IDs: delivery/request-reply, delivery/routing,
-  delivery/transformation, delivery/stream-combinators, delivery/time;
+  delivery/transformation, delivery/stream-combinators;
   reuse selection for core/assembly
 - Dependencies: ELZ-002, ELZ-003
 
@@ -15,9 +15,13 @@ stream/runtime code.
 
 ## Scope
 
-- define request/reply correlation, return address and explicit deadline;
+- implement request/reply correlation and return-address use against ELZ-003's
+  Envelope and common delivery-result/error/deadline schema; preserve its units
+  and unknown-outcome meaning without inventing fields or scheduling timers;
 - route/filter/transform only through declared Ports and delivery policies;
-- define candidate metadata and a pure stable selection rule for compatible
+- exclusively own candidate identity/ranking/selection metadata, referring to
+  ELZ-002 Port descriptors and ELZ-003 delivery policies rather than duplicating
+  their fields; define a pure stable selection rule for compatible
   Pieces/Assemblies, with typed rejection for missing/incompatible/ambiguous
   candidates;
 - use Enum/Stream for ordinary map/filter/scan behavior and document why any
@@ -28,7 +32,11 @@ stream/runtime code.
 
 ## Acceptance
 
-- [ ] Request/reply correlation and timeout outcomes are explicit.
+- [ ] Retain the ELZ-002 positive and negative boundary checks in mix check.
+
+- [ ] Correlation and deadline data use ELZ-003's examples; timeout results use
+      that common shape, while timeout execution/classification remains ELZ-006.
+- [ ] delivery/time and ELZ-003 shared schemas remain unchanged by this task.
 - [ ] Compatible, incompatible, missing and ambiguous candidate cases are
       executable and deterministic.
 - [ ] Ordinary stream transformations use Enum/Stream or record a concrete
@@ -41,7 +49,7 @@ stream/runtime code.
 
 Proof/tests ground determinism, compatibility and named route cases. Candidate
 behavior remains each candidate's own grounding; selection does not certify an
-implementation. OTP timer behavior is an upstream contract.
+implementation. Existing OTP timer behavior is an upstream contract, consumed read-only if needed.
 
 ## Out of scope
 

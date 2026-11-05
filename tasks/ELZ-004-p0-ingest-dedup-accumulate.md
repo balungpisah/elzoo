@@ -19,12 +19,17 @@ ELZ-002/003, preserving its existing tests and scoped guarantees.
 ## Scope
 
 - implement the pure Operator/Assembly through the ELZ-002/003 boundaries;
-- use OTP GenServer/Supervisor/Application for lifecycle and restart;
+- use OTP GenServer/Supervisor/Application for lifecycle and restart in a
+  consumer-owned supervision tree, not Elzoo.Application;
+- exercise actual Cure/Elixir tuple and payload validation at the Adapter,
+  preserving the distinction between ELZ-002 descriptors and runtime values;
 - route JSON requests/results through an Adapter with declared errors;
 - compare direct/fused and OTP traces for named inputs;
 - record volatile state, mailbox and restart limits.
 
 ## Acceptance
+
+- [ ] Retain the ELZ-002 positive and negative boundary checks in mix check.
 
 - [ ] Pure and OTP paths produce the same result for the named traces.
 - [ ] Supervisor restart and expected Adapter failure are executable tests.

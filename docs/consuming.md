@@ -47,14 +47,25 @@ mix.lock, your Application, your test helper, or existing configuration.
 
 JSON/HTTP/library recipes do not pull in Cure. Selecting a Cure piece adds
 the small Mix compiler source and instructions to register it before `:app`.
-Cure itself is a pinned dependency; its implementation is not vendored. Your
+Cure itself is a pinned build/test dependency (`runtime: false`); its implementation is not vendored. Your
 project resolves its own lockfile, including transitive packages such as
-Finch under Req. The receipt records the upstream versions tested in Elzoo.
+Finch under Req. The receipt records the upstream versions tested in Elzoo. Generated Hex
+constraints allow patch updates for consumer resolution; that range is not a
+claim of tested compatibility. Pin the recorded versions for exact reproduction
+and rerun boundary tests after any update.
 
-Keep the namespaced `Elzoo.*` modules initially. Rename in your application if
-needed, updating Cure imports and Elixir MFA references together and running
-the copied tests. This first copier does not perform automatic namespace
-rewrites or merge concurrent edits. The Cure compiler requires the recorded
+The default `Elzoo.*` / `Cure.Elzoo.*` namespace is for **application-owned
+copies**, with one coordinated revision of each module per BEAM release.
+Two libraries cannot safely embed different copies under those same names.
+A library redistributing copied source must rename all modules, Cure imports,
+Elixir MFA/atom references and tests into its own namespace before shipping.
+Cure records also erase to bare tags such as `:Transition` and `:Joined`;
+module renaming alone does not distinguish these data shapes. Explicitly rename
+public record tags or translate them at an Adapter and test the boundary.
+The copier does not perform or certify this renaming. Loading two different
+revisions with unchanged names is unsupported; the second module can replace
+the first in the VM. Applications also must not mix conflicting copies.
+This first copier does not merge concurrent edits. The Cure compiler requires the recorded
 Elixir 1.20.4 / OTP 29.1.2 baseline for the recorded proof results.
 
 ## Weave
@@ -86,6 +97,11 @@ Known conflicting files are detected before any write. Identical files are
 left intact; symlink targets and conflicting files are refused. Do not run
 concurrent writers against a destination. Filesystem failures during copying
 are not an atomic multi-file transaction. No existing code is force-replaced.
+
+A ready behavioral Contract change gets a new Piece ID, with explicit migration
+notes, while fixes restoring the existing Contract retain the ID. An ID change
+does not itself rename BEAM modules. Compare both Contract and source/provenance;
+opt in to new dependencies deliberately and resolve any module/data-tag overlap.
 
 For updates, export the new selection into a scratch Mix project, compare it
 with your copies/receipt, and merge deliberately. There is no silent upgrade,

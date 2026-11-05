@@ -47,7 +47,7 @@
     },
     "config": {
       "status": "not_applicable",
-      "contract": "Explicit function inputs/state determine behavior; no ambient or mutable runtime settings are supplied."
+      "contract": "This recipe fixes SHA-256. Bytes are input data; configurable algorithms or key policies are outside this scoped Contract."
     },
     "control": {
       "status": "not_applicable",

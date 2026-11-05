@@ -154,14 +154,14 @@ defmodule Elzoo.Export do
     dependencies =
       providers
       |> Enum.sort()
-      |> Enum.flat_map(fn {_id, provider} ->
+      |> Enum.flat_map(fn {id, provider} ->
         case provider["source"] do
           "hex" ->
-            ["{:#{provider["package"]}, \"== #{provider["version"]}\"}"]
+            ["{:#{provider["package"]}, \"~> #{provider["version"]}\"}"]
 
           "git" ->
             [
-              "{:#{provider["package"]}, git: #{inspect(provider["url"])}, ref: #{inspect(provider["revision"])}, depth: 1}"
+              "{:#{provider["package"]}, git: #{inspect(provider["url"])}, ref: #{inspect(provider["revision"])}, depth: 1#{if id == "cure", do: ", runtime: false", else: ""}}"
             ]
 
           "platform" ->
@@ -180,7 +180,9 @@ defmodule Elzoo.Export do
             compilers: (Mix.compilers() -- [:app]) ++ [:cure, :app]
 
         Keep the exact Cure SHA above and Elixir 1.20.4 / OTP 29.1.2 for the recorded
-        proof results. No Elzoo dependency or Application supervisor is required.
+        proof results. Cure is an exact-revision build/test dependency; runtime: false
+        excludes its automatic startup in the consuming application. The compiler
+        task still starts Cure during compilation. No Elzoo runtime is required.
         """
       else
         "These selected pieces need no Cure compiler and no Elzoo runtime application.\n"
@@ -198,8 +200,11 @@ defmodule Elzoo.Export do
     [#{Enum.join(dependencies, ",\n ")}]
     ```
 
-    Use the application's own lockfile for resolution; the receipt records the
-    versions exercised in Elzoo. If existing dependencies impose incompatible
+    The Hex constraints above allow patch-level updates; they are consumer
+    resolution suggestions, not evidence for untested releases. Use your own
+    lockfile; the receipt records the exact versions exercised in Elzoo. To
+    reproduce that evidence exactly, pin those recorded versions. If existing
+    dependencies impose incompatible
     versions, resolve that deliberately and rerun the copied boundary tests.
 
     Additional OTP applications to include in extra_applications: [#{Enum.map_join(applications, ", ", &(":" <> &1))}].
