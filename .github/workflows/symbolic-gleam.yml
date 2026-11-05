@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   gleam:
-    runs-on: [self-hosted, linux, x64, symbolic, elzoo]
+    runs-on: [self-hosted, linux, x64, symbolic, elzoo, gleam]
     container:
       image: ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852
     timeout-minutes: 30
@@ -40,6 +40,9 @@ jobs:
       - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1
         with:
           otp-version: '29.1.2'
+      - name: Report BEAM capacity
+        run: |
+          erl -noshell -eval 'io:format("BEAM schedulers=~p online=~p dirty_cpu=~p dirty_io=~p~n", [erlang:system_info(schedulers), erlang:system_info(schedulers_online), erlang:system_info(dirty_cpu_schedulers_online), erlang:system_info(dirty_io_schedulers)]), halt().'
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24.16.0'

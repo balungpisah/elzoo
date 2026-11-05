@@ -60,6 +60,7 @@ Detailed edges (direct dependencies; transitive reachability is omitted):
     ELZ-016 -> ELZ-002
     ELZ-017 -> ELZ-018
     ELZ-018 -> ELZ-002, ELZ-019
+    ELZ-019 -> ELZ-020
     ELZ-002 -> ELZ-003, ELZ-004, ELZ-007
     ELZ-003 -> ELZ-004, ELZ-005, ELZ-007
     ELZ-004 -> ELZ-005, ELZ-006, ELZ-008, ELZ-011
@@ -92,6 +93,7 @@ Detailed edges (direct dependencies; transitive reachability is omitted):
 | ELZ-017 | P0 | Independent Gleam library evaluation | ELZ-014 | Isolated Lustre Web Component and shared model checks; no ready export |
 | ELZ-018 | P0 | Pre-dispatch contract/evidence hardening | ELZ-017 | Explicit schema ownership, evolution rules and guards; unlock ELZ-002 |
 | ELZ-019 | P0 | Development CI execution | ELZ-018 | symbolic-only runner, reproducible job containers and no hosted fallback |
+| ELZ-020 | P0 | Development CI capacity | ELZ-019 | Measured BEAM scheduler settings and runner concurrency decision |
 
 This DAG deliberately does not promise all historical families. If an
 Assembly later needs SQL, a broker, replication, CRDTs, AI or another
@@ -130,3 +132,4 @@ stable even when issue numbers differ.
 | ELZ-017 | [20](https://github.com/balungpisah/elzoo/issues/20) |
 | ELZ-018 | [23](https://github.com/balungpisah/elzoo/issues/23) |
 | ELZ-019 | [26](https://github.com/balungpisah/elzoo/issues/26) |
+| ELZ-020 | [28](https://github.com/balungpisah/elzoo/issues/28) |

@@ -9,16 +9,24 @@ defmodule Elzoo.CiRunnerGuardTest do
     on_exit(fn -> File.rm_rf!(root) end)
     assert {_, 1} = System.cmd("python3", [@script], cd: root, stderr_to_stdout: true)
 
-    for selector <- ["ubuntu-24.04", "${{ matrix.runner }}", "[self-hosted, linux]"] do
+    for selector <- [
+          "ubuntu-24.04",
+          "${{ matrix.runner }}",
+          "[self-hosted, linux]",
+          "[self-hosted, linux, x64, symbolic, elzoo]",
+          "[self-hosted, linux, x64, symbolic, elzoo, backend, gleam]"
+        ] do
       File.write!(Path.join(workflows, "check.yml"), "jobs:\n  check:\n    runs-on: #{selector}\n")
       assert {_, 1} = System.cmd("python3", [@script], cd: root, stderr_to_stdout: true)
     end
 
-    File.write!(
-      Path.join(workflows, "check.yml"),
-      "jobs:\n  check:\n    runs-on: [self-hosted, linux, x64, symbolic, elzoo]\n"
-    )
+    for role <- ["backend", "gleam"] do
+      File.write!(
+        Path.join(workflows, "check.yml"),
+        "jobs:\n  check:\n    runs-on: [self-hosted, linux, x64, symbolic, elzoo, #{role}]\n"
+      )
 
-    assert {_, 0} = System.cmd("python3", [@script], cd: root, stderr_to_stdout: true)
+      assert {_, 0} = System.cmd("python3", [@script], cd: root, stderr_to_stdout: true)
+    end
   end
 end
