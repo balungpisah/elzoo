@@ -370,7 +370,7 @@
       "disposition": "defer",
       "phase": "P4",
       "status": "deferred",
-      "reason": "AI output is untrusted input; no agent harness in bootstrap ELZ-015 exercises AshAi action-tool dispatch only; model generation, routing and billing remain unadopted."
+      "reason": "AI output is untrusted input; no agent harness in bootstrap. ELZ-015 exercises AshAi action-tool dispatch only; model generation, routing and billing remain unadopted."
     },
     {
       "id": "integration/auth-policy",
@@ -415,7 +415,7 @@
       "disposition": "adapt",
       "phase": "P2",
       "status": "planned",
-      "reason": "Oban candidate; not the Elzoo outbox until transaction/retry tests pass Evaluate AshOban/Oban after ELZ-015; volatile Task invocation is not job durability."
+      "reason": "Oban candidate; not the Elzoo outbox until transaction/retry tests pass. Evaluate AshOban/Oban after ELZ-015; volatile Task invocation is not job durability."
     },
     {
       "id": "integration/json",
@@ -691,7 +691,7 @@
       "disposition": "own",
       "phase": "P1\u2192P2",
       "status": "planned",
-      "reason": "Cure pure state machine plus OTP shell; compensation is a domain contract ELZ-015 exercises AshStateMachine sequentially with ETS; transactional/stale-record safety remains unadopted."
+      "reason": "Cure pure state machine plus OTP shell; compensation is a domain contract. ELZ-015 exercises AshStateMachine sequentially with ETS; transactional/stale-record safety remains unadopted."
     },
     {
       "id": "workflow/work-item",
