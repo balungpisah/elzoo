@@ -138,12 +138,16 @@ Every PR separates its grounding:
 
 - Proof: a selected quantified or exhaustive Cure law checked by Cure's
   machinery. Only laws named by the task are required.
+- Type/contract check: the actual Cure type or schema validation performed by
+  a named checker. An unchecked Elixir typespec is documentation.
 - Test: an executable ExUnit/OTP or boundary check over named scenarios.
   Tests are not automatically proofs.
 - Monitored behavior: telemetry, logs or an observation in a named environment.
   A monitor is not a proof of all executions.
 - Upstream contract: pinned Cure, Elixir, OTP or library behavior relied upon.
   External implementation remains upstream's work; test our translation.
+
+Record unverified assumptions separately; naming one does not prove it.
 
 Use scoped wording such as selected law passes, listed scenarios pass, or
 relies on OTP's documented contract. Unqualified verified is not evidence.

@@ -30,7 +30,10 @@ mix check
 
 Cure is pinned to an exact source commit, and dependencies are recorded in
 `mix.lock`. No Bend installation or original Zoo checkout is needed.
-The first setup builds the compiler and is slower than subsequent checks.
+Both commands use Mix’s test environment, so setup and check share one
+compiler build. The first setup takes several minutes; subsequent checks
+reuse those dependencies. Ordinary `mix run` and production builds use their
+own standard Mix environments.
 Network access to GitHub and Hex is required for dependency installation.
 On a machine with limited resources, set
 `ERL_FLAGS="+S 2:2 +SDcpu 1 +SDio 1"` to limit BEAM scheduler threads.
@@ -51,6 +54,9 @@ Agents push progress on their claimed task branches; reviewed merges update
 `main` for everyone. Each machine keeps its own checkout and build artifacts.
 GitHub issues and remote branches hold the shared coordination state.
 
+The bootstrap harness (ELZ-001) is accepted. The first open task is
+[ELZ-002: contracts and typed composition](https://github.com/balungpisah/elzoo/issues/2).
+
 Work follows the task dependencies and working-assembly milestones. The old
 Zoo's custom task engine and proof-first gate cycle are not prerequisites here.
 The bootstrap's [GATES.md](GATES.md) and [PLAN.md](PLAN.md) record this initial
@@ -64,6 +70,7 @@ setup only; they are not a new process that every piece must reproduce.
 - [Dependencies](docs/dependencies.md): upstream contracts and adoption status.
 - [Cure notes](docs/cure-notes.md): tested compiler behavior and authoring guidance.
 - [Decisions](docs/adr/): the few architectural choices worth preserving.
+- [Bootstrap validation](docs/development/07-bootstrap-validation.md): actual checks and limits.
 
 The checked-in bootstrap demonstrates the development path. It does not claim
 that the planned catalogue, durable delivery, multi-host transport or arbitrary

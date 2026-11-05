@@ -15,12 +15,11 @@ The coordinator can publish a body without a task service, for example:
 Use the title/phase appropriate to each body. The files are the publication
 input; published issue links are recorded below.
 
-ELZ-001 is the bootstrap harness task's current action. Once its actual
-acceptance is merged and clean-checkout evidence is recorded, ELZ-002 is the
-next actionable task. Workers must not rebuild or re-open the harness merely
-because later tasks need it. If ELZ-001 leaves a real unmet acceptance, publish
-that exact delta as a new issue or update the existing issue before ELZ-002;
-never call an unrun check complete.
+ELZ-001 was accepted during bootstrap after independent clean-checkout and
+Linux CI validation. ELZ-002 is the next actionable task. Workers must not
+rebuild or re-open the harness merely because later tasks need it. Report a
+new concrete defect as new work, retaining the baseline's evidence and limits.
+See [bootstrap validation](07-bootstrap-validation.md).
 
 The first batch follows the catalogue phases:
 

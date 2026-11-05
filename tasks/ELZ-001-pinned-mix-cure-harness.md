@@ -23,12 +23,12 @@ mix setup and mix check.
 
 ## Acceptance
 
-- [ ] In a clean checkout, mix setup succeeds with the pinned toolchain.
-- [ ] mix check compiles real Cure at the exact SHA and exits non-zero on a
+- [x] In a clean checkout, mix setup succeeds with the pinned toolchain.
+- [x] mix check compiles real Cure at the exact SHA and exits non-zero on a
       deliberately broken check fixture.
-- [ ] mix check is not only formatting/documentation lint and has a
+- [x] mix check is not only formatting/documentation lint and has a
       deterministic success marker.
-- [ ] A clean clone can run the commands using only documented inputs.
+- [x] A clean clone can run the commands using only documented inputs.
 
 ## Evidence and limits
 
@@ -39,3 +39,13 @@ behavior. Runtime owns external implementation assumptions.
 ## Out of scope
 
 No catalogue family, durable storage, OTP product flow or old Zoo CLI.
+
+## Bootstrap acceptance
+
+Accepted on main at `3965fb2648e01d4a4c355e42438386d2de228545` after the
+coordinator independently ran a fresh remote clone, setup/check, real failing
+test and filter-rejection probes. Linux CI also passed:
+https://github.com/balungpisah/elzoo/actions/runs/42013712025
+
+See `docs/development/07-bootstrap-validation.md` for commands, outcomes and
+limits. ELZ-002 extends this baseline; it does not recreate the harness.

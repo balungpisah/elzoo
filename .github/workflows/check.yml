@@ -16,7 +16,7 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 45
     env:
       ERL_FLAGS: '+S 2:2 +SDcpu 1 +SDio 1'
     steps:
@@ -31,6 +31,8 @@ jobs:
             deps
             _build
           key: beam-${{ runner.os }}-otp29.1.2-elixir1.20.4-${{ hashFiles('mix.lock', 'mix.exs') }}
+          restore-keys: |
+            beam-${{ runner.os }}-otp29.1.2-elixir1.20.4-
       - run: mix local.hex --force
       - run: mix local.rebar --force
       - run: mix setup

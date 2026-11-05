@@ -24,3 +24,7 @@ If the local runtime differs from the pin, report the environment instead of
 presenting a partial result as a pass. External libraries are tested at their
 integration boundary and remain grounded by an upstream contract; they do not
 need a local Cure proof by default.
+
+Both public commands prefer `MIX_ENV=test` so the first setup does not build
+the compiler twice across dev and test. Leave `MIX_ENV` unset for these
+commands. Use ordinary Mix commands for dev/prod builds when needed.

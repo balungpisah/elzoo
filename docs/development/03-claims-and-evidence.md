@@ -1,14 +1,19 @@
 # Claims and evidence
 
-Each task and PR states the claim and the grounding that supports it. Four
-grounding kinds remain separate:
+Each task and PR states the claim and the grounding that supports it. Use the
+architecture labels consistently; evidence and assumptions remain distinct:
 
 | Grounding | Can support | Cannot silently support |
 | --- | --- | --- |
-| Proof | A named quantified or exhaustive Cure law checked by Cure | All behavior, an unmentioned law or external implementation |
-| Test | Named executable scenarios and negative controls | A universal property or untested failure mode |
-| Monitored behavior | An observation in a named runtime/environment | A proof of future executions |
-| Upstream contract | A pinned Cure/Elixir/OTP/library behavior we rely on | Ownership or proof of the external implementation |
+| Proof (`P`) | A named quantified or exhaustive Cure law checked by Cure | All behavior, an unmentioned law or external implementation |
+| Type/contract check (`T`) | The interface or schema checked by the named tool | All behavior; an unchecked Elixir typespec is documentation |
+| Test (`X`) | Named executable scenarios and negative controls | A universal property or untested failure mode |
+| Monitored behavior (`M`) | An observation in a named runtime/environment | A proof of future executions |
+| Upstream contract (`U`) | A pinned Cure/Elixir/OTP/library behavior we rely on | Ownership or proof of the external implementation |
+
+An explicit assumption (`A`) records an unverified precondition or trust
+boundary. It does not itself establish the claim; keep it visible alongside
+the evidence and limits.
 
 Use a table like this in reports:
 

@@ -26,7 +26,7 @@ defmodule Elzoo.MixProject do
   end
 
   def cli do
-    [preferred_envs: [check: :test]]
+    [preferred_envs: [setup: :test, check: :test]]
   end
 
   defp deps do
