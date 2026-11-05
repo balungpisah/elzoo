@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "id": "runtime/adapter",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "adapter",
+  "providers": ["elixir", "otp"],
+  "dependencies": ["core/wiring", "runtime/unit", "core/envelope"],
+  "contract": "One synchronous Unit delivery with validated Envelope and Wiring, consumer-owned codecs and fixed neutral DeliveryResult translation.",
+  "limits": [
+    "Volatile, unbounded mailbox; no ack, retry, redelivery, durability, ordering, deadline enforcement or exactly-once guarantee.",
+    "Timeout is an observed exit reason, not proof of elapsed time; noproc leaves dispatch unknown.",
+    "Trusted codecs and lookup callbacks; unchanged upstream OTP crash reports may log request/state under consumer Logger configuration."
+  ],
+  "files": ["lib/elzoo/unit_adapter.ex", "test/elzoo/unit_adapter_test.exs"],
+  "grounding": [
+    {"kind": "test", "file": "test/elzoo/unit_adapter_test.exs", "claim": "Named outcome rows, identity echo, result validation and per-call wiring/codec scenarios; finite tests, not proofs."},
+    {"kind": "upstream", "provider": "elixir", "reference": "https://hexdocs.pm/elixir/1.20.4/GenServer.html", "claim": "Relies on pinned GenServer.call default timeout and exit translation."},
+    {"kind": "upstream", "provider": "otp", "reference": "https://www.erlang.org/doc/apps/stdlib/gen_server.html", "claim": "Relies on OTP call aliases dropping late replies; receiver state may already have advanced."}
+  ],
+  "operations": {
+    "telemetry": {"status": "planned", "contract": "No events or own logs emitted."},
+    "config": {"status": "supported", "contract": "Per-call codec module and validated wiring map selection; fixed default call timeout, no retry or hot reconfiguration protocol.", "evidence": ["test/elzoo/unit_adapter_test.exs"]},
+    "control": {"status": "inherited", "from": "runtime/unit", "contract": "OTP lifecycle only; no business drain or cancellation guarantee."}
+  }
+}
