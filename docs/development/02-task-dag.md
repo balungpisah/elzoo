@@ -22,7 +22,8 @@ before ELZ-002. ELZ-015 evaluates the Ash foundation and upstream/fork policy
 before those interfaces are extended. ELZ-016 declares operational applicability
 and runtime semantics independently of UI/library choices. After ELZ-016 merges,
 ELZ-002 is the next
-implementation task. Workers must not
+implementation task. ELZ-017 evaluates Gleam library reuse independently and
+does not block ELZ-002 or depend on operational contracts. Workers must not
 rebuild or re-open the harness merely because later tasks need it. Report a
 new concrete defect as new work, retaining the baseline's evidence and limits.
 See [bootstrap validation](07-bootstrap-validation.md).
@@ -44,7 +45,7 @@ Detailed edges (direct dependencies; transitive reachability is omitted):
 
     ELZ-001 -> ELZ-002, ELZ-003, ELZ-013
     ELZ-013 -> ELZ-002, ELZ-014
-    ELZ-014 -> ELZ-002, ELZ-015
+    ELZ-014 -> ELZ-002, ELZ-015, ELZ-017
     ELZ-015 -> ELZ-002, ELZ-016
     ELZ-016 -> ELZ-002
     ELZ-002 -> ELZ-003, ELZ-004, ELZ-007
@@ -76,6 +77,7 @@ Detailed edges (direct dependencies; transitive reachability is omitted):
 | ELZ-014 | P0 | Cross-domain capability model and catalogue coverage | ELZ-013 | Source-backed design cases and reuse-first boundaries; no new runtime |
 | ELZ-015 | P0 | Ash foundation experiment and upstream/fork policy | ELZ-014 | Isolated action/policy/tool checks and conditional foundation decision |
 | ELZ-016 | P0 | Operational applicability and runtime contract experiment | ELZ-015 | Checked declarations and versioned/authorized operational scenarios |
+| ELZ-017 | P0 | Independent Gleam library evaluation | ELZ-014 | Isolated Lustre Web Component and shared model checks; no ready export |
 
 This DAG deliberately does not promise all historical families. If an
 Assembly later needs SQL, a broker, replication, CRDTs, AI or another
@@ -110,3 +112,4 @@ stable even when issue numbers differ.
 | ELZ-014 | [15](https://github.com/balungpisah/elzoo/issues/15) |
 | ELZ-015 | [17](https://github.com/balungpisah/elzoo/issues/17) |
 | ELZ-016 | [19](https://github.com/balungpisah/elzoo/issues/19) |
+| ELZ-017 | [20](https://github.com/balungpisah/elzoo/issues/20) |

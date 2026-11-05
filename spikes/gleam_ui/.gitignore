@@ -1,0 +1,5 @@
+/build/
+/.tools/
+/node_modules/
+/dist/
+/erl_crash.dump

@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Independent quantity components</title>
+<form id="host-form">
+  <elzoo-quantity id="first" value="2"></elzoo-quantity>
+  <elzoo-quantity id="second" value="99"></elzoo-quantity>
+</form>
+<script type="module">
+  import { main } from './modules/elzoo_gleam_ui/elzoo_gleam_ui.mjs';
+  // Host integration uses DOM attributes and plain JSON event detail only.
+  window.changes = [];
+  window.submissions = 0;
+  document.querySelector('#host-form').addEventListener('submit', event => {
+    event.preventDefault();
+    window.submissions++;
+  });
+  for (const id of ['first', 'second']) {
+    document.getElementById(id).addEventListener('quantity-change', event => {
+      window.changes.push({ id, ...event.detail });
+    });
+  }
+  main();
+</script>
+</html>
