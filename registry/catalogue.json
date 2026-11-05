@@ -75,7 +75,7 @@
     {
       "id": "assembly/task-workflow",
       "summary": "Human and automated task coordination",
-      "disposition": "adapt",
+      "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
       "reason": "C5 composition of work-item, dependencies, lease, run and notification contracts; product status policy stays outside the execution kernel."
@@ -178,7 +178,7 @@
     {
       "id": "delivery/data-stream",
       "summary": "Incremental byte/result transfer",
-      "disposition": "adapt",
+      "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
       "reason": "Bounded buffers, cancellation, close/reconnect and backpressure for C7/C8; distinct from the ready Enum/Stream recipe. Reuse transport APIs; no transport adopted."
@@ -263,7 +263,7 @@
     {
       "id": "delivery/trigger",
       "summary": "Normalize externally initiated work",
-      "disposition": "adapt",
+      "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
       "reason": "Schedule/webhook/app-event input with source identity and dedup scope; delivery/time is only a timer recipe. Needed by C1/C7; no trigger adapter adopted."
@@ -271,7 +271,7 @@
     {
       "id": "domain/authorization",
       "summary": "Action/resource authorization decisions",
-      "disposition": "adapt",
+      "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
       "reason": "Principal, tenant, resource, action and policy version for C1/C3/C6; compare application/provider policy libraries; no security guarantee claimed."
@@ -279,7 +279,7 @@
     {
       "id": "domain/entitlement",
       "summary": "Feature/access entitlement decisions",
-      "disposition": "adapt",
+      "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
       "reason": "Provider-backed subscription/feature availability for C2/C8; explicit grace/revocation policy, separate from identity and quota. No billing implementation."
@@ -287,7 +287,7 @@
     {
       "id": "domain/journal",
       "summary": "Atomic balanced posting and reversal",
-      "disposition": "adapt",
+      "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
       "reason": "Balanced posting with stable operation identity and immutable corrections for C3/C4; reuse transactional storage or a suitable ledger provider; not the Piece Ledger or a new storage engine."
@@ -295,7 +295,7 @@
     {
       "id": "domain/membership",
       "summary": "Tenant membership and invitation lifecycle",
-      "disposition": "adapt",
+      "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
       "reason": "Scoped membership, one-use invitation and revocation for C1/C2; reuse storage/auth capabilities and own only missing policy."
@@ -303,7 +303,7 @@
     {
       "id": "domain/money",
       "summary": "Currency amount and rounding contract",
-      "disposition": "adapt",
+      "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
       "reason": "Decimal/ex_money candidates for C3/C4; explicit units, currency mismatch and allocation residual policy. Not a journal, exchange service or payment guarantee."
@@ -311,7 +311,7 @@
     {
       "id": "domain/payment-lifecycle",
       "summary": "Payment intent and reconciliation policy",
-      "disposition": "adapt",
+      "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
       "reason": "Authorize/capture/refund/unknown-outcome transitions for C3; provider-specific semantics and reconciliation before retries. No provider adopted."
@@ -327,7 +327,7 @@
     {
       "id": "domain/principal",
       "summary": "Stable actor identity mapping",
-      "disposition": "adapt",
+      "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
       "reason": "Map authenticated human/service/agent identities to scoped principals for C1/C2/C6; integrate an identity provider, not a new password/token system."
@@ -335,7 +335,7 @@
     {
       "id": "domain/quota",
       "summary": "Scoped usage allocation and metering",
-      "disposition": "adapt",
+      "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
       "reason": "Allocation/reset/meter identity for C2/C7; declare consistency and accounting boundaries. Hammer is a rate-limit candidate, not automatically a quota implementation."
@@ -359,7 +359,7 @@
     {
       "id": "integration/agent-runner",
       "summary": "External agent-session execution adapter",
-      "disposition": "adapt",
+      "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
       "reason": "Provider/CLI capabilities, run/resume/cancel, tool/approval events and errors for C6/C7; compare existing Elixir agent libraries or protocol SDKs before writing a bridge."
@@ -435,7 +435,7 @@
     {
       "id": "integration/notification",
       "summary": "Notification-provider translation",
-      "disposition": "adapt",
+      "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
       "reason": "Email/push delivery and retry contract for C1/C5/C7; Swoosh is an email candidate, not a universal delivery guarantee."
@@ -459,7 +459,7 @@
     {
       "id": "integration/payments",
       "summary": "Payment-provider request/result translation",
-      "disposition": "adapt",
+      "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
       "reason": "Provider API/webhook verification, stable idempotency keys and reconciliation for C3; Req is HTTP only. Research provider and library before adoption."
@@ -483,7 +483,7 @@
     {
       "id": "integration/secrets",
       "summary": "Scoped credential access boundary",
-      "disposition": "adapt",
+      "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
       "reason": "Secret references, scope, rotation and redaction for C1/C3/C6/C7; use an established provider; secrets are not ordinary model context or log fields."
@@ -560,7 +560,7 @@
     {
       "id": "state/artifact",
       "summary": "Owned content references and retention",
-      "disposition": "adapt",
+      "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
       "reason": "Content identity, integrity, access, version and expiry for C2/C6/C7/C8; adapt object storage; separate from streamed bytes and control envelopes."
@@ -568,7 +568,7 @@
     {
       "id": "state/audit-log",
       "summary": "Attributable retained decision history",
-      "disposition": "adapt",
+      "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
       "reason": "Actor/action/resource/outcome records for C1/C3/C6; selected storage, redaction, retention and tamper requirements needed. Telemetry is not this contract."
@@ -600,7 +600,7 @@
     {
       "id": "state/lease",
       "summary": "Expiring ownership with fencing",
-      "disposition": "adapt",
+      "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
       "reason": "Claim/renew/release and stale-owner rejection for C2/C5/C6; use transactional storage or an established lease provider. No distributed lock service implemented."
@@ -640,7 +640,7 @@
     {
       "id": "workflow/approval",
       "summary": "Approval of an exact proposed action",
-      "disposition": "adapt",
+      "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
       "reason": "Actor/resource/payload/policy-bound decision with expiry or revocation contract for C1/C3/C6; authorization remains separate; no durable approval system implemented."
@@ -648,7 +648,7 @@
     {
       "id": "workflow/budget",
       "summary": "Bound execution resource consumption",
-      "disposition": "adapt",
+      "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
       "reason": "Admission/reservation/settlement of unit-tagged costs for C2/C6/C7; shared authority under concurrency, explicit estimate versus observed cost. Not a financial ledger."
@@ -664,7 +664,7 @@
     {
       "id": "workflow/context-selection",
       "summary": "Versioned context and provenance selection",
-      "disposition": "adapt",
+      "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
       "reason": "Select bounded permitted documents/results for C6/C7; tokenizer/retrieval provider contracts and access recheck required. No assertion of model truth or memory correctness."
@@ -672,7 +672,7 @@
     {
       "id": "workflow/dependency-graph",
       "summary": "Prerequisite and join readiness",
-      "disposition": "adapt",
+      "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
       "reason": "Cycle/readiness/failure/join semantics for C5/C6/C7; libgraph candidate for mechanics, application-specific execution policy remains explicit."
@@ -680,7 +680,7 @@
     {
       "id": "workflow/run",
       "summary": "Execution and attempt lifecycle",
-      "disposition": "adapt",
+      "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
       "reason": "Execution identity, outcome, parent/child settlement, cancellation and late-result handling for C2/C5/C6/C7; evaluate Oban/Jido where appropriate; no full orchestrator implemented."
@@ -696,7 +696,7 @@
     {
       "id": "workflow/work-item",
       "summary": "Durable work intent and acceptance",
-      "disposition": "adapt",
+      "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
       "reason": "Assignee, acceptance criterion and policy-defined completion for C5/C6; independent of job/agent attempt success. Reuse a suitable workflow implementation before authoring policy."

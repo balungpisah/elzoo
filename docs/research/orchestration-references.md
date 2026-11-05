@@ -72,7 +72,10 @@ Any future adoption must check the exact package/file licenses and notices.
 
 ## Elixir candidate discovery
 
-The following metadata was read from the Hex package API on 2026-11-05.
+The following metadata was read from the Hex package API on 2026-11-05;
+version-specific release endpoints were also checked and are linked below.
+Package descriptions and metadata are dated observations, not immutable source
+snapshots like the Git revisions above.
 Versions are observed stable releases, **not** selected dependency pins.
 No package below is added by ELZ-014. Metadata establishes existence and stated
 purpose; API suitability, maintenance, version compatibility, license scope
@@ -80,17 +83,17 @@ and the required failure behavior still need checking during adoption.
 
 | Candidate / observed stable version | Candidate scope | What Elzoo must still decide/test |
 | --- | --- | --- |
-| [decimal 3.2.0](https://hex.pm/api/packages/decimal) | Decimal arithmetic | Rounding, scale and conversion boundaries; arithmetic is not a journal or payment system |
-| [ex_money 6.3.0](https://hex.pm/api/packages/ex_money) | Currency amounts and monetary operations | Currency mismatch, allocation residuals and rounding policy; exact units survive persistence and adapters |
-| [ecto_sql 3.14.0](https://hex.pm/api/packages/ecto_sql) | SQL adapters, migrations and transactions | Atomic state/outbox or journal writes, isolation, contention and rollback; not an automatic audit or ledger contract |
-| [oban 2.24.2](https://hex.pm/api/packages/oban) | Persistent jobs and retries | Crash/redelivery/cancel/uniqueness behavior with the selected backend; job retry does not prove idempotent business effects |
-| [ash_authentication 4.15.1](https://hex.pm/api/packages/ash_authentication) | Authentication when the consumer already chooses Ash | Resource/framework dependency cost, session/revocation/account-linking behavior; not authorization policy |
-| [bodyguard 2.4.3](https://hex.pm/api/packages/bodyguard) | Application authorization callbacks | Tenant/resource scoping, deny precedence and revocation; identity and policy remain application responsibilities |
-| [hammer 7.5.1](https://hex.pm/api/packages/hammer) | Rate limiting | Time window, backend consistency and concurrent admission; not a monthly quota or a financial balance |
-| [libgraph 0.17.1](https://hex.pm/api/packages/libgraph) | Graph representation and algorithms | Cycle rejection/readiness semantics; graph utilities do not execute durable workflows |
-| [req_llm 1.30.0](https://hex.pm/api/packages/req_llm) | LLM provider integration built on Req/Finch | Structured output validation, timeout, partial streaming, usage reporting and tool-call translation |
-| [jido 2.4.0](https://hex.pm/api/packages/jido) | Existing Elixir actor/agent framework | Compare its action/directive/runtime contracts with our needs before building overlapping orchestration; do not adopt a second mandatory host merely for a few helpers |
-| [swoosh 1.29.3](https://hex.pm/api/packages/swoosh) | Email composition and provider delivery | Provider errors, duplicates, notification preferences and separation of acceptance from actual delivery |
+| [decimal 3.2.0](https://hex.pm/api/packages/decimal/releases/3.2.0) | Decimal arithmetic | Rounding, scale and conversion boundaries; arithmetic is not a journal or payment system |
+| [ex_money 6.3.0](https://hex.pm/api/packages/ex_money/releases/6.3.0) | Currency amounts and monetary operations | Currency mismatch, allocation residuals and rounding policy; exact units survive persistence and adapters |
+| [ecto_sql 3.14.0](https://hex.pm/api/packages/ecto_sql/releases/3.14.0) | SQL adapters, migrations and transactions | Atomic state/outbox or journal writes, isolation, contention and rollback; not an automatic audit or ledger contract |
+| [oban 2.24.2](https://hex.pm/api/packages/oban/releases/2.24.2) | Persistent jobs and retries | Crash/redelivery/cancel/uniqueness behavior with the selected backend; job retry does not prove idempotent business effects |
+| [ash_authentication 4.15.1](https://hex.pm/api/packages/ash_authentication/releases/4.15.1) | Authentication when the consumer already chooses Ash | Resource/framework dependency cost, session/revocation/account-linking behavior; not authorization policy |
+| [bodyguard 2.4.3](https://hex.pm/api/packages/bodyguard/releases/2.4.3) | Application authorization callbacks | Tenant/resource scoping, deny precedence and revocation; identity and policy remain application responsibilities |
+| [hammer 7.5.1](https://hex.pm/api/packages/hammer/releases/7.5.1) | Rate limiting | Time window, backend consistency and concurrent admission; not a monthly quota or a financial balance |
+| [libgraph 0.17.1](https://hex.pm/api/packages/libgraph/releases/0.17.1) | Graph representation and algorithms | Cycle rejection/readiness semantics; graph utilities do not execute durable workflows |
+| [req_llm 1.30.0](https://hex.pm/api/packages/req_llm/releases/1.30.0) | LLM provider integration built on Req/Finch | Structured output validation, timeout, partial streaming, usage reporting and tool-call translation |
+| [jido 2.4.0](https://hex.pm/api/packages/jido/releases/2.4.0) | Existing Elixir actor/agent framework | Compare its action/directive/runtime contracts with our needs before building overlapping orchestration; do not adopt a second mandatory host merely for a few helpers |
+| [swoosh 1.29.3](https://hex.pm/api/packages/swoosh/releases/1.29.3) | Email composition and provider delivery | Provider errors, duplicates, notification preferences and separation of acceptance from actual delivery |
 
 Jason, Req, selected OTP APIs and Enum/Stream already have narrow executable
 Recipes in the current ledger. Their existing evidence does not automatically

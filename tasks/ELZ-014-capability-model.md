@@ -23,7 +23,8 @@ OpenMausBot and iii at pinned revisions for patterns, not adoption claims.
 ## Acceptance
 
 - [ ] Piece boundaries are explained with cross-domain examples and counterexamples.
-- [ ] Reference observations are pinned, cited and separated from proposals.
+- [ ] Git source observations are pinned and cited; package metadata is dated
+      and version-specific. Both are separated from proposals.
 - [ ] All requested domains have representative assembly/failure walkthroughs.
 - [ ] Existing and missing capabilities are traceable to catalogue IDs; no new
       dependency is called adopted without executable boundary evidence.
