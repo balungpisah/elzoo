@@ -26,7 +26,9 @@ defmodule Elzoo.CiBenchmarkGuardTest do
           "--quiet",
           "-m",
           "fixture"
-        ], cd: root)
+        ],
+        cd: root
+      )
 
     {revision, 0} = System.cmd("git", ["rev-parse", "HEAD"], cd: root)
     revision = String.trim(revision)
@@ -56,6 +58,9 @@ defmodule Elzoo.CiBenchmarkGuardTest do
         "import runpy, sys; runpy.run_path(sys.argv[1])['validate_revision'](sys.argv[2])",
         @script,
         revision
-      ], cd: root, stderr_to_stdout: true)
+      ],
+      cd: root,
+      stderr_to_stdout: true
+    )
   end
 end
