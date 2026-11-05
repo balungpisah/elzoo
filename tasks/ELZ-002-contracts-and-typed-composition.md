@@ -2,7 +2,7 @@
 
 - Phase: P0 foundation
 - Catalogue IDs: core/operator, core/port, core/assembly
-- Dependencies: ELZ-001, ELZ-013
+- Dependencies: ELZ-001, ELZ-013, ELZ-014
 
 ## Outcome
 
@@ -14,6 +14,12 @@ in a Contract.
 The bootstrap already has generic `compose` and nested Cure operators with
 typed negative controls in `pieces/core/operator/` and `pieces/assembly/ingest-dedup-accumulate/`. Extend that working baseline into
 the reusable Contract/Port boundary; do not recreate the harness or exemplar.
+
+Read docs/capability-model.md and docs/capability-coverage.md before choosing
+public contracts. Use the cross-domain cases to expose assumptions; do not add
+all domain fields to a universal envelope or implement every deferred entry.
+Keep Work Item/Run/Attempt identities, authority, delivery and state ownership
+semantically distinct even when a library reuses a common representation.
 
 ## Scope
 

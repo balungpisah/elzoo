@@ -11,6 +11,21 @@ take selected source bundles into their own applications. IDs are lowercase,
 slash-separated and stable once used by an assembly. A rename requires an
 explicit compatibility alias in the catalogue and a migration note.
 
+## Functional coverage before implementation
+
+Use the [capability model](capability-model.md) to choose a Piece boundary and
+[coverage cases](capability-coverage.md) to test it against several products.
+ELZ-014 adds 24 demand-led deferred handles where the previous inventory hid
+identity, money, work/agent execution and artifact responsibilities inside broad
+families. It adds no ready source or library dependency. Existing IDs remain
+stable; family and provider-adapter entries do not license duplicate engines.
+
+The inventory is now 89 IDs, of which 12 remain ready scoped bundles. The
+`demand-led` phase has no promised place in the existing P0–P3 task chain;
+select a real Assembly before opening implementation tasks. Candidate libraries
+are documented in the [reference study](research/orchestration-references.md),
+with adoption tests rather than assumed compatibility.
+
 ## Dispositions and grounding
 
 | Disposition | Meaning | Who owns the risk |

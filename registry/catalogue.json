@@ -7,7 +7,7 @@
       "disposition": "defer",
       "phase": "P4",
       "status": "deferred",
-      "reason": "Old AI family is a composition, not a privileged runtime"
+      "reason": "C6/C7 compose work/run/dependencies, approval, budget, context and provider adapters. Not a privileged runtime; library/provider evaluation precedes new orchestration."
     },
     {
       "id": "assembly/consent-records",
@@ -62,7 +62,7 @@
       "disposition": "defer",
       "phase": "P4",
       "status": "deferred",
-      "reason": "Domain-specific; money and external payment contracts first"
+      "reason": "C3/C4 compose domain/money, domain/journal, payment lifecycle and provider integration; unknown external outcomes require reconciliation, not blind replay."
     },
     {
       "id": "assembly/request-route-retry",
@@ -73,12 +73,20 @@
       "reason": "request/reply, routing, timeout/retry, backpressure and dead-letter"
     },
     {
+      "id": "assembly/task-workflow",
+      "summary": "Human and automated task coordination",
+      "disposition": "defer",
+      "phase": "demand-led",
+      "status": "deferred",
+      "reason": "C5 composition of work-item, dependencies, lease, run and notification contracts; product status policy stays outside the execution kernel."
+    },
+    {
       "id": "assembly/tenant-edge",
       "summary": "Tenant tag/auth/quota/metering/billing",
       "disposition": "defer",
       "phase": "P4",
       "status": "deferred",
-      "reason": "Old SaaS/request-guard family; needs policy and billing contracts"
+      "reason": "C1/C2 compose scoped identity, membership, authorization, entitlement/quota and effects; current HTTP/JSON recipes do not establish tenant isolation."
     },
     {
       "id": "core/assembly",
@@ -108,7 +116,7 @@
       "id": "core/envelope",
       "summary": "Message/command/document/event envelope, correlation, return address, format indicator",
       "disposition": "own",
-      "phase": "P0→P1",
+      "phase": "P0\u2192P1",
       "status": "planned",
       "reason": "`T,X`; bootstrap is minimal, canonical encoding/schema compatibility is `ELZ-003`"
     },
@@ -131,7 +139,7 @@
       "id": "core/port",
       "summary": "Named typed input/output face; datatype channels and message endpoints",
       "disposition": "own",
-      "phase": "P0→P1",
+      "phase": "P0\u2192P1",
       "status": "planned",
       "reason": "`T`; bootstrap has function types; ELZ-002/003 add named bindings and minimal graph validation"
     },
@@ -139,7 +147,7 @@
       "id": "core/wiring",
       "summary": "Unit/port/edge declaration, compatibility and required-route checks",
       "disposition": "own",
-      "phase": "P0→P1",
+      "phase": "P0\u2192P1",
       "status": "planned",
       "reason": "`T,X`; ELZ-003 makes minimal graph validation executable; P1 extends it for resilience; no Zoo wiring CLI"
     },
@@ -147,7 +155,7 @@
       "id": "delivery/aggregation",
       "summary": "Aggregator, scatter-gather/API composition, completion/timeout",
       "disposition": "own",
-      "phase": "P1→P2",
+      "phase": "P1\u2192P2",
       "status": "planned",
       "reason": "`T,X`; stateful and needs correlation/retention policy"
     },
@@ -163,9 +171,17 @@
       "id": "delivery/circuit-breaker",
       "summary": "Circuit breaker and bulkhead policy",
       "disposition": "adapt",
-      "phase": "P1→P3",
+      "phase": "P1\u2192P3",
       "status": "planned",
       "reason": "Reuse OTP state/supervision and provider pool semantics where sufficient; Elzoo owns the state/permit policy that remains and tests transitions"
+    },
+    {
+      "id": "delivery/data-stream",
+      "summary": "Incremental byte/result transfer",
+      "disposition": "defer",
+      "phase": "demand-led",
+      "status": "deferred",
+      "reason": "Bounded buffers, cancellation, close/reconnect and backpressure for C7/C8; distinct from the ready Enum/Stream recipe. Reuse transport APIs; no transport adopted."
     },
     {
       "id": "delivery/dead-letter",
@@ -179,14 +195,14 @@
       "id": "delivery/idempotency",
       "summary": "Idempotent Receiver/Consumer; duplicate delivery handling",
       "disposition": "own",
-      "phase": "P0→P1",
+      "phase": "P0\u2192P1",
       "manifest": "pieces/delivery/idempotency/piece.json"
     },
     {
       "id": "delivery/pubsub",
       "summary": "Publish-subscribe channel, gen_event, process groups",
       "disposition": "adapt",
-      "phase": "P2→P4",
+      "phase": "P2\u2192P4",
       "status": "planned",
       "reason": "OTP Registry/`pg` or a broker; subscriber loss/replay semantics must be tested"
     },
@@ -245,6 +261,62 @@
       "reason": "`P,T,X`; effectful lookup is request/reply before merge"
     },
     {
+      "id": "delivery/trigger",
+      "summary": "Normalize externally initiated work",
+      "disposition": "defer",
+      "phase": "demand-led",
+      "status": "deferred",
+      "reason": "Schedule/webhook/app-event input with source identity and dedup scope; delivery/time is only a timer recipe. Needed by C1/C7; no trigger adapter adopted."
+    },
+    {
+      "id": "domain/authorization",
+      "summary": "Action/resource authorization decisions",
+      "disposition": "defer",
+      "phase": "demand-led",
+      "status": "deferred",
+      "reason": "Principal, tenant, resource, action and policy version for C1/C3/C6; compare application/provider policy libraries; no security guarantee claimed."
+    },
+    {
+      "id": "domain/entitlement",
+      "summary": "Feature/access entitlement decisions",
+      "disposition": "defer",
+      "phase": "demand-led",
+      "status": "deferred",
+      "reason": "Provider-backed subscription/feature availability for C2/C8; explicit grace/revocation policy, separate from identity and quota. No billing implementation."
+    },
+    {
+      "id": "domain/journal",
+      "summary": "Atomic balanced posting and reversal",
+      "disposition": "defer",
+      "phase": "demand-led",
+      "status": "deferred",
+      "reason": "Balanced posting with stable operation identity and immutable corrections for C3/C4; reuse transactional storage or a suitable ledger provider; not the Piece Ledger or a new storage engine."
+    },
+    {
+      "id": "domain/membership",
+      "summary": "Tenant membership and invitation lifecycle",
+      "disposition": "defer",
+      "phase": "demand-led",
+      "status": "deferred",
+      "reason": "Scoped membership, one-use invitation and revocation for C1/C2; reuse storage/auth capabilities and own only missing policy."
+    },
+    {
+      "id": "domain/money",
+      "summary": "Currency amount and rounding contract",
+      "disposition": "defer",
+      "phase": "demand-led",
+      "status": "deferred",
+      "reason": "Decimal/ex_money candidates for C3/C4; explicit units, currency mismatch and allocation residual policy. Not a journal, exchange service or payment guarantee."
+    },
+    {
+      "id": "domain/payment-lifecycle",
+      "summary": "Payment intent and reconciliation policy",
+      "disposition": "defer",
+      "phase": "demand-led",
+      "status": "deferred",
+      "reason": "Authorize/capture/refund/unknown-outcome transitions for C3; provider-specific semantics and reconciliation before retries. No provider adopted."
+    },
+    {
       "id": "domain/policy-rules",
       "summary": "Decision tables, business rules and policy templates",
       "disposition": "defer",
@@ -253,20 +325,44 @@
       "reason": "A product must provide a finite rule schema, conflict policy and audit requirement before choosing an evaluator"
     },
     {
+      "id": "domain/principal",
+      "summary": "Stable actor identity mapping",
+      "disposition": "defer",
+      "phase": "demand-led",
+      "status": "deferred",
+      "reason": "Map authenticated human/service/agent identities to scoped principals for C1/C2/C6; integrate an identity provider, not a new password/token system."
+    },
+    {
+      "id": "domain/quota",
+      "summary": "Scoped usage allocation and metering",
+      "disposition": "defer",
+      "phase": "demand-led",
+      "status": "deferred",
+      "reason": "Allocation/reset/meter identity for C2/C7; declare consistency and accounting boundaries. Hammer is a rate-limit candidate, not automatically a quota implementation."
+    },
+    {
       "id": "domain/saas-controls",
       "summary": "Tenant isolation, quota, metering, feature rollout, billing events, SLO/alerts",
       "disposition": "defer",
       "phase": "P4",
       "status": "deferred",
-      "reason": "Compose from delivery/backpressure and policy pieces; no generic SaaS product layer in the runtime"
+      "reason": "Assembly family for domain/membership, domain/authorization, domain/entitlement and domain/quota; no universal SaaS engine or duplicate implementation."
     },
     {
       "id": "domain/value-types",
       "summary": "Decimal/money, date-time/calendar, units of measure, Unicode text",
       "disposition": "adapt",
-      "phase": "P3→P4",
+      "phase": "P3\u2192P4",
       "status": "planned",
-      "reason": "Reuse maintained Elixir value libraries where their semantics fit; Elzoo owns currency/rounding/time-zone contracts needed by a product"
+      "reason": "Family for value semantics; domain/money is the scoped currency candidate. Reuse maintained libraries; do not duplicate that contract behind a second generic implementation."
+    },
+    {
+      "id": "integration/agent-runner",
+      "summary": "External agent-session execution adapter",
+      "disposition": "defer",
+      "phase": "demand-led",
+      "status": "deferred",
+      "reason": "Provider/CLI capabilities, run/resume/cancel, tool/approval events and errors for C6/C7; compare existing Elixir agent libraries or protocol SDKs before writing a bridge."
     },
     {
       "id": "integration/ai-model",
@@ -282,13 +378,13 @@
       "disposition": "defer",
       "phase": "P4",
       "status": "deferred",
-      "reason": "Candidate only after threat model; policy outputs are untrusted inputs to units"
+      "reason": "Provider translation for domain/authorization; compare an existing policy library/service first. Not a second authorization policy engine."
     },
     {
       "id": "integration/crypto",
       "summary": "Hash/HMAC/signature/password/TLS/compression",
       "disposition": "adapt",
-      "phase": "P3→P4",
+      "phase": "P3\u2192P4",
       "manifest": "pieces/integration/crypto/piece.json"
     },
     {
@@ -311,7 +407,7 @@
       "disposition": "defer",
       "phase": "P4",
       "status": "deferred",
-      "reason": "External provider adapters need threat model and contract tests"
+      "reason": "Authentication/provider boundary for domain/principal; sessions, revocation and account linking need explicit tests. AshAuthentication is one candidate when Ash fits; no provider adopted."
     },
     {
       "id": "integration/jobs",
@@ -337,6 +433,14 @@
       "reason": "Broker delivery semantics must be translated to Elzoo envelope classes"
     },
     {
+      "id": "integration/notification",
+      "summary": "Notification-provider translation",
+      "disposition": "defer",
+      "phase": "demand-led",
+      "status": "deferred",
+      "reason": "Email/push delivery and retry contract for C1/C5/C7; Swoosh is an email candidate, not a universal delivery guarantee."
+    },
+    {
       "id": "integration/object-store",
       "summary": "Claim check, S3/object storage, large payload/media",
       "disposition": "adapt",
@@ -351,6 +455,14 @@
       "phase": "P3",
       "status": "planned",
       "reason": "`:telemetry`/OpenTelemetry candidates; redaction and sampling are Elzoo contracts"
+    },
+    {
+      "id": "integration/payments",
+      "summary": "Payment-provider request/result translation",
+      "disposition": "defer",
+      "phase": "demand-led",
+      "status": "deferred",
+      "reason": "Provider API/webhook verification, stable idempotency keys and reconciliation for C3; Req is HTTP only. Research provider and library before adoption."
     },
     {
       "id": "integration/sdk",
@@ -369,10 +481,18 @@
       "reason": "Product adapters; no generic data engine in core"
     },
     {
+      "id": "integration/secrets",
+      "summary": "Scoped credential access boundary",
+      "disposition": "defer",
+      "phase": "demand-led",
+      "status": "deferred",
+      "reason": "Secret references, scope, rotation and redaction for C1/C3/C6/C7; use an established provider; secrets are not ordinary model context or log fields."
+    },
+    {
       "id": "integration/sql",
       "summary": "Database-per-service, PostgreSQL/SQLite, transactions and CDC",
       "disposition": "adapt",
-      "phase": "P2→P3",
+      "phase": "P2\u2192P3",
       "status": "planned",
       "reason": "Ecto/Postgrex candidates; no database dependency in P0"
     },
@@ -380,7 +500,7 @@
       "id": "runtime/adapter",
       "summary": "Service/channel/process adapter boundary and result translation",
       "disposition": "own",
-      "phase": "P0→P1",
+      "phase": "P0\u2192P1",
       "status": "planned",
       "reason": "`T,X,U`; one adapter per external contract"
     },
@@ -388,7 +508,7 @@
       "id": "runtime/faces",
       "summary": "Lean config/control/health/errors/state/manifest conventions",
       "disposition": "own",
-      "phase": "P1→P2",
+      "phase": "P1\u2192P2",
       "status": "planned",
       "reason": "target contract; not seven mandatory APIs in P0"
     },
@@ -412,7 +532,7 @@
       "id": "runtime/registry",
       "summary": "Registered names, local process groups and service discovery",
       "disposition": "reuse",
-      "phase": "P2→P4",
+      "phase": "P2\u2192P4",
       "manifest": "pieces/runtime/registry/piece.json"
     },
     {
@@ -438,6 +558,22 @@
       "manifest": "pieces/runtime/unit/piece.json"
     },
     {
+      "id": "state/artifact",
+      "summary": "Owned content references and retention",
+      "disposition": "defer",
+      "phase": "demand-led",
+      "status": "deferred",
+      "reason": "Content identity, integrity, access, version and expiry for C2/C6/C7/C8; adapt object storage; separate from streamed bytes and control envelopes."
+    },
+    {
+      "id": "state/audit-log",
+      "summary": "Attributable retained decision history",
+      "disposition": "defer",
+      "phase": "demand-led",
+      "status": "deferred",
+      "reason": "Actor/action/resource/outcome records for C1/C3/C6; selected storage, redaction, retention and tamper requirements needed. Telemetry is not this contract."
+    },
+    {
       "id": "state/checkpoint",
       "summary": "Snapshots, low-water mark, retention and steady state",
       "disposition": "adapt",
@@ -460,6 +596,14 @@
       "phase": "P2",
       "status": "planned",
       "reason": "Elzoo owns the append/replay/durability contract; evaluate OTP `disk_log` or a transactional store instead of rebuilding a WAL; recovery/truncation need crash tests"
+    },
+    {
+      "id": "state/lease",
+      "summary": "Expiring ownership with fencing",
+      "disposition": "defer",
+      "phase": "demand-led",
+      "status": "deferred",
+      "reason": "Claim/renew/release and stale-owner rejection for C2/C5/C6; use transactional storage or an established lease provider. No distributed lock service implemented."
     },
     {
       "id": "state/outbox",
@@ -494,6 +638,22 @@
       "reason": "`T,X`; version compatibility is explicit, not inferred"
     },
     {
+      "id": "workflow/approval",
+      "summary": "Approval of an exact proposed action",
+      "disposition": "defer",
+      "phase": "demand-led",
+      "status": "deferred",
+      "reason": "Actor/resource/payload/policy-bound decision with expiry or revocation contract for C1/C3/C6; authorization remains separate; no durable approval system implemented."
+    },
+    {
+      "id": "workflow/budget",
+      "summary": "Bound execution resource consumption",
+      "disposition": "defer",
+      "phase": "demand-led",
+      "status": "deferred",
+      "reason": "Admission/reservation/settlement of unit-tagged costs for C2/C6/C7; shared authority under concurrency, explicit estimate versus observed cost. Not a financial ledger."
+    },
+    {
       "id": "workflow/build-graph",
       "summary": "Build-system scheduler/rebuilder, trace store, dry run/checkpoint",
       "disposition": "defer",
@@ -502,12 +662,44 @@
       "reason": "Product-specific; no catalogue build system in the runtime"
     },
     {
+      "id": "workflow/context-selection",
+      "summary": "Versioned context and provenance selection",
+      "disposition": "defer",
+      "phase": "demand-led",
+      "status": "deferred",
+      "reason": "Select bounded permitted documents/results for C6/C7; tokenizer/retrieval provider contracts and access recheck required. No assertion of model truth or memory correctness."
+    },
+    {
+      "id": "workflow/dependency-graph",
+      "summary": "Prerequisite and join readiness",
+      "disposition": "defer",
+      "phase": "demand-led",
+      "status": "deferred",
+      "reason": "Cycle/readiness/failure/join semantics for C5/C6/C7; libgraph candidate for mechanics, application-specific execution policy remains explicit."
+    },
+    {
+      "id": "workflow/run",
+      "summary": "Execution and attempt lifecycle",
+      "disposition": "defer",
+      "phase": "demand-led",
+      "status": "deferred",
+      "reason": "Execution identity, outcome, parent/child settlement, cancellation and late-result handling for C2/C5/C6/C7; evaluate Oban/Jido where appropriate; no full orchestrator implemented."
+    },
+    {
       "id": "workflow/state-machine",
       "summary": "gen_statem, statecharts, process manager, saga",
       "disposition": "own",
-      "phase": "P1→P2",
+      "phase": "P1\u2192P2",
       "status": "planned",
       "reason": "Cure pure state machine plus OTP shell; compensation is a domain contract"
+    },
+    {
+      "id": "workflow/work-item",
+      "summary": "Durable work intent and acceptance",
+      "disposition": "defer",
+      "phase": "demand-led",
+      "status": "deferred",
+      "reason": "Assignee, acceptance criterion and policy-defined completion for C5/C6; independent of job/agent attempt success. Reuse a suitable workflow implementation before authoring policy."
     }
   ]
 }

@@ -41,3 +41,9 @@ scope and the executable evidence; path existence is not a semantic proof.
 Provider pins are baselines, not instructions to silently replace a consumer's
 lockfile. Source copying produces a reviewable dependency list and provenance
 receipt; ordinary Mix resolves packages after the developer merges that list.
+
+Inventory phase `demand-led` identifies deferred capability handles from the
+cross-domain coverage study. It establishes no dependency or execution order;
+the published task DAG does that. C1–C8 references in inventory reasons refer
+to docs/capability-coverage.md. Broad family entries remain stable research
+handles, not duplicate implementations of their narrower responsibilities.

@@ -49,3 +49,15 @@ origins, dependencies and the grounding for their declared claims.
 
 **Provenance Receipt**: A record of where copied source came from and which
 original content and assumptions its evidence described.
+
+**Capability**: A coherent functional responsibility identified in the catalogue,
+with explicit scope and a Contract; several implementations may satisfy it.
+
+**Work Item**: A durable request for an outcome, with an acceptance criterion,
+independent of any particular execution used to fulfil it.
+
+**Run**: One execution lifecycle undertaken to fulfil a Work Item or other
+explicit request, with its own identity and outcome.
+
+**Attempt**: One try to perform an operation within a Run; retries keep the
+operation's identity while distinguishing attempts.
