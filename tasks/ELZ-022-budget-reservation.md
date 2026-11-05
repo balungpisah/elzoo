@@ -50,7 +50,8 @@ financial ledger, a rate limiter or a tenant quota.
    reservation open forever (explicit expiry/cancel path, visible in the
    Contract); an actual above the estimate silently dropped or capped; a
    missing policy must fail closed in a deployed release.
-   Proofs: the cap invariant and idempotence laws over the pure transition.
+   Proofs: the admission-scoped cap law and idempotence laws over the pure
+   transition (an overage state satisfies them by admitting nothing).
    Tests: owner serialization under concurrent callers, restart with open
    reservations, rejection paths. Upstream: OTP process semantics.
 6. **Composition record.** Depends on core/envelope result schemas and the
@@ -63,7 +64,10 @@ financial ledger, a rate limiter or a tenant quota.
 
 - define the pure reserve/settle/release transition and its result schema;
 - implement the owner process with the smallest test double;
-- select laws for the cap invariant, idempotent settle/release and rejection;
+- select laws with an admission-only premise: every `reserved` result leaves
+  `committed + reserved <= cap`, settle and release are idempotent per
+  `cost_ref`, rejection paths; overage post-states are valid inputs to those
+  laws, not counterexamples;
 - test concurrent admission, expiry of an abandoned reservation and restart;
 - document unit tagging, estimate-versus-actual (refund and overage) and the
   fail-closed default.
@@ -71,7 +75,7 @@ financial ledger, a rate limiter or a tenant quota.
 ## Acceptance
 
 - [ ] Concurrent callers cannot both reserve the last unit (executable test).
-- [ ] Selected cap and idempotence laws run through mix check.
+- [ ] Selected admission-scoped cap and idempotence laws run through mix check.
 - [ ] An abandoned reservation has a documented, tested release path.
 - [ ] An actual above its reservation settles as `overage`, committed carries
       the observed figure, remaining budget never reads positive while in
