@@ -1,0 +1,26 @@
+# Pinned development commands
+
+The project runtime/tooling path owns the Mix project, setup scripts, Cure
+source and tests.
+Workflow depends on these public commands:
+
+    mix setup
+    mix check
+
+The bootstrap uses:
+
+- Cure v0.35.0 at exact commit
+  a004c335cc4e9f2203ba6f51fc31e8540b66378d, not a moving same-named ref;
+- Elixir 1.20.4;
+- OTP 29.1.2.
+
+mix setup must be reproducible without a Zoo checkout. mix check must compile
+real Cure, run selected proof checks, meaningful ExUnit/OTP and boundary tests,
+and execute negative controls. A formatter-only check is not acceptable. The
+runtime gate records ELZOO CHECK PASSED.
+
+Use targeted mix test while iterating, but report full mix check before review.
+If the local runtime differs from the pin, report the environment instead of
+presenting a partial result as a pass. External libraries are tested at their
+integration boundary and remain grounded by an upstream contract; they do not
+need a local Cure proof by default.

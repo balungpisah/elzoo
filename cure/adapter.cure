@@ -1,0 +1,7 @@
+mod Elzoo.Adapter
+  # Jason owns JSON encoding; this declaration is an explicit trusted boundary.
+  @extern(Elixir.Jason, :encode!, 1)
+  fn encode_string(value: String) -> String
+
+  fn encode(value: String) -> String = encode_string(value)
+end

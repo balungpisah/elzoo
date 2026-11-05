@@ -1,0 +1,12 @@
+mod Elzoo.Consumer
+  use Elzoo.Core
+  use Elzoo.Extension
+
+  # A separately compiled consumer wires existing operators without their bodies.
+  fn start(limit: Int) -> Joined(Joined(List(Message), Int), Int) = nested_empty(limit)
+
+  fn step(state: Joined(Joined(List(Message), Int), Int), input: Message) -> Transition(Joined(Joined(List(Message), Int), Int), Bool) =
+    compose(assembly, threshold, state, input)
+
+  fn demo_seed() -> Message = seed()
+end
