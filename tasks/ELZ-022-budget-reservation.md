@@ -22,11 +22,20 @@ financial ledger, a rate limiter or a tenant quota.
 2. **Interface and invariant.** Inputs: budget identity, cap, unit, estimate,
    opaque `cost_ref`, and later the observed actual. Outputs: `reserved`,
    `rejected{reason}`, `settled{refund}`. State owner: one budget owner per
-   budget identity. Invariant: `committed + reserved <= cap` after any
-   interleaving; settle never raises committed above its reservation; refund
-   is derived from the (reservation, actual) pair, never a separate write;
-   release/settle are idempotent per `cost_ref`; non-positive or non-finite
-   amounts are rejected. Non-goals: pricing, currency conversion, durability
+   budget identity. Outputs: `reserved`, `rejected{reason}`,
+   `settled{refund}` and `settled{overage}`. Invariant: admission preserves
+   `committed + reserved <= cap` after any interleaving; settle replaces the
+   reservation with the observed actual, never a capped or guessed figure;
+   when the actual is below the reservation the difference is returned as
+   `refund`, when it is above the difference is recorded as `overage` and
+   committed may then exceed the cap (the gate bounds admission, the provider
+   bounds the charge); remaining budget is reported as `max(cap - committed -
+   reserved, 0)` and an owner in overage admits nothing until reset; refund
+   and overage are derived from the (reservation, actual) pair, never a
+   separate write; release/settle are idempotent per `cost_ref`; non-positive
+   or non-finite amounts are rejected. Strict enforcement requires the caller
+   to pass a provider-enforced maximum charge at or below the estimate; without
+   one the Contract promises bounded admission, not a bounded total. Non-goals: pricing, currency conversion, durability
    beyond the owner's declared storage, cross-node agreement.
 3. **Reuse check.** hammer (rate limiting) and a read-then-increment counter
    do not satisfy the concurrent-reservation requirement (C2 design test).
@@ -39,7 +48,8 @@ financial ledger, a rate limiter or a tenant quota.
 5. **Failure and evidence.** Dangerous paths: two concurrent reservations
    both admitted for the last unit; a crash between call and settle leaving a
    reservation open forever (explicit expiry/cancel path, visible in the
-   Contract); a missing policy must fail closed in a deployed release.
+   Contract); an actual above the estimate silently dropped or capped; a
+   missing policy must fail closed in a deployed release.
    Proofs: the cap invariant and idempotence laws over the pure transition.
    Tests: owner serialization under concurrent callers, restart with open
    reservations, rejection paths. Upstream: OTP process semantics.
@@ -55,13 +65,17 @@ financial ledger, a rate limiter or a tenant quota.
 - implement the owner process with the smallest test double;
 - select laws for the cap invariant, idempotent settle/release and rejection;
 - test concurrent admission, expiry of an abandoned reservation and restart;
-- document unit tagging, estimate-versus-actual and the fail-closed default.
+- document unit tagging, estimate-versus-actual (refund and overage) and the
+  fail-closed default.
 
 ## Acceptance
 
 - [ ] Concurrent callers cannot both reserve the last unit (executable test).
 - [ ] Selected cap and idempotence laws run through mix check.
 - [ ] An abandoned reservation has a documented, tested release path.
+- [ ] An actual above its reservation settles as `overage`, committed carries
+      the observed figure, remaining budget never reads positive while in
+      overage, and the next admission is rejected (executable test).
 - [ ] Contract states this is not money settlement, quota or rate limiting.
 - [ ] Operational applicability is declared per docs/operational-contracts.md.
 

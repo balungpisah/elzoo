@@ -70,7 +70,7 @@ result → update payment lifecycle and journal.
 Capability IDs: `domain/money`, `domain/authorization`, `domain/payment-lifecycle`,
 `domain/journal`, `workflow/approval`, `state/outbox`, `state/audit-log`,
 `integration/payments`, `integration/secrets`, `integration/http`,
-`delivery/idempotency`, `delivery/retry-timeout`.
+`delivery/idempotency`, `delivery/effect-intent`, `delivery/retry-timeout`.
 A candidate slice of `assembly/ledger-checkout`.
 
 Design tests: reject currency mismatch and over-refund; two concurrent refunds
@@ -127,7 +127,8 @@ Capability IDs: `workflow/work-item`, `workflow/run`, `workflow/dependency-graph
 `domain/principal`, `domain/authorization`, `state/lease`, `state/artifact`,
 `state/audit-log`, `state/outbox`, `integration/ai-model`,
 `integration/agent-runner`, `integration/secrets`, `runtime/os-isolation`,
-`delivery/request-reply`, `delivery/aggregation`, `delivery/retry-timeout`.
+`delivery/request-reply`, `delivery/aggregation`, `delivery/effect-intent`,
+`delivery/retry-timeout`.
 Candidate Assembly: `assembly/agent-product`.
 
 Design tests: bounded fan-out/depth/cost; no authority escalation through
@@ -186,7 +187,8 @@ apply a versioned price template → post an attributable charge or adjustment.
 Capability IDs: `domain/authorization`, `domain/quota`, `domain/metering`,
 `domain/pricing`, `domain/journal`, `workflow/budget`, `delivery/model-routing`,
 `integration/ai-model`, `integration/secrets`, `state/outbox`, `state/audit-log`,
-`delivery/data-stream`, `delivery/idempotency` and `delivery/retry-timeout`.
+`delivery/data-stream`, `delivery/idempotency`, `delivery/effect-intent` and
+`delivery/retry-timeout`.
 These responsibilities are deferred, not a ready endpoint/billing product.
 
 Metering records unit-tagged usage and provenance: input/output/cached tokens,
