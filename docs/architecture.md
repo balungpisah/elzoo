@@ -21,6 +21,16 @@ identify missing responsibilities without claiming implementation or extending
 all of them into the execution kernel. Work Item, Run and Attempt keep business
 intent separate from execution. Existing ready subsets keep their present claims.
 
+## Application foundation direction
+
+Ash is the preferred candidate for declared application actions, authorization
+and resource lifecycle; see [ADR-0005](adr/0005-ash-foundation-and-upstream-first.md).
+ELZ-015 is an isolated proof-of-fit, not production adoption. AshPostgres and
+AshOban must pass the selected durability/transaction tests before use. Pure
+Cure Pieces remain independently consumable. Ash Resources do not replace the
+Operator/Port contract, and no global Ash application is required by the
+catalogue. Existing ready claims remain unchanged.
+
 ## Delivery and source ownership
 
 The root Mix application is a development harness. Developers take selected

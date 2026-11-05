@@ -2,7 +2,7 @@
 
 - Phase: P0 foundation
 - Catalogue IDs: core/operator, core/port, core/assembly
-- Dependencies: ELZ-001, ELZ-013, ELZ-014
+- Dependencies: ELZ-001, ELZ-013, ELZ-014, ELZ-015
 
 ## Outcome
 
@@ -20,6 +20,10 @@ public contracts. Use the cross-domain cases to expose assumptions; do not add
 all domain fields to a universal envelope or implement every deferred entry.
 Keep Work Item/Run/Attempt identities, authority, delivery and state ownership
 semantically distinct even when a library reuses a common representation.
+
+Read ADR-0005 before implementation. Ash is the preferred application-framework
+candidate; this task defines pure composition and must not invent a competing
+resource/action/authorization framework or require Ash for pure source bundles.
 
 ## Scope
 

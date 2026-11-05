@@ -28,3 +28,10 @@ need a local Cure proof by default.
 Both public commands prefer `MIX_ENV=test` so the first setup does not build
 the compiler twice across dev and test. Leave `MIX_ENV` unset for these
 commands. Use ordinary Mix commands for dev/prod builds when needed.
+
+ELZ-015 adds an isolated Ash experiment under `spikes/ash_foundation`. Root
+`mix setup` fetches its separately locked dependencies and root `mix check`
+runs its formatter and ExUnit checks in a separate BEAM process. Targeted
+`mix elzoo.ash_spike` runs only that experiment. The root dependency graph and
+source-consumer requirements are unchanged; Ash is not part of the Cure
+compiler trust claim. See its README for versions and limits.

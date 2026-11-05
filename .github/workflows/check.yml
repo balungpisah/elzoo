@@ -30,7 +30,9 @@ jobs:
           path: |
             deps
             _build
-          key: beam-${{ runner.os }}-otp29.1.2-elixir1.20.4-${{ hashFiles('mix.lock', 'mix.exs') }}
+            spikes/ash_foundation/deps
+            spikes/ash_foundation/_build
+          key: beam-${{ runner.os }}-otp29.1.2-elixir1.20.4-${{ hashFiles('mix.lock', 'mix.exs', 'spikes/ash_foundation/mix.lock', 'spikes/ash_foundation/mix.exs') }}
           restore-keys: |
             beam-${{ runner.os }}-otp29.1.2-elixir1.20.4-
       - run: mix local.hex --force
