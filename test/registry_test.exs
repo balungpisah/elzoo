@@ -70,6 +70,29 @@ defmodule Elzoo.RegistryTest do
     end
   end
 
+  test "comments and strings cannot impersonate an equality proof declaration" do
+    for impostor <- [
+          "\n# fn invented_law(input) -> Equivalent(Int, input, input)\n",
+          "\nmod Fake\n  fn text() -> String = \"fn invented_law(input) -> Equivalent(Int, input, input)\"\nend\n"
+        ] do
+      root = fixture()
+      file = Path.join(root, "pieces/core/operator/cure/elzoo/composition.cure")
+      File.write!(file, File.read!(file) <> impostor)
+
+      change_json(root, "pieces/core/operator/piece.json", fn piece ->
+        Map.update!(piece, "grounding", fn claims ->
+          Enum.map(claims, fn claim ->
+            if claim["kind"] == "proof", do: Map.put(claim, "symbol", "invented_law"), else: claim
+          end)
+        end)
+      end)
+
+      assert_raise ArgumentError, ~r/missing checked equality proof/, fn ->
+        Elzoo.Registry.load!(root)
+      end
+    end
+  end
+
   test "cycles, provider drift and traversal are rejected" do
     root = fixture()
     manifest = "pieces/core/operator/piece.json"

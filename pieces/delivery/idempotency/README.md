@@ -4,7 +4,17 @@ Volatile exact-key duplicate suppression by sender/incarnation/sequence.
 
 ## Use
 
-Use Elzoo.Idempotency.message(...) and receiver(history, message). Start with an empty list. The first occurrence emits the message; a repeated key emits None.
+In Cure, `use Elzoo.Idempotency`, then call `message(sender, incarnation,
+sequence, value)` and `receiver(history, input)`. Start with an empty list.
+The first occurrence emits the message; a repeated key emits `None()`.
+
+From Elixir, use the generated BEAM module:
+
+```elixir
+input = :"Cure.Elzoo.Idempotency".message(1, 1, 0, 42)
+{:Transition, history, {:some, ^input}} = :"Cure.Elzoo.Idempotency".receiver([], input)
+{:Transition, ^history, :none} = :"Cure.Elzoo.Idempotency".receiver(history, input)
+```
 
 This directory is a source bundle. See [consumption instructions](../../../docs/consuming.md) for copying selected pieces into a project.
 

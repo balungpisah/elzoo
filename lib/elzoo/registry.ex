@@ -217,11 +217,9 @@ defmodule Elzoo.Registry do
             symbol = claim["symbol"]
             nonempty!(symbol, "proof symbol: #{id}")
             source = File.read!(source!(root, "#{directory}/#{claim["file"]}"))
-            definition = source |> String.split("fn #{symbol}(", parts: 2) |> Enum.at(1)
 
             ensure!(
-              is_binary(definition) and
-                String.contains?(hd(String.split(definition, "\n  fn ")), "-> Equivalent("),
+              equality_declaration?(source, symbol),
               "missing checked equality proof #{symbol}: #{id}"
             )
           end
@@ -239,6 +237,33 @@ defmodule Elzoo.Registry do
       end
     end)
   end
+
+  # Parse declarations with the pinned Cure parser. Comments and string literals
+  # must not count as definitions. Compilation still owns type/proof checking;
+  # this only connects a metadata claim to its actual equality declaration.
+  defp equality_declaration?(source, symbol) do
+    with {:ok, tokens} <- Cure.Compiler.Lexer.tokenize(source, emit_events: false),
+         {:ok, ast} <- Cure.Compiler.Parser.parse(tokens, emit_events: false) do
+      ast
+      |> declarations()
+      |> Enum.any?(fn meta ->
+        meta[:name] == symbol and
+          case meta[:return_type] do
+            {:function_call, type_meta, [_, _, _]} -> type_meta[:name] == "Equivalent"
+            _ -> false
+          end
+      end)
+    else
+      _ -> false
+    end
+  end
+
+  defp declarations({:function_def, meta, _}), do: [meta]
+
+  defp declarations({kind, _, children}) when kind in [:block, :container],
+    do: Enum.flat_map(children, &declarations/1)
+
+  defp declarations(_), do: []
 
   defp validate_provider!(root, {id, provider}) do
     ensure!(Regex.match?(~r/\A[a-z][a-z0-9_]*\z/, id), "invalid provider ID")

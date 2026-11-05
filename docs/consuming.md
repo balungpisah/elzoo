@@ -8,8 +8,9 @@ contain examples/tests and dependency instructions without a wrapper module.
 ## Find and inspect
 
 Start with [LEDGER.md](https://github.com/balungpisah/elzoo/blob/main/LEDGER.md).
-Each ready row links to a contract, limits, dependency IDs, provider pins,
-source list and claim-level grounding. `owned` means handwritten Elzoo code;
+Each ready row links to a README with its contract, limits, dependency IDs
+and grounding. The adjacent piece.json lists source files and exact claim
+references; registry/providers.json records provider pins. `owned` means handwritten Elzoo code;
 `adapter` means local translation around an upstream implementation; `recipe`
 means direct upstream usage. Proof is a separate property of a particular
 claim, not an implementation category or a badge for an entire piece.
