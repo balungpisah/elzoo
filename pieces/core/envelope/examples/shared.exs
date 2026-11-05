@@ -72,14 +72,18 @@ results = %{
 {:ok, ^message} = Elzoo.Envelope.validate(message)
 Enum.each(results, fn {_, result} -> {:ok, ^result} = Elzoo.Envelope.validate_result(result) end)
 
-reply =
-  Map.merge(message, %{
-    "message_id" => "reply-1",
-    "kind" => "reply",
-    "schema_id" => "elzoo/delivery-result",
-    "producer" => %{"unit_id" => "pipeline", "port_id" => "result"},
-    "payload" => results["completed"]
-  })
+reply = %{
+  "version" => 1,
+  "message_id" => "reply-1",
+  "kind" => "reply",
+  "schema_id" => "elzoo/delivery-result",
+  "schema_version" => 1,
+  "producer" => %{"unit_id" => "pipeline", "port_id" => "result"},
+  "correlation_id" => message["correlation_id"],
+  "causation_id" => message["message_id"],
+  "attempt_id" => message["attempt_id"],
+  "payload" => results["completed"]
+}
 
 {:ok, ^reply} = Elzoo.Envelope.validate(reply)
 %{message: message, results: results, reply: reply}

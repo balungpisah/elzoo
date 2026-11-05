@@ -60,17 +60,19 @@ mod Elzoo.Edge
             match validate_binding(target)
               Error(_) -> Error(:invalid_target)
               Ok(_) ->
-                match Elzoo.Port.compatible(source.port, target.port)
-                  Error(reason) -> Error(reason)
-                  Ok(_) ->
-                    pickup
-                      not refers(edge.source, source) or not refers(edge.target, target) -> Error(:reference_mismatch)
-                      equal(edge.placement, "fused") ->
+                pickup
+                  not refers(edge.source, source) or not refers(edge.target, target) -> Error(:reference_mismatch)
+                  else ->
+                    match Elzoo.Port.compatible(source.port, target.port)
+                      Error(reason) -> Error(reason)
+                      Ok(_) ->
                         pickup
-                          equal(source.unit_id, target.unit_id) and equal(source.delivery, "fused") and equal(target.delivery, "fused") -> Ok(true)
-                          else -> Error(:placement_mismatch)
-                      else ->
-                        pickup
-                          not equal(source.unit_id, target.unit_id) and equal(source.delivery, "volatile") and equal(target.delivery, "volatile") -> Ok(true)
-                          else -> Error(:placement_mismatch)
+                          equal(edge.placement, "fused") ->
+                            pickup
+                              equal(source.unit_id, target.unit_id) and equal(source.delivery, "fused") and equal(target.delivery, "fused") -> Ok(true)
+                              else -> Error(:placement_mismatch)
+                          else ->
+                            pickup
+                              not equal(source.unit_id, target.unit_id) and equal(source.delivery, "volatile") and equal(target.delivery, "volatile") -> Ok(true)
+                              else -> Error(:placement_mismatch)
 end

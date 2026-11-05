@@ -7,17 +7,16 @@ defmodule Elzoo.Wiring do
   end
 
   def accept(wiring, edge_id, envelope) do
-    with {:ok, bindings, edges} <- inspect_wiring(wiring),
-         {:ok, edge} <- fetch(edges, edge_id, :unknown_edge),
-         {:ok, message} <- Elzoo.Envelope.decode(envelope) do
-      source = Map.fetch!(bindings, reference(edge["source"]))
-
-      with {:ok, source} <- Elzoo.Edge.decode_binding(source),
-           {:ok, true} <- apply(:"Cure.Elzoo.Wiring", :accept, [message, source]) do
-        {:ok, envelope}
-      end
+    with {:wiring, {:ok, bindings, edges}} <- {:wiring, inspect_wiring(wiring)},
+         {:route, {:ok, edge}} <- {:route, fetch(edges, edge_id, :unknown_edge)},
+         {:envelope, {:ok, message}} <- {:envelope, Elzoo.Envelope.decode(envelope)},
+         {:wiring, {:ok, source}} <-
+           {:wiring, Elzoo.Edge.decode_binding(Map.fetch!(bindings, reference(edge["source"])))},
+         {:route, {:ok, true}} <-
+           {:route, apply(:"Cure.Elzoo.Wiring", :accept, [message, source])} do
+      {:ok, envelope}
     else
-      {:error, _} = error -> error
+      {phase, {:error, reason}} -> {:error, {phase, reason}}
     end
   end
 

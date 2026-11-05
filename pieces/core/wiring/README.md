@@ -31,6 +31,12 @@ against its output descriptor (the checked edge already matches the input).
 Success returns `{:ok, envelope_map}`. This does not select a route, deliver,
 decode a payload, enforce a deadline, or prove the claimed producer identity.
 Caller chooses the route explicitly. ELZ-006/007 own execution/selection.
+Errors are `{:error, {phase, reason}}`: `:wiring` wraps declaration errors
+from `validate/1`, `:route` names an unknown selected edge or producer/schema
+mismatch, and `:envelope` wraps Envelope decoding errors. Checks run in that
+order: wiring, selected edge, Envelope, then route producer/schema acceptance.
+Thus callers can distinguish declaration faults from malformed messages and
+route mismatches without inspecting overlapping reason atoms.
 
 `examples/p0.exs` is an executable declaration for the existing ingest → dedup
 → accumulate shape, including fused placement and a volatile hop variant.

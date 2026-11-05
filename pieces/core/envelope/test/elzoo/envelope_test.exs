@@ -26,6 +26,13 @@ defmodule Elzoo.EnvelopeTest do
 
     refute reply["message_id"] == reply["payload"]["message_id"]
     assert reply["payload"]["value"] == nil
+    assert reply["schema_id"] == "elzoo/delivery-result"
+    assert reply["schema_version"] == 1
+    assert reply["correlation_id"] == message["correlation_id"]
+    assert reply["causation_id"] == message["message_id"]
+    assert reply["attempt_id"] == message["attempt_id"]
+    refute Map.has_key?(reply, "reply_to")
+    refute Map.has_key?(reply, "deadline_unix_ms")
 
     assert {:error, :invalid_result_fields} =
              Elzoo.Envelope.decode_result(Map.delete(results["completed"], "value"))

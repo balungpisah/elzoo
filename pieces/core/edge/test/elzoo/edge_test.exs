@@ -102,6 +102,25 @@ defmodule Elzoo.EdgeTest do
     assert Elzoo.Edge.decode_port("unit", binding) == {:error, :invalid_shape}
   end
 
+  test "reference mismatches precede compatibility errors at both boundaries" do
+    source = binding("left", "out", "output", "volatile")
+    target = binding("right", "in", "input", "volatile")
+
+    for side <- ~w(source target),
+        {key, value} <- [{"schema_id", "money"}, {"schema_version", 2}, {"direction", "output"}] do
+      route = put_in(edge("hop", source, target), [side, "port_id"], "missing")
+      incompatible = put_in(target, ["port", key], value)
+
+      assert Elzoo.Edge.connect(route, source, incompatible) == {:error, :reference_mismatch}
+      assert {:ok, route_record} = Elzoo.Edge.decode(route)
+      assert {:ok, source_record} = Elzoo.Edge.decode_binding(source)
+      assert {:ok, target_record} = Elzoo.Edge.decode_binding(incompatible)
+
+      assert apply(:"Cure.Elzoo.Edge", :connect, [route_record, source_record, target_record]) ==
+               {:error, :reference_mismatch}
+    end
+  end
+
   test "edge exact shapes and nonempty references reject malformed declarations" do
     source = binding("unit", "out", "output", "fused")
     target = binding("unit", "in", "input", "fused")

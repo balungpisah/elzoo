@@ -36,22 +36,22 @@ defmodule Elzoo.WiringTest do
 
   test "unknown routes, incompatible schemas/versions and wrong producers fail" do
     wiring = examples().fused
-    assert Elzoo.Wiring.accept(wiring, "missing", message()) == {:error, :unknown_edge}
+    assert Elzoo.Wiring.accept(wiring, "missing", message()) == {:error, {:route, :unknown_edge}}
 
     assert Elzoo.Wiring.accept(wiring, "ingest-dedup", Map.put(message(), "schema_id", "money")) ==
-             {:error, :schema_mismatch}
+             {:error, {:route, :schema_mismatch}}
 
     assert Elzoo.Wiring.accept(wiring, "ingest-dedup", Map.put(message(), "schema_version", 2)) ==
-             {:error, :version_mismatch}
+             {:error, {:route, :version_mismatch}}
 
     assert Elzoo.Wiring.accept(
              wiring,
              "ingest-dedup",
              put_in(message(), ["producer", "unit_id"], "wrong")
-           ) == {:error, :producer_mismatch}
+           ) == {:error, {:route, :producer_mismatch}}
 
     assert Elzoo.Wiring.accept(wiring, "ingest-dedup", Map.delete(message(), "payload")) ==
-             {:error, :invalid_shape}
+             {:error, {:envelope, :invalid_shape}}
 
     for {key, value, reason} <- [
           {"schema_id", "money", :schema_mismatch},
@@ -64,6 +64,30 @@ defmodule Elzoo.WiringTest do
 
     invalid = update_in(wiring, ["edges", Access.at(0), "target", "port_id"], fn _ -> "missing" end)
     assert Elzoo.Wiring.validate(invalid) == {:error, {:edge, 0, :unknown_target}}
+  end
+
+  test "accept tags declaration, selection and message errors in phase order" do
+    wiring = examples().fused
+    invalid_wiring = Map.put(wiring, "extra", true)
+    invalid_message = Map.delete(message(), "payload")
+
+    assert Elzoo.Wiring.accept(invalid_wiring, "missing", invalid_message) ==
+             {:error, {:wiring, :invalid_shape}}
+
+    assert Elzoo.Wiring.accept(wiring, "missing", invalid_message) ==
+             {:error, {:route, :unknown_edge}}
+
+    assert Elzoo.Wiring.accept(wiring, "ingest-dedup", invalid_message) ==
+             {:error, {:envelope, :invalid_shape}}
+
+    assert Elzoo.Wiring.accept(wiring, "ingest-dedup", Map.put(message(), "version", 2)) ==
+             {:error, {:envelope, :invalid_version}}
+
+    missing_routes = Map.put(wiring, "edges", [])
+
+    assert Elzoo.Wiring.accept(missing_routes, "missing", message()) ==
+             {:error,
+              {:wiring, {:route, {"pipeline", "accumulate.input"}, :required_route_missing}}}
   end
 
   test "required-route Config is checked after edges with deterministic missing route errors" do
