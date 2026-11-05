@@ -35,3 +35,7 @@ runs its formatter and ExUnit checks in a separate BEAM process. Targeted
 `mix elzoo.ash_spike` runs only that experiment. The root dependency graph and
 source-consumer requirements are unchanged; Ash is not part of the Cure
 compiler trust claim. See its README for versions and limits.
+
+Linux CI runs on symbolic through a repository-scoped self-hosted runner and
+pinned Ubuntu job containers. See [runner operations](10-symbolic-ci.md);
+GitHub-hosted compute and hosted fallback are prohibited.

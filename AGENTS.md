@@ -127,6 +127,15 @@ For unsafe effects, storage, delivery, backpressure and typed boundaries,
 request independent review early. Do not edit generated files or unrelated
 ownership areas.
 
+## CI machine policy
+
+CI must run only on the user-owned symbolic machine. Use the explicit
+self-hosted selector and instructions in docs/development/10-symbolic-ci.md.
+Never use or fall back to GitHub-hosted runners: the owner does not have hosted
+minutes available. If symbolic is offline, diagnose its service/queue; do not
+change runs-on to a hosted image. Verify actual job runner identity when
+changing workflows. GitHub still provides repository/PR/check orchestration.
+
 ## Verify the actual claim
 
 On a clean checkout or after dependency/configuration changes, run:

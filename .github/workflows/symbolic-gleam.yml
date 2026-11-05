@@ -1,0 +1,52 @@
+name: Gleam on symbolic
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gleam-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gleam:
+    runs-on: [self-hosted, linux, x64, symbolic, elzoo]
+    container:
+      image: ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: spikes/gleam_ui
+    env:
+      ImageOS: ubuntu24
+      ERL_FLAGS: '+S 2:2 +SDcpu 1 +SDio 1'
+    steps:
+      - name: Prepare Ubuntu job container
+        working-directory: /
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates curl git unzip python3 build-essential libssl3 libncurses6 libsctp1
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Trust only this container checkout
+        working-directory: ${{ github.workspace }}
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git rev-parse --is-inside-work-tree
+      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1
+        with:
+          otp-version: '29.1.2'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24.16.0'
+      - run: ./scripts/setup.sh
+      - run: npx --no-install playwright install-deps chromium
+      - run: ./scripts/check.sh
+      - name: Locked dependencies remain unchanged
+        run: |
+          git rev-parse --is-inside-work-tree
+          git diff --exit-code HEAD -- manifest.toml package-lock.json
