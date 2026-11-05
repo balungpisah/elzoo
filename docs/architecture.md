@@ -23,6 +23,11 @@ intent separate from execution. Existing ready subsets keep their present claims
 
 ## Application foundation direction
 
+Applicable runtime operational interfaces follow
+[Telemetry, Config and Control](operational-contracts.md). Their declaration is
+independent of language and UI choices. Pure Pieces do not acquire side effects
+or a management endpoint merely by appearing in the catalogue.
+
 Ash is the preferred candidate for declared application actions, authorization
 and resource lifecycle; see [ADR-0005](adr/0005-ash-foundation-and-upstream-first.md).
 ELZ-015 is an isolated proof-of-fit, not production adoption. AshPostgres and

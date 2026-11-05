@@ -2,7 +2,7 @@
 
 - Phase: P0 foundation
 - Catalogue IDs: core/operator, core/port, core/assembly
-- Dependencies: ELZ-001, ELZ-013, ELZ-014, ELZ-015
+- Dependencies: ELZ-001, ELZ-013, ELZ-014, ELZ-015, ELZ-016
 
 ## Outcome
 
@@ -24,6 +24,9 @@ semantically distinct even when a library reuses a common representation.
 Read ADR-0005 before implementation. Ash is the preferred application-framework
 candidate; this task defines pure composition and must not invent a competing
 resource/action/authorization framework or require Ash for pure source bundles.
+
+Read docs/operational-contracts.md. Preserve operational applicability without
+requiring effects, a process or runtime controls on pure composition Pieces.
 
 ## Scope
 

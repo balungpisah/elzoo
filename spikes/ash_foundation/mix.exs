@@ -11,6 +11,7 @@ defmodule ElzooAshSpike.MixProject do
         {:ash, "== 3.37.3"},
         {:ash_ai, "== 1.5.0"},
         {:simple_sat, "== 0.1.4"},
+        {:telemetry, "== 1.4.2"},
         {:ash_state_machine, "== 0.3.0"}
       ]
     ]
