@@ -9,7 +9,7 @@ host_recipe =
 Code.require_file(host_recipe)
 
 defmodule Elzoo.IngestBoundaryTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
   import ExUnit.CaptureLog
 
   defmodule Fake do

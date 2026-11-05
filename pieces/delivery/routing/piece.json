@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "id": "delivery/routing",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": [
+    "cure"
+  ],
+  "dependencies": [
+    "core/wiring"
+  ],
+  "contract": "Pure Envelope metadata filtering among declared Wiring edges, with source-before-match validation and sorted explicit selection; no execution or expiry.",
+  "limits": [
+    "No payload content routing, invented targets, delivery, ordering, splitter or expiry guarantee.",
+    "Schema predicates are constant per source table; no lookup or hot reconfiguration."
+  ],
+  "files": [
+    "cure/elzoo/routing.cure",
+    "lib/elzoo/routing.ex",
+    "test/elzoo/routing_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "type",
+      "file": "cure/elzoo/routing.cure",
+      "claim": "Pinned Cure compilation checks generic Envelope metadata matching over RoutingMatch Options."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/routing_test.exs",
+      "claim": "Finite permutation, per-call configuration, filter, source-before-match, error, source audit and wrong-type consumer scenarios; no quantified proof."
+    },
+    {
+      "kind": "upstream",
+      "provider": "cure",
+      "reference": "https://github.com/cure-lang/cure-lang/tree/a004c335cc4e9f2203ba6f51fc31e8540b66378d",
+      "claim": "Relies on pinned Cure type checking, structural equality and record/Option erasure."
+    },
+    {
+      "kind": "assumption",
+      "claim": "Callers keep declarations and producer identities truthful and own payload validation and runtime effects."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "Pure checks emit no observations; caller owns instrumentation."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Explicit per-call route table predicates; no ambient or hot reconfiguration.",
+      "evidence": [
+        "test/elzoo/routing_test.exs"
+      ]
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No lifecycle, delivery or operational commands."
+    }
+  }
+}

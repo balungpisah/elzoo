@@ -75,9 +75,15 @@ reached from public inputs and is not directly tested. The transient
 Volatile single-host synchronous exemplar, unbounded history/mailbox, not
 durable, not exactly-once, not ordered across hosts, not a complete old Zoo
 receiver. Hop partial failure may mark a key seen without accumulating it;
-no partial-failure atomicity or retry/redelivery guarantee. Deadlines are echoed,
-not enforced. Telemetry is planned; per-call placement/codec Config is
-supported; Control inherits runtime/host lifecycle only, not business drain.
+no partial-failure atomicity or retry/redelivery guarantee.
+After a partial hop failure (outer failed: dedup advanced, accumulator output
+lost), a retry of the same key reports completed with a nil value, the same as
+duplicate suppression, without recovering the lost accumulator output. Callers
+must not read that nil as "already counted".
+The inner hop Envelope intentionally does not carry trace_id, idempotency_key
+or reply_to, and dedup keys on the payload Message fields.
+Deadlines are echoed, not enforced. Telemetry is planned; per-call placement/codec
+Config is supported; Control inherits runtime/host lifecycle only, not business drain.
 Codec and lookup callback exceptions (raising callbacks) are a caller contract
 and out of scope. Final results, including duplicate and combined results, are
 checked by `Elzoo.Envelope.validate_result/1` before JSON encoding.

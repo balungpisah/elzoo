@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: Apache-2.0
+mod Elzoo.RequestReply
+  use Std.Option
+  use Std.Result
+  use Elzoo.Envelope
+
+  local fn equal(left: a, right: a) -> Bool = Std.Builtin.struct_eq(a, left, right)
+
+  fn expected_correlation(request: EnvelopeMessage(a)) -> String =
+    match request.correlation_id
+      None() -> request.message_id
+      Some(value) -> value
+
+  fn reply_endpoint(request: EnvelopeMessage(a)) -> Result(Elzoo.Envelope.ReplyEndpoint, Atom) =
+    match request.reply_to
+      None() -> Error(:missing_reply_to)
+      Some(endpoint) -> Ok(endpoint)
+
+  fn correlate({a: Type}, {b: Type}, request: EnvelopeMessage(a), result: DeliveryResult(b)) -> Result(Bool, Atom) =
+    pickup
+      not equal(request.message_id, result.message_id) -> Error(:message_mismatch)
+      not equal(expected_correlation(request), result.correlation_id) -> Error(:correlation_mismatch)
+      not equal(request.attempt_id, result.attempt_id) -> Error(:attempt_mismatch)
+      not equal(request.deadline_unix_ms, result.deadline_unix_ms) -> Error(:deadline_mismatch)
+      else -> Ok(true)
+
+  fn accept_reply({a: Type}, {b: Type}, request: EnvelopeMessage(a), reply: EnvelopeMessage(b), arrival: Elzoo.Envelope.ReplyEndpoint) -> Result(Bool, Atom) =
+    pickup
+      not equal(reply.kind, "reply") and not equal(reply.kind, "error") -> Error(:invalid_reply_kind)
+      not equal(reply.schema_id, "elzoo/delivery-result") or reply.schema_version != 1 -> Error(:invalid_reply_schema)
+      else ->
+        match request.reply_to
+          None() -> Error(:missing_reply_to)
+          Some(endpoint) ->
+            pickup
+              not equal(endpoint, arrival) -> Error(:endpoint_mismatch)
+              not equal(reply.correlation_id, Some(expected_correlation(request))) -> Error(:correlation_mismatch)
+              else ->
+                match reply.causation_id
+                  None() -> Ok(true)
+                  Some(value) ->
+                    pickup
+                      not equal(value, request.message_id) -> Error(:causation_mismatch)
+                      else -> Ok(true)
+end

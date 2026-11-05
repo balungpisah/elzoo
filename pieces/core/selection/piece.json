@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "id": "core/selection",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": [
+    "cure"
+  ],
+  "dependencies": [
+    "core/assembly",
+    "core/edge"
+  ],
+  "contract": "Pure interface/delivery compatibility and explicit-rank selection, with ambiguity rejection and deterministic presentation for well-formed duplicate-free sets.",
+  "limits": [
+    "No lookup, placement, execution, payload validation or selected-implementation certification.",
+    "Malformed-candidate first-index errors deliberately depend on list order; no hot reconfiguration."
+  ],
+  "files": [
+    "cure/elzoo/selection.cure",
+    "lib/elzoo/selection.ex",
+    "test/elzoo/selection_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "type",
+      "file": "cure/elzoo/selection.cure",
+      "claim": "Pinned Cure compilation checks consumed Port compatibility and delivery comparison over distinct SelectionCandidate/SelectionRequirement records."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/selection_test.exs",
+      "claim": "Finite permutations, unique/ambiguous/incompatible/missing, phase-order, delivery drift, rank/delivery configuration, source audit and record ABI scenarios; no quantified proof."
+    },
+    {
+      "kind": "upstream",
+      "provider": "cure",
+      "reference": "https://github.com/cure-lang/cure-lang/tree/a004c335cc4e9f2203ba6f51fc31e8540b66378d",
+      "claim": "Relies on pinned Cure type checking, structural equality and record/Result/tuple erasure."
+    },
+    {
+      "kind": "assumption",
+      "claim": "Declared identities, interfaces, ranks and delivery needs are truthful; chosen implementations keep their own grounding."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "Pure checks emit no observations; invoking Unit/Assembly owns instrumentation."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Explicit per-call candidate rank and requirement delivery; no ambient settings or hot reconfiguration.",
+      "evidence": [
+        "test/elzoo/selection_test.exs"
+      ]
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No runtime lifecycle or operational commands."
+    }
+  }
+}

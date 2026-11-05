@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "id": "delivery/transformation",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": [
+    "elixir"
+  ],
+  "dependencies": [
+    "core/envelope",
+    "core/port"
+  ],
+  "contract": "Caller-supplied pure payload transformation re-wrapped at an explicit output Port, preserving effective correlation and intrinsic metadata/idempotency while dropping sequence.",
+  "limits": [
+    "Callback purity/correctness is assumed; exceptions propagate outside the fixed-atom error contract.",
+    "No target payload-schema validation, lookup, runtime execution or ordinary stream implementation."
+  ],
+  "files": [
+    "lib/elzoo/transformation.ex",
+    "test/elzoo/transformation_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/transformation_test.exs",
+      "claim": "Finite explicit/implicit correlation preservation, other metadata absence, opaque payload, target-direction/shape, deadline-data and callback failure scenarios; no quantified proof."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/Map.html",
+      "claim": "Uses Elixir Map re-wrap and ordinary Enum/Stream; delegates Envelope/Port validation to unchanged dependencies."
+    },
+    {
+      "kind": "assumption",
+      "claim": "Caller payload function is pure and correct; callers own truthful declarations, ingress limits and runtime effects."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "No observations; invoking Unit/Assembly owns instrumentation."
+    },
+    "config": {
+      "status": "not_applicable",
+      "contract": "Intrinsic data and caller function, no ambient settings or hot reconfiguration."
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No lifecycle or operational commands."
+    }
+  }
+}
