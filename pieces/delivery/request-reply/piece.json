@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "id": "delivery/request-reply",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": [
+    "cure"
+  ],
+  "dependencies": [
+    "core/envelope"
+  ],
+  "contract": "Stateless request/result identity correlation and named reply-wrapper validation over core/envelope; results pass through unchanged.",
+  "limits": [
+    "No pending/completed table, duplicate suppression, dispatch, timeout evaluation, classification or multi-attempt tracking.",
+    "No payload validation, durability or exactly-once guarantee."
+  ],
+  "files": [
+    "cure/elzoo/request_reply.cure",
+    "lib/elzoo/request_reply.ex",
+    "test/elzoo/request_reply_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "type",
+      "file": "cure/elzoo/request_reply.cure",
+      "claim": "Pinned Cure compilation checks pure correlation and reply-wrapper decisions over existing Envelope records; no quantified proof."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/request_reply_test.exs",
+      "claim": "Named positive/error-order, unchanged outcome, Option identity and source-audit scenarios; finite tests, not universal proof."
+    },
+    {
+      "kind": "upstream",
+      "provider": "cure",
+      "reference": "https://github.com/cure-lang/cure-lang/tree/a004c335cc4e9f2203ba6f51fc31e8540b66378d",
+      "claim": "Relies on pinned Cure type checking, structural equality and String/Option/Result/record erasure; compiler soundness is not locally proved."
+    },
+    {
+      "kind": "assumption",
+      "claim": "Callers supply truthful identities and dispatch observations, validate payloads and own ingress limits and runtime effects."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "Pure checks emit no observations; invoking Unit/Assembly owns instrumentation."
+    },
+    "config": {
+      "status": "not_applicable",
+      "contract": "Intrinsic message data only; no ambient settings or hot reconfiguration."
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No lifecycle, dispatch or operational commands."
+    }
+  }
+}

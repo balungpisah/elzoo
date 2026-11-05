@@ -211,11 +211,10 @@
     },
     {
       "id": "delivery/request-reply",
-      "summary": "Request-Reply/RPI, correlation identifier and return address",
+      "summary": "Stateless request/result correlation and named reply-wrapper validation",
       "disposition": "own",
       "phase": "P1",
-      "status": "planned",
-      "reason": "`T,X`; replies are ordinary messages and timeout is explicit"
+      "manifest": "pieces/delivery/request-reply/piece.json"
     },
     {
       "id": "delivery/resequence",

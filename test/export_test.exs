@@ -117,7 +117,7 @@ defmodule Elzoo.ExportTest do
   end
 
   for id <-
-        ~w(core/operator core/port core/assembly core/envelope core/edge core/wiring delivery/idempotency) do
+        ~w(core/operator core/port core/assembly core/envelope core/edge core/wiring delivery/idempotency delivery/request-reply) do
     @tag timeout: 120_000
     test "#{id} carries its own checks into an independent consumer", ctx do
       assert_cure_consumer(ctx, [unquote(id)])
@@ -202,6 +202,12 @@ defmodule Elzoo.ExportTest do
       {%{fused: wiring}, _} = Code.eval_file("examples/p0.exs")
       {%{message: message}, _} = Code.eval_file("examples/shared.exs")
       {:ok, ^message} = Elzoo.Wiring.accept(wiring, "ingest-dedup", message)
+    end
+    if :code.which(:"Cure.Elzoo.RequestReply") != :non_existing do
+      {%{message: message, results: results, reply: reply}, _} = Code.eval_file("examples/shared.exs")
+      result = results["completed"]
+      {:ok, ^result} = Elzoo.RequestReply.correlate(message, result)
+      {:ok, ^result} = Elzoo.RequestReply.accept_reply(message, reply, message["reply_to"])
     end
     if Enum.any?(Application.started_applications(), fn {app, _, _} -> app == :cure end),
       do: raise("Cure started as a runtime application")
