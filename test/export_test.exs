@@ -117,7 +117,7 @@ defmodule Elzoo.ExportTest do
   end
 
   for id <-
-        ~w(core/operator core/port core/assembly core/envelope core/edge core/wiring core/selection delivery/idempotency delivery/request-reply delivery/routing delivery/transformation runtime/adapter runtime/host assembly/ingest-json-unit) do
+        ~w(core/operator core/port core/assembly core/envelope core/edge core/wiring core/selection delivery/idempotency delivery/windowed-idempotency delivery/request-reply delivery/routing delivery/transformation runtime/adapter runtime/host assembly/ingest-json-unit) do
     @tag timeout: 120_000
     test "#{id} carries its own checks into an independent consumer", ctx do
       assert_cure_consumer(ctx, [unquote(id)])
@@ -177,6 +177,14 @@ defmodule Elzoo.ExportTest do
     {:ok, _} = Application.ensure_all_started(:consumer)
     if :code.which(:"Cure.Elzoo.Composition") != :non_existing do
       {:Transition, 0, :none} = apply(:"Cure.Elzoo.Composition", :discard, [0, :input])
+    end
+    if :code.which(Elzoo.WindowedIdempotency) != :non_existing do
+      {:ok, state} = Elzoo.WindowedIdempotency.new(3, 2)
+      message = {:Message, 1, 1, 1, 10}
+      {:ok, {next, {:some, ^message}}, :fresh} = Elzoo.WindowedIdempotency.receive(state, message)
+      {:ok, {^next, :none}, :duplicate} = Elzoo.WindowedIdempotency.receive(next, message)
+      if :code.which(Elzoo.Application) != :non_existing,
+        do: raise("Elzoo.Application leaked into windowed consumer")
     end
     if :code.which(:"Cure.Elzoo.Port") != :non_existing do
       {:ok, true} = Elzoo.Port.compatible(

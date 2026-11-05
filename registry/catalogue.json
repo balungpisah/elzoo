@@ -295,8 +295,8 @@
       "summary": "Bounded/windowed duplicate and stale-input policy",
       "disposition": "own",
       "phase": "P1",
-      "status": "planned",
-      "reason": "ELZ-005: separate Contract from ready delivery/idempotency; preserves the volatile exact-key baseline. Receiver-level laws/tests and retention/expiry assumptions required."
+      "status": "ready",
+      "manifest": "pieces/delivery/windowed-idempotency/piece.json"
     },
     {
       "id": "domain/authorization",

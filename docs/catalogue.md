@@ -126,7 +126,7 @@ the largest old overlaps:
 | --- | --- | --- |
 | Message, Command Message, Document Message, Event Message, Format Indicator | `core/envelope` | Same envelope schema with a `kind`/version field |
 | Request-Reply, Remote Procedure Invocation, Return Address, Correlation Identifier | `delivery/request-reply` + `core/envelope` | One caller state machine and envelope metadata |
-| Idempotent Receiver, Idempotent Consumer | `delivery/idempotency`, `delivery/windowed-idempotency` | Exact-key volatile baseline and separately planned bounded/windowed policy |
+| Idempotent Receiver, Idempotent Consumer | `delivery/idempotency`, `delivery/windowed-idempotency` | Unchanged unbounded exact-key baseline and separate ready bounded sequence-window/stale policy; volatile, not exactly-once Effects |
 | Message Router, Content-Based Router, Filter, Recipient List, Splitter, Expiration | `delivery/routing` | One family with distinct functions and laws |
 | Translator, Mapper, Content Filter, Anti-corruption Layer | `delivery/transformation` | Pure shape conversion and explicit merge |
 | Message Store, Write-Ahead Log, Event Sourcing, Session Log | `state/event-log` | Same append/replay contract; domain meaning remains in the event type |

@@ -117,7 +117,7 @@ mailbox a WAL.
 | Pure decisions | Generic Cure operators and nested assembly | More operators only when a working assembly needs them |
 | Ports | Cure function signatures plus core/port exact schema/version/direction checks | Delivery and wiring validation (ELZ-003); runtime payload validation (ELZ-004) |
 | Edges | Direct call and synchronous GenServer-boundary comparison | Async hop with explicit volatile/at-least-once classes |
-| State | Volatile operator state plus test snapshot | Event log/checkpoint/upcast/outbox with crash tests |
+| State | Volatile operator state plus test snapshot; ready `delivery/windowed-idempotency` bounds sender/sequence entry counts (selected decision and helper/W=1 laws; receiver/general bounds test-grounded) | Event log/checkpoint/upcast/outbox with crash tests; no time expiry or durable receiver claim |
 | OTP | Elixir GenServer and Supervisor shell | Application, DynamicSupervisor, Registry only where needed; compare Cure actor/sup macros later |
 | Effects | Jason adapter with explicit error translation | HTTP/SQL/job adapters selected and tested one at a time |
 | Assurance | Selected Cure proofs, compile negatives, ExUnit/model checks and upstream Jason contract | Claim-level evidence per assembly; no proof-everything mandate |
@@ -129,7 +129,8 @@ The research spike that established these observations is [Zoo commit
 evidence, not a dependency or a gate for this repository. The production files
 and test listed above are the self-contained bootstrap evidence.
 
-The spike did not settle the complete Zoo receiver contract, bounded windows,
+The spike did not settle the complete Zoo receiver contract (the separate ready
+`delivery/windowed-idempotency` now supplies a scoped sequence-window policy),
 fan-out, envelope encoding, async distributed hops, WAL/replay, outbox
 atomicity, native/OS isolation, compiler soundness or total cost. Preserve
 those limits when describing Cure adoption.
