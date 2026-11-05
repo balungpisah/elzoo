@@ -255,11 +255,10 @@
     },
     {
       "id": "delivery/transformation",
-      "summary": "Translator, mapper, content filter/enricher merge, anti-corruption",
+      "summary": "Pure caller-supplied payload transformation into an explicit output Envelope",
       "disposition": "own",
       "phase": "P1",
-      "status": "planned",
-      "reason": "`P,T,X`; effectful lookup is request/reply before merge"
+      "manifest": "pieces/delivery/transformation/piece.json"
     },
     {
       "id": "delivery/trigger",

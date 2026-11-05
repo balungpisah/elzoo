@@ -117,7 +117,7 @@ defmodule Elzoo.ExportTest do
   end
 
   for id <-
-        ~w(core/operator core/port core/assembly core/envelope core/edge core/wiring delivery/idempotency delivery/request-reply delivery/routing) do
+        ~w(core/operator core/port core/assembly core/envelope core/edge core/wiring delivery/idempotency delivery/request-reply delivery/routing delivery/transformation) do
     @tag timeout: 120_000
     test "#{id} carries its own checks into an independent consumer", ctx do
       assert_cure_consumer(ctx, [unquote(id)])
@@ -215,6 +215,14 @@ defmodule Elzoo.ExportTest do
       table = %{"version" => 1, "source" => message["producer"],
         "routes" => [%{"edge_id" => "ingest-dedup", "match" => %{}}]}
       {:ok, ["ingest-dedup"]} = Elzoo.Routing.route(wiring, table, message)
+    end
+    if :code.which(Elzoo.Transformation) != :non_existing do
+      {%{message: message}, _} = Code.eval_file("examples/shared.exs")
+      target = %{"unit_id" => "translated", "message_id" => "translated-1",
+        "port" => %{"id" => "out", "direction" => "output", "schema_id" => "translated", "schema_version" => 1}}
+      {:ok, translated} = Elzoo.Transformation.translate(message, target, fn _ -> nil end)
+      nil = translated["payload"]
+      "translated-1" = translated["message_id"]
     end
     if Enum.any?(Application.started_applications(), fn {app, _, _} -> app == :cure end),
       do: raise("Cure started as a runtime application")
