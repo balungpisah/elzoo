@@ -140,6 +140,13 @@
       "manifest": "pieces/core/port/piece.json"
     },
     {
+      "id": "core/selection",
+      "summary": "Pure compatible-interface and delivery selection by explicit rank",
+      "disposition": "own",
+      "phase": "P1",
+      "manifest": "pieces/core/selection/piece.json"
+    },
+    {
       "id": "core/wiring",
       "summary": "Unit/port/edge declaration, compatibility and required-route checks",
       "disposition": "own",

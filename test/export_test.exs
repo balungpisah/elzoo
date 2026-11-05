@@ -117,7 +117,7 @@ defmodule Elzoo.ExportTest do
   end
 
   for id <-
-        ~w(core/operator core/port core/assembly core/envelope core/edge core/wiring delivery/idempotency delivery/request-reply delivery/routing delivery/transformation) do
+        ~w(core/operator core/port core/assembly core/envelope core/edge core/wiring core/selection delivery/idempotency delivery/request-reply delivery/routing delivery/transformation) do
     @tag timeout: 120_000
     test "#{id} carries its own checks into an independent consumer", ctx do
       assert_cure_consumer(ctx, [unquote(id)])
@@ -223,6 +223,13 @@ defmodule Elzoo.ExportTest do
       {:ok, translated} = Elzoo.Transformation.translate(message, target, fn _ -> nil end)
       nil = translated["payload"]
       "translated-1" = translated["message_id"]
+    end
+    if :code.which(:"Cure.Elzoo.Selection") != :non_existing do
+      port = fn id, direction -> %{"id" => id, "direction" => direction, "schema_id" => "count", "schema_version" => 1} end
+      requirement = %{"upstream" => port.("source", "output"), "downstream" => port.("sink", "input"), "delivery" => "fused"}
+      candidate = %{"piece_id" => "candidate", "interface" => %{"input" => port.("in", "input"), "output" => port.("out", "output")}, "delivery" => "fused", "rank" => 0}
+      {:ok, "candidate"} = Elzoo.Selection.select(requirement, [candidate])
+      {:ok, [{0, ["candidate"]}]} = Elzoo.Selection.rank(requirement, [candidate])
     end
     if Enum.any?(Application.started_applications(), fn {app, _, _} -> app == :cure end),
       do: raise("Cure started as a runtime application")

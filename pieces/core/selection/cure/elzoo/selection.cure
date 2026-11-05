@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: Apache-2.0
+mod Elzoo.Selection
+  use Std.Result
+  use Elzoo.Port
+  use Elzoo.Assembly
+
+  local fn equal(left: a, right: a) -> Bool = Std.Builtin.struct_eq(a, left, right)
+
+  rec SelectionCandidate
+    piece_id: String
+    interface: Elzoo.Assembly.Interface
+    delivery: String
+    rank: Int
+
+  rec SelectionRequirement
+    upstream: Elzoo.Port.Descriptor
+    downstream: Elzoo.Port.Descriptor
+    delivery: String
+
+  fn compatible(requirement: SelectionRequirement, candidate: SelectionCandidate) -> Result(Bool, Tuple(Atom, Atom)) =
+    match Elzoo.Port.compatible(requirement.upstream, candidate.interface.input)
+      Error(reason) -> Error(%[:input, reason])
+      Ok(_) ->
+        match Elzoo.Port.compatible(candidate.interface.output, requirement.downstream)
+          Error(reason) -> Error(%[:output, reason])
+          Ok(_) ->
+            pickup
+              not equal(requirement.delivery, candidate.delivery) -> Error(%[:delivery, :delivery_mismatch])
+              else -> Ok(true)
+end
