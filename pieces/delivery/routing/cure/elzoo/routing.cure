@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: Apache-2.0
+mod Elzoo.Routing
+  use Std.Option
+  use Elzoo.Envelope
+
+  local fn equal(left: a, right: a) -> Bool = Std.Builtin.struct_eq(a, left, right)
+
+  rec RoutingMatch
+    kind: Option(String)
+    schema_id: Option(String)
+    schema_version: Option(Int)
+
+  local fn accepts(expected: Option(a), actual: a) -> Bool =
+    match expected
+      None() -> true
+      Some(value) -> equal(value, actual)
+
+  fn matches({a: Type}, message: Elzoo.Envelope.EnvelopeMessage(a), rule: RoutingMatch) -> Bool =
+    accepts(rule.kind, message.kind) and accepts(rule.schema_id, message.schema_id) and accepts(rule.schema_version, message.schema_version)
+end

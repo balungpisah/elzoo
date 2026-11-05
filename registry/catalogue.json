@@ -234,11 +234,10 @@
     },
     {
       "id": "delivery/routing",
-      "summary": "Router, content router, filter, recipient list, splitter, expiration",
+      "summary": "Pure Envelope metadata filtering among declared Wiring edges",
       "disposition": "own",
       "phase": "P1",
-      "status": "planned",
-      "reason": "`P,T,X`; fan-out is bounded and declared"
+      "manifest": "pieces/delivery/routing/piece.json"
     },
     {
       "id": "delivery/stream-combinators",
