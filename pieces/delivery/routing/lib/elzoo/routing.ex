@@ -39,7 +39,7 @@ defmodule Elzoo.Routing do
   end
 
   defp table_shape(%{"version" => 1, "source" => source, "routes" => routes} = table)
-       when map_size(table) == 3 and is_list(routes) do
+       when map_size(table) == 3 and is_list(routes) and length(routes) >= 0 do
     if endpoint?(source) and Enum.all?(routes, &route_shape?/1),
       do: :ok,
       else: {:error, {:table, :invalid_shape}}

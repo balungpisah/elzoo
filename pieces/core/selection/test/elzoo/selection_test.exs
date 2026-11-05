@@ -233,6 +233,35 @@ defmodule Elzoo.SelectionTest do
     end
   end
 
+  test "improper candidate lists return list-shape errors before traversing candidates" do
+    requirement = %{
+      "upstream" => port("source", "output", "x"),
+      "downstream" => port("sink", "input", "x"),
+      "delivery" => "fused"
+    }
+
+    candidate = %{
+      "piece_id" => "candidate",
+      "interface" => %{"input" => port("in", "input", "x"), "output" => port("out", "output", "x")},
+      "delivery" => "fused",
+      "rank" => 0
+    }
+
+    for candidates <- [
+          [candidate | :bad_tail],
+          [candidate, candidate | :bad_tail],
+          [nil | :bad_tail]
+        ] do
+      assert Selection.select(requirement, candidates) == {:error, {:candidate, :invalid_shape}}
+      assert Selection.rank(requirement, candidates) == {:error, {:candidate, :invalid_shape}}
+    end
+
+    assert Selection.select(nil, [candidate | :bad_tail]) ==
+             {:error, {:requirement, :invalid_shape}}
+
+    assert Selection.rank(nil, [candidate | :bad_tail]) == {:error, {:requirement, :invalid_shape}}
+  end
+
   test "Cure audit and measured record tuples" do
     assert {:ok, env} = Cure.Compiler.check_source(@source, source_roots: @roots)
     audit = Cure.Audit.Ledger.audit_env(env)

@@ -150,6 +150,34 @@ defmodule Elzoo.RoutingTest do
              {:error, {:table, :invalid_source}}
   end
 
+  test "improper route lists return table-shape errors before source or route inspection" do
+    {wiring, table, message} = fixture()
+    [route | _] = table["routes"]
+
+    empty_wiring = %{"version" => 1, "units" => [], "edges" => []}
+
+    repro_table = %{
+      "version" => 1,
+      "source" => %{"unit_id" => "u", "port_id" => "p"},
+      "routes" => [%{"edge_id" => "e", "match" => %{}} | :bad_tail]
+    }
+
+    cases = [
+      {empty_wiring, repro_table},
+      {wiring, Map.put(table, "routes", [route | :bad_tail])},
+      {wiring, Map.put(table, "routes", [route, route | :bad_tail])},
+      {wiring, Map.put(table, "routes", [nil | :bad_tail])}
+    ]
+
+    for {wiring, table} <- cases do
+      assert Routing.validate(wiring, table) == {:error, {:table, :invalid_shape}}
+      assert Routing.route(wiring, table, message) == {:error, {:table, :invalid_shape}}
+      assert Routing.route_one(wiring, table, message) == {:error, {:table, :invalid_shape}}
+    end
+
+    assert Routing.validate(nil, repro_table) == {:error, {:wiring, :invalid_shape}}
+  end
+
   test "Cure source audit and imported generic type rejection" do
     assert {:ok, env} = Cure.Compiler.check_source(@source, source_roots: @roots)
     audit = Cure.Audit.Ledger.audit_env(env)

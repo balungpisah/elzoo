@@ -66,7 +66,7 @@ defmodule Elzoo.Selection do
     end
   end
 
-  defp decode_candidates(candidates) when is_list(candidates) do
+  defp decode_candidates(candidates) when is_list(candidates) and length(candidates) >= 0 do
     Enum.reduce_while(Enum.with_index(candidates), {:ok, []}, fn {candidate, index},
                                                                  {:ok, checked} ->
       case decode_candidate(candidate) do
