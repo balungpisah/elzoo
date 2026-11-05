@@ -11,7 +11,7 @@ For ongoing task work, read from the repository root:
 1. CONTEXT.md for the locked vocabulary.
 2. GOAL.md and docs/development/01-workflow.md.
 3. docs/development/02-task-dag.md and the selected tasks/ELZ-*.md body.
-4. docs/capability-model.md and docs/capability-coverage.md,
+4. docs/capability-model.md, docs/capability-coverage.md and docs/operational-contracts.md,
    docs/adr/0005-ash-foundation-and-upstream-first.md, then LEDGER.md,
    docs/consuming.md, docs/architecture.md and relevant ADRs.
 5. The selected piece.json and README; mix.exs and the relevant pieces/, lib/
@@ -242,6 +242,13 @@ record upstream licenses separately. Evidence applies to the recorded source
 and named claims, not arbitrary downstream edits.
 
 ## Before expanding the catalogue
+
+Declare Telemetry, Config and Control applicability for every ready Piece in
+piece.json; follow docs/operational-contracts.md. Supported, inherited,
+not_applicable and planned are distinct. A static or per-call setting does not
+establish hot reconfiguration; an OTP stop does not establish business drain.
+Keep observations separate from durable control receipts and accounting data.
+No UI language or Gleam dependency is implied by these contracts.
 
 Use the admission/split rules in docs/capability-model.md. Choose a concrete
 coverage case or equally explicit new workflow, state its invariant and failure

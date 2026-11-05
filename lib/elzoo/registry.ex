@@ -3,6 +3,7 @@ defmodule Elzoo.Registry do
   @moduledoc "Development-time piece inventory, validation and dependency selection."
   @kinds ~w(owned adapter recipe)
   @grounding ~w(proof type test upstream assumption monitor)
+  @faces ~w(telemetry config control)
 
   def load!(root \\ File.cwd!()) do
     root = Path.expand(root)
@@ -70,9 +71,11 @@ defmodule Elzoo.Registry do
               "#{id} #{registry.providers[id]["version"]}"
             end)
 
-          "| [#{entry["id"]}](#{entry["directory"]}/README.md) | ready (subset) | #{entry["kind"]} | #{providers} | #{evidence} | #{cell(entry["contract"])} |"
+          operations = Enum.map_join(@faces, "; ", &"#{&1}: #{entry["operations"][&1]["status"]}")
+
+          "| [#{entry["id"]}](#{entry["directory"]}/README.md) | ready (subset) | #{entry["kind"]} | #{providers} | #{evidence} | #{operations} | #{cell(entry["contract"])} |"
         else
-          "| `#{entry["id"]}` | #{entry["status"]} | #{entry["disposition"]} (planned) | — | none claimed | #{cell(entry["reason"])} |"
+          "| `#{entry["id"]}` | #{entry["status"]} | #{entry["disposition"]} (planned) | — | none claimed | unassessed | #{cell(entry["reason"])} |"
         end
       end)
 
@@ -89,8 +92,13 @@ defmodule Elzoo.Registry do
     wrapper. Proof/type/test/upstream/assumption labels apply to individual
     claims in each piece.json. Assumptions are not evidence of correctness.
 
-    | Piece | Status | Implementation | Direct providers | Grounding kinds | Contract / remaining gap |
-    | --- | --- | --- | --- | --- | --- |
+    Operational applicability is declared in each piece.json: supported here,
+    inherited from a named provider/dependency, not_applicable (with reason),
+    or planned (not supplied). It does not expose a network endpoint or add
+    guarantees beyond the declared Contract. See docs/operational-contracts.md.
+
+    | Piece | Status | Implementation | Direct providers | Grounding kinds | Operational applicability | Contract / remaining gap |
+    | --- | --- | --- | --- | --- | --- | --- |
     #{Enum.join(rows, "\n")}
     """
   end
@@ -152,6 +160,8 @@ defmodule Elzoo.Registry do
       piece["providers"],
       &ensure!(Map.has_key?(providers, &1), "unknown provider #{&1}: #{id}")
     )
+
+    validate_operations!(piece)
 
     applications = Map.get(piece, "applications", [])
     ensure!(is_list(applications), "invalid OTP applications: #{id}")
@@ -236,6 +246,36 @@ defmodule Elzoo.Registry do
           :ok
       end
     end)
+  end
+
+  defp validate_operations!(piece) do
+    operations = piece["operations"]
+    id = piece["id"]
+
+    ensure!(
+      is_map(operations) and Enum.sort(Map.keys(operations)) == Enum.sort(@faces),
+      "declare telemetry/config/control applicability: #{id}"
+    )
+
+    for face <- @faces do
+      entry = operations[face]
+
+      ensure!(
+        is_map(entry) and entry["status"] in ~w(supported inherited not_applicable planned),
+        "invalid #{face} applicability: #{id}"
+      )
+
+      nonempty!(entry["contract"], "#{face} contract/reason: #{id}")
+
+      if entry["status"] == "inherited" do
+        ensure!(
+          entry["from"] in (piece["providers"] ++ piece["dependencies"]),
+          "undeclared #{face} inheritance: #{id}"
+        )
+      else
+        ensure!(!Map.has_key?(entry, "from"), "unexpected #{face} inheritance: #{id}")
+      end
+    end
   end
 
   # Parse declarations with the pinned Cure parser. Comments and string literals

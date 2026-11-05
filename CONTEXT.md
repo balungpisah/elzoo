@@ -61,3 +61,9 @@ explicit request, with its own identity and outcome.
 
 **Attempt**: One try to perform an operation within a Run; retries keep the
 operation's identity while distinguishing attempts.
+
+**Telemetry**: Declared execution observations such as events, measurements and traces.
+
+**Config**: Declared settings governing behavior, including their admissible values and change semantics.
+
+**Control**: Declared commands for lifecycle or operational state changes through an authorized interface.

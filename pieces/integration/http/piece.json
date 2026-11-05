@@ -31,5 +31,19 @@
       "reference": "https://hexdocs.pm/req/0.7.5/Req.html",
       "claim": "Relies on the pinned provider implementation and public contract."
     }
-  ]
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "This scoped callable has no independent running lifecycle; the invoking Unit or Assembly owns instrumentation."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "The caller supplies explicit per-call settings shown by the recipe; no persistent live configuration state is supplied."
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "This scoped callable has no independent runtime lifecycle to pause, drain or resume."
+    }
+  }
 }

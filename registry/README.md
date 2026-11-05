@@ -12,6 +12,9 @@ A ready `piece.json` has schema_version 1 and these fields:
 - `kind`: owned (handwritten), adapter (local translation), or recipe (direct
   upstream usage without a mandatory production wrapper);
 - `contract` and nonempty `limits`, stating the usable subset precisely;
+- `operations`: exactly telemetry/config/control, each with status and contract;
+  status is supported, inherited, not_applicable or planned. Inherited entries
+  also name `from`, a direct provider/dependency. See docs/operational-contracts.md;
 - `dependencies`: other ready piece IDs; cycles or planned dependencies fail;
 - `providers`: direct entries in providers.json; dependencies add their own;
 - optional `applications`: OTP application names the consumer must enable;
