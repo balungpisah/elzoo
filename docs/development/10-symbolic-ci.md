@@ -135,5 +135,8 @@ routing. Their earlier runs used GitHub-hosted Ubuntu; they are not symbolic
 validation. The replacement paths are `symbolic-check.yml` and
 `symbolic-gleam.yml`, allowing the PR to validate new self-hosted jobs while the
 old hosted definitions stay disabled. Never re-enable those legacy workflows.
-Their files are removed from main by the migration PR. Acceptance requires the
-new PR and merged-main jobs to report `runner_name: symbolic-elzoo`.
+Their files were removed from main by the migration PR. ELZ-019's PR and
+merged-main jobs both reported `runner_name: symbolic-elzoo`. With ELZ-020's
+role separation, PR and merged-main acceptance require backend jobs to report
+`symbolic-elzoo` and Gleam jobs to report `symbolic-elzoo-gleam`, with the
+matching exclusive role labels.
