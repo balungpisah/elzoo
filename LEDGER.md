@@ -84,7 +84,7 @@ guarantees beyond the declared Contract. See docs/operational-contracts.md.
 | `integration/search-data` | deferred | defer (planned) | — | none claimed | unassessed | Product adapters; no generic data engine in core |
 | `integration/secrets` | deferred | defer (planned) | — | none claimed | unassessed | Secret references, scope, rotation and redaction for C1/C3/C6/C7; use an established provider; secrets are not ordinary model context or log fields. |
 | `integration/sql` | planned | adapt (planned) | — | none claimed | unassessed | Ecto/Postgrex candidates; no database dependency in P0 |
-| `runtime/adapter` | planned | own (planned) | — | none claimed | unassessed | `T,X,U`; one adapter per external contract |
+| [runtime/adapter](pieces/runtime/adapter/README.md) | ready (subset) | adapter | elixir 1.20.4, otp 29.1.2 | test, upstream | telemetry: planned; config: supported; control: inherited | One synchronous Unit delivery with validated Envelope and Wiring, consumer-owned codecs and fixed neutral DeliveryResult translation. |
 | `runtime/faces` | planned | own (planned) | — | none claimed | unassessed | target contract; not seven mandatory APIs in P0 |
 | `runtime/host` | planned | adapt (planned) | — | none claimed | unassessed | OTP `Application`/supervision; no custom engine loop initially |
 | `runtime/os-isolation` | planned | adapt (planned) | — | none claimed | unassessed | OTP Port/OS process or service; BEAM process is not security isolation |

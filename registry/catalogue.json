@@ -528,8 +528,7 @@
       "summary": "Service/channel/process adapter boundary and result translation",
       "disposition": "own",
       "phase": "P0\u2192P1",
-      "status": "planned",
-      "reason": "`T,X,U`; one adapter per external contract"
+      "manifest": "pieces/runtime/adapter/piece.json"
     },
     {
       "id": "runtime/faces",
