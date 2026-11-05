@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "id": "runtime/host",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "recipe",
+  "providers": [
+    "elixir",
+    "otp"
+  ],
+  "dependencies": [
+    "runtime/unit",
+    "runtime/supervision"
+  ],
+  "contract": "Consumer-owned Application/Supervisor recipe starts identified volatile Units with one_for_one and OTP default restart intensity.",
+  "limits": [
+    "Restart loses state and dedup history; no business drain, hot reconfiguration, durability or custom restart policy."
+  ],
+  "files": [
+    "examples/elzoo/host.exs",
+    "test/elzoo/host_recipe_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/host_recipe_test.exs",
+      "claim": "Named finite executable scenarios, not universal proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Relies on pinned provider implementation and public contract; our boundary translation is tested, not the upstream implementation proved."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/",
+      "claim": "Relies on pinned provider implementation and public contract; our boundary translation is tested, not the upstream implementation proved."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "planned",
+      "contract": "No dedicated events or own logs emitted."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Construction-time child IDs and operator triples; fixed one_for_one strategy and OTP default intensity 3 restarts in 5 seconds.",
+      "evidence": [
+        "test/elzoo/host_recipe_test.exs"
+      ]
+    },
+    "control": {
+      "status": "inherited",
+      "from": "otp",
+      "contract": "OTP lifecycle only; no business drain or cancellation guarantee."
+    }
+  }
+}
