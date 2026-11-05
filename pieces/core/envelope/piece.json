@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "id": "core/envelope",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": [
+    "cure"
+  ],
+  "dependencies": [],
+  "contract": "Version-1 opaque-payload Envelope and shared delivery-result/error/attempt/deadline representation; no execution or payload validation.",
+  "limits": [
+    "No transport, deadline scheduling, classification, retry execution or durable/ exactly-once guarantee.",
+    "IDs and schemas are declarations, not authenticity, matching, portability or payload certificates."
+  ],
+  "files": [
+    "cure/elzoo/envelope.cure",
+    "lib/elzoo/envelope.ex",
+    "test/elzoo/envelope_test.exs",
+    "examples/shared.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "type",
+      "file": "cure/elzoo/envelope.cure",
+      "claim": "Pinned Cure compilation checks the consumed pure record/decision source before emitting BEAM; not payload or foreign implementation validation."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/envelope_test.exs",
+      "claim": "Named positive/negative envelope scenarios, boundary translation and source audit; finite executable evidence, not a universal proof."
+    },
+    {
+      "kind": "upstream",
+      "provider": "cure",
+      "reference": "https://github.com/cure-lang/cure-lang/tree/a004c335cc4e9f2203ba6f51fc31e8540b66378d",
+      "claim": "Relies on pinned Cure type checking, String/Option/Result/record erasure and structural equality; compiler soundness is not locally proved."
+    },
+    {
+      "kind": "assumption",
+      "claim": "Callers keep identities, dispatch observations and schema declarations truthful, enforce ingress/resource limits, validate payloads and own runtime/Adapter semantics."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "Pure declaration checks emit no observations. Invoking runtime/Adapter owns redaction, instrumentation and observer behavior."
+    },
+    "config": {
+      "status": "not_applicable",
+      "contract": "Intrinsic message/result fields are data; there are no ambient settings or selectable execution modes."
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No independent runtime lifecycle, dispatch or operational commands; control kind is data only."
+    }
+  }
+}

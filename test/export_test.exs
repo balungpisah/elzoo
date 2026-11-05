@@ -116,7 +116,8 @@ defmodule Elzoo.ExportTest do
     assert_cure_consumer(ctx, ids)
   end
 
-  for id <- ~w(core/operator core/port core/assembly delivery/idempotency) do
+  for id <-
+        ~w(core/operator core/port core/assembly core/envelope core/edge core/wiring delivery/idempotency) do
     @tag timeout: 120_000
     test "#{id} carries its own checks into an independent consumer", ctx do
       assert_cure_consumer(ctx, [unquote(id)])
@@ -184,6 +185,23 @@ defmodule Elzoo.ExportTest do
     end
     if :code.which(:"Cure.Elzoo.Adapter") != :non_existing do
       {:ok, _} = Elzoo.JsonBoundary.encode("runtime without compiler")
+    end
+    if :code.which(:"Cure.Elzoo.Envelope") != :non_existing do
+      {%{message: message}, _} = Code.eval_file("examples/shared.exs")
+      {:ok, record} = Elzoo.Envelope.decode(message)
+      ^message = Elzoo.Envelope.encode(record)
+    end
+    if :code.which(:"Cure.Elzoo.Edge") != :non_existing do
+      port = fn id, direction -> %{"id" => id, "direction" => direction, "schema_id" => "count", "schema_version" => 1} end
+      source = %{"unit_id" => "unit", "port" => port.("out", "output"), "delivery" => "fused", "required_route" => true}
+      target = %{"unit_id" => "unit", "port" => port.("in", "input"), "delivery" => "fused", "required_route" => true}
+      edge = %{"id" => "edge", "placement" => "fused", "source" => %{"unit_id" => "unit", "port_id" => "out"}, "target" => %{"unit_id" => "unit", "port_id" => "in"}}
+      {:ok, true} = Elzoo.Edge.connect(edge, source, target)
+    end
+    if :code.which(:"Cure.Elzoo.Wiring") != :non_existing do
+      {%{fused: wiring}, _} = Code.eval_file("examples/p0.exs")
+      {%{message: message}, _} = Code.eval_file("examples/shared.exs")
+      {:ok, ^message} = Elzoo.Wiring.accept(wiring, "ingest-dedup", message)
     end
     if Enum.any?(Application.started_applications(), fn {app, _, _} -> app == :cure end),
       do: raise("Cure started as a runtime application")

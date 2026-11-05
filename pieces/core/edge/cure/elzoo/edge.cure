@@ -1,0 +1,78 @@
+# SPDX-License-Identifier: Apache-2.0
+mod Elzoo.Edge
+  use Std.Result
+  use Elzoo.Port
+
+  local fn equal(left: a, right: a) -> Bool = Std.Builtin.struct_eq(a, left, right)
+
+  rec RouteReference
+    unit_id: String
+    port_id: String
+
+  rec PortBinding
+    unit_id: String
+    port: Elzoo.Port.Descriptor
+    delivery: String
+    required_route: Bool
+
+  rec EdgeDeclaration
+    id: String
+    placement: String
+    source: RouteReference
+    target: RouteReference
+
+  fn validate_reference(reference: RouteReference) -> Result(RouteReference, Atom) =
+    pickup
+      equal(reference.unit_id, "") or equal(reference.port_id, "") -> Error(:invalid_reference)
+      else -> Ok(reference)
+
+  fn validate_binding(binding: PortBinding) -> Result(PortBinding, Atom) =
+    match Elzoo.Port.validate(binding.port)
+      Error(reason) -> Error(reason)
+      Ok(_) ->
+        pickup
+          equal(binding.unit_id, "") -> Error(:invalid_unit_id)
+          not equal(binding.delivery, "fused") and not equal(binding.delivery, "volatile") -> Error(:invalid_delivery)
+          else -> Ok(binding)
+
+  fn validate(edge: EdgeDeclaration) -> Result(EdgeDeclaration, Atom) =
+    match validate_reference(edge.source)
+      Error(_) -> Error(:invalid_source_reference)
+      Ok(_) ->
+        match validate_reference(edge.target)
+          Error(_) -> Error(:invalid_target_reference)
+          Ok(_) ->
+            pickup
+              equal(edge.id, "") -> Error(:invalid_id)
+              not equal(edge.placement, "fused") and not equal(edge.placement, "hop") -> Error(:invalid_placement)
+              else -> Ok(edge)
+
+  local fn refers(reference: RouteReference, binding: PortBinding) -> Bool =
+    equal(reference.unit_id, binding.unit_id) and equal(reference.port_id, binding.port.id)
+
+  fn connect(edge: EdgeDeclaration, source: PortBinding, target: PortBinding) -> Result(Bool, Atom) =
+    match validate(edge)
+      Error(reason) -> Error(reason)
+      Ok(_) ->
+        match validate_binding(source)
+          Error(_) -> Error(:invalid_source)
+          Ok(_) ->
+            match validate_binding(target)
+              Error(_) -> Error(:invalid_target)
+              Ok(_) ->
+                pickup
+                  not refers(edge.source, source) or not refers(edge.target, target) -> Error(:reference_mismatch)
+                  else ->
+                    match Elzoo.Port.compatible(source.port, target.port)
+                      Error(reason) -> Error(reason)
+                      Ok(_) ->
+                        pickup
+                          equal(edge.placement, "fused") ->
+                            pickup
+                              equal(source.unit_id, target.unit_id) and equal(source.delivery, "fused") and equal(target.delivery, "fused") -> Ok(true)
+                              else -> Error(:placement_mismatch)
+                          else ->
+                            pickup
+                              not equal(source.unit_id, target.unit_id) and equal(source.delivery, "volatile") and equal(target.delivery, "volatile") -> Ok(true)
+                              else -> Error(:placement_mismatch)
+end

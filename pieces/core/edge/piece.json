@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "id": "core/edge",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": [
+    "cure"
+  ],
+  "dependencies": [
+    "core/port"
+  ],
+  "contract": "Named output-to-input schema bindings with same-unit fused or cross-unit volatile policies; declarations only.",
+  "limits": [
+    "No broker, durable hop, function binding or certification of live execution.",
+    "One binding cannot mix fused/hop policies. Required-kind/metadata policy is deferred and needs a new Piece ID to extend this exact binding."
+  ],
+  "files": [
+    "cure/elzoo/edge.cure",
+    "lib/elzoo/edge.ex",
+    "test/elzoo/edge_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "type",
+      "file": "cure/elzoo/edge.cure",
+      "claim": "Pinned Cure compilation checks the consumed pure record/decision source before emitting BEAM; not payload or foreign implementation validation."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/edge_test.exs",
+      "claim": "Named positive/negative edge scenarios, boundary translation and source audit; finite executable evidence, not a universal proof."
+    },
+    {
+      "kind": "upstream",
+      "provider": "cure",
+      "reference": "https://github.com/cure-lang/cure-lang/tree/a004c335cc4e9f2203ba6f51fc31e8540b66378d",
+      "claim": "Relies on pinned Cure type checking, String/Option/Result/record erasure and structural equality; compiler soundness is not locally proved."
+    },
+    {
+      "kind": "assumption",
+      "claim": "Callers keep identities, dispatch observations and schema declarations truthful, enforce ingress/resource limits, validate payloads and own runtime/Adapter semantics."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "Pure declaration checks emit no observations. Invoking runtime/Adapter owns redaction, instrumentation and observer behavior."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Per-check delivery (fused/volatile) and required_route (boolean) choices, required with no defaults. No ambient settings, hot updates or runtime rewiring.",
+      "evidence": [
+        "test/elzoo/edge_test.exs"
+      ]
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No independent runtime lifecycle, dispatch or operational commands; control kind is data only."
+    }
+  }
+}

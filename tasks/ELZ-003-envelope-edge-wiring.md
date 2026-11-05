@@ -16,11 +16,14 @@ claiming durable transport.
 - exclusively own fused/hop placement and Port delivery-policy fields, reusing
   ELZ-002 identity/direction/payload descriptors without redefining them;
 - exclusively own the common delivery-result/error/deadline data shape consumed
-  by ELZ-006 and ELZ-007: completed/rejected/timed-out outcomes, correlation,
+  by ELZ-006 and ELZ-007: completed/rejected/failed/timed-out/unknown outcomes,
+  dispatch certainty, request correlation and attempt identity,
   retryable/permanent/unavailable/unclassified error classes and deadline units.
   A timeout after dispatch means unknown external outcome, never proof of no
   Effect. This task defines vocabulary/representation, not retry decisions,
   timer scheduling, error-classification policy or persistence;
+- include an optional named reply endpoint and shared result/value schema
+  descriptors so ELZ-007 can use return addresses without private extensions;
 - publish examples of the common shape that both ELZ-006 and ELZ-007 import;
   they may not independently extend it without a reviewed contract task;
 - represent one legal unit/port/edge binding and one incompatible/required-route
