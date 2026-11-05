@@ -23,6 +23,18 @@ behavior. These repositories can change quickly, so links use exact revisions.
   [orchestration-loop tutorial](https://github.com/iii-hq/iii/blob/e3aa823e7eadc38e0161de1344b77de29a7d5e86/docs/tutorials/build-an-agent/orchestration-loop.mdx)
   is a placeholder at this revision; it was not treated as implementation evidence.
 
+- Raxol: `c1085f4b8bd4c426268fd6321c462de0df254aa9` (2026-11-02; Hex `raxol`
+  2.7.0 observed 2026-11-05). Reviewed 2026-11-06 for ELZ-021 as a design
+  reference for agent-harness safety boundaries. Read the harness
+  architecture/doctrine docs, the agentic-commerce, agent-framework, MCP and
+  gateway feature docs, and the moduledocs of the spend gate, payments ledger
+  and checkpoint, authorization engine and blast-radius gate, projection and
+  recovery, journal reader and hash chain, event boundary, command decoder,
+  steer, interrupt, stall detector, stream cadence, pairing and the golden-corpus
+  CI script. Nothing was executed or vendored. Terminal/LiveView renderers,
+  crypto payment protocols, swarm, memory and self-improvement subsystems were
+  read only far enough to classify them as out of scope.
+
 ## OpenMausBot: responsibilities worth separating
 
 | Observed source | What it exposes | Elzoo design implication |
@@ -59,6 +71,39 @@ grounding. It cannot claim to outperform either project without implementing
 and measuring comparable assemblies. We do not import iii's engine into the
 composition core or automatically permit agents to install runtime capabilities.
 
+## Raxol: safety boundaries of an agent harness
+
+Raxol is a multi-surface TEA/OTP runtime with an agent harness, chat gateways
+and crypto payment rails. It sits on a different layer from Ash (ADR-0005) and
+is not adopted: at 2.7.0 the umbrella declared 38 dependencies and the
+repository showed one dominant contributor (Hex and GitHub metadata, observed
+2026-11-05). The transferable material is its set of safety and consistency
+boundaries, which Elzoo expresses as Contracts and design tests, not as code.
+
+| Observed source | What it exposes | Elzoo design implication |
+| --- | --- | --- |
+| [spend gate](https://github.com/DROOdotFOO/raxol/blob/c1085f4b8bd4c426268fd6321c462de0df254aa9/packages/raxol_agent/lib/raxol/agent/spend_gate.ex) and [ledger](https://github.com/DROOdotFOO/raxol/blob/c1085f4b8bd4c426268fd6321c462de0df254aa9/packages/raxol_payments/lib/raxol/payments/ledger.ex) | Every spend-bearing call journals reserve → call → settle under one `cost_ref`; cap check and reservation are one step; the refund is derived from the (reservation, actual) pair; no reserve, no call; a missing policy fails closed in a release | `workflow/budget` admission record in ELZ-022: one-step check-and-reserve behind one interface, idempotent settle/release per reference, unit-tagged cost that is not money settlement. Answers the C2/C9 concurrent-reservation design tests |
+| [payments checkpoint](https://github.com/DROOdotFOO/raxol/blob/c1085f4b8bd4c426268fd6321c462de0df254aa9/packages/raxol_payments/lib/raxol/payments/checkpoint.ex) and [agentic commerce doc](https://github.com/DROOdotFOO/raxol/blob/c1085f4b8bd4c426268fd6321c462de0df254aa9/docs/features/AGENTIC_COMMERCE.md) | Persist the dispatched intent under a key derived from the logical request before signing/sending; on resume find and poll the existing intent instead of re-executing; a poll that never terminates is an explicit `stranded` outcome; a missing store is a hard error in production | New deferred handle `delivery/effect-intent` with its admission record in ELZ-023: only a definite failure re-arms dispatch; timeout is unknown and reconciled. It is the mechanism behind the C3/C6/C9 unknown-outcome design tests |
+| [authorization engine](https://github.com/DROOdotFOO/raxol/blob/c1085f4b8bd4c426268fd6321c462de0df254aa9/packages/raxol_agent/lib/raxol/agent/authorization/engine.ex) and [blast-radius gate](https://github.com/DROOdotFOO/raxol/blob/c1085f4b8bd4c426268fd6321c462de0df254aa9/packages/raxol_agent/lib/raxol/agent/authorization/blast_radius_gate.ex) | A pure fold over ordered policies yields ALLOW, ASK or DENY; DENY short-circuits, ALLOW merges permitted writes, ASK escrows writes and accumulates a prompt; approval is remembered within a scope (once, session, root) and live state rebuilds from decision events; write/destructive tools are locked by default and the doc warns a string denylist is incomplete | ELZ-024 keeps `domain/authorization` (reducer) and `workflow/approval` (consent bound to actor, resource, exact payload and policy version) as two Pieces; Ash policies cover direct allow/deny, so only the ASK/escrow/scope remainder is authored. Gate on typed effect class, not on text |
+| [projection](https://github.com/DROOdotFOO/raxol/blob/c1085f4b8bd4c426268fd6321c462de0df254aa9/lib/raxol/harness/projection.ex) and [recovery](https://github.com/DROOdotFOO/raxol/blob/c1085f4b8bd4c426268fd6321c462de0df254aa9/lib/raxol/harness/projection/recovery.ex) | The journal is the only truth and every surface is a disposable fold; seek-to-offset is a refold of a prefix; duplicate and out-of-order ids are dropped; a forward gap keeps survivors but marks the model damaged and emits telemetry; durable events are journaled before any surface sees them and the one ephemeral event must be reconstructable from its durable completion | ELZ-009 `state/event-log` Contract text and design tests: deterministic prefix refold, explicit duplicate/gap policy, distinct durable and reconstructable-ephemeral tiers. Replay and time-travel need no extra Piece |
+| [journal reader](https://github.com/DROOdotFOO/raxol/blob/c1085f4b8bd4c426268fd6321c462de0df254aa9/packages/raxol_agent/lib/raxol/agent/journal/file_store/reader.ex) and [hash chain](https://github.com/DROOdotFOO/raxol/blob/c1085f4b8bd4c426268fd6321c462de0df254aa9/packages/raxol_agent/lib/raxol/agent/journal/chain.ex) | A parse failure on the final record is a torn tail: tolerated in memory, repaired only by the owning writer at boot; a failure anywhere else is damaged with the longest valid prefix and nothing deleted; readers never truncate a live journal; an optional per-record hash chain is defined over canonical JSON so any decoder can recompute it | ELZ-009 design tests: torn tail versus interior corruption, reads never write, longest valid prefix. Integrity chaining is a recorded decision for `state/audit-log`, not a default implementation or a new file format |
+| [event boundary](https://github.com/DROOdotFOO/raxol/blob/c1085f4b8bd4c426268fd6321c462de0df254aa9/lib/raxol/harness/event_boundary.ex) and [command decoder](https://github.com/DROOdotFOO/raxol/blob/c1085f4b8bd4c426268fd6321c462de0df254aa9/packages/raxol_agent/lib/raxol/agent/command.ex) | Anything crossing an uncontrolled process boundary is untrusted input: no atom minted from a wire string, unknown fields dropped, ambiguous provenance collapses to tainted, a field deciding durability is rejected rather than guessed; unknown kinds render as opaque instead of failing the surface | ELZ-011 Adapter design tests for `runtime/adapter` and `core/envelope` consumers: total, idempotent normalization that never raises trust. Concrete form of "model output is an untrusted proposal" |
+| [golden-corpus check](https://github.com/DROOdotFOO/raxol/blob/c1085f4b8bd4c426268fd6321c462de0df254aa9/scripts/check_journal_goldens.exs) | Each journal schema version freezes a corpus written while it was current; CI fails when the current version has no frozen corpus, a pinned corpus changed byte-for-byte or an unpinned corpus exists; snapshot bytes depend on content only | ELZ-010 `state/schema-evolution` evidence rule: upcasters are tested against corpora an older writer actually wrote, never against fixtures regenerated by the current writer |
+| [steer](https://github.com/DROOdotFOO/raxol/blob/c1085f4b8bd4c426268fd6321c462de0df254aa9/packages/raxol_agent/lib/raxol/agent/steer.ex), [interrupt](https://github.com/DROOdotFOO/raxol/blob/c1085f4b8bd4c426268fd6321c462de0df254aa9/packages/raxol_agent/lib/raxol/agent/interrupt.ex) and [stall detector](https://github.com/DROOdotFOO/raxol/blob/c1085f4b8bd4c426268fd6321c462de0df254aa9/lib/raxol/harness/stall_detector.ex) | Steer is a pure decision on an expected turn id plus a client message id, with caller serialization named as an obligation; interrupt escalates cooperative signal → bounded wait → OS process-group kill, each stage a journaled event with OS-level death confirmation; the stall detector takes observations in and verdicts out, owns no clock, keeps its escalation budget separate from transport retries and never auto-recovers | `workflow/run` cancellation and `integration/agent-runner` design tests: a redirect names the attempt it targets and a stale target changes nothing; cancellation stages are observable records; liveness verdicts are pure and distinct from retry policy. Shell work, no Cure proof demanded |
+| [stream cadence](https://github.com/DROOdotFOO/raxol/blob/c1085f4b8bd4c426268fd6321c462de0df254aa9/lib/raxol/harness/stream_cadence.ex) | Render cadence sheds newest-wins deltas above a watermark instead of pushing backpressure to the network reader; documented as sound only because deltas are reconstructable from the durable completion event | ELZ-006 `delivery/backpressure`: shedding is an admissible policy only where the Contract shows the dropped items are reconstructable; otherwise it is silent loss |
+| [pairing](https://github.com/DROOdotFOO/raxol/blob/c1085f4b8bd4c426268fd6321c462de0df254aa9/packages/raxol_gateway/lib/raxol/gateway/pairing.ex) and [session router](https://github.com/DROOdotFOO/raxol/blob/c1085f4b8bd4c426268fd6321c462de0df254aa9/packages/raxol_gateway/lib/raxol/gateway/session_router.ex) | Pairing admits by user-id string across platforms and documents that platform id namespaces are unrelated; handoff rebinds a conversation to another route while history follows the conversation id | Negative example for `domain/principal` (a chat platform id and an email are not one principal) and a positive one for `delivery/routing`: conversation identity is not the delivery route |
+
+Not taken: the component-tree-to-MCP-tool projection and focus lens (UI-bound;
+AshAi already exposes actions as tools in the ELZ-015 spike, and tool
+discovery never itself authorizes execution), the x402/MPP/Permit2/Xochi
+payment protocols, ZKSAR tiers and mandate envelopes (protocol-specific), the
+libcluster/CRDT swarm (`state/crdt` stays deferred; take an upstream CRDT
+library when an Assembly needs one), memory and self-improvement (product-level
+model behaviour), recording/replay and time-travel debugging (consequences of
+the pure fold above) and the terminal, LiveView, SSH, speech and Telegram
+surfaces. Raxol's own split of a payments ledger from an agent spend gate is a
+reason to carry one budget Piece with unit tags rather than two copies.
+
 ## License boundaries
 
 OpenMausBot's [LICENSING.md](https://github.com/milind-soni/OpenMausBot/blob/e7317a7fd23495ce6cb159279aa0ef9b8f086b06/LICENSING.md) says its ordinary code is
@@ -67,6 +112,8 @@ material. The inspected server/runtime files are outside enterprise/.
 The iii [license table](https://github.com/iii-hq/iii/blob/e3aa823e7eadc38e0161de1344b77de29a7d5e86/README.md#license) and [engine license](https://github.com/iii-hq/iii/blob/e3aa823e7eadc38e0161de1344b77de29a7d5e86/engine/LICENSE)
 distinguish the Elastic License 2.0 engine/CLI from Apache-2.0 SDK/docs.
 The workers READMEs identify Apache-2.0 for the referenced packages.
+Raxol's [LICENSE.md](https://github.com/DROOdotFOO/raxol/blob/c1085f4b8bd4c426268fd6321c462de0df254aa9/LICENSE.md) and mix.exs declare MIT at the
+pinned revision; only prose observations were taken.
 These are design references; none has been vendored or relicensed as Elzoo code.
 Any future adoption must check the exact package/file licenses and notices.
 

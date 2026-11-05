@@ -32,6 +32,13 @@ case and distinct metering, pricing and model-routing handles before any such
 implementation task. Allocation, usage, price, provider cost and settlement are
 separate responsibilities.
 
+ELZ-021 records the Raxol reference study and admits three demand-led task
+bodies: ELZ-022 (budget reservation and settlement), ELZ-023 (dispatched-effect
+intent with unknown-outcome recovery, the new deferred `delivery/effect-intent`
+handle) and ELZ-024 (authorization decisions and exact-action approval). It
+also adds design tests to ELZ-006/009/010/011. No ready source, dependency or
+build order is added.
+
 ## Dispositions and grounding
 
 | Disposition | Meaning | Who owns the risk |

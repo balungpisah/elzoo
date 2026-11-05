@@ -19,7 +19,21 @@ when an existing provider is suitable.
   version, assumptions and failure behavior;
 - implement the smallest Adapter boundary and test double;
 - exercise crash/restart/replay, duplicate and partial-commit cases;
-- specify corruption, truncation and unavailable-storage outcomes.
+- specify corruption, truncation and unavailable-storage outcomes;
+- specify the read model as a deterministic fold over the log: refolding
+  any prefix yields the same model, duplicate and out-of-order records are
+  dropped explicitly, and a forward gap keeps surviving records but marks
+  the model damaged and emits telemetry;
+- distinguish a torn final record (crash mid-append; tolerated on read and
+  repaired only by the owning writer at its own start) from interior
+  corruption (fail closed with the longest valid prefix and a damaged
+  result); readers never truncate or repair a live log;
+- keep durable records and reconstructable ephemeral updates in distinct
+  tiers; no durable state may depend on an ephemeral update having been
+  observed;
+- record whether an append-time hash chain over canonical records is needed
+  for state/audit-log integrity; a decision, not a default implementation
+  (ELZ-021 reference study).
 
 ## Acceptance
 
@@ -29,6 +43,10 @@ when an existing provider is suitable.
       committed item twice.
 - [ ] Acknowledgement occurs only at the documented commit point.
 - [ ] Failure/corruption/unavailable cases have explicit results and tests.
+- [ ] Interior corruption yields the longest valid prefix and a damaged
+      result; a torn tail is recovered without any reader-side write.
+- [ ] Refolding a prefix is deterministic and duplicate records do not
+      change the model (selected replay law or listed test).
 - [ ] mix check runs selected replay law(s), runtime tests and negative controls.
 - [ ] Contract labels provider guarantees as upstream; no local test is called
       proof of disk/replication semantics.

@@ -31,6 +31,11 @@ rebuild or re-open the harness merely because later tasks need it. Report a
 new concrete defect as new work, retaining the baseline's evidence and limits.
 See [bootstrap validation](07-bootstrap-validation.md).
 
+ELZ-021 decomposes the Raxol reference into admission records. ELZ-022,
+ELZ-023 and ELZ-024 are demand-led policy tasks: each depends only on the
+foundation tasks listed in its body and none is inserted into the P0–P3
+serial chain. Dispatch one when an Assembly needs it, not to fill the queue.
+
 The first batch follows the catalogue phases:
 
     P0: ELZ-001 -> ELZ-013 -> ELZ-014 -> ELZ-015 -> ELZ-016 -> ELZ-002 -> ELZ-003 -> ELZ-004
@@ -39,6 +44,9 @@ The first batch follows the catalogue phases:
         ELZ-003 -> ELZ-007 -------------> ELZ-008
     P2: ELZ-008 -> ELZ-009 -> ELZ-010
     P3: ELZ-010 -> ELZ-011 -> ELZ-012
+    Demand-led: ELZ-003, ELZ-004 -> ELZ-022
+                ELZ-006, ELZ-009 -> ELZ-023
+                ELZ-003, ELZ-015 -> ELZ-024
 
 After ELZ-003, ELZ-007 can run alongside ELZ-004 and the ELZ-005/006 chain.
 ELZ-003 owns the shared delivery-result/error/deadline schema before this fork.
@@ -55,20 +63,20 @@ Detailed edges (direct dependencies; transitive reachability is omitted):
 
     ELZ-001 -> ELZ-002, ELZ-003, ELZ-013
     ELZ-013 -> ELZ-002, ELZ-014
-    ELZ-014 -> ELZ-002, ELZ-015, ELZ-017
-    ELZ-015 -> ELZ-002, ELZ-016
+    ELZ-014 -> ELZ-002, ELZ-015, ELZ-017, ELZ-021
+    ELZ-015 -> ELZ-002, ELZ-016, ELZ-021, ELZ-024
     ELZ-016 -> ELZ-002
     ELZ-017 -> ELZ-018
-    ELZ-018 -> ELZ-002, ELZ-019
+    ELZ-018 -> ELZ-002, ELZ-019, ELZ-021
     ELZ-019 -> ELZ-020
     ELZ-002 -> ELZ-003, ELZ-004, ELZ-007
-    ELZ-003 -> ELZ-004, ELZ-005, ELZ-007
-    ELZ-004 -> ELZ-005, ELZ-006, ELZ-008, ELZ-011
+    ELZ-003 -> ELZ-004, ELZ-005, ELZ-007, ELZ-022, ELZ-024
+    ELZ-004 -> ELZ-005, ELZ-006, ELZ-008, ELZ-011, ELZ-022
     ELZ-005 -> ELZ-006, ELZ-008
-    ELZ-006 -> ELZ-008, ELZ-011
+    ELZ-006 -> ELZ-008, ELZ-011, ELZ-023
     ELZ-007 -> ELZ-008
     ELZ-008 -> ELZ-009, ELZ-010
-    ELZ-009 -> ELZ-010
+    ELZ-009 -> ELZ-010, ELZ-023
     ELZ-010 -> ELZ-011
     ELZ-011 -> ELZ-012
 
@@ -94,6 +102,10 @@ Detailed edges (direct dependencies; transitive reachability is omitted):
 | ELZ-018 | P0 | Pre-dispatch contract/evidence hardening | ELZ-017 | Explicit schema ownership, evolution rules and guards; unlock ELZ-002 |
 | ELZ-019 | P0 | Development CI execution | ELZ-018 | symbolic-only runner, reproducible job containers and no hosted fallback |
 | ELZ-020 | P0 | Development CI capacity | ELZ-019 | Measured BEAM scheduler settings and runner concurrency decision |
+| ELZ-021 | P0 | Raxol reference study and admission records | ELZ-014, ELZ-015, ELZ-018 | Pinned design observations, three demand-led task bodies, design tests on ELZ-006/009/010/011; no new runtime |
+| ELZ-022 | demand-led | workflow/budget | ELZ-003, ELZ-004 | One-step reserve/settle budget Contract with concurrent-admission evidence |
+| ELZ-023 | demand-led | delivery/effect-intent, consumes state/checkpoint | ELZ-006, ELZ-009 | Checkpoint-before-dispatch lifecycle; timeout is unknown, never a blind retry |
+| ELZ-024 | demand-led | domain/authorization, workflow/approval | ELZ-003, ELZ-015 | ALLOW/ASK/DENY reducer and payload-bound approval as two Pieces |
 
 This DAG deliberately does not promise all historical families. If an
 Assembly later needs SQL, a broker, replication, CRDTs, AI or another
@@ -133,3 +145,4 @@ stable even when issue numbers differ.
 | ELZ-018 | [23](https://github.com/balungpisah/elzoo/issues/23) |
 | ELZ-019 | [26](https://github.com/balungpisah/elzoo/issues/26) |
 | ELZ-020 | [28](https://github.com/balungpisah/elzoo/issues/28) |
+| ELZ-021 | [33](https://github.com/balungpisah/elzoo/issues/33) |

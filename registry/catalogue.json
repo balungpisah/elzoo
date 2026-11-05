@@ -201,6 +201,14 @@
       "manifest": "pieces/delivery/idempotency/piece.json"
     },
     {
+      "id": "delivery/effect-intent",
+      "summary": "Dispatched external effect intent and unknown-outcome recovery",
+      "disposition": "own",
+      "phase": "demand-led",
+      "status": "deferred",
+      "reason": "Checkpoint-before-dispatch lifecycle for C3/C6/C9: only a definite failure re-arms dispatch; a timeout is unknown and reconciled, never retried blindly. ELZ-023 carries the admission record and needs the ELZ-009 store; no implementation."
+    },
+    {
       "id": "delivery/model-routing",
       "summary": "Select eligible model providers under explicit policy",
       "disposition": "defer",
@@ -289,7 +297,7 @@
       "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
-      "reason": "Principal, tenant, resource, action and policy version for C1/C3/C6; compare application/provider policy libraries; no security guarantee claimed. ELZ-015 evaluates Ash policies in a volatile spike; production identity/concurrency and optional Cedar integration remain unadopted."
+      "reason": "Principal, tenant, resource, action and policy version for C1/C3/C6; compare application/provider policy libraries; no security guarantee claimed. ELZ-015 evaluates Ash policies in a volatile spike; production identity/concurrency and optional Cedar integration remain unadopted. ELZ-024 carries the admission record for the decision reducer."
     },
     {
       "id": "domain/entitlement",
@@ -337,7 +345,7 @@
       "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
-      "reason": "Authorize/capture/refund/unknown-outcome transitions for C3; provider-specific semantics and reconciliation before retries. No provider adopted."
+      "reason": "Authorize/capture/refund/unknown-outcome transitions for C3; provider-specific semantics and reconciliation before retries. No provider adopted. Unknown-outcome recovery mechanics are shared with delivery/effect-intent (ELZ-023)."
     },
     {
       "id": "domain/policy-rules",
@@ -682,7 +690,7 @@
       "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
-      "reason": "Actor/resource/payload/policy-bound decision with expiry or revocation contract for C1/C3/C6; authorization remains separate; no durable approval system implemented."
+      "reason": "Actor/resource/payload/policy-bound decision with expiry or revocation contract for C1/C3/C6; authorization remains separate; no durable approval system implemented. ELZ-024 carries the admission record for the consent half."
     },
     {
       "id": "workflow/budget",
@@ -690,7 +698,7 @@
       "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
-      "reason": "Admission/reservation/settlement of unit-tagged costs for C2/C6/C7; shared authority under concurrency, explicit estimate versus observed cost. Not a financial ledger."
+      "reason": "Admission/reservation/settlement of unit-tagged costs for C2/C6/C7; shared authority under concurrency, explicit estimate versus observed cost. Not a financial ledger. ELZ-022 carries the admission record."
     },
     {
       "id": "workflow/build-graph",
