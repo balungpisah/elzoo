@@ -72,6 +72,12 @@ The following were observed against the pinned release:
   totality requirement clear.
 * A separately compiled module imports the existing Cure module through its
   source root; the consumer must not duplicate operator bodies.
+* New decision code uses `pickup`: the pinned source-to-BEAM path rejected
+  legacy `if ... do ... end` with `unsupported_block` in the ELZ-003 checks.
+* An imported qualified generic used only in an argument needed an explicit
+  erased binder: `fn accept({a: Type}, message: Elzoo.Envelope.EnvelopeMessage(a), ...)`.
+  Without it `a` remained unresolved; the Wiring consumer checks both the
+  accepted `Int` specialization and a wrong-message compile rejection.
 
 These are authoring constraints, not reasons to weaken a contract. Keep the
 smallest explicit annotation that disambiguates the intended type and add a

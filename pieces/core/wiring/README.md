@@ -17,6 +17,12 @@ Every binding with `required_route: true` must have at least one incident edge
 in the direction core/port declares (outgoing for output, incoming for input).
 Optional unrouted ports are allowed. Success returns `{:ok, original_map}`;
 errors name the declaration position/ID and a finite reason, never a payload.
+Error order: unit/port declarations in list order, then edges in list order,
+then required routes sorted by `(unit_id, port_id)`. An invalid edge reports
+its edge error before any missing-route check. An intra-unit compatible edge
+satisfies its incident ports; recursive execution and graph cycles are not
+certified. Fan-in from different outputs and fan-out to different inputs are
+legal declarations only; repeated endpoint pairs are not.
 
 `accept/3` takes wiring, a caller-selected edge ID and an Envelope map. It
 validates the declarations and envelope, requires an existing route, matches
@@ -42,6 +48,7 @@ or deterministic selection guarantee. Reuse Enum/Map for finite structural
 traversal; Cure owns edge decisions and the required-route predicate. Kind and
 schema descriptors do not inspect live payloads. A successful declaration has
 no effect on OTP supervision or mailboxes.
+Selecting core/wiring includes core/envelope because accept/3 checks envelopes.
 
 Type: Cure checks the consumed required-route decision. Tests exercise named
 legal bindings, required-route/schema/identity negatives, examples and copied

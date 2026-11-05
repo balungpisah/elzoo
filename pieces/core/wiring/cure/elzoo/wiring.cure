@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: Apache-2.0
+mod Elzoo.Wiring
+  use Std.Result
+  use Elzoo.Edge
+  use Elzoo.Envelope
+
+  local fn equal(left: a, right: a) -> Bool = Std.Builtin.struct_eq(a, left, right)
+
+  fn require_route(required: Bool, connected: Bool) -> Result(Bool, Atom) =
+    pickup
+      required and not connected -> Error(:required_route_missing)
+      else -> Ok(true)
+
+  fn accept({a: Type}, message: Elzoo.Envelope.EnvelopeMessage(a), source: Elzoo.Edge.PortBinding) -> Result(Bool, Atom) =
+    pickup
+      not equal(message.producer_unit, source.unit_id) or not equal(message.producer_port, source.port.id) -> Error(:producer_mismatch)
+      not equal(message.schema_id, source.port.schema_id) -> Error(:schema_mismatch)
+      message.schema_version != source.port.schema_version -> Error(:version_mismatch)
+      else -> Ok(true)
+end

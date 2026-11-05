@@ -1,0 +1,119 @@
+# SPDX-License-Identifier: Apache-2.0
+mod Elzoo.Envelope
+  use Std.Option
+  use Std.Result
+
+  local fn equal(left: a, right: a) -> Bool = Std.Builtin.struct_eq(a, left, right)
+
+  rec EnvelopeMessage(a)
+    version: Int
+    message_id: String
+    schema_id: String
+    schema_version: Int
+    kind: String
+    producer_unit: String
+    producer_port: String
+    payload: a
+    reply_to: Option(ReplyEndpoint)
+    attempt_id: Option(String)
+    correlation_id: Option(String)
+    causation_id: Option(String)
+    idempotency_key: Option(String)
+    trace_id: Option(String)
+    sequence: Option(Int)
+    deadline_unix_ms: Option(Int)
+
+  rec DeliveryResult(a)
+    version: Int
+    message_id: String
+    correlation_id: String
+    outcome: String
+    dispatch: String
+    value: Option(a)
+    value_schema_id: Option(String)
+    value_schema_version: Option(Int)
+    error_class: Option(String)
+    attempt_id: Option(String)
+    deadline_unix_ms: Option(Int)
+
+  rec ReplyEndpoint
+    unit_id: String
+    port_id: String
+
+  local fn optional_endpoint(value: Option(ReplyEndpoint)) -> Bool =
+    match value
+      None() -> true
+      Some(endpoint) -> not equal(endpoint.unit_id, "") and not equal(endpoint.port_id, "")
+
+  local fn optional_text(value: Option(String)) -> Bool =
+    match value
+      None() -> true
+      Some(text) -> not equal(text, "")
+
+  local fn optional_number(value: Option(Int)) -> Bool =
+    match value
+      None() -> true
+      Some(number) -> number >= 0
+
+  local fn present(value: Option(a)) -> Bool =
+    match value
+      None() -> false
+      Some(_) -> true
+
+  local fn valid_error(value: Option(String)) -> Bool =
+    match value
+      None() -> false
+      Some(label) -> equal(label, "retryable") or equal(label, "permanent") or equal(label, "unavailable") or equal(label, "unclassified")
+
+  local fn valid_value_schema(id: Option(String), version: Option(Int)) -> Bool =
+    match id
+      None() -> false
+      Some(name) ->
+        match version
+          None() -> false
+          Some(number) -> not equal(name, "") and number > 0
+
+  fn validate(message: EnvelopeMessage(a)) -> Result(EnvelopeMessage(a), Atom) =
+    pickup
+      message.version != 1 -> Error(:invalid_version)
+      equal(message.message_id, "") -> Error(:invalid_message_id)
+      equal(message.schema_id, "") -> Error(:invalid_schema_id)
+      message.schema_version < 1 -> Error(:invalid_schema_version)
+      not equal(message.kind, "command") and not equal(message.kind, "event") and not equal(message.kind, "reply") and not equal(message.kind, "error") and not equal(message.kind, "control") -> Error(:invalid_kind)
+      equal(message.producer_unit, "") or equal(message.producer_port, "") -> Error(:invalid_producer)
+      not optional_endpoint(message.reply_to) -> Error(:invalid_reply_to)
+      not optional_text(message.attempt_id) -> Error(:invalid_attempt_id)
+      not optional_text(message.correlation_id) or not optional_text(message.causation_id) or not optional_text(message.idempotency_key) or not optional_text(message.trace_id) -> Error(:invalid_metadata)
+      not optional_number(message.sequence) -> Error(:invalid_sequence)
+      not optional_number(message.deadline_unix_ms) -> Error(:invalid_deadline)
+      else -> Ok(message)
+
+  fn validate_result(result: DeliveryResult(a)) -> Result(DeliveryResult(a), Atom) =
+    pickup
+      result.version != 1 -> Error(:invalid_version)
+      equal(result.message_id, "") -> Error(:invalid_message_id)
+      equal(result.correlation_id, "") -> Error(:invalid_correlation_id)
+      not optional_text(result.attempt_id) -> Error(:invalid_attempt_id)
+      not optional_number(result.deadline_unix_ms) -> Error(:invalid_deadline)
+      equal(result.outcome, "completed") ->
+        pickup
+          equal(result.dispatch, "dispatched") and present(result.value) and valid_value_schema(result.value_schema_id, result.value_schema_version) and not present(result.error_class) -> Ok(result)
+          else -> Error(:invalid_result_fields)
+      equal(result.outcome, "rejected") ->
+        pickup
+          equal(result.dispatch, "not_dispatched") and not present(result.value) and not present(result.value_schema_id) and not present(result.value_schema_version) and valid_error(result.error_class) -> Ok(result)
+          else -> Error(:invalid_result_fields)
+      equal(result.outcome, "timed_out") ->
+        pickup
+          (equal(result.dispatch, "dispatched") or equal(result.dispatch, "not_dispatched") or equal(result.dispatch, "unknown")) and not present(result.value) and not present(result.value_schema_id) and not present(result.value_schema_version) and valid_error(result.error_class) -> Ok(result)
+          else -> Error(:invalid_result_fields)
+      equal(result.outcome, "failed") ->
+        pickup
+          equal(result.dispatch, "dispatched") and not present(result.value) and not present(result.value_schema_id) and not present(result.value_schema_version) and valid_error(result.error_class) -> Ok(result)
+          else -> Error(:invalid_result_fields)
+      equal(result.outcome, "unknown") ->
+        pickup
+          (equal(result.dispatch, "dispatched") or equal(result.dispatch, "unknown")) and not present(result.value) and not present(result.value_schema_id) and not present(result.value_schema_version) and valid_error(result.error_class) -> Ok(result)
+          else -> Error(:invalid_result_fields)
+      else -> Error(:invalid_outcome)
+end

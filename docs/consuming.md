@@ -60,6 +60,9 @@ Two libraries cannot safely embed different copies under those same names.
 A library redistributing copied source must rename all modules, Cure imports,
 Elixir MFA/atom references and tests into its own namespace before shipping.
 Cure records also erase to bare tags such as `:Transition` and `:Joined`;
+Envelope/Edge add `:EnvelopeMessage`, `:ReplyEndpoint`, `:DeliveryResult`,
+`:RouteReference`, `:PortBinding` and `:EdgeDeclaration`. These are distinct
+from the existing Operator/Port/Assembly tags, not namespaced at runtime;
 module renaming alone does not distinguish these data shapes. Explicitly rename
 public record tags or translate them at an Adapter and test the boundary.
 The copier does not perform or certify this renaming. Loading two different
@@ -76,8 +79,12 @@ needs a process in `Elzoo.Unit` or your own OTP shell. Your application chooses
 its Supervisor tree, effects, delivery policy and persistence. Named/versioned descriptor validation is available through `core/port` and
 `core/assembly`; select `core/assembly` for a reusable outer interface. Cure
 function types and declared schema compatibility are separate checks, neither
-validates arbitrary foreign runtime payloads. ELZ-003 still owns delivery and
-wiring. Source dependency closure is not semantic compatibility checking.
+validates arbitrary foreign runtime payloads. Select `core/envelope` for the
+shared message/result/deadline data, `core/edge` for fused/volatile binding
+checks, or `core/wiring` for local named declarations and explicit route
+matching. None executes delivery, selects a route, validates payloads or
+certifies a full graph. Source dependency closure is not semantic compatibility
+checking.
 
 Use `Jason`, `Req`, `Enum`, `Stream`, `Supervisor`, `Registry`, timers and
 `:crypto` directly where their contracts fit. Select the optional

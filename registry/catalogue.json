@@ -100,8 +100,7 @@
       "summary": "Fused versus hop placement and delivery class",
       "disposition": "own",
       "phase": "P0",
-      "status": "planned",
-      "reason": "`X,A`; no exactly-once promise"
+      "manifest": "pieces/core/edge/piece.json"
     },
     {
       "id": "core/effect",
@@ -116,8 +115,7 @@
       "summary": "Message/command/document/event envelope, correlation, return address, format indicator",
       "disposition": "own",
       "phase": "P0\u2192P1",
-      "status": "planned",
-      "reason": "`T,X`; bootstrap is minimal, canonical encoding/schema compatibility is `ELZ-003`"
+      "manifest": "pieces/core/envelope/piece.json"
     },
     {
       "id": "core/grounding",
@@ -146,8 +144,7 @@
       "summary": "Unit/port/edge declaration, compatibility and required-route checks",
       "disposition": "own",
       "phase": "P0\u2192P1",
-      "status": "planned",
-      "reason": "`T,X`; ELZ-003 makes minimal graph validation executable; P1 extends it for resilience; no Zoo wiring CLI"
+      "manifest": "pieces/core/wiring/piece.json"
     },
     {
       "id": "delivery/aggregation",

@@ -10,6 +10,8 @@ Pure named endpoint, placement and delivery-policy checks. Depends on
 `unit_id` is nonempty UTF-8 text; `port` is the unchanged four-key core/port
 descriptor; `delivery` is `fused` or `volatile`; `required_route` is a boolean.
 It is an endpoint's declared policy, not an addition to the stable Port map.
+`decode_port/2` takes the owning unit ID and exact three-key
+`{port, delivery, required_route}` declaration, so Wiring shares this decoder.
 
 `decode/1` validates an exact edge map `{id, placement, source, target}`.
 `id` is nonempty UTF-8 text, `placement` is `fused` or `hop`; each endpoint
@@ -28,6 +30,10 @@ core/port for output-to-input schema ID/version compatibility. It returns
 These two policies are the only accepted values. Durable/at-least-once policy
 requires a different Contract and evidence; it is not silently accepted as a
 string. Fused and volatile bindings cannot be connected interchangeably.
+This couples placement to a binding: one binding cannot mix fused and hop
+edges. Replacing placement uses a separate declaration, not runtime rewiring.
+An intra-unit output-to-input edge declares a direct call seam, not recursive
+re-entry into a Unit. Cycle/feedback meaning is not checked or executed here.
 No calls or sends happen during validation, so success does not establish
 execution placement or certify the operator implementation. An OTP mailbox
 can lose queued work on process failure. Cross-sender ordering, crash gaps,
@@ -43,3 +49,8 @@ Telemetry/Control are not applicable: no I/O or lifecycle. Config is supported
 only as per-check `delivery` and `required_route` declaration choices: no
 defaults, only the values above, no ambient/hot reconfiguration or runtime
 rewiring. Edges and operand IDs themselves are data.
+
+Per-port required kinds/metadata are deliberately deferred. The generic shape
+checker accepts each documented optional Envelope field as absent; products
+must enforce stronger requirements separately. Adding such a policy to this
+exact binding Contract requires a new Piece ID and explicit consumer migration.
