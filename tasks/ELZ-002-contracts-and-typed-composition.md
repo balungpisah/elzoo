@@ -2,7 +2,7 @@
 
 - Phase: P0 foundation
 - Catalogue IDs: core/operator, core/port, core/assembly
-- Dependencies: ELZ-001
+- Dependencies: ELZ-001, ELZ-013
 
 ## Outcome
 
@@ -12,7 +12,7 @@ runtime execution. State ownership, delivery metadata and unspecified behavior
 in a Contract.
 
 The bootstrap already has generic `compose` and nested Cure operators with
-typed negative controls in `cure/core.cure`. Extend that working baseline into
+typed negative controls in `pieces/core/operator/` and `pieces/assembly/ingest-dedup-accumulate/`. Extend that working baseline into
 the reusable Contract/Port boundary; do not recreate the harness or exemplar.
 
 ## Scope

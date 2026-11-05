@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: Apache-2.0
+mod Elzoo.Idempotency
+  use Std.Option
+  use Elzoo.Composition
+
+  rec Message
+    sender: Int
+    incarnation: Int
+    sequence: Int
+    value: Int
+
+  # Exact key history is deliberately unbounded; this is not Zoo's windowed receiver.
+  fn same_key(left: Message, right: Message) -> Bool =
+    left.sender == right.sender and left.incarnation == right.incarnation and left.sequence == right.sequence
+
+  fn seen(history: List(Message), input: Message) -> Bool =
+    match history
+      [] -> false
+      [head | tail] ->
+        pickup
+          same_key(head, input) -> true
+          else -> seen(tail, input)
+
+  @total true
+  fn emit(duplicate: Bool, input: Message) -> Option(Message) =
+    match duplicate
+      True() -> None()
+      False() -> Some(input)
+
+  fn receiver(state: List(Message), input: Message) -> Transition(List(Message), Message) =
+    let duplicate = seen(state, input)
+    let next = match duplicate
+      true -> state
+      false -> [input | state]
+    Transition{state: next, output: emit(duplicate, input)}
+
+  fn message(sender: Int, incarnation: Int, sequence: Int, value: Int) -> Message =
+    Message{sender: sender, incarnation: incarnation, sequence: sequence, value: value}
+
+  # Selected general properties of the actual output decision.
+  fn duplicate_emits_nothing(input: Message) -> Equivalent(Option(Message), emit(True(), input), None()) =
+    reflexive(emit(True(), input))
+
+  fn fresh_preserves_message(input: Message) -> Equivalent(Option(Message), emit(False(), input), Some(input)) =
+    reflexive(Some(input))
+end

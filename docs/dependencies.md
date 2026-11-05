@@ -34,15 +34,31 @@ time; they are observations, not lockfile choices.
 
 | Dependency | Exact baseline | Status | What was actually exercised | Boundary/limit |
 | --- | --- | --- | --- | --- |
-| [Cure](https://github.com/cure-lang/cure-lang/tree/a004c335cc4e9f2203ba6f51fc31e8540b66378d) | commit `a004c335cc4e9f2203ba6f51fc31e8540b66378d` (release line v0.35.0) | adopted for bootstrap | Elzoo compiles four source modules through `compile_file/2`; runtime tests check selected laws, typed negatives, independent imports and model traces | Cure compiler/kernel/runtime remain trusted infrastructure; the spike is not an independent soundness audit |
+| [Cure](https://github.com/cure-lang/cure-lang/tree/a004c335cc4e9f2203ba6f51fc31e8540b66378d) | commit `a004c335cc4e9f2203ba6f51fc31e8540b66378d` (release line v0.35.0) | adopted for bootstrap | Elzoo compiles the selected source modules through `compile_file/2`; runtime tests check selected laws, typed negatives, independent imports and model traces | Cure compiler/kernel/runtime remain trusted infrastructure; the spike is not an independent soundness audit |
 | [Elixir](https://github.com/elixir-lang/elixir) | 1.20.4 | adopted platform baseline | Elzoo runs the GenServer shell, Supervisor and ExUnit on the matching toolchain | Elzoo owns only its shell callbacks and contracts |
 | [Erlang/OTP](https://www.erlang.org/doc/system/design_principles.html) | OTP 29.1.2 (BEAM reports OTP 29 in the spike) | adopted platform baseline for ordinary supervision | Elzoo tests `GenServer`, `Supervisor`, process messaging and restart behavior | OTP process isolation is not an OS/security sandbox; no distributed/crash theorem |
 | [Jason](https://hexdocs.pm/jason/Jason.html) / [source](https://github.com/michalmuskala/jason) | 1.4.5 in `mix.lock` | adopted adapter dependency | Real `Jason.encode!` calls round-tripped strings, quotes, Unicode and empty input; invalid input and a failing stand-in became explicit errors | Jason encoding/decoding is upstream-owned; Cure `@extern` signature is a foreign assumption |
 
-The bootstrap does not deliberately adopt or call Req, Finch, Ecto, Postgrex,
-Oban, Telemetry or OpenTelemetry. Cure's transitive dependency graph remains
+Elzoo now adopts Req 0.7.5 for a narrow direct HTTP client recipe. Finch is its
+transitive implementation, not a separate Elzoo abstraction. Ecto, Postgrex,
+Oban and OpenTelemetry remain candidates. Telemetry is transitive, with no
+adopted business-event contract. Cure's transitive dependency graph remains
 in `mix.lock`; “not adopted” means Elzoo does not rely on that package's API
 or behavior as a contract.
+
+## Source distribution and authoritative pins
+
+`registry/providers.json` records direct provider versions/licenses and is
+checked against mix.lock and .tool-versions. Each ready bundle records its
+own usage/evidence in piece.json; [LEDGER.md](../LEDGER.md) is generated from
+those records. Libraries are installed by Mix/OTP, never copied as Elzoo-owned
+implementations. Elzoo-owned copied sources use Apache-2.0.
+
+Req was chosen for its ordinary request API, explicit response/error values
+and configurable retry/redirect/timeout behavior. Its recipe tests a real
+loopback HTTP 200 and 503, plus a deterministic injected transport timeout.
+TLS, network failure modes, authentication and durable job/effect policy are
+not proved by those tests. See [the recipe](../pieces/integration/http/README.md).
 
 ## OTP API reuse candidates
 
@@ -57,25 +73,25 @@ made yet.
 | `Supervisor` | [Elixir Supervisor docs](https://hexdocs.pm/elixir/1.20.4/Supervisor.html) | bootstrap-tested reuse | Unit restart policy and lifecycle boundary |
 | `Application` | [Elixir Application docs](https://hexdocs.pm/elixir/1.20.4/Application.html) | bootstrap-tested reuse | Start one host supervision tree from the Mix app |
 | `DynamicSupervisor` | [Elixir DynamicSupervisor docs](https://hexdocs.pm/elixir/1.20.4/DynamicSupervisor.html) | planned reuse | Bounded dynamic units only when an assembly needs them |
-| `Registry` | [Elixir Registry docs](https://hexdocs.pm/elixir/1.20.4/Registry.html) | planned reuse | Local name lookup; never the durable message identity |
+| `Registry` | [Elixir Registry docs](https://hexdocs.pm/elixir/1.20.4/Registry.html) | recipe-tested reuse | Local name lookup; never the durable message identity |
 | `:pg` | [Erlang process groups docs](https://www.erlang.org/doc/apps/kernel/pg.html) | planned reuse | Local broadcast/group membership only; subscriber loss and replay are not implied |
 | `Task` | [Elixir Task docs](https://hexdocs.pm/elixir/1.20.4/Task.html) | planned reuse | Bounded adapter work with an explicit caller/result |
 | `gen_statem` | [Erlang state machine docs](https://www.erlang.org/doc/system/statem.html) | planned reuse | Circuit-breaker/workflow lifecycle shell when a pure state transition is not enough |
-| `:timer`/`Process.send_after` | [Elixir Process docs](https://hexdocs.pm/elixir/1.20.4/Process.html) | planned reuse | Clock adapter for time messages and deadlines |
+| `:timer`/`Process.send_after` | [Elixir Process docs](https://hexdocs.pm/elixir/1.20.4/Process.html) | recipe-tested reuse | Clock adapter for time messages and deadlines |
 | `:disk_log` | [Erlang disk_log docs](https://www.erlang.org/doc/apps/kernel/disk_log.html) | evaluate for P2, not adopted | Candidate append/rotate/recover primitive for `state/event-log`; test corruption, truncation, fsync/repair and crash ordering before adapting |
-| `Enum` / `Stream` | [Elixir Enum docs](https://hexdocs.pm/elixir/1.20.4/Enum.html) and [Stream docs](https://hexdocs.pm/elixir/1.20.4/Stream.html) | planned reuse | Ordinary finite/lazy transformations should use the platform; own only a missing domain/state policy rather than rebuilding Rx's long tail |
-| `:crypto` | [Erlang crypto docs](https://www.erlang.org/doc/apps/crypto/crypto.html) | planned reuse | Pure hash/HMAC functions may be called directly with an upstream trust boundary; key/secrets/TLS operations stay in an explicit adapter |
+| `Enum` / `Stream` | [Elixir Enum docs](https://hexdocs.pm/elixir/1.20.4/Enum.html) and [Stream docs](https://hexdocs.pm/elixir/1.20.4/Stream.html) | recipe-tested reuse | Ordinary finite/lazy transformations should use the platform; own only a missing domain/state policy rather than rebuilding Rx's long tail |
+| `:crypto` | [Erlang crypto docs](https://www.erlang.org/doc/apps/crypto/crypto.html) | recipe-tested reuse | SHA-256 known-vector recipe only; other hashes, HMAC, key/secrets and TLS contracts are not adopted by this recipe |
 
 ## External library candidates
 
 These are real maintained libraries with authoritative API documentation. The
-API names below were visible in the linked docs; none is adopted merely from
-that observation.
+API names below were visible in the linked docs; documentation alone is not adoption. The Req row now has the scoped executable
+evidence described above; other rows retain their stated candidate status.
 
 | Candidate | Observed API/docs | Why it may fit | Contract risk and adoption test |
 | --- | --- | --- | --- |
-| [Req](https://hexdocs.pm/req/Req.html) · [source](https://github.com/wojtekmach/req) | docs page showed `Req.request/2` and `Req.request!/2` (v0.7.5 page) | High-level HTTP client with request/response conveniences for the P3 edge assembly | Must map status codes, body decoding, redirects, timeout and exceptions to an explicit result; compare with Finch on representative calls; no adoption yet |
-| [Finch](https://hexdocs.pm/finch/Finch.html) · [source](https://github.com/sneako/finch) | docs page showed `Finch.start_link/1`, `request/2-3`, `async_request/2-3` (v0.24.0 page) | Supervised, pool-oriented HTTP client when explicit connection ownership/backpressure matters | Must define pool lifecycle, cancellation, timeout and body limits; do not use both Req and Finch as independent core abstractions; no adoption yet |
+| [Req](https://hexdocs.pm/req/Req.html) · [source](https://github.com/wojtekmach/req) | docs page showed `Req.request/2` and `Req.request!/2` (v0.7.5 page) | High-level HTTP client with request/response conveniences for the P3 edge assembly | Adopted narrow client recipe at 0.7.5; local 200/503 and injected transport failure are checked. Effect/job policy remains ELZ-011 |
+| [Finch](https://hexdocs.pm/finch/Finch.html) · [source](https://github.com/sneako/finch) | docs page showed `Finch.start_link/1`, `request/2-3`, `async_request/2-3` (v0.24.0 page) | Supervised, pool-oriented HTTP client when explicit connection ownership/backpressure matters | Transitive Req dependency at 0.24.0; its direct API is not adopted as a second abstraction. Application-specific pool policy remains future work |
 | [Ecto](https://hexdocs.pm/ecto/Ecto.Repo.html) · [source](https://github.com/elixir-ecto/ecto) | docs page showed `Ecto.Repo.start_link/1`, `insert/2`, `transaction/2` (v3.14.3 page) | Transaction/query boundary for a durable unit and an outbox | Need migration, isolation, rollback and connection-loss tests; Ecto does not make an Elzoo hop durable automatically; no adoption yet |
 | [Postgrex](https://hexdocs.pm/postgrex/Postgrex.html) · [source](https://github.com/elixir-ecto/postgrex) | docs page showed `Postgrex.start_link/1`, `transaction/2-3` (v0.22.4 page) | Direct PostgreSQL adapter if the first durable piece needs less ORM surface | Must specify SQL/schema ownership and transaction scope; choose direct Postgrex or Ecto, not both by default; no adoption yet |
 | [Oban](https://hexdocs.pm/oban/Oban.html) · [source](https://github.com/oban-bg/oban) | docs page showed `Oban.start_link/1`, `insert/1-3`, `insert_all/1-3` (v2.24.2 page) | PostgreSQL-backed jobs and retry/scheduling for `assembly/durable-job` | Oban's job retry is not the Elzoo outbox; test uniqueness, retry, pruning, queue backpressure, transaction handoff and shutdown; no adoption yet |

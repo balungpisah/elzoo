@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "id": "runtime/supervision",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "recipe",
+  "providers": [
+    "elixir",
+    "otp"
+  ],
+  "dependencies": [],
+  "contract": "Use OTP Supervisor and child specifications for lifecycle/restart.",
+  "limits": [
+    "The example uses volatile Agent state; restart resets it.",
+    "No custom supervisor implementation or application-specific failure policy."
+  ],
+  "files": [
+    "examples/elzoo/supervision.exs",
+    "test/elzoo/supervision_recipe_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/supervision_recipe_test.exs",
+      "claim": "The named scenarios in this ExUnit file are executable evidence, not universal proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Relies on the pinned provider implementation and public contract."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/",
+      "claim": "Relies on the pinned provider implementation and public contract."
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "id": "runtime/unit",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "adapter",
+  "providers": [
+    "elixir",
+    "otp"
+  ],
+  "dependencies": [],
+  "contract": "A GenServer serializes calls to a supplied module/function with private volatile state.",
+  "limits": [
+    "Trusted transition tuples; named envelope validation is not implemented.",
+    "GenServer.call is synchronous; no persistence, durable mailbox or OS isolation."
+  ],
+  "files": [
+    "lib/elzoo/unit.ex",
+    "test/elzoo/unit_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/unit_test.exs",
+      "claim": "The named scenarios in this ExUnit file are executable evidence, not universal proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Relies on the pinned provider implementation and public contract."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/",
+      "claim": "Relies on the pinned provider implementation and public contract."
+    }
+  ]
+}

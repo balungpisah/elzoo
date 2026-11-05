@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
+mod Elzoo.Extension
+  use Elzoo.Idempotency
+
+  # A fourth source module proves the imported Cure surface is reusable beyond
+  # the primary assembly and consumer files.
+  fn seed() -> Elzoo.Idempotency.Message = message(0, 0, 0, 0)
+end

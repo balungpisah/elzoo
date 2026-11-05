@@ -22,7 +22,7 @@ are a candidate for a later comparison, not an adopted runtime surface.
 
 ### Generic composition works
 
-The production exemplar in [`cure/core.cure`](../cure/core.cure) uses:
+The production exemplar in [`pieces/assembly/ingest-dedup-accumulate/cure/elzoo/core.cure`](../pieces/assembly/ingest-dedup-accumulate/cure/elzoo/core.cure) uses:
 
 ```text
 Transition(state, Option(output))
@@ -49,7 +49,7 @@ measured release boundary in the executed harness was tagged tuples:
 {:Message, sender, incarnation, sequence, value}
 ```
 
-The Elixir wrapper in [`lib/elzoo/runtime.ex`](../lib/elzoo/runtime.ex) keeps
+The Elixir wrapper in [`pieces/assembly/ingest-dedup-accumulate/lib/elzoo/runtime.ex`](../pieces/assembly/ingest-dedup-accumulate/lib/elzoo/runtime.ex) keeps
 that ABI in one small set of projections (`transition/1`, `joined/1` and
 `message_fields/1`). The wrapper is intentionally not spread through business
 code. If a Cure upgrade changes the emitted ABI, compile a probe and update
@@ -79,10 +79,10 @@ negative compile test when an interface is important.
 
 ### Foreign calls are assumptions
 
-[`cure/adapter.cure`](../cure/adapter.cure) declares
+[`pieces/integration/cure-json/cure/elzoo/adapter.cure`](../pieces/integration/cure-json/cure/elzoo/adapter.cure) declares
 `@extern(Elixir.Jason, :encode!, 1)`. The runtime test confirms the call,
 round-trips selected strings through Jason and checks explicit invalid-input
-and failing-library results in [`lib/elzoo/json_boundary.ex`](../lib/elzoo/json_boundary.ex).
+and failing-library results in [`pieces/integration/cure-json/lib/elzoo/json_boundary.ex`](../pieces/integration/cure-json/lib/elzoo/json_boundary.ex).
 The Cure audit sees Jason as a foreign axiom. That is the correct result: it
 separates the pure Cure evidence from the upstream implementation instead of
 claiming to prove Jason.
@@ -157,3 +157,28 @@ The Mix compiler publishes actual BEAM files before the application manifest
 is generated. A successful type/check command alone is insufficient: compile
 negative controls include a false law, incompatible types and an unfinished
 proof. Keep the real compiler path and those controls in `mix check`.
+
+### Cache relocation and split imports
+
+Cure's generated standard-library artifacts retain source identities. Copying
+those generated caches to another checkout caused `duplicate_module_identity`
+for Std.Option with the old and new absolute paths. No result from that failed
+build was accepted. Rebuilding the generated dependency artifacts in place
+resolved it. Do not copy Cure artifact generations between checkout paths.
+The consumer regression reuses only upstream code paths and explicitly checks
+that no Elzoo runtime modules are loaded before compiling copied source.
+
+## Higher-order function boundary
+
+Cure higher-order arguments use curried BEAM functions. Passing an Elixir
+`fn state, input -> ... end` to compose raises BadArityError; use
+`fn state -> fn input -> ... end end`. The composition bundle tests exercise
+this boundary. Exported MFA calls still use the exported arity. Auditing
+modules with cross-bundle imports requires `Compiler.check_source/2` with
+source_roots followed by `Audit.Ledger.audit_env/1`; audit_source/2 does not
+accept project source roots.
+
+For an imported nullary type across source roots, use the qualified spelling
+`Elzoo.Idempotency.Message`. Bare `Message` compiled but produced W001
+uppercase-variable migration warnings in the multi-root catalogue; qualifying
+the type removes them and retains the incompatible-connection negative test.

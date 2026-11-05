@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "id": "delivery/time",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "recipe",
+  "providers": [
+    "elixir",
+    "otp"
+  ],
+  "dependencies": [],
+  "contract": "Use Process.send_after and cancellation references; feed elapsed/deadline events into pure decisions.",
+  "limits": [
+    "Timer delivery is not an exact scheduling guarantee.",
+    "Monotonic time is local to a runtime; durable/distributed deadlines need a separate contract."
+  ],
+  "files": [
+    "examples/elzoo/timers.exs",
+    "test/elzoo/time_recipe_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/time_recipe_test.exs",
+      "claim": "The named scenarios in this ExUnit file are executable evidence, not universal proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Relies on the pinned provider implementation and public contract."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/",
+      "claim": "Relies on the pinned provider implementation and public contract."
+    }
+  ]
+}

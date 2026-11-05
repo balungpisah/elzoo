@@ -16,14 +16,15 @@ Use the title/phase appropriate to each body. The files are the publication
 input; published issue links are recorded below.
 
 ELZ-001 was accepted during bootstrap after independent clean-checkout and
-Linux CI validation. ELZ-002 is the next actionable task. Workers must not
+Linux CI validation. ELZ-013 adds source delivery and a checked ledger before ELZ-002. After that
+relocation is merged, ELZ-002 is the next actionable interface task. Workers must not
 rebuild or re-open the harness merely because later tasks need it. Report a
 new concrete defect as new work, retaining the baseline's evidence and limits.
 See [bootstrap validation](07-bootstrap-validation.md).
 
 The first batch follows the catalogue phases:
 
-    P0: ELZ-001 -> ELZ-002 -> ELZ-003 -> ELZ-004
+    P0: ELZ-001 -> ELZ-013 -> ELZ-002 -> ELZ-003 -> ELZ-004
     P1: ELZ-004 -> ELZ-005 -> ELZ-006 -> ELZ-008
         ELZ-003 -> ELZ-007 -------------> ELZ-008
     P2: ELZ-008 -> ELZ-009 -> ELZ-010
@@ -36,7 +37,8 @@ serial because they define the interfaces the later agents share.
 
 Detailed edges (direct dependencies; transitive reachability is omitted):
 
-    ELZ-001 -> ELZ-002, ELZ-003
+    ELZ-001 -> ELZ-002, ELZ-003, ELZ-013
+    ELZ-013 -> ELZ-002
     ELZ-002 -> ELZ-003, ELZ-004, ELZ-007
     ELZ-003 -> ELZ-004, ELZ-005, ELZ-007
     ELZ-004 -> ELZ-005, ELZ-006, ELZ-008, ELZ-011
@@ -51,7 +53,7 @@ Detailed edges (direct dependencies; transitive reachability is omitted):
 | ID | Phase | Catalogue IDs / assembly | Depends on | Tangible outcome |
 | --- | --- | --- | --- | --- |
 | ELZ-001 | P0 | core/grounding | none | Pinned Mix setup and real mix check harness |
-| ELZ-002 | P0 | core/operator, core/port, core/assembly | ELZ-001 | Typed pure composition boundary |
+| ELZ-002 | P0 | core/operator, core/port, core/assembly | ELZ-001, ELZ-013 | Typed pure composition boundary |
 | ELZ-003 | P0 | core/envelope, core/edge, core/wiring | ELZ-001, ELZ-002 | Minimal named envelope/port binding and wiring checks |
 | ELZ-004 | P0 | runtime/unit, runtime/supervision, runtime/host, runtime/adapter, integration/json, assembly/ingest-dedup-accumulate | ELZ-002, ELZ-003 | Pure/OTP exemplar with Jason boundary |
 | ELZ-005 | P1 | delivery/idempotency | ELZ-003, ELZ-004 | Bounded windowed duplicate policy with explicit limits |
@@ -62,6 +64,7 @@ Detailed edges (direct dependencies; transitive reachability is omitted):
 | ELZ-010 | P2 | state/schema-evolution, state/scheduler, integration/jobs, workflow/state-machine, assembly/durable-job | ELZ-008, ELZ-009 | Narrow durable job Assembly |
 | ELZ-011 | P3 | core/effect, integration/http, integration/json, runtime/adapter, assembly/http-job boundary | ELZ-004, ELZ-006, ELZ-010 | One representative external Effect integration |
 | ELZ-012 | P3 | core/grounding, clean-check handoff | ELZ-011 | Reproducible clean checkout and scoped evidence |
+| ELZ-013 | P0 | Source delivery and provenance across catalogue IDs | ELZ-001 | Selectable source bundles, direct-library recipes and checked ledger |
 
 This DAG deliberately does not promise all historical families. If an
 Assembly later needs SQL, a broker, replication, CRDTs, AI or another
@@ -92,3 +95,4 @@ stable even when issue numbers differ.
 | ELZ-010 | [10](https://github.com/balungpisah/elzoo/issues/10) |
 | ELZ-011 | [11](https://github.com/balungpisah/elzoo/issues/11) |
 | ELZ-012 | [12](https://github.com/balungpisah/elzoo/issues/12) |
+| ELZ-013 | [13](https://github.com/balungpisah/elzoo/issues/13) |

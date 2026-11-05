@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: Apache-2.0
+mod Elzoo.Core
+  use Std.Option
+  use Elzoo.Composition
+  use Elzoo.Idempotency
+
+  fn accumulate(total: Int, input: Elzoo.Idempotency.Message) -> Transition(Int, Int) =
+    let next = total + input.value
+    Transition{state: next, output: Some(next)}
+
+  fn empty() -> Joined(List(Elzoo.Idempotency.Message), Int) = Joined{left: [], right: 0}
+
+  fn assembly(state: Joined(List(Elzoo.Idempotency.Message), Int), input: Elzoo.Idempotency.Message) -> Transition(Joined(List(Elzoo.Idempotency.Message), Int), Int) =
+    compose(receiver, accumulate, state, input)
+
+  fn threshold(limit: Int, total: Int) -> Transition(Int, Bool) =
+    Transition{state: limit, output: Some(total >= limit)}
+
+  # An assembly is itself an operator behind the same interface.
+  fn nested_empty(limit: Int) -> Joined(Joined(List(Elzoo.Idempotency.Message), Int), Int) =
+    Joined{left: empty(), right: limit}
+
+  fn nested(state: Joined(Joined(List(Elzoo.Idempotency.Message), Int), Int), input: Elzoo.Idempotency.Message) -> Transition(Joined(Joined(List(Elzoo.Idempotency.Message), Int), Int), Bool) =
+    compose(assembly, threshold, state, input)
+
+end

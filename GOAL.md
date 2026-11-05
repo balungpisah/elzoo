@@ -1,7 +1,8 @@
 # Elzoo standing goal
 
-Build a catalogue of honest, composable Cure/Elixir Pieces for reliable
-systems. A Piece has an explicit interface, Contract and evidence. Pure
+Build a source catalogue of honest, composable Cure/Elixir Pieces for reliable
+systems. Developers take selected pieces into their own applications and own
+the copied source and wiring. A Piece has an explicit interface, Contract and evidence. Pure
 decision logic belongs in Cure where it fits; Elixir/OTP and maintained
 libraries provide runtime/integration behavior; Adapters perform Effects at
 declared boundaries.
@@ -9,8 +10,9 @@ declared boundaries.
 This is a fresh project, not a promise to recreate the old Zoo repository or
 all 402 historical patterns. Start with one small Assembly that demonstrates
 typed composition, a bounded receiver, durable-state boundaries, a
-representative Effect and an OTP Host. Open more Pieces only when an Assembly
-needs them.
+representative Effect and an OTP Host. Add new owned policies when an Assembly needs them. Direct-library Recipes
+can be adopted independently when their concrete usage is tested and scoped
+in the Piece Ledger.
 
 ## Working order
 

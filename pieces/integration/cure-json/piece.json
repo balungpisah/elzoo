@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "id": "integration/cure-json",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "adapter",
+  "providers": [
+    "cure"
+  ],
+  "dependencies": [
+    "integration/json"
+  ],
+  "contract": "Optional typed Cure-to-Jason string encoder with an Elixir input/error boundary.",
+  "limits": [
+    "String encoding only; use Jason directly for general JSON.",
+    "The foreign implementation and extern signature are assumptions, not local proofs."
+  ],
+  "files": [
+    "cure/elzoo/adapter.cure",
+    "lib/elzoo/json_boundary.ex",
+    "test/elzoo/cure_json_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "type",
+      "file": "cure/elzoo/adapter.cure",
+      "claim": "The pinned Cure compiler checks this source before emitting its BEAM."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/cure_json_test.exs",
+      "claim": "The named scenarios in this ExUnit file are executable evidence, not universal proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "cure",
+      "reference": "https://github.com/cure-lang/cure-lang/tree/a004c335cc4e9f2203ba6f51fc31e8540b66378d",
+      "claim": "Relies on the pinned provider implementation and public contract."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The Jason extern signature accurately describes the upstream function; Elzoo does not prove its body."
+    }
+  ]
+}

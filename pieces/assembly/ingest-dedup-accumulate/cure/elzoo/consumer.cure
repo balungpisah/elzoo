@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: Apache-2.0
+mod Elzoo.Consumer
+  use Elzoo.Composition
+  use Elzoo.Idempotency
+  use Elzoo.Core
+  use Elzoo.Extension
+
+  # A separately compiled consumer wires existing operators without their bodies.
+  fn start(limit: Int) -> Joined(Joined(List(Elzoo.Idempotency.Message), Int), Int) = nested_empty(limit)
+
+  fn step(state: Joined(Joined(List(Elzoo.Idempotency.Message), Int), Int), input: Elzoo.Idempotency.Message) -> Transition(Joined(Joined(List(Elzoo.Idempotency.Message), Int), Int), Bool) =
+    compose(assembly, threshold, state, input)
+
+  fn demo_seed() -> Elzoo.Idempotency.Message = seed()
+end

@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "id": "delivery/idempotency",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": [
+    "cure"
+  ],
+  "dependencies": [
+    "core/operator"
+  ],
+  "contract": "Volatile exact-key duplicate suppression by sender/incarnation/sequence.",
+  "limits": [
+    "History is unbounded and discarded on restart.",
+    "No bounded window, durability, exactly-once effects or cross-sender ordering."
+  ],
+  "files": [
+    "cure/elzoo/idempotency.cure",
+    "test/elzoo/idempotency_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/idempotency.cure",
+      "symbol": "duplicate_emits_nothing",
+      "claim": "The duplicate output decision emits nothing for any message."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/idempotency.cure",
+      "symbol": "fresh_preserves_message",
+      "claim": "The fresh output decision preserves any message."
+    },
+    {
+      "kind": "type",
+      "file": "cure/elzoo/idempotency.cure",
+      "claim": "The pinned Cure compiler checks this source before emitting its BEAM."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/idempotency_test.exs",
+      "claim": "The named scenarios in this ExUnit file are executable evidence, not universal proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "cure",
+      "reference": "https://github.com/cure-lang/cure-lang/tree/a004c335cc4e9f2203ba6f51fc31e8540b66378d",
+      "claim": "Relies on the pinned provider implementation and public contract."
+    }
+  ]
+}

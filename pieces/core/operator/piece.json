@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "id": "core/operator",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": [
+    "cure"
+  ],
+  "dependencies": [],
+  "contract": "Generic pure zero-or-one-output stateful composition; a dropped input preserves downstream state.",
+  "limits": [
+    "No named/versioned port graph or fan-out.",
+    "Elixir callers of erased BEAM functions must honor the transition tuple contract."
+  ],
+  "files": [
+    "cure/elzoo/composition.cure",
+    "test/elzoo/composition_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/composition.cure",
+      "symbol": "drop_has_no_output",
+      "claim": "Composing discard with any downstream operator produces no output."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/composition.cure",
+      "symbol": "drop_keeps_downstream",
+      "claim": "Composing discard with any downstream operator preserves downstream state."
+    },
+    {
+      "kind": "type",
+      "file": "cure/elzoo/composition.cure",
+      "claim": "The pinned Cure compiler checks this source before emitting its BEAM."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/composition_test.exs",
+      "claim": "The named scenarios in this ExUnit file are executable evidence, not universal proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "cure",
+      "reference": "https://github.com/cure-lang/cure-lang/tree/a004c335cc4e9f2203ba6f51fc31e8540b66378d",
+      "claim": "Relies on the pinned provider implementation and public contract."
+    }
+  ]
+}

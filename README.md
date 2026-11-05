@@ -8,6 +8,26 @@ the runtime, supervision and integration with existing libraries. A claim can be
 grounded by a proof, a type check, executable tests, monitoring or an explicit
 upstream contract. We do not require a proof of every implementation.
 
+## Take pieces into your project
+
+Browse [the checked piece ledger](LEDGER.md) for ready bundles, libraries,
+selected proofs/tests, assumptions and remaining gaps. Each piece keeps its
+source, contract and evidence together under `pieces/<family>/<name>/`.
+
+```sh
+# From an Elzoo checkout after mix setup:
+mix new ../my_app
+mix elzoo.take integration/json integration/http --to ../my_app --dry-run
+mix elzoo.take integration/json integration/http --to ../my_app
+```
+
+Read the printed install instructions to merge dependencies into your Mix
+project, then run its tests. The copier brings source, tests, examples,
+Apache-2.0 license/notice and a provenance receipt. It does not overwrite your
+edits or require Elzoo.Application. Library-only recipes need no Cure compiler.
+For a Cure/OTP example, select `assembly/ingest-dedup-accumulate` instead.
+See [consuming pieces](docs/consuming.md) for composition, updates and limits.
+
 ## Start developing
 
 Install Elixir **1.20.4**, Erlang/OTP **29.1.2** (also pinned in
@@ -85,3 +105,6 @@ of its wrappers, declared assumptions and composition. Use a library directly
 when its existing contract is enough; add an adapter only for a real boundary.
 
 Private development repository: <https://github.com/balungpisah/elzoo>.
+
+Elzoo-owned code is [Apache-2.0](LICENSE). Upstream libraries retain their own
+licenses. The private repository’s access permissions are unchanged.
