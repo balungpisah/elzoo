@@ -33,6 +33,19 @@ defmodule Elzoo.UnitAdapterTest do
     def handle_call({:step, _}, _from, {:reply, output} = state), do: {:reply, output, state}
   end
 
+  for {name, schema} <- [
+        {EmptySchema, {"", 1}},
+        {InvalidUTF8Schema, {<<0xFF>>, 1}},
+        {ZeroVersionSchema, {"x", 0}}
+      ] do
+    defmodule name do
+      @behaviour Elzoo.UnitAdapter.Codec
+      defdelegate decode_payload(schema, version, payload), to: Elzoo.UnitAdapterTest.Codec
+      defdelegate encode_output(output), to: Elzoo.UnitAdapterTest.Codec
+      def value_schema, do: unquote(Macro.escape(schema))
+    end
+  end
+
   def transition(state, input), do: {:Transition, state + input, {:some, state + input}}
 
   defp server(state) do
@@ -241,5 +254,17 @@ defmodule Elzoo.UnitAdapterTest do
     assert answer["value_schema_id"] == "test/alternate-output"
     assert answer["value_schema_version"] == 2
     assert Elzoo.Unit.snapshot(pid) == {__MODULE__, :transition, 16}
+  end
+
+  test "invalid codec schemas fail after dispatch with valid identity and no foreign reason" do
+    for codec <- [EmptySchema, InvalidUTF8Schema, ZeroVersionSchema],
+        output <- [:none, {:some, 10}] do
+      failure(
+        result(server({:reply, output}), codec: codec),
+        "failed",
+        "dispatched",
+        "unclassified"
+      )
+    end
   end
 end

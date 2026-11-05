@@ -34,6 +34,10 @@ Completed results include the codec's value schema; suppression has `value: nil`
 fresh output has its encoded value. Failure results contain no value or raw
 error data. The Adapter emits no raw payload, exception or Jason error data in
 its results/errors/own logs; successful output is explicitly codec-owned.
+Every completed candidate is checked by `Elzoo.Envelope.validate_result/1`;
+invalid codec value-schema metadata becomes failed/dispatched/unclassified
+without exposing the validation reason. Payload values remain opaque to that
+checker; JSON encodability is the consuming Boundary's responsibility.
 
 ## Grounding and limits
 
@@ -54,3 +58,5 @@ ordering, deadline enforcement or exactly-once claim. Telemetry is planned;
 Control inherits only runtime/unit OTP lifecycle, not business drain. Upstream
 OTP crash reports from the unchanged Unit may log the last request/state, an
 inherited limitation controlled by the consumer's Logger configuration.
+Codec and lookup callback exceptions (raising callbacks) are a caller contract
+and out of scope.

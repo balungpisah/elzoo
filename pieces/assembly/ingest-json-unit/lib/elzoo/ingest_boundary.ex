@@ -5,12 +5,19 @@ defmodule Elzoo.IngestBoundary do
   Jason error data in errors or logs. Equivalence is limited to named crash-free
   traces. The pipeline call is Adapter/Host entry, not fused-edge traversal;
   the fused ingress seam is checked on behalf of pipeline/ingress.request.
+  Codec and lookup callback exceptions are a caller contract and out of scope.
   """
 
   def handle(placement, units, json, opts \\ []) do
     with {:json, {:ok, envelope}} <- {:json, Jason.decode(json)},
          {:envelope, {:ok, _}} <- {:envelope, Elzoo.Envelope.decode(envelope)},
          {:ok, result} <- deliver(placement, units, envelope, Keyword.get(opts, :codecs, %{})) do
+      result =
+        case Elzoo.Envelope.validate_result(result) do
+          {:ok, checked} -> checked
+          {:error, _} -> failure(envelope, "failed")
+        end
+
       case Jason.encode(result) do
         {:ok, encoded} -> {:ok, encoded}
         {:error, _} -> Jason.encode(failure(envelope, "failed"))

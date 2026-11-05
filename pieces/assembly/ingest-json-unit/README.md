@@ -68,9 +68,16 @@ call-versus-hop equivalence is claimed. Tests cover strict codecs, redaction,
 fallback, composite outcomes, duplicates and restart re-acceptance. Relies on
 pinned Cure, Elixir, OTP and Jason contracts; no new Cure law is claimed.
 
+The second-hop Adapter `{:error, _}` row is a defensive mapping: it cannot be
+reached from public inputs and is not directly tested. The transient
+`:restarting` lookup state is handled, but tests do not force it deterministically.
+
 Volatile single-host synchronous exemplar, unbounded history/mailbox, not
 durable, not exactly-once, not ordered across hosts, not a complete old Zoo
 receiver. Hop partial failure may mark a key seen without accumulating it;
 no partial-failure atomicity or retry/redelivery guarantee. Deadlines are echoed,
 not enforced. Telemetry is planned; per-call placement/codec Config is
 supported; Control inherits runtime/host lifecycle only, not business drain.
+Codec and lookup callback exceptions (raising callbacks) are a caller contract
+and out of scope. Final results, including duplicate and combined results, are
+checked by `Elzoo.Envelope.validate_result/1` before JSON encoding.

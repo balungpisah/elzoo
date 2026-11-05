@@ -117,7 +117,7 @@ defmodule Elzoo.ExportTest do
   end
 
   for id <-
-        ~w(core/operator core/port core/assembly core/envelope core/edge core/wiring delivery/idempotency) do
+        ~w(core/operator core/port core/assembly core/envelope core/edge core/wiring delivery/idempotency runtime/adapter runtime/host assembly/ingest-json-unit) do
     @tag timeout: 120_000
     test "#{id} carries its own checks into an independent consumer", ctx do
       assert_cure_consumer(ctx, [unquote(id)])
@@ -130,7 +130,7 @@ defmodule Elzoo.ExportTest do
 
     File.write!(
       Path.join(ctx.destination, "mix.exs"),
-      project([:logger, :jason, :req, :crypto], true)
+      project([:logger, :jason, :req, :crypto], Map.has_key?(plan.providers, "cure"))
     )
 
     File.write!(Path.join(ctx.destination, "test/test_helper.exs"), "ExUnit.start(seed: 0)\n")
@@ -202,6 +202,32 @@ defmodule Elzoo.ExportTest do
       {%{fused: wiring}, _} = Code.eval_file("examples/p0.exs")
       {%{message: message}, _} = Code.eval_file("examples/shared.exs")
       {:ok, ^message} = Elzoo.Wiring.accept(wiring, "ingest-dedup", message)
+    end
+    if :code.which(Elzoo.IngestBoundary) != :non_existing do
+      Code.require_file("examples/elzoo/host.exs")
+      core = :"Cure.Elzoo.Core"
+      {:ok, supervisor} = Elzoo.IngestHost.start_link([
+        {"pipeline", {core, :assembly, apply(core, :empty, [])}}
+      ])
+      try do
+        units = %{"pipeline" => fn -> Elzoo.IngestHost.lookup(supervisor, "pipeline") end}
+        envelope = %{
+          "version" => 1, "message_id" => "compiler-free-ingress",
+          "schema_id" => "example/ingest-message", "schema_version" => 1,
+          "kind" => "event",
+          "producer" => %{"unit_id" => "pipeline", "port_id" => "ingress.request"},
+          "payload" => %{"sender" => 1, "incarnation" => 1, "sequence" => 1, "value" => 10}
+        }
+        {:ok, json} = Elzoo.IngestBoundary.handle(:fused, units, Jason.encode!(envelope))
+        result = Jason.decode!(json)
+        %{"outcome" => "completed", "dispatch" => "dispatched", "value" => 10,
+          "message_id" => "compiler-free-ingress"} = result
+        {:ok, ^result} = Elzoo.Envelope.validate_result(result)
+      after
+        Supervisor.stop(supervisor)
+      end
+      if :code.which(Elzoo.Application) != :non_existing,
+        do: raise("Elzoo.Application leaked into the consumer")
     end
     if Enum.any?(Application.started_applications(), fn {app, _, _} -> app == :cure end),
       do: raise("Cure started as a runtime application")

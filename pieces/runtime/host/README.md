@@ -17,6 +17,9 @@ that killing a Unit changes its pid, resets state, and re-accepts a previously
 delivered dedup key. These are finite tests relying on OTP's lifecycle
 contract, not a proof of all failure interleavings.
 
+The transient `:restarting` lookup state is handled, but tests do not force it
+deterministically.
+
 State and dedup history are volatile; mailbox/history remain unbounded.
 No durability, exactly-once, hot reconfiguration or business drain. Telemetry
 is planned; Control inherits OTP lifecycle only. Consumer Logger configuration

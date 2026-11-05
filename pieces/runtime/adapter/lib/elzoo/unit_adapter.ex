@@ -17,6 +17,7 @@ defmodule Elzoo.UnitAdapter do
   The Adapter emits no raw payload or exception data in errors or logs;
   successful values are codec-owned. Upstream OTP crash reports may log the
   unchanged Unit's last request/state; consumers control Logger configuration.
+  Codec and lookup callback exceptions are a caller contract and out of scope.
   """
 
   def deliver(unit_lookup, wiring, edge_id, envelope, codec) do
@@ -87,13 +88,19 @@ defmodule Elzoo.UnitAdapter do
       {:ok, encoded} ->
         {schema, version} = codec.value_schema()
 
-        Map.merge(base, %{
-          "outcome" => "completed",
-          "dispatch" => "dispatched",
-          "value" => if(output == :none, do: nil, else: encoded),
-          "value_schema_id" => schema,
-          "value_schema_version" => version
-        })
+        result =
+          Map.merge(base, %{
+            "outcome" => "completed",
+            "dispatch" => "dispatched",
+            "value" => if(output == :none, do: nil, else: encoded),
+            "value_schema_id" => schema,
+            "value_schema_version" => version
+          })
+
+        case Elzoo.Envelope.validate_result(result) do
+          {:ok, checked} -> checked
+          {:error, _} -> failure(base, "failed", "dispatched", "unclassified")
+        end
 
       {:error, _} ->
         failure(base, "failed", "dispatched", "unclassified")
