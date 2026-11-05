@@ -117,7 +117,7 @@ defmodule Elzoo.ExportTest do
   end
 
   for id <-
-        ~w(core/operator core/port core/assembly core/envelope core/edge core/wiring delivery/idempotency) do
+        ~w(core/operator core/port core/assembly core/envelope core/edge core/wiring core/selection delivery/idempotency delivery/request-reply delivery/routing delivery/transformation) do
     @tag timeout: 120_000
     test "#{id} carries its own checks into an independent consumer", ctx do
       assert_cure_consumer(ctx, [unquote(id)])
@@ -202,6 +202,34 @@ defmodule Elzoo.ExportTest do
       {%{fused: wiring}, _} = Code.eval_file("examples/p0.exs")
       {%{message: message}, _} = Code.eval_file("examples/shared.exs")
       {:ok, ^message} = Elzoo.Wiring.accept(wiring, "ingest-dedup", message)
+    end
+    if :code.which(:"Cure.Elzoo.RequestReply") != :non_existing do
+      {%{message: message, results: results, reply: reply}, _} = Code.eval_file("examples/shared.exs")
+      result = results["completed"]
+      {:ok, ^result} = Elzoo.RequestReply.correlate(message, result)
+      {:ok, ^result} = Elzoo.RequestReply.accept_reply(message, reply, message["reply_to"])
+    end
+    if :code.which(:"Cure.Elzoo.Routing") != :non_existing do
+      {%{fused: wiring}, _} = Code.eval_file("examples/p0.exs")
+      {%{message: message}, _} = Code.eval_file("examples/shared.exs")
+      table = %{"version" => 1, "source" => message["producer"],
+        "routes" => [%{"edge_id" => "ingest-dedup", "match" => %{}}]}
+      {:ok, ["ingest-dedup"]} = Elzoo.Routing.route(wiring, table, message)
+    end
+    if :code.which(Elzoo.Transformation) != :non_existing do
+      {%{message: message}, _} = Code.eval_file("examples/shared.exs")
+      target = %{"unit_id" => "translated", "message_id" => "translated-1",
+        "port" => %{"id" => "out", "direction" => "output", "schema_id" => "translated", "schema_version" => 1}}
+      {:ok, translated} = Elzoo.Transformation.translate(message, target, fn _ -> nil end)
+      nil = translated["payload"]
+      "translated-1" = translated["message_id"]
+    end
+    if :code.which(:"Cure.Elzoo.Selection") != :non_existing do
+      port = fn id, direction -> %{"id" => id, "direction" => direction, "schema_id" => "count", "schema_version" => 1} end
+      requirement = %{"upstream" => port.("source", "output"), "downstream" => port.("sink", "input"), "delivery" => "fused"}
+      candidate = %{"piece_id" => "candidate", "interface" => %{"input" => port.("in", "input"), "output" => port.("out", "output")}, "delivery" => "fused", "rank" => 0}
+      {:ok, "candidate"} = Elzoo.Selection.select(requirement, [candidate])
+      {:ok, [{0, ["candidate"]}]} = Elzoo.Selection.rank(requirement, [candidate])
     end
     if Enum.any?(Application.started_applications(), fn {app, _, _} -> app == :cure end),
       do: raise("Cure started as a runtime application")

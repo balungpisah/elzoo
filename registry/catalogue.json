@@ -140,6 +140,13 @@
       "manifest": "pieces/core/port/piece.json"
     },
     {
+      "id": "core/selection",
+      "summary": "Pure compatible-interface and delivery selection by explicit rank",
+      "disposition": "own",
+      "phase": "P1",
+      "manifest": "pieces/core/selection/piece.json"
+    },
+    {
       "id": "core/wiring",
       "summary": "Unit/port/edge declaration, compatibility and required-route checks",
       "disposition": "own",
@@ -211,11 +218,10 @@
     },
     {
       "id": "delivery/request-reply",
-      "summary": "Request-Reply/RPI, correlation identifier and return address",
+      "summary": "Stateless request/result correlation and named reply-wrapper validation",
       "disposition": "own",
       "phase": "P1",
-      "status": "planned",
-      "reason": "`T,X`; replies are ordinary messages and timeout is explicit"
+      "manifest": "pieces/delivery/request-reply/piece.json"
     },
     {
       "id": "delivery/resequence",
@@ -235,11 +241,10 @@
     },
     {
       "id": "delivery/routing",
-      "summary": "Router, content router, filter, recipient list, splitter, expiration",
+      "summary": "Pure Envelope metadata filtering among declared Wiring edges",
       "disposition": "own",
       "phase": "P1",
-      "status": "planned",
-      "reason": "`P,T,X`; fan-out is bounded and declared"
+      "manifest": "pieces/delivery/routing/piece.json"
     },
     {
       "id": "delivery/stream-combinators",
@@ -257,11 +262,10 @@
     },
     {
       "id": "delivery/transformation",
-      "summary": "Translator, mapper, content filter/enricher merge, anti-corruption",
+      "summary": "Pure caller-supplied payload transformation into an explicit output Envelope",
       "disposition": "own",
       "phase": "P1",
-      "status": "planned",
-      "reason": "`P,T,X`; effectful lookup is request/reply before merge"
+      "manifest": "pieces/delivery/transformation/piece.json"
     },
     {
       "id": "delivery/trigger",
