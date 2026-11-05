@@ -23,6 +23,7 @@ jobs:
       run:
         working-directory: spikes/gleam_ui
     env:
+      ImageOS: ubuntu24
       ERL_FLAGS: '+S 2:2 +SDcpu 1 +SDio 1'
     steps:
       - name: Prepare Ubuntu job container

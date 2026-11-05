@@ -20,6 +20,7 @@ jobs:
       image: ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852
     timeout-minutes: 45
     env:
+      ImageOS: ubuntu24
       ERL_FLAGS: '+S 2:2 +SDcpu 1 +SDio 1'
     steps:
       - name: Prepare Ubuntu job container

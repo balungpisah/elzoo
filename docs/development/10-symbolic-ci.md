@@ -32,7 +32,8 @@ restriction when making a workflow or troubleshooting a queue.
   version, not a locked compiler version.
 - Jobs run in Ubuntu 24.04 containers pinned by digest
   `sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852`.
-  The tag names the OS; the digest fixes the image. Container package preparation
+  `ImageOS: ubuntu24` explicitly tells setup-beam which container build to use;
+  self-hosted runners do not supply that variable. The tag names the OS; the digest fixes the image. Container package preparation
   installs build prerequisites, then pinned Actions install OTP/Elixir/Node.
   Apt repository packages are not a bit-for-bit snapshot.
 - Existing Cure, OTP, Elixir, Gleam and Node pins remain unchanged. The repository
