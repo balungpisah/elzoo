@@ -11,7 +11,8 @@ For ongoing task work, read from the repository root:
 1. CONTEXT.md for the locked vocabulary.
 2. GOAL.md and docs/development/01-workflow.md.
 3. docs/development/02-task-dag.md and the selected tasks/ELZ-*.md body.
-4. LEDGER.md, docs/consuming.md, docs/architecture.md and relevant ADRs.
+4. docs/capability-model.md and docs/capability-coverage.md, then LEDGER.md,
+   docs/consuming.md, docs/architecture.md and relevant ADRs.
 5. The selected piece.json and README; mix.exs and the relevant pieces/, lib/
    and test/ sources only as needed.
 
@@ -234,3 +235,14 @@ consumer. A renamed/moved source needs corresponding import, export-manifest,
 proof/test and documentation changes. Apache-2.0 covers Elzoo-owned source;
 record upstream licenses separately. Evidence applies to the recorded source
 and named claims, not arbitrary downstream edits.
+
+## Before expanding the catalogue
+
+Use the admission/split rules in docs/capability-model.md. Choose a concrete
+coverage case or equally explicit new workflow, state its invariant and failure
+paths, and check upstream reuse before authoring new policy. Inventory coverage
+is not a build queue: deferred domain handles have no implicit implementation
+order. Do not promote a library candidate to ready without exercising its exact
+boundary. Work Items, Runs and Attempts are distinct; shared schemas do not
+establish matching authority, durability or delivery semantics. Agent orchestration
+is an Assembly of capabilities, not a privileged execution kernel.

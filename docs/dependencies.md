@@ -104,6 +104,16 @@ SQL and job tasks must record the exact lockfile, a successful `mix check`, a
 negative-control/failure test, and the claim that the dependency actually
 supports before changing a row to `reuse` or `adapt`.
 
+## Cross-domain research leads
+
+ELZ-014's [reference study](research/orchestration-references.md#elixir-candidate-discovery)
+records observed Hex candidates for monetary values, identity/policy, quotas,
+job/graph execution, agent/model integration and email. They are not dependencies
+or adopted providers. Their metadata versions are research snapshots, not a
+replacement for mix.lock or registry/providers.json. Adoption still requires
+one concrete boundary and its failure checks; reuse-first does not mean
+installing every plausible library.
+
 ## Deliberately deferred families
 
 The following upstream classes are intentionally not dependencies in the

@@ -12,16 +12,17 @@ claims in each piece.json. Assumptions are not evidence of correctness.
 
 | Piece | Status | Implementation | Direct providers | Grounding kinds | Contract / remaining gap |
 | --- | --- | --- | --- | --- | --- |
-| `assembly/agent-product` | deferred | defer (planned) | — | none claimed | Old AI family is a composition, not a privileged runtime |
+| `assembly/agent-product` | deferred | defer (planned) | — | none claimed | C6/C7 compose work/run/dependencies, approval, budget, context and provider adapters. Not a privileged runtime; library/provider evaluation precedes new orchestration. |
 | `assembly/consent-records` | deferred | defer (planned) | — | none claimed | Requires policy, redaction, retention and healthcare adapter review |
 | `assembly/data-pipeline` | deferred | defer (planned) | — | none claimed | Deferred until a real data workload justifies it |
 | `assembly/device-ingest` | deferred | defer (planned) | — | none claimed | Requires device identity, protocol and rollout contracts |
 | `assembly/durable-job` | planned | adapt (planned) | — | none claimed | event log/outbox/checkpoint plus selected SQL/job adapter |
 | `assembly/http-job` | planned | adapt (planned) | — | none claimed | selected HTTP adapter + Jason + job/storage + telemetry |
 | [assembly/ingest-dedup-accumulate](pieces/assembly/ingest-dedup-accumulate/README.md) | ready (subset) | owned | cure 0.35.0, elixir 1.20.4, otp 29.1.2 | test, type, upstream | An example assembly combines duplicate suppression, accumulation and optional threshold nesting; direct and OTP traces are compared. |
-| `assembly/ledger-checkout` | deferred | defer (planned) | — | none claimed | Domain-specific; money and external payment contracts first |
+| `assembly/ledger-checkout` | deferred | defer (planned) | — | none claimed | C3/C4 compose domain/money, domain/journal, payment lifecycle and provider integration; unknown external outcomes require reconciliation, not blind replay. |
 | `assembly/request-route-retry` | planned | own (planned) | — | none claimed | request/reply, routing, timeout/retry, backpressure and dead-letter |
-| `assembly/tenant-edge` | deferred | defer (planned) | — | none claimed | Old SaaS/request-guard family; needs policy and billing contracts |
+| `assembly/task-workflow` | deferred | adapt (planned) | — | none claimed | C5 composition of work-item, dependencies, lease, run and notification contracts; product status policy stays outside the execution kernel. |
+| `assembly/tenant-edge` | deferred | defer (planned) | — | none claimed | C1/C2 compose scoped identity, membership, authorization, entitlement/quota and effects; current HTTP/JSON recipes do not establish tenant isolation. |
 | `core/assembly` | planned | own (planned) | — | none claimed | `P,T,X`; spike showed nested Cure composition |
 | `core/edge` | planned | own (planned) | — | none claimed | `X,A`; no exactly-once promise |
 | `core/effect` | planned | own (planned) | — | none claimed | `T,X`; effects cannot be hidden in pure operators |
@@ -33,6 +34,7 @@ claims in each piece.json. Assumptions are not evidence of correctness.
 | `delivery/aggregation` | planned | own (planned) | — | none claimed | `T,X`; stateful and needs correlation/retention policy |
 | `delivery/backpressure` | planned | own (planned) | — | none claimed | `T,X,M`; queue limit and rejection are part of port contract |
 | `delivery/circuit-breaker` | planned | adapt (planned) | — | none claimed | Reuse OTP state/supervision and provider pool semantics where sufficient; Elzoo owns the state/permit policy that remains and tests transitions |
+| `delivery/data-stream` | deferred | adapt (planned) | — | none claimed | Bounded buffers, cancellation, close/reconnect and backpressure for C7/C8; distinct from the ready Enum/Stream recipe. Reuse transport APIs; no transport adopted. |
 | `delivery/dead-letter` | planned | own (planned) | — | none claimed | `T,X,M`; never silently drop a rejected message |
 | [delivery/idempotency](pieces/delivery/idempotency/README.md) | ready (subset) | owned | cure 0.35.0 | proof, test, type, upstream | Volatile exact-key duplicate suppression by sender/incarnation/sequence. |
 | `delivery/pubsub` | planned | adapt (planned) | — | none claimed | OTP Registry/`pg` or a broker; subscriber loss/replay semantics must be tested |
@@ -43,22 +45,35 @@ claims in each piece.json. Assumptions are not evidence of correctness.
 | [delivery/stream-combinators](pieces/delivery/stream-combinators/README.md) | ready (subset) | recipe | elixir 1.20.4 | test, upstream | Use Enum for finite transforms and Stream for lazy map/filter/take/scan. |
 | [delivery/time](pieces/delivery/time/README.md) | ready (subset) | recipe | elixir 1.20.4, otp 29.1.2 | test, upstream | Use Process.send_after and cancellation references; feed elapsed/deadline events into pure decisions. |
 | `delivery/transformation` | planned | own (planned) | — | none claimed | `P,T,X`; effectful lookup is request/reply before merge |
+| `delivery/trigger` | deferred | adapt (planned) | — | none claimed | Schedule/webhook/app-event input with source identity and dedup scope; delivery/time is only a timer recipe. Needed by C1/C7; no trigger adapter adopted. |
+| `domain/authorization` | deferred | adapt (planned) | — | none claimed | Principal, tenant, resource, action and policy version for C1/C3/C6; compare application/provider policy libraries; no security guarantee claimed. |
+| `domain/entitlement` | deferred | adapt (planned) | — | none claimed | Provider-backed subscription/feature availability for C2/C8; explicit grace/revocation policy, separate from identity and quota. No billing implementation. |
+| `domain/journal` | deferred | adapt (planned) | — | none claimed | Balanced posting with stable operation identity and immutable corrections for C3/C4; reuse transactional storage or a suitable ledger provider; not the Piece Ledger or a new storage engine. |
+| `domain/membership` | deferred | adapt (planned) | — | none claimed | Scoped membership, one-use invitation and revocation for C1/C2; reuse storage/auth capabilities and own only missing policy. |
+| `domain/money` | deferred | adapt (planned) | — | none claimed | Decimal/ex_money candidates for C3/C4; explicit units, currency mismatch and allocation residual policy. Not a journal, exchange service or payment guarantee. |
+| `domain/payment-lifecycle` | deferred | adapt (planned) | — | none claimed | Authorize/capture/refund/unknown-outcome transitions for C3; provider-specific semantics and reconciliation before retries. No provider adopted. |
 | `domain/policy-rules` | deferred | defer (planned) | — | none claimed | A product must provide a finite rule schema, conflict policy and audit requirement before choosing an evaluator |
-| `domain/saas-controls` | deferred | defer (planned) | — | none claimed | Compose from delivery/backpressure and policy pieces; no generic SaaS product layer in the runtime |
-| `domain/value-types` | planned | adapt (planned) | — | none claimed | Reuse maintained Elixir value libraries where their semantics fit; Elzoo owns currency/rounding/time-zone contracts needed by a product |
+| `domain/principal` | deferred | adapt (planned) | — | none claimed | Map authenticated human/service/agent identities to scoped principals for C1/C2/C6; integrate an identity provider, not a new password/token system. |
+| `domain/quota` | deferred | adapt (planned) | — | none claimed | Allocation/reset/meter identity for C2/C7; declare consistency and accounting boundaries. Hammer is a rate-limit candidate, not automatically a quota implementation. |
+| `domain/saas-controls` | deferred | defer (planned) | — | none claimed | Assembly family for domain/membership, domain/authorization, domain/entitlement and domain/quota; no universal SaaS engine or duplicate implementation. |
+| `domain/value-types` | planned | adapt (planned) | — | none claimed | Family for value semantics; domain/money is the scoped currency candidate. Reuse maintained libraries; do not duplicate that contract behind a second generic implementation. |
+| `integration/agent-runner` | deferred | adapt (planned) | — | none claimed | Provider/CLI capabilities, run/resume/cancel, tool/approval events and errors for C6/C7; compare existing Elixir agent libraries or protocol SDKs before writing a bridge. |
 | `integration/ai-model` | deferred | defer (planned) | — | none claimed | AI output is untrusted input; no agent harness in bootstrap |
-| `integration/auth-policy` | deferred | defer (planned) | — | none claimed | Candidate only after threat model; policy outputs are untrusted inputs to units |
+| `integration/auth-policy` | deferred | defer (planned) | — | none claimed | Provider translation for domain/authorization; compare an existing policy library/service first. Not a second authorization policy engine. |
 | [integration/crypto](pieces/integration/crypto/README.md) | ready (subset) | recipe | elixir 1.20.4, otp 29.1.2 | test, upstream | Use OTP SHA-256 directly; a published abc vector grounds this usage. |
 | [integration/cure-json](pieces/integration/cure-json/README.md) | ready (subset) | adapter | cure 0.35.0 | assumption, test, type, upstream | Optional typed Cure-to-Jason string encoder with an Elixir input/error boundary. |
 | [integration/http](pieces/integration/http/README.md) | ready (subset) | recipe | req 0.7.5 | test, upstream | Use Req directly for an HTTP client request with explicit retry, redirect, body and timeout choices. |
-| `integration/identity` | deferred | defer (planned) | — | none claimed | External provider adapters need threat model and contract tests |
+| `integration/identity` | deferred | defer (planned) | — | none claimed | Authentication/provider boundary for domain/principal; sessions, revocation and account linking need explicit tests. AshAuthentication is one candidate when Ash fits; no provider adopted. |
 | `integration/jobs` | planned | adapt (planned) | — | none claimed | Oban candidate; not the Elzoo outbox until transaction/retry tests pass |
 | [integration/json](pieces/integration/json/README.md) | ready (subset) | recipe | jason 1.4.5 | test, upstream | Use Jason directly for JSON values and explicit encode/decode errors. |
 | `integration/message-broker` | planned | adapt (planned) | — | none claimed | Broker delivery semantics must be translated to Elzoo envelope classes |
+| `integration/notification` | deferred | adapt (planned) | — | none claimed | Email/push delivery and retry contract for C1/C5/C7; Swoosh is an email candidate, not a universal delivery guarantee. |
 | `integration/object-store` | planned | adapt (planned) | — | none claimed | Provider contract and retention/security review required |
 | `integration/observability` | planned | adapt (planned) | — | none claimed | `:telemetry`/OpenTelemetry candidates; redaction and sampling are Elzoo contracts |
+| `integration/payments` | deferred | adapt (planned) | — | none claimed | Provider API/webhook verification, stable idempotency keys and reconciliation for C3; Req is HTTP only. Research provider and library before adoption. |
 | `integration/sdk` | deferred | defer (planned) | — | none claimed | Build only for an actual cross-process assembly |
 | `integration/search-data` | deferred | defer (planned) | — | none claimed | Product adapters; no generic data engine in core |
+| `integration/secrets` | deferred | adapt (planned) | — | none claimed | Secret references, scope, rotation and redaction for C1/C3/C6/C7; use an established provider; secrets are not ordinary model context or log fields. |
 | `integration/sql` | planned | adapt (planned) | — | none claimed | Ecto/Postgrex candidates; no database dependency in P0 |
 | `runtime/adapter` | planned | own (planned) | — | none claimed | `T,X,U`; one adapter per external contract |
 | `runtime/faces` | planned | own (planned) | — | none claimed | target contract; not seven mandatory APIs in P0 |
@@ -68,12 +83,21 @@ claims in each piece.json. Assumptions are not evidence of correctness.
 | [runtime/supervision](pieces/runtime/supervision/README.md) | ready (subset) | recipe | elixir 1.20.4, otp 29.1.2 | test, upstream | Use OTP Supervisor and child specifications for lifecycle/restart. |
 | `runtime/telemetry` | planned | adapt (planned) | — | none claimed | `M,U`; candidate `:telemetry`/OpenTelemetry, redaction task first |
 | [runtime/unit](pieces/runtime/unit/README.md) | ready (subset) | adapter | elixir 1.20.4, otp 29.1.2 | test, upstream | A GenServer serializes calls to a supplied module/function with private volatile state. |
+| `state/artifact` | deferred | adapt (planned) | — | none claimed | Content identity, integrity, access, version and expiry for C2/C6/C7/C8; adapt object storage; separate from streamed bytes and control envelopes. |
+| `state/audit-log` | deferred | adapt (planned) | — | none claimed | Actor/action/resource/outcome records for C1/C3/C6; selected storage, redaction, retention and tamper requirements needed. Telemetry is not this contract. |
 | `state/checkpoint` | planned | adapt (planned) | — | none claimed | Elzoo owns replay equivalence/retention contract; storage implementation is reused/adapted; `P,T,X` |
 | `state/crdt` | deferred | defer (planned) | — | none claimed | Only when a product needs replication; laws require merge semantics and clocks |
 | `state/event-log` | planned | adapt (planned) | — | none claimed | Elzoo owns the append/replay/durability contract; evaluate OTP `disk_log` or a transactional store instead of rebuilding a WAL; recovery/truncation need crash tests |
+| `state/lease` | deferred | adapt (planned) | — | none claimed | Claim/renew/release and stale-owner rejection for C2/C5/C6; use transactional storage or an established lease provider. No distributed lock service implemented. |
 | `state/outbox` | planned | adapt (planned) | — | none claimed | Elzoo owns commit/ack semantics; use the selected transactional store/provider, not a second storage engine; `T,X` |
 | `state/replication` | deferred | defer (planned) | — | none claimed | Do not implement consensus in bootstrap; use an established service/library if needed |
 | `state/scheduler` | planned | adapt (planned) | — | none claimed | Oban candidate; use provider persistence/retry when sufficient, while Elzoo owns job idempotency and adapter contract |
 | `state/schema-evolution` | planned | own (planned) | — | none claimed | `T,X`; version compatibility is explicit, not inferred |
+| `workflow/approval` | deferred | adapt (planned) | — | none claimed | Actor/resource/payload/policy-bound decision with expiry or revocation contract for C1/C3/C6; authorization remains separate; no durable approval system implemented. |
+| `workflow/budget` | deferred | adapt (planned) | — | none claimed | Admission/reservation/settlement of unit-tagged costs for C2/C6/C7; shared authority under concurrency, explicit estimate versus observed cost. Not a financial ledger. |
 | `workflow/build-graph` | deferred | defer (planned) | — | none claimed | Product-specific; no catalogue build system in the runtime |
+| `workflow/context-selection` | deferred | adapt (planned) | — | none claimed | Select bounded permitted documents/results for C6/C7; tokenizer/retrieval provider contracts and access recheck required. No assertion of model truth or memory correctness. |
+| `workflow/dependency-graph` | deferred | adapt (planned) | — | none claimed | Cycle/readiness/failure/join semantics for C5/C6/C7; libgraph candidate for mechanics, application-specific execution policy remains explicit. |
+| `workflow/run` | deferred | adapt (planned) | — | none claimed | Execution identity, outcome, parent/child settlement, cancellation and late-result handling for C2/C5/C6/C7; evaluate Oban/Jido where appropriate; no full orchestrator implemented. |
 | `workflow/state-machine` | planned | own (planned) | — | none claimed | Cure pure state machine plus OTP shell; compensation is a domain contract |
+| `workflow/work-item` | deferred | adapt (planned) | — | none claimed | Assignee, acceptance criterion and policy-defined completion for C5/C6; independent of job/agent attempt success. Reuse a suitable workflow implementation before authoring policy. |

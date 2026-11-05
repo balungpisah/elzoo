@@ -11,6 +11,16 @@ implementation that already exists. The Elzoo boundary owns the message
 contract, error translation, lifecycle policy, and evidence for the claims it
 makes about using those dependencies.
 
+## Functional scope
+
+The [capability model](capability-model.md) defines how to split reusable
+responsibilities and preserve their invariants across products. The
+[coverage cases](capability-coverage.md) stress those contracts with SaaS,
+identity, money, task management and agent orchestration workflows. These cases
+identify missing responsibilities without claiming implementation or extending
+all of them into the execution kernel. Work Item, Run and Attempt keep business
+intent separate from execution. Existing ready subsets keep their present claims.
+
 ## Delivery and source ownership
 
 The root Mix application is a development harness. Developers take selected

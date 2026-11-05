@@ -89,6 +89,8 @@ setup only; they are not a new process that every piece must reproduce.
 
 - [CONTEXT.md](CONTEXT.md): the shared vocabulary.
 - [Architecture](docs/architecture.md): composition, placement, effects and guarantees.
+- [Capability model](docs/capability-model.md): how functional Pieces earn their boundaries.
+- [Coverage cases](docs/capability-coverage.md): SaaS, identity, money, tasks and agent orchestration.
 - [Catalogue](docs/catalogue.md): what we own, reuse, adapt and defer.
 - [Dependencies](docs/dependencies.md): upstream contracts and adoption status.
 - [Cure notes](docs/cure-notes.md): tested compiler behavior and authoring guidance.

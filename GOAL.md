@@ -14,6 +14,12 @@ representative Effect and an OTP Host. Add new owned policies when an Assembly n
 can be adopted independently when their concrete usage is tested and scoped
 in the Piece Ledger.
 
+The reusable capability model spans SaaS, identity, money, task management
+and agent orchestration. Coverage is recorded in docs/capability-coverage.md;
+these are design cases, not implemented products or a quota of pieces to build.
+Use existing libraries where their Contracts fit. Write only the missing policy
+needed by a selected Assembly, using docs/capability-model.md to choose its seam.
+
 ## Working order
 
 1. Read CONTEXT.md, this file, docs/development/01-workflow.md and
