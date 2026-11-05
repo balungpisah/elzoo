@@ -1,7 +1,0 @@
-mod Elzoo.Extension
-  use Elzoo.Core
-
-  # A fourth source module proves the imported Cure surface is reusable beyond
-  # the primary assembly and consumer files.
-  fn seed() -> Message = message(0, 0, 0, 0)
-end

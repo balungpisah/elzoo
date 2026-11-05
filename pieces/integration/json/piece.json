@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "id": "integration/json",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "recipe",
+  "providers": [
+    "jason"
+  ],
+  "dependencies": [],
+  "contract": "Use Jason directly for JSON values and explicit encode/decode errors.",
+  "limits": [
+    "JSON syntax is not domain-schema validation.",
+    "No Cure compiler or Elzoo wrapper is required for this recipe."
+  ],
+  "files": [
+    "examples/elzoo/json.exs",
+    "test/elzoo/json_recipe_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/json_recipe_test.exs",
+      "claim": "The named scenarios in this ExUnit file are executable evidence, not universal proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "jason",
+      "reference": "https://hexdocs.pm/jason/1.4.5/Jason.html",
+      "claim": "Relies on the pinned provider implementation and public contract."
+    }
+  ]
+}

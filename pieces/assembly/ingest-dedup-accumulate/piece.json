@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "id": "assembly/ingest-dedup-accumulate",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": [
+    "cure",
+    "elixir",
+    "otp"
+  ],
+  "dependencies": [
+    "core/operator",
+    "delivery/idempotency",
+    "runtime/unit"
+  ],
+  "contract": "An example assembly combines duplicate suppression, accumulation and optional threshold nesting; direct and OTP traces are compared.",
+  "limits": [
+    "An example, not a general wiring engine.",
+    "Unbounded volatile history; synchronous hops; no durable or distributed equivalence."
+  ],
+  "files": [
+    "cure/elzoo/consumer.cure",
+    "cure/elzoo/core.cure",
+    "cure/elzoo/extension.cure",
+    "lib/elzoo/runtime.ex",
+    "test/elzoo/runtime_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "type",
+      "file": "cure/elzoo/consumer.cure",
+      "claim": "The pinned Cure compiler checks this source before emitting its BEAM."
+    },
+    {
+      "kind": "type",
+      "file": "cure/elzoo/core.cure",
+      "claim": "The pinned Cure compiler checks this source before emitting its BEAM."
+    },
+    {
+      "kind": "type",
+      "file": "cure/elzoo/extension.cure",
+      "claim": "The pinned Cure compiler checks this source before emitting its BEAM."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/runtime_test.exs",
+      "claim": "The named scenarios in this ExUnit file are executable evidence, not universal proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "cure",
+      "reference": "https://github.com/cure-lang/cure-lang/tree/a004c335cc4e9f2203ba6f51fc31e8540b66378d",
+      "claim": "Relies on the pinned provider implementation and public contract."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Relies on the pinned provider implementation and public contract."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/",
+      "claim": "Relies on the pinned provider implementation and public contract."
+    }
+  ]
+}

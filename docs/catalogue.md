@@ -6,7 +6,8 @@ implemented by Elzoo, reused from OTP/a library, wrapped by a thin adapter, or
 deferred until a working assembly needs it. The old Zoo names remain useful
 research aliases, but aliases do not create duplicate implementation tasks.
 
-The first implementation is one Mix application. IDs are lowercase,
+The repository uses one Mix application to develop the catalogue. Consumers
+take selected source bundles into their own applications. IDs are lowercase,
 slash-separated and stable once used by an assembly. A rename requires an
 explicit compatibility alias in the catalogue and a migration note.
 
@@ -38,110 +39,31 @@ Phases end at a working assembly, not at a row count:
 | later | none committed | Capabilities below that need a product, a security review or a missing upstream contract |
 
 P0 and P1 are the only phases required to establish the composable runtime.
-P2 is the first point at which the word durable is earned. P3 chooses a
-library through an executable comparison; documentation alone does not move a
-candidate to reuse/adapt.
+P2 is the first point at which the word durable is earned. P3 integrates the selected providers into a real effect/job Assembly. A narrow
+Req client recipe is already exercised under ELZ-013; it does not complete
+that Assembly. Documentation alone does not establish adoption.
 
-## Stable entries
+## Implementations and readiness
 
-### Core composition and contracts
+[LEDGER.md](../LEDGER.md) is the generated, checked inventory of every stable
+ID. It links usable source bundles and records the planned/deferred gaps.
+`registry/catalogue.json` owns inventory/phase/disposition, per-piece
+`piece.json` owns implementation/dependencies/grounding, and
+`registry/providers.json` owns provider identities and checked baseline pins.
+Do not maintain a second handwritten implementation-status table here.
 
-| ID | Capability and old Zoo coverage | Disposition | Phase | Initial evidence / delivery note |
-| --- | --- | --- | --- | --- |
-| `core/operator` | Pure state transition; old operators, Rx transforms, EIP routing pieces | own | P0 | Cure type checks; selected laws may use `P`, behavior uses `X` |
-| `core/port` | Named typed input/output face; datatype channels and message endpoints | own | P0→P1 | `T`; bootstrap has function types; ELZ-002/003 add named bindings and minimal graph validation |
-| `core/envelope` | Message/command/document/event envelope, correlation, return address, format indicator | own | P0→P1 | `T,X`; bootstrap is minimal, canonical encoding/schema compatibility is `ELZ-003` |
-| `core/edge` | Fused versus hop placement and delivery class | own | P0 | `X,A`; no exactly-once promise |
-| `core/wiring` | Unit/port/edge declaration, compatibility and required-route checks | own | P0→P1 | `T,X`; ELZ-003 makes minimal graph validation executable; P1 extends it for resilience; no Zoo wiring CLI |
-| `core/assembly` | Nested composition behind an outer port contract | own | P0 | `P,T,X`; spike showed nested Cure composition |
-| `core/effect` | Data-shaped external request/result boundary | own | P1 | `T,X`; effects cannot be hidden in pure operators |
-| `core/grounding` | Claim/evidence record and present-versus-target status | own | P0 | `X` via `mix check`; no whole-repository assurance badge |
+Ready entries are scoped subsets. Direct library recipes can be useful now
+without claiming an entire capability family or later Assembly is complete.
+`integration/json` uses Jason directly; `integration/cure-json` is the optional
+Cure string bridge. `integration/http` uses Req directly; Finch is transitive.
+The hash recipe does not promise TLS or password handling. Registry and timers
+are local OTP APIs, not distributed identity or durable scheduling.
 
-### OTP runtime and lifecycle
-
-| ID | Capability and old Zoo coverage | Disposition | Phase | Initial evidence / delivery note |
-| --- | --- | --- | --- | --- |
-| `runtime/unit` | Unit shell, state ownership and mailbox; old gen_server, singular update queue | adapt | P0 | OTP `GenServer` shell; spike exercised it, volatile state resets on restart |
-| `runtime/supervision` | Supervisor/tree, let-it-crash, restart policy | reuse | P0 | OTP `Supervisor`; spike tested restart, Elzoo owns child contract |
-| `runtime/host` | Host/application start and effect dispatch; old engine host | adapt | P0 | OTP `Application`/supervision; no custom engine loop initially |
-| `runtime/adapter` | Service/channel/process adapter boundary and result translation | own | P0→P1 | `T,X,U`; one adapter per external contract |
-| `runtime/faces` | Lean config/control/health/errors/state/manifest conventions | own | P1→P2 | target contract; not seven mandatory APIs in P0 |
-| `runtime/telemetry` | Metrics, traces, message history, exception tracking, audit logging | adapt | P3 | `M,U`; candidate `:telemetry`/OpenTelemetry, redaction task first |
-| `runtime/registry` | Registered names, local process groups and service discovery | reuse | P2→P4 | OTP `Registry`/`pg` as needed; location is not envelope identity |
-| `runtime/os-isolation` | Foreign unit/host/process boundary | adapt | P4 | OTP Port/OS process or service; BEAM process is not security isolation |
-
-### Message delivery and stream behavior
-
-| ID | Capability and old Zoo coverage | Disposition | Phase | Initial evidence / delivery note |
-| --- | --- | --- | --- | --- |
-| `delivery/idempotency` | Idempotent Receiver/Consumer; duplicate delivery handling | own | P0→P1 | `P,T,X`; bootstrap history is unbounded and not the old bounded-window receiver |
-| `delivery/request-reply` | Request-Reply/RPI, correlation identifier and return address | own | P1 | `T,X`; replies are ordinary messages and timeout is explicit |
-| `delivery/routing` | Router, content router, filter, recipient list, splitter, expiration | own | P1 | `P,T,X`; fan-out is bounded and declared |
-| `delivery/transformation` | Translator, mapper, content filter/enricher merge, anti-corruption | own | P1 | `P,T,X`; effectful lookup is request/reply before merge |
-| `delivery/retry-timeout` | Retry/backoff, timeout, catch/fallback, fail-fast | adapt | P1 | Reuse OTP timers/task supervision where sufficient; Elzoo owns attempt/deadline policy and tests it (`P,T,X`) |
-| `delivery/circuit-breaker` | Circuit breaker and bulkhead policy | adapt | P1→P3 | Reuse OTP state/supervision and provider pool semantics where sufficient; Elzoo owns the state/permit policy that remains and tests transitions |
-| `delivery/backpressure` | Credits, bounded queue, shed-load and handshaking | own | P1 | `T,X,M`; queue limit and rejection are part of port contract |
-| `delivery/aggregation` | Aggregator, scatter-gather/API composition, completion/timeout | own | P1→P2 | `T,X`; stateful and needs correlation/retention policy |
-| `delivery/resequence` | Resequencer, message sequence, ordered joins | own | P2 | `T,X`; only after ordering assumptions are declared |
-| `delivery/dead-letter` | Invalid/dead-letter channel, exception tracking and quarantine | own | P1 | `T,X,M`; never silently drop a rejected message |
-| `delivery/pubsub` | Publish-subscribe channel, gen_event, process groups | adapt | P2→P4 | OTP Registry/`pg` or a broker; subscriber loss/replay semantics must be tested |
-| `delivery/stream-combinators` | Selected Map/Filter/Scan/Reduce/Window/Combine/Select/Errors | reuse | P1 | Use `Enum`/`Stream` for ordinary transformations; file a focused own piece only for missing stateful/domain policy; Rx subscription/threading is wiring/runtime |
-| `delivery/time` | Timer/interval/debounce/delay/timestamp and clock port | adapt | P1 | OTP timer/clock adapter; decisions consume time messages, not wall clock |
-
-### State, durability and workflow
-
-| ID | Capability and old Zoo coverage | Disposition | Phase | Initial evidence / delivery note |
-| --- | --- | --- | --- | --- |
-| `state/event-log` | Write-ahead log, message store, event sourcing, session log | adapt | P2 | Elzoo owns the append/replay/durability contract; evaluate OTP `disk_log` or a transactional store instead of rebuilding a WAL; recovery/truncation need crash tests |
-| `state/outbox` | Transactional client/outbox and guaranteed delivery core | adapt | P2 | Elzoo owns commit/ack semantics; use the selected transactional store/provider, not a second storage engine; `T,X` |
-| `state/checkpoint` | Snapshots, low-water mark, retention and steady state | adapt | P2 | Elzoo owns replay equivalence/retention contract; storage implementation is reused/adapted; `P,T,X` |
-| `state/schema-evolution` | Upcasters, format/schema indicator and state migration | own | P2 | `T,X`; version compatibility is explicit, not inferred |
-| `state/scheduler` | Delayed/recurring jobs and workflow timers | adapt | P2 | Oban candidate; use provider persistence/retry when sufficient, while Elzoo owns job idempotency and adapter contract |
-| `workflow/state-machine` | gen_statem, statecharts, process manager, saga | own | P1→P2 | Cure pure state machine plus OTP shell; compensation is a domain contract |
-| `state/crdt` | G-/PN-counter, sets, registers, sequences and offline sync | defer | P4 | Only when a product needs replication; laws require merge semantics and clocks |
-| `state/replication` | Leader/follower, quorum, replicated log, leases, clocks, partitions | defer | P4 | Do not implement consensus in bootstrap; use an established service/library if needed |
-| `workflow/build-graph` | Build-system scheduler/rebuilder, trace store, dry run/checkpoint | defer | P4 | Product-specific; no catalogue build system in the runtime |
-
-### Domain contracts
-
-| ID | Capability and old Zoo coverage | Disposition | Phase | Initial evidence / delivery note |
-| --- | --- | --- | --- | --- |
-| `domain/value-types` | Decimal/money, date-time/calendar, units of measure, Unicode text | adapt | P3→P4 | Reuse maintained Elixir value libraries where their semantics fit; Elzoo owns currency/rounding/time-zone contracts needed by a product |
-| `domain/policy-rules` | Decision tables, business rules and policy templates | defer | P4 | A product must provide a finite rule schema, conflict policy and audit requirement before choosing an evaluator |
-| `domain/saas-controls` | Tenant isolation, quota, metering, feature rollout, billing events, SLO/alerts | defer | P4 | Compose from delivery/backpressure and policy pieces; no generic SaaS product layer in the runtime |
-
-### Data and external integrations
-
-| ID | Capability and old Zoo coverage | Disposition | Phase | Candidate / adoption status |
-| --- | --- | --- | --- | --- |
-| `integration/json` | JSON codec and AI/schema parsing boundary | adapt | P0 | Jason is the only non-OTP library exercised by the spike; adopted for bootstrap |
-| `integration/http` | HTTP client/server, URL/cookies, WebSocket/SSE, webhook | adapt | P3 | Req/Finch are candidates; neither is adopted until executable comparison |
-| `integration/sql` | Database-per-service, PostgreSQL/SQLite, transactions and CDC | adapt | P2→P3 | Ecto/Postgrex candidates; no database dependency in P0 |
-| `integration/jobs` | Durable job queue and scheduled work | adapt | P2 | Oban candidate; not the Elzoo outbox until transaction/retry tests pass |
-| `integration/observability` | Telemetry exporter, tracing, logs, SLO/alerts | adapt | P3 | `:telemetry`/OpenTelemetry candidates; redaction and sampling are Elzoo contracts |
-| `integration/crypto` | Hash/HMAC/signature/password/TLS/compression | adapt | P3→P4 | Reuse OTP crypto for suitable pure primitives or a maintained adapter for native/TLS work; never hand-write TLS/crypto in Cure |
-| `integration/auth-policy` | Cedar/RBAC/ABAC, access token, identity provider, consent | defer | P4 | Candidate only after threat model; policy outputs are untrusted inputs to units |
-| `integration/object-store` | Claim check, S3/object storage, large payload/media | adapt | P4 | Provider contract and retention/security review required |
-| `integration/message-broker` | Kafka/NATS/RabbitMQ/MQTT/cloud queues and bridge | adapt | P4 | Broker delivery semantics must be translated to Elzoo envelope classes |
-| `integration/search-data` | Search, dataframe/columnar/analytics, OCR/media/speech | defer | P4 | Product adapters; no generic data engine in core |
-| `integration/identity` | OAuth/OIDC, secrets vault, email/SMS/push/payments | defer | P4 | External provider adapters need threat model and contract tests |
-| `integration/ai-model` | LLM function, parser, prompt/schema, agent loop/tools/budgets | defer | P4 | AI output is untrusted input; no agent harness in bootstrap |
-| `integration/sdk` | Python/TypeScript/Rust/Go foreign-unit SDKs and MCP | defer | P4 | Build only for an actual cross-process assembly |
-
-### Domain and product assemblies
-
-| ID | Working capability | Disposition | Phase | Made from / reason |
-| --- | --- | --- | --- | --- |
-| `assembly/ingest-dedup-accumulate` | Bootstrap exemplar | own | P0 | `core/operator` + `delivery/idempotency` + OTP shell; intentionally not bounded/durable |
-| `assembly/request-route-retry` | Message resilience | own | P1 | request/reply, routing, timeout/retry, backpressure and dead-letter |
-| `assembly/durable-job` | Durable workflow/job | adapt | P2 | event log/outbox/checkpoint plus selected SQL/job adapter |
-| `assembly/http-job` | Edge request to durable job | adapt | P3 | selected HTTP adapter + Jason + job/storage + telemetry |
-| `assembly/tenant-edge` | Tenant tag/auth/quota/metering/billing | defer | P4 | Old SaaS/request-guard family; needs policy and billing contracts |
-| `assembly/ledger-checkout` | Ledger, checkout saga, inventory/payment | defer | P4 | Domain-specific; money and external payment contracts first |
-| `assembly/consent-records` | Consent, classified records, FHIR | defer | P4 | Requires policy, redaction, retention and healthcare adapter review |
-| `assembly/device-ingest` | IoT dedup/window/alerts/rollout | defer | P4 | Requires device identity, protocol and rollout contracts |
-| `assembly/data-pipeline` | Build graph, content cache, dataframe | defer | P4 | Deferred until a real data workload justifies it |
-| `assembly/agent-product` | LLM/tool/approval/budgeted loop | defer | P4 | Old AI family is a composition, not a privileged runtime |
+Source bundles live under `pieces/<family>/<name>/`, containing `piece.json`,
+README.md and whichever of `lib/`, `cure/`, `test/`, `examples/` they actually
+need. Unimplemented capabilities have inventory entries, not empty code
+folders or placeholder functions. See [consuming pieces](consuming.md) and
+[ADR-0004](adr/0004-source-catalogue.md).
 
 ## Mapping the old Zoo families
 

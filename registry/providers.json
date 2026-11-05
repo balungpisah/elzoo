@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "providers": {
+    "cure": {
+      "source": "git",
+      "package": "cure",
+      "version": "0.35.0",
+      "revision": "a004c335cc4e9f2203ba6f51fc31e8540b66378d",
+      "url": "https://github.com/cure-lang/cure-lang.git",
+      "reference": "https://github.com/cure-lang/cure-lang/tree/a004c335cc4e9f2203ba6f51fc31e8540b66378d",
+      "license": "MIT"
+    },
+    "jason": {
+      "source": "hex",
+      "package": "jason",
+      "version": "1.4.5",
+      "reference": "https://hexdocs.pm/jason/1.4.5/Jason.html",
+      "license": "Apache-2.0"
+    },
+    "req": {
+      "source": "hex",
+      "package": "req",
+      "version": "0.7.5",
+      "reference": "https://hexdocs.pm/req/0.7.5/Req.html",
+      "license": "Apache-2.0"
+    },
+    "elixir": {
+      "source": "platform",
+      "tool": "elixir",
+      "version": "1.20.4",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "license": "Apache-2.0"
+    },
+    "otp": {
+      "source": "platform",
+      "tool": "erlang",
+      "version": "29.1.2",
+      "reference": "https://www.erlang.org/doc/",
+      "license": "Apache-2.0"
+    }
+  }
+}

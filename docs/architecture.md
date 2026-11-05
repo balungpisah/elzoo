@@ -1,6 +1,6 @@
 # Elzoo architecture
 
-Status: bootstrap design for the first Mix application. This document is the
+Status: source catalogue architecture; ADR-0004 defines distribution. This document is the
 contract for the pieces that will be implemented; it is not a claim that all
 of the target runtime already exists.
 
@@ -10,6 +10,26 @@ valuable. Elixir/OTP and a maintained library own the runtime and integration
 implementation that already exists. The Elzoo boundary owns the message
 contract, error translation, lifecycle policy, and evidence for the claims it
 makes about using those dependencies.
+
+## Delivery and source ownership
+
+The root Mix application is a development harness. Developers take selected
+source bundles into their own Mix project, with no required Elzoo runtime
+application or supervision tree. `pieces/<family>/<name>/` colocates the
+source, contract, tests/examples and claim metadata. Library recipes use
+upstream APIs directly; an Adapter exists only for an actual translation.
+
+The checked [piece ledger](../LEDGER.md) distinguishes implementations from
+planned capabilities and records individual claims. A source copy carries
+Apache-2.0 license/notice and a provenance receipt. It does not carry a proof
+of subsequent edits or arbitrary compositions. See [consuming](consuming.md)
+and [ADR-0004](adr/0004-source-catalogue.md).
+
+Generic composition lives in `pieces/core/operator`; exact-key idempotency
+lives in `pieces/delivery/idempotency`. The OTP Unit depends only on the
+transition tuple contract, not on a sample Runtime. The sample Assembly
+combines these pieces. This preserves Zoo's recursive composition idea while
+making its source delivery independent of a central host.
 
 ## Present versus target
 
@@ -23,10 +43,12 @@ The bootstrap is deliberately small and observable:
 * A small ingest → idempotency → accumulation assembly. It demonstrates
   composition and a process boundary; it is not a bounded receiver, a durable
   broker, or a complete port of the old Zoo receiver.
-* Jason at one explicit Elixir boundary. Jason's JSON implementation is an
+* Direct Jason and Req recipes, plus an optional Cure-to-Jason string bridge.
+  OTP lifecycle/registry/timer/hash and Enum/Stream recipes call upstream APIs.
+* Jason at one explicit Elixir boundary in the optional bridge. Jason's JSON implementation is an
   upstream contract, not a theorem about Elzoo.
 * `mix setup` and `mix check` are the public commands. The executable checks
-  in [`test/elzoo/runtime_test.exs`](../test/elzoo/runtime_test.exs) are the
+  in [`pieces/assembly/ingest-dedup-accumulate/test/elzoo/runtime_test.exs`](../pieces/assembly/ingest-dedup-accumulate/test/elzoo/runtime_test.exs) are the
   bootstrap evidence; this document does not turn every catalogue row into a
   proof obligation.
 
@@ -120,8 +142,8 @@ and validate the envelope, call the pure step, persist/emit according to its
 policy, and report telemetry. It does not decide business outcomes. On a
 malformed message it emits an explicit error/dead-letter outcome rather than
 calling a decision with an invalid value. The bootstrap subset currently has
-the generic `GenServer` shell in [`lib/elzoo/unit.ex`](../lib/elzoo/unit.ex),
-the Cure function signatures in [`cure/core.cure`](../cure/core.cure), and a
+the generic `GenServer` shell in [`pieces/runtime/unit/lib/elzoo/unit.ex`](../pieces/runtime/unit/lib/elzoo/unit.ex),
+the Cure function signatures in [`pieces/assembly/ingest-dedup-accumulate/cure/elzoo/core.cure`](../pieces/assembly/ingest-dedup-accumulate/cure/elzoo/core.cure), and a
 snapshot call; it does not yet have a general envelope decoder, persistence,
 telemetry channel or dead-letter port.
 
@@ -227,9 +249,9 @@ Decision(state, input) -> {new_state, outputs, effects}
 Effect -> Adapter -> Result | Error | Timeout
 ```
 
-The bootstrap uses a narrow Elixir shell around Cure functions. Jason is called
-only through an adapter boundary that validates input and maps exceptions to a
-declared error. The successful JSON bytes are checked against Jason's decoder
+The optional Cure-to-Jason bridge uses a narrow Elixir shell that validates
+input and maps exceptions to a declared error. General JSON uses Jason
+directly; pure library calls do not need a wrapper merely to enter the ledger. The successful JSON bytes are checked against Jason's decoder
 in the runtime test; Jason's implementation remains upstream-owned. The same
 shape applies to HTTP, SQL, jobs and brokers.
 
@@ -317,10 +339,10 @@ The following claims are the ones the bootstrap may make now:
 
 | Claim | Grounding | Evidence / limit |
 | --- | --- | --- |
-| Cure can express a generic typed zero/one-output composition | `P,T,X` | [`cure/core.cure`](../cure/core.cure) and [`runtime_test.exs`](../test/elzoo/runtime_test.exs) compile selected properties and typed-negative controls |
-| The same pure transition can run directly and behind OTP | `X,U` | [`Elzoo.Runtime`](../lib/elzoo/runtime.ex) and the runtime test compare fused/direct with synchronous GenServer-boundary traces; not arbitrary crash equivalence |
+| Cure can express a generic typed zero/one-output composition | `P,T,X` | [`composition.cure`](../pieces/core/operator/cure/elzoo/composition.cure) and [`runtime_test.exs`](../pieces/assembly/ingest-dedup-accumulate/test/elzoo/runtime_test.exs) compile selected properties and typed-negative controls |
+| The same pure transition can run directly and behind OTP | `X,U` | [`Elzoo.Runtime`](../pieces/assembly/ingest-dedup-accumulate/lib/elzoo/runtime.ex) and the runtime test compare fused/direct with synchronous GenServer-boundary traces; not arbitrary crash equivalence |
 | OTP supervision restarts a unit | `X,U` | runtime test exercises `Supervisor` restart; volatile state is reset on restart |
-| Jason can encode tested strings and errors are translated | `X,U,A` | [`lib/elzoo/json_boundary.ex`](../lib/elzoo/json_boundary.ex) and runtime test; Jason implementation and Cure `@extern` signature remain foreign assumptions |
+| Jason can encode tested strings and errors are translated | `X,U,A` | [`pieces/integration/cure-json/lib/elzoo/json_boundary.ex`](../pieces/integration/cure-json/lib/elzoo/json_boundary.ex) and the bridge’s own tests; Jason implementation and Cure `@extern` signature remain foreign assumptions |
 | volatile state may accept a redelivered key after restart | `X` | runtime test explicitly shows this; it is a limitation, not a bug |
 | Cure's selected source has no unaudited holes or hidden axioms | `X` | runtime test runs `Cure.Audit.Ledger` over the production Cure files; this is not a compiler soundness audit |
 | durable hop is at-least-once | `A` until Phase 2 | requires a real log/outbox/recovery test; no bootstrap claim |
@@ -345,8 +367,9 @@ claim:
   bootstrap's zero/one output, including retry/dead-letter policy.
 * `ELZ-007`: keep ordinary stream transformations on direct `Enum`/`Stream`
   reuse and make candidate/assembly selection deterministic.
-* `ELZ-011`: choose the first HTTP adapter (Req or Finch) after a locked,
-  executable comparison; do not adopt both by default.
+* `ELZ-011`: integrate the adopted Req client recipe into the representative
+  Effect/job boundary, including application-specific limits and failure
+  translation. The narrow recipe does not complete that Assembly.
 * `ELZ-009`: choose/evaluate the first durable log/outbox implementation and
   test crash/recovery ordering, including the ack commit point.
 * `ELZ-010`: choose the scheduler/job provider and document transaction scope,
@@ -374,5 +397,5 @@ not invent an untracked `ELZ-ARCH-*` backlog.
   [Oban](https://hexdocs.pm/oban/Oban.html) — candidates and limits are
   recorded in `docs/dependencies.md`.
 * The earlier [Cure spike commit `ffd64a4`](https://github.com/sabrang-mdp/zoo/commit/ffd64a4)
-  (historical research; the current repository's `cure/` and `test/` files are
+  (historical research; the current repository's `pieces/` sources and tests are
   the self-contained bootstrap evidence).

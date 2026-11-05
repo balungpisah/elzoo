@@ -1,0 +1,6 @@
+Elzoo
+Copyright 2026 Elzoo contributors
+
+Elzoo-owned source is licensed under Apache-2.0. External dependencies retain
+their own licenses and notices; they are installed through Mix/OTP, not
+relicensed or vendored as Elzoo source.

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 defmodule Mix.Tasks.Compile.Cure do
   @moduledoc """
   Compile application Cure sources into the current Mix application ebin.
@@ -10,12 +11,15 @@ defmodule Mix.Tasks.Compile.Cure do
 
   use Mix.Task.Compiler
 
-  @cure_source_dir "cure"
   @manifest "elzoo.cure.manifest"
 
   @impl Mix.Task.Compiler
   def run(_args) do
-    sources = Path.wildcard(Path.join(@cure_source_dir, "**/*.cure")) |> Enum.sort()
+    source_roots =
+      Mix.Project.config() |> Keyword.get(:cure_paths, ["cure"]) |> Enum.map(&Path.expand/1)
+
+    sources =
+      source_roots |> Enum.flat_map(&Path.wildcard(Path.join(&1, "**/*.cure"))) |> Enum.sort()
 
     output_dir = Mix.Project.compile_path()
     File.mkdir_p!(output_dir)
@@ -27,7 +31,6 @@ defmodule Mix.Tasks.Compile.Cure do
       write_manifest!(output_dir, [])
       {:ok, []}
     else
-      source_roots = [Path.expand(@cure_source_dir)]
       sources = dependency_order(sources)
       ensure_cure_started!()
 

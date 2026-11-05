@@ -11,8 +11,9 @@ For ongoing task work, read from the repository root:
 1. CONTEXT.md for the locked vocabulary.
 2. GOAL.md and docs/development/01-workflow.md.
 3. docs/development/02-task-dag.md and the selected tasks/ELZ-*.md body.
-4. docs/architecture.md, docs/catalogue.md and relevant ADRs.
-5. mix.exs, config/, lib/, cure/ and test/ only as needed.
+4. LEDGER.md, docs/consuming.md, docs/architecture.md and relevant ADRs.
+5. The selected piece.json and README; mix.exs and the relevant pieces/, lib/
+   and test/ sources only as needed.
 
 PLAN.md, GATES.md and gates/*.md describe the one-time bootstrap and are
 required when integrating or checking bootstrap work. They are not a
@@ -217,3 +218,19 @@ Do not report complete until merged commit and cleanup are visible.
 “Coordinator” is a role for the active task, not a required permanent service
 or person. If no separate coordinator is assigned, the worker performs the
 integration steps after obtaining the required independent review.
+
+## Source catalogue rules
+
+Use pieces/<family>/<name>/ with conventional lib/, cure/, test/ and examples/
+paths. Per-piece JSON owns ready source lists, dependencies and claim-level
+grounding; registry/catalogue.json also records planned/deferred gaps. Do not
+create placeholder implementations for planned entries or wrappers around
+ordinary upstream APIs just to fill directories.
+
+After changing metadata, run mix elzoo.ledger; mix check rejects stale output,
+missing evidence/source, provider-pin drift and invalid dependencies. Keep the
+copying contract tested: the root Application must never be required by a
+consumer. A renamed/moved source needs corresponding import, export-manifest,
+proof/test and documentation changes. Apache-2.0 covers Elzoo-owned source;
+record upstream licenses separately. Evidence applies to the recorded source
+and named claims, not arbitrary downstream edits.

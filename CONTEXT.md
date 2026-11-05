@@ -38,3 +38,14 @@ types, executable checks, monitoring and an upstream contract.
 **Dependency**: An external implementation relied on through an explicit contract.
 
 **Envelope**: Delivery metadata and payload passed across a message boundary.
+
+**Source Bundle**: The source, contract, dependencies and evidence a developer
+takes together to use a Piece in another project.
+
+**Recipe**: An executable example of using an upstream implementation directly.
+
+**Piece Ledger**: The inventory of Pieces, their readiness, implementation
+origins, dependencies and the grounding for their declared claims.
+
+**Provenance Receipt**: A record of where copied source came from and which
+original content and assumptions its evidence described.

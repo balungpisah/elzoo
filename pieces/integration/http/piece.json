@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "id": "integration/http",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "recipe",
+  "providers": [
+    "req"
+  ],
+  "dependencies": [],
+  "contract": "Use Req directly for an HTTP client request with explicit retry, redirect, body and timeout choices.",
+  "limits": [
+    "Local HTTP success/503 are tested; timeout is a deterministic adapter injection.",
+    "No server, SSE, WebSocket, SSRF policy, durable effects, circuit breaker or job integration is provided.",
+    "Req brings Finch transitively; Elzoo does not expose a second independent HTTP abstraction."
+  ],
+  "files": [
+    "examples/elzoo/http.exs",
+    "test/elzoo/http_recipe_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/http_recipe_test.exs",
+      "claim": "The named scenarios in this ExUnit file are executable evidence, not universal proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "req",
+      "reference": "https://hexdocs.pm/req/0.7.5/Req.html",
+      "claim": "Relies on the pinned provider implementation and public contract."
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "id": "runtime/registry",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "recipe",
+  "providers": [
+    "elixir",
+    "otp"
+  ],
+  "dependencies": [],
+  "contract": "Use unique-key OTP Registry for local process name lookup.",
+  "limits": [
+    "Local names only; not durable identity, distributed discovery or an authorization boundary."
+  ],
+  "files": [
+    "examples/elzoo/registry.exs",
+    "test/elzoo/registry_recipe_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/registry_recipe_test.exs",
+      "claim": "The named scenarios in this ExUnit file are executable evidence, not universal proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Relies on the pinned provider implementation and public contract."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/",
+      "claim": "Relies on the pinned provider implementation and public contract."
+    }
+  ]
+}

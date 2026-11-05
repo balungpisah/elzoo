@@ -11,6 +11,10 @@ Exercise one maintained Elixir/OTP or HTTP boundary with an explicit Adapter
 and translate success, failure, timeout and cancellation into the flow's
 declared result. Keep Cure pure and choose the library by executable comparison.
 
+ELZ-013 already supplies a tested direct Req client recipe at
+`pieces/integration/http/`. Reuse it; this task adds the actual application
+Effect/job policy, limits and failure translation, not another HTTP client.
+
 ## Scope
 
 - define request/result/error ports and the Unit's Needs;

@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "id": "integration/crypto",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "recipe",
+  "providers": [
+    "elixir",
+    "otp"
+  ],
+  "dependencies": [],
+  "contract": "Use OTP SHA-256 directly; a published abc vector grounds this usage.",
+  "limits": [
+    "This recipe covers hashing only, not passwords, encryption, TLS, key handling or cryptographic soundness."
+  ],
+  "files": [
+    "examples/elzoo/hash.exs",
+    "test/elzoo/crypto_recipe_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/crypto_recipe_test.exs",
+      "claim": "The named scenarios in this ExUnit file are executable evidence, not universal proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Relies on the pinned provider implementation and public contract."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/",
+      "claim": "Relies on the pinned provider implementation and public contract."
+    }
+  ],
+  "applications": [
+    "crypto"
+  ]
+}
