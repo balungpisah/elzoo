@@ -20,7 +20,7 @@ identity, money, work/agent execution and artifact responsibilities inside broad
 families. It adds no ready source or library dependency. Existing IDs remain
 stable; family and provider-adapter entries do not license duplicate engines.
 
-The inventory is now 89 IDs, of which 12 remain ready scoped bundles. The
+The inventory is now 90 IDs, of which 12 remain ready scoped bundles. The
 `demand-led` phase has no promised place in the existing P0–P3 task chain;
 select a real Assembly before opening implementation tasks. Candidate libraries
 are documented in the [reference study](research/orchestration-references.md),
