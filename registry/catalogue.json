@@ -78,7 +78,7 @@
       "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
-      "reason": "C5 composition of work-item, dependencies, lease, run and notification contracts; product status policy stays outside the execution kernel."
+      "reason": "C5 composition of work-item, dependencies, lease, run and notification contracts; product status policy stays outside the execution kernel. ELZ-015 evaluates part of an Ash foundation; Run/Attempt orchestration, persistence and lease/recovery remain deferred."
     },
     {
       "id": "assembly/tenant-edge",
@@ -274,7 +274,7 @@
       "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
-      "reason": "Principal, tenant, resource, action and policy version for C1/C3/C6; compare application/provider policy libraries; no security guarantee claimed."
+      "reason": "Principal, tenant, resource, action and policy version for C1/C3/C6; compare application/provider policy libraries; no security guarantee claimed. ELZ-015 evaluates Ash policies in a volatile spike; production identity/concurrency and optional Cedar integration remain unadopted."
     },
     {
       "id": "domain/entitlement",
@@ -370,7 +370,7 @@
       "disposition": "defer",
       "phase": "P4",
       "status": "deferred",
-      "reason": "AI output is untrusted input; no agent harness in bootstrap"
+      "reason": "AI output is untrusted input; no agent harness in bootstrap. ELZ-015 exercises AshAi action-tool dispatch only; model generation, routing and billing remain unadopted."
     },
     {
       "id": "integration/auth-policy",
@@ -415,7 +415,7 @@
       "disposition": "adapt",
       "phase": "P2",
       "status": "planned",
-      "reason": "Oban candidate; not the Elzoo outbox until transaction/retry tests pass"
+      "reason": "Oban candidate; not the Elzoo outbox until transaction/retry tests pass. Evaluate AshOban/Oban after ELZ-015; volatile Task invocation is not job durability."
     },
     {
       "id": "integration/json",
@@ -691,7 +691,7 @@
       "disposition": "own",
       "phase": "P1\u2192P2",
       "status": "planned",
-      "reason": "Cure pure state machine plus OTP shell; compensation is a domain contract"
+      "reason": "Cure pure state machine plus OTP shell; compensation is a domain contract. ELZ-015 exercises AshStateMachine sequentially with ETS; transactional/stale-record safety remains unadopted."
     },
     {
       "id": "workflow/work-item",
@@ -699,7 +699,7 @@
       "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
-      "reason": "Assignee, acceptance criterion and policy-defined completion for C5/C6; independent of job/agent attempt success. Reuse a suitable workflow implementation before authoring policy."
+      "reason": "Assignee, acceptance criterion and policy-defined completion for C5/C6; independent of job/agent attempt success. Reuse a suitable workflow implementation before authoring policy. ELZ-015 evaluates Ash resource actions with tenant context; no ready bundle or durable execution claim."
     }
   ]
 }

@@ -43,3 +43,11 @@ semantics remain provider contracts; no consensus or cross-host claim is made.
 
 No hand-written WAL, second storage engine, replication protocol or product
 database schema.
+
+## Ash foundation reuse decision
+
+Read ADR-0005 and the ELZ-015 spike limits. Evaluate AshPostgres/AshOban and
+Reactor for the selected boundary before writing equivalent machinery. Do not
+infer durable jobs, atomic state transitions or crash recovery from the ETS
+spike. Record why the chosen provider fits this task's Contract; Ash remains
+optional for unrelated pure Pieces.

@@ -107,6 +107,17 @@ useful later Assemblies. Do not add them to the composition kernel merely
 because a reference product uses them. Developer/agent source discovery uses
 the Piece Ledger; runtime discovery is a different capability.
 
+## Ash application foundation candidate
+
+[ADR-0005](adr/0005-ash-foundation-and-upstream-first.md) makes Ash the preferred
+candidate for resource/action applications. Its isolated ELZ-015 experiment
+exercises shared direct/tool actions, authorization and sequential lifecycle
+rules. Durable storage, jobs, concurrency and actual authentication still need
+their own checks. Reuse the resource/action machinery when it fits; do not
+make every pure Piece depend on Ash or duplicate its framework in Elzoo.
+The [fork policy](development/08-upstream-and-forks.md) keeps dependencies
+upstream unless a concrete modification is needed.
+
 ## Agent orchestration is an Assembly
 
 A useful proposed decomposition is:

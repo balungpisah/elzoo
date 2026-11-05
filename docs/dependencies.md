@@ -114,6 +114,28 @@ replacement for mix.lock or registry/providers.json. Adoption still requires
 one concrete boundary and its failure checks; reuse-first does not mean
 installing every plausible library.
 
+## Ash foundation evaluation
+
+[ELZ-015](../spikes/ash_foundation/README.md) pins Ash 3.37.3, AshAi 1.5.0,
+AshStateMachine 0.3.0 and SimpleSat 0.1.4 in its own Mix project/lockfile.
+Their exact versions and transitive checksums are in
+`spikes/ash_foundation/mix.lock`, not the root provider registry: these are
+experiment dependencies, not ready catalogue providers. The experiment tests
+application actions, policy checks and tool dispatch with volatile ETS.
+Production storage, concurrency, authentication and jobs remain unadopted.
+
+Prefer upstream Ash extensions for corresponding resource capabilities before
+writing equivalent mechanisms. Evaluate AshPostgres for transactional state,
+AshOban for jobs, Reactor for dependency execution, and AshAuthentication for
+identity. AshMoney, AshDoubleEntry and AshPaperTrail remain separate candidates;
+this experiment does not certify them. Ash policies and Cedar have distinct
+contracts; do not silently run competing authority definitions.
+
+[Upstream/fork policy](development/08-upstream-and-forks.md): use upstream
+releases by default. A needed MIT fork belongs under balungpisah with preserved
+notices/provenance, exact consumed revisions and responsibility for our delta.
+No fork is currently required by the Ash experiment.
+
 ## Deliberately deferred families
 
 The following upstream classes are intentionally not dependencies in the

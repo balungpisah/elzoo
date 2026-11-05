@@ -13,6 +13,7 @@ defmodule Mix.Tasks.Check do
     Mix.Task.run("compile", ["--warnings-as-errors"])
 
     Mix.Task.run("elzoo.ledger", ["--check"])
+    Mix.Task.run("elzoo.ash_spike", [])
 
     System.at_exit(fn status ->
       if status == 0, do: Mix.shell().info("ELZOO CHECK PASSED")

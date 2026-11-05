@@ -11,7 +11,8 @@ For ongoing task work, read from the repository root:
 1. CONTEXT.md for the locked vocabulary.
 2. GOAL.md and docs/development/01-workflow.md.
 3. docs/development/02-task-dag.md and the selected tasks/ELZ-*.md body.
-4. docs/capability-model.md and docs/capability-coverage.md, then LEDGER.md,
+4. docs/capability-model.md and docs/capability-coverage.md,
+   docs/adr/0005-ash-foundation-and-upstream-first.md, then LEDGER.md,
    docs/consuming.md, docs/architecture.md and relevant ADRs.
 5. The selected piece.json and README; mix.exs and the relevant pieces/, lib/
    and test/ sources only as needed.
@@ -33,7 +34,11 @@ The initial product is one honest exemplar and its supporting pieces. It does
 not promise all of the old Zoo catalogue or all 402 historical patterns. Open
 new batches when an Assembly actually needs a capability, not to fill a quota.
 Use Enum/Stream for ordinary transformations and reuse maintained storage or
-job providers before considering a new implementation.
+job providers before considering a new implementation. Stay on upstream releases
+unless a concrete modification is needed. Maintained MIT-library forks belong
+under balungpisah, preserve upstream notices/provenance and carry tests for our
+changes; follow docs/development/08-upstream-and-forks.md. Do not fork merely
+because a library is MIT-licensed.
 
 Each published task body defines its scope and reviewer/merge responsibility.
 Keep edits within that scope; include a necessary shared change explicitly in

@@ -46,7 +46,7 @@ defmodule Elzoo.MixProject do
 
   defp aliases do
     [
-      setup: ["deps.get", "compile"]
+      setup: ["deps.get", "compile", "elzoo.ash_spike --setup"]
     ]
   end
 end
