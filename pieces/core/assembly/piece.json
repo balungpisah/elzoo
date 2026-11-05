@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "id": "core/assembly",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": [
+    "cure"
+  ],
+  "dependencies": [
+    "core/operator",
+    "core/port"
+  ],
+  "contract": "Pure composition of one-input/one-output declared interfaces, reusable as an outer interface; execution uses the unchanged core/operator Contract.",
+  "limits": [
+    "Descriptors do not bind functions or prove implementations honor declarations.",
+    "No graph routing, fan-out, delivery, process, persistence or state serialization guarantee."
+  ],
+  "files": [
+    "cure/elzoo/assembly.cure",
+    "lib/elzoo/assembly.ex",
+    "test/elzoo/assembly_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "type",
+      "file": "cure/elzoo/assembly.cure",
+      "claim": "The pinned Cure compiler checks the pure descriptor decision source before emitting BEAM."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/assembly_test.exs",
+      "claim": "Named positive/negative descriptor checks, ABI translation and source audit pass; finite scenarios, not universal proofs."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/assembly_test.exs",
+      "claim": "A legal nested Cure composition compiles and executes; the named Bool-to-Int mismatch fails compilation. Existing core/operator laws remain dependency evidence."
+    },
+    {
+      "kind": "upstream",
+      "provider": "cure",
+      "reference": "https://github.com/cure-lang/cure-lang/tree/a004c335cc4e9f2203ba6f51fc31e8540b66378d",
+      "claim": "Relies on pinned Cure type checking, structural equality, nominal String, Result and record erasure; compiler soundness is not locally proved."
+    },
+    {
+      "kind": "assumption",
+      "claim": "Callers keep schema IDs truthful and state/function ownership consistent; descriptors do not verify implementations or payloads."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "Pure declaration checks emit no observations; the caller owns instrumentation."
+    },
+    "config": {
+      "status": "not_applicable",
+      "contract": "Descriptor fields are intrinsic operands; there are no ambient settings or selectable compatibility modes."
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No independent runtime lifecycle or operational commands."
+    }
+  }
+}

@@ -60,6 +60,12 @@ transition tuple contract, not on a sample Runtime. The sample Assembly
 combines these pieces. This preserves Zoo's recursive composition idea while
 making its source delivery independent of a central host.
 
+Named/versioned Port descriptors and one-input/one-output outer interfaces now
+live in `core/port` and `core/assembly`. They check declared compatibility only;
+Cure compilation separately checks Cure function types. Delivery/wiring remains
+ELZ-003 work and live foreign payload validation remains ELZ-004 work. The
+existing `core/operator` transition and its laws are unchanged.
+
 ## Present versus target
 
 The bootstrap is deliberately small and observable:

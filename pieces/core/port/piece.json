@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "id": "core/port",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": [
+    "cure"
+  ],
+  "dependencies": [],
+  "contract": "Pure exact identity/version and output-to-input descriptor compatibility; no payload validation.",
+  "limits": [
+    "No schema subtyping, coercion, negotiation or runtime payload validation.",
+    "No delivery fields, execution, foreign implementation certification or global identity registry."
+  ],
+  "files": [
+    "cure/elzoo/port.cure",
+    "lib/elzoo/port.ex",
+    "test/elzoo/port_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "type",
+      "file": "cure/elzoo/port.cure",
+      "claim": "The pinned Cure compiler checks the pure descriptor decision source before emitting BEAM."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/port_test.exs",
+      "claim": "Named positive/negative descriptor checks, ABI translation and source audit pass; finite scenarios, not universal proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "cure",
+      "reference": "https://github.com/cure-lang/cure-lang/tree/a004c335cc4e9f2203ba6f51fc31e8540b66378d",
+      "claim": "Relies on pinned Cure type checking, structural equality, nominal String, Result and record erasure; compiler soundness is not locally proved."
+    },
+    {
+      "kind": "assumption",
+      "claim": "Callers keep schema IDs truthful and state/function ownership consistent; descriptors do not verify implementations or payloads."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "Pure declaration checks emit no observations; the caller owns instrumentation."
+    },
+    "config": {
+      "status": "not_applicable",
+      "contract": "Descriptor fields are intrinsic operands; there are no ambient settings or selectable compatibility modes."
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No independent runtime lifecycle or operational commands."
+    }
+  }
+}

@@ -116,7 +116,7 @@ defmodule Elzoo.ExportTest do
     assert_cure_consumer(ctx, ids)
   end
 
-  for id <- ~w(core/operator delivery/idempotency) do
+  for id <- ~w(core/operator core/port core/assembly delivery/idempotency) do
     @tag timeout: 120_000
     test "#{id} carries its own checks into an independent consumer", ctx do
       assert_cure_consumer(ctx, [unquote(id)])
@@ -174,7 +174,14 @@ defmodule Elzoo.ExportTest do
     runtime = """
     if :code.which(Cure.Compiler) != :non_existing, do: raise("compiler leaked into runtime")
     {:ok, _} = Application.ensure_all_started(:consumer)
-    {:Transition, 0, :none} = apply(:"Cure.Elzoo.Composition", :discard, [0, :input])
+    if :code.which(:"Cure.Elzoo.Composition") != :non_existing do
+      {:Transition, 0, :none} = apply(:"Cure.Elzoo.Composition", :discard, [0, :input])
+    end
+    if :code.which(:"Cure.Elzoo.Port") != :non_existing do
+      {:ok, true} = Elzoo.Port.compatible(
+        %{"id" => "out", "direction" => "output", "schema_id" => "count", "schema_version" => 1},
+        %{"id" => "in", "direction" => "input", "schema_id" => "count", "schema_version" => 1})
+    end
     if :code.which(:"Cure.Elzoo.Adapter") != :non_existing do
       {:ok, _} = Elzoo.JsonBoundary.encode("runtime without compiler")
     end
