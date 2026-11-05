@@ -1,0 +1,146 @@
+# SPDX-License-Identifier: Apache-2.0
+mod Elzoo.WindowedIdempotency
+  use Std.Option
+  use Elzoo.Composition
+  use Elzoo.Idempotency
+
+  rec SenderWindow
+    sender: Int
+    incarnation: Int
+    high: Int
+    accepted: List(Int)
+
+  rec WindowedState
+    window: Int
+    max_senders: Int
+    senders: List(SenderWindow)
+
+  type WindowDecision = WindowFresh | WindowAdvance | WindowReorder | WindowDuplicate | WindowStale | WindowSuperseded | WindowNewIncarnation | WindowFull | WindowInvalid
+
+  fn initial(window: Int, max_senders: Int) -> WindowedState =
+    WindowedState{window: window, max_senders: max_senders, senders: []}
+
+  fn count(entries: List(SenderWindow)) -> Int =
+    match entries
+      [] -> 0
+      [head | tail] -> 1 + count(tail)
+
+  fn contains(sequence: Int, accepted: List(Int)) -> Bool =
+    match accepted
+      [] -> false
+      [head | tail] ->
+        pickup
+          sequence == head -> true
+          else -> contains(sequence, tail)
+
+  fn classify_entries(entries: List(SenderWindow), state: WindowedState, input: Elzoo.Idempotency.Message) -> WindowDecision =
+    match entries
+      [] ->
+        pickup
+          count(state.senders) >= state.max_senders -> WindowFull()
+          else -> WindowFresh()
+      [entry | tail] ->
+        pickup
+          entry.sender != input.sender -> classify_entries(tail, state, input)
+          input.incarnation < entry.incarnation -> WindowSuperseded()
+          input.incarnation > entry.incarnation -> WindowNewIncarnation()
+          input.sequence > entry.high -> WindowAdvance()
+          input.sequence <= entry.high - state.window -> WindowStale()
+          contains(input.sequence, entry.accepted) -> WindowDuplicate()
+          else -> WindowReorder()
+
+  fn classify(state: WindowedState, input: Elzoo.Idempotency.Message) -> WindowDecision =
+    pickup
+      state.window < 1 or state.max_senders < 1 -> WindowInvalid()
+      else -> classify_entries(state.senders, state, input)
+
+  fn prune_after(lower: Int, previous: List(Int)) -> List(Int) =
+    match previous
+      [] -> []
+      [head | tail] ->
+        pickup
+          head > lower -> [head | prune_after(lower, tail)]
+          else -> prune_after(lower, tail)
+
+  @total true
+  @reducible
+  fn advance_accepted(singleton_window: Bool, window: Int, sequence: Int, previous: List(Int)) -> List(Int) =
+    match singleton_window
+      True() -> [sequence]
+      False() -> [sequence | prune_after(sequence - window, previous)]
+
+  @total true
+  @reducible
+  fn singleton(sequence: Int) -> List(Int) = [sequence]
+
+  fn fresh_entry(input: Elzoo.Idempotency.Message) -> SenderWindow =
+    SenderWindow{sender: input.sender, incarnation: input.incarnation, high: input.sequence, accepted: [input.sequence]}
+
+  fn update_entries(entries: List(SenderWindow), state: WindowedState, input: Elzoo.Idempotency.Message, decision: WindowDecision) -> List(SenderWindow) =
+    match entries
+      [] -> []
+      [entry | tail] ->
+        pickup
+          entry.sender != input.sender -> [entry | update_entries(tail, state, input, decision)]
+          else ->
+            let updated = match decision
+              WindowAdvance() -> SenderWindow{sender: entry.sender, incarnation: entry.incarnation, high: input.sequence, accepted: advance_accepted(state.window == 1, state.window, input.sequence, entry.accepted)}
+              WindowReorder() -> SenderWindow{sender: entry.sender, incarnation: entry.incarnation, high: entry.high, accepted: [input.sequence | entry.accepted]}
+              WindowNewIncarnation() -> fresh_entry(input)
+              _ -> entry
+            [updated | tail]
+
+  fn updated_state(state: WindowedState, input: Elzoo.Idempotency.Message, decision: WindowDecision) -> WindowedState =
+    WindowedState{window: state.window, max_senders: state.max_senders, senders: update_entries(state.senders, state, input, decision)}
+
+  @total true
+  @reducible
+  fn step(state: WindowedState, input: Elzoo.Idempotency.Message, decision: WindowDecision) -> Transition(WindowedState, Elzoo.Idempotency.Message) =
+    match decision
+      WindowFresh() -> Transition{state: WindowedState{window: state.window, max_senders: state.max_senders, senders: [fresh_entry(input) | state.senders]}, output: Some(input)}
+      WindowAdvance() -> Transition{state: updated_state(state, input, decision), output: Some(input)}
+      WindowReorder() -> Transition{state: updated_state(state, input, decision), output: Some(input)}
+      WindowNewIncarnation() -> Transition{state: updated_state(state, input, decision), output: Some(input)}
+      WindowDuplicate() -> Transition{state: state, output: None()}
+      WindowStale() -> Transition{state: state, output: None()}
+      WindowSuperseded() -> Transition{state: state, output: None()}
+      WindowFull() -> Transition{state: state, output: None()}
+      WindowInvalid() -> Transition{state: state, output: None()}
+
+  fn receiver(state: WindowedState, input: Elzoo.Idempotency.Message) -> Transition(WindowedState, Elzoo.Idempotency.Message) =
+    step(state, input, classify(state, input))
+
+  fn next_state(result: Transition(WindowedState, Elzoo.Idempotency.Message)) -> WindowedState = result.state
+
+  @total true
+  @reducible
+  fn stopped(state: WindowedState) -> Transition(WindowedState, Elzoo.Idempotency.Message) =
+    Transition{state: state, output: None()}
+
+  fn duplicate_emits_nothing(state: WindowedState, input: Elzoo.Idempotency.Message) -> Equivalent(Option(Elzoo.Idempotency.Message), output(step(state, input, WindowDuplicate())), None()) =
+    reflexive(output(step(state, input, WindowDuplicate())))
+
+  fn duplicate_keeps_state(state: WindowedState, input: Elzoo.Idempotency.Message) -> Equivalent(WindowedState, next_state(step(state, input, WindowDuplicate())), state) =
+    reflexive(state)
+
+  fn stale_emits_nothing(state: WindowedState, input: Elzoo.Idempotency.Message) -> Equivalent(Option(Elzoo.Idempotency.Message), output(step(state, input, WindowStale())), None()) =
+    reflexive(output(step(state, input, WindowStale())))
+
+  fn stale_keeps_state(state: WindowedState, input: Elzoo.Idempotency.Message) -> Equivalent(WindowedState, next_state(step(state, input, WindowStale())), state) =
+    reflexive(state)
+
+  fn superseded_keeps_state(state: WindowedState, input: Elzoo.Idempotency.Message) -> Equivalent(Transition(WindowedState, Elzoo.Idempotency.Message), step(state, input, WindowSuperseded()), stopped(state)) =
+    reflexive(step(state, input, WindowSuperseded()))
+
+  fn full_keeps_state(state: WindowedState, input: Elzoo.Idempotency.Message) -> Equivalent(Transition(WindowedState, Elzoo.Idempotency.Message), step(state, input, WindowFull()), stopped(state)) =
+    reflexive(step(state, input, WindowFull()))
+
+  fn reorder_preserves_message(state: WindowedState, input: Elzoo.Idempotency.Message) -> Equivalent(Option(Elzoo.Idempotency.Message), output(step(state, input, WindowReorder())), Some(input)) =
+    reflexive(Some(input))
+
+  fn advance_preserves_message(state: WindowedState, input: Elzoo.Idempotency.Message) -> Equivalent(Option(Elzoo.Idempotency.Message), output(step(state, input, WindowAdvance())), Some(input)) =
+    reflexive(Some(input))
+
+  fn singleton_advance_window(window: Int, sequence: Int, previous: List(Int)) -> Equivalent(List(Int), advance_accepted(True(), window, sequence, previous), singleton(sequence)) =
+    reflexive(singleton(sequence))
+end
