@@ -36,6 +36,10 @@ Cure Pieces remain independently consumable. Ash Resources do not replace the
 Operator/Port contract, and no global Ash application is required by the
 catalogue. Existing ready claims remain unchanged.
 
+The [Gleam evaluation](research/gleam-libraries.md) separately explores optional
+embeddable UI. It does not change these runtime contracts or require a frontend
+language for backend Pieces.
+
 ## Delivery and source ownership
 
 The root Mix application is a development harness. Developers take selected

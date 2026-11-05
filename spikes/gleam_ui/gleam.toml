@@ -1,0 +1,13 @@
+name = "elzoo_gleam_ui"
+version = "0.1.0"
+target = "javascript"
+gleam = "== 1.19.2"
+licences = ["Apache-2.0"]
+
+[dependencies]
+gleam_stdlib = "== 1.0.5"
+gleam_json = "== 3.1.0"
+lustre = "== 5.7.1"
+
+[dev-dependencies]
+gleeunit = "== 1.11.0"

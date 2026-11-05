@@ -98,6 +98,7 @@ guarantees beyond the declared Contract. See docs/operational-contracts.md.
 | `state/replication` | deferred | defer (planned) | — | none claimed | unassessed | Do not implement consensus in bootstrap; use an established service/library if needed |
 | `state/scheduler` | planned | adapt (planned) | — | none claimed | unassessed | Oban candidate; use provider persistence/retry when sufficient, while Elzoo owns job idempotency and adapter contract |
 | `state/schema-evolution` | planned | own (planned) | — | none claimed | unassessed | `T,X`; version compatibility is explicit, not inferred |
+| `ui/component` | deferred | defer (planned) | — | none claimed | unassessed | ELZ-017 tests an isolated Lustre quantity component and shared BEAM/JS model; see docs/research/gleam-libraries.md. No ready source export, framework integration or universal accessibility/browser claim. Independent of operational contracts. |
 | `workflow/approval` | deferred | defer (planned) | — | none claimed | unassessed | Actor/resource/payload/policy-bound decision with expiry or revocation contract for C1/C3/C6; authorization remains separate; no durable approval system implemented. |
 | `workflow/budget` | deferred | defer (planned) | — | none claimed | unassessed | Admission/reservation/settlement of unit-tagged costs for C2/C6/C7; shared authority under concurrency, explicit estimate versus observed cost. Not a financial ledger. |
 | `workflow/build-graph` | deferred | defer (planned) | — | none claimed | unassessed | Product-specific; no catalogue build system in the runtime |

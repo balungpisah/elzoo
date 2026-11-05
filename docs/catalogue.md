@@ -80,6 +80,10 @@ need. Unimplemented capabilities have inventory entries, not empty code
 folders or placeholder functions. See [consuming pieces](consuming.md) and
 [ADR-0004](adr/0004-source-catalogue.md).
 
+The independent [Gleam library evaluation](research/gleam-libraries.md) records
+Lustre as an optional UI candidate. `ui/component` remains deferred; its
+experiment is not a ready export or a dependency of operational contracts.
+
 ## Mapping the old Zoo families
 
 The old catalogue is useful coverage evidence. This table accounts for every

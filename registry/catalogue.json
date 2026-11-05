@@ -638,6 +638,14 @@
       "reason": "`T,X`; version compatibility is explicit, not inferred"
     },
     {
+      "id": "ui/component",
+      "summary": "Embeddable browser component with an explicit DOM interface",
+      "disposition": "defer",
+      "phase": "demand-led",
+      "status": "deferred",
+      "reason": "ELZ-017 tests an isolated Lustre quantity component and shared BEAM/JS model; see docs/research/gleam-libraries.md. No ready source export, framework integration or universal accessibility/browser claim. Independent of operational contracts."
+    },
+    {
       "id": "workflow/approval",
       "summary": "Approval of an exact proposed action",
       "disposition": "defer",

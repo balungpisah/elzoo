@@ -1,0 +1,37 @@
+name: Gleam experiment
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gleam-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gleam:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: spikes/gleam_ui
+    env:
+      ERL_FLAGS: '+S 2:2 +SDcpu 1 +SDio 1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1
+        with:
+          otp-version: '29.1.2'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24.16.0'
+      - run: ./scripts/setup.sh
+      - run: npx --no-install playwright install-deps chromium
+      - run: ./scripts/check.sh
+      - name: Locked dependencies remain unchanged
+        run: git diff --exit-code -- manifest.toml package-lock.json

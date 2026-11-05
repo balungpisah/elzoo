@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+[[ "$(node --version)" == "v24.16.0" ]] || { echo 'Use Node 24.16.0'; exit 1; }
+python3 scripts/setup_gleam.py
+.tools/gleam deps download
+npm ci
+npx --no-install playwright install chromium
