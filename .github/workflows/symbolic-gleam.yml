@@ -1,4 +1,4 @@
-name: Gleam experiment
+name: Gleam on symbolic
 
 on:
   push:
@@ -15,14 +15,21 @@ concurrency:
 
 jobs:
   gleam:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    runs-on: [self-hosted, linux, x64, symbolic, elzoo]
+    container:
+      image: ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: spikes/gleam_ui
     env:
       ERL_FLAGS: '+S 2:2 +SDcpu 1 +SDio 1'
     steps:
+      - name: Prepare Ubuntu job container
+        working-directory: /
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates curl git unzip python3 build-essential libssl3 libncurses6 libsctp1
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1
         with:
