@@ -173,6 +173,7 @@ defmodule Elzoo.WindowedIdempotencyTest do
         {expected, next_model} = reference(model, input, w, n)
         next = receive_as(state, input, expected)
         assert normalize(next) == next_model
+        assert_retention_bound(next, w, n)
         {next, next_model}
       end)
     end
@@ -212,6 +213,16 @@ defmodule Elzoo.WindowedIdempotencyTest do
       end
 
     {decision, if(next == nil, do: model, else: Map.put(model, sender, next))}
+  end
+
+  defp assert_retention_bound({:WindowedState, w, n, senders}, w, n) do
+    assert length(senders) <= n
+
+    for {:SenderWindow, _, _, high, accepted} <- senders do
+      assert length(accepted) <= w
+      assert length(Enum.uniq(accepted)) == length(accepted)
+      assert Enum.all?(accepted, &(&1 > high - w and &1 <= high))
+    end
   end
 
   defp normalize({:WindowedState, _, _, senders}) do
