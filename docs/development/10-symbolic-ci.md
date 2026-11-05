@@ -36,9 +36,15 @@ restriction when making a workflow or troubleshooting a queue.
   self-hosted runners do not supply that variable. The tag names the OS; the digest fixes the image. Container package preparation
   installs build prerequisites, then pinned Actions install OTP/Elixir/Node.
   Apt repository packages are not a bit-for-bit snapshot.
+- After checkout, each job adds only GITHUB_WORKSPACE to Git's safe.directory
+  list and confirms it is inside the repository. Host/container ownership differs;
+  checkout's temporary Git trust does not apply to later shell commands. Never
+  use a wildcard safe.directory setting. Lockfile checks compare against HEAD.
 - Existing Cure, OTP, Elixir, Gleam and Node pins remain unchanged. The repository
   tests run inside the job container, not a developer checkout on the host.
-- GitHub cache storage for the existing backend dependency cache is unchanged.
+- Backend dependency caches still use GitHub storage, under a new
+  symbolic-ubuntu24-v1 key namespace. Do not restore legacy hosted-runner build
+  artifacts with different workspace paths and numeric file ownership.
   This migration removes hosted-runner compute use; it is not a statement about
   every possible GitHub storage/account charge.
 
