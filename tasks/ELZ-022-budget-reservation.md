@@ -19,12 +19,14 @@ financial ledger, a rate limiter or a tenant quota.
    and settle the observed cost afterwards. Callers: C2 (report run budget)
    and C6/C7 (bounded agent fan-out cost). C9's provider-cost reservation
    challenges generality with a second unit type.
-2. **Interface and invariant.** Inputs: budget identity, cap, unit, estimate,
-   opaque `cost_ref`, and later the observed actual. Outputs: `reserved`,
-   `rejected{reason}`, `settled{refund}`. State owner: one budget owner per
-   budget identity. Outputs: `reserved`, `rejected{reason}`,
-   `settled{refund}` and `settled{overage}`. Invariant: admission preserves
-   `committed + reserved <= cap` after any interleaving; settle replaces the
+2. **Interface and invariant.** Inputs: `reserve{budget identity, cap, unit,
+   estimate, cost_ref, expiry}`, `settle{cost_ref, actual}`,
+   `release{cost_ref}` for an abandoned or expired reservation, and
+   `reset{budget identity}` by the owning Assembly. Outputs: `reserved`,
+   `rejected{reason}`, `settled{refund}`, `settled{overage}`, `released`.
+   State owner: one budget owner per budget identity. Invariant: every
+   `reserved` result, under any interleaving of callers, leaves
+   `committed + reserved <= cap`; settle replaces the
    reservation with the observed actual, never a capped or guessed figure;
    when the actual is below the reservation the difference is returned as
    `refund`, when it is above the difference is recorded as `overage` and

@@ -21,18 +21,20 @@ when an existing provider is suitable.
 - exercise crash/restart/replay, duplicate and partial-commit cases;
 - specify corruption, truncation and unavailable-storage outcomes;
 - specify the read model as a deterministic fold over the log: refolding
-  any prefix yields the same model, duplicate and out-of-order records are
-  dropped explicitly, and a forward gap keeps surviving records but marks
-  the model damaged and emits telemetry;
-- distinguish a torn final record (crash mid-append; tolerated on read and
-  repaired only by the owning writer at its own start) from interior
+  any prefix yields the same model, a duplicate record is ignored and an
+  out-of-order record is recorded as a diagnostic result rather than
+  silently dropped, and a forward gap keeps surviving records but returns
+  the model with a damaged flag that the shell may report as Telemetry;
+- distinguish a torn final record (crash mid-append; tolerated on read;
+  only the owning writer may repair it when it next opens the log) from interior
   corruption (fail closed with the longest valid prefix and a damaged
   result); readers never truncate or repair a live log;
 - keep durable records and reconstructable ephemeral updates in distinct
   tiers; no durable state may depend on an ephemeral update having been
   observed;
-- record whether an append-time hash chain over canonical records is needed
-  for state/audit-log integrity; a decision, not a default implementation
+- record, for the later state/audit-log task, whether an append-time hash
+  chain over canonical records is needed; a decision, not a default
+  implementation
   (ELZ-021 reference study).
 
 ## Acceptance

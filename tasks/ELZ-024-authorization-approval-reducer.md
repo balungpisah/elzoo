@@ -22,13 +22,19 @@ grants authority by itself.
    approval, C6 publish approval and child-run authority; C1 invitation
    challenges generality with a human-only flow.
 2. **Interface and invariant.** Inputs: ordered policies, action proposal,
-   current approvals. Outputs: decision plus permitted writes, escrowed
-   writes and approval requests. State owner: the workflow Run for approvals;
-   policies are versioned configuration. Invariants: deny > ask > allow;
-   escrowed writes apply only on approval; a changed payload or policy
-   version invalidates a prior approval; a child never gains authority its
-   parent lacks; approval of an action is not authorization for a different
-   action. Non-goals: authentication, identity mapping, UI prompting.
+   the proposer's bounding authority (the permitted-write set of the actor,
+   and for a child run the parent's effective authority), current
+   approvals, and for an approval event the approver's identity and
+   authority. Outputs: decision plus permitted writes, escrowed writes and
+   approval requests. State owner: the workflow Run for approvals; policies
+   are versioned configuration. Invariants: deny > ask > allow; escrowed
+   writes apply only on approval; a changed payload or policy version
+   invalidates a prior approval; permitted and escrowed writes are a subset
+   of the bounding authority, so a child run's decision never exceeds its
+   parent's; an approval is evaluated against the approver's own authority
+   and is rejected when the approver could not perform the action or is the
+   proposer of the ASK; approval of an action is not authorization for a
+   different action. Non-goals: authentication, identity mapping, UI prompting.
 3. **Reuse check.** Ash policies (ELZ-015 spike) already answer direct
    allow/deny for resource actions when the consumer chooses Ash; bodyguard
    covers callback authorization. Neither models ASK, escrow, scoped approval
@@ -41,10 +47,11 @@ grants authority by itself.
 5. **Failure and evidence.** Dangerous paths: a generated tool argument or
    child run escalating authority; an approval reused after the payload
    changed; a string denylist treated as sufficient (gate on typed effect
-   class, not text). Proofs: precedence, escrow-only-on-approval and
-   monotonic authority laws over the pure reducer. Tests: payload drift
-   invalidation, scope boundaries, replay of approval events rebuilding live
-   state. Upstream: Ash policy semantics where used.
+   class, not text); an agent approving its own ASK. Proofs: precedence,
+   escrow-only-on-approval and bounded-authority (output writes ⊆ bounding
+   authority) laws over the pure reducer. Tests: payload drift invalidation,
+   self-approval and under-authorized approver rejection, scope boundaries,
+   replay of approval events rebuilding live state. Upstream: Ash policy semantics where used.
 6. **Composition record.** Depends on core/envelope schemas, domain/principal
    identity (deferred; stub principals are test inputs only) and
    state/audit-log for retained decisions once that boundary exists.

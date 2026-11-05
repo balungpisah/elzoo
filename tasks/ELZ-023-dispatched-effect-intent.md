@@ -15,18 +15,32 @@ machine; the store and the provider poll are Adapters.
 ## Admission record
 
 1. **Responsibility and caller.** Own the lifecycle of one outward effect
-   intent: `none → dispatched → confirmed | failed_definite | stranded`, and
-   decide whether dispatch may be re-armed. Callers: C3 refund/provider call,
+   intent: `none → intended → dispatched → confirmed | failed_definite |
+   stranded`, and decide whether dispatch may be (re-)armed. Callers: C3 refund/provider call,
    C6 publish Effect, C9 provider charge. The same shape serves a
    deterministic email or webhook sender.
 2. **Interface and invariant.** Inputs: logical request identity, provider
-   idempotency contract (present/absent), observed signals (ack, terminal
-   result, poll result, deadline). Outputs: the next state plus one of
-   `dispatch`, `poll`, `reconcile`, `stop`. State owner: the checkpoint store
-   selected by ELZ-009 for the Assembly. Invariant: only `failed_definite`
-   re-arms dispatch; a timeout or crash never does; the key is a function of
-   the logical request, not a client-minted id; `stranded` is a terminal,
-   visible outcome requiring reconciliation, not a retry.
+   idempotency contract (present/absent), the core/envelope delivery result
+   observed for an attempt (`outcome` × `dispatch` as fixed by the ready
+   Contract: `completed/dispatched`, `rejected/not_dispatched`,
+   `failed/dispatched`, `timed_out` or `unknown` with `dispatch` one of
+   `not_dispatched`, `dispatched`, `unknown`), a poll or reconciliation
+   result (`confirmed`, `pending`, `unknown_to_provider`, `failed`), and the
+   deadline. Outputs: the next state plus one of `dispatch`, `poll`,
+   `reconcile`, `stop`. State owner: one owner per derived intent key (the
+   workflow Run or a dedicated intent owner) that serializes transitions;
+   the ELZ-009 checkpoint store is its durability provider, not the owner.
+   Invariant: `intended` is written before the first `dispatch`, and that
+   first dispatch is not a re-arm; `rejected/not_dispatched` and
+   `timed_out/not_dispatched` return to `intended`; `failed/dispatched` is
+   `failed_definite`, the only transition out of `dispatched` that re-arms
+   dispatch; `timed_out` or `unknown` with `dispatch` `dispatched` or
+   `unknown` stays `dispatched` and requires `poll`; a poll answering
+   `unknown_to_provider` returns to `intended` only when a provider
+   idempotency contract is present, otherwise it is `stranded`; a crash or
+   deadline by itself never re-arms; the key is a function of the logical
+   request, not a client-minted id; `stranded` is a terminal, visible
+   outcome requiring reconciliation, not a retry.
 3. **Reuse check.** Oban uniqueness and retry bound job execution, not the
    external effect's outcome; delivery/idempotency suppresses duplicate
    inbound deliveries only. Provider idempotency keys are reused when the
@@ -37,10 +51,13 @@ machine; the store and the provider poll are Adapters.
    the provider Adapter are separate choices.
 5. **Failure and evidence.** Dangerous paths: re-dispatch after timeout
    (double refund/publish); a crash between checkpoint and dispatch leaving an
-   intent that was never sent (poll must distinguish "unknown to provider"
-   from "pending"); store unavailable at dispatch time. Proofs: the
-   state-machine law that no transition from `dispatched` or `stranded`
-   re-arms dispatch. Tests: crash/restart at each boundary with a provider
+   intent that was never sent (it is `intended`, so resume dispatches it
+   once; poll must distinguish `unknown_to_provider` from `pending`); store
+   unavailable at dispatch time. Proofs: the state-machine laws that the
+   only transition out of `dispatched` that re-arms dispatch passes through
+   `failed_definite`, that `stranded` admits none, and that
+   `unknown_to_provider` without a provider idempotency contract never
+   reaches `dispatch`. Tests: crash/restart at each boundary with a provider
    double; webhook duplicate/out-of-order after confirmation. Upstream:
    provider idempotency and store durability are named contracts.
 6. **Composition record.** Depends on ELZ-006 failure classes and deadlines,

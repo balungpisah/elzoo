@@ -25,9 +25,11 @@ Effect/job policy, limits and failure translation, not another HTTP client.
   telemetry/logs;
 - include idempotency/retry handling where an Effect can repeat;
 - treat every message crossing the Adapter as untrusted input: never mint
-  an atom from a wire string, drop fields outside the declared set, never
-  raise a trust/provenance marker through normalization, and reject rather
-  than guess a field that decides durability or acknowledgement; unknown
+  an atom from a wire string, drop undeclared fields from the provider
+  payload (Envelope decoding itself still fails on unknown keys, per the
+  ready core/envelope Contract), never upgrade an input's trust
+  classification through normalization, and reject rather than guess a
+  field that decides durability or acknowledgement; unknown provider
   kinds become opaque values rather than failures of the whole flow
   (ELZ-021 reference study).
 
