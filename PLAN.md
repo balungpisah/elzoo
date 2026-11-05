@@ -63,3 +63,7 @@ commits or pushes; the coordinator integrates and commits the initial repository
 - Linux CI run 42013712025 passed; all twelve issues are published. ELZ-001
   accepted, ELZ-002 next. Setup/check now share the test build environment.
 - Bootstrap delivered; the catalogue and later assemblies remain scoped tasks.
+
+- Follow-up Linux CI 42016306289 passed with the shared test build. GitHub
+  refused private branch protection under the current plan (HTTP 403); that
+  concrete enforcement limitation is documented without changing visibility.

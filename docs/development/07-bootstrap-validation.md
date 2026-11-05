@@ -55,9 +55,21 @@ future tasks may skip independent review.
 
 The first Linux run passed on Ubuntu 24.04 with the pinned Elixir/OTP versions:
 [Check run 42013712025](https://github.com/balungpisah/elzoo/actions/runs/42013712025).
-It used GitHub-hosted infrastructure and freshly installed dependencies, with
+The follow-up [run 42016306289](https://github.com/balungpisah/elzoo/actions/runs/42016306289)
+also passed at `49a0a5324eb54cb9409141176e313687dc3d1037`, including the shared
+test-environment setup and cache reuse. The initial run used GitHub-hosted
+infrastructure and freshly installed dependencies, with
 no access to the local Zoo checkout. Subsequent runs cache dependencies/builds;
 Mix still compiles the checked-out project and executes the full tests.
+
+## Repository enforcement limit
+
+The private repository, CI, task issues and merge-preserving settings are
+configured. Enabling protected `main` with required `check` status returned
+HTTP 403 because the current GitHub plan requires an upgrade for protection
+on a private repository. No visibility or billing change was made. Required
+review/check discipline therefore remains an agent/coordinator responsibility;
+see [review and merge](04-review-and-merge.md).
 
 ## Limits and lessons
 

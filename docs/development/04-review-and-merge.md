@@ -61,3 +61,14 @@ work. Run cleanup from the main checkout after its fast-forward update.
 “Coordinator” is a role for the active task, not a required permanent service
 or person. If no separate coordinator is assigned, the worker performs the
 integration steps after obtaining the required independent review.
+
+## Current repository enforcement
+
+GitHub returned HTTP 403 when enabling required checks/protection on private
+`balungpisah/elzoo`: “Upgrade to GitHub Pro or make this repository public to
+enable this feature.” The repository remains private. CI is configured, but
+`main` currently has no server-enforced required checks or reviews. The worker
+acting as coordinator must inspect the latest PR head's CI result and required
+independent review before merging. The branch-claim protocol still relies on
+Git's normal non-fast-forward rejection. Do not describe the merge policy as
+a server-enforced guarantee.

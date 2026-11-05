@@ -53,6 +53,9 @@ gh issue list --repo balungpisah/elzoo --state open
 Agents push progress on their claimed task branches; reviewed merges update
 `main` for everyone. Each machine keeps its own checkout and build artifacts.
 GitHub issues and remote branches hold the shared coordination state.
+CI runs on pushes and PRs. The current GitHub plan does not support protected
+branches for this private repository, so agents must observe the documented
+review/check requirements before merging.
 
 The bootstrap harness (ELZ-001) is accepted. The first open task is
 [ELZ-002: contracts and typed composition](https://github.com/balungpisah/elzoo/issues/2).
