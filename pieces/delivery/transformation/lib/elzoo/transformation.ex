@@ -13,6 +13,7 @@ defmodule Elzoo.Transformation do
         |> Map.put("schema_id", port["schema_id"])
         |> Map.put("schema_version", port["schema_version"])
         |> Map.put("causation_id", envelope["message_id"])
+        |> Map.put("correlation_id", Map.get(envelope, "correlation_id", envelope["message_id"]))
         |> Map.put("payload", fun.(envelope["payload"]))
 
       phase(Elzoo.Envelope.validate(translated), :envelope)

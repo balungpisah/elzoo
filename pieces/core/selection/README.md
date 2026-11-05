@@ -33,6 +33,7 @@ duplicate IDs (smallest duplicate ID); compatibility. Errors are wrapped in
 Interface and delivery errors preserve dependency reasons. Duplicate IDs use
 `{:candidate, :duplicate_id, smallest_id}`. Errors may carry declaration IDs
 or indices, never payload or metadata values.
+Callers must match error tuples by arity: `{:candidate, :invalid_shape}` differs from `{:candidate, index, reason}`.
 
 ## API and selection
 

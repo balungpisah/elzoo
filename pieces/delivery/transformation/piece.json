@@ -12,7 +12,7 @@
     "core/envelope",
     "core/port"
   ],
-  "contract": "Caller-supplied pure payload transformation re-wrapped at an explicit output Port, preserving intrinsic metadata/idempotency and dropping sequence.",
+  "contract": "Caller-supplied pure payload transformation re-wrapped at an explicit output Port, preserving effective correlation and intrinsic metadata/idempotency while dropping sequence.",
   "limits": [
     "Callback purity/correctness is assumed; exceptions propagate outside the fixed-atom error contract.",
     "No target payload-schema validation, lookup, runtime execution or ordinary stream implementation."
@@ -25,7 +25,7 @@
     {
       "kind": "test",
       "file": "test/elzoo/transformation_test.exs",
-      "claim": "Finite preservation, absence, opaque payload, target-direction/shape, deadline-data and callback failure scenarios; no quantified proof."
+      "claim": "Finite explicit/implicit correlation preservation, other metadata absence, opaque payload, target-direction/shape, deadline-data and callback failure scenarios; no quantified proof."
     },
     {
       "kind": "upstream",

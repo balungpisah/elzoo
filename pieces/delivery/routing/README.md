@@ -27,6 +27,7 @@ order; `[]` explicitly means filtered. Every matched edge passes unchanged
 `{:edge, edge_id, reason}`. All errors are wrapped in `{:error, ...}`.
 `route_one/3` returns `{:ok, edge_id}`, or `{:error, {:route, :no_route}}`
 or `{:error, {:route, :ambiguous_route}}`, propagating validation errors.
+Callers must match error tuples by arity: `{:route, reason}` differs from `{:route, id, reason}`.
 
 Schema predicates are effectively constant per table because Wiring fixes the
 single source schema/version; kind is the discriminating predicate. No payload

@@ -7,9 +7,11 @@ have output direction (`{:error, {:target, :invalid_direction}}`).
 
 It applies the caller's payload function, returning `{:ok, new_envelope}` with
 target producer/schema/version and caller-supplied message ID, causation ID set
-to the source message ID. It preserves kind, correlation_id, trace_id,
+to the source message ID. It explicitly sets correlation_id to the source's
+correlation_id when present, otherwise the source message_id, preserving the
+effective conversation identity across the new message ID. It preserves kind, trace_id,
 attempt_id, reply_to, deadline_unix_ms and **idempotency_key**, including
-absence. It drops producer-stream sequence. Idempotency is not producer-scoped
+absence for those fields. It drops producer-stream sequence. Idempotency is not producer-scoped
 by ELZ-003; a fresh message ID must not silently break downstream deduplication.
 The resulting Envelope is validated; payload remains opaque, not target-schema
 validated. Deadlines remain data, never evaluated.

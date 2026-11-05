@@ -56,7 +56,17 @@ defmodule Elzoo.TransformationTest do
     assert Elzoo.Envelope.validate(translated) == {:ok, translated}
   end
 
-  test "absent metadata stays absent, payload is opaque, deadline is never evaluated" do
+  test "translation makes implicit correlation explicit and preserves explicit correlation" do
+    {message, target} = fixture()
+
+    for source <- [message, Map.delete(message, "correlation_id")] do
+      assert {:ok, translated} = Transformation.translate(source, target, & &1)
+      assert translated["correlation_id"] == Map.get(source, "correlation_id", source["message_id"])
+      refute translated["message_id"] == source["message_id"]
+    end
+  end
+
+  test "other absent metadata stays absent, payload is opaque, deadline is never evaluated" do
     {message, target} = fixture()
 
     message =
@@ -71,9 +81,10 @@ defmodule Elzoo.TransformationTest do
       assert {:ok, translated} = Transformation.translate(source, target, & &1)
       assert translated["payload"] == payload
       assert translated["kind"] == kind
+      assert translated["correlation_id"] == source["message_id"]
 
       for key <-
-            ~w(correlation_id trace_id attempt_id reply_to deadline_unix_ms idempotency_key sequence),
+            ~w(trace_id attempt_id reply_to deadline_unix_ms idempotency_key sequence),
           do: refute(Map.has_key?(translated, key))
     end
 
