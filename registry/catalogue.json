@@ -57,6 +57,13 @@
       "manifest": "pieces/assembly/ingest-dedup-accumulate/piece.json"
     },
     {
+      "id": "assembly/ingest-json-unit",
+      "summary": "Volatile JSON ingress through supervised dedup/accumulate Units",
+      "disposition": "own",
+      "phase": "P0",
+      "manifest": "pieces/assembly/ingest-json-unit/piece.json"
+    },
+    {
       "id": "assembly/ledger-checkout",
       "summary": "Ledger, checkout saga, inventory/payment",
       "disposition": "defer",
@@ -543,8 +550,7 @@
       "summary": "Host/application start and effect dispatch; old engine host",
       "disposition": "adapt",
       "phase": "P0",
-      "status": "planned",
-      "reason": "OTP `Application`/supervision; no custom engine loop initially"
+      "manifest": "pieces/runtime/host/piece.json"
     },
     {
       "id": "runtime/os-isolation",

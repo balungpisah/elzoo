@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "id": "assembly/ingest-json-unit",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": [
+    "cure",
+    "elixir",
+    "otp",
+    "jason"
+  ],
+  "dependencies": [
+    "assembly/ingest-dedup-accumulate",
+    "runtime/adapter",
+    "runtime/host",
+    "core/wiring",
+    "integration/json",
+    "core/envelope",
+    "runtime/unit"
+  ],
+  "contract": "Strict integer JSON ingress through validated wiring, codecs, Adapter and supervised volatile Units with neutral outer DeliveryResults in fused or hop placement.",
+  "limits": [
+    "Volatile, unbounded history/mailbox, not durable or exactly-once and not a complete old Zoo receiver.",
+    "Hop partial failure can consume a dedup key without accumulating; no atomicity.",
+    "Pipeline call is Adapter/Host entry, not fused-edge traversal; ingress is an internal transition seam checked on behalf of pipeline/ingress.request.",
+    "Equivalence only for named crash-free traces, not general call-versus-hop equivalence.",
+    "Upstream OTP crash reports may log last request/state under consumer Logger configuration; Boundary emits no payload, exception or Jason error data in errors or logs."
+  ],
+  "files": [
+    "lib/elzoo/ingest_codec.ex",
+    "lib/elzoo/ingest_boundary.ex",
+    "test/elzoo/ingest_boundary_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/ingest_boundary_test.exs",
+      "claim": "Named finite executable scenarios, not universal proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "cure",
+      "reference": "https://github.com/cure-lang/cure-lang/tree/a004c335cc4e9f2203ba6f51fc31e8540b66378d",
+      "claim": "Relies on pinned provider implementation and public contract; our boundary translation is tested, not the upstream implementation proved."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Relies on pinned provider implementation and public contract; our boundary translation is tested, not the upstream implementation proved."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/",
+      "claim": "Relies on pinned provider implementation and public contract; our boundary translation is tested, not the upstream implementation proved."
+    },
+    {
+      "kind": "upstream",
+      "provider": "jason",
+      "reference": "https://hexdocs.pm/jason/1.4.5/Jason.html",
+      "claim": "Relies on pinned provider implementation and public contract; our boundary translation is tested, not the upstream implementation proved."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "planned",
+      "contract": "No dedicated events or own logs emitted."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Per-call fused/hop placement and codec overrides; no hot reconfiguration, retry or timeout setting.",
+      "evidence": [
+        "test/elzoo/ingest_boundary_test.exs"
+      ]
+    },
+    "control": {
+      "status": "inherited",
+      "from": "runtime/host",
+      "contract": "OTP lifecycle only; no business drain or cancellation guarantee."
+    }
+  }
+}
