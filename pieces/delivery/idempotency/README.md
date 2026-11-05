@@ -40,3 +40,8 @@ Copied source is Apache-2.0. External packages retain their own licenses.
 Evidence describes the recorded source bytes and selected scenarios. After
 customization, rerun/adapt its checks; the receipt is provenance, not a proof
 of your modified application.
+
+The `duplicate_emits_nothing` and `fresh_preserves_message` proofs concern only
+`emit` after its duplicate flag is supplied. `seen` and `receiver`, including
+key detection, have finite test evidence, not those proofs. ELZ-005 will use
+the separate `delivery/windowed-idempotency` ID and preserve this Contract.

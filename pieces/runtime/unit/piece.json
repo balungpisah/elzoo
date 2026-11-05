@@ -45,7 +45,10 @@
     },
     "config": {
       "status": "supported",
-      "contract": "Construction-time arguments configure the supplied OTP example; no live configuration protocol is supplied."
+      "contract": "Construction-time arguments configure the supplied OTP example; no live configuration protocol is supplied.",
+      "evidence": [
+        "test/elzoo/unit_test.exs"
+      ]
     },
     "control": {
       "status": "inherited",

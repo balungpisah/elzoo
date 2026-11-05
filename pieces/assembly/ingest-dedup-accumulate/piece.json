@@ -73,8 +73,11 @@
       "contract": "The exemplar has no declared operational event stream; pure decisions remain free of telemetry effects."
     },
     "config": {
-      "status": "not_applicable",
-      "contract": "Explicit function inputs/state determine behavior; no ambient or mutable runtime settings are supplied."
+      "status": "supported",
+      "contract": "The nested demonstration accepts a per-call threshold that governs output selection; no hot shared setting or persistent configuration is supplied.",
+      "evidence": [
+        "test/elzoo/runtime_test.exs"
+      ]
     },
     "control": {
       "status": "inherited",

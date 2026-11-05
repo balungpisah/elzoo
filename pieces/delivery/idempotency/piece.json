@@ -11,10 +11,11 @@
   "dependencies": [
     "core/operator"
   ],
-  "contract": "Volatile exact-key duplicate suppression by sender/incarnation/sequence.",
+  "contract": "Volatile exact-key duplicate suppression by sender/incarnation/sequence. Duplicate detection/receiver behavior has test evidence; proofs cover only emit with an already-computed duplicate flag.",
   "limits": [
     "History is unbounded and discarded on restart.",
-    "No bounded window, durability, exactly-once effects or cross-sender ordering."
+    "No bounded window, durability, exactly-once effects or cross-sender ordering.",
+    "seen/receiver duplicate detection is test-grounded, not covered by the two emit helper proofs."
   ],
   "files": [
     "cure/elzoo/idempotency.cure",

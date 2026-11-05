@@ -13,13 +13,24 @@ claiming durable transport.
 ## Scope
 
 - define required identity/schema/kind fields and explicit optional metadata;
-- define fused versus hop placement and the delivery policy carried by a Port;
+- exclusively own fused/hop placement and Port delivery-policy fields, reusing
+  ELZ-002 identity/direction/payload descriptors without redefining them;
+- exclusively own the common delivery-result/error/deadline data shape consumed
+  by ELZ-006 and ELZ-007: completed/rejected/timed-out outcomes, correlation,
+  retryable/permanent/unavailable/unclassified error classes and deadline units.
+  A timeout after dispatch means unknown external outcome, never proof of no
+  Effect. This task defines vocabulary/representation, not retry decisions,
+  timer scheduling, error-classification policy or persistence;
+- publish examples of the common shape that both ELZ-006 and ELZ-007 import;
+  they may not independently extend it without a reviewed contract task;
 - represent one legal unit/port/edge binding and one incompatible/required-route
   rejection;
 - keep message payload separate from telemetry and sensitive data;
 - document volatile OTP mailbox assumptions and unspecified delivery cases.
 
 ## Acceptance
+
+- [ ] Retain the ELZ-002 positive and negative boundary checks in mix check.
 
 - [ ] Legal envelope and wiring examples pass the type/contract check.
 - [ ] Missing required field, incompatible schema or invalid route is rejected

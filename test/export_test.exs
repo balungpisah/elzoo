@@ -35,6 +35,17 @@ defmodule Elzoo.ExportTest do
     assert File.read!(Path.join(ctx.destination, "mix.exs")) == project([], false)
   end
 
+  test "install guidance separates compiler lifecycle from tested library versions", ctx do
+    plan = Elzoo.Export.plan!(ctx.registry, ["integration/cure-json"], ctx.destination)
+    instructions = plan.files[plan.instructions]
+    assert instructions =~ "runtime: false"
+    assert instructions =~ "a004c335cc4e9f2203ba6f51fc31e8540b66378d"
+    assert instructions =~ ~s({:jason, "~> 1.4.5"})
+    assert instructions =~ "not evidence for untested releases"
+    receipt = Jason.decode!(plan.files[plan.receipt])
+    assert receipt["providers"]["jason"]["version"] == "1.4.5"
+  end
+
   test "a conflict found late in the selection writes nothing", ctx do
     file = Path.join(ctx.destination, "test/elzoo/json_recipe_test.exs")
     File.mkdir_p!(Path.dirname(file))
@@ -102,19 +113,32 @@ defmodule Elzoo.ExportTest do
       |> Enum.filter(&(&1["status"] == "ready"))
       |> Enum.map(& &1["id"])
 
+    assert_cure_consumer(ctx, ids)
+  end
+
+  for id <- ~w(core/operator delivery/idempotency) do
+    @tag timeout: 120_000
+    test "#{id} carries its own checks into an independent consumer", ctx do
+      assert_cure_consumer(ctx, [unquote(id)])
+    end
+  end
+
+  defp assert_cure_consumer(ctx, ids) do
     plan = Elzoo.Export.plan!(ctx.registry, ids, ctx.destination)
     Elzoo.Export.write!(plan)
 
     File.write!(
       Path.join(ctx.destination, "mix.exs"),
-      project([:logger, :cure, :jason, :req, :crypto], true)
+      project([:logger, :jason, :req, :crypto], true)
     )
 
     File.write!(Path.join(ctx.destination, "test/test_helper.exs"), "ExUnit.start(seed: 0)\n")
 
     # Reuse only compiled upstream dependency artifacts. A fresh VM gets no
-    # elzoo ebin, project sources, or runtime application. A separate cold
-    # acceptance probe also exercises ordinary dependency fetching/building.
+    # elzoo ebin, project sources, or runtime application. The fixture keeps
+    # these injected upstream code paths for compiler/test use. Compilation may
+    # start Cure; the second VM below tests runtime without the compiler. This
+    # is not a cold dependency-fetch or release-assembly test.
     paths =
       Path.wildcard(Path.join([@root, "_build", "test", "lib", "*", "ebin"]))
       |> Enum.reject(&(Path.basename(Path.dirname(&1)) == "elzoo"))
@@ -140,6 +164,33 @@ defmodule Elzoo.ExportTest do
     assert output =~ "passed"
     refute output =~ "0 tests"
     refute File.exists?(Path.join(ctx.destination, "lib/elzoo/application.ex"))
+
+    runtime_paths =
+      [
+        Path.join(ctx.destination, "_build/test/lib/consumer/ebin")
+        | Enum.reject(paths, &(Path.basename(Path.dirname(&1)) == "cure"))
+      ]
+
+    runtime = """
+    if :code.which(Cure.Compiler) != :non_existing, do: raise("compiler leaked into runtime")
+    {:ok, _} = Application.ensure_all_started(:consumer)
+    {:Transition, 0, :none} = apply(:"Cure.Elzoo.Composition", :discard, [0, :input])
+    if :code.which(:"Cure.Elzoo.Adapter") != :non_existing do
+      {:ok, _} = Elzoo.JsonBoundary.encode("runtime without compiler")
+    end
+    if Enum.any?(Application.started_applications(), fn {app, _, _} -> app == :cure end),
+      do: raise("Cure started as a runtime application")
+    """
+
+    {output, status} =
+      System.cmd(
+        "elixir",
+        Enum.flat_map(runtime_paths, &["-pa", &1]) ++ ["--eval", runtime],
+        cd: ctx.destination,
+        stderr_to_stdout: true
+      )
+
+    assert status == 0, output
   end
 
   defp project(applications, cure?) do
@@ -148,7 +199,7 @@ defmodule Elzoo.ExportTest do
     """
     defmodule Consumer.MixProject do
       use Mix.Project
-      def project, do: [app: :consumer, version: "0.1.0", #{compilers} deps: []]
+      def project, do: [app: :consumer, version: "0.1.0", prune_code_paths: false, #{compilers} deps: []]
       def application, do: [extra_applications: #{inspect(applications)}]
     end
     """

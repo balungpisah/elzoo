@@ -199,6 +199,14 @@
       "manifest": "pieces/delivery/idempotency/piece.json"
     },
     {
+      "id": "delivery/model-routing",
+      "summary": "Select eligible model providers under explicit policy",
+      "disposition": "defer",
+      "phase": "demand-led",
+      "status": "deferred",
+      "reason": "C9 capability/authority/region/budget/health-aware selection; provider translation is integration/ai-model. Fallback preserves separate attempts and possible incurred costs. No router implemented."
+    },
+    {
       "id": "delivery/pubsub",
       "summary": "Publish-subscribe channel, gen_event, process groups",
       "disposition": "adapt",
@@ -269,6 +277,14 @@
       "reason": "Schedule/webhook/app-event input with source identity and dedup scope; delivery/time is only a timer recipe. Needed by C1/C7; no trigger adapter adopted."
     },
     {
+      "id": "delivery/windowed-idempotency",
+      "summary": "Bounded/windowed duplicate and stale-input policy",
+      "disposition": "own",
+      "phase": "P1",
+      "status": "planned",
+      "reason": "ELZ-005: separate Contract from ready delivery/idempotency; preserves the volatile exact-key baseline. Receiver-level laws/tests and retention/expiry assumptions required."
+    },
+    {
       "id": "domain/authorization",
       "summary": "Action/resource authorization decisions",
       "disposition": "defer",
@@ -301,6 +317,14 @@
       "reason": "Scoped membership, one-use invitation and revocation for C1/C2; reuse storage/auth capabilities and own only missing policy."
     },
     {
+      "id": "domain/metering",
+      "summary": "Unit-tagged observed usage with provenance",
+      "disposition": "defer",
+      "phase": "demand-led",
+      "status": "deferred",
+      "reason": "C9 separates estimates from reconciled usage, deduplicates usage records and preserves corrections; no billing/price/admission policy implied."
+    },
+    {
       "id": "domain/money",
       "summary": "Currency amount and rounding contract",
       "disposition": "defer",
@@ -325,6 +349,14 @@
       "reason": "A product must provide a finite rule schema, conflict policy and audit requirement before choosing an evaluator"
     },
     {
+      "id": "domain/pricing",
+      "summary": "Versioned usage-to-price rules and templates",
+      "disposition": "defer",
+      "phase": "demand-led",
+      "status": "deferred",
+      "reason": "C9 requires currency/precision/rounding and immutable rate/template versions; choose libraries before authoring policy. No pricing DSL or settlement implementation."
+    },
+    {
       "id": "domain/principal",
       "summary": "Stable actor identity mapping",
       "disposition": "defer",
@@ -338,7 +370,7 @@
       "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
-      "reason": "Allocation/reset/meter identity for C2/C7; declare consistency and accounting boundaries. Hammer is a rate-limit candidate, not automatically a quota implementation."
+      "reason": "Allocation/reset/admission contract for C2/C9; distinct from observed metering, pricing and financial posting. Provider/storage evaluation required; no implementation."
     },
     {
       "id": "domain/saas-controls",
@@ -370,7 +402,7 @@
       "disposition": "defer",
       "phase": "P4",
       "status": "deferred",
-      "reason": "AI output is untrusted input; no agent harness in bootstrap. ELZ-015 exercises AshAi action-tool dispatch only; model generation, routing and billing remain unadopted."
+      "reason": "Provider request/stream/usage translation for C6/C7/C9. Routing policy belongs to delivery/model-routing; metering/pricing remain separate. No provider integration adopted."
     },
     {
       "id": "integration/auth-policy",

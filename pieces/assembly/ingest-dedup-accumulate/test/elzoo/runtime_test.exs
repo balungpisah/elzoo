@@ -4,16 +4,6 @@ defmodule Elzoo.RuntimeTest do
 
   @root Path.expand("../..", __DIR__)
   @cure_roots Mix.Project.config() |> Keyword.get(:cure_paths, ["cure"]) |> Enum.map(&Path.expand/1)
-  @core_source File.read!(Path.join(@root, "cure/elzoo/core.cure"))
-  @composition_source Enum.find_value(@cure_roots, fn root ->
-                        file = Path.join(root, "elzoo/composition.cure")
-                        if File.regular?(file), do: File.read!(file)
-                      end)
-  @receiver_source Enum.find_value(@cure_roots, fn root ->
-                     file = Path.join(root, "elzoo/idempotency.cure")
-                     if File.regular?(file), do: File.read!(file)
-                   end)
-
   test "the production Cure source is compiled to the app ebin" do
     beam = Path.join(Mix.Project.compile_path(), "Cure.Elzoo.Core.beam")
     assert File.regular?(beam), "missing production Cure artifact #{beam}"
@@ -116,11 +106,8 @@ defmodule Elzoo.RuntimeTest do
   end
 
   test "selected pure modules audit without hidden assumptions" do
-    for source <- [
-          @core_source,
-          @composition_source,
-          @receiver_source
-        ] do
+    for name <- ~w(core extension consumer) do
+      source = File.read!(Path.join(@root, "cure/elzoo/#{name}.cure"))
       assert {:ok, env} = Cure.Compiler.check_source(source, source_roots: @cure_roots)
       report = Cure.Audit.Ledger.audit_env(env)
       assert report.unaudited == []
@@ -130,43 +117,6 @@ defmodule Elzoo.RuntimeTest do
       assert report.not_proven_total == []
       assert report.absurd == 0
     end
-  end
-
-  test "false proof, incompatible typed connection, and unfinished proof are rejected" do
-    wrong_proof =
-      @receiver_source
-      |> String.replace("mod Elzoo.Idempotency", "mod Elzoo.WrongDuplicate")
-      |> String.replace("True() -> None()", "True() -> Some(input)")
-
-    assert wrong_proof != @receiver_source
-
-    assert {:error, {:codegen_error, {:source_context, {:conversion_failure, _, _}, _}}} =
-             Cure.Compiler.compile_and_load(wrong_proof, source_roots: cure_source_roots())
-
-    wrong_port =
-      @core_source
-      |> String.replace("mod Elzoo.Core", "mod Elzoo.WrongPort")
-      |> String.replace(
-        "input: Elzoo.Idempotency.Message) -> Transition(Int, Int)",
-        "input: String) -> Transition(Int, Int)"
-      )
-      |> String.replace("total + input.value", "total")
-
-    assert wrong_port != @core_source
-
-    assert {:error,
-            {:codegen_error, {:source_context, {:index_mismatch, {:cannot_unify, _, _}}, _}}} =
-             Cure.Compiler.compile_and_load(wrong_port, source_roots: cure_source_roots())
-
-    unfinished =
-      @receiver_source
-      |> String.replace("mod Elzoo.Idempotency", "mod Elzoo.Unfinished")
-      |> String.replace("reflexive(emit(True(), input))", "?unfinished")
-
-    assert {:error, {:codegen_error, {:unfilled_hole, info}}} =
-             Cure.Compiler.compile_and_load(unfinished, source_roots: cure_source_roots())
-
-    assert info.definition == :"Elzoo.Unfinished#duplicate_emits_nothing"
   end
 
   defp reference(messages) do
@@ -184,8 +134,4 @@ defmodule Elzoo.RuntimeTest do
   end
 
   defp key({sender, incarnation, sequence, _value}), do: {sender, incarnation, sequence}
-
-  defp cure_source_roots do
-    @cure_roots
-  end
 end

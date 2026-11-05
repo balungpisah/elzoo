@@ -34,3 +34,7 @@ of your modified application.
 At the Elixir boundary, higher-order Cure operator arguments are curried:
 `fn state -> fn input -> transition end end`. Exported Cure functions and
 the OTP Unit MFA are called with their ordinary arity (for example step/2).
+
+The copied composition test includes the Cure incompatible-connection negative
+control and this source file's audit; it does not depend on the sample Assembly.
+This checks Cure types, not arbitrary erased Elixir runtime values.

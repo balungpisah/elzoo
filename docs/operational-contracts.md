@@ -17,13 +17,17 @@ authorized operation, not arbitrary mutation of a module's internals.
 Each ready `piece.json` has an `operations` object with exactly `telemetry`,
 `config` and `control`. Each has `status` and a nonempty `contract`:
 
-- `supported`: the current scoped bundle supplies the described behavior.
+- `supported`: the current scoped bundle supplies the described behavior;
+  `evidence` is a nonempty list of in-bundle `_test.exs` paths also present in
+  test grounding. Those tests exercise the described setting/control/event.
 - `inherited`: supplied through a named direct provider or Piece dependency;
   `from` identifies it and `contract` narrows what is actually inherited.
 - `not_applicable`: explain why this scoped Piece has no such responsibility.
 - `planned`: needed or intended, but not supplied by the ready subset.
 
-The validator rejects omissions, unknown statuses and undeclared inheritance.
+The validator rejects omissions, unknown statuses, undeclared inheritance and
+unsupported/missing test references for `supported`. A reference is structural
+evidence linkage, not proof that a test covers every sentence.
 It cannot prove the prose: reviewers must check it against implementation and
 existing grounding. A ready Piece can have planned operational behavior only
 when its current usable Contract explicitly excludes that behavior. No record
@@ -32,6 +36,19 @@ may turn a planned drain/recovery guarantee into a supported one.
 The ledger shows applicability; the manifest carries its detail. Copied
 manifests preserve that detail. Config arguments at construction or per call
 can be supported without supporting hot reconfiguration. Say which one.
+
+### Per-call Config versus data
+
+Classify the **scoped recipe/interface**, not every option the upstream library
+could accept. Payloads and intrinsic operands (JSON values, bytes to hash,
+operator input/state) are data, not Config. An exposed choice controlling how
+work is performed (HTTP retry/timeout, timer scheduling/cancellation policy,
+registry mode or Unit construction) is Config even when passed per call.
+Declare supported only for the exposed, tested choice; an upstream option not
+used by this recipe does not make its Config supported. State construction,
+per-call or hot-update timing explicitly. The current JSON recipe uses default
+encoding/decoding and crypto fixes SHA-256, so both are not_applicable; adding
+selectable behavior requires the ready-Contract evolution rule.
 
 ## Config contract
 

@@ -96,7 +96,8 @@ locally, but only the first branch-create push can succeed.
 
 4. Remove .claims/ELZ-001.md in a later commit before opening the PR, while
    retaining the claim commit in history. Claim metadata must not merge to
-   main.
+   main. CI runs `python3 scripts/check-claims.py` and rejects any tracked
+   file under `.claims/`, including hidden markers.
 
 The claim commit is not implementation evidence. If a branch already exists,
 request a handoff in the issue and use it only after a handoff is recorded under the stale-work protocol.
@@ -240,6 +241,24 @@ consumer. A renamed/moved source needs corresponding import, export-manifest,
 proof/test and documentation changes. Apache-2.0 covers Elzoo-owned source;
 record upstream licenses separately. Evidence applies to the recorded source
 and named claims, not arbitrary downstream edits.
+
+## Evolving a ready Contract
+
+A ready Piece ID identifies a stable behavioral Contract. A change to accepted
+inputs, outputs/data shape, state/lifecycle, delivery or failure guarantees, or
+required Needs must use a **new Piece ID** with its own Contract and evidence.
+Keep the old ID usable, document the difference/migration in both README and
+ledger metadata, and make consumers opt in by changing dependency IDs. An
+implementation bug fix that restores the existing Contract, or a correction to
+evidence wording without changing behavior, keeps the ID and records the reason.
+Do not silently broaden or weaken a ready Contract under an existing ID.
+`schema_version` versions the metadata format, not a Piece Contract. Receipts
+already retain the Piece IDs, Contracts, origin revision and file hashes.
+
+Pure source copies use an application-owned namespace; follow docs/consuming.md.
+Libraries redistributing copies must rename modules/MFAs and resolve public
+record-tag collisions before shipping. Distinct IDs do not automatically make
+conflicting BEAM modules or erased records safe to load together.
 
 ## Before expanding the catalogue
 

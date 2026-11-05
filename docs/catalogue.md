@@ -20,11 +20,17 @@ identity, money, work/agent execution and artifact responsibilities inside broad
 families. It adds no ready source or library dependency. Existing IDs remain
 stable; family and provider-adapter entries do not license duplicate engines.
 
-The inventory is now 90 IDs, of which 12 remain ready scoped bundles. The
+The generated [Piece Ledger](../LEDGER.md) is the live inventory of ready and
+planned/deferred IDs. The
 `demand-led` phase has no promised place in the existing P0–P3 task chain;
 select a real Assembly before opening implementation tasks. Candidate libraries
 are documented in the [reference study](research/orchestration-references.md),
 with adoption tests rather than assumed compatibility.
+
+ELZ-018 adds the deferred [C9](capability-coverage.md#c9--resell-an-llm-endpoint-with-metering-and-versioned-pricing)
+case and distinct metering, pricing and model-routing handles before any such
+implementation task. Allocation, usage, price, provider cost and settlement are
+separate responsibilities.
 
 ## Dispositions and grounding
 
@@ -113,7 +119,7 @@ the largest old overlaps:
 | --- | --- | --- |
 | Message, Command Message, Document Message, Event Message, Format Indicator | `core/envelope` | Same envelope schema with a `kind`/version field |
 | Request-Reply, Remote Procedure Invocation, Return Address, Correlation Identifier | `delivery/request-reply` + `core/envelope` | One caller state machine and envelope metadata |
-| Idempotent Receiver, Idempotent Consumer | `delivery/idempotency` | Same duplicate-suppression contract |
+| Idempotent Receiver, Idempotent Consumer | `delivery/idempotency`, `delivery/windowed-idempotency` | Exact-key volatile baseline and separately planned bounded/windowed policy |
 | Message Router, Content-Based Router, Filter, Recipient List, Splitter, Expiration | `delivery/routing` | One family with distinct functions and laws |
 | Translator, Mapper, Content Filter, Anti-corruption Layer | `delivery/transformation` | Pure shape conversion and explicit merge |
 | Message Store, Write-Ahead Log, Event Sourcing, Session Log | `state/event-log` | Same append/replay contract; domain meaning remains in the event type |

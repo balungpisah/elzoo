@@ -14,7 +14,12 @@ acknowledge work outside its Contract.
 ## Scope
 
 - declare queue/window capacity and admission at saturation;
-- distinguish retryable, permanent and unavailable errors;
+- consume ELZ-003's common delivery-result/error/deadline schema unchanged;
+  own the policy that maps Adapter failures into those declared classes and
+  chooses retries, deadline expiry and late-result handling;
+- exclusively own changes to delivery/time and timeout execution. ELZ-007 uses
+  the common data shape and existing timer recipe read-only; it owns no retry,
+  timer, timeout-result schema or error-classification implementation;
 - specify acknowledgement relative to state/effect completion;
 - add tests for overflow, Adapter failure, retry, timeout and recovery;
 - use OTP timers/clock messages rather than wall-clock decisions in Cure;

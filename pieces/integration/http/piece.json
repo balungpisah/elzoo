@@ -39,7 +39,10 @@
     },
     "config": {
       "status": "supported",
-      "contract": "The caller supplies explicit per-call settings shown by the recipe; no persistent live configuration state is supplied."
+      "contract": "The caller supplies explicit per-call settings shown by the recipe; no persistent live configuration state is supplied.",
+      "evidence": [
+        "test/elzoo/http_recipe_test.exs"
+      ]
     },
     "control": {
       "status": "not_applicable",

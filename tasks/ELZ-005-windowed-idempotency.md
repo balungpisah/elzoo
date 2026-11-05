@@ -1,7 +1,7 @@
 # ELZ-005 — Add a bounded windowed idempotency policy
 
 - Phase: P1 message resilience
-- Catalogue ID: delivery/idempotency
+- Catalogue ID: delivery/windowed-idempotency
 - Dependencies: ELZ-003, ELZ-004
 
 ## Outcome
@@ -9,7 +9,9 @@
 Provide a deliberately bounded receiver policy for duplicate and stale input
 within a declared window. It is a separate P1 policy layered on the volatile
 P0 exemplar; it must not rewrite the P0 claim into durable or exactly-once
-delivery.
+delivery. Its new ID is delivery/windowed-idempotency: delivery/idempotency and
+its P0 consumers keep their existing exact-key, unbounded, volatile Contract.
+The new Piece records its own sources, operational applicability and grounding.
 
 ## Scope
 
@@ -17,6 +19,8 @@ delivery.
 - specify first delivery, duplicate, in-window reorder and out-of-window input;
 - keep the transition pure and composable through the typed boundary;
 - add selected laws for duplicate idempotence/window bounds and boundary cases;
+  test the actual receiver/detection transition, not only a precomputed duplicate
+  flag. Label any helper-only proof narrowly and disclose receiver-level gaps;
 - document per-sender ordering, retention and clock/delivery assumptions.
 
 ## Acceptance

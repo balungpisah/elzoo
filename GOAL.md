@@ -36,7 +36,7 @@ needed by a selected Assembly, using docs/capability-model.md to choose its seam
 6. The coordinator merges, deletes the branch, removes the worktree and closes
    the issue only after acceptance is true on the merged commit.
 
-The initial batch has twelve stable ELZ IDs. Architecture may rename a
+The task bodies and task DAG enumerate the stable ELZ IDs. Architecture may rename a
 provisional handle before publication, but must preserve IDs and dependency
 edges.
 
