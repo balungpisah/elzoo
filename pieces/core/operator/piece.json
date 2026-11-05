@@ -47,5 +47,19 @@
       "reference": "https://github.com/cure-lang/cure-lang/tree/a004c335cc4e9f2203ba6f51fc31e8540b66378d",
       "claim": "Relies on the pinned provider implementation and public contract."
     }
-  ]
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "This scoped callable has no independent running lifecycle; the invoking Unit or Assembly owns instrumentation."
+    },
+    "config": {
+      "status": "not_applicable",
+      "contract": "Explicit function inputs/state determine behavior; no ambient or mutable runtime settings are supplied."
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "This scoped callable has no independent runtime lifecycle to pause, drain or resume."
+    }
+  }
 }

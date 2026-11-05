@@ -19,7 +19,9 @@ ELZ-001 was accepted during bootstrap after independent clean-checkout and
 Linux CI validation. ELZ-013 adds source delivery and a checked ledger.
 ELZ-014 clarifies reusable capability boundaries and cross-domain coverage
 before ELZ-002. ELZ-015 evaluates the Ash foundation and upstream/fork policy
-before those interfaces are extended. After ELZ-015 merges, ELZ-002 is the next
+before those interfaces are extended. ELZ-016 declares operational applicability
+and runtime semantics independently of UI/library choices. After ELZ-016 merges,
+ELZ-002 is the next
 implementation task. Workers must not
 rebuild or re-open the harness merely because later tasks need it. Report a
 new concrete defect as new work, retaining the baseline's evidence and limits.
@@ -27,7 +29,7 @@ See [bootstrap validation](07-bootstrap-validation.md).
 
 The first batch follows the catalogue phases:
 
-    P0: ELZ-001 -> ELZ-013 -> ELZ-014 -> ELZ-015 -> ELZ-002 -> ELZ-003 -> ELZ-004
+    P0: ELZ-001 -> ELZ-013 -> ELZ-014 -> ELZ-015 -> ELZ-016 -> ELZ-002 -> ELZ-003 -> ELZ-004
     P1: ELZ-004 -> ELZ-005 -> ELZ-006 -> ELZ-008
         ELZ-003 -> ELZ-007 -------------> ELZ-008
     P2: ELZ-008 -> ELZ-009 -> ELZ-010
@@ -43,7 +45,8 @@ Detailed edges (direct dependencies; transitive reachability is omitted):
     ELZ-001 -> ELZ-002, ELZ-003, ELZ-013
     ELZ-013 -> ELZ-002, ELZ-014
     ELZ-014 -> ELZ-002, ELZ-015
-    ELZ-015 -> ELZ-002
+    ELZ-015 -> ELZ-002, ELZ-016
+    ELZ-016 -> ELZ-002
     ELZ-002 -> ELZ-003, ELZ-004, ELZ-007
     ELZ-003 -> ELZ-004, ELZ-005, ELZ-007
     ELZ-004 -> ELZ-005, ELZ-006, ELZ-008, ELZ-011
@@ -58,7 +61,7 @@ Detailed edges (direct dependencies; transitive reachability is omitted):
 | ID | Phase | Catalogue IDs / assembly | Depends on | Tangible outcome |
 | --- | --- | --- | --- | --- |
 | ELZ-001 | P0 | core/grounding | none | Pinned Mix setup and real mix check harness |
-| ELZ-002 | P0 | core/operator, core/port, core/assembly | ELZ-001, ELZ-013, ELZ-014, ELZ-015 | Typed pure composition boundary |
+| ELZ-002 | P0 | core/operator, core/port, core/assembly | ELZ-001, ELZ-013, ELZ-014, ELZ-015, ELZ-016 | Typed pure composition boundary |
 | ELZ-003 | P0 | core/envelope, core/edge, core/wiring | ELZ-001, ELZ-002 | Minimal named envelope/port binding and wiring checks |
 | ELZ-004 | P0 | runtime/unit, runtime/supervision, runtime/host, runtime/adapter, integration/json, assembly/ingest-dedup-accumulate | ELZ-002, ELZ-003 | Pure/OTP exemplar with Jason boundary |
 | ELZ-005 | P1 | delivery/idempotency | ELZ-003, ELZ-004 | Bounded windowed duplicate policy with explicit limits |
@@ -72,6 +75,7 @@ Detailed edges (direct dependencies; transitive reachability is omitted):
 | ELZ-013 | P0 | Source delivery and provenance across catalogue IDs | ELZ-001 | Selectable source bundles, direct-library recipes and checked ledger |
 | ELZ-014 | P0 | Cross-domain capability model and catalogue coverage | ELZ-013 | Source-backed design cases and reuse-first boundaries; no new runtime |
 | ELZ-015 | P0 | Ash foundation experiment and upstream/fork policy | ELZ-014 | Isolated action/policy/tool checks and conditional foundation decision |
+| ELZ-016 | P0 | Operational applicability and runtime contract experiment | ELZ-015 | Checked declarations and versioned/authorized operational scenarios |
 
 This DAG deliberately does not promise all historical families. If an
 Assembly later needs SQL, a broker, replication, CRDTs, AI or another
@@ -105,3 +109,4 @@ stable even when issue numbers differ.
 | ELZ-013 | [13](https://github.com/balungpisah/elzoo/issues/13) |
 | ELZ-014 | [15](https://github.com/balungpisah/elzoo/issues/15) |
 | ELZ-015 | [17](https://github.com/balungpisah/elzoo/issues/17) |
+| ELZ-016 | [19](https://github.com/balungpisah/elzoo/issues/19) |

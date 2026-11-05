@@ -37,5 +37,20 @@
       "reference": "https://www.erlang.org/doc/",
       "claim": "Relies on the pinned provider implementation and public contract."
     }
-  ]
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "planned",
+      "contract": "Dedicated operational events are not supplied by this bundle; no observability or exporter guarantee is claimed."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Construction-time arguments configure the supplied OTP example; no live configuration protocol is supplied."
+    },
+    "control": {
+      "status": "inherited",
+      "from": "elixir",
+      "contract": "The owning application can use the documented OTP lifecycle APIs; graceful business drain and cancellation of external effects are not supplied."
+    }
+  }
 }

@@ -144,5 +144,27 @@ defmodule Elzoo.RegistryTest do
     assert ledger =~ "state/event-log"
     assert ledger =~ "none claimed"
     assert ledger =~ "ready (subset)"
+    assert ledger =~ "Operational applicability"
+  end
+
+  test "operational omissions and invalid inheritance cannot masquerade as declared contracts" do
+    root = fixture()
+    file = "pieces/runtime/unit/piece.json"
+    original = File.read!(Path.join(root, file))
+
+    for {change, expected} <- [
+          {&Map.delete(&1, "operations"), ~r/declare telemetry\/config\/control/},
+          {&put_in(&1, ["operations", "config", "status"], "automatic"), ~r/invalid config/},
+          {&put_in(&1, ["operations", "control", "contract"], ""), ~r/control contract/},
+          {&put_in(&1, ["operations", "control"], %{
+             "status" => "inherited",
+             "contract" => "external lifecycle",
+             "from" => "unknown"
+           }), ~r/undeclared control inheritance/}
+        ] do
+      File.write!(Path.join(root, file), original)
+      change_json(root, file, change)
+      assert_raise ArgumentError, expected, fn -> Elzoo.Registry.load!(root) end
+    end
   end
 end

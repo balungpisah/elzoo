@@ -66,5 +66,20 @@
       "reference": "https://www.erlang.org/doc/",
       "claim": "Relies on the pinned provider implementation and public contract."
     }
-  ]
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "planned",
+      "contract": "The exemplar has no declared operational event stream; pure decisions remain free of telemetry effects."
+    },
+    "config": {
+      "status": "not_applicable",
+      "contract": "Explicit function inputs/state determine behavior; no ambient or mutable runtime settings are supplied."
+    },
+    "control": {
+      "status": "inherited",
+      "from": "runtime/unit",
+      "contract": "Only the Unit host lifecycle is inherited; no coordinated Assembly drain or live rewiring protocol is supplied."
+    }
+  }
 }
