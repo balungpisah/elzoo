@@ -4,7 +4,7 @@ defmodule Elzoo.WindowedIdempotencyTest do
   alias Elzoo.WindowedIdempotency, as: Window
   @receiver :"Cure.Elzoo.WindowedIdempotency"
   @source File.read!(Path.expand("../../cure/elzoo/windowed_idempotency.cure", __DIR__))
-  @roots Mix.Project.config() |> Keyword.fetch!(:cure_paths) |> Enum.map(&Path.expand/1)
+  @roots Mix.Project.config() |> Keyword.get(:cure_paths, ["cure"]) |> Enum.map(&Path.expand/1)
 
   defp call(name, args), do: apply(@receiver, name, args)
   defp message(q, s \\ 1, i \\ 1, v \\ 10), do: {:Message, s, i, q, v}
