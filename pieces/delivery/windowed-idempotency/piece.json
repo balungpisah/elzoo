@@ -1,0 +1,131 @@
+{
+  "schema_version": 1,
+  "id": "delivery/windowed-idempotency",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": [
+    "cure",
+    "elixir"
+  ],
+  "dependencies": [
+    "delivery/idempotency",
+    "core/operator"
+  ],
+  "contract": "Volatile bounded per-sender sequence-window duplicate and stale-input suppression; positive construction-time window/max_senders; refuse new senders at capacity without eviction. Accepted inputs emit unchanged. Proofs cover supplied-decision step laws and singleton_advance_window (helper/W=1 only), not receiver or general window bounds; those have finite test/model evidence.",
+  "limits": [
+    "State loss permits duplicates; no durability, clock, time expiry, acknowledgement policy or exactly-once Effects.",
+    "Suppression includes unseen stale inputs and lower incarnations; no cross-sender ordering or reordering buffer.",
+    "Selected step laws assume supplied decisions; classify/receiver and general W > 1 bounds have finite test/model evidence, not proofs.",
+    "singleton_advance_window is a helper/W=1 law only; it does not prove flag selection, helper storage in step, other-sender preservation or a whole-receiver/window invariant.",
+    "Entry counts, not bytes, are bounded. Direct erased callers must supply well-formed values."
+  ],
+  "files": [
+    "cure/elzoo/windowed_idempotency.cure",
+    "lib/elzoo/windowed_idempotency.ex",
+    "test/elzoo/windowed_idempotency_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/windowed_idempotency.cure",
+      "symbol": "duplicate_emits_nothing",
+      "claim": "duplicate_emits_nothing: selected step-with-supplied-decision law only, not classify or receiver."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/windowed_idempotency.cure",
+      "symbol": "duplicate_keeps_state",
+      "claim": "duplicate_keeps_state: selected step-with-supplied-decision law only, not classify or receiver."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/windowed_idempotency.cure",
+      "symbol": "stale_emits_nothing",
+      "claim": "stale_emits_nothing: selected step-with-supplied-decision law only, not classify or receiver."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/windowed_idempotency.cure",
+      "symbol": "stale_keeps_state",
+      "claim": "stale_keeps_state: selected step-with-supplied-decision law only, not classify or receiver."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/windowed_idempotency.cure",
+      "symbol": "superseded_keeps_state",
+      "claim": "superseded_keeps_state: selected step-with-supplied-decision law only, not classify or receiver."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/windowed_idempotency.cure",
+      "symbol": "full_keeps_state",
+      "claim": "full_keeps_state: selected step-with-supplied-decision law only, not classify or receiver."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/windowed_idempotency.cure",
+      "symbol": "reorder_preserves_message",
+      "claim": "reorder_preserves_message: selected step-with-supplied-decision law only, not classify or receiver."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/windowed_idempotency.cure",
+      "symbol": "advance_preserves_message",
+      "claim": "advance_preserves_message: selected step-with-supplied-decision law only, not classify or receiver."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/windowed_idempotency.cure",
+      "symbol": "singleton_advance_window",
+      "claim": "Helper/W=1 law only: advance_accepted(True(), window, sequence, previous) equals singleton(sequence); no receiver or general window-bound proof."
+    },
+    {
+      "kind": "type",
+      "file": "cure/elzoo/windowed_idempotency.cure",
+      "claim": "Pinned Cure checks production source and typed composition; tests reject false output law, production singleton mutation by conversion_failure, and unfinished hole."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/windowed_idempotency_test.exs",
+      "claim": "Finite boundary, capacity, incarnation, retention/helper agreement, seeded independent model, composition and clean audit scenarios; not universal proofs."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/windowed_idempotency_test.exs",
+      "claim": "Validating Elixir boundary exercised by the in-bundle tests, including improper lists and construction-time configuration."
+    },
+    {
+      "kind": "upstream",
+      "provider": "cure",
+      "reference": "https://github.com/cure-lang/cure-lang/tree/a004c335cc4e9f2203ba6f51fc31e8540b66378d",
+      "claim": "Relies on pinned Cure compiler/kernel."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Relies on pinned Elixir/OTP integer, list and BEAM semantics."
+    },
+    {
+      "kind": "assumption",
+      "claim": "Senders assign increasing sequences per incarnation and strictly increase incarnation on restart; volatile state retained by caller. No clock or durable storage supplied."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "Pure callable without lifecycle; invoking Unit/Assembly owns instrumentation."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Positive integer window and max_senders validated by new/2 and fixed in state at construction; no hot reconfiguration.",
+      "evidence": ["test/elzoo/windowed_idempotency_test.exs"]
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No runtime lifecycle to pause, drain or resume."
+    }
+  }
+}
