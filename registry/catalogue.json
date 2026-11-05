@@ -93,8 +93,7 @@
       "summary": "Nested composition behind an outer port contract",
       "disposition": "own",
       "phase": "P0",
-      "status": "planned",
-      "reason": "`P,T,X`; spike showed nested Cure composition"
+      "manifest": "pieces/core/assembly/piece.json"
     },
     {
       "id": "core/edge",
@@ -140,8 +139,7 @@
       "summary": "Named typed input/output face; datatype channels and message endpoints",
       "disposition": "own",
       "phase": "P0\u2192P1",
-      "status": "planned",
-      "reason": "`T`; bootstrap has function types; ELZ-002/003 add named bindings and minimal graph validation"
+      "manifest": "pieces/core/port/piece.json"
     },
     {
       "id": "core/wiring",

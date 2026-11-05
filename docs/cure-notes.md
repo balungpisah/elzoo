@@ -109,7 +109,7 @@ mailbox a WAL.
 | Area | Present in this repository | Target / open work |
 | --- | --- | --- |
 | Pure decisions | Generic Cure operators and nested assembly | More operators only when a working assembly needs them |
-| Ports | Cure function signatures and test-facing Elixir wrapper | Named/versioned port declarations and wiring validation |
+| Ports | Cure function signatures plus core/port exact schema/version/direction checks | Delivery and wiring validation (ELZ-003); runtime payload validation (ELZ-004) |
 | Edges | Direct call and synchronous GenServer-boundary comparison | Async hop with explicit volatile/at-least-once classes |
 | State | Volatile operator state plus test snapshot | Event log/checkpoint/upcast/outbox with crash tests |
 | OTP | Elixir GenServer and Supervisor shell | Application, DynamicSupervisor, Registry only where needed; compare Cure actor/sup macros later |
@@ -182,3 +182,23 @@ For an imported nullary type across source roots, use the qualified spelling
 `Elzoo.Idempotency.Message`. Bare `Message` compiled but produced W001
 uppercase-variable migration warnings in the multi-root catalogue; qualifying
 the type removes them and retains the incompatible-connection negative test.
+
+## Nominal String at a descriptor boundary (ELZ-002)
+
+Pinned Cure `String` literals erase to `{:String, unicode_codepoint_list}`,
+not an Elixir binary. `Elzoo.Port.decode/1` validates UTF-8 binaries and
+translates them explicitly; `encode/1` reverses that representation. The
+Port test compares an actual compiled Cure descriptor with the translated
+map, including non-ASCII text. Do not infer runtime ABI from a foreign
+`@extern` signature that passes values through without inspecting them.
+
+The initial descriptor probe using `==` on String emitted a call to
+`Cure.Std.String.__impl_Equatable_Std.String#String_==/2`, absent in the
+compiler-free consumer runtime. No passing evidence was accepted from that
+probe. Exact descriptor identity uses the upstream kernel
+`Std.Builtin.struct_eq` through a local generic helper; it needs no String
+protocol module at runtime. The explicit type operand must resolve as a type:
+bare `String` in expression position resolved to the record constructor in
+this probe, while the generic type parameter worked. Both new bundle audits
+and the independent consumer test exercise this path. This is exact nominal
+text equality, not normalization or schema subtyping.

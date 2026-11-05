@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: Apache-2.0
+mod Elzoo.Assembly
+  use Std.Result
+  use Elzoo.Port
+
+  local fn equal(left: a, right: a) -> Bool = Std.Builtin.struct_eq(a, left, right)
+
+  rec Interface
+    input: Elzoo.Port.Descriptor
+    output: Elzoo.Port.Descriptor
+
+  fn validate(face: Interface) -> Result(Interface, Atom) =
+    match Elzoo.Port.validate(face.input)
+      Error(_) -> Error(:invalid_input)
+      Ok(_) ->
+        match Elzoo.Port.validate(face.output)
+          Error(_) -> Error(:invalid_output)
+          Ok(_) ->
+            pickup
+              not equal(face.input.direction, "input") or not equal(face.output.direction, "output") -> Error(:invalid_direction)
+              equal(face.input.id, face.output.id) -> Error(:duplicate_port_id)
+              else -> Ok(face)
+
+  # Compose declarations only. No operator is executed or certified here.
+  fn connect(first: Interface, second: Interface) -> Result(Interface, Atom) =
+    match validate(first)
+      Error(_) -> Error(:invalid_first)
+      Ok(_) ->
+        match validate(second)
+          Error(_) -> Error(:invalid_second)
+          Ok(_) ->
+            match Elzoo.Port.compatible(first.output, second.input)
+              Error(reason) -> Error(reason)
+              Ok(_) -> validate(Interface{input: first.input, output: second.output})
+end

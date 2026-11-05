@@ -1,0 +1,34 @@
+# SPDX-License-Identifier: Apache-2.0
+mod Elzoo.Port
+  use Std.Result
+
+  local fn equal(left: a, right: a) -> Bool = Std.Builtin.struct_eq(a, left, right)
+
+  rec Descriptor
+    id: String
+    direction: String
+    schema_id: String
+    schema_version: Int
+
+  fn validate(port: Descriptor) -> Result(Descriptor, Atom) =
+    pickup
+      equal(port.id, "") -> Error(:invalid_id)
+      not equal(port.direction, "input") and not equal(port.direction, "output") -> Error(:invalid_direction)
+      equal(port.schema_id, "") -> Error(:invalid_schema_id)
+      port.schema_version < 1 -> Error(:invalid_schema_version)
+      else -> Ok(port)
+
+  # Identity is local to its owner; connected ports need not have equal IDs.
+  fn compatible(source: Descriptor, target: Descriptor) -> Result(Bool, Atom) =
+    match validate(source)
+      Error(_) -> Error(:invalid_source)
+      Ok(_) ->
+        match validate(target)
+          Error(_) -> Error(:invalid_target)
+          Ok(_) ->
+            pickup
+              not equal(source.direction, "output") or not equal(target.direction, "input") -> Error(:direction_mismatch)
+              not equal(source.schema_id, target.schema_id) -> Error(:schema_mismatch)
+              source.schema_version != target.schema_version -> Error(:version_mismatch)
+              else -> Ok(true)
+end

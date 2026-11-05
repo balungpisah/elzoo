@@ -28,13 +28,13 @@ guarantees beyond the declared Contract. See docs/operational-contracts.md.
 | `assembly/request-route-retry` | planned | own (planned) | — | none claimed | unassessed | request/reply, routing, timeout/retry, backpressure and dead-letter |
 | `assembly/task-workflow` | deferred | defer (planned) | — | none claimed | unassessed | C5 composition of work-item, dependencies, lease, run and notification contracts; product status policy stays outside the execution kernel. ELZ-015 evaluates part of an Ash foundation; Run/Attempt orchestration, persistence and lease/recovery remain deferred. |
 | `assembly/tenant-edge` | deferred | defer (planned) | — | none claimed | unassessed | C1/C2 compose scoped identity, membership, authorization, entitlement/quota and effects; current HTTP/JSON recipes do not establish tenant isolation. |
-| `core/assembly` | planned | own (planned) | — | none claimed | unassessed | `P,T,X`; spike showed nested Cure composition |
+| [core/assembly](pieces/core/assembly/README.md) | ready (subset) | owned | cure 0.35.0 | assumption, test, type, upstream | telemetry: not_applicable; config: not_applicable; control: not_applicable | Pure composition of one-input/one-output declared interfaces, reusable as an outer interface; execution uses the unchanged core/operator Contract. |
 | `core/edge` | planned | own (planned) | — | none claimed | unassessed | `X,A`; no exactly-once promise |
 | `core/effect` | planned | own (planned) | — | none claimed | unassessed | `T,X`; effects cannot be hidden in pure operators |
 | `core/envelope` | planned | own (planned) | — | none claimed | unassessed | `T,X`; bootstrap is minimal, canonical encoding/schema compatibility is `ELZ-003` |
 | `core/grounding` | planned | own (planned) | — | none claimed | unassessed | `X` via `mix check`; no whole-repository assurance badge |
 | [core/operator](pieces/core/operator/README.md) | ready (subset) | owned | cure 0.35.0 | proof, test, type, upstream | telemetry: not_applicable; config: not_applicable; control: not_applicable | Generic pure zero-or-one-output stateful composition; a dropped input preserves downstream state. |
-| `core/port` | planned | own (planned) | — | none claimed | unassessed | `T`; bootstrap has function types; ELZ-002/003 add named bindings and minimal graph validation |
+| [core/port](pieces/core/port/README.md) | ready (subset) | owned | cure 0.35.0 | assumption, test, type, upstream | telemetry: not_applicable; config: not_applicable; control: not_applicable | Pure exact identity/version and output-to-input descriptor compatibility; no payload validation. |
 | `core/wiring` | planned | own (planned) | — | none claimed | unassessed | `T,X`; ELZ-003 makes minimal graph validation executable; P1 extends it for resilience; no Zoo wiring CLI |
 | `delivery/aggregation` | planned | own (planned) | — | none claimed | unassessed | `T,X`; stateful and needs correlation/retention policy |
 | `delivery/backpressure` | planned | own (planned) | — | none claimed | unassessed | `T,X,M`; queue limit and rejection are part of port contract |

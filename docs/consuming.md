@@ -73,9 +73,11 @@ Elixir 1.20.4 / OTP 29.1.2 baseline for the recorded proof results.
 An Operator remains `state + input -> Transition(next_state, Option(output))`.
 A composition can be used as another Operator. Wrap only the lifecycle that
 needs a process in `Elzoo.Unit` or your own OTP shell. Your application chooses
-its Supervisor tree, effects, delivery policy and persistence. Named/versioned
-port validation remains ELZ-002/003 work; source dependency closure is not a
-replacement for semantic compatibility checking.
+its Supervisor tree, effects, delivery policy and persistence. Named/versioned descriptor validation is available through `core/port` and
+`core/assembly`; select `core/assembly` for a reusable outer interface. Cure
+function types and declared schema compatibility are separate checks, neither
+validates arbitrary foreign runtime payloads. ELZ-003 still owns delivery and
+wiring. Source dependency closure is not semantic compatibility checking.
 
 Use `Jason`, `Req`, `Enum`, `Stream`, `Supervisor`, `Registry`, timers and
 `:crypto` directly where their contracts fit. Select the optional
