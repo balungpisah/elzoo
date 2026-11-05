@@ -23,6 +23,18 @@ def memory_bytes():
     return int(Path('/sys/fs/cgroup/memory.current').read_text())
 
 
+def validate_revision(revision):
+    actual = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+    if actual != revision:
+        raise ValueError('--revision must match the checkout HEAD')
+    status = subprocess.check_output(
+        ['git', 'status', '--porcelain', '--untracked-files=all', '--ignore-submodules=none'],
+        text=True,
+    )
+    if status:
+        raise ValueError('Benchmark requires a clean checkout, including untracked files')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, required=True)
@@ -32,10 +44,10 @@ def main():
     args = parser.parse_args()
     if any(value not in (2, 4, 8) for value in args.schedulers):
         parser.error('scheduler candidates must be 2, 4 or 8')
-    revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
-    if revision != args.revision:
-        parser.error('--revision must match the checkout HEAD')
-    subprocess.run(['git', 'diff', '--exit-code', 'HEAD', '--'], check=True)
+    try:
+        validate_revision(args.revision)
+    except ValueError as error:
+        parser.error(str(error))
     args.output.mkdir(parents=True, exist_ok=False)
 
     for index, schedulers in enumerate(args.schedulers, 1):

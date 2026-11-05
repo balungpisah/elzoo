@@ -16,7 +16,9 @@ runs-on: [self-hosted, linux, x64, symbolic, elzoo, gleam]
 ```
 
 The repository guard `python3 scripts/check-ci-runners.py` checks the canonical
-selector syntax, requires one role and rejects ordinary selector/fallback changes. It is a source
+selector syntax, binds each required workflow filename to its assigned role,
+and rejects missing/unknown workflows and ordinary selector/fallback changes.
+Adding or renaming a workflow requires updating its explicit role policy. It is a source
 convention guard, not GitHub account-level enforcement or a hostile-YAML parser.
 Independent workflow review remains required. Do not bypass the user's runner
 restriction when making a workflow or troubleshooting a queue.
