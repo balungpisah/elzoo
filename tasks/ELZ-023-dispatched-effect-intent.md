@@ -35,16 +35,18 @@ machine; the store and the provider poll are Adapters.
    the send is an unknown outcome resolved by `poll`, never by a second
    dispatch from `intended`; the first dispatch is not a re-arm;
    `rejected/not_dispatched` and `timed_out/not_dispatched` return to
-   `intended`; `failed/dispatched` reaches `failed_definite` only when the
-   provider confirmed that no effect happened (a provider idempotency
-   contract is present, or a `reconcile` answered `failed`), because the
-   ready delivery-result Contract allows partial external Effects under
-   `failed`; otherwise `failed/dispatched`, `timed_out` and `unknown` with
-   `dispatch` `dispatched` or `unknown` stay `dispatched` and require `poll`
-   or `reconcile`; `failed_definite` is the only state out of `dispatched`
-   that re-arms dispatch; a poll answering `unknown_to_provider` returns to
-   `intended` only when a provider idempotency contract is present,
-   otherwise it is `stranded`; a crash or deadline by itself never re-arms;
+   `intended`; `failed_definite` is the only state out of `dispatched` that
+   re-arms dispatch, and it is reached on exactly two grounds, recorded
+   distinctly: a `reconcile` or poll answer (`failed`, `unknown_to_provider`)
+   by which the provider confirms that no effect happened, or a provider
+   idempotency contract under which a re-send with the same key is harmless
+   even if a partial effect happened; a bare `failed/dispatched` result
+   satisfies neither, because the ready delivery-result Contract allows
+   partial external Effects under `failed`, so it, `timed_out` and
+   `unknown` with `dispatch` `dispatched` or `unknown` stay `dispatched`
+   and require `poll` or `reconcile`; `unknown_to_provider` without a
+   provider idempotency contract is `stranded`, not a provider confirmation;
+   a crash or deadline by itself never re-arms;
    the key is a function of the logical request, not a client-minted id;
    `stranded` is a terminal, visible outcome requiring reconciliation, not
    a retry.
@@ -65,8 +67,8 @@ machine; the store and the provider poll are Adapters.
    effect re-sent as if definite; store unavailable at dispatch time.
    Proofs: the state-machine laws that the only transition out of
    `dispatched` that re-arms dispatch passes through `failed_definite`,
-   that `failed_definite` is reachable only with provider confirmation of
-   no effect, that `stranded` admits none, and that `unknown_to_provider`
+   that `failed_definite` is reachable only on one of its two recorded
+   grounds, that `stranded` admits none, and that `unknown_to_provider`
    without a provider idempotency contract never reaches `dispatch`. Tests: crash/restart at each boundary with a provider
    double; webhook duplicate/out-of-order after confirmation. Upstream:
    provider idempotency and store durability are named contracts.

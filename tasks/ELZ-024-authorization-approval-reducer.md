@@ -23,8 +23,9 @@ grants authority by itself.
    challenges generality with a human-only flow.
 2. **Interface and invariant.** Inputs: ordered policies, action proposal,
    the proposer's bounding authority (the permitted-write set of the actor,
-   and for a child run the parent's effective authority), current
-   approvals, and for an approval event the approver's identity and
+   and for a child run the parent's effective authority) supplied by the
+   owning Run from its own state, never carried inside the proposal,
+   current approvals, and for an approval event the approver's identity and
    authority. Outputs: decision plus permitted writes, escrowed writes and
    approval requests. State owner: the workflow Run for approvals; policies
    are versioned configuration. Invariants: deny > ask > allow; escrowed
