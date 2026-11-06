@@ -320,17 +320,32 @@ defmodule Elzoo.DurableJob do
     end
   end
 
-  # A non-terminal Run whose provider job is terminal, or absent after an
-  # attempt was bound, cannot progress: reported, never repaired (limit).
+  # A non-terminal Run cannot progress when the job it is bound to is terminal
+  # or gone, or (before any attempt) when no job of the Run is live. The bound
+  # job is read by id, never by an arbitrary (queue, job_key) row. Reported,
+  # never repaired (limit).
+  @terminal_job_states ~w(discarded cancelled completed)
+
   defp stalled?(cfg, key, m) do
-    if Run.terminal?(m.phase) do
-      false
-    else
-      case Jobs.state(cfg.oban, cfg.queue, key) do
-        {:ok, {_, state}} -> state in ~w(discarded cancelled completed)
-        {:ok, :absent} -> m.phase in [:active, :waiting]
-        {:error, _} -> false
-      end
+    cond do
+      Run.terminal?(m.phase) ->
+        false
+
+      m.bound_job > 0 ->
+        case Jobs.state_by_id(cfg.oban, m.bound_job) do
+          {:ok, {_, state}} -> state in @terminal_job_states
+          {:ok, :absent} -> true
+          {:error, _} -> false
+        end
+
+      true ->
+        case Jobs.states(cfg.oban, cfg.queue, key) do
+          {:ok, [_ | _] = rows} ->
+            Enum.all?(rows, fn {_, state} -> state in @terminal_job_states end)
+
+          _ ->
+            false
+        end
     end
   end
 

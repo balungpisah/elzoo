@@ -70,6 +70,31 @@ defmodule Elzoo.Jobs do
     _ -> {:error, :unavailable}
   end
 
+  @doc "Oban state of the job with `id`, or `:absent`."
+  def state_by_id(oban, id) when is_integer(id) do
+    conf = Oban.config(oban)
+
+    case Oban.Repo.all(conf, Oban.Job |> where([j], j.id == ^id) |> select([j], j.state)) do
+      [] -> {:ok, :absent}
+      [state] -> {:ok, {id, state}}
+    end
+  rescue
+    _ -> {:error, :unavailable}
+  end
+
+  @doc "All `{id, state}` rows of the `(queue, job_key)` jobs, ordered by id."
+  def states(oban, queue, job_key) do
+    conf = Oban.config(oban)
+
+    {:ok,
+     Oban.Repo.all(
+       conf,
+       query(queue, job_key) |> order_by([j], j.id) |> select([j], {j.id, j.state})
+     )}
+  rescue
+    _ -> {:error, :unavailable}
+  end
+
   @doc "Best-effort cancellation of the `(queue, job_key)` job (Oban.cancel_all_jobs/2)."
   def cancel(oban, queue, job_key) do
     Oban.cancel_all_jobs(oban, query(queue, job_key))

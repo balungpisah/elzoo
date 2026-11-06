@@ -586,6 +586,33 @@ defmodule Elzoo.DurableJobTest do
     assert DurableJob.cancel(f.queue, "c1", "op") == {:ok, :cancelled}
   end
 
+  test "DJ12b status reads the bound job, not another job of the same Run", %{prefix: prefix} do
+    f = flow(prefix, :postgres, handler: blocking_handler(self()))
+    :ok = Oban.pause_queue(f.oban, queue: f.queue)
+    {:ok, _} = submit(f, "k12b")
+    {:ok, _} = relay!(f.queue)
+    relayed = job_id(f, "k12b")
+    :ok = Oban.cancel_job(f.oban, relayed)
+
+    {:ok, bound} =
+      Oban.insert(
+        f.oban,
+        Elzoo.Jobs.Worker.new(%{"v" => 1, "queue" => f.queue, "job_key" => "k12b"},
+          queue: f.queue,
+          schedule_in: 3_600
+        )
+      )
+
+    cfg = :persistent_term.get({DurableJob, f.queue})
+    job = %Oban.Job{id: bound.id, attempt: 1, args: bound.args}
+    run = Task.async(fn -> Elzoo.Jobs.Worker.trapping(fn -> DurableJob.perform(cfg, job) end) end)
+    assert_receive {:entered, handler, _}, 10_000
+    assert {:ok, %{phase: :active, stalled: stalled}} = DurableJob.status(f.queue, "k12b")
+    assert stalled == false
+    send(handler, {:release, {:ok, 1}})
+    assert Task.await(run) == :ok
+  end
+
   test "DJ19 a stale pre-start execution arriving after the current attempt_started snoozes", %{
     prefix: prefix
   } do
