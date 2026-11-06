@@ -1,8 +1,10 @@
 # domain/authorization
 
-> **Stage 1 Contract draft, revision 2 (ELZ-024, issue #38).** No
-> implementation exists yet. Revision 2 resolves early review findings 1–11
-> ([review](https://github.com/balungpisah/elzoo/issues/38#issuecomment-6694306514)).
+> **Stage 1 Contract draft, revision 3 (ELZ-024, issue #38).** No
+> implementation exists yet. Revision 3 resolves early review findings 1–11
+> ([review](https://github.com/balungpisah/elzoo/issues/38#issuecomment-6694306514))
+> and re-check findings N1–N6
+> ([re-check](https://github.com/balungpisah/elzoo/issues/38#issuecomment-6694511264)).
 > Nothing here is executed evidence. `piece.json` and the ledger row are added
 > only with the implementation.
 
@@ -76,7 +78,7 @@ are never truncated.
 | bytes of one text, bytes value or record field name | 4096 |
 | bytes of one identity text (proposer, tenant, resource, action id, target, field, effect class, rule id, policy id, requirement name) | 1024 |
 | integer magnitude in a value | `abs(n) < 2^256` |
-| writes in one proposal (before coalescing) | 256 |
+| writes in one proposal (before coalescing) | 1..256 (an empty write set is rejected, N1) |
 | entries in one authority set (before coalescing) | 4096 |
 | rules in one policy | 1024 |
 | effect classes in one policy | 256 |
@@ -127,7 +129,7 @@ state, never from the proposal):
   tenant: text, resource: text,      # required
   action_id: text,                   # required, stable action identity
   payload: value,                    # required; business data, never a control channel
-  writes: [write],                   # required
+  writes: [write],                   # required, nonempty (N1)
   proposer: text,                    # optional, binding copy only
   effect_class: text                 # optional, binding copy only
 }
@@ -195,8 +197,10 @@ exceeded) is `{:unavailable_context, {:invalid_policy, reason}}`.
    and, for a child, `parent`. Missing or invalid context →
    `{:error, {:unavailable_context, reason}}`. Never an empty ALLOW.
 2. Validate the proposal: control atom keys → DENY (above); other faults,
-   including proposer/effect-class mismatch → `{:error, {:invalid_input,
-   reason}}`.
+   including proposer/effect-class mismatch and an empty write set
+   (`{:invalid_input, :empty_writes}`, N1) → `{:error, {:invalid_input,
+   reason}}`. Every effect a host gates must be expressed as at least one
+   typed write, so every action consults at least one rule.
 3. **Containment (B24.3).** The proposal's normalized write set must be a
    subset of `own` and, for a child, also of `parent` (subset with respect to
    `eq_write`). Being a subset of both is exactly being a subset of their
@@ -208,7 +212,7 @@ exceeded) is `{:unavailable_context, {:invalid_policy, reason}}`.
    target, field and value conditions match. Join their verdicts. No matching
    rule → DENY for that write (reason `:no_matching_rule`; default deny).
 5. **Action verdict** = join of all per-write verdicts with
-   `deny > ask > allow`. An empty write set is ALLOW with no writes.
+   `deny > ask > allow`. The write set is never empty (step 2).
 6. **Shape.** ALLOW → `permitted = writes`, `escrowed = []`. ASK →
    `permitted = []`, `escrowed = writes` (the whole action waits; no partial
    execution). DENY → both empty.
@@ -253,18 +257,25 @@ and is part of the policy content (and so of its hash).
 | Value/write/authority/policy/proposal validation, duplicate-pair check, bounds, UTF-8 check | Elixir `Elzoo.Authorization` | finite tests |
 | Normalization (field sort, coalesce, conflict detection, `(target, field)` sort) | Elixir | finite tests |
 | Encoding to Cure terms (text/bytes → tagged byte-integer lists) and decoding of results | Elixir | finite tests, incl. named Elixir↔Cure agreement test |
-| Proposer/effect-class mismatch, control-key DENY, undeclared class | Elixir (before Cure) | finite tests |
+| Proposer/effect-class mismatch, empty write set, control-key DENY, undeclared class | Elixir (before Cure) | finite tests only (test-grounded) |
 | `eq_value`, `eq_write`, `eq_action`, `member`, `subset` | Cure | constructor-distinctness laws; agreement test |
 | rule matching, per-write verdict, `join`, `join_all`, containment, `shape`, requirement selection, `decide` | Cure | selected laws below |
 | `proposer_view` | Elixir | finite tests |
 
 Elixir `decide/3` only validates, encodes, calls Cure `decide` and decodes.
-It does not compute any verdict, containment or write set itself.
+It computes no verdict except the control-key DENY, which is test-grounded;
+it computes no containment or write set.
 
 Cure source `pieces/domain/authorization/cure/elzoo/authorization.cure`
 (`mod Elzoo.Authorization`). Text and bytes enter Cure as tagged lists of byte
-integers: the pinned kernel reduces `Int` equality inside proofs but not
-`String` or derived `==`, so all Cure equality is hand-written and total.
+integers. In the pinned kernel, `Int` equality reduces on literals only;
+`int_eq` on symbolic values is neutral (see
+[#36 comment 6694393314](https://github.com/balungpisah/elzoo/issues/36#issuecomment-6694393314)).
+`String` and derived `==` do not unfold inside proofs at all. So all Cure
+equality is hand-written and total over byte integers, and every law that
+touches equality is stated in **decision-split form**: it branches on the
+(possibly stuck) `Bool` result of an equality or subset test instead of
+assuming that test reduces. No law relies on `eq_value(v, v) = True`.
 
 ```cure
 type Verdict = Allow | Ask | Deny
@@ -299,6 +310,13 @@ controls (a mutated production source must be rejected) and a clean
 the constructor-distinctness laws and the named agreement test bound that
 risk; they do not prove `eq_write` is exactly structural equality.
 
+**Test-grounded, not laws (N4):** `eq_value` / `eq_write` reflexivity and
+their soundness against Elixir structural equality (named agreement test).
+Reflexivity would need `int_eq(k, k) = True` on a symbolic `k`, which the
+pinned kernel does not reduce. If a listed law cannot be checked in its
+stated form during implementation, work stops and the exact Cure error is
+reported; the law is not weakened.
+
 | Law | Cure function | Statement |
 | --- | --- | --- |
 | `deny_absorbs_left/right` | `join` | `join(Deny, v) = Deny`, `join(v, Deny) = Deny` for all `v` |
@@ -320,6 +338,8 @@ pinned commit with a clean audit; that probe is not evidence for this Piece.
 
 ## Finite tests (not proofs)
 
+- Empty write set → `{:invalid_input, :empty_writes}`; a `publish` proposal
+  with no writes never yields ALLOW (N1).
 - Validation: every rejected value kind; duplicate record names in pair input;
   text vs bytes vs integer vs boolean distinct; no Unicode normalization;
   each bound at limit (accepted) and limit + 1 (rejected, no truncation).
@@ -422,3 +442,4 @@ input, output or acceptance item.
 | D9 | "implement the pure reducer … in Cure" | validation/normalization/encoding in Elixir; all decisions in Cure; text as byte-integer lists; laws relative to `eq_write` | F3/F8; pinned Cure cannot reduce `String` equality in proofs |
 | D10 | approval scope "once, run, root" | scope comes from the ASK rule's requirement; evidence scope must equal it (approval Piece) | Q4 |
 | D11 | release / restore | approval adds `revalidate/3` for restored released records and returns the current decision's escrow at release | F7 and restore (approval Piece) |
+| D17 | "whether an action is allowed, denied or needs consent" | an empty write set is `{:invalid_input, :empty_writes}`; every gated effect must be at least one typed write | N1: with zero writes no rule would be consulted, so a gated effect could get ALLOW |

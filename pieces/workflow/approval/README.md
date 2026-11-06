@@ -1,8 +1,10 @@
 # workflow/approval
 
-> **Stage 1 Contract draft, revision 2 (ELZ-024, issue #38).** No
-> implementation exists yet. Revision 2 resolves early review findings 1–11
-> ([review](https://github.com/balungpisah/elzoo/issues/38#issuecomment-6694306514)).
+> **Stage 1 Contract draft, revision 3 (ELZ-024, issue #38).** No
+> implementation exists yet. Revision 3 resolves early review findings 1–11
+> ([review](https://github.com/balungpisah/elzoo/issues/38#issuecomment-6694306514))
+> and re-check findings N1–N6
+> ([re-check](https://github.com/balungpisah/elzoo/issues/38#issuecomment-6694511264)).
 > Nothing here is executed evidence. `piece.json` and the ledger row are added
 > only with the implementation.
 
@@ -20,7 +22,7 @@ owner); this Piece supplies pure transitions over a caller-held state value.
 
 Interface deltas against #38 are listed in the
 [authorization README](../../domain/authorization/README.md#interface-deltas-vs-38)
-(D1–D11) and below (D12–D16).
+(D1–D11, D17) and below (D12–D16, D18).
 
 ## Preflight acknowledgments (docs/plans/preflight.md)
 
@@ -60,6 +62,9 @@ Runs.
   revoked:  [evidence_key]
 }
 # evidence_key = {verifier_id, evidence_id}
+# release_record = %{key, binding, writes, evidence, released_at}
+#   evidence is the full evidence record used (verifier, evidence_id, reviewer,
+#   request, decision, scope, issued_at, expiry), N2
 # consent = %{evidence_key, binding, scope, run, root, reviewer, verifier,
 #             issued_at, expiry}  — run and root are the trusted context.run.id
 #             and context.run.root at its first successful release (F5b)
@@ -116,13 +121,17 @@ Missing or invalid context is `{:error, {:unavailable_context, reason}}`.
 Fixed Contract constants, checked by Elixir **before** any evaluation;
 exceeding one is `{:invalid_input, {:bound_exceeded, name}}` for evidence and
 events and `{:unavailable_context, {:bound_exceeded, name}}` for trusted
-context. Nothing is truncated. All `domain/authorization` bounds also apply.
+context. Nothing is truncated. All `domain/authorization` bounds also apply;
+in particular `approver.authority` is an authority set with at most 4096
+entries before coalescing, identity texts ≤ 1024 bytes and value bounds as
+there (N6).
 
 | Bound | Value |
 | --- | --- |
 | bytes of any identity text (verifier, evidence id, reviewer, run, root, ancestry entry, request tuple parts) | 1024 |
 | `run.ancestry` entries | 64 |
-| `verifiers` allowlist entries | 64 |
+| `verifiers` allowlist entries | 1..64 |
+| `approver.authority` entries (before coalescing) | 4096 |
 | times (`now`, `issued_at`, `expiry`) | integer `0..2^63-1` |
 | `max_age` | integer `1..2^63-1` |
 | revision | integer `1..2^31-1` |
@@ -165,6 +174,15 @@ Elzoo.Approval.release(state, key, evidence | :retained, context)
    | {:error, {:invalid_input | :unavailable_context, r}, state}
 ```
 
+**Before check 0 (N3).** Elixir validates and bounds the whole input first:
+release context (including the current policy, proposal and authority —
+the validation half of check 16), evidence and state. Any fault returns
+`{:error, {:invalid_input | :unavailable_context, r}, state}` with no
+writes and no state change, ahead of every check below. A current proposal
+carrying an atom control key returns
+`{:refused, {:deny_at_release, {:control_field, k}}, state}`; this outcome is
+computed in Elixir and is **test-only** (not covered by the release laws).
+
 Release succeeds only when **all** checks pass. The first failing check is
 the reason; the order below is pinned by tests (Q5). Every failure emits no
 writes, adds no release record, adds no consumption marker and leaves state
@@ -197,8 +215,8 @@ unchanged.
 
 On success, in **one** pure transition, release returns the **current
 decision's escrowed writes** (F7; structurally equal to the bound escrow by
-check 20). It adds the release record for `key` (evidence key, binding,
-released writes, reviewer, verifier, `now`), marks the request `:released`,
+check 20). It adds the release record for `key` (binding, released writes,
+the **full evidence record**, `now` as `released_at`; N2), marks the request `:released`,
 retains a run/root consent with the trusted `context.run.id` and
 `context.run.root` (F5b), and for `:once` adds the evidence key to `consumed`.
 Event: `{:released, release_record, consent | nil}`.
@@ -213,11 +231,19 @@ supersede and open `revision + 1`.
 ### Retained consent and scope
 
 `release(state, key, :retained, context)` is for `:run` and `:root` scope
-only. It selects among retained consents that are unrevoked and whose binding
-equals the request's binding structurally, in a **deterministic order**:
-earliest `issued_at`, then evidence key `(verifier, evidence_id)` in UTF-8 byte
-order (F5d). It applies checks 0–3 and 5–21 to the first candidate in that
-order that passes check 13; if none does, `:no_retained_consent`.
+only. Order (N5):
+
+1. Run checks 0–3 on the request first, so their reasons are never hidden.
+2. Candidates: retained consents whose binding equals the request's binding
+   structurally and that pass checks 5–8 and 10–13 against this context
+   (allowlist, revocation, consumption, binding reuse, issue time, age,
+   expiry, scope). Stale or expired consents drop out here.
+3. If no candidate remains → `{:refused, :no_retained_consent, state}`.
+4. Otherwise choose deterministically: earliest `issued_at`, then evidence key
+   `(verifier, evidence_id)` in UTF-8 byte order (F5d), and apply checks
+   9 and 14–21 to it. Its refusal reason is returned; no other candidate is
+   tried after that (the choice is fixed before the authority checks, so the
+   reviewer named in the release record does not depend on authority state).
 
 Which request-key fields may differ from the consent's original request:
 
@@ -240,9 +266,11 @@ input, never a bypass:
   release event): call `release/4` again. For `:once`, the owner passes the
   evidence record it stored itself; `:retained` is only for run/root.
 - **Release recorded, dispatch not confirmed:**
-  `Elzoo.Approval.revalidate(state, key, context) :: :ok | {:refused, reason}`
-  reruns checks 0, 5, 6, 10–21 against the release record's evidence and
-  current context. It emits no writes and changes no state. The owner must not
+  `Elzoo.Approval.revalidate(state, key, context) :: :ok | {:refused, reason} | {:error, {class, r}}`
+  reruns checks 0, 5, 6, 10–21 against the **full evidence record stored in
+  the release record** (N2) and current context. No release record for `key`
+  → `{:refused, :not_released}`. Elixir validation faults → `{:error, {class,
+  r}}`. It emits no writes and changes no state. The owner must not
   dispatch the recorded writes on refusal. A timeout after dispatch remains
   an unknown outcome for the owner to reconcile.
 
@@ -282,7 +310,8 @@ argument or chat turn, leaves the escrowed writes escrowed.
 | --- | --- | --- |
 | Evidence, context, event and state validation; bounds; time range | Elixir `Elzoo.Approval` | finite tests |
 | Encoding of state, evidence, context (incl. current policy, proposal, authority) to Cure terms; decoding | Elixir | finite tests incl. agreement test |
-| Validation of current policy/proposal/authority for check 16 | Elixir via `Elzoo.Authorization` validation (no decision) | finite tests |
+| Validation of current policy/proposal/authority for check 16 (runs before check 0) | Elixir via `Elzoo.Authorization` validation | finite tests only |
+| Control key in current proposal → `{:deny_at_release, {:control_field, k}}` | Elixir | test-only (N3) |
 | Checks 0–15 and 17–21, retained-consent selection order | Cure `check` / `select_retained` | laws below + tests |
 | Check 16 re-decide | Cure `release` calls Cure `Elzoo.Authorization.decide` on the encoded current policy, action, own, parent | `domain/authorization` laws |
 | Success transition (record, status, consent, consumed, writes) | Cure `release` | laws below |
@@ -290,7 +319,8 @@ argument or chat turn, leaves the escrowed writes escrowed.
 | `revoke`, `apply_event`, replay fold | Cure `revoke`, `apply_event`; Elixir only iterates the bounded list | finite tests (state-only return is by type) |
 | `revalidate` | Cure `revalidate` | finite tests; returns no writes by type |
 
-Elixir never computes a check result or a write list. If a check proves
+Apart from the control-key refusal above, Elixir never computes a check
+result, and it never computes a write list. If a check proves
 impossible to move into Cure during implementation, it will be marked
 test-only here and in `piece.json` before review, never presented as covered
 by a law.
@@ -330,6 +360,27 @@ authority or the current effective authority. "Released writes ⊆ the
 originally bound escrow" is enforced by check 20 in Cure and covered by
 tests; it is not a selected law (it would need an `eq_write`-transfer lemma).
 
+**Decision-split form (N4).** Pinned Cure reduces `Int` equality on literals
+only; `int_eq` on symbolic values is neutral
+([#36 comment 6694393314](https://github.com/balungpisah/elzoo/issues/36#issuecomment-6694393314)).
+So every release law above is stated in decision-split form: it takes the
+relevant stuck `Bool` or `ReleaseCheck` result as a hypothesis and branches on
+it with `with`; none assumes that a key or value equals itself.
+
+**Test-grounded, not laws, for that reason:**
+
+- release-then-release: the record added by the first release is found by the
+  second (needs `eq_key(k, k) = True`);
+- replay idempotence (re-applying a present `:released` event);
+- `request/3` idempotence (same requirement and binding → unchanged);
+- `eq_value` reflexivity and soundness against Elixir;
+- bound-escrow transfer (released writes ⊆ originally bound escrow);
+- the Elixir-side outcomes before check 0 and the control-key refusal.
+
+If a production law cannot be checked in its stated form during
+implementation, work stops and the exact Cure error is reported; the law is
+not weakened.
+
 ## Finite tests (not proofs)
 
 - payload drift and policy version drift invalidate an earlier approval;
@@ -348,6 +399,13 @@ tests; it is not a selected law (it would need an `eq_write`-transfer lemma).
   refused; `now = expiry - 1` accepted, `= expiry` refused; future-issued
   refused; missing expiry rejected;
 - revocation wins over retained consent, release and `revalidate`;
+- `revalidate` of a `:once` release after its `expiry` is refused;
+  `revalidate` of a key with no release record → `:not_released`;
+- an invalid current proposal is reported before `:run_mismatch` and
+  `:unknown_request` (Elixir validation precedes check 0); a control key in
+  the current proposal → `{:deny_at_release, {:control_field, k}}`;
+- retained selection: a stale earliest candidate does not hide a valid later
+  one; checks 0–3 are reported before `:no_retained_consent`;
 - once scope consumed by one release; a second release of the same key emits
   nothing even with a new evidence id; reuse of an evidence id with a
   different binding rejected; reuse with an equal binding under run/root
@@ -433,3 +491,4 @@ own schema id. Providers: pinned Cure, Elixir 1.20.4, OTP 29.1.2.
 | D14 | "scope (once, run, root)" | binding-only reuse check; per-scope key-field table; root recorded from trusted context; deterministic retained choice | F4/F5b/F5d |
 | D15 | "a restored pre-dispatch 'approved' action re-enters the reducer" | two restore paths: re-`release` (once: owner-stored evidence) and `revalidate/3` for recorded releases | F11 |
 | D16 | "within its declared maximum age" | `max_age` per-call Config, ms, no default; all approval inputs bounded | F6/F10 |
+| D18 | restore re-enters the reducer | release record stores the full evidence record; `revalidate/3 :: :ok \| {:refused, reason} \| {:error, {class, r}}`, `:not_released` for a missing record | N2 |
