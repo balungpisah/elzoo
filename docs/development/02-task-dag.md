@@ -146,3 +146,6 @@ stable even when issue numbers differ.
 | ELZ-019 | [26](https://github.com/balungpisah/elzoo/issues/26) |
 | ELZ-020 | [28](https://github.com/balungpisah/elzoo/issues/28) |
 | ELZ-021 | [33](https://github.com/balungpisah/elzoo/issues/33) |
+| ELZ-022 | [36](https://github.com/balungpisah/elzoo/issues/36) |
+| ELZ-023 | [37](https://github.com/balungpisah/elzoo/issues/37) |
+| ELZ-024 | [38](https://github.com/balungpisah/elzoo/issues/38) |
