@@ -1,10 +1,12 @@
 # workflow/approval
 
-> **Stage 1 Contract draft, revision 3 (ELZ-024, issue #38).** No
+> **Stage 1 Contract draft, revision 4 (ELZ-024, issue #38).** No
 > implementation exists yet. Revision 3 resolves early review findings 1–11
 > ([review](https://github.com/balungpisah/elzoo/issues/38#issuecomment-6694306514))
 > and re-check findings N1–N6
-> ([re-check](https://github.com/balungpisah/elzoo/issues/38#issuecomment-6694511264)).
+> ([re-check](https://github.com/balungpisah/elzoo/issues/38#issuecomment-6694511264))
+> and S1–S2, R3–R8
+> ([re-check 2](https://github.com/balungpisah/elzoo/issues/38#issuecomment-6694625838)).
 > Nothing here is executed evidence. `piece.json` and the ledger row are added
 > only with the implementation.
 
@@ -62,12 +64,16 @@ Runs.
   revoked:  [evidence_key]
 }
 # evidence_key = {verifier_id, evidence_id}
-# release_record = %{key, binding, writes, evidence, released_at}
+# release_record = %{key, binding, writes, evidence, run, root, released_at}
 #   evidence is the full evidence record used (verifier, evidence_id, reviewer,
 #   request, decision, scope, issued_at, expiry), N2
-# consent = %{evidence_key, binding, scope, run, root, reviewer, verifier,
-#             issued_at, expiry}  — run and root are the trusted context.run.id
-#             and context.run.root at its first successful release (F5b)
+#   run, root: for a fresh release, the trusted context.run.id / .root of this
+#   release; for a :retained release, the consent's recorded run / root (S1)
+# consent = %{evidence, binding, run, root}
+#   evidence is the full evidence record (as above); run and root are the
+#   trusted context.run.id and context.run.root at its first successful
+#   release (F5b, S1). evidence_key is derived: {evidence.verifier,
+#   evidence.evidence_id}
 ```
 
 The state is a plain value held by the caller, encoded as lists for Cure.
@@ -206,7 +212,7 @@ unchanged.
 | 13 | scope equals the requirement's scope and admits this request (below) | `:scope_mismatch` |
 | 14 | `context.approver.identity == reviewer` | `:approver_mismatch` |
 | 15 | `reviewer != context.authority.proposer` (trusted identity, F1) | `:self_approval` |
-| 16 | Cure `decide(current policy, current action, own, parent)` succeeds | that error class (`invalid_input` / `unavailable_context`) |
+| 16 | Cure `decide(current policy, current action, own, parent)` succeeds | `{:error, {:unavailable_context, {:ambiguous_requirement, list}}, state}` (R3; the only Cure-side failure after N3; `revalidate/3` returns the same without `state`) |
 | 17 | current verdict is not DENY | `{:deny_at_release, reason}` |
 | 18 | current policy identity == bound policy identity (a reused id/version with a changed hash fails) | `:policy_changed` |
 | 19 | current normalized action == bound action, structurally (payload drift; includes trusted proposer and class) | `:payload_changed` |
@@ -217,8 +223,11 @@ On success, in **one** pure transition, release returns the **current
 decision's escrowed writes** (F7; structurally equal to the bound escrow by
 check 20). It adds the release record for `key` (binding, released writes,
 the **full evidence record**, `now` as `released_at`; N2), marks the request `:released`,
-retains a run/root consent with the trusted `context.run.id` and
-`context.run.root` (F5b), and for `:once` adds the evidence key to `consumed`.
+retains a run/root consent `%{evidence, binding, run, root}` with the full
+evidence record and the trusted `context.run.id` and `context.run.root` (F5b,
+S1), and for `:once` adds the evidence key to `consumed`. A `:retained`
+release puts the selected consent's full evidence record and its recorded
+`run`/`root` into its release record and adds no new consent.
 Event: `{:released, release_record, consent | nil}`.
 
 Because the released writes are `escrowed_of(decide(...))`, the release
@@ -231,7 +240,20 @@ supersede and open `revision + 1`.
 ### Retained consent and scope
 
 `release(state, key, :retained, context)` is for `:run` and `:root` scope
-only. Order (N5):
+only. The owner first calls the pure selection (S2):
+
+```elixir
+Elzoo.Approval.select_retained(state, key, context)
+  :: {:ok, consent} | {:refused, reason} | {:error, {class, r}}
+```
+
+`select_retained` needs no `context.approver` (it ignores it). The owner then
+loads the selected consent's reviewer (`consent.evidence.reviewer`) and that
+reviewer's current authority as `context.approver`, and calls `release/4`
+with `:retained`. `release/4` runs the **same** Cure `select_retained` again
+on the same state and context, so it selects the same consent; if the
+supplied approver is not that reviewer, check 14 refuses with
+`:approver_mismatch`. Selection order (N5):
 
 1. Run checks 0–3 on the request first, so their reasons are never hidden.
 2. Candidates: retained consents whose binding equals the request's binding
@@ -240,8 +262,8 @@ only. Order (N5):
    expiry, scope). Stale or expired consents drop out here.
 3. If no candidate remains → `{:refused, :no_retained_consent, state}`.
 4. Otherwise choose deterministically: earliest `issued_at`, then evidence key
-   `(verifier, evidence_id)` in UTF-8 byte order (F5d), and apply checks
-   9 and 14–21 to it. Its refusal reason is returned; no other candidate is
+   `(verifier, evidence_id)` in UTF-8 byte order (F5d). `release/4` then
+   applies checks 9 and 14–21 to it, using the consent's evidence record. Its refusal reason is returned; no other candidate is
    tried after that (the choice is fixed before the authority checks, so the
    reviewer named in the release record does not depend on authority state).
 
@@ -252,6 +274,11 @@ Which request-key fields may differ from the consent's original request:
 | `:once` | equal | equal | equal | only the exact request the evidence names; never retained |
 | `:run` | equal to consent `run` | equal (part of binding) | may differ | a later revision for the same `(run, action_id)` with equal binding, e.g. a new ASK after a release (F5c) |
 | `:root` | `context.run.id == consent.root` or `consent.root ∈ context.run.ancestry` | equal (part of binding) | may differ | that root and Runs whose trusted ancestry contains it, with equal binding |
+
+Revocation, expiry, age or allowlist removal of a retained consent filters it
+out in step 2, so on the retained path these show as
+`{:refused, :no_retained_consent, state}`, not as `:revoked` or `:expired`
+(R6).
 
 Scope never broadens the binding or grants authority. Root is the trusted
 `context.run.root` recorded at the consent's first release; ancestry is
@@ -268,9 +295,13 @@ input, never a bypass:
 - **Release recorded, dispatch not confirmed:**
   `Elzoo.Approval.revalidate(state, key, context) :: :ok | {:refused, reason} | {:error, {class, r}}`
   reruns checks 0, 5, 6, 10–21 against the **full evidence record stored in
-  the release record** (N2) and current context. No release record for `key`
-  → `{:refused, :not_released}`. Elixir validation faults → `{:error, {class,
-  r}}`. It emits no writes and changes no state. The owner must not
+  the release record** (N2) and current context. Check 13 uses the `run` and
+  `root` stored in the release record; there is no lookup in `consents` (S1).
+  No release record for `key` → `{:refused, :not_released}`. Elixir
+  validation faults → `{:error, {class, r}}`. A control key in the current
+  proposal → `{:refused, {:deny_at_release, {:control_field, k}}}` (R4,
+  test-only). Ambiguous requirement → `{:error, {:unavailable_context,
+  {:ambiguous_requirement, list}}}` (R3). It emits no writes and changes no state. The owner must not
   dispatch the recorded writes on refusal. A timeout after dispatch remains
   an unknown outcome for the owner to reconcile.
 
@@ -312,7 +343,8 @@ argument or chat turn, leaves the escrowed writes escrowed.
 | Encoding of state, evidence, context (incl. current policy, proposal, authority) to Cure terms; decoding | Elixir | finite tests incl. agreement test |
 | Validation of current policy/proposal/authority for check 16 (runs before check 0) | Elixir via `Elzoo.Authorization` validation | finite tests only |
 | Control key in current proposal → `{:deny_at_release, {:control_field, k}}` | Elixir | test-only (N3) |
-| Checks 0–15 and 17–21, retained-consent selection order | Cure `check` / `select_retained` | laws below + tests |
+| Checks 0–15 and 17–21 | Cure `check` | laws below + tests |
+| Retained-consent filter and selection order (`select_retained`, also exposed in Elixir) | Cure `select_retained` | tests only (R7) |
 | Check 16 re-decide | Cure `release` calls Cure `Elzoo.Authorization.decide` on the encoded current policy, action, own, parent | `domain/authorization` laws |
 | Success transition (record, status, consent, consumed, writes) | Cure `release` | laws below |
 | `request` transition (supersede / revision + 1) | Cure `request` | finite tests |
@@ -350,7 +382,7 @@ Subset is with respect to `eq_write`.
 | `deny_at_release_wins` | if `decide(current)` has verdict `Deny`, `writes = []` |
 | `self_approval_refused` | if `eq_ints(reviewer, ctx.proposer) = True`, `writes = []` |
 | `reject_evidence_refused` | if `decision = Reject`, `writes = []` |
-| `released_twice_emits_nothing` | if a release record exists for `key`, `writes = []` |
+| `released_twice_emits_nothing` | if `has_release(s, k) = True` (Cure lookup over `s.releases` by `eq_key`), `writes = []` |
 | `run_mismatch_refused` | if `eq_ints(ctx.run.id, key.run) = False`, `writes = []` |
 
 Together these are the **escrow-only-on-approval** law for the production
@@ -365,7 +397,10 @@ only; `int_eq` on symbolic values is neutral
 ([#36 comment 6694393314](https://github.com/balungpisah/elzoo/issues/36#issuecomment-6694393314)).
 So every release law above is stated in decision-split form: it takes the
 relevant stuck `Bool` or `ReleaseCheck` result as a hypothesis and branches on
-it with `with`; none assumes that a key or value equals itself.
+it with `with`; none assumes that a key or value equals itself. Native
+`<=`, `<` and `+` are also neutral on symbolic values (`Std.Builtin#int_le`,
+same comment). Checks 10–12 and the `issued_at` selection order use them, so
+no time, age or ordering law is planned; those are tests only (R5).
 
 **Test-grounded, not laws, for that reason:**
 
@@ -398,7 +433,16 @@ not weakened.
 - age boundaries: `now - issued_at = max_age - 1` accepted, `= max_age`
   refused; `now = expiry - 1` accepted, `= expiry` refused; future-issued
   refused; missing expiry rejected;
-- revocation wins over retained consent, release and `revalidate`;
+- revocation wins over release and `revalidate` (`:revoked`); on the
+  retained path a revoked or expired consent gives `:no_retained_consent`
+  (R6);
+- revalidate of a retained `:root` release in a child Run passes when the
+  recorded root is in `context.run.ancestry` and is refused without it (S1);
+- two retained consents from two reviewers: `select_retained` returns the
+  deterministic one; `release/4` with that reviewer as approver succeeds;
+  with the other reviewer it gives `:approver_mismatch` (S2);
+- pinned proposal-fault order at release (control key before other faults)
+  and ambiguous requirement at release and revalidate (R3, R4);
 - `revalidate` of a `:once` release after its `expiry` is refused;
   `revalidate` of a key with no release record → `:not_released`;
 - an invalid current proposal is reported before `:run_mismatch` and

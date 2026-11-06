@@ -1,10 +1,12 @@
 # domain/authorization
 
-> **Stage 1 Contract draft, revision 3 (ELZ-024, issue #38).** No
+> **Stage 1 Contract draft, revision 4 (ELZ-024, issue #38).** No
 > implementation exists yet. Revision 3 resolves early review findings 1–11
 > ([review](https://github.com/balungpisah/elzoo/issues/38#issuecomment-6694306514))
 > and re-check findings N1–N6
-> ([re-check](https://github.com/balungpisah/elzoo/issues/38#issuecomment-6694511264)).
+> ([re-check](https://github.com/balungpisah/elzoo/issues/38#issuecomment-6694511264))
+> and R3–R8
+> ([re-check 2](https://github.com/balungpisah/elzoo/issues/38#issuecomment-6694625838)).
 > Nothing here is executed evidence. `piece.json` and the ledger row are added
 > only with the implementation.
 
@@ -200,7 +202,13 @@ exceeded) is `{:unavailable_context, {:invalid_policy, reason}}`.
    including proposer/effect-class mismatch and an empty write set
    (`{:invalid_input, :empty_writes}`, N1) → `{:error, {:invalid_input,
    reason}}`. Every effect a host gates must be expressed as at least one
-   typed write, so every action consults at least one rule.
+   typed write, so every action consults at least one rule. Zero writes is
+   always `:empty_writes`, never `{:bound_exceeded, :writes}`. **Pinned order
+   (R4):** the control-key check runs first, then the other proposal faults
+   in this order: unknown key, missing key, value/identity validity and
+   bounds, empty write set, conflicting writes, proposer mismatch, effect
+   class mismatch. So a proposal with a control key and zero writes is DENY
+   `{:control_field, key}`. A test pins this order.
 3. **Containment (B24.3).** The proposal's normalized write set must be a
    subset of `own` and, for a child, also of `parent` (subset with respect to
    `eq_write`). Being a subset of both is exactly being a subset of their
@@ -276,6 +284,9 @@ equality is hand-written and total over byte integers, and every law that
 touches equality is stated in **decision-split form**: it branches on the
 (possibly stuck) `Bool` result of an equality or subset test instead of
 assuming that test reduces. No law relies on `eq_value(v, v) = True`.
+Native `<=`, `<` and `+` are likewise neutral on symbolic values
+(`Std.Builtin#int_le`, same #36 comment), so no law over time, age or other
+integer ordering/arithmetic is planned (R5).
 
 ```cure
 type Verdict = Allow | Ask | Deny
@@ -399,7 +410,9 @@ Needs of the consumer: authentication and identity mapping that yield the
 trusted proposer identity; a host that derives the effect class from tool or
 route identity and derives authority from its own state; the immutable
 policy artifact and its SHA-256; a duplicate-rejecting decoder for external
-data; serialization of decisions with any state they guard.
+data; serialization of decisions with any state they guard; and **every
+effect the host gates must be expressed as at least one typed write** (D17,
+R8) — an action with no writes is rejected, never authorized.
 
 Unspecified: concurrency (pure; the caller serializes); durability; clock
 behavior (no time input here); meaning of identities beyond equality; which
