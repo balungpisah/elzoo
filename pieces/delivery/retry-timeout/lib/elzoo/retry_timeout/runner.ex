@@ -3,7 +3,8 @@ defmodule Elzoo.RetryTimeout.Runner do
   @moduledoc """
   Volatile, single-node in-flight runner; no queue or shedding.
   Monitor the runner: DOWN before settlement means unknown, not failure/no Effect.
-  A blocking dead-letter sink blocks this runner, including admission. A caller's
+  A blocking dead-letter sink blocks this runner, including admission. Timeout and
+  expiry kill the attempt task with an untrappable :kill exit without waiting. A caller's
   GenServer.call timeout is unknown admission, and may be followed by settlement.
   snapshot/1 is inspection, not telemetry or durable accounting.
   """
@@ -305,13 +306,7 @@ defmodule Elzoo.RetryTimeout.Runner do
       if op.task do
         Process.demonitor(op.task.ref, [:flush])
 
-        if terminate? do
-          try do
-            Task.Supervisor.terminate_child(state.supervisor, op.task.pid)
-          catch
-            _, _ -> :ok
-          end
-        end
+        if terminate?, do: Process.exit(op.task.pid, :kill)
 
         Map.delete(state.tasks, op.task.ref)
       else

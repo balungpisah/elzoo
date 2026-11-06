@@ -24,6 +24,7 @@
     "Completed means validated Adapter report, not durable Effect evidence. Sink :ok is not locally proven durable.",
     "Runner restart loses operations without settlement; monitor DOWN as unknown. Tasks and Effects may outlive runner.",
     "Blocking sink blocks the runner; raises, throws, exits and non-ok returns yield unsettled. No operational drain or telemetry supplied.",
+    "Attempt timeout and deadline expiry kill the task with :kill without waiting; task cleanup code does not run and an external Effect may persist.",
     "Helper laws do not prove the runner, integer comparisons, classification or conservation; those have finite test/model evidence.",
     "RedispatchIdempotent is a caller assertion, not a checked provider guarantee."
   ],

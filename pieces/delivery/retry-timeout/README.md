@@ -57,6 +57,10 @@ Operation identity is effective correlation_id (message_id if absent).
 allowed and can execute again. This is **not dedup** (ELZ-005 owns it).
 Attempts keep correlation, idempotency_key and deadline; runner sets
 attempt_id="<message_id>/attempt/<n>". Caller-supplied attempt_id is refused.
+attempt_id derives from message_id, not the effective correlation_id: open
+operations that reuse a message_id under distinct correlation_ids get equal
+attempt_ids. Replies are matched by task, so settlement is unaffected, but
+producers should keep message_id unique.
 Results must pass Envelope validation and RequestReply.correlate for the
 current attempt. Invalid/mismatched results and task exits become
 unknown/unknown/unclassified; timeout becomes timed_out/unknown/unclassified,
@@ -67,8 +71,12 @@ elapsed timers. No wall-clock decision is in Cure; later wall-clock changes
 are ignored. Delays larger than OTP's 4294967295 ms timer limit re-arm in
 bounded chunks against the monotonic target. Timer delivery can be late.
 Deadline wins at subsequent runner observations/retry execution when elapsed.
-No cross-host clock-skew guarantee. A timeout terminates the local task; an
-external Effect may persist and cannot be undone.
+No cross-host clock-skew guarantee. Attempt timeout and deadline expiry kill
+the local task with an untrappable :kill exit and do not wait for it to stop
+(brutal-kill semantics), so a task that traps exits or a long supervisor
+shutdown cannot block the runner. Task cleanup code does not run; its later
+reply or DOWN is ignored as late. An external Effect may persist and cannot be
+undone.
 
 The submitting pid receives exactly one local settlement per accepted ref:
 {Elzoo.RetryTimeout, ref, {:completed, result} | {:dead_lettered, record} |

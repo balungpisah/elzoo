@@ -431,6 +431,37 @@ defmodule Elzoo.RetryRunnerTest do
     end
   end
 
+  test "timeout and deadline expiry kill an exit-trapping attempt without blocking" do
+    parent = self()
+
+    trapping = fn req ->
+      Process.flag(:trap_exit, true)
+      send(parent, {:trapping, self(), req["message_id"]})
+      Process.sleep(:infinity)
+    end
+
+    for {name, opts, extra, reason} <- [
+          {"attempt-timeout", [attempt_timeout_ms: 30], %{}, "dispatched_unresolved"},
+          {"deadline", [], %{"deadline_unix_ms" => 1030}, "deadline_expired"}
+        ] do
+      pid = runner(trapping, opts)
+      started = System.monotonic_time(:millisecond)
+      {:ok, ref} = Runner.submit(pid, request(name, extra))
+      assert_receive {:trapping, task, ^name}
+      monitor = Process.monitor(task)
+      assert_receive {:DOWN, ^monitor, :process, ^task, :killed}, 1000
+      {elapsed_us, snapshot} = :timer.tc(fn -> Runner.snapshot(pid) end)
+      assert elapsed_us < 500_000
+      assert snapshot.settled == 1
+      assert_receive {R, ^ref, {:dead_lettered, record}}, 1000
+      assert record["reason"] == reason
+      assert record["last_dispatch"] == "unknown"
+      assert System.monotonic_time(:millisecond) - started < 1000
+      assert :sys.get_state(pid).tasks == %{}
+      bounds(pid)
+    end
+  end
+
   test "elapsed deadline wins even when a success reply is ahead of timer in mailbox" do
     parent = self()
 
