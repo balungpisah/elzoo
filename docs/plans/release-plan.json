@@ -3543,7 +3543,7 @@
     {
       "id": "state/scheduler",
       "job": "RC-02",
-      "note": "ELZ-010 names this scope but its current PR does not add its manifest; RC task is conditional on final merged evidence. Do not expand active work.",
+      "note": "ELZ-010 relies on Oban 2.24.2 retry staging inside integration/jobs for delayed retries; no recurring schedule, timer or workflow-timer Contract is offered, so this stays planned.",
       "baseline_status": "planned",
       "disposition": "blocked-admission-proposal",
       "catalogue_reference": "registry/catalogue.json"
@@ -3551,7 +3551,7 @@
     {
       "id": "state/schema-evolution",
       "job": "RC-01",
-      "note": "ELZ-010 names this scope but its current PR does not add its manifest; RC task is conditional on final merged evidence. Do not expand active work.",
+      "note": "`T,X`; version compatibility is explicit, not inferred. ELZ-010 explicitly deferred it: assembly/durable-job accepts schema_version 1 only and refuses other versions; the first real format change needs golden corpora per version, pinned bytes, a frozen older reader and unwritable_version under a new task.",
       "baseline_status": "planned",
       "disposition": "blocked-admission-proposal",
       "catalogue_reference": "registry/catalogue.json"

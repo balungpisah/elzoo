@@ -2,9 +2,14 @@
 
 The documentation worker ran these checks in the supplied isolated workspace
 `/Users/laptopdp/.t3/worktrees/elzoo/t3-772a5980`, based on main
-`404d159a122d18a22554c5688aa79199e4d5c124`. The implementation is documentation,
+`404d159a122d18a22554c5688aa79199e4d5c124`, then normally merged main
+`32aef4e7dba40231257e2a91095910377c5c4ab9` (ELZ-010 PR #54) without conflicts.
+Both baseline and combined-tree setup/check runs passed; final results below
+refer to the combined tree. The implementation is documentation,
 planning data, generated planning views and their checker; runtime source and
-ready metadata are unchanged. Final review, symbolic PR checks, merge acceptance
+ready metadata are unchanged relative to the synchronized main. The ELZ-010
+runtime, metadata and Oban dependency changes entered only through that main
+merge; this adoption task did not edit them. Final review, symbolic PR checks, merge acceptance
 and task cleanup remain with the dedicated roadmap coordinator.
 
 ## Actual commands and results
@@ -15,17 +20,19 @@ All Mix processes used `ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1'`.
 | Command | Actual result |
 | --- | --- |
 | `graft ask "ELZ-033 product-led roadmap adoption documentation planning and preflights" --source` | Exit 127: `zsh:1: command not found: graft`; used `rg` fallback. |
-| `mix setup` | Exit 0 from this fresh checkout. Fetched/build dependencies locally; no Cure cache copied from another checkout. |
-| `mix check` with dedicated `ELZOO_TEST_DATABASE_URL` | Exit 0; `Result: 27 passed` for Ash experiment; `Result: 300 passed` for root suite; `ELZOO CHECK PASSED`. Root suite reports 301.8 seconds. Includes real Cure compilation, selected laws and negative controls, runtime/provider and independent source-copy consumers. |
+| `mix setup` | Exit 0 from the fresh checkout, then exit 0 again after the main/dependency update. Dependencies built locally; no Cure cache copied from another checkout. |
+| `mix check` with dedicated `ELZOO_TEST_DATABASE_URL` | Exit 0; `Result: 32 passed` for Ash experiment; `Result: 366 passed` for root suite; `ELZOO CHECK PASSED`. Root suite reports 526.0 seconds (5.6s async, 520.3s sync). Includes real Cure compilation, selected laws and negative controls, runtime/provider and independent source-copy consumers. |
 | `python3 scripts/check-roadmap.py --write` | Exit 0; generated only `docs/plans/views.md` and `dependencies.mmd`. |
-| `python3 scripts/check-roadmap.py --live --self-test` | Exit 0; 97 baseline/current catalogue IDs, 2 separate candidates, 76 jobs, 12 products, acyclic/release-ordered references, generated views agree, 124 local link targets checked, all live published Contract hashes/dependencies match; eight invalid-plan controls rejected. |
+| `python3 scripts/check-roadmap.py --live --self-test` | Exit 0; 97 baseline/current catalogue IDs, 2 separate candidates, 76 jobs, 12 products, acyclic/release-ordered references, generated views agree, 129 local link targets checked, all live published Contract hashes/dependencies match; eight invalid-plan controls rejected. |
 | `python3 scripts/check-claims.py` | Exit 0: `No tracked claim metadata`. |
 | `python3 scripts/check-ci-runners.py` | Exit 0: `All workflow runner selectors target symbolic; no hosted fallback`. |
 | `git diff --check` | Exit 0, no output. |
-| `git diff --exit-code 404d159a122d18a22554c5688aa79199e4d5c124 -- pieces lib test registry LEDGER.md mix.exs mix.lock spikes .github .tool-versions .gitignore .ignore` | Exit 0, no output: runtime, metadata, ledger, pins, lockfiles, workflow and unrelated root ignore files preserved. |
+| `git diff --exit-code 32aef4e7dba40231257e2a91095910377c5c4ab9 -- pieces lib test registry LEDGER.md mix.exs mix.lock spikes .github .tool-versions .gitignore .ignore` | Exit 0, no output: runtime, metadata, ledger, pins, lockfiles, workflow and unrelated root ignore files preserved. |
 
 The live Contract check also verifies that the new task file exactly equals
-issue #55's body. All earlier task files are unchanged. The eight in-memory
+issue #55's body. All earlier task files are unchanged. The pre-merge run also passed with
+27 Ash + 300 root checks in 301.8 seconds; those logs are retained separately,
+and are not substituted for the combined-tree result. The eight in-memory
 negative controls are duplicate entry, missing primary owner, dependency cycle,
 later-release prerequisite, candidate counted in baseline, rewritten baseline
 status, changed published dependency and unknown product reference. These are
@@ -54,13 +61,19 @@ Full local outputs are retained at:
 
 ```text
 /Users/laptopdp/.codex/artifacts/elzoo-033-validation-2026-11-07-t3-772a5980/
-  setup.log
-  check.log
+  setup.log                  # original baseline
+  check.log                  # original baseline
   check-exit.txt
   roadmap.log
   guards.log
   toolchain.log
   postgres.log
+  setup-integrated.log       # main 32aef4e synchronized
+  check-integrated.log       # 32 + 366, ELZOO CHECK PASSED
+  check-integrated-exit.txt  # 0
+  roadmap-integrated.log
+  guards-integrated.log
+  postgres-integrated.log
 ```
 
 These outputs are inspection artifacts, not a checkout/runtime dependency.

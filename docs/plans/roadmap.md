@@ -40,7 +40,8 @@ acceptance, dependencies, blockers and release gates are repository-owned.
 not issue IDs or permission to implement. No remaining RC proposal is
 mechanically published by adoption.
 
-Run from the repository root:
+Run from the repository root with the recorded baseline commit available in
+local Git history (fetch history first in a shallow checkout):
 
 ```sh
 python3 scripts/check-roadmap.py --write
