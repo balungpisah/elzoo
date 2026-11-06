@@ -6,6 +6,17 @@ defmodule Elzoo.DurableLog.Postgres do
   `test_dispatch` and `test_hook` are explicit test-only injection seams.
   Invalid record rows remain visible to replay as damaged input, never repaired;
   checkpoint decoding failures remain invalid snapshots for recovery fallback.
+
+  Every callback refuses to run inside the calling process's open Ecto transaction
+  on `repo` (`repo.in_transaction?/0`), before any statement: writes return
+  `{:rejected, :caller_transaction}` and reads `{:error, :caller_transaction}`. A
+  nested `repo.transaction/2` would join the caller's transaction, so no COMMIT
+  would back a `committed` reply. Static, I/O-free validation runs first, so invalid
+  input inside a caller transaction keeps its existing result (a write's rejection
+  or `indeterminate(:malformed_reply)`, `{:error, :malformed}` from a read with an I/O-free pre-check such as `read_ack` key parsing or an unknown `read_maintenance` operation; reads that validate input during the query, such as `head`/`read` with an invalid stream, return `{:error, :caller_transaction}` instead); no SQL is issued in either case. The
+  check is per process and is false under `Ecto.Adapters.SQL.Sandbox` outside an
+  explicit `Repo.transaction`; see the
+  README limits.
   """
   @behaviour Elzoo.DurableLog.Store
   alias Elzoo.DurableLog, as: Log
@@ -38,7 +49,8 @@ defmodule Elzoo.DurableLog.Postgres do
   @impl true
   def capabilities(_), do: %{append_visibility: :atomic}
   @impl true
-  def repair_torn_tail(_, _, _, _, _), do: {:rejected, :torn_repair_unsupported}
+  def repair_torn_tail(store, _, _, _, _),
+    do: refuse_in_caller_transaction(store, {:rejected, :torn_repair_unsupported})
 
   @impl true
   def append(store, stream, expected, records, items) do
@@ -393,7 +405,9 @@ defmodule Elzoo.DurableLog.Postgres do
         {:ok, Map.get(fetch_head(opts, stream), :last_retention, :absent)}
       end)
 
-  def read_maintenance(_, _, :repair_torn_tail), do: {:ok, :absent}
+  def read_maintenance(store, _, :repair_torn_tail),
+    do: refuse_in_caller_transaction(store, {:ok, :absent})
+
   def read_maintenance(_, _, _), do: {:error, :malformed}
 
   defp write(opts, request, transaction) do
@@ -436,9 +450,10 @@ defmodule Elzoo.DurableLog.Postgres do
 
     try do
       result =
-        case Map.get(opts, :test_dispatch) do
-          nil -> run.()
-          dispatch -> dispatch.(request.operation, request, run)
+        case {caller_transaction?(opts), Map.get(opts, :test_dispatch)} do
+          {true, _} -> {:rejected, :caller_transaction}
+          {false, nil} -> run.()
+          {false, dispatch} -> dispatch.(request.operation, request, run)
         end
 
       Store.classify_write({:reply, result}, request)
@@ -455,6 +470,7 @@ defmodule Elzoo.DurableLog.Postgres do
   defp read(store, operation, fun) do
     try do
       opts = options(store)
+      if caller_transaction?(opts), do: throw(:caller_transaction)
 
       case Map.get(opts, :test_read) do
         nil ->
@@ -481,7 +497,31 @@ defmodule Elzoo.DurableLog.Postgres do
       _ -> {:error, :unavailable}
     catch
       :throw, :malformed -> {:error, :malformed}
+      :throw, :caller_transaction -> {:error, :caller_transaction}
       _, _ -> {:error, :unavailable}
+    end
+  end
+
+  # Process-local check (Ecto SQL 3.14.0 reads the conn from the process dictionary);
+  # it issues no statement. Callers keep it inside their never-raise handling.
+  defp caller_transaction?(opts), do: opts.repo.in_transaction?() == true
+
+  # Callbacks that otherwise answer without I/O. If the Repo cannot be looked up,
+  # no caller transaction can be open on it, so the fixed reply stands.
+  defp refuse_in_caller_transaction(store, reply) do
+    caller? =
+      try do
+        caller_transaction?(options(store))
+      rescue
+        _ -> false
+      catch
+        _, _ -> false
+      end
+
+    cond do
+      not caller? -> reply
+      match?({:rejected, _}, reply) -> {:rejected, :caller_transaction}
+      true -> {:error, :caller_transaction}
     end
   end
 
