@@ -92,7 +92,7 @@ now = 1_767_225_000_000                       # Unix milliseconds, caller suppli
 
 | Function | Computed in | Grounding |
 | --- | --- | --- |
-| ID → index mapping (input order); an undeclared `to` maps to the reserved index `-1` | Elixir | test only |
+| ID → index mapping (input order); an undeclared `from` or `to` maps to the reserved index `-1` | Elixir | test only |
 | Cure edge list = every edge of the graph, same order, as `RE(kind, from, to)` | Elixir | test only |
 | bounds and well-formedness | Elixir | test only |
 | duplicate-node and unknown-dependency detection | Elixir | test only; supplied to Cure as per-node flags |
@@ -108,6 +108,7 @@ now = 1_767_225_000_000                       # Unix milliseconds, caller suppli
 | blocker reason and priority | Cure | test only (priority and consistency with `target_satisfied`) |
 | `completion_contradicted` detection | Cure | test only |
 | reachability search for admission | Cure | not trusted by the law; completeness test only |
+| `blocking` projection (`List(REdge)` → `List(Edge)`) | Cure | law 5a |
 | `admits` (closure certificate check) and the Cure `admission_step` | Cure | laws 5–6 |
 | cycle path in a rejection, and `:search_disagreement` | Elixir BFS | test only |
 
@@ -177,7 +178,11 @@ satisfied. Items that are not `:open` are neither ready nor blocked; they are
 listed under `inactive`.
 
 **Explanation**: for each open item that is not ready, `blockers` lists every
-entry above. An item is ready iff its blocker list is empty; a test checks this
+entry above in this order: first the item's own-state entries, in the fixed
+order `:deferred`, `:duplicate_node`, `:cycle`; then one entry per unsatisfied
+blocking edge from the item, in `graph.edges` order. `admit` prepends, so the
+newest admitted edge's blocker comes first among the edge entries. A test checks
+this order. An item is ready iff its blocker list is empty; a test checks this
 for every item in every listed scenario. `contradictions` lists each
 `%{item: from, target: to, reason: :completion_contradicted, sources: [source]}`
 for completed targets with a current veto, on ready and blocked items alike.
@@ -200,7 +205,9 @@ by ordering its input.
   an order never appends them at its end.
 
 Edges with an unknown dependency are excluded from the blocking graph used for
-placement. Their `from` item is still blocked with `present: false`.
+placement. A blocking edge whose `from` is an item and whose `to` is
+undeclared still blocks that item, with `present: false`. Other unknown-
+dependency edges block nothing; they appear only in `issues`.
 Facts whose `prerequisite` is not a declared node are ignored by every
 decision. They are listed under `orphan_facts: [index]` and are not an issue
 kind.
@@ -220,8 +227,11 @@ kind.
      any issue;
   3. `{:reject, {:unknown_dependency, %{from: f, to: t, endpoints: %{from: role, to: role}}}}`;
   4. for `:blocking` only: `{:reject, {:cycle, path}}`, where `path` is
-     `[t, ..., f, t]` (the existing route from `t` to `f`, then the proposed
-     edge); a self-loop gives `[f, f]`;
+     `[t, ..., f, t]`: a shortest existing route of blocking edges from `t` to
+     `f`, then the proposed edge. A self-loop gives `[f, f]`. Which shortest
+     route is returned when several exist is unspecified. The Contract and its
+     test cover the shape (starts and ends at `t`, consecutive blocking edges of
+     the graph, contains `f`) and the minimal length;
   5. `{:error, :search_disagreement}` when the Cure decision rejects but the
      Elixir BFS finds no route from `t` to `f` (a defective search; see law 5);
   6. otherwise `{:admit, graph2}`, where `graph2.edges` is the proposed edge
@@ -230,14 +240,18 @@ kind.
   It revalidates the **whole** graph with the proposed edge added. Endpoint
   validation applies to every kind; only `:blocking` proposals get the cycle
   check. Edge order has no meaning for any decision; it only orders blocker
-  lists. Admission needs no `now`. On reject or error the caller's graph is not
+  lists (see Explanation). Admission needs no `now`. On reject or error the caller's graph is not
   changed and no graph is returned.
 - Two `admission_step` functions, one per layer:
   - **Cure** `:"Cure.Elzoo.DependencyGraph".admission_step(es, proposal)`
     works on the index-level edge list `List(RE(kind, from, to))` and returns
-    `Elzoo.Composition.Transition(List(REdge), Verdict)`. When admitted,
-    `next = [proposal | es]`. Otherwise `next = es`. Laws 5–6 are about this
-    function.
+    `Elzoo.Composition.Transition(List(REdge), Verdict)`. For a `:blocking`
+    proposal `RE(:blocking, f, t)` it decides with `admits(blocking(es), f, t)`,
+    where `blocking` is a Cure function keeping only blocking edges as
+    `E(from, to)`. If that is true, `next = [proposal | es]` and the verdict is
+    admit; otherwise `next = es` and the verdict is reject. For a non-blocking
+    proposal, `admits` and `check` are not called: the verdict is admit and
+    `next = [proposal | es]`. Laws 5, 5a and 6 are about this function.
   - **Elixir** `Elzoo.DependencyGraph.admission_step(graph, proposal)` is
     what `Elzoo.Unit.step/2` runs. It validates, maps IDs to indices, calls the
     Cure step, and commits the Cure `next` mapped back to IDs. It does not build
@@ -326,10 +340,12 @@ control that must fail compilation.
    preserves acyclicity, self-loops included. The law holds for every `s`, so
    the search is not trusted. A defective search can only cause a false
    rejection, never a cycle; the Elixir layer reports that case as
-   `{:error, :search_disagreement}`. The Cure `admission_step` commits exactly
-   `[proposal | es]`, the prepend form the law covers. Its blocking projection
-   reduces to `[E(f, t) | blocking(es)]` for a blocking proposal, and to
-   `blocking(es)` for a non-blocking one.
+   `{:error, :search_disagreement}`.
+   **Over the committed state:** when the Cure `admission_step` admits a
+   blocking proposal, every cycle of `blocking(next)` is a cycle of
+   `blocking(es)`. This follows from the law above with `es := blocking(es)`
+   and law 5a. A non-blocking admission leaves `blocking(next) ≡ blocking(es)`
+   (law 5a), so it adds no cycle.
    *Probe:* the split lemma (a walk in `[e | es]` avoids `e` or splits around
    it), closure transport and this law type-checked at the pin with
    `@total true`. Negative controls failed as required: dropping the
@@ -337,10 +353,17 @@ control that must fail compilation.
    step), a wrong goal (`branch_type`), a `closed` that skips an edge
    (`conversion_failure`), and a non-structural recursion
    (`total_required_by_decorator`).
-6. **Unchanged on reject**: the Cure `admission_step` returns its input state
-   `es` whenever `check` is false (reduction).
+5a. **Projection (checked reductions).**
+   `blocking([RE(:blocking, f, t) | es]) ≡ [E(f, t) | blocking(es)]`, and
+   `blocking([RE(k, f, t) | es]) ≡ blocking(es)` for `k ∈ {:informational,
+   :hierarchy}`, for every `f`, `t`, `es`. A negative control (a projection
+   that drops a blocking edge) must fail compilation.
+6. **Unchanged on reject**: for a blocking proposal, the Cure `admission_step`
+   returns its input state `es` whenever `admits(blocking(es), f, t)` is false
+   (reduction over Bool evidence of that result). Non-blocking proposals are
+   always admitted, so law 6 does not apply to them.
 
-All of laws 1–6 are about the Cure functions. The Elixir mapping and commit
+All of laws 1–6 (with 5a) are about the Cure functions. The Elixir mapping and commit
 layer around them is test-only.
 
 **Not proved (F9):** #43 says "admitted **iff** the target cannot already
@@ -369,7 +392,7 @@ unsatisfied without a contradiction entry; expired fact; model-declared-only
 negatives; model veto blocks; `:completion_contradicted` reported without
 changing readiness; explanation equals decision for every item; `admit` reject
 precedence (error, then `:invalid_graph`, then `:unknown_dependency`, then
-`:cycle`); cycle path shape; the Elixir step commits exactly the mapped Cure
+`:cycle`); cycle path shape and minimal length; blocker order (own-state entries, then edges in `graph.edges` order, newest admitted first); the Elixir step commits exactly the mapped Cure
 `next`; concurrent admission and its negative control; search completeness and
 no `:search_disagreement` (above); the compiled BEAM import list; the law audit
 and negative controls.
@@ -407,7 +430,7 @@ a `now` translated from their clock. Clock skew is the caller's concern.
    returns core/operator's `Transition`, so the dependency is kept. Readiness
    and validation are plain functions, not Operators: they hold no state.
 4. **`:completion_contradicted`.** #43 says an accepted completion satisfies.
-   That is kept. A current veto on a completed target is reported as a
+   That is kept (only for a unique, placeable target; see delta 7). A current veto on a completed target is reported as a
    distinct contradiction entry. It does not change readiness.
 5. **Iff, safe direction only.** The acyclicity law proves admitted ⇒ acyclic.
    The completeness direction is a finite test (see "Not proved").
