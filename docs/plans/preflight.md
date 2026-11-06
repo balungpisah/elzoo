@@ -120,11 +120,21 @@ laws is a blocker to report, not permission to weaken them.
 Use structural equality of validated typed values, not a JSON or BEAM term hash,
 for approval binding. The task-local action record contains proposer identity,
 tenant, resource, stable action identity, typed effect class and payload. The
-write set is a finite collection of typed `(target, field, value)` entries.
+write set is a finite set of typed `(target, field, value)` entries. Entry
+order has no meaning: validate first, coalesce structurally identical entries,
+then sort by the UTF-8 byte order of `(target, field)` for a stable presentation.
+Different values for one target/field are a conflict, never last-write-wins.
+Authority sets use exactly the same validation and normalization. Bind and
+compare these normalized sets; reordering or identical duplication does not
+change the authorized action.
 The initial portable value domain is null, booleans, integers, valid UTF-8 text,
 byte strings, ordered lists and records with unique UTF-8 field names. Types
 remain distinct; records compare by field name independently of input order;
-lists compare in order. Reject duplicate fields, floats, process/function
+lists compare in order. Accept record fields as a duplicate-preserving list of
+pairs at the validation boundary; reject duplicate names before building maps.
+External decoders must likewise reject duplicates before lossy JSON/map
+conversion. A pre-collapsed map cannot establish that duplicate input was
+rejected. Reject duplicate fields, floats, process/function
 values, malformed data and unknown control fields. Do not normalize text or
 coerce integers, strings and booleans into one another. The implementation
 Contract must declare finite input size/depth bounds and reject exceeded bounds
@@ -141,7 +151,7 @@ a reused id/version must not bypass a changed content hash. Preserve structural
 binding data for replay; a digest alone is not the payload equality check.
 Reject a proposal carrying policy, bounding authority or approval as control
 fields. Payload business data never supplies those controls. Conflicting writes
-to the same `(target, field)` fail closed; identical duplicates may be coalesced.
+to the same `(target, field)` fail closed; identical duplicates are coalesced.
 No arbitrary executable policy DSL or cryptographic protocol is introduced.
 
 ### B24.2 — Host-verified evidence and explicit time/scope
@@ -157,8 +167,9 @@ record alone does not establish authentication. Real authentication and verifier
 transport remain explicit Needs of the consumer, and tests use trusted fixtures.
 
 Use explicit nonnegative Unix-millisecond `now` and `issued_at`, positive
-`max_age`, and an explicit consent expiry when configured. Reject future-issued
-evidence and evidence with `now - issued_at >= max_age`; consent expires at
+`max_age`, and a required explicit finite consent expiry greater than its
+issue time. Missing expiry fails closed; there is no implicit unbounded consent.
+Reject future-issued evidence and evidence with `now - issued_at >= max_age`; consent expires at
 `now >= expiry`. Revocation wins over retained consent. Recheck freshness,
 revocation, current requirement and authority when releasing or restoring.
 A stale request revision changes nothing; a changed requirement supersedes the
@@ -171,8 +182,18 @@ no second write. Run-scope permits only the named Run. Root-scope permits only
 that root and Runs whose supplied ancestry includes it. Scope never broadens
 the bound actor/resource/action/payload/policy or grants authority; every use
 must still match that exact binding and current request requirements. The
-worker must specify deterministic replay/consumption state in its local Contract;
-this establishes no durable storage or cross-owner exactly-once guarantee.
+release transition records completion keyed by the full request tuple, with
+evidence identity, bound action and released writes as data. Successful release
+updates that record and emits writes in one pure transition; once-scope also
+marks `(verifier identity, evidence identity)` consumed. A repeated release for
+that request emits no writes, even with a new evidence identity. Reuse of an
+evidence identity with different binding is rejected, never overwritten.
+Rejected/failed release emits no writes and adds neither a release record nor
+a once-consumption marker; expiry, revocation and supersession still invalidate
+the consent as above. Replay folds these recorded transitions to rebuild state;
+it does not re-emit past writes. The concrete local API must preserve this
+state/result distinction. This establishes no durable storage or cross-owner
+exactly-once guarantee.
 
 ### B24.3 — Current authority outside proposals
 
@@ -180,7 +201,12 @@ The trusted owning caller supplies current proposer authority, approver authorit
 and, for a child, current parent effective authority, separately from the
 proposal. Represent each as a finite set of permitted typed writes; compare
 sets structurally over the B24.1 schema. Child effective authority is bounded
-by the intersection of its own and its parent's sets. Missing, invalid or
+by the intersection of its own and its parent's sets. Before the initial
+ALLOW or ASK decision, both proposed permitted writes and proposed escrowed
+writes must be subsets of that current effective authority. A violation rejects
+the whole proposal with no newly permitted or escrowed writes; do not silently
+trim the action to fit. Apply the same containment test at release and restore.
+Missing, invalid or
 unavailable required authority/policy/verifier context fails closed with an
 explicit reason and no permitted or released writes; it is not an empty ALLOW.
 A malformed policy or conflicting writes also fails closed. Preserve the

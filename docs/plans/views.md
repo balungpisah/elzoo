@@ -257,7 +257,7 @@ ELZ-001 — Pin and exercise the Mix/Cure harness
 
 Publication copy: [tasks/ELZ-001-pinned-mix-cure-harness.md](../../tasks/ELZ-001-pinned-mix-cure-harness.md).
 
-**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12. 
+**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12.
 
 **Acceptance:** Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.
 
@@ -267,7 +267,7 @@ ELZ-002 — Define contracts and the typed composition boundary
 
 Publication copy: [tasks/ELZ-002-contracts-and-typed-composition.md](../../tasks/ELZ-002-contracts-and-typed-composition.md).
 
-**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12. 
+**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12.
 
 **Acceptance:** Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.
 
@@ -277,7 +277,7 @@ ELZ-003 — Bind envelopes, edges and the first wiring shape
 
 Publication copy: [tasks/ELZ-003-envelope-edge-wiring.md](../../tasks/ELZ-003-envelope-edge-wiring.md).
 
-**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12. 
+**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12.
 
 **Acceptance:** Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.
 
@@ -287,7 +287,7 @@ ELZ-004 — Build the P0 ingest/dedup/accumulate exemplar
 
 Publication copy: [tasks/ELZ-004-p0-ingest-dedup-accumulate.md](../../tasks/ELZ-004-p0-ingest-dedup-accumulate.md).
 
-**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12. 
+**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12.
 
 **Acceptance:** Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.
 
@@ -297,7 +297,7 @@ ELZ-005 — Add a bounded windowed idempotency policy
 
 Publication copy: [tasks/ELZ-005-windowed-idempotency.md](../../tasks/ELZ-005-windowed-idempotency.md).
 
-**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12. 
+**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12.
 
 **Acceptance:** Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.
 
@@ -307,7 +307,7 @@ ELZ-006 — Specify backpressure, retry and dead-letter semantics
 
 Publication copy: [tasks/ELZ-006-backpressure-retry-dead-letter.md](../../tasks/ELZ-006-backpressure-retry-dead-letter.md).
 
-**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12. 
+**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12.
 
 **Acceptance:** Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.
 
@@ -317,7 +317,7 @@ ELZ-007 — Reuse ordinary stream pieces and select compatible candidates
 
 Publication copy: [tasks/ELZ-007-request-route-reuse-selection.md](../../tasks/ELZ-007-request-route-reuse-selection.md).
 
-**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12. 
+**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12.
 
 **Acceptance:** Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.
 
@@ -327,7 +327,7 @@ ELZ-008 — Compose the P1 request/route/retry Assembly
 
 Publication copy: [tasks/ELZ-008-request-route-retry-assembly.md](../../tasks/ELZ-008-request-route-retry-assembly.md).
 
-**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12. 
+**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12.
 
 **Acceptance:** Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.
 
@@ -337,7 +337,7 @@ ELZ-009 — Define a reuse-first durable state boundary
 
 Publication copy: [tasks/ELZ-009-durable-state-storage-boundary.md](../../tasks/ELZ-009-durable-state-storage-boundary.md).
 
-**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12. 
+**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12.
 
 **Acceptance:** Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.
 
@@ -347,7 +347,7 @@ ELZ-010 — Compose the P2 durable job Assembly
 
 Publication copy: [tasks/ELZ-010-durable-job-assembly.md](../../tasks/ELZ-010-durable-job-assembly.md).
 
-**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12. 
+**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12.
 
 **Acceptance:** Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.
 
@@ -361,7 +361,7 @@ ELZ-011 — Integrate one representative external Effect
 
 Publication copy: [tasks/ELZ-011-representative-effect-integration.md](../../tasks/ELZ-011-representative-effect-integration.md).
 
-**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12. 
+**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12.
 
 **Acceptance:** Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.
 
@@ -375,13 +375,15 @@ Publication copy: [tasks/ELZ-012-clean-check-evidence-handoff.md](../../tasks/EL
 
 **Acceptance:** Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.
 
+**Secondary contribution:** core/grounding — Existing foundation clean-check evidence handoff; not the evidence-index owner or an executable ready Piece.
+
 ### ELZ-013
 
 ELZ-013 — Source pieces and a checked provenance ledger
 
 Publication copy: [tasks/ELZ-013-source-registry.md](../../tasks/ELZ-013-source-registry.md).
 
-**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12. 
+**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12.
 
 **Acceptance:** Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.
 
@@ -391,7 +393,7 @@ ELZ-014 — Define reusable capabilities across products and agent orchestration
 
 Publication copy: [tasks/ELZ-014-capability-model.md](../../tasks/ELZ-014-capability-model.md).
 
-**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12. 
+**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12.
 
 **Acceptance:** Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.
 
@@ -401,7 +403,7 @@ ELZ-015 — Evaluate Ash foundation and define maintained-fork policy
 
 Publication copy: [tasks/ELZ-015-ash-foundation.md](../../tasks/ELZ-015-ash-foundation.md).
 
-**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12. 
+**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12.
 
 **Acceptance:** Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.
 
@@ -411,7 +413,7 @@ ELZ-016 — Specify telemetry, config and control applicability
 
 Publication copy: [tasks/ELZ-016-operational-contracts.md](../../tasks/ELZ-016-operational-contracts.md).
 
-**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12. 
+**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12.
 
 **Acceptance:** Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.
 
@@ -421,7 +423,7 @@ ELZ-017 — Evaluate Gleam library reuse independently
 
 Publication copy: [tasks/ELZ-017-gleam-library-evaluation.md](../../tasks/ELZ-017-gleam-library-evaluation.md).
 
-**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12. 
+**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12.
 
 **Acceptance:** Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.
 
@@ -431,7 +433,7 @@ ELZ-018 — Resolve pre-dispatch adversarial review findings
 
 Publication copy: [tasks/ELZ-018-review-hardening.md](../../tasks/ELZ-018-review-hardening.md).
 
-**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12. 
+**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12.
 
 **Acceptance:** Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.
 
@@ -471,7 +473,7 @@ ELZ-022 — Specify budget reservation and settlement
 
 Publication copy: [tasks/ELZ-022-budget-reservation.md](../../tasks/ELZ-022-budget-reservation.md).
 
-**Product aims:** P05, P06, P07, P09. 
+**Product aims:** P05, P06, P07, P09.
 
 **Acceptance:** Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.
 
@@ -488,7 +490,7 @@ ELZ-023 — Specify dispatched-effect intent with unknown-outcome recovery
 
 Publication copy: [tasks/ELZ-023-dispatched-effect-intent.md](../../tasks/ELZ-023-dispatched-effect-intent.md).
 
-**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P10, P11. 
+**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P10, P11.
 
 **Acceptance:** Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.
 
@@ -498,7 +500,7 @@ ELZ-024 — Specify authorization decisions and exact-action approval
 
 Publication copy: [tasks/ELZ-024-authorization-approval-reducer.md](../../tasks/ELZ-024-authorization-approval-reducer.md).
 
-**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12. 
+**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12.
 
 **Acceptance:** Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.
 
@@ -529,7 +531,7 @@ ELZ-026 — Specify dependency readiness and cycle admission
 
 Publication copy: [tasks/ELZ-026-dependency-readiness.md](../../tasks/ELZ-026-dependency-readiness.md).
 
-**Product aims:** P01, P02, P03, P05, P06, P07, P08, P11. 
+**Product aims:** P01, P02, P03, P05, P06, P07, P08, P11.
 
 **Acceptance:** Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.
 
@@ -546,7 +548,7 @@ ELZ-027 — Specify schedule occurrence identity and overlap policy
 
 Publication copy: [tasks/ELZ-027-schedule-occurrence.md](../../tasks/ELZ-027-schedule-occurrence.md).
 
-**Product aims:** P06. 
+**Product aims:** P06.
 
 **Acceptance:** Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.
 
@@ -556,7 +558,7 @@ ELZ-028 — Specify single-owner leases fenced by record revision
 
 Publication copy: [tasks/ELZ-028-writer-lease.md](../../tasks/ELZ-028-writer-lease.md).
 
-**Product aims:** P01, P02, P03, P05, P06, P07, P08, P11. 
+**Product aims:** P01, P02, P03, P05, P06, P07, P08, P11.
 
 **Acceptance:** Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.
 
@@ -570,7 +572,7 @@ ELZ-029 — Specify the OS-process Adapter boundary
 
 Publication copy: [tasks/ELZ-029-os-process-adapter.md](../../tasks/ELZ-029-os-process-adapter.md).
 
-**Product aims:** P07, P11. 
+**Product aims:** P07, P11.
 
 **Acceptance:** Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.
 
@@ -580,7 +582,7 @@ ELZ-030 — Specify bounded, permission-checked context selection
 
 Publication copy: [tasks/ELZ-030-context-selection.md](../../tasks/ELZ-030-context-selection.md).
 
-**Product aims:** P06, P07. 
+**Product aims:** P06, P07.
 
 **Acceptance:** Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.
 
@@ -590,7 +592,7 @@ ELZ-031 — Specify exact money amounts and the currency registry
 
 Publication copy: [tasks/ELZ-031-money-amounts.md](../../tasks/ELZ-031-money-amounts.md).
 
-**Product aims:** P09, P10. 
+**Product aims:** P09, P10.
 
 **Acceptance:** Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.
 
@@ -610,7 +612,7 @@ ELZ-033 — Adopt the product-led catalogue roadmap and gate the first wave
 
 Publication copy: [tasks/ELZ-033-product-led-roadmap.md](../../tasks/ELZ-033-product-led-roadmap.md).
 
-**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12. 
+**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12.
 
 **Acceptance:** Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.
 
@@ -624,7 +626,7 @@ Publication copy: [tasks/ELZ-033-product-led-roadmap.md](../../tasks/ELZ-033-pro
 
 Versioned stored-state compatibility
 
-**Product aims:** P01, P02, P04, P08, P10. 
+**Product aims:** P01, P02, P04, P08, P10.
 
 **Contract:** Versioned stored record -> current record or explicit incompatible/unwritable result. The owning consumer chooses supported versions; older writers cannot silently discard fields. Do not retrofit the active durable-job contract.
 
@@ -641,7 +643,7 @@ Versioned stored-state compatibility
 
 Persistent schedule recipe
 
-**Product aims:** P06. 
+**Product aims:** P06.
 
 **Contract:** Schedule identity, generation and instant -> durable occurrence admission. Time zone/DST/misfire rules explicit; occurrence identity survives restart. Start with one provider and bounded recurring policy.
 
@@ -691,7 +693,7 @@ Operational interfaces for new stateful Pieces
 
 Scoped credential references
 
-**Product aims:** P01, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12. 
+**Product aims:** P01, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12.
 
 **Contract:** Opaque secret reference plus caller scope -> ephemeral credential or explicit denial/unavailable. Select injected credentials as initial backend; document refresh and rotation semantics without promising a vault.
 
@@ -708,7 +710,7 @@ Scoped credential references
 
 Authenticated identity and principal mapping
 
-**Product aims:** P04, P05, P09, P12. 
+**Product aims:** P04, P05, P09, P12.
 
 **Contract:** Verified provider identity (issuer, subject, audience) -> stable scoped principal. Authentication and account linking remain provider contracts; no custom password or token protocol.
 
@@ -725,7 +727,7 @@ Authenticated identity and principal mapping
 
 Membership, invitations and feature entitlement
 
-**Product aims:** P04, P05, P09. 
+**Product aims:** P04, P05, P09.
 
 **Contract:** Two distinct Pieces: single-use tenant invitation/membership transition; versioned feature entitlement with explicit revocation/grace. Atomic storage owns membership changes; billing provider synchronization is outside V1.
 
@@ -742,7 +744,7 @@ Membership, invitations and feature entitlement
 
 Durable tenant allocation
 
-**Product aims:** P05, P09. 
+**Product aims:** P05, P09.
 
 **Contract:** Tenant, unit, period and operation identity -> atomic reservation/settlement/reset. Reuse arithmetic but keep quota state and reset authority separate from a Run budget.
 
@@ -759,7 +761,7 @@ Durable tenant allocation
 
 One authorization-provider translation
 
-**Product aims:** P04. 
+**Product aims:** P04.
 
 **Contract:** Translate one provider policy decision into the existing authorization contract; policy version and unavailable/denied distinction retained. Provider output never bypasses exact-action approval.
 
@@ -776,7 +778,7 @@ One authorization-provider translation
 
 Transactional retained decision records
 
-**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12. 
+**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12.
 
 **Contract:** Decision and actor/resource/policy attribution commit atomically under one operation identity. Retention and access declared; telemetry is not the backing store. Select storage supporting the actual joint transaction.
 
@@ -793,7 +795,7 @@ Transactional retained decision records
 
 Durable intent and acceptance
 
-**Product aims:** P03, P07. 
+**Product aims:** P03, P07.
 
 **Contract:** Work Item has stable intent, acceptance revision, assignee/authority and explicit lifecycle. A Run result is evidence offered for acceptance, never automatic business completion.
 
@@ -810,7 +812,7 @@ Durable intent and acceptance
 
 Run and Attempt lifecycle with durable approvals
 
-**Product aims:** P01, P02, P03, P05, P06, P07, P08, P11. 
+**Product aims:** P01, P02, P03, P05, P06, P07, P08, P11.
 
 **Contract:** Run/Attempt identity, current owner, reciprocal parent-child links, cancellation and effect settlement remain distinct. Persist approval inputs and re-evaluate current authority before dispatch; provider sessions are external references.
 
@@ -827,7 +829,7 @@ Run and Attempt lifecycle with durable approvals
 
 Object storage and owned artifacts
 
-**Product aims:** P01, P05, P06, P07, P08, P11, P12. 
+**Product aims:** P01, P05, P06, P07, P08, P11, P12.
 
 **Contract:** Separate provider byte-storage translation from tenant-owned versioned artifact references. Versioned canonical content hash, size, access, retention and expiry are explicit; a hash never grants access.
 
@@ -844,7 +846,7 @@ Object storage and owned artifacts
 
 Bounded incremental transfer
 
-**Product aims:** P06, P07, P08, P09, P11. 
+**Product aims:** P06, P07, P08, P09, P11.
 
 **Contract:** Stream chunks carry explicit completion, cancellation and partial-result status. Bound buffering and declare who closes/drains on consumer failure.
 
@@ -861,7 +863,7 @@ Bounded incremental transfer
 
 Correlated result joins
 
-**Product aims:** P07. 
+**Product aims:** P07.
 
 **Contract:** Declared branch identities plus correlated results -> bounded join state and explicit all/partial/failed/expired decision. Arrival order is not identity; retention and duplicate policy explicit.
 
@@ -877,7 +879,7 @@ Correlated result joins
 
 One model-provider boundary
 
-**Product aims:** P06, P07, P09, P11. 
+**Product aims:** P06, P07, P09, P11.
 
 **Contract:** Declared model capabilities and validated request -> result/stream/tool proposals plus source-tagged usage. Tool proposals remain inert data. Unsupported features fail explicitly; no universal provider equivalence.
 
@@ -894,7 +896,7 @@ One model-provider boundary
 
 One external agent-runner boundary
 
-**Product aims:** P07, P11. 
+**Product aims:** P07, P11.
 
 **Contract:** Capability-declared start/status/cancel and optional resume; stable host tool registry id/version, current authority check and exact-action consent before execution. Provider session != Work Item or Run.
 
@@ -911,7 +913,7 @@ One external agent-runner boundary
 
 Permission-aware retrieval adapter
 
-**Product aims:** P06, P07. 
+**Product aims:** P06, P07.
 
 **Contract:** One retrieval provider returns versioned source references, access evidence and bounded bytes. V1 scope is document retrieval; dataframe, OCR and speech remain separate future candidates.
 
@@ -928,7 +930,7 @@ Permission-aware retrieval adapter
 
 One notification translation
 
-**Product aims:** P03, P04, P06. 
+**Product aims:** P03, P04, P06.
 
 **Contract:** Message identity, recipient and content -> provider accepted/rejected/unknown. Provider acceptance is not recipient delivery. Durable dispatch consumes explicit outbox/effect contracts.
 
@@ -961,7 +963,7 @@ Finite versioned decision rules
 
 Observed usage and corrections
 
-**Product aims:** P09. 
+**Product aims:** P09.
 
 **Contract:** Operation/Attempt identity, units, usage source and observation -> idempotent retained usage/correction records. Estimated, provider-reported and unknown stay distinct; customer charges are separate.
 
@@ -978,7 +980,7 @@ Observed usage and corrections
 
 Atomic balanced postings
 
-**Product aims:** P09, P10. 
+**Product aims:** P09, P10.
 
 **Contract:** One operation contains all same-currency postings, atomic balance constraints and immutable linked reversals. Account identity is not principal identity.
 
@@ -995,7 +997,7 @@ Atomic balanced postings
 
 Immutable pricing versions
 
-**Product aims:** P09. 
+**Product aims:** P09.
 
 **Contract:** Unit-tagged accepted usage and immutable rate version -> exact currency charge with declared precision, tiers, rounding and minimums. Provider cost and customer price remain separate.
 
@@ -1012,7 +1014,7 @@ Immutable pricing versions
 
 One payment provider and reconciliation lifecycle
 
-**Product aims:** P10. 
+**Product aims:** P10.
 
 **Contract:** Separate API/webhook translation from payment/refund policy. Stable logical payment id across attempts; uncertain dispatch enters reconciliation. Choose provider before binding semantics.
 
@@ -1029,7 +1031,7 @@ One payment provider and reconciliation lifecycle
 
 Eligible provider selection
 
-**Product aims:** P09. 
+**Product aims:** P09.
 
 **Contract:** Select among explicitly authorized provider capabilities under price/region/capacity/health policy. Fallback creates separate Attempts and preserves possible cost on both.
 
@@ -1046,7 +1048,7 @@ Eligible provider selection
 
 Circuit admission and resource bulkheads
 
-**Product aims:** P09. 
+**Product aims:** P09.
 
 **Contract:** Explicit failure classification and monotonic clock input drive closed/open/half-open permit decisions; pool capacity owns bulkhead enforcement.
 
@@ -1062,7 +1064,7 @@ Circuit admission and resource bulkheads
 
 One broker and explicit pubsub semantics
 
-**Product aims:** P11, P12. 
+**Product aims:** P11, P12.
 
 **Contract:** Broker adapter declares ack, redelivery, ordering and reconnect; pubsub declares subscriber loss and retention. A local OTP recipe and durable broker delivery are distinct contracts.
 
@@ -1079,7 +1081,7 @@ One broker and explicit pubsub semantics
 
 Bounded resequencing
 
-**Product aims:** P11, P12. 
+**Product aims:** P11, P12.
 
 **Contract:** Per-source sequence and declared retention window -> ordered outputs or explicit gap/expiry result; no global order inferred.
 
@@ -1095,7 +1097,7 @@ Bounded resequencing
 
 Incremental build dependency policy
 
-**Product aims:** P11. 
+**Product aims:** P11.
 
 **Contract:** Versioned input/action/toolchain identities -> rebuild/skip decision and durable trace. Cache hit only when full dependency identity matches.
 
@@ -1111,7 +1113,7 @@ Incremental build dependency policy
 
 One foreign consumer protocol
 
-**Product aims:** P11. 
+**Product aims:** P11.
 
 **Contract:** One actual foreign language consumes versioned messages/results with cancellation and explicit errors. Select TypeScript first unless the target workflow establishes a different need; no four-language promise.
 
@@ -1160,7 +1162,7 @@ Resolve umbrella catalogue entries
 
 Replication provider fit and partition contract
 
-**Product aims:** P12. 
+**Product aims:** P12.
 
 **Contract:** Research gate: choose an actual cross-node workload, consistency/availability tradeoff and established provider before proposing implementation. No new consensus engine.
 
@@ -1177,7 +1179,7 @@ Replication provider fit and partition contract
 
 One replicated data-type contract
 
-**Product aims:** P12. 
+**Product aims:** P12.
 
 **Contract:** Research gate: choose one concrete offline counter/set workload, merge algebra, actor identity and tombstone/retention model. Do not promise a CRDT suite.
 
@@ -1194,7 +1196,7 @@ One replicated data-type contract
 
 Device ingestion admission
 
-**Product aims:** P12. 
+**Product aims:** P12.
 
 **Contract:** Research gate: concrete device identity, protocol and rollout workflow; catalogue currently lacks admitted device credential/rollout contracts. Name new gaps before implementation.
 
@@ -1211,7 +1213,7 @@ Device ingestion admission
 
 Consent and classified-record admission
 
-**Product aims:** P12. 
+**Product aims:** P12.
 
 **Contract:** Research gate: select record classification, consent scope, retention and actual healthcare interoperability boundary. No compliance certification inferred from a permission check.
 
@@ -1313,7 +1315,7 @@ Later financial Assembly and example
 
 Durable operation deduplication gap
 
-**Product aims:** P01, P02, P04, P08, P10. 
+**Product aims:** P01, P02, P04, P08, P10.
 
 **Contract:** Admission candidate: durable operation identity and payload digest bind a result atomically to domain state or reject conflicts. Ready delivery/idempotency remains volatile and unchanged. First test whether provider transactional uniqueness plus application composition suffices. Tested provider/application composition is a valid resolution without a new engine or Piece ID.
 
@@ -1330,7 +1332,7 @@ Durable operation deduplication gap
 
 Assess existing Relay and external-effect coverage
 
-**Product aims:** P02, P03, P04, P06, P10. 
+**Product aims:** P02, P03, P04, P06, P10.
 
 **Contract:** Coverage/admission FIRST: inspect integration/jobs Relay from ELZ-010 PR #54 at the accepted merge, then ELZ-011 and ELZ-023. Single-stream pending/handle/ack already exists; no duplicate dispatcher. Determine whether tested composition covers stable operation identity, unknown outcomes and ack policy. Publish only an independently justified residual gap.
 
@@ -1342,4 +1344,3 @@ Assess existing Relay and external-effect coverage
 
 - Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.
 - Relay source inspected at 18287d22a4b694581af6d1788a84a4868c1b47d3, merged at 32aef4e7dba40231257e2a91095910377c5c4ab9. Exact final acceptance remains with its owner; ELZ-011/023 external-effect outcomes are still not established by Relay.
-

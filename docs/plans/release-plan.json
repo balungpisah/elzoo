@@ -635,9 +635,7 @@
       "paths": [
         "tasks/ELZ-012-clean-check-evidence-handoff.md"
       ],
-      "outputs": [
-        "core/grounding"
-      ],
+      "outputs": [],
       "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
       "issue": 12,
       "issue_body_sha256": "e6031ef6a8a93fefcf64ce097d49373f65e768e21540ada2b09db17165785962",
@@ -647,7 +645,13 @@
         "P01",
         "P02"
       ],
-      "product_role": "Supporting policy, evidence, operations, discoverability or later example; not an additional product prerequisite or a delivered end-to-end product."
+      "product_role": "Supporting policy, evidence, operations, discoverability or later example; not an additional product prerequisite or a delivered end-to-end product.",
+      "contributions": [
+        {
+          "id": "core/grounding",
+          "role": "Existing foundation clean-check evidence handoff; not the evidence-index owner or an executable ready Piece."
+        }
+      ]
     },
     {
       "id": "ELZ-013",

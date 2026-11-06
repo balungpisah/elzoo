@@ -71,7 +71,14 @@ def check(d, live=False):
 
     for key in jobs:
         visit(key)
+    output_owners = {}
     for j in jobs.values():
+        for output in j['outputs']:
+            require(output not in output_owners, f'duplicate primary job output {output}')
+            output_owners[output] = j['id']
+        for contribution in j.get('contributions', []):
+            require(contribution['id'] in entries and contribution['role'], 'invalid secondary contribution')
+            require(entries[contribution['id']]['job'] != j['id'], 'primary output also marked secondary')
         require(j['product_aims'] and set(j['product_aims']) <= set(products), f"{j['id']}: invalid product mapping")
         require(all(j['release'] <= products[p]['release'] for p in j['product_aims']), f"{j['id']}: product precedes job release")
         require(set(j['outputs']) <= set(entries) | set(candidates), f"{j['id']}: unknown output")
@@ -168,6 +175,8 @@ def render(d, jobs, entries, candidates, products, order):
         for field in ['contract','acceptance','reuse']:
             if j.get(field):
                 md += f"**{field.capitalize()}:** {j[field]}\n\n"
+        for contribution in j.get('contributions', []):
+            md += '**Secondary contribution:** ' + contribution['id'] + ' — ' + contribution['role'] + '\n\n'
         for field in ['selection_gates','blockers']:
             if j.get(field):
                 md += f"**{field.replace('_', ' ').capitalize()}:**\n\n" + ''.join('- '+s+'\n' for s in j[field]) + '\n'
@@ -181,6 +190,7 @@ def render(d, jobs, entries, candidates, products, order):
         graph += f'    {ident(gate["id"])}["{gate["id"]}"]\n'
         for dep in gate_jobs(d,jobs,gate) + ([gate['prior_release_gate']] if gate['prior_release_gate'] else []):
             graph += f'    {ident(dep)} --> {ident(gate["id"])}\n'
+    md = '\n'.join(line.rstrip() for line in md.splitlines()).rstrip() + '\n'
     return {'views.md': md, 'dependencies.mmd': graph}
 
 
@@ -206,6 +216,7 @@ def main():
     result = check(d, args.live)
     if args.self_test:
         mutations = {
+            'duplicate primary output': lambda x: x['jobs'][0]['outputs'].append('core/operator'),
             'duplicate entry': lambda x: x['entries'].append(copy.deepcopy(x['entries'][0])),
             'dangling owner': lambda x: x['entries'][0].update(job='NO-JOB'),
             'cycle': lambda x: x['jobs'][0]['dependencies'].append(x['jobs'][0]['id']),

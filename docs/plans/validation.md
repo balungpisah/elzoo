@@ -111,3 +111,22 @@ structural action binding, host-verified evidence and current-authority choices
 for independent review. This documentation delta changes no runtime source or
 prior task body. The existing worker's full Mix evidence remains attributed
 to that worker; the coordinator has not claimed to rerun Mix locally.
+
+
+## Independent review corrections
+
+Review of `6706a6f` found that the clean-working-tree `git diff --check`
+recorded above had not checked the committed PR range. The actual
+`git diff --check 32aef4e7dba40231257e2a91095910377c5c4ab9..6706a6f`
+failed on generated-view trailing whitespace and a blank EOF. The generator
+now strips trailing whitespace and emits one final newline; the regenerated
+view is checked against the full base range, not merely the working diff.
+
+The coordinator clarified normalized write-set equality and duplicate-preserving
+input validation; required finite consent expiry; concrete release/once-consumption
+replay state; and authority containment before initial ALLOW/ASK as well as
+release/restore. ELZ-012's grounding handoff is an explicit secondary contribution,
+while ELZ-033 owns the evidence index. The checker now rejects duplicate primary
+outputs and includes that ninth negative control. These changes require a focused
+independent exact-SHA re-check; they do not add runtime capability or alter issue
+acceptance. Full Mix evidence above is unchanged runtime regression evidence.
