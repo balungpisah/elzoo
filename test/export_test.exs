@@ -140,8 +140,7 @@ defmodule Elzoo.ExportTest do
     # these injected upstream code paths for compiler/test use. Compilation may
     # start Cure; the second VM below tests runtime without the compiler. This
     # is not a cold dependency-fetch or release-assembly test.
-    graph =
-      Map.new(Mix.Dep.load_on_environment([]), &{&1.app, Enum.map(&1.deps, fn dep -> dep.app end)})
+    graph = Mix.Project.deps_tree()
 
     roots =
       for {_, p} <- plan.providers,
@@ -235,7 +234,7 @@ defmodule Elzoo.ExportTest do
           end
           if :code.which(Elzoo.Outbox) != :non_existing do
             {:ok, [item]} = Elzoo.Outbox.pending(store, "consumer", 10)
-            {:committed, 1} = Elzoo.Outbox.ack(store, item.idempotency_key)
+            {:committed, 1} = Elzoo.Outbox.ack(store, item.idempotency_key, :crypto.strong_rand_bytes(16))
             {:ok, []} = Elzoo.Outbox.pending(store, "consumer", 10)
           end
         after
