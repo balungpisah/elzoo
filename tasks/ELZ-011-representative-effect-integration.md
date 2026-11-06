@@ -23,7 +23,15 @@ Effect/job policy, limits and failure translation, not another HTTP client.
 - provide deterministic test doubles plus integration checks;
 - validate JSON/schema at the boundary and redact sensitive payloads from
   telemetry/logs;
-- include idempotency/retry handling where an Effect can repeat.
+- include idempotency/retry handling where an Effect can repeat;
+- treat every message crossing the Adapter as untrusted input: never mint
+  an atom from a wire string, drop undeclared fields from the provider
+  payload (Envelope decoding itself still fails on unknown keys, per the
+  ready core/envelope Contract), never upgrade an input's trust
+  classification through normalization, and reject rather than guess a
+  field that decides durability or acknowledgement; unknown provider
+  kinds become opaque values rather than failures of the whole flow
+  (ELZ-021 reference study).
 
 ## Acceptance
 
@@ -34,6 +42,8 @@ Effect/job policy, limits and failure translation, not another HTTP client.
       comparison is not replaced by a documentation link.
 - [ ] mix check exercises the Adapter and negative controls.
 - [ ] Contract limits the claim to the selected Effect and environment.
+- [ ] Listed malformed inputs are rejected or made opaque without raising,
+      and normalizing twice equals normalizing once (selected law or test).
 
 ## Evidence and limits
 

@@ -23,7 +23,11 @@ acknowledge work outside its Contract.
 - specify acknowledgement relative to state/effect completion;
 - add tests for overflow, Adapter failure, retry, timeout and recovery;
 - use OTP timers/clock messages rather than wall-clock decisions in Cure;
-- expose redacted telemetry fields only when runtime needs them.
+- expose redacted telemetry fields only when runtime needs them;
+- admit a shedding (newest-wins or drop-oldest) policy only where the
+  Contract names the durable state from which dropped items are
+  reconstructable; otherwise shedding is silent loss and must be reported
+  as a declared failure (ELZ-021 reference study).
 
 ## Acceptance
 
@@ -34,6 +38,9 @@ acknowledge work outside its Contract.
       durability evidence.
 - [ ] Selected checks and negative controls run through mix check.
 - [ ] Limits distinguish local policy from network-wide delivery guarantees.
+- [ ] Any shed/drop policy names the durable result that makes dropped items
+      reconstructable, with a test that the final state does not depend on
+      the dropped items.
 
 ## Evidence and limits
 
