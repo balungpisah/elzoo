@@ -358,7 +358,7 @@ counting catalogue entries:
 | Phase | Working assembly / exit evidence | New contract boundary |
 | --- | --- | --- |
 | 0 · bootstrap (partial) | `assembly/ingest-dedup-accumulate`: fused Cure run, supervised OTP run, independent model and Jason adapter checks | typed transition, unit shell, supervision and volatile process boundary; named port/wiring validation remains open in P0 (ELZ-002/003) |
-| 1 · message resilience | `assembly/request-route-retry`: typed request/reply plus routing, timeout/retry, idempotency and bounded backpressure; negative contract tests | envelope IDs, hop delivery class, error/dead-letter port |
+| 1 · message resilience | `assembly/request-route-retry` ready subset: owns labelled Cure worker, codecs, topology and result translation; reuses unchanged RequestReply, Routing/Transformation, WindowedIdempotency, Runner/Adapter, Selection/Wiring/Assembly and Core.accumulate | volatile Adapter work entry; fused internal seam; no durable guarantee; hop partial failure can lose accumulation (S17), Unit restart resets dedup (S22) |
 | 2 · durable workflow | `assembly/durable-job`: event/input log, checkpoint/tail replay, transactional outbox and a scheduled job; one storage adapter | durable state and at-least-once ack/retry |
 | 3 · edge integration | `assembly/http-job`: one selected HTTP client/server path, JSON/schema boundary, telemetry and a database adapter | external effects, provider failure and redaction contracts |
 | 4 · scale boundary | a measured multi-host or OS-process assembly, only if a product needs it | distribution/partition and isolation claims |
