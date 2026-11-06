@@ -117,7 +117,7 @@ defmodule Elzoo.ExportTest do
   end
 
   for id <-
-        ~w(core/operator core/port core/assembly core/envelope core/edge core/wiring core/selection delivery/idempotency delivery/windowed-idempotency delivery/request-reply delivery/routing delivery/transformation runtime/adapter runtime/host assembly/ingest-json-unit) do
+        ~w(core/operator core/port core/assembly core/envelope core/edge core/wiring core/selection delivery/idempotency delivery/windowed-idempotency delivery/request-reply delivery/routing delivery/transformation delivery/backpressure delivery/dead-letter delivery/retry-timeout runtime/adapter runtime/host assembly/ingest-json-unit) do
     @tag timeout: 120_000
     test "#{id} carries its own checks into an independent consumer", ctx do
       assert_cure_consumer(ctx, [unquote(id)])
@@ -185,6 +185,46 @@ defmodule Elzoo.ExportTest do
       {:ok, {^next, :none}, :duplicate} = Elzoo.WindowedIdempotency.receive(next, message)
       if :code.which(Elzoo.Application) != :non_existing,
         do: raise("Elzoo.Application leaked into windowed consumer")
+    end
+    if :code.which(Elzoo.Backpressure) != :non_existing do
+      {:ok, initial} = Elzoo.Backpressure.new(1)
+      {:ok, full, :admitted} = Elzoo.Backpressure.admit(initial)
+      {:ok, ^full, :saturated} = Elzoo.Backpressure.admit(full)
+      {:ok, ^initial} = Elzoo.Backpressure.release(full)
+    end
+    if :code.which(Elzoo.DeadLetter) != :non_existing do
+      request = %{"version" => 1, "message_id" => "dead", "schema_id" => "v",
+        "schema_version" => 1, "kind" => "command",
+        "producer" => %{"unit_id" => "u", "port_id" => "p"}, "payload" => "private"}
+      {:ok, record} = Elzoo.DeadLetter.from_result(request, nil, 0, "deadline_before_dispatch")
+      {:ok, decoded} = Elzoo.DeadLetter.decode(record)
+      ^record = Elzoo.DeadLetter.encode(decoded)
+    end
+    if :code.which(Elzoo.RetryTimeout) != :non_existing do
+      {:ok, policy} = Elzoo.RetryTimeout.policy([])
+      {:ok, 40} = Elzoo.RetryTimeout.backoff(policy, 3)
+      {:ok, :unresolved} = Elzoo.RetryTimeout.decide(policy, 1, :dispatched)
+      {:ok, tasks} = Task.Supervisor.start_link()
+      attempt = fn request ->
+        %{"version" => 1, "message_id" => request["message_id"],
+          "correlation_id" => request["message_id"], "attempt_id" => request["attempt_id"],
+          "outcome" => "completed", "dispatch" => "dispatched", "value" => nil,
+          "value_schema_id" => "v", "value_schema_version" => 1}
+      end
+      {:ok, runner} = Elzoo.RetryTimeout.Runner.start_link(capacity: 1, policy: policy,
+        task_supervisor: tasks, attempt_timeout_ms: 1000, attempt: attempt,
+        dead_letter: fn _ -> :ok end)
+      request = %{"version" => 1, "message_id" => "run", "schema_id" => "v",
+        "schema_version" => 1, "kind" => "command",
+        "producer" => %{"unit_id" => "u", "port_id" => "p"}, "payload" => nil}
+      {:ok, ref} = Elzoo.RetryTimeout.Runner.submit(runner, request)
+      receive do
+        {Elzoo.RetryTimeout, ^ref, {:completed, _}} -> :ok
+      after
+        2000 -> raise("compiler-free runner did not settle")
+      end
+      GenServer.stop(runner)
+      Supervisor.stop(tasks)
     end
     if :code.which(:"Cure.Elzoo.Port") != :non_existing do
       {:ok, true} = Elzoo.Port.compatible(
