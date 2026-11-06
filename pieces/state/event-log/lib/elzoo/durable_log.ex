@@ -174,7 +174,7 @@ defmodule Elzoo.DurableLog do
             {:halt, {%{state | tail: :torn}, false}}
 
           true ->
-            case replay_row(row, state, fold) do
+            case replay_row(row, state, fold, revision) do
               {:ok, next} -> {:cont, {next, false}}
               {:error, next} -> {:halt, {next, true}}
             end
@@ -190,10 +190,11 @@ defmodule Elzoo.DurableLog do
     end
   end
 
-  defp replay_row(row, state, fold) do
+  defp replay_row(row, state, fold, revision) do
     seq = sequence(row)
 
     with :ok <- validate_row(row, fold, Map.get(fold, :limits, %{})),
+         :ok <- within_head(seq, revision),
          :ok <- identity(state, seq, row.digest) do
       role = Map.fetch!(fold.kinds, row.kind)
       {cursor, admitted} = project(state.cursor, seq, role)
@@ -256,6 +257,11 @@ defmodule Elzoo.DurableLog do
   end
 
   defp torn?(_, _, _), do: false
+
+  # The committed head is authoritative: a row above it without staged-tail
+  # provenance (handled by torn?/3 before this) is never committed state.
+  defp within_head(seq, revision) when seq > revision, do: {:error, :beyond_head}
+  defp within_head(_, _), do: :ok
 
   defp damage(state, diagnostic) do
     {applied, _, diagnostics} = state.cursor

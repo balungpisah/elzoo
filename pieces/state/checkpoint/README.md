@@ -16,6 +16,7 @@ Cure is a build-time compiler; the compiled replay runs without Cure.Compiler.
 - Size grows O(applied) with the seen index; oversize snapshots are refused, not truncated.
 - Storage guarantees are inherited from the supplied Store; no disk durability, exactly-once or universal refold-equivalence proof.
 - Readers never repair or mutate storage. A damaged snapshot cannot anchor retention; pruned recovery without an anchor fails closed.
+- Fallback after an invalid latest checkpoint probes earlier sequences one read at a time; cost grows with the gap (no indexed predecessor lookup).
 
 ## Evidence and operations
 

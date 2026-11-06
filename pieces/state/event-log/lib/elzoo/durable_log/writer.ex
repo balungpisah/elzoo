@@ -266,7 +266,7 @@ defmodule Elzoo.DurableLog.Writer do
             else: seq
         end)
 
-      if length(rows) == 1_000 and last >= from and last < head.revision,
+      if length(rows) == 1_000 and last >= from,
         do: read_replay(state, last + 1, acc ++ rows),
         else:
           Log.replay(

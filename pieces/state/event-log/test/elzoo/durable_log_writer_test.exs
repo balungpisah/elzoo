@@ -348,4 +348,20 @@ defmodule Elzoo.DurableLog.WriterTest do
     stop_supervised(Memory)
     assert {:error, {:storage, :unavailable}} = start_writer(s)
   end
+
+  test "PR #51 owning init fences a staged tail just after a full read page", %{store: s} do
+    for batch <- 0..124 do
+      rows = for i <- 1..8, do: row(batch * 8 + i)
+      assert {:committed, _} = Memory.append(s, "writer", batch * 8, rows, [])
+    end
+
+    staged = row(1001, <<9::128>>)
+    Memory.fault(s, :append, :stage)
+    assert {:indeterminate, _} = Memory.append(s, "writer", 1000, [staged], [])
+
+    {:ok, writer} = start_writer(s)
+    assert %{model: 1000, cursor: {1000, false, []}} = Writer.snapshot(writer)
+    assert {:conflict, _} = Memory.release(s, staged.nonce)
+    assert {:ok, %{revision: 1000}} = Memory.head(s, "writer")
+  end
 end

@@ -253,4 +253,17 @@ defmodule Elzoo.DurableLogTest do
       IO.puts("ELZ-009 negative rejected: #{name}")
     end
   end
+
+  test "PR #51 rows above the committed head are corruption, never committed state" do
+    heads = [
+      1,
+      %{revision: 1, low_water: 0, capabilities: %{append_visibility: :atomic}},
+      %{revision: 1, low_water: 0, capabilities: %{append_visibility: :staged_uncommitted_tail}}
+    ]
+
+    for head <- heads do
+      assert %{model: 10, cursor: {1, true, [{:corrupt, 2, :beyond_head}]}, tail: :intact} =
+               Log.replay([row(1), row(2)], head, fold())
+    end
+  end
 end

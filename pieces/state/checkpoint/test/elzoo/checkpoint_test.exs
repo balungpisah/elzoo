@@ -203,4 +203,19 @@ defmodule Elzoo.CheckpointTest do
     assert {:committed, 1} = take(s, truncated, 3)
     assert Checkpoint.recover(s, "s", fold(), 3, &decode/1) == truncated
   end
+
+  test "PR #51 recovery reads a staged tail just after a full read page", %{store: s} do
+    for batch <- 0..124 do
+      rows = for i <- 1..8, do: row(batch * 8 + i)
+      assert {:committed, _} = Memory.append(s, "s", batch * 8, rows, [])
+    end
+
+    staged = %{row(1001) | nonce: <<9::128>>}
+    staged = %{staged | digest: Log.digest(staged)}
+    Memory.fault(s, :append, :stage)
+    assert {:indeterminate, _} = Memory.append(s, "s", 1000, [staged], [])
+
+    assert %{model: 2000, cursor: {1000, false, []}, tail: :torn} =
+             Checkpoint.recover(s, "s", fold(), 1, &decode/1)
+  end
 end
