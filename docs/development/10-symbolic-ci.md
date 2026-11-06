@@ -72,8 +72,10 @@ from apt repositories and are not a bit-for-bit package snapshot. Exact Cure,
 Elixir, OTP, Node and Gleam pins remain in the repository. Backend jobs create a
 per-container disposable PostgreSQL role and database and export
 `ELZOO_TEST_DATABASE_URL`; required tests fail closed without it. Do not use a
-personal or production database. Cache keys are version/pin keyed and GitHub's
-cache service remains in use; no claim is made about other GitHub account costs.
+personal or production database. Cache keys include the runner name as well as
+toolchain/dependency pins: compiled Cure and Mix artifacts are not restored from
+another machine's checkout. GitHub's cache service remains in use; no claim is
+made about other GitHub account costs.
 
 ## Operation and rollback
 

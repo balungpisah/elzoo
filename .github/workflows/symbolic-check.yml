@@ -76,9 +76,9 @@ jobs:
             _build
             spikes/ash_foundation/deps
             spikes/ash_foundation/_build
-          key: symbolic-ubuntu24-v1-${{ runner.os }}-otp29.1.2-elixir1.20.4-${{ hashFiles('mix.lock', 'mix.exs', 'spikes/ash_foundation/mix.lock', 'spikes/ash_foundation/mix.exs') }}
+          key: elzoo-ubuntu24-v2-${{ runner.name }}-${{ runner.os }}-otp29.1.2-elixir1.20.4-${{ hashFiles('mix.lock', 'mix.exs', 'spikes/ash_foundation/mix.lock', 'spikes/ash_foundation/mix.exs') }}
           restore-keys: |
-            symbolic-ubuntu24-v1-${{ runner.os }}-otp29.1.2-elixir1.20.4-
+            elzoo-ubuntu24-v2-${{ runner.name }}-${{ runner.os }}-otp29.1.2-elixir1.20.4-
       - run: mix local.hex --force
       - run: mix local.rebar --force
       - run: mix setup
