@@ -1,0 +1,99 @@
+# SPDX-License-Identifier: Apache-2.0
+mod Elzoo.Replay
+  use Std.Option
+
+  type ReplayOrder = ReplayNext | ReplayDuplicate | ReplayOutOfOrder | ReplayGap
+  type RecordUse = StateBearing | NonStateBearing
+
+  rec ReplayDiagnostic
+    sequence: Int
+    order: ReplayOrder
+
+  rec ReplayCursor
+    applied: Int
+    damaged: Bool
+    diagnostics: List(ReplayDiagnostic)
+
+  rec ReplayCount
+    cursor: ReplayCursor
+    total: Int
+
+  fn initial() -> ReplayCursor = ReplayCursor{applied: 0, damaged: False(), diagnostics: []}
+
+  fn classify(cursor: ReplayCursor, sequence: Int) -> ReplayOrder =
+    pickup
+      sequence == cursor.applied + 1 -> ReplayNext()
+      sequence > cursor.applied + 1 -> ReplayGap()
+      else -> ReplayDuplicate()
+
+  @total true
+  @reducible
+  fn admits(order: ReplayOrder, role: RecordUse) -> Bool =
+    match order
+      ReplayNext() -> bearing(role)
+      ReplayGap() -> bearing(role)
+      ReplayDuplicate() -> False()
+      ReplayOutOfOrder() -> False()
+
+  @total true
+  @reducible
+  fn bearing(role: RecordUse) -> Bool =
+    match role
+      StateBearing() -> True()
+      NonStateBearing() -> False()
+
+  @total true
+  @reducible
+  fn track(cursor: ReplayCursor, sequence: Int, order: ReplayOrder) -> ReplayCursor =
+    match order
+      ReplayNext() -> ReplayCursor{applied: sequence, damaged: cursor.damaged, diagnostics: cursor.diagnostics}
+      ReplayGap() -> ReplayCursor{applied: sequence, damaged: True(), diagnostics: [ReplayDiagnostic{sequence: sequence, order: order} | cursor.diagnostics]}
+      ReplayDuplicate() -> cursor
+      ReplayOutOfOrder() -> ReplayCursor{applied: cursor.applied, damaged: cursor.damaged, diagnostics: [ReplayDiagnostic{sequence: sequence, order: order} | cursor.diagnostics]}
+
+  @total true
+  @reducible
+  fn count_step(state: ReplayCount, sequence: Int, value: Int, order: ReplayOrder, role: RecordUse) -> ReplayCount =
+    ReplayCount{cursor: track(state.cursor, sequence, order), total: add_if(admits(order, role), state.total, value)}
+
+  @total true
+  @reducible
+  fn add_if(admitted: Bool, total: Int, value: Int) -> Int =
+    match admitted
+      True() -> total + value
+      False() -> total
+
+  @total true
+  @reducible
+  fn total_of(state: ReplayCount) -> Int = state.total
+
+  @total true
+  @reducible
+  fn cursor_of(state: ReplayCount) -> ReplayCursor = state.cursor
+
+  @total true
+  @reducible
+  fn damaged_of(cursor: ReplayCursor) -> Bool = cursor.damaged
+
+  @total true
+  @reducible
+  fn applied_of(cursor: ReplayCursor) -> Int = cursor.applied
+
+  fn duplicate_keeps_total(state: ReplayCount, sequence: Int, value: Int, role: RecordUse) -> Equivalent(Int, total_of(count_step(state, sequence, value, ReplayDuplicate(), role)), total_of(state)) =
+    reflexive(total_of(state))
+
+  fn duplicate_keeps_cursor(state: ReplayCount, sequence: Int, value: Int, role: RecordUse) -> Equivalent(ReplayCursor, cursor_of(count_step(state, sequence, value, ReplayDuplicate(), role)), cursor_of(state)) =
+    reflexive(cursor_of(state))
+
+  fn out_of_order_keeps_total(state: ReplayCount, sequence: Int, value: Int, role: RecordUse) -> Equivalent(Int, total_of(count_step(state, sequence, value, ReplayOutOfOrder(), role)), total_of(state)) =
+    reflexive(total_of(state))
+
+  fn out_of_order_keeps_applied(state: ReplayCount, sequence: Int, value: Int, role: RecordUse) -> Equivalent(Int, applied_of(cursor_of(count_step(state, sequence, value, ReplayOutOfOrder(), role))), applied_of(cursor_of(state))) =
+    reflexive(applied_of(cursor_of(state)))
+
+  fn gap_marks_damaged(state: ReplayCount, sequence: Int, value: Int, role: RecordUse) -> Equivalent(Bool, damaged_of(cursor_of(count_step(state, sequence, value, ReplayGap(), role))), True()) =
+    reflexive(True())
+
+  fn non_state_bearing_keeps_total(state: ReplayCount, sequence: Int, value: Int) -> Equivalent(Int, total_of(count_step(state, sequence, value, ReplayNext(), NonStateBearing())), total_of(state)) =
+    reflexive(total_of(state))
+end

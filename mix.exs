@@ -40,7 +40,9 @@ defmodule Elzoo.MixProject do
       {:cure, git: "https://github.com/cure-lang/cure-lang.git", ref: @cure_revision, depth: 1},
       # Jason is deliberately an external implementation at the adapter edge.
       {:jason, "~> 1.4"},
-      {:req, "== 0.7.5"}
+      {:req, "== 0.7.5"},
+      {:ecto_sql, "== 3.14.0"},
+      {:postgrex, "== 0.22.4"}
     ]
   end
 

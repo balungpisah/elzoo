@@ -52,6 +52,12 @@ restriction when making a workflow or troubleshooting a queue.
   use a wildcard safe.directory setting. Lockfile checks compare against HEAD.
 - Existing Cure, OTP, Elixir, Gleam and Node pins remain unchanged. The repository
   tests run inside the job container, not a developer checkout on the host.
+- The backend job also installs `postgresql` from the pinned container's apt
+  repository (ELZ-009). A step starts its cluster with `pg_ctlcluster`, creates
+  the throwaway `elzoo_test` role/database, exports `ELZOO_TEST_DATABASE_URL`
+  and logs `server_version`. The server version is observed, not pinned. It
+  is disposable per job: no service container, extra image pull, runner label
+  or `runs-on` change. The PostgreSQL tests fail closed without it.
 - Backend dependency caches still use GitHub storage, under a new
   symbolic-ubuntu24-v1 key namespace. Do not restore legacy hosted-runner build
   artifacts with different workspace paths and numeric file ownership.

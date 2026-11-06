@@ -536,11 +536,11 @@
     },
     {
       "id": "integration/sql",
-      "summary": "Database-per-service, PostgreSQL/SQLite, transactions and CDC",
+      "summary": "PostgreSQL Store-only translation via consumer-owned Ecto Repo; no general SQL API",
       "disposition": "adapt",
       "phase": "P2\u2192P3",
-      "status": "planned",
-      "reason": "Ecto/Postgrex candidates; no database dependency in P0"
+      "status": "ready",
+      "manifest": "pieces/integration/sql/piece.json"
     },
     {
       "id": "runtime/adapter",
@@ -619,11 +619,11 @@
     },
     {
       "id": "state/checkpoint",
-      "summary": "Snapshots, low-water mark, retention and steady state",
+      "summary": "Bounded full-prefix checkpoint and fail-closed tail recovery",
       "disposition": "adapt",
       "phase": "P2",
-      "status": "planned",
-      "reason": "Elzoo owns replay equivalence/retention contract; storage implementation is reused/adapted; `P,T,X`"
+      "status": "ready",
+      "manifest": "pieces/state/checkpoint/piece.json"
     },
     {
       "id": "state/crdt",
@@ -635,11 +635,11 @@
     },
     {
       "id": "state/event-log",
-      "summary": "Write-ahead log, message store, event sourcing, session log",
+      "summary": "Validated replay, Store boundary, owning Writer and volatile Memory test double",
       "disposition": "adapt",
       "phase": "P2",
-      "status": "planned",
-      "reason": "Elzoo owns the append/replay/durability contract; evaluate OTP `disk_log` or a transactional store instead of rebuilding a WAL; recovery/truncation need crash tests"
+      "status": "ready",
+      "manifest": "pieces/state/event-log/piece.json"
     },
     {
       "id": "state/lease",
@@ -651,11 +651,11 @@
     },
     {
       "id": "state/outbox",
-      "summary": "Transactional client/outbox and guaranteed delivery core",
+      "summary": "Committed pending offers and nonce-bound acknowledgement; no dispatcher",
       "disposition": "adapt",
       "phase": "P2",
-      "status": "planned",
-      "reason": "Elzoo owns commit/ack semantics; use the selected transactional store/provider, not a second storage engine; `T,X`"
+      "status": "ready",
+      "manifest": "pieces/state/outbox/piece.json"
     },
     {
       "id": "state/replication",

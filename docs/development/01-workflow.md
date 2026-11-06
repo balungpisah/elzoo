@@ -63,6 +63,15 @@ On a new checkout or after dependency/config changes:
 
 The project runtime/tooling path owns these public commands. They must use Cure commit
 a004c335cc4e9f2203ba6f51fc31e8540b66378d, Elixir 1.20.4 and OTP 29.1.2.
+
+mix check also needs a disposable PostgreSQL database for the
+`integration/sql` tests (ELZ-009). Point `ELZOO_TEST_DATABASE_URL` at a
+throwaway local database, never a production or personal one:
+
+    export ELZOO_TEST_DATABASE_URL=ecto://elzoo_test:elzoo_test@localhost/elzoo_test
+
+Without it, or when it is unreachable, those tests fail closed; they are never
+skipped.
 mix check must compile real Cure, execute selected Cure proofs, meaningful
 runtime tests and negative controls. It is not documentation or formatting
 lint. Targeted tests are feedback; report the full mix check before review.

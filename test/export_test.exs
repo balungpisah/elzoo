@@ -117,7 +117,7 @@ defmodule Elzoo.ExportTest do
   end
 
   for id <-
-        ~w(core/operator core/port core/assembly core/envelope core/edge core/wiring core/selection delivery/idempotency delivery/windowed-idempotency delivery/request-reply delivery/routing delivery/transformation delivery/backpressure delivery/dead-letter delivery/retry-timeout runtime/adapter runtime/host assembly/ingest-json-unit assembly/request-route-retry) do
+        ~w(core/operator core/port core/assembly core/envelope core/edge core/wiring core/selection delivery/idempotency delivery/windowed-idempotency delivery/request-reply delivery/routing delivery/transformation delivery/backpressure delivery/dead-letter delivery/retry-timeout runtime/adapter runtime/host assembly/ingest-json-unit assembly/request-route-retry state/event-log state/checkpoint state/outbox integration/sql) do
     @tag timeout: 120_000
     test "#{id} carries its own checks into an independent consumer", ctx do
       assert_cure_consumer(ctx, [unquote(id)])
@@ -130,7 +130,7 @@ defmodule Elzoo.ExportTest do
 
     File.write!(
       Path.join(ctx.destination, "mix.exs"),
-      project([:logger, :jason, :req, :crypto], Map.has_key?(plan.providers, "cure"))
+      project(consumer_applications(plan), Map.has_key?(plan.providers, "cure"))
     )
 
     File.write!(Path.join(ctx.destination, "test/test_helper.exs"), "ExUnit.start(seed: 0)\n")
@@ -140,9 +140,18 @@ defmodule Elzoo.ExportTest do
     # these injected upstream code paths for compiler/test use. Compilation may
     # start Cure; the second VM below tests runtime without the compiler. This
     # is not a cold dependency-fetch or release-assembly test.
+    graph = Mix.Project.deps_tree()
+
+    roots =
+      for {_, p} <- plan.providers,
+          p["source"] != "platform",
+          do: String.to_existing_atom(p["package"])
+
+    apps = provider_closure(roots, graph, MapSet.new())
+
     paths =
       Path.wildcard(Path.join([@root, "_build", "test", "lib", "*", "ebin"]))
-      |> Enum.reject(&(Path.basename(Path.dirname(&1)) == "elzoo"))
+      |> Enum.filter(&MapSet.member?(apps, Path.basename(Path.dirname(&1))))
 
     bootstrap = Path.join(ctx.destination, "isolated.exs")
 
@@ -191,6 +200,50 @@ defmodule Elzoo.ExportTest do
       {:ok, full, :admitted} = Elzoo.Backpressure.admit(initial)
       {:ok, ^full, :saturated} = Elzoo.Backpressure.admit(full)
       {:ok, ^initial} = Elzoo.Backpressure.release(full)
+    end
+    if :code.which(Elzoo.DurableLog.Memory) != :non_existing do
+      if :code.which(Elzoo.Application) != :non_existing or :code.which(Ash) != :non_existing,
+        do: raise("application or Ash leaked into durable-state consumer")
+      fold = %{initial: 0, kinds: %{"added" => :state_bearing}, versions: [1],
+        destinations: ["sink"], reduce: fn n, _, _, _ -> n + 1 end}
+      limits = %{max_record_bytes: 64, max_batch_size: 8, max_checkpoint_bytes: 10_000}
+      Process.put(:consumer_memories, [])
+      factory = fn ->
+        {:ok, pid} = Elzoo.DurableLog.Memory.start_link(fold: fold, limits: limits)
+        Process.put(:consumer_memories, [pid | Process.get(:consumer_memories)])
+        {Elzoo.DurableLog.Memory.store(pid), %{fold: fold, limits: limits,
+          record: {"added", 1, "event"}, destination: "sink", encode: &Integer.to_string/1,
+          hook: &Elzoo.DurableLog.Memory.conformance_hook/3}}
+      end
+      try do
+        for {name, check} <- Elzoo.DurableLog.Conformance.checks() do
+          case check.(factory) do
+            :ok -> :ok
+            error -> raise("compiler-free Memory check failed: " <> inspect({name, error}))
+          end
+        end
+        {store, opts} = factory.()
+        {:ok, writer} = Elzoo.DurableLog.Writer.start_link(store: store, stream: "consumer",
+          fold: fold, limits: limits)
+        try do
+          {:committed, 1} = Elzoo.DurableLog.Writer.append(writer, [opts.record], [{"sink", "effect"}])
+          if :code.which(Elzoo.Checkpoint) != :non_existing do
+            {:committed, 1} = Elzoo.Checkpoint.take(writer, "consumer", 1, &Integer.to_string/1)
+            %{model: 1, cursor: {1, false, []}} = Elzoo.Checkpoint.recover(store, "consumer", fold,
+              1, fn bytes -> {:ok, String.to_integer(bytes)} end)
+          end
+          if :code.which(Elzoo.Outbox) != :non_existing do
+            {:ok, [item]} = Elzoo.Outbox.pending(store, "consumer", 10)
+            {:committed, 1} = Elzoo.Outbox.ack(store, item.idempotency_key, :crypto.strong_rand_bytes(16))
+            {:ok, []} = Elzoo.Outbox.pending(store, "consumer", 10)
+          end
+        after
+          GenServer.stop(writer)
+        end
+        IO.puts("compiler-free Memory K1–K11 passed")
+      after
+        Enum.each(Process.get(:consumer_memories), &GenServer.stop/1)
+      end
     end
     if :code.which(Elzoo.DeadLetter) != :non_existing do
       request = %{"version" => 1, "message_id" => "dead", "schema_id" => "v",
@@ -341,15 +394,41 @@ defmodule Elzoo.ExportTest do
       )
 
     assert status == 0, output
+
+    if "state/event-log" in Enum.map(plan.pieces, & &1["id"]),
+      do: assert(output =~ "compiler-free Memory K1–K11 passed")
+  end
+
+  defp consumer_applications(plan) do
+    providers = for {_, p} <- plan.providers, p["source"] == "hex", do: p["package"]
+    applications = Enum.flat_map(plan.pieces, &Map.get(&1, "applications", []))
+    [:logger | Enum.map(Enum.uniq(providers ++ applications), &String.to_existing_atom/1)]
+  end
+
+  defp provider_closure([], _, seen), do: seen
+
+  defp provider_closure([app | rest], graph, seen) do
+    if MapSet.member?(seen, Atom.to_string(app)) do
+      provider_closure(rest, graph, seen)
+    else
+      provider_closure(
+        Map.get(graph, app, []) ++ rest,
+        graph,
+        MapSet.put(seen, Atom.to_string(app))
+      )
+    end
   end
 
   defp project(applications, cure?) do
-    compilers = if cure?, do: "compilers: (Mix.compilers() -- [:app]) ++ [:cure, :app],", else: ""
+    compilers =
+      if cure?,
+        do: "cure_paths: [\"cure\"], compilers: (Mix.compilers() -- [:app]) ++ [:cure, :app],",
+        else: ""
 
     """
     defmodule Consumer.MixProject do
       use Mix.Project
-      def project, do: [app: :consumer, version: "0.1.0", prune_code_paths: false, #{compilers} deps: []]
+      def project, do: [app: :consumer, version: "0.1.0", prune_code_paths: false, test_ignore_filters: [~r/test_helper.exs$/], #{compilers} deps: []]
       def application, do: [extra_applications: #{inspect(applications)}]
     end
     """

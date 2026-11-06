@@ -70,6 +70,16 @@ dispatched attempt. These are local volatile policies, not durable delivery or
 exactly-once Effects. No shedding policy is supplied; `delivery/time` remains
 the unchanged timer recipe. See their bundle Contracts and generated ledger.
 
+ELZ-009 supplies four P2 ready subsets: `state/event-log` (validated
+replay fold over Cure-classified order, the Store behaviour, an owning Writer
+and a volatile Memory test double), `state/checkpoint` (bounded full-prefix
+checkpoints, fail-closed recovery), `state/outbox` (committed pending offers,
+nonce-bound ack CAS, no dispatcher) and `integration/sql` (Store-only
+PostgreSQL translation via Ecto SQL/Postgrex; no general SQL API). They are
+the state boundary for `assembly/durable-job`, not the Assembly: jobs,
+schema upcast and dispatch remain ELZ-010/011. No exactly-once or disk
+durability claim; see [ELZ-009](work/ELZ-009.md).
+
 Phases end at a working assembly, not at a row count:
 
 | Phase | Working assembly | Scope that may be claimed at the exit |
