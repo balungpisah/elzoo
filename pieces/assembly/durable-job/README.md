@@ -36,19 +36,26 @@ record and the relay acks it without a job).
 
 ## Evidence and operations
 
-- `test/elzoo/durable_job_test.exs`: listed scenarios DJ1–DJ8, DJ10–DJ17, DJ19–DJ21 and DJ12b on Memory and a disposable PostgreSQL with Oban 2.24.2.
+- `test/elzoo/durable_job_test.exs`: listed scenarios DJ1–DJ8, DJ10–DJ17, DJ19–DJ22 and DJ12b on Memory and a disposable PostgreSQL with Oban 2.24.2.
 - `test/elzoo/durable_job_restart_test.exs`: DJ9, SIGKILL of a separate OS process mid-attempt and Lifeline resume at attempt 2.
 
 - telemetry: **planned** — No events emitted; Oban emits its own job events.
 - config: **supported** — Start-time queue, Store, Repo, Oban, handler, clock, slack, snooze, relay limit/interval; per-submit budget, backoff and absolute deadline fixed for the Run; no hot change.
-- control: **supported** — `cancel/3` and read-only `status/2`; Submitter and Relay have OTP start/stop only (one_for_one); no pause/drain.
+- control: **supported** — `cancel/3` and read-only `status/2`; Submitter and Relay have OTP start/stop only (one_for_one); stop/kill releases the queue registration; no pause/drain.
 
 `cancel/3` results (complete): `{:ok, :cancelled}`, `{:error, {:terminal, phase}}`,
 `{:error, :not_found}`, `{:error, {:invalid, :requested_by}}` (UTF-8 binary of
-1..200 bytes without NUL required), `{:error, :not_started}`,
-`{:error, :caller_transaction}`, `{:error, :damaged}`, `{:error, :unavailable}`
-(nothing was sent), `{:error, :contended}`, `{:error, {:rejected, reason}}`,
-`{:indeterminate, info}` (a write may have been sent, including a Writer call
-exit or timeout).
+1..200 bytes without NUL required), `{:error, :not_started}` (no live Assembly
+registration for the queue), `{:error, :caller_transaction}`, `{:error, :damaged}`,
+`{:error, :unavailable}` (nothing was sent, including an absent Task.Supervisor),
+`{:error, :contended}`, `{:error, {:rejected, reason}}`, `{:indeterminate, info}`
+(a write may have been sent, including a Writer call exit or timeout, a task start
+exit other than `:noproc` or the 5 s start timeout).
+
+Lifecycle: `Elzoo.DurableJob.Registration` (first child) owns the queue's
+registration and erases it when it terminates; entry points and the worker
+also require its pid to be alive. After a stop or a kill the entry points
+return `{:error, :not_started}` and pending jobs snooze without running a
+handler; starting the same queue again re-registers.
 
 See [ELZ-010](../../../docs/work/ELZ-010.md) for the Contract, result tables, scenarios and limits.
