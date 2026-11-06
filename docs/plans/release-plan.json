@@ -979,7 +979,7 @@
         "ELZ-003",
         "ELZ-004"
       ],
-      "status": "merged on main via PR #57; coordinator retains acceptance",
+      "status": "implemented in PR #57; ready on main only once PR #57 merges; coordinator retains merge acceptance",
       "url": "https://github.com/balungpisah/elzoo/issues/36",
       "paths": [
         "tasks/ELZ-022-budget-reservation.md"
@@ -3584,7 +3584,7 @@
       "disposition": "merged-ready-contract; task acceptance separate",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/workflow/budget/piece.json",
-      "manifest_sha256": "1067e6e59949164714c0f3ee29b62a9600f34051b30026dec49ce1cea376c289"
+      "manifest_sha256": "c1f600e5bbd1dc39b9efe8c9ece79d7ec5cd78661fab1bb2c4fe1906d7fee3c9"
     },
     {
       "id": "workflow/build-graph",
