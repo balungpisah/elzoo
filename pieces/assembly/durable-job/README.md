@@ -33,6 +33,8 @@ record and the relay acks it without a job).
 - One Run per Work Item. Submits per queue serialize through one Submitter and one CAS row; Submitter memory grows with distinct keys; streams are not retained.
 - Entry points refuse with `{:error, :caller_transaction}` before any I/O only for the **configured Repo**; Store use inside a caller transaction is ELZ-032 ([#52](https://github.com/balungpisah/elzoo/issues/52)).
 - The handler must be pure and deterministic (assumption); no external Effect is dispatched. An effectful step needs ELZ-023 `delivery/effect-intent` (not adopted).
+- After a cancel/3 start or result timeout, a late internal reply message can remain unread in the caller's mailbox (at most two per timed-out call); the caller should tolerate unmatched messages.
+- While an Assembly is stopped, Oban jobs for its queue keep snoozing without charging attempts and without recording a deadline; nothing bounds that snooze loop until the Assembly starts again.
 
 ## Evidence and operations
 

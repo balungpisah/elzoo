@@ -32,7 +32,9 @@
     "A stalled Run (non-terminal, provider job terminal or gone) is reported by status/2, never repaired, and its deadline is not recorded; deadlines use node clocks and are evaluated only when a worker runs.",
     "Submits per queue are serialized through one Submitter and one CAS row; Submitter memory grows with distinct job keys; submission and Run streams are not retained.",
     "The caller-transaction guard checks only the configured Repo; Store behaviour inside a caller transaction is ELZ-032's (#52).",
-    "A Store write blocked longer than the consumer's Lifeline rescue_after lets Oban rescue the live execution, consuming an Oban attempt; repeated blocked writes can exhaust the provider slack, discard the job and stall the Run. A Writer call that times out is reported as snooze/indeterminate; if its write still commits, the next execution begins a new Run attempt."
+    "A Store write blocked longer than the consumer's Lifeline rescue_after lets Oban rescue the live execution, consuming an Oban attempt; repeated blocked writes can exhaust the provider slack, discard the job and stall the Run. A Writer call that times out is reported as snooze/indeterminate; if its write still commits, the next execution begins a new Run attempt.",
+    "After a cancel/3 start or result timeout, a late internal reply message can remain unread in the caller's mailbox (at most two per timed-out call); the caller should tolerate unmatched messages.",
+    "While an Assembly is stopped, Oban jobs for its queue keep snoozing without charging attempts and without recording a deadline; nothing bounds that snooze loop until the Assembly starts again."
   ],
   "files": [
     "lib/elzoo/durable_job.ex",
