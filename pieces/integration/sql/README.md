@@ -15,12 +15,13 @@ Cure is a build-time compiler; the compiled replay runs without Cure.Compiler.
 
 - Subset only: no general SQL API, CDC, SQLite, migration framework, database-per-service, replication or disk/fsync guarantee.
 - Atomic append capability; torn-tail repair always rejected as torn_repair_unsupported.
+- Calls inside the caller's open Ecto transaction on the same Repo are refused before any statement: writes return {:rejected, :caller_transaction}, reads {:error, :caller_transaction} (ELZ-032 bug fix, same ID). Transactions opened outside Ecto on the same connection are not detected.
 - PostgreSQL transaction/locking/storage behavior is upstream; finite local tests do not establish universal durability or exactly-once effects.
 - Consumers own the Repo, schema deployment, access control, fsync/synchronous_commit, backups and operational recovery.
 
 ## Evidence and operations
 
-- `test/elzoo/durable_log_postgres_test.exs`: K1–K11 plus D11/D15/D17/D19 on a disposable PostgreSQL database: restart, late commits, backend termination, unavailable service, corruption, FK and lock ordering. Missing/unreachable URL fails closed.
+- `test/elzoo/durable_log_postgres_test.exs`: K1–K11 plus D11/D15/D17/D19 on a disposable PostgreSQL database: restart, late commits, backend termination, unavailable service, corruption, FK and lock ordering; ELZ-032 caller-transaction refusal for every write callback and every read callback except the static capabilities, with outer COMMIT and ROLLBACK, the outer transaction still usable, and the shell results through Outbox/Checkpoint/confirm. Missing/unreachable URL fails closed.
 
 - telemetry: **inherited** — Consumer Ecto Repo emits upstream events; Elzoo adds no telemetry events.
 - config: **supported** — Consumer Repo module and optional SQL prefix; no global Repo/config shipped.

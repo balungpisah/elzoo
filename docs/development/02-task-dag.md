@@ -54,6 +54,7 @@ The first batch follows the catalogue phases:
                 ELZ-006 -> ELZ-029
                 ELZ-003, ELZ-024 -> ELZ-030
                 ELZ-003 -> ELZ-031
+    Bug fix: ELZ-009 -> ELZ-032
 
 After ELZ-003, ELZ-007 can run alongside ELZ-004 and the ELZ-005/006 chain.
 ELZ-003 owns the shared delivery-result/error/deadline schema before this fork.
@@ -83,7 +84,7 @@ Detailed edges (direct dependencies; transitive reachability is omitted):
     ELZ-006 -> ELZ-008, ELZ-011, ELZ-023, ELZ-029
     ELZ-007 -> ELZ-008
     ELZ-008 -> ELZ-009, ELZ-010
-    ELZ-009 -> ELZ-010, ELZ-023, ELZ-028
+    ELZ-009 -> ELZ-010, ELZ-023, ELZ-028, ELZ-032
     ELZ-010 -> ELZ-011, ELZ-028
     ELZ-011 -> ELZ-012
     ELZ-021 -> ELZ-025
@@ -122,6 +123,7 @@ Detailed edges (direct dependencies; transitive reachability is omitted):
 | ELZ-029 | demand-led | runtime/os-isolation | ELZ-006 | OS-process Adapter with group-scoped, observed termination |
 | ELZ-030 | demand-led | workflow/context-selection | ELZ-003, ELZ-024 | Bounded, permission-checked selection with drop reasons |
 | ELZ-031 | demand-led | domain/money | ELZ-003 | Exact amounts over a closed versioned currency registry; ex_money/Decimal boundary |
+| ELZ-032 | P2 | integration/sql (bug fix; same ID) | ELZ-009 | PostgreSQL Store calls inside a caller transaction are refused, restoring the COMMIT-point Contract |
 
 This DAG deliberately does not promise all historical families. If an
 Assembly later needs SQL, a broker, replication, CRDTs, AI or another
@@ -169,6 +171,7 @@ stable even when issue numbers differ.
 | ELZ-029 | [46](https://github.com/balungpisah/elzoo/issues/46) |
 | ELZ-030 | [47](https://github.com/balungpisah/elzoo/issues/47) |
 | ELZ-031 | [48](https://github.com/balungpisah/elzoo/issues/48) |
+| ELZ-032 | [52](https://github.com/balungpisah/elzoo/issues/52) |
 | ELZ-022 | [36](https://github.com/balungpisah/elzoo/issues/36) |
 | ELZ-023 | [37](https://github.com/balungpisah/elzoo/issues/37) |
 | ELZ-024 | [38](https://github.com/balungpisah/elzoo/issues/38) |
