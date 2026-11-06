@@ -15,7 +15,7 @@ future task must exercise), distill (Elzoo writes the idea as Contract text,
 design test or admission record) or skip (dated reason). No package is a
 dependency after this task; no source is copied.
 
-Result: 0 adopt-candidates, 9 distill, 7 skip. The distilled material becomes
+Result: 0 adopt-candidates, 10 distill, 6 skip. The distilled material becomes
 six new demand-led task bodies (ELZ-026 to ELZ-031), additive design tests on
 open tasks, and reason text on deferred handles.
 

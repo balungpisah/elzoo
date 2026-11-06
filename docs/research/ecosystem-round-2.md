@@ -11,7 +11,7 @@ not quality claims. No source is copied and no dependency is added.
 Verdicts: adopt-candidate = a named deferred/planned handle and the exact
 boundary a future task must exercise (never "ready"); distill = Elzoo writes
 the idea as Contract text, design test or admission record; skip = dated
-reason. Result: 0 adopt-candidates, 9 distill, 7 skip.
+reason. Result: 0 adopt-candidates, 10 distill, 6 skip.
 
 ## Summary
 
