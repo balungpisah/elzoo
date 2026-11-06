@@ -5,7 +5,7 @@ import re
 import sys
 
 expected = {
-    "symbolic-check.yml": """runs-on: ${{ github.event_name == 'pull_request' && github.head_ref == 'task/ELZ-034' && fromJSON('["self-hosted","linux","x64","macbook-ubuntu","elzoo","ci-candidate"]') || fromJSON('["self-hosted","linux","x64","elzoo","backend"]') }}""",
+    "symbolic-check.yml": """runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'task/ELZ-034' && fromJSON('["self-hosted","linux","x64","macbook-ubuntu","elzoo","ci-candidate"]') || fromJSON('["self-hosted","linux","x64","elzoo","backend"]') }}""",
     "symbolic-gleam.yml": "runs-on: [self-hosted, linux, x64, symbolic, elzoo, gleam]",
 }
 files = sorted(pathlib.Path('.github/workflows').glob('*.y*ml'))
@@ -21,6 +21,9 @@ for file in files:
     if not selectors or any(line != expected[file.name] for line in selectors):
         errors.append(f'{file}: every job must use {expected[file.name]}')
     if file.name == 'symbolic-check.yml':
+        required_job_gate = """    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}"""
+        if required_job_gate not in file.read_text().splitlines():
+            errors.append(f'{file}: same-repository PR job gate is missing or changed')
         required_gate = """      - name: Verify approved backend runner
         run: |
           case "$RUNNER_NAME" in

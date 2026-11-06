@@ -18,7 +18,10 @@ offline, diagnose it or let work queue on the other approved runner.
 
 The backend workflow uses `[self-hosted, linux, x64, elzoo, backend]`. A
 one-time ELZ-034 PR selector targets the candidate by its `macbook-ubuntu` and
-`ci-candidate` labels so a real full check can run before pool admission.
+`ci-candidate` labels only when the PR head is in this same repository and its
+branch is `task/ELZ-034`, so a fork cannot select the candidate by spoofing
+the branch name. Fork PRs are skipped by the backend job before runner
+selection; this does not make arbitrary same-repository code trustworthy.
 The first container step refuses any backend `RUNNER_NAME` other than the two
 names above. The Gleam selector stays symbolic-only. Before adding `backend`
 to the candidate, a full task-branch check and independent review must pass.
@@ -26,7 +29,7 @@ Registration is repository-scoped; administrators must assign these labels only
 to the named trusted machines. GitHub label selection is not cryptographic host
 identity, and a runner name check happens after the host starts the container.
 
-`scripts/check-ci-runners.py` checks exact selector conventions, the identity
+`scripts/check-ci-runners.py` checks exact selector conventions, the fork-PR and identity
 gate, known workflow files and disallows reusable workflows without a policy.
 `python3 scripts/test-ci-runners.py` exercises positive routing and negative
 controls. This is a source convention guard, not protection against hostile YAML

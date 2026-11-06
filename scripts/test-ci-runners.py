@@ -43,6 +43,22 @@ class RunnerPolicyTest(unittest.TestCase):
         self.change("symbolic-check.yml", '"macbook-ubuntu"', '"other-machine"')
         self.check(1)
 
+    def test_fork_cannot_spoof_candidate_branch(self):
+        self.change(
+            "symbolic-check.yml",
+            "github.event.pull_request.head.repo.full_name == github.repository && github.head_ref",
+            "github.head_ref",
+        )
+        self.check(1)
+
+    def test_fork_pr_job_gate_cannot_be_removed(self):
+        self.change(
+            "symbolic-check.yml",
+            "    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}",
+            "    if: ${{ true }}",
+        )
+        self.check(1)
+
     def test_identity_gate_cannot_be_removed(self):
         self.change("symbolic-check.yml", "Verify approved backend runner", "Verify runner")
         self.check(1)
