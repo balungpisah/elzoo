@@ -105,7 +105,10 @@ defmodule Elzoo.ExportTest do
     assert output =~ "1 passed"
   end
 
-  @tag timeout: 120_000
+  # The aggregate consumer runs every ready bundle's own tests (279 tests,
+  # 100.0 s locally) plus copy/compile: 125.2 s measured locally on 2026-11-06,
+  # and over 120 s on the slower symbolic CI machine. ~2.9x local margin.
+  @tag timeout: 360_000
   test "all selected sources compile and run outside Elzoo with only upstream code paths", ctx do
     ids =
       ctx.registry.entries
