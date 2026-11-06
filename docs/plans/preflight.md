@@ -66,17 +66,19 @@ Published prerequisites remain ELZ-003 and ELZ-004.
 Local decisions allocated to the ELZ-022 owner, to state in its Contract and
 obtain early independent review:
 
-- Identity is a caller-scoped budget identifier plus stable `cost_ref` within
-  that budget. Retries keep that reference. Reset/generation and reuse rules
+- Identity uses nonempty UTF-8 text with exact equality for a caller-scoped
+  budget identifier and stable `cost_ref` within that budget. Retries keep that reference. Reset/generation and reuse rules
   must prevent a late settlement from mutating a replacement budget; a Run
   string is a reference supplied by the caller, not a new workflow/run capability.
 - Amounts carry an explicit unit. Seal cap/unit per identity, reject changed
   limits, preserve observed overage, clamp only reported remaining budget to
   zero, and stop admission in overage or unreadable state. Check-and-reserve is
   one serialized transition; no read-then-increment window.
-- Use explicit caller-supplied expiry/time in the pure transition and an owner
-  clock translation with documented units. The owner must document expiry at
-  equality, idempotent release/settle and reset behavior and test restart with
+- Use explicit Unix-millisecond expiry and `now` inputs in the pure transition;
+  expiry is reached when `now >= expiry`. The owner translates its clock to
+  that domain and documents clock-skew assumptions; elapsed timers remain
+  process-local. The owner must document idempotent release/settle and reset
+  behavior and test restart with
   outstanding reservations. Volatile restart loses state; it cannot establish
   that an external call was free or that forgotten settlements are safe.
 - Preserve the task's rejection of non-positive/non-finite amounts; do not
@@ -157,7 +159,10 @@ Local decisions allocated to the ELZ-026 owner for early Contract review:
 - Freeze task-local lifecycle mapping distinguishing accepted completion from
   cancellation or closure without completion. Unknown/expired facts cannot
   satisfy a prerequisite. Provide `now` explicitly with declared time units,
-  expiry equality and deferral/order rules; no clock read in the reducer.
+  expiry at `now >= expiry` and explicit caller-selected deferral/order rules;
+  use Unix milliseconds for fact expiry and `now`, with no clock read in the
+  reducer. Stable item/source IDs use nonempty UTF-8 exact equality; tags and
+  ID shape establish no authority.
 - Keep `tool result`, `artifact reference`, `event fold`, `model-declared`
   provenance tags plus source/expiry. A model-declared value alone cannot
   make work runnable. Host-supplied provenance does not authenticate itself;

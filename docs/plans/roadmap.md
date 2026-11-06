@@ -46,6 +46,7 @@ python3 scripts/check-roadmap.py --live
 bytes, original/current inventory coverage, unique owners/references, published
 task dependencies, ready manifest hashes, candidate separation, acyclicity,
 release ordering, prerequisite merge ancestry and local Markdown link targets.
+`--self-test` exercises eight in-memory invalid-plan controls.
 `--live` additionally compares all published issue body hashes and direct
 prerequisites with GitHub, and checks the exact #55 copy. A changed live Contract
 requires reconciliation; do not regenerate a stale assumption into acceptance.

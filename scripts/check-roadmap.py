@@ -86,11 +86,12 @@ def check(d, live=False):
     for e in entries.values():
         require(e['job'] in jobs and e['disposition'] and e['note'], f"incomplete mapping {e['id']}")
         require(e['id'] in jobs[e['job']]['outputs'], f"owner does not name output {e['id']}")
+        require(e.get('manifest') == registry[e['id']].get('manifest'), f"catalogue readiness changed: reconcile {e['id']}")
         if 'manifest' in e:
             p = ROOT / e['manifest']
             m = json.loads(p.read_text())
             require(m['id'] == e['id'] and m['status'] == 'ready', f"ready reference drift {e['id']}")
-            require(hashlib.sha256(p.read_bytes()).hexdigest() == e['baseline_manifest_sha256'], f"ready Contract changed: reconcile {e['id']}")
+            require(hashlib.sha256(p.read_bytes()).hexdigest() == e['manifest_sha256'], f"ready Contract changed: reconcile {e['id']}")
             require(m['contract'] == e['note'], f"ready Contract summary drift {e['id']}")
     for c in candidates.values():
         require(c['job'] in jobs and c['id'] in jobs[c['job']]['outputs'], 'candidate owner drift')
