@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "id": "delivery/retry-timeout",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": [
+    "cure",
+    "elixir",
+    "otp"
+  ],
+  "dependencies": [
+    "core/envelope",
+    "delivery/request-reply",
+    "delivery/backpressure",
+    "delivery/dead-letter",
+    "delivery/time"
+  ],
+  "contract": "Local bounded volatile attempt/deadline runner over pure retry policy; default forbids possibly-dispatched retries; validates and correlates completed results; dead-letter sink failures settle as unsettled.",
+  "limits": [
+    "Local single-node volatile operations; no durability, exactly-once, at-least-once, distributed credit or shedding.",
+    "Capacity bounds admitted operations (including backoff), not OTP mailbox bytes. Caller call timeout means unknown admission.",
+    "Completed means validated Adapter report, not durable Effect evidence. Sink :ok is not locally proven durable.",
+    "Runner restart loses operations without settlement; monitor DOWN as unknown. Tasks and Effects may outlive runner.",
+    "Blocking sink blocks the runner; raises, throws, exits and non-ok returns yield unsettled. No operational drain or telemetry supplied.",
+    "Attempts run with :brutal_kill shutdown; the runner removes each attempt child through a synchronous Task.Supervisor.terminate_child/2 with no timeout before retry, resubmission or settlement, so trap_exit cannot cause the default 5000 ms wait, but a busy or unresponsive supervisor delays or blocks the runner; use a dedicated Task.Supervisor or one holding only :brutal_kill children. If the supervisor died or a restarted one no longer owns the child, the runner sends the task an untrappable :kill without waiting. Task cleanup code does not run and an external Effect may persist.",
+    "Helper laws do not prove the runner, integer comparisons, classification or conservation; those have finite test/model evidence.",
+    "RedispatchIdempotent is a caller assertion, not a checked provider guarantee."
+  ],
+  "files": [
+    "cure/elzoo/retry_policy.cure",
+    "lib/elzoo/retry_timeout.ex",
+    "lib/elzoo/retry_timeout/runner.ex",
+    "test/elzoo/retry_policy_test.exs",
+    "test/elzoo/retry_runner_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/retry_policy.cure",
+      "symbol": "permanent_never_retried",
+      "claim": "permanent_never_retried: selected production helper law only; supplied decisions/mode, not a full runner/receiver invariant."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/retry_policy.cure",
+      "symbol": "completed_never_retried",
+      "claim": "completed_never_retried: selected production helper law only; supplied decisions/mode, not a full runner/receiver invariant."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/retry_policy.cure",
+      "symbol": "dispatched_not_retried_when_forbidden",
+      "claim": "dispatched_not_retried_when_forbidden: selected production helper law only; supplied decisions/mode, not a full runner/receiver invariant."
+    },
+    {
+      "kind": "type",
+      "file": "cure/elzoo/retry_policy.cure",
+      "claim": "Pinned Cure checks production declarations/decisions; direct erased callers remain responsible for valid terms."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/retry_policy_test.exs",
+      "claim": "Named decision matrix, audit/negative controls or OTP terminal-path/timer/capacity/restart scenarios, finite evidence not proofs."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/retry_runner_test.exs",
+      "claim": "Named decision matrix, audit/negative controls or OTP terminal-path/timer/capacity/restart scenarios, finite evidence not proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "cure",
+      "reference": "https://github.com/cure-lang/cure-lang/tree/a004c335cc4e9f2203ba6f51fc31e8540b66378d",
+      "claim": "Relies on pinned provider compilation or runtime semantics, not a local proof."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Relies on pinned provider compilation or runtime semantics, not a local proof."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/",
+      "claim": "Relies on pinned provider compilation or runtime semantics, not a local proof."
+    },
+    {
+      "kind": "assumption",
+      "claim": "Adapter reports dispatch/outcome truthfully; idempotent mode assumes provider dedup/natural idempotence; deadline producer clock agrees roughly with admission clock; sink durability external."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "planned",
+      "contract": "No telemetry events supplied; snapshot is test-observed inspection, not monitoring."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Construction-time capacity, validated policy, positive attempt timeout, callbacks and caller-supervised Task.Supervisor; no hot updates.",
+      "evidence": [
+        "test/elzoo/retry_policy_test.exs",
+        "test/elzoo/retry_runner_test.exs"
+      ]
+    },
+    "control": {
+      "status": "planned",
+      "contract": "No business pause, drain, recovery or durable receipts; OTP stop is not business cancellation."
+    }
+  }
+}

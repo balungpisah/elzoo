@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: Apache-2.0
+mod Elzoo.DeadLetter
+  use Std.Option
+  use Std.Result
+
+  rec DeadLetterRecord
+    version: Int
+    message_id: String
+    correlation_id: String
+    attempts: Int
+    reason: String
+    last_outcome: Option(String)
+    last_dispatch: Option(String)
+    last_error_class: Option(String)
+    last_attempt_id: Option(String)
+    deadline_unix_ms: Option(Int)
+
+  local fn equal(left: a, right: a) -> Bool = Std.Builtin.struct_eq(a, left, right)
+
+  local fn optional_text(value: Option(String)) -> Bool =
+    match value
+      None() -> true
+      Some(text) -> not equal(text, "")
+
+  local fn deadline_valid(value: Option(Int)) -> Bool =
+    match value
+      None() -> true
+      Some(n) -> n >= 0
+
+  fn validate(record: DeadLetterRecord) -> Result(DeadLetterRecord, Atom) =
+    pickup
+      record.version != 1 -> Error(:invalid_version)
+      equal(record.message_id, "") or equal(record.correlation_id, "") -> Error(:invalid_identity)
+      record.attempts < 0 -> Error(:invalid_attempts)
+      not equal(record.reason, "permanent") and not equal(record.reason, "retries_exhausted") and not equal(record.reason, "deadline_expired") and not equal(record.reason, "dispatched_unresolved") and not equal(record.reason, "deadline_before_dispatch") -> Error(:invalid_reason)
+      not optional_text(record.last_attempt_id) -> Error(:invalid_attempt_id)
+      not deadline_valid(record.deadline_unix_ms) -> Error(:invalid_deadline)
+      else -> Ok(record)
+end

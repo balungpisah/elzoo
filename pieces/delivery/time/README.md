@@ -4,6 +4,10 @@ Use Process.send_after and cancellation references; feed elapsed/deadline events
 
 ## Use
 
+For a separate volatile retry/attempt/deadline policy consuming this recipe,
+see [delivery/retry-timeout](../retry-timeout/README.md). This recipe's ready
+Contract and API are unchanged.
+
 Run the timers example. Keep wall-clock reads and timer scheduling in the shell, passing time events to operators.
 
 This directory is a source bundle. See [consumption instructions](../../../docs/consuming.md) for copying selected pieces into a project.

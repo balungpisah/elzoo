@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "id": "delivery/dead-letter",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": [
+    "cure",
+    "elixir"
+  ],
+  "dependencies": [
+    "core/envelope"
+  ],
+  "contract": "Redacted neutral failure records with validated identity, failure labels and optional last-result triple; no payload or storage.",
+  "limits": [
+    "No payload storage, persistence, retention or sink; caller owns reconstruction/durability.",
+    "Last-result triple is failure-only and all present or all absent; Envelope schema is reused unchanged."
+  ],
+  "files": [
+    "cure/elzoo/dead_letter.cure",
+    "lib/elzoo/dead_letter.ex",
+    "test/elzoo/dead_letter_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "type",
+      "file": "cure/elzoo/dead_letter.cure",
+      "claim": "Pinned Cure checks production declarations/decisions; direct erased callers remain responsible for valid terms."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/dead_letter_test.exs",
+      "claim": "Named validation, model/roundtrip or source-audit scenarios, finite evidence not proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "cure",
+      "reference": "https://github.com/cure-lang/cure-lang/tree/a004c335cc4e9f2203ba6f51fc31e8540b66378d",
+      "claim": "Relies on pinned provider compilation or runtime semantics, not a local proof."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Relies on pinned provider compilation or runtime semantics, not a local proof."
+    },
+    {
+      "kind": "assumption",
+      "claim": "Caller retains valid state/identity and owns storage and runtime instrumentation."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "Pure data/decisions; caller owns instrumentation."
+    },
+    "config": {
+      "status": "not_applicable",
+      "contract": "Record fields are data; no ambient settings."
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No runtime lifecycle to control."
+    }
+  }
+}

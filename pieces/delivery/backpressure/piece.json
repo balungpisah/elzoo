@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "id": "delivery/backpressure",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": [
+    "cure",
+    "elixir"
+  ],
+  "dependencies": [],
+  "contract": "Pure bounded in-flight admission with zero waiting queue; refuse saturation unchanged, release without underflow. No shedding.",
+  "limits": [
+    "Counts operations, not bytes, mailbox or distributed work. No waiting queue, shedding, clock or durability.",
+    "Laws cover steps with supplied decisions, not classify or the full capacity invariant; finite seeded model trace covers those."
+  ],
+  "files": [
+    "cure/elzoo/backpressure.cure",
+    "lib/elzoo/backpressure.ex",
+    "test/elzoo/backpressure_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/backpressure.cure",
+      "symbol": "saturated_keeps_state",
+      "claim": "saturated_keeps_state: selected production helper law only; supplied decisions/mode, not a full runner/receiver invariant."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/backpressure.cure",
+      "symbol": "invalid_keeps_state",
+      "claim": "invalid_keeps_state: selected production helper law only; supplied decisions/mode, not a full runner/receiver invariant."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/backpressure.cure",
+      "symbol": "underflow_keeps_state",
+      "claim": "underflow_keeps_state: selected production helper law only; supplied decisions/mode, not a full runner/receiver invariant."
+    },
+    {
+      "kind": "type",
+      "file": "cure/elzoo/backpressure.cure",
+      "claim": "Pinned Cure checks production declarations/decisions; direct erased callers remain responsible for valid terms."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/backpressure_test.exs",
+      "claim": "Named validation, model/roundtrip or source-audit scenarios, finite evidence not proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "cure",
+      "reference": "https://github.com/cure-lang/cure-lang/tree/a004c335cc4e9f2203ba6f51fc31e8540b66378d",
+      "claim": "Relies on pinned provider compilation or runtime semantics, not a local proof."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Relies on pinned provider compilation or runtime semantics, not a local proof."
+    },
+    {
+      "kind": "assumption",
+      "claim": "Caller retains valid state/identity and owns storage and runtime instrumentation."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "Pure data/decisions; caller owns instrumentation."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Positive integer capacity fixed at construction; no hot updates.",
+      "evidence": [
+        "test/elzoo/backpressure_test.exs"
+      ]
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No runtime lifecycle to control."
+    }
+  }
+}

@@ -1,0 +1,48 @@
+# SPDX-License-Identifier: Apache-2.0
+mod Elzoo.Backpressure
+  rec CapacityState
+    capacity: Int
+    in_flight: Int
+
+  type AdmissionDecision = Admitted | Saturated | CapacityInvalid
+  type ReleaseDecision = Released | ReleaseUnderflow
+
+  fn initial(capacity: Int) -> CapacityState = CapacityState{capacity: capacity, in_flight: 0}
+
+  fn classify_admit(state: CapacityState) -> AdmissionDecision =
+    pickup
+      state.capacity < 1 -> CapacityInvalid()
+      state.in_flight < 0 -> CapacityInvalid()
+      state.in_flight > state.capacity -> CapacityInvalid()
+      state.in_flight == state.capacity -> Saturated()
+      else -> Admitted()
+
+  @total true
+  @reducible
+  fn admit_step(state: CapacityState, decision: AdmissionDecision) -> CapacityState =
+    match decision
+      Admitted() -> CapacityState{capacity: state.capacity, in_flight: state.in_flight + 1}
+      Saturated() -> state
+      CapacityInvalid() -> state
+
+  fn classify_release(state: CapacityState) -> ReleaseDecision =
+    pickup
+      state.in_flight < 1 -> ReleaseUnderflow()
+      else -> Released()
+
+  @total true
+  @reducible
+  fn release_step(state: CapacityState, decision: ReleaseDecision) -> CapacityState =
+    match decision
+      Released() -> CapacityState{capacity: state.capacity, in_flight: state.in_flight - 1}
+      ReleaseUnderflow() -> state
+
+  fn saturated_keeps_state(state: CapacityState) -> Equivalent(CapacityState, admit_step(state, Saturated()), state) =
+    reflexive(state)
+
+  fn invalid_keeps_state(state: CapacityState) -> Equivalent(CapacityState, admit_step(state, CapacityInvalid()), state) =
+    reflexive(state)
+
+  fn underflow_keeps_state(state: CapacityState) -> Equivalent(CapacityState, release_step(state, ReleaseUnderflow()), state) =
+    reflexive(state)
+end

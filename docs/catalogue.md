@@ -62,6 +62,14 @@ catalogue-wide badge requirement.
 
 ## Phase plan
 
+ELZ-006 supplies three ready subsets: `delivery/backpressure` (in-flight bound,
+zero waiting queue, declared saturation), `delivery/dead-letter` (redacted
+failure data, not storage), and `delivery/retry-timeout` (pure policy plus OTP
+attempt/deadline execution). Default policy never re-dispatches a possibly
+dispatched attempt. These are local volatile policies, not durable delivery or
+exactly-once Effects. No shedding policy is supplied; `delivery/time` remains
+the unchanged timer recipe. See their bundle Contracts and generated ledger.
+
 Phases end at a working assembly, not at a row count:
 
 | Phase | Working assembly | Scope that may be claimed at the exit |

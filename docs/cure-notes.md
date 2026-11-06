@@ -192,6 +192,15 @@ the type removes them and retains the incompatible-connection negative test.
 
 ## Nominal String at a descriptor boundary (ELZ-002)
 
+ELZ-006 uses the same nominal String translation and structural equality for
+result classification and redacted dead-letter validation. Its capacity and
+retry-permission laws constrain production helpers with supplied decisions;
+integer classification, capacity conservation and the OTP runner have finite
+model/trace tests, not universal proofs. The retry bundle includes false-law,
+production-mutation and unfinished-hole negatives and production audits. A
+multiway `pickup` avoids the pin's chained-if codegen limitation. Explicit
+generic type binders on imported DeliveryResult are erased from exported arity.
+
 Pinned Cure `String` literals erase to `{:String, unicode_codepoint_list}`,
 not an Elixir binary. `Elzoo.Port.decode/1` validates UTF-8 binaries and
 translates them explicitly; `encode/1` reverses that representation. The

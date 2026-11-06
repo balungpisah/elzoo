@@ -1,0 +1,86 @@
+# SPDX-License-Identifier: Apache-2.0
+mod Elzoo.RetryPolicy
+  use Std.Nat
+  use Std.Int
+  use Std.Option
+  use Elzoo.Envelope
+  type RedispatchMode = RedispatchForbidden | RedispatchIdempotent
+  type ResultClass = ClassCompleted | ClassRetryable | ClassPermanent | ClassDispatched
+  type RetryDecision = DecideSettle | DecideRetry | DecidePermanent | DecideExhausted | DecideUnresolved
+
+  rec RetryPolicy
+    max_attempts: Int
+    base_backoff_ms: Int
+    max_backoff_ms: Int
+    mode: RedispatchMode
+
+  local fn equal(left: a, right: a) -> Bool = Std.Builtin.struct_eq(a, left, right)
+
+  fn classify({a: Type}, result: DeliveryResult(a)) -> ResultClass =
+    pickup
+      equal(result.outcome, "completed") -> ClassCompleted()
+      equal(result.error_class, Some("permanent")) -> ClassPermanent()
+      equal(result.dispatch, "not_dispatched") -> ClassRetryable()
+      else -> ClassDispatched()
+
+  @total true
+  @reducible
+  fn retry_permitted(mode: RedispatchMode, class: ResultClass) -> Bool =
+    match class
+      ClassCompleted() -> False()
+      ClassPermanent() -> False()
+      ClassRetryable() -> True()
+      ClassDispatched() ->
+        match mode
+          RedispatchForbidden() -> False()
+          RedispatchIdempotent() -> True()
+
+  fn within_limit(policy: RetryPolicy, attempt: Int) -> RetryDecision =
+    pickup
+      attempt < policy.max_attempts -> DecideRetry()
+      else -> DecideExhausted()
+
+  fn decide(policy: RetryPolicy, attempt: Int, class: ResultClass) -> RetryDecision =
+    match class
+      ClassCompleted() -> DecideSettle()
+      ClassPermanent() -> DecidePermanent()
+      ClassRetryable() ->
+        match retry_permitted(policy.mode, class)
+          True() -> within_limit(policy, attempt)
+          False() -> DecideUnresolved()
+      ClassDispatched() ->
+        match retry_permitted(policy.mode, class)
+          False() -> DecideUnresolved()
+          True() -> within_limit(policy, attempt)
+
+  local fn capped_double(value: Int, cap: Int) -> Int =
+    pickup
+      value * 2 > cap -> cap
+      else -> value * 2
+
+  local fn grow(value: Int, cap: Int, remaining: Nat) -> Int =
+    match remaining
+      Z() -> value
+      S(rest) ->
+        pickup
+          value >= cap -> cap
+          value == 0 -> 0
+          else -> grow(capped_double(value, cap), cap, rest)
+
+  fn backoff(policy: RetryPolicy, attempt: Int) -> Int =
+    match attempt
+      FromNat(n) ->
+        match n
+          Z() -> policy.base_backoff_ms
+          S(rest) -> grow(policy.base_backoff_ms, policy.max_backoff_ms, rest)
+      NegativeSuccessor(_) -> policy.base_backoff_ms
+
+  fn permanent_never_retried(mode: RedispatchMode) -> Equivalent(Bool, retry_permitted(mode, ClassPermanent()), False()) =
+    reflexive(False())
+
+  fn completed_never_retried(mode: RedispatchMode) -> Equivalent(Bool, retry_permitted(mode, ClassCompleted()), False()) =
+    reflexive(False())
+
+  fn dispatched_not_retried_when_forbidden() -> Equivalent(Bool, retry_permitted(RedispatchForbidden(), ClassDispatched()), False()) =
+    reflexive(False())
+end

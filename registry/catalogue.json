@@ -173,8 +173,8 @@
       "summary": "Credits, bounded queue, shed-load and handshaking",
       "disposition": "own",
       "phase": "P1",
-      "status": "planned",
-      "reason": "`T,X,M`; queue limit and rejection are part of port contract"
+      "status": "ready",
+      "manifest": "pieces/delivery/backpressure/piece.json"
     },
     {
       "id": "delivery/circuit-breaker",
@@ -197,8 +197,8 @@
       "summary": "Invalid/dead-letter channel, exception tracking and quarantine",
       "disposition": "own",
       "phase": "P1",
-      "status": "planned",
-      "reason": "`T,X,M`; never silently drop a rejected message"
+      "status": "ready",
+      "manifest": "pieces/delivery/dead-letter/piece.json"
     },
     {
       "id": "delivery/idempotency",
@@ -251,8 +251,8 @@
       "summary": "Retry/backoff, timeout, catch/fallback, fail-fast",
       "disposition": "adapt",
       "phase": "P1",
-      "status": "planned",
-      "reason": "Reuse OTP timers/task supervision where sufficient; Elzoo owns attempt/deadline policy and tests it (`P,T,X`)"
+      "status": "ready",
+      "manifest": "pieces/delivery/retry-timeout/piece.json"
     },
     {
       "id": "delivery/routing",
