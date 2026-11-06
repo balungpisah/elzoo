@@ -14,7 +14,10 @@ files = [
 {:ok, _, _} =
   Kernel.ParallelCompiler.compile(Enum.map(files, &Path.join(root, &1)), return_diagnostics: true)
 
-Code.require_file(Path.join(root, "pieces/integration/sql/test/support/durable_log_postgres_test_helper.exs"))
+Code.require_file(
+  Path.join(root, "pieces/integration/sql/test/support/durable_log_postgres_test_helper.exs")
+)
+
 Elzoo.DurableLog.PostgresHarness.database_url!()
 replay = Path.join(root, "_build/test/lib/elzoo/ebin/Cure.Elzoo.Replay")
 
