@@ -1,7 +1,8 @@
 # workflow/dependency-graph
 
-> **Stage 1 Contract draft, revision 2 (ELZ-026, issue #43). Not ready.**
-> This revision answers the early review of `f2e9b76`. No implementation,
+> **Stage 1 Contract draft, revision 3 (ELZ-026, issue #43). Not ready.**
+> This revision answers the early review of `f2e9b76` and the focused re-check
+> of `fa09089`. No implementation,
 > proof or test is committed yet, and the catalogue row stays `deferred` until
 > the reviewed implementation lands. Nothing below is evidence. Probe results
 > named here came from a throwaway file outside the repository. That file has
@@ -26,8 +27,9 @@ model a caller-owned record; this is not a durable Work Item implementation.
   and maps the results back to IDs. It computes only the rows marked Elixir in
   the table below.
 - Providers: `cure`, `elixir`, `otp` (OTP only in the test double).
-- Piece dependencies: `core/operator`, because Cure `admission_step` returns
-  its `Elzoo.Composition.Transition`. `runtime/unit` is used by the test double
+- Piece dependencies: `core/operator`, because the Cure step
+  `:"Cure.Elzoo.DependencyGraph".admission_step/2` returns its
+  `Elzoo.Composition.Transition`. `runtime/unit` is used by the test double
   under `test/` only (see "Concurrent admission"). Envelope, Port and Unit are
   consumed unchanged. No libgraph and no other new dependency.
 
@@ -90,21 +92,24 @@ now = 1_767_225_000_000                       # Unix milliseconds, caller suppli
 
 | Function | Computed in | Grounding |
 | --- | --- | --- |
-| ID → index mapping (input order) | Elixir | test only |
+| ID → index mapping (input order); an undeclared `to` maps to the reserved index `-1` | Elixir | test only |
+| Cure edge list = every edge of the graph, same order, as `RE(kind, from, to)` | Elixir | test only |
 | bounds and well-formedness | Elixir | test only |
-| duplicate-node and unknown-dependency detection | Elixir | test only |
-| unplaceable nodes (Kahn residual over valid blocking edges) | Elixir | test only; supplied to Cure as an index list |
+| duplicate-node and unknown-dependency detection | Elixir | test only; supplied to Cure as per-node flags |
+| unplaceable nodes (Kahn residual over valid blocking edges) | Elixir | test only; supplied to Cure as per-node flags |
+| node lookup by index (builtin equality) | Cure | test only |
+| Elixir `admission_step/2`: map IDs to indices, call the Cure step, commit the Cure `next` mapped back to IDs | Elixir | test only |
 | fact current/expired (`now < expiry`) | Cure, builtin `Int` comparison | law over the comparison's result; the comparison's integer meaning is an upstream Cure/BEAM contract plus boundary tests |
 | `attributes` (one fact) | Cure | laws (satisfaction) |
 | `fact_support` (target over the **full** fact list, filtering by target index in Cure) | Cure | list-induction law "unknown never satisfies" |
 | `target_satisfied` (lifecycle × fact support) | Cure | laws |
 | deferral (`now < deferred_until`) | Cure, builtin comparison | as for expiry |
-| `item_ready` (over the **full** edge list, filtering by `from` in Cure) | Cure | laws (readiness) |
+| `item_ready` (over the **full** edge list; per edge, `kind` is tested **before** the builtin endpoint comparison `from == i`) | Cure | laws 3–4, over the Bool result of builtin equality |
 | blocker reason and priority | Cure | test only (priority and consistency with `target_satisfied`) |
 | `completion_contradicted` detection | Cure | test only |
 | reachability search for admission | Cure | not trusted by the law; completeness test only |
-| `admits` (closure certificate check) and `admission_step` | Cure | acyclicity law |
-| cycle path in a rejection | Elixir BFS | test only |
+| `admits` (closure certificate check) and the Cure `admission_step` | Cure | laws 5–6 |
+| cycle path in a rejection, and `:search_disagreement` | Elixir BFS | test only |
 
 The Cure library order `Std.Proof.IntOrder.le_int` was probed for expiry. Its
 runtime cost is linear in the integer's size (about 2.6 ms per 10^6). One
@@ -125,17 +130,23 @@ it, and no fact for the target vetoes. Facts for other targets are ignored.
 So a model can block work (a model-declared veto), but a model can never
 unblock work.
 
-**Target satisfaction**, per blocking edge:
+**Target satisfaction**, per blocking edge. The rows are checked in this
+order, and the first that applies decides: undeclared, then duplicate, then
+unplaceable, then lifecycle, then facts.
 
-| Target | Satisfied |
-| --- | --- |
-| item `:completed` | yes (accepted completion, per #43). A current veto also produces a `:completion_contradicted` entry. It does not change readiness. |
-| item `:cancelled` | never, regardless of facts |
-| item `:closed` | never, regardless of facts |
-| item `:open` or external | iff fact support |
-| undeclared `to` | never |
-| duplicate ID | never |
-| unplaceable | never |
+| Order | Target | Satisfied |
+| --- | --- | --- |
+| 1 | undeclared `to` | never |
+| 2 | duplicate ID | never, whatever its lifecycle |
+| 3 | unplaceable | never, whatever its lifecycle |
+| 4 | unique, placeable item `:completed` | yes (accepted completion, per #43). A current veto also produces a `:completion_contradicted` entry. It does not change readiness. |
+| 4 | unique, placeable item `:cancelled` | never, regardless of facts |
+| 4 | unique, placeable item `:closed` | never, regardless of facts |
+| 5 | unique, placeable item `:open`, or external | iff fact support |
+
+`:completion_contradicted` applies only to unique, placeable completed
+targets. A duplicate or unplaceable completed target is unsatisfied, with
+reason `:duplicate_node` or `:cycle`, and has no contradiction entry.
 
 **Blocker reasons**, one per unsatisfied blocking edge. Each is a predicate
 over the target and the facts for that target. The first that holds is used:
@@ -157,6 +168,9 @@ attributing fact uses reasons 5–9 the same way. An item's own state adds
 entries with `target` equal to its own ID: `:deferred`, `:duplicate_node`,
 `:cycle` (when the item itself is unplaceable).
 
+`present` is `false` only for reason 1. It is `true` for reasons 2–9 and for
+every own-state entry.
+
 **Readiness**: an item is ready iff it is `:open`, not deferred, has a unique
 ID, is placeable, and every blocking edge whose `from` is the item is
 satisfied. Items that are not `:open` are neither ready nor blocked; they are
@@ -176,9 +190,10 @@ by ordering its input.
 
 - `%{kind: :duplicate_node, id: id}`, once per repeated ID across items and
   externals;
-- `%{kind: :unknown_dependency, from: from, to: to, missing: [:from] | [:to] | [:from, :to]}`
-  per edge whose `from` is not an item (an external or undeclared ID) or whose
-  `to` is not a declared node, for every edge kind;
+- `%{kind: :unknown_dependency, from: from, to: to, endpoints: %{from: role, to: role}}`
+  with `role ∈ {:item, :external, :undeclared}`, per edge (every kind) whose
+  `from` is not `:item` or whose `to` is `:undeclared`. A `from` that is a
+  declared external has role `:external`, distinct from `:undeclared`;
 - `%{kind: :cycle, nodes: [id, ...]}`: every node that cannot be placed in a
   topological order of the valid blocking edges. That is every cycle member and
   every node that transitively waits for one. Every unplaceable node is named;
@@ -197,35 +212,48 @@ kind.
   blockers: [%{target: id, present: boolean, satisfied: false, reason: atom}]}],
   inactive: [id], contradictions: [map], orphan_facts: [index], issues: issues}}`
   | `{:error, reason}`.
-- `admit(graph, %{from: f, to: t, kind: k})` →
-  - `{:admit, graph2}`, where `graph2` is `graph` with the edge appended;
-  - `{:reject, {:cycle, path}}`, where `path` is `[t, ..., f, t]` (the
-    existing route from `t` to `f`, then the proposed edge); a self-loop gives
-    `[f, f]`;
-  - `{:reject, {:unknown_dependency, %{from: f, to: t, missing: [:from] | [:to] | [:from, :to]}}}`;
-  - `{:reject, {:invalid_graph, issues}}` when the current graph already has
-    any issue;
-  - `{:error, {:too_large, _} | {:invalid, path}}` for oversized or malformed
-    graph or proposal.
+- `admit(graph, %{from: f, to: t, kind: k})` returns the first that applies,
+  in this order:
+  1. `{:error, {:too_large, _} | {:invalid, path}}` for an oversized or
+     malformed graph or proposal;
+  2. `{:reject, {:invalid_graph, issues}}` when the current graph already has
+     any issue;
+  3. `{:reject, {:unknown_dependency, %{from: f, to: t, endpoints: %{from: role, to: role}}}}`;
+  4. for `:blocking` only: `{:reject, {:cycle, path}}`, where `path` is
+     `[t, ..., f, t]` (the existing route from `t` to `f`, then the proposed
+     edge); a self-loop gives `[f, f]`;
+  5. `{:error, :search_disagreement}` when the Cure decision rejects but the
+     Elixir BFS finds no route from `t` to `f` (a defective search; see law 5);
+  6. otherwise `{:admit, graph2}`, where `graph2.edges` is the proposed edge
+     **prepended** to `graph.edges`, mapped back from the Cure `next`.
 
   It revalidates the **whole** graph with the proposed edge added. Endpoint
-  validation applies to every kind. Only `:blocking` proposals get the cycle
-  check. Admission needs no `now`. On reject or error the caller's graph is not
+  validation applies to every kind; only `:blocking` proposals get the cycle
+  check. Edge order has no meaning for any decision; it only orders blocker
+  lists. Admission needs no `now`. On reject or error the caller's graph is not
   changed and no graph is returned.
-- `admission_step(graph, proposal)` → `{:Transition, next, {:some, result}}`,
-  the core/operator Transition shape that `Elzoo.Unit.step/2` runs. `result` is
-  exactly what `admit/2` returns, without the graph: `:admitted`,
-  `{:rejected, reason}` or `{:error, reason}`. On anything other than
-  `:admitted`, `next` is the input graph unchanged. The Cure step's
-  unchanged-on-reject behavior is a reduction law.
+- Two `admission_step` functions, one per layer:
+  - **Cure** `:"Cure.Elzoo.DependencyGraph".admission_step(es, proposal)`
+    works on the index-level edge list `List(RE(kind, from, to))` and returns
+    `Elzoo.Composition.Transition(List(REdge), Verdict)`. When admitted,
+    `next = [proposal | es]`. Otherwise `next = es`. Laws 5–6 are about this
+    function.
+  - **Elixir** `Elzoo.DependencyGraph.admission_step(graph, proposal)` is
+    what `Elzoo.Unit.step/2` runs. It validates, maps IDs to indices, calls the
+    Cure step, and commits the Cure `next` mapped back to IDs. It does not build
+    the next graph by its own logic. It returns
+    `{:Transition, next_graph, {:some, result}}`, where `result` uses the same
+    atoms as `admit/2` without the graph: `:admit`, `{:reject, reason}` or
+    `{:error, reason}`. On anything other than `:admit`, `next_graph` is the
+    input graph unchanged. This layer is test-only (see the table).
 
 ## Concurrent admission
 
 Two edges can each pass a cycle check against the same snapshot and together
 form a cycle. The safe pattern is one volatile owner holding the graph. For
-each proposal it runs `admission_step/2`, which revalidates the current whole
-blocking graph plus the proposal and commits the result in the same serialized
-call. A snapshot check followed by a separate commit, or two separate endpoint
+each proposal it runs the Elixir `admission_step/2`, which revalidates the current whole
+blocking graph plus the proposal and commits the Cure step's `next` in the
+same serialized call. A snapshot check followed by a separate commit, or two separate endpoint
 checks without one joint commit, is not safe.
 
 Test plan, under `test/` only: an `Elzoo.Unit` started with
@@ -251,24 +279,41 @@ control that must fail compilation.
    predicate `Unattributed(facts, target, now)` holds for the full fact list
    when every element is one of: a fact for another target; an `:unknown`
    fact; an `:unsatisfied` fact; a model-declared fact; or an expired fact.
-   The law is: for every fact list and target with `Unattributed`, the actual
-   `fact_support` is false. Therefore `target_satisfied` is false for an open
-   or external target, and every dependant over a blocking edge to it is not
-   ready (law 4).
-   *Probe:* this shape type-checked at the pin (over `Unknown`, `Unsatisfied`,
-   model-declared, expired-tool-result and other-target constructors). A
-   mutation that lets a model-declared fact attribute fails with `branch_type`.
-2. **Satisfaction table**, by reduction, over every other input:
-   `:cancelled` and `:closed` never satisfy for any fact list; `:completed`
+   "Other target" and "expired" carry explicit Bool evidence:
+   `Equivalent(Bool, id == target, False())` and
+   `Equivalent(Bool, now < expiry, False())`. The law is: for every fact list
+   and target with `Unattributed`, the actual `fact_support` is false. Its
+   scope is over the Bool results of builtin equality and order.
+   *Probe:* this shape type-checked at the pin, including the builtin
+   `now < expiry` evidence form. Mutations that let a model-declared or an
+   expired fact attribute fail with `branch_type`.
+2. **Satisfaction table**, by reduction, over every other input: an
+   undeclared, duplicate or unplaceable target never satisfies, whatever its
+   lifecycle; a unique, placeable `:cancelled` or `:closed` target never
+   satisfies for any fact list; a unique, placeable `:completed` target
    satisfies; a single `:unknown`, `:unsatisfied`, expired or model-declared
    fact never attributes.
-3. **Blocking**: an `:informational` or `:hierarchy` edge leaves `item_ready`
-   unchanged: `item_ready(i, [e | es]) ≡ item_ready(i, es)` for non-blocking
-   `e`.
-4. **Readiness**, by induction over the full edge list: if the list contains a
-   blocking edge from item `i` whose target is not satisfied, `item_ready` is
-   false. A deferred, non-open, duplicate or supplied-unplaceable item is never
-   ready.
+3. **Blocking**: `item_ready` tests an edge's `kind` before its endpoint. So
+   an `:informational` or `:hierarchy` edge leaves `item_ready` unchanged:
+   `item_ready(i, [RE(k, f, t) | es]) ≡ item_ready(i, es)` for non-blocking
+   `k` and every `f`, `t` (reduction).
+4. **Readiness**, by induction over the full edge list. The hypothesis is an
+   inductive `BlockedBy(es, i, …)`: some element is `RE(:blocking, from, to)`
+   with `Equivalent(Bool, from == i, True())` and
+   `Equivalent(Bool, target_satisfied(to, …), False())`. Then `item_ready`
+   is false. Its scope is over the Bool result of builtin equality. A deferred,
+   non-open, or flagged duplicate or unplaceable item is never ready
+   (reduction).
+   *Probe:* laws 3 and 4 type-checked at the pin with `@total true`. Negative
+   controls failed as required: a pick that ignores a blocking edge
+   (`branch_type`), an informational edge that blocks (`conversion_failure`),
+   and an endpoint comparison before the kind test (`conversion_failure` on
+   law 3).
+
+   **Corollary of laws 1, 2 and 4** (not a separate checked law): an open or
+   external, unique, placeable target with only unattributed facts is not
+   satisfied (laws 1 and 2). So any item with a blocking edge to it is not
+   ready (law 4).
 5. **Acyclicity preservation.** `Walk(es, a, b)` is an inductive path
    relation, independent of the admission search (`walk_nil`, and
    `walk_cons : Mem(es, E(a, m)) -> Walk(es, m, b) -> Walk(es, a, b)`). A
@@ -280,8 +325,11 @@ control that must fail compilation.
    `[E(f, t) | es]` is a cycle of `es` with the same first edge. So admission
    preserves acyclicity, self-loops included. The law holds for every `s`, so
    the search is not trusted. A defective search can only cause a false
-   rejection, never a cycle. The same law applies to the state that
-   `admission_step` commits.
+   rejection, never a cycle; the Elixir layer reports that case as
+   `{:error, :search_disagreement}`. The Cure `admission_step` commits exactly
+   `[proposal | es]`, the prepend form the law covers. Its blocking projection
+   reduces to `[E(f, t) | blocking(es)]` for a blocking proposal, and to
+   `blocking(es)` for a non-blocking one.
    *Probe:* the split lemma (a walk in `[e | es]` avoids `e` or splits around
    it), closure transport and this law type-checked at the pin with
    `@total true`. Negative controls failed as required: dropping the
@@ -289,15 +337,19 @@ control that must fail compilation.
    step), a wrong goal (`branch_type`), a `closed` that skips an edge
    (`conversion_failure`), and a non-structural recursion
    (`total_required_by_decorator`).
-6. **Unchanged on reject**: `admission_step` returns its input state whenever
-   `check` is false (reduction).
+6. **Unchanged on reject**: the Cure `admission_step` returns its input state
+   `es` whenever `check` is false (reduction).
+
+All of laws 1–6 are about the Cure functions. The Elixir mapping and commit
+layer around them is test-only.
 
 **Not proved (F9):** #43 says "admitted **iff** the target cannot already
 reach the source". The laws prove only the safe direction: admitted implies
 acyclic. The converse (an acyclic result is always admitted, meaning the
 search is complete within its fuel) is a finite test. It is checked by an
 exhaustive comparison with an independent Elixir reference over all blocking
-graphs on small node counts, plus random larger graphs. Nobody should read
+graphs on small node counts, plus random larger graphs. That test also
+requires that `{:error, :search_disagreement}` never occurs. Nobody should read
 the "iff" as proved.
 
 ### Type/contract check
@@ -310,12 +362,17 @@ type from core/operator. Erased Elixir callers are validated by the shell.
 Boundary comparisons for expiry and deferral; ID mapping; bounds and every
 exact error; the three issue kinds with every unplaceable node named; edges
 with unknown dependencies excluded from placement; orphan facts; reason
-predicates and their priority (including the example above); closed ≠
-completed; expired fact; model-declared-only negatives; model veto blocks;
-`:completion_contradicted` reported without changing readiness; explanation
-equals decision for every item; cycle path shape; concurrent admission and its
-negative control; search completeness (above); the compiled BEAM import list;
-the law audit and negative controls.
+predicates and their priority (including the example above); `present`
+values; the `:external` vs `:undeclared` endpoint roles; closed ≠ completed;
+a duplicate completed target and an unplaceable completed target are both
+unsatisfied without a contradiction entry; expired fact; model-declared-only
+negatives; model veto blocks; `:completion_contradicted` reported without
+changing readiness; explanation equals decision for every item; `admit` reject
+precedence (error, then `:invalid_graph`, then `:unknown_dependency`, then
+`:cycle`); cycle path shape; the Elixir step commits exactly the mapped Cure
+`next`; concurrent admission and its negative control; search completeness and
+no `:search_disagreement` (above); the compiled BEAM import list; the law audit
+and negative controls.
 
 ### Upstream contract
 
@@ -357,6 +414,10 @@ a `now` translated from their clock. Clock skew is the caller's concern.
 6. **Expiry comparison.** It is computed in Cure with the builtin comparison.
    The law covers its Boolean result, not its integer meaning, because the
    proof-carrying library comparison is unusable at runtime for Unix-ms values.
+   The same scope applies to the builtin endpoint equality in laws 1 and 4.
+7. **Satisfaction order.** #43 says an accepted completion satisfies. This
+   Contract applies that only to a unique, placeable completed target. A
+   duplicate or unplaceable completed target fails closed.
 
 ## libgraph boundary
 
