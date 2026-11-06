@@ -7,8 +7,11 @@ defmodule ElzooAshSpike.MixProject do
       version: "0.1.0",
       elixir: "== 1.20.4",
       elixirc_options: [warnings_as_errors: true],
+      elixirc_paths: if(Mix.env() == :test, do: ["lib", "test/support"], else: ["lib"]),
+      test_ignore_filters: [~r/test_helper.exs$/, ~r{/support/}],
       deps: [
         {:ash, "== 3.37.3"},
+        {:ash_postgres, "== 2.15.2"},
         {:ash_ai, "== 1.5.0"},
         {:simple_sat, "== 0.1.4"},
         {:telemetry, "== 1.4.2"},
