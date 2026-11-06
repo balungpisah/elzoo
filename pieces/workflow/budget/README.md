@@ -1,8 +1,10 @@
 # workflow/budget
 
-> **Status: Contract draft, revision 2, for early independent review (ELZ-022,
+> **Status: Contract draft, revision 3, for early independent review (ELZ-022,
 > issue #36).** Revision 2 resolves the review at
 > https://github.com/balungpisah/elzoo/issues/36#issuecomment-6693832986.
+> Revision 3 resolves the re-check at
+> https://github.com/balungpisah/elzoo/issues/36#issuecomment-6694005211.
 > No implementation, `piece.json` or catalogue promotion exists yet. The
 > catalogue row stays `deferred` until the reviewed implementation lands.
 
@@ -83,17 +85,31 @@ total: it never raises for any `{now_ms, input}` or state term.
 | `{:status, %{budget_id, generation, cap, unit, committed, reserved, remaining, open}}` | Read after the sweep; `open` is the open-entry count. |
 | `{:swept, %{expired}}` | Sweep only; `expired` is the number of entries this sweep expired. |
 
-`refund` and `overage` are derived from the stored `(estimate, actual)` pair at
-settlement. They are never a separate write. For `late: true`, `refund` is
-always `0`: the sweep or release already returned the estimate to headroom, so
-a positive refund would suggest headroom that was never given back here.
+Every `settled` result, first or repeated, is derived from the stored entry
+`settled{estimate, actual, late}`. `refund` and `overage` are never a separate
+write. For `late: true`, `refund` is always `0`: the sweep or release already
+returned the estimate to headroom, so a positive refund would suggest headroom
+that was never given back here.
 
 Rejection reasons: `:unreadable`, `:invalid_input`, `:invalid_amount`,
 `:invalid_unit`, `:invalid_cost_ref`, `:invalid_expiry`, `:changed_limits`,
 `:stale_generation`, `:cost_ref_conflict`, `:cost_ref_closed`,
 `:unknown_cost_ref`, `:actual_conflict`, `:already_settled`, `:overage`,
-`:insufficient`. The owner client adds `:owner_unavailable`. The check order
-per input is fixed in the implementation and tested.
+`:insufficient`. The owner client adds `:owner_unavailable`.
+
+Fixed stage order for every input:
+
+1. shape and I0 (`:unreadable`, then input decoding: `:invalid_input`,
+   `:invalid_amount`, `:invalid_unit`, `:invalid_cost_ref`);
+2. sweep with `now_ms`;
+3. for `reserve` only: `:invalid_expiry`, then `:changed_limits`, then
+   `:overage` (when `committed > cap`), then replay or new-entry handling
+   (D1), which can give `:cost_ref_conflict`, `:cost_ref_closed` or
+   `:insufficient`;
+4. for `settle`, `release`, `reset`: `:stale_generation`, then the per-entry
+   checks in D5.
+
+The order inside each stage is fixed in the implementation and tested.
 
 ### Deltas from the #36 interface
 
@@ -119,6 +135,12 @@ Each delta below is deliberate and needs no new task.
    an Assembly can drive from its own timer.
 7. **Cap and unit sealed at owner start.** `reserve` still carries them, as
    the issue requires, and they are compared with the seal.
+8. **`late` flag added to `settled`.** It tells the caller that the estimate
+   was already freed, so `refund` is `0` and only the actual was committed.
+9. **`cost_ref` and `generation` added to `settled` and `released`.** At-least-
+   once callers need to match a result to its request and generation.
+10. **`{:swept, %{expired}}` result added.** It is the result of the `sweep`
+    input (delta 6).
 
 ## State invariant I0 (shape check)
 
@@ -130,12 +152,43 @@ A readable state satisfies all of:
   `unit`, `budget_id`, `incarnation` and every `cost_ref` are nonempty UTF-8
   strings; `counter >= 1`;
 - each entry is `open{estimate, expiry}`, `expired{estimate}`,
-  `released{estimate}` or `settled{estimate, actual}`.
+  `released{estimate}` or `settled{estimate, actual, late}` (`late` is a
+  boolean).
 
 `readable/1` checks I0 first in every `step/2`. A state that fails I0 (for
 example a corrupted snapshot or a hand-built term) gives `rejected{unreadable}`
-for every input and is returned unchanged. A broken `reserved` scalar
-therefore fails closed instead of over-admitting.
+for every input, including `reset`, and is returned unchanged with no sweep. A
+broken `reserved` scalar therefore fails closed instead of over-admitting. An
+unreadable owner cannot be repaired through its inputs; the Assembly replaces
+it with a new start (new incarnation).
+
+## Cure and Elixir split
+
+**Cure (`Elzoo.Budget` in `cure/elzoo/budget.cure`; laws are checked here):**
+
+- state record `BudgetState{cap, unit, incarnation, counter, committed,
+  reserved, entries}` and entry type `Entry = Open | Expired | Released |
+  Settled` (fields as in I0); text fields use Cure `String`;
+- `sweep(state, now)`, `reserve(state, cap, unit, cost_ref, estimate, expiry,
+  now)`, `settle(state, cost_ref, generation, actual)`,
+  `release(state, cost_ref, generation)`, `reset(state, generation)`,
+  `remaining(state)`, `critical_path(n, k, b, deadline)`,
+  `critical_path_waves(waves, k, deadline)`;
+- result type `BudgetResult` (one constructor per Outputs row and each
+  rejection reason).
+
+**Elixir (`Elzoo.Budget` in `lib/elzoo/budget.ex`, `Elzoo.Budget.Owner` in
+`lib/elzoo/budget/owner.ex`; test-grounded):**
+
+- `step/2` (the Unit adapter): `readable/1`, input map/key decoding,
+  dispatch to exactly one Cure function after the Cure `sweep`, and
+  translation of the Cure result to the Outputs maps;
+- `initial/4` validation, the owner client functions, clock read, exit
+  catching (`owner_unavailable`), `child_spec/1` and incarnation generation.
+
+The Elixir layer makes no budget decision. A test checks that `step/2` calls
+the Cure functions and that its results equal the Cure results for the same
+inputs; there is no parallel Elixir reimplementation of the decision.
 
 ## Local decisions (preflight "ELZ-022: bounded report and child-run admission")
 
@@ -164,8 +217,17 @@ therefore fails closed instead of over-admitting.
   free.
 - Within one generation a `cost_ref` names at most one reservation:
   - `reserve` with an open `cost_ref` and identical `estimate` and `expiry`
-    replays the original `reserved` result (with the current `remaining`)
-    without a second reservation;
+    is a replay. It never creates a second reservation. It returns the
+    original `reserved` result (with the current `remaining`) only when the
+    swept state passes the admission check: `committed <= cap` and
+    `committed + reserved <= cap`, where `reserved` already includes this
+    entry. Otherwise it returns `rejected{overage}` (when `committed > cap`)
+    or `rejected{insufficient}` and leaves the state unchanged. The open entry
+    stays open: it can still be settled, released or expire. So every
+    `reserved` result, replay or new, leaves `committed + reserved <= cap`,
+    and overage admits nothing. Both states are reachable: another entry's
+    late settle can cause overage, or (cap 10) A reserves 6 and expires, B
+    reserves 6, A late-settles 5, so `5 + 6 > 10` without overage;
   - with a different `estimate` or `expiry` it is `rejected{cost_ref_conflict}`;
   - for a settled, released or expired `cost_ref` it is
     `rejected{cost_ref_closed}`. A `cost_ref` is not reused in a generation.
@@ -184,8 +246,9 @@ therefore fails closed instead of over-admitting.
   `{:error, :invalid_amount | :invalid_unit}`, so no owner exists. There is
   no default cap. Every `reserve` whose `cap` or `unit` differs from the seal
   is `rejected{changed_limits}`, from the first call on.
-- A reserve is admitted only when the state is readable (I0), it is not in
-  overage, and `committed + reserved + estimate <= cap`.
+- A new reserve is admitted only when the state is readable (I0), it is not
+  in overage, and `committed + reserved + estimate <= cap`. A replay is
+  re-checked as in D1.
 - Overage: `committed > cap`. In overage every reserve is
   `rejected{overage}` until reset. Observed overage is kept as recorded;
   `committed` is never capped.
@@ -205,10 +268,12 @@ therefore fails closed instead of over-admitting.
   `step(state, {now_ms, input}) -> {:Transition, next, {:some, result}}`.
   It checks and records in the same pure function. No public function returns
   "would fit" without recording.
-- Call path: `step/2` → `readable/1` (I0) → `sweep/2` (with `now_ms`) →
-  one of `reserve/2`, `settle/2`, `release/2`, `reset/2`, `status/1` or the
-  sweep-only result. The laws below are stated over these functions; a test
-  checks that `step/2` dispatches exactly this way.
+- Call path: Elixir `step/2` → Elixir `readable/1` (I0) and input decoding →
+  Cure `sweep` (with `now_ms`) → one Cure function: `reserve`, `settle`,
+  `release`, `reset`, `remaining` (for `status`) or none (for `sweep`) →
+  Elixir result translation. The laws are stated over the Cure functions
+  only (see "Cure and Elixir split"); the Elixir steps are test-grounded, and
+  a test checks that `step/2` dispatches exactly this way.
 - The owner starts `Elzoo.Unit.start_link({Elzoo.Budget, :step, initial_state})`.
   Every client function reads the clock **in the caller process**, then calls
   `Elzoo.Unit.step(owner, {now_ms, input})`. `reserve`, `settle`, `release`,
@@ -250,14 +315,16 @@ therefore fails closed instead of over-admitting.
 Delivery of settle is at-least-once.
 
 - `settle` on an open entry: `reserved -= estimate`, `committed += actual`.
-  The entry becomes `settled{estimate, actual}`.
+  The entry becomes `settled{estimate, actual, late: false}`.
 - **Late settle** on an expired or released entry: only `committed += actual`.
   `reserved` is unchanged, because the sweep or release already removed the
-  estimate. The entry becomes `settled{estimate, actual}` and the result has
-  `late: true` (`refund: 0`, see Outputs). The observed cost is never dropped
-  or capped. A late settle can put the budget into overage.
-- A repeat `settle` with the same `actual` replays the same result and changes
-  nothing. A different `actual` is `rejected{actual_conflict}`.
+  estimate. The entry becomes `settled{estimate, actual, late: true}` and the
+  result has `late: true` (`refund: 0`, see Outputs). The observed cost is
+  never dropped or capped. A late settle can put the budget into overage.
+- A repeat `settle` with the same `actual` changes nothing and returns the
+  result derived from the stored `(estimate, actual, late)`, so it equals the
+  first result on both paths. A different `actual` is
+  `rejected{actual_conflict}`.
 - `release` on an open entry: `reserved -= estimate`; the entry becomes
   `released{estimate}`. A repeat `release`, or `release` of an expired entry,
   replays `released` and changes nothing. `release` after `settle` is
@@ -316,31 +383,37 @@ relaxation here.
 
 ### Proof (selected laws, pinned Cure a004c335)
 
-Cure checks these laws over the production call path named in D3 (`step/2`
-and the functions it calls). The proof form is reduction plus
+Cure checks these laws over the named Cure functions and the Cure
+`BudgetState` record (see "Cure and Elixir split"). `s` ranges over Cure
+states; `s' = sweep(s, now)`. The proof form is reduction plus
 `Std.Proof.IntOrder` arithmetic lemmas.
 
-- **L1 admission cap.** For every state that satisfies I0 and every reserve
-  input, a `reserved` result leaves `committed + reserved <= cap`. Overage
-  post-states are valid inputs: they satisfy the law by admitting nothing.
-- **L2 overage admits nothing.** `committed > cap` gives `rejected` for every
-  reserve.
-- **L3 settle idempotence.** For the same `now_ms`, applying the same settle
-  twice gives the same state and result as applying it once.
-- **L4 release idempotence.** Same as L3 for release, with the same `now_ms`.
-- **L5 rejection keeps state.** A `rejected` result leaves the state equal to
-  `sweep(state, now_ms)`.
-- **L6 derived settlement.** For `late: false`, `refund` / `overage` equal the
-  difference of the stored `(estimate, actual)` pair. For `late: true`,
-  `overage` is that difference when positive and `refund` is `0`.
+- **L1 admission cap.** For every `s` and every reserve argument, when
+  `reserve(s', …)` returns `reserved` (new entry or replay), its post-state
+  has `committed + reserved <= cap`. Overage post-states are valid inputs:
+  they satisfy the law by admitting nothing.
+- **L2 overage admits nothing.** When `s'.committed > s'.cap`, `reserve(s', …)`
+  returns `rejected` for every argument, replays included.
+- **L3 settle idempotence.** For the same `now`, applying `settle` twice to
+  `s'` gives the same state and result as applying it once.
+- **L4 release idempotence.** Same as L3 for `release`.
+- **L5 rejection keeps state.** For every `s` that satisfies I0, a `rejected`
+  result from `reserve`, `settle`, `release` or `reset` on `s'` returns `s'`
+  unchanged.
+- **L6 derived settlement.** Every `settled` result (first or repeat) is a
+  function of the stored `(estimate, actual, late)`: for `late: false`,
+  `refund` / `overage` equal the difference; for `late: true`, `overage` is
+  the difference when positive and `refund` is `0`.
 
-Proof scope and limit: the laws cover the named functions on the production
-path. Preservation of I0 through `sweep`, `settle`, `release` and `reset` over
-the entry collection is test-grounded unless pinned Cure proves it directly.
-L1's guard-level proof does not by itself cover the collection; I0 is what
-connects the scalar `reserved` to the open entries, and its preservation is a
-test claim until proved. If pinned Cure cannot discharge L1 over the production
-`Int`, I stop and report the finding. I do not relabel a test as a proof.
+Proof scope and limit: the laws cover the named Cure functions only. These are
+test-grounded, not proved: the Elixir `step/2` dispatch and result
+translation, map/key decoding, the I0 `readable/1` fail-closed check, and the
+preservation of I0 through `sweep`, `settle`, `release` and `reset` over the
+entry collection (unless pinned Cure proves it directly). L1 does not by
+itself cover the collection; I0 connects the scalar `reserved` to the open
+entries, and its preservation is a test claim until proved. If pinned Cure
+cannot discharge L1 over the production `Int`, I stop and report the finding.
+I do not relabel a test as a proof.
 
 ### Type/contract check
 
@@ -350,7 +423,16 @@ validates input maps, key form and state shape (I0) before the transition.
 ### Tests (finite ExUnit scenarios)
 
 - concurrent callers race for the last unit: exactly one `reserved`;
-- `step/2` dispatch follows the D3 call path;
+- `step/2` dispatch follows the D3 call path, calls the Cure functions, and
+  its results equal the Cure results for the same inputs;
+- replay under overage: B open, another entry's late settle makes
+  `committed > cap`, retry of B gives `rejected{overage}`, state unchanged,
+  B still open and later settles;
+- replay without overage: cap 10, A reserves 6 and expires, B reserves 6,
+  A late-settles 5, retry of B gives `rejected{insufficient}`, state
+  unchanged, B still open;
+- repeat settle returns the same result for both the normal and the late
+  path;
 - I0 is preserved over generated sequences of reserve/settle/release/reset/
   sweep; a state with a broken `reserved` scalar gives `rejected{unreadable}`;
 - expiry at `now_ms == expiry`; abandoned reservation freed by sweep and by
@@ -398,9 +480,13 @@ compilation and reduction checking.
   `rejected{changed_limits}`. Tests cover start validation and the seal.
 - **Control: supported (narrow).** `reset/2` and `sweep/1`. Holding the owner
   reference (pid or name) is the only authority; there is no principal check.
-  The expected-generation guard on `reset` is the expected revision. An OTP
-  stop is not a business drain: open reservations are lost. Tests cover reset
-  and sweep.
+  The expected-generation guard on `reset` is the expected revision. A
+  `reset` that times out (`owner_unavailable`) has an unknown outcome: a
+  retry with the same generation gives `stale_generation` whether or not the
+  first was applied. The caller resolves it with `status` and compares the
+  generation counter. An unreadable owner rejects `reset`; only a new start
+  replaces it. An OTP stop is not a business drain: open reservations are
+  lost. Tests cover reset, sweep and the timed-out reset resolution.
 
 ## Needs
 
@@ -414,8 +500,10 @@ compilation and reduction checking.
 
 - Admission bounds spending permission, not the total charge. A strict total
   needs a provider-enforced maximum charge at or below the estimate.
-- I0 preservation over the entry collection is test-grounded unless proved
-  (see Proof scope).
+- Test-grounded, not proved: I0 preservation over the entry collection
+  (unless proved), the Elixir `step/2` dispatch and result translation,
+  map/key decoding, and the I0 `readable/1` fail-closed check (see Proof
+  scope).
 - The seal, committed figure and entries are per incarnation. No durability
   beyond the owner process, no cross-node agreement, no cross-incarnation or
   cross-generation continuity. Reset and restart forfeit open reservations.
