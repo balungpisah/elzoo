@@ -54,7 +54,9 @@ dedup-outcome and total schemas never escape as completed final values.
 `direct(state, payloads)` returns `{values, next_state}` without OTP for valid
 payload traces. `reply(request, settlement, reply_message_id)` builds a reply
 or error Envelope carrying a client-identity DeliveryResult, no attempt_id,
-and the exact request deadline Option. Caller owns delivery to reply_to;
+and the exact request deadline Option. It refuses, with
+`{:settlement, :identity_mismatch}`, a settlement whose message, correlation,
+deadline or attempt identity is not this request's. Caller owns delivery to reply_to;
 `RequestReply.accept_reply/3` checks it. A reply is not an acknowledgement.
 
 Every submit returns either a synchronous error (nothing admitted) or an ok

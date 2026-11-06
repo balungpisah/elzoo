@@ -300,6 +300,17 @@ defmodule Elzoo.RequestRouteRetryCompositionTest do
                  "port_id" => "reply.in"
                })
 
+      other = request("other-reply") |> Map.merge(Map.take(req, ["deadline_unix_ms"]))
+      foreign = settle(runner, other)
+
+      assert {:error, {:settlement, :identity_mismatch}} =
+               R.reply(req, foreign, "reply-envelope")
+
+      {kind, settled} = settlement
+      shifted = {kind, Map.put(settled, "deadline_unix_ms", (deadline || 0) + 1)}
+      assert {:error, {:settlement, :identity_mismatch}} = R.reply(req, shifted, "reply-envelope")
+      assert {:error, {:settlement, :invalid}} = R.reply(req, {:other, %{}}, "reply-envelope")
+
       if deadline do
         for broken <- [
               update_in(reply, ["payload"], &Map.delete(&1, "deadline_unix_ms")),
