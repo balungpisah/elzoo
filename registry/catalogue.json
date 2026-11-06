@@ -76,8 +76,8 @@
       "summary": "Message resilience",
       "disposition": "own",
       "phase": "P1",
-      "status": "planned",
-      "reason": "request/reply, routing, timeout/retry, backpressure and dead-letter"
+      "status": "ready",
+      "manifest": "pieces/assembly/request-route-retry/piece.json"
     },
     {
       "id": "assembly/task-workflow",

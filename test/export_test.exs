@@ -117,7 +117,7 @@ defmodule Elzoo.ExportTest do
   end
 
   for id <-
-        ~w(core/operator core/port core/assembly core/envelope core/edge core/wiring core/selection delivery/idempotency delivery/windowed-idempotency delivery/request-reply delivery/routing delivery/transformation delivery/backpressure delivery/dead-letter delivery/retry-timeout runtime/adapter runtime/host assembly/ingest-json-unit) do
+        ~w(core/operator core/port core/assembly core/envelope core/edge core/wiring core/selection delivery/idempotency delivery/windowed-idempotency delivery/request-reply delivery/routing delivery/transformation delivery/backpressure delivery/dead-letter delivery/retry-timeout runtime/adapter runtime/host assembly/ingest-json-unit assembly/request-route-retry) do
     @tag timeout: 120_000
     test "#{id} carries its own checks into an independent consumer", ctx do
       assert_cure_consumer(ctx, [unquote(id)])
@@ -304,6 +304,29 @@ defmodule Elzoo.ExportTest do
       candidate = %{"piece_id" => "candidate", "interface" => %{"input" => port.("in", "input"), "output" => port.("out", "output")}, "delivery" => "fused", "rank" => 0}
       {:ok, "candidate"} = Elzoo.Selection.select(requirement, [candidate])
       {:ok, [{0, ["candidate"]}]} = Elzoo.Selection.rank(requirement, [candidate])
+    end
+    if :code.which(Elzoo.RequestRouteRetry) != :non_existing do
+      {:ok, %{"worker" => state}} = Elzoo.RequestRouteRetry.initial_state(:fused, 3, 1)
+      {:ok, unit} = Elzoo.Unit.start_link({:"Cure.Elzoo.RequestRouteRetry", :worker, state})
+      {:ok, tasks} = Task.Supervisor.start_link()
+      {:ok, policy} = Elzoo.RetryTimeout.policy(max_attempts: 1)
+      {:ok, runner} = Elzoo.RequestRouteRetry.start_link(placement: :fused,
+        units: %{"worker" => unit}, window: 3, max_senders: 1, capacity: 1,
+        policy: policy, task_supervisor: tasks, attempt_timeout_ms: 1000,
+        dead_letter: fn _ -> :ok end)
+      request = %{"version" => 1, "message_id" => "rr-compiler-free",
+        "kind" => "command", "schema_id" => "example/rr-request", "schema_version" => 1,
+        "producer" => %{"unit_id" => "client", "port_id" => "request"},
+        "payload" => %{"sender" => 1, "incarnation" => 1, "sequence" => 1, "value" => 9}}
+      {:ok, ref} = Elzoo.RequestRouteRetry.submit(runner, request)
+      receive do
+        {Elzoo.RetryTimeout, ^ref, {:completed, %{"value" => %{"decision" => "fresh", "total" => 9}}}} -> :ok
+      after
+        2000 -> raise("compiler-free request/route/retry did not settle")
+      end
+      GenServer.stop(runner)
+      GenServer.stop(unit)
+      Supervisor.stop(tasks)
     end
     if Enum.any?(Application.started_applications(), fn {app, _, _} -> app == :cure end),
       do: raise("Cure started as a runtime application")

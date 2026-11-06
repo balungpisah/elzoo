@@ -1,0 +1,61 @@
+# SPDX-License-Identifier: Apache-2.0
+mod Elzoo.RequestRouteRetry
+  use Std.Option
+  use Elzoo.Composition
+  use Elzoo.Idempotency
+  use Elzoo.WindowedIdempotency
+  use Elzoo.Core
+
+  rec DedupOutcome
+    decision: Elzoo.WindowedIdempotency.WindowDecision
+    accepted: Option(Elzoo.Idempotency.Message)
+
+  rec RouteRetryOutput
+    decision: Elzoo.WindowedIdempotency.WindowDecision
+    total: Option(Int)
+
+  @total true
+  @reducible
+  fn label_step(state: Elzoo.WindowedIdempotency.WindowedState, input: Elzoo.Idempotency.Message, decision: Elzoo.WindowedIdempotency.WindowDecision) -> Transition(Elzoo.WindowedIdempotency.WindowedState, DedupOutcome) =
+    let t = Elzoo.WindowedIdempotency.step(state, input, decision)
+    Transition{state: t.state, output: Some(DedupOutcome{decision: decision, accepted: t.output})}
+
+  fn labelled_dedup(state: Elzoo.WindowedIdempotency.WindowedState, input: Elzoo.Idempotency.Message) -> Transition(Elzoo.WindowedIdempotency.WindowedState, DedupOutcome) =
+    label_step(state, input, Elzoo.WindowedIdempotency.classify(state, input))
+
+  fn worker_empty(window: Int, max_senders: Int) -> Joined(Elzoo.WindowedIdempotency.WindowedState, Int) =
+    Joined{left: Elzoo.WindowedIdempotency.initial(window, max_senders), right: 0}
+
+  fn worker(state: Joined(Elzoo.WindowedIdempotency.WindowedState, Int), input: Elzoo.Idempotency.Message) -> Transition(Joined(Elzoo.WindowedIdempotency.WindowedState, Int), RouteRetryOutput) =
+    let t = labelled_dedup(state.left, input)
+    match t.output
+      Some(answer) ->
+        match answer.accepted
+          None() -> Transition{state: Joined{left: t.state, right: state.right}, output: Some(RouteRetryOutput{decision: answer.decision, total: None()})}
+          Some(message) ->
+            let a = Elzoo.Core.accumulate(state.right, message)
+            Transition{state: Joined{left: t.state, right: a.state}, output: Some(RouteRetryOutput{decision: answer.decision, total: a.output})}
+      None() -> Transition{state: state, output: None()}
+
+  @total true
+  @reducible
+  fn labelled_state(t: Transition(Elzoo.WindowedIdempotency.WindowedState, DedupOutcome)) -> Elzoo.WindowedIdempotency.WindowedState = t.state
+
+  @total true
+  @reducible
+  fn labelled_output(t: Transition(Elzoo.WindowedIdempotency.WindowedState, DedupOutcome)) -> Option(DedupOutcome) = t.output
+
+  @total true
+  @reducible
+  fn duplicate_answer(accepted: Option(Elzoo.Idempotency.Message)) -> Option(DedupOutcome) =
+    Some(DedupOutcome{decision: WindowDuplicate(), accepted: accepted})
+
+  fn labelled_duplicate_keeps_state(state: Elzoo.WindowedIdempotency.WindowedState, input: Elzoo.Idempotency.Message) -> Equivalent(Elzoo.WindowedIdempotency.WindowedState, labelled_state(label_step(state, input, WindowDuplicate())), state) =
+    reflexive(state)
+
+  fn labelled_duplicate_not_accepted(state: Elzoo.WindowedIdempotency.WindowedState, input: Elzoo.Idempotency.Message) -> Equivalent(Option(DedupOutcome), labelled_output(label_step(state, input, WindowDuplicate())), duplicate_answer(None())) =
+    reflexive(duplicate_answer(None()))
+
+  fn labelled_full_keeps_state(state: Elzoo.WindowedIdempotency.WindowedState, input: Elzoo.Idempotency.Message) -> Equivalent(Elzoo.WindowedIdempotency.WindowedState, labelled_state(label_step(state, input, WindowFull())), state) =
+    reflexive(state)
+end

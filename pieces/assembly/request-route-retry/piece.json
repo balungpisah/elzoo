@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "id": "assembly/request-route-retry",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["cure", "elixir", "otp"],
+  "dependencies": ["core/envelope", "core/wiring", "core/assembly", "core/selection", "delivery/request-reply", "delivery/routing", "delivery/transformation", "delivery/windowed-idempotency", "delivery/retry-timeout", "runtime/adapter", "runtime/unit", "assembly/ingest-dedup-accumulate"],
+  "contract": "Volatile request/route/retry Assembly with exact integer codecs, labelled window decisions, checked topology/selection and unchanged Runner/Adapter delivery. Fused labels the internal seam; work enters through a volatile Adapter hop.",
+  "limits": [
+    "Local at-most-once possibly-dispatched attempt per admitted operation/Runner lifetime by default; idempotent redispatch is caller opt-in and window-limited.",
+    "Hop failure after accepted dedup can lose accumulation; no atomic placement equivalence under failure (S17).",
+    "Unit restart resets the volatile window and re-accepts an earlier key (S22).",
+    "No durable log, retry budget, deadline, dead-letter storage, network transport or exactly-once Effects; caller owns supervision, sending replies and sink durability.",
+    "Selected supplied-decision laws do not prove classify, worker, Runner or traces; no monitored behavior claimed."
+  ],
+  "files": ["cure/elzoo/request_route_retry.cure", "lib/elzoo/request_route_retry.ex", "lib/elzoo/request_route_retry_codec.ex", "test/elzoo/request_route_retry_test.exs"],
+  "grounding": [
+    {"kind": "proof", "file": "cure/elzoo/request_route_retry.cure", "symbol": "labelled_duplicate_keeps_state", "claim": "Supplied WindowDuplicate decision preserves state in label_step only."},
+    {"kind": "proof", "file": "cure/elzoo/request_route_retry.cure", "symbol": "labelled_duplicate_not_accepted", "claim": "Supplied WindowDuplicate decision emits an explicit duplicate label with no accepted message in label_step only."},
+    {"kind": "proof", "file": "cure/elzoo/request_route_retry.cure", "symbol": "labelled_full_keeps_state", "claim": "Supplied WindowFull decision preserves state in label_step only."},
+    {"kind": "type", "file": "cure/elzoo/request_route_retry.cure", "claim": "Pinned Cure checks production declarations and imported operators; Wiring/Assembly/Selection check declared connections, not opaque payload semantics."},
+    {"kind": "test", "file": "test/elzoo/request_route_retry_test.exs", "claim": "Named finite topology, codec, construction/runtime and compiler audit/negative controls; cross-Piece S1-S22 composition scenarios additionally live in root test/request_route_retry_test.exs."},
+    {"kind": "upstream", "provider": "cure", "reference": "https://github.com/cure-lang/cure-lang/tree/a004c335cc4e9f2203ba6f51fc31e8540b66378d", "claim": "Relies on pinned compilation/record erasure, not a local proof of the compiler."},
+    {"kind": "upstream", "provider": "elixir", "reference": "https://hexdocs.pm/elixir/1.20.4/", "claim": "Relies on GenServer and Task.Supervisor semantics through unchanged dependencies."},
+    {"kind": "upstream", "provider": "otp", "reference": "https://www.erlang.org/doc/", "claim": "Relies on OTP 29.1.2 process/timer semantics through unchanged dependencies."},
+    {"kind": "assumption", "claim": "Truthful Adapter observations, sender sequence discipline, clock agreement at admission, caller supervision and external sink durability remain unverified assumptions."}
+  ],
+  "operations": {
+    "telemetry": {"status": "planned", "contract": "No events; Runner snapshot is inspection, not monitoring."},
+    "config": {"status": "supported", "contract": "Start-time placement, lookups, window/max_senders, capacity, policy, timeout, sink, now_ms and caller-supervised Task.Supervisor; no hot updates.", "evidence": ["test/elzoo/request_route_retry_test.exs"]},
+    "control": {"status": "inherited", "from": "delivery/retry-timeout", "contract": "OTP start/stop only, no business drain; stop leaves open operations unknown."}
+  }
+}
