@@ -32,6 +32,9 @@ Effect/job policy, limits and failure translation, not another HTTP client.
   field that decides durability or acknowledgement; unknown provider
   kinds become opaque values rather than failures of the whole flow
   (ELZ-021 reference study).
+- cite a second observed source for the wire-key atom-minting failure when
+  writing the normalization test (ELZ-025 study, pluggy_ai key transform); no
+  new Contract text.
 
 ## Acceptance
 

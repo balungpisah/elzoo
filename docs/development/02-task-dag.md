@@ -47,6 +47,13 @@ The first batch follows the catalogue phases:
     Demand-led: ELZ-003, ELZ-004 -> ELZ-022
                 ELZ-006, ELZ-009 -> ELZ-023
                 ELZ-003, ELZ-015 -> ELZ-024
+                ELZ-021 -> ELZ-025
+                ELZ-003 -> ELZ-026
+                ELZ-003, ELZ-006 -> ELZ-027
+                ELZ-009, ELZ-010 -> ELZ-028
+                ELZ-006 -> ELZ-029
+                ELZ-003, ELZ-024 -> ELZ-030
+                ELZ-003, ELZ-011 -> ELZ-031
 
 After ELZ-003, ELZ-007 can run alongside ELZ-004 and the ELZ-005/006 chain.
 ELZ-003 owns the shared delivery-result/error/deadline schema before this fork.
@@ -70,15 +77,17 @@ Detailed edges (direct dependencies; transitive reachability is omitted):
     ELZ-018 -> ELZ-002, ELZ-019, ELZ-021
     ELZ-019 -> ELZ-020
     ELZ-002 -> ELZ-003, ELZ-004, ELZ-007
-    ELZ-003 -> ELZ-004, ELZ-005, ELZ-007, ELZ-022, ELZ-024
+    ELZ-003 -> ELZ-004, ELZ-005, ELZ-007, ELZ-022, ELZ-024, ELZ-026, ELZ-027, ELZ-030, ELZ-031
     ELZ-004 -> ELZ-005, ELZ-006, ELZ-008, ELZ-011, ELZ-022
     ELZ-005 -> ELZ-006, ELZ-008
-    ELZ-006 -> ELZ-008, ELZ-011, ELZ-023
+    ELZ-006 -> ELZ-008, ELZ-011, ELZ-023, ELZ-027, ELZ-029
     ELZ-007 -> ELZ-008
     ELZ-008 -> ELZ-009, ELZ-010
-    ELZ-009 -> ELZ-010, ELZ-023
-    ELZ-010 -> ELZ-011
-    ELZ-011 -> ELZ-012
+    ELZ-009 -> ELZ-010, ELZ-023, ELZ-028
+    ELZ-010 -> ELZ-011, ELZ-028
+    ELZ-011 -> ELZ-012, ELZ-031
+    ELZ-021 -> ELZ-025
+    ELZ-024 -> ELZ-030
 
 | ID | Phase | Catalogue IDs / assembly | Depends on | Tangible outcome |
 | --- | --- | --- | --- | --- |
@@ -106,6 +115,13 @@ Detailed edges (direct dependencies; transitive reachability is omitted):
 | ELZ-022 | demand-led | workflow/budget | ELZ-003, ELZ-004 | One-step reserve/settle budget Contract with concurrent-admission evidence |
 | ELZ-023 | demand-led | delivery/effect-intent, consumes state/checkpoint | ELZ-006, ELZ-009 | Checkpoint-before-dispatch lifecycle; timeout is unknown, never a blind retry |
 | ELZ-024 | demand-led | domain/authorization, workflow/approval | ELZ-003, ELZ-015 | ALLOW/ASK/DENY reducer and payload-bound approval as two Pieces |
+| ELZ-025 | P0 | Ecosystem adopt-or-distill study, round 2 | ELZ-021 | Sixteen packages pinned and judged; six demand-led task bodies, design tests on ELZ-009/010/011/022/023/024, reason text; no new runtime |
+| ELZ-026 | demand-led | workflow/dependency-graph | ELZ-003 | Pure readiness and cycle admission with provenance-tagged facts |
+| ELZ-027 | demand-led | delivery/trigger (schedule occurrence) | ELZ-003, ELZ-006 | Occurrence identity and declared overlap policy |
+| ELZ-028 | demand-led | state/lease | ELZ-009, ELZ-010 | Revision-fenced single-owner lease; opened only if the job provider's contract is insufficient |
+| ELZ-029 | demand-led | runtime/os-isolation | ELZ-006 | OS-process Adapter with group-scoped, observed termination |
+| ELZ-030 | demand-led | workflow/context-selection | ELZ-003, ELZ-024 | Bounded, permission-checked selection with drop reasons |
+| ELZ-031 | demand-led | domain/money | ELZ-003, ELZ-011 | Exact amounts over a closed versioned currency registry; ex_money/Decimal boundary |
 
 This DAG deliberately does not promise all historical families. If an
 Assembly later needs SQL, a broker, replication, CRDTs, AI or another
@@ -146,6 +162,7 @@ stable even when issue numbers differ.
 | ELZ-019 | [26](https://github.com/balungpisah/elzoo/issues/26) |
 | ELZ-020 | [28](https://github.com/balungpisah/elzoo/issues/28) |
 | ELZ-021 | [33](https://github.com/balungpisah/elzoo/issues/33) |
+| ELZ-025 | [40](https://github.com/balungpisah/elzoo/issues/40) |
 | ELZ-022 | [36](https://github.com/balungpisah/elzoo/issues/36) |
 | ELZ-023 | [37](https://github.com/balungpisah/elzoo/issues/37) |
 | ELZ-024 | [38](https://github.com/balungpisah/elzoo/issues/38) |

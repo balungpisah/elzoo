@@ -83,6 +83,22 @@ machine; the store and the provider poll are Adapters.
 - define the store behaviour and a test double; bind to the ELZ-009 provider;
 - select the no-re-arm law; test the listed crash/restart boundaries;
 - document how a product reconciles `stranded` intents.
+- require the Adapter binding to supply a total mapping from its typed
+  failures to the ready delivery-result classes when the Assembly is built;
+  an absent or partial mapping is refused at build, not at the first failure;
+- re-validate admitted arguments against the Adapter's current input schema at
+  dispatch; a mismatch is `rejected/not_dispatched` and host-visible, never a
+  proposer-visible error;
+- accept a late result at most once and only while `dispatched`; the first of
+  a late result or a reconciliation wins, a refused late result is retained as
+  evidence, and a late result whose store write is unavailable is unknown;
+- make replay a declared Adapter capability (provider idempotency contract
+  keyed by the logical request), never a per-call flag; list as dangerous
+  paths a transport-layer plugin (auth refresh, redirect, library retry) that
+  re-sends a dispatched non-idempotent request without a second recorded
+  Attempt, an exception-keyed step retry, and an agent-runner idle timeout
+  after a durable output or tool record (that is `dispatched`/unknown; retry
+  only on a durable predicate that no such record exists) (ELZ-025 study).
 
 ## Acceptance
 
@@ -90,6 +106,8 @@ machine; the store and the provider poll are Adapters.
       failure or reconciliation result.
 - [ ] Restart at each boundary resumes the existing intent by derived key.
 - [ ] `stranded` is a distinct, tested outcome with a documented operator path.
+- [ ] Build-time total failure mapping, late-settlement-once and the
+      transport re-send negative case are listed, executable scenarios.
 - [ ] Selected law and scenarios run through mix check.
 - [ ] Contract labels provider idempotency and store durability as upstream.
 

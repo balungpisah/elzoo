@@ -73,6 +73,14 @@ financial ledger, a rate limiter or a tenant quota.
 - test concurrent admission, expiry of an abandoned reservation and restart;
 - document unit tagging, estimate-versus-actual (refund and overage) and the
   fail-closed default.
+- seal cap and unit per budget identity: a reserve naming a different cap for
+  the same identity is `rejected{changed_limits}`; an owner whose state cannot
+  be read admits nothing (the executable form of fail-closed);
+- offer, as a pure function beside the owner, critical-path admission for a
+  fan-out with a time unit: `ceil(N / k) * b` (or the per-wave maximum for a
+  DAG) against the caller's deadline, returning the least sufficient deadline
+  and excluding retries by statement; turns are an admissible unit (ELZ-025
+  study).
 
 ## Acceptance
 
@@ -83,6 +91,7 @@ financial ledger, a rate limiter or a tenant quota.
       the observed figure, remaining budget never reads positive while in
       overage, and the next admission is rejected (executable test).
 - [ ] Contract states this is not money settlement, quota or rate limiting.
+- [ ] `changed_limits` rejection and unreadable-owner fail-closed are tested.
 - [ ] Operational applicability is declared per docs/operational-contracts.md.
 
 ## Evidence and limits
