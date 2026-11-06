@@ -700,10 +700,10 @@
     {
       "id": "workflow/budget",
       "summary": "Bound execution resource consumption",
-      "disposition": "defer",
+      "disposition": "own",
       "phase": "demand-led",
-      "status": "deferred",
-      "reason": "Admission/reservation/settlement of unit-tagged costs for C2/C6/C7; shared authority under concurrency, explicit estimate versus observed cost. Not a financial ledger. ELZ-022 carries the admission record."
+      "status": "ready",
+      "manifest": "pieces/workflow/budget/piece.json"
     },
     {
       "id": "workflow/build-graph",

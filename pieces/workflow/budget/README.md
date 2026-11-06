@@ -1,12 +1,9 @@
 # workflow/budget
 
-> **Status: Contract draft, revision 3, for early independent review (ELZ-022,
-> issue #36).** Revision 2 resolves the review at
-> https://github.com/balungpisah/elzoo/issues/36#issuecomment-6693832986.
-> Revision 3 resolves the re-check at
-> https://github.com/balungpisah/elzoo/issues/36#issuecomment-6694005211.
-> No implementation, `piece.json` or catalogue promotion exists yet. The
-> catalogue row stays `deferred` until the reviewed implementation lands.
+> **Status: ready subset (ELZ-022, issue #36).** The Contract passed early
+> independent review (https://github.com/balungpisah/elzoo/issues/36#issuecomment-6694121963).
+> The L3/L4 decision-split form is the coordinator decision recorded at
+> https://github.com/balungpisah/elzoo/issues/36#issuecomment-6694407428.
 
 Admit a spend-bearing call under a sealed cap, record its reservation in the
 same serialized step, and settle the observed cost afterwards. One pure
@@ -29,7 +26,8 @@ unchanged `Elzoo.Unit` from runtime/unit.
 
 ```elixir
 # Pure
-state = Elzoo.Budget.initial("run-42/tokens", incarnation, 10_000, "tokens")
+{:ok, state} = Elzoo.Budget.initial("run-42/tokens", incarnation, 10_000, "tokens")
+true = Elzoo.Budget.readable?(state)   # the I0 check
 {:Transition, next, {:some, result}} = Elzoo.Budget.step(state, {now_ms, input})
 
 # Owner
@@ -155,7 +153,7 @@ A readable state satisfies all of:
   `released{estimate}` or `settled{estimate, actual, late}` (`late` is a
   boolean).
 
-`readable/1` checks I0 first in every `step/2`. A state that fails I0 (for
+`readable?/1` checks I0 first in every `step/2`. A state that fails I0 (for
 example a corrupted snapshot or a hand-built term) gives `rejected{unreadable}`
 for every input, including `reset`, and is returned unchanged with no sweep. A
 broken `reserved` scalar therefore fails closed instead of over-admitting. An
@@ -166,25 +164,37 @@ it with a new start (new incarnation).
 
 **Cure (`Elzoo.Budget` in `cure/elzoo/budget.cure`; laws are checked here):**
 
-- state record `BudgetState{cap, unit, incarnation, counter, committed,
-  reserved, entries}` and entry type `Entry = Open | Expired | Released |
-  Settled` (fields as in I0); text fields use Cure `String`;
-- `sweep(state, now)`, `reserve(state, cap, unit, cost_ref, estimate, expiry,
-  now)`, `settle(state, cost_ref, generation, actual)`,
-  `release(state, cost_ref, generation)`, `reset(state, generation)`,
-  `remaining(state)`, `critical_path(n, k, b, deadline)`,
-  `critical_path_waves(waves, k, deadline)`;
-- result type `BudgetResult` (one constructor per Outputs row and each
-  rejection reason).
+- state record `BudgetState{budget_id, cap, unit, generation, committed,
+  reserved, entries}` with `generation: Generation{incarnation, counter}` and
+  `entries: List(EntryRow{cost_ref, entry})`;
+- entry type `Entry = Open(estimate, expiry) | Expired(estimate) |
+  Released(estimate) | Settled(estimate, actual, late)`; text fields use Cure
+  `String` (`{:String, codepoints}` at runtime, as in core/port);
+- `initial/4`, `sweep/2`, `sweep_step/2`, `reserve/7` (`state, now, cap,
+  unit, cost_ref, estimate, expiry`), `settle/4` (`state, cost_ref,
+  generation, actual`), `release/3`, `reset/2`, `status/1`, `remaining/1`,
+  `critical_path/4`, `critical_path_waves/3`, plus the reducible decision
+  functions they call (`reserve_with`, `admit_new_with`, `replay_with`,
+  `settle_with`, `settle_entry`, `settle_repeat_with`, `release_with`,
+  `release_entry`, `reset_with`, `derive`);
+- result type `BudgetResult = Reserved(estimate, remaining) | Rejected(reason)
+  | SettledRefund(refund, late) | SettledOverage(overage, late) | ReleasedOk |
+  ResetOk(forfeited) | Status(remaining, open) | Swept(expired)` inside
+  `Step{state, result}`.
 
 **Elixir (`Elzoo.Budget` in `lib/elzoo/budget.ex`, `Elzoo.Budget.Owner` in
 `lib/elzoo/budget/owner.ex`; test-grounded):**
 
-- `step/2` (the Unit adapter): `readable/1`, input map/key decoding,
+- `step/2` (the Unit adapter): `readable?/1` (I0), input map/key decoding,
   dispatch to exactly one Cure function after the Cure `sweep`, and
-  translation of the Cure result to the Outputs maps;
+  translation of the Cure result to the Outputs maps (adding `cost_ref` and
+  `generation` from the request and next state);
 - `initial/4` validation, the owner client functions, clock read, exit
   catching (`owner_unavailable`), `child_spec/1` and incarnation generation.
+- Malformed `now_ms`, `expiry` (not a positive integer) and `generation` (not
+  `{nonempty UTF-8 string, positive integer}`) are `rejected{invalid_input}`.
+  `start_link/1` with missing or unknown options, or an invalid `budget_id`,
+  returns `{:error, :invalid_input}`.
 
 The Elixir layer makes no budget decision. A test checks that `step/2` calls
 the Cure functions and that its results equal the Cure results for the same
@@ -234,6 +244,11 @@ inputs; there is no parallel Elixir reimplementation of the decision.
 - **Retry rule.** A retry must resend the same `cost_ref`, the same
   `estimate` and the same absolute `expiry` (not `now + ttl` computed again).
   A recomputed expiry gets `cost_ref_conflict`.
+- **Rejected retry.** Any rejected retry (for example `cost_ref_conflict` or
+  `insufficient`) means "do not start the call". The earlier attempt may have
+  left an open reservation, so the caller should then send
+  `release{cost_ref, generation}` (generation from `status` if unknown) to
+  free the held estimate instead of waiting for expiry.
 
 ### D2. Units, sealed limits, overage, fail-closed admission
 
@@ -268,7 +283,7 @@ inputs; there is no parallel Elixir reimplementation of the decision.
   `step(state, {now_ms, input}) -> {:Transition, next, {:some, result}}`.
   It checks and records in the same pure function. No public function returns
   "would fit" without recording.
-- Call path: Elixir `step/2` → Elixir `readable/1` (I0) and input decoding →
+- Call path: Elixir `step/2` → Elixir `readable?/1` (I0) and input decoding →
   Cure `sweep` (with `now_ms`) → one Cure function: `reserve`, `settle`,
   `release`, `reset`, `remaining` (for `status`) or none (for `sweep`) →
   Elixir result translation. The laws are stated over the Cure functions
@@ -379,46 +394,95 @@ relaxation here.
   must fold attempts into `n` or `b`. Turns are an admissible time unit. This
   adds no scheduler and no clock read.
 
-## Evidence plan
+## Evidence
 
 ### Proof (selected laws, pinned Cure a004c335)
 
 Cure checks these laws over the named Cure functions and the Cure
-`BudgetState` record (see "Cure and Elixir split"). `s` ranges over Cure
-states; `s' = sweep(s, now)`. The proof form is reduction plus
-`Std.Proof.IntOrder` arithmetic lemmas.
+`BudgetState` record (see "Cure and Elixir split"). They run through
+`mix check`: the Cure compiler rejects the module if a law does not check,
+and `test/elzoo/budget_test.exs` asserts a clean audit (no axioms, holes,
+unresolved, unaudited, opaque or unproved-total entries). `s` is any Cure
+state (in production, the swept state). Native `Int` operators are used
+throughout. A guard such as `committed + (reserved + estimate) <= cap` is
+passed to a `_with` function as a Boolean with its own `Equivalent`
+evidence, so the post-state sum is the guard itself.
 
-- **L1 admission cap.** For every `s` and every reserve argument, when
-  `reserve(s', …)` returns `reserved` (new entry or replay), its post-state
-  has `committed + reserved <= cap`. Overage post-states are valid inputs:
-  they satisfy the law by admitting nothing.
-- **L2 overage admits nothing.** When `s'.committed > s'.cap`, `reserve(s', …)`
-  returns `rejected` for every argument, replays included.
-- **L3 settle idempotence.** For the same `now`, applying `settle` twice to
-  `s'` gives the same state and result as applying it once.
-- **L4 release idempotence.** Same as L3 for `release`.
-- **L5 rejection keeps state.** For every `s` that satisfies I0, a `rejected`
-  result from `reserve`, `settle`, `release` or `reset` on `s'` returns `s'`
-  unchanged.
-- **L6 derived settlement.** Every `settled` result (first or repeat) is a
-  function of the stored `(estimate, actual, late)`: for `late: false`,
-  `refund` / `overage` equal the difference; for `late: true`, `overage` is
-  the difference when positive and `refund` is `0`.
+- **L1 admission cap** (`admission_cap`). For every `s` and every argument,
+  when `reserve/7` returns `Reserved` (new entry or replay), its post-state
+  has `committed + reserved <= cap`. Overage post-states satisfy the law by
+  admitting nothing.
+- **L2 overage admits nothing** (`overage_admits_nothing`). When
+  `over(s)` (`committed > cap`) is `True`, `reserve/7` returns no `Reserved`
+  result for any argument, replays included.
+- **L3 settle idempotence, decision-split form** (`settle_idempotent`). When
+  the lookup of `cost_ref` finds `Settled(estimate, a, late)`, the generation
+  is fresh, and the equality decision `actual == a` is `True`, `settle/4`
+  returns the identical state and the result `derive(estimate, a, late)`.
+- **L4 release idempotence, decision-split form** (`release_idempotent`,
+  `release_expired_replays`). When the lookup finds `Released(estimate)` or
+  `Expired(estimate)` and the generation is fresh, `release/3` returns the
+  identical state and `ReleasedOk`.
+- **L5 rejection keeps state** (`reserve_rejection_keeps_state`,
+  `settle_rejection_keeps_state`, `release_rejection_keeps_state`,
+  `reset_rejection_keeps_state`). A `Rejected` result returns its input state
+  unchanged. This holds for every Cure state; the production path only calls
+  these on states that pass I0.
+- **L6 derived settlement** (`settle_open_derived`, `settle_expired_derived`,
+  `settle_released_derived`, `settle_first_derived`, `settle_first_stores`,
+  `late_refund_is_zero`, `on_time_refund_is_difference`,
+  `overage_is_difference`). A first settle on an `Open` entry stores
+  `Settled(estimate, actual, false)` and frees the estimate; on an `Expired`
+  or `Released` entry it stores `Settled(estimate, actual, true)` and leaves
+  `reserved` unchanged. Its result equals `derive` of the stored triple; with
+  L3 the repeat result is `derive` of the same stored triple. For
+  `late: false` the refund is `estimate - actual`; for `late: true` it is
+  `0`; an overage is `actual - estimate`.
 
-Proof scope and limit: the laws cover the named Cure functions only. These are
-test-grounded, not proved: the Elixir `step/2` dispatch and result
-translation, map/key decoding, the I0 `readable/1` fail-closed check, and the
-preservation of I0 through `sweep`, `settle`, `release` and `reset` over the
-entry collection (unless pinned Cure proves it directly). L1 does not by
-itself cover the collection; I0 connects the scalar `reserved` to the open
-entries, and its preservation is a test claim until proved. If pinned Cure
-cannot discharge L1 over the production `Int`, I stop and report the finding.
-I do not relabel a test as a proof.
+**Proof scope and limits.** The laws cover the named Cure functions only.
+They do not cover the full transition. These are test-grounded, not proved:
+
+- **The L3/L4 link.** The step from a first settle or release to "the
+  second call finds the closed entry" (lookup by `cost_ref` after `replace`,
+  and value equality) is tested, not proved. Pinned Cure a004c335 cannot
+  reduce native `==` on symbolic values. For
+  `fn refl_int(k: Int) -> Equivalent(Bool, k == k, True()) = reflexive(True())`
+  (and the same for `String`) it fails with
+  `{:conversion_failure, …Equivalent(Bool, True, True)…, …Equivalent(Bool,
+  {:napp, {:napp, {:nglobal, :"Std.Builtin#int_eq"}, {:nvar, 0}}, {:nvar, 0}},
+  True)…}`. The full error is in
+  https://github.com/balungpisah/elzoo/issues/36#issuecomment-6694393314.
+- **Sweep idempotence at the same `now` (R2).** Tested over seeded traces,
+  not proved. Pinned Cure does not refine the goal when a proof matches on a
+  symbolic record projection: a prototype
+  `bump_twice(row) : Equivalent(EntryRow, bump(bump(row)), bump(row))` by
+  `match row.entry` fails with `conversion_failure` on
+  `{:napp, {:nglobal, :"Exp8#bump"}, {:nvar, 0}}` against itself unreduced.
+  The sweep guard `now >= expiry` is also a neutral native comparison.
+- Preservation of I0 through `sweep`, `settle`, `release` and `reset` over
+  the entry collection.
+- The Elixir `step/2` dispatch and result translation, map/key decoding and
+  the `readable?/1` (I0) fail-closed check.
+
+L1 does not by itself cover the collection; I0 connects the scalar
+`reserved` to the open entries, and its preservation is a test claim.
 
 ### Type/contract check
 
-Pinned Cure type-checks the production declarations. The Elixir projection
-validates input maps, key form and state shape (I0) before the transition.
+Pinned Cure type-checks the production declarations. `Elzoo.Budget.readable?/1`
+validates erased state terms (I0) and the decoder validates input maps and key
+form before any Cure call.
+
+### Negative controls
+
+`test/elzoo/budget_test.exs` compiles six mutated copies of the Cure module.
+Each is rejected, and the test asserts the name of the law proof that no
+longer checks: a guard that forgets the estimate (`new_entry_cap`, L1), an
+overage branch that admits (`reserve_with_cap`; the L1 proof catches it before
+L2), a repeat settle that drops `late` (`settle_repeat_same`, L3), a repeat
+release that frees again (`release_released_with`, L4), an `insufficient`
+rejection that records the entry (`new_entry_kept`, L5), and a late settle
+stored as not late (`settle_entry_kept`, L5/L6).
 
 ### Tests (finite ExUnit scenarios)
 
@@ -452,15 +516,24 @@ validates input maps, key form and state shape (I0) before the transition.
 - reset: needs the current generation, reports `forfeited`, a later settle of
   a forfeited `cost_ref` is `stale_generation`; repeated reset is rejected;
   `status` returns the generation before the first reserve;
-- client timeout then retry with the same `cost_ref`, `estimate` and absolute
-  `expiry` replays; with a recomputed expiry gets `cost_ref_conflict`;
-- idempotent replay of reserve, settle and release at the same `now_ms`;
-  `actual_conflict`; `already_settled`; `unknown_cost_ref`;
-- invalid inputs: zero, negative, float and non-integer amounts; mixed
-  string/atom keys; unknown and missing keys;
+- client timeout (owner suspended past the 5000 ms default) then retry with
+  the same `cost_ref`, `estimate` and absolute `expiry` replays; with a
+  recomputed expiry gets `cost_ref_conflict`; `release` then frees the held
+  estimate (R1);
+- a timed-out reset is resolved with `status`;
+- repeat settle and repeat release through `step/2`, both late and non-late,
+  return the identical state and result (the L3/L4 link); `actual_conflict`;
+  `already_settled`; `unknown_cost_ref`;
+- seeded random traces (60 traces × 80 steps over 5 `cost_ref`s and random
+  amounts): I0 after every step, `committed + reserved <= cap` after every
+  `reserved`, rejected steps equal the swept state, a repeated settle/release
+  at the same `now` returns the identical state and result, and sweeping
+  again at the same `now` changes nothing (R2);
+- invalid inputs: zero, negative, float and non-integer amounts; malformed
+  `now_ms`, `expiry` and `generation`; mixed string/atom keys; unknown and
+  missing keys;
 - critical-path formula, least sufficient deadline, wave formula, invalid
-  inputs;
-- negative controls: a deliberately broken transition fails the law audit.
+  inputs.
 
 ### Upstream contract
 
@@ -500,10 +573,12 @@ compilation and reduction checking.
 
 - Admission bounds spending permission, not the total charge. A strict total
   needs a provider-enforced maximum charge at or below the estimate.
-- Test-grounded, not proved: I0 preservation over the entry collection
-  (unless proved), the Elixir `step/2` dispatch and result translation,
-  map/key decoding, and the I0 `readable/1` fail-closed check (see Proof
-  scope).
+- Test-grounded, not proved: the L3/L4 link (lookup after `replace`, native
+  `==`), sweep idempotence at the same `now`, I0 preservation over the entry
+  collection, the Elixir `step/2` dispatch and result translation, map/key
+  decoding, and the `readable?/1` (I0) fail-closed check (see Proof scope).
+- Closed entries are kept for idempotence until reset, so state size grows
+  with distinct `cost_ref`s per generation; each step is linear in that size.
 - The seal, committed figure and entries are per incarnation. No durability
   beyond the owner process, no cross-node agreement, no cross-incarnation or
   cross-generation continuity. Reset and restart forfeit open reservations.
@@ -528,4 +603,9 @@ generation guard are Elzoo's policy.
 Shape observed in Raxol's spend gate and ledger reservations; see the pinned
 rows in docs/research/orchestration-references.md. No code is copied.
 
-Copied source is Apache-2.0. External packages retain their own licenses.
+This directory is a source bundle. See [consumption instructions](../../../docs/consuming.md)
+for copying selected pieces into a project. Copied source is Apache-2.0.
+External packages retain their own licenses. Evidence describes the recorded
+source bytes and selected laws and scenarios. After customization, rerun or
+adapt its checks; the receipt is provenance, not a proof of your modified
+application.
