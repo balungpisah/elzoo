@@ -410,6 +410,70 @@ defmodule Elzoo.Authorization do
     end
   end
 
+  # ------------------------------------------------------------------ normalized data
+
+  @doc """
+  Validate an already normalized write list as produced by `decide/3`
+  (canonical order, no duplicates, `min..256` entries). Anything that is not
+  exactly its own normalization is rejected, never repaired or truncated.
+  """
+  def validate_writes(writes, min \\ 1) do
+    with :ok <- proper_list(writes, :writes, :invalid_input),
+         :ok <- count_in(writes, min, @max_writes, :writes, :invalid_input),
+         {:ok, validated} <- map_ok(writes, &write/1) do
+      case normalize_writes(validated) do
+        {:ok, ^writes} -> {:ok, writes}
+        {:ok, _} -> {:error, {:invalid_input, :writes_not_normalized}}
+        {:error, {:conflict, t, f}} -> {:error, {:invalid_input, {:conflicting_writes, t, f}}}
+      end
+    end
+  end
+
+  @action_keys [:proposer, :tenant, :resource, :action_id, :effect_class, :payload, :writes]
+
+  @doc "Validate a normalized action as carried by a decision or approval binding."
+  def validate_action(a) when is_map(a) and not is_struct(a) do
+    with :ok <- exact_keys(a, @action_keys, [], :invalid_input),
+         {:ok, _} <- identity_field(a.proposer, :proposer, :invalid_input),
+         {:ok, _} <- identity_field(a.tenant, :tenant, :invalid_input),
+         {:ok, _} <- identity_field(a.resource, :resource, :invalid_input),
+         {:ok, _} <- identity_field(a.action_id, :action_id, :invalid_input),
+         {:ok, _} <- identity_field(a.effect_class, :effect_class, :invalid_input),
+         :ok <- normalized_value(a.payload),
+         {:ok, _} <- validate_writes(a.writes) do
+      {:ok, a}
+    end
+  end
+
+  def validate_action(_), do: {:error, {:invalid_input, :action}}
+
+  defp normalized_value(v) do
+    case validate_value(v) do
+      {:ok, ^v} -> :ok
+      {:ok, _} -> {:error, {:invalid_input, :value_not_normalized}}
+      error -> error
+    end
+  end
+
+  @doc "Validate a policy identity triple."
+  def validate_identity(%{id: id, version: v, content_hash: h} = i) when map_size(i) == 3 do
+    with {:ok, _} <- identity_field(id, :policy_id, :invalid_input),
+         :ok <- version(v, :invalid_input),
+         :ok <- if(match?(<<_::256>>, h), do: :ok, else: {:error, {:invalid_input, :content_hash}}) do
+      {:ok, i}
+    end
+  end
+
+  def validate_identity(_), do: {:error, {:invalid_input, :policy_identity}}
+
+  @doc "Validate an approval requirement."
+  def validate_requirement(r) do
+    case requirement(r, :ask) do
+      {:ok, req} -> {:ok, req}
+      {:error, {:unavailable_context, reason}} -> {:error, {:invalid_input, reason}}
+    end
+  end
+
   # ------------------------------------------------------------------ values
 
   @doc """

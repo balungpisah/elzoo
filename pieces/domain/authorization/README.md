@@ -265,6 +265,7 @@ and is part of the policy content (and so of its hash).
 | `eq_value`, `eq_write`, `eq_action`, `member`, `subset` | Cure | constructor-distinctness laws; agreement test |
 | rule matching, per-write verdict, `join`, `join_all`, containment, `shape`, requirement selection, `decide` | Cure | selected laws below |
 | `proposer_view` | Elixir | finite tests |
+| `validate_action/1`, `validate_writes/2`, `validate_identity/1`, `validate_requirement/1` (re-validate normalized decision data for `workflow/approval`; reject anything not already normalized, never repair) | Elixir | finite tests (in the approval bundle) |
 
 Elixir `decide/3` only validates, encodes, calls Cure `decide` and decodes.
 It computes no verdict except the control-key DENY, which is test-grounded;

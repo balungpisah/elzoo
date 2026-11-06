@@ -174,6 +174,17 @@ defmodule Elzoo.ApprovalTest do
     assert info.definition == :"Elzoo.ApprovalNegHole#release_within_approver"
   end
 
+  test "negative control: dropping g_self from the gate list is rejected inside self_approval_refused" do
+    from = "[g_approver(e, ctx), g_self(e, ctx), g_decide(current(ctx))"
+
+    assert {:error, {:codegen_error, {:source_context, _inner, %{line: line}}}} =
+             mutated("Drop", from, "[g_approver(e, ctx), g_decide(current(ctx))")
+
+    lines = String.split(@source, "\n")
+    law = Enum.find_index(lines, &String.starts_with?(&1, "  fn self_approval_refused(")) + 1
+    assert line in [law, law + 1]
+  end
+
   # ------------------------------------------------------------------ release basics
 
   test "fresh approval releases exactly the escrowed writes once and records the release" do
@@ -611,7 +622,7 @@ defmodule Elzoo.ApprovalTest do
                Approval.release(replayed, r3.key, :retained, context(:run, payload: {:text, "v2"}))
              )
 
-    assert {:error, {:invalid_input, :event}} = Approval.replay([{:released, :bogus, nil}])
+    assert {:error, {:invalid_input, :release}} = Approval.replay([{:released, :bogus, nil}])
     assert {:error, {:invalid_input, {:not_a_list, :events}}} = Approval.replay(:bogus)
   end
 
@@ -829,6 +840,184 @@ defmodule Elzoo.ApprovalTest do
     assert {:error, {:invalid_input, {:bound_exceeded, :events}}} =
              Approval.replay(List.duplicate({:revoked, {"v", "e"}}, 65_537))
   end
+
+  # ------------------------------------------------------------------ input validation (PR review 1-3)
+
+  defp put_target(decision, target) do
+    w = %{post() | target: target}
+    action = %{decision.action | writes: [w]}
+    %{decision | action: action, escrowed: [w]}
+  end
+
+  test "request/3 validates the decision fully: malformed input is invalid_input, never a crash" do
+    s = Approval.new()
+
+    assert {:error, {:invalid_input, _}} =
+             Approval.request(s, "run-1", %{
+               verdict: :ask,
+               action: %{},
+               escrowed: [],
+               policy: %{},
+               requirement: %{}
+             })
+
+    assert {:error, {:invalid_input, :decision}} = Approval.request(s, "run-1", :ask)
+    d = decision()
+
+    assert {:error, {:invalid_input, {:unknown_field, :extra}}} =
+             Approval.request(s, "run-1", Map.put(d, :extra, 1))
+
+    assert {:error, {:invalid_input, :escrow_not_action_writes}} =
+             Approval.request(s, "run-1", %{d | escrowed: [%{post() | value: 1}]})
+
+    assert {:error, {:invalid_input, :writes_not_normalized}} =
+             Approval.request(s, "run-1", %{d | escrowed: d.escrowed ++ d.escrowed})
+
+    assert {:error, {:invalid_input, :content_hash}} =
+             Approval.request(s, "run-1", %{d | policy: %{d.policy | content_hash: "x"}})
+
+    assert {:error, {:invalid_input, :scope}} =
+             Approval.request(s, "run-1", %{d | requirement: %{d.requirement | scope: :forever}})
+
+    assert {:error, {:invalid_input, :value_not_normalized}} =
+             Approval.request(s, "run-1", %{
+               d
+               | action: %{d.action | payload: {:record, [{"b", 1}, {"a", 1}]}}
+             })
+  end
+
+  test "request/3 bounds: a 1024-byte write target is accepted, 1025 and 5000 bytes are rejected" do
+    d = decision()
+
+    assert {:ok, _, _, {:requested, _}} =
+             Approval.request(Approval.new(), "run-1", put_target(d, String.duplicate("t", 1024)))
+
+    for n <- [1025, 5000] do
+      assert {:error, {:invalid_input, {:bound_exceeded, :target}}} =
+               Approval.request(Approval.new(), "run-1", put_target(d, String.duplicate("t", n)))
+    end
+  end
+
+  test "apply_event validates every event kind with the live bounds (limit and limit + 1)" do
+    s = Approval.new()
+    big = String.duplicate("v", 1024)
+    over = big <> "v"
+    assert {:ok, _} = Approval.apply_event(s, {:revoked, {big, "id"}})
+
+    assert {:error, {:invalid_input, {:bound_exceeded, :verifier}}} =
+             Approval.apply_event(s, {:revoked, {over, "id"}})
+
+    {:ok, _, req, {:requested, _} = requested} = Approval.request(s, "run-1", decision())
+    tenant = fn t -> {:requested, put_in(req, [:binding, :action, :tenant], t)} end
+    assert {:ok, _} = Approval.apply_event(s, tenant.(big))
+
+    assert {:error, {:invalid_input, {:bound_exceeded, :tenant}}} =
+             Approval.apply_event(s, tenant.(over))
+
+    assert {:error, {:invalid_input, :request_key_binding}} =
+             Approval.apply_event(s, {:requested, %{req | key: put_elem(req.key, 1, "other")}})
+
+    assert {:error, {:invalid_input, :request}} =
+             Approval.apply_event(s, {:requested, %{req | status: :released}})
+
+    {:ok, s1} = Approval.apply_event(s, requested)
+
+    {:ok, _, _, {:superseded, old, new_req} = sup} =
+      Approval.request(s1, "run-1", decision(:once, payload: {:text, "v2"}))
+
+    assert {:ok, _} = Approval.apply_event(s1, sup)
+
+    assert {:error, {:invalid_input, :superseded_event}} =
+             Approval.apply_event(
+               s1,
+               {:superseded, old, %{new_req | key: put_elem(new_req.key, 4, 5)}}
+             )
+
+    assert {:error, {:invalid_input, {:bound_exceeded, :run}}} =
+             Approval.apply_event(s1, {:superseded, put_elem(old, 0, over), new_req})
+
+    {:released, _, _, {:released, rel, nil} = released} =
+      Approval.release(s1, req.key, evidence(req.key), context())
+
+    assert {:ok, _} = Approval.apply_event(s1, released)
+    assert {:ok, _} = Approval.apply_event(s1, {:released, %{rel | run: big}, nil})
+
+    assert {:error, {:invalid_input, {:bound_exceeded, :run}}} =
+             Approval.apply_event(s1, {:released, %{rel | run: over}, nil})
+
+    max = Integer.pow(2, 63) - 1
+    assert {:ok, _} = Approval.apply_event(s1, {:released, %{rel | released_at: max}, nil})
+
+    assert {:error, {:invalid_input, {:bound_exceeded, :released_at}}} =
+             Approval.apply_event(s1, {:released, %{rel | released_at: max + 1}, nil})
+
+    assert {:error, {:invalid_input, {:bound_exceeded, :evidence_id}}} =
+             Approval.apply_event(
+               s1,
+               {:released, put_in(rel, [:evidence, :evidence_id], over), nil}
+             )
+
+    assert {:error, {:invalid_input, :released_writes}} =
+             Approval.apply_event(s1, {:released, %{rel | writes: [%{post() | value: 2}]}, nil})
+
+    assert {:error, {:invalid_input, :consent}} =
+             Approval.apply_event(
+               s1,
+               {:released, rel,
+                %{evidence: rel.evidence, binding: rel.binding, run: "other", root: rel.root}}
+             )
+
+    assert {:error, {:invalid_input, :event}} = Approval.apply_event(s1, {:unknown, 1})
+  end
+
+  test "a forged released or consent event with a rejecting decision is refused" do
+    {s, key} = setup_request(:run)
+
+    {:released, s2, _, {:released, rel, consent} = released} =
+      Approval.release(s, key, evidence(key, scope: :run), context(:run))
+
+    forged_rel = put_in(rel, [:evidence, :decision], :reject)
+
+    assert {:error, {:invalid_input, :not_approving_evidence}} =
+             Approval.replay([
+               elem(Approval.request(Approval.new(), "run-1", decision(:run)), 3),
+               {:released, forged_rel, nil}
+             ])
+
+    forged_consent = put_in(consent, [:evidence, :decision], :reject)
+
+    assert {:error, {:invalid_input, :not_approving_evidence}} =
+             Approval.apply_event(
+               s,
+               {:released, %{rel | evidence: forged_rel.evidence}, forged_consent}
+             )
+
+    # Defence in depth: even a state forged below the Elixir boundary fails closed in Cure.
+    forged = flip(s2.cure)
+    assert {:ok, %{}} = {:ok, Approval.inspect_state(%Approval.State{cure: forged})}
+
+    assert {:refused, :rejected_by_reviewer} =
+             Approval.revalidate(%Approval.State{cure: forged}, key, context(:run))
+
+    assert :ok = Approval.revalidate(s2, key, context(:run))
+
+    {:ok, s3, again, _} = Approval.request(s2, "run-1", decision(:run))
+    assert {:ok, _} = Approval.select_retained(s3, again.key, context(:run))
+    forged3 = %Approval.State{cure: flip(s3.cure)}
+
+    assert {:refused, :no_retained_consent} =
+             Approval.select_retained(forged3, again.key, context(:run))
+
+    assert :no_retained_consent =
+             refused(Approval.release(forged3, again.key, :retained, context(:run)))
+
+    _ = released
+  end
+
+  defp flip(:ApprApprove), do: :ApprReject
+  defp flip(t) when is_tuple(t), do: t |> Tuple.to_list() |> Enum.map(&flip/1) |> List.to_tuple()
+  defp flip(l) when is_list(l), do: Enum.map(l, &flip/1)
+  defp flip(x), do: x
 
   # ------------------------------------------------------------------ pinned refusal order (Q5)
 

@@ -57,21 +57,43 @@ defmodule Elzoo.Approval do
 
   def request(_, _, _), do: {:error, {:invalid_input, :state}}
 
-  defp binding_from_decision(%{
-         verdict: :ask,
-         action: action,
-         escrowed: escrowed,
-         policy: policy,
-         requirement: req
-       })
-       when is_map(action) and is_list(escrowed) and is_map(policy) and is_map(req) do
-    {:ok, %{action: action, escrowed: escrowed, policy: policy, requirement: req}}
+  # The decision is validated fully with the domain/authorization validators and
+  # bounds before evaluation; malformed or over-bound input is invalid_input.
+  defp binding_from_decision(%{verdict: :ask} = d) do
+    with :ok <-
+           Auth.exact_keys(
+             d,
+             [:verdict, :action, :escrowed, :policy, :requirement],
+             [:reason, :permitted, :rules],
+             :invalid_input
+           ) do
+      validate_binding(%{
+        action: d.action,
+        escrowed: d.escrowed,
+        policy: d.policy,
+        requirement: d.requirement
+      })
+    end
   end
 
   defp binding_from_decision(%{verdict: v}) when v in [:allow, :deny],
     do: {:error, {:invalid_input, :not_ask}}
 
   defp binding_from_decision(_), do: {:error, {:invalid_input, :decision}}
+
+  defp validate_binding(%{action: a, escrowed: es, policy: p, requirement: r} = b)
+       when map_size(b) == 4 do
+    with {:ok, _} <- Auth.validate_action(a),
+         {:ok, _} <- Auth.validate_writes(es),
+         :ok <-
+           if(es == a.writes, do: :ok, else: {:error, {:invalid_input, :escrow_not_action_writes}}),
+         {:ok, _} <- Auth.validate_identity(p),
+         {:ok, _} <- Auth.validate_requirement(r) do
+      {:ok, b}
+    end
+  end
+
+  defp validate_binding(_), do: {:error, {:invalid_input, :binding}}
 
   # ------------------------------------------------------------------ release
 
@@ -310,11 +332,17 @@ defmodule Elzoo.Approval do
   defp source(:retained), do: {:ok, :ApprRetained}
 
   defp source(%{} = e) when not is_struct(e) do
+    with {:ok, ev} <- validate_evidence(e), do: {:ok, {:ApprFresh, encode_evidence(ev)}}
+  end
+
+  defp source(_), do: {:error, {:invalid_input, :evidence}}
+
+  defp validate_evidence(%{} = e) when not is_struct(e) do
     with :ok <- Auth.exact_keys(e, @evidence_keys, [], :invalid_input),
-         {:ok, v} <- Auth.identity_field(e.verifier, :verifier, :invalid_input),
-         {:ok, id} <- Auth.identity_field(e.evidence_id, :evidence_id, :invalid_input),
-         {:ok, reviewer} <- Auth.identity_field(e.reviewer, :reviewer, :invalid_input),
-         {:ok, req} <- validate_key(e.request),
+         {:ok, _} <- Auth.identity_field(e.verifier, :verifier, :invalid_input),
+         {:ok, _} <- Auth.identity_field(e.evidence_id, :evidence_id, :invalid_input),
+         {:ok, _} <- Auth.identity_field(e.reviewer, :reviewer, :invalid_input),
+         {:ok, _} <- validate_key(e.request),
          :ok <- member(e.decision, [:approve, :reject], :decision),
          :ok <- member(e.scope, [:once, :run, :root], :scope),
          :ok <- time(e.issued_at, 0, :issued_at, :invalid_input),
@@ -324,13 +352,11 @@ defmodule Elzoo.Approval do
              do: :ok,
              else: {:error, {:invalid_input, :expiry_not_after_issue}}
            ) do
-      {:ok,
-       {:ApprFresh,
-        encode_evidence(%{e | verifier: v, evidence_id: id, reviewer: reviewer, request: req})}}
+      {:ok, e}
     end
   end
 
-  defp source(_), do: {:error, {:invalid_input, :evidence}}
+  defp validate_evidence(_), do: {:error, {:invalid_input, :evidence}}
 
   defp member(v, allowed, name),
     do: if(v in allowed, do: :ok, else: {:error, {:invalid_input, name}})
@@ -448,12 +474,97 @@ defmodule Elzoo.Approval do
 
   # Events come from the owner's own retained log; shape is checked by a
   # strict encode, and re-decoding must reproduce the input exactly.
+  # Events are validated with the same validators and bounds as the live
+  # transition that produced them, plus the invariants that transition
+  # guarantees, before they are encoded. A log entry is never trusted.
   defp encode_event_checked(event) do
-    encoded = encode_event(event)
-    if decode_event(encoded) == event, do: {:ok, encoded}, else: {:error, {:invalid_input, :event}}
-  rescue
-    _ -> {:error, {:invalid_input, :event}}
+    with :ok <- validate_event(event), do: {:ok, encode_event(event)}
   end
+
+  defp validate_event({:revoked, {v, id}}) do
+    with {:ok, _} <- Auth.identity_field(v, :verifier, :invalid_input),
+         {:ok, _} <- Auth.identity_field(id, :evidence_id, :invalid_input),
+         do: :ok
+  end
+
+  defp validate_event({:requested, req}), do: validate_request_record(req)
+
+  defp validate_event({:superseded, old, req}) do
+    with {:ok, {run, aid, _, _, rev}} <- validate_key(old),
+         :ok <- validate_request_record(req),
+         {^run, ^aid, _, _, new_rev} <- req.key,
+         true <- new_rev == rev + 1 do
+      :ok
+    else
+      {:error, _} = error -> error
+      _ -> {:error, {:invalid_input, :superseded_event}}
+    end
+  end
+
+  defp validate_event({:released, rel, consent}) do
+    with :ok <- validate_release_record(rel),
+         :ok <- validate_consent(consent, rel),
+         do: :ok
+  end
+
+  defp validate_event(_), do: {:error, {:invalid_input, :event}}
+
+  defp validate_request_record(%{key: key, binding: b, status: :open} = r) when map_size(r) == 3 do
+    with {:ok, {_run, aid, name, version, _rev}} <- validate_key(key),
+         {:ok, b} <- validate_binding(b),
+         true <-
+           aid == b.action.action_id and name == b.requirement.name and
+             version == b.requirement.version do
+      :ok
+    else
+      {:error, _} = error -> error
+      _ -> {:error, {:invalid_input, :request_key_binding}}
+    end
+  end
+
+  defp validate_request_record(_), do: {:error, {:invalid_input, :request}}
+
+  @release_keys [:key, :binding, :writes, :evidence, :run, :root, :released_at]
+
+  defp validate_release_record(%{} = rel) when not is_struct(rel) do
+    with :ok <- Auth.exact_keys(rel, @release_keys, [], :invalid_input),
+         {:ok, _} <- validate_key(rel.key),
+         {:ok, b} <- validate_binding(rel.binding),
+         {:ok, _} <- Auth.validate_writes(rel.writes),
+         :ok <-
+           if(rel.writes == b.escrowed, do: :ok, else: {:error, {:invalid_input, :released_writes}}),
+         {:ok, ev} <- validate_evidence(rel.evidence),
+         :ok <- approving(ev),
+         {:ok, _} <- Auth.identity_field(rel.run, :run, :invalid_input),
+         {:ok, _} <- Auth.identity_field(rel.root, :root, :invalid_input),
+         :ok <- time(rel.released_at, 0, :released_at, :invalid_input) do
+      :ok
+    end
+  end
+
+  defp validate_release_record(_), do: {:error, {:invalid_input, :release}}
+
+  defp validate_consent(nil, _rel), do: :ok
+
+  defp validate_consent(%{evidence: ev, binding: b, run: run, root: root} = c, rel)
+       when map_size(c) == 4 do
+    with {:ok, ev} <- validate_evidence(ev),
+         :ok <- approving(ev),
+         true <-
+           ev.scope in [:run, :root] and ev == rel.evidence and b == rel.binding and run == rel.run and
+             root == rel.root do
+      :ok
+    else
+      {:error, _} = error -> error
+      _ -> {:error, {:invalid_input, :consent}}
+    end
+  end
+
+  defp validate_consent(_, _), do: {:error, {:invalid_input, :consent}}
+
+  # A live release only ever records approving evidence.
+  defp approving(%{decision: :approve}), do: :ok
+  defp approving(_), do: {:error, {:invalid_input, :not_approving_evidence}}
 
   defp decode_refusal({:RDenyAtRelease, reason}),
     do: {:deny_at_release, Auth.decode_reason(reason, nil)}

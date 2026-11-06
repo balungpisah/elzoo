@@ -542,7 +542,7 @@ mod Elzoo.Approval
   @total true
   @reducible
   fn candidate_ok(s: ApprState, k: ApprKey, b: ApprBinding, c: ApprConsent, ctx: ApprContext) -> Bool =
-    both(eq_binding(c.binding, b), not_b(blocks_any([g_verifier(c.evidence, ctx), g_revoked(s, c.evidence), g_consumed(s, c.evidence), g_reuse(s, c.evidence, Some(b)), g_issued(c.evidence, ctx), g_age(c.evidence, ctx), g_expiry(c.evidence, ctx), g_scope(c.evidence, Some(b), k, c.run, c.root, ctx)])))
+    both(eq_binding(c.binding, b), not_b(blocks_any([g_verifier(c.evidence, ctx), g_revoked(s, c.evidence), g_consumed(s, c.evidence), g_reuse(s, c.evidence, Some(b)), g_decision(c.evidence), g_issued(c.evidence, ctx), g_age(c.evidence, ctx), g_expiry(c.evidence, ctx), g_scope(c.evidence, Some(b), k, c.run, c.root, ctx)])))
 
   @total true
   @reducible
@@ -606,7 +606,8 @@ mod Elzoo.Approval
           None() -> SelectRefused(RNoRetainedConsent())
           Some(c) -> SelectedConsent(c)
 
-  # Checks 1-3, then filter on 5-8 and 10-13, then deterministic choice.
+  # Checks 1-3, then filter on 5-13 (check 9 fails closed on a forged log),
+  # then deterministic choice.
   @total true
   @reducible
   fn select_after_run(run_ok: Bool, s: ApprState, k: ApprKey, ctx: ApprContext) -> ApprSelection =
@@ -752,12 +753,12 @@ mod Elzoo.Approval
   fn release(s: ApprState, k: ApprKey, src: ApprSource, ctx: ApprContext) -> ApprStep =
     finish_release(release_check(s, k, src, ctx), s, k, src, ctx)
 
-  # Restore of a recorded release: checks 0, 5, 6, 10-21 from the stored
+  # Restore of a recorded release: checks 0, 5, 6, 9, 10-21 from the stored
   # evidence, binding, run and root. Returns a check, never writes.
   @total true
   @reducible
   fn revalidate_record(rel: ApprRelease, s: ApprState, k: ApprKey, ctx: ApprContext) -> ApprCheck =
-    run_gates(append_gates([g_run(k, ctx), g_verifier(rel.evidence, ctx), g_revoked(s, rel.evidence), g_issued(rel.evidence, ctx), g_age(rel.evidence, ctx), g_expiry(rel.evidence, ctx), g_scope(rel.evidence, Some(rel.binding), k, rel.run, rel.root, ctx)], tail_gates(rel.evidence, Some(rel.binding), ctx)), ApprApproved(rel.evidence, rel.binding, rel.run, rel.root))
+    run_gates(append_gates([g_run(k, ctx), g_verifier(rel.evidence, ctx), g_revoked(s, rel.evidence), g_decision(rel.evidence), g_issued(rel.evidence, ctx), g_age(rel.evidence, ctx), g_expiry(rel.evidence, ctx), g_scope(rel.evidence, Some(rel.binding), k, rel.run, rel.root, ctx)], tail_gates(rel.evidence, Some(rel.binding), ctx)), ApprApproved(rel.evidence, rel.binding, rel.run, rel.root))
 
   @total true
   @reducible

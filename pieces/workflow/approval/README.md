@@ -169,7 +169,12 @@ Elzoo.Approval.request(state, run, decision)
   `latest revision + 1`; event `{:requested, request}` (F5c). A released
   request is never reopened or released twice.
 
-A non-ASK decision is `{:invalid_input, :not_ask}`.
+A non-ASK decision is `{:invalid_input, :not_ask}`. The decision is
+validated fully before evaluation with the `domain/authorization` validators
+and bounds (action, escrow, policy identity, requirement); the escrow must
+equal the action's writes and every list must already be normalized.
+Malformed or over-bound input is `{:error, {:invalid_input, r}}`; nothing is
+repaired or truncated (PR #59 review, finding 1).
 
 ```elixir
 Elzoo.Approval.release(state, key, evidence | :retained, context)
@@ -258,9 +263,11 @@ check 14 refuses with `:approver_mismatch`, failing closed. Selection order
 
 1. Run checks 0–3 on the request first, so their reasons are never hidden.
 2. Candidates: retained consents whose binding equals the request's binding
-   structurally and that pass checks 5–8 and 10–13 against this context
-   (allowlist, revocation, consumption, binding reuse, issue time, age,
-   expiry, scope). Stale or expired consents drop out here.
+   structurally and that pass checks 5–13 against this context
+   (allowlist, revocation, consumption, binding reuse, reviewer decision,
+   issue time, age, expiry, scope). Stale, expired or rejecting consents drop
+   out here; check 9 fails closed even on a state forged below the Elixir
+   boundary (PR #59 review, note 3).
 3. If no candidate remains → `{:refused, :no_retained_consent, state}`.
 4. Otherwise choose deterministically: earliest `issued_at`, then evidence key
    `(verifier, evidence_id)` in UTF-8 byte order (F5d). `release/4` then
@@ -302,7 +309,7 @@ input, never a bypass:
   evidence record it stored itself; `:retained` is only for run/root.
 - **Release recorded, dispatch not confirmed:**
   `Elzoo.Approval.revalidate(state, key, context) :: :ok | {:refused, reason} | {:error, {class, r}}`
-  reruns checks 0, 5, 6, 10–21 against the **full evidence record stored in
+  reruns checks 0, 5, 6, 9, 10–21 against the **full evidence record stored in
   the release record** (N2) and current context. Check 13 uses the `run` and
   `root` stored in the release record; there is no lookup in `consents` (S1).
   No release record for `key` → `{:refused, :not_released}`. Elixir
@@ -336,6 +343,17 @@ Replay rebuilds the state the live transitions built. It returns **state
 only**; it never returns or re-emits writes. Re-applying a present
 `:released` event is idempotent. After replay, release of an already released
 key emits nothing. A refused release produces no event.
+
+The log is not trusted. `apply_event/2` (and so `replay/1`) validates each
+event with the same validators and bounds as the live transition that
+produced it, and with that transition's invariants: identities and times in
+range; request status `:open` and key consistent with its binding;
+supersession to exactly `revision + 1` in the same Run and action; released
+writes equal to the bound escrow; release and consent evidence approving,
+consent scope run/root and consent equal to its release record. Any fault is
+`{:error, {:invalid_input, r}}` (PR #59 review, finding 2). Validation cannot
+show that an internally consistent event was really produced by a live
+transition; that origin remains the owner's assumption.
 
 ### Model text
 
@@ -543,7 +561,10 @@ from a configured verifier; trusted proposer identity and host-derived effect
 class; a trusted clock translated to Unix ms (skew is the owner's
 assumption); trusted Run/root/ancestry; durable retention of events if
 approvals must survive restart; serialization of transitions per state value
-(the owner serializes; there is no internal lock).
+(the owner serializes; there is no internal lock); integrity of the owner's
+event log beyond the structural and invariant validation of `apply_event/2`
+(a consistent, approving event that was never produced live cannot be
+detected).
 
 Not claimed: durable storage, cross-owner or exactly-once dispatch of the
 released writes (the caller dispatches; a timeout after dispatch is an
