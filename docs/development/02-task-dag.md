@@ -49,7 +49,7 @@ The first batch follows the catalogue phases:
                 ELZ-003, ELZ-015 -> ELZ-024
                 ELZ-021 -> ELZ-025
                 ELZ-003 -> ELZ-026
-                ELZ-003, ELZ-006 -> ELZ-027
+                ELZ-003 -> ELZ-027
                 ELZ-009, ELZ-010 -> ELZ-028
                 ELZ-006 -> ELZ-029
                 ELZ-003, ELZ-024 -> ELZ-030
@@ -80,7 +80,7 @@ Detailed edges (direct dependencies; transitive reachability is omitted):
     ELZ-003 -> ELZ-004, ELZ-005, ELZ-007, ELZ-022, ELZ-024, ELZ-026, ELZ-027, ELZ-030, ELZ-031
     ELZ-004 -> ELZ-005, ELZ-006, ELZ-008, ELZ-011, ELZ-022
     ELZ-005 -> ELZ-006, ELZ-008
-    ELZ-006 -> ELZ-008, ELZ-011, ELZ-023, ELZ-027, ELZ-029
+    ELZ-006 -> ELZ-008, ELZ-011, ELZ-023, ELZ-029
     ELZ-007 -> ELZ-008
     ELZ-008 -> ELZ-009, ELZ-010
     ELZ-009 -> ELZ-010, ELZ-023, ELZ-028
@@ -117,7 +117,7 @@ Detailed edges (direct dependencies; transitive reachability is omitted):
 | ELZ-024 | demand-led | domain/authorization, workflow/approval | ELZ-003, ELZ-015 | ALLOW/ASK/DENY reducer and payload-bound approval as two Pieces |
 | ELZ-025 | P0 | Ecosystem adopt-or-distill study, round 2 | ELZ-021 | Sixteen packages pinned and judged; six demand-led task bodies, design tests on ELZ-009/010/011/022/023/024, reason text; no new runtime |
 | ELZ-026 | demand-led | workflow/dependency-graph | ELZ-003 | Pure readiness and cycle admission with provenance-tagged facts |
-| ELZ-027 | demand-led | delivery/trigger (schedule occurrence) | ELZ-003, ELZ-006 | Occurrence identity and declared overlap policy |
+| ELZ-027 | demand-led | delivery/trigger (schedule occurrence) | ELZ-003 | Occurrence identity and declared overlap policy |
 | ELZ-028 | demand-led | state/lease | ELZ-009, ELZ-010 | Revision-fenced single-owner lease; opened only if the job provider's contract is insufficient |
 | ELZ-029 | demand-led | runtime/os-isolation | ELZ-006 | OS-process Adapter with group-scoped, observed termination |
 | ELZ-030 | demand-led | workflow/context-selection | ELZ-003, ELZ-024 | Bounded, permission-checked selection with drop reasons |

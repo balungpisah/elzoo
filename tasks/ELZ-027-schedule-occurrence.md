@@ -2,7 +2,7 @@
 
 - Phase: demand-led delivery policy
 - Catalogue IDs: delivery/trigger (schedule occurrence slice)
-- Dependencies: ELZ-003, ELZ-006 (delivery/time clock port)
+- Dependencies: ELZ-003
 
 ## Outcome
 
@@ -47,8 +47,8 @@ and the overlap decision are Elzoo's.
    identity determinism and the per-policy bound over the pure transition.
    Tests: restart with an unsettled occurrence, generation conflict, stale
    delivery, each overlap policy.
-6. **Composition record.** Depends on delivery/time (the clock port ELZ-006
-   delivers; this is the ELZ-006 dependency), core/envelope
+6. **Composition record.** Depends on the ready delivery/time recipe (clock port; no open task
+   owns it), core/envelope
    result schema and delivery/idempotency on the consumer side; durable
    occurrences compose with ELZ-009 once available (volatile until then).
    Data classification: schedule metadata only.
