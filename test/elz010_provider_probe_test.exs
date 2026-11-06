@@ -414,23 +414,25 @@ defmodule Elzoo.Elz010ProviderProbeTest do
     assert head == {:ok, %{revision: 0, low_water: 0}} and P.count("oban_jobs") == 0
   end
 
-  test "S2 a Store conflict inside a caller transaction aborts the caller transaction", %{store: s} do
+  # Before ELZ-032 (#52) merged, a stale append inside the caller transaction
+  # aborted it ({:error, :rollback}, no job; recorded in docs/work/ELZ-010.md).
+  # With ELZ-032 the Store refuses before any statement, so the caller's
+  # transaction is left intact.
+  test "S2 a Store call inside a caller transaction is refused and leaves it intact (ELZ-032)",
+       %{store: s} do
     oban(S2, queues: [])
     {:committed, 1} = append(s, "job/q/b", 0, [{"accepted", "b"}])
 
     outer =
       Repo.transaction(fn ->
-        _ = append(s, "job/q/b", 0, [{"accepted", "b2"}])
-
-        try do
-          Oban.insert(S2, RecordJob.new(%{"tag" => "b"}))
-        rescue
-          e -> {:raised, e.__struct__}
-        end
+        inner = append(s, "job/q/b", 0, [{"accepted", "b2"}])
+        {:ok, _} = Oban.insert(S2, RecordJob.new(%{"tag" => "b"}))
+        inner
       end)
 
     IO.puts("ELZ-010 S2: outer=#{inspect(outer)} jobs=#{P.count("oban_jobs")}")
-    assert match?({:error, _}, outer) and P.count("oban_jobs") == 0
+    assert outer == {:ok, {:rejected, :caller_transaction}} and P.count("oban_jobs") == 1
+    assert Postgres.head(s, "job/q/b") == {:ok, %{revision: 1, low_water: 0}}
   end
 
   test "S3 submission stream relay: crash before relay, crash between insert and ack, re-offer dedups",
