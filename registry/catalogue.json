@@ -301,10 +301,10 @@
     {
       "id": "domain/authorization",
       "summary": "Action/resource authorization decisions",
-      "disposition": "defer",
+      "disposition": "own",
       "phase": "demand-led",
-      "status": "deferred",
-      "reason": "Principal, tenant, resource, action and policy version for C1/C3/C6; compare application/provider policy libraries; no security guarantee claimed. ELZ-015 evaluates Ash policies in a volatile spike; production identity/concurrency and optional Cedar integration remain unadopted. ELZ-024 carries the admission record for the decision reducer."
+      "status": "ready",
+      "manifest": "pieces/domain/authorization/piece.json"
     },
     {
       "id": "domain/entitlement",
@@ -692,10 +692,10 @@
     {
       "id": "workflow/approval",
       "summary": "Approval of an exact proposed action",
-      "disposition": "defer",
+      "disposition": "own",
       "phase": "demand-led",
-      "status": "deferred",
-      "reason": "Actor/resource/payload/policy-bound decision with expiry or revocation contract for C1/C3/C6; authorization remains separate; no durable approval system implemented. ELZ-024 carries the admission record for the consent half."
+      "status": "ready",
+      "manifest": "pieces/workflow/approval/piece.json"
     },
     {
       "id": "workflow/budget",

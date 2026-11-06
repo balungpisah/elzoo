@@ -1,14 +1,10 @@
 # domain/authorization
 
-> **Stage 1 Contract draft, revision 4 (ELZ-024, issue #38).** No
-> implementation exists yet. Revision 3 resolves early review findings 1–11
-> ([review](https://github.com/balungpisah/elzoo/issues/38#issuecomment-6694306514))
-> and re-check findings N1–N6
-> ([re-check](https://github.com/balungpisah/elzoo/issues/38#issuecomment-6694511264))
-> and R3–R8
-> ([re-check 2](https://github.com/balungpisah/elzoo/issues/38#issuecomment-6694625838)).
-> Nothing here is executed evidence. `piece.json` and the ledger row are added
-> only with the implementation.
+> **Ready (subset), ELZ-024 / issue #38.** Contract reviewed at `62da286`
+> ([re-check 3 PASS](https://github.com/balungpisah/elzoo/issues/38#issuecomment-6694767984))
+> after early review findings 1–11, N1–N6 and S1–S2/R3–R8. Grounding is in
+> [piece.json](piece.json); the Cure source is
+> [cure/elzoo/authorization.cure](cure/elzoo/authorization.cure).
 
 Pure decision for one proposed action: reduce an ordered list of typed policy
 rules to **ALLOW**, **ASK** or **DENY**, after checking the proposal against the
@@ -289,28 +285,32 @@ Native `<=`, `<` and `+` are likewise neutral on symbolic values
 integer ordering/arithmetic is planned (R5).
 
 ```cure
-type Verdict = Allow | Ask | Deny
-type Value = VNull | VBool(Bool) | VInt(Int) | VText(List(Int)) | VBytes(List(Int))
-           | VList(List(Value)) | VRecord(List(Field))
-type Field = FieldOf(List(Int), Value)
-type Match(t) = Any | Exact(t)
-rec Write   target: List(Int), field: List(Int), value: Value
-rec Rule    id, effect_class, principal, tenant, resource, payload, target, field, value, verdict, requirement
-rec Policy  identity: PolicyIdentity, rules: List(Rule)
-rec Action  proposer, tenant, resource, action_id, effect_class, payload: Value, writes: List(Write)
-rec Outcome verdict: Verdict, reason: Reason, permitted: List(Write), escrowed: List(Write), requirement: Option(Requirement)
-type FailureClass = InvalidInput | UnavailableContext
-type DecideResult = Decided(Outcome) | DecideFailed(FailureClass, FailureCode)
+type AuthVerdict = AuthAllow | AuthAsk | AuthDeny
+type AuthValue = AVNull | AVBool(Bool) | AVInt(Int) | AVText(List(Int)) | AVBytes(List(Int))
+               | AVList(List(AuthValue)) | AVRecord(List(AuthField))
+type AuthField = AuthFieldOf(List(Int), AuthValue)
+type AuthMatchText = AnyText | ExactText(List(Int))
+type AuthMatchValue = AnyValue | ExactValue(AuthValue)
+rec AuthWrite   target, field: List(Int), value: AuthValue
+rec AuthRule    id, effect_class, principal, tenant, resource, payload, target, field, value, verdict, requirement
+rec AuthPolicy  identity: AuthPolicyIdentity, rules: List(AuthRule)
+rec AuthAction  proposer, tenant, resource, action_id, effect_class, payload: AuthValue, writes: List(AuthWrite)
+rec AuthOutcome verdict, reason, permitted, escrowed, requirement: Option(AuthRequirement), rules
+type AuthParent = NoParent | ParentAuthority(List(AuthWrite))
+type AuthDecideResult = Decided(AuthOutcome) | DecideFailed(AuthFailureClass, AuthFailure)
 
-fn decide(policy: Policy, action: Action, own: List(Write), parent: Option(List(Write))) -> DecideResult
-fn permitted_of(r: DecideResult) -> List(Write)   # [] for DecideFailed
-fn escrowed_of(r: DecideResult) -> List(Write)    # [] for DecideFailed
+fn decide(policy: AuthPolicy, a: AuthAction, own: List(AuthWrite), parent: AuthParent) -> AuthDecideResult
+  # = contain(subset(a.writes, own), parent_ok(a.writes, parent), policy, a, a.writes)
+fn permitted_of(r: AuthDecideResult) -> List(AuthWrite)   # [] for DecideFailed
+fn escrowed_of(r: AuthDecideResult) -> List(AuthWrite)    # [] for DecideFailed
 ```
 
-Cure `decide` reports only failures it can detect on already validated input
-(today: `DecideFailed(UnavailableContext, AmbiguousRequirement)`); Elixir maps
-`DecideFailed` to the matching `{:error, {class, reason}}`. Module and fixture
-names may change; the semantics above may not.
+Record and constructor names carry an `Auth` prefix because Cure record tags
+must be unique across Piece copies. Cure `decide` reports only failures it can
+detect on already validated input: `DecideFailed(FailUnavailableContext,
+AmbiguousRequirement(list))` and, defensively, `MissingRequirement` (an ASK
+rule without a requirement; Elixir validation rejects such a policy first).
+Elixir maps `DecideFailed` to `{:error, {class, reason}}`.
 
 ## Selected laws (Cure-checked)
 
@@ -330,22 +330,28 @@ reported; the law is not weakened.
 
 | Law | Cure function | Statement |
 | --- | --- | --- |
-| `deny_absorbs_left/right` | `join` | `join(Deny, v) = Deny`, `join(v, Deny) = Deny` for all `v` |
-| `ask_over_allow_left/right` | `join` | `join(Ask, Allow) = Ask = join(Allow, Ask)` |
+| `deny_absorbs_left`, `deny_absorbs_right` | `join` | `join(AuthDeny, v) = AuthDeny`, `join(v, AuthDeny) = AuthDeny` for all `v` |
+| `ask_over_allow_left`, `ask_over_allow_right` | `join` | `join(AuthAsk, AuthAllow) = AuthAsk = join(AuthAllow, AuthAsk)` |
 | `join_comm`, `join_assoc`, `join_idem` | `join` | exhaustive over the 3 verdicts |
-| `deny_anywhere` | `join_all` | for all `p`, `s`: `join_all(p ++ [Deny \| s]) = Deny` (induction) |
-| `reduced_dominates` | `join_all` | for all `p`, `v`, `s`: `join(join_all(p ++ [v \| s]), v) = join_all(p ++ [v \| s])` (induction) |
-| `ask_escrows`, `deny_empty`, `allow_no_escrow` | `shape` | for all writes: ASK → `permitted = []`, `escrowed = writes`; DENY → both `[]`; ALLOW → `escrowed = []` |
+| `deny_anywhere` | `join_all` | for all `p`, `s`: `join_all(p ++ [Deny \| s]) = Deny` (induction on `p`) |
+| `reduced_dominates` | `join_all` | for all `p`, `v`, `s`: `join(join_all(p ++ [v \| s]), v) = join_all(p ++ [v \| s])` (induction; base case via the exhaustive lemma `join_absorb`) |
+| `ask_escrows`, `ask_permits_nothing` | `finish` | ASK with one requirement escrows exactly `ws`; ASK permits nothing for every requirement choice |
+| `deny_permits_nothing`, `deny_escrows_nothing`, `allow_escrows_nothing`, `exceeded_writes_nothing` | `finish`, `exceeded` | DENY permits and escrows nothing; ALLOW escrows nothing; the authority-exceeded decision escrows nothing |
 | `permitted_within_own`, `escrowed_within_own` | `decide` | for all policy, action, `own`, `parent`: `subset(permitted_of(decide(...)), own) = True`, likewise escrowed |
-| `permitted_within_parent`, `escrowed_within_parent` | `decide` | for all policy, action, `own`, `p`: `subset(permitted_of(decide(policy, action, own, Some(p))), p) = True`, likewise escrowed |
-| `text_ne_bytes`, `bytes_ne_text`, `int_ne_text`, `text_ne_int`, `int_ne_bool`, `bool_ne_int`, `bool_ne_text`, `null_ne_*`, `list_ne_record`, `record_ne_list` | `eq_value` | e.g. `eq_value(VText(x), VBytes(y)) = False` for all `x`, `y` (by reduction) |
+| `permitted_within_parent`, `escrowed_within_parent` | `decide` | for all policy, action, `own`, `p`: `subset(permitted_of(decide(policy, action, own, ParentAuthority(p))), p) = True`, likewise escrowed |
+| `deny_decision_escrows_nothing` | `decide` | if `verdict_of(decide(...)) = AuthDeny` then `escrowed_of(decide(...)) = []` (hypothesis form; used by the approval release laws) |
+| `text_ne_bytes`, `bytes_ne_text`, `int_ne_text`, `text_ne_int`, `int_ne_bool`, `bool_ne_int`, `bool_ne_text`, `null_ne_int`, `null_ne_bool`, `null_ne_text`, `list_ne_record`, `record_ne_list` | `eq_value` | e.g. `eq_value(AVText(x), AVBytes(y)) = False` for all `x`, `y` (by reduction) |
+
+The containment laws use the inspect pattern: a lemma cases on the Boolean
+containment result and receives its defining equation as an argument
+(`reflexive(subset(a.writes, own))`). Pinned Cure did not abstract
+`with subset(...)` inside these goals; that form is not used.
 
 `deny_anywhere` and `reduced_dominates` are about `join_all` over any verdict
 list; `decide` applies `join_all` to its per-write verdict list. That
 composition is by construction of the production source, reviewed, and
 covered by tests; no separate law states "decide's verdict equals join_all of
-its rule verdicts". A feasibility probe of these law shapes compiled on the
-pinned commit with a clean audit; that probe is not evidence for this Piece.
+its rule verdicts".
 
 ## Finite tests (not proofs)
 

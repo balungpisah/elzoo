@@ -1,14 +1,10 @@
 # workflow/approval
 
-> **Stage 1 Contract draft, revision 4 (ELZ-024, issue #38).** No
-> implementation exists yet. Revision 3 resolves early review findings 1–11
-> ([review](https://github.com/balungpisah/elzoo/issues/38#issuecomment-6694306514))
-> and re-check findings N1–N6
-> ([re-check](https://github.com/balungpisah/elzoo/issues/38#issuecomment-6694511264))
-> and S1–S2, R3–R8
-> ([re-check 2](https://github.com/balungpisah/elzoo/issues/38#issuecomment-6694625838)).
-> Nothing here is executed evidence. `piece.json` and the ledger row are added
-> only with the implementation.
+> **Ready (subset), ELZ-024 / issue #38.** Contract reviewed at `62da286`
+> ([re-check 3 PASS](https://github.com/balungpisah/elzoo/issues/38#issuecomment-6694767984))
+> after early review findings 1–11, N1–N6 and S1–S2/R3–R8; notes T1–T3 are
+> folded in below. Grounding is in [piece.json](piece.json); the Cure source is
+> [cure/elzoo/approval.cure](cure/elzoo/approval.cure).
 
 Pure consent record for one exact proposed action. It turns an ASK decision
 from [`domain/authorization`](../../domain/authorization/README.md) into an
@@ -119,6 +115,8 @@ unknown key, a malformed field or a bound exceeded is
 ```
 
 Missing or invalid context is `{:error, {:unavailable_context, reason}}`.
+**One exception (T2):** `select_retained/3` accepts a context without the
+`:approver` key and ignores it if present; every other function requires it.
 `context.authority` is exactly the `authority_context` of
 `Elzoo.Authorization.decide/3`.
 
@@ -250,10 +248,13 @@ Elzoo.Approval.select_retained(state, key, context)
 `select_retained` needs no `context.approver` (it ignores it). The owner then
 loads the selected consent's reviewer (`consent.evidence.reviewer`) and that
 reviewer's current authority as `context.approver`, and calls `release/4`
-with `:retained`. `release/4` runs the **same** Cure `select_retained` again
-on the same state and context, so it selects the same consent; if the
-supplied approver is not that reviewer, check 14 refuses with
-`:approver_mismatch`. Selection order (N5):
+with `:retained`. `release/4` runs the **same** Cure `select_retained` again.
+On the same state and the same context **except the approver** (T1) it
+selects the same consent; the approver is ignored by selection. If anything
+else changed in between (for example `now`, so the chosen consent expired),
+the selection may differ; the supplied approver is then not that reviewer and
+check 14 refuses with `:approver_mismatch`, failing closed. Selection order
+(N5):
 
 1. Run checks 0–3 on the request first, so their reasons are never hidden.
 2. Candidates: retained consents whose binding equals the request's binding
@@ -266,6 +267,13 @@ supplied approver is not that reviewer, check 14 refuses with
    applies checks 9 and 14–21 to it, using the consent's evidence record. Its refusal reason is returned; no other candidate is
    tried after that (the choice is fixed before the authority checks, so the
    reviewer named in the release record does not depend on authority state).
+
+**Fixed choice can block (T3).** Because the choice is made before checks 9
+and 14–21, the deterministic first candidate can block other valid consents
+when its reviewer lost authority (`:approver_not_authorized`) or the owner
+cannot supply that reviewer. The owner then revokes that consent
+(`revoke/2`) or obtains fresh evidence; this Piece never skips to the next
+candidate.
 
 Which request-key fields may differ from the consent's original request:
 
@@ -343,7 +351,7 @@ argument or chat turn, leaves the escrowed writes escrowed.
 | Encoding of state, evidence, context (incl. current policy, proposal, authority) to Cure terms; decoding | Elixir | finite tests incl. agreement test |
 | Validation of current policy/proposal/authority for check 16 (runs before check 0) | Elixir via `Elzoo.Authorization` validation | finite tests only |
 | Control key in current proposal → `{:deny_at_release, {:control_field, k}}` | Elixir | test-only (N3) |
-| Checks 0–15 and 17–21 | Cure `check` | laws below + tests |
+| Checks 0–15 and 17–21 (gate list `pre_gates`, `evidence_gates`, `tail_gates`) | Cure `release_check` / `run_gates` | laws below + tests |
 | Retained-consent filter and selection order (`select_retained`, also exposed in Elixir) | Cure `select_retained` | tests only (R7) |
 | Check 16 re-decide | Cure `release` calls Cure `Elzoo.Authorization.decide` on the encoded current policy, action, own, parent | `domain/authorization` laws |
 | Success transition (record, status, consent, consumed, writes) | Cure `release` | laws below |
@@ -358,14 +366,31 @@ test-only here and in `piece.json` before review, never presented as covered
 by a law.
 
 Cure source `pieces/workflow/approval/cure/elzoo/approval.cure`
-(`mod Elzoo.Approval`, `use Elzoo.Authorization`):
+(`mod Elzoo.Approval`, `use Elzoo.Authorization`; Authorization types are
+module-qualified, because unqualified imported type names are read as type
+variables by pinned Cure):
 
 ```cure
-type ReleaseCheck = Approved | Refused(RefusalCode)
-rec ReleaseStep state: ApprovalState, writes: List(Write), check: ReleaseCheck
-fn check(s: ApprovalState, key: RequestKey, ev: Evidence, ctx: ReleaseContext) -> ReleaseCheck
-fn release(s: ApprovalState, key: RequestKey, ev: Evidence, ctx: ReleaseContext) -> ReleaseStep
+type ApprGate = GatePass | GateRefuse(ApprRefusal) | GateFail(AuthFailureClass, AuthFailure)
+type ApprCheck = ApprApproved(ApprEvidence, ApprBinding, List(Int), List(Int))
+               | ApprRefused(ApprRefusal) | ApprFailed(AuthFailureClass, AuthFailure)
+type ApprSource = ApprFresh(ApprEvidence) | ApprRetained
+rec ApprStep state: ApprState, writes: List(AuthWrite), result: ApprCheck, event: Option(ApprEvent)
+
+fn run_gates(gs: List(ApprGate), final: ApprCheck) -> ApprCheck   # first blocking gate wins
+fn release_check(s, k, src, ctx) -> ApprCheck                      # gates 0-21 in order
+fn release_writes(ctx) -> List(AuthWrite)
+  # = guard(subset(escrowed_of(current(ctx)), approver_authority), escrowed_of(current(ctx)))
+fn release(s, k, src, ctx) -> ApprStep = finish_release(release_check(s, k, src, ctx), s, k, src, ctx)
+fn select_retained(s, k, ctx) -> ApprSelection
+fn revalidate(s, k, ctx) -> ApprCheck
+fn request(s, run, binding) -> ApprRequestStep
+fn apply_event(s, e) -> ApprState
 ```
+
+The success state is `apply_event(s, released_event(...))`, so a live release
+and the replay of its event build the state with the same function.
+(`check` is a reserved word in pinned Cure, hence `release_check`.)
 
 ## Selected laws (Cure-checked)
 
@@ -374,30 +399,41 @@ Subset is with respect to `eq_write`.
 
 | Law | Statement |
 | --- | --- |
-| `refused_emits_nothing` | for all `s, k, e, c, r`: if `check(s,k,e,c) = Refused(r)` then `writes(release(s,k,e,c)) = []` |
-| `refused_keeps_state` | same hypothesis: `state(release(s,k,e,c)) = s` |
-| `release_is_current_escrow` | `writes(release(...))` is `[]` or `escrowed_of(decide(current))` |
-| `release_within_own`, `release_within_parent` | `subset(writes(release(...)), own) = True`, likewise `parent` (from `escrowed_within_*`) |
-| `release_within_approver` | `subset(writes(release(...)), approver_authority) = True` |
-| `deny_at_release_wins` | if `decide(current)` has verdict `Deny`, `writes = []` |
-| `self_approval_refused` | if `eq_ints(reviewer, ctx.proposer) = True`, `writes = []` |
-| `reject_evidence_refused` | if `decision = Reject`, `writes = []` |
-| `released_twice_emits_nothing` | if `has_release(s, k) = True` (Cure lookup over `s.releases` by `eq_key`), `writes = []` |
-| `run_mismatch_refused` | if `eq_ints(ctx.run.id, key.run) = False`, `writes = []` |
+| `refused_emits_nothing` | for all `s, k, src, ctx`: if `approved(release_check(s, k, src, ctx)) = False` then `writes_of(release(s, k, src, ctx)) = []` |
+| `refused_keeps_state` | same hypothesis: `state_of(release(...)) = s` |
+| `blocked_anywhere` | for all gate lists `p`, `sfx`, gates `g` with `blocks(g) = True` and every `final`: `approved(run_gates(p ++ [g \| sfx], final)) = False` (induction on `p`) |
+| `release_within_approver` | for all inputs: `subset(writes_of(release(...)), approver_authority_of(ctx)) = True` |
+| `release_within_own` | for all inputs: `subset(writes_of(release(...)), own_of(ctx)) = True` (from `escrowed_within_own`) |
+| `release_within_parent` | for every context whose parent is `p` (`with_parent(ctx, p)`): released writes ⊆ `p` (from `escrowed_within_parent`) |
+| `deny_at_release_wins` | if `verdict_of(current(ctx)) = AuthDeny`, `writes = []` for every source and gate outcome |
+| `run_mismatch_refused` | if `eq_ints(run_id_of(ctx), run_of(k)) = False`, `writes = []`, fresh and retained |
+| `released_twice_emits_nothing` | fresh evidence: if `has_release(releases_of(s), k) = True` (Cure lookup by `eq_key`), `writes = []` |
+| `reject_evidence_refused` | fresh evidence: for every `e`, release of `with_decision(e, ApprReject)` emits nothing |
+| `self_approval_refused` | fresh evidence: if `eq_ints(reviewer_of(e), proposer_of(ctx)) = True`, `writes = []` |
+
+`self_approval_refused`, `reject_evidence_refused` and
+`released_twice_emits_nothing` are stated for fresh evidence; the retained
+path runs the same gate functions after selection and is covered by the
+general laws (`refused_*`, `release_within_*`, `deny_at_release_wins`,
+`run_mismatch_refused`) and by tests. Law types use small accessors
+(`reviewer_of`, `own_of`, ...) because pinned Cure rejects field projections
+inside law types (`bad_projection`).
 
 Together these are the **escrow-only-on-approval** law for the production
-release: the only transition that emits writes is a release whose every check
-passed, and it emits nothing outside the current escrow, the approver's
-authority or the current effective authority. "Released writes ⊆ the
-originally bound escrow" is enforced by check 20 in Cure and covered by
-tests; it is not a selected law (it would need an `eq_write`-transfer lemma).
+release: the only transition that emits writes is a release whose check is
+approved, and it emits nothing outside the current escrow, the approver's
+authority or the current effective authority. Release writes are by
+definition `release_writes(ctx)`, the guarded current escrow; "released writes
+equal the originally bound escrow" is enforced by gate 20 in Cure and covered
+by tests; it is not a selected law (it would need an `eq_write`-transfer lemma).
 
 **Decision-split form (N4).** Pinned Cure reduces `Int` equality on literals
 only; `int_eq` on symbolic values is neutral
 ([#36 comment 6694393314](https://github.com/balungpisah/elzoo/issues/36#issuecomment-6694393314)).
 So every release law above is stated in decision-split form: it takes the
-relevant stuck `Bool` or `ReleaseCheck` result as a hypothesis and branches on
-it with `with`; none assumes that a key or value equals itself. Native
+relevant stuck `Bool` or check result as a hypothesis and discharges it by
+`rewrite` inside a one-line lemma, or by the inspect pattern (case on the
+Boolean with its equation as an argument); none assumes that a key or value equals itself. Native
 `<=`, `<` and `+` are also neutral on symbolic values (`Std.Builtin#int_le`,
 same comment). Checks 10–12 and the `issued_at` selection order use them, so
 no time, age or ordering law is planned; those are tests only (R5).
@@ -410,7 +446,10 @@ no time, age or ordering law is planned; those are tests only (R5).
 - `request/3` idempotence (same requirement and binding → unchanged);
 - `eq_value` reflexivity and soundness against Elixir;
 - bound-escrow transfer (released writes ⊆ originally bound escrow);
-- the Elixir-side outcomes before check 0 and the control-key refusal.
+- the Elixir-side outcomes before check 0 and the control-key refusal;
+- check 7 (consumed) as a separate reason: public transitions add a once
+  marker only together with its release record, so check 2 or 4 reports
+  first; the gate stays as defence in depth.
 
 If a production law cannot be checked in its stated form during
 implementation, work stops and the exact Cure error is reported; the law is
@@ -438,6 +477,9 @@ not weakened.
   (R6);
 - revalidate of a retained `:root` release in a child Run passes when the
   recorded root is in `context.run.ancestry` and is refused without it (S1);
+- T1: `now` changing between `select_retained` and `release/4` fails closed
+  with `:approver_mismatch`; T2: `select_retained` accepts a context without
+  `:approver`, `release/4` does not;
 - two retained consents from two reviewers: `select_retained` returns the
   deterministic one; `release/4` with that reviewer as approver succeeds;
   with the other reviewer it gives `:approver_mismatch` (S2);
