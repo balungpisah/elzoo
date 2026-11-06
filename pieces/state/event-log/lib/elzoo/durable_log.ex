@@ -5,6 +5,21 @@ defmodule Elzoo.DurableLog do
   @max_sequence 18_446_744_073_709_551_615
   @max_version 4_294_967_295
 
+  defdelegate confirm(store, stream, expected, nonce, records), to: Elzoo.DurableLog.Confirmation
+  defdelegate confirm_checkpoint(store, request), to: Elzoo.DurableLog.Confirmation
+  defdelegate confirm_retention(store, request), to: Elzoo.DurableLog.Confirmation
+  defdelegate confirm_ack(store, request), to: Elzoo.DurableLog.Confirmation
+  defdelegate confirm_repair(store, request), to: Elzoo.DurableLog.Confirmation
+
+  def read(store, stream, from, limit) do
+    alias Elzoo.DurableLog.Store
+
+    with %{append_visibility: capability} <- Store.read(store, :capabilities, []),
+         {:ok, rows, head} <- Store.read(store, :read, [stream, from, limit]) do
+      {:ok, rows, Map.put(head, :capabilities, %{append_visibility: capability})}
+    end
+  end
+
   defmodule Record do
     @moduledoc "An immutable record with a format-version-1 SHA-256 digest."
     defstruct [:stream, :sequence, :kind, :schema_version, :payload, :nonce, :digest]
