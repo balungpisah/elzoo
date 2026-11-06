@@ -87,7 +87,9 @@ machine; the store and the provider poll are Adapters.
   failures to the ready delivery-result classes when the Assembly is built;
   an absent or partial mapping is refused at build, not at the first failure;
 - re-validate admitted arguments against the Adapter's current input schema at
-  dispatch; a mismatch is `rejected/not_dispatched` and host-visible, never a
+  dispatch; a mismatch is `rejected/not_dispatched` with error class
+  `permanent` (so classification stops the intended→dispatch loop until the
+  Adapter schema or arguments change) and host-visible, never a
   proposer-visible error;
 - accept a late result at most once and only while `dispatched`; the first of
   a late result or a reconciliation wins, a refused late result is retained as
@@ -97,8 +99,10 @@ machine; the store and the provider poll are Adapters.
   paths a transport-layer plugin (auth refresh, redirect, library retry) that
   re-sends a dispatched non-idempotent request without a second recorded
   Attempt, an exception-keyed step retry, and an agent-runner idle timeout
-  after a durable output or tool record (that is `dispatched`/unknown; retry
-  only on a durable predicate that no such record exists) (ELZ-025 study).
+  after a durable output or tool record (that is `dispatched`/unknown; a
+  retry is admissible only on a durable predicate that no such record exists,
+  which is the first `failed_definite` ground with the runner's record store
+  as the provider confirming no effect) (ELZ-025 study).
 
 ## Acceptance
 

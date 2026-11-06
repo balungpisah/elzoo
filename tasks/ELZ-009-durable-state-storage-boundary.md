@@ -53,9 +53,10 @@ when an existing provider is suitable.
   unique at the store, not in a writer's memory;
 - state the replay-order backstop (record sequence, then append order) and
   make the refold total over event kinds: a kind the fold ignores is declared
-  non-state-bearing; the outbox batch of a transition is transient and the
-  next Effect derives from committed state after commit, a dispatch failure
-  being a separate post-commit outcome;
+  non-state-bearing; the in-memory output batch of a transition is
+  transient, the committed outbox record (or the committed state the next
+  Effect derives from) is the durable source, and a dispatch failure is a
+  separate post-commit outcome;
 - ship the provider boundary as a named list of executable conformance checks
   (CAS exclusivity, unavailable-readback confirmation, duplicate insert) run
   against the test double and the selected provider; provider semantics stay

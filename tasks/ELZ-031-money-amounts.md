@@ -2,7 +2,7 @@
 
 - Phase: demand-led domain policy
 - Catalogue IDs: domain/money
-- Dependencies: ELZ-003, ELZ-011
+- Dependencies: ELZ-003
 
 ## Outcome
 
@@ -29,8 +29,8 @@ record for the existing deferred handle.
    count of minor units scaled by that exponent (JPY 0, EUR 2, BHD 3), never
    a fixed hundredth; parse distinguishes malformed from unknown and returns
    the canonical registry value; a code retired by ISO stays decodable as
-   `retired` for historical postings and is refused for new postings,
-   retirement never deletes an entry; mixed-currency arithmetic is a typed
+   `retired` on the parsed value (whether a posting context accepts it is
+   domain/journal's decision), retirement never deletes an entry; mixed-currency arithmetic is a typed
    rejection naming both currencies; an allocation sums exactly to its input
    with the residual placement stated; no Float in any path. Non-goals:
    exchange rates, locale formatting, journal posting, provider semantics,
@@ -57,7 +57,7 @@ record for the existing deferred handle.
    currency cannot post into a journal account of another. Upstream: ex_money
    rounding/allocation behaviour is named, not proved.
 6. **Composition record.** Consumed by domain/journal (same-currency
-   postings), domain/pricing (output currency and scale) and
+   postings; refuses `retired` currencies for new postings), domain/pricing (output currency and scale) and
    assembly/ledger-checkout; provider pins recorded on adoption; financial
    amounts are not secrets; no delivery or durability claim.
 
@@ -75,7 +75,7 @@ record for the existing deferred handle.
 - [ ] Dataset round-trip test in both directions passes against a dated
       registry file.
 - [ ] 0- and 3-exponent currencies and the allocation residual case pass.
-- [ ] Retired codes decode for history and are refused for new postings.
+- [ ] Retired codes decode with the `retired` mark and never disappear.
 - [ ] Operational applicability is declared per docs/operational-contracts.md.
 
 ## Evidence and limits

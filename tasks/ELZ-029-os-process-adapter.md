@@ -21,7 +21,11 @@ state machine and result schema, not security isolation.
    queue_timeout}`. Outputs: `completed{exit_code, output}` (a non-zero exit
    is a completed result, not an Adapter error), `rejected{queue_full |
    queue_timeout}` (not dispatched), `terminated{stage: term | kill,
-   deadline}`, `unknown` when the liveness check itself fails. Invariants: the
+   deadline}`, `unknown` when the liveness check itself fails; mapped to the
+   core/envelope result matrix as `completed` (any exit code) →
+   `completed/dispatched`, `rejected{…}` → `rejected/not_dispatched`,
+   `terminated` on deadline → `timed_out/dispatched` carrying the stage,
+   liveness-check failure → `unknown/dispatched`. Invariants: the
    spawned process is a process-group leader; termination signals the group,
    waits the grace period and escalates only if the group is still alive; the
    escalation stage reached is reported, never assumed; cleanup runs even if

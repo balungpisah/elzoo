@@ -22,20 +22,21 @@ need.
 2. **Interface and invariant.** Inputs: `window{size, unit, estimator_id}`,
    `reservations{name → size}`, ordered candidates `{item_id, version,
    source, access{principal, checked_at, result}, estimate, priority,
-   derived_from}`, policy (recency, priority, derived-item allowance,
-   access freshness). Outputs: `selected` (ordered), `dropped{item_id,
+   derived_from, content_hash}`, the evaluation instant `now` from the clock
+   port, and policy (recency, priority, derived-item allowance, access
+   freshness `max_age`). Outputs: `selected` (ordered), `dropped{item_id,
    reason ∈ {access_denied, stale_access_check, over_window, superseded,
    policy}}`, `total_estimate` tagged with `estimator_id`. State owner: none;
    pure decision owned by the calling Run. Invariants: `sum(selected.estimate)
    + sum(reservations) <= window.size`; every selected item has
-   `access.result = allowed` with `checked_at` within the freshness policy; a
+   `access.result = allowed` and `now - checked_at <= policy.max_age`; a
    derived item is selected only when every source it references is itself
    permitted, and it is tagged derived (model output, an untrusted proposal,
    never retained fact); a superseded version is dropped as `superseded`;
    selection is deterministic for equal inputs; an unknown model or provider
    has no default window and selection fails explicitly; injected items are
    bounded in count and bytes by policy, never "all records"; dedupe is by
-   content identity. Non-goals: tokenization, retrieval, summarization,
+   `content_hash`, falling back to `(item_id, version)`. Non-goals: tokenization, retrieval, summarization,
    truth or memory claims.
 3. **Reuse check.** Provider count APIs and tokenizer libraries supply
    estimates (req_llm is the listed integration candidate); per-category

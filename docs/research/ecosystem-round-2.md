@@ -5,7 +5,9 @@ orchestration-references.md. Seven concurrent study sessions pinned, read and
 compared sixteen Elixir/Gleam packages with docs/capability-model.md,
 docs/capability-coverage.md and registry/catalogue.json. Full reports with
 file:line citations at the pinned revisions are under studies/round-2/. Dates
-are observation dates (2026-11-06); maintenance signals are public metadata,
+are observation dates (2026-11-06); the index corrects one report figure:
+bankai's author split is 85/18 commits at tag ba16fc12 and 102/18 at main
+727cd6ff, not 119/18; maintenance signals are public metadata,
 not quality claims. No source is copied and no dependency is added.
 
 Verdicts: adopt-candidate = a named deferred/planned handle and the exact
@@ -15,23 +17,23 @@ reason. Result: 0 adopt-candidates, 10 distill, 6 skip.
 
 ## Summary
 
-| Package | Pinned revision | License (observed) | Last commit | Verdict | Report |
+| Package | Pinned revision | License (observed) | Pinned commit date (repo tip) | Verdict | Report |
 | --- | --- | --- | --- | --- | --- |
-| money_pattern 1.0.0 (Gleam) | Kelvin-Jesus/Money 4eb85e5f (tag v1.0.0) | conflict: Hex/gleam.toml Apache-2.0, shipped LICENSE MIT | 2026-02-18 | skip: 49 lines, free-string currency, fixed 2 minor units, Float formatting | studies/round-2/money.md |
+| money_pattern 1.0.0 (Gleam) | Kelvin-Jesus/Money 4eb85e5f (tag v1.0.0) | conflict: Hex/gleam.toml Apache-2.0, shipped LICENSE MIT | 2026-02-18 (tag = tip) | skip: 49 lines, free-string currency, fixed 2 minor units, Float formatting | studies/round-2/money.md |
 | dime 1.2.0 (Gleam) | horvathandris/dime 9c3e35e7 (tag v1.2.0) | Apache-2.0 | 2025-10-28 (HEAD 2026-06-30 unreleased) | distill → ELZ-031 domain/money registry Contract and dataset tests; Gleam-only, no backend adoption | studies/round-2/money.md |
-| pricing 0.6.9 (Elixir) | arthurcolle/pricing 4989d40c (HEAD, no tag) | Hex "Colle" (non-SPDX); MIT text retitled | 2023-01-31 | skip: Black-Scholes via C/GSL shell-out; tests do not compile; unrelated to domain/pricing | studies/round-2/money.md |
+| pricing 0.6.9 (Elixir) | arthurcolle/pricing 4989d40c (HEAD, no tag) | Hex "Colle" (non-SPDX); MIT text retitled | 2023-01-31 (HEAD) | skip: Black-Scholes via C/GSL shell-out; tests do not compile; unrelated to domain/pricing | studies/round-2/money.md |
 | jido 3.0.0-beta.2 | agentjido/jido eb5f5818 (tag) | Apache-2.0 (transitive runic/multigraph unchecked) | 2026-10-19 | distill → ELZ-009/010/023/027, workflow/run, state/audit-log; mandatory host (13 requirements incl. two sibling betas, one alpha) | studies/round-2/jido.md |
 | jido_action 3.0.0-beta.22 | agentjido/jido_action 9fe61b13 (tag) | Apache-2.0 | 2026-10-22 | distill → ELZ-026 issue kinds, integration/ai-model resolution rule, ELZ-010 restart budget; execution delegated to runic alpha | studies/round-2/jido.md |
 | pixir 0.1.17 | Ranvier-Technologies/pixir 7eb163da (main; no tags) | MIT | 2026-09-08 | distill → ELZ-024/023/022/028/029, workflow/run; 78 kLOC single author, finch 0.23 exact pin conflicts with Elzoo | studies/round-2/pixir.md |
 | fabric 0.2.0 (Gleam) | gleam-dream/fabric 3a1ca2ac (tag v0.2.0) | Apache-2.0 (json_blueprint MIT) | 2026-11-04 (first public commit 2026-10-24) | distill → ELZ-024/023/009/010/022/028, domain/metering, idempotency key derivation; backend Gleam host excluded by gleam-libraries.md | studies/round-2/fabric.md |
-| bankai 0.4.0 (Gleam) | moneyacademyKE/bankai ba16fc12 (tag v0.4.0) | Apache-2.0 (dep aarondb 4.2.0 without source link) | 2026-10-11 | distill → ELZ-026, ELZ-009, workflow/work-item, state/lease, state/artifact, ELZ-030; Mnesia daemon host | studies/round-2/bankai.md |
+| bankai 0.4.0 (Gleam) | moneyacademyKE/bankai ba16fc12 (tag v0.4.0) | Apache-2.0 (dep aarondb 4.2.0 without source link) | 2026-10-11 (main 727cd6ff 2026-10-27) | distill → ELZ-026, ELZ-009, workflow/work-item, state/lease, state/artifact, ELZ-030; Mnesia daemon host | studies/round-2/bankai.md |
 | lux 0.5.0 | Hex tarball (no reproducing commit; nearest 37f05ab3) | MIT | 2025-05-14 | distill (negative tests) → integration/ai-model, delivery/aggregation, ELZ-023/024/027; stale, 9 mandatory deps | studies/round-2/frameworks.md |
 | sigil 0.1.4 | sigilframework/sigil fa3513fd | MIT | 2026-04-04 | distill → ELZ-009, ELZ-023, ELZ-024, workflow/run, ELZ-030; one-week-old 0.1.x at pin | studies/round-2/frameworks.md |
 | shifts 0.0.2 | Hex tarball only (repo history starts after release) | Apache-2.0 | 2024-06-21 | skip: dormant, TODO moduledocs; one correlation sentence folded into delivery/aggregation | studies/round-2/frameworks.md |
 | staff_ai 0.0.4 (Gleam) | chainyo/staff-ai b549de4a (tag) | conflict: Apache-2.0 declared, no LICENSE text, "All rights reserved" header | 2024-03-21 | skip: 163 lines of record constructors; the universal Task record the capability model warns against | studies/round-2/frameworks.md |
-| theory_craft 0.1.0-dev | theorycraft-trading/theory_craft a19d6783 (no tag) | Apache-2.0 | 2025-12-26 | distill → delivery/aggregation and delivery/data-stream design tests; adopt nothing | studies/round-2/finance.md |
-| quant 0.1.0-alpha.1 | the-nerd-company/quant 463c70d2 (no tag) | CC-BY-NC-4.0: not adoptable | 2025-10-17 | skip: non-commercial license; ideas already in C9/ELZ-022 | studies/round-2/finance.md |
-| pluggy_ai 0.1.1 | fellipessanha/pluggy_ai_ex a0d33494 (tag v0.1.1) | MIT metadata; LICENSE.txt is the unfilled template | 2026-06-08 | distill → ELZ-023 transport re-send case, ELZ-011 second source, integration/payments id derivation | studies/round-2/finance.md |
+| theory_craft 0.1.0-dev | theorycraft-trading/theory_craft a19d6783 (no tag) | Apache-2.0 | 2025-12-26 (tip 2026-02-16) | distill → delivery/aggregation and delivery/data-stream design tests; adopt nothing | studies/round-2/finance.md |
+| quant 0.1.0-alpha.1 | the-nerd-company/quant 463c70d2 (no tag) | CC-BY-NC-4.0: not adoptable | 2025-10-17 (tip 2026-08-22) | skip: non-commercial license; ideas already in C9/ELZ-022 | studies/round-2/finance.md |
+| pluggy_ai 0.1.1 | fellipessanha/pluggy_ai_ex a0d33494 (tag v0.1.1) | MIT metadata; LICENSE.txt is the unfilled template | 2026-06-08 (tip 2026-07-20) | distill → ELZ-023 transport re-send case, ELZ-011 second source, integration/payments id derivation | studies/round-2/finance.md |
 | ursatoro 1.0.1 (Gleam) | GG-O-BP/ursatoro 722aaed2 (tag) | BlueOak-1.0.0 | 2026-03-22 | skip: product-domain indicator math, no coverage case | studies/round-2/finance.md |
 
 Why nothing is adopted: every orchestration package is a mandatory process

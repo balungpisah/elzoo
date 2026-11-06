@@ -34,8 +34,8 @@ provider's own ownership contract does not satisfy the invariants below.
    `claim_expired` results are disjoint across concurrent claimers; stale and
    ambiguous (heartbeat in the future or unreadable) fail closed and their
    release is an explicit, attributable record; a terminal state releases the
-   lease atomically; completion from a non-holder is rejected by fencing
-   token, never by timestamp comparison. Non-goals: distributed lock service,
+   lease atomically; completion from a non-holder is rejected by the record
+   revision (the fencing value), never by timestamp comparison. Non-goals: distributed lock service,
    cross-store agreement, authorization.
 3. **Reuse check.** Oban/AshOban own locking for their own jobs; Postgres
    advisory locks and `SELECT … FOR UPDATE SKIP LOCKED` are provider

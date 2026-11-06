@@ -21,8 +21,8 @@ come from libgraph; the satisfaction and admission policy is Elzoo's.
 2. **Interface and invariant.** Inputs: `items{id, lifecycle, deferral}`,
    `edges{from, to, kind ∈ {blocking, informational, hierarchy}}`,
    `facts{prerequisite → satisfied | unsatisfied | unknown, source, expiry}`,
-   `now`, `propose_edge{from, to, kind}`. Outputs: `ready` (ordered by the
-   declared policy), `blocked{id, blockers[{target, present, satisfied,
+   `now`, `propose_edge{from, to, kind}` and the ordering policy. Outputs:
+   `ready` (ordered by that policy), `blocked{id, blockers[{target, present, satisfied,
    reason}]}`, `admit | reject{cycle path}`; a validation report with three
    non-collapsing issue kinds: duplicate node, unknown dependency, cycle (a
    cycle report names every unplaceable node). State owner: the Assembly that

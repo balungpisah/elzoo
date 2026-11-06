@@ -2,7 +2,7 @@
 
 - Phase: demand-led delivery policy
 - Catalogue IDs: delivery/trigger (schedule occurrence slice)
-- Dependencies: ELZ-003, ELZ-006
+- Dependencies: ELZ-003
 
 ## Outcome
 
@@ -24,11 +24,12 @@ Elzoo's.
    Outputs: `occurrence{id = f(schedule id, generation, scheduled instant)}`,
    `skipped{slot}`, `replaced{old occurrence id}`, `rejected{stale_generation}`.
    Identity excludes arrival time, node, process and delivery id. Invariants:
-   at most `n` unsettled occurrences per schedule under `queue(n)`, exactly
+   at most `n` unsettled occurrences per schedule under `queue(n)`, at most
    one under `skip`/`replace`; a redefinition needs a strictly greater
    generation; a delivery is admitted only when its occurrence id and payload
-   match an unsettled occurrence; missed slots while offline are replayed
-   only under `queue`; the overlap decision is recorded, never silent.
+   match an unsettled occurrence; due slots that passed while offline (those
+   between the last recorded instant and now) become occurrences only under
+   `queue`; the overlap decision is recorded, never silent.
    Non-goals: cron parsing, transport, job execution.
 3. **Reuse check.** Oban cron, sched_ex and quantum compute due instants; none
    exposes generation-scoped identity or an explicit overlap policy as a
