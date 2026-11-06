@@ -36,8 +36,10 @@ when an existing provider is suitable.
   chain over canonical records is needed; a decision, not a default
   implementation
   (ELZ-021 reference study).
-- classify every durable write result as `conflict` (confirmed stale expected
-  revision; nothing replaced), `rejected{reason}` (confirmed preflight limit;
+- classify every durable write result as `committed{revision}` (the
+  acknowledged commit point the acceptance below already requires),
+  `conflict` (confirmed stale expected revision; nothing replaced),
+  `rejected{reason}` (confirmed preflight limit;
   nothing written) or `indeterminate` (exception, exit, timeout or malformed
   provider reply; storage may hold either record); an `indeterminate` result
   terminates the writer and recovery reads the authoritative record before
