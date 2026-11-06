@@ -173,6 +173,52 @@ defmodule Elzoo.Budget.OwnerTest do
     Supervisor.stop(sup)
   end
 
+  test "two budgets under one ordinary Supervisor have distinct child ids and both work" do
+    specs = [
+      Owner.child_spec(budget_id: "run-1/tokens", cap: 10, unit: "tokens"),
+      Owner.child_spec(budget_id: "run-1/calls", cap: 3, unit: "calls")
+    ]
+
+    assert Enum.map(specs, & &1.id) == [
+             {Owner, "run-1/tokens"},
+             {Owner, "run-1/calls"}
+           ]
+
+    {:ok, sup} = Supervisor.start_link(specs, strategy: :one_for_one)
+    children = Supervisor.which_children(sup)
+    assert length(children) == 2
+
+    tokens =
+      Enum.find_value(children, fn {id, pid, _, _} -> id == {Owner, "run-1/tokens"} && pid end)
+
+    calls = Enum.find_value(children, fn {id, pid, _, _} -> id == {Owner, "run-1/calls"} && pid end)
+    assert is_pid(tokens) and is_pid(calls) and tokens != calls
+
+    assert {:reserved, %{remaining: 2}} =
+             Owner.reserve(tokens, reserve_fields("a", 8, later(60_000)))
+
+    assert {:reserved, %{remaining: 1}} =
+             Owner.reserve(calls, %{
+               cap: 3,
+               unit: "calls",
+               estimate: 2,
+               cost_ref: "a",
+               expiry: later(60_000)
+             })
+
+    assert {:status, %{budget_id: "run-1/tokens", reserved: 8}} = Owner.status(tokens)
+    assert {:status, %{budget_id: "run-1/calls", reserved: 2}} = Owner.status(calls)
+
+    assert Owner.child_spec(budget_id: "", cap: 1, unit: "u").id == Owner
+    assert Owner.child_spec(:nope).id == Owner
+
+    # start_link/1 returns {:error, :invalid_input}; Supervisor wraps it with the child.
+    assert {:error, {:invalid_input, _child}} =
+             Supervisor.start_child(sup, Owner.child_spec(budget_id: "", cap: 1, unit: "u"))
+
+    Supervisor.stop(sup)
+  end
+
   @tag timeout: 60_000
   test "timeout then retry: replay, conflict with a recomputed expiry, rejected retry then release frees" do
     owner = start!()

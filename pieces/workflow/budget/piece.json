@@ -143,12 +143,12 @@
     {
       "kind": "test",
       "file": "test/elzoo/budget_test.exs",
-      "claim": "Clean Cure audit; nine compile-time negative controls, each rejected at an asserted proof name (L2 overage_with, L6 settle_expired_with and L4 release_expired_with controls are law-specific; the other L5/L6 laws have no law-specific control); the Elixir readable?/1 (I0) check, including chardata and nested text, fails closed; input decoding and key forms; replay/expiry/late-settle/overage scenarios; repeat settle and release through step/2 (L3/L4 link); step/2 next states and translated results equal direct Cure results; seeded random traces for I0, the cap invariant, repeat equality and sweep idempotence at the same now; critical-path formulas. Finite evidence, not proofs."
+      "claim": "Clean Cure audit; nine compile-time negative controls, each rejected at an asserted proof name (L6 settle_expired_with and L4 release_expired_with controls are law-specific; the L2 overage_with control shows only that the L2 proof requires the overage branch to reject, since a readable overage state cannot pass fits_replay; any admission under overage violates L1 and is caught by the L1 proof; the other L5/L6 laws have no law-specific control); the Elixir readable?/1 (I0) check, including chardata and nested text, fails closed; input decoding and key forms; replay/expiry/late-settle/overage scenarios; repeat settle and release through step/2 (L3/L4 link); step/2 next states and translated results equal direct Cure results; seeded random traces for I0, the cap invariant, repeat equality and sweep idempotence at the same now; critical-path formulas. Finite evidence, not proofs."
     },
     {
       "kind": "test",
       "file": "test/elzoo/budget_owner_test.exs",
-      "claim": "Owner scenarios: start validation and seal, distinct incarnations, 20 rounds of 50 concurrent callers for the last unit, expiry and late settle, overage, reset and forfeits, unreadable and stopped owner fail closed, supervised crash of the temporary child, timeout then replay, conflict, rejected retry and release, timed-out reset resolved by status; finite evidence."
+      "claim": "Owner scenarios: start validation and seal, distinct incarnations, 20 rounds of 50 concurrent callers for the last unit, expiry and late settle, overage, reset and forfeits, unreadable and stopped owner fail closed, supervised crash of the temporary child, two distinct budgets under one ordinary Supervisor with child ids {Elzoo.Budget.Owner, budget_id}, timeout then replay, conflict, rejected retry and release, timed-out reset resolved by status; finite evidence."
     },
     {
       "kind": "upstream",
@@ -180,7 +180,7 @@
     },
     "config": {
       "status": "supported",
-      "contract": "Static per owner start: budget_id, cap and unit are validated and sealed for that incarnation; the incarnation is generated; the call timeout is Unit's fixed default. No hot reconfiguration; a different cap or unit is rejected changed_limits.",
+      "contract": "Static per owner start: budget_id, cap and unit are validated and sealed for that incarnation; the child id is {Elzoo.Budget.Owner, budget_id}; the incarnation is generated; the call timeout is Unit's fixed default. No hot reconfiguration; a different cap or unit is rejected changed_limits.",
       "evidence": [
         "test/elzoo/budget_owner_test.exs"
       ]

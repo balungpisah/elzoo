@@ -17,9 +17,27 @@ defmodule Elzoo.Budget.Owner do
 
   @start_keys [:budget_id, :cap, :unit]
 
-  @spec child_spec(keyword()) :: Supervisor.child_spec()
+  @doc """
+  Child spec with `restart: :temporary` and id `{Elzoo.Budget.Owner, budget_id}`.
+
+  Distinct budgets can share one ordinary Supervisor. Options that are not a
+  keyword list with a nonempty UTF-8 `budget_id` get the id
+  `Elzoo.Budget.Owner`; their start still fails with `{:error, :invalid_input}`
+  (a Supervisor reports it as `{:error, {:invalid_input, child}}`).
+  """
+  @spec child_spec(term()) :: Supervisor.child_spec()
   def child_spec(opts) do
-    %{id: __MODULE__, start: {__MODULE__, :start_link, [opts]}, restart: :temporary}
+    %{id: child_id(opts), start: {__MODULE__, :start_link, [opts]}, restart: :temporary}
+  end
+
+  defp child_id(opts) do
+    with true <- Keyword.keyword?(opts),
+         id when is_binary(id) and id != "" <- Keyword.get(opts, :budget_id),
+         true <- String.valid?(id) do
+      {__MODULE__, id}
+    else
+      _ -> __MODULE__
+    end
   end
 
   @doc "Start an owner with sealed `budget_id`, `cap` and `unit`."

@@ -85,7 +85,7 @@ defmodule Elzoo.BudgetTest do
          {"      Expired(e) -> settle_first(s, cost_ref, actual, e, True(), s.reserved)",
           "      Expired(e) -> settle_first(s, cost_ref, actual, e, False(), s.reserved)"}
        ]},
-      {"overage_admits_nothing (L2 only)", "overage_with",
+      {"overage_admits_nothing (L2 proof needs the overage branch to reject)", "overage_with",
        [
          {"            match overage\n              True() -> reject(s, :overage)",
           "            match overage\n              True() -> replay_with(s, estimate, True(), fits_replay(s))"},

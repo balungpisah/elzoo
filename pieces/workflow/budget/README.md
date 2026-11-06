@@ -353,7 +353,12 @@ Delivery of settle is at-least-once.
 
 The owner is volatile. `Elzoo.Budget.Owner.child_spec/1` is defined in the
 owner itself with `restart: :temporary` (Unit's `use GenServer` default is
-`:permanent`). A crash leaves the budget unavailable, so every client call is
+`:permanent`). Its child id is `{Elzoo.Budget.Owner, budget_id}`, so distinct
+budgets can share one ordinary Supervisor; two owners with the same
+`budget_id` under one Supervisor collide, as one identity has one owner.
+Options without a valid `budget_id` get the id `Elzoo.Budget.Owner`, and
+their start still fails with `{:error, :invalid_input}` (a Supervisor reports
+`{:error, {:invalid_input, child}}`). A crash leaves the budget unavailable, so every client call is
 `rejected{owner_unavailable}` (fail closed) until the Assembly starts a new
 owner on purpose. A new owner has a new incarnation: committed and reserved
 start at 0, and every pre-restart generation is `rejected{stale_generation}`.
@@ -494,7 +499,15 @@ Three more controls also adjust the L1/L5 helper proofs so that they still
 check, which leaves the target law as the only one that can reject the copy:
 
 - an overage branch routed to the cap-guarded replay path → `overage_with`
-  (L2, `overage_admits_nothing`);
+  (L2, `overage_admits_nothing`). This copy never admits on a readable
+  overage state: `committed > cap` makes `fits_replay` false. Cure rejects it
+  only because the L2 proof is over an abstract `overage` Boolean. So this
+  control shows only that the L2 proof requires the overage branch to
+  reject. It does not detect overage admission on a readable state. Any
+  mutation that does admit under overage violates L1
+  (`committed > cap` ⇒ `committed + reserved + estimate > cap`, since
+  `reserved >= 0` and `estimate > 0`), and the L1 proof catches it (see the
+  `reserve_with_cap` control above);
 - a late settle on an `Expired` entry that frees the estimate again →
   `settle_expired_with` (L6, `settle_expired_derived`);
 - a release of an `Expired` entry that frees the estimate again →
@@ -532,6 +545,8 @@ law-specific control.
   cap/unit at start returns an error and no owner;
 - stopped or crashed owner fails closed with `owner_unavailable`; a
   supervised crash leaves the `:temporary` child gone;
+- two owners with distinct `budget_id`s start under one ordinary
+  Supervisor with distinct child ids and both serve requests;
 - restart: a new owner has a different incarnation; pre-restart generations
   are `stale_generation`; two starts give different incarnations;
 - reset: needs the current generation, reports `forfeited`, a later settle of
