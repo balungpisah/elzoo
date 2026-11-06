@@ -14,14 +14,14 @@
     "core/operator",
     "runtime/unit"
   ],
-  "contract": "Pure readiness and cycle admission Elzoo.DependencyGraph over caller Work Item fixtures, externals, typed edges (from waits for to) and provenance-tagged facts with explicit Unix-ms now: closed is not completed, unknown/expired/model-declared-only facts never satisfy, blocking-edge admission revalidates the whole graph and keeps it acyclic (Cure laws); exact issues, blockers and errors.",
+  "contract": "Pure readiness and cycle admission Elzoo.DependencyGraph over caller Work Item fixtures, externals, typed edges (from waits for to) and provenance-tagged facts with explicit Unix-ms now: closed is not completed, unknown/expired/model-declared-only facts never satisfy, blocking-edge admission revalidates the whole graph; the Cure step keeps the index-level blocking graph acyclic (Cure laws) while the Elixir revalidation and mapping are test-grounded; exact issues, blockers and errors.",
   "limits": [
     "Selected laws cover the Cure decisions only; the Elixir validation, ID-to-index mapping, duplicate/unknown/unplaceable flags, blocker reasons, contradictions, cycle path and commit mapping are test-grounded.",
     "Laws are scoped over the Bool results of builtin Int equality and order; their integer meaning is an upstream Cure contract plus boundary tests.",
     "Only the safe direction is proved: admitted implies acyclic. Search completeness (admitted iff unreachable) is a finite test; a defective search returns {:error, :search_disagreement}.",
     "No execution, claiming, lease, scheduling, notification, durable storage or distributed admission; the serialized owner is a test double under test/ (runtime/unit is a test-only dependency).",
     "No join/fan-in policy beyond every blocking prerequisite satisfied; skip/fail handling of a prerequisite is the caller's.",
-    "Bounds: 1000 nodes, 10000 edges (the proposal counts), 10000 facts; no performance claim. One observation on the worker laptop: about 6.7 s for readiness at full bounds."
+    "Bounds: 1000 nodes, 10000 edges (the proposal counts), 10000 facts; no performance claim. One laptop observation: readiness at full bounds took about 6.7 s, so it must not run inside a default-timeout GenServer.call such as Elzoo.Unit.step/2 (5000 ms); one admission took about 0.2 s."
   ],
   "files": [
     "cure/elzoo/dependency_graph.cure",

@@ -169,7 +169,13 @@ defmodule Elzoo.DependencyGraph do
               now
             ])
 
-          {:open, item.id, ready?, blockers(a, item, node, now)}
+          blockers = blockers(a, item, node, now)
+
+          # The explanation must agree with the Cure decision for every item.
+          if ready? != (blockers == []),
+            do: raise(ArgumentError, "explanation disagrees with decision for #{inspect(item.id)}")
+
+          {:open, item.id, ready?, blockers}
         else
           {:inactive, item.id}
         end

@@ -182,8 +182,10 @@ entry above in this order: first the item's own-state entries, in the fixed
 order `:deferred`, `:duplicate_node`, `:cycle`; then one entry per unsatisfied
 blocking edge from the item, in `graph.edges` order. `admit` prepends, so the
 newest admitted edge's blocker comes first among the edge entries. A test checks
-this order. An item is ready iff its blocker list is empty; a test checks this
-for every item in every listed scenario. `contradictions` lists each
+this order. An item is ready iff its blocker list is empty: `readiness/2`
+computes the blocker list for every open item and raises `ArgumentError` if it
+disagrees with the Cure decision. That guard is exercised by the listed
+scenarios and 300 random graphs (finite test, not a law). `contradictions` lists each
 `%{item: from, target: to, reason: :completion_contradicted, sources: [source]}`
 for completed targets with a current veto, on ready and blocked items alike.
 
@@ -373,7 +375,7 @@ reach the source". The laws prove only the safe direction: admitted implies
 acyclic. The converse (an acyclic result is always admitted, meaning the
 search is complete within its fuel) is a finite test against an independent
 Elixir reachability reference: every acyclic blocking graph on 2 and 3 nodes
-(self-loops included) with every proposal; the 543 acyclic graphs on 4 nodes
+with every proposal, including self-loop proposals; the 543 acyclic graphs on 4 nodes
 without self-loops with every non-loop proposal; 60 random 30-node acyclic
 graphs; and a 1,000-node chain. That test also requires that
 `{:error, :search_disagreement}` never occurs. Nobody should read the "iff" as
@@ -423,7 +425,9 @@ standard library at runtime. `runtime/unit` is needed only by the copied test.
   skip/fail handling, execution, claiming, lease, scheduling or storage.
 - No performance claim. One observation on the worker laptop: readiness at
   full bounds (1,000 items, 9,987 blocking edges, 10,000 facts) took about
-  6.7 s, and one admission about 0.2 s.
+  6.7 s, and one admission about 0.2 s. So readiness near full bounds can take
+  seconds and must not run inside a default-timeout `GenServer.call` such as
+  `Elzoo.Unit.step/2` (5,000 ms). Admission at that size fits.
 
 ## Operations
 

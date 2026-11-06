@@ -347,6 +347,8 @@ defmodule Elzoo.DependencyGraphTest do
       for _ <- 1..300 do
         g = random_graph(8)
         r = ready(g)
+        # readiness/2 raises if a ready item has a non-empty blocker list or a
+        # blocked one an empty list, so reaching here checks both for every item.
         for %{blockers: bs} <- r.blocked, do: assert(bs != [])
 
         open = for %{id: id, lifecycle: :open} <- g.items, uniq: true, do: id
@@ -567,7 +569,7 @@ defmodule Elzoo.DependencyGraphTest do
         end
 
       IO.puts(
-        "ELZ-026 completeness: all acyclic blocking graphs on 2-3 nodes (with self-loops) and #{count} on 4 nodes"
+        "ELZ-026 completeness: every acyclic blocking graph on 2-3 nodes x every proposal (including self-loop proposals) and #{count} on 4 nodes"
       )
     end
 
