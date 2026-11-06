@@ -633,6 +633,39 @@ defmodule Elzoo.DurableJobTest do
     assert DurableJob.cancel(f.queue, "c1", "op") == {:ok, :cancelled}
   end
 
+  @tag timeout: 120_000
+  test "cancel/3 when the Assembly's task supervisor is suspended or absent", %{prefix: prefix} do
+    f = flow(prefix, :postgres)
+    :ok = Oban.pause_queue(f.oban, queue: f.queue)
+    {:ok, _} = submit(f, "ts1")
+    {:ok, _} = relay!(f.queue)
+    tasks = :"Elixir.Elzoo.DurableJob.tasks.#{f.queue}"
+    :ok = :sys.suspend(tasks)
+
+    result =
+      try do
+        call = Task.async(fn -> DurableJob.cancel(f.queue, "ts1", "operator") end)
+        Task.yield(call, 15_000) || Task.shutdown(call, :brutal_kill)
+      after
+        :sys.resume(tasks)
+      end
+
+    assert {:ok, {:indeterminate, %{operation: :cancel, job_key: "ts1"}}} = result
+    # The queued start request may still run the cancel after the resume.
+    poll(fn -> phase(f, "ts1") in [:requested, :cancelled] end)
+
+    sup = :"Elixir.Elzoo.DurableJob.supervisor.#{f.queue}"
+    # The Task.Supervisor child id is its registered name; once terminated it
+    # stays down (one_for_one), so its name is unregistered: :noproc.
+    :ok = Supervisor.terminate_child(sup, tasks)
+
+    try do
+      assert DurableJob.cancel(f.queue, "ts1", "operator") == {:error, :unavailable}
+    after
+      {:ok, _} = Supervisor.restart_child(sup, tasks)
+    end
+  end
+
   test "DJ12b status reads the bound job, not another job of the same Run", %{prefix: prefix} do
     f = flow(prefix, :postgres, handler: blocking_handler(self()))
     :ok = Oban.pause_queue(f.oban, queue: f.queue)

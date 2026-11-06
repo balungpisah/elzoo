@@ -178,23 +178,74 @@ defmodule Elzoo.DurableJob do
     end
   end
 
-  # Runs a cancel in an ELZ-010-owned process. Once started, the task may have
-  # sent a write, so its exit or a yield timeout is indeterminate, never a
-  # definite error.
+  # Bound on the Task.Supervisor start call (Task.Supervisor itself waits
+  # with :infinity, so a suspended or overloaded supervisor would block).
+  @task_start_timeout_ms 5_000
+
+  # Runs a cancel in an ELZ-010-owned process supervised by the Assembly's
+  # Task.Supervisor. The start request is made from a monitored starter
+  # process so it can be bounded:
+  # - the supervisor did not exist (:noproc): nothing started or sent,
+  #   {:error, :unavailable};
+  # - any other start exit or the start timeout: the queued start request may
+  #   still run the cancel later, so {:indeterminate, info};
+  # - once started, the task may have sent a write, so its exit or the result
+  #   timeout is indeterminate, never a definite error.
   defp owned(cfg, job_key, fun) do
-    task =
-      Task.Supervisor.async_nolink(cfg.tasks, fn ->
-        Process.flag(:trap_exit, true)
-        fun.()
+    caller = self()
+    ref = make_ref()
+
+    body = fn ->
+      Process.flag(:trap_exit, true)
+      send(caller, {ref, :result, fun.()})
+    end
+
+    {starter, monitor} =
+      spawn_monitor(fn ->
+        {:ok, pid} = Task.Supervisor.start_child(cfg.tasks, body)
+        send(caller, {ref, :started, pid})
       end)
 
-    case Task.yield(task, @rounds * cfg.writer_timeout + 5_000) ||
-           Task.shutdown(task, :brutal_kill) do
-      {:ok, result} -> result
-      {:exit, reason} -> {:indeterminate, unknown(:cancel, cfg, job_key, reason)}
-      nil -> {:indeterminate, unknown(:cancel, cfg, job_key, :timeout)}
+    receive do
+      {^ref, :started, pid} ->
+        Process.demonitor(monitor, [:flush])
+        await_owned(cfg, job_key, ref, pid)
+
+      {:DOWN, ^monitor, :process, _, reason} ->
+        if noproc?(reason),
+          do: {:error, :unavailable},
+          else: {:indeterminate, unknown(:cancel, cfg, job_key, reason)}
+    after
+      @task_start_timeout_ms ->
+        Process.exit(starter, :kill)
+        Process.demonitor(monitor, [:flush])
+        {:indeterminate, unknown(:cancel, cfg, job_key, :timeout)}
     end
   end
+
+  defp await_owned(cfg, job_key, ref, pid) do
+    monitor = Process.monitor(pid)
+
+    receive do
+      {^ref, :result, result} ->
+        Process.demonitor(monitor, [:flush])
+        result
+
+      {:DOWN, ^monitor, :process, _, reason} ->
+        {:indeterminate, unknown(:cancel, cfg, job_key, reason)}
+    after
+      @rounds * cfg.writer_timeout + 5_000 ->
+        Process.exit(pid, :kill)
+        Process.demonitor(monitor, [:flush])
+        {:indeterminate, unknown(:cancel, cfg, job_key, :timeout)}
+    end
+  end
+
+  defp noproc?(:noproc), do: true
+  defp noproc?({:noproc, _}), do: true
+  defp noproc?({{:noproc, _}, _}), do: true
+  defp noproc?({:badmatch, reason}), do: noproc?(reason)
+  defp noproc?(_), do: false
 
   defp with_writer(cfg, job_key, fun) do
     case Writer.start_link(
