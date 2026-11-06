@@ -42,7 +42,10 @@ defmodule Elzoo.MixProject do
       {:jason, "~> 1.4"},
       {:req, "== 0.7.5"},
       {:ecto_sql, "== 3.14.0"},
-      {:postgrex, "== 0.22.4"}
+      {:postgrex, "== 0.22.4"},
+      # ELZ-010 pre-implementation provider probes only (test/elz010_*); becomes a
+      # registry provider when integration/jobs is implemented.
+      {:oban, "== 2.24.2", only: :test}
     ]
   end
 

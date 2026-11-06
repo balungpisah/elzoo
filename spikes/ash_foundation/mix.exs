@@ -15,7 +15,10 @@ defmodule ElzooAshSpike.MixProject do
         {:ash_ai, "== 1.5.0"},
         {:simple_sat, "== 0.1.4"},
         {:telemetry, "== 1.4.2"},
-        {:ash_state_machine, "== 0.3.0"}
+        {:ash_state_machine, "== 0.3.0"},
+        # ELZ-010 job-provider comparison (AshOban triggers, Reactor inside Oban).
+        {:ash_oban, "== 0.10.3"},
+        {:oban, "== 2.24.2"}
       ]
     ]
   end
