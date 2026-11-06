@@ -5,6 +5,9 @@ defmodule Elzoo.Checkpoint do
   alias Elzoo.DurableLog.{Codec, Store}
   defstruct [:stream, :sequence, :fold_version, :model, :cursor, :seen, :nonce, :digest]
 
+  def take(writer, stream, version, encode) when is_pid(writer),
+    do: GenServer.call(writer, {:checkpoint, stream, version, encode})
+
   def take({store, state, limits}, stream, version, encode) do
     try do
       checkpoint = %__MODULE__{

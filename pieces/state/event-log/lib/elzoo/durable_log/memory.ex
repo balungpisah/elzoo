@@ -19,6 +19,12 @@ defmodule Elzoo.DurableLog.Memory do
   def corrupt(store, table, key, changes), do: control(store, {:corrupt, table, key, changes})
   def inspect_state(store), do: control(store, :inspect)
 
+  @doc "Test-only hooks for the adapter-neutral conformance scenarios."
+  def conformance_hook(store, :inject, [op, mode]), do: fault(store, op, mode)
+  def conformance_hook(store, :release, [token]), do: release(store, token)
+  def conformance_hook(store, :reopen, []), do: store(elem(store, 1).pid)
+  def conformance_hook(store, action, args), do: control(store, {:conformance, action, args})
+
   @impl true
   def capabilities({__MODULE__, opts}), do: %{append_visibility: opts.visibility}
 
@@ -195,7 +201,12 @@ defmodule Elzoo.DurableLog.Memory do
 
   defp transport({__MODULE__, opts}, op, args) do
     try do
-      GenServer.call(opts.pid, {:operation, op, args}, Map.get(opts, :timeout, 5_000))
+      message =
+        if op == :repair_torn_tail and Map.get(opts, :repair_owner) == self(),
+          do: {:owning_repair, args},
+          else: {:operation, op, args}
+
+      GenServer.call(opts.pid, message, Map.get(opts, :timeout, 5_000))
     catch
       :exit, {:timeout, _} ->
         {:fault, :timeout}
@@ -233,6 +244,44 @@ defmodule Elzoo.DurableLog.Memory do
 
   def handle_call(:configuration, _, state),
     do: {:reply, Map.take(state, [:fold, :limits, :visibility]), state}
+
+  def handle_call({:conformance, :snapshot, []}, _, state),
+    do:
+      {:reply,
+       Map.take(state, [:heads, :records, :items, :checkpoints, :receipts, :staged, :aborted]),
+       state}
+
+  def handle_call({:conformance, :rollback, [token]}, _, state),
+    do: {:reply, :ok, %{state | paused: Map.delete(state.paused, token)}}
+
+  def handle_call({:conformance, :duplicate_insert, [row]}, _, state) do
+    key = {row.stream, row.sequence}
+
+    if Map.has_key?(state.records, key),
+      do: {:reply, {:error, :duplicate}, state},
+      else: {:reply, :ok, put_in(state.records[key], row)}
+  end
+
+  def handle_call({:owning_repair, [stream, expected, staged_nonce, nonce] = args}, from, state) do
+    state =
+      case Map.get(state.staged, stream) do
+        %{nonce: ^staged_nonce} = staged when state.visibility == :staged_uncommitted_tail ->
+          if stream_head(state, stream).revision == expected and Codec.nonce?(nonce) do
+            %{
+              state
+              | staged: Map.put(state.staged, stream, %{staged | fenced: true}),
+                aborted: MapSet.put(state.aborted, staged_nonce)
+            }
+          else
+            state
+          end
+
+        _ ->
+          state
+      end
+
+    handle_call({:operation, :repair_torn_tail, args}, from, state)
+  end
 
   def handle_call({:fault, op, fault}, _, state), do: {:reply, :ok, put_in(state.faults[op], fault)}
 
@@ -282,6 +331,10 @@ defmodule Elzoo.DurableLog.Memory do
         :reply_loss ->
           {_, next} = safe_execute(op, args, state)
           {{:fault, :unavailable}, next}
+
+        :rollback ->
+          safe_execute(op, args, state)
+          {{:fault, :unavailable}, state}
 
         _ ->
           safe_execute(op, args, state)
