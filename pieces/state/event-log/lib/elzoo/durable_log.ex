@@ -2,8 +2,9 @@
 defmodule Elzoo.DurableLog do
   @moduledoc "Canonical records and a read-only deterministic replay boundary."
   @replay :"Cure.Elzoo.Replay"
-  @max_sequence 18_446_744_073_709_551_615
-  @max_version 4_294_967_295
+  @max_sequence 9_223_372_036_854_775_807
+  @max_version 2_147_483_647
+  alias Elzoo.DurableLog.Codec
 
   defdelegate confirm(store, stream, expected, nonce, records), to: Elzoo.DurableLog.Confirmation
   defdelegate confirm_checkpoint(store, request), to: Elzoo.DurableLog.Confirmation
@@ -50,7 +51,7 @@ defmodule Elzoo.DurableLog do
       not uint?(Map.get(row, :sequence), 1, @max_sequence) ->
         {:error, :invalid_revision}
 
-      not is_binary(Map.get(row, :kind)) ->
+      not Codec.text?(Map.get(row, :kind)) ->
         {:error, :unknown_kind}
 
       Map.get(fold.kinds, row.kind) not in [:state_bearing, :non_state_bearing] ->
@@ -63,7 +64,7 @@ defmodule Elzoo.DurableLog do
       not is_binary(Map.get(row, :payload)) ->
         {:error, :malformed_row}
 
-      byte_size(row.payload) > Map.get(limits, :max_record_bytes, @max_version) ->
+      byte_size(row.payload) > Map.get(limits, :max_record_bytes, 4_294_967_295) ->
         {:error, :record_too_large}
 
       not is_binary(Map.get(row, :nonce)) or byte_size(row.nonce) != 16 ->
@@ -136,7 +137,7 @@ defmodule Elzoo.DurableLog do
       not proper_list?(Map.get(request, :outbox)) or
           not Enum.all?(request.outbox, fn
             {destination, payload} ->
-              is_binary(destination) and destination in Map.get(fold, :destinations, []) and
+              Codec.destination?(destination) and destination in Map.get(fold, :destinations, []) and
                 is_binary(payload) and byte_size(payload) <= limits.max_record_bytes
 
             _ ->
@@ -270,7 +271,7 @@ defmodule Elzoo.DurableLog do
 
   defp sequence(_), do: 0
   defp uint?(n, low, high), do: is_integer(n) and n >= low and n <= high
-  defp valid_stream?(s), do: is_binary(s) and byte_size(s) in 1..200 and String.valid?(s)
+  defp valid_stream?(s), do: Codec.stream?(s)
   defp proper_list?([]), do: true
   defp proper_list?([_ | rest]), do: proper_list?(rest)
   defp proper_list?(_), do: false

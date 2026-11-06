@@ -24,6 +24,20 @@
       "reference": "https://hexdocs.pm/req/0.7.5/Req.html",
       "license": "Apache-2.0"
     },
+    "ecto_sql": {
+      "source": "hex",
+      "package": "ecto_sql",
+      "version": "3.14.0",
+      "reference": "https://hexdocs.pm/ecto_sql/3.14.0/Ecto.Adapters.SQL.html",
+      "license": "Apache-2.0"
+    },
+    "postgrex": {
+      "source": "hex",
+      "package": "postgrex",
+      "version": "0.22.4",
+      "reference": "https://hexdocs.pm/postgrex/0.22.4/Postgrex.html",
+      "license": "Apache-2.0"
+    },
     "elixir": {
       "source": "platform",
       "tool": "elixir",

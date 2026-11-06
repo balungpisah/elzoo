@@ -222,8 +222,8 @@ defmodule Elzoo.DurableLog.Conformance do
           equal(Log.confirm(store, stream, expected, row.nonce, [row]), {:unknown, :unfenced})
 
         "competitor" ->
+          equal(hook(store, opts, :rollback, [token]), :ok)
           equal(append(store, [row(opts, 1, nonce(), stream)]), {:committed, 1})
-          conflict(hook(store, opts, :release, [token]))
           equal(Log.confirm(store, stream, expected, row.nonce, [row]), :superseded)
 
         _ ->
@@ -298,8 +298,8 @@ defmodule Elzoo.DurableLog.Conformance do
       equal(Log.confirm_ack(store, req), {:unknown, :unfenced})
 
       if compete? do
+        equal(hook(store, opts, :rollback, [token]), :ok)
         equal(call(store, :ack, [req.extra, nonce()]), {:committed, 1})
-        conflict(hook(store, opts, :release, [token]))
         equal(Log.confirm_ack(store, req), :superseded)
       else
         equal(hook(store, opts, :release, [token]), {:committed, 1})

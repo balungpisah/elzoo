@@ -25,11 +25,13 @@ defmodule Elzoo.DurableLog.Writer do
       replay: nil
     }
 
-    with :ok <- reconcile(state.store, state.stream, Keyword.get(opts, :reconcile)),
+    with true <- Codec.fold_valid?(state.fold),
+         :ok <- reconcile(state.store, state.stream, Keyword.get(opts, :reconcile)),
          {:ok, replay} <- load(state, true),
          :ok <- healthy(replay) do
       {:ok, %{state | replay: replay}}
     else
+      false -> {:stop, :invalid_fold}
       {:error, reason} -> {:stop, reason}
     end
   end

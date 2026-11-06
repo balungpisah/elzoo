@@ -6,7 +6,11 @@ defmodule Elzoo.DurableLog.Memory do
   alias Elzoo.DurableLog, as: Log
   alias Elzoo.DurableLog.{Codec, Store}
 
-  def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
+  def start_link(opts) do
+    if Codec.fold_valid?(Keyword.fetch!(opts, :fold)),
+      do: GenServer.start_link(__MODULE__, opts),
+      else: {:error, :invalid_fold}
+  end
 
   def store(pid, opts \\ %{}) do
     configuration = GenServer.call(pid, :configuration)

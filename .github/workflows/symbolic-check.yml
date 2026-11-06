@@ -27,7 +27,21 @@ jobs:
         working-directory: /
         run: |
           apt-get update
-          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates curl git unzip python3 build-essential libssl3 libncurses6 libsctp1
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates curl git unzip python3 build-essential libssl3 libncurses6 libsctp1 postgresql
+      - name: Prepare disposable PostgreSQL database
+        working-directory: /
+        run: |
+          set -eu
+          version=$(find /usr/lib/postgresql -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -n 1)
+          test -n "$version"
+          if ! pg_lsclusters --no-header | awk '{print $1, $2}' | grep -qx "$version main"; then
+            pg_createcluster "$version" main
+          fi
+          pg_ctlcluster "$version" main status || pg_ctlcluster "$version" main start
+          su postgres -c "psql -v ON_ERROR_STOP=1 -c \"CREATE ROLE elzoo_test LOGIN PASSWORD 'elzoo_test'\""
+          su postgres -c "createdb -O elzoo_test elzoo_test"
+          echo 'ELZOO_TEST_DATABASE_URL=ecto://elzoo_test:elzoo_test@localhost/elzoo_test' >> "$GITHUB_ENV"
+          su postgres -c "psql -d elzoo_test -c 'SHOW server_version'"
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Trust only this container checkout
         working-directory: ${{ github.workspace }}

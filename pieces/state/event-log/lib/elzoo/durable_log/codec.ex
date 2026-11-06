@@ -16,8 +16,24 @@ defmodule Elzoo.DurableLog.Codec do
   def field(binary) when is_binary(binary), do: <<byte_size(binary)::32, binary::binary>>
   def hash(bytes), do: :crypto.hash(:sha256, bytes)
   def nonce?(n), do: is_binary(n) and byte_size(n) == 16
-  def uint?(n), do: is_integer(n) and n >= 0 and n <= 18_446_744_073_709_551_615
-  def stream?(s), do: is_binary(s) and byte_size(s) in 1..200 and String.valid?(s)
+  def uint?(n), do: is_integer(n) and n >= 0 and n <= 9_223_372_036_854_775_807
+  def small_uint?(n), do: is_integer(n) and n > 0 and n <= 2_147_483_647
+
+  def text?(s),
+    do: is_binary(s) and String.valid?(s) and not String.contains?(s, <<0>>)
+
+  def stream?(s), do: text?(s) and byte_size(s) in 1..200
+  def destination?(s), do: text?(s) and byte_size(s) > 0
+
+  def fold_valid?(fold),
+    do:
+      is_map(fold) and is_map(Map.get(fold, :kinds)) and
+        Enum.all?(fold.kinds, fn {kind, role} ->
+          text?(kind) and role in [:state_bearing, :non_state_bearing]
+        end) and
+        is_list(Map.get(fold, :versions)) and Enum.all?(fold.versions, &small_uint?/1) and
+        is_list(Map.get(fold, :destinations, [])) and
+        Enum.all?(Map.get(fold, :destinations, []), &destination?/1)
 
   def checkpoint_bytes(c) do
     {applied, damaged, diagnostics} = c.cursor
@@ -38,12 +54,69 @@ defmodule Elzoo.DurableLog.Codec do
     ])
   end
 
+  def cursor_bytes({applied, damaged, diagnostics}),
+    do:
+      IO.iodata_to_binary([
+        <<1, applied::64, bool(damaged), length(diagnostics)::32>>,
+        Enum.map(diagnostics, &diagnostic/1)
+      ])
+
+  def seen_bytes(seen),
+    do:
+      IO.iodata_to_binary([
+        <<1, map_size(seen)::32>>,
+        seen |> Enum.sort() |> Enum.map(fn {s, d} -> <<s::64, d::binary-size(32)>> end)
+      ])
+
+  def decode_cursor(<<1, applied::64, damaged, count::32, rest::binary>>) when damaged in [0, 1] do
+    with true <- uint?(applied), {:ok, diagnostics, <<>>} <- decode_diagnostics(rest, count, []) do
+      {:ok, {applied, damaged == 1, diagnostics}}
+    else
+      _ -> {:error, :malformed}
+    end
+  end
+
+  def decode_cursor(_), do: {:error, :malformed}
+
+  def decode_seen(<<1, count::32, rest::binary>>) when byte_size(rest) == count * 40,
+    do: decode_witnesses(rest, %{})
+
+  def decode_seen(_), do: {:error, :malformed}
+  defp decode_witnesses(<<>>, seen), do: {:ok, seen}
+
+  defp decode_witnesses(<<s::64, d::binary-size(32), rest::binary>>, seen) do
+    if uint?(s) and s > 0 and not Map.has_key?(seen, s),
+      do: decode_witnesses(rest, Map.put(seen, s, d)),
+      else: {:error, :malformed}
+  end
+
+  defp decode_diagnostics(rest, 0, acc), do: {:ok, Enum.reverse(acc), rest}
+
+  defp decode_diagnostics(<<tag, s::64, rest::binary>>, count, acc) when tag in [1, 2] do
+    order = if tag == 1, do: :gap, else: :out_of_order
+    decode_diagnostic({s, order}, rest, count, acc)
+  end
+
+  defp decode_diagnostics(<<3, h::64, l::64, rest::binary>>, count, acc),
+    do: decode_diagnostic({:truncated, h, l}, rest, count, acc)
+
+  defp decode_diagnostics(<<4, s::64, reason, rest::binary>>, count, acc),
+    do: decode_diagnostic({:corrupt, s, Enum.at(@reasons, reason)}, rest, count, acc)
+
+  defp decode_diagnostics(_, _, _), do: {:error, :malformed}
+
+  defp decode_diagnostic(d, rest, count, acc) do
+    if count > 0 and diagnostic_valid?(d),
+      do: decode_diagnostics(rest, count - 1, [d | acc]),
+      else: {:error, :malformed}
+  end
+
   def checkpoint_valid?(c) when is_map(c) do
     try do
       {applied, damaged, diagnostics} = c.cursor
 
       stream?(c.stream) and uint?(c.sequence) and c.sequence == applied and
-        is_integer(c.fold_version) and c.fold_version in 1..4_294_967_295 and
+        small_uint?(c.fold_version) and
         is_binary(c.model) and is_boolean(damaged) and is_list(diagnostics) and
         Enum.all?(diagnostics, &diagnostic_valid?/1) and
         (diagnostics == [] or damaged or Enum.all?(diagnostics, &match?({_, :out_of_order}, &1))) and
@@ -103,7 +176,8 @@ defmodule Elzoo.DurableLog.Codec do
         with {p, ""} when p > 0 <- Integer.parse(position),
              {s, ""} when s > 0 <- Integer.parse(sequence),
              stream = rest |> Enum.reverse() |> Enum.join("/"),
-             true <- stream?(stream) and uint?(s) and uint?(p) and item_key(stream, s, p) == key do
+             true <-
+               stream?(stream) and uint?(s) and small_uint?(p) and item_key(stream, s, p) == key do
           {:ok, {stream, s, p}}
         else
           _ -> {:error, :invalid_outbox_item}
@@ -130,8 +204,8 @@ defmodule Elzoo.DurableLog.Codec do
 
   def item_valid?(i) when is_map(i) do
     try do
-      stream?(i.stream) and uint?(i.sequence) and i.sequence > 0 and uint?(i.position) and
-        i.position > 0 and is_binary(i.destination) and byte_size(i.destination) > 0 and
+      stream?(i.stream) and uint?(i.sequence) and i.sequence > 0 and small_uint?(i.position) and
+        destination?(i.destination) and
         is_binary(i.payload) and nonce?(i.nonce) and
         i.idempotency_key == item_key(i.stream, i.sequence, i.position) and
         i.digest == hash(item_bytes(i)) and valid_ack?(i)
