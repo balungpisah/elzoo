@@ -979,7 +979,7 @@
         "ELZ-003",
         "ELZ-004"
       ],
-      "status": "selected first wave; blocked on adoption and preflight",
+      "status": "implemented in PR #57; ready on main only once PR #57 merges; coordinator retains merge acceptance",
       "url": "https://github.com/balungpisah/elzoo/issues/36",
       "paths": [
         "tasks/ELZ-022-budget-reservation.md"
@@ -3583,10 +3583,12 @@
     {
       "id": "workflow/budget",
       "job": "ELZ-022",
-      "note": "Admission/reservation/settlement of unit-tagged costs for C2/C6/C7; shared authority under concurrency, explicit estimate versus observed cost. Not a financial ledger. ELZ-022 carries the admission record.",
+      "note": "Unit-tagged budget Elzoo.Budget: pure Cure reserve/settle/release/reset/status/sweep over a sealed cap/unit, absolute Unix-ms now/expiry (expired when now >= expiry), generation {incarnation, counter} and per-cost_ref entries; one serialized check-and-reserve through the unchanged Elzoo.Unit (step/2 with {now_ms, input}); derived refund/overage, late settle commits only the actual, overage admits nothing, unreadable state and unavailable owner fail closed; volatile Elzoo.Budget.Owner with restart :temporary; critical_path/4 and critical_path_waves/3. Not money settlement, quota or rate limiting.",
       "baseline_status": "deferred",
-      "disposition": "published-scoped-work",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "merged-ready-contract; task acceptance separate",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/workflow/budget/piece.json",
+      "manifest_sha256": "c1f600e5bbd1dc39b9efe8c9ece79d7ec5cd78661fab1bb2c4fe1906d7fee3c9"
     },
     {
       "id": "workflow/build-graph",
