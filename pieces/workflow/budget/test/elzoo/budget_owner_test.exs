@@ -174,7 +174,7 @@ defmodule Elzoo.Budget.OwnerTest do
   end
 
   @tag timeout: 60_000
-  test "timeout then retry: replay with the same values, conflict with a recomputed expiry, release frees" do
+  test "timeout then retry: replay, conflict with a recomputed expiry, rejected retry then release frees" do
     owner = start!()
     g = generation(owner)
     fields = reserve_fields("a", 4, later(60_000))
@@ -191,11 +191,19 @@ defmodule Elzoo.Budget.OwnerTest do
     assert Owner.reserve(owner, %{fields | expiry: fields.expiry + 1}) ==
              {:rejected, :cost_ref_conflict}
 
+    # A rejected retry means "do not start the call"; release frees the hold (R1).
+    assert {:reserved, _} = Owner.reserve(owner, reserve_fields("b", 6, later(60_000)))
+
+    assert {:settled, %{overage: 3}} =
+             Owner.settle(owner, %{cost_ref: "b", generation: g, actual: 9})
+
+    assert Owner.reserve(owner, fields) == {:rejected, :insufficient}
+
     assert Owner.release(owner, %{cost_ref: "a", generation: g}) ==
              {:released, %{cost_ref: "a", generation: g}}
 
     {:status, st} = Owner.status(owner)
-    assert st.reserved == 0 and st.open == 0
+    assert st.reserved == 0 and st.open == 0 and st.committed == 9
   end
 
   @tag timeout: 60_000

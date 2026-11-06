@@ -286,8 +286,9 @@ defmodule Elzoo.Budget do
 
   defp entry_ok(_), do: :bad
 
+  # A flat, nonempty list of code points (no chardata, no nested lists).
   defp cure_text?({:String, chars}) when is_list(chars) and chars != [] do
-    case :unicode.characters_to_binary(chars) do
+    case Enum.all?(chars, &is_integer/1) and :unicode.characters_to_binary(chars) do
       binary when is_binary(binary) -> true
       _ -> false
     end

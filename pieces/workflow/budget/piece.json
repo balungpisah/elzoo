@@ -138,17 +138,17 @@
     {
       "kind": "type",
       "file": "cure/elzoo/budget.cure",
-      "claim": "Pinned Cure type-checks the BudgetState, EntryRow, Generation, Entry and BudgetResult declarations and the production functions; Elzoo.Budget.readable?/1 validates erased terms (I0) before every Cure call."
+      "claim": "Pinned Cure type-checks the BudgetState, EntryRow, Generation, Entry, Lookup, BudgetResult and Step declarations and the production functions. No Elixir check is claimed here."
     },
     {
       "kind": "test",
       "file": "test/elzoo/budget_test.exs",
-      "claim": "Clean Cure audit, six compile-time negative controls each rejected at a named law proof, I0 fail-closed, input decoding and key forms, replay/expiry/late-settle/overage scenarios, repeat settle and release through step/2 (L3/L4 link), step/2 equals direct Cure results, seeded random traces for I0, the cap invariant, repeat equality and sweep idempotence at the same now, and critical-path formulas; finite evidence, not proofs."
+      "claim": "Clean Cure audit; nine compile-time negative controls, each rejected at an asserted proof name (L2 overage_with, L6 settle_expired_with and L4 release_expired_with controls are law-specific; the other L5/L6 laws have no law-specific control); the Elixir readable?/1 (I0) check, including chardata and nested text, fails closed; input decoding and key forms; replay/expiry/late-settle/overage scenarios; repeat settle and release through step/2 (L3/L4 link); step/2 next states and translated results equal direct Cure results; seeded random traces for I0, the cap invariant, repeat equality and sweep idempotence at the same now; critical-path formulas. Finite evidence, not proofs."
     },
     {
       "kind": "test",
       "file": "test/elzoo/budget_owner_test.exs",
-      "claim": "Owner scenarios: start validation and seal, distinct incarnations, 20 rounds of 50 concurrent callers for the last unit, expiry and late settle, overage, reset and forfeits, unreadable and stopped owner fail closed, supervised crash of the temporary child, timeout then retry/release, timed-out reset resolved by status; finite evidence."
+      "claim": "Owner scenarios: start validation and seal, distinct incarnations, 20 rounds of 50 concurrent callers for the last unit, expiry and late settle, overage, reset and forfeits, unreadable and stopped owner fail closed, supervised crash of the temporary child, timeout then replay, conflict, rejected retry and release, timed-out reset resolved by status; finite evidence."
     },
     {
       "kind": "upstream",

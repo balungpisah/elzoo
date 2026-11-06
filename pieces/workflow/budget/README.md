@@ -284,11 +284,13 @@ inputs; there is no parallel Elixir reimplementation of the decision.
   It checks and records in the same pure function. No public function returns
   "would fit" without recording.
 - Call path: Elixir `step/2` → Elixir `readable?/1` (I0) and input decoding →
-  Cure `sweep` (with `now_ms`) → one Cure function: `reserve`, `settle`,
-  `release`, `reset`, `remaining` (for `status`) or none (for `sweep`) →
-  Elixir result translation. The laws are stated over the Cure functions
-  only (see "Cure and Elixir split"); the Elixir steps are test-grounded, and
-  a test checks that `step/2` dispatches exactly this way.
+  Cure `sweep` (with `now_ms`) → one Cure function: `reserve/7`, `settle/4`,
+  `release/3`, `reset/2` or `status/1` (which calls `remaining/1` and
+  `count_open/1`); for `sweep` the Elixir layer calls Cure `sweep_step/2`
+  instead → Elixir result translation. The laws are stated over the Cure
+  functions only (see "Cure and Elixir split"); the Elixir steps are
+  test-grounded, and a test checks that `step/2` gives the same next state
+  and the translated form of the same Cure result.
 - The owner starts `Elzoo.Unit.start_link({Elzoo.Budget, :step, initial_state})`.
   Every client function reads the clock **in the caller process**, then calls
   `Elzoo.Unit.step(owner, {now_ms, input})`. `reserve`, `settle`, `release`,
@@ -469,20 +471,39 @@ L1 does not by itself cover the collection; I0 connects the scalar
 
 ### Type/contract check
 
-Pinned Cure type-checks the production declarations. `Elzoo.Budget.readable?/1`
-validates erased state terms (I0) and the decoder validates input maps and key
-form before any Cure call.
+Pinned Cure type-checks the declarations. Nothing else is claimed under this
+heading. `Elzoo.Budget.readable?/1` (I0) and the input decoder are Elixir
+runtime checks; their evidence is the tests below.
 
 ### Negative controls
 
-`test/elzoo/budget_test.exs` compiles six mutated copies of the Cure module.
-Each is rejected, and the test asserts the name of the law proof that no
-longer checks: a guard that forgets the estimate (`new_entry_cap`, L1), an
-overage branch that admits (`reserve_with_cap`; the L1 proof catches it before
-L2), a repeat settle that drops `late` (`settle_repeat_same`, L3), a repeat
-release that frees again (`release_released_with`, L4), an `insufficient`
-rejection that records the entry (`new_entry_kept`, L5), and a late settle
-stored as not late (`settle_entry_kept`, L5/L6).
+`test/elzoo/budget_test.exs` compiles nine mutated copies of the Cure module.
+Each is rejected, and the test asserts the name of the proof that no longer
+checks (the first failing proof in file order):
+
+- a guard that forgets the estimate → `new_entry_cap` (L1);
+- an overage branch that admits a new entry → `reserve_with_cap` (L1 catches
+  it before L2);
+- a repeat settle that drops `late` → `settle_repeat_same` (L3);
+- a repeat release that frees again → `release_released_with` (L4);
+- an `insufficient` rejection that records the entry → `new_entry_kept` (L5);
+- a late settle stored as not late → `settle_entry_kept` (L5 catches it
+  before L6).
+
+Three more controls also adjust the L1/L5 helper proofs so that they still
+check, which leaves the target law as the only one that can reject the copy:
+
+- an overage branch routed to the cap-guarded replay path → `overage_with`
+  (L2, `overage_admits_nothing`);
+- a late settle on an `Expired` entry that frees the estimate again →
+  `settle_expired_with` (L6, `settle_expired_derived`);
+- a release of an `Expired` entry that frees the estimate again →
+  `release_expired_with` (L4, `release_expired_replays`).
+
+The other L6 laws (`settle_open_derived`, `settle_released_derived`,
+`settle_first_derived`, `settle_first_stores` and the refund/overage
+identities) and the L5 laws other than `new_entry_kept` have no
+law-specific control.
 
 ### Tests (finite ExUnit scenarios)
 
@@ -518,8 +539,12 @@ stored as not late (`settle_entry_kept`, L5/L6).
   `status` returns the generation before the first reserve;
 - client timeout (owner suspended past the 5000 ms default) then retry with
   the same `cost_ref`, `estimate` and absolute `expiry` replays; with a
-  recomputed expiry gets `cost_ref_conflict`; `release` then frees the held
-  estimate (R1);
+  recomputed expiry gets `cost_ref_conflict`; after another entry's overage
+  the same retry is `rejected{insufficient}`, and `release` then frees the
+  held estimate (R1; the Cure-level insufficient → release case is also in
+  `budget_test.exs`);
+- the I0 check rejects corrupted text such as `{:String, ["a"]}` (chardata)
+  and nested code-point lists;
 - a timed-out reset is resolved with `status`;
 - repeat settle and repeat release through `step/2`, both late and non-late,
   return the identical state and result (the L3/L4 link); `actual_conflict`;

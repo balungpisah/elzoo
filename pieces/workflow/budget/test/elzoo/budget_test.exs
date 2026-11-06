@@ -49,34 +49,77 @@ defmodule Elzoo.BudgetTest do
           do: assert(@source =~ ~r/^  fn #{law}\(/m, "missing law #{law}")
     end
 
+    # {target law, proof expected to reject, [{anchor, replacement}]}.
+    # The first six break the transition only; the first broken proof in file
+    # order rejects them (so the L2 and late-flag ones are caught by L1 and L5
+    # helpers). The last three also adjust the L1/L5 helper proofs so that only
+    # the target law can reject the copy.
     @mutations [
       {"admission_cap", "new_entry_cap",
-       "fn fits_new(s: BudgetState, estimate: Int) -> Bool = s.committed + (s.reserved + estimate) <= s.cap",
-       "fn fits_new(s: BudgetState, estimate: Int) -> Bool = s.committed + s.reserved <= s.cap"},
-      {"overage_admits_nothing", "reserve_with_cap", "              True() -> reject(s, :overage)",
-       "              True() -> admit_new(s, cost_ref, estimate, expiry)"},
+       [
+         {"fn fits_new(s: BudgetState, estimate: Int) -> Bool = s.committed + (s.reserved + estimate) <= s.cap",
+          "fn fits_new(s: BudgetState, estimate: Int) -> Bool = s.committed + s.reserved <= s.cap"}
+       ]},
+      {"overage_admits_nothing (caught by L1)", "reserve_with_cap",
+       [
+         {"              True() -> reject(s, :overage)",
+          "              True() -> admit_new(s, cost_ref, estimate, expiry)"}
+       ]},
       {"settle_idempotent", "settle_repeat_same",
-       "      True() -> Step{state: s, result: derive(estimate, actual, late)}",
-       "      True() -> Step{state: s, result: derive(estimate, actual, False())}"},
+       [
+         {"      True() -> Step{state: s, result: derive(estimate, actual, late)}",
+          "      True() -> Step{state: s, result: derive(estimate, actual, False())}"}
+       ]},
       {"release_idempotent", "release_released_with",
-       "      Released(_e) -> Step{state: s, result: ReleasedOk()}",
-       "      Released(e) -> Step{state: with_scalars(s, s.generation, s.committed, s.reserved - e, s.entries), result: ReleasedOk()}"},
+       [
+         {"      Released(_e) -> Step{state: s, result: ReleasedOk()}",
+          "      Released(e) -> Step{state: with_scalars(s, s.generation, s.committed, s.reserved - e, s.entries), result: ReleasedOk()}"}
+       ]},
       {"reserve_rejection_keeps_state", "new_entry_kept",
-       "      False() -> reject(s, :insufficient)\n\n  @total true\n  @reducible\n  fn admit_new(",
-       "      False() -> Step{state: admitted(s, cost_ref, estimate, expiry), result: Rejected(:insufficient)}\n\n  @total true\n  @reducible\n  fn admit_new("},
-      {"settle_expired_derived", "settle_entry_kept",
-       "      Expired(e) -> settle_first(s, cost_ref, actual, e, True(), s.reserved)",
-       "      Expired(e) -> settle_first(s, cost_ref, actual, e, False(), s.reserved)"}
+       [
+         {"      False() -> reject(s, :insufficient)\n\n  @total true\n  @reducible\n  fn admit_new(",
+          "      False() -> Step{state: admitted(s, cost_ref, estimate, expiry), result: Rejected(:insufficient)}\n\n  @total true\n  @reducible\n  fn admit_new("}
+       ]},
+      {"late flag (caught by L5)", "settle_entry_kept",
+       [
+         {"      Expired(e) -> settle_first(s, cost_ref, actual, e, True(), s.reserved)",
+          "      Expired(e) -> settle_first(s, cost_ref, actual, e, False(), s.reserved)"}
+       ]},
+      {"overage_admits_nothing (L2 only)", "overage_with",
+       [
+         {"            match overage\n              True() -> reject(s, :overage)",
+          "            match overage\n              True() -> replay_with(s, estimate, True(), fits_replay(s))"},
+         {"            match overage\n              True() -> reflexive(True())",
+          "            match overage\n              True() -> replay_cap(s, estimate, True(), fits_replay(s), reflexive(fits_replay(s)))"},
+         {"            match overage\n              True() -> reflexive(s)",
+          "            match overage\n              True() -> replay_kept(s, estimate, True(), fits_replay(s))"}
+       ]},
+      {"settle_expired_derived (L6 only)", "settle_expired_with",
+       [
+         {"      Expired(e) -> settle_first(s, cost_ref, actual, e, True(), s.reserved)",
+          "      Expired(e) -> settle_first(s, cost_ref, actual, e, True(), s.reserved - e)"},
+         {"      Expired(e) -> derived_kept(s, settled_state(s, cost_ref, e, actual, True(), held(s)), e, actual, True(), actual <= e)",
+          "      Expired(e) -> derived_kept(s, settled_state(s, cost_ref, e, actual, True(), freed(s, e)), e, actual, True(), actual <= e)"}
+       ]},
+      {"release_expired_replays (L4 only)", "release_expired_with",
+       [
+         {"      Expired(_e) -> Step{state: s, result: ReleasedOk()}",
+          "      Expired(e) -> Step{state: with_scalars(s, s.generation, s.committed, s.reserved - e, s.entries), result: ReleasedOk()}"}
+       ]}
     ]
 
     test "negative controls: each broken transition is rejected by Cure" do
-      for {law, rejected_at, from, to} <- @mutations do
-        assert String.contains?(@source, from), "mutation anchor missing for #{law}"
-
+      for {law, rejected_at, edits} <- @mutations do
         wrong =
-          @source
-          |> String.replace("mod Elzoo.Budget", "mod Elzoo.WrongBudget")
-          |> String.replace(from, to, global: false)
+          Enum.reduce(
+            edits,
+            String.replace(@source, "mod Elzoo.Budget", "mod Elzoo.WrongBudget"),
+            fn
+              {from, to}, acc ->
+                assert length(String.split(acc, from)) == 2, "mutation anchor not unique for #{law}"
+                String.replace(acc, from, to)
+            end
+          )
 
         assert {:error, error} = Cure.Compiler.check_source(wrong, source_roots: @roots),
                "mutation for #{law} was accepted"
@@ -105,8 +148,19 @@ defmodule Elzoo.BudgetTest do
       broken = put_elem(state, 6, 0)
       negative = put_elem(state, 5, -1)
       bad_entry = put_elem(state, 7, [{:EntryRow, {:String, ~c"a"}, {:Open, 0, 1}}])
+      chardata_ref = put_elem(state, 7, [{:EntryRow, {:String, ["a"]}, {:Open, 4, @now + 10}}])
+      nested_unit = put_elem(state, 3, {:String, [~c"tok", ~c"ens"]})
 
-      for bad <- [broken, negative, bad_entry, :garbage, nil, {:BudgetState}] do
+      for bad <- [
+            broken,
+            negative,
+            bad_entry,
+            chardata_ref,
+            nested_unit,
+            :garbage,
+            nil,
+            {:BudgetState}
+          ] do
         refute B.readable?(bad)
 
         for input <- [reserve("b", 1), settle("a", 1), release("a"), reset(), :status, :sweep] do
@@ -335,6 +389,7 @@ defmodule Elzoo.BudgetTest do
     test "step results equal direct Cure results for the same swept state" do
       s0 = fresh()
       {s1, _} = run(s0, reserve("a", 4, @now + 10))
+      {s1, _} = run(s1, reserve("c", 2, @now + 100))
       t = fn x -> {:String, String.to_charlist(x)} end
       g = {:Generation, t.("inc-a"), 1}
 
@@ -344,15 +399,32 @@ defmodule Elzoo.BudgetTest do
                apply(@cure, :reserve, [sw, @now + 20, 10, t.("tokens"), t.("b"), 3, @now + 50])
              end},
             {settle("a", 2), fn sw -> apply(@cure, :settle, [sw, t.("a"), g, 2]) end},
+            {settle("c", 5), fn sw -> apply(@cure, :settle, [sw, t.("c"), g, 5]) end},
+            {settle("c", 1), fn sw -> apply(@cure, :settle, [sw, t.("c"), g, 1]) end},
+            {settle("c", 1, {"inc-a", 9}),
+             fn sw -> apply(@cure, :settle, [sw, t.("c"), {:Generation, t.("inc-a"), 9}, 1]) end},
             {release("a"), fn sw -> apply(@cure, :release, [sw, t.("a"), g]) end},
             {reset(), fn sw -> apply(@cure, :reset, [sw, g]) end},
             {:status, fn sw -> apply(@cure, :status, [sw]) end}
           ] do
         swept = apply(@cure, :sweep, [s1, @now + 20])
-        {:Step, cure_next, _} = cure_call.(swept)
-        {next, _} = run(s1, input, @now + 20)
+        {:Step, cure_next, cure_result} = cure_call.(swept)
+        {next, result} = run(s1, input, @now + 20)
         assert next == cure_next, inspect(input)
+        assert result == expected_translation(cure_result, input, cure_next), inspect(input)
       end
+
+      # Each input above reaches a different Cure result constructor.
+      results =
+        for input <- [reserve("b", 3, @now + 50), settle("a", 2), settle("c", 5), settle("c", 1)],
+            do: elem(run(s1, input, @now + 20), 1)
+
+      assert [
+               {:reserved, _},
+               {:settled, %{late: true, refund: 0}},
+               {:settled, %{late: false, overage: 3}},
+               {:settled, %{late: false, refund: 1}}
+             ] = results
 
       {:Step, swept_next, {:Swept, 1}} = apply(@cure, :sweep_step, [s1, @now + 20])
       assert run(s1, :sweep, @now + 20) == {swept_next, {:swept, %{expired: 1}}}
@@ -456,6 +528,53 @@ defmodule Elzoo.BudgetTest do
           ] do
         assert B.critical_path_waves(w, k, d) == {:error, :invalid_input}
       end
+    end
+  end
+
+  # Test oracle for the Elixir translation of a Cure result.
+  defp expected_translation(cure_result, input, next) do
+    {:BudgetState, {:String, id}, cap, {:String, unit}, {:Generation, {:String, inc}, counter},
+     committed, reserved, _} = next
+
+    generation = {List.to_string(inc), counter}
+
+    ref =
+      case input do
+        {_kind, %{cost_ref: ref}} -> ref
+        _ -> nil
+      end
+
+    case cure_result do
+      {:Reserved, e, r} ->
+        {:reserved, %{cost_ref: ref, generation: generation, estimate: e, remaining: r}}
+
+      {:Rejected, reason} ->
+        {:rejected, reason}
+
+      {:SettledRefund, r, l} ->
+        {:settled, %{cost_ref: ref, generation: generation, refund: r, late: l}}
+
+      {:SettledOverage, o, l} ->
+        {:settled, %{cost_ref: ref, generation: generation, overage: o, late: l}}
+
+      :ReleasedOk ->
+        {:released, %{cost_ref: ref, generation: generation}}
+
+      {:ResetOk, f} ->
+        {:reset, %{generation: generation, forfeited: f}}
+
+      {:Status, r, o} ->
+        {:status,
+         %{
+           budget_id: List.to_string(id),
+           generation: generation,
+           cap: cap,
+           unit: List.to_string(unit),
+           committed: committed,
+           reserved: reserved,
+           remaining: r,
+           open: o
+         }}
     end
   end
 end
