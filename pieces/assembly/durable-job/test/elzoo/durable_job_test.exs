@@ -474,6 +474,118 @@ defmodule Elzoo.DurableJobTest do
     assert kinds(f.store, run_stream(f, "k17")) == []
   end
 
+  defp oban_errors(f, id) do
+    %{rows: [[n]]} =
+      TestRepo.query!(
+        "select cardinality(errors) from #{f.prefix}.oban_jobs where id = $1",
+        [id],
+        log: false
+      )
+
+    n
+  end
+
+  defp catching(fun) do
+    fun.()
+  catch
+    :exit, reason -> {:caught_exit, elem(reason, 0)}
+  end
+
+  @tag timeout: 120_000
+  test "DJ21 a Store write slower than the GenServer default is not charged and does not crash",
+       %{prefix: prefix} do
+    # worker: attempt_started blocks on the Run head lock for 7 s (> 5 s default)
+    f = flow(prefix, :postgres)
+    :ok = Oban.pause_queue(f.oban, queue: f.queue)
+    {:ok, _} = submit(f, "s1", [1, 2], max_attempts: 1, base_backoff_ms: 0, max_backoff_ms: 0)
+    {:ok, _} = relay!(f.queue)
+    id = job_id(f, "s1")
+    lock = hold_head_lock(prefix, run_stream(f, "s1"), 7_000)
+    :ok = Oban.resume_queue(f.oban, queue: f.queue)
+    Task.await(lock, 20_000)
+    poll(fn -> Run.terminal?(phase(f, "s1")) end)
+    assert phase(f, "s1") == :succeeded
+    assert kinds(f.store, run_stream(f, "s1")) == ~w(accepted attempt_started succeeded)
+    poll(fn -> elem(job_row(f, id), 0) == "completed" end)
+    assert {job_row(f, id), oban_errors(f, id)} == {{"completed", 1}, 0}
+
+    # submit: the submission-stream head is locked for 7 s
+    g = flow(prefix, :postgres)
+    {:ok, _} = submit(g, "s2a")
+    submitter = Process.whereis(:"Elixir.Elzoo.DurableJob.submitter.#{g.queue}")
+    relay = Process.whereis(:"Elixir.Elzoo.DurableJob.relay.#{g.queue}")
+    lock = hold_head_lock(prefix, Run.submission_stream(g.queue), 7_000)
+    assert catching(fn -> submit(g, "s2b") end) == {:ok, %{phase: :submitted}}
+    Task.await(lock, 20_000)
+    assert Process.whereis(:"Elixir.Elzoo.DurableJob.submitter.#{g.queue}") == submitter
+    assert Process.whereis(:"Elixir.Elzoo.DurableJob.relay.#{g.queue}") == relay
+
+    # cancel: the Run head is locked for 7 s
+    h = flow(prefix, :postgres)
+    :ok = Oban.pause_queue(h.oban, queue: h.queue)
+    {:ok, _} = submit(h, "s3")
+    {:ok, _} = relay!(h.queue)
+    lock = hold_head_lock(prefix, run_stream(h, "s3"), 7_000)
+    assert catching(fn -> DurableJob.cancel(h.queue, "s3", "operator") end) == {:ok, :cancelled}
+    Task.await(lock, 20_000)
+    assert List.last(kinds(h.store, run_stream(h, "s3"))) == "cancelled"
+  end
+
+  @tag timeout: 120_000
+  test "DJ21b writer call timeout shorter than the held lock: worker snoozes, submit and cancel are indeterminate",
+       %{prefix: prefix} do
+    f = flow(prefix, :postgres, writer_timeout_ms: 1_000)
+    :ok = Oban.pause_queue(f.oban, queue: f.queue)
+    {:ok, _} = submit(f, "t1", [3], max_attempts: 1, base_backoff_ms: 0, max_backoff_ms: 0)
+    {:ok, _} = relay!(f.queue)
+    id = job_id(f, "t1")
+    submitter = Process.whereis(:"Elixir.Elzoo.DurableJob.submitter.#{f.queue}")
+    relay = Process.whereis(:"Elixir.Elzoo.DurableJob.relay.#{f.queue}")
+
+    lock = hold_head_lock(prefix, run_stream(f, "t1"), 3_000)
+    :ok = Oban.resume_queue(f.oban, queue: f.queue)
+    Task.await(lock, 20_000)
+    poll(fn -> Run.terminal?(phase(f, "t1")) end)
+    records = kinds(f.store, run_stream(f, "t1"))
+    assert List.last(records) == "succeeded"
+    refute "attempt_failed" in records or "exhausted" in records
+    poll(fn -> elem(job_row(f, id), 0) == "completed" end)
+    assert {job_row(f, id), oban_errors(f, id)} == {{"completed", 1}, 0}
+
+    lock = hold_head_lock(prefix, Run.submission_stream(f.queue), 3_000)
+
+    assert {:indeterminate, %{operation: :submit, job_key: "t2"}} =
+             catching(fn -> submit(f, "t2") end)
+
+    Task.await(lock, 20_000)
+
+    :ok = Oban.pause_queue(f.oban, queue: f.queue)
+    {:ok, _} = submit(f, "t3", [3])
+    {:ok, _} = relay!(f.queue)
+    lock = hold_head_lock(prefix, run_stream(f, "t3"), 3_000)
+
+    assert {:indeterminate, %{operation: :cancel, job_key: "t3"}} =
+             catching(fn -> DurableJob.cancel(f.queue, "t3", "operator") end)
+
+    Task.await(lock, 20_000)
+    assert Process.whereis(:"Elixir.Elzoo.DurableJob.submitter.#{f.queue}") == submitter
+    assert Process.whereis(:"Elixir.Elzoo.DurableJob.relay.#{f.queue}") == relay
+  end
+
+  test "cancel/3 validates requested_by and documents its result set", %{prefix: prefix} do
+    f = flow(prefix, :postgres)
+    {:ok, _} = submit(f, "c1")
+    too_long = String.duplicate("x", 201)
+
+    for bad <- [nil, :op, "", too_long, <<0xFF>>] do
+      assert catching(fn -> DurableJob.cancel(f.queue, "c1", bad) end) ==
+               {:error, {:invalid, :requested_by}}
+    end
+
+    assert DurableJob.cancel("nostarted", "c1", "op") == {:error, :not_started}
+    assert DurableJob.cancel(f.queue, "c1", "op") == {:ok, :cancelled}
+  end
+
   test "DJ19 a stale pre-start execution arriving after the current attempt_started snoozes", %{
     prefix: prefix
   } do

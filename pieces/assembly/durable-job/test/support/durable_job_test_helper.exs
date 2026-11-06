@@ -86,7 +86,16 @@ defmodule Elzoo.DurableJob.TestHelper do
   def start_job(queue, store, oban, opts) do
     job_opts =
       [queue: queue, store: store, repo: TestRepo, oban: oban, relay_interval_ms: :manual]
-      |> Keyword.merge(Keyword.take(opts, [:handler, :now_ms, :test_hook, :relay_limit, :snooze_s]))
+      |> Keyword.merge(
+        Keyword.take(opts, [
+          :handler,
+          :now_ms,
+          :test_hook,
+          :relay_limit,
+          :snooze_s,
+          :writer_timeout_ms
+        ])
+      )
 
     start_supervised!({DurableJob, job_opts}, id: {DurableJob, queue})
   end
@@ -119,6 +128,31 @@ defmodule Elzoo.DurableJob.TestHelper do
     case DurableJob.status(f.queue, key) do
       {:ok, %{phase: phase}} -> phase
       other -> other
+    end
+  end
+
+  @doc "Hold FOR UPDATE on a stream's head row for `ms` in another process; returns once locked."
+  def hold_head_lock(prefix, stream, ms) do
+    parent = self()
+
+    task =
+      Task.async(fn ->
+        TestRepo.transaction(fn ->
+          TestRepo.query!(
+            "select 1 from #{prefix}.elzoo_log_heads where stream = $1 for update",
+            [stream],
+            log: false
+          )
+
+          send(parent, :head_locked)
+          Process.sleep(ms)
+        end)
+      end)
+
+    receive do
+      :head_locked -> task
+    after
+      5_000 -> raise "head lock not taken"
     end
   end
 

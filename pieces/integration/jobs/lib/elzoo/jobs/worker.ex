@@ -4,7 +4,8 @@ defmodule Elzoo.Jobs.Worker do
   Oban worker that dispatches to the runner registered for the job's queue.
   `perform/1` traps exits for its duration so a linked helper (for example an
   ELZ-009 Writer that stops on an indeterminate write or at init) cannot kill
-  the execution; it restores the previous flag and drains stray exit messages.
+  the execution, and maps an exit escaping the runner to `{:snooze, 5}`; it
+  restores the previous flag and drains stray exit messages.
   Missing runner or unknown args version are explicit results.
   """
   use Oban.Worker, queue: :elzoo_jobs
@@ -38,6 +39,10 @@ defmodule Elzoo.Jobs.Worker do
 
     try do
       fun.()
+    catch
+      # Any exit reaching here (for example a GenServer call timeout) is a
+      # non-attempt outcome: snooze, which does not consume an Oban attempt.
+      :exit, _ -> {:snooze, @snooze}
     after
       Process.flag(:trap_exit, previous)
       drain()

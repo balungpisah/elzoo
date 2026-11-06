@@ -22,6 +22,15 @@ defmodule Elzoo.DurableJob do
 
   @rounds 3
 
+  # Writer call timeout. It must exceed the Store's own write timeout so that
+  # the Writer, not the GenServer call, reports a slow write: the ELZ-009
+  # PostgreSQL Store runs each write transaction with a 30_000 ms timeout, plus
+  # a 5_000 ms margin. Override per Assembly with `:writer_timeout_ms`.
+  @writer_timeout_ms 35_000
+
+  @doc "Default Writer call timeout (Store write timeout 30_000 ms + 5_000 ms margin)."
+  def writer_timeout_ms, do: @writer_timeout_ms
+
   # -- lifecycle --------------------------------------------------------------
 
   @doc """
@@ -32,7 +41,8 @@ defmodule Elzoo.DurableJob do
   default `Elzoo.DurableJob.Tally.run/1`), `:now_ms` (default
   `System.os_time(:millisecond)`), `:provider_slack` (default 2),
   `:snooze_s` (default 1), `:relay_limit` (default 100), `:relay_interval_ms`
-  (default 1000 or `:manual`), `:test_hook` (test-only barrier
+  (default 1000 or `:manual`), `:writer_timeout_ms` (default
+  `writer_timeout_ms/0`; must exceed the Store's write timeout), `:test_hook` (test-only barrier
   `fn :before_begin, job -> :ok end`). All fixed at start; no hot
   reconfiguration.
   """
@@ -63,6 +73,7 @@ defmodule Elzoo.DurableJob do
       slack: Keyword.get(opts, :provider_slack, 2),
       snooze: Keyword.get(opts, :snooze_s, 1),
       test_hook: Keyword.get(opts, :test_hook, fn _event, _data -> :ok end),
+      writer_timeout: Keyword.get(opts, :writer_timeout_ms, @writer_timeout_ms),
       tasks: name(queue, :tasks),
       submitter: name(queue, :submitter),
       relay: name(queue, :relay)
@@ -78,7 +89,11 @@ defmodule Elzoo.DurableJob do
 
     children = [
       {Task.Supervisor, name: config.tasks},
-      {Submitter, name: config.submitter, store: config.store, queue: queue},
+      {Submitter,
+       name: config.submitter,
+       store: config.store,
+       queue: queue,
+       writer_timeout_ms: config.writer_timeout},
       {Elzoo.Jobs.Relay,
        name: config.relay,
        store: config.store,
@@ -88,7 +103,8 @@ defmodule Elzoo.DurableJob do
        handle: fn item -> relay(config, item) end}
     ]
 
-    Supervisor.init(children, strategy: :one_for_all)
+    # one_for_one: a Submitter or Relay restart never restarts the other.
+    Supervisor.init(children, strategy: :one_for_one)
   end
 
   @doc "Relay process of `queue` (for `Elzoo.Jobs.Relay.run_once/1`)."
@@ -103,7 +119,7 @@ defmodule Elzoo.DurableJob do
   def submit(queue, job_key, input, policy, deadline_ms) do
     guarded(queue, fn cfg ->
       with {:ok, request} <- Run.request(job_key, input, policy, deadline_ms, cfg.now_ms.()) do
-        case Submitter.submit(cfg.submitter, request) do
+        case submit_call(cfg, request) do
           {:duplicate, _} -> {:duplicate, status_of(cfg, job_key)}
           other -> other
         end
@@ -111,15 +127,42 @@ defmodule Elzoo.DurableJob do
     end)
   end
 
-  @doc "Cancel a Work Item's Run (also before the relay ran)."
-  def cancel(queue, job_key, requested_by)
-      when is_binary(requested_by) and byte_size(requested_by) <= 200 do
-    guarded(queue, fn cfg ->
-      owned(cfg, fn ->
-        with_writer(cfg, job_key, &cancel_loop(cfg, job_key, requested_by, &1, @rounds))
-      end)
-    end)
+  # The request reached the Submitter, so an exit (timeout or Submitter
+  # crash) leaves the submission's commit unknown.
+  defp submit_call(cfg, request) do
+    Submitter.submit(cfg.submitter, request, @rounds * cfg.writer_timeout + 5_000)
+  catch
+    :exit, reason -> {:indeterminate, unknown(:submit, cfg, request["job_key"], reason)}
   end
+
+  defp unknown(operation, cfg, job_key, reason),
+    do: %{operation: operation, queue: cfg.queue, job_key: job_key, cause: exit_cause(reason)}
+
+  defp exit_cause({:timeout, _}), do: :timeout
+  defp exit_cause(:timeout), do: :timeout
+  defp exit_cause(_), do: :exit
+
+  @doc "Cancel a Work Item's Run (also before the relay ran). Results: see the Contract."
+  def cancel(queue, job_key, requested_by) do
+    if requested_by?(requested_by) do
+      guarded(queue, fn cfg ->
+        owned(cfg, job_key, fn ->
+          with_writer(cfg, job_key, &cancel_loop(cfg, job_key, requested_by, &1, @rounds))
+          |> writer_exit(fn reason -> {:indeterminate, unknown(:cancel, cfg, job_key, reason)} end)
+        end)
+      end)
+    else
+      {:error, {:invalid, :requested_by}}
+    end
+  end
+
+  defp requested_by?(by),
+    do:
+      is_binary(by) and byte_size(by) in 1..200 and String.valid?(by) and
+        not String.contains?(by, <<0>>)
+
+  defp writer_exit({:writer_exit, reason}, fun), do: fun.(reason)
+  defp writer_exit(result, _fun), do: result
 
   @doc "Read-only status of a Work Item's Run."
   def status(queue, job_key), do: guarded(queue, fn cfg -> status_of(cfg, job_key) end)
@@ -131,16 +174,21 @@ defmodule Elzoo.DurableJob do
     end
   end
 
-  defp owned(cfg, fun) do
+  # Runs a cancel in an ELZ-010-owned process. Once started, the task may have
+  # sent a write, so its exit or a yield timeout is indeterminate, never a
+  # definite error.
+  defp owned(cfg, job_key, fun) do
     task =
       Task.Supervisor.async_nolink(cfg.tasks, fn ->
         Process.flag(:trap_exit, true)
         fun.()
       end)
 
-    case Task.yield(task, 15_000) || Task.shutdown(task) do
+    case Task.yield(task, @rounds * cfg.writer_timeout + 5_000) ||
+           Task.shutdown(task, :brutal_kill) do
       {:ok, result} -> result
-      _ -> {:error, :unavailable}
+      {:exit, reason} -> {:indeterminate, unknown(:cancel, cfg, job_key, reason)}
+      nil -> {:indeterminate, unknown(:cancel, cfg, job_key, :timeout)}
     end
   end
 
@@ -154,8 +202,15 @@ defmodule Elzoo.DurableJob do
       {:ok, writer} ->
         try do
           fun.(writer)
+        catch
+          # A Writer call exited (timeout or Writer stop): the write may still be
+          # in flight, so kill the Writer (its open transaction is abandoned) and
+          # let the caller map this to snooze / indeterminate.
+          :exit, reason ->
+            Process.exit(writer, :kill)
+            {:writer_exit, reason}
         after
-          if Process.alive?(writer), do: GenServer.stop(writer)
+          stop_writer(writer)
         end
 
       {:error, {:replay_damaged, _}} ->
@@ -166,10 +221,19 @@ defmodule Elzoo.DurableJob do
     end
   end
 
+  defp stop_writer(writer) do
+    if Process.alive?(writer), do: GenServer.stop(writer)
+  catch
+    :exit, _ -> :ok
+  end
+
+  # Writer.snapshot/1 has no timeout parameter; it is answered from the
+  # Writer's memory and only this process calls the Writer, so it never waits
+  # on the Store. Its exits are caught in with_writer/3.
   defp model(writer), do: Writer.snapshot(writer).model
 
-  defp append(writer, kind, data),
-    do: Writer.append(writer, [{kind, Run.version(), Run.encode(data)}])
+  defp append(cfg, writer, kind, data),
+    do: Writer.append(writer, [{kind, Run.version(), Run.encode(data)}], [], cfg.writer_timeout)
 
   defp cancel_loop(_cfg, _key, _by, _writer, 0), do: {:error, :contended}
 
@@ -177,7 +241,7 @@ defmodule Elzoo.DurableJob do
     m = model(writer)
 
     if m.phase == :none do
-      case Submitter.known?(cfg.submitter, key) do
+      case known?(cfg, key) do
         {:ok, true} -> write_cancel(cfg, key, by, writer, m, rounds)
         {:ok, false} -> {:error, :not_found}
         {:error, reason} -> {:error, reason}
@@ -193,7 +257,7 @@ defmodule Elzoo.DurableJob do
   end
 
   defp write_cancel(cfg, key, by, writer, m, rounds) do
-    case append(writer, "cancelled", %{"attempt" => m.last_attempt, "requested_by" => by}) do
+    case append(cfg, writer, "cancelled", %{"attempt" => m.last_attempt, "requested_by" => by}) do
       {:committed, _} ->
         _ = Jobs.cancel(cfg.oban, cfg.queue, key)
         {:ok, :cancelled}
@@ -209,6 +273,13 @@ defmodule Elzoo.DurableJob do
     end
   end
 
+  # Read-only Submitter query: nothing is written, so an exit is :unavailable.
+  defp known?(cfg, key) do
+    Submitter.known?(cfg.submitter, key, cfg.writer_timeout + 5_000)
+  catch
+    :exit, _ -> {:error, :unavailable}
+  end
+
   defp status_of(cfg, key) do
     stream = Run.run_stream(cfg.queue, key)
 
@@ -222,7 +293,7 @@ defmodule Elzoo.DurableJob do
           {:error, :damaged}
 
         m.phase == :none ->
-          case Submitter.known?(cfg.submitter, key) do
+          case known?(cfg, key) do
             {:ok, true} ->
               {:ok,
                %{phase: :submitted, attempts_made: 0, deadline_ms: nil, result: nil, stalled: false}}
@@ -270,7 +341,10 @@ defmodule Elzoo.DurableJob do
     request = Run.decode!(item.payload)
     key = request["job_key"]
     if not Run.job_key?(key), do: raise(ArgumentError, "bad key")
-    with_writer(cfg, key, &relay_loop(cfg, request, item, &1, @rounds)) |> relay_result()
+
+    with_writer(cfg, key, &relay_loop(cfg, request, item, &1, @rounds))
+    |> writer_exit(fn _ -> {:skip, :indeterminate} end)
+    |> relay_result()
   rescue
     _ -> {:skip, :malformed}
   end
@@ -285,7 +359,7 @@ defmodule Elzoo.DurableJob do
 
     cond do
       m.phase == :none ->
-        case append(writer, "accepted", %{
+        case append(cfg, writer, "accepted", %{
                "request" => request,
                "submission" => item.idempotency_key
              }) do
@@ -345,6 +419,7 @@ defmodule Elzoo.DurableJob do
 
     case with_writer(cfg, key, &start_loop(cfg, job, &1, @rounds)) do
       {:error, :damaged} -> {:cancel, :damaged}
+      {:writer_exit, _} -> snooze
       {:error, _} -> snooze
       result -> result
     end
@@ -384,7 +459,7 @@ defmodule Elzoo.DurableJob do
       "started_ms" => cfg.now_ms.()
     }
 
-    case append(writer, "attempt_started", data) do
+    case append(cfg, writer, "attempt_started", data) do
       {:committed, _} -> attempt(cfg, writer, m.request, n)
       {:conflict, _} -> start_loop(cfg, job, writer, rounds - 1)
       _ -> {:snooze, cfg.snooze}
@@ -395,7 +470,7 @@ defmodule Elzoo.DurableJob do
        when action in [:record_expired, :record_exhausted] do
     kind = if action == :record_expired, do: "expired", else: "exhausted"
 
-    case append(writer, kind, %{"attempt" => m.last_attempt, "reason" => kind}) do
+    case append(cfg, writer, kind, %{"attempt" => m.last_attempt, "reason" => kind}) do
       {:committed, _} -> {:cancel, String.to_existing_atom(kind)}
       {:conflict, _} -> start_loop(cfg, job, writer, rounds - 1)
       _ -> {:snooze, cfg.snooze}
@@ -461,7 +536,7 @@ defmodule Elzoo.DurableJob do
     if kind == nil do
       reply
     else
-      case append(writer, kind, data) do
+      case append(cfg, writer, kind, data) do
         {:committed, _} -> reply
         {:conflict, _} -> result_loop(cfg, writer, request, n, completed?, outcome, rounds - 1)
         _ -> {:snooze, cfg.snooze}

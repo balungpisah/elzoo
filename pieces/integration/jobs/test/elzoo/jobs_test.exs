@@ -92,6 +92,18 @@ defmodule Elzoo.JobsTest do
     assert Worker.backoff(job.(%{"v" => 1, "queue" => "w", "job_key" => "k"})) == 7
   end
 
+  test "an exit escaping the runner is a non-attempt outcome: snooze, never an Oban error" do
+    :ok =
+      Jobs.register("exits", %{
+        perform: fn _ -> GenServer.call(spawn(fn -> Process.sleep(1_000) end), :hang, 10) end,
+        backoff: fn _ -> 1 end
+      })
+
+    on_exit(fn -> Jobs.unregister("exits") end)
+    job = %Oban.Job{id: 1, attempt: 1, args: %{"v" => 1, "queue" => "exits", "job_key" => "k"}}
+    assert Worker.perform(job) == {:snooze, 5}
+  end
+
   test "a real Oban execution reaches the registered runner", ctx do
     parent = self()
 
