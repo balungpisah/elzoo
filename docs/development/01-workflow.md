@@ -6,6 +6,13 @@ issue body is the task Contract; the remote task branch is the claim.
 
 ## Pick and claim
 
+Select from the [product-led roadmap](../plans/roadmap.md). A published,
+admitted Piece can serve a concrete product aim before a new Assembly example
+exists. This changes selection, not acceptance: caller/invariant/failure paths,
+reuse-first boundaries, explicit Needs and evidence still apply. The canonical
+planning manifest owns planning statuses and dependencies; generated views
+replace manually edited status boards. Live issue Contracts override snapshots.
+
 The coordinator publishes tasks/ELZ-*.md as issues in the configured private
 remote. A task is ready only when every dependency ID in its body is merged.
 Labels task, ready, claimed, blocked and P0 through P3 are advisory. Read the

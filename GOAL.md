@@ -8,9 +8,11 @@ libraries provide runtime/integration behavior; Adapters perform Effects at
 declared boundaries.
 
 This is a fresh project, not a promise to recreate the old Zoo repository or
-all 402 historical patterns. Start with one small Assembly that demonstrates
-typed composition, a bounded receiver, durable-state boundaries, a
-representative Effect and an OTP Host. Add new owned policies when an Assembly needs them. Direct-library Recipes
+all 402 historical patterns. The bootstrap starts with one small Assembly that
+demonstrates typed composition, a bounded receiver, durable-state boundaries, a
+representative Effect and an OTP Host. Further admitted Pieces may be selected
+for a concrete product aim before a new Assembly example exists; follow the
+[product-led roadmap](docs/plans/roadmap.md). Direct-library Recipes
 can be adopted independently when their concrete usage is tested and scoped
 in the Piece Ledger.
 
@@ -18,7 +20,9 @@ The reusable capability model spans SaaS, identity, money, task management
 and agent orchestration. Coverage is recorded in docs/capability-coverage.md;
 these are design cases, not implemented products or a quota of pieces to build.
 Use existing libraries where their Contracts fit. Write only the missing policy
-needed by a selected Assembly, using docs/capability-model.md to choose its seam.
+needed by a selected product aim or Assembly, using docs/capability-model.md
+to choose its seam. Product possibility is conditional on accepted Contracts
+and evidence, not a claim of an already working product.
 
 ## Working order
 
@@ -36,9 +40,10 @@ needed by a selected Assembly, using docs/capability-model.md to choose its seam
 6. The coordinator merges, deletes the branch, removes the worktree and closes
    the issue only after acceptance is true on the merged commit.
 
-The task bodies and task DAG enumerate the stable ELZ IDs. Architecture may rename a
-provisional handle before publication, but must preserve IDs and dependency
-edges.
+The live issue bodies own stable ELZ task Contracts. The task DAG links to
+generated views of docs/plans/release-plan.json, the canonical planning
+status/dependency source. Architecture may rename a provisional handle before
+publication, but must preserve published IDs and dependency edges.
 
 ## Done means grounded and bounded
 
@@ -56,8 +61,8 @@ evidence. A known limitation is a successful handoff when stated clearly.
 The bootstrap is intentionally narrow. A bounded receiver is not the complete
 historical receiver; a storage adapter is not a replicated database; one
 effect adapter is not an integrations catalogue. Add a new issue and dependency
-edge when a real Assembly needs a capability. Do not open 402 placeholders or
-require proof for every external operation.
+edge when a concrete product aim or Assembly admits a missing capability. Do
+not open 402 placeholders or require proof for every external operation.
 
 See AGENTS.md and docs/development/01-workflow.md for pick, claim, work,
 verify, review, merge and cleanup.

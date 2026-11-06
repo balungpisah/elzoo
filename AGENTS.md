@@ -10,7 +10,8 @@ For ongoing task work, read from the repository root:
 
 1. CONTEXT.md for the locked vocabulary.
 2. GOAL.md and docs/development/01-workflow.md.
-3. docs/development/02-task-dag.md and the selected tasks/ELZ-*.md body.
+3. docs/development/02-task-dag.md, docs/plans/roadmap.md and its canonical
+   manifest, then the selected tasks/ELZ-*.md body and live issue Contract.
 4. docs/capability-model.md, docs/capability-coverage.md and docs/operational-contracts.md,
    docs/adr/0005-ash-foundation-and-upstream-first.md, then LEDGER.md,
    docs/consuming.md, docs/architecture.md and relevant ADRs.
@@ -24,15 +25,19 @@ body defines ongoing scope, ownership and acceptance.
 
 ## Mission and boundaries
 
-Build only the next reusable Piece or Assembly needed by a published issue.
+Build only the next reusable Piece or Assembly admitted by a published issue
+for a concrete product aim. A useful Piece need not wait for a new Assembly
+example; selection follows docs/plans/roadmap.md and its canonical manifest.
 Cure owns new pure decisions when suitable. Elixir/OTP and maintained
 libraries own runtime and integration work. Effects happen in explicit
 Adapters; pure Operators do not perform I/O. Keep Needs, delivery and storage
 assumptions, and unspecified behavior visible in the Contract.
 
-The initial product is one honest exemplar and its supporting pieces. It does
-not promise all of the old Zoo catalogue or all 402 historical patterns. Open
-new batches when an Assembly actually needs a capability, not to fill a quota.
+The bootstrap established one honest exemplar and its supporting pieces. The
+product-led roadmap selects further independently useful Pieces with explicit
+callers, invariants and failure evidence; new integration examples may follow
+later. It does not promise all of the old Zoo catalogue or all 402 historical
+patterns. Open new batches for admitted product needs, not to fill a quota.
 Use Enum/Stream for ordinary transformations and reuse maintained storage or
 job providers before considering a new implementation. Stay on upstream releases
 unless a concrete modification is needed. Maintained MIT-library forks belong
