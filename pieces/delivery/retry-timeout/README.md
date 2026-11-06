@@ -71,12 +71,20 @@ elapsed timers. No wall-clock decision is in Cure; later wall-clock changes
 are ignored. Delays larger than OTP's 4294967295 ms timer limit re-arm in
 bounded chunks against the monotonic target. Timer delivery can be late.
 Deadline wins at subsequent runner observations/retry execution when elapsed.
-No cross-host clock-skew guarantee. Attempt timeout and deadline expiry kill
-the local task with an untrappable :kill exit and do not wait for it to stop
-(brutal-kill semantics), so a task that traps exits or a long supervisor
-shutdown cannot block the runner. Task cleanup code does not run; its later
-reply or DOWN is ignored as late. An external Effect may persist and cannot be
-undone.
+No cross-host clock-skew guarantee. Attempts start with child shutdown
+:brutal_kill. Whenever the runner stops tracking an attempt (reply, crash,
+attempt timeout, deadline expiry or settlement) it removes the child with
+Task.Supervisor.terminate_child/2, which kills it with an untrappable :kill
+and returns once the supervisor has removed it. A task that traps exits
+therefore cannot hold the runner for the 5000 ms default shutdown, and the
+child's max_children slot is free before any retry, resubmission or
+settlement. The wait is bounded by the supervisor's queue: give the runner its
+own Task.Supervisor, or share one only with children that also use
+:brutal_kill. Task cleanup code does not run; a later reply or DOWN is ignored
+as late. An external Effect may persist and cannot be undone. A task that
+cannot start (supervisor down, or max_children taken by children the runner
+does not own) is recorded as unknown/unknown/unclassified, never
+not_dispatched.
 
 The submitting pid receives exactly one local settlement per accepted ref:
 {Elzoo.RetryTimeout, ref, {:completed, result} | {:dead_lettered, record} |

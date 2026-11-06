@@ -24,7 +24,7 @@
     "Completed means validated Adapter report, not durable Effect evidence. Sink :ok is not locally proven durable.",
     "Runner restart loses operations without settlement; monitor DOWN as unknown. Tasks and Effects may outlive runner.",
     "Blocking sink blocks the runner; raises, throws, exits and non-ok returns yield unsettled. No operational drain or telemetry supplied.",
-    "Attempt timeout and deadline expiry kill the task with :kill without waiting; task cleanup code does not run and an external Effect may persist.",
+    "Attempts run with :brutal_kill shutdown; the runner removes each attempt child through Task.Supervisor.terminate_child/2 before retry, resubmission or settlement, so trap_exit cannot cause the default 5000 ms wait. The removal call is bounded by the supervisor queue, so the Task.Supervisor should be dedicated or hold only :brutal_kill children. Task cleanup code does not run and an external Effect may persist.",
     "Helper laws do not prove the runner, integer comparisons, classification or conservation; those have finite test/model evidence.",
     "RedispatchIdempotent is a caller assertion, not a checked provider guarantee."
   ],

@@ -129,7 +129,7 @@ defmodule Elzoo.RetryTimeout.Runner do
         if deadline_due?(op) do
           {:noreply, expire(state, ref)}
         else
-          state = clear_task(state, ref, false)
+          state = clear_task(state, ref)
 
           case RequestReply.correlate(op.current, response) do
             {:ok, valid} ->
@@ -154,7 +154,7 @@ defmodule Elzoo.RetryTimeout.Runner do
         if deadline_due?(op) do
           {:noreply, expire(state, ref)}
         else
-          state = clear_task(state, ref, false)
+          state = clear_task(state, ref)
           {:noreply, observed(state, ref, result(op.current, "unknown", "unknown", "unclassified"))}
         end
     end
@@ -181,7 +181,7 @@ defmodule Elzoo.RetryTimeout.Runner do
           {:noreply, launch(put_op(state, ref, op), ref)}
 
         kind == :attempt ->
-          state = clear_task(state, ref, true)
+          state = clear_task(state, ref)
 
           {:noreply,
            observed(state, ref, result(op.current, "timed_out", "unknown", "unclassified"))}
@@ -224,7 +224,8 @@ defmodule Elzoo.RetryTimeout.Runner do
 
   defp start_task(supervisor, attempt, request) do
     try do
-      {:ok, Task.Supervisor.async_nolink(supervisor, fn -> attempt.(request) end)}
+      {:ok,
+       Task.Supervisor.async_nolink(supervisor, fn -> attempt.(request) end, shutdown: :brutal_kill)}
     catch
       _, _ -> :error
     end
@@ -263,7 +264,7 @@ defmodule Elzoo.RetryTimeout.Runner do
         do: result(op.current || op.request, "timed_out", "unknown", "unclassified"),
         else: op.last
 
-    state = clear_task(state, ref, true)
+    state = clear_task(state, ref)
     dead_letter(put_op(state, ref, %{state.ops[ref] | last: response}), ref, "deadline_expired")
   end
 
@@ -284,7 +285,7 @@ defmodule Elzoo.RetryTimeout.Runner do
   defp finish(state, ref, {status, _} = settlement) do
     op = state.ops[ref]
     Enum.each(op.timers, fn {_, {timer, _, _}} -> Process.cancel_timer(timer) end)
-    state = clear_task(state, ref, true)
+    state = clear_task(state, ref)
     {:ok, capacity} = Backpressure.release(state.capacity)
     send(op.caller, {RetryTimeout, ref, settlement})
 
@@ -297,7 +298,7 @@ defmodule Elzoo.RetryTimeout.Runner do
     }
   end
 
-  defp clear_task(state, ref, terminate?) do
+  defp clear_task(state, ref) do
     op = state.ops[ref]
     {timer, timers} = Map.pop(op.timers, :attempt)
     if timer, do: Process.cancel_timer(elem(timer, 0))
@@ -306,14 +307,22 @@ defmodule Elzoo.RetryTimeout.Runner do
       if op.task do
         Process.demonitor(op.task.ref, [:flush])
 
-        if terminate?, do: Process.exit(op.task.pid, :kill)
-
+        remove_task(state.supervisor, op.task.pid)
         Map.delete(state.tasks, op.task.ref)
       else
         state.tasks
       end
 
     %{put_op(state, ref, %{op | task: nil, timers: timers}) | tasks: tasks}
+  end
+
+  # Attempts run with :brutal_kill, so this synchronous removal waits only for
+  # an untrappable kill. It frees the max_children slot before any retry,
+  # resubmission or settlement.
+  defp remove_task(supervisor, pid) do
+    Task.Supervisor.terminate_child(supervisor, pid)
+  catch
+    :exit, _ -> :ok
   end
 
   defp arm(op, ref, kind, delay) do

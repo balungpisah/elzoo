@@ -415,6 +415,8 @@ defmodule Elzoo.RetryRunnerTest do
     assert {:completed, _} = settlement(next)
   end
 
+  defp spin, do: spin()
+
   defp await_replacement(_, _, 0), do: flunk("supervisor did not restart runner")
 
   defp await_replacement(supervisor, old, remaining) do
@@ -459,6 +461,83 @@ defmodule Elzoo.RetryRunnerTest do
       assert System.monotonic_time(:millisecond) - started < 1000
       assert :sys.get_state(pid).tasks == %{}
       bounds(pid)
+    end
+  end
+
+  test "settlement frees the max_children slot of replied and killed attempts under load" do
+    parent = self()
+
+    attempt = fn req ->
+      Process.flag(:priority, :low)
+      send(parent, {:attempt, req["attempt_id"]})
+
+      if String.ends_with?(req["attempt_id"], "/attempt/1") do
+        Process.flag(:trap_exit, true)
+        Process.sleep(:infinity)
+      else
+        result(req)
+      end
+    end
+
+    spinners = for _ <- 1..8, do: spawn(fn -> spin() end)
+    on_exit(fn -> Enum.each(spinners, &Process.exit(&1, :kill)) end)
+
+    replying = fn req ->
+      Process.flag(:priority, :low)
+      send(parent, {:attempt, req["attempt_id"]})
+
+      if String.ends_with?(req["attempt_id"], "/attempt/1"),
+        do: result(req, "rejected", "not_dispatched", "retryable"),
+        else: result(req)
+    end
+
+    for i <- 1..20 do
+      tasks = start_supervised!({Task.Supervisor, max_children: 1}, id: make_ref())
+      pid = runner(replying, [task_supervisor: tasks], base_backoff_ms: 0, max_backoff_ms: 0)
+      id = "reply" <> Integer.to_string(i)
+      {:ok, ref} = Runner.submit(pid, request(id))
+      assert {:completed, _} = settlement(ref)
+      assert Task.Supervisor.children(tasks) == []
+      assert_receive {:attempt, first}
+      assert_receive {:attempt, second}
+      assert {first, second} == {id <> "/attempt/1", id <> "/attempt/2"}
+      {:ok, ref} = Runner.submit(pid, request("again" <> Integer.to_string(i)))
+      assert {:completed, _} = settlement(ref)
+      assert Task.Supervisor.children(tasks) == []
+      assert_receive {:attempt, _}
+      assert_receive {:attempt, _}
+
+      pid =
+        runner(attempt, [attempt_timeout_ms: 20, task_supervisor: tasks],
+          mode: :redispatch_idempotent,
+          max_attempts: 2,
+          base_backoff_ms: 0,
+          max_backoff_ms: 0
+        )
+
+      id = "retry" <> Integer.to_string(i)
+      {:ok, ref} = Runner.submit(pid, request(id))
+      assert {:completed, _} = settlement(ref)
+      assert Task.Supervisor.children(tasks) == []
+      assert_receive {:attempt, first}
+      assert_receive {:attempt, second}
+      assert {first, second} == {id <> "/attempt/1", id <> "/attempt/2"}
+      bounds(pid)
+
+      pid =
+        runner(attempt, [attempt_timeout_ms: 20, task_supervisor: tasks],
+          mode: :redispatch_idempotent,
+          max_attempts: 1
+        )
+
+      {:ok, ref} = Runner.submit(pid, request("dead" <> Integer.to_string(i)))
+      assert {:dead_lettered, %{"reason" => "retries_exhausted"}} = settlement(ref)
+      assert Task.Supervisor.children(tasks) == []
+      assert_receive {:attempt, _}
+      {:ok, ref} = Runner.submit(pid, request("next" <> Integer.to_string(i)))
+      assert_receive {:attempt, _}
+      assert {:dead_lettered, %{"reason" => "retries_exhausted"}} = settlement(ref)
+      assert Task.Supervisor.children(tasks) == []
     end
   end
 
