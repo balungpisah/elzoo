@@ -1,44 +1,50 @@
 # workflow/approval
 
-> **Stage 1 Contract draft (ELZ-024, issue #38).** No implementation exists yet.
-> This file states the proposed Contract for early independent review. Nothing
-> here is executed evidence. `piece.json` and the ledger row are added only with
-> the implementation.
+> **Stage 1 Contract draft, revision 2 (ELZ-024, issue #38).** No
+> implementation exists yet. Revision 2 resolves early review findings 1–11
+> ([review](https://github.com/balungpisah/elzoo/issues/38#issuecomment-6694306514)).
+> Nothing here is executed evidence. `piece.json` and the ledger row are added
+> only with the implementation.
 
 Pure consent record for one exact proposed action. It turns an ASK decision
 from [`domain/authorization`](../../domain/authorization/README.md) into an
 approval request, accepts host-verified evidence for exactly that request,
-and releases the escrowed writes only when every release check passes against
-**current** context. Approval never grants authority: the release
-re-evaluates the authorization decision and the approver's own authority.
+and releases escrowed writes only when every release check passes against
+**current** context. Approval never grants authority: Cure `release` re-runs
+Cure `decide` and checks the approver's own authority.
 
 This Piece is **not** authentication, a verifier transport, a prompt UI, a
 durable approval store, a shared Run schema, a security certification or an
 identity guarantee. The state owner is the caller's Run (or other trusted
 owner); this Piece supplies pure transitions over a caller-held state value.
 
+Interface deltas against #38 are listed in the
+[authorization README](../../domain/authorization/README.md#interface-deltas-vs-38)
+(D1–D11) and below (D12–D16).
+
 ## Preflight acknowledgments (docs/plans/preflight.md)
 
 | Decision | How this Contract holds it |
 | --- | --- |
-| **B24.1** | The request binds the complete normalized action, the exact escrowed writes and the policy identity `(id, version, content_hash)`. Binding is compared structurally (`domain/authorization` equality), never by a digest. Binding data is kept for replay. |
+| **B24.1** | The request binds the complete normalized action (with the **trusted** proposer and effect class), the exact escrowed writes, the policy identity `(id, version, content_hash)` and the requirement. Binding is compared structurally (Cure `eq_*`), never by a digest. Binding data is kept for replay. |
 | **B24.2** | Evidence is a separate, host-verified record; verifier allowlist; exact request tuple; explicit Unix-ms `now`, `issued_at`, `max_age`, `expiry`; revocation; revision/supersession; once/Run/root scope; release record and once-consumption marker in one transition; replay folds without re-emitting writes. |
-| **B24.3** | Current proposer, approver and parent authority come from trusted context at release/restore, never from the request or evidence; release re-runs the authorization reducer; DENY or failure wins; approver must hold the exact writes and must not be the proposer; failures keep the three reason classes. |
+| **B24.3** | Current proposer identity, effect class, proposer authority, parent authority and approver authority come from trusted context at release/restore, never from the request or evidence; Cure `release` re-runs Cure `decide`; DENY or failure wins; approver must hold the exact writes and must not be the trusted proposer; failures keep the three reason classes. |
 
 ## Request identity
 
 A request is identified by the tuple
 `{run, action_id, requirement_name, requirement_version, revision}`. All text
-parts are nonempty UTF-8 with exact equality; `revision` is a positive integer.
-The tuple proves no relationship between Runs.
+parts are nonempty UTF-8 identities (≤ 1024 bytes) with exact equality;
+`revision` is an integer `1..2^31-1`. The tuple proves no relationship between
+Runs.
 
 ```elixir
 %{
   key: {run, action_id, req_name, req_version, revision},
-  binding: %{action: normalized_action, escrowed: [write],
-             policy: %{id:, version:, content_hash:}},
-  requirement: %{name:, version:, scope: :once | :run | :root},
-  proposer: text,
+  binding: %{action: normalized_action,       # includes trusted proposer
+             escrowed: [write],
+             policy: %{id:, version:, content_hash:},
+             requirement: %{name:, version:, scope: :once | :run | :root}},
   status: :open | :released | :superseded
 }
 ```
@@ -47,17 +53,20 @@ The tuple proves no relationship between Runs.
 
 ```elixir
 %{
-  requests: %{key => request},                 # every revision, including superseded
-  consents: %{evidence_key => consent},        # retained approved consent
-  releases: %{key => release_record},          # completion keyed by full tuple
-  consumed: MapSet of evidence_key,            # once-scope consumption markers
-  revoked:  MapSet of evidence_key
+  requests: [request],          # every revision, including superseded and released
+  consents: [consent],          # retained approved consent (run/root scope only)
+  releases: [release_record],   # completion keyed by full request tuple
+  consumed: [evidence_key],     # once-scope consumption markers
+  revoked:  [evidence_key]
 }
 # evidence_key = {verifier_id, evidence_id}
+# consent = %{evidence_key, binding, scope, run, root, reviewer, verifier,
+#             issued_at, expiry}  — run and root are the trusted context.run.id
+#             and context.run.root at its first successful release (F5b)
 ```
 
-The state is a plain value held by the caller. This Piece performs no I/O and
-reads no clock.
+The state is a plain value held by the caller, encoded as lists for Cure.
+This Piece performs no I/O and reads no clock.
 
 ## Evidence record (B24.2)
 
@@ -72,52 +81,80 @@ verifier path may build it; the pure boundary cannot tell who built it.
   request: {run, action_id, req_name, req_version, revision},
   decision: :approve | :reject,
   scope: :once | :run | :root,
-  issued_at: non_neg_integer,     # Unix ms
-  expiry: non_neg_integer         # Unix ms, required, > issued_at
+  issued_at: 0..2^63-1,           # Unix ms
+  expiry: 0..2^63-1               # Unix ms, required, > issued_at
 }
 ```
 
-Missing expiry, `expiry <= issued_at`, a non-integer or negative time, an
-unknown key or a malformed field is `{:invalid_input, reason}`. There is no
-implicit unbounded consent.
+Missing expiry, `expiry <= issued_at`, a non-integer or out-of-range time, an
+unknown key, a malformed field or a bound exceeded is
+`{:invalid_input, reason}`. There is no implicit unbounded consent.
 
 ## Trusted release context
 
 ```elixir
 %{
-  now: non_neg_integer,              # Unix ms, supplied by the owner
-  max_age: pos_integer,              # ms
+  now: 0..2^63-1,                    # Unix ms, supplied by the owner
+  max_age: 1..2^63-1,                # ms (Config)
   verifiers: [text],                 # allowlist (Config)
-  run: %{id: text, root: text, ancestry: [text]},   # trusted caller context
+  run: %{id: text, root: text, ancestry: [text]},    # trusted caller context
   policy: policy_map,                # current trusted policy
   proposal: proposal_map,            # current action as it would dispatch now
-  authority: %{own: [write], parent: [write] | :none},  # proposer, current
-  approver: %{identity: text, authority: [write]}       # current
+  authority: %{proposer: text,       # trusted proposer identity (F1)
+               effect_class: text,   # host-derived (F2)
+               own: [write], parent: [write] | :none},
+  approver: %{identity: text, authority: [write]}    # current
 }
 ```
 
 Missing or invalid context is `{:error, {:unavailable_context, reason}}`.
+`context.authority` is exactly the `authority_context` of
+`Elzoo.Authorization.decide/3`.
+
+### Finite bounds (F6)
+
+Fixed Contract constants, checked by Elixir **before** any evaluation;
+exceeding one is `{:invalid_input, {:bound_exceeded, name}}` for evidence and
+events and `{:unavailable_context, {:bound_exceeded, name}}` for trusted
+context. Nothing is truncated. All `domain/authorization` bounds also apply.
+
+| Bound | Value |
+| --- | --- |
+| bytes of any identity text (verifier, evidence id, reviewer, run, root, ancestry entry, request tuple parts) | 1024 |
+| `run.ancestry` entries | 64 |
+| `verifiers` allowlist entries | 64 |
+| times (`now`, `issued_at`, `expiry`) | integer `0..2^63-1` |
+| `max_age` | integer `1..2^63-1` |
+| revision | integer `1..2^31-1` |
+| events in one `replay/1` call | 65 536 |
+| entries in each state list (requests, consents, releases, consumed, revoked) | 65 536; a transition that would exceed it is refused with `{:invalid_input, {:bound_exceeded, :state}}` and no change |
 
 ## Transitions
 
-All return a new state and an event. The event is what the owner appends to
-its own retained log; replay folds events back into state.
+Successful transitions return a new state and an event. The owner appends
+events to its own retained log; replay folds events back into state.
 
 ```elixir
 Elzoo.Approval.new() :: state
 
 Elzoo.Approval.request(state, run, decision)
   # decision: an ASK decision from Elzoo.Authorization.decide/3
-  :: {:ok, state, request, event} | {:error, {:invalid_input, r}}
+  :: {:ok, state, request, event | nil}
+   | {:error, {:invalid_input, r}}
 ```
 
-`request/3` opens revision 1 for `(run, action_id, requirement)`. If an open
-request for the same `(run, action_id)` exists:
+`request/3` looks at the **latest** revision for `(run, action_id)`:
 
-- same requirement and same binding → unchanged (idempotent), no event;
-- changed requirement **or** changed binding (payload, writes, policy
-  identity) → the old request is marked `:superseded` and kept; a new request
-  opens with `revision + 1`. Superseded consent can never release the new one.
+- none → open revision 1; event `{:requested, request}`;
+- latest is `:open`, same requirement and same binding → unchanged;
+  returns `{:ok, state, request, nil}` (no event; idempotent);
+- latest is `:open`, changed requirement **or** changed binding (payload,
+  writes, policy identity) → the old request is marked `:superseded` and
+  kept; a new request opens with `revision + 1`; event
+  `{:superseded, old_key, new_request}`;
+- latest is `:released` or `:superseded` → a new request opens with
+  `latest revision + 1`; event `{:requested, request}` (F5c). A released
+  request is never reopened or released twice.
 
 A non-ASK decision is `{:invalid_input, :not_ask}`.
 
@@ -128,61 +165,86 @@ Elzoo.Approval.release(state, key, evidence | :retained, context)
    | {:error, {:invalid_input | :unavailable_context, r}, state}
 ```
 
-`release` is also the **restore** path: a restored pre-dispatch "approved"
-action calls `release` again; the stored approval is an input, never a bypass.
-
-Release succeeds only when **all** checks pass (first failing check is the
-reason; every failure emits no writes, adds no release record, adds no
-consumption marker and does not change state):
+Release succeeds only when **all** checks pass. The first failing check is
+the reason; the order below is pinned by tests (Q5). Every failure emits no
+writes, adds no release record, adds no consumption marker and leaves state
+unchanged.
 
 | # | Check | Refusal reason |
 | --- | --- | --- |
+| 0 | `context.run.id == key.run` (F5a) | `:run_mismatch` |
 | 1 | request `key` exists | `:unknown_request` |
-| 2 | a release record exists for `key` | `:already_released` (emits no writes, even with a new evidence id) |
+| 2 | no release record exists for `key` | `:already_released` (emits no writes, even with a new evidence id) |
 | 3 | request status is `:open` | `:superseded` |
-| 4 | `evidence.request == key` exactly (stale or other revision) | `:stale_revision` / `:request_mismatch` |
-| 5 | `evidence.verifier` in `context.verifiers` | `:verifier_not_allowed` |
+| 4 | fresh evidence: `evidence.request == key` exactly | `:stale_revision` (same run/action/requirement, other revision) / `:request_mismatch` |
+| 5 | `verifier` in `context.verifiers` | `:verifier_not_allowed` |
 | 6 | `evidence_key` not revoked (revocation wins) | `:revoked` |
 | 7 | `evidence_key` not consumed | `:consumed` |
-| 8 | `evidence_key` reused with a different request or binding | `:evidence_reused` (rejected, never overwritten) |
-| 9 | `evidence.decision == :approve` | `:rejected_by_reviewer` |
+| 8 | if `evidence_key` is already known (a retained consent or a release record), its stored **binding** equals this request's binding (action, escrow, policy identity, requirement); the request key is **not** compared (F4) | `:evidence_reused` (rejected, never overwritten) |
+| 9 | `decision == :approve` | `:rejected_by_reviewer` |
 | 10 | `issued_at <= now` | `:issued_in_future` |
 | 11 | `now - issued_at < max_age` | `:evidence_too_old` |
 | 12 | `now < expiry` | `:expired` |
-| 13 | `evidence.scope == requirement.scope` and the scope admits `context.run` (below) | `:scope_mismatch` |
-| 14 | `context.approver.identity == evidence.reviewer` | `:approver_mismatch` |
-| 15 | `evidence.reviewer != request.proposer` | `:self_approval` |
-| 16 | escrowed writes ⊆ `context.approver.authority` | `:approver_not_authorized` |
-| 17 | re-run `Elzoo.Authorization.decide(context.policy, context.proposal, context.authority)`; failure → that error class | — |
-| 18 | current decision is not DENY | `{:deny_at_release, reason}` |
-| 19 | current policy identity == bound policy identity (a reused id/version with a changed hash fails) | `:policy_changed` |
-| 20 | current normalized action == bound action, structurally (payload drift) | `:payload_changed` |
-| 21 | current decision is ASK with the same requirement and the same escrowed writes | `:requirement_changed` |
+| 13 | scope equals the requirement's scope and admits this request (below) | `:scope_mismatch` |
+| 14 | `context.approver.identity == reviewer` | `:approver_mismatch` |
+| 15 | `reviewer != context.authority.proposer` (trusted identity, F1) | `:self_approval` |
+| 16 | Cure `decide(current policy, current action, own, parent)` succeeds | that error class (`invalid_input` / `unavailable_context`) |
+| 17 | current verdict is not DENY | `{:deny_at_release, reason}` |
+| 18 | current policy identity == bound policy identity (a reused id/version with a changed hash fails) | `:policy_changed` |
+| 19 | current normalized action == bound action, structurally (payload drift; includes trusted proposer and class) | `:payload_changed` |
+| 20 | current verdict is ASK, same requirement, current escrow `eq_writes` bound escrow | `:requirement_changed` |
+| 21 | current escrow ⊆ `context.approver.authority` (w.r.t. `eq_write`) | `:approver_not_authorized` |
 
-Check 16 together with the re-run at 17–21 means released writes are within
-the approver's current authority **and** the proposer's current effective
-authority (own ∩ parent). If the requirement changed, the caller calls
-`request/3` with the new decision to supersede and open `revision + 1`.
+On success, in **one** pure transition, release returns the **current
+decision's escrowed writes** (F7; structurally equal to the bound escrow by
+check 20). It adds the release record for `key` (evidence key, binding,
+released writes, reviewer, verifier, `now`), marks the request `:released`,
+retains a run/root consent with the trusted `context.run.id` and
+`context.run.root` (F5b), and for `:once` adds the evidence key to `consumed`.
+Event: `{:released, release_record, consent | nil}`.
 
-On success, in **one** pure transition: the release record for `key` is
-added (evidence key, bound action, released writes, reviewer, verifier,
-`now`); the request becomes `:released`; the consent is retained under its
-evidence key (for run/root reuse); for `:once` scope the evidence key is
-added to `consumed`; the escrowed writes are returned exactly once.
+Because the released writes are `escrowed_of(decide(...))`, the release
+non-escalation laws follow from the `domain/authorization` laws, and DENY or
+ALLOW at release releases nothing even before check 17 (`deny_empty`,
+`allow_no_escrow`). Check 21 makes the approver bound explicit. If the
+requirement changed, the caller calls `request/3` with the new decision to
+supersede and open `revision + 1`.
 
 ### Retained consent and scope
 
-`release(state, key, :retained, context)` looks for a retained, unrevoked,
-unconsumed consent whose bound action, escrowed writes, policy identity and
-requirement equal the request's binding structurally, then applies checks
-5–21 to it. Scope never broadens the binding or grants authority:
+`release(state, key, :retained, context)` is for `:run` and `:root` scope
+only. It selects among retained consents that are unrevoked and whose binding
+equals the request's binding structurally, in a **deterministic order**:
+earliest `issued_at`, then evidence key `(verifier, evidence_id)` in UTF-8 byte
+order (F5d). It applies checks 0–3 and 5–21 to the first candidate in that
+order that passes check 13; if none does, `:no_retained_consent`.
 
-- `:once` — only the exact request it was issued for; consumed by that one
-  release; never retained for reuse.
-- `:run` — only requests whose `run` equals the consent's request run.
-- `:root` — requests whose `context.run.id` equals the consent's root, or
-  whose trusted `context.run.ancestry` contains it. The ancestry list is
-  trusted caller context; identifiers alone prove no relationship.
+Which request-key fields may differ from the consent's original request:
+
+| Scope | `run` | `action_id`, requirement name/version | `revision` | Admits |
+| --- | --- | --- | --- | --- |
+| `:once` | equal | equal | equal | only the exact request the evidence names; never retained |
+| `:run` | equal to consent `run` | equal (part of binding) | may differ | a later revision for the same `(run, action_id)` with equal binding, e.g. a new ASK after a release (F5c) |
+| `:root` | `context.run.id == consent.root` or `consent.root ∈ context.run.ancestry` | equal (part of binding) | may differ | that root and Runs whose trusted ancestry contains it, with equal binding |
+
+Scope never broadens the binding or grants authority. Root is the trusted
+`context.run.root` recorded at the consent's first release; ancestry is
+trusted caller context; identifiers alone prove no relationship.
+
+### Restore
+
+Two restore cases, both re-entering the reducer; the stored approval is an
+input, never a bypass:
+
+- **Release not recorded** (the owner restarted before it persisted the
+  release event): call `release/4` again. For `:once`, the owner passes the
+  evidence record it stored itself; `:retained` is only for run/root.
+- **Release recorded, dispatch not confirmed:**
+  `Elzoo.Approval.revalidate(state, key, context) :: :ok | {:refused, reason}`
+  reruns checks 0, 5, 6, 10–21 against the release record's evidence and
+  current context. It emits no writes and changes no state. The owner must not
+  dispatch the recorded writes on refusal. A timeout after dispatch remains
+  an unknown outcome for the owner to reconcile.
 
 ### Revocation
 
@@ -190,86 +252,121 @@ requirement equal the request's binding structurally, then applies checks
 Elzoo.Approval.revoke(state, evidence_key) :: {:ok, state, event}
 ```
 
-Revocation is recorded and wins over any retained consent. It does not undo
-writes already released (the record keeps them); it stops every later
-release or restore that would use that evidence.
+Revocation is recorded (`{:revoked, evidence_key}`) and wins over any
+retained consent, release and restore. It does not undo writes already
+released; it stops every later release, retained use or revalidate.
 
 ### Replay
 
 ```elixir
 Elzoo.Approval.replay(events) :: {:ok, state} | {:error, {:invalid_input, r}}
-Elzoo.Approval.apply_event(state, event) :: {:ok, state}
+Elzoo.Approval.apply_event(state, event) :: {:ok, state} | {:error, {:invalid_input, r}}
 ```
 
 Events: `{:requested, request}`, `{:superseded, old_key, new_request}`,
-`{:released, release_record}`, `{:revoked, evidence_key}`. Replay rebuilds the
-state the live transitions built. It returns **state only**; it never
-returns or re-emits writes. Re-applying an already present `:released` event
-is idempotent. After replay, a release for an already released key emits no
-writes. A refused release produces no event, so replay never sees it.
+`{:released, release_record, consent | nil}`, `{:revoked, evidence_key}`.
+Replay rebuilds the state the live transitions built. It returns **state
+only**; it never returns or re-emits writes. Re-applying a present
+`:released` event is idempotent. After replay, release of an already released
+key emits nothing. A refused release produces no event.
 
 ### Model text
 
 There is no path from text to release. Only an evidence record that passes
-checks 5–16 can release. A model reply `"approved"`, in a payload, tool
+the checks can release. A model reply `"approved"`, in a payload, tool
 argument or chat turn, leaves the escrowed writes escrowed.
 
-## Concrete API location
+## Cure/Elixir split (F3)
 
-- Elixir: `pieces/workflow/approval/lib/elzoo/approval.ex` (`Elzoo.Approval`)
-  validates evidence/context, calls `Elzoo.Authorization` for re-evaluation
-  and encodes into Cure.
-- Cure: `pieces/workflow/approval/cure/elzoo/approval.cure`
-  (`mod Elzoo.Approval`, `use Elzoo.Authorization`) holds `check`, `release`,
-  `apply_event` over Int-encoded state, with the same `Write`/`Action` types.
+| Function | Runs in | Grounding |
+| --- | --- | --- |
+| Evidence, context, event and state validation; bounds; time range | Elixir `Elzoo.Approval` | finite tests |
+| Encoding of state, evidence, context (incl. current policy, proposal, authority) to Cure terms; decoding | Elixir | finite tests incl. agreement test |
+| Validation of current policy/proposal/authority for check 16 | Elixir via `Elzoo.Authorization` validation (no decision) | finite tests |
+| Checks 0–15 and 17–21, retained-consent selection order | Cure `check` / `select_retained` | laws below + tests |
+| Check 16 re-decide | Cure `release` calls Cure `Elzoo.Authorization.decide` on the encoded current policy, action, own, parent | `domain/authorization` laws |
+| Success transition (record, status, consent, consumed, writes) | Cure `release` | laws below |
+| `request` transition (supersede / revision + 1) | Cure `request` | finite tests |
+| `revoke`, `apply_event`, replay fold | Cure `revoke`, `apply_event`; Elixir only iterates the bounded list | finite tests (state-only return is by type) |
+| `revalidate` | Cure `revalidate` | finite tests; returns no writes by type |
+
+Elixir never computes a check result or a write list. If a check proves
+impossible to move into Cure during implementation, it will be marked
+test-only here and in `piece.json` before review, never presented as covered
+by a law.
+
+Cure source `pieces/workflow/approval/cure/elzoo/approval.cure`
+(`mod Elzoo.Approval`, `use Elzoo.Authorization`):
+
+```cure
+type ReleaseCheck = Approved | Refused(RefusalCode)
+rec ReleaseStep state: ApprovalState, writes: List(Write), check: ReleaseCheck
+fn check(s: ApprovalState, key: RequestKey, ev: Evidence, ctx: ReleaseContext) -> ReleaseCheck
+fn release(s: ApprovalState, key: RequestKey, ev: Evidence, ctx: ReleaseContext) -> ReleaseStep
+```
 
 ## Selected laws (Cure-checked)
 
-Checked on the production `release` / `check` functions by pinned Cure, with
-negative controls and a clean audit:
+On the production Cure `release`, with negative controls and a clean audit.
+Subset is with respect to `eq_write`.
 
 | Law | Statement |
 | --- | --- |
-| `refused_emits_nothing` | for all state, request, evidence, context: if `check(...) = Refused(r)` then `writes(release(...)) = []` and `state(release(...)) = state` |
-| `release_within_escrow` | `subset(writes(release(...)), request.escrowed) = True` |
+| `refused_emits_nothing` | for all `s, k, e, c, r`: if `check(s,k,e,c) = Refused(r)` then `writes(release(s,k,e,c)) = []` |
+| `refused_keeps_state` | same hypothesis: `state(release(s,k,e,c)) = s` |
+| `release_is_current_escrow` | `writes(release(...))` is `[]` or `escrowed_of(decide(current))` |
+| `release_within_own`, `release_within_parent` | `subset(writes(release(...)), own) = True`, likewise `parent` (from `escrowed_within_*`) |
 | `release_within_approver` | `subset(writes(release(...)), approver_authority) = True` |
-| `release_within_effective` | `subset(writes(release(...)), own) = True` and `... parent) = True` |
-| `deny_at_release_wins` | if the current reducer verdict is `Deny`, `writes = []` |
-| `self_approval_refused` | if reviewer equals proposer, `writes = []` |
-| `reject_evidence_refused` | if `evidence.decision = Reject`, `writes = []` |
-| `released_twice_emits_nothing` | if a release record exists for the key, `writes = []` |
+| `deny_at_release_wins` | if `decide(current)` has verdict `Deny`, `writes = []` |
+| `self_approval_refused` | if `eq_ints(reviewer, ctx.proposer) = True`, `writes = []` |
+| `reject_evidence_refused` | if `decision = Reject`, `writes = []` |
+| `released_twice_emits_nothing` | if a release record exists for `key`, `writes = []` |
+| `run_mismatch_refused` | if `eq_ints(ctx.run.id, key.run) = False`, `writes = []` |
 
-Together these are the **escrow-only-on-approval** law: the only transition
-that emits escrowed writes is a release whose every check passed, and it
-emits nothing outside the request's escrow, the approver's authority or the
-current effective authority.
+Together these are the **escrow-only-on-approval** law for the production
+release: the only transition that emits writes is a release whose every check
+passed, and it emits nothing outside the current escrow, the approver's
+authority or the current effective authority. "Released writes ⊆ the
+originally bound escrow" is enforced by check 20 in Cure and covered by
+tests; it is not a selected law (it would need an `eq_write`-transfer lemma).
 
 ## Finite tests (not proofs)
-
-Each acceptance scenario of #38 plus B24.2 behavior:
 
 - payload drift and policy version drift invalidate an earlier approval;
   same id/version with a changed `content_hash` invalidates it;
 - release-time DENY wins over recorded consent;
 - stale revision changes nothing; changed requirement supersedes and opens
   `revision + 1`; old evidence cannot release the new revision;
-- self-approval and under-authorized approver refused;
+- self-approval refused; **forged proposer**: a proposal claiming another
+  proposer is rejected at decide, and a reviewer equal to the trusted
+  proposer is refused at release;
+- under-authorized approver refused;
 - model text `"approved"` leaves escrow intact;
 - verifier not in allowlist; a self-asserted verifier name in a payload has no
   effect;
 - age boundaries: `now - issued_at = max_age - 1` accepted, `= max_age`
   refused; `now = expiry - 1` accepted, `= expiry` refused; future-issued
   refused; missing expiry rejected;
-- revocation wins over retained consent and over restore;
+- revocation wins over retained consent, release and `revalidate`;
 - once scope consumed by one release; a second release of the same key emits
   nothing even with a new evidence id; reuse of an evidence id with a
-  different binding rejected;
-- run scope refuses another Run; root scope admits root and Runs whose
-  ancestry includes it, refuses others;
+  different binding rejected; reuse with an equal binding under run/root
+  accepted;
+- run scope: a new ASK after release opens `latest + 1` and a retained run
+  consent releases it; another Run refused; `context.run.id != key.run`
+  refused;
+- root scope admits root and Runs whose ancestry includes the recorded root,
+  refuses others;
+- deterministic retained-consent choice (earliest `issued_at`, then evidence
+  key byte order) recorded in the release record;
+- every bound at limit and limit + 1;
+- **pinned refusal order**: one test per adjacent pair of checks shows the
+  documented first reason (Q5);
 - replay of recorded events rebuilds the live state and emits no writes;
   restore after replay re-enters the reducer;
 - unavailable context fails closed with no writes, distinct from DENY and
-  invalid input.
+  invalid input;
+- Elixir↔Cure agreement for encoded state and evidence.
 
 Trusted fixtures stand in for verifier output and principals. They do not
 establish authentication.
@@ -285,18 +382,24 @@ a generic action in its own Adapter. No Ash dependency in this bundle.
 - **Telemetry:** `not_applicable`. Pure; the owning Unit/Assembly
   instruments. Approval decisions and release records are retained records
   owned by the caller, not telemetry samples.
-- **Config:** `supported` (per call). Verifier allowlist and `max_age` are
-  trusted per-call inputs in the release context; no hot reconfiguration.
+- **Config:** `supported`, per call, no default, no hot reconfiguration:
+  - `verifiers` — list of identity texts, 1..64 entries, exact match;
+  - `max_age` — integer milliseconds, `1..2^63-1`, no default; compared as
+    `now - issued_at < max_age`;
+  - `policy` — as in `domain/authorization`, for re-decide.
+- **Data, not Config:** proposal, authority context, approver, run context,
+  `now`, evidence, state, events.
 - **Control:** `not_applicable`. Revocation is a domain transition on the
   caller's state, not a lifecycle Control.
 
 ## Needs, assumptions and unspecified behavior
 
 Needs: authentication and a verifier transport that builds evidence only
-from a configured verifier; a trusted clock translated to Unix ms (skew is
-the owner's assumption); trusted Run/root/ancestry; durable retention of
-events if approvals must survive restart; serialization of transitions per
-state value (the owner serializes; there is no internal lock).
+from a configured verifier; trusted proposer identity and host-derived effect
+class; a trusted clock translated to Unix ms (skew is the owner's
+assumption); trusted Run/root/ancestry; durable retention of events if
+approvals must survive restart; serialization of transitions per state value
+(the owner serializes; there is no internal lock).
 
 Not claimed: durable storage, cross-owner or exactly-once dispatch of the
 released writes (the caller dispatches; a timeout after dispatch is an
@@ -309,10 +412,24 @@ Pieces: `domain/authorization`. Consumes `core/envelope`/`core/port`
 unchanged only when a consumer carries events in an opaque payload behind its
 own schema id. Providers: pinned Cure, Elixir 1.20.4, OTP 29.1.2.
 
-## Open questions for review
+## Limits
 
-- **Q4.** Evidence carries its own `scope` and must equal the requirement's
-  scope. Alternative: the requirement lists allowed scopes and the reviewer
-  picks one. Exact match is simpler.
-- **Q5.** Check order is fixed for reasons. A different order changes only
-  which reason is reported, never whether writes are emitted.
+- **Single approver per request (Q1):** one requirement, one approving
+  evidence. Multi-approver needs a new Piece ID.
+- **Exact scope match (Q4):** evidence scope must equal the requirement
+  scope. Accepting narrower scope later needs a new Piece ID.
+- **Exact-value authority (Q3):** approver authority, like proposer
+  authority, holds exact writes.
+- Refusal order is fixed and pinned by tests (Q5); it changes only the
+  reported reason, never whether writes are emitted.
+- Subset laws hold with respect to `eq_write`.
+
+## Interface deltas vs #38 (approval)
+
+| # | #38 text | This Contract | Reason |
+| --- | --- | --- | --- |
+| D12 | "rejected when the approver … is the proposer of the ASK" | compared against the **trusted** proposer identity in release context | F1 |
+| D13 | request id `(Run, action id, requirement name, requirement version, revision)` | plus run check 0; a new ASK after release opens `latest revision + 1` | F5a/F5c |
+| D14 | "scope (once, run, root)" | binding-only reuse check; per-scope key-field table; root recorded from trusted context; deterministic retained choice | F4/F5b/F5d |
+| D15 | "a restored pre-dispatch 'approved' action re-enters the reducer" | two restore paths: re-`release` (once: owner-stored evidence) and `revalidate/3` for recorded releases | F11 |
+| D16 | "within its declared maximum age" | `max_age` per-call Config, ms, no default; all approval inputs bounded | F6/F10 |
