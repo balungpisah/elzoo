@@ -1,0 +1,719 @@
+# SPDX-License-Identifier: Apache-2.0
+# workflow/dependency-graph (ELZ-026): readiness from attributable facts and
+# cycle admission over integer node indices. Every function is total; laws are
+# ordinary Cure values checked by the pinned kernel.
+mod Elzoo.DependencyGraph
+  use Std.Bool
+  use Std.Option
+  use Std.Decision
+  use Std.Equivalent
+  use Std.Proof.IntMath
+  use Elzoo.Composition
+
+  type DgKind = DgBlocking | DgInformational | DgHierarchy
+  type DgValue = DgSatisfied | DgUnsatisfied | DgUnknown
+  type DgProvenance = DgToolResult | DgArtifactReference | DgEventFold | DgModelDeclared
+  type DgLifecycle = DgOpen | DgCompleted | DgCancelled | DgClosed | DgExternal
+  type DgVerdict = DgAdmit | DgReject
+
+  # Edge as caller data: kind, from (dependant), to (prerequisite).
+  type DgREdge = DgRE(DgKind, Int, Int)
+  # Blocking-graph edge: from waits for to.
+  type DgEdge = DgE(Int, Int)
+  # Fact: target index, value, provenance, expiry (Unix ms).
+  type DgFact = DgF(Int, DgValue, DgProvenance, Int)
+  # Node: index, lifecycle, duplicate flag, unplaceable flag.
+  type DgNode = DgN(Int, DgLifecycle, Bool, Bool)
+
+  type DgOr(p: Type, q: Type) = DgLeft(p) | DgRight(q)
+  type DgBoth(p: Type, q: Type) = DgPair(p, q)
+
+  # ---------------------------------------------------------------- helpers
+
+  @total true
+  fn dg_absurd({a: Type}, void: Empty) -> a = match void
+
+  @total true
+  fn and_left({r: Bool}, l: Bool, h: IsTrue(`and`(l, r))) -> IsTrue(l) =
+    match l
+      True() -> Confirmed()
+      False() -> match h
+
+  @total true
+  fn and_right(l: Bool, {r: Bool}, h: IsTrue(`and`(l, r))) -> IsTrue(r) =
+    match l
+      True() -> h
+      False() -> match h
+
+  @total true
+  fn and_both({l: Bool}, {r: Bool}, hl: IsTrue(l), hr: IsTrue(r)) -> IsTrue(`and`(l, r)) =
+    match hl
+      Confirmed() -> hr
+
+  @total true
+  fn and_left_false(l: Bool, {r: Bool}, hl: IsTrue(`not`(l))) -> IsTrue(`not`(`and`(l, r))) =
+    match l
+      True() -> match hl
+      False() -> Confirmed()
+
+  @total true
+  fn and_right_false(l: Bool, {r: Bool}, hr: IsTrue(`not`(r))) -> IsTrue(`not`(`and`(l, r))) =
+    match l
+      True() -> hr
+      False() -> Confirmed()
+
+  @total true
+  fn negation_contradicts({a: Type}, claim: Bool, neg: IsTrue(`not`(claim)), pos: IsTrue(claim)) -> a =
+    match claim
+      True() -> match neg
+      False() -> match pos
+
+  @total true
+  fn false_of(b: Bool, h: IsTrue(`not`(b))) -> Equivalent(Bool, b, False()) =
+    match b
+      True() -> match h
+      False() -> reflexive(False())
+
+  @total true
+  fn true_from_eq({b: Bool}, h: Equivalent(Bool, b, True())) -> IsTrue(b) =
+    match h
+      reflexive() -> Confirmed()
+
+  # ------------------------------------------------------- facts and support
+
+  @total true
+  fn current(expiry: Int, now: Int) -> Bool = now < expiry
+
+  @total true
+  fn attr_with(v: DgValue, p: DgProvenance, live: Bool) -> Bool =
+    match v
+      DgSatisfied() ->
+        match p
+          DgModelDeclared() -> False()
+          DgToolResult() -> live
+          DgArtifactReference() -> live
+          DgEventFold() -> live
+      DgUnsatisfied() -> False()
+      DgUnknown() -> False()
+
+  @total true
+  fn attributes(v: DgValue, p: DgProvenance, expiry: Int, now: Int) -> Bool =
+    attr_with(v, p, current(expiry, now))
+
+  @total true
+  fn vetoes(v: DgValue, expiry: Int, now: Int) -> Bool =
+    match v
+      DgUnsatisfied() -> current(expiry, now)
+      DgSatisfied() -> False()
+      DgUnknown() -> False()
+
+  @total true
+  fn pick_or(m: Bool, a: Bool, r: Bool) -> Bool =
+    match m
+      True() -> `or`(a, r)
+      False() -> r
+
+  @total true
+  fn any_attr(facts: List(DgFact), target: Int, now: Int) -> Bool =
+    match facts
+      [] -> False()
+      [fact | rest] ->
+        match fact
+          DgF(id, v, p, e) -> pick_or(id == target, attributes(v, p, e, now), any_attr(rest, target, now))
+
+  @total true
+  fn any_veto(facts: List(DgFact), target: Int, now: Int) -> Bool =
+    match facts
+      [] -> False()
+      [fact | rest] ->
+        match fact
+          DgF(id, v, p, e) -> pick_or(id == target, vetoes(v, e, now), any_veto(rest, target, now))
+
+  @total true
+  fn fact_support(facts: List(DgFact), target: Int, now: Int) -> Bool =
+    `and`(any_attr(facts, target, now), `not`(any_veto(facts, target, now)))
+
+  # ------------------------------------------------------ target satisfaction
+
+  @total true
+  fn node_satisfied(node: DgNode, support: Bool) -> Bool =
+    match node
+      DgN(i, lifecycle, duplicate, unplaceable) ->
+        match duplicate
+          True() -> False()
+          False() ->
+            match unplaceable
+              True() -> False()
+              False() ->
+                match lifecycle
+                  DgCompleted() -> True()
+                  DgCancelled() -> False()
+                  DgClosed() -> False()
+                  DgOpen() -> support
+                  DgExternal() -> support
+
+  @total true
+  fn pick_node(m: Bool, node: DgNode, rest: Option(DgNode)) -> Option(DgNode) =
+    match m
+      True() -> Some(node)
+      False() -> rest
+
+  @total true
+  fn lookup(nodes: List(DgNode), target: Int) -> Option(DgNode) =
+    match nodes
+      [] -> None()
+      [node | rest] ->
+        match node
+          DgN(i, l, d, u) -> pick_node(i == target, node, lookup(rest, target))
+
+  @total true
+  fn found_satisfied(found: Option(DgNode), support: Bool) -> Bool =
+    match found
+      None() -> False()
+      Some(node) -> node_satisfied(node, support)
+
+  @total true
+  fn target_satisfied(target: Int, nodes: List(DgNode), facts: List(DgFact), now: Int) -> Bool =
+    found_satisfied(lookup(nodes, target), fact_support(facts, target, now))
+
+  # ---------------------------------------------------------------- readiness
+
+  # The target is evaluated only for an edge from i (BEAM evaluates arguments
+  # eagerly, so the comparison result selects the branch first).
+  @total true
+  fn edge_step(m: Bool, to: Int, nodes: List(DgNode), facts: List(DgFact), now: Int, r: Bool) -> Bool =
+    match m
+      True() -> `and`(target_satisfied(to, nodes, facts, now), r)
+      False() -> r
+
+  # kind is tested before the endpoint comparison (law 3).
+  @total true
+  fn edges_ok(es: List(DgREdge), i: Int, nodes: List(DgNode), facts: List(DgFact), now: Int) -> Bool =
+    match es
+      [] -> True()
+      [e | rest] ->
+        match e
+          DgRE(k, from, to) ->
+            match k
+              DgBlocking() -> edge_step(from == i, to, nodes, facts, now, edges_ok(rest, i, nodes, facts, now))
+              DgInformational() -> edges_ok(rest, i, nodes, facts, now)
+              DgHierarchy() -> edges_ok(rest, i, nodes, facts, now)
+
+  @total true
+  fn deferred(until: Option(Int), now: Int) -> Bool =
+    match until
+      None() -> False()
+      Some(u) -> now < u
+
+  @total true
+  fn open_ready(duplicate: Bool, unplaceable: Bool, waiting: Bool, edges: Bool) -> Bool =
+    match duplicate
+      True() -> False()
+      False() ->
+        match unplaceable
+          True() -> False()
+          False() ->
+            match waiting
+              True() -> False()
+              False() -> edges
+
+  @total true
+  fn item_ready(node: DgNode, until: Option(Int), es: List(DgREdge), nodes: List(DgNode), facts: List(DgFact), now: Int) -> Bool =
+    match node
+      DgN(i, lifecycle, duplicate, unplaceable) ->
+        match lifecycle
+          DgOpen() -> open_ready(duplicate, unplaceable, deferred(until, now), edges_ok(es, i, nodes, facts, now))
+          DgCompleted() -> False()
+          DgCancelled() -> False()
+          DgClosed() -> False()
+          DgExternal() -> False()
+
+  # ---------------------------------------------------------------- admission
+
+  @total true
+  fn blocking(es: List(DgREdge)) -> List(DgEdge) =
+    match es
+      [] -> []
+      [e | rest] ->
+        match e
+          DgRE(k, from, to) ->
+            match k
+              DgBlocking() -> [DgE(from, to) | blocking(rest)]
+              DgInformational() -> blocking(rest)
+              DgHierarchy() -> blocking(rest)
+
+  @total true
+  fn mem_int(s: List(Int), x: Int) -> Bool =
+    match s
+      [] -> False()
+      [h | rest] -> `or`(h == x, mem_int(rest, x))
+
+  @total true
+  fn implies(p: Bool, q: Bool) -> Bool =
+    match p
+      True() -> q
+      False() -> True()
+
+  @total true
+  fn edge_closed(e: DgEdge, s: List(Int)) -> Bool =
+    match e
+      DgE(x, y) -> implies(mem_int(s, x), mem_int(s, y))
+
+  @total true
+  fn closed(es: List(DgEdge), s: List(Int)) -> Bool =
+    match es
+      [] -> True()
+      [e | rest] -> `and`(edge_closed(e, s), closed(rest, s))
+
+  # Closure certificate: s contains t, is closed under every edge, excludes f.
+  @total true
+  fn certifies(es: List(DgEdge), f: Int, t: Int, s: List(Int)) -> Bool =
+    `and`(mem_int(s, t), `and`(closed(es, s), `not`(mem_int(s, f))))
+
+  @total true
+  fn concat(left: List(Int), right: List(Int)) -> List(Int) =
+    match left
+      [] -> right
+      [h | rest] -> [h | concat(rest, right)]
+
+  rec DgGrowth
+    seen: List(Int)
+    fresh: List(Int)
+
+  @total true
+  fn add_unseen(known: Bool, y: Int, acc: DgGrowth) -> DgGrowth =
+    match known
+      True() -> acc
+      False() -> DgGrowth{seen: [y | acc.seen], fresh: [y | acc.fresh]}
+
+  @total true
+  fn grow_with(m: Bool, y: Int, acc: DgGrowth) -> DgGrowth =
+    match m
+      True() -> add_unseen(mem_int(acc.seen, y), y, acc)
+      False() -> acc
+
+  @total true
+  fn grow(es: List(DgEdge), x: Int, acc: DgGrowth) -> DgGrowth =
+    match es
+      [] -> acc
+      [e | rest] ->
+        match e
+          DgE(a, b) -> grow(rest, x, grow_with(a == x, b, acc))
+
+  @total true
+  fn explore_from(es: List(DgEdge), fuel: List(DgEdge), frontier: List(Int), seen: List(Int)) -> List(Int) =
+    match fuel
+      [] -> seen
+      [_ | more] ->
+        match frontier
+          [] -> seen
+          [x | waiting] ->
+            let g = grow(es, x, DgGrowth{seen: seen, fresh: []})
+            explore_from(es, more, concat(waiting, g.fresh), g.seen)
+
+  # Untrusted search: the set of nodes found from t. One pop per fuel element;
+  # fuel is the edge list plus one, at least the number of reachable nodes.
+  @total true
+  fn search(es: List(DgEdge), t: Int) -> List(Int) =
+    explore_from(es, [DgE(t, t) | es], [t], [t])
+
+  @total true
+  fn admits(es: List(DgEdge), f: Int, t: Int) -> Bool = certifies(es, f, t, search(es, t))
+
+  @total true
+  fn decide(ok: Bool, es: List(DgREdge), proposal: DgREdge) -> Transition(List(DgREdge), DgVerdict) =
+    match ok
+      True() -> Transition{state: [proposal | es], output: Some(DgAdmit())}
+      False() -> Transition{state: es, output: Some(DgReject())}
+
+  @total true
+  fn admission_step(es: List(DgREdge), proposal: DgREdge) -> Transition(List(DgREdge), DgVerdict) =
+    match proposal
+      DgRE(k, f, t) ->
+        match k
+          DgBlocking() -> decide(admits(blocking(es), f, t), es, proposal)
+          DgInformational() -> Transition{state: [proposal | es], output: Some(DgAdmit())}
+          DgHierarchy() -> Transition{state: [proposal | es], output: Some(DgAdmit())}
+
+  @total true
+  fn state_of(step: Transition(List(DgREdge), DgVerdict)) -> List(DgREdge) = step.state
+
+  # ----------------------------------------------------------- path relations
+
+  type DgMem indices (es: List(DgEdge), x: DgEdge)
+    dg_here : DgMem(Cons(x, rest), x)
+    dg_there : DgMem(rest, x) -> DgMem(Cons(y, rest), x)
+
+  type DgWalk indices (es: List(DgEdge), a: Int, b: Int)
+    dg_stay : DgWalk(es, a, a)
+    dg_hop : DgMem(es, DgE(a, m)) -> DgWalk(es, m, b) -> DgWalk(es, a, b)
+
+  # A cycle through the edge E(x, m): the edge is in es and m walks back to x.
+  type DgCycle indices (es: List(DgEdge), x: Int, m: Int)
+    dg_cycle : DgMem(es, DgE(x, m)) -> DgWalk(es, m, x) -> DgCycle(es, x, m)
+
+  @total true
+  fn split(
+    {es: List(DgEdge)}, {f: Int}, {t: Int}, {a: Int}, {b: Int},
+    w: DgWalk(Cons(DgE(f, t), es), a, b)
+  ) -> DgOr(DgWalk(es, a, b), DgBoth(DgWalk(es, a, f), DgWalk(Cons(DgE(f, t), es), t, b))) =
+    match w
+      dg_stay() -> DgLeft(dg_stay())
+      dg_hop(m, rest) ->
+        match m
+          dg_here() -> DgRight(DgPair(dg_stay(), rest))
+          dg_there(m1) ->
+            match split(rest)
+              DgLeft(w2) -> DgLeft(dg_hop(m1, w2))
+              DgRight(both) ->
+                match both
+                  DgPair(w1, w3) -> DgRight(DgPair(dg_hop(m1, w1), w3))
+
+  @total true
+  fn implies_elim({p: Bool}, {q: Bool}, imp: IsTrue(implies(p, q)), hp: IsTrue(p)) -> IsTrue(q) =
+    match hp
+      Confirmed() -> imp
+
+  @total true
+  fn implies_intro(p: Bool, q: Bool, hq: IsTrue(q)) -> IsTrue(implies(p, q)) =
+    match p
+      True() -> hq
+      False() -> Confirmed()
+
+  @total true
+  fn closed_mem(
+    s: List(Int), g: List(DgEdge), {x: Int}, {y: Int},
+    c: IsTrue(closed(g, s)), m: DgMem(g, DgE(x, y)), hx: IsTrue(mem_int(s, x))
+  ) -> IsTrue(mem_int(s, y)) =
+    match g
+      [] -> match m
+      [z | rest] ->
+        match m
+          dg_here() -> implies_elim(and_left(edge_closed(z, s), c), hx)
+          dg_there(m1) -> closed_mem(s, rest, and_right(edge_closed(z, s), c), m1, hx)
+
+  @total true
+  fn transport(
+    s: List(Int), g: List(DgEdge), {a: Int}, {b: Int},
+    c: IsTrue(closed(g, s)), w: DgWalk(g, a, b), ha: IsTrue(mem_int(s, a))
+  ) -> IsTrue(mem_int(s, b)) =
+    match w
+      dg_stay() -> ha
+      dg_hop(m, rest) -> transport(s, g, c, rest, closed_mem(s, g, c, m, ha))
+
+  # ===================================================================== laws
+
+  # Law 1 ("unknown never satisfies", #43): if no fact for the target
+  # attributes it, the actual fact_support is false. Other-target and expiry
+  # cases carry the Bool result of builtin equality and order.
+  type DgUnattributed indices (facts: List(DgFact), target: Int, now: Int)
+    un_nil : DgUnattributed(Nil, target, now)
+    un_other : Equivalent(Bool, id == target, False()) -> DgUnattributed(rest, target, now) -> DgUnattributed(Cons(DgF(id, v, p, e), rest), target, now)
+    un_unknown : Equivalent(Bool, id == target, True()) -> DgUnattributed(rest, target, now) -> DgUnattributed(Cons(DgF(id, DgUnknown, p, e), rest), target, now)
+    un_unsatisfied : Equivalent(Bool, id == target, True()) -> DgUnattributed(rest, target, now) -> DgUnattributed(Cons(DgF(id, DgUnsatisfied, p, e), rest), target, now)
+    un_model : Equivalent(Bool, id == target, True()) -> DgUnattributed(rest, target, now) -> DgUnattributed(Cons(DgF(id, DgSatisfied, DgModelDeclared, e), rest), target, now)
+    un_expired_tool : Equivalent(Bool, id == target, True()) -> Equivalent(Bool, now < e, False()) -> DgUnattributed(rest, target, now) -> DgUnattributed(Cons(DgF(id, DgSatisfied, DgToolResult, e), rest), target, now)
+    un_expired_artifact : Equivalent(Bool, id == target, True()) -> Equivalent(Bool, now < e, False()) -> DgUnattributed(rest, target, now) -> DgUnattributed(Cons(DgF(id, DgSatisfied, DgArtifactReference, e), rest), target, now)
+    un_expired_event : Equivalent(Bool, id == target, True()) -> Equivalent(Bool, now < e, False()) -> DgUnattributed(rest, target, now) -> DgUnattributed(Cons(DgF(id, DgSatisfied, DgEventFold, e), rest), target, now)
+
+  @total true
+  fn skip_other({m: Bool}, {a: Bool}, {r: Bool}, hm: Equivalent(Bool, m, False()), hr: IsTrue(`not`(r))) -> IsTrue(`not`(pick_or(m, a, r))) =
+    match hm
+      reflexive() -> hr
+
+  @total true
+  fn skip_false({m: Bool}, {r: Bool}, hm: Equivalent(Bool, m, True()), hr: IsTrue(`not`(r))) -> IsTrue(`not`(pick_or(m, False(), r))) =
+    match hm
+      reflexive() -> hr
+
+  @total true
+  fn skip_expired({m: Bool}, {c: Bool}, {r: Bool}, hm: Equivalent(Bool, m, True()), hc: Equivalent(Bool, c, False()), hr: IsTrue(`not`(r))) -> IsTrue(`not`(pick_or(m, c, r))) =
+    match hm
+      reflexive() ->
+        match hc
+          reflexive() -> hr
+
+  @total true
+  fn unattributed_no_attr({facts: List(DgFact)}, {target: Int}, {now: Int}, u: DgUnattributed(facts, target, now)) -> IsTrue(`not`(any_attr(facts, target, now))) =
+    match u
+      un_nil() -> Confirmed()
+      un_other(hm, r) -> skip_other(hm, unattributed_no_attr(r))
+      un_unknown(hm, r) -> skip_false(hm, unattributed_no_attr(r))
+      un_unsatisfied(hm, r) -> skip_false(hm, unattributed_no_attr(r))
+      un_model(hm, r) -> skip_false(hm, unattributed_no_attr(r))
+      un_expired_tool(hm, hc, r) -> skip_expired(hm, hc, unattributed_no_attr(r))
+      un_expired_artifact(hm, hc, r) -> skip_expired(hm, hc, unattributed_no_attr(r))
+      un_expired_event(hm, hc, r) -> skip_expired(hm, hc, unattributed_no_attr(r))
+
+  @total true
+  fn unknown_never_satisfies(facts: List(DgFact), target: Int, now: Int, u: DgUnattributed(facts, target, now)) -> Equivalent(Bool, fact_support(facts, target, now), False()) =
+    false_of(fact_support(facts, target, now), and_left_false(any_attr(facts, target, now), unattributed_no_attr(u)))
+
+  # Law 2: satisfaction order and lifecycle table (reduction).
+  @total true
+  fn undeclared_never_satisfies(support: Bool) -> Equivalent(Bool, found_satisfied(None(), support), False()) =
+    reflexive(False())
+
+  @total true
+  fn duplicate_never_satisfies(i: Int, lifecycle: DgLifecycle, unplaceable: Bool, support: Bool) -> Equivalent(Bool, node_satisfied(DgN(i, lifecycle, True(), unplaceable), support), False()) =
+    reflexive(False())
+
+  @total true
+  fn unplaceable_never_satisfies(i: Int, lifecycle: DgLifecycle, support: Bool) -> Equivalent(Bool, node_satisfied(DgN(i, lifecycle, False(), True()), support), False()) =
+    reflexive(False())
+
+  @total true
+  fn completed_satisfies(i: Int, support: Bool) -> Equivalent(Bool, node_satisfied(DgN(i, DgCompleted(), False(), False()), support), True()) =
+    reflexive(True())
+
+  @total true
+  fn cancelled_never_satisfies(i: Int, support: Bool) -> Equivalent(Bool, node_satisfied(DgN(i, DgCancelled(), False(), False()), support), False()) =
+    reflexive(False())
+
+  @total true
+  fn closed_never_satisfies(i: Int, support: Bool) -> Equivalent(Bool, node_satisfied(DgN(i, DgClosed(), False(), False()), support), False()) =
+    reflexive(False())
+
+  @total true
+  fn open_needs_support(i: Int, support: Bool) -> Equivalent(Bool, node_satisfied(DgN(i, DgOpen(), False(), False()), support), support) =
+    reflexive(support)
+
+  @total true
+  fn external_needs_support(i: Int, support: Bool) -> Equivalent(Bool, node_satisfied(DgN(i, DgExternal(), False(), False()), support), support) =
+    reflexive(support)
+
+  @total true
+  fn unknown_never_attributes(p: DgProvenance, e: Int, now: Int) -> Equivalent(Bool, attributes(DgUnknown(), p, e, now), False()) =
+    reflexive(False())
+
+  @total true
+  fn unsatisfied_never_attributes(p: DgProvenance, e: Int, now: Int) -> Equivalent(Bool, attributes(DgUnsatisfied(), p, e, now), False()) =
+    reflexive(False())
+
+  @total true
+  fn model_never_attributes(v: DgValue, e: Int, now: Int) -> Equivalent(Bool, attributes(v, DgModelDeclared(), e, now), False()) =
+    match v
+      DgSatisfied() -> reflexive(False())
+      DgUnsatisfied() -> reflexive(False())
+      DgUnknown() -> reflexive(False())
+
+  @total true
+  fn expired_inner({c: Bool}, v: DgValue, p: DgProvenance, hc: Equivalent(Bool, c, False())) -> Equivalent(Bool, attr_with(v, p, c), False()) =
+    match hc
+      reflexive() ->
+        match v
+          DgSatisfied() ->
+            match p
+              DgModelDeclared() -> reflexive(False())
+              DgToolResult() -> reflexive(False())
+              DgArtifactReference() -> reflexive(False())
+              DgEventFold() -> reflexive(False())
+          DgUnsatisfied() -> reflexive(False())
+          DgUnknown() -> reflexive(False())
+
+  @total true
+  fn expired_never_attributes(v: DgValue, p: DgProvenance, e: Int, now: Int, hc: Equivalent(Bool, now < e, False())) -> Equivalent(Bool, attributes(v, p, e, now), False()) =
+    expired_inner(v, p, hc)
+
+  # Law 3: non-blocking edges never affect readiness (kind tested first).
+  @total true
+  fn informational_never_blocks(node: DgNode, until: Option(Int), f: Int, t: Int, es: List(DgREdge), nodes: List(DgNode), facts: List(DgFact), now: Int) -> Equivalent(Bool, item_ready(node, until, Cons(DgRE(DgInformational(), f, t), es), nodes, facts, now), item_ready(node, until, es, nodes, facts, now)) =
+    reflexive(item_ready(node, until, es, nodes, facts, now))
+
+  @total true
+  fn hierarchy_never_blocks(node: DgNode, until: Option(Int), f: Int, t: Int, es: List(DgREdge), nodes: List(DgNode), facts: List(DgFact), now: Int) -> Equivalent(Bool, item_ready(node, until, Cons(DgRE(DgHierarchy(), f, t), es), nodes, facts, now), item_ready(node, until, es, nodes, facts, now)) =
+    reflexive(item_ready(node, until, es, nodes, facts, now))
+
+  # Law 4: one unsatisfied blocking edge from i anywhere in the full list
+  # makes i not ready.
+  type DgBlockedBy indices (es: List(DgREdge), i: Int, nodes: List(DgNode), facts: List(DgFact), now: Int)
+    blocked_here : Equivalent(Bool, from == i, True()) -> Equivalent(Bool, target_satisfied(to, nodes, facts, now), False()) -> DgBlockedBy(Cons(DgRE(DgBlocking, from, to), rest), i, nodes, facts, now)
+    blocked_later : DgBlockedBy(rest, i, nodes, facts, now) -> DgBlockedBy(Cons(e, rest), i, nodes, facts, now)
+
+  @total true
+  fn false_and({a: Bool}, {r: Bool}, ha: Equivalent(Bool, a, False())) -> IsTrue(`not`(`and`(a, r))) =
+    match ha
+      reflexive() -> Confirmed()
+
+  @total true
+  fn pick_head({m: Bool}, to: Int, nodes: List(DgNode), facts: List(DgFact), now: Int, {r: Bool}, hm: Equivalent(Bool, m, True()), ha: Equivalent(Bool, target_satisfied(to, nodes, facts, now), False())) -> IsTrue(`not`(edge_step(m, to, nodes, facts, now, r))) =
+    match hm
+      reflexive() -> false_and(ha)
+
+  @total true
+  fn pick_tail(m: Bool, to: Int, nodes: List(DgNode), facts: List(DgFact), now: Int, {r: Bool}, hr: IsTrue(`not`(r))) -> IsTrue(`not`(edge_step(m, to, nodes, facts, now, r))) =
+    match m
+      True() -> and_right_false(target_satisfied(to, nodes, facts, now), hr)
+      False() -> hr
+
+  @total true
+  fn blocked_edges(es: List(DgREdge), i: Int, nodes: List(DgNode), facts: List(DgFact), now: Int, b: DgBlockedBy(es, i, nodes, facts, now)) -> IsTrue(`not`(edges_ok(es, i, nodes, facts, now))) =
+    match es
+      [] -> match b
+      [e | rest] ->
+        match b
+          blocked_here(hm, hs) ->
+            match e
+              DgRE(k, from, to) -> pick_head(to, nodes, facts, now, hm, hs)
+          blocked_later(b1) ->
+            match e
+              DgRE(k, from, to) ->
+                match k
+                  DgBlocking() -> pick_tail(from == i, to, nodes, facts, now, blocked_edges(rest, i, nodes, facts, now, b1))
+                  DgInformational() -> blocked_edges(rest, i, nodes, facts, now, b1)
+                  DgHierarchy() -> blocked_edges(rest, i, nodes, facts, now, b1)
+
+  @total true
+  fn open_blocked(duplicate: Bool, unplaceable: Bool, waiting: Bool, {edges: Bool}, h: IsTrue(`not`(edges))) -> IsTrue(`not`(open_ready(duplicate, unplaceable, waiting, edges))) =
+    match duplicate
+      True() -> Confirmed()
+      False() ->
+        match unplaceable
+          True() -> Confirmed()
+          False() ->
+            match waiting
+              True() -> Confirmed()
+              False() -> h
+
+  @total true
+  fn blocked_not_ready(i: Int, lifecycle: DgLifecycle, duplicate: Bool, unplaceable: Bool, until: Option(Int), es: List(DgREdge), nodes: List(DgNode), facts: List(DgFact), now: Int, b: DgBlockedBy(es, i, nodes, facts, now)) -> IsTrue(`not`(item_ready(DgN(i, lifecycle, duplicate, unplaceable), until, es, nodes, facts, now))) =
+    match lifecycle
+      DgOpen() -> open_blocked(duplicate, unplaceable, deferred(until, now), blocked_edges(es, i, nodes, facts, now, b))
+      DgCompleted() -> Confirmed()
+      DgCancelled() -> Confirmed()
+      DgClosed() -> Confirmed()
+      DgExternal() -> Confirmed()
+
+  @total true
+  fn waiting_inner({w: Bool}, unplaceable: Bool, edges: Bool, hw: Equivalent(Bool, w, True())) -> Equivalent(Bool, open_ready(False(), unplaceable, w, edges), False()) =
+    match hw
+      reflexive() ->
+        match unplaceable
+          True() -> reflexive(False())
+          False() -> reflexive(False())
+
+  @total true
+  fn blocked_never_ready(i: Int, lifecycle: DgLifecycle, duplicate: Bool, unplaceable: Bool, until: Option(Int), es: List(DgREdge), nodes: List(DgNode), facts: List(DgFact), now: Int, b: DgBlockedBy(es, i, nodes, facts, now)) -> Equivalent(Bool, item_ready(DgN(i, lifecycle, duplicate, unplaceable), until, es, nodes, facts, now), False()) =
+    false_of(item_ready(DgN(i, lifecycle, duplicate, unplaceable), until, es, nodes, facts, now), blocked_not_ready(i, lifecycle, duplicate, unplaceable, until, es, nodes, facts, now, b))
+
+  @total true
+  fn deferred_never_ready(i: Int, unplaceable: Bool, u: Int, es: List(DgREdge), nodes: List(DgNode), facts: List(DgFact), now: Int, hw: Equivalent(Bool, now < u, True())) -> Equivalent(Bool, item_ready(DgN(i, DgOpen(), False(), unplaceable), Some(u), es, nodes, facts, now), False()) =
+    waiting_inner(unplaceable, edges_ok(es, i, nodes, facts, now), hw)
+
+  @total true
+  fn duplicate_never_ready(i: Int, lifecycle: DgLifecycle, unplaceable: Bool, until: Option(Int), es: List(DgREdge), nodes: List(DgNode), facts: List(DgFact), now: Int) -> Equivalent(Bool, item_ready(DgN(i, lifecycle, True(), unplaceable), until, es, nodes, facts, now), False()) =
+    match lifecycle
+      DgOpen() -> reflexive(False())
+      DgCompleted() -> reflexive(False())
+      DgCancelled() -> reflexive(False())
+      DgClosed() -> reflexive(False())
+      DgExternal() -> reflexive(False())
+
+  @total true
+  fn unplaceable_never_ready(i: Int, lifecycle: DgLifecycle, until: Option(Int), es: List(DgREdge), nodes: List(DgNode), facts: List(DgFact), now: Int) -> Equivalent(Bool, item_ready(DgN(i, lifecycle, False(), True()), until, es, nodes, facts, now), False()) =
+    match lifecycle
+      DgOpen() -> reflexive(False())
+      DgCompleted() -> reflexive(False())
+      DgCancelled() -> reflexive(False())
+      DgClosed() -> reflexive(False())
+      DgExternal() -> reflexive(False())
+
+  @total true
+  fn completed_never_ready(i: Int, duplicate: Bool, unplaceable: Bool, until: Option(Int), es: List(DgREdge), nodes: List(DgNode), facts: List(DgFact), now: Int) -> Equivalent(Bool, item_ready(DgN(i, DgCompleted(), duplicate, unplaceable), until, es, nodes, facts, now), False()) =
+    reflexive(False())
+
+  # Law 5 (certificate level), equality form: for every edge list, endpoints
+  # and candidate set s accepted by the closure certificate, a cycle through
+  # E(x, m) in the graph with E(f, t) prepended, together with the absence of
+  # a cycle through E(x, m) in the old graph, proves True = False. So every new
+  # cycle is an old cycle with the same first edge; the search is untrusted.
+  @total true
+  fn admitted_keeps_acyclic(
+    es: List(DgEdge), f: Int, t: Int, s: List(Int), {x: Int}, {m: Int},
+    ok: IsTrue(certifies(es, f, t, s)),
+    no_old: (DgCycle(es, x, m)) -> Equivalent(Bool, True(), False()),
+    cyc: DgCycle(Cons(DgE(f, t), es), x, m)
+  ) -> Equivalent(Bool, True(), False()) =
+    match cyc
+      dg_cycle(mx, w) -> new_cycle_contradicts(es, f, t, s, ok, no_old, mx, w)
+
+  @total true
+  fn new_cycle_contradicts(
+    es: List(DgEdge), f: Int, t: Int, s: List(Int), {x: Int}, {m: Int},
+    ok: IsTrue(certifies(es, f, t, s)),
+    no_old: (DgCycle(es, x, m)) -> Equivalent(Bool, True(), False()),
+    mx: DgMem(Cons(DgE(f, t), es), DgE(x, m)),
+    w: DgWalk(Cons(DgE(f, t), es), m, x)
+  ) -> Equivalent(Bool, True(), False()) =
+    have ht = and_left(mem_int(s, t), ok)
+    have rest_ok = and_right(mem_int(s, t), ok)
+    have old_closed = and_left(closed(es, s), rest_ok)
+    have f_out = and_right(closed(es, s), rest_ok)
+    have new_closed = and_both(implies_intro(mem_int(s, f), mem_int(s, t), ht), old_closed)
+    match mx
+      dg_here() -> negation_contradicts(mem_int(s, f), f_out, transport(s, Cons(DgE(f, t), es), new_closed, w, ht))
+      dg_there(m1) ->
+        match split(w)
+          DgLeft(w2) -> no_old(dg_cycle(m1, w2))
+          DgRight(both) ->
+            match both
+              DgPair(w1, w3) ->
+                negation_contradicts(mem_int(s, f), f_out,
+                  transport(s, es, old_closed, w1,
+                    closed_mem(s, es, old_closed, m1,
+                      transport(s, Cons(DgE(f, t), es), new_closed, w3, ht))))
+
+  @total true
+  fn committed_cycle_inner(
+    es: List(DgREdge), f: Int, t: Int, {ok: Bool}, {x: Int}, {m: Int},
+    hm: Equivalent(Bool, ok, True()),
+    okc: IsTrue(certifies(blocking(es), f, t, search(blocking(es), t))),
+    no_old: (DgCycle(blocking(es), x, m)) -> Equivalent(Bool, True(), False()),
+    cyc: DgCycle(blocking(state_of(decide(ok, es, DgRE(DgBlocking(), f, t)))), x, m)
+  ) -> Equivalent(Bool, True(), False()) =
+    match hm
+      reflexive() -> admitted_keeps_acyclic(blocking(es), f, t, search(blocking(es), t), okc, no_old, cyc)
+
+  # Law 5 over the committed state, equality form: when the Cure step admits
+  # a blocking proposal, a cycle of blocking(next) through E(x, m) and no cycle
+  # of blocking(es) through E(x, m) prove True = False.
+  @total true
+  fn admission_keeps_acyclic(
+    es: List(DgREdge), f: Int, t: Int, {x: Int}, {m: Int},
+    hm: Equivalent(Bool, admits(blocking(es), f, t), True()),
+    no_old: (DgCycle(blocking(es), x, m)) -> Equivalent(Bool, True(), False()),
+    cyc: DgCycle(blocking(state_of(admission_step(es, DgRE(DgBlocking(), f, t)))), x, m)
+  ) -> Equivalent(Bool, True(), False()) =
+    committed_cycle_inner(es, f, t, hm, true_from_eq(hm), no_old, cyc)
+
+  # Law 5a: the blocking projection (checked reductions).
+  @total true
+  fn blocking_keeps_blocking(f: Int, t: Int, es: List(DgREdge)) -> Equivalent(List(DgEdge), blocking(Cons(DgRE(DgBlocking(), f, t), es)), Cons(DgE(f, t), blocking(es))) =
+    reflexive([DgE(f, t) | blocking(es)])
+
+  @total true
+  fn blocking_drops_informational(f: Int, t: Int, es: List(DgREdge)) -> Equivalent(List(DgEdge), blocking(Cons(DgRE(DgInformational(), f, t), es)), blocking(es)) =
+    reflexive(blocking(es))
+
+  @total true
+  fn blocking_drops_hierarchy(f: Int, t: Int, es: List(DgREdge)) -> Equivalent(List(DgEdge), blocking(Cons(DgRE(DgHierarchy(), f, t), es)), blocking(es)) =
+    reflexive(blocking(es))
+
+  @total true
+  fn non_blocking_admitted_informational(f: Int, t: Int, es: List(DgREdge)) -> Equivalent(List(DgEdge), blocking(state_of(admission_step(es, DgRE(DgInformational(), f, t)))), blocking(es)) =
+    reflexive(blocking(es))
+
+  @total true
+  fn non_blocking_admitted_hierarchy(f: Int, t: Int, es: List(DgREdge)) -> Equivalent(List(DgEdge), blocking(state_of(admission_step(es, DgRE(DgHierarchy(), f, t)))), blocking(es)) =
+    reflexive(blocking(es))
+
+  # Law 6: a rejected blocking proposal leaves the state unchanged.
+  @total true
+  fn reject_inner({ok: Bool}, es: List(DgREdge), p: DgREdge, hm: Equivalent(Bool, ok, False())) -> Equivalent(List(DgREdge), state_of(decide(ok, es, p)), es) =
+    match hm
+      reflexive() -> reflexive(es)
+
+  @total true
+  fn reject_keeps_state(es: List(DgREdge), f: Int, t: Int, hm: Equivalent(Bool, admits(blocking(es), f, t), False())) -> Equivalent(List(DgREdge), state_of(admission_step(es, DgRE(DgBlocking(), f, t))), es) =
+    reject_inner(es, DgRE(DgBlocking(), f, t), hm)
+end

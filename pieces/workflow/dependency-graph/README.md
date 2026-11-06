@@ -1,12 +1,12 @@
 # workflow/dependency-graph
 
-> **Stage 1 Contract draft, revision 3 (ELZ-026, issue #43). Not ready.**
-> This revision answers the early review of `f2e9b76` and the focused re-check
-> of `fa09089`. No implementation,
-> proof or test is committed yet, and the catalogue row stays `deferred` until
-> the reviewed implementation lands. Nothing below is evidence. Probe results
-> named here came from a throwaway file outside the repository. That file has
-> been deleted and is not evidence.
+Ready subset (ELZ-026, issue #43). Contract reviewed at `63e4dc6`
+(early review, focused re-check and re-check 2 on #43). Lemma names in
+the Cure source use the `Dg` prefix (`DgMem`, `DgWalk`, `dg_stay`,
+`dg_hop`); the closure check is spelled `certifies` because `check` is a
+reserved word in the pinned Cure. Laws 1, 4 and 5 are stated in equality
+form (`… = False()`, or `True() = False()` from a cycle and a refutation)
+because the ledger records only `Equivalent` proofs. Neither changes a law.
 
 A pure decision over caller-owned Work Item fixtures, typed prerequisite edges
 and attributable satisfaction facts. It answers three questions from its inputs
@@ -105,8 +105,8 @@ now = 1_767_225_000_000                       # Unix milliseconds, caller suppli
 | `target_satisfied` (lifecycle × fact support) | Cure | laws |
 | deferral (`now < deferred_until`) | Cure, builtin comparison | as for expiry |
 | `item_ready` (over the **full** edge list; per edge, `kind` is tested **before** the builtin endpoint comparison `from == i`) | Cure | laws 3–4, over the Bool result of builtin equality |
-| blocker reason and priority | Cure | test only (priority and consistency with `target_satisfied`) |
-| `completion_contradicted` detection | Cure | test only |
+| blocker reason and priority (only for edges whose Cure `target_satisfied` is false; currentness via Cure `current/2`) | Elixir | test only |
+| `completion_contradicted` detection (currentness via Cure `current/2`) | Elixir | test only |
 | reachability search for admission | Cure | not trusted by the law; completeness test only |
 | `blocking` projection (`List(REdge)` → `List(Edge)`) | Cure | law 5a |
 | `admits` (closure certificate check) and the Cure `admission_step` | Cure | laws 5–6 |
@@ -281,13 +281,16 @@ in-process scenario only. It is not a durable multi-head transaction or
 distributed agreement. Durable edges need an atomic storage Contract (ELZ-009
 boundary). No owner process is a ready source of this Piece.
 
-## Grounding plan
+## Grounding
 
 ### Proof: selected Cure laws over the actual decisions
 
-All law functions and their helpers carry `@total true`. The probe showed that
-without it, a non-terminating proof is accepted. Each law has a negative
-control that must fail compilation.
+Every function in `cure/elzoo/dependency_graph.cure` carries `@total true`
+(a test checks this). Without it, the pinned Cure accepts a non-terminating
+proof. The test file runs 16 negative controls (mutations that the kernel
+must reject, each in a named function) and the Cure audit (no axioms, holes,
+unresolved, unaudited, opaque or not-proven-total entries). Symbols are listed
+in [piece.json](piece.json).
 
 1. **"Unknown never satisfies" (#43), list induction.** An inductive
    predicate `Unattributed(facts, target, now)` holds for the full fact list
@@ -298,9 +301,8 @@ control that must fail compilation.
    `Equivalent(Bool, now < expiry, False())`. The law is: for every fact list
    and target with `Unattributed`, the actual `fact_support` is false. Its
    scope is over the Bool results of builtin equality and order.
-   *Probe:* this shape type-checked at the pin, including the builtin
-   `now < expiry` evidence form. Mutations that let a model-declared or an
-   expired fact attribute fail with `branch_type`.
+   Symbol `unknown_never_satisfies`. Negative controls: a model-declared,
+   unknown or always-current fact that attributes (`branch_type`).
 2. **Satisfaction table**, by reduction, over every other input: an
    undeclared, duplicate or unplaceable target never satisfies, whatever its
    lifecycle; a unique, placeable `:cancelled` or `:closed` target never
@@ -318,11 +320,9 @@ control that must fail compilation.
    is false. Its scope is over the Bool result of builtin equality. A deferred,
    non-open, or flagged duplicate or unplaceable item is never ready
    (reduction).
-   *Probe:* laws 3 and 4 type-checked at the pin with `@total true`. Negative
-   controls failed as required: a pick that ignores a blocking edge
-   (`branch_type`), an informational edge that blocks (`conversion_failure`),
-   and an endpoint comparison before the kind test (`conversion_failure` on
-   law 3).
+   Negative controls: an informational edge that blocks
+   (`informational_never_blocks`), a blocking edge treated as satisfied
+   (`pick_head`), and deferral ignored (`open_blocked`).
 
    **Corollary of laws 1, 2 and 4** (not a separate checked law): an open or
    external, unique, placeable target with only unattributed facts is not
@@ -337,7 +337,10 @@ control that must fail compilation.
    is closed under every edge of `es`, and does not contain `f`. The law: for
    every `es`, `f`, `t` and every `s` with `check` true, every cycle of
    `[E(f, t) | es]` is a cycle of `es` with the same first edge. So admission
-   preserves acyclicity, self-loops included. The law holds for every `s`, so
+   preserves acyclicity, self-loops included. The ledger records proofs in
+   equality form, so the checked statement is: a `DgCycle` through `E(x, m)`
+   in the new graph, plus a refutation `(DgCycle(es, x, m)) -> True = False`
+   for the old graph, proves `True = False`. The law holds for every `s`, so
    the search is not trusted. A defective search can only cause a false
    rejection, never a cycle; the Elixir layer reports that case as
    `{:error, :search_disagreement}`.
@@ -346,18 +349,17 @@ control that must fail compilation.
    `blocking(es)`. This follows from the law above with `es := blocking(es)`
    and law 5a. A non-blocking admission leaves `blocking(next) ≡ blocking(es)`
    (law 5a), so it adds no cycle.
-   *Probe:* the split lemma (a walk in `[e | es]` avoids `e` or splits around
-   it), closure transport and this law type-checked at the pin with
-   `@total true`. Negative controls failed as required: dropping the
-   "does not contain `f`" conjunct (`let_needs_annotation` at the dependent
-   step), a wrong goal (`branch_type`), a `closed` that skips an edge
-   (`conversion_failure`), and a non-structural recursion
+   Symbols `admitted_keeps_acyclic` and `admission_keeps_acyclic`. Negative
+   controls: dropping the "does not contain `f`" conjunct
+   (`new_cycle_contradicts`), a `closed` that skips an edge (`closed_mem`),
+   a projection that drops a blocking edge (fails in the committed-state law,
+   `committed_cycle_inner`), and a non-structural recursion
    (`total_required_by_decorator`).
 5a. **Projection (checked reductions).**
    `blocking([RE(:blocking, f, t) | es]) ≡ [E(f, t) | blocking(es)]`, and
    `blocking([RE(k, f, t) | es]) ≡ blocking(es)` for `k ∈ {:informational,
    :hierarchy}`, for every `f`, `t`, `es`. A negative control (a projection
-   that drops a blocking edge) must fail compilation.
+   that keeps an informational edge) fails in `blocking_drops_informational`.
 6. **Unchanged on reject**: for a blocking proposal, the Cure `admission_step`
    returns its input state `es` whenever `admits(blocking(es), f, t)` is false
    (reduction over Bool evidence of that result). Non-blocking proposals are
@@ -369,11 +371,13 @@ layer around them is test-only.
 **Not proved (F9):** #43 says "admitted **iff** the target cannot already
 reach the source". The laws prove only the safe direction: admitted implies
 acyclic. The converse (an acyclic result is always admitted, meaning the
-search is complete within its fuel) is a finite test. It is checked by an
-exhaustive comparison with an independent Elixir reference over all blocking
-graphs on small node counts, plus random larger graphs. That test also
-requires that `{:error, :search_disagreement}` never occurs. Nobody should read
-the "iff" as proved.
+search is complete within its fuel) is a finite test against an independent
+Elixir reachability reference: every acyclic blocking graph on 2 and 3 nodes
+(self-loops included) with every proposal; the 543 acyclic graphs on 4 nodes
+without self-loops with every non-loop proposal; 60 random 30-node acyclic
+graphs; and a 1,000-node chain. That test also requires that
+`{:error, :search_disagreement}` never occurs. Nobody should read the "iff" as
+proved.
 
 ### Type/contract check
 
@@ -407,6 +411,19 @@ and OTP 29.1.2 execution, and GenServer call serialization in the test double.
 
 Callers supply truthful lifecycle tags, provenance, sources and expiries, and
 a `now` translated from their clock. Clock skew is the caller's concern.
+
+## Copy and limits
+
+Select `workflow/dependency-graph` with `mix elzoo.take`; see
+[consuming](../../../docs/consuming.md). The copied decision needs the
+compiled Cure BEAM and the Elixir shell, not Cure.Compiler or the Cure
+standard library at runtime. `runtime/unit` is needed only by the copied test.
+
+- No join/fan-in policy beyond "every blocking prerequisite satisfied"; no
+  skip/fail handling, execution, claiming, lease, scheduling or storage.
+- No performance claim. One observation on the worker laptop: readiness at
+  full bounds (1,000 items, 9,987 blocking edges, 10,000 facts) took about
+  6.7 s, and one admission about 0.2 s.
 
 ## Operations
 
