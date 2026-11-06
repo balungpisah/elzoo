@@ -382,12 +382,17 @@ defmodule Elzoo.RequestRouteRetry do
     if Map.take(settled, ~w(message_id correlation_id deadline_unix_ms)) ==
          Map.take(base, ~w(message_id correlation_id deadline_unix_ms)) and
          (not Map.has_key?(settled, attempt) or
-            String.starts_with?(to_string(settled[attempt]), base["message_id"] <> "/attempt/")),
+            attempt_of?(settled[attempt], base["message_id"])),
        do: :ok,
        else: {:error, {:settlement, :identity_mismatch}}
   end
 
   defp settlement_matches(_, _), do: {:error, {:settlement, :invalid}}
+
+  defp attempt_of?(id, message_id) when is_binary(id) and is_binary(message_id),
+    do: String.starts_with?(id, message_id <> "/attempt/")
+
+  defp attempt_of?(_, _), do: false
 
   defp identity(envelope),
     do:

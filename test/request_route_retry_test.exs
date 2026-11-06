@@ -309,6 +309,10 @@ defmodule Elzoo.RequestRouteRetryCompositionTest do
       {kind, settled} = settlement
       shifted = {kind, Map.put(settled, "deadline_unix_ms", (deadline || 0) + 1)}
       assert {:error, {:settlement, :identity_mismatch}} = R.reply(req, shifted, "reply-envelope")
+
+      attempt_key = if kind == :completed, do: "attempt_id", else: "last_attempt_id"
+      odd = {kind, Map.put(settled, attempt_key, %{"bad" => 1})}
+      assert {:error, {:settlement, :identity_mismatch}} = R.reply(req, odd, "reply-envelope")
       assert {:error, {:settlement, :invalid}} = R.reply(req, {:other, %{}}, "reply-envelope")
 
       if deadline do
