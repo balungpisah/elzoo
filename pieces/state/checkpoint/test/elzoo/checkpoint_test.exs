@@ -225,4 +225,13 @@ defmodule Elzoo.CheckpointTest do
                Checkpoint.recover(s, "s", fold(), 1, &decode/1)
     end
   end
+
+  test "PR #51 a beyond_head damaged snapshot round-trips through a checkpoint", %{store: s} do
+    assert {:committed, 1} = Memory.append(s, "s", 0, [row(1)], [])
+    beyond = Log.replay([row(1), row(2)], 1, fold())
+    assert %{cursor: {1, true, [{:corrupt, 2, :beyond_head}]}} = beyond
+    assert {:committed, 1} = take(s, beyond)
+    assert Checkpoint.recover(s, "s", fold(), 1, &decode/1) == beyond
+    assert {:rejected, :retention_beyond_checkpoint} = Memory.retain(s, "s", 0, 1, <<7::128>>)
+  end
 end

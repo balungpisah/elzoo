@@ -10,7 +10,9 @@ defmodule Elzoo.DurableLog.Codec do
     :malformed_row,
     :record_too_large,
     :digest_mismatch,
-    :reducer_failure
+    :reducer_failure,
+    # Appended by the PR #51 fix; existing indices stay stable.
+    :beyond_head
   ]
 
   def field(binary) when is_binary(binary), do: <<byte_size(binary)::32, binary::binary>>
