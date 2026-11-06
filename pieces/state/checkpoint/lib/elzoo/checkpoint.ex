@@ -138,7 +138,7 @@ defmodule Elzoo.Checkpoint do
               else: n
           end)
 
-        if length(rows) == 1_000 and last >= from,
+        if length(rows) == 1_000 and last >= from and last <= head.revision,
           do: read_tail(store, stream, last + 1, acc ++ rows),
           else: {:ok, acc ++ rows, head}
 
