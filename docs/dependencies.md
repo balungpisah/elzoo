@@ -40,7 +40,9 @@ time; they are observations, not lockfile choices.
 | [Jason](https://hexdocs.pm/jason/Jason.html) / [source](https://github.com/michalmuskala/jason) | 1.4.5 in `mix.lock` | adopted adapter dependency | Real `Jason.encode!` calls round-tripped strings, quotes, Unicode and empty input; invalid input and a failing stand-in became explicit errors | Jason encoding/decoding is upstream-owned; Cure `@extern` signature is a foreign assumption |
 
 Elzoo now adopts Req 0.7.5 for a narrow direct HTTP client recipe. Finch is its
-transitive implementation, not a separate Elzoo abstraction. Ecto, Postgrex,
+transitive implementation, not a separate Elzoo abstraction. ELZ-009 adopts
+Ecto SQL 3.14.0 and Postgrex 0.22.4 (Ecto 3.14.3 and DBConnection 2.10.2
+transitive) for the narrow `integration/sql` PostgreSQL Store translation.
 Oban and OpenTelemetry remain candidates. Telemetry is transitive, with no
 adopted business-event contract. Cure's transitive dependency graph remains
 in `mix.lock`; “not adopted” means Elzoo does not rely on that package's API
@@ -78,7 +80,7 @@ made yet.
 | `Task` | [Elixir Task docs](https://hexdocs.pm/elixir/1.20.4/Task.html) | planned reuse | Bounded adapter work with an explicit caller/result |
 | `gen_statem` | [Erlang state machine docs](https://www.erlang.org/doc/system/statem.html) | planned reuse | Circuit-breaker/workflow lifecycle shell when a pure state transition is not enough |
 | `:timer`/`Process.send_after` | [Elixir Process docs](https://hexdocs.pm/elixir/1.20.4/Process.html) | recipe-tested reuse | Clock adapter for time messages and deadlines |
-| `:disk_log` | [Erlang disk_log docs](https://www.erlang.org/doc/apps/kernel/disk_log.html) | evaluate for P2, not adopted | Candidate append/rotate/recover primitive for `state/event-log`; test corruption, truncation, fsync/repair and crash ordering before adapting |
+| `:disk_log` | [Erlang disk_log docs](https://www.erlang.org/doc/apps/kernel/disk_log.html) | evaluated by ELZ-009, not adopted | Negative comparison on OTP 29.1.2: two writers on one log both appended sequence 1, duplicate identities persisted and a killed multi-call commit left a partial unit. Bare `disk_log` supplies no store CAS, uniqueness or atomic multi-record commit |
 | `Enum` / `Stream` | [Elixir Enum docs](https://hexdocs.pm/elixir/1.20.4/Enum.html) and [Stream docs](https://hexdocs.pm/elixir/1.20.4/Stream.html) | recipe-tested reuse | Ordinary finite/lazy transformations should use the platform; own only a missing domain/state policy rather than rebuilding Rx's long tail |
 | `:crypto` | [Erlang crypto docs](https://www.erlang.org/doc/apps/crypto/crypto.html) | recipe-tested reuse | SHA-256 known-vector recipe only; other hashes, HMAC, key/secrets and TLS contracts are not adopted by this recipe |
 
@@ -92,8 +94,8 @@ evidence described above; other rows retain their stated candidate status.
 | --- | --- | --- | --- |
 | [Req](https://hexdocs.pm/req/Req.html) · [source](https://github.com/wojtekmach/req) | docs page showed `Req.request/2` and `Req.request!/2` (v0.7.5 page) | High-level HTTP client with request/response conveniences for the P3 edge assembly | Adopted narrow client recipe at 0.7.5; local 200/503 and injected transport failure are checked. Effect/job policy remains ELZ-011 |
 | [Finch](https://hexdocs.pm/finch/Finch.html) · [source](https://github.com/sneako/finch) | docs page showed `Finch.start_link/1`, `request/2-3`, `async_request/2-3` (v0.24.0 page) | Supervised, pool-oriented HTTP client when explicit connection ownership/backpressure matters | Transitive Req dependency at 0.24.0; its direct API is not adopted as a second abstraction. Application-specific pool policy remains future work |
-| [Ecto](https://hexdocs.pm/ecto/Ecto.Repo.html) · [source](https://github.com/elixir-ecto/ecto) | docs page showed `Ecto.Repo.start_link/1`, `insert/2`, `transaction/2` (v3.14.3 page) | Transaction/query boundary for a durable unit and an outbox | Need migration, isolation, rollback and connection-loss tests; Ecto does not make an Elzoo hop durable automatically; no adoption yet |
-| [Postgrex](https://hexdocs.pm/postgrex/Postgrex.html) · [source](https://github.com/elixir-ecto/postgrex) | docs page showed `Postgrex.start_link/1`, `transaction/2-3` (v0.22.4 page) | Direct PostgreSQL adapter if the first durable piece needs less ORM surface | Must specify SQL/schema ownership and transaction scope; choose direct Postgrex or Ecto, not both by default; no adoption yet |
+| [Ecto SQL](https://hexdocs.pm/ecto_sql/3.14.0/Ecto.Adapters.SQL.html) · [source](https://github.com/elixir-ecto/ecto_sql) | `Ecto.Adapters.SQL`, `Repo.transaction/2`, `Ecto.Migrator` (3.14.0, Ecto 3.14.3 transitive) | Transaction boundary for the `integration/sql` Store translation over a consumer-owned Repo | Adopted at 3.14.0 by ELZ-009: K1–K11 and D11/D15/D17/D19 pass on a disposable local PostgreSQL, including backend termination and unreachable server. Ecto does not make an Elzoo hop durable; consumer owns Repo, schema and server configuration |
+| [Postgrex](https://hexdocs.pm/postgrex/0.22.4/Postgrex.html) · [source](https://github.com/elixir-ecto/postgrex) | PostgreSQL driver under Ecto SQL (0.22.4) | Wire protocol and error translation for the Store adapter | Adopted at 0.22.4 with Ecto SQL, not as a second direct abstraction. PostgreSQL atomicity, locking and durability remain upstream server contracts |
 | [Oban](https://hexdocs.pm/oban/Oban.html) · [source](https://github.com/oban-bg/oban) | docs page showed `Oban.start_link/1`, `insert/1-3`, `insert_all/1-3` (v2.24.2 page) | PostgreSQL-backed jobs and retry/scheduling for `assembly/durable-job` | Oban's job retry is not the Elzoo outbox; test uniqueness, retry, pruning, queue backpressure, transaction handoff and shutdown; no adoption yet |
 | [Telemetry](https://hexdocs.pm/telemetry) · [source](https://github.com/beam-telemetry/telemetry) | official HexDocs package page | Lightweight event interface for adapter/unit metrics | Elzoo owns field names, redaction and sampling; telemetry delivery is not business delivery; no adoption yet |
 | [OpenTelemetry API](https://hexdocs.pm/opentelemetry_api/OpenTelemetry.html) · [source](https://github.com/open-telemetry/opentelemetry-erlang) | official API docs | Standard traces/metrics at the P3 edge | Verify context propagation, exporter failure and sensitive-field filtering; no adoption yet |
@@ -161,7 +163,7 @@ Elzoo boundary and an executable acceptance test.
 | Cure operator returns a typed transition | Cure kernel/type check and selected proof | Cure compiler/kernel | Compiler/kernel soundness and BEAM implementation |
 | JSON adapter returns valid JSON or explicit error | Elzoo input validation + runtime round-trip/error test | Jason public API and its own tests | Jason implementation correctness beyond its contract |
 | OTP unit restarts according to policy | ExUnit lifecycle test | OTP Supervisor/GenServer contract | OS process isolation, durable replay |
-| PostgreSQL write participates in a transaction (future) | Adapter integration test and transaction-scope contract | Ecto/Postgrex/Postgres docs/tests | Network, server configuration and operator durability |
+| PostgreSQL append commits head, records and outbox in one transaction | `integration/sql` K1–K11 and D11/D15/D17/D19 on a disposable local cluster | Ecto SQL/Postgrex APIs; PostgreSQL transaction, READ COMMITTED and row-lock contracts | Network, server configuration (fsync/synchronous_commit), backups and operator durability |
 | Job retries eventually according to policy (future) | Oban adapter test under bounded failure | Oban job/retry docs | Database availability, scheduler timing and exact-once effects |
 
 When a candidate is adopted, update this register and the relevant catalogue

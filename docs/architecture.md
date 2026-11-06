@@ -275,6 +275,18 @@ volatile must not advertise durable delivery. A database adapter may provide
 durability for a domain record without making an Elzoo hop durable; both
 contracts must be named.
 
+ELZ-009 supplies the state boundary as ready subsets: `state/event-log`
+(validated replay, Store behaviour, owning Writer, volatile Memory test
+double), `state/checkpoint`, `state/outbox` and the `integration/sql`
+PostgreSQL Store translation over a consumer-owned Ecto Repo. Their write
+results are `committed`, `conflict`, `rejected` or `indeterminate`; an
+indeterminate write stops the Writer and absence on readback never proves
+non-commit. Outbox offers are at-least-once until the CAS ack, the only
+acknowledgement point. These subsets do not by themselves make a unit
+`durable`: schema upcast, jobs and `assembly/durable-job` remain ELZ-010, and
+disk/fsync/replication behaviour is PostgreSQL's contract under the
+consumer's configuration. See [ELZ-009](work/ELZ-009.md).
+
 ## Effects and adapters
 
 Pure Cure returns a decision and, where needed, an explicit effect request:
@@ -359,7 +371,7 @@ counting catalogue entries:
 | --- | --- | --- |
 | 0 · bootstrap (partial) | `assembly/ingest-dedup-accumulate`: fused Cure run, supervised OTP run, independent model and Jason adapter checks | typed transition, unit shell, supervision and volatile process boundary; named port/wiring validation remains open in P0 (ELZ-002/003) |
 | 1 · message resilience | `assembly/request-route-retry` ready subset: owns labelled Cure worker, codecs, topology and result translation; reuses unchanged RequestReply, Routing/Transformation, WindowedIdempotency, Runner/Adapter, Selection/Wiring/Assembly and Core.accumulate | volatile Adapter work entry; fused internal seam; no durable guarantee; hop partial failure can lose accumulation (S17), Unit restart resets dedup (S22) |
-| 2 · durable workflow | `assembly/durable-job`: event/input log, checkpoint/tail replay, transactional outbox and a scheduled job; one storage adapter | durable state and at-least-once ack/retry |
+| 2 · durable workflow | `assembly/durable-job`: event/input log, checkpoint/tail replay, transactional outbox and a scheduled job; one storage adapter. ELZ-009 ready subsets: `state/event-log`, `state/checkpoint`, `state/outbox`, `integration/sql` (PostgreSQL via Ecto SQL/Postgrex); the job, schema upcast and Assembly remain ELZ-010 | durable state and at-least-once ack/retry; the ELZ-009 boundary alone is not a durable hop |
 | 3 · edge integration | `assembly/http-job`: one selected HTTP client/server path, JSON/schema boundary, telemetry and a database adapter | external effects, provider failure and redaction contracts |
 | 4 · scale boundary | a measured multi-host or OS-process assembly, only if a product needs it | distribution/partition and isolation claims |
 | later | policy, CRDT, AI, build/dataframe and specialised protocol assemblies | only as a concrete product requires them |
@@ -380,7 +392,7 @@ The following claims are the ones the bootstrap may make now:
 | Jason can encode tested strings and errors are translated | `X,U,A` | [`pieces/integration/cure-json/lib/elzoo/json_boundary.ex`](../pieces/integration/cure-json/lib/elzoo/json_boundary.ex) and the bridge’s own tests; Jason implementation and Cure `@extern` signature remain foreign assumptions |
 | volatile state may accept a redelivered key after restart | `X` | runtime test explicitly shows this; it is a limitation, not a bug |
 | Cure's selected source has no unaudited holes or hidden axioms | `X` | owning-bundle tests audit all five pure Cure files; the cure-json test separately records the sixth file's explicit Jason extern assumption. This is not a compiler soundness audit |
-| durable hop is at-least-once | `A` until Phase 2 | requires a real log/outbox/recovery test; no bootstrap claim |
+| durable hop is at-least-once | `A` until Phase 2 | requires a real log/outbox/recovery Assembly. ELZ-009's listed Memory/PostgreSQL scenarios test the state boundary and outbox ack point only; no hop or exactly-once claim |
 | OTP process is an OS/security boundary | — | explicitly false; use an OS process or service for that requirement |
 | all old Zoo catalogue rows are implemented | — | explicitly false; see curated dispositions and dropped aliases |
 
@@ -405,8 +417,10 @@ claim:
 * `ELZ-011`: integrate the adopted Req client recipe into the representative
   Effect/job boundary, including application-specific limits and failure
   translation. The narrow recipe does not complete that Assembly.
-* `ELZ-009`: choose/evaluate the first durable log/outbox implementation and
-  test crash/recovery ordering, including the ack commit point.
+* `ELZ-009`: the durable-state boundary and its PostgreSQL (Ecto SQL/Postgrex)
+  Store selection are recorded in [ELZ-009](work/ELZ-009.md), with K1–K11
+  conformance and crash/recovery scenarios. Disk/fsync semantics remain
+  upstream; this row closes with the issue.
 * `ELZ-010`: choose the scheduler/job provider and document transaction scope,
   idempotency and schema-upcast limits.
 

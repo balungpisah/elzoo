@@ -121,7 +121,7 @@
       "id": "core/envelope",
       "summary": "Message/command/document/event envelope, correlation, return address, format indicator",
       "disposition": "own",
-      "phase": "P0→P1",
+      "phase": "P0\u2192P1",
       "manifest": "pieces/core/envelope/piece.json"
     },
     {
@@ -143,7 +143,7 @@
       "id": "core/port",
       "summary": "Named typed input/output face; datatype channels and message endpoints",
       "disposition": "own",
-      "phase": "P0→P1",
+      "phase": "P0\u2192P1",
       "manifest": "pieces/core/port/piece.json"
     },
     {
@@ -157,14 +157,14 @@
       "id": "core/wiring",
       "summary": "Unit/port/edge declaration, compatibility and required-route checks",
       "disposition": "own",
-      "phase": "P0→P1",
+      "phase": "P0\u2192P1",
       "manifest": "pieces/core/wiring/piece.json"
     },
     {
       "id": "delivery/aggregation",
       "summary": "Aggregator, scatter-gather/API composition, completion/timeout",
       "disposition": "own",
-      "phase": "P1→P2",
+      "phase": "P1\u2192P2",
       "status": "planned",
       "reason": "`T,X`; stateful and needs correlation/retention policy ELZ-025 study: one result per declared branch identity, killed or timed-out branches recorded per the Envelope result matrix, correlation by Envelope key never arrival position, and no-denials distinct from denial-record-unreadable."
     },
@@ -180,7 +180,7 @@
       "id": "delivery/circuit-breaker",
       "summary": "Circuit breaker and bulkhead policy",
       "disposition": "adapt",
-      "phase": "P1→P3",
+      "phase": "P1\u2192P3",
       "status": "planned",
       "reason": "Reuse OTP state/supervision and provider pool semantics where sufficient; Elzoo owns the state/permit policy that remains and tests transitions"
     },
@@ -204,7 +204,7 @@
       "id": "delivery/idempotency",
       "summary": "Idempotent Receiver/Consumer; duplicate delivery handling",
       "disposition": "own",
-      "phase": "P0→P1",
+      "phase": "P0\u2192P1",
       "manifest": "pieces/delivery/idempotency/piece.json"
     },
     {
@@ -227,7 +227,7 @@
       "id": "delivery/pubsub",
       "summary": "Publish-subscribe channel, gen_event, process groups",
       "disposition": "adapt",
-      "phase": "P2→P4",
+      "phase": "P2\u2192P4",
       "status": "planned",
       "reason": "OTP Registry/`pg` or a broker; subscriber loss/replay semantics must be tested"
     },
@@ -398,7 +398,7 @@
       "id": "domain/value-types",
       "summary": "Decimal/money, date-time/calendar, units of measure, Unicode text",
       "disposition": "adapt",
-      "phase": "P3→P4",
+      "phase": "P3\u2192P4",
       "status": "planned",
       "reason": "Family for value semantics; domain/money is the scoped currency candidate. Reuse maintained libraries; do not duplicate that contract behind a second generic implementation."
     },
@@ -430,7 +430,7 @@
       "id": "integration/crypto",
       "summary": "Hash/HMAC/signature/password/TLS/compression",
       "disposition": "adapt",
-      "phase": "P3→P4",
+      "phase": "P3\u2192P4",
       "manifest": "pieces/integration/crypto/piece.json"
     },
     {
@@ -538,7 +538,7 @@
       "id": "integration/sql",
       "summary": "PostgreSQL Store-only translation via consumer-owned Ecto Repo; no general SQL API",
       "disposition": "adapt",
-      "phase": "P2→P3",
+      "phase": "P2\u2192P3",
       "status": "ready",
       "manifest": "pieces/integration/sql/piece.json"
     },
@@ -546,14 +546,14 @@
       "id": "runtime/adapter",
       "summary": "Service/channel/process adapter boundary and result translation",
       "disposition": "own",
-      "phase": "P0→P1",
+      "phase": "P0\u2192P1",
       "manifest": "pieces/runtime/adapter/piece.json"
     },
     {
       "id": "runtime/faces",
       "summary": "Lean config/control/health/errors/state/manifest conventions",
       "disposition": "own",
-      "phase": "P1→P2",
+      "phase": "P1\u2192P2",
       "status": "planned",
       "reason": "target contract; not seven mandatory APIs in P0"
     },
@@ -576,7 +576,7 @@
       "id": "runtime/registry",
       "summary": "Registered names, local process groups and service discovery",
       "disposition": "reuse",
-      "phase": "P2→P4",
+      "phase": "P2\u2192P4",
       "manifest": "pieces/runtime/registry/piece.json"
     },
     {
@@ -741,7 +741,7 @@
       "id": "workflow/state-machine",
       "summary": "gen_statem, statecharts, process manager, saga",
       "disposition": "own",
-      "phase": "P1→P2",
+      "phase": "P1\u2192P2",
       "status": "planned",
       "reason": "Cure pure state machine plus OTP shell; compensation is a domain contract. ELZ-015 exercises AshStateMachine sequentially with ETS; transactional/stale-record safety remains unadopted."
     },
