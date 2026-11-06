@@ -1,0 +1,247 @@
+{
+  "schema_version": 1,
+  "id": "workflow/dependency-graph",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": [
+    "cure",
+    "elixir",
+    "otp"
+  ],
+  "dependencies": [
+    "core/operator",
+    "runtime/unit"
+  ],
+  "contract": "Pure readiness and cycle admission Elzoo.DependencyGraph over caller Work Item fixtures, externals, typed edges (from waits for to) and provenance-tagged facts with explicit Unix-ms now: closed is not completed, unknown/expired/model-declared-only facts never satisfy, blocking-edge admission revalidates the whole graph; the Cure step keeps the index-level blocking graph acyclic (Cure laws) while the Elixir revalidation and mapping are test-grounded; exact issues, blockers and errors.",
+  "limits": [
+    "Selected laws cover the Cure decisions only; the Elixir validation, ID-to-index mapping, duplicate/unknown/unplaceable flags, blocker reasons, contradictions, cycle path and commit mapping are test-grounded.",
+    "Laws are scoped over the Bool results of builtin Int equality and order; their integer meaning is an upstream Cure contract plus boundary tests.",
+    "Only the safe direction is proved: admitted implies acyclic. Search completeness (admitted iff unreachable) is a finite test; a defective search returns {:error, :search_disagreement}.",
+    "No execution, claiming, lease, scheduling, notification, durable storage or distributed admission; the serialized owner is a test double under test/ (runtime/unit is a test-only dependency).",
+    "No join/fan-in policy beyond every blocking prerequisite satisfied; skip/fail handling of a prerequisite is the caller's.",
+    "Bounds: 1000 nodes, 10000 edges (the proposal counts), 10000 facts; no performance claim. One laptop observation: readiness at full bounds took about 6.7 s, so it must not run inside a default-timeout GenServer.call such as Elzoo.Unit.step/2 (5000 ms); one admission took about 0.2 s."
+  ],
+  "files": [
+    "cure/elzoo/dependency_graph.cure",
+    "lib/elzoo/dependency_graph.ex",
+    "test/elzoo/dependency_graph_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/dependency_graph.cure",
+      "symbol": "unknown_never_satisfies",
+      "claim": "Law 1 (#43 'unknown never satisfies'): list induction over the full fact list; if every fact is for another target, unknown, unsatisfied, model-declared or expired, the actual fact_support equals false. Scoped over the Bool results of builtin Int equality and order."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/dependency_graph.cure",
+      "symbol": "undeclared_never_satisfies",
+      "claim": "Law 2: an undeclared target (lookup None) never satisfies, by reduction."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/dependency_graph.cure",
+      "symbol": "duplicate_never_satisfies",
+      "claim": "Law 2: a duplicate target never satisfies, whatever its lifecycle or support, by reduction."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/dependency_graph.cure",
+      "symbol": "unplaceable_never_satisfies",
+      "claim": "Law 2: an unplaceable target never satisfies, whatever its lifecycle or support, by reduction."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/dependency_graph.cure",
+      "symbol": "completed_satisfies",
+      "claim": "Law 2: a unique, placeable completed target satisfies for any support, by reduction."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/dependency_graph.cure",
+      "symbol": "cancelled_never_satisfies",
+      "claim": "Law 2: a unique, placeable cancelled target never satisfies for any support, by reduction."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/dependency_graph.cure",
+      "symbol": "closed_never_satisfies",
+      "claim": "Law 2: a unique, placeable closed-without-completion target never satisfies for any support, by reduction."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/dependency_graph.cure",
+      "symbol": "open_needs_support",
+      "claim": "Law 2: a unique, placeable open item target is satisfied exactly by fact support, by reduction."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/dependency_graph.cure",
+      "symbol": "external_needs_support",
+      "claim": "Law 2: a unique, placeable external target is satisfied exactly by fact support, by reduction."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/dependency_graph.cure",
+      "symbol": "unknown_never_attributes",
+      "claim": "Law 2: a single unknown fact never attributes, for every provenance, expiry and now."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/dependency_graph.cure",
+      "symbol": "unsatisfied_never_attributes",
+      "claim": "Law 2: a single unsatisfied fact never attributes, for every provenance, expiry and now."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/dependency_graph.cure",
+      "symbol": "model_never_attributes",
+      "claim": "Law 2: a single model-declared fact never attributes, for every value, expiry and now."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/dependency_graph.cure",
+      "symbol": "expired_never_attributes",
+      "claim": "Law 2: a fact whose builtin now < expiry result is false never attributes (scoped over that Bool result)."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/dependency_graph.cure",
+      "symbol": "informational_never_blocks",
+      "claim": "Law 3: an informational edge leaves item_ready unchanged (kind is tested before the endpoint), by reduction."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/dependency_graph.cure",
+      "symbol": "hierarchy_never_blocks",
+      "claim": "Law 3: a hierarchy edge leaves item_ready unchanged, by reduction."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/dependency_graph.cure",
+      "symbol": "blocked_never_ready",
+      "claim": "Law 4: induction over the full edge list; one blocking edge from i (builtin from == i evidence) to an unsatisfied target makes item_ready equal false, for every lifecycle and flag."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/dependency_graph.cure",
+      "symbol": "deferred_never_ready",
+      "claim": "Law 4: an open item whose builtin now < deferred_until result is true is never ready."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/dependency_graph.cure",
+      "symbol": "duplicate_never_ready",
+      "claim": "Law 4: a flagged duplicate item is never ready, by reduction."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/dependency_graph.cure",
+      "symbol": "unplaceable_never_ready",
+      "claim": "Law 4: a flagged unplaceable item is never ready, by reduction."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/dependency_graph.cure",
+      "symbol": "completed_never_ready",
+      "claim": "Law 4: a non-open (completed) item is never ready, by reduction."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/dependency_graph.cure",
+      "symbol": "admitted_keeps_acyclic",
+      "claim": "Law 5 (equality form): for every edge list, endpoints and candidate set s accepted by the closure certificate, a cycle (inductive DgCycle/DgWalk relation) through E(x, m) in the graph with the new edge prepended, plus a refutation of such a cycle in the old graph, proves True = False; the search is untrusted."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/dependency_graph.cure",
+      "symbol": "admission_keeps_acyclic",
+      "claim": "Law 5 over the committed state (equality form): when the Cure admission_step admits a blocking proposal, a cycle of blocking(next) through E(x, m) plus a refutation of such a cycle in blocking(es) proves True = False."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/dependency_graph.cure",
+      "symbol": "blocking_keeps_blocking",
+      "claim": "Law 5a: blocking([RE(blocking, f, t) | es]) reduces to [E(f, t) | blocking(es)]."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/dependency_graph.cure",
+      "symbol": "blocking_drops_informational",
+      "claim": "Law 5a: blocking([RE(informational, f, t) | es]) reduces to blocking(es)."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/dependency_graph.cure",
+      "symbol": "blocking_drops_hierarchy",
+      "claim": "Law 5a: blocking([RE(hierarchy, f, t) | es]) reduces to blocking(es)."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/dependency_graph.cure",
+      "symbol": "non_blocking_admitted_informational",
+      "claim": "Law 5a: an admitted informational proposal leaves blocking(next) equal to blocking(es)."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/dependency_graph.cure",
+      "symbol": "non_blocking_admitted_hierarchy",
+      "claim": "Law 5a: an admitted hierarchy proposal leaves blocking(next) equal to blocking(es)."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/dependency_graph.cure",
+      "symbol": "reject_keeps_state",
+      "claim": "Law 6: a blocking proposal whose admits result is false leaves the Cure admission_step state unchanged."
+    },
+    {
+      "kind": "type",
+      "file": "cure/elzoo/dependency_graph.cure",
+      "claim": "Pinned Cure checks every declaration with @total true, including core/operator's Transition; the Cure audit reports no axioms, holes, unresolved, unaudited, opaque or not-proven-total entries."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/dependency_graph_test.exs",
+      "claim": "Law audit, @total presence, 16 negative controls rejected by the kernel, :erlang-only BEAM imports; listed readiness, fact, expiry/deferral boundary, closed-vs-completed, model-declared, contradiction, issue-kind, bound/error, admission precedence and path scenarios; exhaustive admission comparison on small graphs and random larger graphs; serialized Elzoo.Unit race and snapshot-then-commit negative control. Finite evidence, not proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "cure",
+      "reference": "https://github.com/cure-lang/cure-lang/tree/a004c335cc4e9f2203ba6f51fc31e8540b66378d",
+      "claim": "Relies on pinned Cure kernel, totality checking, compilation and runtime semantics, including the integer meaning of builtin Int equality and order; not a local soundness proof."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Elixir validation and execution of the shell are upstream contracts."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/",
+      "claim": "OTP 29.1.2 GenServer call serialization in the test-only Elzoo.Unit owner is an upstream contract; no durable or distributed admission."
+    },
+    {
+      "kind": "assumption",
+      "claim": "Callers supply truthful lifecycle tags, provenance, sources, expiries and a now translated from their clock; provenance is not authenticated here."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "Pure decision; no execution to observe. A shipped owner would require re-declaration."
+    },
+    "config": {
+      "status": "not_applicable",
+      "contract": "No settings: order, deferral, expiry and now are per-call data; bounds are fixed Contract constants."
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No process or lifecycle; the serialized owner is the caller's (test double under test/ only)."
+    }
+  }
+}
