@@ -163,6 +163,12 @@ stable even when issue numbers differ.
 | ELZ-020 | [28](https://github.com/balungpisah/elzoo/issues/28) |
 | ELZ-021 | [33](https://github.com/balungpisah/elzoo/issues/33) |
 | ELZ-025 | [40](https://github.com/balungpisah/elzoo/issues/40) |
+| ELZ-026 | [43](https://github.com/balungpisah/elzoo/issues/43) |
+| ELZ-027 | [44](https://github.com/balungpisah/elzoo/issues/44) |
+| ELZ-028 | [45](https://github.com/balungpisah/elzoo/issues/45) |
+| ELZ-029 | [46](https://github.com/balungpisah/elzoo/issues/46) |
+| ELZ-030 | [47](https://github.com/balungpisah/elzoo/issues/47) |
+| ELZ-031 | [48](https://github.com/balungpisah/elzoo/issues/48) |
 | ELZ-022 | [36](https://github.com/balungpisah/elzoo/issues/36) |
 | ELZ-023 | [37](https://github.com/balungpisah/elzoo/issues/37) |
 | ELZ-024 | [38](https://github.com/balungpisah/elzoo/issues/38) |
