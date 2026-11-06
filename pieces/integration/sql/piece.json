@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "id": "integration/sql",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "adapter",
+  "providers": [
+    "ecto_sql",
+    "postgrex",
+    "elixir",
+    "otp"
+  ],
+  "dependencies": [
+    "state/event-log",
+    "state/checkpoint",
+    "state/outbox"
+  ],
+  "applications": [
+    "crypto"
+  ],
+  "contract": "Store-only PostgreSQL translation using a consumer-owned Ecto Repo and optional prefix: atomic append CAS, immutable records/checkpoints, outbox ack and bounded retention. Migration helper only; no shipped Repo/config/Application.",
+  "limits": [
+    "Subset only: no general SQL API, CDC, SQLite, migration framework, database-per-service, replication or disk/fsync guarantee.",
+    "Atomic append capability; torn-tail repair always rejected as torn_repair_unsupported.",
+    "PostgreSQL transaction/locking/storage behavior is upstream; finite local tests do not establish universal durability or exactly-once effects.",
+    "Consumers own the Repo, schema deployment, access control, fsync/synchronous_commit, backups and operational recovery."
+  ],
+  "files": [
+    "lib/elzoo/durable_log/postgres.ex",
+    "lib/elzoo/durable_log/postgres/migration.ex",
+    "test/elzoo/durable_log_postgres_test.exs",
+    "test/support/durable_log_postgres_test_helper.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/durable_log_postgres_test.exs",
+      "claim": "K1–K11 plus D11/D15/D17/D19 on a disposable PostgreSQL database: restart, late commits, backend termination, unavailable service, corruption, FK and lock ordering. Missing/unreachable URL fails closed."
+    },
+    {
+      "kind": "monitor",
+      "file": "test/elzoo/durable_log_postgres_test.exs",
+      "claim": "Local step-4 test observation: PostgreSQL 14.24, fsync=on, synchronous_commit=on. Test prints actual settings; not a production or all-execution claim."
+    },
+    {
+      "kind": "upstream",
+      "provider": "ecto_sql",
+      "reference": "https://hexdocs.pm/ecto_sql/3.14.0/Ecto.Adapters.SQL.html",
+      "claim": "Ecto SQL 3.14.0 transaction, SQL and consumer Repo integration are upstream contracts."
+    },
+    {
+      "kind": "upstream",
+      "provider": "postgrex",
+      "reference": "https://hexdocs.pm/postgrex/0.22.4/Postgrex.html",
+      "claim": "Postgrex 0.22.4 protocol, connection and error behavior are upstream contracts."
+    },
+    {
+      "kind": "upstream",
+      "provider": "postgrex",
+      "reference": "https://www.postgresql.org/docs/14/transaction-iso.html",
+      "claim": "PostgreSQL transaction atomicity, uniqueness, row locking, WAL/fsync and crash semantics are upstream server contracts reached through Postgrex, not local proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Elixir validation, exceptions and BEAM execution are upstream contracts, not proved here."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/",
+      "claim": "OTP 29.1.2 GenServer, process lifecycle and crypto APIs are upstream contracts; no disk durability or exactly-once guarantee."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The consumer configures an appropriate PostgreSQL service (including fsync/synchronous_commit), schema permissions and maintenance; tests exercise named local scenarios, not the consumer's production deployment."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "inherited",
+      "contract": "Consumer Ecto Repo emits upstream events; Elzoo adds no telemetry events.",
+      "from": "ecto_sql"
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Consumer Repo module and optional SQL prefix; no global Repo/config shipped.",
+      "evidence": [
+        "test/elzoo/durable_log_postgres_test.exs"
+      ]
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "Consumer owns Repo lifecycle; no separate Elzoo database control process."
+    }
+  }
+}

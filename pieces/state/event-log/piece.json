@@ -1,0 +1,148 @@
+{
+  "schema_version": 1,
+  "id": "state/event-log",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "adapter",
+  "providers": [
+    "cure",
+    "elixir",
+    "otp"
+  ],
+  "dependencies": [],
+  "applications": [
+    "crypto"
+  ],
+  "contract": "Validated canonical append/replay and conservative Store confirmation boundary, owning Writer shell and volatile Memory test double. Selected supplied-decision count_step laws only; no storage engine or delivery guarantee.",
+  "limits": [
+    "Memory is volatile. No disk/fsync/replication, WAL, lease, tamper evidence or exactly-once claim.",
+    "L1a–L5 cover count_step with supplied decisions only, not classify, refold equivalence, reducers, the Elixir shell or providers.",
+    "Absence never proves non-commit; indeterminate writes stop the Writer. Unknown reconciliation requires deliberate fresh-nonce CAS or read-only inspection.",
+    "Revisions/sequences are nonnegative signed-bigint values; versions/positions are positive signed-integer values; stored text is UTF-8 without NUL.",
+    "Checkpoint support is optional and requires state/checkpoint; no checkpoint dependency is needed for replay, Store, Memory or ordinary Writer use."
+  ],
+  "files": [
+    "cure/elzoo/replay.cure",
+    "lib/elzoo/durable_log.ex",
+    "lib/elzoo/durable_log/codec.ex",
+    "lib/elzoo/durable_log/confirmation.ex",
+    "lib/elzoo/durable_log/conformance.ex",
+    "lib/elzoo/durable_log/memory.ex",
+    "lib/elzoo/durable_log/store.ex",
+    "lib/elzoo/durable_log/writer.ex",
+    "test/elzoo/durable_log_conformance_test.exs",
+    "test/elzoo/durable_log_domain_test.exs",
+    "test/elzoo/durable_log_memory_test.exs",
+    "test/elzoo/durable_log_test.exs",
+    "test/elzoo/durable_log_writer_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/replay.cure",
+      "symbol": "duplicate_keeps_total",
+      "claim": "L1a: duplicate_keeps_total, quantified supplied-decision count_step law only; no classify, shell or provider proof."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/replay.cure",
+      "symbol": "duplicate_keeps_cursor",
+      "claim": "L1b: duplicate_keeps_cursor, quantified supplied-decision count_step law only; no classify, shell or provider proof."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/replay.cure",
+      "symbol": "out_of_order_keeps_total",
+      "claim": "L2: out_of_order_keeps_total, quantified supplied-decision count_step law only; no classify, shell or provider proof."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/replay.cure",
+      "symbol": "out_of_order_keeps_applied",
+      "claim": "L3: out_of_order_keeps_applied, quantified supplied-decision count_step law only; no classify, shell or provider proof."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/replay.cure",
+      "symbol": "gap_marks_damaged",
+      "claim": "L4: gap_marks_damaged, quantified supplied-decision count_step law only; no classify, shell or provider proof."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/replay.cure",
+      "symbol": "non_state_bearing_keeps_total",
+      "claim": "L5: non_state_bearing_keeps_total, quantified supplied-decision count_step law only; no classify, shell or provider proof."
+    },
+    {
+      "kind": "type",
+      "file": "cure/elzoo/replay.cure",
+      "claim": "Pinned Cure compiles/audits the production source. The false gap law and duplicate-track mutation are rejected in bundled tests; these controls bound the selected supplied-decision proof scope."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/durable_log_test.exs",
+      "claim": "Finite D1–D6/D18 replay, seed/truncation, reducer failure and validation scenarios; selected-law compilation and both negative controls, not universal recovery proofs."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/durable_log_memory_test.exs",
+      "claim": "Volatile CAS, uncertainty/readback and staged-tail fault scenarios."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/durable_log_writer_test.exs",
+      "claim": "Owning init, uniform damaged-seed refusal, conflict, indeterminate shutdown and post-commit failure scenarios."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/durable_log_domain_test.exs",
+      "claim": "Core and Memory share the portable numeric/text domain; malformed/rejected cases."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/durable_log_conformance_test.exs",
+      "claim": "K1–K11 against volatile Memory; named checks, error and missing-hook cases, not disk persistence."
+    },
+    {
+      "kind": "upstream",
+      "provider": "cure",
+      "reference": "https://github.com/cure-lang/cure-lang/tree/a004c335cc4e9f2203ba6f51fc31e8540b66378d",
+      "claim": "Relies on the pinned Cure compiler/kernel for selected equality laws and the replay ABI."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Elixir validation, exceptions and BEAM execution are upstream contracts, not proved here."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/",
+      "claim": "OTP 29.1.2 GenServer, process lifecycle and crypto APIs are upstream contracts; no disk durability or exactly-once guarantee."
+    },
+    {
+      "kind": "assumption",
+      "claim": "Consumer reducers are pure/deterministic; folds, codecs and limits are supplied by the consumer. Store CAS arbitrates revision writes, not business ownership or intent."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "planned",
+      "contract": "Damaged/torn states are returned values; no telemetry events emitted."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Start-time store, stream, fold specification and limits; no hot reconfiguration.",
+      "evidence": [
+        "test/elzoo/durable_log_writer_test.exs",
+        "test/elzoo/durable_log_domain_test.exs"
+      ]
+    },
+    "control": {
+      "status": "planned",
+      "contract": "Writer supplies OTP start/stop only; no business pause/drain/resume contract."
+    }
+  }
+}

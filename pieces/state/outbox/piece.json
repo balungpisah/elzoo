@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "id": "state/outbox",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "adapter",
+  "providers": [
+    "elixir",
+    "otp"
+  ],
+  "dependencies": [
+    "state/event-log"
+  ],
+  "applications": [
+    "crypto"
+  ],
+  "contract": "Validated committed pending offers, right-parsed derived idempotency keys and nonce-bound acknowledgement CAS through the Store; no effect dispatch.",
+  "limits": [
+    "Pending may be offered repeatedly until acked; no exactly-once effects or guaranteed delivery.",
+    "Consumer dispatch/failure policy is separate from durable state; persistence depends on the selected Store.",
+    "No scheduler, retry loop, dispatcher or external-effect confirmation is supplied."
+  ],
+  "files": [
+    "lib/elzoo/outbox.ex",
+    "test/elzoo/outbox_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/outbox_test.exs",
+      "claim": "Finite pending/ack, repeated-offer, key parsing, malformed input, nonce confirmation, retention and reader-write audit scenarios against Memory."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Elixir validation, exceptions and BEAM execution are upstream contracts, not proved here."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/",
+      "claim": "OTP 29.1.2 GenServer, process lifecycle and crypto APIs are upstream contracts; no disk durability or exactly-once guarantee."
+    },
+    {
+      "kind": "assumption",
+      "claim": "Consumers use the derived idempotency key with an appropriate destination policy and acknowledge only their documented effect commit point; external effects are not proved."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "Callable offers/ack boundary with no emitted telemetry."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Per-call pending limit; declared destination and payload limits come from the Store configuration.",
+      "evidence": [
+        "test/elzoo/outbox_test.exs"
+      ]
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No dispatcher process or lifecycle is supplied."
+    }
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "id": "state/checkpoint",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "adapter",
+  "providers": [
+    "elixir",
+    "otp"
+  ],
+  "dependencies": [
+    "state/event-log"
+  ],
+  "applications": [
+    "crypto"
+  ],
+  "contract": "Bounded immutable full-prefix checkpoints and fail-closed recovery through the Store boundary; preserves model, complete cursor and identity witnesses.",
+  "limits": [
+    "Size grows O(applied) with the seen index; oversize snapshots are refused, not truncated.",
+    "Storage guarantees are inherited from the supplied Store; no disk durability, exactly-once or universal refold-equivalence proof.",
+    "Readers never repair or mutate storage. A damaged snapshot cannot anchor retention; pruned recovery without an anchor fails closed."
+  ],
+  "files": [
+    "lib/elzoo/checkpoint.ex",
+    "test/elzoo/checkpoint_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/checkpoint_test.exs",
+      "claim": "Finite take/recover, version/digest fallback, complete-seed preservation, checkpoint_too_large, terminal damage, pruned recovery and reader-write audit scenarios."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Elixir validation, exceptions and BEAM execution are upstream contracts, not proved here."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/",
+      "claim": "OTP 29.1.2 GenServer, process lifecycle and crypto APIs are upstream contracts; no disk durability or exactly-once guarantee."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The consumer supplies deterministic matching encode/decode functions and fold version; provider persistence/configuration remain external."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "Callable checkpoint boundary; no events or independent instrumentation lifecycle."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Per-call fold_version and model codec; store snapshot form carries max_checkpoint_bytes.",
+      "evidence": [
+        "test/elzoo/checkpoint_test.exs"
+      ]
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No independent runtime lifecycle to pause, drain or resume."
+    }
+  }
+}

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-Code.require_file(Path.expand("../../../../../test/support/durable_log_postgres.exs", __DIR__))
+Code.require_file("../support/durable_log_postgres_test_helper.exs", __DIR__)
 
 defmodule Elzoo.DurableLog.PostgresTest do
   use ExUnit.Case, async: false
