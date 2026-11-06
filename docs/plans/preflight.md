@@ -22,9 +22,12 @@ reruns at those historical revisions. Machine-readable links are in the manifest
 | ELZ-004 / ELZ-022 | [PR #32](https://github.com/balungpisah/elzoo/pull/32), `81d7d21d8c0a86aae8d47ce9b0e0389b15ca865d`; [acceptance](https://github.com/balungpisah/elzoo/issues/4#issuecomment-6669895410), [review](https://github.com/balungpisah/elzoo/pull/32#issuecomment-6669698776) | Finite Unit/Adapter/host/JSON and consumer scenarios, OTP contracts; merge backend job 127537028186 and Gleam 127537030094 succeeded on symbolic. Acceptance records 19 + 143 checks; volatile partial-failure limits remain. |
 | ELZ-015 / ELZ-024 | [PR #18](https://github.com/balungpisah/elzoo/pull/18), `a8b3a099397bff5e90d9a3f010797243d768edd0`; [acceptance](https://github.com/balungpisah/elzoo/issues/17#issuecomment-6659498380), [review](https://github.com/balungpisah/elzoo/pull/18#issuecomment-6658950881) | Nine isolated Ash tests plus 34 baseline checks; historical Linux merge run 42036106498 succeeded. This predates symbolic-only migration and is **not** symbolic evidence. Trusted actor maps, volatile ETS, sequential actions; no authentication, durable approvals or production concurrent-update guarantee. |
 
-At capture, remote task claims were ELZ-010 and this ELZ-033; no
+At initial capture, remote task claims were ELZ-010 and this ELZ-033; no
 `task/ELZ-022`, `task/ELZ-024` or `task/ELZ-026` existed. This observation never
-reserves them. At dispatch fetch/prune and check their exact refs, current live
+reserves them. Main subsequently merged ELZ-010 at `32aef4e`; its owner
+reported cleanup while retaining merge acceptance. The manifest records the
+latest fetched refs; the capacity rule still counts any active implementation
+worker, independent of branch visibility. At dispatch fetch/prune and check their exact refs, current live
 bodies, prerequisite ancestry and acceptance again. A new branch requires the
 first-push claim; an existing branch requires recorded handoff, never force.
 

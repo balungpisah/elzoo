@@ -548,7 +548,7 @@
         "ELZ-008",
         "ELZ-009"
       ],
-      "status": "active elsewhere; not accepted",
+      "status": "merged on main; coordinator retains acceptance",
       "url": "https://github.com/balungpisah/elzoo/issues/10",
       "paths": [
         "tasks/ELZ-010-durable-job-assembly.md"
@@ -563,7 +563,7 @@
       "issue_body_sha256": "e70bd818e5a6848f699561c59a7c18833f5791e62d7de72ed4fa4ce90b480c96",
       "observed_issue_state": "OPEN",
       "selection_gates": [
-        "Exclusive existing coordinator ownership; no takeover or duplicate work"
+        "No adoption worker implementation; existing coordinator owns merge-commit CI, acceptance and closure"
       ],
       "owner_role": "existing ELZ-010 coordinator",
       "product_aims": [
@@ -2769,7 +2769,7 @@
       "paths": [],
       "blockers": [
         "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
-        "PR #54 source inspected at 18287d22a4b694581af6d1788a84a4868c1b47d3; not accepted on baseline main. Reconcile final merge and exact boundary evidence; external-effect unknown outcomes are not established by Relay."
+        "Relay source inspected at 18287d22a4b694581af6d1788a84a4868c1b47d3, merged at 32aef4e7dba40231257e2a91095910377c5c4ab9. Exact final acceptance remains with its owner; ELZ-011/023 external-effect outcomes are still not established by Relay."
       ],
       "owner_role": "one claimed task worker after admission",
       "product_aims": [
@@ -2817,10 +2817,12 @@
     {
       "id": "assembly/durable-job",
       "job": "ELZ-010",
-      "note": "event log/outbox/checkpoint plus selected SQL/job adapter",
+      "note": "Tally durable job flow: submit/5 appends a requested record and jobs outbox item to the per-queue submission stream through an ELZ-010-owned Submitter; the Relay creates the Run stream (accepted) and a unique Oban job; each worker execution classifies its start and results with Elzoo.JobRun and writes attempt and terminal records by ELZ-009 CAS; cancel/3 (also before relay) and status/2. Attempt count, absolute deadline and policy persist with the Run. Entry points refuse inside a transaction on the configured Repo.",
       "baseline_status": "planned",
-      "disposition": "active-owned-elsewhere",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "merged-ready-contract; task acceptance separate",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/assembly/durable-job/piece.json",
+      "manifest_sha256": "935875d544724ec4f7d8d3e624e8d0a6b55272f3373832d85c7bc591865ab8f0"
     },
     {
       "id": "assembly/http-job",
@@ -3303,10 +3305,12 @@
     {
       "id": "integration/jobs",
       "job": "ELZ-010",
-      "note": "Oban candidate; not the Elzoo outbox until transaction/retry tests pass. Evaluate AshOban/Oban after ELZ-015; volatile Task invocation is not job durability.",
+      "note": "Oban 2.24.2 translation: unique job per (queue, job_key), enqueue that reports only persisted job ids (conflict without id is {:retry, :unique_lock_held}), a per-queue runner registration and an Oban worker that traps exits, maps an escaping exit to a snooze and refuses unknown args versions, and a Relay over one ELZ-009 outbox stream that acks :done items, keeps skipped items pending and continues within the page.",
       "baseline_status": "planned",
-      "disposition": "active-owned-elsewhere",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "merged-ready-contract; task acceptance separate",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/integration/jobs/piece.json",
+      "manifest_sha256": "4721d814b46dd76bca723a7aafac1034e6d4357639ef6eb04a9f6ea8c6770301"
     },
     {
       "id": "integration/json",
@@ -3611,10 +3615,12 @@
     {
       "id": "workflow/state-machine",
       "job": "ELZ-010",
-      "note": "Cure pure state machine plus OTP shell; compensation is a domain contract. ELZ-015 exercises AshStateMachine sequentially with ETS; transactional/stale-record safety remains unadopted.",
+      "note": "Job-Run lifecycle decision Elzoo.JobRun: total step/4 over phase, attempt-identity input (current/stale result, start/duplicate/stale start, cancel), supplied expiry and the unchanged ELZ-006 RetryDecision; Cure identity classification start_input/4 and result_input/3; validating Elixir projection. No statecharts, gen_statem framework, saga or compensation.",
       "baseline_status": "planned",
-      "disposition": "active-owned-elsewhere",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "merged-ready-contract; task acceptance separate",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/workflow/state-machine/piece.json",
+      "manifest_sha256": "428fd4317097cafc71e5bba89f4cd27304442c639b825d2366af9fe85c1d8d1f"
     },
     {
       "id": "workflow/work-item",
@@ -3627,7 +3633,7 @@
   ],
   "schema_version": 1,
   "mode": "EXECUTE: documentation adoption only",
-  "captured_at": "2026-11-06T17:52:42.665748+00:00",
+  "captured_at": "2026-11-06T18:08:31.732291+00:00",
   "authority": "Live published issue bodies define task Contracts and acceptance; remote task branches lock claims. This manifest alone owns roadmap planning status/dependencies. Registry and Piece manifests alone define usable source readiness. RC proposals are not dispatch authority.",
   "proposal_files": {
     "roadmap.md": "94c68abb4b937c7520aa3037ffafca64b60ac2b6b86bcd6a2e9e889f59e2fbf6",
@@ -3689,16 +3695,16 @@
     }
   },
   "observations": {
-    "main": "404d159a122d18a22554c5688aa79199e4d5c124",
+    "main": "32aef4e7dba40231257e2a91095910377c5c4ab9",
     "remote_claims": [
-      "task/ELZ-010",
       "task/ELZ-033"
     ],
     "relay_inspected_sha": "18287d22a4b694581af6d1788a84a4868c1b47d3",
     "relay_pr": "https://github.com/balungpisah/elzoo/pull/54",
-    "relay_state": "open; not acceptance",
+    "relay_state": "merged on main; merge-commit acceptance remains with exclusive coordinator",
     "claim_sha": "6bcff57fe7b59ec7b0414bf737127302944c5b37",
-    "claim_agent": "Sabrangs-MacBook-Pro-7bf9"
+    "claim_agent": "Sabrangs-MacBook-Pro-7bf9",
+    "relay_merge_sha": "32aef4e7dba40231257e2a91095910377c5c4ab9"
   },
   "dependency_acceptance": [
     {

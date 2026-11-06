@@ -20,7 +20,12 @@ observations are not newly asserted acceptance.
 
 The manifest preserves the 97-row inventory at main
 `404d159a122d18a22554c5688aa79199e4d5c124` (33 ready subsets, 19 planned,
-45 deferred). Each ID has exactly one primary planning owner, a disposition and
+45 deferred). Normal merge of main `32aef4e7dba40231257e2a91095910377c5c4ab9`
+then brought ELZ-010's three ready manifests: current inventory is 36 ready,
+16 planned and 45 deferred, still the same 97 IDs. Baseline statuses are retained
+separately; current ready Contracts are read from those merged manifests. This
+is catalogue reconciliation, not a takeover of the owner's final acceptance.
+Each ID has exactly one primary planning owner, a disposition and
 its actual ready Contract or remaining gap. Ready manifests were read; their
 hashes and scoped Contract summaries bind this accounting to actual source
 metadata. No registry status, ready manifest, schema or generated ledger is
@@ -127,12 +132,17 @@ in [PR #54](https://github.com/balungpisah/elzoo/pull/54) covered:
 - [Jobs Contract and tests](https://github.com/balungpisah/elzoo/blob/18287d22a4b694581af6d1788a84a4868c1b47d3/pieces/integration/jobs/test/elzoo/jobs_test.exs): persisted enqueue IDs, held unique-lock retry, real Oban execution, ack/skip/in-page continuation, full-page starvation and option validation. A full page of permanently skipped offers blocks later offers. Reading these tests is not running or accepting them.
 - [ELZ-010 Contract](https://github.com/balungpisah/elzoo/blob/18287d22a4b694581af6d1788a84a4868c1b47d3/docs/work/ELZ-010.md): queue submission stream, Run-stream CAS, attempt fencing, cancellation and crash recovery; no general externally idempotent dispatch guarantee. Oban uniqueness is advisory-lock/query behavior, not a database uniqueness constraint or a proof of exactly-once Effects.
 
-The branch was open when inspected. It is exclusively owned by the existing
+The branch was open when first inspected and subsequently merged through PR #54
+as `32aef4e7dba40231257e2a91095910377c5c4ab9`. This task merged that main revision
+normally; Relay source matches the inspected final head. Task acceptance remains
+exclusively owned by the existing
 coordinator at
 <t3-thread://v2/7bdd3880-94ea-4c58-a612-8b9b1253e59d/10109396-4230-4f47-a36d-173d628b81cd>.
 That thread was read before status reconciliation. No branch, issue or runtime
-source owned by that team is changed here. RC-43 requires final accepted
-merge-SHA evidence; the inspected head is not that evidence. Reuse the accepted
+source owned by that team is edited here. RC-43 requires final accepted
+merge-SHA evidence; a Git merge alone is not that evidence. The owner reported
+branch/worktree cleanup and posting the ELZ-028 evidence, while merge CI and
+issue closure were still pending at reconciliation. Reuse the accepted
 Relay wherever it fits. Any missing crash-before-send, timeout-after-acceptance,
 crash-before-ack, cancellation or unknown-outcome path must be tested in the
 ELZ-011/023 composition before deciding a residual Piece is needed.
@@ -146,7 +156,7 @@ observations about Oban timestamp ack guards, time-based rescue (including live
 jobs), no renewal and node-clock timestamps. The composed Run revision/attempt
 fence is narrower than ELZ-028's store-clock/renewal/atomic-change Contract.
 These are inputs to its owner decision, not a new lease implementation or
-permission to dispatch one. The ELZ-010 coordinator posts that evidence on #45.
+permission to dispatch one. The ELZ-010 coordinator owns that evidence handoff on #45.
 
 ## Ownership and bounded execution
 
