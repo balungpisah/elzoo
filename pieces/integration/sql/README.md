@@ -14,8 +14,13 @@ Cure is a build-time compiler; the compiled replay runs without Cure.Compiler.
 ## Boundary and limits
 
 - Subset only: no general SQL API, CDC, SQLite, migration framework, database-per-service, replication or disk/fsync guarantee.
-- Atomic append capability; torn-tail repair always rejected as torn_repair_unsupported.
+- Atomic append capability; torn-tail repair always rejected: torn_repair_unsupported, or caller_transaction inside the caller's open Ecto transaction.
 - Calls inside the caller's open Ecto transaction on the same Repo are refused before any statement: writes return {:rejected, :caller_transaction}, reads {:error, :caller_transaction} (ELZ-032 bug fix, same ID). Transactions opened outside Ecto on the same connection are not detected.
+- The caller-transaction check is per process: Repo.in_transaction?/0 sees only the calling process's checked-out connection.
+- Under Ecto.Adapters.SQL.Sandbox in_transaction? is false: the Store's transaction becomes a savepoint, a write can return {:committed, n} after only RELEASE SAVEPOINT and the sandbox rollback erases it, so the refusal does not apply. Consumer test suites using the Sandbox must not treat committed as a real COMMIT.
+- A raw BEGIN inside Repo.checkout/2 is not detected; writes then return indeterminate(:unavailable) and reads :unavailable.
+- Calls from another process, including every Writer call, are never refused; they commit on their own connection independently of the caller's transaction, so there is no transaction-scoped atomicity.
+- Static, I/O-free validation runs before the caller-transaction check, so invalid input inside a caller transaction keeps its existing rejection or indeterminate(:malformed_reply) result; no SQL is issued in either case.
 - PostgreSQL transaction/locking/storage behavior is upstream; finite local tests do not establish universal durability or exactly-once effects.
 - Consumers own the Repo, schema deployment, access control, fsync/synchronous_commit, backups and operational recovery.
 
