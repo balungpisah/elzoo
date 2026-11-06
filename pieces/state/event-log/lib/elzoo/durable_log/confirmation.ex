@@ -25,6 +25,9 @@ defmodule Elzoo.DurableLog.Confirmation do
         end)
 
       cond do
+        Enum.any?(replies, &match?({:error, :caller_transaction}, &1)) ->
+          {:unknown, :caller_transaction}
+
         Enum.any?(replies, &match?({:error, :unavailable}, &1)) ->
           {:unknown, :unavailable}
 

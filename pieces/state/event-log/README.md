@@ -18,6 +18,7 @@ Cure is a build-time compiler; the compiled replay runs without Cure.Compiler.
 - Absence never proves non-commit; indeterminate writes stop the Writer. Unknown reconciliation requires deliberate fresh-nonce CAS or read-only inspection.
 - Revisions/sequences are nonnegative signed-bigint values; versions/positions are positive signed-integer values; stored text is UTF-8 without NUL.
 - Checkpoint support is optional and requires state/checkpoint; no checkpoint dependency is needed for replay, Store, Memory or ordinary Writer use.
+- Store-only reason :caller_transaction (ELZ-032, same ID): the shell accepts the Store reply {:rejected, :caller_transaction} and the read error :caller_transaction, and confirm/5 returns {:unknown, :caller_transaction}. A third-party Store returning that reply was classed indeterminate before and is rejected now. The ID is kept because the change is strictly additive: the shell already trusts Store-only rejection reasons (:torn_repair_unsupported, :unfenced_tail), the value adds no new trust relationship, it is the only way to restore the integration/sql Contract without returning indeterminate, Memory never produces it, and no in-repo consumer matches the reasons exhaustively.
 
 ## Evidence and operations
 
