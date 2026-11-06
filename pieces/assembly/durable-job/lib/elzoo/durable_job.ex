@@ -148,6 +148,7 @@ defmodule Elzoo.DurableJob do
       guarded(queue, fn cfg ->
         owned(cfg, job_key, fn ->
           with_writer(cfg, job_key, &cancel_loop(cfg, job_key, requested_by, &1, @rounds))
+          |> writer_init(fn reason -> {:error, reason} end)
           |> writer_exit(fn reason -> {:indeterminate, unknown(:cancel, cfg, job_key, reason)} end)
         end)
       end)
@@ -163,6 +164,9 @@ defmodule Elzoo.DurableJob do
 
   defp writer_exit({:writer_exit, reason}, fun), do: fun.(reason)
   defp writer_exit(result, _fun), do: result
+
+  defp writer_init({:writer_init, reason}, fun), do: fun.(reason)
+  defp writer_init(result, _fun), do: result
 
   @doc "Read-only status of a Work Item's Run."
   def status(queue, job_key), do: guarded(queue, fn cfg -> status_of(cfg, job_key) end)
@@ -213,11 +217,13 @@ defmodule Elzoo.DurableJob do
           stop_writer(writer)
         end
 
+      # Tagged so a caller can never confuse a Writer start failure with its
+      # own fun's result (for example the worker's {:error, :retry}).
       {:error, {:replay_damaged, _}} ->
-        {:error, :damaged}
+        {:writer_init, :damaged}
 
       {:error, _} ->
-        {:error, :unavailable}
+        {:writer_init, :unavailable}
     end
   end
 
@@ -364,7 +370,7 @@ defmodule Elzoo.DurableJob do
     _ -> {:skip, :malformed}
   end
 
-  defp relay_result({:error, reason}), do: {:skip, reason}
+  defp relay_result({:writer_init, reason}), do: {:skip, reason}
   defp relay_result(other), do: other
 
   defp relay_loop(_cfg, _request, _item, _writer, 0), do: {:skip, :contended}
@@ -433,9 +439,9 @@ defmodule Elzoo.DurableJob do
     snooze = {:snooze, cfg.snooze}
 
     case with_writer(cfg, key, &start_loop(cfg, job, &1, @rounds)) do
-      {:error, :damaged} -> {:cancel, :damaged}
+      {:writer_init, :damaged} -> {:cancel, :damaged}
       {:writer_exit, _} -> snooze
-      {:error, _} -> snooze
+      {:writer_init, :unavailable} -> snooze
       result -> result
     end
   end

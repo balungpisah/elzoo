@@ -367,6 +367,53 @@ defmodule Elzoo.DurableJobTest do
     poll(fn -> oban_state(f, "k13") == "cancelled" end)
     assert kinds(store, run_stream(f, "k13")) == ~w(accepted attempt_started succeeded)
     assert phase(f, "k13") == :succeeded
+    # The indeterminate append snoozed (no Oban attempt consumed); the next
+    # execution re-fetched at the same attempt and cancelled on the terminal Run.
+    id = job_id(f, "k13")
+    assert job_row(f, id) == {"cancelled", 1}
+    assert snoozed(f, id) == 1
+  end
+
+  defp snoozed(f, id) do
+    %{rows: [[n]]} =
+      TestRepo.query!(
+        "select coalesce((meta->>'snoozed')::int, 0) from #{f.prefix}.oban_jobs where id = $1",
+        [id],
+        log: false
+      )
+
+    n
+  end
+
+  test "W6 deviation: retry backoff is indexed by the Oban attempt, unchanged by a snooze", %{
+    prefix: prefix
+  } do
+    args = %{"base_backoff_ms" => 1_000, "max_backoff_ms" => 60_000}
+    # backoff/1 sees only the Oban attempt: attempt 3 gives 4 s even if the Run is at attempt 1.
+    assert DurableJob.backoff(%Oban.Job{attempt: 1, args: args}) == 1
+    assert DurableJob.backoff(%Oban.Job{attempt: 3, args: args}) == 4
+
+    store = store(:memory, prefix)
+    f = flow(prefix, :memory, store: store, handler: fn _ -> {:error, :transient} end, snooze_s: 1)
+    :ok = Oban.pause_queue(f.oban, queue: f.queue)
+    {:ok, _} = submit(f, "kb", [1], max_attempts: 3, base_backoff_ms: 5_000, max_backoff_ms: 60_000)
+    {:ok, _} = relay!(f.queue)
+    id = job_id(f, "kb")
+    :ok = Memory.fault(store, :read, :unavailable)
+    :ok = Oban.resume_queue(f.oban, queue: f.queue)
+    poll(fn -> elem(job_row(f, id), 0) == "retryable" end)
+
+    %{rows: [[attempt, delay]]} =
+      TestRepo.query!(
+        "select attempt, extract(epoch from scheduled_at - attempted_at)::float from #{f.prefix}.oban_jobs where id = $1",
+        [id],
+        log: false
+      )
+
+    assert snoozed(f, id) == 1
+    assert attempt == 1
+    assert delay > 4.5 and delay < 6.0
+    assert kinds(store, run_stream(f, "kb")) == ~w(accepted attempt_started attempt_failed)
   end
 
   test "DJ14 damaged Run stream, record version 2 and args version 2 are refused", %{prefix: prefix} do
