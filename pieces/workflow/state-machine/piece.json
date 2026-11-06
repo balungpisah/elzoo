@@ -1,0 +1,249 @@
+{
+  "schema_version": 1,
+  "id": "workflow/state-machine",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": [
+    "cure",
+    "elixir",
+    "otp"
+  ],
+  "dependencies": [
+    "delivery/retry-timeout"
+  ],
+  "contract": "Job-Run lifecycle decision Elzoo.JobRun: total step/4 over phase, attempt-identity input (current/stale result, start/duplicate/stale start, cancel), supplied expiry and the unchanged ELZ-006 RetryDecision; Cure identity classification start_input/4 and result_input/3; validating Elixir projection. No statecharts, gen_statem framework, saga or compensation.",
+  "limits": [
+    "Subset only: one job-Run lifecycle; not a general state-machine, statechart, process-manager or saga facility.",
+    "Selected laws L1–L29 are table-level facts about step/4 proved by reduction over supplied inputs; identity classification, deadline/budget comparisons, folds, CAS and providers are test-grounded or upstream.",
+    "Expiry and the retry decision are supplied by the caller (node clock and ELZ-006 policy); no clock or store is consulted here."
+  ],
+  "files": [
+    "cure/elzoo/job_run.cure",
+    "lib/elzoo/job_run.ex",
+    "test/elzoo/job_run_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/job_run.cure",
+      "symbol": "succeeded_absorbing",
+      "claim": "succeeded_absorbing: selected step/4 table law over supplied inputs, proved by reduction; not a property of the shell, folds, CAS or providers."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/job_run.cure",
+      "symbol": "failed_absorbing",
+      "claim": "failed_absorbing: selected step/4 table law over supplied inputs, proved by reduction; not a property of the shell, folds, CAS or providers."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/job_run.cure",
+      "symbol": "exhausted_absorbing",
+      "claim": "exhausted_absorbing: selected step/4 table law over supplied inputs, proved by reduction; not a property of the shell, folds, CAS or providers."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/job_run.cure",
+      "symbol": "expired_absorbing",
+      "claim": "expired_absorbing: selected step/4 table law over supplied inputs, proved by reduction; not a property of the shell, folds, CAS or providers."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/job_run.cure",
+      "symbol": "cancelled_absorbing",
+      "claim": "cancelled_absorbing: selected step/4 table law over supplied inputs, proved by reduction; not a property of the shell, folds, CAS or providers."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/job_run.cure",
+      "symbol": "stale_completed_ignored_requested",
+      "claim": "stale_completed_ignored_requested: selected step/4 table law over supplied inputs, proved by reduction; not a property of the shell, folds, CAS or providers."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/job_run.cure",
+      "symbol": "stale_completed_ignored_waiting",
+      "claim": "stale_completed_ignored_waiting: selected step/4 table law over supplied inputs, proved by reduction; not a property of the shell, folds, CAS or providers."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/job_run.cure",
+      "symbol": "stale_completed_ignored_active",
+      "claim": "stale_completed_ignored_active: selected step/4 table law over supplied inputs, proved by reduction; not a property of the shell, folds, CAS or providers."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/job_run.cure",
+      "symbol": "stale_failed_ignored_requested",
+      "claim": "stale_failed_ignored_requested: selected step/4 table law over supplied inputs, proved by reduction; not a property of the shell, folds, CAS or providers."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/job_run.cure",
+      "symbol": "stale_failed_ignored_waiting",
+      "claim": "stale_failed_ignored_waiting: selected step/4 table law over supplied inputs, proved by reduction; not a property of the shell, folds, CAS or providers."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/job_run.cure",
+      "symbol": "stale_failed_ignored_active",
+      "claim": "stale_failed_ignored_active: selected step/4 table law over supplied inputs, proved by reduction; not a property of the shell, folds, CAS or providers."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/job_run.cure",
+      "symbol": "duplicate_yields_requested",
+      "claim": "duplicate_yields_requested: selected step/4 table law over supplied inputs, proved by reduction; not a property of the shell, folds, CAS or providers."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/job_run.cure",
+      "symbol": "duplicate_yields_waiting",
+      "claim": "duplicate_yields_waiting: selected step/4 table law over supplied inputs, proved by reduction; not a property of the shell, folds, CAS or providers."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/job_run.cure",
+      "symbol": "duplicate_yields_active",
+      "claim": "duplicate_yields_active: selected step/4 table law over supplied inputs, proved by reduction; not a property of the shell, folds, CAS or providers."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/job_run.cure",
+      "symbol": "stale_start_never_begins_requested",
+      "claim": "stale_start_never_begins_requested: selected step/4 table law over supplied inputs, proved by reduction; not a property of the shell, folds, CAS or providers."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/job_run.cure",
+      "symbol": "stale_start_never_begins_waiting",
+      "claim": "stale_start_never_begins_waiting: selected step/4 table law over supplied inputs, proved by reduction; not a property of the shell, folds, CAS or providers."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/job_run.cure",
+      "symbol": "stale_start_never_begins_active",
+      "claim": "stale_start_never_begins_active: selected step/4 table law over supplied inputs, proved by reduction; not a property of the shell, folds, CAS or providers."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/job_run.cure",
+      "symbol": "requested_completed_ignored",
+      "claim": "requested_completed_ignored: selected step/4 table law over supplied inputs, proved by reduction; not a property of the shell, folds, CAS or providers."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/job_run.cure",
+      "symbol": "requested_failed_ignored",
+      "claim": "requested_failed_ignored: selected step/4 table law over supplied inputs, proved by reduction; not a property of the shell, folds, CAS or providers."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/job_run.cure",
+      "symbol": "waiting_completed_ignored",
+      "claim": "waiting_completed_ignored: selected step/4 table law over supplied inputs, proved by reduction; not a property of the shell, folds, CAS or providers."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/job_run.cure",
+      "symbol": "cancel_from_requested",
+      "claim": "cancel_from_requested: selected step/4 table law over supplied inputs, proved by reduction; not a property of the shell, folds, CAS or providers."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/job_run.cure",
+      "symbol": "cancel_from_waiting",
+      "claim": "cancel_from_waiting: selected step/4 table law over supplied inputs, proved by reduction; not a property of the shell, folds, CAS or providers."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/job_run.cure",
+      "symbol": "cancel_from_active",
+      "claim": "cancel_from_active: selected step/4 table law over supplied inputs, proved by reduction; not a property of the shell, folds, CAS or providers."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/job_run.cure",
+      "symbol": "expired_never_begins_requested",
+      "claim": "expired_never_begins_requested: selected step/4 table law over supplied inputs, proved by reduction; not a property of the shell, folds, CAS or providers."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/job_run.cure",
+      "symbol": "expired_never_begins_waiting",
+      "claim": "expired_never_begins_waiting: selected step/4 table law over supplied inputs, proved by reduction; not a property of the shell, folds, CAS or providers."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/job_run.cure",
+      "symbol": "expired_never_begins_active",
+      "claim": "expired_never_begins_active: selected step/4 table law over supplied inputs, proved by reduction; not a property of the shell, folds, CAS or providers."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/job_run.cure",
+      "symbol": "exhausted_never_begins",
+      "claim": "exhausted_never_begins: selected step/4 table law over supplied inputs, proved by reduction; not a property of the shell, folds, CAS or providers."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/job_run.cure",
+      "symbol": "late_success_expires",
+      "claim": "late_success_expires: selected step/4 table law over supplied inputs, proved by reduction; not a property of the shell, folds, CAS or providers."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/job_run.cure",
+      "symbol": "permanent_not_retried",
+      "claim": "permanent_not_retried: selected step/4 table law over supplied inputs, proved by reduction; not a property of the shell, folds, CAS or providers."
+    },
+    {
+      "kind": "type",
+      "file": "cure/elzoo/job_run.cure",
+      "claim": "Pinned Cure checks the production declarations against the unchanged Elzoo.RetryPolicy types; erased callers validate terms through Elzoo.JobRun."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/job_run_test.exs",
+      "claim": "Law audit, six compile-time negative controls, exhaustive 640-row step/4 table comparison, identity classification and input validation; finite evidence, not proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "cure",
+      "reference": "https://github.com/cure-lang/cure-lang/tree/a004c335cc4e9f2203ba6f51fc31e8540b66378d",
+      "claim": "Relies on pinned Cure compilation, reduction checking and runtime semantics, not a local soundness proof."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Elixir validation, exceptions, exit trapping and BEAM execution are upstream contracts, not proved here."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/",
+      "claim": "OTP 29.1.2 GenServer, Supervisor, Task.Supervisor, links/monitors and :persistent_term semantics are upstream contracts; no exactly-once or disk durability guarantee."
+    },
+    {
+      "kind": "assumption",
+      "claim": "Callers supply truthful expiry, retry decisions and attempt identities from their durable Run record."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "Pure decision; no execution to observe."
+    },
+    "config": {
+      "status": "not_applicable",
+      "contract": "No settings: decisions are supplied data; retry policy validation is delivery/retry-timeout's."
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No process or lifecycle."
+    }
+  }
+}

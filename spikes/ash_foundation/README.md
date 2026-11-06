@@ -77,9 +77,16 @@ execution results are recorded in `docs/work/ELZ-015.md` at the repository root.
 - Some upstream packages emit compiler warnings on the pinned Elixir/OTP.
   Owned modules use warnings-as-errors; this does not certify dependency
   sources as warning-free. No fork or warning suppression is introduced.
-- AshPostgres, AshOban, Reactor execution, money/accounting, Cedar and live
-  model routing are not exercised. A new Cure decision/bridge is not needed
-  for this narrow experiment and is not claimed as tested.
+- Later tasks added narrow comparisons here, each limited to its named checks:
+  AshPostgres durable-log K1–K5/K8 and a Reactor kill-during-step probe
+  (ELZ-009, `test/durable_log_postgres_test.exs`,
+  `test/reactor_durable_state_test.exs`), and AshOban 0.10.3 triggers A1–A4
+  plus Reactor inside an Oban 2.24.2 worker O9 (ELZ-010,
+  `test/elz010_job_provider_test.exs`; `ash_oban` and `oban` are in this
+  spike's lock only). They are comparisons, not shipped adapters.
+- Money/accounting, Cedar and live model routing are not exercised. A new Cure
+  decision/bridge is not needed for this narrow experiment and is not claimed
+  as tested.
 
 ## Reuse observations
 

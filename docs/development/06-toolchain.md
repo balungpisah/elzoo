@@ -32,9 +32,11 @@ commands. Use ordinary Mix commands for dev/prod builds when needed.
 ELZ-015 adds an isolated Ash experiment under `spikes/ash_foundation`. Root
 `mix setup` fetches its separately locked dependencies and root `mix check`
 runs its formatter and ExUnit checks in a separate BEAM process. Targeted
-`mix elzoo.ash_spike` runs only that experiment. The root dependency graph and
-source-consumer requirements are unchanged; Ash is not part of the Cure
-compiler trust claim. See its README for versions and limits.
+`mix elzoo.ash_spike` runs only that experiment. The root dependency graph
+contains no Ash package and source-consumer requirements are unchanged by the
+spike; Ash is not part of the Cure compiler trust claim. ELZ-010 adds Oban
+2.24.2 to the root graph (test-only for its pre-implementation probes, then a
+normal provider of `integration/jobs`). See its README for versions and limits.
 
 Linux CI runs on symbolic through a repository-scoped self-hosted runner and
 pinned Ubuntu job containers. See [runner operations](10-symbolic-ci.md);
