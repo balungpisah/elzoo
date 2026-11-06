@@ -35,7 +35,10 @@ machine; the store and the provider poll are Adapters.
    the send is an unknown outcome resolved by `poll`, never by a second
    dispatch from `intended`; the first dispatch is not a re-arm;
    `rejected/not_dispatched` and `timed_out/not_dispatched` return to
-   `intended`; `failed_definite` is the only state out of `dispatched` that
+   `intended`, except that a `rejected/not_dispatched` with error class
+   `permanent` leaves the intent in `intended` with dispatch disarmed until
+   its arguments or the Adapter schema change (a new revision of the
+   intent), so a pre-dispatch rejection cannot loop; `failed_definite` is the only state out of `dispatched` that
    re-arms dispatch, and it is reached on exactly two grounds, recorded
    distinctly: a `reconcile` or poll answer (`failed`, `unknown_to_provider`)
    by which the provider confirms that no effect happened, or a provider
