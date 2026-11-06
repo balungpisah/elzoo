@@ -39,6 +39,13 @@ handle) and ELZ-024 (authorization decisions and exact-action approval). It
 also adds design tests to ELZ-006/009/010/011. No ready source, dependency or
 build order is added.
 
+ELZ-025 records the second ecosystem study (sixteen Elixir/Gleam packages,
+docs/research/ecosystem-round-2.md): no package is adopted; the distilled
+Contracts become six more demand-led bodies, ELZ-026 (dependency readiness),
+ELZ-027 (schedule occurrence), ELZ-028 (writer lease), ELZ-029 (OS-process
+Adapter), ELZ-030 (context selection) and ELZ-031 (money amounts), plus
+design tests on open tasks and reason text on deferred handles.
+
 ## Dispositions and grounding
 
 | Disposition | Meaning | Who owns the risk |

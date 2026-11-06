@@ -25,6 +25,14 @@ schema-version handling and state-machine decisions in explicit Contracts.
   unpinned corpus file exists (ELZ-021 reference study);
 - do not re-execute a dispatched external Effect on job retry; that lifecycle
   is specified separately by ELZ-023 (delivery/effect-intent).
+- persist the attempt count and absolute deadline with the Run, or state that
+  bounded attempts hold only within one process lifetime; a retry budget reset
+  by restart is a listed restart scenario;
+- when schema evolution is exercised (the option to defer it explicitly
+  remains): a writer pinned to an older format fails closed with
+  `unwritable_version` instead of dropping fields, readers accept every
+  version up to the current one, and a frozen copy of an older reader is kept
+  as a fixture beside the golden writer corpora (ELZ-025 study).
 
 ## Acceptance
 

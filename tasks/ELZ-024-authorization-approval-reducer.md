@@ -64,6 +64,25 @@ grants authority by itself.
 - implement the pure reducer and approval binding in Cure;
 - select laws for precedence, escrow and non-escalation; test drift and scope;
 - compare the Ash policy spike at the boundary and record the division.
+- re-run the reducer when an approval is applied, with the approver's current
+  authority and the current policy version: DENY or a reducer failure at
+  release wins over recorded consent; a changed requirement retains the old
+  approval as superseded and issues a new request with revision + 1;
+- identify an approval request by `(Run, action id, requirement name,
+  requirement version, revision)`; a stale revision changes nothing; a
+  restored pre-dispatch "approved" action re-enters the reducer, the stored
+  approval being an input, never a bypass;
+- accept approval evidence only from the configured verifier, for exactly the
+  requested requirement, within its declared maximum age, retaining reviewer
+  identity and verifier name; whether DENY reasons or ASK prompts are shown
+  to the proposer is a declared Assembly setting;
+- deny as a proposal any proposal that carries its own policy, bounding
+  authority or approval; decide containment on typed rules never model text;
+  carry the policy identity (id, version, content hash) on every decision; a
+  denial is a result to the proposer and a retained audit record; a static
+  tool permission or a schema/route match is an input, never the decision;
+  no model turn resolves an ASK (the escrowed write stays escrowed when the
+  model replies "approved") (ELZ-025 study).
 
 ## Acceptance
 
@@ -71,6 +90,8 @@ grants authority by itself.
       passing through mix check.
 - [ ] A changed payload or policy version invalidates an earlier approval
       (executable test).
+- [ ] Release re-evaluation (DENY wins), stale revision, self-approval and
+      model-text "approved" leaving escrow intact are executable tests.
 - [ ] Authorization and approval are separate IDs with separate Contracts.
 - [ ] Ash reuse division is recorded; no duplicate resource policy engine.
 - [ ] Contract states no security certification or identity guarantee.
