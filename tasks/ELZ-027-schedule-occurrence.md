@@ -8,9 +8,9 @@
 
 Decide whether a due schedule slot becomes one admissible occurrence, give it
 a stable identity, and decide what happens to further slots while that
-occurrence is unsettled. Due-instant computation stays upstream (Oban cron,
-quantum, sched_ex); the identity function and the overlap decision are
-Elzoo's.
+occurrence is unsettled. Due-instant computation stays upstream (Oban cron, quantum,
+sched_ex) and enters as already computed due slots; the identity function
+and the overlap decision are Elzoo's.
 
 ## Admission record
 
@@ -18,9 +18,11 @@ Elzoo's.
    occurrences under a declared overlap policy. Callers: C7 scheduled research
    digest; C1 invitation expiry sweep challenges generality (one-shot
    schedule).
-2. **Interface and invariant.** Inputs: `{schedule id, generation, expression,
-   overlap policy ∈ {skip, queue(n), replace}}`, the current instant from a
-   clock port, settlement events `{acknowledged | released, occurrence id}`.
+2. **Interface and invariant.** Inputs: `{schedule id, generation, overlap policy ∈ {skip, queue(n),
+   replace}}`, the due slots computed upstream since the last recorded
+   instant, that last recorded instant, the current instant from a clock
+   port, settlement events `{acknowledged | released, occurrence id}` and
+   deliveries `{occurrence id, payload}` presented for admission.
    Outputs: `occurrence{id = f(schedule id, generation, scheduled instant)}`,
    `skipped{slot}`, `replaced{old occurrence id}`, `rejected{stale_generation}`.
    Identity excludes arrival time, node, process and delivery id. Invariants:

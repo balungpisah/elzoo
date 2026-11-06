@@ -32,7 +32,8 @@ provider's own ownership contract does not satisfy the invariants below.
    checked in one atomic step; `renew` extends only a live lease, so a renewal
    issued before a handoff and applied after it cannot revive it;
    `claim_expired` results are disjoint across concurrent claimers; stale and
-   ambiguous (heartbeat in the future or unreadable) fail closed and their
+   ambiguous (`renew` timestamp in the future or
+   unreadable) fail closed and their
    release is an explicit, attributable record; a terminal state releases the
    lease atomically; completion from a non-holder is rejected by the record
    revision (the fencing value), never by timestamp comparison. Non-goals: distributed lock service,
