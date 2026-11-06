@@ -5,18 +5,19 @@ mod Elzoo.JobRunProbe
   use Elzoo.RetryPolicy
 
   type RunPhase = RunRequested | RunActive | RunWaiting | RunSucceeded | RunFailed | RunExhausted | RunExpired | RunCancelled
-  type RunInput = StartAttempt | StartDuplicate | CurrentCompleted | CurrentFailed | StaleCompleted | StaleFailed | CancelRequested
-  type RunAction = BeginAttempt | RecordSuccess | ScheduleRetry | RecordFailure | RecordExhausted | RecordExpired | RecordCancel | YieldDuplicate | NoChange
+  type RunInput = StartAttempt | StartDuplicate | StartStale | CurrentCompleted | CurrentFailed | StaleCompleted | StaleFailed | CancelRequested
+  type RunAction = BeginAttempt | RecordSuccess | ScheduleRetry | RecordFailure | RecordExhausted | RecordExpired | RecordCancel | YieldDuplicate | YieldStale | NoChange
 
   rec RunStep
     phase: RunPhase
     action: RunAction
 
-  fn start_input(bound_job: Int, job: Int) -> RunInput =
+  fn start_input(bound_job: Int, job: Int, recorded_oban_attempt: Int, job_attempt: Int) -> RunInput =
     pickup
       bound_job == 0 -> StartAttempt()
-      bound_job == job -> StartAttempt()
-      else -> StartDuplicate()
+      bound_job != job -> StartDuplicate()
+      job_attempt >= recorded_oban_attempt -> StartAttempt()
+      else -> StartStale()
 
   @total true
   @reducible
@@ -48,6 +49,10 @@ mod Elzoo.JobRunProbe
 
   @total true
   @reducible
+  fn stale_start(phase: RunPhase) -> RunStep = RunStep{phase: phase, action: YieldStale()}
+
+  @total true
+  @reducible
   fn expire() -> RunStep = RunStep{phase: RunExpired(), action: RecordExpired()}
 
   @total true
@@ -68,6 +73,7 @@ mod Elzoo.JobRunProbe
           True() -> expire()
           False() -> begin()
       StartDuplicate() -> yield_to(phase)
+      StartStale() -> stale_start(phase)
       CurrentCompleted() -> keep(phase)
       CurrentFailed() -> keep(phase)
       StaleCompleted() -> keep(phase)
@@ -109,6 +115,7 @@ mod Elzoo.JobRunProbe
       StaleCompleted() -> keep(RunActive())
       StaleFailed() -> keep(RunActive())
       StartDuplicate() -> yield_to(RunActive())
+      StartStale() -> stale_start(RunActive())
       StartAttempt() ->
         match expired
           True() -> expire()
@@ -176,6 +183,15 @@ mod Elzoo.JobRunProbe
 
   fn duplicate_yields_active(expired: Bool, retry: RetryDecision) -> Equivalent(RunStep, step(RunActive(), StartDuplicate(), expired, retry), yield_to(RunActive())) =
     reflexive(yield_to(RunActive()))
+
+  fn stale_start_never_begins_requested(expired: Bool, retry: RetryDecision) -> Equivalent(RunStep, step(RunRequested(), StartStale(), expired, retry), stale_start(RunRequested())) =
+    reflexive(stale_start(RunRequested()))
+
+  fn stale_start_never_begins_waiting(expired: Bool, retry: RetryDecision) -> Equivalent(RunStep, step(RunWaiting(), StartStale(), expired, retry), stale_start(RunWaiting())) =
+    reflexive(stale_start(RunWaiting()))
+
+  fn stale_start_never_begins_active(expired: Bool, retry: RetryDecision) -> Equivalent(RunStep, step(RunActive(), StartStale(), expired, retry), stale_start(RunActive())) =
+    reflexive(stale_start(RunActive()))
 
   fn requested_completed_ignored(expired: Bool, retry: RetryDecision) -> Equivalent(RunStep, step(RunRequested(), CurrentCompleted(), expired, retry), keep(RunRequested())) =
     reflexive(keep(RunRequested()))
