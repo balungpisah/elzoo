@@ -40,7 +40,9 @@ transaction contracts match.
 Before promoting a candidate to an implementation task, write:
 
 1. **Responsibility and caller:** one sentence stating the decision or effect
-   it owns, plus a concrete assembly that needs it. Use a second distinct
+   it owns, plus a concrete product aim or Assembly that needs it. A new
+   integration example need not exist before an independently useful Piece
+   is admitted and published. Use a second distinct
    use case to challenge generality where available; do not invent callers
    merely to meet a quota. A specialised financial invariant can justify a
    domain Piece even when ordinary SaaS applications never need it.
@@ -154,13 +156,15 @@ exactly once.
 
 Use the [coverage cases](capability-coverage.md) as design tests before writing
 worker prompts. ELZ-002/003 establish shared contracts; the existing P0–P3 task
-DAG remains the executable foundation sequence. The new domain inventory is
-demand-led and deferred: those rows are not added to that serial build queue.
+DAG retains the published foundation prerequisites. The
+[product-led roadmap](plans/roadmap.md) can select admitted Pieces from concrete
+product aims before new Assembly examples exist; inventory alone is never an
+implementation queue. Its canonical manifest records the selection and gates.
 
-Choose one thin working assembly next, identify its missing contracts, adopt
-existing implementations through tested recipes, and author only the remainder.
-Then exercise a second assembly that reuses the same pieces with different
-policy. For example, compare an approval-based refund with approval-based agent
+Identify the product aim's missing Contracts, adopt existing implementations
+through tested recipes, and author only the remainder. Later exercise an
+Assembly and a second use case that reuse the Pieces with different policy.
+For example, compare an approval-based refund with approval-based agent
 publishing: share the approval mechanism, but preserve different authority,
 expiry, settlement and compensation policies. Refine the boundary when that
 comparison exposes a false abstraction.

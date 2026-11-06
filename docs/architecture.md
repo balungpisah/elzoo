@@ -20,6 +20,9 @@ identity, money, task management and agent orchestration workflows. These cases
 identify missing responsibilities without claiming implementation or extending
 all of them into the execution kernel. Work Item, Run and Attempt keep business
 intent separate from execution. Existing ready subsets keep their present claims.
+The [product-led roadmap](plans/roadmap.md) permits independently useful,
+admitted Pieces for a concrete product aim before new integration examples;
+live issue Contracts and the capability admission rules still gate implementation.
 
 ## Application foundation direction
 
@@ -364,8 +367,10 @@ can ask a unit to drain; it cannot silently invent a business transition.
 
 ## Working assemblies and phase gates
 
-Progress is driven by a running assembly with a concrete boundary, not by
-counting catalogue entries:
+The bootstrap foundation uses running Assembly boundaries. These phase gates
+retain their published acceptance; they do not require every later admitted
+Piece to wait for a new Assembly example. Product-led selection and later
+example/release gates live in the canonical roadmap, not catalogue row counts:
 
 | Phase | Working assembly / exit evidence | New contract boundary |
 | --- | --- | --- |
@@ -376,9 +381,10 @@ counting catalogue entries:
 | 4 · scale boundary | a measured multi-host or OS-process assembly, only if a product needs it | distribution/partition and isolation claims |
 | later | policy, CRDT, AI, build/dataframe and specialised protocol assemblies | only as a concrete product requires them |
 
-No later phase is implied by a row's existence. Each phase needs a small
-assembly, its failure cases and its evidence record before the next family is
-expanded.
+No later phase is implied by a row's existence. Existing Assembly phases need
+their named failure cases and evidence. Later Piece work needs its own admitted
+product aim and scoped boundary evidence; new integration examples can follow
+in the roadmap's explicitly deferred examples stage.
 
 ## Claim and evidence ledger
 

@@ -24,5 +24,8 @@ assurance badge system.
 The bootstrap has less migration debt and can use OTP directly. Historical Zoo
 names are aliases/research inputs, not implementation obligations. Claims must
 be re-established in Elzoo's own tests and documents; the old repository is
-not a transitive dependency. A capability enters only through a working
-assembly and an explicit task.
+not a transitive dependency. The bootstrap admitted capabilities through a
+working assembly and an explicit task. ELZ-033's
+[product-led selection policy](../plans/roadmap.md) extends selection to
+independently useful admitted Pieces for concrete product aims before new
+Assembly examples; the fresh-project and evidence boundaries are unchanged.

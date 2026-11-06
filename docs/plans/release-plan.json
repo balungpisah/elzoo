@@ -1,0 +1,3792 @@
+{
+  "baseline": "404d159a122d18a22554c5688aa79199e4d5c124",
+  "products": [
+    {
+      "id": "P01",
+      "release": "V1",
+      "outcome": "Background reports and imports",
+      "coverage_case": "C2/C8",
+      "jobs": [
+        "ELZ-010",
+        "RC-12",
+        "RC-13",
+        "RC-42"
+      ],
+      "limit": "Durable work/result primitives; consumer supplies report logic, endpoints and deployment."
+    },
+    {
+      "id": "P02",
+      "release": "V1",
+      "outcome": "Webhook and API-driven work",
+      "coverage_case": "C1/C7",
+      "jobs": [
+        "ELZ-011",
+        "ELZ-023",
+        "RC-12",
+        "RC-42",
+        "RC-43"
+      ],
+      "limit": "Consumer supplies inbound HTTP/auth/signature verification; ready HTTP is an outbound recipe."
+    },
+    {
+      "id": "P03",
+      "release": "V1",
+      "outcome": "Human review and approval queues",
+      "coverage_case": "C5",
+      "jobs": [
+        "ELZ-024",
+        "ELZ-026",
+        "RC-10",
+        "RC-11",
+        "RC-12",
+        "RC-19"
+      ],
+      "limit": "Consumer supplies UI and business acceptance; approval persistence belongs to the owning Run."
+    },
+    {
+      "id": "P04",
+      "release": "V1",
+      "outcome": "Tenant invitation and feature access",
+      "coverage_case": "C1",
+      "jobs": [
+        "RC-06",
+        "RC-07",
+        "RC-09",
+        "RC-19",
+        "RC-42"
+      ],
+      "limit": "Consumer supplies product roles/UI and identity deployment; paid subscription synchronization is V2."
+    },
+    {
+      "id": "P05",
+      "release": "V1",
+      "outcome": "Quota-controlled asynchronous services",
+      "coverage_case": "C2",
+      "jobs": [
+        "ELZ-022",
+        "RC-07",
+        "RC-08",
+        "RC-12",
+        "RC-13"
+      ],
+      "limit": "Allocation and execution budgets; no invoice or strict provider monetary cap without provider enforcement."
+    },
+    {
+      "id": "P06",
+      "release": "V1",
+      "outcome": "Scheduled research and notification",
+      "coverage_case": "C7",
+      "jobs": [
+        "ELZ-027",
+        "ELZ-030",
+        "RC-02",
+        "RC-16",
+        "RC-18",
+        "RC-19",
+        "RC-12",
+        "ELZ-022"
+      ],
+      "limit": "One selected provider, bounded retrieved context, explicit partial/unknown results; not research truth."
+    },
+    {
+      "id": "P07",
+      "release": "V1",
+      "outcome": "Bounded agent delegation with review",
+      "coverage_case": "C6",
+      "jobs": [
+        "RC-11",
+        "RC-12",
+        "RC-15",
+        "RC-17",
+        "RC-18",
+        "ELZ-022",
+        "ELZ-024",
+        "ELZ-030"
+      ],
+      "limit": "Consumer owns acceptance and allowed tools; durable cost settlement and general resume are not inferred."
+    },
+    {
+      "id": "P08",
+      "release": "V1",
+      "outcome": "Artifact upload and transformation",
+      "coverage_case": "C8",
+      "jobs": [
+        "RC-12",
+        "RC-13",
+        "RC-14",
+        "RC-42"
+      ],
+      "limit": "Consumer supplies transformation and ingress; storage/stream bounds are tested at named boundaries."
+    },
+    {
+      "id": "P09",
+      "release": "V2",
+      "outcome": "Metered multi-provider AI services",
+      "coverage_case": "C9",
+      "jobs": [
+        "RC-08",
+        "RC-16",
+        "RC-21",
+        "RC-22",
+        "RC-23",
+        "RC-25"
+      ],
+      "limit": "Consumer owns commercial prices, tax/invoicing and settlement policy; more than one provider needs conformance evidence."
+    },
+    {
+      "id": "P10",
+      "release": "V2",
+      "outcome": "Internal transfers and reconciled refunds",
+      "coverage_case": "C3/C4",
+      "jobs": [
+        "ELZ-031",
+        "RC-22",
+        "RC-24",
+        "RC-42",
+        "RC-43"
+      ],
+      "limit": "One payment provider, explicit accounting policy; no bank/compliance certification or inventory system."
+    },
+    {
+      "id": "P11",
+      "release": "V2",
+      "outcome": "Event-driven and incremental build workflows",
+      "coverage_case": "new named workload",
+      "jobs": [
+        "RC-27",
+        "RC-28",
+        "RC-29",
+        "RC-30"
+      ],
+      "limit": "One broker/language; cache keys include actual build dependencies. Not a general build service."
+    },
+    {
+      "id": "P12",
+      "release": "V3",
+      "outcome": "Offline collaboration, devices and classified records",
+      "coverage_case": "research-gated",
+      "jobs": [
+        "RC-33",
+        "RC-34",
+        "RC-35",
+        "RC-36"
+      ],
+      "limit": "Separate admission decisions; these directions require additional domain contracts and are not a release promise yet."
+    }
+  ],
+  "jobs": [
+    {
+      "id": "ELZ-001",
+      "title": "ELZ-001 — Pin and exercise the Mix/Cure harness",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [],
+      "status": "historical-closed; not independently reaccepted here",
+      "url": "https://github.com/balungpisah/elzoo/issues/1",
+      "paths": [
+        "tasks/ELZ-001-pinned-mix-cure-harness.md"
+      ],
+      "outputs": [],
+      "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 1,
+      "issue_body_sha256": "8595386040b2629383e96564afba7101b23fc651f0bed28b493423b4d4dc62b9",
+      "observed_issue_state": "CLOSED",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P01",
+        "P02",
+        "P03",
+        "P04",
+        "P05",
+        "P06",
+        "P07",
+        "P08",
+        "P09",
+        "P10",
+        "P11",
+        "P12"
+      ]
+    },
+    {
+      "id": "ELZ-002",
+      "title": "ELZ-002 — Define contracts and the typed composition boundary",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-001",
+        "ELZ-013",
+        "ELZ-014",
+        "ELZ-015",
+        "ELZ-016",
+        "ELZ-018"
+      ],
+      "status": "historical-closed; not independently reaccepted here",
+      "url": "https://github.com/balungpisah/elzoo/issues/2",
+      "paths": [
+        "tasks/ELZ-002-contracts-and-typed-composition.md"
+      ],
+      "outputs": [
+        "core/operator",
+        "core/port",
+        "core/assembly"
+      ],
+      "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 2,
+      "issue_body_sha256": "8fc34875480514b6460329b76b23747de86912a7ebb223f16e4471b4eb252b7d",
+      "observed_issue_state": "CLOSED",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P01",
+        "P02",
+        "P03",
+        "P04",
+        "P05",
+        "P06",
+        "P07",
+        "P08",
+        "P09",
+        "P10",
+        "P11",
+        "P12"
+      ]
+    },
+    {
+      "id": "ELZ-003",
+      "title": "ELZ-003 — Bind envelopes, edges and the first wiring shape",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-001",
+        "ELZ-002"
+      ],
+      "status": "historical-closed; not independently reaccepted here",
+      "url": "https://github.com/balungpisah/elzoo/issues/3",
+      "paths": [
+        "tasks/ELZ-003-envelope-edge-wiring.md"
+      ],
+      "outputs": [
+        "core/envelope",
+        "core/edge",
+        "core/wiring"
+      ],
+      "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 3,
+      "issue_body_sha256": "8a809bcbc6aaa9009ad0a317f9de223830cfcfc6b6d1aba9e7300b04b70e59a4",
+      "observed_issue_state": "CLOSED",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P01",
+        "P02",
+        "P03",
+        "P04",
+        "P05",
+        "P06",
+        "P07",
+        "P08",
+        "P09",
+        "P10",
+        "P11",
+        "P12"
+      ]
+    },
+    {
+      "id": "ELZ-004",
+      "title": "ELZ-004 — Build the P0 ingest/dedup/accumulate exemplar",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-002",
+        "ELZ-003"
+      ],
+      "status": "historical-closed; not independently reaccepted here",
+      "url": "https://github.com/balungpisah/elzoo/issues/4",
+      "paths": [
+        "tasks/ELZ-004-p0-ingest-dedup-accumulate.md"
+      ],
+      "outputs": [
+        "runtime/unit",
+        "runtime/supervision",
+        "runtime/host",
+        "runtime/adapter",
+        "integration/json",
+        "assembly/ingest-dedup-accumulate",
+        "assembly/ingest-json-unit",
+        "delivery/idempotency"
+      ],
+      "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 4,
+      "issue_body_sha256": "37aa8aa34a7840a8852c36e06f1ddd3e95065b96ccd6f0c83a8d4360f59a4b96",
+      "observed_issue_state": "CLOSED",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P01",
+        "P02",
+        "P03",
+        "P04",
+        "P05",
+        "P06",
+        "P07",
+        "P08",
+        "P09",
+        "P10",
+        "P11",
+        "P12"
+      ]
+    },
+    {
+      "id": "ELZ-005",
+      "title": "ELZ-005 — Add a bounded windowed idempotency policy",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-003",
+        "ELZ-004"
+      ],
+      "status": "historical-closed; not independently reaccepted here",
+      "url": "https://github.com/balungpisah/elzoo/issues/5",
+      "paths": [
+        "tasks/ELZ-005-windowed-idempotency.md"
+      ],
+      "outputs": [
+        "delivery/windowed-idempotency"
+      ],
+      "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 5,
+      "issue_body_sha256": "c60f59bf10134b6239ae00ec6c8c62587d947bda6f746fac520e54cb128d054a",
+      "observed_issue_state": "CLOSED",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P01",
+        "P02",
+        "P03",
+        "P04",
+        "P05",
+        "P06",
+        "P07",
+        "P08",
+        "P09",
+        "P10",
+        "P11",
+        "P12"
+      ]
+    },
+    {
+      "id": "ELZ-006",
+      "title": "ELZ-006 — Specify backpressure, retry and dead-letter semantics",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-004",
+        "ELZ-005"
+      ],
+      "status": "historical-closed; not independently reaccepted here",
+      "url": "https://github.com/balungpisah/elzoo/issues/6",
+      "paths": [
+        "tasks/ELZ-006-backpressure-retry-dead-letter.md"
+      ],
+      "outputs": [
+        "delivery/backpressure",
+        "delivery/retry-timeout",
+        "delivery/dead-letter",
+        "delivery/time"
+      ],
+      "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 6,
+      "issue_body_sha256": "85ab9ba650cfba0db87422533542f858e95f106b51dcca0c2bf3ced6f381f81c",
+      "observed_issue_state": "CLOSED",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P01",
+        "P02",
+        "P03",
+        "P04",
+        "P05",
+        "P06",
+        "P07",
+        "P08",
+        "P09",
+        "P10",
+        "P11",
+        "P12"
+      ]
+    },
+    {
+      "id": "ELZ-007",
+      "title": "ELZ-007 — Reuse ordinary stream pieces and select compatible candidates",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-002",
+        "ELZ-003"
+      ],
+      "status": "historical-closed; not independently reaccepted here",
+      "url": "https://github.com/balungpisah/elzoo/issues/7",
+      "paths": [
+        "tasks/ELZ-007-request-route-reuse-selection.md"
+      ],
+      "outputs": [
+        "delivery/request-reply",
+        "delivery/routing",
+        "delivery/transformation",
+        "delivery/stream-combinators",
+        "core/selection"
+      ],
+      "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 7,
+      "issue_body_sha256": "1f344db317bcd80204bfa4dcf63d32e2f9fc74095d202b5cdf5a2ca5ee7958f1",
+      "observed_issue_state": "CLOSED",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P01",
+        "P02",
+        "P03",
+        "P04",
+        "P05",
+        "P06",
+        "P07",
+        "P08",
+        "P09",
+        "P10",
+        "P11",
+        "P12"
+      ]
+    },
+    {
+      "id": "ELZ-008",
+      "title": "ELZ-008 — Compose the P1 request/route/retry Assembly",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-004",
+        "ELZ-005",
+        "ELZ-006",
+        "ELZ-007"
+      ],
+      "status": "historical-closed; not independently reaccepted here",
+      "url": "https://github.com/balungpisah/elzoo/issues/8",
+      "paths": [
+        "tasks/ELZ-008-request-route-retry-assembly.md"
+      ],
+      "outputs": [
+        "assembly/request-route-retry"
+      ],
+      "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 8,
+      "issue_body_sha256": "f4029c4ade28396a6d89d46e2a739b684cf485e5fadf54aa4f5884e76b572116",
+      "observed_issue_state": "CLOSED",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P01",
+        "P02",
+        "P03",
+        "P04",
+        "P05",
+        "P06",
+        "P07",
+        "P08",
+        "P09",
+        "P10",
+        "P11",
+        "P12"
+      ]
+    },
+    {
+      "id": "ELZ-009",
+      "title": "ELZ-009 — Define a reuse-first durable state boundary",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-008"
+      ],
+      "status": "historical-closed; not independently reaccepted here",
+      "url": "https://github.com/balungpisah/elzoo/issues/9",
+      "paths": [
+        "tasks/ELZ-009-durable-state-storage-boundary.md"
+      ],
+      "outputs": [
+        "state/event-log",
+        "state/outbox",
+        "state/checkpoint",
+        "integration/sql"
+      ],
+      "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 9,
+      "issue_body_sha256": "6b61c3f707054c858efc8f3dbda09912275c21653ee41baf766a856f503914eb",
+      "observed_issue_state": "CLOSED",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P01",
+        "P02",
+        "P03",
+        "P04",
+        "P05",
+        "P06",
+        "P07",
+        "P08",
+        "P09",
+        "P10",
+        "P11",
+        "P12"
+      ]
+    },
+    {
+      "id": "ELZ-010",
+      "title": "ELZ-010 — Compose the P2 durable job Assembly",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-008",
+        "ELZ-009"
+      ],
+      "status": "active elsewhere; not accepted",
+      "url": "https://github.com/balungpisah/elzoo/issues/10",
+      "paths": [
+        "tasks/ELZ-010-durable-job-assembly.md"
+      ],
+      "outputs": [
+        "integration/jobs",
+        "workflow/state-machine",
+        "assembly/durable-job"
+      ],
+      "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 10,
+      "issue_body_sha256": "e70bd818e5a6848f699561c59a7c18833f5791e62d7de72ed4fa4ce90b480c96",
+      "observed_issue_state": "OPEN",
+      "selection_gates": [
+        "Exclusive existing coordinator ownership; no takeover or duplicate work"
+      ],
+      "owner_role": "existing ELZ-010 coordinator",
+      "product_aims": [
+        "P01",
+        "P02",
+        "P03",
+        "P04",
+        "P05",
+        "P06",
+        "P07",
+        "P08",
+        "P09",
+        "P10",
+        "P11",
+        "P12"
+      ]
+    },
+    {
+      "id": "ELZ-011",
+      "title": "ELZ-011 — Integrate one representative external Effect",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-004",
+        "ELZ-006",
+        "ELZ-010"
+      ],
+      "status": "published; dispatch gates required",
+      "url": "https://github.com/balungpisah/elzoo/issues/11",
+      "paths": [
+        "tasks/ELZ-011-representative-effect-integration.md"
+      ],
+      "outputs": [
+        "core/effect",
+        "assembly/http-job"
+      ],
+      "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 11,
+      "issue_body_sha256": "d75ae31c8d381cd87128ae101ce7bcaa9981ac5e96694002971eff98d8c98ef3",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P01",
+        "P02",
+        "P03",
+        "P04",
+        "P05",
+        "P06",
+        "P07",
+        "P08",
+        "P09",
+        "P10",
+        "P11",
+        "P12"
+      ]
+    },
+    {
+      "id": "ELZ-012",
+      "title": "ELZ-012 — Reproduce the clean check and hand off evidence",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-011"
+      ],
+      "status": "published; dispatch gates required",
+      "url": "https://github.com/balungpisah/elzoo/issues/12",
+      "paths": [
+        "tasks/ELZ-012-clean-check-evidence-handoff.md"
+      ],
+      "outputs": [
+        "core/grounding"
+      ],
+      "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 12,
+      "issue_body_sha256": "e6031ef6a8a93fefcf64ce097d49373f65e768e21540ada2b09db17165785962",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P01",
+        "P02"
+      ],
+      "product_role": "Supporting policy, evidence, operations, discoverability or later example; not an additional product prerequisite or a delivered end-to-end product."
+    },
+    {
+      "id": "ELZ-013",
+      "title": "ELZ-013 — Source pieces and a checked provenance ledger",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-001"
+      ],
+      "status": "historical-closed; not independently reaccepted here",
+      "url": "https://github.com/balungpisah/elzoo/issues/13",
+      "paths": [
+        "tasks/ELZ-013-source-registry.md"
+      ],
+      "outputs": [
+        "runtime/registry",
+        "integration/crypto",
+        "integration/http",
+        "integration/cure-json"
+      ],
+      "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 13,
+      "issue_body_sha256": "848dac7b5f98281d9d188fd4c394428791e1ddd5bb96b3245a8eee284d9d6516",
+      "observed_issue_state": "CLOSED",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P01",
+        "P02",
+        "P03",
+        "P04",
+        "P05",
+        "P06",
+        "P07",
+        "P08",
+        "P09",
+        "P10",
+        "P11",
+        "P12"
+      ]
+    },
+    {
+      "id": "ELZ-014",
+      "title": "ELZ-014 — Define reusable capabilities across products and agent orchestration",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-013"
+      ],
+      "status": "historical-closed; not independently reaccepted here",
+      "url": "https://github.com/balungpisah/elzoo/issues/15",
+      "paths": [
+        "tasks/ELZ-014-capability-model.md"
+      ],
+      "outputs": [],
+      "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 15,
+      "issue_body_sha256": "be7c8369ff1b5fafeeffaacec2e8a400fab4265b9c7de534a00b267fd47d7bda",
+      "observed_issue_state": "CLOSED",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P01",
+        "P02",
+        "P03",
+        "P04",
+        "P05",
+        "P06",
+        "P07",
+        "P08",
+        "P09",
+        "P10",
+        "P11",
+        "P12"
+      ]
+    },
+    {
+      "id": "ELZ-015",
+      "title": "ELZ-015 — Evaluate Ash foundation and define maintained-fork policy",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-014"
+      ],
+      "status": "historical-closed; not independently reaccepted here",
+      "url": "https://github.com/balungpisah/elzoo/issues/17",
+      "paths": [
+        "tasks/ELZ-015-ash-foundation.md"
+      ],
+      "outputs": [],
+      "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 17,
+      "issue_body_sha256": "9ee9b3bb8ae6847610c51e4bdf2f120591b7871a9414e05ac3d5773a7d9ee00e",
+      "observed_issue_state": "CLOSED",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P01",
+        "P02",
+        "P03",
+        "P04",
+        "P05",
+        "P06",
+        "P07",
+        "P08",
+        "P09",
+        "P10",
+        "P11",
+        "P12"
+      ]
+    },
+    {
+      "id": "ELZ-016",
+      "title": "ELZ-016 — Specify telemetry, config and control applicability",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-015"
+      ],
+      "status": "historical-closed; not independently reaccepted here",
+      "url": "https://github.com/balungpisah/elzoo/issues/19",
+      "paths": [
+        "tasks/ELZ-016-operational-contracts.md"
+      ],
+      "outputs": [],
+      "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 19,
+      "issue_body_sha256": "692c36bcdbbf40c7109b603fe0dcf0264f8f1762eebd6a64ca9d9893d281a3f6",
+      "observed_issue_state": "CLOSED",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P01",
+        "P02",
+        "P03",
+        "P04",
+        "P05",
+        "P06",
+        "P07",
+        "P08",
+        "P09",
+        "P10",
+        "P11",
+        "P12"
+      ]
+    },
+    {
+      "id": "ELZ-017",
+      "title": "ELZ-017 — Evaluate Gleam library reuse independently",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-014"
+      ],
+      "status": "historical-closed; not independently reaccepted here",
+      "url": "https://github.com/balungpisah/elzoo/issues/20",
+      "paths": [
+        "tasks/ELZ-017-gleam-library-evaluation.md"
+      ],
+      "outputs": [],
+      "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 20,
+      "issue_body_sha256": "3243c8a5721c87856417915fbcce6bedaf82497bd4b1bed011e4a533b02eb784",
+      "observed_issue_state": "CLOSED",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P01",
+        "P02",
+        "P03",
+        "P04",
+        "P05",
+        "P06",
+        "P07",
+        "P08",
+        "P09",
+        "P10",
+        "P11",
+        "P12"
+      ]
+    },
+    {
+      "id": "ELZ-018",
+      "title": "ELZ-018 — Resolve pre-dispatch adversarial review findings",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-017"
+      ],
+      "status": "historical-closed; not independently reaccepted here",
+      "url": "https://github.com/balungpisah/elzoo/issues/23",
+      "paths": [
+        "tasks/ELZ-018-review-hardening.md"
+      ],
+      "outputs": [],
+      "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 23,
+      "issue_body_sha256": "5b6f66e012e494eaf12b25d5028b1bd9e1dfce26d8525d57d5e6f1cbee4af645",
+      "observed_issue_state": "CLOSED",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P01",
+        "P02",
+        "P03",
+        "P04",
+        "P05",
+        "P06",
+        "P07",
+        "P08",
+        "P09",
+        "P10",
+        "P11",
+        "P12"
+      ]
+    },
+    {
+      "id": "ELZ-019",
+      "title": "ELZ-019 — Run CI only on symbolic",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-018"
+      ],
+      "status": "historical-closed; not independently reaccepted here",
+      "url": "https://github.com/balungpisah/elzoo/issues/26",
+      "paths": [
+        "tasks/ELZ-019-symbolic-ci.md"
+      ],
+      "outputs": [],
+      "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 26,
+      "issue_body_sha256": "2558e16302c6c632351a351e101c8f171eaf67c8b2e668dc25df85424b5bbf2f",
+      "observed_issue_state": "CLOSED",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P01",
+        "P02",
+        "P03",
+        "P04",
+        "P05",
+        "P06",
+        "P07",
+        "P08",
+        "P09",
+        "P10",
+        "P11",
+        "P12"
+      ],
+      "product_role": "Supporting policy, evidence, operations, discoverability or later example; not an additional product prerequisite or a delivered end-to-end product."
+    },
+    {
+      "id": "ELZ-020",
+      "title": "ELZ-020 — Measure and tune symbolic CI parallelism",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-019"
+      ],
+      "status": "historical-closed; not independently reaccepted here",
+      "url": "https://github.com/balungpisah/elzoo/issues/28",
+      "paths": [
+        "tasks/ELZ-020-symbolic-parallelism.md"
+      ],
+      "outputs": [],
+      "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 28,
+      "issue_body_sha256": "5e88c8f9021fdc04999d7f0dd0325829ac44a6a7178ebd8645f4cc5d4749bcba",
+      "observed_issue_state": "CLOSED",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P01",
+        "P02",
+        "P03",
+        "P04",
+        "P05",
+        "P06",
+        "P07",
+        "P08",
+        "P09",
+        "P10",
+        "P11",
+        "P12"
+      ],
+      "product_role": "Supporting policy, evidence, operations, discoverability or later example; not an additional product prerequisite or a delivered end-to-end product."
+    },
+    {
+      "id": "ELZ-021",
+      "title": "ELZ-021 — Decompose the Raxol reference into admission records",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-014",
+        "ELZ-015",
+        "ELZ-018"
+      ],
+      "status": "historical-closed; not independently reaccepted here",
+      "url": "https://github.com/balungpisah/elzoo/issues/33",
+      "paths": [
+        "tasks/ELZ-021-raxol-reference-decomposition.md"
+      ],
+      "outputs": [],
+      "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 33,
+      "issue_body_sha256": "b7c4e3dc9c315b09c35ddfc7019b6f2e93705ea4e32cf95c9a84eff9e2b23015",
+      "observed_issue_state": "CLOSED",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P03",
+        "P05",
+        "P07"
+      ],
+      "product_role": "Supporting policy, evidence, operations, discoverability or later example; not an additional product prerequisite or a delivered end-to-end product."
+    },
+    {
+      "id": "ELZ-022",
+      "title": "ELZ-022 — Specify budget reservation and settlement",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-003",
+        "ELZ-004"
+      ],
+      "status": "selected first wave; blocked on adoption and preflight",
+      "url": "https://github.com/balungpisah/elzoo/issues/36",
+      "paths": [
+        "tasks/ELZ-022-budget-reservation.md"
+      ],
+      "outputs": [
+        "workflow/budget"
+      ],
+      "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 36,
+      "issue_body_sha256": "4d21d2125c449285c2701b8f7d2b517e1c98250a2bda258a09398a53e6ed6746",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed task worker after admission",
+      "selection_gates": [
+        "ELZ-033 merged and accepted",
+        "Frozen shared interfaces acknowledged",
+        "Local Contract decisions resolved and reviewed as specified in preflight.md",
+        "Live dependencies accepted; deterministic claim absent; isolated workspace/resources available"
+      ],
+      "preflight": "docs/plans/preflight.md",
+      "product_aims": [
+        "P05",
+        "P06",
+        "P07",
+        "P09"
+      ]
+    },
+    {
+      "id": "ELZ-023",
+      "title": "ELZ-023 — Specify dispatched-effect intent with unknown-outcome recovery",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-006",
+        "ELZ-009"
+      ],
+      "status": "published; dispatch gates required",
+      "url": "https://github.com/balungpisah/elzoo/issues/37",
+      "paths": [
+        "tasks/ELZ-023-dispatched-effect-intent.md"
+      ],
+      "outputs": [
+        "delivery/effect-intent"
+      ],
+      "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 37,
+      "issue_body_sha256": "6dd2b87bffcb25705030a4f860e9d771bc7d67777168666c6409520091079421",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P01",
+        "P02",
+        "P03",
+        "P04",
+        "P05",
+        "P06",
+        "P07",
+        "P08",
+        "P10",
+        "P11"
+      ]
+    },
+    {
+      "id": "ELZ-024",
+      "title": "ELZ-024 — Specify authorization decisions and exact-action approval",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-003",
+        "ELZ-015"
+      ],
+      "status": "selected first wave; blocked on adoption and preflight",
+      "url": "https://github.com/balungpisah/elzoo/issues/38",
+      "paths": [
+        "tasks/ELZ-024-authorization-approval-reducer.md"
+      ],
+      "outputs": [
+        "domain/authorization",
+        "workflow/approval"
+      ],
+      "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 38,
+      "issue_body_sha256": "118423ed0a48efdfc5b7a7df62357bf345028cd624a31955bc82a0b03498645e",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed task worker after admission",
+      "selection_gates": [
+        "ELZ-033 merged and accepted",
+        "Frozen shared interfaces acknowledged",
+        "Local Contract decisions resolved and reviewed as specified in preflight.md",
+        "Live dependencies accepted; deterministic claim absent; isolated workspace/resources available"
+      ],
+      "preflight": "docs/plans/preflight.md",
+      "product_aims": [
+        "P01",
+        "P02",
+        "P03",
+        "P04",
+        "P05",
+        "P06",
+        "P07",
+        "P08",
+        "P09",
+        "P10",
+        "P11",
+        "P12"
+      ],
+      "blockers": [
+        "B24.1 exact typed payload equality/encoding and policy content-hash binding; B24.2 configured-verifier evidence/time/scope boundary; B24.3 trusted current authority and conflict/failure schema. Coordinator must resolve and record before dispatch; see preflight.md."
+      ]
+    },
+    {
+      "id": "ELZ-025",
+      "title": "ELZ-025 — Adopt-or-distill study of sixteen Elixir/Gleam packages",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-021"
+      ],
+      "status": "historical-closed; not independently reaccepted here",
+      "url": "https://github.com/balungpisah/elzoo/issues/40",
+      "paths": [
+        "tasks/ELZ-025-ecosystem-adopt-or-distill-round-2.md"
+      ],
+      "outputs": [],
+      "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 40,
+      "issue_body_sha256": "9fcdc9887d16dc55a2c72050b68fe216b07aff7fc5e4a5ccc3cd69610e81db54",
+      "observed_issue_state": "CLOSED",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P03",
+        "P05",
+        "P07"
+      ],
+      "product_role": "Supporting policy, evidence, operations, discoverability or later example; not an additional product prerequisite or a delivered end-to-end product."
+    },
+    {
+      "id": "ELZ-026",
+      "title": "ELZ-026 — Specify dependency readiness and cycle admission",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-003"
+      ],
+      "status": "selected first wave; blocked on adoption and preflight",
+      "url": "https://github.com/balungpisah/elzoo/issues/43",
+      "paths": [
+        "tasks/ELZ-026-dependency-readiness.md"
+      ],
+      "outputs": [
+        "workflow/dependency-graph"
+      ],
+      "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 43,
+      "issue_body_sha256": "2b14f9f4d10bd3b6a0bc6e9fc20a831272211e65b3519085e6e4cd484e4eb950",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed task worker after admission",
+      "selection_gates": [
+        "ELZ-033 merged and accepted",
+        "Frozen shared interfaces acknowledged",
+        "Local Contract decisions resolved and reviewed as specified in preflight.md",
+        "Live dependencies accepted; deterministic claim absent; isolated workspace/resources available"
+      ],
+      "preflight": "docs/plans/preflight.md",
+      "product_aims": [
+        "P01",
+        "P02",
+        "P03",
+        "P05",
+        "P06",
+        "P07",
+        "P08",
+        "P11"
+      ]
+    },
+    {
+      "id": "ELZ-027",
+      "title": "ELZ-027 — Specify schedule occurrence identity and overlap policy",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-003"
+      ],
+      "status": "published; dispatch gates required",
+      "url": "https://github.com/balungpisah/elzoo/issues/44",
+      "paths": [
+        "tasks/ELZ-027-schedule-occurrence.md"
+      ],
+      "outputs": [
+        "delivery/trigger"
+      ],
+      "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 44,
+      "issue_body_sha256": "48a50ec8c43d81a3adcb797b6e82ca5971e1c38893f8258303cfd12f158331da",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P06"
+      ]
+    },
+    {
+      "id": "ELZ-028",
+      "title": "ELZ-028 — Specify single-owner leases fenced by record revision",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-009",
+        "ELZ-010"
+      ],
+      "status": "blocked: accepted ELZ-010 and provider-fit decision required",
+      "url": "https://github.com/balungpisah/elzoo/issues/45",
+      "paths": [
+        "tasks/ELZ-028-writer-lease.md"
+      ],
+      "outputs": [
+        "state/lease"
+      ],
+      "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 45,
+      "issue_body_sha256": "6c52b073debe69336bde2bc724eec166b0b7b3286251cca33820281a8ef75c15",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed task worker after admission",
+      "blockers": [
+        "Inspect accepted ELZ-010 ownership evidence. Insufficiency alone does not authorize a new lease; admit exact store-clock, revision-fence and atomic transaction boundary or record tested upstream composition."
+      ],
+      "product_aims": [
+        "P01",
+        "P02",
+        "P03",
+        "P05",
+        "P06",
+        "P07",
+        "P08",
+        "P11"
+      ]
+    },
+    {
+      "id": "ELZ-029",
+      "title": "ELZ-029 — Specify the OS-process Adapter boundary",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-006"
+      ],
+      "status": "published; dispatch gates required",
+      "url": "https://github.com/balungpisah/elzoo/issues/46",
+      "paths": [
+        "tasks/ELZ-029-os-process-adapter.md"
+      ],
+      "outputs": [
+        "runtime/os-isolation"
+      ],
+      "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 46,
+      "issue_body_sha256": "f844ecc1000034daac0a7b9d245c63797e4f811f5690d17fb72340cd7bf09ebb",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P07",
+        "P11"
+      ]
+    },
+    {
+      "id": "ELZ-030",
+      "title": "ELZ-030 — Specify bounded, permission-checked context selection",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-003",
+        "ELZ-024"
+      ],
+      "status": "published; dispatch gates required",
+      "url": "https://github.com/balungpisah/elzoo/issues/47",
+      "paths": [
+        "tasks/ELZ-030-context-selection.md"
+      ],
+      "outputs": [
+        "workflow/context-selection"
+      ],
+      "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 47,
+      "issue_body_sha256": "07ee72158f223cf0c08c4f776986e08674ee28c4bcea29a01324b6e4678b427e",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P06",
+        "P07"
+      ]
+    },
+    {
+      "id": "ELZ-031",
+      "title": "ELZ-031 — Specify exact money amounts and the currency registry",
+      "kind": "published",
+      "release": "V2",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-003"
+      ],
+      "status": "published; dispatch gates required",
+      "url": "https://github.com/balungpisah/elzoo/issues/48",
+      "paths": [
+        "tasks/ELZ-031-money-amounts.md"
+      ],
+      "outputs": [
+        "domain/money"
+      ],
+      "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 48,
+      "issue_body_sha256": "6e071ec849e644c601afe3188403908454058f7e11f9d23a0f66b52e7738748e",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P09",
+        "P10"
+      ]
+    },
+    {
+      "id": "ELZ-032",
+      "title": "ELZ-032 — Refuse PostgreSQL Store calls inside a caller transaction",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-009"
+      ],
+      "status": "historical-closed; not independently reaccepted here",
+      "url": "https://github.com/balungpisah/elzoo/issues/52",
+      "paths": [
+        "tasks/ELZ-032-postgres-caller-transaction.md"
+      ],
+      "outputs": [],
+      "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 52,
+      "issue_body_sha256": "ff90f25ee82c90f8bf8119e94e98fbec5cb3588db00661b6c13055039f351c88",
+      "observed_issue_state": "CLOSED",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P01",
+        "P02",
+        "P03",
+        "P10"
+      ],
+      "product_role": "Supporting policy, evidence, operations, discoverability or later example; not an additional product prerequisite or a delivered end-to-end product."
+    },
+    {
+      "id": "ELZ-033",
+      "title": "ELZ-033 — Adopt the product-led catalogue roadmap and gate the first wave",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "outputs": [
+        "core/grounding"
+      ],
+      "dependencies": [],
+      "status": "adoption implementation prepared; parent review and merge pending",
+      "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
+      "reuse": "Existing GitHub issue/branch workflow; no new scheduler or task engine.",
+      "paths": [
+        "tasks/ELZ-033-product-led-roadmap.md"
+      ],
+      "url": "https://github.com/balungpisah/elzoo/issues/55",
+      "issue": 55,
+      "issue_body_sha256": "a7e720e00e2e35af265beb3343c1db7931c32a613e6316c21ef1191d57d2510e",
+      "observed_issue_state": "OPEN",
+      "selection_gates": [
+        "Independent exact-SHA review, checks and merge acceptance owned by roadmap coordinator"
+      ],
+      "owner_role": "roadmap coordinator",
+      "product_aims": [
+        "P01",
+        "P02",
+        "P03",
+        "P04",
+        "P05",
+        "P06",
+        "P07",
+        "P08",
+        "P09",
+        "P10",
+        "P11",
+        "P12"
+      ]
+    },
+    {
+      "id": "RC-01",
+      "title": "Versioned stored-state compatibility",
+      "kind": "proposal",
+      "release": "V1",
+      "stage": "pieces",
+      "outputs": [
+        "state/schema-evolution"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-010"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Versioned stored record -> current record or explicit incompatible/unwritable result. The owning consumer chooses supported versions; older writers cannot silently discard fields. Do not retrofit the active durable-job contract.",
+      "acceptance": "Frozen writer corpora, frozen older-reader fixture, unknown version, lossless migration and unwritable older-writer checks. Missing/changed golden bytes fail checks.",
+      "reuse": "Existing encoding and provider migration facilities; pure upcast policy only where missing.",
+      "paths": [
+        "pieces/state/schema-evolution/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "Accepted persisted formats, supported readers/writers and first real evolution need; no placeholder v2 or widened ready ID."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P01",
+        "P02",
+        "P04",
+        "P08",
+        "P10"
+      ]
+    },
+    {
+      "id": "RC-02",
+      "title": "Persistent schedule recipe",
+      "kind": "proposal",
+      "release": "V1",
+      "stage": "pieces",
+      "outputs": [
+        "state/scheduler"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-010",
+        "ELZ-027"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Schedule identity, generation and instant -> durable occurrence admission. Time zone/DST/misfire rules explicit; occurrence identity survives restart. Start with one provider and bounded recurring policy.",
+      "acceptance": "Restart, duplicate occurrence, missed interval, clock boundary and declared skip/queue/replace behavior. Timer recipe alone cannot satisfy this job.",
+      "reuse": "Oban/AshOban candidate; exercise provider persistence and scheduling boundary.",
+      "paths": [
+        "pieces/state/scheduler/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "One persistent schedule API with timezone, DST, misfire and occurrence transaction choice; timer availability is insufficient."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P06"
+      ]
+    },
+    {
+      "id": "RC-03",
+      "title": "Redacted telemetry and one exporter",
+      "kind": "proposal",
+      "release": "V1",
+      "stage": "pieces",
+      "outputs": [
+        "runtime/telemetry",
+        "integration/observability"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-004"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Versioned event schema, allowed fields and cardinality -> observations through one named exporter. Observations are not durable audit or accounting records.",
+      "acceptance": "Secret-bearing payload redaction, bounded labels, exporter failure/drop behavior and attach/detach lifecycle. No payloads or credentials in emitted records.",
+      "reuse": ":telemetry and OpenTelemetry; direct recipes wherever sufficient.",
+      "paths": [
+        "pieces/runtime/telemetry/",
+        "pieces/integration/observability/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "Named exporter API and bounded/drop/redaction contract; no exporter adopted."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P01",
+        "P05",
+        "P07"
+      ],
+      "product_role": "Supporting policy, evidence, operations, discoverability or later example; not an additional product prerequisite or a delivered end-to-end product."
+    },
+    {
+      "id": "RC-04",
+      "title": "Operational interfaces for new stateful Pieces",
+      "kind": "proposal",
+      "release": "V1",
+      "stage": "pieces",
+      "outputs": [
+        "runtime/faces"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-016",
+        "ELZ-024",
+        "RC-03"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Typed config/control/readiness responses with declared authorization and configuration revision. Applicability is per Piece. Stop, pause and business drain remain distinct; ready runtimes are not silently extended.",
+      "acceptance": "Unauthorized command, stale config revision and unsupported command rejection. A drain promise requires a named work-completion check; otherwise report unsupported.",
+      "reuse": "OTP lifecycle and existing operational-contract schemas; no universal management service.",
+      "paths": [
+        "pieces/runtime/faces/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P01",
+        "P05",
+        "P07"
+      ],
+      "product_role": "Supporting policy, evidence, operations, discoverability or later example; not an additional product prerequisite or a delivered end-to-end product."
+    },
+    {
+      "id": "RC-05",
+      "title": "Scoped credential references",
+      "kind": "proposal",
+      "release": "V1",
+      "stage": "pieces",
+      "outputs": [
+        "integration/secrets"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-011"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Opaque secret reference plus caller scope -> ephemeral credential or explicit denial/unavailable. Select injected credentials as initial backend; document refresh and rotation semantics without promising a vault.",
+      "acceptance": "Wrong scope, missing secret, rotation boundary and error/log redaction; secret material never enters receipts or model context.",
+      "reuse": "Consumer-owned environment/mounted-secret backend first; vault plugins later, separately tested.",
+      "paths": [
+        "pieces/integration/secrets/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "Consumer credential injection API, scope and rotation semantics must be admitted."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P01",
+        "P03",
+        "P04",
+        "P05",
+        "P06",
+        "P07",
+        "P08",
+        "P09",
+        "P10",
+        "P11",
+        "P12"
+      ]
+    },
+    {
+      "id": "RC-06",
+      "title": "Authenticated identity and principal mapping",
+      "kind": "proposal",
+      "release": "V1",
+      "stage": "pieces",
+      "outputs": [
+        "integration/identity",
+        "domain/principal"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "RC-05",
+        "ELZ-024"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Verified provider identity (issuer, subject, audience) -> stable scoped principal. Authentication and account linking remain provider contracts; no custom password or token protocol.",
+      "acceptance": "Wrong issuer/audience, expired/revoked session, ambiguous linking and tenant crossover; supplied principal strings are not authentication evidence.",
+      "reuse": "Evaluate AshAuthentication/OIDC ecosystem at one selected boundary; pin and test exact adoption before ready.",
+      "paths": [
+        "pieces/integration/identity/",
+        "pieces/domain/principal/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "Select authentication provider/API and issuer/audience/revocation/linking rules; trusted actor maps are not authenticated identities."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P04",
+        "P05",
+        "P09",
+        "P12"
+      ]
+    },
+    {
+      "id": "RC-07",
+      "title": "Membership, invitations and feature entitlement",
+      "kind": "proposal",
+      "release": "V1",
+      "stage": "pieces",
+      "outputs": [
+        "domain/membership",
+        "domain/entitlement"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "RC-06",
+        "ELZ-024",
+        "RC-10"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Two distinct Pieces: single-use tenant invitation/membership transition; versioned feature entitlement with explicit revocation/grace. Atomic storage owns membership changes; billing provider synchronization is outside V1.",
+      "acceptance": "Concurrent invitation acceptance, cross-tenant token replay, revoked inviter, changed role and entitlement revoked while work is queued. No partial membership activation.",
+      "reuse": "Ash resource/policy plus selected transactional storage; no new identity framework.",
+      "paths": [
+        "pieces/domain/membership/",
+        "pieces/domain/entitlement/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "Choose invitation and entitlement storage transaction with concurrency/revocation evidence."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P04",
+        "P05",
+        "P09"
+      ]
+    },
+    {
+      "id": "RC-08",
+      "title": "Durable tenant allocation",
+      "kind": "proposal",
+      "release": "V1",
+      "stage": "pieces",
+      "outputs": [
+        "domain/quota"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-022",
+        "RC-07",
+        "ELZ-009"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Tenant, unit, period and operation identity -> atomic reservation/settlement/reset. Reuse arithmetic but keep quota state and reset authority separate from a Run budget.",
+      "acceptance": "Concurrent last-unit admission, duplicate settle, reset race, restart with open reservation and unknown usage; missing usage cannot become zero.",
+      "reuse": "Evaluate provider transactional counters; compose budget arithmetic, never copy a second reservation engine.",
+      "paths": [
+        "pieces/domain/quota/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "Choose atomic reservation/settlement/reset transaction; budget owner alone is volatile."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P05",
+        "P09"
+      ]
+    },
+    {
+      "id": "RC-09",
+      "title": "One authorization-provider translation",
+      "kind": "proposal",
+      "release": "V1",
+      "stage": "pieces",
+      "outputs": [
+        "integration/auth-policy"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-024",
+        "RC-06"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Translate one provider policy decision into the existing authorization contract; policy version and unavailable/denied distinction retained. Provider output never bypasses exact-action approval.",
+      "acceptance": "Unavailable provider fails closed, unknown decision, changed policy and child authority restriction; direct versus translated policy scenarios agree within declared scope.",
+      "reuse": "Ash policy boundary first; Bodyguard/Cedar only when the selected contract needs them.",
+      "paths": [
+        "pieces/integration/auth-policy/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "Select one policy provider and total unavailable/unknown mapping."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P04"
+      ]
+    },
+    {
+      "id": "RC-10",
+      "title": "Transactional retained decision records",
+      "kind": "proposal",
+      "release": "V1",
+      "stage": "pieces",
+      "outputs": [
+        "state/audit-log"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-009",
+        "ELZ-024"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Decision and actor/resource/policy attribution commit atomically under one operation identity. Retention and access declared; telemetry is not the backing store. Select storage supporting the actual joint transaction.",
+      "acceptance": "Crash between decision and audit, duplicate write, redaction and unauthorized read; if the existing Store cannot provide joint atomicity, create a reviewed adapter/contract prerequisite instead of weakening the invariant.",
+      "reuse": "Existing event records or transactional Ecto/Ash storage after exact-boundary evaluation; no tamper-proof claim.",
+      "paths": [
+        "pieces/state/audit-log/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "Joint decision/audit atomicity is unresolved. ELZ-009 Store is not a general multi-record business transaction; caller transactions are refused (ELZ-032)."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P01",
+        "P02",
+        "P03",
+        "P04",
+        "P05",
+        "P06",
+        "P07",
+        "P08",
+        "P09",
+        "P10",
+        "P11",
+        "P12"
+      ]
+    },
+    {
+      "id": "RC-11",
+      "title": "Durable intent and acceptance",
+      "kind": "proposal",
+      "release": "V1",
+      "stage": "pieces",
+      "outputs": [
+        "workflow/work-item"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-026",
+        "ELZ-028",
+        "ELZ-024",
+        "RC-10"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Work Item has stable intent, acceptance revision, assignee/authority and explicit lifecycle. A Run result is evidence offered for acceptance, never automatic business completion.",
+      "acceptance": "Stale holder cannot accept, duplicate completion is idempotent, no-op writes nothing, dependency failure policy explicit, cancellation of an Attempt does not erase intent.",
+      "reuse": "Ash resource/action/state facilities; reuse provider ownership when ELZ-028 determines it suffices.",
+      "paths": [
+        "pieces/workflow/work-item/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "Durable Work Item lifecycle and atomic acceptance/ownership transaction not admitted."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P03",
+        "P07"
+      ]
+    },
+    {
+      "id": "RC-12",
+      "title": "Run and Attempt lifecycle with durable approvals",
+      "kind": "proposal",
+      "release": "V1",
+      "stage": "pieces",
+      "outputs": [
+        "workflow/run"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-010",
+        "ELZ-023",
+        "ELZ-024",
+        "ELZ-026",
+        "ELZ-028",
+        "RC-10"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Run/Attempt identity, current owner, reciprocal parent-child links, cancellation and effect settlement remain distinct. Persist approval inputs and re-evaluate current authority before dispatch; provider sessions are external references.",
+      "acceptance": "Restart, late child result, duplicate completion, unknown spawn/cancel outcome, parent wakeup loss, stale Attempt and restored approval bypass. Child death observed; completion requires durable evidence.",
+      "reuse": "Evaluate Oban/Jido/Reactor boundaries before implementing orchestration remainder; no mandatory global runtime.",
+      "paths": [
+        "pieces/workflow/run/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "Durable Run/Attempt and approval persistence/current-authority interface not admitted; ELZ-010 job Run is a narrower Contract."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P01",
+        "P02",
+        "P03",
+        "P05",
+        "P06",
+        "P07",
+        "P08",
+        "P11"
+      ]
+    },
+    {
+      "id": "RC-13",
+      "title": "Object storage and owned artifacts",
+      "kind": "proposal",
+      "release": "V1",
+      "stage": "pieces",
+      "outputs": [
+        "integration/object-store",
+        "state/artifact"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-009",
+        "ELZ-024",
+        "RC-05"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Separate provider byte-storage translation from tenant-owned versioned artifact references. Versioned canonical content hash, size, access, retention and expiry are explicit; a hash never grants access.",
+      "acceptance": "Partial upload cleanup, wrong hash, stale access URL, retention expiry, cross-tenant lookup and failed write/reference commit. Verify integrity on read under declared format.",
+      "reuse": "S3-compatible client and local compatible service candidate; consumer bucket and credentials. AWS-specific guarantees require separate evidence.",
+      "paths": [
+        "pieces/integration/object-store/",
+        "pieces/state/artifact/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "Select byte store API and byte/reference commit, integrity and access boundary."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P01",
+        "P05",
+        "P06",
+        "P07",
+        "P08",
+        "P11",
+        "P12"
+      ]
+    },
+    {
+      "id": "RC-14",
+      "title": "Bounded incremental transfer",
+      "kind": "proposal",
+      "release": "V1",
+      "stage": "pieces",
+      "outputs": [
+        "delivery/data-stream"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-006"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Stream chunks carry explicit completion, cancellation and partial-result status. Bound buffering and declare who closes/drains on consumer failure.",
+      "acceptance": "Slow consumer, disconnect, cancellation, incomplete final chunk and end-of-stream flush; memory bound enforced in named scenarios.",
+      "reuse": "Elixir/OTP and maintained HTTP streaming APIs; ordinary Enum/Stream remains unchanged.",
+      "paths": [
+        "pieces/delivery/data-stream/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "Choose streaming API, buffer ownership and failure/close semantics."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P06",
+        "P07",
+        "P08",
+        "P09",
+        "P11"
+      ]
+    },
+    {
+      "id": "RC-15",
+      "title": "Correlated result joins",
+      "kind": "proposal",
+      "release": "V1",
+      "stage": "pieces",
+      "outputs": [
+        "delivery/aggregation"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-003",
+        "ELZ-006",
+        "ELZ-026"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Declared branch identities plus correlated results -> bounded join state and explicit all/partial/failed/expired decision. Arrival order is not identity; retention and duplicate policy explicit.",
+      "acceptance": "Duplicate result, absent/killed branch, late result, timeout and unreadable denial record. Each expected branch contributes at most once.",
+      "reuse": "Use ordinary collection operations; author only missing join and timeout policy.",
+      "paths": [
+        "pieces/delivery/aggregation/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P07"
+      ]
+    },
+    {
+      "id": "RC-16",
+      "title": "One model-provider boundary",
+      "kind": "proposal",
+      "release": "V1",
+      "stage": "pieces",
+      "outputs": [
+        "integration/ai-model"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-011",
+        "RC-05",
+        "RC-14"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Declared model capabilities and validated request -> result/stream/tool proposals plus source-tagged usage. Tool proposals remain inert data. Unsupported features fail explicitly; no universal provider equivalence.",
+      "acceptance": "Malformed tool arguments, interrupted stream, unknown usage, rate limit, timeout and unsupported structured output. Pin one provider/SDK and exercise real boundary before claiming adoption.",
+      "reuse": "req_llm and maintained SDK candidates from existing study; no new HTTP client or tokenizer.",
+      "paths": [
+        "pieces/integration/ai-model/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "Select one model SDK/provider capability, usage provenance and stream API; credentials and exact-boundary tests required."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P06",
+        "P07",
+        "P09",
+        "P11"
+      ]
+    },
+    {
+      "id": "RC-17",
+      "title": "One external agent-runner boundary",
+      "kind": "proposal",
+      "release": "V1",
+      "stage": "pieces",
+      "outputs": [
+        "integration/agent-runner"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-029",
+        "ELZ-024",
+        "RC-12",
+        "RC-16",
+        "RC-05"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Capability-declared start/status/cancel and optional resume; stable host tool registry id/version, current authority check and exact-action consent before execution. Provider session != Work Item or Run.",
+      "acceptance": "Unsupported resume, unknown tool, model self-approval, late output after cancellation, process death, unknown spawn outcome and credential redaction. Do not treat OS-process cleanup as a security sandbox.",
+      "reuse": "Choose one maintained agent/protocol SDK after fit check; ELZ-029 for actual CLI processes only.",
+      "paths": [
+        "pieces/integration/agent-runner/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "Select runner API/SDK and actual resume/cancel/tool capabilities; unknown spawn remains unknown."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P07",
+        "P11"
+      ]
+    },
+    {
+      "id": "RC-18",
+      "title": "Permission-aware retrieval adapter",
+      "kind": "proposal",
+      "release": "V1",
+      "stage": "pieces",
+      "outputs": [
+        "integration/search-data"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-030",
+        "RC-13",
+        "RC-05"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "One retrieval provider returns versioned source references, access evidence and bounded bytes. V1 scope is document retrieval; dataframe, OCR and speech remain separate future candidates.",
+      "acceptance": "Revoked access between retrieval and selection, stale source, oversized input, missing provenance and provider timeout. Retrieval quality is not proof of truth.",
+      "reuse": "Select one maintained search/document client; avoid a generic data engine.",
+      "paths": [
+        "pieces/integration/search-data/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "Choose retrieval API and current access/provenance evidence; no general data engine."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P06",
+        "P07"
+      ]
+    },
+    {
+      "id": "RC-19",
+      "title": "One notification translation",
+      "kind": "proposal",
+      "release": "V1",
+      "stage": "pieces",
+      "outputs": [
+        "integration/notification"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-011",
+        "ELZ-023",
+        "RC-05",
+        "RC-43"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Message identity, recipient and content -> provider accepted/rejected/unknown. Provider acceptance is not recipient delivery. Durable dispatch consumes explicit outbox/effect contracts.",
+      "acceptance": "Timeout after acceptance, duplicate retry, invalid address, provider rejection and redaction. Unknown outcome must not trigger blind duplicate send.",
+      "reuse": "Swoosh with a named SMTP backend is the initial candidate; deterministic SMTP fixture plus exact transport evidence.",
+      "paths": [
+        "pieces/integration/notification/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "Select notification transport and accepted/rejected/unknown mapping; SMTP acceptance is not recipient delivery."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P03",
+        "P04",
+        "P06"
+      ]
+    },
+    {
+      "id": "RC-20",
+      "title": "Finite versioned decision rules",
+      "kind": "proposal",
+      "release": "V2",
+      "stage": "pieces",
+      "outputs": [
+        "domain/policy-rules"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-024"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Finite typed rule set, version and inputs -> decision with conflict/explanation record. Start with entitlement or approval policies; arbitrary generated executable code is out of scope.",
+      "acceptance": "Conflicting rules, missing input, unknown operator, deterministic replay and changed policy version; enforce evaluation bounds.",
+      "reuse": "Existing policy evaluator first; retain only missing declarative policy semantics.",
+      "paths": [
+        "pieces/domain/policy-rules/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P09",
+        "P10"
+      ],
+      "product_role": "Supporting policy, evidence, operations, discoverability or later example; not an additional product prerequisite or a delivered end-to-end product."
+    },
+    {
+      "id": "RC-21",
+      "title": "Observed usage and corrections",
+      "kind": "proposal",
+      "release": "V2",
+      "stage": "pieces",
+      "outputs": [
+        "domain/metering"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "RC-16",
+        "RC-10",
+        "ELZ-009"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Operation/Attempt identity, units, usage source and observation -> idempotent retained usage/correction records. Estimated, provider-reported and unknown stay distinct; customer charges are separate.",
+      "acceptance": "Duplicate/out-of-order usage, interrupted stream cost, late correction, missing usage and mixed units. Unknown usage stops admission where the contract requires verified budget.",
+      "reuse": "Provider usage data and transactional storage; no tokenizer or invoice engine.",
+      "paths": [
+        "pieces/domain/metering/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "Choose usage-correction retention and dedup transaction; unknown usage is never zero."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P09"
+      ]
+    },
+    {
+      "id": "RC-22",
+      "title": "Atomic balanced postings",
+      "kind": "proposal",
+      "release": "V2",
+      "stage": "pieces",
+      "outputs": [
+        "domain/journal"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-031",
+        "RC-10",
+        "ELZ-009"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "One operation contains all same-currency postings, atomic balance constraints and immutable linked reversals. Account identity is not principal identity.",
+      "acceptance": "Concurrent balance constraint, duplicate operation, partial commit, currency mismatch, retired currency and reversal replay at selected isolation level.",
+      "reuse": "Evaluate maintained ledger libraries and transactional SQL; never implement debit and credit as independent effects.",
+      "paths": [
+        "pieces/domain/journal/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "Choose journal transaction/isolation and atomic balance enforcement; Store CAS alone is not a journal."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P09",
+        "P10"
+      ]
+    },
+    {
+      "id": "RC-23",
+      "title": "Immutable pricing versions",
+      "kind": "proposal",
+      "release": "V2",
+      "stage": "pieces",
+      "outputs": [
+        "domain/pricing"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-031",
+        "RC-21"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Unit-tagged accepted usage and immutable rate version -> exact currency charge with declared precision, tiers, rounding and minimums. Provider cost and customer price remain separate.",
+      "acceptance": "Price change cannot reprice history, mixed units/currency rejected, fractional rate precision, zero/missing usage and attributable corrections.",
+      "reuse": "Decimal/ex_money and finite tables; no arbitrary pricing DSL.",
+      "paths": [
+        "pieces/domain/pricing/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "Freeze unit/rate/rounding version schema and historical pricing policy."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P09"
+      ]
+    },
+    {
+      "id": "RC-24",
+      "title": "One payment provider and reconciliation lifecycle",
+      "kind": "proposal",
+      "release": "V2",
+      "stage": "pieces",
+      "outputs": [
+        "integration/payments",
+        "domain/payment-lifecycle"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-023",
+        "ELZ-031",
+        "RC-05",
+        "RC-22",
+        "ELZ-024"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Separate API/webhook translation from payment/refund policy. Stable logical payment id across attempts; uncertain dispatch enters reconciliation. Choose provider before binding semantics.",
+      "acceptance": "Timeout-after-charge, concurrent over-refund, duplicate/out-of-order webhook, signature failure and changed approved amount. Provider settlement is not proved by a local journal.",
+      "reuse": "Maintained provider SDK plus provider test environment; provider choice is a mandatory job decision, not a guessed universal contract.",
+      "paths": [
+        "pieces/integration/payments/",
+        "pieces/domain/payment-lifecycle/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "Select payment provider, webhook verification and reconciliation/idempotency contract before implementation."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P10"
+      ]
+    },
+    {
+      "id": "RC-25",
+      "title": "Eligible provider selection",
+      "kind": "proposal",
+      "release": "V2",
+      "stage": "pieces",
+      "outputs": [
+        "delivery/model-routing"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "RC-16",
+        "RC-21",
+        "RC-23",
+        "RC-08",
+        "RC-26"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Select among explicitly authorized provider capabilities under price/region/capacity/health policy. Fallback creates separate Attempts and preserves possible cost on both.",
+      "acceptance": "Unsupported tools/output mode, stale health, unapproved region/provider, unknown first-attempt outcome and cross-provider credential leak.",
+      "reuse": "Reuse core/selection after compatibility assessment; provider translation remains separate. Second provider conformance is required for fallback claims.",
+      "paths": [
+        "pieces/delivery/model-routing/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "At least two actually tested provider boundaries needed for fallback; preserve separate Attempts/cost."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P09"
+      ]
+    },
+    {
+      "id": "RC-26",
+      "title": "Circuit admission and resource bulkheads",
+      "kind": "proposal",
+      "release": "V1",
+      "stage": "pieces",
+      "outputs": [
+        "delivery/circuit-breaker"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-006"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Explicit failure classification and monotonic clock input drive closed/open/half-open permit decisions; pool capacity owns bulkhead enforcement.",
+      "acceptance": "Concurrent probes, stale health, clock jumps, recovery and resource exhaustion; distinguish local circuit state from upstream health certainty.",
+      "reuse": "OTP state and maintained pool/circuit library first; author only absent policy.",
+      "paths": [
+        "pieces/delivery/circuit-breaker/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P09"
+      ]
+    },
+    {
+      "id": "RC-27",
+      "title": "One broker and explicit pubsub semantics",
+      "kind": "proposal",
+      "release": "V2",
+      "stage": "pieces",
+      "outputs": [
+        "integration/message-broker",
+        "delivery/pubsub"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-003",
+        "ELZ-006",
+        "RC-05"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Broker adapter declares ack, redelivery, ordering and reconnect; pubsub declares subscriber loss and retention. A local OTP recipe and durable broker delivery are distinct contracts.",
+      "acceptance": "Disconnect before/after ack, duplicate delivery, absent subscriber, reconnect and slow-consumer limit against one chosen broker.",
+      "reuse": "Select NATS/RabbitMQ/MQTT by concrete workload; no broker implementation or all-provider claim.",
+      "paths": [
+        "pieces/integration/message-broker/",
+        "pieces/delivery/pubsub/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "Select one broker workload, ack/reconnect/retention API and slow-consumer bounds."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P11",
+        "P12"
+      ]
+    },
+    {
+      "id": "RC-28",
+      "title": "Bounded resequencing",
+      "kind": "proposal",
+      "release": "V2",
+      "stage": "pieces",
+      "outputs": [
+        "delivery/resequence"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-003",
+        "ELZ-006"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Per-source sequence and declared retention window -> ordered outputs or explicit gap/expiry result; no global order inferred.",
+      "acceptance": "Missing sequence, duplicate, late arrival, reset epoch and memory cap; deterministic gap policy.",
+      "reuse": "Ordinary ordered collections plus missing policy; broker ordering contract remains external.",
+      "paths": [
+        "pieces/delivery/resequence/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P11",
+        "P12"
+      ]
+    },
+    {
+      "id": "RC-29",
+      "title": "Incremental build dependency policy",
+      "kind": "proposal",
+      "release": "V2",
+      "stage": "pieces",
+      "outputs": [
+        "workflow/build-graph"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-026",
+        "RC-13",
+        "RC-12"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Versioned input/action/toolchain identities -> rebuild/skip decision and durable trace. Cache hit only when full dependency identity matches.",
+      "acceptance": "Changed toolchain/environment/input, corrupted artifact, failed dependency, interrupted build and dry-run side-effect refusal.",
+      "reuse": "Existing build/graph/cache libraries; no replacement for Mix or catalogue task orchestration.",
+      "paths": [
+        "pieces/workflow/build-graph/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P11"
+      ]
+    },
+    {
+      "id": "RC-30",
+      "title": "One foreign consumer protocol",
+      "kind": "proposal",
+      "release": "V2",
+      "stage": "pieces",
+      "outputs": [
+        "integration/sdk"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "RC-17",
+        "ELZ-003"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "One actual foreign language consumes versioned messages/results with cancellation and explicit errors. Select TypeScript first unless the target workflow establishes a different need; no four-language promise.",
+      "acceptance": "Unknown schema, malformed payload, cancellation, provider death and conformance fixture round-trip across languages.",
+      "reuse": "Maintained protocol/serialization SDK; MCP only when the named consumer needs it.",
+      "paths": [
+        "pieces/integration/sdk/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "Select one actual foreign consumer and versioned protocol; TypeScript is a candidate, not adoption."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P11"
+      ]
+    },
+    {
+      "id": "RC-31",
+      "title": "Optional embeddable component",
+      "kind": "proposal",
+      "release": "V2",
+      "stage": "pieces",
+      "outputs": [
+        "ui/component"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-017"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Export the studied component with a scoped DOM interface, lifecycle and accessibility contract. Backend Pieces remain independent of UI language.",
+      "acceptance": "Mount/unmount, two independent instances, keyboard interaction, malformed attribute/event and selected browser behavior.",
+      "reuse": "Lustre/Web Components evaluation; do not promote spike evidence into ready export without consumer tests.",
+      "paths": [
+        "pieces/ui/component/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P09",
+        "P10",
+        "P11"
+      ],
+      "product_role": "Supporting policy, evidence, operations, discoverability or later example; not an additional product prerequisite or a delivered end-to-end product."
+    },
+    {
+      "id": "RC-32",
+      "title": "Resolve umbrella catalogue entries",
+      "kind": "proposal",
+      "release": "V1",
+      "stage": "pieces",
+      "outputs": [
+        "domain/value-types",
+        "domain/saas-controls"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-014"
+      ],
+      "status": "index disposition resolved in ELZ-033; no executable promotion",
+      "contract": "Discoverability indexes only: domain/value-types links domain/money; domain/saas-controls links domain/membership, domain/authorization, domain/entitlement and domain/quota. No wrapper engine, no executable readiness and no metadata change in ELZ-033.",
+      "acceptance": "Planning disposition resolved by ELZ-033 review; concrete child availability remains in the ledger. Any executable or metadata-format work requires separate admission.",
+      "reuse": "Existing catalogue metadata and maintained value libraries; money remains ELZ-031.",
+      "paths": [
+        "pieces/domain/value-types/",
+        "pieces/domain/saas-controls/"
+      ],
+      "blockers": [
+        "A catalogue metadata representation change requires a separate reviewed schema/checker task."
+      ],
+      "owner_role": "roadmap coordinator",
+      "product_aims": [
+        "P04",
+        "P05",
+        "P10"
+      ],
+      "product_role": "Supporting policy, evidence, operations, discoverability or later example; not an additional product prerequisite or a delivered end-to-end product."
+    },
+    {
+      "id": "RC-33",
+      "title": "Replication provider fit and partition contract",
+      "kind": "proposal",
+      "release": "V3",
+      "stage": "research",
+      "outputs": [
+        "state/replication"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-009"
+      ],
+      "status": "deferred: research admission only",
+      "contract": "Research gate: choose an actual cross-node workload, consistency/availability tradeoff and established provider before proposing implementation. No new consensus engine.",
+      "acceptance": "Require explicit partition, quorum loss, failover, clock and stale-read scenarios before executable task admission; unresolved requirements remain research status.",
+      "reuse": "Established database/service replication; provider behavior and deployment assumptions named.",
+      "paths": [
+        "pieces/state/replication/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "Concrete workload and specialist requirements are unresolved; no implementation release promised."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P12"
+      ]
+    },
+    {
+      "id": "RC-34",
+      "title": "One replicated data-type contract",
+      "kind": "proposal",
+      "release": "V3",
+      "stage": "research",
+      "outputs": [
+        "state/crdt"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "RC-33"
+      ],
+      "status": "deferred: research admission only",
+      "contract": "Research gate: choose one concrete offline counter/set workload, merge algebra, actor identity and tombstone/retention model. Do not promise a CRDT suite.",
+      "acceptance": "Selected convergence laws plus duplicate/reordered merge and offline recovery tests; bounded storage policy and data loss tradeoff explicit before dispatch.",
+      "reuse": "Maintained CRDT library; research findings can reject an unnecessary new Piece.",
+      "paths": [
+        "pieces/state/crdt/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "Concrete workload and specialist requirements are unresolved; no implementation release promised."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P12"
+      ]
+    },
+    {
+      "id": "RC-35",
+      "title": "Device ingestion admission",
+      "kind": "proposal",
+      "release": "V3",
+      "stage": "research",
+      "outputs": [
+        "assembly/device-ingest"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "RC-27",
+        "RC-28"
+      ],
+      "status": "deferred: research admission only",
+      "contract": "Research gate: concrete device identity, protocol and rollout workflow; catalogue currently lacks admitted device credential/rollout contracts. Name new gaps before implementation.",
+      "acceptance": "Replay, offline reconnect, credential revocation, out-of-order readings and failed rollout addressed in admission record; this is not a promise of a ready IoT platform.",
+      "reuse": "Selected MQTT/device ecosystem, upstream lifecycle support.",
+      "paths": [
+        "pieces/assembly/device-ingest/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "Concrete workload and specialist requirements are unresolved; no implementation release promised."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P12"
+      ]
+    },
+    {
+      "id": "RC-36",
+      "title": "Consent and classified-record admission",
+      "kind": "proposal",
+      "release": "V3",
+      "stage": "research",
+      "outputs": [
+        "assembly/consent-records"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "RC-06",
+        "RC-10",
+        "RC-13"
+      ],
+      "status": "deferred: research admission only",
+      "contract": "Research gate: select record classification, consent scope, retention and actual healthcare interoperability boundary. No compliance certification inferred from a permission check.",
+      "acceptance": "Revoked consent, derived-record access, retention/deletion conflict, audit and specific FHIR compatibility requirements resolved before implementation admission.",
+      "reuse": "Maintained healthcare/auth/storage providers; dedicated domain expertise may be required.",
+      "paths": [
+        "pieces/assembly/consent-records/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "Concrete workload and specialist requirements are unresolved; no implementation release promised."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P12"
+      ]
+    },
+    {
+      "id": "RC-37",
+      "title": "Later task-workflow Assembly and example",
+      "kind": "proposal",
+      "release": "V1",
+      "stage": "examples-later",
+      "outputs": [
+        "assembly/task-workflow"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "RC-11",
+        "RC-12",
+        "RC-15",
+        "RC-19"
+      ],
+      "status": "deferred: examples later",
+      "contract": "Later composition of durable work acceptance and human/automated Runs; one executable example behind a reusable interface.",
+      "acceptance": "Acceptance differs from process exit; duplicate completion and stale ownership handled end to end. Product status labels stay consumer-owned.",
+      "reuse": "Compose accepted Pieces; examples explicitly postponed by user.",
+      "paths": [
+        "pieces/assembly/task-workflow/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "Separate user-authorized examples wave after Piece gates; not first-wave work."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P03"
+      ],
+      "product_role": "Supporting policy, evidence, operations, discoverability or later example; not an additional product prerequisite or a delivered end-to-end product."
+    },
+    {
+      "id": "RC-38",
+      "title": "Later bounded-agent Assembly and example",
+      "kind": "proposal",
+      "release": "V1",
+      "stage": "examples-later",
+      "outputs": [
+        "assembly/agent-product"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "RC-37",
+        "RC-17",
+        "RC-18",
+        "ELZ-022",
+        "ELZ-030",
+        "RC-42",
+        "RC-43"
+      ],
+      "status": "deferred: examples later",
+      "contract": "Later composition of bounded child Runs, scoped tools, context and exact-action approval. Budget guarantee remains bounded admission unless provider caps total charge.",
+      "acceptance": "Restart, unknown child spawn, model self-approval, tool registry mismatch, late output and publication reconciliation across composed boundaries.",
+      "reuse": "Compose accepted Pieces and one runner; examples postponed.",
+      "paths": [
+        "pieces/assembly/agent-product/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "Separate user-authorized examples wave after Piece gates; not first-wave work."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P07"
+      ],
+      "product_role": "Supporting policy, evidence, operations, discoverability or later example; not an additional product prerequisite or a delivered end-to-end product."
+    },
+    {
+      "id": "RC-39",
+      "title": "Later data-processing Assembly and example",
+      "kind": "proposal",
+      "release": "V1",
+      "stage": "examples-later",
+      "outputs": [
+        "assembly/data-pipeline"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "RC-12",
+        "RC-13",
+        "RC-14",
+        "RC-42"
+      ],
+      "status": "deferred: examples later",
+      "contract": "Later bounded artifact upload/transform flow; initial contract excludes the broader build graph and dataframe family unless separately delivered.",
+      "acceptance": "Upload interruption, integrity mismatch, duplicate transformation, cancellation and retention tested in composition.",
+      "reuse": "Accepted job/storage/stream Pieces; examples postponed.",
+      "paths": [
+        "pieces/assembly/data-pipeline/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "Separate user-authorized examples wave after Piece gates; not first-wave work."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P08"
+      ],
+      "product_role": "Supporting policy, evidence, operations, discoverability or later example; not an additional product prerequisite or a delivered end-to-end product."
+    },
+    {
+      "id": "RC-40",
+      "title": "Later tenant-boundary Assembly and example",
+      "kind": "proposal",
+      "release": "V1",
+      "stage": "examples-later",
+      "outputs": [
+        "assembly/tenant-edge"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "RC-07",
+        "RC-08",
+        "RC-09",
+        "RC-19",
+        "RC-42"
+      ],
+      "status": "deferred: examples later",
+      "contract": "Later tenant invitation and entitlement/quota boundary. Billing and metering are V2 extensions and must not silently widen a ready Assembly ID.",
+      "acceptance": "Cross-tenant denial, revoked inviter, one-use token, concurrent quota reservation and lost notification recovery end to end.",
+      "reuse": "Accepted identity/policy/state Pieces; examples postponed.",
+      "paths": [
+        "pieces/assembly/tenant-edge/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "Separate user-authorized examples wave after Piece gates; not first-wave work."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P04"
+      ],
+      "product_role": "Supporting policy, evidence, operations, discoverability or later example; not an additional product prerequisite or a delivered end-to-end product."
+    },
+    {
+      "id": "RC-41",
+      "title": "Later financial Assembly and example",
+      "kind": "proposal",
+      "release": "V2",
+      "stage": "examples-later",
+      "outputs": [
+        "assembly/ledger-checkout"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "RC-22",
+        "RC-23",
+        "RC-24",
+        "RC-42",
+        "RC-43"
+      ],
+      "status": "deferred: examples later",
+      "contract": "Later refund/reconciliation or internal transfer composition. Inventory/checkout stock reservation is an identified missing domain contract, not included by the Assembly name.",
+      "acceptance": "Concurrent refund, duplicate provider events, unknown settlement, exact-action approval drift and balanced corrections composed end to end.",
+      "reuse": "Accepted money/provider/journal Pieces; examples postponed.",
+      "paths": [
+        "pieces/assembly/ledger-checkout/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "Separate user-authorized examples wave after Piece gates; not first-wave work."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P10"
+      ],
+      "product_role": "Supporting policy, evidence, operations, discoverability or later example; not an additional product prerequisite or a delivered end-to-end product."
+    },
+    {
+      "id": "RC-42",
+      "title": "Durable operation deduplication gap",
+      "kind": "proposal",
+      "release": "V1",
+      "stage": "pieces",
+      "outputs": [
+        "candidate:delivery/durable-idempotency"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-009",
+        "RC-01"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Admission candidate: durable operation identity and payload digest bind a result atomically to domain state or reject conflicts. Ready delivery/idempotency remains volatile and unchanged. First test whether provider transactional uniqueness plus application composition suffices. Tested provider/application composition is a valid resolution without a new engine or Piece ID.",
+      "acceptance": "Duplicate request after restart, same key/different payload, concurrent claims, partial commit, indeterminate result and retention expiry. Close as covered upstream if no independent Piece is warranted.",
+      "reuse": "Transactional uniqueness/store semantics; never infer exactly-once external effects.",
+      "paths": [],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "Choose operation key/digest/retention and joint domain-result transaction; test restart/concurrency/indeterminate paths before resolving to composition or a new ID."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P01",
+        "P02",
+        "P04",
+        "P08",
+        "P10"
+      ]
+    },
+    {
+      "id": "RC-43",
+      "title": "Assess existing Relay and external-effect coverage",
+      "kind": "proposal",
+      "release": "V1",
+      "stage": "pieces",
+      "outputs": [
+        "candidate:delivery/outbox-dispatch"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-009",
+        "ELZ-010",
+        "ELZ-023",
+        "ELZ-011"
+      ],
+      "status": "blocked: accepted Relay/effect evidence required",
+      "contract": "Coverage/admission FIRST: inspect integration/jobs Relay from ELZ-010 PR #54 at the accepted merge, then ELZ-011 and ELZ-023. Single-stream pending/handle/ack already exists; no duplicate dispatcher. Determine whether tested composition covers stable operation identity, unknown outcomes and ack policy. Publish only an independently justified residual gap.",
+      "acceptance": "Crash before dispatch, timeout after external acceptance, crash before ack, duplicate offers, cancellation and unknown outcome reconciliation. Reuse accepted dispatcher if it already provides the exact contract.",
+      "reuse": "Job provider plus existing outbox/effect-intent; avoid duplicate queue infrastructure.",
+      "paths": [],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "PR #54 source inspected at 18287d22a4b694581af6d1788a84a4868c1b47d3; not accepted on baseline main. Reconcile final merge and exact boundary evidence; external-effect unknown outcomes are not established by Relay."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P02",
+        "P03",
+        "P04",
+        "P06",
+        "P10"
+      ]
+    }
+  ],
+  "entries": [
+    {
+      "id": "assembly/agent-product",
+      "job": "RC-38",
+      "note": "C6/C7 compose work/run/dependencies, approval, budget, context and provider adapters. Not a privileged runtime; library/provider evaluation precedes new orchestration.",
+      "baseline_status": "deferred",
+      "disposition": "deferred-example",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "assembly/consent-records",
+      "job": "RC-36",
+      "note": "Requires policy, redaction, retention and healthcare adapter review",
+      "baseline_status": "deferred",
+      "disposition": "deferred-research",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "assembly/data-pipeline",
+      "job": "RC-39",
+      "note": "Deferred until a real data workload justifies it",
+      "baseline_status": "deferred",
+      "disposition": "deferred-example",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "assembly/device-ingest",
+      "job": "RC-35",
+      "note": "Requires device identity, protocol and rollout contracts",
+      "baseline_status": "deferred",
+      "disposition": "deferred-research",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "assembly/durable-job",
+      "job": "ELZ-010",
+      "note": "event log/outbox/checkpoint plus selected SQL/job adapter",
+      "baseline_status": "planned",
+      "disposition": "active-owned-elsewhere",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "assembly/http-job",
+      "job": "ELZ-011",
+      "note": "selected HTTP adapter + Jason + job/storage + telemetry",
+      "baseline_status": "planned",
+      "disposition": "published-scoped-work",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "assembly/ingest-dedup-accumulate",
+      "job": "ELZ-004",
+      "note": "An example assembly combines duplicate suppression, accumulation and optional threshold nesting; direct and OTP traces are compared.",
+      "baseline_status": "ready",
+      "disposition": "retained-ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/assembly/ingest-dedup-accumulate/piece.json",
+      "baseline_manifest_sha256": "a713084db94089e353cfcea0ea3d2fba6e0077d5aa2ed00940a5b6b26220c4f2"
+    },
+    {
+      "id": "assembly/ingest-json-unit",
+      "job": "ELZ-004",
+      "note": "Strict integer JSON ingress through validated wiring, codecs, Adapter and supervised volatile Units with neutral outer DeliveryResults in fused or hop placement.",
+      "baseline_status": "ready",
+      "disposition": "retained-ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/assembly/ingest-json-unit/piece.json",
+      "baseline_manifest_sha256": "c35f79c44d72f5cb32e080c315176129636391b00c405ed9c2964407f9ed115a"
+    },
+    {
+      "id": "assembly/ledger-checkout",
+      "job": "RC-41",
+      "note": "C3/C4 compose domain/money, domain/journal, payment lifecycle and provider integration; unknown external outcomes require reconciliation, not blind replay.",
+      "baseline_status": "deferred",
+      "disposition": "deferred-example",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "assembly/request-route-retry",
+      "job": "ELZ-008",
+      "note": "Volatile request/route/retry Assembly with exact integer codecs, labelled window decisions, checked topology/selection and unchanged Runner/Adapter delivery. Fused labels the internal seam; work enters through a volatile Adapter hop.",
+      "baseline_status": "ready",
+      "disposition": "retained-ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/assembly/request-route-retry/piece.json",
+      "baseline_manifest_sha256": "cefeba939110c9cbffff862d01f2c1e890074b67a5672b0ee5c0ba1989ef8331"
+    },
+    {
+      "id": "assembly/task-workflow",
+      "job": "RC-37",
+      "note": "C5 composition of work-item, dependencies, lease, run and notification contracts; product status policy stays outside the execution kernel. ELZ-015 evaluates part of an Ash foundation; Run/Attempt orchestration, persistence and lease/recovery remain deferred.",
+      "baseline_status": "deferred",
+      "disposition": "deferred-example",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "assembly/tenant-edge",
+      "job": "RC-40",
+      "note": "C1/C2 compose scoped identity, membership, authorization, entitlement/quota and effects; current HTTP/JSON recipes do not establish tenant isolation.",
+      "baseline_status": "deferred",
+      "disposition": "deferred-example",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "core/assembly",
+      "job": "ELZ-002",
+      "note": "Pure composition of one-input/one-output declared interfaces, reusable as an outer interface; execution uses the unchanged core/operator Contract.",
+      "baseline_status": "ready",
+      "disposition": "retained-ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/core/assembly/piece.json",
+      "baseline_manifest_sha256": "a4cd546c8a1a58d919a250c697086d91465cabad5f470063120b89891f556c1f"
+    },
+    {
+      "id": "core/edge",
+      "job": "ELZ-003",
+      "note": "Named output-to-input schema bindings with same-unit fused or cross-unit volatile policies; declarations only.",
+      "baseline_status": "ready",
+      "disposition": "retained-ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/core/edge/piece.json",
+      "baseline_manifest_sha256": "0095ee5649af2642dc002ccb9ad3db12aa24c237b06876f99ab76fb68bef7eaa"
+    },
+    {
+      "id": "core/effect",
+      "job": "ELZ-011",
+      "note": "`T,X`; effects cannot be hidden in pure operators",
+      "baseline_status": "planned",
+      "disposition": "published-scoped-work",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "core/envelope",
+      "job": "ELZ-003",
+      "note": "Version-1 opaque-payload Envelope and shared delivery-result/error/attempt/deadline representation; no execution or payload validation.",
+      "baseline_status": "ready",
+      "disposition": "retained-ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/core/envelope/piece.json",
+      "baseline_manifest_sha256": "34361f36665e892735835c8e8dbe0f7f25ca2c0623c3617719a16ea245477bfe"
+    },
+    {
+      "id": "core/grounding",
+      "job": "ELZ-033",
+      "note": "Planning deliverable: linked evidence index in roadmap.md to mix check, claim-level manifests and evidence distinctions. ELZ-012 remains the independent clean-check handoff for the existing exemplar only. No ready manifest/source/export is invented; a future reusable grounding tool needs separate admission.",
+      "baseline_status": "planned",
+      "disposition": "evidence-index; no executable Piece",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "core/operator",
+      "job": "ELZ-002",
+      "note": "Generic pure zero-or-one-output stateful composition; a dropped input preserves downstream state.",
+      "baseline_status": "ready",
+      "disposition": "retained-ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/core/operator/piece.json",
+      "baseline_manifest_sha256": "ced40a442d7cadc5bd24f06c68b90a0d0ca29645591186090564879e2f277b5b"
+    },
+    {
+      "id": "core/port",
+      "job": "ELZ-002",
+      "note": "Pure exact identity/version and output-to-input descriptor compatibility; no payload validation.",
+      "baseline_status": "ready",
+      "disposition": "retained-ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/core/port/piece.json",
+      "baseline_manifest_sha256": "88da6fa2a92f4005723d0736fb290c190c86a9580cb4c07a4f6a05de4868c98b"
+    },
+    {
+      "id": "core/selection",
+      "job": "ELZ-007",
+      "note": "Pure interface/delivery compatibility and explicit-rank selection, with ambiguity rejection and deterministic presentation for well-formed duplicate-free sets.",
+      "baseline_status": "ready",
+      "disposition": "retained-ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/core/selection/piece.json",
+      "baseline_manifest_sha256": "3a625d1ba455cf7064cd02549c55a6709ac228880e476dd0538214d82cc26224"
+    },
+    {
+      "id": "core/wiring",
+      "job": "ELZ-003",
+      "note": "Local unit/port/edge identity, schema, placement and required-route checks plus explicit route Envelope matching; no runtime execution.",
+      "baseline_status": "ready",
+      "disposition": "retained-ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/core/wiring/piece.json",
+      "baseline_manifest_sha256": "2d38b4dc0c2f6635f698a3472a7c334851cf6cc8aad687459fafb53982a4f20f"
+    },
+    {
+      "id": "delivery/aggregation",
+      "job": "RC-15",
+      "note": "`T,X`; stateful and needs correlation/retention policy ELZ-025 study: one result per declared branch identity, killed or timed-out branches recorded per the Envelope result matrix, correlation by Envelope key never arrival position, and no-denials distinct from denial-record-unreadable.",
+      "baseline_status": "planned",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "delivery/backpressure",
+      "job": "ELZ-006",
+      "note": "Pure bounded in-flight admission with zero waiting queue; refuse saturation unchanged, release without underflow. No shedding.",
+      "baseline_status": "ready",
+      "disposition": "retained-ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/delivery/backpressure/piece.json",
+      "baseline_manifest_sha256": "729f5eebd1c88156ff03596eba5b2ec2cd5106fa66c61bc6ca23030a66f4d9dc"
+    },
+    {
+      "id": "delivery/circuit-breaker",
+      "job": "RC-26",
+      "note": "Reuse OTP state/supervision and provider pool semantics where sufficient; Elzoo owns the state/permit policy that remains and tests transitions",
+      "baseline_status": "planned",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "delivery/data-stream",
+      "job": "RC-14",
+      "note": "Bounded buffers, cancellation, close/reconnect and backpressure for C7/C8; distinct from the ready Enum/Stream recipe. Reuse transport APIs; no transport adopted. ELZ-025 study: an in-band completeness marker distinct from payload; close-on-successor windows need end-of-stream and cancellation flush.",
+      "baseline_status": "deferred",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "delivery/dead-letter",
+      "job": "ELZ-006",
+      "note": "Redacted neutral failure records with validated identity, failure labels and optional last-result triple; no payload or storage.",
+      "baseline_status": "ready",
+      "disposition": "retained-ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/delivery/dead-letter/piece.json",
+      "baseline_manifest_sha256": "e1089c87188cc9be8038258e292daae48f25a37b3eb7c51d4109523c9b7d8c9d"
+    },
+    {
+      "id": "delivery/idempotency",
+      "job": "ELZ-004",
+      "note": "Volatile exact-key duplicate suppression by sender/incarnation/sequence. Duplicate detection/receiver behavior has test evidence; proofs cover only emit with an already-computed duplicate flag.",
+      "baseline_status": "ready",
+      "disposition": "retained-ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/delivery/idempotency/piece.json",
+      "baseline_manifest_sha256": "acd16079832cacf22661abe405aa2029bd53176e60a2af1a0d4f67feedf8f3f9"
+    },
+    {
+      "id": "delivery/effect-intent",
+      "job": "ELZ-023",
+      "note": "Checkpoint-before-dispatch lifecycle for C3/C6/C9: only a definite failure re-arms dispatch; a timeout is unknown and reconciled, never retried blindly. ELZ-023 carries the admission record and needs the ELZ-009 store; no implementation.",
+      "baseline_status": "deferred",
+      "disposition": "published-scoped-work",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "delivery/model-routing",
+      "job": "RC-25",
+      "note": "C9 capability/authority/region/budget/health-aware selection; provider translation is integration/ai-model. Fallback preserves separate attempts and possible incurred costs. No router implemented.",
+      "baseline_status": "deferred",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "delivery/pubsub",
+      "job": "RC-27",
+      "note": "OTP Registry/`pg` or a broker; subscriber loss/replay semantics must be tested",
+      "baseline_status": "planned",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "delivery/request-reply",
+      "job": "ELZ-007",
+      "note": "Stateless request/result identity correlation and named reply-wrapper validation over core/envelope; results pass through unchanged.",
+      "baseline_status": "ready",
+      "disposition": "retained-ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/delivery/request-reply/piece.json",
+      "baseline_manifest_sha256": "e1c7b17a7636626abf79d7f70c61d9c7fd3776776db3237c3cf1a91f70b33097"
+    },
+    {
+      "id": "delivery/resequence",
+      "job": "RC-28",
+      "note": "`T,X`; only after ordering assumptions are declared",
+      "baseline_status": "planned",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "delivery/retry-timeout",
+      "job": "ELZ-006",
+      "note": "Local bounded volatile attempt/deadline runner over pure retry policy; default forbids possibly-dispatched retries; validates and correlates completed results; dead-letter sink failures settle as unsettled.",
+      "baseline_status": "ready",
+      "disposition": "retained-ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/delivery/retry-timeout/piece.json",
+      "baseline_manifest_sha256": "46c8af7f98aab66d49f561777045e44d8d66b44ad9e7047199a2f1e36720ea98"
+    },
+    {
+      "id": "delivery/routing",
+      "job": "ELZ-007",
+      "note": "Pure Envelope metadata filtering among declared Wiring edges, with source-before-match validation and sorted explicit selection; no execution or expiry.",
+      "baseline_status": "ready",
+      "disposition": "retained-ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/delivery/routing/piece.json",
+      "baseline_manifest_sha256": "907eef8bca5fd1f7537cd104ea558216e5e60370eb76ddd6e5843b12e3620524"
+    },
+    {
+      "id": "delivery/stream-combinators",
+      "job": "ELZ-007",
+      "note": "Use Enum for finite transforms and Stream for lazy map/filter/take/scan.",
+      "baseline_status": "ready",
+      "disposition": "retained-ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/delivery/stream-combinators/piece.json",
+      "baseline_manifest_sha256": "76d4f2c9c2e93ba937e609113ed5e50c565d51e04af0ae71a3ced153bf34b3df"
+    },
+    {
+      "id": "delivery/time",
+      "job": "ELZ-006",
+      "note": "Use Process.send_after and cancellation references; feed elapsed/deadline events into pure decisions.",
+      "baseline_status": "ready",
+      "disposition": "retained-ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/delivery/time/piece.json",
+      "baseline_manifest_sha256": "e33c2d5ecc2cd423ace555e804c9dd954cc43a92fe7ff93fe87597125450e540"
+    },
+    {
+      "id": "delivery/transformation",
+      "job": "ELZ-007",
+      "note": "Caller-supplied pure payload transformation re-wrapped at an explicit output Port, preserving effective correlation and intrinsic metadata/idempotency while dropping sequence.",
+      "baseline_status": "ready",
+      "disposition": "retained-ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/delivery/transformation/piece.json",
+      "baseline_manifest_sha256": "95b791b6c61e3824f5b278d0f719ae5ea2f914c1250630771bb38576db17e4f5"
+    },
+    {
+      "id": "delivery/trigger",
+      "job": "ELZ-027",
+      "note": "Schedule/webhook/app-event input with source identity and dedup scope; delivery/time is only a timer recipe. Needed by C1/C7; no trigger adapter adopted. ELZ-027 carries the schedule-occurrence slice (identity from schedule id, generation and instant; declared skip/queue/replace overlap policy).",
+      "baseline_status": "deferred",
+      "disposition": "published-scoped-work",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "delivery/windowed-idempotency",
+      "job": "ELZ-005",
+      "note": "Volatile bounded per-sender sequence-window duplicate and stale-input suppression; positive construction-time window/max_senders; refuse new senders at capacity without eviction. Accepted inputs emit unchanged. Proofs cover supplied-decision step laws and singleton_advance_window (helper/W=1 only), not receiver or general window bounds; those have finite test/model evidence.",
+      "baseline_status": "ready",
+      "disposition": "retained-ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/delivery/windowed-idempotency/piece.json",
+      "baseline_manifest_sha256": "568dfe9fa3bb97b6d93afc9a646f02c31947c2e9060e9315f91c2c1aa01905d6"
+    },
+    {
+      "id": "domain/authorization",
+      "job": "ELZ-024",
+      "note": "Principal, tenant, resource, action and policy version for C1/C3/C6; compare application/provider policy libraries; no security guarantee claimed. ELZ-015 evaluates Ash policies in a volatile spike; production identity/concurrency and optional Cedar integration remain unadopted. ELZ-024 carries the admission record for the decision reducer.",
+      "baseline_status": "deferred",
+      "disposition": "published-scoped-work",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "domain/entitlement",
+      "job": "RC-07",
+      "note": "Provider-backed subscription/feature availability for C2/C8; explicit grace/revocation policy, separate from identity and quota. No billing implementation.",
+      "baseline_status": "deferred",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "domain/journal",
+      "job": "RC-22",
+      "note": "Balanced posting with stable operation identity and immutable corrections for C3/C4; reuse transactional storage or a suitable ledger provider; not the Piece Ledger or a new storage engine.",
+      "baseline_status": "deferred",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "domain/membership",
+      "job": "RC-07",
+      "note": "Scoped membership, one-use invitation and revocation for C1/C2; reuse storage/auth capabilities and own only missing policy.",
+      "baseline_status": "deferred",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "domain/metering",
+      "job": "RC-21",
+      "note": "C9 separates estimates from reconciled usage, deduplicates usage records and preserves corrections; no billing/price/admission policy implied. ELZ-025 study: unreported provider usage is a distinct count, never zero; a budget that cannot be verified from observed usage stops admission.",
+      "baseline_status": "deferred",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "domain/money",
+      "job": "ELZ-031",
+      "note": "Decimal/ex_money candidates for C3/C4; explicit units, currency mismatch and allocation residual policy. Not a journal, exchange service or payment guarantee. ELZ-031 carries the admission record (closed versioned registry with exponent, malformed vs unknown parse, retired codes, dataset round-trip tests) naming the ex_money/Decimal boundary.",
+      "baseline_status": "deferred",
+      "disposition": "published-scoped-work",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "domain/payment-lifecycle",
+      "job": "RC-24",
+      "note": "Authorize/capture/refund/unknown-outcome transitions for C3; provider-specific semantics and reconciliation before retries. No provider adopted. Unknown-outcome recovery mechanics are shared with delivery/effect-intent (ELZ-023).",
+      "baseline_status": "deferred",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "domain/policy-rules",
+      "job": "RC-20",
+      "note": "A product must provide a finite rule schema, conflict policy and audit requirement before choosing an evaluator",
+      "baseline_status": "deferred",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "domain/pricing",
+      "job": "RC-23",
+      "note": "C9 requires currency/precision/rounding and immutable rate/template versions; choose libraries before authoring policy. No pricing DSL or settlement implementation.",
+      "baseline_status": "deferred",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "domain/principal",
+      "job": "RC-06",
+      "note": "Map authenticated human/service/agent identities to scoped principals for C1/C2/C6; integrate an identity provider, not a new password/token system.",
+      "baseline_status": "deferred",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "domain/quota",
+      "job": "RC-08",
+      "note": "Allocation/reset/admission contract for C2/C9; distinct from observed metering, pricing and financial posting. Provider/storage evaluation required; no implementation.",
+      "baseline_status": "deferred",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "domain/saas-controls",
+      "job": "RC-32",
+      "note": "Discoverability indexes only: domain/value-types links domain/money; domain/saas-controls links domain/membership, domain/authorization, domain/entitlement and domain/quota. No wrapper engine, no executable readiness and no metadata change in ELZ-033.",
+      "baseline_status": "deferred",
+      "disposition": "discoverability-index",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "domain/value-types",
+      "job": "RC-32",
+      "note": "Discoverability indexes only: domain/value-types links domain/money; domain/saas-controls links domain/membership, domain/authorization, domain/entitlement and domain/quota. No wrapper engine, no executable readiness and no metadata change in ELZ-033.",
+      "baseline_status": "planned",
+      "disposition": "discoverability-index",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "integration/agent-runner",
+      "job": "RC-17",
+      "note": "Provider/CLI capabilities, run/resume/cancel, tool/approval events and errors for C6/C7; compare existing Elixir agent libraries or protocol SDKs before writing a bridge. ELZ-025 study: a model-named tool resolves only through a host registry keyed by stable id and version; resolution grants no authority.",
+      "baseline_status": "deferred",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "integration/ai-model",
+      "job": "RC-16",
+      "note": "Provider request/stream/usage translation for C6/C7/C9. Routing policy belongs to delivery/model-routing; metering/pricing remain separate. No provider integration adopted. ELZ-025 study: the provider Adapter returns tool-call proposals as data and never resolves, loads or executes; usage carries a source tag provider_reported, estimated or unknown, never zero.",
+      "baseline_status": "deferred",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "integration/auth-policy",
+      "job": "RC-09",
+      "note": "Provider translation for domain/authorization; compare an existing policy library/service first. Not a second authorization policy engine.",
+      "baseline_status": "deferred",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "integration/crypto",
+      "job": "ELZ-013",
+      "note": "Use OTP SHA-256 directly; a published abc vector grounds this usage.",
+      "baseline_status": "ready",
+      "disposition": "retained-ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/integration/crypto/piece.json",
+      "baseline_manifest_sha256": "fe4b0e7185f0ea34974e0e47be60c9aab3d1ca49681382241b7b73ad9993157c"
+    },
+    {
+      "id": "integration/cure-json",
+      "job": "ELZ-013",
+      "note": "Optional typed Cure-to-Jason string encoder with an Elixir input/error boundary.",
+      "baseline_status": "ready",
+      "disposition": "retained-ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/integration/cure-json/piece.json",
+      "baseline_manifest_sha256": "4d3ac6568b12f75cad272a90594617f4fd06452deeda567a0c5df2c4fee187c2"
+    },
+    {
+      "id": "integration/http",
+      "job": "ELZ-013",
+      "note": "Use Req directly for an HTTP client request with explicit retry, redirect, body and timeout choices.",
+      "baseline_status": "ready",
+      "disposition": "retained-ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/integration/http/piece.json",
+      "baseline_manifest_sha256": "0672cd28ee15b79bfff2682111a5f8ca6fae3440afed226d3e26b23ee24ff0a0"
+    },
+    {
+      "id": "integration/identity",
+      "job": "RC-06",
+      "note": "Authentication/provider boundary for domain/principal; sessions, revocation and account linking need explicit tests. AshAuthentication is one candidate when Ash fits; no provider adopted.",
+      "baseline_status": "deferred",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "integration/jobs",
+      "job": "ELZ-010",
+      "note": "Oban candidate; not the Elzoo outbox until transaction/retry tests pass. Evaluate AshOban/Oban after ELZ-015; volatile Task invocation is not job durability.",
+      "baseline_status": "planned",
+      "disposition": "active-owned-elsewhere",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "integration/json",
+      "job": "ELZ-004",
+      "note": "Use Jason directly for JSON values and explicit encode/decode errors.",
+      "baseline_status": "ready",
+      "disposition": "retained-ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/integration/json/piece.json",
+      "baseline_manifest_sha256": "911cec4496318fa560769cc72328dc383b30d0f44aac60df27c6274e6c8796f2"
+    },
+    {
+      "id": "integration/message-broker",
+      "job": "RC-27",
+      "note": "Broker delivery semantics must be translated to Elzoo envelope classes",
+      "baseline_status": "planned",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "integration/notification",
+      "job": "RC-19",
+      "note": "Email/push delivery and retry contract for C1/C5/C7; Swoosh is an email candidate, not a universal delivery guarantee.",
+      "baseline_status": "deferred",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "integration/object-store",
+      "job": "RC-13",
+      "note": "Provider contract and retention/security review required",
+      "baseline_status": "planned",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "integration/observability",
+      "job": "RC-03",
+      "note": "`:telemetry`/OpenTelemetry candidates; redaction and sampling are Elzoo contracts",
+      "baseline_status": "planned",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "integration/payments",
+      "job": "RC-24",
+      "note": "Provider API/webhook verification, stable idempotency keys and reconciliation for C3; Req is HTTP only. Research provider and library before adoption. ELZ-025 study: the provider's client-supplied payment identifier derives from the logical request identity, never per attempt.",
+      "baseline_status": "deferred",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "integration/sdk",
+      "job": "RC-30",
+      "note": "Build only for an actual cross-process assembly",
+      "baseline_status": "deferred",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "integration/search-data",
+      "job": "RC-18",
+      "note": "Product adapters; no generic data engine in core",
+      "baseline_status": "deferred",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "integration/secrets",
+      "job": "RC-05",
+      "note": "Secret references, scope, rotation and redaction for C1/C3/C6/C7; use an established provider; secrets are not ordinary model context or log fields.",
+      "baseline_status": "deferred",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "integration/sql",
+      "job": "ELZ-009",
+      "note": "Store-only PostgreSQL translation using a consumer-owned Ecto Repo and optional prefix: atomic append CAS, immutable records/checkpoints, outbox ack and bounded retention. Migration helper only; no shipped Repo/config/Application.",
+      "baseline_status": "ready",
+      "disposition": "retained-ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/integration/sql/piece.json",
+      "baseline_manifest_sha256": "9760b7895757ed597db3ac22fe1efe57bb2e2b30e9ec9e774e93e1826f90430c"
+    },
+    {
+      "id": "runtime/adapter",
+      "job": "ELZ-004",
+      "note": "One synchronous Unit delivery with validated Envelope and Wiring, consumer-owned codecs and fixed neutral DeliveryResult translation.",
+      "baseline_status": "ready",
+      "disposition": "retained-ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/runtime/adapter/piece.json",
+      "baseline_manifest_sha256": "55c68918a2948f40e0abd858101ca74290e1f4d349d048cacdf8cbef00d5dcf2"
+    },
+    {
+      "id": "runtime/faces",
+      "job": "RC-04",
+      "note": "target contract; not seven mandatory APIs in P0",
+      "baseline_status": "planned",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "runtime/host",
+      "job": "ELZ-004",
+      "note": "Consumer-owned Application/Supervisor recipe starts identified volatile Units with one_for_one and OTP default restart intensity.",
+      "baseline_status": "ready",
+      "disposition": "retained-ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/runtime/host/piece.json",
+      "baseline_manifest_sha256": "1fc764e58f63dba6457bc5ec97944eb0e9021c8806abef93308001c9acf6acee"
+    },
+    {
+      "id": "runtime/os-isolation",
+      "job": "ELZ-029",
+      "note": "OTP Port/OS process or service; BEAM process is not security isolation ELZ-029 carries the OS-process Adapter admission record (process-group leader, observed term/kill escalation, reaper, queue_full vs queue_timeout).",
+      "baseline_status": "planned",
+      "disposition": "published-scoped-work",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "runtime/registry",
+      "job": "ELZ-013",
+      "note": "Use unique-key OTP Registry for local process name lookup.",
+      "baseline_status": "ready",
+      "disposition": "retained-ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/runtime/registry/piece.json",
+      "baseline_manifest_sha256": "8983854571fc13bcb8213ea71e5842e02779afe0f42d980c12169717198dfd22"
+    },
+    {
+      "id": "runtime/supervision",
+      "job": "ELZ-004",
+      "note": "Use OTP Supervisor and child specifications for lifecycle/restart.",
+      "baseline_status": "ready",
+      "disposition": "retained-ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/runtime/supervision/piece.json",
+      "baseline_manifest_sha256": "3ed88dd2f4cf0495b54caa0aa054cee7bfc5fd6f1be0652b9d4870dc6c4af348"
+    },
+    {
+      "id": "runtime/telemetry",
+      "job": "RC-03",
+      "note": "`M,U`; candidate `:telemetry`/OpenTelemetry, redaction task first",
+      "baseline_status": "planned",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "runtime/unit",
+      "job": "ELZ-004",
+      "note": "A GenServer serializes calls to a supplied module/function with private volatile state.",
+      "baseline_status": "ready",
+      "disposition": "retained-ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/runtime/unit/piece.json",
+      "baseline_manifest_sha256": "464ec731a559a7aa5a8c4409a2d514b9c7830a52de9f029af3c22809db191c24"
+    },
+    {
+      "id": "state/artifact",
+      "job": "RC-13",
+      "note": "Content identity, integrity, access, version and expiry for C2/C6/C7/C8; adapt object storage; separate from streamed bytes and control envelopes. ELZ-025 study: content identity is SHA-256 over a versioned canonical encoding with a format-version prefix, verified on every read; a format change is a declared migration.",
+      "baseline_status": "deferred",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "state/audit-log",
+      "job": "RC-10",
+      "note": "Actor/action/resource/outcome records for C1/C3/C6; selected storage, redaction, retention and tamper requirements needed. Telemetry is not this contract. ELZ-025 study: the audit record commits atomically with the decision; a bounded in-state list is not the retained trail.",
+      "baseline_status": "deferred",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "state/checkpoint",
+      "job": "ELZ-009",
+      "note": "Bounded immutable full-prefix checkpoints and fail-closed recovery through the Store boundary; preserves model, complete cursor and identity witnesses.",
+      "baseline_status": "ready",
+      "disposition": "retained-ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/state/checkpoint/piece.json",
+      "baseline_manifest_sha256": "56ef1ba1ccc61f403269110b9270980e93a15ef4ba9b47ef33b8b929796a3c9e"
+    },
+    {
+      "id": "state/crdt",
+      "job": "RC-34",
+      "note": "Only when a product needs replication; laws require merge semantics and clocks",
+      "baseline_status": "deferred",
+      "disposition": "deferred-research",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "state/event-log",
+      "job": "ELZ-009",
+      "note": "Validated canonical append/replay and conservative Store confirmation boundary, owning Writer shell and volatile Memory test double. Selected supplied-decision count_step laws only; no storage engine or delivery guarantee.",
+      "baseline_status": "ready",
+      "disposition": "retained-ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/state/event-log/piece.json",
+      "baseline_manifest_sha256": "22a4214c6786e08c04ef1ba6bce42308b17455b3e1914e20df58e6b6d6907455"
+    },
+    {
+      "id": "state/lease",
+      "job": "ELZ-028",
+      "note": "ELZ-028 is conditional: if the provider already satisfies ownership/fencing, retain deferred status and name provider evidence; do not force a redundant Piece.",
+      "baseline_status": "deferred",
+      "disposition": "conditional-upstream-or-new-policy",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "state/outbox",
+      "job": "ELZ-009",
+      "note": "Validated committed pending offers, right-parsed derived idempotency keys and nonce-bound acknowledgement CAS through the Store; no effect dispatch.",
+      "baseline_status": "ready",
+      "disposition": "retained-ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/state/outbox/piece.json",
+      "baseline_manifest_sha256": "ddff017e71185061ed59c54d8331392a1378dd679aa05667673e99297fa48c0b"
+    },
+    {
+      "id": "state/replication",
+      "job": "RC-33",
+      "note": "Do not implement consensus in bootstrap; use an established service/library if needed",
+      "baseline_status": "deferred",
+      "disposition": "deferred-research",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "state/scheduler",
+      "job": "RC-02",
+      "note": "ELZ-010 names this scope but its current PR does not add its manifest; RC task is conditional on final merged evidence. Do not expand active work.",
+      "baseline_status": "planned",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "state/schema-evolution",
+      "job": "RC-01",
+      "note": "ELZ-010 names this scope but its current PR does not add its manifest; RC task is conditional on final merged evidence. Do not expand active work.",
+      "baseline_status": "planned",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "ui/component",
+      "job": "RC-31",
+      "note": "ELZ-017 tests an isolated Lustre quantity component and shared BEAM/JS model; see docs/research/gleam-libraries.md. No ready source export, framework integration or universal accessibility/browser claim. Independent of operational contracts.",
+      "baseline_status": "deferred",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "workflow/approval",
+      "job": "ELZ-024",
+      "note": "Actor/resource/payload/policy-bound decision with expiry or revocation contract for C1/C3/C6; authorization remains separate; no durable approval system implemented. ELZ-024 carries the admission record for the consent half.",
+      "baseline_status": "deferred",
+      "disposition": "published-scoped-work",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "workflow/budget",
+      "job": "ELZ-022",
+      "note": "Admission/reservation/settlement of unit-tagged costs for C2/C6/C7; shared authority under concurrency, explicit estimate versus observed cost. Not a financial ledger. ELZ-022 carries the admission record.",
+      "baseline_status": "deferred",
+      "disposition": "published-scoped-work",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "workflow/build-graph",
+      "job": "RC-29",
+      "note": "Product-specific; no catalogue build system in the runtime",
+      "baseline_status": "deferred",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "workflow/context-selection",
+      "job": "ELZ-030",
+      "note": "Select bounded permitted documents/results for C6/C7; tokenizer/retrieval provider contracts and access recheck required. No assertion of model truth or memory correctness. ELZ-030 carries the admission record (window plus reservations over access-checked versioned candidates; dropped-with-reason; derived items carry provenance).",
+      "baseline_status": "deferred",
+      "disposition": "published-scoped-work",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "workflow/dependency-graph",
+      "job": "ELZ-026",
+      "note": "Cycle/readiness/failure/join semantics for C5/C6/C7; libgraph candidate for mechanics, application-specific execution policy remains explicit. ELZ-026 carries the admission record (pure readiness and cycle admission; closed is not completed; provenance-tagged readiness).",
+      "baseline_status": "deferred",
+      "disposition": "published-scoped-work",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "workflow/run",
+      "job": "RC-12",
+      "note": "Execution identity, outcome, parent/child settlement, cancellation and late-result handling for C2/C5/C6/C7; evaluate Oban/Jido where appropriate; no full orchestrator implemented. ELZ-025 study: Run outcome and effect settlement are distinct facts; parent/child attachment is reciprocal; cancellation names the Attempt and an indeterminate cancellation terminates the owner; child spawn is an Effect with unknown outcome under timeout; the owner observes attempt death by monitor; completed means durable evidence.",
+      "baseline_status": "deferred",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "workflow/state-machine",
+      "job": "ELZ-010",
+      "note": "Cure pure state machine plus OTP shell; compensation is a domain contract. ELZ-015 exercises AshStateMachine sequentially with ETS; transactional/stale-record safety remains unadopted.",
+      "baseline_status": "planned",
+      "disposition": "active-owned-elsewhere",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "workflow/work-item",
+      "job": "RC-11",
+      "note": "Assignee, acceptance criterion and policy-defined completion for C5/C6; independent of job/agent attempt success. Reuse a suitable workflow implementation before authoring policy. ELZ-015 evaluates Ash resource actions with tenant context; no ready bundle or durable execution claim. ELZ-025 study: enumerated lifecycle transitions, completion bound to the current lease or authority holder, no-op transitions write nothing.",
+      "baseline_status": "deferred",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    }
+  ],
+  "schema_version": 1,
+  "mode": "EXECUTE: documentation adoption only",
+  "captured_at": "2026-11-06T17:52:42.665748+00:00",
+  "authority": "Live published issue bodies define task Contracts and acceptance; remote task branches lock claims. This manifest alone owns roadmap planning status/dependencies. Registry and Piece manifests alone define usable source readiness. RC proposals are not dispatch authority.",
+  "proposal_files": {
+    "roadmap.md": "94c68abb4b937c7520aa3037ffafca64b60ac2b6b86bcd6a2e9e889f59e2fbf6",
+    "release-plan.json": "5879119f263ba2d234779ac4e4bfd8bc54449e4d4a710c626e6b7cfa420dcff1",
+    "next-steps.md": "7c4e48d52d22981055c6d7482fc85bcab6e8b17b59e790be2e1cdaaa4a962e35",
+    "baseline.json": "eb1f729e6215d9493f74e98936202a8588dc2ac587f7302150ff02b14fc0fa76"
+  },
+  "published_aliases": {
+    "RC-00": "ELZ-033"
+  },
+  "candidate_gaps": [
+    {
+      "id": "candidate:delivery/durable-idempotency",
+      "job": "RC-42",
+      "resolution": "Unresolved; tested provider/application composition or separately admitted new Piece."
+    },
+    {
+      "id": "candidate:delivery/outbox-dispatch",
+      "job": "RC-43",
+      "resolution": "Assess existing Relay first; tested composition or demonstrated residual gap, never duplicate dispatch infrastructure."
+    }
+  ],
+  "release_gates": {
+    "V1": {
+      "id": "V1-ACCEPT",
+      "job_selector": {
+        "release": "V1",
+        "exclude_stages": [
+          "examples-later",
+          "research"
+        ]
+      },
+      "prior_release_gate": null,
+      "status": "not published; frozen selected set and independent integrated acceptance required",
+      "acceptance": "All selected jobs accepted or exact tested upstream/index resolution reviewed; integrated pinned mix check, source-copy/namespace/schema/provider compatibility and claim-level evidence. No future release acceptance follows from ELZ-012."
+    },
+    "V2": {
+      "id": "V2-ACCEPT",
+      "job_selector": {
+        "release": "V2",
+        "exclude_stages": [
+          "examples-later",
+          "research"
+        ]
+      },
+      "prior_release_gate": "V1-ACCEPT",
+      "status": "not published; frozen selected set and independent integrated acceptance required",
+      "acceptance": "All selected jobs accepted or exact tested upstream/index resolution reviewed; integrated pinned mix check, source-copy/namespace/schema/provider compatibility and claim-level evidence. No future release acceptance follows from ELZ-012."
+    },
+    "V3": {
+      "id": "V3-ADMIT",
+      "job_selector": {
+        "release": "V3",
+        "exclude_stages": []
+      },
+      "prior_release_gate": null,
+      "status": "research only; no implementation release promise",
+      "acceptance": "Concrete workload, invariants, failure paths, reuse/provider evaluation and specialist decisions before a separate implementation plan."
+    }
+  },
+  "observations": {
+    "main": "404d159a122d18a22554c5688aa79199e4d5c124",
+    "remote_claims": [
+      "task/ELZ-010",
+      "task/ELZ-033"
+    ],
+    "relay_inspected_sha": "18287d22a4b694581af6d1788a84a4868c1b47d3",
+    "relay_pr": "https://github.com/balungpisah/elzoo/pull/54",
+    "relay_state": "open; not acceptance",
+    "claim_sha": "6bcff57fe7b59ec7b0414bf737127302944c5b37",
+    "claim_agent": "Sabrangs-MacBook-Pro-7bf9"
+  },
+  "dependency_acceptance": [
+    {
+      "task": "ELZ-003",
+      "merge_sha": "7ce6b9616289d7fba09253163d43c53a88586b90",
+      "pr": "https://github.com/balungpisah/elzoo/pull/30",
+      "review": "https://github.com/balungpisah/elzoo/pull/30#issuecomment-6666918033",
+      "acceptance": "https://github.com/balungpisah/elzoo/issues/3#issuecomment-6667213363",
+      "merge_checks": [
+        {
+          "name": "check",
+          "conclusion": "success",
+          "url": "https://github.com/balungpisah/elzoo/actions/runs/42092041662/job/127472315549"
+        },
+        {
+          "name": "gleam",
+          "conclusion": "success",
+          "url": "https://github.com/balungpisah/elzoo/actions/runs/42092041694/job/127472315486"
+        }
+      ],
+      "scope": "Historical independent review and merge symbolic checks inspected; merge ancestry checked. Not a fresh rerun of that historical revision."
+    },
+    {
+      "task": "ELZ-004",
+      "merge_sha": "81d7d21d8c0a86aae8d47ce9b0e0389b15ca865d",
+      "pr": "https://github.com/balungpisah/elzoo/pull/32",
+      "review": "https://github.com/balungpisah/elzoo/pull/32#issuecomment-6669698776",
+      "acceptance": "https://github.com/balungpisah/elzoo/issues/4#issuecomment-6669895410",
+      "merge_checks": [
+        {
+          "name": "gleam",
+          "conclusion": "success",
+          "url": "https://github.com/balungpisah/elzoo/actions/runs/42110661761/job/127537030094"
+        },
+        {
+          "name": "check",
+          "conclusion": "success",
+          "url": "https://github.com/balungpisah/elzoo/actions/runs/42110661505/job/127537028186"
+        }
+      ],
+      "scope": "Historical independent review and merge symbolic checks inspected; merge ancestry checked. Not a fresh rerun of that historical revision."
+    },
+    {
+      "task": "ELZ-015",
+      "merge_sha": "a8b3a099397bff5e90d9a3f010797243d768edd0",
+      "pr": "https://github.com/balungpisah/elzoo/pull/18",
+      "review": "https://github.com/balungpisah/elzoo/pull/18#issuecomment-6658950881",
+      "acceptance": "https://github.com/balungpisah/elzoo/issues/17#issuecomment-6659498380",
+      "merge_checks": [
+        {
+          "name": "check",
+          "conclusion": "success",
+          "url": "https://github.com/balungpisah/elzoo/actions/runs/42036106498/job/127274582416"
+        }
+      ],
+      "scope": "Historical merge evidence inspected, merge ancestry checked. Not a fresh rerun of that historical revision. ELZ-015 predates symbolic-only migration; its Linux evidence is historical, not symbolic."
+    }
+  ],
+  "agent_registry": [
+    {
+      "role": "ELZ-033 documentation worker",
+      "agent_id": "Sabrangs-MacBook-Pro-7bf9",
+      "identity_source": "claim commit 6bcff57fe7b59ec7b0414bf737127302944c5b37",
+      "workspace": "/Users/laptopdp/.t3/worktrees/elzoo/t3-772a5980",
+      "base": "404d159a122d18a22554c5688aa79199e4d5c124",
+      "branch": "task/ELZ-033",
+      "claim_sha": "6bcff57fe7b59ec7b0414bf737127302944c5b37",
+      "mechanism": "T3-provided isolated workspace; ordinary Git/GitHub publication",
+      "integration_owner": "dedicated roadmap coordinator",
+      "delegation": "none",
+      "delivery_boundary": "checked self-contained PR; no merge, watch or cleanup"
+    },
+    {
+      "role": "ELZ-010 exclusive coordinator",
+      "thread": "<t3-thread://v2/7bdd3880-94ea-4c58-a612-8b9b1253e59d/10109396-4230-4f47-a36d-173d628b81cd>",
+      "identity_source": "user-supplied link, read through live T3 tool",
+      "branch": "task/ELZ-010",
+      "workspace": null,
+      "delivery_boundary": "unchanged existing ownership; workspace not accessed"
+    },
+    {
+      "role": "future first-wave workers and independent reviewer",
+      "agent_id": null,
+      "workspace": null,
+      "mechanism": "not dispatched by adoption worker",
+      "integration_owner": "dedicated roadmap coordinator",
+      "delegation": "none",
+      "delivery_boundary": "coordinator records actual IDs, workspaces, bases and claim SHAs at dispatch"
+    }
+  ]
+}

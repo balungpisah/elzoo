@@ -2,10 +2,12 @@
 
 These cases test the [capability model](capability-model.md), not the current
 implementation. The [Piece Ledger](../LEDGER.md) is authoritative for readiness.
-Every new handle introduced by ELZ-014 is **deferred**, with no source bundle,
-provider adoption or build task implied. Existing planned foundation work keeps
-its task DAG. The references and candidate discovery are recorded in the
-[research study](research/orchestration-references.md).
+Handles introduced by ELZ-014 began **deferred**; their inventory presence
+implies no source bundle, provider adoption or assignment. The
+[product-led roadmap](plans/roadmap.md) selects admitted, published Piece work
+for concrete aims before new Assembly examples exist. Existing foundation
+work keeps its published prerequisites. The references and candidate discovery
+are recorded in the [research study](research/orchestration-references.md).
 
 “Coverage” means we can identify the responsibilities, shared contracts and
 missing evidence for a representative workflow. It does not mean the product
@@ -253,13 +255,13 @@ any billing or model-routing implementation task is dispatched.
 
 First finish the existing composition/port/wiring contracts, using these cases
 to expose assumptions rather than adding every field to one universal record.
-Then choose the smallest useful assembly and publish its concrete task with
-only its actual prerequisites. A candidate sequence to evaluate is a durable
-work item plus approval, first with a deterministic worker and then with an
-agent adapter. This can test shared mechanisms before introducing model failure.
-It is a recommendation, not an automatic replacement of the current task DAG.
+Then select the smallest useful Piece or Assembly for a concrete product aim
+and publish its admitted task with only its actual prerequisites. New Assembly
+examples may follow later; Piece boundary tests and failure evidence may not.
+The product-led roadmap records conditional consumer possibilities and release
+gates, not completed products or automatically published implementation work.
 
-The P0–P3 tasks remain committed foundation work; demand-led inventory rows have
+The P0–P3 tasks retain their published foundation scope; inventory rows have
 no promised implementation order. Money, identity and agent-specific tasks must
 state their own acceptance and provider choices before an agent starts them.
 Do not dispatch “implement the catalogue” or use row counts as completion.
