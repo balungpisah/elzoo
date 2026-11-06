@@ -1052,7 +1052,7 @@
         "ELZ-003",
         "ELZ-015"
       ],
-      "status": "selected first wave; blocked on adoption and preflight",
+      "status": "implemented in PR #59; ready on main only once PR #59 merges; coordinator retains merge acceptance",
       "url": "https://github.com/balungpisah/elzoo/issues/38",
       "paths": [
         "tasks/ELZ-024-authorization-approval-reducer.md"
@@ -1127,7 +1127,7 @@
       "dependencies": [
         "ELZ-003"
       ],
-      "status": "implemented in PR #58; ready on main only once PR #58 merges; coordinator retains merge acceptance",
+      "status": "merged on main via PR #58 (e630d3a); accepted on #43",
       "url": "https://github.com/balungpisah/elzoo/issues/43",
       "paths": [
         "tasks/ELZ-026-dependency-readiness.md"
@@ -3143,10 +3143,12 @@
     {
       "id": "domain/authorization",
       "job": "ELZ-024",
-      "note": "Principal, tenant, resource, action and policy version for C1/C3/C6; compare application/provider policy libraries; no security guarantee claimed. ELZ-015 evaluates Ash policies in a volatile spike; production identity/concurrency and optional Cedar integration remain unadopted. ELZ-024 carries the admission record for the decision reducer.",
+      "note": "Pure ALLOW/ASK/DENY reducer over typed exact-match rules (effect class, principal, tenant, resource, payload, target, field, write value) with deny > ask > allow, default deny, whole-action escrow on ASK, and whole-proposal rejection when writes exceed the trusted own authority or, for a child, the parent's authority. Trusted proposer and host-derived effect class come from context; proposal copies must match. Portable tagged value domain with duplicate-preserving records and fixed bounds; three failure classes (DENY, invalid_input, unavailable_context). Policy identity (id, version, content_hash) on every decision.",
       "baseline_status": "deferred",
-      "disposition": "published-scoped-work",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "merged-ready-contract; task acceptance separate",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/domain/authorization/piece.json",
+      "manifest_sha256": "3f3bcb3f0dc9d98a2df6369b82f82417e1ae5206209c0659c7011c885c653110"
     },
     {
       "id": "domain/entitlement",
@@ -3571,10 +3573,12 @@
     {
       "id": "workflow/approval",
       "job": "ELZ-024",
-      "note": "Actor/resource/payload/policy-bound decision with expiry or revocation contract for C1/C3/C6; authorization remains separate; no durable approval system implemented. ELZ-024 carries the admission record for the consent half.",
+      "note": "Pure consent record over a caller-held state: request/3 opens, keeps or supersedes (revision + 1) a request bound structurally to the ASK action, escrow, policy identity and requirement; release/4 accepts host-verified evidence or a retained run/root consent, runs gates 0-21 in Cure (run, request, verifier allowlist, revocation, consumption, binding-only reuse, decision, Unix-ms issue/age/expiry, scope, approver, self-approval, re-decide, DENY, policy, payload, requirement, approver authority) and emits only the current decision's escrow within approver authority, once. select_retained/3, revalidate/3, revoke/2, apply_event/2 and replay/1 complete the Contract; replay returns state only.",
       "baseline_status": "deferred",
-      "disposition": "published-scoped-work",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "merged-ready-contract; task acceptance separate",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/workflow/approval/piece.json",
+      "manifest_sha256": "6e702f838d01f540c77001de26f66903d686a1108caf2ca7f359df4bde9f90ee"
     },
     {
       "id": "workflow/budget",
