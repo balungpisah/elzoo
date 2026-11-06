@@ -1127,7 +1127,7 @@
       "dependencies": [
         "ELZ-003"
       ],
-      "status": "selected first wave; blocked on adoption and preflight",
+      "status": "implemented in PR #58; ready on main only once PR #58 merges; coordinator retains merge acceptance",
       "url": "https://github.com/balungpisah/elzoo/issues/43",
       "paths": [
         "tasks/ELZ-026-dependency-readiness.md"
@@ -3603,10 +3603,12 @@
     {
       "id": "workflow/dependency-graph",
       "job": "ELZ-026",
-      "note": "Cycle/readiness/failure/join semantics for C5/C6/C7; libgraph candidate for mechanics, application-specific execution policy remains explicit. ELZ-026 carries the admission record (pure readiness and cycle admission; closed is not completed; provenance-tagged readiness).",
+      "note": "Pure readiness and cycle admission Elzoo.DependencyGraph over caller Work Item fixtures, externals, typed edges (from waits for to) and provenance-tagged facts with explicit Unix-ms now: closed is not completed, unknown/expired/model-declared-only facts never satisfy, blocking-edge admission revalidates the whole graph; the Cure step keeps the index-level blocking graph acyclic (Cure laws) while the Elixir revalidation and mapping are test-grounded; exact issues, blockers and errors.",
       "baseline_status": "deferred",
-      "disposition": "published-scoped-work",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "merged-ready-contract; task acceptance separate",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/workflow/dependency-graph/piece.json",
+      "manifest_sha256": "65577e61b04d9e0c8f8baef48d3d020c1922ce92614eca10aeb066067dab885c"
     },
     {
       "id": "workflow/run",
