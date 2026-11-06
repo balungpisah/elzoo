@@ -286,9 +286,16 @@ results are `committed`, `conflict`, `rejected` or `indeterminate`; an
 indeterminate write stops the Writer and absence on readback never proves
 non-commit. Outbox offers are at-least-once until the CAS ack, the only
 acknowledgement point. These subsets do not by themselves make a unit
-`durable`: schema upcast, jobs and `assembly/durable-job` remain ELZ-010, and
-disk/fsync/replication behaviour is PostgreSQL's contract under the
-consumer's configuration. See [ELZ-009](work/ELZ-009.md).
+`durable`, and disk/fsync/replication behaviour is PostgreSQL's contract
+under the consumer's configuration. See [ELZ-009](work/ELZ-009.md).
+
+ELZ-010 adds `workflow/state-machine` (Cure job-Run decision), `integration/jobs`
+(Oban 2.24.2 translation and outbox relay) and `assembly/durable-job`: a tally
+job whose attempt count, absolute deadline and outcome persist in an ELZ-009
+Run stream, fenced by the Store CAS and attempt identity, with Oban supplying
+claim, retry staging and rescue. Schema upcast is explicitly deferred (only
+schema_version 1; other versions refused). Delivery stays at-least-once; a
+rescued live attempt may run concurrently. See [ELZ-010](work/ELZ-010.md).
 
 ## Effects and adapters
 
@@ -376,7 +383,7 @@ example/release gates live in the canonical roadmap, not catalogue row counts:
 | --- | --- | --- |
 | 0 · bootstrap (partial) | `assembly/ingest-dedup-accumulate`: fused Cure run, supervised OTP run, independent model and Jason adapter checks | typed transition, unit shell, supervision and volatile process boundary; named port/wiring validation remains open in P0 (ELZ-002/003) |
 | 1 · message resilience | `assembly/request-route-retry` ready subset: owns labelled Cure worker, codecs, topology and result translation; reuses unchanged RequestReply, Routing/Transformation, WindowedIdempotency, Runner/Adapter, Selection/Wiring/Assembly and Core.accumulate | volatile Adapter work entry; fused internal seam; no durable guarantee; hop partial failure can lose accumulation (S17), Unit restart resets dedup (S22) |
-| 2 · durable workflow | `assembly/durable-job`: event/input log, checkpoint/tail replay, transactional outbox and a scheduled job; one storage adapter. ELZ-009 ready subsets: `state/event-log`, `state/checkpoint`, `state/outbox`, `integration/sql` (PostgreSQL via Ecto SQL/Postgrex); the job, schema upcast and Assembly remain ELZ-010 | durable state and at-least-once ack/retry; the ELZ-009 boundary alone is not a durable hop |
+| 2 · durable workflow | `assembly/durable-job`: event/input log, checkpoint/tail replay, transactional outbox and a scheduled job; one storage adapter. ELZ-009 ready subsets: `state/event-log`, `state/checkpoint`, `state/outbox`, `integration/sql` (PostgreSQL via Ecto SQL/Postgrex); ELZ-010 ready subsets: `workflow/state-machine`, `integration/jobs` (Oban 2.24.2), `assembly/durable-job` (tally job); schema upcast explicitly deferred | durable Run state and at-least-once relay/retry for the listed scenarios; no exactly-once execution, schema upcast or external Effect |
 | 3 · edge integration | `assembly/http-job`: one selected HTTP client/server path, JSON/schema boundary, telemetry and a database adapter | external effects, provider failure and redaction contracts |
 | 4 · scale boundary | a measured multi-host or OS-process assembly, only if a product needs it | distribution/partition and isolation claims |
 | later | policy, CRDT, AI, build/dataframe and specialised protocol assemblies | only as a concrete product requires them |
@@ -427,8 +434,10 @@ claim:
   Store selection are recorded in [ELZ-009](work/ELZ-009.md), with K1–K11
   conformance and crash/recovery scenarios. Disk/fsync semantics remain
   upstream; this row closes with the issue.
-* `ELZ-010`: choose the scheduler/job provider and document transaction scope,
-  idempotency and schema-upcast limits.
+* `ELZ-010`: Oban 2.24.2 selected (`adapt`) by executable comparisons with
+  AshOban and Reactor; transaction scope (submission stream, Run-stream CAS,
+  caller-transaction refusal), idempotency and the schema-upcast deferral are
+  recorded in [ELZ-010](work/ELZ-010.md); this row closes with the issue.
 
 P4 OS-process isolation, telemetry redaction, and generated manifest are
 deferred catalogue work. If a product pulls one forward, the workflow must

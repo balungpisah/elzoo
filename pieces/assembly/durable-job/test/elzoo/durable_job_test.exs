@@ -1,0 +1,885 @@
+# SPDX-License-Identifier: Apache-2.0
+Code.require_file("../support/durable_job_test_helper.exs", __DIR__)
+
+defmodule Elzoo.DurableJobTest do
+  use ExUnit.Case, async: false
+  import Elzoo.DurableJob.TestHelper
+  alias Elzoo.DurableJob
+  alias Elzoo.DurableJob.{Run, Submitter, TestRepo}
+  alias Elzoo.DurableLog.{Memory, Writer}
+  alias Elzoo.{Jobs, Outbox}
+
+  setup_all do
+    prefix = setup_database!()
+    on_exit(fn -> drop!(prefix) end)
+    %{prefix: prefix}
+  end
+
+  defp run_stream(f, key), do: Run.run_stream(f.queue, key)
+
+  defp submit(f, key, input \\ [1, 2, 3], policy \\ fast(), deadline \\ far()),
+    do: DurableJob.submit(f.queue, key, input, policy, deadline)
+
+  defp counting_handler(fail_calls, failure) do
+    counter = :counters.new(1, [])
+
+    fn input ->
+      :counters.add(counter, 1, 1)
+
+      if :counters.get(counter, 1) <= fail_calls,
+        do: {:error, failure},
+        else: {:ok, Enum.sum(input)}
+    end
+  end
+
+  defp job_row(f, id) do
+    %{rows: [[state, attempt]]} =
+      TestRepo.query!("select state, attempt from #{f.prefix}.oban_jobs where id = $1", [id],
+        log: false
+      )
+
+    {state, attempt}
+  end
+
+  defp job_id(f, key) do
+    {:ok, {id, _}} = Jobs.state(f.oban, f.queue, key)
+    id
+  end
+
+  defp raw_append(store, stream, records, versions \\ [1]) do
+    fold = %{Run.store_fold() | initial: 0, versions: versions, reduce: fn n, _, _, _ -> n + 1 end}
+    {:ok, w} = Writer.start_link(store: store, stream: stream, fold: fold, limits: Run.limits())
+    result = Writer.append(w, records)
+    GenServer.stop(w)
+    result
+  end
+
+  for backend <- [:memory, :postgres] do
+    @tag backend: backend
+    test "DJ1 #{backend}: submit, relay, attempt 1 succeeds", %{prefix: prefix} do
+      f = flow(prefix, unquote(backend))
+      assert submit(f, "k1") == {:ok, %{phase: :submitted}}
+      assert DurableJob.status(f.queue, "k1") |> elem(1) |> Map.get(:phase) == :submitted
+      assert {:ok, %{acked: [_], skipped: []}} = relay!(f.queue)
+      poll(fn -> phase(f, "k1") == :succeeded end)
+      assert kinds(f.store, run_stream(f, "k1")) == ~w(accepted attempt_started succeeded)
+      assert kinds(f.store, Run.submission_stream(f.queue)) == ~w(requested)
+      assert {:ok, []} = Outbox.pending(f.store, Run.submission_stream(f.queue), 10)
+
+      assert {:ok, %{result: 6, attempts_made: 1, stalled: false}} =
+               DurableJob.status(f.queue, "k1")
+
+      poll(fn -> oban_state(f, "k1") == "completed" end)
+    end
+
+    @tag backend: backend
+    test "DJ4 #{backend}: transient failures until attempt 3, deterministic records", %{
+      prefix: prefix
+    } do
+      f = flow(prefix, unquote(backend), handler: counting_handler(2, :transient))
+      {:ok, _} = submit(f, "k4", [5])
+      {:ok, _} = relay!(f.queue)
+      poll(fn -> phase(f, "k4") == :succeeded end)
+
+      assert kinds(f.store, run_stream(f, "k4")) ==
+               ~w(accepted attempt_started attempt_failed attempt_started attempt_failed attempt_started succeeded)
+
+      assert {:ok, %{result: 5, attempts_made: 3}} = DurableJob.status(f.queue, "k4")
+    end
+
+    @tag backend: backend
+    test "DJ11 #{backend}: rescued-but-alive stale attempt is re-classified stale and snoozes (success)",
+         %{prefix: prefix} do
+      stale_attempt(prefix, unquote(backend), {:ok, 100})
+    end
+  end
+
+  test "DJ11 postgres: stale attempt failing after the rescue cannot move the Run", %{
+    prefix: prefix
+  } do
+    stale_attempt(prefix, :postgres, {:error, :transient})
+  end
+
+  defp stale_attempt(prefix, backend, stale_result) do
+    f = flow(prefix, backend, handler: blocking_handler(self()))
+    {:ok, _} = submit(f, "k11", [4, 5])
+    {:ok, _} = relay!(f.queue)
+    assert_receive {:entered, e1, _}, 10_000
+    id = job_id(f, "k11")
+    {:ok, [_]} = Oban.Engine.rescue_jobs(Oban.config(f.oban), Oban.Job, rescue_after: 0)
+    assert_receive {:entered, e2, _}, 10_000
+    assert job_row(f, id) == {"executing", 2}
+    send(e1, {:release, stale_result})
+    Process.sleep(300)
+    assert phase(f, "k11") == :active
+    assert job_row(f, id) == {"executing", 2}
+    send(e2, {:release, {:ok, 9}})
+    poll(fn -> phase(f, "k11") == :succeeded end)
+    records = records(f.store, run_stream(f, "k11"))
+    assert Enum.map(records, &elem(&1, 0)) == ~w(accepted attempt_started attempt_started succeeded)
+    assert {"succeeded", %{"attempt" => 2, "result" => 9}} = List.last(records)
+    poll(fn -> job_row(f, id) == {"completed", 2} end)
+  end
+
+  test "DJ2 duplicate submits; a competing Submitter is fenced by the stream CAS", %{prefix: prefix} do
+    f = flow(prefix, :postgres)
+    deadline = far()
+    {:ok, _} = submit(f, "k2", [1, 2, 3], fast(), deadline)
+    assert {:duplicate, {:ok, %{phase: :submitted}}} = submit(f, "k2", [1, 2, 3], fast(), deadline)
+    assert submit(f, "k2", [9], fast(), deadline) == {:error, :job_key_conflict}
+    assert submit(f, "k2", [1, 2, 3], fast(), deadline + 1) == {:error, :job_key_conflict}
+    {:ok, other} = Submitter.start_link(name: :elzoo_dj2_other, store: f.store, queue: f.queue)
+    {:ok, request} = Run.request("k2b", [7], fast(), deadline, System.os_time(:millisecond))
+    assert {:ok, _} = Submitter.submit(other, request)
+    assert {:duplicate, _} = submit(f, "k2b", [7], fast(), deadline)
+    GenServer.stop(other)
+    assert kinds(f.store, Run.submission_stream(f.queue)) == ~w(requested requested)
+    {:ok, %{acked: acked}} = relay!(f.queue)
+    assert length(acked) == 2
+    poll(fn -> phase(f, "k2") == :succeeded and phase(f, "k2b") == :succeeded end)
+    assert kinds(f.store, run_stream(f, "k2")) == ~w(accepted attempt_started succeeded)
+  end
+
+  test "DJ3 relay crash between insert and ack, held unique lock, foreign accepted", %{
+    prefix: prefix
+  } do
+    f = flow(prefix, :postgres)
+    cfg = :persistent_term.get({DurableJob, f.queue})
+    {:ok, _} = submit(f, "k3a")
+    {:ok, [item]} = Outbox.pending(f.store, Run.submission_stream(f.queue), 10)
+    assert DurableJob.relay(cfg, item) == :done
+    assert {:ok, %{acked: [_]}} = relay!(f.queue)
+    poll(fn -> phase(f, "k3a") == :succeeded end)
+    assert kinds(f.store, run_stream(f, "k3a")) == ~w(accepted attempt_started succeeded)
+
+    parent = self()
+
+    holder =
+      Task.async(fn ->
+        TestRepo.transaction(fn ->
+          {:ok, _} = Jobs.enqueue(f.oban, Jobs.changeset(f.queue, "k3b", 5))
+          send(parent, :held)
+          receive do: (:rollback -> TestRepo.rollback(:test))
+        end)
+      end)
+
+    assert_receive :held, 5_000
+    {:ok, _} = submit(f, "k3b")
+    assert {:ok, %{acked: [], skipped: [{_, :unique_lock_held}]}} = relay!(f.queue)
+    send(holder.pid, :rollback)
+    Task.await(holder)
+    assert {:ok, %{acked: [_]}} = relay!(f.queue)
+    poll(fn -> phase(f, "k3b") == :succeeded end)
+
+    {:ok, request} = Run.request("k3c", [1], fast(), far(), System.os_time(:millisecond))
+
+    {:committed, 1} =
+      raw_append(f.store, run_stream(f, "k3c"), [
+        {"accepted", 1, Run.encode(%{"request" => request, "submission" => "jobs/other/1/1"})}
+      ])
+
+    {:ok, _} = submit(f, "k3c", [1])
+    assert {:ok, %{acked: [], skipped: [{_, :foreign_run}]}} = relay!(f.queue)
+    assert {:ok, [_]} = Outbox.pending(f.store, Run.submission_stream(f.queue), 10)
+  end
+
+  test "DJ3a crash after submit commit, before the relay ever ran", %{prefix: prefix} do
+    f = flow(prefix, :postgres)
+    {:ok, _} = submit(f, "k3x")
+    stop_supervised!({DurableJob, f.queue})
+    start_job(f.queue, f.store, f.oban, [])
+    assert {:ok, %{acked: [_]}} = relay!(f.queue)
+    poll(fn -> phase(f, "k3x") == :succeeded end)
+    assert kinds(f.store, run_stream(f, "k3x")) == ~w(accepted attempt_started succeeded)
+  end
+
+  test "DJ5 retry exhaustion records exhausted at the budget", %{prefix: prefix} do
+    f = flow(prefix, :postgres, handler: fn _ -> {:error, :transient} end)
+    {:ok, _} = submit(f, "k5", [1], max_attempts: 2, base_backoff_ms: 0, max_backoff_ms: 0)
+    {:ok, _} = relay!(f.queue)
+    poll(fn -> phase(f, "k5") == :exhausted end)
+
+    assert kinds(f.store, run_stream(f, "k5")) ==
+             ~w(accepted attempt_started attempt_failed attempt_started exhausted)
+
+    poll(fn -> oban_state(f, "k5") == "cancelled" end)
+    assert {:ok, %{attempts_made: 2}} = DurableJob.status(f.queue, "k5")
+  end
+
+  test "DJ6 permanent failure is not retried", %{prefix: prefix} do
+    f = flow(prefix, :postgres, handler: fn _ -> {:error, :permanent} end)
+    {:ok, _} = submit(f, "k6")
+    {:ok, _} = relay!(f.queue)
+    poll(fn -> phase(f, "k6") == :failed end)
+    assert kinds(f.store, run_stream(f, "k6")) == ~w(accepted attempt_started failed)
+    poll(fn -> oban_state(f, "k6") == "cancelled" end)
+  end
+
+  test "DJ7 deadline passes while waiting; a completion after the deadline expires", %{
+    prefix: prefix
+  } do
+    {:ok, clock} = Agent.start_link(fn -> 1_000_000 end)
+    now = fn -> Agent.get(clock, & &1) end
+    f = flow(prefix, :postgres, now_ms: now, handler: fn _ -> {:error, :transient} end)
+    policy = [max_attempts: 3, base_backoff_ms: 1_000, max_backoff_ms: 1_000]
+    {:ok, _} = DurableJob.submit(f.queue, "k7a", [1], policy, 2_000_000)
+    {:ok, _} = relay!(f.queue)
+    poll(fn -> phase(f, "k7a") == :waiting end)
+    Agent.update(clock, fn _ -> 2_000_001 end)
+    poll(fn -> phase(f, "k7a") == :expired end)
+
+    assert kinds(f.store, run_stream(f, "k7a")) ==
+             ~w(accepted attempt_started attempt_failed expired)
+
+    Agent.update(clock, fn _ -> 1_000_000 end)
+
+    late = fn input ->
+      Agent.update(clock, fn _ -> 2_000_001 end)
+      {:ok, Enum.sum(input)}
+    end
+
+    g = flow(prefix, :postgres, now_ms: now, handler: late)
+    {:ok, _} = DurableJob.submit(g.queue, "k7b", [1], fast(), 2_000_000)
+    {:ok, _} = relay!(g.queue)
+    poll(fn -> phase(g, "k7b") == :expired end)
+    assert kinds(g.store, run_stream(g, "k7b")) == ~w(accepted attempt_started expired)
+  end
+
+  test "DJ8 cancel while waiting, while active, after success", %{prefix: prefix} do
+    f = flow(prefix, :postgres, handler: fn _ -> {:error, :transient} end)
+
+    {:ok, _} =
+      submit(f, "k8a", [1], max_attempts: 3, base_backoff_ms: 60_000, max_backoff_ms: 60_000)
+
+    {:ok, _} = relay!(f.queue)
+    poll(fn -> phase(f, "k8a") == :waiting end)
+    assert DurableJob.cancel(f.queue, "k8a", "operator") == {:ok, :cancelled}
+    poll(fn -> oban_state(f, "k8a") == "cancelled" end)
+    assert List.last(kinds(f.store, run_stream(f, "k8a"))) == "cancelled"
+
+    g = flow(prefix, :postgres, handler: blocking_handler(self()))
+    {:ok, _} = submit(g, "k8b")
+    {:ok, _} = relay!(g.queue)
+    assert_receive {:entered, pid, _}, 10_000
+    assert DurableJob.cancel(g.queue, "k8b", "operator") == {:ok, :cancelled}
+    send(pid, {:release, {:ok, 1}})
+    poll(fn -> oban_state(g, "k8b") == "cancelled" end)
+    Process.sleep(200)
+    assert kinds(g.store, run_stream(g, "k8b")) == ~w(accepted attempt_started cancelled)
+
+    h = flow(prefix, :postgres)
+    {:ok, _} = submit(h, "k8c")
+    {:ok, _} = relay!(h.queue)
+    poll(fn -> phase(h, "k8c") == :succeeded end)
+    assert DurableJob.cancel(h.queue, "k8c", "operator") == {:error, {:terminal, :succeeded}}
+    assert DurableJob.cancel(h.queue, "missing", "operator") == {:error, :not_found}
+  end
+
+  test "DJ8 (d) cancel before relay, and after accepted while the insert is blocked", %{
+    prefix: prefix
+  } do
+    f = flow(prefix, :postgres)
+    {:ok, _} = submit(f, "k8d")
+    assert DurableJob.cancel(f.queue, "k8d", "operator") == {:ok, :cancelled}
+    assert kinds(f.store, run_stream(f, "k8d")) == ~w(cancelled)
+    assert {:ok, %{acked: [_], skipped: []}} = relay!(f.queue)
+    assert oban_state(f, "k8d") == :absent
+    assert phase(f, "k8d") == :cancelled
+
+    parent = self()
+
+    holder =
+      Task.async(fn ->
+        TestRepo.transaction(fn ->
+          {:ok, _} = Jobs.enqueue(f.oban, Jobs.changeset(f.queue, "k8e", 5))
+          send(parent, :held)
+          receive do: (:rollback -> TestRepo.rollback(:test))
+        end)
+      end)
+
+    assert_receive :held, 5_000
+    {:ok, _} = submit(f, "k8e")
+    assert {:ok, %{skipped: [{_, :unique_lock_held}]}} = relay!(f.queue)
+    assert DurableJob.cancel(f.queue, "k8e", "operator") == {:ok, :cancelled}
+    send(holder.pid, :rollback)
+    Task.await(holder)
+    assert {:ok, %{acked: [_]}} = relay!(f.queue)
+    assert oban_state(f, "k8e") == :absent
+    assert kinds(f.store, run_stream(f, "k8e")) == ~w(accepted cancelled)
+  end
+
+  test "DJ10 Oban, Repo and Assembly restart while waiting does not reset the budget", %{
+    prefix: prefix
+  } do
+    f = flow(prefix, :postgres, handler: fn _ -> {:error, :transient} end)
+    {:ok, _} = submit(f, "k10", [1], max_attempts: 2, base_backoff_ms: 2_000, max_backoff_ms: 2_000)
+    {:ok, _} = relay!(f.queue)
+    poll(fn -> phase(f, "k10") == :waiting end)
+    [{"accepted", %{"request" => before}} | _] = records(f.store, run_stream(f, "k10"))
+    stop_supervised!({DurableJob, f.queue})
+    stop_supervised!(f.oban)
+    :ok = Supervisor.stop(TestRepo)
+    {:ok, repo} = TestRepo.start_link(url: url!(), pool_size: 20, log: false)
+    Process.unlink(repo)
+    start_oban(f.oban, prefix, f.queue, [])
+    start_job(f.queue, f.store, f.oban, handler: fn _ -> {:error, :transient} end)
+    poll(fn -> phase(f, "k10") == :exhausted end)
+    records = records(f.store, run_stream(f, "k10"))
+
+    assert Enum.map(records, &elem(&1, 0)) ==
+             ~w(accepted attempt_started attempt_failed attempt_started exhausted)
+
+    assert [{"accepted", %{"request" => ^before}} | _] = records
+    assert for({"attempt_started", %{"attempt" => n}} <- records, do: n) == [1, 2]
+  end
+
+  test "DJ12 a second Oban job for one Run yields; one attempt, one terminal record", %{
+    prefix: prefix
+  } do
+    f = flow(prefix, :postgres, handler: blocking_handler(self()))
+    {:ok, _} = submit(f, "k12")
+    {:ok, _} = relay!(f.queue)
+    assert_receive {:entered, pid, _}, 10_000
+
+    {:ok, dup} =
+      Oban.insert(
+        f.oban,
+        Elzoo.Jobs.Worker.new(%{"v" => 1, "queue" => f.queue, "job_key" => "k12"},
+          queue: f.queue,
+          max_attempts: 5
+        )
+      )
+
+    poll(fn -> elem(job_row(f, dup.id), 0) == "cancelled" end)
+    send(pid, {:release, {:ok, 3}})
+    poll(fn -> phase(f, "k12") == :succeeded end)
+    assert kinds(f.store, run_stream(f, "k12")) == ~w(accepted attempt_started succeeded)
+  end
+
+  test "DJ13 reply lost after the succeeded commit: worker survives, no second succeeded", %{
+    prefix: prefix
+  } do
+    store = store(:memory, prefix)
+    handler = fn input -> Memory.fault(store, :append, :reply_loss) && {:ok, Enum.sum(input)} end
+    f = flow(prefix, :memory, store: store, handler: handler)
+    {:ok, _} = submit(f, "k13")
+    {:ok, _} = relay!(f.queue)
+    poll(fn -> oban_state(f, "k13") == "cancelled" end)
+    assert kinds(store, run_stream(f, "k13")) == ~w(accepted attempt_started succeeded)
+    assert phase(f, "k13") == :succeeded
+    # The indeterminate append snoozed (no Oban attempt consumed); the next
+    # execution re-fetched at the same attempt and cancelled on the terminal Run.
+    id = job_id(f, "k13")
+    assert job_row(f, id) == {"cancelled", 1}
+    assert snoozed(f, id) == 1
+  end
+
+  defp snoozed(f, id) do
+    %{rows: [[n]]} =
+      TestRepo.query!(
+        "select coalesce((meta->>'snoozed')::int, 0) from #{f.prefix}.oban_jobs where id = $1",
+        [id],
+        log: false
+      )
+
+    n
+  end
+
+  test "W6 deviation: retry backoff is indexed by the Oban attempt, unchanged by a snooze", %{
+    prefix: prefix
+  } do
+    args = %{"base_backoff_ms" => 1_000, "max_backoff_ms" => 60_000}
+    # backoff/1 sees only the Oban attempt: attempt 3 gives 4 s even if the Run is at attempt 1.
+    assert DurableJob.backoff(%Oban.Job{attempt: 1, args: args}) == 1
+    assert DurableJob.backoff(%Oban.Job{attempt: 3, args: args}) == 4
+
+    store = store(:memory, prefix)
+    f = flow(prefix, :memory, store: store, handler: fn _ -> {:error, :transient} end, snooze_s: 1)
+    :ok = Oban.pause_queue(f.oban, queue: f.queue)
+    {:ok, _} = submit(f, "kb", [1], max_attempts: 3, base_backoff_ms: 5_000, max_backoff_ms: 60_000)
+    {:ok, _} = relay!(f.queue)
+    id = job_id(f, "kb")
+    :ok = Memory.fault(store, :read, :unavailable)
+    :ok = Oban.resume_queue(f.oban, queue: f.queue)
+    poll(fn -> elem(job_row(f, id), 0) == "retryable" end)
+
+    %{rows: [[attempt, delay]]} =
+      TestRepo.query!(
+        "select attempt, extract(epoch from scheduled_at - attempted_at)::float from #{f.prefix}.oban_jobs where id = $1",
+        [id],
+        log: false
+      )
+
+    assert snoozed(f, id) == 1
+    assert attempt == 1
+    assert delay > 4.5 and delay < 6.0
+    assert kinds(store, run_stream(f, "kb")) == ~w(accepted attempt_started attempt_failed)
+  end
+
+  test "DJ14 damaged Run stream, record version 2 and args version 2 are refused", %{prefix: prefix} do
+    f = flow(prefix, :postgres)
+
+    {:committed, 1} =
+      raw_append(f.store, run_stream(f, "k14"), [
+        {"succeeded", 1, Run.encode(%{"attempt" => 9, "result" => 1})}
+      ])
+
+    {:ok, id} = Jobs.enqueue(f.oban, Jobs.changeset(f.queue, "k14", 3))
+    poll(fn -> elem(job_row(f, id), 0) == "cancelled" end)
+    assert DurableJob.status(f.queue, "k14") == {:error, :damaged}
+    assert kinds(f.store, run_stream(f, "k14")) == ~w(succeeded)
+
+    {:ok, pid} =
+      Memory.start_link(fold: %{Run.store_fold() | versions: [1, 2]}, limits: Run.limits())
+
+    v2 = Memory.store(pid)
+    g = flow(prefix, :memory, store: v2)
+    {:ok, request} = Run.request("k14b", [1], fast(), far(), System.os_time(:millisecond))
+
+    {:committed, 1} =
+      raw_append(
+        v2,
+        run_stream(g, "k14b"),
+        [
+          {"accepted", 2, Run.encode(%{"request" => request, "submission" => "x/1/1"})}
+        ],
+        [1, 2]
+      )
+
+    {:ok, id2} = Jobs.enqueue(g.oban, Jobs.changeset(g.queue, "k14b", 3))
+    poll(fn -> elem(job_row(g, id2), 0) == "cancelled" end)
+    assert DurableJob.status(g.queue, "k14b") == {:error, :damaged}
+
+    {:ok, j} =
+      Oban.insert(
+        f.oban,
+        Elzoo.Jobs.Worker.new(%{"v" => 2, "queue" => f.queue, "job_key" => "k14c"}, queue: f.queue)
+      )
+
+    poll(fn -> elem(job_row(f, j.id), 0) == "cancelled" end)
+  end
+
+  test "DJ15 unreachable PostgreSQL store: worker snoozes without consuming Oban or Run attempts",
+       %{prefix: prefix} do
+    {:ok, repo} =
+      Elzoo.DurableJob.UnreachableRepo.start_link(
+        url: "ecto://nobody:nobody@localhost:1/none",
+        pool_size: 1,
+        queue_target: 50,
+        queue_interval: 100,
+        backoff_type: :stop,
+        log: false
+      )
+
+    Process.unlink(repo)
+
+    store =
+      Elzoo.DurableLog.Postgres.store(Elzoo.DurableJob.UnreachableRepo,
+        fold: Run.store_fold(),
+        limits: Run.limits()
+      )
+
+    f = flow(prefix, :postgres, store: store, snooze_s: 60)
+    assert submit(f, "k15") == {:error, :unavailable}
+    {:ok, id} = Jobs.enqueue(f.oban, Jobs.changeset(f.queue, "k15", 3))
+    poll(fn -> job_row(f, id) == {"scheduled", 0} end)
+    assert DurableJob.status(f.queue, "k15") == {:error, :unavailable}
+  end
+
+  test "DJ16 provider job cancelled outside the Assembly while waiting: stalled, no deadline record",
+       %{prefix: prefix} do
+    f = flow(prefix, :postgres, handler: fn _ -> {:error, :transient} end)
+
+    {:ok, _} =
+      submit(f, "k16", [1], max_attempts: 3, base_backoff_ms: 60_000, max_backoff_ms: 60_000)
+
+    {:ok, _} = relay!(f.queue)
+    poll(fn -> phase(f, "k16") == :waiting end)
+    :ok = Oban.cancel_job(f.oban, job_id(f, "k16"))
+    poll(fn -> oban_state(f, "k16") == "cancelled" end)
+    assert {:ok, %{phase: :waiting, stalled: true}} = DurableJob.status(f.queue, "k16")
+    assert kinds(f.store, run_stream(f, "k16")) == ~w(accepted attempt_started attempt_failed)
+  end
+
+  test "DJ17 entry points refuse inside a caller transaction on the configured Repo", %{
+    prefix: prefix
+  } do
+    f = flow(prefix, :postgres)
+    {:ok, _} = submit(f, "k17")
+
+    assert {:ok, results} =
+             TestRepo.transaction(fn ->
+               {submit(f, "k17b"), DurableJob.cancel(f.queue, "k17", "op"),
+                DurableJob.status(f.queue, "k17")}
+             end)
+
+    assert results ==
+             {{:error, :caller_transaction}, {:error, :caller_transaction},
+              {:error, :caller_transaction}}
+
+    assert kinds(f.store, Run.submission_stream(f.queue)) == ~w(requested)
+    assert kinds(f.store, run_stream(f, "k17")) == []
+  end
+
+  defp oban_errors(f, id) do
+    %{rows: [[n]]} =
+      TestRepo.query!(
+        "select cardinality(errors) from #{f.prefix}.oban_jobs where id = $1",
+        [id],
+        log: false
+      )
+
+    n
+  end
+
+  defp catching(fun) do
+    fun.()
+  catch
+    :exit, reason -> {:caught_exit, elem(reason, 0)}
+  end
+
+  @tag timeout: 120_000
+  test "DJ21 a Store write slower than the GenServer default is not charged and does not crash",
+       %{prefix: prefix} do
+    # worker: attempt_started blocks on the Run head lock for 7 s (> 5 s default)
+    f = flow(prefix, :postgres)
+    :ok = Oban.pause_queue(f.oban, queue: f.queue)
+    {:ok, _} = submit(f, "s1", [1, 2], max_attempts: 1, base_backoff_ms: 0, max_backoff_ms: 0)
+    {:ok, _} = relay!(f.queue)
+    id = job_id(f, "s1")
+    lock = hold_head_lock(prefix, run_stream(f, "s1"), 7_000)
+    :ok = Oban.resume_queue(f.oban, queue: f.queue)
+    Task.await(lock, 20_000)
+    poll(fn -> Run.terminal?(phase(f, "s1")) end)
+    assert phase(f, "s1") == :succeeded
+    assert kinds(f.store, run_stream(f, "s1")) == ~w(accepted attempt_started succeeded)
+    poll(fn -> elem(job_row(f, id), 0) == "completed" end)
+    assert {job_row(f, id), oban_errors(f, id)} == {{"completed", 1}, 0}
+
+    # submit: the submission-stream head is locked for 7 s
+    g = flow(prefix, :postgres)
+    {:ok, _} = submit(g, "s2a")
+    submitter = Process.whereis(:"Elixir.Elzoo.DurableJob.submitter.#{g.queue}")
+    relay = Process.whereis(:"Elixir.Elzoo.DurableJob.relay.#{g.queue}")
+    lock = hold_head_lock(prefix, Run.submission_stream(g.queue), 7_000)
+    assert catching(fn -> submit(g, "s2b") end) == {:ok, %{phase: :submitted}}
+    Task.await(lock, 20_000)
+    assert Process.whereis(:"Elixir.Elzoo.DurableJob.submitter.#{g.queue}") == submitter
+    assert Process.whereis(:"Elixir.Elzoo.DurableJob.relay.#{g.queue}") == relay
+
+    # cancel: the Run head is locked for 7 s
+    h = flow(prefix, :postgres)
+    :ok = Oban.pause_queue(h.oban, queue: h.queue)
+    {:ok, _} = submit(h, "s3")
+    {:ok, _} = relay!(h.queue)
+    lock = hold_head_lock(prefix, run_stream(h, "s3"), 7_000)
+    assert catching(fn -> DurableJob.cancel(h.queue, "s3", "operator") end) == {:ok, :cancelled}
+    Task.await(lock, 20_000)
+    assert List.last(kinds(h.store, run_stream(h, "s3"))) == "cancelled"
+  end
+
+  @tag timeout: 120_000
+  test "DJ21b writer call timeout shorter than the held lock: worker snoozes, submit and cancel are indeterminate",
+       %{prefix: prefix} do
+    f = flow(prefix, :postgres, writer_timeout_ms: 1_000)
+    :ok = Oban.pause_queue(f.oban, queue: f.queue)
+    {:ok, _} = submit(f, "t1", [3], max_attempts: 1, base_backoff_ms: 0, max_backoff_ms: 0)
+    {:ok, _} = relay!(f.queue)
+    id = job_id(f, "t1")
+    submitter = Process.whereis(:"Elixir.Elzoo.DurableJob.submitter.#{f.queue}")
+    relay = Process.whereis(:"Elixir.Elzoo.DurableJob.relay.#{f.queue}")
+
+    lock = hold_head_lock(prefix, run_stream(f, "t1"), 3_000)
+    :ok = Oban.resume_queue(f.oban, queue: f.queue)
+    Task.await(lock, 20_000)
+    poll(fn -> Run.terminal?(phase(f, "t1")) end)
+    records = kinds(f.store, run_stream(f, "t1"))
+    assert List.last(records) == "succeeded"
+    refute "attempt_failed" in records or "exhausted" in records
+    poll(fn -> elem(job_row(f, id), 0) == "completed" end)
+    assert {job_row(f, id), oban_errors(f, id)} == {{"completed", 1}, 0}
+
+    lock = hold_head_lock(prefix, Run.submission_stream(f.queue), 3_000)
+    # explicit deadline so the documented recovery can resubmit the same request
+    t2_deadline = far()
+
+    assert {:indeterminate, %{operation: :submit, job_key: "t2"}} =
+             catching(fn -> submit(f, "t2", [1, 2, 3], fast(), t2_deadline) end)
+
+    Task.await(lock, 20_000)
+
+    :ok = Oban.pause_queue(f.oban, queue: f.queue)
+    {:ok, _} = submit(f, "t3", [3])
+    {:ok, _} = relay!(f.queue)
+    lock = hold_head_lock(prefix, run_stream(f, "t3"), 3_000)
+
+    assert {:indeterminate, %{operation: :cancel, job_key: "t3"}} =
+             catching(fn -> DurableJob.cancel(f.queue, "t3", "operator") end)
+
+    Task.await(lock, 20_000)
+
+    # Documented recovery after the locks release: re-read, then repeat the same
+    # request. submit: :duplicate if the indeterminate append committed, :ok if
+    # not; either way exactly one t2 submission. cancel: {:ok, :cancelled} if
+    # the first cancel did not commit, {:error, {:terminal, :cancelled}} if it
+    # did; either way exactly one cancelled record.
+    assert match?({:ok, _}, DurableJob.status(f.queue, "t3"))
+    {:ok, %{phase: t3_before}} = DurableJob.status(f.queue, "t3")
+    assert t3_before in [:requested, :cancelled]
+    resubmit = submit(f, "t2", [1, 2, 3], fast(), t2_deadline)
+    assert match?({:ok, %{phase: :submitted}}, resubmit) or match?({:duplicate, {:ok, _}}, resubmit)
+
+    t2_requests =
+      for {"requested", %{"job_key" => "t2"}} <- records(f.store, Run.submission_stream(f.queue)),
+          do: :t2
+
+    assert t2_requests == [:t2]
+    assert {:ok, %{phase: :submitted}} = DurableJob.status(f.queue, "t2")
+    recancel = DurableJob.cancel(f.queue, "t3", "operator")
+
+    assert recancel ==
+             if(t3_before == :cancelled,
+               do: {:error, {:terminal, :cancelled}},
+               else: {:ok, :cancelled}
+             )
+
+    assert {:ok, %{phase: :cancelled}} = DurableJob.status(f.queue, "t3")
+    assert Enum.count(kinds(f.store, run_stream(f, "t3")), &(&1 == "cancelled")) == 1
+    assert Process.whereis(:"Elixir.Elzoo.DurableJob.submitter.#{f.queue}") == submitter
+    assert Process.whereis(:"Elixir.Elzoo.DurableJob.relay.#{f.queue}") == relay
+  end
+
+  test "cancel/3 validates requested_by and documents its result set", %{prefix: prefix} do
+    f = flow(prefix, :postgres)
+    {:ok, _} = submit(f, "c1")
+    too_long = String.duplicate("x", 201)
+
+    for bad <- [nil, :op, "", too_long, <<0xFF>>] do
+      assert catching(fn -> DurableJob.cancel(f.queue, "c1", bad) end) ==
+               {:error, {:invalid, :requested_by}}
+    end
+
+    assert DurableJob.cancel("nostarted", "c1", "op") == {:error, :not_started}
+    assert DurableJob.cancel(f.queue, "c1", "op") == {:ok, :cancelled}
+  end
+
+  @tag timeout: 120_000
+  test "cancel/3 when the Assembly's task supervisor is suspended or absent", %{prefix: prefix} do
+    f = flow(prefix, :postgres)
+    :ok = Oban.pause_queue(f.oban, queue: f.queue)
+    {:ok, _} = submit(f, "ts1")
+    {:ok, _} = relay!(f.queue)
+    tasks = :"Elixir.Elzoo.DurableJob.tasks.#{f.queue}"
+    :ok = :sys.suspend(tasks)
+
+    result =
+      try do
+        call = Task.async(fn -> DurableJob.cancel(f.queue, "ts1", "operator") end)
+        Task.yield(call, 15_000) || Task.shutdown(call, :brutal_kill)
+      after
+        :sys.resume(tasks)
+      end
+
+    assert {:ok, {:indeterminate, %{operation: :cancel, job_key: "ts1"}}} = result
+    # The queued start request may still run the cancel after the resume.
+    poll(fn -> phase(f, "ts1") in [:requested, :cancelled] end)
+
+    sup = :"Elixir.Elzoo.DurableJob.supervisor.#{f.queue}"
+    # The Task.Supervisor child id is its registered name; once terminated it
+    # stays down (one_for_one), so its name is unregistered: :noproc.
+    :ok = Supervisor.terminate_child(sup, tasks)
+
+    try do
+      assert DurableJob.cancel(f.queue, "ts1", "operator") == {:error, :unavailable}
+    after
+      {:ok, _} = Supervisor.restart_child(sup, tasks)
+    end
+  end
+
+  defp stopped_assembly_checks(f, key) do
+    assert submit(f, "after-stop") == {:error, :not_started}
+    assert DurableJob.cancel(f.queue, key, "operator") == {:error, :not_started}
+    assert DurableJob.status(f.queue, key) == {:error, :not_started}
+    id = job_id(f, key)
+    :ok = Oban.resume_queue(f.oban, queue: f.queue)
+    poll(fn -> snoozed(f, id) >= 1 end)
+    refute_received {:handler_ran, _}
+    assert kinds(f.store, run_stream(f, key)) == ~w(accepted)
+  end
+
+  defp lifecycle_flow(prefix, key) do
+    parent = self()
+
+    handler = fn input ->
+      send(parent, {:handler_ran, input})
+      {:ok, 1}
+    end
+
+    # restart: :temporary so the ExUnit test supervisor does not restart a
+    # stopped or killed Assembly behind the test's back.
+    f = flow(prefix, :postgres, handler: handler, restart: :temporary)
+    :ok = Oban.pause_queue(f.oban, queue: f.queue)
+    {:ok, _} = submit(f, key)
+    {:ok, _} = relay!(f.queue)
+    f
+  end
+
+  test "DJ22 a normally stopped Assembly leaves no live registration", %{prefix: prefix} do
+    f = lifecycle_flow(prefix, "l1")
+    stop_supervised!({DurableJob, f.queue})
+    stopped_assembly_checks(f, "l1")
+  end
+
+  test "DJ22b a brutally killed Assembly supervisor leaves no usable registration", %{
+    prefix: prefix
+  } do
+    f = lifecycle_flow(prefix, "l2")
+    sup = Process.whereis(:"Elixir.Elzoo.DurableJob.supervisor.#{f.queue}")
+    owner = :persistent_term.get({DurableJob, f.queue}).owner
+    ref = Process.monitor(sup)
+    owner_ref = Process.monitor(owner)
+    Process.exit(sup, :kill)
+    assert_receive {:DOWN, ^ref, _, _, :killed}, 5_000
+    # The Registration traps exits: the supervisor's exit signal runs terminate/2.
+    assert_receive {:DOWN, ^owner_ref, _, _, :killed}, 5_000
+    assert :persistent_term.get({DurableJob, f.queue}, nil) == nil
+    stopped_assembly_checks(f, "l2")
+  end
+
+  test "DJ22d a registration whose owner was killed without terminate is treated as absent", %{
+    prefix: prefix
+  } do
+    f = lifecycle_flow(prefix, "l4")
+    sup = Process.whereis(:"Elixir.Elzoo.DurableJob.supervisor.#{f.queue}")
+    owner = :persistent_term.get({DurableJob, f.queue}).owner
+    # Suspend the supervisor so it cannot restart the killed Registration,
+    # kill the Registration (terminate/2 is skipped), then kill the supervisor.
+    :ok = :sys.suspend(sup)
+    ref = Process.monitor(owner)
+    Process.exit(owner, :kill)
+    assert_receive {:DOWN, ^ref, _, _, :killed}, 5_000
+    sup_ref = Process.monitor(sup)
+    Process.exit(sup, :kill)
+    assert_receive {:DOWN, ^sup_ref, _, _, :killed}, 5_000
+    # The stale entries are still present; only the liveness check rejects them.
+    assert %{owner: ^owner} = :persistent_term.get({DurableJob, f.queue})
+    assert %{owner: ^owner} = Elzoo.Jobs.runner(f.queue)
+    stopped_assembly_checks(f, "l4")
+  end
+
+  test "DJ22c start, stop, start again on the same queue works", %{prefix: prefix} do
+    f = flow(prefix, :postgres, restart: :temporary)
+    stop_supervised!({DurableJob, f.queue})
+    assert submit(f, "again") == {:error, :not_started}
+    start_job(f.queue, f.store, f.oban, [])
+    assert {:ok, %{phase: :submitted}} = submit(f, "again")
+    {:ok, %{acked: [_]}} = relay!(f.queue)
+    poll(fn -> phase(f, "again") == :succeeded end)
+  end
+
+  test "DJ12b status reads the bound job, not another job of the same Run", %{prefix: prefix} do
+    f = flow(prefix, :postgres, handler: blocking_handler(self()))
+    :ok = Oban.pause_queue(f.oban, queue: f.queue)
+    {:ok, _} = submit(f, "k12b")
+    {:ok, _} = relay!(f.queue)
+    relayed = job_id(f, "k12b")
+    :ok = Oban.cancel_job(f.oban, relayed)
+
+    {:ok, bound} =
+      Oban.insert(
+        f.oban,
+        Elzoo.Jobs.Worker.new(%{"v" => 1, "queue" => f.queue, "job_key" => "k12b"},
+          queue: f.queue,
+          schedule_in: 3_600
+        )
+      )
+
+    cfg = :persistent_term.get({DurableJob, f.queue})
+    job = %Oban.Job{id: bound.id, attempt: 1, args: bound.args}
+    run = Task.async(fn -> Elzoo.Jobs.Worker.trapping(fn -> DurableJob.perform(cfg, job) end) end)
+    assert_receive {:entered, handler, _}, 10_000
+    assert {:ok, %{phase: :active, stalled: stalled}} = DurableJob.status(f.queue, "k12b")
+    assert stalled == false
+    send(handler, {:release, {:ok, 1}})
+    assert Task.await(run) == :ok
+  end
+
+  test "DJ19 a stale pre-start execution arriving after the current attempt_started snoozes", %{
+    prefix: prefix
+  } do
+    parent = self()
+
+    hook = fn :before_begin, job ->
+      if job.attempt == 1 do
+        send(parent, {:hook, self()})
+        receive do: (:go -> :ok)
+      end
+
+      :ok
+    end
+
+    f = flow(prefix, :postgres, handler: blocking_handler(parent), test_hook: hook)
+    :ok = Oban.pause_queue(f.oban, queue: f.queue)
+    {:ok, _} = submit(f, "k19")
+    {:ok, _} = relay!(f.queue)
+    cfg = :persistent_term.get({DurableJob, f.queue})
+    id = job_id(f, "k19")
+
+    exec = fn attempt ->
+      %Oban.Job{id: id, attempt: attempt, args: %{"v" => 1, "queue" => f.queue, "job_key" => "k19"}}
+    end
+
+    run = fn job ->
+      Task.async(fn -> Elzoo.Jobs.Worker.trapping(fn -> DurableJob.perform(cfg, job) end) end)
+    end
+
+    # W2 conflict path: E1 (Oban attempt 1) has folded and waits before its append.
+    e1 = run.(exec.(1))
+    assert_receive {:hook, e1_pid}, 5_000
+    e2 = run.(exec.(2))
+    assert_receive {:entered, e2_handler, _}, 5_000
+    send(e1_pid, :go)
+    assert {:snooze, _} = Task.await(e1)
+
+    # A later stale execution (Oban attempt 1) arriving after attempt_started{oban_attempt: 2}.
+    # It folds the newer recorded oban_attempt and never reaches the begin hook.
+    late = run.(exec.(1))
+    assert {:snooze, _} = Task.await(late)
+    refute_received {:hook, _}
+
+    send(e2_handler, {:release, {:ok, 3}})
+    assert Task.await(e2) == :ok
+    records = records(f.store, run_stream(f, "k19"))
+    assert Enum.map(records, &elem(&1, 0)) == ~w(accepted attempt_started succeeded)
+    assert [_, {"attempt_started", %{"attempt" => 1, "oban_attempt" => 2}}, _] = records
+  end
+
+  test "DJ20 relay skips stuck items within a page; a full page of stuck items blocks later ones",
+       %{prefix: prefix} do
+    foreign = fn f, key ->
+      {:ok, request} = Run.request(key, [1], fast(), far(), System.os_time(:millisecond))
+
+      {:committed, 1} =
+        raw_append(f.store, run_stream(f, key), [
+          {"accepted", 1, Run.encode(%{"request" => request, "submission" => "jobs/other/1/1"})}
+        ])
+    end
+
+    f = flow(prefix, :postgres)
+    foreign.(f, "a")
+    {:ok, _} = submit(f, "a", [1])
+    {:ok, _} = submit(f, "c")
+    assert {:ok, %{acked: [_], skipped: [{_, :foreign_run}]}} = relay!(f.queue)
+    poll(fn -> phase(f, "c") == :succeeded end)
+
+    g = flow(prefix, :postgres, relay_limit: 2)
+    foreign.(g, "a")
+    foreign.(g, "b")
+    {:ok, _} = submit(g, "a", [1])
+    {:ok, _} = submit(g, "b", [1])
+    {:ok, _} = submit(g, "c")
+    assert {:ok, %{acked: [], skipped: [_, _]}} = relay!(g.queue)
+    assert phase(g, "c") == :submitted
+    assert oban_state(g, "c") == :absent
+  end
+end

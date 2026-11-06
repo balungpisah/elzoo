@@ -1,0 +1,624 @@
+# SPDX-License-Identifier: Apache-2.0
+defmodule Elzoo.DurableJob do
+  @moduledoc """
+  `assembly/durable-job`: the tally job flow over the ELZ-009 Store and Oban
+  2.24.2. See docs/work/ELZ-010.md for the Contract, result tables and limits.
+
+  `start_link/1` starts, for one queue, a Task.Supervisor, the Submitter and the
+  Relay, and registers the worker runner for the queue on this node. Entry
+  points (`submit/5`, `cancel/3`, `status/2`) refuse with
+  `{:error, :caller_transaction}` before any I/O when the configured Repo is in
+  a transaction in the calling process; their Store writes run in
+  ELZ-010-owned processes.
+
+  The handler must be pure and deterministic (assumption, not enforced); no
+  external Effect is dispatched by this Assembly.
+  """
+  use Supervisor
+  alias Elzoo.DurableJob.{Run, Submitter}
+  alias Elzoo.DurableLog, as: Log
+  alias Elzoo.DurableLog.Writer
+  alias Elzoo.{JobRun, Jobs}
+
+  @rounds 3
+
+  # Writer call timeout. It must exceed the Store's own write timeout so that
+  # the Writer, not the GenServer call, reports a slow write: the ELZ-009
+  # PostgreSQL Store runs each write transaction with a 30_000 ms timeout, plus
+  # a 5_000 ms margin. Override per Assembly with `:writer_timeout_ms`.
+  @writer_timeout_ms 35_000
+
+  @doc "Default Writer call timeout (Store write timeout 30_000 ms + 5_000 ms margin)."
+  def writer_timeout_ms, do: @writer_timeout_ms
+
+  # -- lifecycle --------------------------------------------------------------
+
+  @doc """
+  Options: `:queue` (string, `[a-z][a-z0-9_]*`, ≤ 32 bytes), `:store`
+  (ELZ-009 Store configured with `Elzoo.DurableJob.Run.store_fold/0` and
+  `Run.limits/0`), `:repo` (the Ecto Repo Oban uses), `:oban` (Oban instance
+  name), `:handler` (`(input -> {:ok, integer} | {:error, :transient | :permanent})`,
+  default `Elzoo.DurableJob.Tally.run/1`), `:now_ms` (default
+  `System.os_time(:millisecond)`), `:provider_slack` (default 2),
+  `:snooze_s` (default 1), `:relay_limit` (default 100), `:relay_interval_ms`
+  (default 1000 or `:manual`), `:writer_timeout_ms` (default
+  `writer_timeout_ms/0`; must exceed the Store's write timeout), `:test_hook` (test-only barrier
+  `fn :before_begin, job -> :ok end`). All fixed at start; no hot
+  reconfiguration.
+  """
+  def start_link(opts) do
+    queue = Keyword.fetch!(opts, :queue)
+    if not Run.queue?(queue), do: raise(ArgumentError, "invalid queue")
+    Supervisor.start_link(__MODULE__, opts, name: name(queue, :supervisor))
+  end
+
+  def child_spec(opts),
+    do: %{
+      id: {__MODULE__, Keyword.fetch!(opts, :queue)},
+      start: {__MODULE__, :start_link, [opts]},
+      type: :supervisor
+    }
+
+  @impl true
+  def init(opts) do
+    queue = Keyword.fetch!(opts, :queue)
+
+    config = %{
+      queue: queue,
+      store: Keyword.fetch!(opts, :store),
+      repo: Keyword.fetch!(opts, :repo),
+      oban: Keyword.fetch!(opts, :oban),
+      handler: Keyword.get(opts, :handler, &Elzoo.DurableJob.Tally.run/1),
+      now_ms: Keyword.get(opts, :now_ms, fn -> System.os_time(:millisecond) end),
+      slack: Keyword.get(opts, :provider_slack, 2),
+      snooze: Keyword.get(opts, :snooze_s, 1),
+      test_hook: Keyword.get(opts, :test_hook, fn _event, _data -> :ok end),
+      writer_timeout: Keyword.get(opts, :writer_timeout_ms, @writer_timeout_ms),
+      tasks: name(queue, :tasks),
+      submitter: name(queue, :submitter),
+      relay: name(queue, :relay)
+    }
+
+    # The Registration is first: it registers the config and the worker
+    # runner with itself as owner and erases them when it terminates.
+    children = [
+      {Elzoo.DurableJob.Registration, config},
+      {Task.Supervisor, name: config.tasks},
+      {Submitter,
+       name: config.submitter,
+       store: config.store,
+       queue: queue,
+       writer_timeout_ms: config.writer_timeout},
+      {Elzoo.Jobs.Relay,
+       name: config.relay,
+       store: config.store,
+       stream: Run.submission_stream(queue),
+       limit: Keyword.get(opts, :relay_limit, 100),
+       interval_ms: Keyword.get(opts, :relay_interval_ms, 1_000),
+       handle: fn item -> relay(config, item) end}
+    ]
+
+    # one_for_one: a Submitter or Relay restart never restarts the other.
+    Supervisor.init(children, strategy: :one_for_one)
+  end
+
+  @doc "Relay process of `queue` (for `Elzoo.Jobs.Relay.run_once/1`)."
+  def relay_process(queue), do: name(queue, :relay)
+
+  defp name(queue, role), do: String.to_atom("Elixir.Elzoo.DurableJob.#{role}.#{queue}")
+  # A registration whose owner is dead (brutal kill skipped terminate/2) is
+  # treated as absent: nothing is sent, the result is {:error, :not_started}.
+  defp config(queue) do
+    case :persistent_term.get({__MODULE__, queue}, nil) do
+      %{owner: owner} = cfg when is_pid(owner) -> if Process.alive?(owner), do: cfg
+      _ -> nil
+    end
+  end
+
+  # -- entry points -------------------------------------------------------------
+
+  @doc "Submit a Work Item. Results: see the Contract's result table."
+  def submit(queue, job_key, input, policy, deadline_ms) do
+    guarded(queue, fn cfg ->
+      with {:ok, request} <- Run.request(job_key, input, policy, deadline_ms, cfg.now_ms.()) do
+        case submit_call(cfg, request) do
+          {:duplicate, _} -> {:duplicate, status_of(cfg, job_key)}
+          other -> other
+        end
+      end
+    end)
+  end
+
+  # The request reached the Submitter, so an exit (timeout or Submitter
+  # crash) leaves the submission's commit unknown.
+  defp submit_call(cfg, request) do
+    Submitter.submit(cfg.submitter, request, @rounds * cfg.writer_timeout + 5_000)
+  catch
+    # :noproc: no Submitter process received the request, so nothing was sent.
+    :exit, reason ->
+      if noproc?(reason),
+        do: {:error, :unavailable},
+        else: {:indeterminate, unknown(:submit, cfg, request["job_key"], reason)}
+  end
+
+  defp unknown(operation, cfg, job_key, reason),
+    do: %{operation: operation, queue: cfg.queue, job_key: job_key, cause: exit_cause(reason)}
+
+  defp exit_cause({:timeout, _}), do: :timeout
+  defp exit_cause(:timeout), do: :timeout
+  defp exit_cause(_), do: :exit
+
+  @doc "Cancel a Work Item's Run (also before the relay ran). Results: see the Contract."
+  def cancel(queue, job_key, requested_by) do
+    if requested_by?(requested_by) do
+      guarded(queue, fn cfg ->
+        owned(cfg, job_key, fn ->
+          with_writer(cfg, job_key, &cancel_loop(cfg, job_key, requested_by, &1, @rounds))
+          |> writer_init(fn reason -> {:error, reason} end)
+          |> writer_exit(fn reason -> {:indeterminate, unknown(:cancel, cfg, job_key, reason)} end)
+        end)
+      end)
+    else
+      {:error, {:invalid, :requested_by}}
+    end
+  end
+
+  defp requested_by?(by),
+    do:
+      is_binary(by) and byte_size(by) in 1..200 and String.valid?(by) and
+        not String.contains?(by, <<0>>)
+
+  defp writer_exit({:writer_exit, reason}, fun), do: fun.(reason)
+  defp writer_exit(result, _fun), do: result
+
+  defp writer_init({:writer_init, reason}, fun), do: fun.(reason)
+  defp writer_init(result, _fun), do: result
+
+  @doc "Read-only status of a Work Item's Run."
+  def status(queue, job_key), do: guarded(queue, fn cfg -> status_of(cfg, job_key) end)
+
+  defp guarded(queue, fun) do
+    case config(queue) do
+      nil -> {:error, :not_started}
+      cfg -> if cfg.repo.in_transaction?(), do: {:error, :caller_transaction}, else: fun.(cfg)
+    end
+  end
+
+  # Bound on the Task.Supervisor start call (Task.Supervisor itself waits
+  # with :infinity, so a suspended or overloaded supervisor would block).
+  @task_start_timeout_ms 5_000
+
+  # Runs a cancel in an ELZ-010-owned process supervised by the Assembly's
+  # Task.Supervisor. The start request is made from a monitored starter
+  # process so it can be bounded:
+  # - the supervisor did not exist (:noproc): nothing started or sent,
+  #   {:error, :unavailable};
+  # - any other start exit or the start timeout: the queued start request may
+  #   still run the cancel later, so {:indeterminate, info};
+  # - once started, the task may have sent a write, so its exit or the result
+  #   timeout is indeterminate, never a definite error.
+  defp owned(cfg, job_key, fun) do
+    caller = self()
+    ref = make_ref()
+
+    body = fn ->
+      Process.flag(:trap_exit, true)
+      send(caller, {ref, :result, fun.()})
+    end
+
+    {starter, monitor} =
+      spawn_monitor(fn ->
+        {:ok, pid} = Task.Supervisor.start_child(cfg.tasks, body)
+        send(caller, {ref, :started, pid})
+      end)
+
+    receive do
+      {^ref, :started, pid} ->
+        Process.demonitor(monitor, [:flush])
+        await_owned(cfg, job_key, ref, pid)
+
+      {:DOWN, ^monitor, :process, _, reason} ->
+        if noproc?(reason),
+          do: {:error, :unavailable},
+          else: {:indeterminate, unknown(:cancel, cfg, job_key, reason)}
+    after
+      @task_start_timeout_ms ->
+        Process.exit(starter, :kill)
+        Process.demonitor(monitor, [:flush])
+        {:indeterminate, unknown(:cancel, cfg, job_key, :timeout)}
+    end
+  end
+
+  defp await_owned(cfg, job_key, ref, pid) do
+    monitor = Process.monitor(pid)
+
+    receive do
+      {^ref, :result, result} ->
+        Process.demonitor(monitor, [:flush])
+        result
+
+      {:DOWN, ^monitor, :process, _, reason} ->
+        {:indeterminate, unknown(:cancel, cfg, job_key, reason)}
+    after
+      @rounds * cfg.writer_timeout + 5_000 ->
+        Process.exit(pid, :kill)
+        Process.demonitor(monitor, [:flush])
+        {:indeterminate, unknown(:cancel, cfg, job_key, :timeout)}
+    end
+  end
+
+  defp noproc?(:noproc), do: true
+  defp noproc?({:noproc, _}), do: true
+  defp noproc?({{:noproc, _}, _}), do: true
+  defp noproc?({:badmatch, reason}), do: noproc?(reason)
+  defp noproc?(_), do: false
+
+  defp with_writer(cfg, job_key, fun) do
+    case Writer.start_link(
+           store: cfg.store,
+           stream: Run.run_stream(cfg.queue, job_key),
+           fold: Run.run_fold(),
+           limits: Run.limits()
+         ) do
+      {:ok, writer} ->
+        try do
+          fun.(writer)
+        catch
+          # A Writer call exited (timeout or Writer stop): the write may still be
+          # in flight, so kill the Writer (its open transaction is abandoned) and
+          # let the caller map this to snooze / indeterminate.
+          :exit, reason ->
+            Process.exit(writer, :kill)
+            {:writer_exit, reason}
+        after
+          stop_writer(writer)
+        end
+
+      # Tagged so a caller can never confuse a Writer start failure with its
+      # own fun's result (for example the worker's {:error, :retry}).
+      {:error, {:replay_damaged, _}} ->
+        {:writer_init, :damaged}
+
+      {:error, _} ->
+        {:writer_init, :unavailable}
+    end
+  end
+
+  defp stop_writer(writer) do
+    if Process.alive?(writer), do: GenServer.stop(writer)
+  catch
+    :exit, _ -> :ok
+  end
+
+  # Writer.snapshot/1 has no timeout parameter; it is answered from the
+  # Writer's memory and only this process calls the Writer, so it never waits
+  # on the Store. Its exits are caught in with_writer/3.
+  defp model(writer), do: Writer.snapshot(writer).model
+
+  defp append(cfg, writer, kind, data),
+    do: Writer.append(writer, [{kind, Run.version(), Run.encode(data)}], [], cfg.writer_timeout)
+
+  defp cancel_loop(_cfg, _key, _by, _writer, 0), do: {:error, :contended}
+
+  defp cancel_loop(cfg, key, by, writer, rounds) do
+    m = model(writer)
+
+    if m.phase == :none do
+      case known?(cfg, key) do
+        {:ok, true} -> write_cancel(cfg, key, by, writer, m, rounds)
+        {:ok, false} -> {:error, :not_found}
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      {:ok, {_, action}} = JobRun.step(m.phase, :cancel, false, :retry)
+
+      case action do
+        :record_cancel -> write_cancel(cfg, key, by, writer, m, rounds)
+        :no_change -> {:error, {:terminal, m.phase}}
+      end
+    end
+  end
+
+  defp write_cancel(cfg, key, by, writer, m, rounds) do
+    case append(cfg, writer, "cancelled", %{"attempt" => m.last_attempt, "requested_by" => by}) do
+      {:committed, _} ->
+        _ = Jobs.cancel(cfg.oban, cfg.queue, key)
+        {:ok, :cancelled}
+
+      {:conflict, _} ->
+        cancel_loop(cfg, key, by, writer, rounds - 1)
+
+      {:indeterminate, info} ->
+        {:indeterminate, info}
+
+      {:rejected, reason} ->
+        {:error, {:rejected, reason}}
+    end
+  end
+
+  # Read-only Submitter query: nothing is written, so an exit is :unavailable.
+  defp known?(cfg, key) do
+    Submitter.known?(cfg.submitter, key, cfg.writer_timeout + 5_000)
+  catch
+    :exit, _ -> {:error, :unavailable}
+  end
+
+  defp status_of(cfg, key) do
+    stream = Run.run_stream(cfg.queue, key)
+
+    with {:ok, rows, head} <- Log.read(cfg.store, stream, 1, 1_000) do
+      replay = Log.replay(rows, head, Map.put(Run.run_fold(), :limits, Run.limits()))
+      {_, damaged, _} = replay.cursor
+      m = replay.model
+
+      cond do
+        damaged ->
+          {:error, :damaged}
+
+        m.phase == :none ->
+          case known?(cfg, key) do
+            {:ok, true} ->
+              {:ok,
+               %{phase: :submitted, attempts_made: 0, deadline_ms: nil, result: nil, stalled: false}}
+
+            {:ok, false} ->
+              {:error, :not_found}
+
+            {:error, reason} ->
+              {:error, reason}
+          end
+
+        true ->
+          {:ok,
+           %{
+             phase: m.phase,
+             attempts_made: m.attempts_made,
+             deadline_ms: m.request["deadline_ms"],
+             result: m.result,
+             stalled: stalled?(cfg, key, m)
+           }}
+      end
+    else
+      {:error, _} -> {:error, :unavailable}
+    end
+  end
+
+  # A non-terminal Run cannot progress when the job it is bound to is terminal
+  # or gone, or (before any attempt) when no job of the Run is live. The bound
+  # job is read by id, never by an arbitrary (queue, job_key) row. Reported,
+  # never repaired (limit).
+  @terminal_job_states ~w(discarded cancelled completed)
+
+  defp stalled?(cfg, key, m) do
+    cond do
+      Run.terminal?(m.phase) ->
+        false
+
+      m.bound_job > 0 ->
+        case Jobs.state_by_id(cfg.oban, m.bound_job) do
+          {:ok, {_, state}} -> state in @terminal_job_states
+          {:ok, :absent} -> true
+          {:error, _} -> false
+        end
+
+      true ->
+        case Jobs.states(cfg.oban, cfg.queue, key) do
+          {:ok, [_ | _] = rows} ->
+            Enum.all?(rows, fn {_, state} -> state in @terminal_job_states end)
+
+          _ ->
+            false
+        end
+    end
+  end
+
+  # -- relay ----------------------------------------------------------------------
+
+  @doc false
+  def relay(cfg, item) do
+    request = Run.decode!(item.payload)
+    key = request["job_key"]
+    if not Run.job_key?(key), do: raise(ArgumentError, "bad key")
+
+    with_writer(cfg, key, &relay_loop(cfg, request, item, &1, @rounds))
+    |> writer_exit(fn _ -> {:skip, :indeterminate} end)
+    |> relay_result()
+  rescue
+    _ -> {:skip, :malformed}
+  end
+
+  defp relay_result({:writer_init, reason}), do: {:skip, reason}
+  defp relay_result(other), do: other
+
+  defp relay_loop(_cfg, _request, _item, _writer, 0), do: {:skip, :contended}
+
+  defp relay_loop(cfg, request, item, writer, rounds) do
+    m = model(writer)
+
+    cond do
+      m.phase == :none ->
+        case append(cfg, writer, "accepted", %{
+               "request" => request,
+               "submission" => item.idempotency_key
+             }) do
+          {:committed, _} -> enqueue(cfg, request)
+          {:conflict, _} -> relay_loop(cfg, request, item, writer, rounds - 1)
+          {:indeterminate, _} -> {:skip, :indeterminate}
+          {:rejected, reason} -> {:skip, {:rejected, reason}}
+        end
+
+      m.first == "cancelled" ->
+        :done
+
+      m.submission != item.idempotency_key ->
+        {:skip, :foreign_run}
+
+      Run.terminal?(m.phase) ->
+        :done
+
+      true ->
+        enqueue(cfg, m.request)
+    end
+  end
+
+  defp enqueue(cfg, request) do
+    changeset =
+      Jobs.changeset(cfg.queue, request["job_key"], request["max_attempts"] + cfg.slack, %{
+        "base_backoff_ms" => request["base_backoff_ms"],
+        "max_backoff_ms" => request["max_backoff_ms"]
+      })
+
+    case Jobs.enqueue(cfg.oban, changeset) do
+      {:ok, _id} -> :done
+      {:retry, reason} -> {:skip, reason}
+      {:error, reason} -> {:skip, {:insert, reason}}
+    end
+  end
+
+  # -- worker ---------------------------------------------------------------------
+
+  @doc false
+  def backoff(%Oban.Job{attempt: attempt, args: args}) do
+    with {:ok, policy} <-
+           Elzoo.RetryTimeout.policy(
+             base_backoff_ms: Map.get(args, "base_backoff_ms", 1_000),
+             max_backoff_ms: Map.get(args, "max_backoff_ms", 60_000)
+           ),
+         {:ok, ms} <- Elzoo.RetryTimeout.backoff(policy, max(attempt, 1)) do
+      div(ms + 999, 1000)
+    else
+      _ -> 1
+    end
+  end
+
+  @doc false
+  def perform(cfg, %Oban.Job{args: %{"job_key" => key}} = job) do
+    snooze = {:snooze, cfg.snooze}
+
+    case with_writer(cfg, key, &start_loop(cfg, job, &1, @rounds)) do
+      {:writer_init, :damaged} -> {:cancel, :damaged}
+      {:writer_exit, _} -> snooze
+      {:writer_init, :unavailable} -> snooze
+      result -> result
+    end
+  end
+
+  # W2: classify the start against the freshly folded Run; after this
+  # execution's own attempt_started commits, no start is evaluated again.
+  defp start_loop(cfg, _job, _writer, 0), do: {:snooze, cfg.snooze}
+
+  defp start_loop(cfg, job, writer, rounds) do
+    m = model(writer)
+
+    cond do
+      m.phase == :none ->
+        {:snooze, cfg.snooze}
+
+      Run.terminal?(m.phase) ->
+        {:cancel, m.phase}
+
+      true ->
+        expired = cfg.now_ms.() >= m.request["deadline_ms"]
+        {:ok, input} = JobRun.start_input(m.bound_job, job.id, m.last_oban_attempt, job.attempt)
+        {:ok, retry} = JobRun.retry_decision(Run.policy(m.request), m.attempts_made, :retryable)
+        {:ok, {_, action}} = JobRun.step(m.phase, input, expired, retry)
+        start_action(cfg, job, writer, rounds, m, action)
+    end
+  end
+
+  defp start_action(cfg, job, writer, rounds, m, :begin_attempt) do
+    n = m.attempts_made + 1
+    cfg.test_hook.(:before_begin, job)
+
+    data = %{
+      "attempt" => n,
+      "oban_job_id" => job.id,
+      "oban_attempt" => job.attempt,
+      "started_ms" => cfg.now_ms.()
+    }
+
+    case append(cfg, writer, "attempt_started", data) do
+      {:committed, _} -> attempt(cfg, writer, m.request, n)
+      {:conflict, _} -> start_loop(cfg, job, writer, rounds - 1)
+      _ -> {:snooze, cfg.snooze}
+    end
+  end
+
+  defp start_action(cfg, job, writer, rounds, m, action)
+       when action in [:record_expired, :record_exhausted] do
+    kind = if action == :record_expired, do: "expired", else: "exhausted"
+
+    case append(cfg, writer, kind, %{"attempt" => m.last_attempt, "reason" => kind}) do
+      {:committed, _} -> {:cancel, String.to_existing_atom(kind)}
+      {:conflict, _} -> start_loop(cfg, job, writer, rounds - 1)
+      _ -> {:snooze, cfg.snooze}
+    end
+  end
+
+  defp start_action(_cfg, _job, _writer, _rounds, _m, :yield_duplicate),
+    do: {:cancel, :duplicate_job}
+
+  defp start_action(cfg, _job, _writer, _rounds, _m, _no_begin), do: {:snooze, cfg.snooze}
+
+  defp attempt(cfg, writer, request, n) do
+    {completed?, outcome} =
+      try do
+        case cfg.handler.(request["input"]) do
+          {:ok, result} when is_integer(result) -> {true, result}
+          {:error, :permanent} -> {false, :permanent}
+          _ -> {false, :retryable}
+        end
+      rescue
+        _ -> {false, :retryable}
+      catch
+        _, _ -> {false, :retryable}
+      end
+
+    result_loop(cfg, writer, request, n, completed?, outcome, @rounds)
+  end
+
+  # W3: results are re-classified against the refolded Run after a conflict;
+  # stale results snooze (the stale execution's ack is a no-op under Oban's
+  # attempted_at guard).
+  defp result_loop(cfg, _writer, _request, _n, _completed?, _outcome, 0), do: {:snooze, cfg.snooze}
+
+  defp result_loop(cfg, writer, request, n, completed?, outcome, rounds) do
+    m = model(writer)
+    expired = cfg.now_ms.() >= request["deadline_ms"]
+    {:ok, input} = JobRun.result_input(completed?, n, m.last_attempt)
+    class = if completed?, do: :retryable, else: outcome
+    {:ok, retry} = JobRun.retry_decision(Run.policy(request), max(m.attempts_made, 1), class)
+    {:ok, {next, action}} = JobRun.step(m.phase, input, expired, retry)
+
+    {kind, data, reply} =
+      case action do
+        :record_success ->
+          {"succeeded", %{"attempt" => n, "result" => outcome, "finished_ms" => cfg.now_ms.()}, :ok}
+
+        :schedule_retry ->
+          {"attempt_failed", %{"attempt" => n, "class" => "transient"}, {:error, :retry}}
+
+        :record_exhausted ->
+          {"exhausted", %{"attempt" => n, "reason" => "exhausted"}, {:cancel, :exhausted}}
+
+        :record_failure ->
+          {"failed", %{"attempt" => n, "reason" => "permanent"}, {:cancel, :failed}}
+
+        :record_expired ->
+          {"expired", %{"attempt" => n, "reason" => "expired"}, {:cancel, :expired}}
+
+        :no_change ->
+          {nil, nil, if(Run.terminal?(next), do: {:cancel, next}, else: {:snooze, cfg.snooze})}
+      end
+
+    if kind == nil do
+      reply
+    else
+      case append(cfg, writer, kind, data) do
+        {:committed, _} -> reply
+        {:conflict, _} -> result_loop(cfg, writer, request, n, completed?, outcome, rounds - 1)
+        _ -> {:snooze, cfg.snooze}
+      end
+    end
+  end
+end

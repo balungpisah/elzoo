@@ -35,11 +35,11 @@
     },
     {
       "id": "assembly/durable-job",
-      "summary": "Durable workflow/job",
+      "summary": "Durable tally job flow over the ELZ-009 Store and Oban",
       "disposition": "adapt",
       "phase": "P2",
-      "status": "planned",
-      "reason": "event log/outbox/checkpoint plus selected SQL/job adapter"
+      "status": "ready",
+      "manifest": "pieces/assembly/durable-job/piece.json"
     },
     {
       "id": "assembly/http-job",
@@ -457,11 +457,11 @@
     },
     {
       "id": "integration/jobs",
-      "summary": "Durable job queue and scheduled work",
+      "summary": "Oban 2.24.2 unique job, worker translation and outbox relay; no general Oban wrapper",
       "disposition": "adapt",
       "phase": "P2",
-      "status": "planned",
-      "reason": "Oban candidate; not the Elzoo outbox until transaction/retry tests pass. Evaluate AshOban/Oban after ELZ-015; volatile Task invocation is not job durability."
+      "status": "ready",
+      "manifest": "pieces/integration/jobs/piece.json"
     },
     {
       "id": "integration/json",
@@ -647,7 +647,7 @@
       "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
-      "reason": "Claim/renew/release and stale-owner rejection for C2/C5/C6; use transactional storage or an established lease provider. No distributed lock service implemented. ELZ-028 carries the admission record (fencing by record revision, store clock, renew only live leases, stale/ambiguous fail closed); open only if the ELZ-010 provider contract is insufficient."
+      "reason": "Claim/renew/release and stale-owner rejection for C2/C5/C6; use transactional storage or an established lease provider. No distributed lock service implemented. ELZ-028 carries the admission record (fencing by record revision, store clock, renew only live leases, stale/ambiguous fail closed); open only if the ELZ-010 provider contract is insufficient. ELZ-010 evidence: Oban's own ownership contract does not satisfy these invariants (timestamp ack fence, node clock, no renewal, time-only rescue); ELZ-010 does not need a lease (revision CAS plus attempt identity). The decision belongs to ELZ-028."
     },
     {
       "id": "state/outbox",
@@ -671,7 +671,7 @@
       "disposition": "adapt",
       "phase": "P2",
       "status": "planned",
-      "reason": "Oban candidate; use provider persistence/retry when sufficient, while Elzoo owns job idempotency and adapter contract"
+      "reason": "ELZ-010 relies on Oban 2.24.2 retry staging inside integration/jobs for delayed retries; no recurring schedule, timer or workflow-timer Contract is offered, so this stays planned."
     },
     {
       "id": "state/schema-evolution",
@@ -679,7 +679,7 @@
       "disposition": "own",
       "phase": "P2",
       "status": "planned",
-      "reason": "`T,X`; version compatibility is explicit, not inferred"
+      "reason": "`T,X`; version compatibility is explicit, not inferred. ELZ-010 explicitly deferred it: assembly/durable-job accepts schema_version 1 only and refuses other versions; the first real format change needs golden corpora per version, pinned bytes, a frozen older reader and unwritable_version under a new task."
     },
     {
       "id": "ui/component",
@@ -739,11 +739,11 @@
     },
     {
       "id": "workflow/state-machine",
-      "summary": "gen_statem, statecharts, process manager, saga",
+      "summary": "Job-Run lifecycle decision (Cure laws); no general statechart or saga",
       "disposition": "own",
       "phase": "P1\u2192P2",
-      "status": "planned",
-      "reason": "Cure pure state machine plus OTP shell; compensation is a domain contract. ELZ-015 exercises AshStateMachine sequentially with ETS; transactional/stale-record safety remains unadopted."
+      "status": "ready",
+      "manifest": "pieces/workflow/state-machine/piece.json"
     },
     {
       "id": "workflow/work-item",
