@@ -13,7 +13,7 @@ defmodule Elzoo.DurableLog.Postgres do
   nested `repo.transaction/2` would join the caller's transaction, so no COMMIT
   would back a `committed` reply. Static, I/O-free validation runs first, so invalid
   input inside a caller transaction keeps its existing result (a write's rejection
-  or `indeterminate(:malformed_reply)`, a read's `{:error, :malformed}`); no SQL is issued in either case. The
+  or `indeterminate(:malformed_reply)`, `{:error, :malformed}` from a read with an I/O-free pre-check such as `read_ack` key parsing or an unknown `read_maintenance` operation; reads that validate input during the query, such as `head`/`read` with an invalid stream, return `{:error, :caller_transaction}` instead); no SQL is issued in either case. The
   check is per process and is false under `Ecto.Adapters.SQL.Sandbox` outside an
   explicit `Repo.transaction`; see the
   README limits.
