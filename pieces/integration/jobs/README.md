@@ -1,6 +1,6 @@
 # integration/jobs
 
-Oban 2.24.2 translation: a unique job per `(queue, job_key)`, `Elzoo.Jobs.enqueue/2` that reports only persisted job ids, a per-queue runner registration with `Elzoo.Jobs.Worker` (traps exits, refuses unknown args versions), and `Elzoo.Jobs.Relay` over one ELZ-009 outbox stream.
+Oban 2.24.2 translation: a unique job per `(queue, job_key)`, `Elzoo.Jobs.enqueue/2` that reports only persisted job ids, a per-queue runner registration with `Elzoo.Jobs.Worker` (traps exits, maps an escaping exit to a snooze, refuses unknown args versions), and `Elzoo.Jobs.Relay` over one ELZ-009 outbox stream.
 
 ## Copy and providers
 

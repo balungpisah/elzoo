@@ -19,7 +19,7 @@
   "applications": [
     "crypto"
   ],
-  "contract": "Oban 2.24.2 translation: unique job per (queue, job_key), enqueue that reports only persisted job ids (conflict without id is {:retry, :unique_lock_held}), a per-queue runner registration and an Oban worker that traps exits and refuses unknown args versions, and a Relay over one ELZ-009 outbox stream that acks :done items, keeps skipped items pending and continues within the page.",
+  "contract": "Oban 2.24.2 translation: unique job per (queue, job_key), enqueue that reports only persisted job ids (conflict without id is {:retry, :unique_lock_held}), a per-queue runner registration and an Oban worker that traps exits, maps an escaping exit to a snooze and refuses unknown args versions, and a Relay over one ELZ-009 outbox stream that acks :done items, keeps skipped items pending and continues within the page.",
   "limits": [
     "Subset only: no general Oban wrapper, cron, Pro features, batch/workflow or cross-stream outbox discovery.",
     "Relay delivery is at-least-once; pending/3 returns the oldest page with no offset, so a full page of permanently skipped items blocks later items (stated limit).",

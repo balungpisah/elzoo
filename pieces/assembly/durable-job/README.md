@@ -29,17 +29,26 @@ record and the relay acks it without a job).
 - **Schema evolution is deferred.** Only `schema_version` 1 exists. Any other record version is refused as damaged (`{:cancel, :damaged}`, `status/2` → `{:error, :damaged}`) and any other job-args version is refused with `{:cancel, :unsupported_version}`; nothing is upcast. `state/schema-evolution` stays planned. The first format change must meet ELZ-010's R6/R9 requirements in full under a new task (golden corpora written by each version, pinned bytes, mix check failing on missing/changed/unpinned corpora, a frozen older reader, `unwritable_version`), and changed accepted inputs follow the Piece-ID evolution rule. Mixed-version rolling deploys are unsupported.
 - No exactly-once execution: a Lifeline rescue can run a live attempt concurrently; its results are fenced by the Store CAS and attempt identity, and the rescue consumes Run budget (a Run can reach `exhausted` without a failed attempt).
 - A stalled Run (non-terminal, provider job terminal or gone) is reported by `status/2` (`stalled: true`), never repaired; its deadline is not recorded. Deadlines use the worker node's clock and are evaluated only when a worker runs.
+- Writer calls are bounded by `writer_timeout_ms` (default 35_000 = the PostgreSQL Store's 30_000 ms write timeout + 5_000 margin). A call that exits is a snooze in the worker and `{:indeterminate, info}` from `submit`/`cancel`; a write blocked longer than Lifeline's `rescue_after` gets the live execution rescued (one Oban attempt each), so repeated blocked writes can discard the job and stall the Run.
 - One Run per Work Item. Submits per queue serialize through one Submitter and one CAS row; Submitter memory grows with distinct keys; streams are not retained.
 - Entry points refuse with `{:error, :caller_transaction}` before any I/O only for the **configured Repo**; Store use inside a caller transaction is ELZ-032 ([#52](https://github.com/balungpisah/elzoo/issues/52)).
 - The handler must be pure and deterministic (assumption); no external Effect is dispatched. An effectful step needs ELZ-023 `delivery/effect-intent` (not adopted).
 
 ## Evidence and operations
 
-- `test/elzoo/durable_job_test.exs`: listed scenarios DJ1–DJ8, DJ10–DJ17, DJ19, DJ20 on Memory and a disposable PostgreSQL with Oban 2.24.2.
+- `test/elzoo/durable_job_test.exs`: listed scenarios DJ1–DJ8, DJ10–DJ17, DJ19–DJ21 and DJ12b on Memory and a disposable PostgreSQL with Oban 2.24.2.
 - `test/elzoo/durable_job_restart_test.exs`: DJ9, SIGKILL of a separate OS process mid-attempt and Lifeline resume at attempt 2.
 
 - telemetry: **planned** — No events emitted; Oban emits its own job events.
 - config: **supported** — Start-time queue, Store, Repo, Oban, handler, clock, slack, snooze, relay limit/interval; per-submit budget, backoff and absolute deadline fixed for the Run; no hot change.
-- control: **supported** — `cancel/3` with CAS results and read-only `status/2`; Submitter and Relay have OTP start/stop only; no pause/drain.
+- control: **supported** — `cancel/3` and read-only `status/2`; Submitter and Relay have OTP start/stop only (one_for_one); no pause/drain.
+
+`cancel/3` results (complete): `{:ok, :cancelled}`, `{:error, {:terminal, phase}}`,
+`{:error, :not_found}`, `{:error, {:invalid, :requested_by}}` (UTF-8 binary of
+1..200 bytes without NUL required), `{:error, :not_started}`,
+`{:error, :caller_transaction}`, `{:error, :damaged}`, `{:error, :unavailable}`
+(nothing was sent), `{:error, :contended}`, `{:error, {:rejected, reason}}`,
+`{:indeterminate, info}` (a write may have been sent, including a Writer call
+exit or timeout).
 
 See [ELZ-010](../../../docs/work/ELZ-010.md) for the Contract, result tables, scenarios and limits.

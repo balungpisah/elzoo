@@ -31,7 +31,8 @@
     "No exactly-once execution: a rescued live attempt may run concurrently and consumes Run budget; its results are fenced by CAS and attempt identity.",
     "A stalled Run (non-terminal, provider job terminal or gone) is reported by status/2, never repaired, and its deadline is not recorded; deadlines use node clocks and are evaluated only when a worker runs.",
     "Submits per queue are serialized through one Submitter and one CAS row; Submitter memory grows with distinct job keys; submission and Run streams are not retained.",
-    "The caller-transaction guard checks only the configured Repo; Store behaviour inside a caller transaction is ELZ-032's (#52)."
+    "The caller-transaction guard checks only the configured Repo; Store behaviour inside a caller transaction is ELZ-032's (#52).",
+    "A Store write blocked longer than the consumer's Lifeline rescue_after lets Oban rescue the live execution, consuming an Oban attempt; repeated blocked writes can exhaust the provider slack, discard the job and stall the Run. A Writer call that times out is reported as snooze/indeterminate; if its write still commits, the next execution begins a new Run attempt."
   ],
   "files": [
     "lib/elzoo/durable_job.ex",
@@ -47,7 +48,7 @@
     {
       "kind": "test",
       "file": "test/elzoo/durable_job_test.exs",
-      "claim": "Listed scenarios DJ1–DJ8, DJ10–DJ17, DJ19, DJ20 on Memory and a disposable PostgreSQL with Oban 2.24.2: success, duplicates, relay crash/lock/foreign items, retry, exhaustion, permanent failure, deadlines, cancellation incl. before relay, restart without budget reset, rescued stale attempts, duplicate jobs, lost commit reply, damaged/version refusal, unreachable store, stalled reporting, caller-transaction refusal, stale pre-start executions and relay page limits; finite scenarios, not proofs."
+      "claim": "Listed scenarios DJ1–DJ8, DJ10–DJ17, DJ19–DJ21 and DJ12b on Memory and a disposable PostgreSQL with Oban 2.24.2: success, duplicates, relay crash/lock/foreign items, retry, exhaustion, permanent failure, deadlines, cancellation incl. before relay, restart without budget reset, rescued stale attempts, duplicate jobs, lost commit reply, damaged/version refusal, unreachable store, stalled reporting, caller-transaction refusal, stale pre-start executions, relay page limits, slow Store writes past the call timeout, bound-job status and backoff indexing; finite scenarios, not proofs."
     },
     {
       "kind": "test",
@@ -107,14 +108,14 @@
     },
     "config": {
       "status": "supported",
-      "contract": "Start-time queue, Store, Repo, Oban name, handler, clock, provider slack, snooze and relay limit/interval (fixed, no hot change); per-submit max_attempts, backoff and absolute deadline fixed for the Run's life.",
+      "contract": "Start-time queue, Store, Repo, Oban name, handler, clock, provider slack, snooze, relay limit/interval and writer_timeout_ms (default 35_000 = Store write timeout 30_000 + 5_000 margin) (fixed, no hot change); per-submit max_attempts, backoff and absolute deadline fixed for the Run's life.",
       "evidence": [
         "test/elzoo/durable_job_test.exs"
       ]
     },
     "control": {
       "status": "supported",
-      "contract": "cancel/3 with CAS results ({:ok, :cancelled}, {:error, {:terminal, phase}}, {:error, :not_found}, {:error, :caller_transaction}, {:indeterminate, info}) and read-only status/2; Submitter and Relay have OTP start/stop only; no pause/drain.",
+      "contract": "cancel/3 with the complete result set {:ok, :cancelled}, {:error, {:terminal, phase}}, {:error, :not_found}, {:error, {:invalid, :requested_by}}, {:error, :not_started}, {:error, :caller_transaction}, {:error, :damaged}, {:error, :unavailable} (nothing sent), {:error, :contended}, {:error, {:rejected, reason}}, {:indeterminate, info} (a write may have been sent, including a Writer call exit or timeout), and read-only status/2; Submitter and Relay have OTP start/stop only (one_for_one); no pause/drain.",
       "evidence": [
         "test/elzoo/durable_job_test.exs"
       ]
