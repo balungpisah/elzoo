@@ -62,6 +62,15 @@ at `/opt/actions-runner/elzoo-backend` and served by
 It has a separate `_work` directory. Docker startup and a pull/run of the pinned
 CI image passed during provisioning; those are not a full CI validation.
 
+The first complete candidate trial, Actions run 42305933284 at `2346426`,
+ran for 29 minutes 45 seconds; the container reported a cgroup memory peak of
+2,312,663,040 bytes (about 2.15 GiB). `mix setup` passed, but `mix check`
+failed with 364/366 root tests passing. The CI guard test used an outdated
+symbolic-only fixture; ELZ-034 updates it. A separate durable-job PostgreSQL
+scenario failed while starting Oban's notifier with `no process`; the cause is
+unconfirmed. This failed run does not establish reliable capacity or a passing
+check. Repeat the full run on the final head and retain both results.
+
 Each role runs at most one job per runner. The candidate has no hard container
 memory or CPU quota. The backend workflow keeps `+S 4:4 +SDcpu 1 +SDio 1` on
 symbolic and selects `+S 2:2 +SDcpu 1 +SDio 1` on macbook-ubuntu, per BEAM VM;

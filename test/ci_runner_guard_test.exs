@@ -49,6 +49,6 @@ defmodule Elzoo.CiRunnerGuardTest do
     assert {_, 1} = System.cmd("python3", [@script], cd: root, stderr_to_stdout: true)
   end
 
-  defp workflow(role),
-    do: "jobs:\n  check:\n    runs-on: [self-hosted, linux, x64, symbolic, elzoo, #{role}]\n"
+  defp workflow("backend"), do: File.read!(Path.expand(".github/workflows/symbolic-check.yml"))
+  defp workflow("gleam"), do: File.read!(Path.expand(".github/workflows/symbolic-gleam.yml"))
 end
