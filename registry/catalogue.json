@@ -166,7 +166,7 @@
       "disposition": "own",
       "phase": "P1\u2192P2",
       "status": "planned",
-      "reason": "`T,X`; stateful and needs correlation/retention policy"
+      "reason": "`T,X`; stateful and needs correlation/retention policy ELZ-025 study: one result per declared branch identity, killed or timed-out branches recorded per the Envelope result matrix, correlation by Envelope key never arrival position, and no-denials distinct from denial-record-unreadable."
     },
     {
       "id": "delivery/backpressure",
@@ -190,7 +190,7 @@
       "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
-      "reason": "Bounded buffers, cancellation, close/reconnect and backpressure for C7/C8; distinct from the ready Enum/Stream recipe. Reuse transport APIs; no transport adopted."
+      "reason": "Bounded buffers, cancellation, close/reconnect and backpressure for C7/C8; distinct from the ready Enum/Stream recipe. Reuse transport APIs; no transport adopted. ELZ-025 study: an in-band completeness marker distinct from payload; close-on-successor windows need end-of-stream and cancellation flush."
     },
     {
       "id": "delivery/dead-letter",
@@ -288,7 +288,7 @@
       "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
-      "reason": "Schedule/webhook/app-event input with source identity and dedup scope; delivery/time is only a timer recipe. Needed by C1/C7; no trigger adapter adopted."
+      "reason": "Schedule/webhook/app-event input with source identity and dedup scope; delivery/time is only a timer recipe. Needed by C1/C7; no trigger adapter adopted. ELZ-027 carries the schedule-occurrence slice (identity from schedule id, generation and instant; declared skip/queue/replace overlap policy)."
     },
     {
       "id": "delivery/windowed-idempotency",
@@ -336,7 +336,7 @@
       "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
-      "reason": "C9 separates estimates from reconciled usage, deduplicates usage records and preserves corrections; no billing/price/admission policy implied."
+      "reason": "C9 separates estimates from reconciled usage, deduplicates usage records and preserves corrections; no billing/price/admission policy implied. ELZ-025 study: unreported provider usage is a distinct count, never zero; a budget that cannot be verified from observed usage stops admission."
     },
     {
       "id": "domain/money",
@@ -344,7 +344,7 @@
       "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
-      "reason": "Decimal/ex_money candidates for C3/C4; explicit units, currency mismatch and allocation residual policy. Not a journal, exchange service or payment guarantee."
+      "reason": "Decimal/ex_money candidates for C3/C4; explicit units, currency mismatch and allocation residual policy. Not a journal, exchange service or payment guarantee. ELZ-031 carries the admission record (closed versioned registry with exponent, malformed vs unknown parse, retired codes, dataset round-trip tests) naming the ex_money/Decimal boundary."
     },
     {
       "id": "domain/payment-lifecycle",
@@ -408,7 +408,7 @@
       "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
-      "reason": "Provider/CLI capabilities, run/resume/cancel, tool/approval events and errors for C6/C7; compare existing Elixir agent libraries or protocol SDKs before writing a bridge."
+      "reason": "Provider/CLI capabilities, run/resume/cancel, tool/approval events and errors for C6/C7; compare existing Elixir agent libraries or protocol SDKs before writing a bridge. ELZ-025 study: a model-named tool resolves only through a host registry keyed by stable id and version; resolution grants no authority."
     },
     {
       "id": "integration/ai-model",
@@ -416,7 +416,7 @@
       "disposition": "defer",
       "phase": "P4",
       "status": "deferred",
-      "reason": "Provider request/stream/usage translation for C6/C7/C9. Routing policy belongs to delivery/model-routing; metering/pricing remain separate. No provider integration adopted."
+      "reason": "Provider request/stream/usage translation for C6/C7/C9. Routing policy belongs to delivery/model-routing; metering/pricing remain separate. No provider integration adopted. ELZ-025 study: the provider Adapter returns tool-call proposals as data and never resolves, loads or executes; usage carries a source tag provider_reported, estimated or unknown, never zero."
     },
     {
       "id": "integration/auth-policy",
@@ -508,7 +508,7 @@
       "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
-      "reason": "Provider API/webhook verification, stable idempotency keys and reconciliation for C3; Req is HTTP only. Research provider and library before adoption."
+      "reason": "Provider API/webhook verification, stable idempotency keys and reconciliation for C3; Req is HTTP only. Research provider and library before adoption. ELZ-025 study: the provider's client-supplied payment identifier derives from the logical request identity, never per attempt."
     },
     {
       "id": "integration/sdk",
@@ -570,7 +570,7 @@
       "disposition": "adapt",
       "phase": "P4",
       "status": "planned",
-      "reason": "OTP Port/OS process or service; BEAM process is not security isolation"
+      "reason": "OTP Port/OS process or service; BEAM process is not security isolation ELZ-029 carries the OS-process Adapter admission record (process-group leader, observed term/kill escalation, reaper, queue_full vs queue_timeout)."
     },
     {
       "id": "runtime/registry",
@@ -607,7 +607,7 @@
       "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
-      "reason": "Content identity, integrity, access, version and expiry for C2/C6/C7/C8; adapt object storage; separate from streamed bytes and control envelopes."
+      "reason": "Content identity, integrity, access, version and expiry for C2/C6/C7/C8; adapt object storage; separate from streamed bytes and control envelopes. ELZ-025 study: content identity is SHA-256 over a versioned canonical encoding with a format-version prefix, verified on every read; a format change is a declared migration."
     },
     {
       "id": "state/audit-log",
@@ -615,7 +615,7 @@
       "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
-      "reason": "Actor/action/resource/outcome records for C1/C3/C6; selected storage, redaction, retention and tamper requirements needed. Telemetry is not this contract."
+      "reason": "Actor/action/resource/outcome records for C1/C3/C6; selected storage, redaction, retention and tamper requirements needed. Telemetry is not this contract. ELZ-025 study: the audit record commits atomically with the decision; a bounded in-state list is not the retained trail."
     },
     {
       "id": "state/checkpoint",
@@ -647,7 +647,7 @@
       "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
-      "reason": "Claim/renew/release and stale-owner rejection for C2/C5/C6; use transactional storage or an established lease provider. No distributed lock service implemented."
+      "reason": "Claim/renew/release and stale-owner rejection for C2/C5/C6; use transactional storage or an established lease provider. No distributed lock service implemented. ELZ-028 carries the admission record (fencing by record revision, store clock, renew only live leases, stale/ambiguous fail closed); open only if the ELZ-010 provider contract is insufficient."
     },
     {
       "id": "state/outbox",
@@ -719,7 +719,7 @@
       "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
-      "reason": "Select bounded permitted documents/results for C6/C7; tokenizer/retrieval provider contracts and access recheck required. No assertion of model truth or memory correctness."
+      "reason": "Select bounded permitted documents/results for C6/C7; tokenizer/retrieval provider contracts and access recheck required. No assertion of model truth or memory correctness. ELZ-030 carries the admission record (window plus reservations over access-checked versioned candidates; dropped-with-reason; derived items carry provenance)."
     },
     {
       "id": "workflow/dependency-graph",
@@ -727,7 +727,7 @@
       "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
-      "reason": "Cycle/readiness/failure/join semantics for C5/C6/C7; libgraph candidate for mechanics, application-specific execution policy remains explicit."
+      "reason": "Cycle/readiness/failure/join semantics for C5/C6/C7; libgraph candidate for mechanics, application-specific execution policy remains explicit. ELZ-026 carries the admission record (pure readiness and cycle admission; closed is not completed; provenance-tagged readiness)."
     },
     {
       "id": "workflow/run",
@@ -735,7 +735,7 @@
       "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
-      "reason": "Execution identity, outcome, parent/child settlement, cancellation and late-result handling for C2/C5/C6/C7; evaluate Oban/Jido where appropriate; no full orchestrator implemented."
+      "reason": "Execution identity, outcome, parent/child settlement, cancellation and late-result handling for C2/C5/C6/C7; evaluate Oban/Jido where appropriate; no full orchestrator implemented. ELZ-025 study: Run outcome and effect settlement are distinct facts; parent/child attachment is reciprocal; cancellation names the Attempt and an indeterminate cancellation terminates the owner; child spawn is an Effect with unknown outcome under timeout; the owner observes attempt death by monitor; completed means durable evidence."
     },
     {
       "id": "workflow/state-machine",
@@ -751,7 +751,7 @@
       "disposition": "defer",
       "phase": "demand-led",
       "status": "deferred",
-      "reason": "Assignee, acceptance criterion and policy-defined completion for C5/C6; independent of job/agent attempt success. Reuse a suitable workflow implementation before authoring policy. ELZ-015 evaluates Ash resource actions with tenant context; no ready bundle or durable execution claim."
+      "reason": "Assignee, acceptance criterion and policy-defined completion for C5/C6; independent of job/agent attempt success. Reuse a suitable workflow implementation before authoring policy. ELZ-015 evaluates Ash resource actions with tenant context; no ready bundle or durable execution claim. ELZ-025 study: enumerated lifecycle transitions, completion bound to the current lease or authority holder, no-op transitions write nothing."
     }
   ]
 }

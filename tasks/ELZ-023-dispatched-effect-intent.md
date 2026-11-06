@@ -35,7 +35,10 @@ machine; the store and the provider poll are Adapters.
    the send is an unknown outcome resolved by `poll`, never by a second
    dispatch from `intended`; the first dispatch is not a re-arm;
    `rejected/not_dispatched` and `timed_out/not_dispatched` return to
-   `intended`; `failed_definite` is the only state out of `dispatched` that
+   `intended`, except that a `rejected/not_dispatched` with error class
+   `permanent` leaves the intent in `intended` with dispatch disarmed until
+   its arguments or the Adapter schema change (a new revision of the
+   intent), so a pre-dispatch rejection cannot loop; `failed_definite` is the only state out of `dispatched` that
    re-arms dispatch, and it is reached on exactly two grounds, recorded
    distinctly: a `reconcile` or poll answer (`failed`, `unknown_to_provider`)
    by which the provider confirms that no effect happened, or a provider
@@ -83,6 +86,26 @@ machine; the store and the provider poll are Adapters.
 - define the store behaviour and a test double; bind to the ELZ-009 provider;
 - select the no-re-arm law; test the listed crash/restart boundaries;
 - document how a product reconciles `stranded` intents.
+- require the Adapter binding to supply a total mapping from its typed
+  failures to the ready delivery-result classes when the Assembly is built;
+  an absent or partial mapping is refused at build, not at the first failure;
+- re-validate admitted arguments against the Adapter's current input schema at
+  dispatch; a mismatch is `rejected/not_dispatched` with error class
+  `permanent` (so classification stops the intended→dispatch loop until the
+  Adapter schema or arguments change) and host-visible, never a
+  proposer-visible error;
+- accept a late result at most once and only while `dispatched`; the first of
+  a late result or a reconciliation wins, a refused late result is retained as
+  evidence, and a late result whose store write is unavailable is unknown;
+- make replay a declared Adapter capability (provider idempotency contract
+  keyed by the logical request), never a per-call flag; list as dangerous
+  paths a transport-layer plugin (auth refresh, redirect, library retry) that
+  re-sends a dispatched non-idempotent request without a second recorded
+  Attempt, an exception-keyed step retry, and an agent-runner idle timeout
+  after a durable output or tool record (that is `dispatched`/unknown; a
+  retry is admissible only on a durable predicate that no such record exists,
+  which is the first `failed_definite` ground with the runner's record store
+  as the provider confirming no effect) (ELZ-025 study).
 
 ## Acceptance
 
@@ -90,6 +113,8 @@ machine; the store and the provider poll are Adapters.
       failure or reconciliation result.
 - [ ] Restart at each boundary resumes the existing intent by derived key.
 - [ ] `stranded` is a distinct, tested outcome with a documented operator path.
+- [ ] Build-time total failure mapping, late-settlement-once and the
+      transport re-send negative case are listed, executable scenarios.
 - [ ] Selected law and scenarios run through mix check.
 - [ ] Contract labels provider idempotency and store durability as upstream.
 

@@ -36,6 +36,31 @@ when an existing provider is suitable.
   chain over canonical records is needed; a decision, not a default
   implementation
   (ELZ-021 reference study).
+- classify every durable write result as `committed{revision}` (the
+  acknowledged commit point the acceptance below already requires),
+  `conflict` (confirmed stale expected revision; nothing replaced),
+  `rejected{reason}` (confirmed preflight limit;
+  nothing written) or `indeterminate` (exception, exit, timeout or malformed
+  provider reply; storage may hold either record); an `indeterminate` result
+  terminates the writer and recovery reads the authoritative record before
+  deciding whether the transition committed; a provider reported unavailable
+  is `indeterminate`, confirmed only by reading back exactly the bytes written
+  at the expected revision, each write carrying a fresh nonce;
+- advance a record only by insert or compare-and-set on the expected
+  revision; a head advance, its immutable version record and its committed
+  change event are one commit, and a checkpoint never references a sequence
+  beyond the durably acknowledged tail; `(stream identity, sequence)` is
+  unique at the store, not in a writer's memory;
+- state the replay-order backstop (record sequence, then append order) and
+  make the refold total over event kinds: a kind the fold ignores is declared
+  non-state-bearing; the in-memory output batch of a transition is
+  transient, the committed outbox record (or the committed state the next
+  Effect derives from) is the durable source, and a dispatch failure is a
+  separate post-commit outcome;
+- ship the provider boundary as a named list of executable conformance checks
+  (CAS exclusivity, unavailable-readback confirmation, duplicate insert) run
+  against the test double and the selected provider; provider semantics stay
+  explicit and no custom WAL or database is implied (ELZ-025 study).
 
 ## Acceptance
 
