@@ -20,8 +20,9 @@ The backend workflow uses `[self-hosted, linux, x64, elzoo, backend]`. A
 one-time ELZ-034 PR selector targets the candidate by its `macbook-ubuntu` and
 `ci-candidate` labels only when the PR head is in this same repository and its
 branch is `task/ELZ-034`, so a fork cannot select the candidate by spoofing
-the branch name. Fork PRs are skipped by the backend job before runner
-selection; this does not make arbitrary same-repository code trustworthy.
+the branch name. Both backend and Gleam jobs skip fork PRs before runner
+selection; a skipped job is not validation and must not be treated as evidence
+for merging a fork. This does not make arbitrary same-repository code trustworthy.
 The first container step refuses any backend `RUNNER_NAME` other than the two
 names above. The Gleam selector stays symbolic-only. Before adding `backend`
 to the candidate, a full task-branch check and independent review must pass.

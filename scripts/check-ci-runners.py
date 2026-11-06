@@ -20,10 +20,10 @@ for file in files:
     selectors = [line.strip() for line in lines if re.match(r'\s*runs-on\s*:', line)]
     if not selectors or any(line != expected[file.name] for line in selectors):
         errors.append(f'{file}: every job must use {expected[file.name]}')
+    required_job_gate = """    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}"""
+    if required_job_gate not in file.read_text().splitlines():
+        errors.append(f'{file}: same-repository PR job gate is missing or changed')
     if file.name == 'symbolic-check.yml':
-        required_job_gate = """    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}"""
-        if required_job_gate not in file.read_text().splitlines():
-            errors.append(f'{file}: same-repository PR job gate is missing or changed')
         required_gate = """      - name: Verify approved backend runner
         run: |
           case "$RUNNER_NAME" in

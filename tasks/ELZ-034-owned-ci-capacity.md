@@ -20,6 +20,9 @@ GitHub runners remain prohibited. Do not run untrusted code on either machine.
   explicit reviewed role selectors, safe routing, and meaningful negative
   controls. Preserve the symbolic Gleam role, exact image digest, Cure/OTP/
   Elixir pins, actual full mix setup/check and isolated PostgreSQL behavior.
+- Add a same-repository PR gate to both backend and Gleam workflows so a fork
+  cannot cause untrusted code to run on either user-owned machine. A skipped
+  fork check is not positive validation. Preserve Gleam's symbolic-only role.
 - For this task's own PR, route the backend check to the new candidate and
   verify GitHub's actual runner_name and labels. Other branches continue to use
   the established symbolic-only workflow until this task is merged.
