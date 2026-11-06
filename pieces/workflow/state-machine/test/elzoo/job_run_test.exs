@@ -27,22 +27,27 @@ defmodule Elzoo.JobRunTest do
     for law <- @laws, do: assert(String.to_atom(law) in exports)
     IO.puts("ELZ-010 JobRun laws compiled: #{length(@laws)}")
 
-    for {name, from, to} <- [
-          {"FalseLaw",
+    for {name, law, from, to} <- [
+          {"FalseLaw", "succeeded_absorbing",
            "step(RunSucceeded(), input, expired, retry), keep(RunSucceeded())) =\n    reflexive(keep(RunSucceeded()))",
            "step(RunSucceeded(), input, expired, retry), keep(RunActive())) =\n    reflexive(keep(RunActive()))"},
-          {"CancelRevivesSucceeded", "RunSucceeded() -> keep(RunSucceeded())",
+          {"CancelRevivesSucceeded", "succeeded_absorbing",
+           "RunSucceeded() -> keep(RunSucceeded())",
            "RunSucceeded() -> idle(RunSucceeded(), input, expired)"},
-          {"ExhaustedBegins",
+          {"ExhaustedBegins", "exhausted_never_begins",
            "DecideExhausted() -> RunStep{phase: RunExhausted(), action: RecordExhausted()}\n      DecidePermanent() -> keep(RunActive())",
            "DecideExhausted() -> begin()\n      DecidePermanent() -> keep(RunActive())"},
-          {"StaleCompletes", "StaleCompleted() -> keep(RunActive())",
+          {"StaleCompletes", "stale_completed_ignored_active",
+           "StaleCompleted() -> keep(RunActive())",
            "StaleCompleted() -> RunStep{phase: RunSucceeded(), action: RecordSuccess()}"},
-          {"DuplicateBegins", "StartDuplicate() -> yield_to(RunActive())",
-           "StartDuplicate() -> begin()"},
-          {"StaleStartBegins", "StartStale() -> stale_start(RunActive())",
-           "StartStale() -> begin()"}
+          {"DuplicateBegins", "duplicate_yields_active",
+           "StartDuplicate() -> yield_to(RunActive())", "StartDuplicate() -> begin()"},
+          {"StaleStartBegins", "stale_start_never_begins_active",
+           "StartStale() -> stale_start(RunActive())", "StartStale() -> begin()"}
         ] do
+      # name: the mutation; law: the law it must break. Cure's diagnostic
+      # carries the failing line (proof_name is nil on this pinned release),
+      # so the line is mapped back to its enclosing law declaration.
       assert String.contains?(@source, from)
 
       wrong =
@@ -50,11 +55,27 @@ defmodule Elzoo.JobRunTest do
         |> String.replace("mod Elzoo.JobRun", "mod Elzoo.JobRun" <> name)
         |> String.replace(from, to, global: false)
 
-      assert {:error, {:codegen_error, {:source_context, {:conversion_failure, _, _}, _}}} =
+      assert {:error, {:codegen_error, {:source_context, {:conversion_failure, _, _}, context}}} =
                Cure.Compiler.compile_and_load(wrong, source_roots: @roots)
 
-      IO.puts("ELZ-010 JobRun negative rejected: #{name}")
+      assert law_at(wrong, context.line) == law,
+             "#{name} failed at line #{context.line} (#{law_at(wrong, context.line)}), expected #{law}"
+
+      IO.puts("ELZ-010 JobRun negative rejected: #{name} at line #{context.line} in #{law}")
     end
+  end
+
+  defp law_at(source, line) do
+    source
+    |> String.split("\n")
+    |> Enum.take(line)
+    |> Enum.reverse()
+    |> Enum.find_value(fn text ->
+      case Regex.run(~r/^  fn (\w+)\(/, text) do
+        [_, name] -> name
+        nil -> nil
+      end
+    end)
   end
 
   # Independent Elixir reference of the Contract table, compared exhaustively.
