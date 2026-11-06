@@ -43,7 +43,8 @@ Elzoo now adopts Req 0.7.5 for a narrow direct HTTP client recipe. Finch is its
 transitive implementation, not a separate Elzoo abstraction. ELZ-009 adopts
 Ecto SQL 3.14.0 and Postgrex 0.22.4 (Ecto 3.14.3 and DBConnection 2.10.2
 transitive) for the narrow `integration/sql` PostgreSQL Store translation.
-Oban and OpenTelemetry remain candidates. Telemetry is transitive, with no
+ELZ-010 adopts Oban 2.24.2 for `integration/jobs`. OpenTelemetry remains a
+candidate. Telemetry is transitive, with no
 adopted business-event contract. Cure's transitive dependency graph remains
 in `mix.lock`; “not adopted” means Elzoo does not rely on that package's API
 or behavior as a contract.
@@ -96,7 +97,7 @@ evidence described above; other rows retain their stated candidate status.
 | [Finch](https://hexdocs.pm/finch/Finch.html) · [source](https://github.com/sneako/finch) | docs page showed `Finch.start_link/1`, `request/2-3`, `async_request/2-3` (v0.24.0 page) | Supervised, pool-oriented HTTP client when explicit connection ownership/backpressure matters | Transitive Req dependency at 0.24.0; its direct API is not adopted as a second abstraction. Application-specific pool policy remains future work |
 | [Ecto SQL](https://hexdocs.pm/ecto_sql/3.14.0/Ecto.Adapters.SQL.html) · [source](https://github.com/elixir-ecto/ecto_sql) | `Ecto.Adapters.SQL`, `Repo.transaction/2`, `Ecto.Migrator` (3.14.0, Ecto 3.14.3 transitive) | Transaction boundary for the `integration/sql` Store translation over a consumer-owned Repo | Adopted at 3.14.0 by ELZ-009: K1–K11 and D11/D15/D17/D19 pass on a disposable local PostgreSQL, including backend termination and unreachable server. Ecto does not make an Elzoo hop durable; consumer owns Repo, schema and server configuration |
 | [Postgrex](https://hexdocs.pm/postgrex/0.22.4/Postgrex.html) · [source](https://github.com/elixir-ecto/postgrex) | PostgreSQL driver under Ecto SQL (0.22.4) | Wire protocol and error translation for the Store adapter | Adopted at 0.22.4 with Ecto SQL, not as a second direct abstraction. PostgreSQL atomicity, locking and durability remain upstream server contracts |
-| [Oban](https://hexdocs.pm/oban/Oban.html) · [source](https://github.com/oban-bg/oban) | docs page showed `Oban.start_link/1`, `insert/1-3`, `insert_all/1-3` (v2.24.2 page) | PostgreSQL-backed jobs and retry/scheduling for `assembly/durable-job` | Oban's job retry is not the Elzoo outbox; test uniqueness, retry, pruning, queue backpressure, transaction handoff and shutdown; no adoption yet |
+| [Oban](https://hexdocs.pm/oban/Oban.html) · [source](https://github.com/oban-bg/oban) | docs page showed `Oban.start_link/1`, `insert/1-3`, `insert_all/1-3` (v2.24.2 page) | PostgreSQL-backed jobs and retry/scheduling for `assembly/durable-job` | Adopted at 2.24.2 by ELZ-010 (`integration/jobs`, `adapt`): uniqueness (incl. the held-lock `id: nil` case), retry staging, snooze, cancellation, disjoint claim, Lifeline rescue after a real SIGKILL and stale-ack fencing exercised on a disposable PostgreSQL. Oban's retry is not the Elzoo outbox and its ownership contract is not a lease; pruning, queue backpressure and Pro features are not exercised |
 | [Telemetry](https://hexdocs.pm/telemetry) · [source](https://github.com/beam-telemetry/telemetry) | official HexDocs package page | Lightweight event interface for adapter/unit metrics | Elzoo owns field names, redaction and sampling; telemetry delivery is not business delivery; no adoption yet |
 | [OpenTelemetry API](https://hexdocs.pm/opentelemetry_api/OpenTelemetry.html) · [source](https://github.com/open-telemetry/opentelemetry-erlang) | official API docs | Standard traces/metrics at the P3 edge | Verify context propagation, exporter failure and sensitive-field filtering; no adoption yet |
 | [Plug](https://hexdocs.pm/plug/Plug.html) · [source](https://github.com/elixir-plug/plug) | official API docs | HTTP server boundary if an edge assembly needs a small endpoint | Request body limits, streaming, timeout and supervision become Elzoo adapter contracts; no adoption yet |
@@ -164,7 +165,7 @@ Elzoo boundary and an executable acceptance test.
 | JSON adapter returns valid JSON or explicit error | Elzoo input validation + runtime round-trip/error test | Jason public API and its own tests | Jason implementation correctness beyond its contract |
 | OTP unit restarts according to policy | ExUnit lifecycle test | OTP Supervisor/GenServer contract | OS process isolation, durable replay |
 | PostgreSQL append commits head, records and outbox in one transaction | `integration/sql` K1–K11 and D11/D15/D17/D19 on a disposable local cluster | Ecto SQL/Postgrex APIs; PostgreSQL transaction, READ COMMITTED and row-lock contracts | Network, server configuration (fsync/synchronous_commit), backups and operator durability |
-| Job retries eventually according to policy (future) | Oban adapter test under bounded failure | Oban job/retry docs | Database availability, scheduler timing and exact-once effects |
+| Durable job attempts, retry and recovery (ELZ-010) | `assembly/durable-job` DJ1–DJ20 incl. SIGKILL rescue; `workflow/state-machine` laws L1–L29 over the decision table | Oban 2.24.2 job/retry/rescue docs and source; PostgreSQL transactions | Database availability, scheduler timing, clock skew, exactly-once execution and external effects |
 
 When a candidate is adopted, update this register and the relevant catalogue
 row in the same change. Do not edit the architecture to turn a failed

@@ -117,9 +117,9 @@ mailbox a WAL.
 | Pure decisions | Generic Cure operators and nested assembly | More operators only when a working assembly needs them |
 | Ports | Cure function signatures plus core/port exact schema/version/direction checks | Delivery and wiring validation (ELZ-003); runtime payload validation (ELZ-004) |
 | Edges | Direct call and synchronous GenServer-boundary comparison | Async hop with explicit volatile/at-least-once classes |
-| State | Volatile operator state plus test snapshot; ready `delivery/windowed-idempotency` bounds sender/sequence entry counts (selected decision and helper/W=1 laws; receiver/general bounds test-grounded). ELZ-009 `Elzoo.Replay` supplies replay order/admission decisions with selected supplied-decision `count_step` laws L1a–L5 and two negative controls; the Elixir shell, `classify`, refold equivalence and providers are test-grounded | Schema upcast and a durable job Assembly (ELZ-010); no time expiry or durable receiver claim |
+| State | Volatile operator state plus test snapshot; ready `delivery/windowed-idempotency` bounds sender/sequence entry counts (selected decision and helper/W=1 laws; receiver/general bounds test-grounded). ELZ-009 `Elzoo.Replay` supplies replay order/admission decisions with selected supplied-decision `count_step` laws L1a–L5 and two negative controls; the Elixir shell, `classify`, refold equivalence and providers are test-grounded | ELZ-010 `Elzoo.JobRun` supplies the job-Run decision with selected table laws L1–L29 and six negative controls (identity classification test-grounded); schema upcast explicitly deferred; no time expiry or durable receiver claim |
 | OTP | Elixir GenServer and Supervisor shell | Application, DynamicSupervisor, Registry only where needed; compare Cure actor/sup macros later |
-| Effects | Jason adapter with explicit error translation; Req HTTP recipe; `integration/sql` PostgreSQL Store translation (ELZ-009) | Job adapter selected and tested next (ELZ-010) |
+| Effects | Jason adapter with explicit error translation; Req HTTP recipe; `integration/sql` PostgreSQL Store translation (ELZ-009) | ELZ-010 Oban 2.24.2 `integration/jobs`; Effect dispatch/intent remains ELZ-011/023 |
 | Assurance | Selected Cure proofs, compile negatives, ExUnit/model checks and upstream Jason contract | Claim-level evidence per assembly; no proof-everything mandate |
 
 ## Historical evidence and limits
@@ -218,3 +218,12 @@ bare `String` in expression position resolved to the record constructor in
 this probe, while the generic type parameter worked. Both new bundle audits
 and the independent consumer test exercise this path. This is exact nominal
 text equality, not normalization or schema subtyping.
+
+## ELZ-010 note: imported type names
+
+A parameter typed with an imported nullary sum by its bare name (for example
+`retry: RetryDecision` after `use Elzoo.RetryPolicy`) compiles, but the pinned
+Cure release reports migration warning W001 ("uppercase type variable can be
+lowercased") for it. Qualify imported types (`Elzoo.RetryPolicy.RetryDecision`),
+as `delivery/windowed-idempotency` already does for `Elzoo.Idempotency.Message`;
+constructors such as `DecideRetry()` stay unqualified.

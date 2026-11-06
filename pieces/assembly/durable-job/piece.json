@@ -1,0 +1,123 @@
+{
+  "schema_version": 1,
+  "id": "assembly/durable-job",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "adapter",
+  "providers": [
+    "oban",
+    "jason",
+    "ecto_sql",
+    "postgrex",
+    "elixir",
+    "otp"
+  ],
+  "dependencies": [
+    "workflow/state-machine",
+    "integration/jobs",
+    "state/event-log",
+    "state/outbox",
+    "integration/sql",
+    "delivery/retry-timeout"
+  ],
+  "applications": [
+    "crypto"
+  ],
+  "contract": "Tally durable job flow: submit/5 appends a requested record and jobs outbox item to the per-queue submission stream through an ELZ-010-owned Submitter; the Relay creates the Run stream (accepted) and a unique Oban job; each worker execution classifies its start and results with Elzoo.JobRun and writes attempt and terminal records by ELZ-009 CAS; cancel/3 (also before relay) and status/2. Attempt count, absolute deadline and policy persist with the Run. Entry points refuse inside a transaction on the configured Repo.",
+  "limits": [
+    "One exemplar: one Run per Work Item, one pure step; no workflow engine, DAG, saga, cron, distributed scheduler, lease or external Effect.",
+    "Schema evolution deferred: only schema_version 1 exists; other record versions are refused as damaged ({:cancel, :damaged}) and other job-args versions as {:cancel, :unsupported_version}; nothing is upcast; state/schema-evolution stays planned; the first format change must meet the ELZ-010 R6/R9 corpus requirements under a new task and follow the Piece-ID evolution rule; mixed-version rolling deploys are unsupported.",
+    "No exactly-once execution: a rescued live attempt may run concurrently and consumes Run budget; its results are fenced by CAS and attempt identity.",
+    "A stalled Run (non-terminal, provider job terminal or gone) is reported by status/2, never repaired, and its deadline is not recorded; deadlines use node clocks and are evaluated only when a worker runs.",
+    "Submits per queue are serialized through one Submitter and one CAS row; Submitter memory grows with distinct job keys; submission and Run streams are not retained.",
+    "The caller-transaction guard checks only the configured Repo; Store behaviour inside a caller transaction is ELZ-032's (#52)."
+  ],
+  "files": [
+    "lib/elzoo/durable_job.ex",
+    "lib/elzoo/durable_job/run.ex",
+    "lib/elzoo/durable_job/submitter.ex",
+    "lib/elzoo/durable_job/tally.ex",
+    "test/elzoo/durable_job_restart_test.exs",
+    "test/elzoo/durable_job_test.exs",
+    "test/support/durable_job_test_helper.exs",
+    "test/support/durable_job_victim_test_helper.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/durable_job_test.exs",
+      "claim": "Listed scenarios DJ1–DJ8, DJ10–DJ17, DJ19, DJ20 on Memory and a disposable PostgreSQL with Oban 2.24.2: success, duplicates, relay crash/lock/foreign items, retry, exhaustion, permanent failure, deadlines, cancellation incl. before relay, restart without budget reset, rescued stale attempts, duplicate jobs, lost commit reply, damaged/version refusal, unreachable store, stalled reporting, caller-transaction refusal, stale pre-start executions and relay page limits; finite scenarios, not proofs."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/durable_job_restart_test.exs",
+      "claim": "DJ9: SIGKILL of a separate OS process executing attempt 1; a new Oban instance's Lifeline rescue resumes at Run attempt 2 with counts not reset."
+    },
+    {
+      "kind": "monitor",
+      "file": "test/elzoo/durable_job_restart_test.exs",
+      "claim": "Local observation of the victim exit status 137 and record sequence in the test log; not a production claim."
+    },
+    {
+      "kind": "upstream",
+      "provider": "oban",
+      "reference": "https://hexdocs.pm/oban/2.24.2/Oban.html",
+      "claim": "Oban 2.24.2 job persistence, FOR UPDATE SKIP LOCKED claim, retry staging, unique insert (advisory lock plus query, not a constraint), snooze attempt handling, cancel_all_jobs and Lifeline time-based rescue (documented to rescue live jobs) are upstream contracts."
+    },
+    {
+      "kind": "upstream",
+      "provider": "jason",
+      "reference": "https://hexdocs.pm/jason/1.4.5/Jason.html",
+      "claim": "Jason 1.4.5 encoding/decoding of record payloads is an upstream contract."
+    },
+    {
+      "kind": "upstream",
+      "provider": "ecto_sql",
+      "reference": "https://hexdocs.pm/ecto_sql/3.14.0/Ecto.Adapters.SQL.html",
+      "claim": "Ecto SQL 3.14.0 Repo, transaction and in_transaction?/0 semantics are upstream contracts."
+    },
+    {
+      "kind": "upstream",
+      "provider": "postgrex",
+      "reference": "https://www.postgresql.org/docs/17/transaction-iso.html",
+      "claim": "PostgreSQL transaction atomicity, row locking, advisory locks and READ COMMITTED behaviour reached through Postgrex 0.22.4 are upstream server contracts, not local proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Elixir validation, exceptions, exit trapping and BEAM execution are upstream contracts, not proved here."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/",
+      "claim": "OTP 29.1.2 GenServer, Supervisor, Task.Supervisor, links/monitors and :persistent_term semantics are upstream contracts; no exactly-once or disk durability guarantee."
+    },
+    {
+      "kind": "assumption",
+      "claim": "Handlers are pure and deterministic; node clocks have bounded skew; one Submitter and one Relay per queue per cluster by convention (CAS catches violations); production PostgreSQL uses fsync=on and synchronous_commit=on."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "planned",
+      "contract": "No events emitted; transitions are return values and Run records; Oban emits its own job events."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Start-time queue, Store, Repo, Oban name, handler, clock, provider slack, snooze and relay limit/interval (fixed, no hot change); per-submit max_attempts, backoff and absolute deadline fixed for the Run's life.",
+      "evidence": [
+        "test/elzoo/durable_job_test.exs"
+      ]
+    },
+    "control": {
+      "status": "supported",
+      "contract": "cancel/3 with CAS results ({:ok, :cancelled}, {:error, {:terminal, phase}}, {:error, :not_found}, {:error, :caller_transaction}, {:indeterminate, info}) and read-only status/2; Submitter and Relay have OTP start/stop only; no pause/drain.",
+      "evidence": [
+        "test/elzoo/durable_job_test.exs"
+      ]
+    }
+  }
+}

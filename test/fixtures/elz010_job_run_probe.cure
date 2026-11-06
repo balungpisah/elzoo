@@ -81,7 +81,7 @@ mod Elzoo.JobRunProbe
 
   @total true
   @reducible
-  fn after_failure(retry: RetryDecision) -> RunStep =
+  fn after_failure(retry: Elzoo.RetryPolicy.RetryDecision) -> RunStep =
     match retry
       DecideRetry() -> RunStep{phase: RunWaiting(), action: ScheduleRetry()}
       DecideExhausted() -> RunStep{phase: RunExhausted(), action: RecordExhausted()}
@@ -91,7 +91,7 @@ mod Elzoo.JobRunProbe
 
   @total true
   @reducible
-  fn restart(retry: RetryDecision) -> RunStep =
+  fn restart(retry: Elzoo.RetryPolicy.RetryDecision) -> RunStep =
     match retry
       DecideRetry() -> begin()
       DecideExhausted() -> RunStep{phase: RunExhausted(), action: RecordExhausted()}
@@ -101,7 +101,7 @@ mod Elzoo.JobRunProbe
 
   @total true
   @reducible
-  fn active(input: RunInput, expired: Bool, retry: RetryDecision) -> RunStep =
+  fn active(input: RunInput, expired: Bool, retry: Elzoo.RetryPolicy.RetryDecision) -> RunStep =
     match input
       CancelRequested() -> cancel()
       CurrentCompleted() ->
@@ -123,7 +123,7 @@ mod Elzoo.JobRunProbe
 
   @total true
   @reducible
-  fn step(phase: RunPhase, input: RunInput, expired: Bool, retry: RetryDecision) -> RunStep =
+  fn step(phase: RunPhase, input: RunInput, expired: Bool, retry: Elzoo.RetryPolicy.RetryDecision) -> RunStep =
     match phase
       RunRequested() -> idle(RunRequested(), input, expired)
       RunWaiting() -> idle(RunWaiting(), input, expired)
@@ -142,88 +142,88 @@ mod Elzoo.JobRunProbe
   @reducible
   fn action_of(s: RunStep) -> RunAction = s.action
 
-  fn succeeded_absorbing(input: RunInput, expired: Bool, retry: RetryDecision) -> Equivalent(RunStep, step(RunSucceeded(), input, expired, retry), keep(RunSucceeded())) =
+  fn succeeded_absorbing(input: RunInput, expired: Bool, retry: Elzoo.RetryPolicy.RetryDecision) -> Equivalent(RunStep, step(RunSucceeded(), input, expired, retry), keep(RunSucceeded())) =
     reflexive(keep(RunSucceeded()))
 
-  fn failed_absorbing(input: RunInput, expired: Bool, retry: RetryDecision) -> Equivalent(RunStep, step(RunFailed(), input, expired, retry), keep(RunFailed())) =
+  fn failed_absorbing(input: RunInput, expired: Bool, retry: Elzoo.RetryPolicy.RetryDecision) -> Equivalent(RunStep, step(RunFailed(), input, expired, retry), keep(RunFailed())) =
     reflexive(keep(RunFailed()))
 
-  fn exhausted_absorbing(input: RunInput, expired: Bool, retry: RetryDecision) -> Equivalent(RunStep, step(RunExhausted(), input, expired, retry), keep(RunExhausted())) =
+  fn exhausted_absorbing(input: RunInput, expired: Bool, retry: Elzoo.RetryPolicy.RetryDecision) -> Equivalent(RunStep, step(RunExhausted(), input, expired, retry), keep(RunExhausted())) =
     reflexive(keep(RunExhausted()))
 
-  fn expired_absorbing(input: RunInput, expired: Bool, retry: RetryDecision) -> Equivalent(RunStep, step(RunExpired(), input, expired, retry), keep(RunExpired())) =
+  fn expired_absorbing(input: RunInput, expired: Bool, retry: Elzoo.RetryPolicy.RetryDecision) -> Equivalent(RunStep, step(RunExpired(), input, expired, retry), keep(RunExpired())) =
     reflexive(keep(RunExpired()))
 
-  fn cancelled_absorbing(input: RunInput, expired: Bool, retry: RetryDecision) -> Equivalent(RunStep, step(RunCancelled(), input, expired, retry), keep(RunCancelled())) =
+  fn cancelled_absorbing(input: RunInput, expired: Bool, retry: Elzoo.RetryPolicy.RetryDecision) -> Equivalent(RunStep, step(RunCancelled(), input, expired, retry), keep(RunCancelled())) =
     reflexive(keep(RunCancelled()))
 
-  fn stale_completed_ignored_requested(expired: Bool, retry: RetryDecision) -> Equivalent(RunStep, step(RunRequested(), StaleCompleted(), expired, retry), keep(RunRequested())) =
+  fn stale_completed_ignored_requested(expired: Bool, retry: Elzoo.RetryPolicy.RetryDecision) -> Equivalent(RunStep, step(RunRequested(), StaleCompleted(), expired, retry), keep(RunRequested())) =
     reflexive(keep(RunRequested()))
 
-  fn stale_completed_ignored_waiting(expired: Bool, retry: RetryDecision) -> Equivalent(RunStep, step(RunWaiting(), StaleCompleted(), expired, retry), keep(RunWaiting())) =
+  fn stale_completed_ignored_waiting(expired: Bool, retry: Elzoo.RetryPolicy.RetryDecision) -> Equivalent(RunStep, step(RunWaiting(), StaleCompleted(), expired, retry), keep(RunWaiting())) =
     reflexive(keep(RunWaiting()))
 
-  fn stale_completed_ignored_active(expired: Bool, retry: RetryDecision) -> Equivalent(RunStep, step(RunActive(), StaleCompleted(), expired, retry), keep(RunActive())) =
+  fn stale_completed_ignored_active(expired: Bool, retry: Elzoo.RetryPolicy.RetryDecision) -> Equivalent(RunStep, step(RunActive(), StaleCompleted(), expired, retry), keep(RunActive())) =
     reflexive(keep(RunActive()))
 
-  fn stale_failed_ignored_requested(expired: Bool, retry: RetryDecision) -> Equivalent(RunStep, step(RunRequested(), StaleFailed(), expired, retry), keep(RunRequested())) =
+  fn stale_failed_ignored_requested(expired: Bool, retry: Elzoo.RetryPolicy.RetryDecision) -> Equivalent(RunStep, step(RunRequested(), StaleFailed(), expired, retry), keep(RunRequested())) =
     reflexive(keep(RunRequested()))
 
-  fn stale_failed_ignored_waiting(expired: Bool, retry: RetryDecision) -> Equivalent(RunStep, step(RunWaiting(), StaleFailed(), expired, retry), keep(RunWaiting())) =
+  fn stale_failed_ignored_waiting(expired: Bool, retry: Elzoo.RetryPolicy.RetryDecision) -> Equivalent(RunStep, step(RunWaiting(), StaleFailed(), expired, retry), keep(RunWaiting())) =
     reflexive(keep(RunWaiting()))
 
-  fn stale_failed_ignored_active(expired: Bool, retry: RetryDecision) -> Equivalent(RunStep, step(RunActive(), StaleFailed(), expired, retry), keep(RunActive())) =
+  fn stale_failed_ignored_active(expired: Bool, retry: Elzoo.RetryPolicy.RetryDecision) -> Equivalent(RunStep, step(RunActive(), StaleFailed(), expired, retry), keep(RunActive())) =
     reflexive(keep(RunActive()))
 
-  fn duplicate_yields_requested(expired: Bool, retry: RetryDecision) -> Equivalent(RunStep, step(RunRequested(), StartDuplicate(), expired, retry), yield_to(RunRequested())) =
+  fn duplicate_yields_requested(expired: Bool, retry: Elzoo.RetryPolicy.RetryDecision) -> Equivalent(RunStep, step(RunRequested(), StartDuplicate(), expired, retry), yield_to(RunRequested())) =
     reflexive(yield_to(RunRequested()))
 
-  fn duplicate_yields_waiting(expired: Bool, retry: RetryDecision) -> Equivalent(RunStep, step(RunWaiting(), StartDuplicate(), expired, retry), yield_to(RunWaiting())) =
+  fn duplicate_yields_waiting(expired: Bool, retry: Elzoo.RetryPolicy.RetryDecision) -> Equivalent(RunStep, step(RunWaiting(), StartDuplicate(), expired, retry), yield_to(RunWaiting())) =
     reflexive(yield_to(RunWaiting()))
 
-  fn duplicate_yields_active(expired: Bool, retry: RetryDecision) -> Equivalent(RunStep, step(RunActive(), StartDuplicate(), expired, retry), yield_to(RunActive())) =
+  fn duplicate_yields_active(expired: Bool, retry: Elzoo.RetryPolicy.RetryDecision) -> Equivalent(RunStep, step(RunActive(), StartDuplicate(), expired, retry), yield_to(RunActive())) =
     reflexive(yield_to(RunActive()))
 
-  fn stale_start_never_begins_requested(expired: Bool, retry: RetryDecision) -> Equivalent(RunStep, step(RunRequested(), StartStale(), expired, retry), stale_start(RunRequested())) =
+  fn stale_start_never_begins_requested(expired: Bool, retry: Elzoo.RetryPolicy.RetryDecision) -> Equivalent(RunStep, step(RunRequested(), StartStale(), expired, retry), stale_start(RunRequested())) =
     reflexive(stale_start(RunRequested()))
 
-  fn stale_start_never_begins_waiting(expired: Bool, retry: RetryDecision) -> Equivalent(RunStep, step(RunWaiting(), StartStale(), expired, retry), stale_start(RunWaiting())) =
+  fn stale_start_never_begins_waiting(expired: Bool, retry: Elzoo.RetryPolicy.RetryDecision) -> Equivalent(RunStep, step(RunWaiting(), StartStale(), expired, retry), stale_start(RunWaiting())) =
     reflexive(stale_start(RunWaiting()))
 
-  fn stale_start_never_begins_active(expired: Bool, retry: RetryDecision) -> Equivalent(RunStep, step(RunActive(), StartStale(), expired, retry), stale_start(RunActive())) =
+  fn stale_start_never_begins_active(expired: Bool, retry: Elzoo.RetryPolicy.RetryDecision) -> Equivalent(RunStep, step(RunActive(), StartStale(), expired, retry), stale_start(RunActive())) =
     reflexive(stale_start(RunActive()))
 
-  fn requested_completed_ignored(expired: Bool, retry: RetryDecision) -> Equivalent(RunStep, step(RunRequested(), CurrentCompleted(), expired, retry), keep(RunRequested())) =
+  fn requested_completed_ignored(expired: Bool, retry: Elzoo.RetryPolicy.RetryDecision) -> Equivalent(RunStep, step(RunRequested(), CurrentCompleted(), expired, retry), keep(RunRequested())) =
     reflexive(keep(RunRequested()))
 
-  fn requested_failed_ignored(expired: Bool, retry: RetryDecision) -> Equivalent(RunStep, step(RunRequested(), CurrentFailed(), expired, retry), keep(RunRequested())) =
+  fn requested_failed_ignored(expired: Bool, retry: Elzoo.RetryPolicy.RetryDecision) -> Equivalent(RunStep, step(RunRequested(), CurrentFailed(), expired, retry), keep(RunRequested())) =
     reflexive(keep(RunRequested()))
 
-  fn waiting_completed_ignored(expired: Bool, retry: RetryDecision) -> Equivalent(RunStep, step(RunWaiting(), CurrentCompleted(), expired, retry), keep(RunWaiting())) =
+  fn waiting_completed_ignored(expired: Bool, retry: Elzoo.RetryPolicy.RetryDecision) -> Equivalent(RunStep, step(RunWaiting(), CurrentCompleted(), expired, retry), keep(RunWaiting())) =
     reflexive(keep(RunWaiting()))
 
-  fn cancel_from_requested(expired: Bool, retry: RetryDecision) -> Equivalent(RunStep, step(RunRequested(), CancelRequested(), expired, retry), cancel()) =
+  fn cancel_from_requested(expired: Bool, retry: Elzoo.RetryPolicy.RetryDecision) -> Equivalent(RunStep, step(RunRequested(), CancelRequested(), expired, retry), cancel()) =
     reflexive(cancel())
 
-  fn cancel_from_waiting(expired: Bool, retry: RetryDecision) -> Equivalent(RunStep, step(RunWaiting(), CancelRequested(), expired, retry), cancel()) =
+  fn cancel_from_waiting(expired: Bool, retry: Elzoo.RetryPolicy.RetryDecision) -> Equivalent(RunStep, step(RunWaiting(), CancelRequested(), expired, retry), cancel()) =
     reflexive(cancel())
 
-  fn cancel_from_active(expired: Bool, retry: RetryDecision) -> Equivalent(RunStep, step(RunActive(), CancelRequested(), expired, retry), cancel()) =
+  fn cancel_from_active(expired: Bool, retry: Elzoo.RetryPolicy.RetryDecision) -> Equivalent(RunStep, step(RunActive(), CancelRequested(), expired, retry), cancel()) =
     reflexive(cancel())
 
-  fn expired_never_begins_requested(retry: RetryDecision) -> Equivalent(RunStep, step(RunRequested(), StartAttempt(), True(), retry), expire()) =
+  fn expired_never_begins_requested(retry: Elzoo.RetryPolicy.RetryDecision) -> Equivalent(RunStep, step(RunRequested(), StartAttempt(), True(), retry), expire()) =
     reflexive(expire())
 
-  fn expired_never_begins_waiting(retry: RetryDecision) -> Equivalent(RunStep, step(RunWaiting(), StartAttempt(), True(), retry), expire()) =
+  fn expired_never_begins_waiting(retry: Elzoo.RetryPolicy.RetryDecision) -> Equivalent(RunStep, step(RunWaiting(), StartAttempt(), True(), retry), expire()) =
     reflexive(expire())
 
-  fn expired_never_begins_active(retry: RetryDecision) -> Equivalent(RunStep, step(RunActive(), StartAttempt(), True(), retry), expire()) =
+  fn expired_never_begins_active(retry: Elzoo.RetryPolicy.RetryDecision) -> Equivalent(RunStep, step(RunActive(), StartAttempt(), True(), retry), expire()) =
     reflexive(expire())
 
   fn exhausted_never_begins() -> Equivalent(RunPhase, phase_of(step(RunActive(), StartAttempt(), False(), DecideExhausted())), RunExhausted()) =
     reflexive(RunExhausted())
 
-  fn late_success_expires(retry: RetryDecision) -> Equivalent(RunStep, step(RunActive(), CurrentCompleted(), True(), retry), expire()) =
+  fn late_success_expires(retry: Elzoo.RetryPolicy.RetryDecision) -> Equivalent(RunStep, step(RunActive(), CurrentCompleted(), True(), retry), expire()) =
     reflexive(expire())
 
   fn permanent_not_retried() -> Equivalent(RunPhase, phase_of(step(RunActive(), CurrentFailed(), False(), DecidePermanent())), RunFailed()) =

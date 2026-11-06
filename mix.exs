@@ -43,9 +43,8 @@ defmodule Elzoo.MixProject do
       {:req, "== 0.7.5"},
       {:ecto_sql, "== 3.14.0"},
       {:postgrex, "== 0.22.4"},
-      # ELZ-010 pre-implementation provider probes only (test/elz010_*); becomes a
-      # registry provider when integration/jobs is implemented.
-      {:oban, "== 2.24.2", only: :test}
+      # ELZ-010 integration/jobs provider (also used by the test/elz010_* probes).
+      {:oban, "== 2.24.2"}
     ]
   end
 

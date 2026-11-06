@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "id": "integration/jobs",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "adapter",
+  "providers": [
+    "oban",
+    "ecto_sql",
+    "postgrex",
+    "elixir",
+    "otp"
+  ],
+  "dependencies": [
+    "state/event-log",
+    "state/outbox"
+  ],
+  "applications": [
+    "crypto"
+  ],
+  "contract": "Oban 2.24.2 translation: unique job per (queue, job_key), enqueue that reports only persisted job ids (conflict without id is {:retry, :unique_lock_held}), a per-queue runner registration and an Oban worker that traps exits and refuses unknown args versions, and a Relay over one ELZ-009 outbox stream that acks :done items, keeps skipped items pending and continues within the page.",
+  "limits": [
+    "Subset only: no general Oban wrapper, cron, Pro features, batch/workflow or cross-stream outbox discovery.",
+    "Relay delivery is at-least-once; pending/3 returns the oldest page with no offset, so a full page of permanently skipped items blocks later items (stated limit).",
+    "Oban uniqueness is an advisory lock plus query, not a database constraint; Lifeline rescue is time-based and can re-run live jobs (upstream).",
+    "The runner registration is node-local :persistent_term state set by the consumer's Assembly; no cross-node registry."
+  ],
+  "files": [
+    "lib/elzoo/jobs.ex",
+    "lib/elzoo/jobs/relay.ex",
+    "lib/elzoo/jobs/worker.ex",
+    "test/elzoo/jobs_test.exs",
+    "test/support/jobs_test_helper.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/jobs_test.exs",
+      "claim": "Unique changeset, persisted-id enqueue under a held unique lock, worker dispatch/exit trapping/version refusal, a real Oban execution, relay ack/skip/in-page continuation, full-page block limit and option validation on a disposable PostgreSQL and Memory; finite scenarios."
+    },
+    {
+      "kind": "upstream",
+      "provider": "oban",
+      "reference": "https://hexdocs.pm/oban/2.24.2/Oban.html",
+      "claim": "Oban 2.24.2 job persistence, FOR UPDATE SKIP LOCKED claim, retry staging, unique insert (advisory lock plus query, not a constraint), snooze attempt handling, cancel_all_jobs and Lifeline time-based rescue (documented to rescue live jobs) are upstream contracts."
+    },
+    {
+      "kind": "upstream",
+      "provider": "ecto_sql",
+      "reference": "https://hexdocs.pm/ecto_sql/3.14.0/Ecto.Adapters.SQL.html",
+      "claim": "Ecto SQL 3.14.0 Repo, transaction and in_transaction?/0 semantics are upstream contracts."
+    },
+    {
+      "kind": "upstream",
+      "provider": "postgrex",
+      "reference": "https://www.postgresql.org/docs/17/transaction-iso.html",
+      "claim": "PostgreSQL transaction atomicity, row locking, advisory locks and READ COMMITTED behaviour reached through Postgrex 0.22.4 are upstream server contracts, not local proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Elixir validation, exceptions, exit trapping and BEAM execution are upstream contracts, not proved here."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/",
+      "claim": "OTP 29.1.2 GenServer, Supervisor, Task.Supervisor, links/monitors and :persistent_term semantics are upstream contracts; no exactly-once or disk durability guarantee."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The consumer owns the Oban instance, queues, Lifeline settings and Oban.Migration; rescue_after exceeds normal attempt duration."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "inherited",
+      "from": "oban",
+      "contract": "Oban [:oban, :job, :start|:stop|:exception] and plugin events; Elzoo adds none."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Construction-time Relay store, stream, handle, limit and interval (fixed, no hot change); per-insert queue, job_key and provider max_attempts.",
+      "evidence": [
+        "test/elzoo/jobs_test.exs"
+      ]
+    },
+    "control": {
+      "status": "inherited",
+      "from": "oban",
+      "contract": "Oban queue pause/resume and cancel_all_jobs are upstream; the Relay has OTP start/stop only, no pause/drain command."
+    }
+  }
+}

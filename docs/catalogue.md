@@ -76,8 +76,11 @@ and a volatile Memory test double), `state/checkpoint` (bounded full-prefix
 checkpoints, fail-closed recovery), `state/outbox` (committed pending offers,
 nonce-bound ack CAS, no dispatcher) and `integration/sql` (Store-only
 PostgreSQL translation via Ecto SQL/Postgrex; no general SQL API). They are
-the state boundary for `assembly/durable-job`, not the Assembly: jobs,
-schema upcast and dispatch remain ELZ-010/011. No exactly-once or disk
+the state boundary for `assembly/durable-job`, not the Assembly. ELZ-010
+supplies `workflow/state-machine`, `integration/jobs` and `assembly/durable-job`
+(tally job over Oban 2.24.2 and the ELZ-009 Store); schema upcast is explicitly
+deferred (`state/schema-evolution` stays planned) and Effect dispatch remains
+ELZ-011/023. No exactly-once or disk
 durability claim; see [ELZ-009](work/ELZ-009.md).
 
 Phases end at a working assembly, not at a row count:
@@ -86,7 +89,7 @@ Phases end at a working assembly, not at a row count:
 | --- | --- | --- |
 | P0 · bootstrap (partial) | `assembly/ingest-dedup-accumulate` | Pure Cure composition, a minimal typed port binding, a supervised volatile unit, fused/direct and OTP execution, Jason boundary. ELZ-002/003 finish the minimal named port/wiring checks; richer resilience wiring follows in P1. |
 | P1 · message resilience | `assembly/request-route-retry` (ready subset) | Owns labelled worker, exact codecs, topology and result translation; reuses Envelope, RequestReply, Routing/Transformation, WindowedIdempotency, Runner/Adapter, Selection/Wiring/Assembly and Core.accumulate unchanged. Volatile only: hop dedup may advance without accumulation (S17); Unit restart resets the window (S22). |
-| P2 · durable workflow | `assembly/durable-job` | Event/input log, checkpoint/tail replay, schema upcast, transactional outbox, and one durable job/storage boundary |
+| P2 · durable workflow | `assembly/durable-job` | Event/input log, checkpoint/tail replay, transactional outbox, and one durable job/storage boundary (ELZ-010 ready subset); schema upcast explicitly deferred, not delivered |
 | P3 · edge integration | `assembly/http-job` | One selected HTTP path, JSON/schema validation, SQL or job adapter, redacted telemetry and provider failure handling |
 | P4 · scale/security/product | a product-specific assembly | OS-process or multi-host boundary, policy, tenancy, CRDT, AI, build/data and specialised adapters only as needed |
 | later | none committed | Capabilities below that need a product, a security review or a missing upstream contract |

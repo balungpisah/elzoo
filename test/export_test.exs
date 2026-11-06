@@ -117,7 +117,7 @@ defmodule Elzoo.ExportTest do
   end
 
   for id <-
-        ~w(core/operator core/port core/assembly core/envelope core/edge core/wiring core/selection delivery/idempotency delivery/windowed-idempotency delivery/request-reply delivery/routing delivery/transformation delivery/backpressure delivery/dead-letter delivery/retry-timeout runtime/adapter runtime/host assembly/ingest-json-unit assembly/request-route-retry state/event-log state/checkpoint state/outbox integration/sql) do
+        ~w(core/operator core/port core/assembly core/envelope core/edge core/wiring core/selection delivery/idempotency delivery/windowed-idempotency delivery/request-reply delivery/routing delivery/transformation delivery/backpressure delivery/dead-letter delivery/retry-timeout runtime/adapter runtime/host assembly/ingest-json-unit assembly/request-route-retry state/event-log state/checkpoint state/outbox integration/sql workflow/state-machine integration/jobs assembly/durable-job) do
     @tag timeout: 120_000
     test "#{id} carries its own checks into an independent consumer", ctx do
       assert_cure_consumer(ctx, [unquote(id)])
@@ -381,6 +381,13 @@ defmodule Elzoo.ExportTest do
       GenServer.stop(unit)
       Supervisor.stop(tasks)
     end
+    if :code.which(:"Cure.Elzoo.JobRun") != :non_existing do
+      {:ok, {:active, :begin_attempt}} = Elzoo.JobRun.step(:requested, :start, false, :retry)
+      {:ok, {:active, :yield_stale}} = Elzoo.JobRun.step(:active, :stale_start, false, :retry)
+      {:ok, :stale_start} = Elzoo.JobRun.start_input(7, 7, 3, 2)
+      {:ok, :stale_completed} = Elzoo.JobRun.result_input(true, 1, 2)
+      IO.puts("compiler-free JobRun decision passed")
+    end
     if Enum.any?(Application.started_applications(), fn {app, _, _} -> app == :cure end),
       do: raise("Cure started as a runtime application")
     """
@@ -397,6 +404,9 @@ defmodule Elzoo.ExportTest do
 
     if "state/event-log" in Enum.map(plan.pieces, & &1["id"]),
       do: assert(output =~ "compiler-free Memory K1–K11 passed")
+
+    if "workflow/state-machine" in Enum.map(plan.pieces, & &1["id"]),
+      do: assert(output =~ "compiler-free JobRun decision passed")
   end
 
   defp consumer_applications(plan) do
