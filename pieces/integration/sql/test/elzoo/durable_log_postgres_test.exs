@@ -389,4 +389,138 @@ defmodule Elzoo.DurableLog.PostgresTest do
     assert {:error, {:storage, :unavailable}} = start_writer(bad)
     assert PostgresHarness.hook(s, :snapshot, []) == before
   end
+
+  # ELZ-032: a caller's open Ecto transaction must never absorb a Store call.
+  defp seed_caller_transaction(s) do
+    rows = [row(1), row(2)]
+    items = Enum.map(rows, &Outbox.new("pg", &1.sequence, 1, "sink", "effect", &1.nonce))
+    assert {:committed, 2} = Postgres.append(s, "pg", 0, rows, items)
+    assert {:committed, 1} = Outbox.ack(s, hd(items).idempotency_key, <<2::128>>)
+    assert {:committed, 1} = Postgres.put_checkpoint(s, checkpoint([hd(rows)]))
+    %{rows: rows, items: items}
+  end
+
+  defp caller_writes(s, %{rows: rows, items: items}) do
+    [
+      append: Postgres.append(s, "pg", 2, [row(3, <<7::128>>)], []),
+      put_checkpoint: Postgres.put_checkpoint(s, checkpoint(rows)),
+      retain: Postgres.retain(s, "pg", 0, 1, <<8::128>>),
+      ack: Postgres.ack(s, List.last(items).idempotency_key, <<9::128>>),
+      repair_torn_tail: Postgres.repair_torn_tail(s, "pg", 2, <<1::128>>, <<10::128>>)
+    ]
+  end
+
+  @caller_rejected [
+    append: {:rejected, :caller_transaction},
+    put_checkpoint: {:rejected, :caller_transaction},
+    retain: {:rejected, :caller_transaction},
+    ack: {:rejected, :caller_transaction},
+    repair_torn_tail: {:rejected, :caller_transaction}
+  ]
+
+  test "ELZ-032 writes inside a caller transaction are rejected; outer COMMIT keeps storage unchanged",
+       %{store: s} do
+    seeded = seed_caller_transaction(s)
+    before = PostgresHarness.hook(s, :snapshot, [])
+
+    assert {:ok, {results, [[1]]}} =
+             TestRepo.transaction(fn ->
+               results = caller_writes(s, seeded)
+               {results, SQL.query!(TestRepo, "SELECT 1", [], log: false).rows}
+             end)
+
+    assert results == @caller_rejected
+    assert PostgresHarness.hook(s, :snapshot, []) == before
+    assert {:ok, %{revision: 2, low_water: 0}} = Postgres.head(s, "pg")
+  end
+
+  test "ELZ-032 writes inside a caller transaction are rejected; outer ROLLBACK keeps storage unchanged",
+       %{store: s} do
+    seeded = seed_caller_transaction(s)
+    before = PostgresHarness.hook(s, :snapshot, [])
+
+    assert {:error, results} =
+             TestRepo.transaction(fn -> TestRepo.rollback(caller_writes(s, seeded)) end)
+
+    assert results == @caller_rejected
+    assert PostgresHarness.hook(s, :snapshot, []) == before
+    assert {:ok, %{revision: 2, low_water: 0}} = Postgres.head(s, "pg")
+  end
+
+  test "ELZ-032 reads inside a caller transaction refuse without poisoning it", %{store: s} do
+    %{items: items} = seed_caller_transaction(s)
+    before = PostgresHarness.hook(s, :snapshot, [])
+
+    assert {:ok, {[[1]], results, [[2]]}} =
+             TestRepo.transaction(fn ->
+               first = SQL.query!(TestRepo, "SELECT 1", [], log: false).rows
+
+               results = [
+                 head: Postgres.head(s, "pg"),
+                 read: Postgres.read(s, "pg", 1, 10),
+                 read_at: Postgres.read_at(s, "pg", 1),
+                 latest_checkpoint: Postgres.latest_checkpoint(s, "pg", 1),
+                 read_checkpoint: Postgres.read_checkpoint(s, "pg", 1, 1),
+                 pending: Postgres.pending(s, "pg", 10),
+                 read_ack: Postgres.read_ack(s, hd(items).idempotency_key),
+                 read_maintenance_retain: Postgres.read_maintenance(s, "pg", :retain),
+                 read_maintenance_repair: Postgres.read_maintenance(s, "pg", :repair_torn_tail)
+               ]
+
+               {first, results, SQL.query!(TestRepo, "SELECT 2", [], log: false).rows}
+             end)
+
+    for {name, result} <- results,
+        do: assert({name, result} == {name, {:error, :caller_transaction}})
+
+    assert PostgresHarness.hook(s, :snapshot, []) == before
+    assert {:ok, %{revision: 2, low_water: 0}} = Postgres.head(s, "pg")
+  end
+
+  test "ELZ-032 shell keeps caller-transaction results distinct from malformed or indeterminate",
+       %{store: s} do
+    %{rows: rows, items: items} = seed_caller_transaction(s)
+    before = PostgresHarness.hook(s, :snapshot, [])
+    [r1, r2] = rows
+    c = checkpoint(rows)
+    replay = Log.replay(rows, 2, fold())
+
+    assert {:ok, results} =
+             TestRepo.transaction(fn ->
+               SQL.query!(TestRepo, "SELECT 1", [], log: false)
+
+               [
+                 outbox_ack: Outbox.ack(s, List.last(items).idempotency_key, <<9::128>>),
+                 checkpoint_take:
+                   Checkpoint.take({s, replay, @limits}, "pg", 1, &Integer.to_string/1),
+                 log_read: Log.read(s, "pg", 1, 10),
+                 outbox_pending: Outbox.pending(s, "pg", 10),
+                 checkpoint_recover:
+                   Checkpoint.recover(s, "pg", fold(), 1, &{:ok, String.to_integer(&1)}),
+                 confirm: Log.confirm(s, "pg", 0, r1.nonce, [r1, r2]),
+                 confirm_checkpoint: Log.confirm_checkpoint(s, c),
+                 confirm_retention:
+                   Log.confirm_retention(s, Codec.receipt(:retain, "pg", 0, 1, <<8::128>>)),
+                 confirm_ack:
+                   Log.confirm_ack(
+                     s,
+                     Codec.ack_receipt(List.last(items).idempotency_key, <<9::128>>)
+                   )
+               ]
+             end)
+
+    assert results == [
+             outbox_ack: {:rejected, :caller_transaction},
+             checkpoint_take: {:rejected, :caller_transaction},
+             log_read: {:error, :caller_transaction},
+             outbox_pending: {:error, :caller_transaction},
+             checkpoint_recover: {:error, :caller_transaction},
+             confirm: {:unknown, :caller_transaction},
+             confirm_checkpoint: {:unknown, :caller_transaction},
+             confirm_retention: {:unknown, :caller_transaction},
+             confirm_ack: {:unknown, :caller_transaction}
+           ]
+
+    assert PostgresHarness.hook(s, :snapshot, []) == before
+  end
 end
