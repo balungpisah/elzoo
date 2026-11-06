@@ -174,7 +174,10 @@ validated fully before evaluation with the `domain/authorization` validators
 and bounds (action, escrow, policy identity, requirement); the escrow must
 equal the action's writes and every list must already be normalized.
 Malformed or over-bound input is `{:error, {:invalid_input, r}}`; nothing is
-repaired or truncated (PR #59 review, finding 1).
+repaired or truncated (PR #59 review, finding 1). All eight keys of the
+`decide/3` result are required and checked: `reason == {:ask, requirement}`,
+`permitted == []`, and `rules` is a list of at most 1024 rule-id identities
+(re-check note N1).
 
 ```elixir
 Elzoo.Approval.release(state, key, evidence | :retained, context)
@@ -348,7 +351,13 @@ The log is not trusted. `apply_event/2` (and so `replay/1`) validates each
 event with the same validators and bounds as the live transition that
 produced it, and with that transition's invariants: identities and times in
 range; request status `:open` and key consistent with its binding;
-supersession to exactly `revision + 1` in the same Run and action; released
+supersession to exactly `revision + 1` in the same Run and action; a
+release key consistent with its binding (action id, requirement name and
+version) and with its recorded Run unless the evidence scope is `:root`
+(`:release_key_binding`); a release only for a request already in state
+with the same binding (`:release_without_request`,
+`:release_of_superseded_request`, `:release_binding_mismatch`; re-check note
+N2); released
 writes equal to the bound escrow; release and consent evidence approving,
 consent scope run/root and consent equal to its release record. Any fault is
 `{:error, {:invalid_input, r}}` (PR #59 review, finding 2). Validation cannot

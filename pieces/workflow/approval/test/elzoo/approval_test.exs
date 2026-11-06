@@ -886,6 +886,79 @@ defmodule Elzoo.ApprovalTest do
              })
   end
 
+  test "request/3 validates every ASK decision key: reason, permitted and bounded rule ids" do
+    s = Approval.new()
+    d = decision()
+    assert {:ok, _, _, _} = Approval.request(s, "run-1", d)
+
+    assert {:error, {:invalid_input, :ask_reason}} =
+             Approval.request(s, "run-1", %{d | reason: :allowed})
+
+    assert {:error, {:invalid_input, :ask_reason}} =
+             Approval.request(s, "run-1", %{d | reason: {:ask, req(:run)}})
+
+    assert {:error, {:invalid_input, :ask_permits_writes}} =
+             Approval.request(s, "run-1", %{d | permitted: [post()]})
+
+    assert {:error, {:invalid_input, {:missing_field, :rules}}} =
+             Approval.request(s, "run-1", Map.delete(d, :rules))
+
+    assert {:error, {:invalid_input, {:not_a_list, :rules}}} =
+             Approval.request(s, "run-1", %{d | rules: :all})
+
+    assert {:error, {:invalid_input, {:empty, :rule_id}}} =
+             Approval.request(s, "run-1", %{d | rules: [""]})
+
+    ids = for i <- 1..1025, do: "r#{i}"
+    assert {:ok, _, _, _} = Approval.request(s, "run-1", %{d | rules: Enum.take(ids, 1024)})
+
+    assert {:error, {:invalid_input, {:bound_exceeded, :rules}}} =
+             Approval.request(s, "run-1", %{d | rules: ids})
+
+    long = String.duplicate("r", 1025)
+
+    assert {:error, {:invalid_input, {:bound_exceeded, :rule_id}}} =
+             Approval.request(s, "run-1", %{d | rules: [long]})
+  end
+
+  test "release events: key must match binding; a never-requested key is rejected" do
+    {s, key} = setup_request()
+    {:released, _, _, {:released, rel, nil}} = Approval.release(s, key, evidence(key), context())
+    assert {:ok, _} = Approval.apply_event(s, {:released, rel, nil})
+
+    for bad_key <- [
+          put_elem(key, 1, "act-9"),
+          put_elem(key, 2, "legal"),
+          put_elem(key, 3, 2),
+          put_elem(key, 0, "run-9")
+        ] do
+      forged = %{rel | key: bad_key, evidence: %{rel.evidence | request: bad_key}}
+
+      assert {:error, {:invalid_input, :release_key_binding}} =
+               Approval.apply_event(s, {:released, forged, nil})
+    end
+
+    # Consistent key and binding, but no request with that key exists in state
+    # (revision 7 was never requested): rejected before Cure sees it, so no
+    # release record can be planted for revalidate/3 to accept.
+    unknown = put_elem(key, 4, 7)
+    never = %{rel | key: unknown, evidence: %{rel.evidence | request: unknown}}
+
+    assert {:error, {:invalid_input, :release_without_request}} =
+             Approval.apply_event(s, {:released, never, nil})
+
+    assert {:error, {:invalid_input, :release_without_request}} =
+             Approval.replay([{:released, rel, nil}])
+
+    {:ok, _, _, {:superseded, _, _} = sup} =
+      Approval.request(s, "run-1", decision(:once, payload: {:text, "v2"}))
+
+    {:ok, s_sup} = Approval.apply_event(s, sup)
+
+    assert {:error, {:invalid_input, :release_of_superseded_request}} =
+             Approval.apply_event(s_sup, {:released, rel, nil})
+  end
+
   test "request/3 bounds: a 1024-byte write target is accepted, 1025 and 5000 bytes are rejected" do
     d = decision()
 
@@ -940,10 +1013,10 @@ defmodule Elzoo.ApprovalTest do
       Approval.release(s1, req.key, evidence(req.key), context())
 
     assert {:ok, _} = Approval.apply_event(s1, released)
-    assert {:ok, _} = Approval.apply_event(s1, {:released, %{rel | run: big}, nil})
+    assert {:ok, _} = Approval.apply_event(s1, {:released, %{rel | root: big}, nil})
 
-    assert {:error, {:invalid_input, {:bound_exceeded, :run}}} =
-             Approval.apply_event(s1, {:released, %{rel | run: over}, nil})
+    assert {:error, {:invalid_input, {:bound_exceeded, :root}}} =
+             Approval.apply_event(s1, {:released, %{rel | root: over}, nil})
 
     max = Integer.pow(2, 63) - 1
     assert {:ok, _} = Approval.apply_event(s1, {:released, %{rel | released_at: max}, nil})

@@ -63,16 +63,19 @@ defmodule Elzoo.Approval do
     with :ok <-
            Auth.exact_keys(
              d,
-             [:verdict, :action, :escrowed, :policy, :requirement],
-             [:reason, :permitted, :rules],
+             [:verdict, :reason, :policy, :action, :permitted, :escrowed, :requirement, :rules],
+             [],
              :invalid_input
-           ) do
-      validate_binding(%{
-        action: d.action,
-        escrowed: d.escrowed,
-        policy: d.policy,
-        requirement: d.requirement
-      })
+           ),
+         {:ok, b} <-
+           validate_binding(%{
+             action: d.action,
+             escrowed: d.escrowed,
+             policy: d.policy,
+             requirement: d.requirement
+           }),
+         :ok <- ask_shape(d) do
+      {:ok, b}
     end
   end
 
@@ -80,6 +83,18 @@ defmodule Elzoo.Approval do
     do: {:error, {:invalid_input, :not_ask}}
 
   defp binding_from_decision(_), do: {:error, {:invalid_input, :decision}}
+
+  # Every key of an ASK decision from decide/3 is checked: the reason names the
+  # requirement, nothing is permitted, and rule ids are a bounded identity list.
+  defp ask_shape(d) do
+    with true <- d.reason == {:ask, d.requirement} || {:error, {:invalid_input, :ask_reason}},
+         true <- d.permitted == [] || {:error, {:invalid_input, :ask_permits_writes}},
+         :ok <- Auth.proper_list(d.rules, :rules, :invalid_input),
+         :ok <- Auth.count_in(d.rules, 0, Auth.bounds().rules, :rules, :invalid_input),
+         {:ok, _} <- Auth.map_ok(d.rules, &Auth.identity_field(&1, :rule_id, :invalid_input)) do
+      :ok
+    end
+  end
 
   defp validate_binding(%{action: a, escrowed: es, policy: p, requirement: r} = b)
        when map_size(b) == 4 do
@@ -191,7 +206,8 @@ defmodule Elzoo.Approval do
   @doc "Fold one recorded event into state. Returns state only."
   def apply_event(%State{} = state, event) do
     with :ok <- state_room(state),
-         {:ok, encoded} <- encode_event_checked(event) do
+         {:ok, encoded} <- encode_event_checked(event),
+         :ok <- release_has_request(state, event) do
       {:ok, %State{cure: apply(@cure, :apply_event, [state.cure, encoded])}}
     end
   end
@@ -481,6 +497,19 @@ defmodule Elzoo.Approval do
     with :ok <- validate_event(event), do: {:ok, encode_event(event)}
   end
 
+  # A live release needs an existing open (or, on re-apply, released) request
+  # with the same binding; a release for a never-requested key is rejected.
+  defp release_has_request(state, {:released, rel, _}) do
+    case Enum.find(inspect_state(state).requests, &(&1.key == rel.key)) do
+      nil -> {:error, {:invalid_input, :release_without_request}}
+      %{status: :superseded} -> {:error, {:invalid_input, :release_of_superseded_request}}
+      %{binding: b} when b != rel.binding -> {:error, {:invalid_input, :release_binding_mismatch}}
+      _ -> :ok
+    end
+  end
+
+  defp release_has_request(_state, _event), do: :ok
+
   defp validate_event({:revoked, {v, id}}) do
     with {:ok, _} <- Auth.identity_field(v, :verifier, :invalid_input),
          {:ok, _} <- Auth.identity_field(id, :evidence_id, :invalid_input),
@@ -503,6 +532,7 @@ defmodule Elzoo.Approval do
 
   defp validate_event({:released, rel, consent}) do
     with :ok <- validate_release_record(rel),
+         :ok <- release_key_binding(rel),
          :ok <- validate_consent(consent, rel),
          do: :ok
   end
@@ -543,6 +573,15 @@ defmodule Elzoo.Approval do
   end
 
   defp validate_release_record(_), do: {:error, {:invalid_input, :release}}
+
+  # Same rule as request events, plus the run: a fresh or :run release records
+  # the key's own Run; only a :root release may record another Run (the root's).
+  defp release_key_binding(%{key: {run, aid, name, version, _}, binding: b} = rel) do
+    if aid == b.action.action_id and name == b.requirement.name and
+         version == b.requirement.version and (run == rel.run or rel.evidence.scope == :root),
+       do: :ok,
+       else: {:error, {:invalid_input, :release_key_binding}}
+  end
 
   defp validate_consent(nil, _rel), do: :ok
 
