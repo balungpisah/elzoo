@@ -107,34 +107,98 @@ invitation as distinct design challenges. Published prerequisites remain
 ELZ-003 and ELZ-015. Two Pieces stay separate: `domain/authorization` and
 `workflow/approval`; no duplicate Ash resource policy engine.
 
-The coordinator must resolve the following **essential interface decisions
-before dispatch** (not hypothetical authentication implementation work):
+The coordinator selects the following task-local boundaries for independent
+review in ELZ-033. They resolve B24.1–B24.3 without changing the live issue or
+any ready shared schema. ELZ-024 may start only after this decision review and
+adoption acceptance; its worker must acknowledge these choices, record the
+concrete Cure/Elixir API in its Contract, and obtain early independent review
+before implementing that API. A representation that cannot support the named
+laws is a blocker to report, not permission to weaken them.
 
-- B24.1: exact-action binding. Freeze the task-local typed action/write-set and
-  equality/encoding rules, including policy `(id, version, content hash)`.
-  An opaque Envelope payload has no canonical digest. The approval owner may
-  use structural equality over an admitted typed value or a canonical encoding
-  plus digest, but must record which; no unspecified JSON/term hash may stand
-  in for “exact payload.” Reject proposals carrying policy, authority or approval.
-- B24.2: evidence/verifier boundary. Freeze how configured verifier identity,
-  reviewer identity, requirement id/version/revision, evidence timestamp,
-  maximum age and current time reach the pure reducer as host-supplied inputs.
-  Declare clock units, equality-at-expiry, revocation and once/run/root scope
-  relationships. Test spoofed/wrong verifier, stale evidence and self-approval.
-  Provider credentials or real authentication are outside this task; trusted
-  fixtures must remain clearly marked. A model's “approved” is never evidence.
-- B24.3: authority provenance. The trusted owning caller supplies proposer and
-  approver current authority separately from the proposal; parent effective
-  authority bounds child writes. Define failure/unavailable behavior and
-  conflicting permitted writes in the task-local schema. Re-evaluate current
-  policy/authority on release and restore; stored consent is only input.
+### B24.1 — Structural exact-action binding
 
-These are blockers until recorded in the assignment/Contract and acknowledged
-by the worker. Adoption does not guess the missing schema or claim readiness.
-They can be resolved within the published scope; a necessary changed shared
-Contract or new provider would instead be a separately admitted prerequisite.
-Routine schema/module names and test fixture IDs belong to the worker after
-these choices, with independent typed-boundary review.
+Use structural equality of validated typed values, not a JSON or BEAM term hash,
+for approval binding. The task-local action record contains proposer identity,
+tenant, resource, stable action identity, typed effect class and payload. The
+write set is a finite collection of typed `(target, field, value)` entries.
+The initial portable value domain is null, booleans, integers, valid UTF-8 text,
+byte strings, ordered lists and records with unique UTF-8 field names. Types
+remain distinct; records compare by field name independently of input order;
+lists compare in order. Reject duplicate fields, floats, process/function
+values, malformed data and unknown control fields. Do not normalize text or
+coerce integers, strings and booleans into one another. The implementation
+Contract must declare finite input size/depth bounds and reject exceeded bounds
+before evaluation; it must not silently truncate values. This is a new local
+schema, not an extension of Envelope's opaque payload Contract.
+
+Bind consent to the complete validated action, exact proposed writes and policy
+identity `(id, version, content hash)`. Policy identity/content comes from trusted
+configuration outside the proposal; the host supplies its SHA-256 digest of
+its immutable versioned policy artifact. The pure Piece compares and carries
+that identity; it does not authenticate the host or prove the digest's origin.
+Compare current policy identity and the current reducer result at release;
+a reused id/version must not bypass a changed content hash. Preserve structural
+binding data for replay; a digest alone is not the payload equality check.
+Reject a proposal carrying policy, bounding authority or approval as control
+fields. Payload business data never supplies those controls. Conflicting writes
+to the same `(target, field)` fail closed; identical duplicates may be coalesced.
+No arbitrary executable policy DSL or cryptographic protocol is introduced.
+
+### B24.2 — Host-verified evidence and explicit time/scope
+
+Pass a validated evidence record separately from the proposal: configured
+verifier identity, reviewer identity, exact request tuple
+`(Run, action id, requirement name, requirement version, revision)`, decision,
+issued-at time and stable evidence identity. Only the trusted host's configured
+verifier path may produce this input. The pure boundary additionally checks the
+verifier allowlist and exact requirement/request match. Self-asserted verifier
+names in proposals, tool arguments or model text are rejected; the pure input
+record alone does not establish authentication. Real authentication and verifier
+transport remain explicit Needs of the consumer, and tests use trusted fixtures.
+
+Use explicit nonnegative Unix-millisecond `now` and `issued_at`, positive
+`max_age`, and an explicit consent expiry when configured. Reject future-issued
+evidence and evidence with `now - issued_at >= max_age`; consent expires at
+`now >= expiry`. Revocation wins over retained consent. Recheck freshness,
+revocation, current requirement and authority when releasing or restoring.
+A stale request revision changes nothing; a changed requirement supersedes the
+old request and creates revision + 1. Preserve reviewer and verifier attribution.
+
+Trusted caller context supplies the current Run, its root and ancestry;
+identifiers alone prove no relationship. Once-scope is consumed by one release
+of its exact request; replay of that same release event is idempotent and emits
+no second write. Run-scope permits only the named Run. Root-scope permits only
+that root and Runs whose supplied ancestry includes it. Scope never broadens
+the bound actor/resource/action/payload/policy or grants authority; every use
+must still match that exact binding and current request requirements. The
+worker must specify deterministic replay/consumption state in its local Contract;
+this establishes no durable storage or cross-owner exactly-once guarantee.
+
+### B24.3 — Current authority outside proposals
+
+The trusted owning caller supplies current proposer authority, approver authority
+and, for a child, current parent effective authority, separately from the
+proposal. Represent each as a finite set of permitted typed writes; compare
+sets structurally over the B24.1 schema. Child effective authority is bounded
+by the intersection of its own and its parent's sets. Missing, invalid or
+unavailable required authority/policy/verifier context fails closed with an
+explicit reason and no permitted or released writes; it is not an empty ALLOW.
+A malformed policy or conflicting writes also fails closed. Preserve the
+reason distinction between policy DENY, invalid input and unavailable context.
+
+Re-evaluate the ordered policy reducer against current context at release and
+restore. DENY or evaluation failure wins over old consent; ASK cannot be
+resolved by model text. Check the approver can perform the exact proposed
+writes and is not the proposer of the ASK. Approval can release only escrowed
+writes still bounded by current effective authority. Decisions carry the
+policy identity, permitted/escrowed writes and attributable result/reason data;
+retention is caller-owned and is not optional telemetry. No principal service,
+policy engine provider, authentication guarantee or shared Run schema is added.
+
+These choices are proposed technical decisions pending exact-SHA independent
+review, not executed evidence. A necessary change to a ready shared Contract
+or a new provider remains a separately admitted prerequisite. Module names and
+fixture IDs stay with the worker; the current issue's acceptance is unchanged.
 
 Required evidence stays #38's precedence, escrow and non-escalation laws,
 payload/policy drift, release DENY, stale revision, self/under-authorized approval,
@@ -194,9 +258,8 @@ applicability.
 
 ## Dispatch, resources and handoff
 
-The canonical job selection gates reference this note. Both local unspecified
-behaviors above and B24's essential boundaries must be concretely recorded and
-reviewed before dependent implementation. Missing essential decisions block
+The canonical job selection gates reference this note. Local unspecified behaviors above and B24's selected boundaries must be
+concretely recorded and reviewed before dependent implementation. Missing essential decisions block
 only their task; a complete independent wave need not wait for V2/V3 providers.
 The coordinator resolves shared-interface prerequisites; workers cannot widen
 the accepted shared records. Early independent review is required for these

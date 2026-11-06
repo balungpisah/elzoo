@@ -95,6 +95,19 @@ The marker was removed in a later commit before PR creation. The unrelated
 untracked `graft/` remains untouched; no clean-all-files claim is made.
 
 No runtime capability, provider adoption, catalogue readiness, product completion
-or release acceptance follows from this PR. B24.1–B24.3 and later provider/API/
-transaction choices remain explicit dispatch blockers. Merge, issue closure,
+or release acceptance follows from this PR. B24.1–B24.3 were subsequently selected by the coordinator in preflight.md;
+independent decision review and worker Contract acknowledgment remain gates.
+Later provider/API/transaction choices remain explicit dispatch blockers. Merge, issue closure,
 branch/workspace deletion and independent review are not performed by this worker.
+
+
+## Coordinator review preparation
+
+The coordinator fast-forwarded its own isolated checkout to worker head
+`a0c81dc5292d5102ea44327848a6fa3fbd63e8f9` and independently ran
+`python3 scripts/check-roadmap.py --live --self-test`, the claim and runner
+guards, and `git diff --check`: all passed. It then recorded B24.1–B24.3's
+structural action binding, host-verified evidence and current-authority choices
+for independent review. This documentation delta changes no runtime source or
+prior task body. The existing worker's full Mix evidence remains attributed
+to that worker; the coordinator has not claimed to rerun Mix locally.

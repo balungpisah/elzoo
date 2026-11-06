@@ -245,6 +245,8 @@ Prerequisites: RC-33, RC-34, RC-35, RC-36.
 
 **future first-wave workers and independent reviewer:** agent id=None; workspace=None; mechanism=not dispatched by adoption worker; integration owner=dedicated roadmap coordinator; delegation=none; delivery boundary=coordinator records actual IDs, workspaces, bases and claim SHAs at dispatch
 
+**dedicated roadmap coordinator:** identity source=orchestrator_capabilities parentThreadId in this session; workspace=/Users/laptopdp/.t3/worktrees/elzoo/t3-bcef5843; mechanism=existing user-created top-level coordinator; normal Git/GitHub integration; delivery boundary=ELZ-033 and bounded ELZ-022/024/026 only; independent review before merge; delegation=bounded first wave; workers may not delegate; thread id=mcp:launch:3fe4ba3bbfbfc14387fa0398fcf0009721604c2952038e9acb176b676638bbfd
+
 ## Scoped job briefs
 
 Published acceptance remains in live issue bodies. Proposal briefs are admission inputs, not implementation permission.
@@ -509,7 +511,7 @@ Publication copy: [tasks/ELZ-024-authorization-approval-reducer.md](../../tasks/
 
 **Blockers:**
 
-- B24.1 exact typed payload equality/encoding and policy content-hash binding; B24.2 configured-verifier evidence/time/scope boundary; B24.3 trusted current authority and conflict/failure schema. Coordinator must resolve and record before dispatch; see preflight.md.
+- B24.1–B24.3 coordinator choices are recorded in preflight.md; independent decision review, adoption acceptance and worker acknowledgment/concrete local Contract review remain gates before implementation.
 
 ### ELZ-025
 
