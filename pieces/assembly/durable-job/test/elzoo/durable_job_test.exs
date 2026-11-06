@@ -600,9 +600,11 @@ defmodule Elzoo.DurableJobTest do
     assert {job_row(f, id), oban_errors(f, id)} == {{"completed", 1}, 0}
 
     lock = hold_head_lock(prefix, Run.submission_stream(f.queue), 3_000)
+    # explicit deadline so the documented recovery can resubmit the same request
+    t2_deadline = far()
 
     assert {:indeterminate, %{operation: :submit, job_key: "t2"}} =
-             catching(fn -> submit(f, "t2") end)
+             catching(fn -> submit(f, "t2", [1, 2, 3], fast(), t2_deadline) end)
 
     Task.await(lock, 20_000)
 
@@ -615,6 +617,34 @@ defmodule Elzoo.DurableJobTest do
              catching(fn -> DurableJob.cancel(f.queue, "t3", "operator") end)
 
     Task.await(lock, 20_000)
+
+    # Documented recovery after the locks release: re-read, then repeat the same
+    # request. submit: :duplicate if the indeterminate append committed, :ok if
+    # not; either way exactly one t2 submission. cancel: {:ok, :cancelled} if
+    # the first cancel did not commit, {:error, {:terminal, :cancelled}} if it
+    # did; either way exactly one cancelled record.
+    assert match?({:ok, _}, DurableJob.status(f.queue, "t3"))
+    {:ok, %{phase: t3_before}} = DurableJob.status(f.queue, "t3")
+    assert t3_before in [:requested, :cancelled]
+    resubmit = submit(f, "t2", [1, 2, 3], fast(), t2_deadline)
+    assert match?({:ok, %{phase: :submitted}}, resubmit) or match?({:duplicate, {:ok, _}}, resubmit)
+
+    t2_requests =
+      for {"requested", %{"job_key" => "t2"}} <- records(f.store, Run.submission_stream(f.queue)),
+          do: :t2
+
+    assert t2_requests == [:t2]
+    assert {:ok, %{phase: :submitted}} = DurableJob.status(f.queue, "t2")
+    recancel = DurableJob.cancel(f.queue, "t3", "operator")
+
+    assert recancel ==
+             if(t3_before == :cancelled,
+               do: {:error, {:terminal, :cancelled}},
+               else: {:ok, :cancelled}
+             )
+
+    assert {:ok, %{phase: :cancelled}} = DurableJob.status(f.queue, "t3")
+    assert Enum.count(kinds(f.store, run_stream(f, "t3")), &(&1 == "cancelled")) == 1
     assert Process.whereis(:"Elixir.Elzoo.DurableJob.submitter.#{f.queue}") == submitter
     assert Process.whereis(:"Elixir.Elzoo.DurableJob.relay.#{f.queue}") == relay
   end
