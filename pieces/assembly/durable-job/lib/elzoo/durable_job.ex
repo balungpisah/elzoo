@@ -79,15 +79,10 @@ defmodule Elzoo.DurableJob do
       relay: name(queue, :relay)
     }
 
-    :persistent_term.put({__MODULE__, queue}, config)
-
-    :ok =
-      Jobs.register(queue, %{
-        perform: fn job -> perform(config, job) end,
-        backoff: &backoff/1
-      })
-
+    # The Registration is first: it registers the config and the worker
+    # runner with itself as owner and erases them when it terminates.
     children = [
+      {Elzoo.DurableJob.Registration, config},
       {Task.Supervisor, name: config.tasks},
       {Submitter,
        name: config.submitter,
@@ -111,7 +106,14 @@ defmodule Elzoo.DurableJob do
   def relay_process(queue), do: name(queue, :relay)
 
   defp name(queue, role), do: String.to_atom("Elixir.Elzoo.DurableJob.#{role}.#{queue}")
-  defp config(queue), do: :persistent_term.get({__MODULE__, queue}, nil)
+  # A registration whose owner is dead (brutal kill skipped terminate/2) is
+  # treated as absent: nothing is sent, the result is {:error, :not_started}.
+  defp config(queue) do
+    case :persistent_term.get({__MODULE__, queue}, nil) do
+      %{owner: owner} = cfg when is_pid(owner) -> if Process.alive?(owner), do: cfg
+      _ -> nil
+    end
+  end
 
   # -- entry points -------------------------------------------------------------
 
@@ -132,7 +134,11 @@ defmodule Elzoo.DurableJob do
   defp submit_call(cfg, request) do
     Submitter.submit(cfg.submitter, request, @rounds * cfg.writer_timeout + 5_000)
   catch
-    :exit, reason -> {:indeterminate, unknown(:submit, cfg, request["job_key"], reason)}
+    # :noproc: no Submitter process received the request, so nothing was sent.
+    :exit, reason ->
+      if noproc?(reason),
+        do: {:error, :unavailable},
+        else: {:indeterminate, unknown(:submit, cfg, request["job_key"], reason)}
   end
 
   defp unknown(operation, cfg, job_key, reason),

@@ -36,6 +36,7 @@
   ],
   "files": [
     "lib/elzoo/durable_job.ex",
+    "lib/elzoo/durable_job/registration.ex",
     "lib/elzoo/durable_job/run.ex",
     "lib/elzoo/durable_job/submitter.ex",
     "lib/elzoo/durable_job/tally.ex",
@@ -115,7 +116,7 @@
     },
     "control": {
       "status": "supported",
-      "contract": "cancel/3 with the complete result set {:ok, :cancelled}, {:error, {:terminal, phase}}, {:error, :not_found}, {:error, {:invalid, :requested_by}}, {:error, :not_started}, {:error, :caller_transaction}, {:error, :damaged}, {:error, :unavailable} (nothing sent), {:error, :contended}, {:error, {:rejected, reason}}, {:indeterminate, info} (a write may have been sent, including a Writer call exit or timeout), and read-only status/2; Submitter and Relay have OTP start/stop only (one_for_one); no pause/drain.",
+      "contract": "cancel/3 with the complete result set {:ok, :cancelled}, {:error, {:terminal, phase}}, {:error, :not_found}, {:error, {:invalid, :requested_by}}, {:error, :not_started} (no live Assembly registration for the queue on this node), {:error, :caller_transaction}, {:error, :damaged}, {:error, :unavailable} (nothing sent: Writer could not start, Submitter query failed, or the Assembly's Task.Supervisor did not exist), {:error, :contended}, {:error, {:rejected, reason}}, {:indeterminate, info} (a write may have been sent: Store indeterminate, a Writer call exit or timeout, a task start exit or the 5_000 ms start timeout, or the task's exit or result timeout), and read-only status/2. Lifecycle: a Registration process (first child) owns the queue's config and worker runner and erases both when it terminates; entry points and the runner also require the owner to be alive, so a stopped or killed Assembly gives {:error, :not_started} and its pending jobs snooze without running a handler; restarting the same queue re-registers. Submitter and Relay have OTP start/stop only (one_for_one); no pause/drain.",
       "evidence": [
         "test/elzoo/durable_job_test.exs"
       ]

@@ -696,6 +696,87 @@ defmodule Elzoo.DurableJobTest do
     end
   end
 
+  defp stopped_assembly_checks(f, key) do
+    assert submit(f, "after-stop") == {:error, :not_started}
+    assert DurableJob.cancel(f.queue, key, "operator") == {:error, :not_started}
+    assert DurableJob.status(f.queue, key) == {:error, :not_started}
+    id = job_id(f, key)
+    :ok = Oban.resume_queue(f.oban, queue: f.queue)
+    poll(fn -> snoozed(f, id) >= 1 end)
+    refute_received {:handler_ran, _}
+    assert kinds(f.store, run_stream(f, key)) == ~w(accepted)
+  end
+
+  defp lifecycle_flow(prefix, key) do
+    parent = self()
+
+    handler = fn input ->
+      send(parent, {:handler_ran, input})
+      {:ok, 1}
+    end
+
+    # restart: :temporary so the ExUnit test supervisor does not restart a
+    # stopped or killed Assembly behind the test's back.
+    f = flow(prefix, :postgres, handler: handler, restart: :temporary)
+    :ok = Oban.pause_queue(f.oban, queue: f.queue)
+    {:ok, _} = submit(f, key)
+    {:ok, _} = relay!(f.queue)
+    f
+  end
+
+  test "DJ22 a normally stopped Assembly leaves no live registration", %{prefix: prefix} do
+    f = lifecycle_flow(prefix, "l1")
+    stop_supervised!({DurableJob, f.queue})
+    stopped_assembly_checks(f, "l1")
+  end
+
+  test "DJ22b a brutally killed Assembly supervisor leaves no usable registration", %{
+    prefix: prefix
+  } do
+    f = lifecycle_flow(prefix, "l2")
+    sup = Process.whereis(:"Elixir.Elzoo.DurableJob.supervisor.#{f.queue}")
+    owner = :persistent_term.get({DurableJob, f.queue}).owner
+    ref = Process.monitor(sup)
+    owner_ref = Process.monitor(owner)
+    Process.exit(sup, :kill)
+    assert_receive {:DOWN, ^ref, _, _, :killed}, 5_000
+    # The Registration traps exits: the supervisor's exit signal runs terminate/2.
+    assert_receive {:DOWN, ^owner_ref, _, _, :killed}, 5_000
+    assert :persistent_term.get({DurableJob, f.queue}, nil) == nil
+    stopped_assembly_checks(f, "l2")
+  end
+
+  test "DJ22d a registration whose owner was killed without terminate is treated as absent", %{
+    prefix: prefix
+  } do
+    f = lifecycle_flow(prefix, "l4")
+    sup = Process.whereis(:"Elixir.Elzoo.DurableJob.supervisor.#{f.queue}")
+    owner = :persistent_term.get({DurableJob, f.queue}).owner
+    # Suspend the supervisor so it cannot restart the killed Registration,
+    # kill the Registration (terminate/2 is skipped), then kill the supervisor.
+    :ok = :sys.suspend(sup)
+    ref = Process.monitor(owner)
+    Process.exit(owner, :kill)
+    assert_receive {:DOWN, ^ref, _, _, :killed}, 5_000
+    sup_ref = Process.monitor(sup)
+    Process.exit(sup, :kill)
+    assert_receive {:DOWN, ^sup_ref, _, _, :killed}, 5_000
+    # The stale entries are still present; only the liveness check rejects them.
+    assert %{owner: ^owner} = :persistent_term.get({DurableJob, f.queue})
+    assert %{owner: ^owner} = Elzoo.Jobs.runner(f.queue)
+    stopped_assembly_checks(f, "l4")
+  end
+
+  test "DJ22c start, stop, start again on the same queue works", %{prefix: prefix} do
+    f = flow(prefix, :postgres, restart: :temporary)
+    stop_supervised!({DurableJob, f.queue})
+    assert submit(f, "again") == {:error, :not_started}
+    start_job(f.queue, f.store, f.oban, [])
+    assert {:ok, %{phase: :submitted}} = submit(f, "again")
+    {:ok, %{acked: [_]}} = relay!(f.queue)
+    poll(fn -> phase(f, "again") == :succeeded end)
+  end
+
   test "DJ12b status reads the bound job, not another job of the same Run", %{prefix: prefix} do
     f = flow(prefix, :postgres, handler: blocking_handler(self()))
     :ok = Oban.pause_queue(f.oban, queue: f.queue)

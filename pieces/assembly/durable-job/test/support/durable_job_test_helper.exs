@@ -97,7 +97,13 @@ defmodule Elzoo.DurableJob.TestHelper do
         ])
       )
 
-    start_supervised!({DurableJob, job_opts}, id: {DurableJob, queue})
+    spec =
+      Supervisor.child_spec({DurableJob, job_opts},
+        id: {DurableJob, queue},
+        restart: Keyword.get(opts, :restart, :permanent)
+      )
+
+    start_supervised!(spec)
   end
 
   def relay!(queue), do: Elzoo.Jobs.Relay.run_once(DurableJob.relay_process(queue))
