@@ -541,6 +541,61 @@ defmodule Elzoo.RetryRunnerTest do
     end
   end
 
+  test "a trapping attempt is still killed after its task supervisor dies or restarts" do
+    parent = self()
+
+    trapping = fn req ->
+      Process.flag(:trap_exit, true)
+      send(parent, {:trapping, self(), req["message_id"]})
+      Process.sleep(:infinity)
+    end
+
+    for {kind, opts, extra, reason} <- [
+          {"timeout", [attempt_timeout_ms: 200], %{}, "dispatched_unresolved"},
+          {"deadline", [], %{"deadline_unix_ms" => 1200}, "deadline_expired"}
+        ],
+        restart? <- [false, true] do
+      id = kind <> if(restart?, do: "-restarted", else: "-dead")
+
+      {supervisor, old} =
+        if restart? do
+          name = :"retry_tasks_#{System.unique_integer([:positive])}"
+          {name, start_supervised!({Task.Supervisor, name: name}, id: make_ref())}
+        else
+          {:ok, sup} = Task.Supervisor.start_link()
+          Process.unlink(sup)
+          {sup, sup}
+        end
+
+      pid = runner(trapping, [task_supervisor: supervisor] ++ opts)
+      {:ok, ref} = Runner.submit(pid, request(id, extra))
+      assert_receive {:trapping, task, ^id}
+      down = Process.monitor(old)
+      Process.exit(old, :kill)
+      assert_receive {:DOWN, ^down, :process, ^old, :killed}
+      if restart?, do: await_named(supervisor, old, 100)
+      monitor = Process.monitor(task)
+      assert Process.alive?(task)
+      assert {:dead_lettered, %{"reason" => ^reason}} = settlement(ref)
+      assert_receive {:DOWN, ^monitor, :process, ^task, :killed}, 1000
+      assert :sys.get_state(pid).tasks == %{}
+      bounds(pid)
+    end
+  end
+
+  defp await_named(_, _, 0), do: flunk("task supervisor did not restart")
+
+  defp await_named(name, old, remaining) do
+    case Process.whereis(name) do
+      pid when is_pid(pid) and pid != old ->
+        pid
+
+      _ ->
+        Process.sleep(10)
+        await_named(name, old, remaining - 1)
+    end
+  end
+
   test "elapsed deadline wins even when a success reply is ahead of timer in mailbox" do
     parent = self()
 

@@ -76,12 +76,16 @@ No cross-host clock-skew guarantee. Attempts start with child shutdown
 attempt timeout, deadline expiry or settlement) it removes the child with
 Task.Supervisor.terminate_child/2, which kills it with an untrappable :kill
 and returns once the supervisor has removed it. A task that traps exits
-therefore cannot hold the runner for the 5000 ms default shutdown, and the
-child's max_children slot is free before any retry, resubmission or
-settlement. The wait is bounded by the supervisor's queue: give the runner its
-own Task.Supervisor, or share one only with children that also use
-:brutal_kill. Task cleanup code does not run; a later reply or DOWN is ignored
-as late. An external Effect may persist and cannot be undone. A task that
+therefore cannot hold the runner for the 5000 ms default shutdown, and with a
+responsive supervisor the child's max_children slot is free before any retry,
+resubmission or settlement. This is a synchronous call with no timeout, not a
+latency bound: the runner waits for the supervisor to reply, so a busy or
+unresponsive Task.Supervisor delays or blocks the runner, including admission.
+Give the runner its own Task.Supervisor, or share one only with children that
+also use :brutal_kill. If the supervisor has died, or a restarted named
+supervisor no longer owns the child, the runner sends the original task an
+untrappable :kill and does not wait for it. Task cleanup code does not run; a
+later reply or DOWN is ignored as late. An external Effect may persist and cannot be undone. A task that
 cannot start (supervisor down, or max_children taken by children the runner
 does not own) is recorded as unknown/unknown/unclassified, never
 not_dispatched.

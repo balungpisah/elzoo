@@ -3,8 +3,11 @@ defmodule Elzoo.RetryTimeout.Runner do
   @moduledoc """
   Volatile, single-node in-flight runner; no queue or shedding.
   Monitor the runner: DOWN before settlement means unknown, not failure/no Effect.
-  A blocking dead-letter sink blocks this runner, including admission. Timeout and
-  expiry kill the attempt task with an untrappable :kill exit without waiting. A caller's
+  A blocking dead-letter sink blocks this runner, including admission. Attempts run with
+  :brutal_kill shutdown; whenever the runner stops tracking one it synchronously removes
+  it with Task.Supervisor.terminate_child/2, so it waits for the supervisor to reply and
+  an unresponsive Task.Supervisor blocks this runner. If the supervisor is gone or no
+  longer owns the child, the runner sends the task an untrappable :kill. A caller's
   GenServer.call timeout is unknown admission, and may be followed by settlement.
   snapshot/1 is inspection, not telemetry or durable accounting.
   """
@@ -316,13 +319,18 @@ defmodule Elzoo.RetryTimeout.Runner do
     %{put_op(state, ref, %{op | task: nil, timers: timers}) | tasks: tasks}
   end
 
-  # Attempts run with :brutal_kill, so this synchronous removal waits only for
-  # an untrappable kill. It frees the max_children slot before any retry,
-  # resubmission or settlement.
+  # Attempts run with :brutal_kill, so a healthy supervisor removes the child
+  # with an untrappable kill and frees its max_children slot before any retry,
+  # resubmission or settlement. A dead or restarted supervisor no longer owns
+  # the task (which may survive the supervisor's exit by trapping exits), so
+  # the runner kills it directly.
   defp remove_task(supervisor, pid) do
-    Task.Supervisor.terminate_child(supervisor, pid)
+    case Task.Supervisor.terminate_child(supervisor, pid) do
+      :ok -> :ok
+      {:error, :not_found} -> Process.exit(pid, :kill)
+    end
   catch
-    :exit, _ -> :ok
+    :exit, _ -> Process.exit(pid, :kill)
   end
 
   defp arm(op, ref, kind, delay) do
