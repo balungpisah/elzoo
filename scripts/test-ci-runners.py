@@ -71,6 +71,20 @@ class RunnerPolicyTest(unittest.TestCase):
         self.change("symbolic-check.yml", "Verify approved backend runner", "Verify runner")
         self.check(1)
 
+    def test_additional_ungated_backend_job_rejected(self):
+        self.add_ungated_job("symbolic-check.yml")
+        self.check(1)
+
+    def test_additional_ungated_gleam_job_rejected(self):
+        self.add_ungated_job("symbolic-gleam.yml")
+        self.check(1)
+
+    def add_ungated_job(self, filename):
+        path = self.root / ".github" / "workflows" / filename
+        source = path.read_text()
+        selector = next(line for line in source.splitlines() if line.strip().startswith("runs-on:"))
+        path.write_text(source + f"\n  unreviewed:\n{selector}\n    steps:\n      - run: true\n")
+
     def test_gleam_role_cannot_move(self):
         self.change("symbolic-gleam.yml", "symbolic, elzoo, gleam", "macbook-ubuntu, elzoo, backend")
         self.check(1)

@@ -18,10 +18,21 @@ for file in files:
         continue
     lines = file.read_text().splitlines()
     selectors = [line.strip() for line in lines if re.match(r'\s*runs-on\s*:', line)]
-    if not selectors or any(line != expected[file.name] for line in selectors):
+    if len(selectors) != 1 or selectors[0] != expected[file.name]:
         errors.append(f'{file}: every job must use {expected[file.name]}')
     required_job_gate = """    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}"""
-    if required_job_gate not in file.read_text().splitlines():
+    expected_job = 'check' if file.name == 'symbolic-check.yml' else 'gleam'
+    jobs_roots = [i for i, line in enumerate(lines) if line == 'jobs:']
+    job_headers = []
+    if len(jobs_roots) == 1:
+        start = jobs_roots[0] + 1
+        end = next((i for i in range(start, len(lines))
+                    if re.match(r'^[^\s#]', lines[i])), len(lines))
+        job_headers = [(i, m.group(1)) for i in range(start, end)
+                       if (m := re.fullmatch(r'  ([A-Za-z_][A-Za-z0-9_-]*):\s*', lines[i]))]
+    if len(job_headers) != 1 or job_headers[0][1] != expected_job:
+        errors.append(f'{file}: exactly one {expected_job} job is required')
+    elif job_headers[0][0] + 1 >= len(lines) or lines[job_headers[0][0] + 1] != required_job_gate:
         errors.append(f'{file}: same-repository PR job gate is missing or changed')
     if file.name == 'symbolic-check.yml':
         required_gate = """      - name: Verify approved backend runner

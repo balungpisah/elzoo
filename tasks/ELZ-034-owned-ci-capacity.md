@@ -22,6 +22,9 @@ GitHub runners remain prohibited. Do not run untrusted code on either machine.
   Elixir pins, actual full mix setup/check and isolated PostgreSQL behavior.
 - Update the existing test/ci_runner_guard_test.exs fixtures to exercise the
   current approved workflow files and retain their negative controls.
+- Add a bounded CI resource sampler and mix-check wrapper under scripts/ to
+  observe job-container CPU usage without changing the command's exit status.
+  Report an unavailable metric explicitly instead of inventing a peak.
 - Add a same-repository PR gate to both backend and Gleam workflows so a fork
   cannot cause untrusted code to run on either user-owned machine. A skipped
   fork check is not positive validation. Preserve Gleam's symbolic-only role.

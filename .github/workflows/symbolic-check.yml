@@ -35,6 +35,10 @@ jobs:
           esac
           echo "Backend runner: $RUNNER_NAME"
           free -h || true
+      - name: Report host load and memory context
+        run: |
+          sed -n '1,5p' /proc/meminfo
+          cat /proc/loadavg
       - name: Prepare Ubuntu job container
         working-directory: /
         run: |
@@ -83,8 +87,9 @@ jobs:
       - run: mix local.hex --force
       - run: mix local.rebar --force
       - run: mix setup
-      - run: mix check
-      - name: Report container memory peak
+      - name: Run mix check
+        run: sh scripts/run-ci-check.sh
+      - name: Report container resource observations
         if: always()
         run: |
           if test -r /sys/fs/cgroup/memory.peak; then
@@ -92,3 +97,10 @@ jobs:
           else
             echo "cgroup memory peak unavailable"
           fi
+          if test -r "$RUNNER_TEMP/elzoo-ci-cpu.json"; then
+            cat "$RUNNER_TEMP/elzoo-ci-cpu.json"
+          else
+            echo "cgroup CPU sample unavailable"
+          fi
+          sed -n '1,5p' /proc/meminfo
+          cat /proc/loadavg

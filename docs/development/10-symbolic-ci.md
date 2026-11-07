@@ -30,8 +30,10 @@ Registration is repository-scoped; administrators must assign these labels only
 to the named trusted machines. GitHub label selection is not cryptographic host
 identity, and a runner name check happens after the host starts the container.
 
-`scripts/check-ci-runners.py` checks exact selector conventions, the fork-PR and identity
-gate, known workflow files and disallows reusable workflows without a policy.
+`scripts/check-ci-runners.py` requires exactly one named job per reviewed workflow,
+with its fork-PR gate immediately below the job name; it checks exact selector
+conventions, the identity gate and known workflow files, and disallows reusable
+workflows without a policy. An added job requires deliberate guard review.
 `python3 scripts/test-ci-runners.py` exercises positive routing and negative
 controls. This is a source convention guard, not protection against hostile YAML
 or an account-level runner admission policy. Workflow and trust-model changes
@@ -80,12 +82,28 @@ peak of 2,319,937,536 bytes (about 2.16 GiB). These results do not establish
 reliable capacity. Retest on the current merged main and do not lower the
 test or delivery Contracts to obtain a pass.
 
+Actions run 42315972879 at `1fe2bf7`, with current main merged, passed
+`mix setup` and `mix check` on `macbook-ubuntu-elzoo-candidate`: 32 spike tests
+and 428 root tests passed. The job took 38m06s and reported cgroup memory peak
+2,325,393,408 bytes (about 2.17 GiB). CPU was not sampled in that run; two
+configured BEAM schedulers per VM do not measure peak CPU. A passing run does
+not erase the earlier failures or establish behavior under different load.
+ELZ-035 owns the independently reproduced notifier race and a separate durable
+job Contract defect; its fixes and scoped evidence remain pending review.
+
 Each role runs at most one job per runner. The candidate has no hard container
 memory or CPU quota. The backend workflow keeps `+S 4:4 +SDcpu 1 +SDio 1` on
 symbolic and selects `+S 2:2 +SDcpu 1 +SDio 1` on macbook-ubuntu, per BEAM VM;
 child VMs and other processes are additional. The host is smaller, so check the
 actual run's duration and cgroup peak, inspect host memory and user workload
 contention, and keep it candidate-only if the full workload is unreliable.
+The check wrapper samples cgroup CPU usage at one-second intervals during
+`mix check` and reports the largest observed interval average in logical-core
+equivalents. It is not an instantaneous peak or a CPU quota; child VMs and
+all other processes inside the job container are included. Before/after
+`/proc/meminfo` and load averages provide host context but do not attribute
+resource use to individual user workloads. Missing metrics are reported as
+unavailable rather than treated as zero.
 
 Jobs run inside Ubuntu 24.04 pinned to
 `sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852`.
