@@ -284,10 +284,26 @@ defmodule Elzoo.DurableJob do
     end
   end
 
+  # Runs on every exit path of with_writer/3, after the catch-path kill. The
+  # link is kept for the Writer's whole life (owner death takes it down) and
+  # removed only after the stop or kill: a Writer that stopped itself, is
+  # still terminating, or was killed may otherwise deliver its EXIT after the
+  # worker stops trapping exits (W5). unlink/1 makes a later EXIT from this
+  # link ineffective; the receive flushes one already queued.
   defp stop_writer(writer) do
-    if Process.alive?(writer), do: GenServer.stop(writer)
-  catch
-    :exit, _ -> :ok
+    try do
+      if Process.alive?(writer), do: GenServer.stop(writer)
+    catch
+      :exit, _ -> :ok
+    end
+
+    Process.unlink(writer)
+
+    receive do
+      {:EXIT, ^writer, _} -> :ok
+    after
+      0 -> :ok
+    end
   end
 
   # Writer.snapshot/1 has no timeout parameter; it is answered from the
