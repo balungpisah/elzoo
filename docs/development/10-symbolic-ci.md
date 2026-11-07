@@ -98,6 +98,10 @@ is outside those closures, it also runs the full aggregate and logs the
 uncovered IDs and reason. For example, `workflow/approval` selects no fixed
 consumer but still runs the aggregate on the PR. A change confined to
 `delivery/transformation` and its covered dependants can omit the aggregate.
+Changing a covered Piece still runs the aggregate if an affected dependant is
+uncovered: currently `core/operator` affects `workflow/dependency-graph`,
+`integration/json` affects `integration/cure-json`, and `runtime/unit` affects
+`workflow/budget` and `workflow/dependency-graph`.
 The 26 fixed consumers currently cover 31 of the 40 ready IDs through their
 dependencies; 14 lack a standalone consumer, but only nine lack coverage in
 every fixed consumer's closure.
@@ -118,7 +122,7 @@ formatting, compilation and ledger checks. No test body or time limit changes.
 The log names the mode/comparison, affected ready IDs, selected/skipped consumer
 IDs, ready IDs without a standalone consumer, uncovered affected IDs, and
 aggregate/OTP disposition with the aggregate selection reason.
-The success marker is `ELZOO AFFECTED CHECK PASSED (see selected consumer scope)`;
+The success marker is `ELZOO AFFECTED CHECK PASSED (not full consumer acceptance; see selected consumer scope)`;
 only the default full run emits `ELZOO CHECK PASSED`.
 
 A PR subset does not validate unselected consumer checks or an omitted

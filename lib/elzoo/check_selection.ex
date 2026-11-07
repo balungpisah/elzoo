@@ -103,7 +103,7 @@ defmodule Elzoo.CheckSelection do
   def success_marker(%{mode: :full}), do: "ELZOO CHECK PASSED"
 
   def success_marker(%{mode: :affected}),
-    do: "ELZOO AFFECTED CHECK PASSED (see selected consumer scope)"
+    do: "ELZOO AFFECTED CHECK PASSED (not full consumer acceptance; see selected consumer scope)"
 
   defp fallback(registry, reason) do
     plan(registry, :affected, ready_ids(registry), @consumer_ids, "select all: #{reason}")
