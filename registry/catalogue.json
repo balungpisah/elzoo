@@ -715,11 +715,11 @@
     },
     {
       "id": "workflow/context-selection",
-      "summary": "Versioned context and provenance selection",
-      "disposition": "defer",
+      "summary": "Bounded context selection with trusted access/provenance, window and selected count/byte caps",
+      "disposition": "own",
       "phase": "demand-led",
-      "status": "deferred",
-      "reason": "Select bounded permitted documents/results for C6/C7; tokenizer/retrieval provider contracts and access recheck required. No assertion of model truth or memory correctness. ELZ-030 carries the admission record (window plus reservations over access-checked versioned candidates; dropped-with-reason; derived items carry provenance)."
+      "status": "ready",
+      "manifest": "pieces/workflow/context-selection/piece.json"
     },
     {
       "id": "workflow/dependency-graph",
