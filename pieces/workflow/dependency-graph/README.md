@@ -405,7 +405,7 @@ and negative controls.
 
 ### Upstream contract
 
-Pinned Cure (`a004c335…`) compilation, kernel checking, totality checking and
+Pinned Cure (`20824806…`, balungpisah fork of a004c335) compilation, kernel checking, totality checking and
 runtime semantics, including builtin `Int` equality and order. Elixir 1.20.4
 and OTP 29.1.2 execution, and GenServer call serialization in the test double.
 

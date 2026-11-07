@@ -8,7 +8,7 @@ the language/compiler is not automatically a claim about an Elzoo assembly.
 ## Pin and source
 
 Use the exact Cure commit
-[`a004c335cc4e9f2203ba6f51fc31e8540b66378d`](https://github.com/cure-lang/cure-lang/commit/a004c335cc4e9f2203ba6f51fc31e8540b66378d)
+[`208248063d64e621782cd26dd30698ee42850a89`](https://github.com/balungpisah/cure-lang/commit/208248063d64e621782cd26dd30698ee42850a89)
 from `mix.exs`. The upstream repository has both a branch and a tag named
 `v0.35.0`; a bare branch/tag selection is not reproducible. The target
 toolchain is Elixir 1.20.4 / OTP 29.1.2.

@@ -150,7 +150,7 @@ On a clean checkout or after dependency/configuration changes, run:
     mix check
 
 The project runtime/tooling path owns these public commands. mix setup must use Cure commit
-a004c335cc4e9f2203ba6f51fc31e8540b66378d, Elixir 1.20.4 and OTP 29.1.2.
+208248063d64e621782cd26dd30698ee42850a89, Elixir 1.20.4 and OTP 29.1.2.
 mix check must compile real Cure, run selected Cure proofs, meaningful runtime
 tests and negative controls. It is not a formatter or documentation badge.
 Targeted mix test commands are iteration feedback; report full mix check before

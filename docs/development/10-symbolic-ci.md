@@ -261,6 +261,13 @@ These lines are monitored behavior from a monotonic clock. They prove nothing ab
 They add no stage, test or assertion. Queue time is not part of any line. Compare runs only on the
 same SHA and the same runner.
 
+## Cure pin on the balungpisah fork (ELZ-047)
+
+`mix.lock` pins Cure to `balungpisah/cure-lang` commit `208248063`, which is upstream `a004c335`
+plus one import-resolution fix (see `docs/dependencies/forks/cure.md`). The first CI run on each
+backend runner after this change is cold: the cache key hashes `mix.lock`, so Cure compiles from
+source once per runner. Later runs are warm. Compare consumer timings only between warm runs.
+
 ## Machine and container setup
 
 Both machines use repository-scoped runner installations and dedicated

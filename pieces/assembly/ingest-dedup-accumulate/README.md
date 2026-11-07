@@ -19,7 +19,7 @@ This directory is a source bundle. See [consumption instructions](../../../docs/
 - **type**: The pinned Cure compiler checks this source before emitting its BEAM. `cure/elzoo/core.cure`
 - **type**: The pinned Cure compiler checks this source before emitting its BEAM. `cure/elzoo/extension.cure`
 - **test**: The named scenarios in this ExUnit file are executable evidence, not universal proofs. `test/elzoo/runtime_test.exs`
-- **upstream**: Relies on the pinned provider implementation and public contract. https://github.com/cure-lang/cure-lang/tree/a004c335cc4e9f2203ba6f51fc31e8540b66378d
+- **upstream**: Relies on the pinned provider implementation and public contract. https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89
 - **upstream**: Relies on the pinned provider implementation and public contract. https://hexdocs.pm/elixir/1.20.4/
 - **upstream**: Relies on the pinned provider implementation and public contract. https://www.erlang.org/doc/
 

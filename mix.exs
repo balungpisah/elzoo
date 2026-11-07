@@ -1,7 +1,7 @@
 defmodule Elzoo.MixProject do
   use Mix.Project
 
-  @cure_revision "a004c335cc4e9f2203ba6f51fc31e8540b66378d"
+  @cure_revision "208248063d64e621782cd26dd30698ee42850a89"
 
   def project do
     [
@@ -37,7 +37,7 @@ defmodule Elzoo.MixProject do
     [
       # Keep Cure on the exact release commit. The release also has a branch
       # with the same name, so a tag/version-only ref is not reproducible.
-      {:cure, git: "https://github.com/cure-lang/cure-lang.git", ref: @cure_revision, depth: 1},
+      {:cure, git: "https://github.com/balungpisah/cure-lang.git", ref: @cure_revision, depth: 1},
       # Jason is deliberately an external implementation at the adapter edge.
       {:jason, "~> 1.4"},
       {:req, "== 0.7.5"},

@@ -87,7 +87,7 @@ No process, Adapter, Effect, I/O, timer or Application is supplied here.
   W=1 and W>1 helper-storage/retention, large-gap, negative-integer, malformed
   boundary and invalid-initial scenarios, decision/transition agreement,
   seeded independent map/set reference traces and downstream composition.
-- **Upstream:** Cure a004c335cc4e9f2203ba6f51fc31e8540b66378d compiler/kernel,
+- **Upstream:** Cure 208248063d64e621782cd26dd30698ee42850a89 compiler/kernel,
   Elixir 1.20.4 and OTP 29.1.2. No compiler soundness proof is claimed.
 - **Assumptions (unverified):** senders assign increasing sequences per
   incarnation and use strictly greater incarnations after restart. Reusing a

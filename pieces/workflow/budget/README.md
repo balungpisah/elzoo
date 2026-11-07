@@ -403,7 +403,7 @@ relaxation here.
 
 ## Evidence
 
-### Proof (selected laws, pinned Cure a004c335)
+### Proof (selected laws, pinned Cure 20824806 (balungpisah fork of a004c335))
 
 Cure checks these laws over the named Cure functions and the Cure
 `BudgetState` record (see "Cure and Elixir split"). They run through
@@ -451,7 +451,7 @@ They do not cover the full transition. These are test-grounded, not proved:
 
 - **The L3/L4 link.** The step from a first settle or release to "the
   second call finds the closed entry" (lookup by `cost_ref` after `replace`,
-  and value equality) is tested, not proved. Pinned Cure a004c335 cannot
+  and value equality) is tested, not proved. Pinned Cure 20824806 (balungpisah fork of a004c335) cannot
   reduce native `==` on symbolic values. For
   `fn refl_int(k: Int) -> Equivalent(Bool, k == k, True()) = reflexive(True())`
   (and the same for `String`) it fails with
