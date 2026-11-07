@@ -243,6 +243,17 @@ checks (or an explicit statement that the pair was not observed). Those live
 observations and independent review belong to the coordinator; a local fake
 run does not satisfy them.
 
+## Timing lines in CI logs (ELZ-045)
+
+`mix check` prints `ELZOO STAGE <name> start|end utc=... elapsed=...` around format, compile,
+ledger, Ash spike, registry load and the root suite. `test/export_test.exs` prints
+`ELZOO TIMING consumer=<id|aggregate(N)> <step> seconds=...` for each copied consumer. Steps are
+`plan_write`, `consumer_mix_test`, `runtime_vm` and `total`.
+
+These lines are monitored behavior from a monotonic clock. They prove nothing about correctness.
+They add no stage, test or assertion. Queue time is not part of any line. Compare runs only on the
+same SHA and the same runner.
+
 ## Machine and container setup
 
 Both machines use repository-scoped runner installations and dedicated
