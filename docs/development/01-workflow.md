@@ -108,10 +108,28 @@ grounding. When no dedicated coordinator is active, the worker coordinates
 independent review and the integration handoff rather than waiting idle for an
 owner.
 
-After checks and required review, the coordinator merges through GitHub, checks
-acceptance on the merge SHA, deletes the merged remote/local branch, removes
-the worktree, checks a clean status and closes the issue with PR/SHA. Retain
-unmerged branches with a precise resume note.
+After checks and required independent review, the coordinator runs the local
+[merge queue](10-symbolic-ci.md#coordinator-merge-queue-elz-039) from this
+repository with the coordinator's own `gh` login:
+
+```sh
+python3 scripts/merge-queue.py 79 80
+```
+
+Use the actual reviewed PR numbers, in integration order. The tool merges main
+into an out-of-date task branch, dispatches a full backend check on the exact
+head, validates its result and runner, also requires Gleam PR success on that
+exact head, and rechecks canonical main before a head-guarded merge. A changed
+head needs review of the new diff; this tool does not inspect
+or replace independent review. It stops on failure by default. A PR affected
+check, even green, is not the queue's full pre-merge evidence.
+
+The coordinator still checks acceptance on the merge SHA (including backend
+and Gleam CI), deletes the merged remote/local branch, removes the worktree,
+checks a clean status and closes the issue with PR/SHA. The tool performs none
+of these cleanup/acceptance steps. Retain unmerged branches with a precise
+resume note. Manual merging remains possible; the queue is not enforced
+branch protection.
 
 ## Blocked work
 

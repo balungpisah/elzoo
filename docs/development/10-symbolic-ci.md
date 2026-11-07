@@ -135,6 +135,114 @@ visible, rather than treating unrelated runs as a controlled speed experiment.
 Cure source-scan caching, registry parse reuse, incremental Cure compilation
 and test partitioning remain separate work.
 
+## Coordinator merge queue (ELZ-039)
+
+Run `python3 scripts/merge-queue.py <PR>...` from a checkout of this repository
+with `origin` pointing at `balungpisah/elzoo`. It uses the coordinator's own
+`gh` authentication, not CI credentials. Obtain independent review first.
+No workflow, job, runner, label or token is added; CI keeps `contents: read`.
+The queue only handles same-repository, open, non-draft, mergeable PRs targeting
+`main` with an exact `task/ELZ-###` branch. Unknown mergeability is polled for
+up to one minute, then refused if it remains unknown.
+
+For each PR, the queue fetches main and the task branch, then reads main’s SHA
+from `gh api repos/balungpisah/elzoo/git/ref/heads/main`. The canonical GitHub
+repository owns the base; a misconfigured origin cannot substitute a different
+main SHA. Missing commit objects fail closed. If main is not an ancestor of the
+head, `gh pr update-branch` creates a merge update; it never
+rebases or force-pushes. The new head must become visible before continuing.
+It dispatches `symbolic-check.yml` on that branch and identifies a **new** run
+by workflow, `workflow_dispatch` event, branch and exact `head_sha`. It records
+existing run IDs before dispatch, never chooses an old or merely latest green
+run, and refuses an ambiguous match. A dispatch that races a head update cannot
+supply evidence for the previous head.
+
+The completed run must succeed. Its exact attempt must have one successful
+`check` job on `symbolic-elzoo` or `macbook-ubuntu-elzoo-candidate`, on the same
+head, with a successful `Run mix check` step. The job log must contain the full
+`ELZOO CHECK PASSED` output line and no `ELZOO AFFECTED CHECK PASSED` marker.
+Missing logs, API/command failures, cancelled runs and reruns during evidence
+collection fail closed. This validates observed evidence from trusted workflow
+code, not authenticity against a hostile PR or administrator.
+
+The queue also waits for a successful `symbolic-gleam.yml` **pull_request**
+run on the exact same head SHA, including after `update-branch`. That update
+triggers the synchronize event; no extra Gleam dispatch is added. The latest
+matching run must succeed, have one successful `gleam` job on
+`symbolic-elzoo-gleam`, and a successful `Run ./scripts/check.sh` step. An old
+head’s green Gleam run, a missing run, or a failed/cancelled run cannot satisfy
+this gate. It rechecks run identity and attempt after collecting the job.
+
+Before merging, it re-reads the PR and fetches again. A changed head stops the
+queue. Main advancing beyond the checked head triggers another merge update
+and full dispatch. The merge command is always:
+
+```sh
+gh pr merge <PR> -R balungpisah/elzoo --merge --match-head-commit <checked-head-SHA>
+```
+
+After confirming the merge, it prints an `ELZOO GLEAM EVIDENCE` line and an
+`ELZOO MERGE EVIDENCE` line with PR, run/job IDs, runner names, checked head SHA
+and merge SHA. Preserve those lines in the coordinator's acceptance record.
+No branch deletion, issue closure or
+acceptance posting is performed. A transport failure during a merge can leave
+an unknown result: inspect the PR before retrying; an already merged PR is
+refused rather than merged again.
+
+`--continue-on-failure` explicitly allows the next supplied PR after a failure;
+the overall exit status still fails. Malformed API object shapes are per-PR
+failures too; they never authorize a merge. Default behavior stops immediately.
+`--timeout SECONDS` defaults to 10800 seconds per PR, including queue time.
+Run discovery is bounded to five minutes; individual commands to two minutes;
+main-update/check passes to ten. Interrupting the CLI stops local processing,
+but does not cancel an already dispatched run or undo a merge request.
+
+### Cancellation and overlap
+
+Both workflows use this policy (the Gleam group starts with `gleam-`):
+
+```yaml
+concurrency:
+  group: check-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+```
+
+PR runs share their ref group and cancel superseded PR checks. Main and manual
+runs each have their own run-ID group, so they cannot replace each other's
+running **or pending** checks through concurrency. Merely setting
+`cancel-in-progress: false` with a shared main group would still replace a
+pending run when a newer run arrived; see [GitHub concurrency semantics](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency).
+This corrects the original issue's request to keep the group for all events,
+with owner approval. The review correction applies it to both workflows,
+so Gleam merge-commit evidence is retained too.
+
+A's merge-commit backend check can overlap B's full pre-merge dispatch on the
+two approved backend runners. There is no new per-runner route, speculative
+stack checking, or guarantee of immediate capacity. Preserving pending checks
+can increase queue length; this does not speed up an individual full check.
+
+### Limits and acceptance
+
+The queue is a serial coordinator convenience, not enforced branch protection.
+It does not enforce independent review or replace merge-commit acceptance.
+It requires both full backend dispatch success and current-head Gleam PR
+success, without a separate Gleam dispatch. The coordinator checks any other
+PR checks and review before invoking it. The final fetch and GitHub merge
+are separate operations: another coordinator/manual merge can advance main
+between them. `--match-head-commit` protects the head, not an atomic base SHA.
+Use one integration coordinator and retain full merge-commit checks; no atomic
+base guard or multi-coordinator locking is claimed.
+
+`scripts/test-merge-queue.py` uses a fake gh/git command runner and stdlib
+`unittest` to exercise refusals and races without network or merges. It runs
+next to `scripts/test-ci-runners.py` in backend CI. Existing runner tests and
+source convention rules stay unchanged. These tests are scenario evidence,
+not a proof of GitHub behavior. Acceptance additionally needs one real queue
+merge with run/runner/merge SHA, and an observed pair of overlapping main
+checks (or an explicit statement that the pair was not observed). Those live
+observations and independent review belong to the coordinator; a local fake
+run does not satisfy them.
+
 ## Machine and container setup
 
 Both machines use repository-scoped runner installations and dedicated
