@@ -243,6 +243,18 @@ checks (or an explicit statement that the pair was not observed). Those live
 observations and independent review belong to the coordinator; a local fake
 run does not satisfy them.
 
+## Owned Cure compile fingerprint (ELZ-046)
+
+`Mix.Tasks.Compile.Cure` writes `elzoo.cure.manifest` (format 2) with a sha256 fingerprint over the
+path and content of every owned `.cure` source, the sorted source roots, the Cure entry in
+`mix.lock`, the loaded `cure.app` descriptor, the compiler module's own BEAM md5 and the Elixir and
+OTP versions. When the fingerprint matches and every listed BEAM exists, the log says
+`Cure sources unchanged (...); skipping N modules`. Any other state recompiles everything.
+
+Copied consumers carry the same compiler and start with an empty `_build`, so they always
+compile. The fingerprint covers the named inputs only. It is not a proof that no other input exists.
+Negative controls live in `test/compile_cure_fingerprint_test.exs`.
+
 ## Machine and container setup
 
 Both machines use repository-scoped runner installations and dedicated
