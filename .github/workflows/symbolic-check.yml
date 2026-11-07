@@ -16,7 +16,7 @@ concurrency:
 jobs:
   check:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'task/ELZ-034' && fromJSON('["self-hosted","linux","x64","macbook-ubuntu","elzoo","ci-candidate"]') || fromJSON('["self-hosted","linux","x64","elzoo","backend"]') }}
+    runs-on: [self-hosted, linux, x64, elzoo, backend]
     container:
       image: ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852
     timeout-minutes: 45

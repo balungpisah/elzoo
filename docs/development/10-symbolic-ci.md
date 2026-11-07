@@ -9,30 +9,33 @@ offline, diagnose it or let work queue on the other approved runner.
 
 - `symbolic-elzoo`: backend; labels `self-hosted`, `linux`, `x64`, `elzoo`,
   `backend`, `symbolic`.
-- `macbook-ubuntu-elzoo-candidate`: backend after ELZ-034 acceptance; labels
+- `macbook-ubuntu-elzoo-candidate` (runner id 23): backend; labels
   `self-hosted`, `linux`, `x64`, `elzoo`, `backend`, `macbook-ubuntu`,
-  `ci-candidate`. Before acceptance it carries no `backend` label, so the
-  existing symbolic workflow cannot send it normal jobs.
+  `ci-candidate`. It received `backend` after ELZ-034 merged (PR #61), so it
+  is in the normal backend pool. The name and `ci-candidate` label are
+  historical; they do not select a separate route.
 - `symbolic-elzoo-gleam`: Gleam only; labels `self-hosted`, `linux`, `x64`,
   `symbolic`, `elzoo`, `gleam`.
 
-The backend workflow uses `[self-hosted, linux, x64, elzoo, backend]`. A
-one-time ELZ-034 PR selector targets the candidate by its `macbook-ubuntu` and
-`ci-candidate` labels only when the PR head is in this same repository and its
-branch is `task/ELZ-034`, so a fork cannot select the candidate by spoofing
-the branch name. Both backend and Gleam jobs skip fork PRs before runner
+The backend workflow uses `[self-hosted, linux, x64, elzoo, backend]` for every
+event; either backend runner may take the job. ELZ-040 removed the one-time
+`task/ELZ-034` candidate selector. Both workflows run only on `push` to `main`,
+`pull_request` and `workflow_dispatch`. `pull_request_target` and other events
+are not approved. Both backend and Gleam jobs skip fork PRs before runner
 selection; a skipped job is not validation and must not be treated as evidence
 for merging a fork. This does not make arbitrary same-repository code trustworthy.
 The first container step refuses any backend `RUNNER_NAME` other than the two
-names above. The Gleam selector stays symbolic-only. Before adding `backend`
-to the candidate, a full task-branch check and independent review must pass.
+names above. The Gleam selector stays symbolic-only. A new backend machine
+needs a full task-branch check and independent review before it gets `backend`.
 Registration is repository-scoped; administrators must assign these labels only
 to the named trusted machines. GitHub label selection is not cryptographic host
 identity, and a runner name check happens after the host starts the container.
 
 `scripts/check-ci-runners.py` requires exactly one named job per reviewed workflow,
-with its fork-PR gate immediately below the job name; it checks exact selector
-conventions, the identity gate and known workflow files, and disallows reusable
+with its fork-PR gate immediately below the job name; it checks the exact `on:`
+trigger block, rejects `pull_request_target` and quoted YAML keys, requires every
+container `image:` to carry an `@sha256:` digest, and checks exact selector
+conventions, the identity gate and known workflow files. It disallows reusable
 workflows without a policy. An added job requires deliberate guard review.
 `python3 scripts/test-ci-runners.py` exercises positive routing and negative
 controls. This is a source convention guard, not protection against hostile YAML
@@ -100,6 +103,15 @@ one-second average of 3.267 CPU cores across 1,235 samples. These are
 container observations, not hard resource limits or proof of isolation from
 other workloads. The failing run does not establish reliable CI capacity.
 
+Actions run 42335711837 at `33dc45f` (job 128292087874, the final ELZ-034
+head) passed `mix setup` and `mix check` on `macbook-ubuntu-elzoo-candidate`:
+32 spike tests and 432 root tests passed. The job took 25m21s. The cgroup
+reported 2,251,575,296 bytes peak memory (about 2.10 GiB), and the sampler
+observed a maximum one-second average of 3.385 CPU cores across 1,265 samples.
+After this run and independent review, ELZ-034 merged and runner 23 received
+the `backend` label. This is one observation, not a resource guarantee or proof
+of reliability; the earlier failed runs above remain part of the record.
+
 Each role runs at most one job per runner. The candidate has no hard container
 memory or CPU quota. The backend workflow keeps `+S 4:4 +SDcpu 1 +SDio 1` on
 symbolic and selects `+S 2:2 +SDcpu 1 +SDio 1` on macbook-ubuntu, per BEAM VM;
@@ -125,6 +137,14 @@ personal or production database. Cache keys include the runner name as well as
 toolchain/dependency pins: compiled Cure and Mix artifacts are not restored from
 another machine's checkout. GitHub's cache service remains in use; no claim is
 made about other GitHub account costs.
+
+On 2026-11-07, pulls from `registry-1.docker.io` timed out from `symbolic`
+while `github.com` and `auth.docker.io` were reachable. The Docker daemon on
+`symbolic` now has `/etc/docker/daemon.json` set to
+`{"registry-mirrors": ["https://mirror.gcr.io"]}`. A mirror changes only where
+layers are fetched: the job image stays pinned by the same digest, so Docker
+verifies the same content. The mirror is host configuration, not repository
+state. This record covers `symbolic` only.
 
 ## Operation and rollback
 
@@ -152,5 +172,5 @@ queue time.
 ELZ-019 moved CI from hosted machines to symbolic. ELZ-020 measured BEAM
 scheduler settings and split backend and Gleam roles. Earlier hosted runs are
 historical evidence and do not satisfy the user-owned machine policy. ELZ-034
-adds the second backend candidate; its actual full-run evidence and final
-admission decision belong in that task's PR and merge acceptance.
+admitted the second backend runner (PR #61, merge `9890dee`). ELZ-040 removed its
+one-time route and hardened the guard.

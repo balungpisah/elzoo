@@ -5,9 +5,20 @@ import re
 import sys
 
 expected = {
-    "symbolic-check.yml": """runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'task/ELZ-034' && fromJSON('["self-hosted","linux","x64","macbook-ubuntu","elzoo","ci-candidate"]') || fromJSON('["self-hosted","linux","x64","elzoo","backend"]') }}""",
+    "symbolic-check.yml": "runs-on: [self-hosted, linux, x64, elzoo, backend]",
     "symbolic-gleam.yml": "runs-on: [self-hosted, linux, x64, symbolic, elzoo, gleam]",
 }
+# Approved triggers: push to main, same-repository pull_request, workflow_dispatch.
+# pull_request_target and every other event need a new reviewed policy.
+expected_triggers = [
+    "on:",
+    "  push:",
+    "    branches: [main]",
+    "  pull_request:",
+    "  workflow_dispatch:",
+]
+digest_image = re.compile(r'\s+image:\s*[^\s@\'"]+@sha256:[0-9a-f]{64}\s*')
+quoted_key = re.compile(r'\s*(?:-\s*)?(["\'])[^"\']*\1\s*:(?:\s|$)')
 files = sorted(pathlib.Path('.github/workflows').glob('*.y*ml'))
 errors = []
 for name in expected.keys() - {file.name for file in files}:
@@ -17,6 +28,26 @@ for file in files:
         errors.append(f'{file}: new workflows require an explicit runner-role policy')
         continue
     lines = file.read_text().splitlines()
+    on_roots = [i for i, line in enumerate(lines)
+                if re.match(r'''^["']?(?:on|true)["']?\s*:''', line)]
+    trigger_block = []
+    if len(on_roots) == 1:
+        start = on_roots[0]
+        end = next((i for i in range(start + 1, len(lines))
+                    if re.match(r'^[^\s#]', lines[i])), len(lines))
+        trigger_block = [line.rstrip() for line in lines[start:end]
+                         if line.strip() and not line.lstrip().startswith('#')]
+    if trigger_block != expected_triggers:
+        errors.append(f'{file}: triggers must be exactly push to main, pull_request and workflow_dispatch')
+    if any('pull_request_target' in line for line in lines):
+        errors.append(f'{file}: pull_request_target is not an approved trigger')
+    if any(quoted_key.match(line) for line in lines):
+        errors.append(f'{file}: quoted YAML keys are outside the reviewed source convention')
+    for line in lines:
+        if re.match(r'\s*image\s*:', line) and not digest_image.fullmatch(line):
+            errors.append(f'{file}: container images must be pinned by @sha256 digest: {line.strip()}')
+        if re.fullmatch(r'\s*container\s*:\s*[^\s#].*', line):
+            errors.append(f'{file}: container must be a mapping with a digest-pinned image')
     selectors = [line.strip() for line in lines if re.match(r'\s*runs-on\s*:', line)]
     if len(selectors) != 1 or selectors[0] != expected[file.name]:
         errors.append(f'{file}: every job must use {expected[file.name]}')
