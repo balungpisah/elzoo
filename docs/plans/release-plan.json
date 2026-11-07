@@ -2844,7 +2844,7 @@
       "disposition": "retained-ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/assembly/ingest-dedup-accumulate/piece.json",
-      "manifest_sha256": "a713084db94089e353cfcea0ea3d2fba6e0077d5aa2ed00940a5b6b26220c4f2"
+      "manifest_sha256": "c4ea134d9de381d4187e310e6e4417d1fdda495ecb8389ef3f1b257c672e4f21"
     },
     {
       "id": "assembly/ingest-json-unit",
@@ -2854,7 +2854,7 @@
       "disposition": "retained-ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/assembly/ingest-json-unit/piece.json",
-      "manifest_sha256": "c35f79c44d72f5cb32e080c315176129636391b00c405ed9c2964407f9ed115a"
+      "manifest_sha256": "18636ead1b9dcd9d5d099bb24203fb86033580f384ad3230bae7e2238416e441"
     },
     {
       "id": "assembly/ledger-checkout",
@@ -2872,7 +2872,7 @@
       "disposition": "retained-ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/assembly/request-route-retry/piece.json",
-      "manifest_sha256": "cefeba939110c9cbffff862d01f2c1e890074b67a5672b0ee5c0ba1989ef8331"
+      "manifest_sha256": "ffedf5eddca3e5583c51e4ff5baa656118871dacb276fa63cfa673177d81dba3"
     },
     {
       "id": "assembly/task-workflow",
@@ -2898,7 +2898,7 @@
       "disposition": "retained-ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/core/assembly/piece.json",
-      "manifest_sha256": "a4cd546c8a1a58d919a250c697086d91465cabad5f470063120b89891f556c1f"
+      "manifest_sha256": "d0968bd54175e3e82ac6d86676f1835457ec9f3c43dfebcb0f2002860a3935c4"
     },
     {
       "id": "core/edge",
@@ -2908,7 +2908,7 @@
       "disposition": "retained-ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/core/edge/piece.json",
-      "manifest_sha256": "0095ee5649af2642dc002ccb9ad3db12aa24c237b06876f99ab76fb68bef7eaa"
+      "manifest_sha256": "dc30fabb409aafd142b82c32383dabe8d02958d38df0472d0c371df9cc870b55"
     },
     {
       "id": "core/effect",
@@ -2926,7 +2926,7 @@
       "disposition": "retained-ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/core/envelope/piece.json",
-      "manifest_sha256": "34361f36665e892735835c8e8dbe0f7f25ca2c0623c3617719a16ea245477bfe"
+      "manifest_sha256": "818e8f6be6996189d400935cd9480321d25dd74d0196294da1487cf545739629"
     },
     {
       "id": "core/grounding",
@@ -2944,7 +2944,7 @@
       "disposition": "retained-ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/core/operator/piece.json",
-      "manifest_sha256": "ced40a442d7cadc5bd24f06c68b90a0d0ca29645591186090564879e2f277b5b"
+      "manifest_sha256": "88551ff27503570e577083a64f2b6b289916c5e0ae2a0545da73550af9e866e3"
     },
     {
       "id": "core/port",
@@ -2954,7 +2954,7 @@
       "disposition": "retained-ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/core/port/piece.json",
-      "manifest_sha256": "88da6fa2a92f4005723d0736fb290c190c86a9580cb4c07a4f6a05de4868c98b"
+      "manifest_sha256": "be25cb4d82e31bc49d5a96a0b8bfac21daab518ee89296c03c5aa0e9bbb87419"
     },
     {
       "id": "core/selection",
@@ -2964,7 +2964,7 @@
       "disposition": "retained-ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/core/selection/piece.json",
-      "manifest_sha256": "3a625d1ba455cf7064cd02549c55a6709ac228880e476dd0538214d82cc26224"
+      "manifest_sha256": "983ba27f4259caa1da2667333e635a79ddd1006827daf8596cbcd4bda53032af"
     },
     {
       "id": "core/wiring",
@@ -2974,7 +2974,7 @@
       "disposition": "retained-ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/core/wiring/piece.json",
-      "manifest_sha256": "2d38b4dc0c2f6635f698a3472a7c334851cf6cc8aad687459fafb53982a4f20f"
+      "manifest_sha256": "20f53578935f338e6800e908b0ac1b3b8e83746201bb7ac6f14144d7407730be"
     },
     {
       "id": "delivery/aggregation",
@@ -2992,7 +2992,7 @@
       "disposition": "retained-ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/delivery/backpressure/piece.json",
-      "manifest_sha256": "729f5eebd1c88156ff03596eba5b2ec2cd5106fa66c61bc6ca23030a66f4d9dc"
+      "manifest_sha256": "b862c87803507b88d771b1c726e9b5da202504f6052e4c181177814135c1fc99"
     },
     {
       "id": "delivery/circuit-breaker",
@@ -3018,7 +3018,7 @@
       "disposition": "retained-ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/delivery/dead-letter/piece.json",
-      "manifest_sha256": "e1089c87188cc9be8038258e292daae48f25a37b3eb7c51d4109523c9b7d8c9d"
+      "manifest_sha256": "91445388adffeaec5ff36b792718e3c0e3bbf3df1ca173ab3ff62e20e08a0632"
     },
     {
       "id": "delivery/idempotency",
@@ -3028,7 +3028,7 @@
       "disposition": "retained-ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/delivery/idempotency/piece.json",
-      "manifest_sha256": "acd16079832cacf22661abe405aa2029bd53176e60a2af1a0d4f67feedf8f3f9"
+      "manifest_sha256": "dd6c1c583d7fbd264aa3ac0605fe5ad859b2fab02d13e6454078bbf38b00925c"
     },
     {
       "id": "delivery/effect-intent",
@@ -3062,7 +3062,7 @@
       "disposition": "retained-ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/delivery/request-reply/piece.json",
-      "manifest_sha256": "e1c7b17a7636626abf79d7f70c61d9c7fd3776776db3237c3cf1a91f70b33097"
+      "manifest_sha256": "054d7c4573308cb1d69d4e8b166db6d2ba19ce221034ddd8ad73ac4160ef3a6b"
     },
     {
       "id": "delivery/resequence",
@@ -3080,7 +3080,7 @@
       "disposition": "retained-ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/delivery/retry-timeout/piece.json",
-      "manifest_sha256": "46c8af7f98aab66d49f561777045e44d8d66b44ad9e7047199a2f1e36720ea98"
+      "manifest_sha256": "c4a5b91c649ae8e037138ec79c115c79f3e428bad64cd137d1efadaba8b1d5a5"
     },
     {
       "id": "delivery/routing",
@@ -3090,7 +3090,7 @@
       "disposition": "retained-ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/delivery/routing/piece.json",
-      "manifest_sha256": "907eef8bca5fd1f7537cd104ea558216e5e60370eb76ddd6e5843b12e3620524"
+      "manifest_sha256": "dec7f970ca07ecc49613ca02d279b11844dedec2c3a8c172c4db60c9920f7473"
     },
     {
       "id": "delivery/stream-combinators",
@@ -3138,7 +3138,7 @@
       "disposition": "retained-ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/delivery/windowed-idempotency/piece.json",
-      "manifest_sha256": "568dfe9fa3bb97b6d93afc9a646f02c31947c2e9060e9315f91c2c1aa01905d6"
+      "manifest_sha256": "f607b4e7d2c215a48c1223b132f3a46d536d04c753f0b9c4cca8445f805cb7fd"
     },
     {
       "id": "domain/authorization",
@@ -3148,7 +3148,7 @@
       "disposition": "merged-ready-contract; task acceptance separate",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/domain/authorization/piece.json",
-      "manifest_sha256": "3f3bcb3f0dc9d98a2df6369b82f82417e1ae5206209c0659c7011c885c653110"
+      "manifest_sha256": "8363056c8f5f995e3d1cff1f421f488e90797c9ce1f7d28af26ae6b66a3fd971"
     },
     {
       "id": "domain/entitlement",
@@ -3288,7 +3288,7 @@
       "disposition": "retained-ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/cure-json/piece.json",
-      "manifest_sha256": "4d3ac6568b12f75cad272a90594617f4fd06452deeda567a0c5df2c4fee187c2"
+      "manifest_sha256": "d123cf62daf7d444e99925dd8cfa38fde840f9d32b49dd720e4e7c901b636941"
     },
     {
       "id": "integration/http",
@@ -3518,7 +3518,7 @@
       "disposition": "retained-ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/state/event-log/piece.json",
-      "manifest_sha256": "22a4214c6786e08c04ef1ba6bce42308b17455b3e1914e20df58e6b6d6907455"
+      "manifest_sha256": "d367b3ff5f7b45b699a523a36e009a0a081156134e8c2107e1146668b75b03de"
     },
     {
       "id": "state/lease",
@@ -3578,7 +3578,7 @@
       "disposition": "merged-ready-contract; task acceptance separate",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/workflow/approval/piece.json",
-      "manifest_sha256": "6e702f838d01f540c77001de26f66903d686a1108caf2ca7f359df4bde9f90ee"
+      "manifest_sha256": "fb4eca7cc00c381beb2f9e70f43146f13db0f4c9846c62d9976a61e8ab8704c9"
     },
     {
       "id": "workflow/budget",
@@ -3588,7 +3588,7 @@
       "disposition": "merged-ready-contract; task acceptance separate",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/workflow/budget/piece.json",
-      "manifest_sha256": "c1f600e5bbd1dc39b9efe8c9ece79d7ec5cd78661fab1bb2c4fe1906d7fee3c9"
+      "manifest_sha256": "bf176c03da60e538ad0a110694aca703706fc5b1c8ccd83194cde4c7da4c819a"
     },
     {
       "id": "workflow/build-graph",
@@ -3614,7 +3614,7 @@
       "disposition": "merged-ready-contract; task acceptance separate",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/workflow/dependency-graph/piece.json",
-      "manifest_sha256": "65577e61b04d9e0c8f8baef48d3d020c1922ce92614eca10aeb066067dab885c"
+      "manifest_sha256": "5f1c93429ac75b7d09f28ef280c6ef5b3ef9f33a23be5d53ec2bc8cacc2130ba"
     },
     {
       "id": "workflow/run",
@@ -3632,7 +3632,7 @@
       "disposition": "merged-ready-contract; task acceptance separate",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/workflow/state-machine/piece.json",
-      "manifest_sha256": "428fd4317097cafc71e5bba89f4cd27304442c639b825d2366af9fe85c1d8d1f"
+      "manifest_sha256": "2ca7d65169b9f94af253fdbf718ed46134fda5760ee7bb49717069969da1b83c"
     },
     {
       "id": "workflow/work-item",
