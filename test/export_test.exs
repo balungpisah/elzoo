@@ -117,7 +117,10 @@ defmodule Elzoo.ExportTest do
       |> Enum.filter(&(&1["status"] == "ready"))
       |> Enum.map(& &1["id"])
 
-    assert_cure_consumer(ctx, ids)
+    # Inner tests share one consumer with every ready Piece, so Cure reads every
+    # copied source root: one inner test hit the default 60 s on symbolic CI
+    # (PR #59 run 42327909118). 5x default for this consumer only (ELZ-037).
+    assert_cure_consumer(ctx, ids, inner_timeout: 300_000)
   end
 
   for id <-
@@ -128,7 +131,7 @@ defmodule Elzoo.ExportTest do
     end
   end
 
-  defp assert_cure_consumer(ctx, ids) do
+  defp assert_cure_consumer(ctx, ids, opts \\ []) do
     plan = Elzoo.Export.plan!(ctx.registry, ids, ctx.destination)
     Elzoo.Export.write!(plan)
 
@@ -137,7 +140,13 @@ defmodule Elzoo.ExportTest do
       project(consumer_applications(plan), Map.has_key?(plan.providers, "cure"))
     )
 
-    File.write!(Path.join(ctx.destination, "test/test_helper.exs"), "ExUnit.start(seed: 0)\n")
+    helper =
+      case Keyword.fetch(opts, :inner_timeout) do
+        {:ok, ms} -> "ExUnit.start(seed: 0, timeout: #{ms})\n"
+        :error -> "ExUnit.start(seed: 0)\n"
+      end
+
+    File.write!(Path.join(ctx.destination, "test/test_helper.exs"), helper)
 
     # Reuse only compiled upstream dependency artifacts. A fresh VM gets no
     # elzoo ebin, project sources, or runtime application. The fixture keeps
