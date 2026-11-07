@@ -231,5 +231,72 @@ class RunnerPolicyTest(unittest.TestCase):
         self.check(1)
 
 
+    # ELZ-042 review (PR #74 comment 6705035217) reproducers and fail-closed forms.
+    BACKEND_SELECTOR = "    runs-on: [self-hosted, linux, x64, elzoo, backend]\n"
+    GLEAM_SELECTOR = "    runs-on: [self-hosted, linux, x64, symbolic, elzoo, gleam]\n"
+
+    def test_review_quoted_continuation_then_flow_job_rejected(self):
+        self.append("symbolic-check.yml", '    environment: "a\nx"\n'
+                                          '  evil: {runs-on: ubuntu-latest, steps: [{run: "true"}]}\n')
+        self.check(1)
+
+    def test_review_gleam_quoted_continuation_then_flow_job_rejected(self):
+        self.append("symbolic-gleam.yml", '    environment: "a\nx"\n'
+                                          '  evil: {runs-on: ubuntu-latest, steps: [{run: "true"}]}\n')
+        self.check(1)
+
+    def test_review_escaped_quote_continuation_rejected(self):
+        self.append("symbolic-check.yml", '    environment: "a\\"\nx"\n')
+        self.assertIn("quoted scalars must close on the same line", self.check(1).stderr)
+
+    def test_review_explicit_runs_on_key_with_decoy_rejected(self):
+        self.change("symbolic-check.yml", self.BACKEND_SELECTOR,
+                    "    concurrency: |\n  " + self.BACKEND_SELECTOR + "    ? runs-on\n    : ubuntu-latest\n")
+        self.check(1)
+
+    def test_review_gleam_explicit_runs_on_key_with_decoy_rejected(self):
+        self.change("symbolic-gleam.yml", self.GLEAM_SELECTOR,
+                    "    name: |\n  " + self.GLEAM_SELECTOR + "    ? runs-on\n    : ubuntu-latest\n")
+        self.check(1)
+
+    def test_review_alias_runs_on_key_with_decoy_rejected(self):
+        self.change("symbolic-check.yml", self.BACKEND_SELECTOR,
+                    "    concurrency: |\n  " + self.BACKEND_SELECTOR
+                    + "    environment: &k runs-on\n    *k : ubuntu-latest\n")
+        self.check(1)
+
+    def test_review_sequence_item_block_scalar_does_not_hide_keys(self):
+        self.change("symbolic-check.yml", "    steps:\n",
+                    '    steps:\n      - name: |\n        "run": echo hidden quoted key\n')
+        self.assertIn("quoted YAML keys", self.check(1).stderr)
+
+    def test_review_merge_key_rejected(self):
+        self.change("symbolic-check.yml", "    timeout-minutes: 90\n",
+                    "    timeout-minutes: 90\n    <<: {runs-on: ubuntu-latest}\n")
+        self.assertIn("merge keys", self.check(1).stderr)
+
+    def test_tagged_key_rejected(self):
+        self.change("symbolic-check.yml", "    timeout-minutes: 90\n",
+                    "    timeout-minutes: 90\n    !!str runs-on: ubuntu-latest\n")
+        self.check(1)
+
+    def test_multi_line_flow_collection_rejected(self):
+        self.change("symbolic-check.yml", "    timeout-minutes: 90\n",
+                    "    timeout-minutes: 90\n    environment: {name: a,\n      url: b}\n")
+        self.assertIn("flow collections must close on the same line", self.check(1).stderr)
+
+    def test_top_level_key_after_jobs_rejected(self):
+        self.append("symbolic-gleam.yml", "env:\n  A: b\n")
+        self.assertIn("jobs: must be the last top-level key", self.check(1).stderr)
+
+    def test_second_document_rejected(self):
+        self.append("symbolic-check.yml", "---\njobs: {}\n")
+        self.check(1)
+
+    def test_selector_only_in_script_text_rejected(self):
+        self.change("symbolic-check.yml", self.BACKEND_SELECTOR, "    concurrency: |\n  " + self.BACKEND_SELECTOR)
+        self.check(1)
+
+
 if __name__ == "__main__":
     unittest.main()
