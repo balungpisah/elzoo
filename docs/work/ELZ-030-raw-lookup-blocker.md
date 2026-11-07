@@ -1,7 +1,8 @@
 # ELZ-030 — raw lookup correspondence blocker
 
-Status: **production implementation incomplete; correspondence blocker in the
-attempted String-keyed reorder strategy**. This does not invalidate the accepted
+Status: **historical rejected String-keyed reorder strategy; replacement
+raw-order positional probe checks**. See the [replacement evidence](ELZ-030-position-probe.md).
+Production implementation remains incomplete. This does not invalidate the accepted
 R1 ordered-suffix lemma, and it is not a claim that every possible implementation
 is infeasible. No ready Piece, production source, manifest or acceptance evidence
 is published by this report.
