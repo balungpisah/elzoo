@@ -165,5 +165,71 @@ class RunnerPolicyTest(unittest.TestCase):
         self.check(1)
 
 
+    # ELZ-042 controls: flow-style jobs and required job containers.
+    def append(self, filename, text):
+        path = self.root / ".github" / "workflows" / filename
+        path.write_text(path.read_text() + text)
+
+    def test_flow_style_backend_job_rejected(self):
+        self.append("symbolic-check.yml", "  evil: {runs-on: ubuntu-latest, steps: [{run: 'true'}]}\n")
+        self.assertIn("jobs must be block-style mappings", self.check(1).stderr)
+
+    def test_flow_style_gleam_job_rejected(self):
+        self.append("symbolic-gleam.yml", "  evil: {runs-on: ubuntu-latest, steps: [{run: 'true'}]}\n")
+        self.assertIn("jobs must be block-style mappings", self.check(1).stderr)
+
+    def test_explicit_key_flow_job_rejected(self):
+        self.append("symbolic-check.yml", "  ? evil\n  : {runs-on: ubuntu-latest, steps: [{run: 'true'}]}\n")
+        self.assertIn("jobs must be block-style mappings", self.check(1).stderr)
+
+    def test_backend_container_removed_rejected(self):
+        self.change("symbolic-check.yml", "    container:\n      image: " + IMAGE + "\n", "")
+        self.assertIn("must keep one container", self.check(1).stderr)
+
+    def test_gleam_container_removed_rejected(self):
+        self.change("symbolic-gleam.yml", "    container:\n      image: " + IMAGE + "\n", "")
+        self.assertIn("must keep one container", self.check(1).stderr)
+
+    def test_container_without_image_rejected(self):
+        self.change("symbolic-check.yml", "      image: " + IMAGE + "\n", "      options: --cpus 2\n")
+        self.assertIn("must keep one container", self.check(1).stderr)
+
+    def test_container_outside_job_rejected(self):
+        self.change("symbolic-gleam.yml", "    container:\n      image: " + IMAGE + "\n", "")
+        self.change("symbolic-gleam.yml", "\njobs:\n", "\ndefaults:\n    container:\n      image: " + IMAGE + "\n\njobs:\n")
+        self.assertIn("must keep one container", self.check(1).stderr)
+
+    # Script text and comments are not YAML keys (ELZ-040 review finding 3).
+    def test_run_script_text_and_comments_allowed(self):
+        self.change(
+            "symbolic-check.yml",
+            "          free -h || true\n",
+            "          free -h || true\n"
+            "          cat > /tmp/daemon.json <<'JSON'\n"
+            "          {\"registry-mirrors\": []}\n"
+            "          \"debug\": false\n"
+            "          JSON\n"
+            "          image: not-a-container-key\n"
+            "          echo pull_request_target is not used here\n",
+        )
+        self.change("symbolic-gleam.yml", "\njobs:\n", "\n# No pull_request_target trigger.\njobs:\n")
+        self.check(0)
+
+    def test_quoted_key_after_run_script_still_rejected(self):
+        self.change("symbolic-check.yml", "          free -h || true\n",
+                    "          free -h || true\n        \"env\": {A: b}\n")
+        self.check(1)
+
+    def test_image_after_run_script_still_rejected(self):
+        self.change("symbolic-check.yml", "          free -h || true\n",
+                    "          free -h || true\n    services:\n      db:\n        image: postgres:latest\n")
+        self.check(1)
+
+    def test_explicit_indent_scalar_text_still_checked(self):
+        self.change("symbolic-check.yml", "          free -h || true\n",
+                    "          free -h || true\n      - run: |2\n          \"x\": y\n")
+        self.check(1)
+
+
 if __name__ == "__main__":
     unittest.main()
