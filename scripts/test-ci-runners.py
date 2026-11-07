@@ -298,5 +298,91 @@ class RunnerPolicyTest(unittest.TestCase):
         self.check(1)
 
 
+    # ELZ-043 controls: split cache actions and every other action stay SHA-pinned.
+    CACHE_SHA = "0057852bfaa89a56745cba8c7296529d2fc39830"
+
+    def test_tag_pinned_cache_save_rejected(self):
+        self.change("symbolic-check.yml", "actions/cache/save@" + self.CACHE_SHA, "actions/cache/save@v4")
+        self.assertIn("pinned by a full commit SHA", self.check(1).stderr)
+
+    def test_branch_pinned_cache_restore_rejected(self):
+        self.change("symbolic-check.yml", "actions/cache/restore@" + self.CACHE_SHA, "actions/cache/restore@main")
+        self.assertIn("pinned by a full commit SHA", self.check(1).stderr)
+
+    def test_short_sha_action_rejected(self):
+        self.change("symbolic-gleam.yml", "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020",
+                    "actions/setup-node@49933ea")
+        self.assertIn("pinned by a full commit SHA", self.check(1).stderr)
+
+    def test_unpinned_added_action_rejected(self):
+        self.append("symbolic-check.yml", "      - uses: actions/cache@v4\n")
+        self.assertIn("pinned by a full commit SHA", self.check(1).stderr)
+
+    def test_flow_mapping_unpinned_step_rejected(self):
+        self.append("symbolic-check.yml", "      - { uses: actions/cache@v4 }\n")
+        self.assertIn("flow mappings are outside", self.check(1).stderr)
+
+    def test_flow_mapping_in_flow_sequence_rejected(self):
+        self.append("symbolic-check.yml", "      - [ { uses: actions/cache@v4 } ]\n")
+        self.assertIn("flow mappings are outside", self.check(1).stderr)
+
+    # ELZ-043 re-review (comment 6706080840) controls.
+    GATE_START = "      - name: Verify approved backend runner\n"
+    GATE_END = "      - name: Report host load and memory context\n"
+
+    def gate_text(self):
+        source = (self.root / ".github" / "workflows" / "symbolic-check.yml").read_text()
+        start = source.index(self.GATE_START)
+        return source[start:source.index(self.GATE_END, start)]
+
+    def test_flow_sequence_step_mapping_rejected(self):
+        self.append("symbolic-check.yml", "      - [ uses: actions/cache@main ]\n")
+        self.assertIn("mappings inside flow sequences are outside", self.check(1).stderr)
+
+    def test_one_line_steps_rejected(self):
+        gate = self.gate_text()
+        self.change("symbolic-check.yml", gate, "")
+        self.change("symbolic-check.yml", "jobs:\n", "env:\n  NOTE: |\n" + gate + "\njobs:\n")
+        self.change("symbolic-check.yml", "    steps:\n", "    steps: [ uses: docker://alpine:3 ]\n    old-steps:\n")
+        stderr = self.check(1).stderr
+        self.assertIn("mappings inside flow sequences are outside", stderr)
+        self.assertIn("one block-style steps: list", stderr)
+
+    def test_gate_only_in_block_scalar_rejected(self):
+        gate = self.gate_text()
+        self.change("symbolic-check.yml", gate, "")
+        self.change("symbolic-check.yml", "jobs:\n", "env:\n  NOTE: |\n" + gate + "\njobs:\n")
+        self.assertIn("approved runner identity gate is missing or changed", self.check(1).stderr)
+
+    def test_uses_plain_continuation_rejected(self):
+        pinned = "actions/cache/restore@" + self.CACHE_SHA + " # v4.3.0\n"
+        self.change("symbolic-check.yml", pinned, pinned + "          actions/cache@v4\n")
+        self.assertIn("plain-scalar continuation lines are outside", self.check(1).stderr)
+
+    # ELZ-043 third review (comment 6706162316): the gate step cannot be switched off.
+    def test_gate_step_if_rejected(self):
+        self.change("symbolic-check.yml", self.GATE_END,
+                    "        if: ${{ github.run_id == 0 }}\n" + self.GATE_END)
+        self.assertIn("approved runner identity gate is missing or changed", self.check(1).stderr)
+
+    def test_gate_step_continue_on_error_rejected(self):
+        self.change("symbolic-check.yml", self.GATE_END, "        continue-on-error: true\n" + self.GATE_END)
+        stderr = self.check(1).stderr
+        self.assertIn("approved runner identity gate is missing or changed", stderr)
+        self.assertIn("could disable the runner identity gate", stderr)
+
+    def test_gate_step_shell_rejected(self):
+        self.change("symbolic-check.yml", self.GATE_END, "        shell: cat {0}\n" + self.GATE_END)
+        self.assertIn("could disable the runner identity gate", self.check(1).stderr)
+
+    def test_job_defaults_shell_rejected(self):
+        self.change("symbolic-check.yml", "    steps:\n", "    defaults:\n      run:\n        shell: cat {0}\n    steps:\n")
+        self.assertIn("could disable the runner identity gate", self.check(1).stderr)
+
+    def test_workflow_defaults_shell_rejected(self):
+        self.change("symbolic-check.yml", "jobs:\n", "defaults:\n  run:\n    shell: cat {0}\n\njobs:\n")
+        self.assertIn("could disable the runner identity gate", self.check(1).stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

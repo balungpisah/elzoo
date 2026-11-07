@@ -18,6 +18,8 @@ expected_triggers = [
     "  workflow_dispatch:",
 ]
 digest_image = re.compile(r'\s+image:\s*[^\s@\'"]+@sha256:[0-9a-f]{64}\s*')
+# ELZ-043: every action is pinned by a full commit SHA; a tag or branch can move.
+pinned_action = re.compile(r'\s*(?:-\s+)?uses:\s*[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*@[0-9a-f]{40}(?:\s+#.*)?')
 quoted_key = re.compile(r'\s*(?:-\s*)?(["\'])[^"\']*\1\s*:(?:\s|$)')
 # Plain block scalars (`key: |`, `key: >-`); explicit indentation digits are not
 # recognised, so their content stays subject to every check.
@@ -53,6 +55,7 @@ def line_problem(line):
     Not a parser: it only walks node starts on one line and fails closed.
     """
     i, n, depth, start = 0, len(line), 0, True
+    flow_mapping = sequence_mapping = False
     while i < n:
         c = line[i]
         if c in ' \t':
@@ -78,6 +81,7 @@ def line_problem(line):
                 i, start = j + 1, False
                 continue
             if c in '[{':
+                flow_mapping = flow_mapping or c == '{'
                 depth += 1
                 i += 1
                 continue
@@ -105,6 +109,8 @@ def line_problem(line):
                 j += 1
             i, start = j, False
             continue
+        if c == ':' and depth:
+            sequence_mapping = True
         if c == ':' or (depth and c == ','):
             i, start = i + 1, True
             continue
@@ -115,6 +121,10 @@ def line_problem(line):
         return 'unexpected YAML token'
     if depth:
         return 'flow collections must close on the same line'
+    if flow_mapping:
+        return 'flow mappings are outside the reviewed source convention'
+    if sequence_mapping:
+        return 'mappings inside flow sequences are outside the reviewed source convention'
     return None
 
 
@@ -153,8 +163,14 @@ for file in files:
     if any('\t' in line[:len(line) - len(line.lstrip())] for line in lines):
         errors.append(f'{file}: tab indentation is outside the reviewed source convention')
     for line in yaml_lines:
+        # Every visible line starts a key or a list item; a plain-scalar continuation
+        # line (for example a second line under a pinned uses:) is outside the convention.
+        if line.strip() and not re.match(r'\s*(?:-\s+)?[A-Za-z_$][^:#]*:(?:\s|$)|\s*-\s+\S', line):
+            errors.append(f'{file}: plain-scalar continuation lines are outside the reviewed source convention: {line.strip()}')
         if re.match(r'\s*image\s*:', line) and not digest_image.fullmatch(line):
             errors.append(f'{file}: container images must be pinned by @sha256 digest: {line.strip()}')
+        if re.match(r'\s*(?:-\s*)?uses\s*:', line) and not pinned_action.fullmatch(line):
+            errors.append(f'{file}: actions must be pinned by a full commit SHA: {line.strip()}')
         if re.fullmatch(r'\s*container\s*:\s*[^\s#].*', line):
             errors.append(f'{file}: container must be a mapping with a digest-pinned image')
     selectors = [i for i, line in enumerate(lines) if re.match(r'\s*(?:-\s*)?runs-on\s*:', line)]
@@ -192,6 +208,11 @@ for file in files:
             or not re.fullmatch(r'      image:\s*[^\s@\'"]+@sha256:[0-9a-f]{64}\s*',
                                 lines[containers[0] + 1])):
         errors.append(f'{file}: the job must keep one container: mapping whose first key is a digest-pinned image')
+    # Steps must be one visible block-style list, so the gate below is a real first step.
+    steps = [i for i, line in enumerate(lines) if re.match(r'\s*(?:-\s*)?steps\s*:', line)]
+    if (len(steps) != 1 or lines[steps[0]] != '    steps:' or steps[0] in skip
+            or len(job_headers) != 1 or not job_headers[0][0] < steps[0]):
+        errors.append(f'{file}: the job must keep one block-style steps: list')
     if file.name == 'symbolic-check.yml':
         required_gate = """      - name: Verify approved backend runner
         run: |
@@ -204,8 +225,19 @@ for file in files:
           esac
           echo "Backend runner: $RUNNER_NAME"
           free -h || true"""
-        if required_gate not in file.read_text():
+        gate_lines = required_gate.split('\n')
+        after_gate = steps[0] + 1 + len(gate_lines) if len(steps) == 1 else len(lines)
+        # The gate must be a whole step: up to the next step only its own script text
+        # may follow, so no key such as if:, continue-on-error: or shell: can switch it off.
+        next_step = next((i for i in range(after_gate, len(lines)) if lines[i].startswith('      - ')), None)
+        if (len(steps) != 1 or lines[steps[0] + 1:after_gate] != gate_lines
+                or any(i in skip for i in range(steps[0] + 1, steps[0] + 2))
+                or next_step is None
+                or any(lines[i].strip() and i not in skip for i in range(after_gate, next_step))):
             errors.append(f'{file}: approved runner identity gate is missing or changed')
+    if file.name == 'symbolic-check.yml' and any(
+            re.match(r'\s*(?:-\s+)?(?:defaults|shell|continue-on-error)\s*:', line) for line in yaml_lines):
+        errors.append(f'{file}: defaults:, shell: and continue-on-error: could disable the runner identity gate')
     if any(re.match(r'\s*(?:-\s*)?uses:\s*.*\.github/workflows/', line) for line in lines):
         errors.append(f'{file}: reusable workflow runners need explicit policy review')
 if errors:
