@@ -70,6 +70,8 @@ defmodule Elzoo.DurableJob.TestHelper do
   end
 
   def start_oban(oban, prefix, queue, extra) do
+    ensure_pg_scope!()
+
     base = [
       name: oban,
       repo: TestRepo,
@@ -81,6 +83,42 @@ defmodule Elzoo.DurableJob.TestHelper do
     ]
 
     start_supervised!({Oban, Keyword.merge(base, extra)}, id: oban)
+  end
+
+  # Oban.Notifiers.PG (2.24.2) calls `:pg.start_link(Oban.Notifiers.PG)` in its
+  # init/1, so the first notifier owns the `:pg` scope and the scope dies with
+  # it. A notifier started right after that Oban stops can see the dying scope
+  # as already started and then exit with :noproc in `:pg.join/3` (DJ11 on PR
+  # #57). Precondition for every Oban start here: the scope is registered and
+  # unlinked, so no notifier stop can take it down. A linked scope belongs to a
+  # notifier; wait for it to exit (bounded) and start the unlinked one.
+  @pg_scope Oban.Notifiers.PG
+
+  def ensure_pg_scope! do
+    case Process.whereis(@pg_scope) do
+      nil ->
+        case :pg.start(@pg_scope) do
+          {:ok, _} -> :ok
+          {:error, {:already_started, _}} -> ensure_pg_scope!()
+        end
+
+      pid ->
+        case Process.info(pid, :links) do
+          {:links, []} -> :ok
+          _linked_or_exited -> await_scope_exit!(pid)
+        end
+    end
+  end
+
+  defp await_scope_exit!(pid) do
+    ref = Process.monitor(pid)
+
+    receive do
+      {:DOWN, ^ref, :process, ^pid, _} -> ensure_pg_scope!()
+    after
+      5_000 ->
+        raise "#{inspect(@pg_scope)} scope #{inspect(pid)} is still linked to a live owner"
+    end
   end
 
   def start_job(queue, store, oban, opts) do
