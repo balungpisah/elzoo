@@ -226,9 +226,18 @@ for file in files:
           echo "Backend runner: $RUNNER_NAME"
           free -h || true"""
         gate_lines = required_gate.split('\n')
-        if (len(steps) != 1 or lines[steps[0] + 1:steps[0] + 1 + len(gate_lines)] != gate_lines
-                or any(i in skip for i in range(steps[0] + 1, steps[0] + 2))):
+        after_gate = steps[0] + 1 + len(gate_lines) if len(steps) == 1 else len(lines)
+        # The gate must be a whole step: up to the next step only its own script text
+        # may follow, so no key such as if:, continue-on-error: or shell: can switch it off.
+        next_step = next((i for i in range(after_gate, len(lines)) if lines[i].startswith('      - ')), None)
+        if (len(steps) != 1 or lines[steps[0] + 1:after_gate] != gate_lines
+                or any(i in skip for i in range(steps[0] + 1, steps[0] + 2))
+                or next_step is None
+                or any(lines[i].strip() and i not in skip for i in range(after_gate, next_step))):
             errors.append(f'{file}: approved runner identity gate is missing or changed')
+    if file.name == 'symbolic-check.yml' and any(
+            re.match(r'\s*(?:-\s+)?(?:defaults|shell|continue-on-error)\s*:', line) for line in yaml_lines):
+        errors.append(f'{file}: defaults:, shell: and continue-on-error: could disable the runner identity gate')
     if any(re.match(r'\s*(?:-\s*)?uses:\s*.*\.github/workflows/', line) for line in lines):
         errors.append(f'{file}: reusable workflow runners need explicit policy review')
 if errors:

@@ -57,6 +57,9 @@ these line checks; one-line flow sequences of plain words such as
 Every visible line must start a key or a list item, so a plain-scalar
 continuation line is rejected. The job keeps one block-style `    steps:` list,
 and the backend runner identity gate must be its first step, outside script text.
+The gate is a whole step: only its own script text may follow it before the next
+step, so no `if:`, `continue-on-error:` or `shell:` can switch it off, and
+`symbolic-check.yml` may not use `defaults:`, `shell:` or `continue-on-error:`.
 An added job requires deliberate guard review.
 `python3 scripts/test-ci-runners.py` exercises positive routing and negative
 controls. This is a source convention guard, not protection against hostile YAML

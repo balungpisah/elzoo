@@ -359,6 +359,30 @@ class RunnerPolicyTest(unittest.TestCase):
         self.change("symbolic-check.yml", pinned, pinned + "          actions/cache@v4\n")
         self.assertIn("plain-scalar continuation lines are outside", self.check(1).stderr)
 
+    # ELZ-043 third review (comment 6706162316): the gate step cannot be switched off.
+    def test_gate_step_if_rejected(self):
+        self.change("symbolic-check.yml", self.GATE_END,
+                    "        if: ${{ github.run_id == 0 }}\n" + self.GATE_END)
+        self.assertIn("approved runner identity gate is missing or changed", self.check(1).stderr)
+
+    def test_gate_step_continue_on_error_rejected(self):
+        self.change("symbolic-check.yml", self.GATE_END, "        continue-on-error: true\n" + self.GATE_END)
+        stderr = self.check(1).stderr
+        self.assertIn("approved runner identity gate is missing or changed", stderr)
+        self.assertIn("could disable the runner identity gate", stderr)
+
+    def test_gate_step_shell_rejected(self):
+        self.change("symbolic-check.yml", self.GATE_END, "        shell: cat {0}\n" + self.GATE_END)
+        self.assertIn("could disable the runner identity gate", self.check(1).stderr)
+
+    def test_job_defaults_shell_rejected(self):
+        self.change("symbolic-check.yml", "    steps:\n", "    defaults:\n      run:\n        shell: cat {0}\n    steps:\n")
+        self.assertIn("could disable the runner identity gate", self.check(1).stderr)
+
+    def test_workflow_defaults_shell_rejected(self):
+        self.change("symbolic-check.yml", "jobs:\n", "defaults:\n  run:\n    shell: cat {0}\n\njobs:\n")
+        self.assertIn("could disable the runner identity gate", self.check(1).stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
