@@ -50,7 +50,9 @@ quoted-key, image and form checks. The `runs-on:` and `container:` lines must be
 visible keys outside that text, and any copy of them inside script text still
 counts against the one allowed. It disallows reusable workflows without a policy. Every `uses:` action
 must be pinned by a full 40-character commit SHA (ELZ-043); a tag, branch or
-short SHA is rejected.
+short SHA is rejected. Flow mappings (`{ ... }`, for example a
+`- { uses: ... }` step) are rejected even on one line, so no key hides from
+these line checks; one-line flow sequences such as `[self-hosted, ...]` stay allowed.
 An added job requires deliberate guard review.
 `python3 scripts/test-ci-runners.py` exercises positive routing and negative
 controls. This is a source convention guard, not protection against hostile YAML

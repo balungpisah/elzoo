@@ -55,6 +55,7 @@ def line_problem(line):
     Not a parser: it only walks node starts on one line and fails closed.
     """
     i, n, depth, start = 0, len(line), 0, True
+    flow_mapping = False
     while i < n:
         c = line[i]
         if c in ' \t':
@@ -80,6 +81,7 @@ def line_problem(line):
                 i, start = j + 1, False
                 continue
             if c in '[{':
+                flow_mapping = flow_mapping or c == '{'
                 depth += 1
                 i += 1
                 continue
@@ -117,6 +119,8 @@ def line_problem(line):
         return 'unexpected YAML token'
     if depth:
         return 'flow collections must close on the same line'
+    if flow_mapping:
+        return 'flow mappings are outside the reviewed source convention'
     return None
 
 

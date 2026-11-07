@@ -318,6 +318,14 @@ class RunnerPolicyTest(unittest.TestCase):
         self.append("symbolic-check.yml", "      - uses: actions/cache@v4\n")
         self.assertIn("pinned by a full commit SHA", self.check(1).stderr)
 
+    def test_flow_mapping_unpinned_step_rejected(self):
+        self.append("symbolic-check.yml", "      - { uses: actions/cache@v4 }\n")
+        self.assertIn("flow mappings are outside", self.check(1).stderr)
+
+    def test_flow_mapping_in_flow_sequence_rejected(self):
+        self.append("symbolic-check.yml", "      - [ { uses: actions/cache@v4 } ]\n")
+        self.assertIn("flow mappings are outside", self.check(1).stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
