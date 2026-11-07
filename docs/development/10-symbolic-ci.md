@@ -145,8 +145,11 @@ The queue only handles same-repository, open, non-draft, mergeable PRs targeting
 `main` with an exact `task/ELZ-###` branch. Unknown mergeability is polled for
 up to one minute, then refused if it remains unknown.
 
-For each PR, the queue fetches main and the task branch. If main is not an
-ancestor of the head, `gh pr update-branch` creates a merge update; it never
+For each PR, the queue fetches main and the task branch, then reads main’s SHA
+from `gh api repos/balungpisah/elzoo/git/ref/heads/main`. The canonical GitHub
+repository owns the base; a misconfigured origin cannot substitute a different
+main SHA. Missing commit objects fail closed. If main is not an ancestor of the
+head, `gh pr update-branch` creates a merge update; it never
 rebases or force-pushes. The new head must become visible before continuing.
 It dispatches `symbolic-check.yml` on that branch and identifies a **new** run
 by workflow, `workflow_dispatch` event, branch and exact `head_sha`. It records
@@ -162,6 +165,14 @@ Missing logs, API/command failures, cancelled runs and reruns during evidence
 collection fail closed. This validates observed evidence from trusted workflow
 code, not authenticity against a hostile PR or administrator.
 
+The queue also waits for a successful `symbolic-gleam.yml` **pull_request**
+run on the exact same head SHA, including after `update-branch`. That update
+triggers the synchronize event; no extra Gleam dispatch is added. The latest
+matching run must succeed, have one successful `gleam` job on
+`symbolic-elzoo-gleam`, and a successful `Run ./scripts/check.sh` step. An old
+head’s green Gleam run, a missing run, or a failed/cancelled run cannot satisfy
+this gate. It rechecks run identity and attempt after collecting the job.
+
 Before merging, it re-reads the PR and fetches again. A changed head stops the
 queue. Main advancing beyond the checked head triggers another merge update
 and full dispatch. The merge command is always:
@@ -170,15 +181,17 @@ and full dispatch. The merge command is always:
 gh pr merge <PR> -R balungpisah/elzoo --merge --match-head-commit <checked-head-SHA>
 ```
 
-After confirming the merge, it prints one `ELZOO MERGE EVIDENCE` line with PR,
-run ID, job ID, runner name, checked head SHA and merge SHA. Preserve that line
-in the coordinator's acceptance record. No branch deletion, issue closure or
+After confirming the merge, it prints an `ELZOO GLEAM EVIDENCE` line and an
+`ELZOO MERGE EVIDENCE` line with PR, run/job IDs, runner names, checked head SHA
+and merge SHA. Preserve those lines in the coordinator's acceptance record.
+No branch deletion, issue closure or
 acceptance posting is performed. A transport failure during a merge can leave
 an unknown result: inspect the PR before retrying; an already merged PR is
 refused rather than merged again.
 
 `--continue-on-failure` explicitly allows the next supplied PR after a failure;
-the overall exit status still fails. Default behavior stops immediately.
+the overall exit status still fails. Malformed API object shapes are per-PR
+failures too; they never authorize a merge. Default behavior stops immediately.
 `--timeout SECONDS` defaults to 10800 seconds per PR, including queue time.
 Run discovery is bounded to five minutes; individual commands to two minutes;
 main-update/check passes to ten. Interrupting the CLI stops local processing,
@@ -186,7 +199,7 @@ but does not cancel an already dispatched run or undo a merge request.
 
 ### Cancellation and overlap
 
-The backend workflow uses:
+Both workflows use this policy (the Gleam group starts with `gleam-`):
 
 ```yaml
 concurrency:
@@ -200,8 +213,8 @@ running **or pending** checks through concurrency. Merely setting
 `cancel-in-progress: false` with a shared main group would still replace a
 pending run when a newer run arrived; see [GitHub concurrency semantics](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency).
 This corrects the original issue's request to keep the group for all events,
-with owner approval. It changes only the backend workflow; Gleam retains its
-existing separate concurrency policy.
+with owner approval. The review correction applies it to both workflows,
+so Gleam merge-commit evidence is retained too.
 
 A's merge-commit backend check can overlap B's full pre-merge dispatch on the
 two approved backend runners. There is no new per-runner route, speculative
@@ -211,9 +224,10 @@ can increase queue length; this does not speed up an individual full check.
 ### Limits and acceptance
 
 The queue is a serial coordinator convenience, not enforced branch protection.
-It does not enforce independent review, run a separate pre-merge Gleam dispatch,
-or replace merge-commit acceptance. The coordinator checks the current PR's
-other checks and review before invoking it. The final fetch and GitHub merge
+It does not enforce independent review or replace merge-commit acceptance.
+It requires both full backend dispatch success and current-head Gleam PR
+success, without a separate Gleam dispatch. The coordinator checks any other
+PR checks and review before invoking it. The final fetch and GitHub merge
 are separate operations: another coordinator/manual merge can advance main
 between them. `--match-head-commit` protects the head, not an atomic base SHA.
 Use one integration coordinator and retain full merge-commit checks; no atomic

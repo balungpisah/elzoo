@@ -29,7 +29,8 @@ ELZ-044 (#76) threat-model work out of this task.
 
 1. Refuse a PR that is a draft, from a fork, not targeting `main`, not mergeable, or not
    `task/ELZ-###` (exact branch name rule from AGENTS.md).
-2. If the PR head does not contain the current `origin/main`, run
+2. Read main’s SHA from `gh api repos/balungpisah/elzoo/git/ref/heads/main`
+   (or verify origin is the canonical repository). If the PR head does not contain it, run
    `gh pr update-branch <PR>` (merge commit, never `--rebase`, never force). Then use the
    new head SHA.
 3. Start the full check on that head: `gh workflow run symbolic-check.yml --ref <branch>`.
@@ -39,7 +40,11 @@ ELZ-044 (#76) threat-model work out of this task.
    - conclusion `success`, and `head_sha` equals the PR head;
    - the backend job's `runner_name` is `symbolic-elzoo` or `macbook-ubuntu-elzoo-candidate`;
    - the job log contains `ELZOO CHECK PASSED` and not the affected-mode marker.
-5. Before merge, fetch again. If `origin/main` moved and the PR head no longer contains it,
+   Also require a successful `symbolic-gleam.yml` pull_request run on the same
+   exact head SHA, with its successful Gleam job on `symbolic-elzoo-gleam`.
+   The synchronize event after update-branch supplies that run; wait for it.
+   Without an update, require Gleam success on the current head too.
+5. Before merge, fetch again and re-read canonical main. If main moved and the PR head no longer contains it,
    go back to step 2. Then merge with
    `gh pr merge <PR> --merge --match-head-commit <SHA>`.
 6. Print the run ID, job ID, runner, head SHA and merge SHA as the evidence line.
@@ -56,6 +61,9 @@ of scope.
 
 ## Workflow change
 
+Apply the concurrency policy below to both `symbolic-check.yml` and
+`symbolic-gleam.yml` (coordinator-approved review correction).
+
 - `concurrency.cancel-in-progress` must not cancel runs on `main` or `workflow_dispatch`
   runs. Cancel only superseded `pull_request` runs. Keep the ref-based group for
   PR runs; use a unique per-run group for main and `workflow_dispatch` so pending
@@ -70,6 +78,8 @@ of scope.
   wrong event, unapproved runner, missing `ELZOO CHECK PASSED`, affected-mode marker,
   failed or cancelled run; `main` moves during the check; draft, fork or non-task branch;
   the rebase flag is never passed; the merge always uses `--match-head-commit`.
+- Review controls: missing/failed/wrong-SHA Gleam runs, canonical main identity,
+  and malformed API responses respect stop/continue while never merging on error.
 - Run it in CI next to `scripts/test-ci-runners.py`.
 
 ## Acceptance

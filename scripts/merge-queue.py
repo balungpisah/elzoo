@@ -14,6 +14,7 @@ from urllib.parse import urlencode
 
 REPO = "balungpisah/elzoo"
 WORKFLOW = "symbolic-check.yml"
+GLEAM_WORKFLOW = "symbolic-gleam.yml"
 RUNNERS = {"symbolic-elzoo", "macbook-ubuntu-elzoo-candidate"}
 SHA = re.compile(r"[0-9a-f]{40}")
 PR_FIELDS = ("number,state,isDraft,isCrossRepository,baseRefName,headRefName,"
@@ -95,7 +96,8 @@ class Queue:
         self.text("git", "fetch", "origin",
                   "refs/heads/main:refs/remotes/origin/main",
                   f"refs/heads/{branch}:refs/remotes/origin/{branch}")
-        main = self.text("git", "rev-parse", "refs/remotes/origin/main")
+        # origin may be misconfigured: only the canonical repository owns the base.
+        main = self.api("git/ref/heads/main")["object"]["sha"]
         head = self.text("git", "rev-parse", f"refs/remotes/origin/{branch}")
         require(valid_sha(main) and head == pr["headRefOid"],
                 "Fetched refs disagree with PR metadata; retry queue after inspecting head")
@@ -170,6 +172,62 @@ class Queue:
                 "Run changed while collecting evidence")
         return job
 
+    def gleam_evidence(self, pr):
+        workflow_id = self.api(f"actions/workflows/{GLEAM_WORKFLOW}")["id"]
+        query = urlencode({"event": "pull_request", "branch": pr["headRefName"],
+                           "head_sha": pr["headRefOid"], "per_page": 100})
+
+        def matches(run):
+            return (run.get("event") == "pull_request" and
+                    run.get("head_branch") == pr["headRefName"] and
+                    run.get("head_sha") == pr["headRefOid"] and
+                    run.get("workflow_id") == workflow_id and
+                    run.get("path") == f".github/workflows/{GLEAM_WORKFLOW}")
+
+        end = self.clock() + 300
+        while True:
+            pages = self.data("gh", "api", "--paginate", "--slurp",
+                              f"repos/{REPO}/actions/workflows/{GLEAM_WORKFLOW}/runs?{query}")
+            candidates = [run for page in pages for run in page["workflow_runs"] if matches(run)]
+            if candidates:
+                require(all(isinstance(run.get("id"), int) for run in candidates), "Invalid Gleam run ID")
+                # Do not hide a newer failed/cancelled check behind an older success.
+                run_id = max(run["id"] for run in candidates)
+                break
+            self.pause("Gleam pull_request run on exact head", end)
+        while True:
+            run = self.api(f"actions/runs/{run_id}")
+            require(run.get("id") == run_id and matches(run), "Gleam run identity mismatch")
+            if run.get("status") == "completed":
+                break
+            self.pause(f"Gleam run {run_id} status={run.get('status')}")
+        require(run.get("conclusion") == "success", f"Gleam run {run_id}: {run.get('conclusion')}")
+        attempt = run.get("run_attempt")
+        require(isinstance(attempt, int) and attempt > 0, "Missing Gleam run attempt")
+        pages = self.data("gh", "api", "--paginate", "--slurp",
+                          f"repos/{REPO}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100")
+        jobs = [job for page in pages for job in page["jobs"]]
+        require(len(jobs) == 1 and jobs[0].get("name") == "gleam", "Expected exactly one Gleam job")
+        job = jobs[0]
+        require(job.get("run_id") == run_id and job.get("head_sha") == pr["headRefOid"] and
+                job.get("status") == "completed" and job.get("conclusion") == "success" and
+                job.get("runner_name") == "symbolic-elzoo-gleam", "Gleam job evidence mismatch")
+        steps = [step for step in job.get("steps", []) if step.get("name") == "Run ./scripts/check.sh"]
+        require(len(steps) == 1 and steps[0].get("conclusion") == "success", "Gleam check step did not pass")
+        require(isinstance(job.get("id"), int), "Invalid Gleam job ID")
+        latest = self.api(f"actions/runs/{run_id}")
+        require(latest.get("id") == run_id and matches(latest) and
+                latest.get("status") == "completed" and latest.get("conclusion") == "success" and
+                latest.get("run_attempt") == attempt, "Gleam run changed while collecting evidence")
+        return job
+
+    def unchanged_pr(self, pr):
+        fresh = self.pr(pr["number"])
+        require(fresh["headRefOid"] == pr["headRefOid"] and
+                fresh["headRefName"] == pr["headRefName"],
+                "PR head changed during check; refusing stale evidence")
+        return fresh
+
     def process(self, number):
         self.deadline = self.clock() + self.timeout
         workflow_id = self.api(f"actions/workflows/{WORKFLOW}")["id"]
@@ -185,10 +243,9 @@ class Queue:
                 continue
             run_id = self.dispatch(pr, workflow_id)
             job = self.evidence(run_id, pr, workflow_id)
-            fresh = self.pr(number)
-            require(fresh["headRefOid"] == pr["headRefOid"] and
-                    fresh["headRefName"] == pr["headRefName"],
-                    "PR head changed during check; refusing stale evidence")
+            self.unchanged_pr(pr)
+            gleam_job = self.gleam_evidence(pr)
+            fresh = self.unchanged_pr(pr)
             if not self.fetch(fresh):
                 self.emit("Main moved during check; updating and validating a new head", flush=True)
                 continue
@@ -200,6 +257,9 @@ class Queue:
             merge_sha = (merged.get("mergeCommit") or {}).get("oid")
             require(merged.get("state") == "MERGED" and merged.get("headRefOid") == pr["headRefOid"]
                     and valid_sha(merge_sha), "Merge not confirmed; inspect PR before retrying")
+            self.emit(f"ELZOO GLEAM EVIDENCE pr={number} run={gleam_job['run_id']} "
+                      f"job={gleam_job['id']} runner={gleam_job['runner_name']} "
+                      f"head={pr['headRefOid']}", flush=True)
             self.emit(f"ELZOO MERGE EVIDENCE pr={number} run={run_id} job={job['id']} "
                       f"runner={job['runner_name']} head={pr['headRefOid']} merge={merge_sha}", flush=True)
             return
@@ -225,7 +285,7 @@ def main(argv=None, queue=None):
     for number in args.prs:
         try:
             queue.process(number)
-        except (QueueError, KeyError, TypeError, ValueError) as error:
+        except (QueueError, KeyError, TypeError, ValueError, AttributeError) as error:
             print(f"PR #{number} STOPPED: {error}", file=sys.stderr, flush=True)
             failed = True
             if not args.continue_on_failure:

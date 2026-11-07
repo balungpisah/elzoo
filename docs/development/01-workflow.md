@@ -118,8 +118,9 @@ python3 scripts/merge-queue.py 79 80
 
 Use the actual reviewed PR numbers, in integration order. The tool merges main
 into an out-of-date task branch, dispatches a full backend check on the exact
-head, validates its result and runner, and rechecks main before a head-guarded
-merge. A changed head needs review of the new diff; this tool does not inspect
+head, validates its result and runner, also requires Gleam PR success on that
+exact head, and rechecks canonical main before a head-guarded merge. A changed
+head needs review of the new diff; this tool does not inspect
 or replace independent review. It stops on failure by default. A PR affected
 check, even green, is not the queue's full pre-merge evidence.
 

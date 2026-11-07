@@ -45,12 +45,26 @@ class Fake:
         self.suppress_new_run = False
         self.duplicate_job = False
         self.unconfirmed_merge = False
+        self.gleam_missing = False
+        self.gleam_changes = {}
+        self.gleam_job_changes = {}
+        self.canonical_main = M
+        self.gleam_reads = 0
+        self.gleam_rerun = False
 
     def run_data(self, run_id):
         return dict(id=run_id, workflow_id=10, path=".github/workflows/symbolic-check.yml",
                     event="workflow_dispatch", head_branch=self.pr["headRefName"],
                     head_sha=self.pr["headRefOid"], status="completed", conclusion="success",
                     run_attempt=1)
+
+    def gleam_run(self):
+        result = dict(id=501, workflow_id=20, path=".github/workflows/symbolic-gleam.yml",
+                      event="pull_request", head_branch=self.pr["headRefName"],
+                      head_sha=self.pr["headRefOid"], status="completed", conclusion="success",
+                      run_attempt=1)
+        result.update(self.gleam_changes)
+        return result
 
     def execute(self, argv, allowed=(0,)):
         self.calls.append(argv)
@@ -78,7 +92,24 @@ class Fake:
             if self.api_error:
                 raise queue.QueueError("API unavailable")
             path = argv[-1]
-            if "/workflows/" in path and "/runs?" not in path:
+            if path.endswith("git/ref/heads/main"):
+                out = {"object": {"sha": self.canonical_main}}
+            elif "/workflows/symbolic-gleam.yml/runs?" in path:
+                out = [{"workflow_runs": [] if self.gleam_missing else [self.gleam_run()]}]
+            elif path.endswith("/workflows/symbolic-gleam.yml"):
+                out = {"id": 20}
+            elif "/actions/runs/501/attempts/" in path:
+                job = dict(id=601, run_id=501, name="gleam", head_sha=self.pr["headRefOid"],
+                           status="completed", conclusion="success", runner_name="symbolic-elzoo-gleam",
+                           steps=[{"name": "Run ./scripts/check.sh", "conclusion": "success"}])
+                job.update(self.gleam_job_changes)
+                out = [{"jobs": [job]}]
+            elif path.endswith("/actions/runs/501"):
+                self.gleam_reads += 1
+                out = self.gleam_run()
+                if self.gleam_rerun and self.gleam_reads == 2:
+                    out["run_attempt"] = 2
+            elif "/workflows/" in path and "/runs?" not in path:
                 out = {"id": 10}
             elif "/workflows/" in path and "/runs?" in path:
                 runs = [self.run_data(99)] if self.old_run else []
@@ -305,6 +336,105 @@ class QueueTest(unittest.TestCase):
         self.assertIn("\nconcurrency:\n  group: check-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}\n  cancel-in-progress: ${{ github.event_name == 'pull_request' }}\n", source)
         self.assertIn("      - run: python3 scripts/test-merge-queue.py\n", source)
         self.assertIn("permissions:\n  contents: read\n", source)
+
+
+class ReviewControls(unittest.TestCase):
+    def setUp(self):
+        self.fake = Fake()
+        self.q = self.fake.make_queue()
+
+    def refuses(self):
+        with self.assertRaises(queue.QueueError):
+            self.q.process(79)
+        self.assertFalse(self.fake.merged)
+        self.assertFalse(self.fake.commands(["gh", "pr", "merge"]))
+
+    def test_missing_gleam_run_never_merges(self):
+        self.fake.gleam_missing = True
+        self.refuses()
+
+    def test_failed_gleam_run_never_merges(self):
+        for conclusion in ("failure", "cancelled", "skipped", "timed_out"):
+            with self.subTest(conclusion=conclusion):
+                self.setUp()
+                self.fake.gleam_changes["conclusion"] = conclusion
+                self.refuses()
+
+    def test_wrong_gleam_sha_never_merges(self):
+        self.fake.gleam_changes["head_sha"] = B
+        self.refuses()
+
+    def test_old_gleam_success_after_update_is_not_accepted(self):
+        self.fake.stale = True
+        self.fake.gleam_changes["head_sha"] = A
+        self.refuses()
+        self.assertEqual(self.fake.pr["headRefOid"], B)
+
+    def test_gleam_success_on_updated_head_is_required_and_recorded(self):
+        self.fake.stale = True
+        self.q.process(79)
+        self.assertIn(f"ELZOO GLEAM EVIDENCE pr=79 run=501 job=601 runner=symbolic-elzoo-gleam head={B}", self.fake.messages)
+
+    def test_wrong_gleam_workflow_event_branch_or_job_refused(self):
+        for field, value in (("workflow_id", 10), ("event", "workflow_dispatch"),
+                             ("head_branch", "other"), ("path", ".github/workflows/other.yml")):
+            with self.subTest(field=field):
+                self.setUp()
+                self.fake.gleam_changes[field] = value
+                self.refuses()
+        for change in ({"runner_name": "symbolic-elzoo"}, {"head_sha": B},
+                       {"conclusion": "failure"}, {"run_id": 101}, {"steps": []}):
+            with self.subTest(change=change):
+                self.setUp()
+                self.fake.gleam_job_changes = change
+                self.refuses()
+
+    def test_gleam_run_in_progress_times_out_without_merge(self):
+        self.fake.gleam_changes["status"] = "in_progress"
+        self.refuses()
+
+    def test_gleam_rerun_during_evidence_collection_refused(self):
+        self.fake.gleam_rerun = True
+        self.refuses()
+
+    def test_main_sha_comes_from_canonical_github_repository(self):
+        self.fake.canonical_main = "d" * 40
+        self.q.process(79)
+        ancestry = self.fake.commands(["git", "merge-base"])
+        self.assertTrue(ancestry)
+        self.assertTrue(all(call[-2] == "d" * 40 for call in ancestry))
+        self.assertFalse(self.fake.commands(["git", "rev-parse", "refs/remotes/origin/main"]))
+        self.assertTrue(self.fake.commands(["gh", "api", f"repos/{queue.REPO}/git/ref/heads/main"]))
+
+    def test_invalid_canonical_main_sha_never_merges(self):
+        self.fake.canonical_main = None
+        self.refuses()
+
+    def test_malformed_api_shape_obeys_stop_and_continue(self):
+        for flags, expected in (([], [79]), (["--continue-on-failure"], [79, 80])):
+            with self.subTest(flags=flags), contextlib.redirect_stderr(io.StringIO()):
+                fake = Fake()
+                seen = []
+                execute = fake.execute
+
+                def malformed(argv, allowed=(0,)):
+                    if argv[:3] == ["gh", "pr", "view"]:
+                        number = int(argv[3])
+                        seen.append(number)
+                        if number == 79:
+                            return subprocess.CompletedProcess(argv, 0, "[]", "")
+                        fake.pr["number"] = number
+                    return execute(argv, allowed)
+                q = fake.make_queue()
+                q.run = malformed
+                self.assertEqual(queue.main(["79", "80", *flags], queue=q), 1)
+                self.assertEqual(list(dict.fromkeys(seen)), expected)
+                self.assertFalse(any(call[3] == "79" for call in fake.commands(["gh", "pr", "merge"])))
+                self.assertEqual(fake.merged, bool(flags))
+
+    def test_gleam_concurrency_keeps_main_and_dispatch_runs(self):
+        source = (ROOT / ".github/workflows/symbolic-gleam.yml").read_text()
+        self.assertIn("\nconcurrency:\n  group: gleam-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}\n  cancel-in-progress: ${{ github.event_name == 'pull_request' }}\n", source)
 
 
 if __name__ == "__main__":
