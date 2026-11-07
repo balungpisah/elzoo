@@ -385,6 +385,107 @@ defmodule Elzoo.DurableJobTest do
     n
   end
 
+  # W5 at the process boundary: run perform/2 inside Jobs.Worker.trapping/1 in a
+  # Task, as Oban does. Inside the trapped fun the links and mailbox are read
+  # after perform/2 returns; after trapping/1 returns the Task reports and waits
+  # so the test can check it is alive and its links are unchanged.
+  defp trapped_perform(cfg, job) do
+    parent = self()
+
+    task =
+      Task.async(fn ->
+        outer = Process.info(self(), :links)
+
+        inner =
+          Elzoo.Jobs.Worker.trapping(fn ->
+            before = Process.info(self(), :links)
+            result = DurableJob.perform(cfg, job)
+            links = Process.info(self(), :links)
+
+            leaked =
+              receive do
+                {:EXIT, _, _} = exit -> exit
+              after
+                0 -> nil
+              end
+
+            %{result: result, before: before, links: links, leaked: leaked}
+          end)
+
+        send(parent, {:trapping_returned, self()})
+        receive do: (:finish -> :ok)
+        %{inner: inner, outer: outer, outer_after: Process.info(self(), :links)}
+      end)
+
+    assert_receive {:trapping_returned, pid}, 30_000
+    assert Process.alive?(pid)
+    send(pid, :finish)
+    out = Task.await(task, 30_000)
+    assert out.inner.links == out.inner.before
+    assert out.inner.leaked == nil
+    assert out.outer_after == out.outer
+    out.inner.result
+  end
+
+  defp manual_job(f, key) do
+    :ok = Oban.pause_queue(f.oban, queue: f.queue)
+    {:ok, _} = submit(f, key)
+    {:ok, _} = relay!(f.queue)
+    args = %{"v" => 1, "queue" => f.queue, "job_key" => key}
+
+    {:persistent_term.get({DurableJob, f.queue}),
+     %Oban.Job{id: job_id(f, key), attempt: 1, args: args}}
+  end
+
+  test "DJ13b reply lost: the stopped Writer leaves no link or EXIT behind the snooze", %{
+    prefix: prefix
+  } do
+    store = store(:memory, prefix)
+    handler = fn input -> Memory.fault(store, :append, :reply_loss) && {:ok, Enum.sum(input)} end
+    f = flow(prefix, :memory, store: store, handler: handler)
+    {cfg, job} = manual_job(f, "k13b")
+    assert {:snooze, _} = trapped_perform(cfg, job)
+    assert kinds(store, run_stream(f, "k13b")) == ~w(accepted attempt_started succeeded)
+  end
+
+  @tag timeout: 120_000
+  test "DJ13c killed Writer after a call timeout leaves no link or EXIT behind the snooze", %{
+    prefix: prefix
+  } do
+    f = flow(prefix, :postgres, writer_timeout_ms: 1_000)
+    {cfg, job} = manual_job(f, "k13c")
+    lock = hold_head_lock(prefix, run_stream(f, "k13c"), 3_000)
+    assert {:snooze, _} = trapped_perform(cfg, job)
+    Task.await(lock, 20_000)
+  end
+
+  test "DJ13d success: the stopped Writer leaves no link or EXIT behind", %{prefix: prefix} do
+    f = flow(prefix, :memory)
+    {cfg, job} = manual_job(f, "k13d")
+    assert trapped_perform(cfg, job) == :ok
+    assert kinds(f.store, run_stream(f, "k13d")) == ~w(accepted attempt_started succeeded)
+  end
+
+  test "DJ13e owner death takes the linked Writer down while the attempt runs", %{prefix: prefix} do
+    parent = self()
+    f = flow(prefix, :memory, handler: blocking_handler(parent))
+    {cfg, job} = manual_job(f, "k13e")
+
+    pid =
+      spawn(fn ->
+        send(parent, {:links_before, Process.info(self(), :links)})
+        Elzoo.Jobs.Worker.trapping(fn -> DurableJob.perform(cfg, job) end)
+      end)
+
+    assert_receive {:links_before, {:links, before}}, 5_000
+    assert_receive {:entered, ^pid, _}, 10_000
+    {:links, now} = Process.info(pid, :links)
+    assert [writer] = now -- before
+    ref = Process.monitor(writer)
+    Process.exit(pid, :kill)
+    assert_receive {:DOWN, ^ref, :process, ^writer, _}, 5_000
+  end
+
   test "W6 deviation: retry backoff is indexed by the Oban attempt, unchanged by a snooze", %{
     prefix: prefix
   } do
