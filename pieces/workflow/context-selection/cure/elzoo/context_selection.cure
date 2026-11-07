@@ -1,0 +1,1630 @@
+# SPDX-License-Identifier: Apache-2.0
+# workflow/context-selection. Supported through the validating Elixir facade.
+mod Elzoo.ContextSelection
+  use Std.Option
+  type ContextSelectionPos = ContextSelectionHere | ContextSelectionThere(ContextSelectionPos)
+  type ContextSelectionLocation = ContextSelectionMissing | ContextSelectionFound(ContextSelectionPos)
+  rec ContextSelectionKey
+    id: String
+    version: Int
+  rec ContextSelectionCheck
+    key: ContextSelectionKey
+    tenant: String
+    source: String
+    hash: Option(String)
+    principal: String
+    checked_at: Int
+    allowed: Bool
+  rec ContextSelectionNode
+    key: ContextSelectionKey
+    tenant: String
+    source: String
+    hash: Option(String)
+    refs: List(ContextSelectionKey)
+    current_check: Option(ContextSelectionCheck)
+  rec ContextSelectionContext
+    principal: String
+    tenant: String
+    now: Int
+    snapshot: Int
+    max_age: Int
+    allow_derived: Bool
+    window: Int
+    reserved: Int
+    max_count: Int
+    max_bytes: Int
+  rec ContextSelectionCandidate
+    index: Int
+    key: ContextSelectionKey
+    hash: Option(String)
+    estimate: Int
+    bytes: Int
+  type ContextSelectionDetail = ContextSelectionMissingNode | ContextSelectionBindingMismatch | ContextSelectionMissingCheck | ContextSelectionDenied | ContextSelectionFutureCheck | ContextSelectionExpiredCheck | ContextSelectionNewerVersion | ContextSelectionDerivedDisabled | ContextSelectionSourceUnchecked | ContextSelectionSourceDenied | ContextSelectionSourceStale | ContextSelectionSupersededSource | ContextSelectionCyclicProvenance | ContextSelectionProvenanceDepth | ContextSelectionDuplicate | ContextSelectionInsufficientWindow | ContextSelectionCountLimit | ContextSelectionByteLimit
+  type ContextSelectionVerdict = ContextSelectionAllowed(Int) | ContextSelectionRejected(ContextSelectionDetail) | ContextSelectionCacheFault
+  rec ContextSelectionPrepared
+    pos: ContextSelectionPos
+    node: ContextSelectionNode
+    edges: List(ContextSelectionLocation)
+  rec ContextSelectionScheduled
+    pos: ContextSelectionPos
+    cyclic: Bool
+  rec ContextSelectionMemo
+    pos: ContextSelectionPos
+    verdict: ContextSelectionVerdict
+  type ContextSelectionReady = ContextSelectionNoReady | ContextSelectionReadyNode(ContextSelectionPos, List(ContextSelectionPos))
+  rec ContextSelectionDrop
+    index: Int
+    detail: ContextSelectionDetail
+  type ContextSelectionInvariant = ContextSelectionWindowInvariant | ContextSelectionAccessInvariant | ContextSelectionCountInvariant | ContextSelectionBytesInvariant
+  type ContextSelectionResult = ContextSelectionSelected(List(ContextSelectionCandidate), List(ContextSelectionDrop)) | ContextSelectionFailed(ContextSelectionInvariant)
+  @total true
+  @reducible
+  local fn both(a: Bool, b: Bool) -> Bool =
+    match a
+      False() -> False()
+      True() -> b
+
+
+  @total true
+  @reducible
+  local fn same(a: t, b: t) -> Bool =
+    Std.Builtin.struct_eq(t, a, b)
+
+
+  @total true
+  @reducible
+  local fn key_eq(a: ContextSelectionKey, b: ContextSelectionKey) -> Bool =
+    both(same(a.id, b.id), same(a.version, b.version))
+
+
+  @total true
+  @reducible
+  local fn shift(p: ContextSelectionLocation) -> ContextSelectionLocation =
+    match p
+      ContextSelectionMissing() -> ContextSelectionMissing()
+      ContextSelectionFound(i) -> ContextSelectionFound(ContextSelectionThere(i))
+
+
+  @total true
+  @reducible
+  local fn resolve_hit(rest: List(ContextSelectionNode), key: ContextSelectionKey, hit: Bool) -> ContextSelectionLocation =
+    match hit
+      True() -> ContextSelectionFound(ContextSelectionHere())
+      False() -> shift(resolve(rest, key))
+
+
+  @total true
+  @reducible
+  local fn resolve(raw: List(ContextSelectionNode), key: ContextSelectionKey) -> ContextSelectionLocation =
+    match raw
+      [] -> ContextSelectionMissing()
+      [n | rest] -> resolve_hit(rest, key, key_eq(n.key, key))
+
+
+  @total true
+  @reducible
+  local fn resolve_edges(raw: List(ContextSelectionNode), refs: List(ContextSelectionKey)) -> List(ContextSelectionLocation) =
+    match refs
+      [] -> []
+      [key | rest] -> [resolve(raw, key) | resolve_edges(raw, rest)]
+
+
+  @total true
+  @reducible
+  local fn prepare(raw: List(ContextSelectionNode), todo: List(ContextSelectionNode), pos: ContextSelectionPos) -> List(ContextSelectionPrepared) =
+    match todo
+      [] -> []
+      [n | rest] -> [ContextSelectionPrepared{pos: pos, node: n, edges: resolve_edges(raw, n.refs)} | prepare(raw, rest, ContextSelectionThere(pos))]
+
+
+  @total true
+  @reducible
+  local fn pos_eq(a: ContextSelectionPos, b: ContextSelectionPos) -> Bool =
+    match a
+      ContextSelectionHere() ->
+        match b
+          ContextSelectionHere() -> True()
+          ContextSelectionThere(_) -> False()
+      ContextSelectionThere(x) ->
+        match b
+          ContextSelectionHere() -> False()
+          ContextSelectionThere(y) -> pos_eq(x, y)
+
+
+  @total true
+  @reducible
+  local fn flags_at(flags: List(Bool), pos: ContextSelectionPos) -> Bool =
+    match flags
+      [] -> False()
+      [x | rest] ->
+        match pos
+          ContextSelectionHere() -> x
+          ContextSelectionThere(p) -> flags_at(rest, p)
+
+
+  @total true
+  @reducible
+  local fn mark(flags: List(Bool), pos: ContextSelectionPos) -> List(Bool) =
+    match flags
+      [] -> []
+      [x | rest] ->
+        match pos
+          ContextSelectionHere() -> [True() | rest]
+          ContextSelectionThere(p) -> [x | mark(rest, p)]
+
+
+  @total true
+  @reducible
+  local fn blank_flags(raw: List(ContextSelectionNode)) -> List(Bool) =
+    match raw
+      [] -> []
+      [_ | rest] -> [False() | blank_flags(rest)]
+
+
+  @total true
+  @reducible
+  local fn prepared_at(nodes: List(ContextSelectionPrepared), pos: ContextSelectionPos) -> Option(ContextSelectionPrepared) =
+    match nodes
+      [] -> None()
+      [x | rest] ->
+        match pos
+          ContextSelectionHere() -> Some(x)
+          ContextSelectionThere(p) -> prepared_at(rest, p)
+
+
+  @total true
+  @reducible
+  local fn append_edges(a: List(ContextSelectionLocation), b: List(ContextSelectionLocation)) -> List(ContextSelectionLocation) =
+    match a
+      [] -> b
+      [x | rest] -> [x | append_edges(rest, b)]
+
+
+  @total true
+  @reducible
+  local fn edge_tokens(refs: List(ContextSelectionKey), tail: List(Bool)) -> List(Bool) =
+    match refs
+      [] -> tail
+      [_ | rest] -> [True() | edge_tokens(rest, tail)]
+
+
+  @total true
+  @reducible
+  local fn graph_fuel(raw: List(ContextSelectionNode)) -> List(Bool) =
+    match raw
+      [] -> []
+      [n | rest] -> [True() | edge_tokens(n.refs, graph_fuel(rest))]
+
+
+  @total true
+  @reducible
+  local fn ready_edges(edges: List(ContextSelectionLocation), visited: List(Bool)) -> Bool =
+    match edges
+      [] -> True()
+      [x | rest] ->
+        match x
+          ContextSelectionMissing() -> ready_edges(rest, visited)
+          ContextSelectionFound(p) -> both(flags_at(visited, p), ready_edges(rest, visited))
+
+
+  @total true
+  @reducible
+  local fn retain_pending(n: ContextSelectionPos, found: ContextSelectionReady) -> ContextSelectionReady =
+    match found
+      ContextSelectionNoReady() -> ContextSelectionNoReady()
+      ContextSelectionReadyNode(x, rest) -> ContextSelectionReadyNode(x, [n | rest])
+
+
+  @total true
+  @reducible
+  local fn prepared_edges(found: Option(ContextSelectionPrepared)) -> List(ContextSelectionLocation) =
+    match found
+      None() -> []
+      Some(n) -> n.edges
+
+
+  @total true
+  @reducible
+  local fn edges_at(nodes: List(ContextSelectionPrepared), p: ContextSelectionPos) -> List(ContextSelectionLocation) =
+    prepared_edges(prepared_at(nodes, p))
+
+  @total true
+  @reducible
+  local fn pop_with(p: ContextSelectionPos, rest: List(ContextSelectionPos), nodes: List(ContextSelectionPrepared), visited: List(Bool), ready: Bool) -> ContextSelectionReady =
+    match ready
+      True() -> ContextSelectionReadyNode(p, rest)
+      False() -> retain_pending(p, pop_ready(rest, nodes, visited))
+
+  @total true
+  @reducible
+  local fn pop_ready(pending: List(ContextSelectionPos), nodes: List(ContextSelectionPrepared), visited: List(Bool)) -> ContextSelectionReady =
+    match pending
+      [] -> ContextSelectionNoReady()
+      [p | rest] -> pop_with(p, rest, nodes, visited, ready_edges(edges_at(nodes, p), visited))
+
+  @total true
+  @reducible
+  local fn reach_seen(fuel: List(Bool), pos: ContextSelectionPos, tail: List(ContextSelectionLocation), target: ContextSelectionPos, nodes: List(ContextSelectionPrepared), visited: List(Bool), seen: Bool) -> Bool =
+    match seen
+      True() -> reachable(fuel, tail, target, nodes, visited)
+      False() -> reachable(fuel, append_edges(edges_at(nodes, pos), tail), target, nodes, mark(visited, pos))
+
+  @total true
+  @reducible
+  local fn reach_found(fuel: List(Bool), pos: ContextSelectionPos, tail: List(ContextSelectionLocation), target: ContextSelectionPos, nodes: List(ContextSelectionPrepared), visited: List(Bool), hit: Bool) -> Bool =
+    match hit
+      True() -> True()
+      False() -> reach_seen(fuel, pos, tail, target, nodes, visited, flags_at(visited, pos))
+
+
+  @total true
+  @reducible
+  local fn reach_location(fuel: List(Bool), loc: ContextSelectionLocation, tail: List(ContextSelectionLocation), target: ContextSelectionPos, nodes: List(ContextSelectionPrepared), visited: List(Bool)) -> Bool =
+    match loc
+      ContextSelectionMissing() -> reachable(fuel, tail, target, nodes, visited)
+      ContextSelectionFound(p) -> reach_found(fuel, p, tail, target, nodes, visited, pos_eq(p, target))
+
+
+  @total true
+  @reducible
+  local fn reachable(fuel: List(Bool), queue: List(ContextSelectionLocation), target: ContextSelectionPos, nodes: List(ContextSelectionPrepared), visited: List(Bool)) -> Bool =
+    match fuel
+      [] -> False()
+      [_ | rest] ->
+        match queue
+          [] -> False()
+          [x | tail] -> reach_location(rest, x, tail, target, nodes, visited)
+
+
+  @total true
+  @reducible
+  local fn cycle_with(p: ContextSelectionPos, rest: List(ContextSelectionPos), nodes: List(ContextSelectionPrepared), fuel: List(Bool), blank: List(Bool), cyclic: Bool) -> ContextSelectionReady =
+    match cyclic
+      True() -> ContextSelectionReadyNode(p, rest)
+      False() -> retain_pending(p, pop_cycle(rest, nodes, fuel, blank))
+
+  @total true
+  @reducible
+  local fn pop_cycle(pending: List(ContextSelectionPos), nodes: List(ContextSelectionPrepared), fuel: List(Bool), blank: List(Bool)) -> ContextSelectionReady =
+    match pending
+      [] -> ContextSelectionNoReady()
+      [p | rest] -> cycle_with(p, rest, nodes, fuel, blank, reachable(fuel, edges_at(nodes, p), p, nodes, blank))
+
+  @total true
+  @reducible
+  local fn prepend_scheduled(n: ContextSelectionScheduled, rest: Option(List(ContextSelectionScheduled))) -> Option(List(ContextSelectionScheduled)) =
+    match rest
+      None() -> None()
+      Some(xs) -> Some([n | xs])
+
+
+  @total true
+  @reducible
+  local fn cycle_if_started(started: Bool, n: ContextSelectionPos, all: List(ContextSelectionPrepared), fuel: List(Bool), blank: List(Bool)) -> Bool =
+    match started
+      False() -> False()
+      True() -> reachable(fuel, edges_at(all, n), n, all, blank)
+
+
+  @total true
+  @reducible
+  local fn schedule_one(fuel: List(ContextSelectionNode), n: ContextSelectionPos, pending: List(ContextSelectionPos), all: List(ContextSelectionPrepared), visited: List(Bool), edge_fuel: List(Bool), blank: List(Bool), cycles_started: Bool, cyclic: Bool) -> Option(List(ContextSelectionScheduled)) =
+    prepend_scheduled(ContextSelectionScheduled{pos: n, cyclic: cyclic}, order(fuel, pending, all, mark(visited, n), edge_fuel, blank, cycles_started))
+
+
+  @total true
+  @reducible
+  local fn order_cycle(fuel: List(ContextSelectionNode), found: ContextSelectionReady, all: List(ContextSelectionPrepared), visited: List(Bool), edge_fuel: List(Bool), blank: List(Bool)) -> Option(List(ContextSelectionScheduled)) =
+    match found
+      ContextSelectionNoReady() -> None()
+      ContextSelectionReadyNode(n, rest) -> schedule_one(fuel, n, rest, all, visited, edge_fuel, blank, True(), True())
+
+
+  @total true
+  @reducible
+  local fn order_ready(fuel: List(ContextSelectionNode), found: ContextSelectionReady, pending: List(ContextSelectionPos), all: List(ContextSelectionPrepared), visited: List(Bool), edge_fuel: List(Bool), blank: List(Bool), cycles_started: Bool) -> Option(List(ContextSelectionScheduled)) =
+    match found
+      ContextSelectionReadyNode(n, rest) -> schedule_one(fuel, n, rest, all, visited, edge_fuel, blank, cycles_started, cycle_if_started(cycles_started, n, all, edge_fuel, blank))
+      ContextSelectionNoReady() -> order_cycle(fuel, pop_cycle(pending, all, edge_fuel, blank), all, visited, edge_fuel, blank)
+
+
+  @total true
+  @reducible
+  local fn order(fuel: List(ContextSelectionNode), pending: List(ContextSelectionPos), all: List(ContextSelectionPrepared), visited: List(Bool), edge_fuel: List(Bool), blank: List(Bool), cycles_started: Bool) -> Option(List(ContextSelectionScheduled)) =
+    match pending
+      [] -> Some([])
+      [pending_head | pending_tail] ->
+        match fuel
+          [] -> None()
+          [fuel_head | rest] -> order_ready(rest, pop_ready(pending, all, visited), pending, all, visited, edge_fuel, blank, cycles_started)
+
+
+  @total true
+  @reducible
+  local fn positions(raw: List(ContextSelectionNode), start: ContextSelectionPos) -> List(ContextSelectionPos) =
+    match raw
+      [] -> []
+      [n | rest] -> [start | positions(rest, ContextSelectionThere(start))]
+
+  @total true
+  @reducible
+  local fn dependency_order(raw: List(ContextSelectionNode)) -> Option(List(ContextSelectionScheduled)) =
+    order(raw, positions(raw, ContextSelectionHere()), prepare(raw, raw, ContextSelectionHere()), blank_flags(raw), graph_fuel(raw), blank_flags(raw), False())
+
+  @total true
+  @reducible
+  local fn cache_hit(x: ContextSelectionMemo, rest: List(ContextSelectionMemo), pos: ContextSelectionPos, hit: Bool) -> Option(ContextSelectionVerdict) =
+    match hit
+      True() -> Some(x.verdict)
+      False() -> cache_at(rest, pos)
+
+  @total true
+  @reducible
+  local fn cache_at(cache: List(ContextSelectionMemo), pos: ContextSelectionPos) -> Option(ContextSelectionVerdict) =
+    match cache
+      [] -> None()
+      [x | rest] -> cache_hit(x, rest, pos, pos_eq(x.pos, pos))
+
+  @total true
+  @reducible
+  local fn hash_eq(a: Option(String), b: Option(String)) -> Bool =
+    match a
+      None() ->
+        match b
+          None() -> True()
+          Some(y) -> False()
+      Some(x) ->
+        match b
+          None() -> False()
+          Some(y) -> same(x, y)
+
+  @total true
+  @reducible
+  local fn newer_with(key: ContextSelectionKey, rest: List(ContextSelectionKey), newer: Bool) -> Bool =
+    match newer
+      True() -> True()
+      False() -> has_newer(key, rest)
+
+  @total true
+  @reducible
+  local fn has_newer(key: ContextSelectionKey, known: List(ContextSelectionKey)) -> Bool =
+    match known
+      [] -> False()
+      [x | rest] -> newer_with(key, rest, both(same(key.id, x.id), key.version < x.version))
+
+  @total true
+  @reducible
+  local fn binding(n: ContextSelectionNode, current_check: ContextSelectionCheck, c: ContextSelectionContext) -> Bool =
+    both(key_eq(n.key, current_check.key), both(same(n.tenant, c.tenant), both(same(current_check.tenant, c.tenant), both(same(n.source, current_check.source), both(hash_eq(n.hash, current_check.hash), same(current_check.principal, c.principal))))))
+
+  @total true
+  @reducible
+  local fn own_version(n: ContextSelectionNode, c: ContextSelectionContext, newer: Bool) -> Option(ContextSelectionDetail) =
+    match newer
+      True() -> Some(ContextSelectionNewerVersion())
+      False() ->
+        match n.refs
+          [] -> None()
+          [head | tail] ->
+            match c.allow_derived
+              True() -> None()
+              False() -> Some(ContextSelectionDerivedDisabled())
+
+  @total true
+  @reducible
+  local fn own_age(n: ContextSelectionNode, c: ContextSelectionContext, known: List(ContextSelectionKey), fresh: Bool) -> Option(ContextSelectionDetail) =
+    match fresh
+      False() -> Some(ContextSelectionExpiredCheck())
+      True() -> own_version(n, c, has_newer(n.key, known))
+
+  @total true
+  @reducible
+  local fn own_time(n: ContextSelectionNode, current_check: ContextSelectionCheck, c: ContextSelectionContext, known: List(ContextSelectionKey), not_future: Bool) -> Option(ContextSelectionDetail) =
+    match not_future
+      False() -> Some(ContextSelectionFutureCheck())
+      True() -> own_age(n, c, known, c.now - current_check.checked_at <= c.max_age)
+
+  @total true
+  @reducible
+  local fn own_binding(n: ContextSelectionNode, current_check: ContextSelectionCheck, c: ContextSelectionContext, known: List(ContextSelectionKey), bound: Bool) -> Option(ContextSelectionDetail) =
+    match bound
+      False() -> Some(ContextSelectionBindingMismatch())
+      True() ->
+        match current_check.allowed
+          False() -> Some(ContextSelectionDenied())
+          True() -> own_time(n, current_check, c, known, both(current_check.checked_at <= c.snapshot, c.snapshot <= c.now))
+
+  @total true
+  @reducible
+  local fn own_tenant(n: ContextSelectionNode, c: ContextSelectionContext, known: List(ContextSelectionKey), matches: Bool) -> Option(ContextSelectionDetail) =
+    match matches
+      False() -> Some(ContextSelectionBindingMismatch())
+      True() ->
+        match n.current_check
+          None() -> Some(ContextSelectionMissingCheck())
+          Some(current_check) -> own_binding(n, current_check, c, known, binding(n, current_check, c))
+
+  @total true
+  @reducible
+  local fn own_failure(n: ContextSelectionNode, c: ContextSelectionContext, known: List(ContextSelectionKey)) -> Option(ContextSelectionDetail) =
+    own_tenant(n, c, known, same(n.tenant, c.tenant))
+
+  @total true
+  @reducible
+  local fn source_detail(detail: ContextSelectionDetail) -> ContextSelectionDetail =
+    match detail
+      ContextSelectionMissingCheck() -> ContextSelectionSourceUnchecked()
+      ContextSelectionDenied() -> ContextSelectionSourceDenied()
+      ContextSelectionFutureCheck() -> ContextSelectionSourceStale()
+      ContextSelectionExpiredCheck() -> ContextSelectionSourceStale()
+      ContextSelectionNewerVersion() -> ContextSelectionSupersededSource()
+      other -> other
+
+  @total true
+  @reducible
+  local fn source_option(value: Option(ContextSelectionVerdict)) -> ContextSelectionVerdict =
+    match value
+      None() -> ContextSelectionCacheFault()
+      Some(v) ->
+        match v
+          ContextSelectionAllowed(depth) -> ContextSelectionAllowed(depth)
+          ContextSelectionRejected(detail) -> ContextSelectionRejected(source_detail(detail))
+          ContextSelectionCacheFault() -> ContextSelectionCacheFault()
+
+  @total true
+  @reducible
+  local fn source_verdict(cache: List(ContextSelectionMemo), location: ContextSelectionLocation) -> ContextSelectionVerdict =
+    match location
+      ContextSelectionMissing() -> ContextSelectionRejected(ContextSelectionMissingNode())
+      ContextSelectionFound(p) -> source_option(cache_at(cache, p))
+
+  @total true
+  @reducible
+  local fn source_max(rest: List(ContextSelectionLocation), cache: List(ContextSelectionMemo), depth: Int, next_depth: Int, larger: Bool) -> ContextSelectionVerdict =
+    match larger
+      True() -> sources(rest, cache, next_depth)
+      False() -> sources(rest, cache, depth)
+
+  @total true
+  @reducible
+  local fn source_depth(rest: List(ContextSelectionLocation), cache: List(ContextSelectionMemo), depth: Int, next_depth: Int, fits: Bool) -> ContextSelectionVerdict =
+    match fits
+      False() -> ContextSelectionRejected(ContextSelectionProvenanceDepth())
+      True() -> source_max(rest, cache, depth, next_depth, depth <= next_depth)
+
+  @total true
+  @reducible
+  local fn source_step(rest: List(ContextSelectionLocation), cache: List(ContextSelectionMemo), depth: Int, v: ContextSelectionVerdict) -> ContextSelectionVerdict =
+    match v
+      ContextSelectionCacheFault() -> ContextSelectionCacheFault()
+      ContextSelectionRejected(detail) -> ContextSelectionRejected(detail)
+      ContextSelectionAllowed(child_depth) -> source_depth(rest, cache, depth, child_depth + 1, child_depth + 1 <= 16)
+
+  @total true
+  @reducible
+  local fn sources(edges: List(ContextSelectionLocation), cache: List(ContextSelectionMemo), depth: Int) -> ContextSelectionVerdict =
+    match edges
+      [] -> ContextSelectionAllowed(depth)
+      [edge | rest] -> source_step(rest, cache, depth, source_verdict(cache, edge))
+
+  @total true
+  @reducible
+  local fn scheduled_position(n: ContextSelectionScheduled) -> ContextSelectionPos =
+    n.pos
+
+  @total true
+  @reducible
+  local fn node_after_own(all: List(ContextSelectionPrepared), scheduled: ContextSelectionScheduled, cache: List(ContextSelectionMemo), failure: Option(ContextSelectionDetail)) -> ContextSelectionVerdict =
+    match failure
+      Some(detail) -> ContextSelectionRejected(detail)
+      None() ->
+        match scheduled.cyclic
+          True() -> ContextSelectionRejected(ContextSelectionCyclicProvenance())
+          False() -> sources(edges_at(all, scheduled_position(scheduled)), cache, 1)
+
+  @total true
+  @reducible
+  local fn node_at_verdict(all: List(ContextSelectionPrepared), scheduled: ContextSelectionScheduled, cache: List(ContextSelectionMemo), c: ContextSelectionContext, known: List(ContextSelectionKey), found: Option(ContextSelectionNode)) -> ContextSelectionVerdict =
+    match found
+      None() -> ContextSelectionCacheFault()
+      Some(n) -> node_after_own(all, scheduled, cache, own_failure(n, c, known))
+
+  @total true
+  @reducible
+  local fn prepared_node(found: Option(ContextSelectionPrepared)) -> Option(ContextSelectionNode) =
+    match found
+      None() -> None()
+      Some(n) -> Some(n.node)
+
+
+  @total true
+  @reducible
+  local fn node_verdict(all: List(ContextSelectionPrepared), scheduled: ContextSelectionScheduled, cache: List(ContextSelectionMemo), c: ContextSelectionContext, known: List(ContextSelectionKey)) -> ContextSelectionVerdict =
+    node_at_verdict(all, scheduled, cache, c, known, prepared_node(prepared_at(all, scheduled_position(scheduled))))
+
+  @total true
+  @reducible
+  local fn reverse_acc(order: List(ContextSelectionScheduled), acc: List(ContextSelectionScheduled)) -> List(ContextSelectionScheduled) =
+    match order
+      [] -> acc
+      [x | rest] -> reverse_acc(rest, [x | acc])
+
+  @total true
+  @reducible
+  local fn reverse_order(order: List(ContextSelectionScheduled)) -> List(ContextSelectionScheduled) =
+    reverse_acc(order, [])
+
+  @total true
+  @reducible
+  local fn memo_entry(all: List(ContextSelectionPrepared), n: ContextSelectionScheduled, cache: List(ContextSelectionMemo), c: ContextSelectionContext, known: List(ContextSelectionKey)) -> ContextSelectionMemo =
+    ContextSelectionMemo{pos: scheduled_position(n), verdict: node_verdict(all, n, cache, c, known)}
+
+  @total true
+  @reducible
+  local fn evaluate_cons(all: List(ContextSelectionPrepared), n: ContextSelectionScheduled, cache: List(ContextSelectionMemo), c: ContextSelectionContext, known: List(ContextSelectionKey)) -> List(ContextSelectionMemo) =
+    [memo_entry(all, n, cache, c, known) | cache]
+
+  @total true
+  @reducible
+  local fn evaluate(all: List(ContextSelectionPrepared), reverse_schedule: List(ContextSelectionScheduled), c: ContextSelectionContext, known: List(ContextSelectionKey)) -> List(ContextSelectionMemo) =
+    match reverse_schedule
+      [] -> []
+      [n | rest] -> evaluate_cons(all, n, evaluate(all, rest, c, known), c, known)
+
+  @total true
+  @reducible
+  local fn node_keys(nodes: List(ContextSelectionNode), tail: List(ContextSelectionKey)) -> List(ContextSelectionKey) =
+    match nodes
+      [] -> tail
+      [n | rest] -> [n.key | node_keys(rest, tail)]
+
+  @total true
+  @reducible
+  local fn cache_complete(cache: List(ContextSelectionMemo)) -> Bool =
+    match cache
+      [] -> True()
+      [entry | rest] ->
+        match entry.verdict
+          ContextSelectionCacheFault() -> False()
+          ContextSelectionAllowed(depth) -> cache_complete(rest)
+          ContextSelectionRejected(detail) -> cache_complete(rest)
+
+  type ContextSelectionDedupe = ContextSelectionHash(String) | ContextSelectionRef(ContextSelectionKey)
+  @total true
+  @reducible
+  local fn dedupe_key(x: ContextSelectionCandidate) -> ContextSelectionDedupe =
+    match x.hash
+      None() -> ContextSelectionRef(x.key)
+      Some(hash) -> ContextSelectionHash(hash)
+
+  @total true
+  @reducible
+  local fn dedupe_eq(a: ContextSelectionDedupe, b: ContextSelectionDedupe) -> Bool =
+    match a
+      ContextSelectionHash(x) ->
+        match b
+          ContextSelectionHash(y) -> same(x, y)
+          ContextSelectionRef(y) -> False()
+      ContextSelectionRef(x) ->
+        match b
+          ContextSelectionHash(y) -> False()
+          ContextSelectionRef(y) -> key_eq(x, y)
+
+  @total true
+  @reducible
+  local fn seen_with(key: ContextSelectionDedupe, rest: List(ContextSelectionDedupe), hit: Bool) -> Bool =
+    match hit
+      True() -> True()
+      False() -> seen(key, rest)
+
+  @total true
+  @reducible
+  local fn seen(key: ContextSelectionDedupe, keys: List(ContextSelectionDedupe)) -> Bool =
+    match keys
+      [] -> False()
+      [x | rest] -> seen_with(key, rest, dedupe_eq(key, x))
+
+  @total true
+  @reducible
+  local fn candidate_option(v: Option(ContextSelectionVerdict)) -> ContextSelectionVerdict =
+    match v
+      None() -> ContextSelectionCacheFault()
+      Some(value) -> value
+
+  @total true
+  @reducible
+  local fn candidate_location(cache: List(ContextSelectionMemo), loc: ContextSelectionLocation) -> ContextSelectionVerdict =
+    match loc
+      ContextSelectionMissing() -> ContextSelectionRejected(ContextSelectionMissingNode())
+      ContextSelectionFound(p) -> candidate_option(cache_at(cache, p))
+
+  @total true
+  @reducible
+  local fn candidate_verdict(raw: List(ContextSelectionNode), cache: List(ContextSelectionMemo), x: ContextSelectionCandidate) -> ContextSelectionVerdict =
+    candidate_location(cache, resolve(raw, x.key))
+
+  @total true
+  @reducible
+  local fn add_drop(x: ContextSelectionCandidate, detail: ContextSelectionDetail, result: ContextSelectionResult) -> ContextSelectionResult =
+    match result
+      ContextSelectionFailed(kind) -> ContextSelectionFailed(kind)
+      ContextSelectionSelected(xs, drops) -> ContextSelectionSelected(xs, [ContextSelectionDrop{index: x.index, detail: detail} | drops])
+
+  @total true
+  @reducible
+  local fn add_selected(x: ContextSelectionCandidate, result: ContextSelectionResult) -> ContextSelectionResult =
+    match result
+      ContextSelectionFailed(kind) -> ContextSelectionFailed(kind)
+      ContextSelectionSelected(xs, drops) -> ContextSelectionSelected([x | xs], drops)
+
+  @total true
+  @reducible
+  local fn pack_verdict(x: ContextSelectionCandidate, rest: List(ContextSelectionCandidate), raw: List(ContextSelectionNode), cache: List(ContextSelectionMemo), c: ContextSelectionContext, keys: List(ContextSelectionDedupe), remaining: Int, count: Int, bytes: Int, verdict: ContextSelectionVerdict) -> ContextSelectionResult =
+    match verdict
+      ContextSelectionCacheFault() -> ContextSelectionFailed(ContextSelectionAccessInvariant())
+      ContextSelectionRejected(detail) -> add_drop(x, detail, pack(rest, raw, cache, c, keys, remaining, count, bytes))
+      ContextSelectionAllowed(depth) -> pack_duplicate(x, rest, raw, cache, c, keys, remaining, count, bytes, seen(dedupe_key(x), keys))
+
+  @total true
+  @reducible
+  local fn pack(xs: List(ContextSelectionCandidate), raw: List(ContextSelectionNode), cache: List(ContextSelectionMemo), c: ContextSelectionContext, keys: List(ContextSelectionDedupe), remaining: Int, count: Int, bytes: Int) -> ContextSelectionResult =
+    match xs
+      [] -> ContextSelectionSelected([], [])
+      [x | rest] -> pack_verdict(x, rest, raw, cache, c, keys, remaining, count, bytes, candidate_verdict(raw, cache, x))
+
+  @total true
+  @reducible
+  local fn pack_bytes(x: ContextSelectionCandidate, rest: List(ContextSelectionCandidate), raw: List(ContextSelectionNode), cache: List(ContextSelectionMemo), c: ContextSelectionContext, keys: List(ContextSelectionDedupe), remaining: Int, count: Int, bytes: Int, fits: Bool) -> ContextSelectionResult =
+    match fits
+      False() -> add_drop(x, ContextSelectionByteLimit(), pack(rest, raw, cache, c, keys, remaining, count, bytes))
+      True() -> add_selected(x, pack(rest, raw, cache, c, keys, remaining - x.estimate, count + 1, bytes + x.bytes))
+
+  @total true
+  @reducible
+  local fn pack_count(x: ContextSelectionCandidate, rest: List(ContextSelectionCandidate), raw: List(ContextSelectionNode), cache: List(ContextSelectionMemo), c: ContextSelectionContext, keys: List(ContextSelectionDedupe), remaining: Int, count: Int, bytes: Int, fits: Bool) -> ContextSelectionResult =
+    match fits
+      False() -> add_drop(x, ContextSelectionCountLimit(), pack(rest, raw, cache, c, keys, remaining, count, bytes))
+      True() -> pack_bytes(x, rest, raw, cache, c, keys, remaining, count, bytes, bytes + x.bytes <= c.max_bytes)
+
+  @total true
+  @reducible
+  local fn pack_window(x: ContextSelectionCandidate, rest: List(ContextSelectionCandidate), raw: List(ContextSelectionNode), cache: List(ContextSelectionMemo), c: ContextSelectionContext, keys: List(ContextSelectionDedupe), remaining: Int, count: Int, bytes: Int, fits: Bool) -> ContextSelectionResult =
+    match fits
+      False() -> add_drop(x, ContextSelectionInsufficientWindow(), pack(rest, raw, cache, c, keys, remaining, count, bytes))
+      True() -> pack_count(x, rest, raw, cache, c, keys, remaining, count, bytes, count + 1 <= c.max_count)
+
+  @total true
+  @reducible
+  local fn pack_duplicate(x: ContextSelectionCandidate, rest: List(ContextSelectionCandidate), raw: List(ContextSelectionNode), cache: List(ContextSelectionMemo), c: ContextSelectionContext, keys: List(ContextSelectionDedupe), remaining: Int, count: Int, bytes: Int, duplicate: Bool) -> ContextSelectionResult =
+    match duplicate
+      True() -> add_drop(x, ContextSelectionDuplicate(), pack(rest, raw, cache, c, keys, remaining, count, bytes))
+      False() -> pack_window(x, rest, raw, cache, c, [dedupe_key(x) | keys], remaining, count, bytes, x.estimate <= remaining)
+
+  @total true
+  @reducible
+  local fn sum_estimates(xs: List(ContextSelectionCandidate)) -> Int =
+    match xs
+      [] -> 0
+      [x | rest] -> x.estimate + sum_estimates(rest)
+
+  @total true
+  @reducible
+  local fn sum_bytes(xs: List(ContextSelectionCandidate)) -> Int =
+    match xs
+      [] -> 0
+      [x | rest] -> x.bytes + sum_bytes(rest)
+
+  @total true
+  @reducible
+  local fn selected_count(xs: List(ContextSelectionCandidate)) -> Int =
+    match xs
+      [] -> 0
+      [x | rest] -> 1 + selected_count(rest)
+
+  @total true
+  @reducible
+  local fn selected_access_with(rest: List(ContextSelectionCandidate), raw: List(ContextSelectionNode), cache: List(ContextSelectionMemo), v: ContextSelectionVerdict) -> Bool =
+    match v
+      ContextSelectionAllowed(depth) -> selected_access(rest, raw, cache)
+      ContextSelectionRejected(detail) -> False()
+      ContextSelectionCacheFault() -> False()
+
+  @total true
+  @reducible
+  local fn selected_access(xs: List(ContextSelectionCandidate), raw: List(ContextSelectionNode), cache: List(ContextSelectionMemo)) -> Bool =
+    match xs
+      [] -> True()
+      [x | rest] -> selected_access_with(rest, raw, cache, candidate_verdict(raw, cache, x))
+
+  @total true
+  @reducible
+  local fn fits_window(xs: List(ContextSelectionCandidate), c: ContextSelectionContext) -> Bool =
+    sum_estimates(xs) + c.reserved <= c.window
+
+  @total true
+  @reducible
+  local fn guarded(xs: List(ContextSelectionCandidate), drops: List(ContextSelectionDrop), window_ok: Bool, count_ok: Bool, bytes_ok: Bool, access_ok: Bool) -> ContextSelectionResult =
+    match window_ok
+      False() -> ContextSelectionFailed(ContextSelectionWindowInvariant())
+      True() ->
+        match count_ok
+          False() -> ContextSelectionFailed(ContextSelectionCountInvariant())
+          True() ->
+            match bytes_ok
+              False() -> ContextSelectionFailed(ContextSelectionBytesInvariant())
+              True() ->
+                match access_ok
+                  False() -> ContextSelectionFailed(ContextSelectionAccessInvariant())
+                  True() -> ContextSelectionSelected(xs, drops)
+
+  @total true
+  @reducible
+  local fn finish(result: ContextSelectionResult, raw: List(ContextSelectionNode), cache: List(ContextSelectionMemo), c: ContextSelectionContext) -> ContextSelectionResult =
+    match result
+      ContextSelectionFailed(kind) -> ContextSelectionFailed(kind)
+      ContextSelectionSelected(xs, drops) -> guarded(xs, drops, fits_window(xs, c), selected_count(xs) <= c.max_count, sum_bytes(xs) <= c.max_bytes, selected_access(xs, raw, cache))
+
+  @total true
+  @reducible
+  local fn consume_edges(edges: List(ContextSelectionLocation), fuel: List(Bool)) -> Option(List(Bool)) =
+    match edges
+      [] -> Some(fuel)
+      [edge | rest] ->
+        match fuel
+          [] -> None()
+          [token | tokens] -> consume_edges(rest, tokens)
+
+  @total true
+  @reducible
+  local fn fuel_empty(fuel: List(Bool)) -> Bool =
+    match fuel
+      [] -> True()
+      [token | tokens] -> False()
+
+  @total true
+  @reducible
+  local fn charge_edges(all: List(ContextSelectionPrepared), rest: List(ContextSelectionScheduled), remaining: Option(List(Bool))) -> Bool =
+    match remaining
+      None() -> False()
+      Some(tokens) -> charge_schedule(all, rest, tokens)
+
+  @total true
+  @reducible
+  local fn charge_schedule(all: List(ContextSelectionPrepared), schedule: List(ContextSelectionScheduled), fuel: List(Bool)) -> Bool =
+    match schedule
+      [] -> fuel_empty(fuel)
+      [n | rest] ->
+        match fuel
+          [] -> False()
+          [token | tokens] -> charge_edges(all, rest, consume_edges(edges_at(all, scheduled_position(n)), tokens))
+
+  @total true
+  @reducible
+  local fn select_complete(xs: List(ContextSelectionCandidate), raw: List(ContextSelectionNode), c: ContextSelectionContext, cache: List(ContextSelectionMemo), complete: Bool) -> ContextSelectionResult =
+    match complete
+      False() -> ContextSelectionFailed(ContextSelectionAccessInvariant())
+      True() -> finish(pack(xs, raw, cache, c, [], c.window - c.reserved, 0, 0), raw, cache, c)
+
+  @total true
+  @reducible
+  local fn select_cache(xs: List(ContextSelectionCandidate), raw: List(ContextSelectionNode), c: ContextSelectionContext, cache: List(ContextSelectionMemo)) -> ContextSelectionResult =
+    select_complete(xs, raw, c, cache, cache_complete(cache))
+
+  @total true
+  @reducible
+  local fn select_charged(all: List(ContextSelectionPrepared), xs: List(ContextSelectionCandidate), raw: List(ContextSelectionNode), known: List(ContextSelectionKey), c: ContextSelectionContext, schedule: List(ContextSelectionScheduled), charged: Bool) -> ContextSelectionResult =
+    match charged
+      False() -> ContextSelectionFailed(ContextSelectionAccessInvariant())
+      True() -> select_cache(xs, raw, c, evaluate(all, reverse_order(schedule), c, known))
+
+  @total true
+  @reducible
+  local fn select_order(all: List(ContextSelectionPrepared), xs: List(ContextSelectionCandidate), raw: List(ContextSelectionNode), known: List(ContextSelectionKey), c: ContextSelectionContext, schedule: Option(List(ContextSelectionScheduled))) -> ContextSelectionResult =
+    match schedule
+      None() -> ContextSelectionFailed(ContextSelectionAccessInvariant())
+      Some(order) -> select_charged(all, xs, raw, known, c, order, charge_schedule(all, order, graph_fuel(raw)))
+
+  @total true
+  @reducible
+  local fn select_prepared(xs: List(ContextSelectionCandidate), raw: List(ContextSelectionNode), known: List(ContextSelectionKey), c: ContextSelectionContext, all: List(ContextSelectionPrepared)) -> ContextSelectionResult =
+    select_order(all, xs, raw, known, c, order(raw, positions(raw, ContextSelectionHere()), all, blank_flags(raw), graph_fuel(raw), blank_flags(raw), False()))
+
+  @total true
+  @reducible
+  fn select(xs: List(ContextSelectionCandidate), raw: List(ContextSelectionNode), known: List(ContextSelectionKey), c: ContextSelectionContext) -> ContextSelectionResult =
+    select_prepared(xs, raw, node_keys(raw, known), c, prepare(raw, raw, ContextSelectionHere()))
+
+  @total true
+  @reducible
+  local fn spec_estimates(xs: List(ContextSelectionCandidate)) -> Int =
+    match xs
+      [] -> 0
+      [x | rest] -> x.estimate + spec_estimates(rest)
+
+  @total true
+  @reducible
+  local fn spec_window(xs: List(ContextSelectionCandidate), c: ContextSelectionContext) -> Bool =
+    spec_estimates(xs) + c.reserved <= c.window
+
+  @total true
+  @reducible
+  local fn window_holds(result: ContextSelectionResult, c: ContextSelectionContext) -> Bool =
+    match result
+      ContextSelectionFailed(kind) -> True()
+      ContextSelectionSelected(xs, drops) -> spec_window(xs, c)
+
+  @total true
+  @reducible
+  local fn no_verdict() -> Option(ContextSelectionVerdict) =
+    None()
+
+  @total true
+  @reducible
+  local fn spec_binding(n: ContextSelectionNode, ck: ContextSelectionCheck, c: ContextSelectionContext) -> Bool =
+    both(key_eq(n.key, ck.key), both(same(n.tenant, c.tenant), both(same(ck.tenant, c.tenant), both(same(n.source, ck.source), both(hash_eq(n.hash, ck.hash), same(ck.principal, c.principal))))))
+
+  @total true
+  @reducible
+  local fn spec_version(n: ContextSelectionNode, c: ContextSelectionContext, newer: Bool) -> Option(ContextSelectionDetail) =
+    match newer
+      True() -> Some(ContextSelectionNewerVersion())
+      False() ->
+        match n.refs
+          [] -> None()
+          [first | rest] ->
+            match c.allow_derived
+              False() -> Some(ContextSelectionDerivedDisabled())
+              True() -> None()
+
+  @total true
+  @reducible
+  local fn spec_age(n: ContextSelectionNode, c: ContextSelectionContext, known: List(ContextSelectionKey), fresh: Bool) -> Option(ContextSelectionDetail) =
+    match fresh
+      False() -> Some(ContextSelectionExpiredCheck())
+      True() -> spec_version(n, c, has_newer(n.key, known))
+
+  @total true
+  @reducible
+  local fn spec_time(n: ContextSelectionNode, ck: ContextSelectionCheck, c: ContextSelectionContext, known: List(ContextSelectionKey), ordered: Bool) -> Option(ContextSelectionDetail) =
+    match ordered
+      False() -> Some(ContextSelectionFutureCheck())
+      True() -> spec_age(n, c, known, c.now - ck.checked_at <= c.max_age)
+
+  @total true
+  @reducible
+  local fn spec_checked(n: ContextSelectionNode, ck: ContextSelectionCheck, c: ContextSelectionContext, known: List(ContextSelectionKey), bound: Bool) -> Option(ContextSelectionDetail) =
+    match bound
+      False() -> Some(ContextSelectionBindingMismatch())
+      True() ->
+        match ck.allowed
+          False() -> Some(ContextSelectionDenied())
+          True() -> spec_time(n, ck, c, known, both(ck.checked_at <= c.snapshot, c.snapshot <= c.now))
+
+  @total true
+  @reducible
+  local fn spec_tenant(n: ContextSelectionNode, c: ContextSelectionContext, known: List(ContextSelectionKey), matches: Bool) -> Option(ContextSelectionDetail) =
+    match matches
+      False() -> Some(ContextSelectionBindingMismatch())
+      True() ->
+        match n.current_check
+          None() -> Some(ContextSelectionMissingCheck())
+          Some(ck) -> spec_checked(n, ck, c, known, spec_binding(n, ck, c))
+
+  @total true
+  @reducible
+  local fn spec_own(n: ContextSelectionNode, c: ContextSelectionContext, known: List(ContextSelectionKey)) -> Option(ContextSelectionDetail) =
+    spec_tenant(n, c, known, same(n.tenant, c.tenant))
+
+  @total true
+  @reducible
+  local fn spec_source_detail(d: ContextSelectionDetail) -> ContextSelectionDetail =
+    match d
+      ContextSelectionMissingCheck() -> ContextSelectionSourceUnchecked()
+      ContextSelectionDenied() -> ContextSelectionSourceDenied()
+      ContextSelectionExpiredCheck() -> ContextSelectionSourceStale()
+      ContextSelectionFutureCheck() -> ContextSelectionSourceStale()
+      ContextSelectionNewerVersion() -> ContextSelectionSupersededSource()
+      other -> other
+
+  @total true
+  @reducible
+  local fn spec_source_option(value: Option(ContextSelectionVerdict)) -> ContextSelectionVerdict =
+    match value
+      None() -> ContextSelectionCacheFault()
+      Some(v) ->
+        match v
+          ContextSelectionCacheFault() -> ContextSelectionCacheFault()
+          ContextSelectionRejected(d) -> ContextSelectionRejected(spec_source_detail(d))
+          ContextSelectionAllowed(depth) -> ContextSelectionAllowed(depth)
+
+  @total true
+  @reducible
+  local fn raw_edges(raw: List(ContextSelectionNode), found: Option(ContextSelectionNode)) -> List(ContextSelectionLocation) =
+    match found
+      None() -> []
+      Some(n) -> resolve_edges(raw, n.refs)
+
+
+  @total true
+  @reducible
+  local fn raw_at(raw: List(ContextSelectionNode), p: ContextSelectionPos) -> Option(ContextSelectionNode) =
+    match raw
+      [] -> None()
+      [n | rest] ->
+        match p
+          ContextSelectionHere() -> Some(n)
+          ContextSelectionThere(tail) -> raw_at(rest, tail)
+
+
+  @total true
+  @reducible
+  local fn spec_edges_at(raw: List(ContextSelectionNode), p: ContextSelectionPos) -> List(ContextSelectionLocation) =
+    raw_edges(raw, raw_at(raw, p))
+
+  @total true
+  @reducible
+  local fn spec_source_max(raw: List(ContextSelectionNode), rest: List(ContextSelectionLocation), prior: List(ContextSelectionScheduled), c: ContextSelectionContext, known: List(ContextSelectionKey), depth: Int, next_depth: Int, larger: Bool) -> ContextSelectionVerdict =
+    match larger
+      True() -> spec_sources(raw, rest, prior, c, known, next_depth)
+      False() -> spec_sources(raw, rest, prior, c, known, depth)
+
+  @total true
+  @reducible
+  local fn spec_source_depth(raw: List(ContextSelectionNode), rest: List(ContextSelectionLocation), prior: List(ContextSelectionScheduled), c: ContextSelectionContext, known: List(ContextSelectionKey), depth: Int, next_depth: Int, fits: Bool) -> ContextSelectionVerdict =
+    match fits
+      False() -> ContextSelectionRejected(ContextSelectionProvenanceDepth())
+      True() -> spec_source_max(raw, rest, prior, c, known, depth, next_depth, depth <= next_depth)
+
+  @total true
+  @reducible
+  local fn spec_source_step(raw: List(ContextSelectionNode), rest: List(ContextSelectionLocation), prior: List(ContextSelectionScheduled), c: ContextSelectionContext, known: List(ContextSelectionKey), depth: Int, v: ContextSelectionVerdict) -> ContextSelectionVerdict =
+    match v
+      ContextSelectionRejected(detail) -> ContextSelectionRejected(detail)
+      ContextSelectionCacheFault() -> ContextSelectionCacheFault()
+      ContextSelectionAllowed(child_depth) -> spec_source_depth(raw, rest, prior, c, known, depth, child_depth + 1, child_depth + 1 <= 16)
+
+  @total true
+  @reducible
+  local fn spec_node_at(raw: List(ContextSelectionNode), n: ContextSelectionScheduled, prior: List(ContextSelectionScheduled), c: ContextSelectionContext, known: List(ContextSelectionKey), found: Option(ContextSelectionNode)) -> ContextSelectionVerdict =
+    match found
+      None() -> ContextSelectionCacheFault()
+      Some(x) -> spec_after_own(raw, n, prior, c, known, spec_own(x, c, known))
+
+  @total true
+  @reducible
+  local fn spec_node(raw: List(ContextSelectionNode), n: ContextSelectionScheduled, prior: List(ContextSelectionScheduled), c: ContextSelectionContext, known: List(ContextSelectionKey)) -> ContextSelectionVerdict =
+    spec_node_at(raw, n, prior, c, known, raw_at(raw, scheduled_position(n)))
+
+  @total true
+  @reducible
+  local fn spec_hit(raw: List(ContextSelectionNode), n: ContextSelectionScheduled, rest: List(ContextSelectionScheduled), p: ContextSelectionPos, c: ContextSelectionContext, known: List(ContextSelectionKey), hit: Bool) -> Option(ContextSelectionVerdict) =
+    match hit
+      False() -> spec_at(raw, rest, p, c, known)
+      True() -> Some(spec_node(raw, n, rest, c, known))
+
+  @total true
+  @reducible
+  local fn spec_at(raw: List(ContextSelectionNode), prior: List(ContextSelectionScheduled), p: ContextSelectionPos, c: ContextSelectionContext, known: List(ContextSelectionKey)) -> Option(ContextSelectionVerdict) =
+    match prior
+      [] -> None()
+      [n | rest] -> spec_hit(raw, n, rest, p, c, known, pos_eq(scheduled_position(n), p))
+
+  @total true
+  @reducible
+  local fn spec_source(raw: List(ContextSelectionNode), prior: List(ContextSelectionScheduled), loc: ContextSelectionLocation, c: ContextSelectionContext, known: List(ContextSelectionKey)) -> ContextSelectionVerdict =
+    match loc
+      ContextSelectionMissing() -> ContextSelectionRejected(ContextSelectionMissingNode())
+      ContextSelectionFound(p) -> spec_source_option(spec_at(raw, prior, p, c, known))
+
+  @total true
+  @reducible
+  local fn spec_sources(raw: List(ContextSelectionNode), edges: List(ContextSelectionLocation), prior: List(ContextSelectionScheduled), c: ContextSelectionContext, known: List(ContextSelectionKey), depth: Int) -> ContextSelectionVerdict =
+    match edges
+      [] -> ContextSelectionAllowed(depth)
+      [e | rest] -> spec_source_step(raw, rest, prior, c, known, depth, spec_source(raw, prior, e, c, known))
+
+  @total true
+  @reducible
+  local fn spec_after_own(raw: List(ContextSelectionNode), n: ContextSelectionScheduled, prior: List(ContextSelectionScheduled), c: ContextSelectionContext, known: List(ContextSelectionKey), failure: Option(ContextSelectionDetail)) -> ContextSelectionVerdict =
+    match failure
+      Some(detail) -> ContextSelectionRejected(detail)
+      None() ->
+        match n.cyclic
+          True() -> ContextSelectionRejected(ContextSelectionCyclicProvenance())
+          False() -> spec_sources(raw, spec_edges_at(raw, scheduled_position(n)), prior, c, known, 1)
+
+  @total true
+  @reducible
+  local fn spec_candidate_option(v: Option(ContextSelectionVerdict)) -> ContextSelectionVerdict =
+    match v
+      None() -> ContextSelectionCacheFault()
+      Some(value) -> value
+
+  @total true
+  @reducible
+  local fn spec_candidate_location(raw: List(ContextSelectionNode), prior: List(ContextSelectionScheduled), loc: ContextSelectionLocation, c: ContextSelectionContext, known: List(ContextSelectionKey)) -> ContextSelectionVerdict =
+    match loc
+      ContextSelectionMissing() -> ContextSelectionRejected(ContextSelectionMissingNode())
+      ContextSelectionFound(p) -> spec_candidate_option(spec_at(raw, prior, p, c, known))
+
+  @total true
+  @reducible
+  local fn spec_candidate(raw: List(ContextSelectionNode), prior: List(ContextSelectionScheduled), x: ContextSelectionCandidate, c: ContextSelectionContext, known: List(ContextSelectionKey)) -> ContextSelectionVerdict =
+    spec_candidate_location(raw, prior, resolve(raw, x.key), c, known)
+
+  @total true
+  @reducible
+  local fn spec_selected_with(rest: List(ContextSelectionCandidate), raw: List(ContextSelectionNode), prior: List(ContextSelectionScheduled), c: ContextSelectionContext, known: List(ContextSelectionKey), v: ContextSelectionVerdict) -> Bool =
+    match v
+      ContextSelectionCacheFault() -> False()
+      ContextSelectionRejected(detail) -> False()
+      ContextSelectionAllowed(depth) -> spec_selected_access(rest, raw, prior, c, known)
+
+  @total true
+  @reducible
+  local fn spec_selected_access(xs: List(ContextSelectionCandidate), raw: List(ContextSelectionNode), prior: List(ContextSelectionScheduled), c: ContextSelectionContext, known: List(ContextSelectionKey)) -> Bool =
+    match xs
+      [] -> True()
+      [x | rest] -> spec_selected_with(rest, raw, prior, c, known, spec_candidate(raw, prior, x, c, known))
+
+  @total true
+  @reducible
+  local fn access_result(result: ContextSelectionResult, raw: List(ContextSelectionNode), prior: List(ContextSelectionScheduled), c: ContextSelectionContext, known: List(ContextSelectionKey)) -> Bool =
+    match result
+      ContextSelectionFailed(kind) -> True()
+      ContextSelectionSelected(xs, drops) -> spec_selected_access(xs, raw, prior, c, known)
+
+  @total true
+  @reducible
+  local fn access_order_result(result: ContextSelectionResult, raw: List(ContextSelectionNode), known: List(ContextSelectionKey), c: ContextSelectionContext, order: Option(List(ContextSelectionScheduled))) -> Bool =
+    match result
+      ContextSelectionFailed(kind) -> True()
+      ContextSelectionSelected(xs, drops) ->
+        match order
+          None() -> False()
+          Some(schedule) -> spec_selected_access(xs, raw, reverse_order(schedule), c, known)
+
+  @total true
+  @reducible
+  local fn raw_index(raw: List(ContextSelectionNode), location: ContextSelectionLocation) -> Option(ContextSelectionNode) =
+    match location
+      ContextSelectionMissing() -> None()
+      ContextSelectionFound(p) -> raw_at(raw, p)
+
+
+  @total true
+  @reducible
+  local fn raw_hit(n: ContextSelectionNode, rest: List(ContextSelectionNode), key: ContextSelectionKey, hit: Bool) -> Option(ContextSelectionNode) =
+    match hit
+      True() -> Some(n)
+      False() -> raw_lookup(rest, key)
+
+
+  @total true
+  @reducible
+  local fn raw_lookup(raw: List(ContextSelectionNode), key: ContextSelectionKey) -> Option(ContextSelectionNode) =
+    match raw
+      [] -> None()
+      [n | rest] -> raw_hit(n, rest, key, key_eq(n.key, key))
+
+
+  @total true
+  @reducible
+  local fn prepend_raw(n: ContextSelectionNode, rest: List(ContextSelectionNode)) -> List(ContextSelectionNode) =
+    [n | rest]
+
+
+  @total true
+  @reducible
+  local fn no_node() -> Option(ContextSelectionNode) =
+    None()
+
+
+  @total true
+  @reducible
+  local fn no_edges() -> List(ContextSelectionLocation) =
+    []
+
+
+  @total true
+  @reducible
+  local fn position_plus(a: ContextSelectionPos, b: ContextSelectionPos) -> ContextSelectionPos =
+    match a
+      ContextSelectionHere() -> b
+      ContextSelectionThere(tail) -> ContextSelectionThere(position_plus(tail, b))
+
+  @total true
+  @reducible
+  local fn prepared_position(found: Option(ContextSelectionPrepared)) -> Option(ContextSelectionPos) =
+    match found
+      None() -> None()
+      Some(n) -> Some(n.pos)
+
+  @total true
+  @reducible
+  local fn label_found(found: Option(ContextSelectionNode), label: ContextSelectionPos) -> Option(ContextSelectionPos) =
+    match found
+      None() -> None()
+      Some(n) -> Some(label)
+
+  @total true
+  @reducible
+  local fn no_position() -> Option(ContextSelectionPos) =
+    None()
+
+  @total true
+  @reducible
+  local fn spec_pop_with(p: ContextSelectionPos, rest: List(ContextSelectionPos), nodes: List(ContextSelectionNode), visited: List(Bool), ready: Bool) -> ContextSelectionReady =
+    match ready
+      True() -> ContextSelectionReadyNode(p, rest)
+      False() -> retain_pending(p, spec_pop_ready(rest, nodes, visited))
+
+
+  @total true
+  @reducible
+  local fn spec_pop_ready(pending: List(ContextSelectionPos), nodes: List(ContextSelectionNode), visited: List(Bool)) -> ContextSelectionReady =
+    match pending
+      [] -> ContextSelectionNoReady()
+      [p | rest] -> spec_pop_with(p, rest, nodes, visited, ready_edges(spec_edges_at(nodes, p), visited))
+
+
+  @total true
+  @reducible
+  local fn spec_reach_seen(fuel: List(Bool), pos: ContextSelectionPos, tail: List(ContextSelectionLocation), target: ContextSelectionPos, nodes: List(ContextSelectionNode), visited: List(Bool), seen: Bool) -> Bool =
+    match seen
+      True() -> spec_reachable(fuel, tail, target, nodes, visited)
+      False() -> spec_reachable(fuel, append_edges(spec_edges_at(nodes, pos), tail), target, nodes, mark(visited, pos))
+
+
+  @total true
+  @reducible
+  local fn spec_reach_found(fuel: List(Bool), pos: ContextSelectionPos, tail: List(ContextSelectionLocation), target: ContextSelectionPos, nodes: List(ContextSelectionNode), visited: List(Bool), hit: Bool) -> Bool =
+    match hit
+      True() -> True()
+      False() -> spec_reach_seen(fuel, pos, tail, target, nodes, visited, flags_at(visited, pos))
+
+
+
+  @total true
+  @reducible
+  local fn spec_reach_location(fuel: List(Bool), loc: ContextSelectionLocation, tail: List(ContextSelectionLocation), target: ContextSelectionPos, nodes: List(ContextSelectionNode), visited: List(Bool)) -> Bool =
+    match loc
+      ContextSelectionMissing() -> spec_reachable(fuel, tail, target, nodes, visited)
+      ContextSelectionFound(p) -> spec_reach_found(fuel, p, tail, target, nodes, visited, pos_eq(p, target))
+
+
+
+  @total true
+  @reducible
+  local fn spec_reachable(fuel: List(Bool), queue: List(ContextSelectionLocation), target: ContextSelectionPos, nodes: List(ContextSelectionNode), visited: List(Bool)) -> Bool =
+    match fuel
+      [] -> False()
+      [_ | rest] ->
+        match queue
+          [] -> False()
+          [x | tail] -> spec_reach_location(rest, x, tail, target, nodes, visited)
+
+
+
+  @total true
+  @reducible
+  local fn spec_cycle_with(p: ContextSelectionPos, rest: List(ContextSelectionPos), nodes: List(ContextSelectionNode), fuel: List(Bool), blank: List(Bool), cyclic: Bool) -> ContextSelectionReady =
+    match cyclic
+      True() -> ContextSelectionReadyNode(p, rest)
+      False() -> retain_pending(p, spec_pop_cycle(rest, nodes, fuel, blank))
+
+
+  @total true
+  @reducible
+  local fn spec_pop_cycle(pending: List(ContextSelectionPos), nodes: List(ContextSelectionNode), fuel: List(Bool), blank: List(Bool)) -> ContextSelectionReady =
+    match pending
+      [] -> ContextSelectionNoReady()
+      [p | rest] -> spec_cycle_with(p, rest, nodes, fuel, blank, spec_reachable(fuel, spec_edges_at(nodes, p), p, nodes, blank))
+
+
+  @total true
+  @reducible
+  local fn spec_cycle_if_started(started: Bool, n: ContextSelectionPos, all: List(ContextSelectionNode), fuel: List(Bool), blank: List(Bool)) -> Bool =
+    match started
+      False() -> False()
+      True() -> spec_reachable(fuel, spec_edges_at(all, n), n, all, blank)
+
+
+
+  @total true
+  @reducible
+  local fn spec_schedule_one(fuel: List(ContextSelectionNode), n: ContextSelectionPos, pending: List(ContextSelectionPos), all: List(ContextSelectionNode), visited: List(Bool), edge_fuel: List(Bool), blank: List(Bool), cycles_started: Bool, cyclic: Bool) -> Option(List(ContextSelectionScheduled)) =
+    prepend_scheduled(ContextSelectionScheduled{pos: n, cyclic: cyclic}, spec_order(fuel, pending, all, mark(visited, n), edge_fuel, blank, cycles_started))
+
+
+
+  @total true
+  @reducible
+  local fn spec_order_cycle(fuel: List(ContextSelectionNode), found: ContextSelectionReady, all: List(ContextSelectionNode), visited: List(Bool), edge_fuel: List(Bool), blank: List(Bool)) -> Option(List(ContextSelectionScheduled)) =
+    match found
+      ContextSelectionNoReady() -> None()
+      ContextSelectionReadyNode(n, rest) -> spec_schedule_one(fuel, n, rest, all, visited, edge_fuel, blank, True(), True())
+
+
+
+  @total true
+  @reducible
+  local fn spec_order_ready(fuel: List(ContextSelectionNode), found: ContextSelectionReady, pending: List(ContextSelectionPos), all: List(ContextSelectionNode), visited: List(Bool), edge_fuel: List(Bool), blank: List(Bool), cycles_started: Bool) -> Option(List(ContextSelectionScheduled)) =
+    match found
+      ContextSelectionReadyNode(n, rest) -> spec_schedule_one(fuel, n, rest, all, visited, edge_fuel, blank, cycles_started, spec_cycle_if_started(cycles_started, n, all, edge_fuel, blank))
+      ContextSelectionNoReady() -> spec_order_cycle(fuel, spec_pop_cycle(pending, all, edge_fuel, blank), all, visited, edge_fuel, blank)
+
+
+
+  @total true
+  @reducible
+  local fn spec_order(fuel: List(ContextSelectionNode), pending: List(ContextSelectionPos), all: List(ContextSelectionNode), visited: List(Bool), edge_fuel: List(Bool), blank: List(Bool), cycles_started: Bool) -> Option(List(ContextSelectionScheduled)) =
+    match pending
+      [] -> Some([])
+      [pending_head | pending_tail] ->
+        match fuel
+          [] -> None()
+          [fuel_head | rest] -> spec_order_ready(rest, spec_pop_ready(pending, all, visited), pending, all, visited, edge_fuel, blank, cycles_started)
+
+
+
+  @total true
+  @reducible
+  local fn spec_dependency_order(raw: List(ContextSelectionNode)) -> Option(List(ContextSelectionScheduled)) =
+    spec_order(raw, positions(raw, ContextSelectionHere()), raw, blank_flags(raw), graph_fuel(raw), blank_flags(raw), False())
+
+  @total true
+  @reducible
+  local fn no_schedule() -> List(ContextSelectionScheduled) =
+    []
+
+  @total true
+  @reducible
+  local fn no_order() -> Option(List(ContextSelectionScheduled)) =
+    None()
+
+  @total true
+  local fn estimates_equal(xs: List(ContextSelectionCandidate)) -> Equivalent(Int, spec_estimates(xs), sum_estimates(xs)) =
+    match xs
+      [] -> reflexive(0)
+      [x | rest] -> rewrite estimates_equal(rest) in reflexive(x.estimate + sum_estimates(rest))
+
+  @total true
+  local fn guarded_window(xs: List(ContextSelectionCandidate), drops: List(ContextSelectionDrop), c: ContextSelectionContext, w: Bool, count: Bool, bytes: Bool, access: Bool, h: Equivalent(Bool, fits_window(xs, c), w)) -> Equivalent(Bool, window_holds(guarded(xs, drops, w, count, bytes, access), c), True()) =
+    match w
+      False() -> reflexive(True())
+      True() ->
+        match count
+          False() -> reflexive(True())
+          True() ->
+            match bytes
+              False() -> reflexive(True())
+              True() ->
+                match access
+                  False() -> reflexive(True())
+                  True() -> rewrite estimates_equal(xs) in h
+
+  @total true
+  local fn finish_window_law(result: ContextSelectionResult, raw: List(ContextSelectionNode), cache: List(ContextSelectionMemo), c: ContextSelectionContext) -> Equivalent(Bool, window_holds(finish(result, raw, cache, c), c), True()) =
+    match result
+      ContextSelectionFailed(kind) -> reflexive(True())
+      ContextSelectionSelected(xs, drops) -> guarded_window(xs, drops, c, fits_window(xs, c), selected_count(xs) <= c.max_count, sum_bytes(xs) <= c.max_bytes, selected_access(xs, raw, cache), reflexive(fits_window(xs, c)))
+
+  @total true
+  local fn complete_window_law(xs: List(ContextSelectionCandidate), raw: List(ContextSelectionNode), c: ContextSelectionContext, cache: List(ContextSelectionMemo), complete: Bool) -> Equivalent(Bool, window_holds(select_complete(xs, raw, c, cache, complete), c), True()) =
+    match complete
+      False() -> reflexive(True())
+      True() -> finish_window_law(pack(xs, raw, cache, c, [], c.window - c.reserved, 0, 0), raw, cache, c)
+
+  @total true
+  local fn charged_window_law(xs: List(ContextSelectionCandidate), raw: List(ContextSelectionNode), known: List(ContextSelectionKey), c: ContextSelectionContext, schedule: List(ContextSelectionScheduled), charged: Bool) -> Equivalent(Bool, window_holds(select_charged(prepare(raw, raw, ContextSelectionHere()), xs, raw, known, c, schedule, charged), c), True()) =
+    match charged
+      False() -> reflexive(True())
+      True() -> complete_window_law(xs, raw, c, evaluate(prepare(raw, raw, ContextSelectionHere()), reverse_order(schedule), c, known), cache_complete(evaluate(prepare(raw, raw, ContextSelectionHere()), reverse_order(schedule), c, known)))
+
+  @total true
+  local fn order_window_law(xs: List(ContextSelectionCandidate), raw: List(ContextSelectionNode), known: List(ContextSelectionKey), c: ContextSelectionContext, schedule: Option(List(ContextSelectionScheduled))) -> Equivalent(Bool, window_holds(select_order(prepare(raw, raw, ContextSelectionHere()), xs, raw, known, c, schedule), c), True()) =
+    match schedule
+      None() -> reflexive(True())
+      Some(order) -> charged_window_law(xs, raw, known, c, order, charge_schedule(prepare(raw, raw, ContextSelectionHere()), order, graph_fuel(raw)))
+
+  @total true
+  fn selected_window(xs: List(ContextSelectionCandidate), raw: List(ContextSelectionNode), known: List(ContextSelectionKey), c: ContextSelectionContext) -> Equivalent(Bool, window_holds(select(xs, raw, known, c), c), True()) =
+    order_window_law(xs, raw, node_keys(raw, known), c, dependency_order(raw))
+
+  @total true
+  local fn own_corresponds(n: ContextSelectionNode, c: ContextSelectionContext, known: List(ContextSelectionKey)) -> Equivalent(Option(ContextSelectionDetail), own_failure(n, c, known), spec_own(n, c, known)) =
+    reflexive(own_failure(n, c, known))
+
+  @total true
+  local fn source_option_corresponds(v: Option(ContextSelectionVerdict)) -> Equivalent(ContextSelectionVerdict, source_option(v), spec_source_option(v)) =
+    reflexive(source_option(v))
+
+  @total true
+  fn prepared_node_law(raw: List(ContextSelectionNode), todo: List(ContextSelectionNode), start: ContextSelectionPos, p: ContextSelectionPos) -> Equivalent(Option(ContextSelectionNode), prepared_node(prepared_at(prepare(raw, todo, start), p)), raw_at(todo, p)) =
+    match todo
+      [] -> reflexive(no_node())
+      [n | rest] ->
+        match p
+          ContextSelectionHere() -> reflexive(Some(n))
+          ContextSelectionThere(tail) -> prepared_node_law(raw, rest, ContextSelectionThere(start), tail)
+
+
+  @total true
+  fn prepared_edges_law(raw: List(ContextSelectionNode), todo: List(ContextSelectionNode), start: ContextSelectionPos, p: ContextSelectionPos) -> Equivalent(List(ContextSelectionLocation), prepared_edges(prepared_at(prepare(raw, todo, start), p)), raw_edges(raw, raw_at(todo, p))) =
+    match todo
+      [] -> reflexive(no_edges())
+      [n | rest] ->
+        match p
+          ContextSelectionHere() -> reflexive(resolve_edges(raw, n.refs))
+          ContextSelectionThere(tail) -> prepared_edges_law(raw, rest, ContextSelectionThere(start), tail)
+
+
+  @total true
+  local fn edges_at_law(raw: List(ContextSelectionNode), p: ContextSelectionPos) -> Equivalent(List(ContextSelectionLocation), edges_at(prepare(raw, raw, ContextSelectionHere()), p), spec_edges_at(raw, p)) =
+    prepared_edges_law(raw, raw, ContextSelectionHere(), p)
+
+  @total true
+  fn memo_lookup_corresponds(raw: List(ContextSelectionNode), prior: List(ContextSelectionScheduled), p: ContextSelectionPos, c: ContextSelectionContext, known: List(ContextSelectionKey)) -> Equivalent(Option(ContextSelectionVerdict), cache_at(evaluate(prepare(raw, raw, ContextSelectionHere()), prior, c, known), p), spec_at(raw, prior, p, c, known)) =
+    match prior
+      [] -> reflexive(no_verdict())
+      [n | rest] -> memo_hit_corresponds(raw, n, rest, p, c, known, pos_eq(scheduled_position(n), p))
+
+  @total true
+  local fn source_corresponds(raw: List(ContextSelectionNode), prior: List(ContextSelectionScheduled), loc: ContextSelectionLocation, c: ContextSelectionContext, known: List(ContextSelectionKey)) -> Equivalent(ContextSelectionVerdict, source_verdict(evaluate(prepare(raw, raw, ContextSelectionHere()), prior, c, known), loc), spec_source(raw, prior, loc, c, known)) =
+    match loc
+      ContextSelectionMissing() -> reflexive(ContextSelectionRejected(ContextSelectionMissingNode()))
+      ContextSelectionFound(p) -> rewrite memo_lookup_corresponds(raw, prior, p, c, known) in source_option_corresponds(spec_at(raw, prior, p, c, known))
+
+  @total true
+  local fn source_max_corresponds(raw: List(ContextSelectionNode), rest: List(ContextSelectionLocation), prior: List(ContextSelectionScheduled), c: ContextSelectionContext, known: List(ContextSelectionKey), depth: Int, next_depth: Int, larger: Bool) -> Equivalent(ContextSelectionVerdict, source_max(rest, evaluate(prepare(raw, raw, ContextSelectionHere()), prior, c, known), depth, next_depth, larger), spec_source_max(raw, rest, prior, c, known, depth, next_depth, larger)) =
+    match larger
+      True() -> sources_correspond(raw, rest, prior, c, known, next_depth)
+      False() -> sources_correspond(raw, rest, prior, c, known, depth)
+
+  @total true
+  local fn source_depth_corresponds(raw: List(ContextSelectionNode), rest: List(ContextSelectionLocation), prior: List(ContextSelectionScheduled), c: ContextSelectionContext, known: List(ContextSelectionKey), depth: Int, next_depth: Int, fits: Bool) -> Equivalent(ContextSelectionVerdict, source_depth(rest, evaluate(prepare(raw, raw, ContextSelectionHere()), prior, c, known), depth, next_depth, fits), spec_source_depth(raw, rest, prior, c, known, depth, next_depth, fits)) =
+    match fits
+      False() -> reflexive(ContextSelectionRejected(ContextSelectionProvenanceDepth()))
+      True() -> source_max_corresponds(raw, rest, prior, c, known, depth, next_depth, depth <= next_depth)
+
+  @total true
+  local fn source_step_corresponds(raw: List(ContextSelectionNode), rest: List(ContextSelectionLocation), prior: List(ContextSelectionScheduled), c: ContextSelectionContext, known: List(ContextSelectionKey), depth: Int, v: ContextSelectionVerdict) -> Equivalent(ContextSelectionVerdict, source_step(rest, evaluate(prepare(raw, raw, ContextSelectionHere()), prior, c, known), depth, v), spec_source_step(raw, rest, prior, c, known, depth, v)) =
+    match v
+      ContextSelectionRejected(detail) -> reflexive(ContextSelectionRejected(detail))
+      ContextSelectionCacheFault() -> reflexive(ContextSelectionCacheFault())
+      ContextSelectionAllowed(child_depth) -> source_depth_corresponds(raw, rest, prior, c, known, depth, child_depth + 1, child_depth + 1 <= 16)
+
+  @total true
+  local fn sources_correspond(raw: List(ContextSelectionNode), edges: List(ContextSelectionLocation), prior: List(ContextSelectionScheduled), c: ContextSelectionContext, known: List(ContextSelectionKey), depth: Int) -> Equivalent(ContextSelectionVerdict, sources(edges, evaluate(prepare(raw, raw, ContextSelectionHere()), prior, c, known), depth), spec_sources(raw, edges, prior, c, known, depth)) =
+    match edges
+      [] -> reflexive(ContextSelectionAllowed(depth))
+      [e | rest] -> rewrite source_corresponds(raw, prior, e, c, known) in source_step_corresponds(raw, rest, prior, c, known, depth, spec_source(raw, prior, e, c, known))
+
+  @total true
+  local fn sources_at_correspond(raw: List(ContextSelectionNode), p: ContextSelectionPos, prior: List(ContextSelectionScheduled), c: ContextSelectionContext, known: List(ContextSelectionKey), depth: Int) -> Equivalent(ContextSelectionVerdict, sources(edges_at(prepare(raw, raw, ContextSelectionHere()), p), evaluate(prepare(raw, raw, ContextSelectionHere()), prior, c, known), depth), spec_sources(raw, spec_edges_at(raw, p), prior, c, known, depth)) =
+    rewrite edges_at_law(raw, p) in sources_correspond(raw, spec_edges_at(raw, p), prior, c, known, depth)
+
+  @total true
+  local fn after_own_corresponds(raw: List(ContextSelectionNode), n: ContextSelectionScheduled, prior: List(ContextSelectionScheduled), c: ContextSelectionContext, known: List(ContextSelectionKey), failure: Option(ContextSelectionDetail)) -> Equivalent(ContextSelectionVerdict, node_after_own(prepare(raw, raw, ContextSelectionHere()), n, evaluate(prepare(raw, raw, ContextSelectionHere()), prior, c, known), failure), spec_after_own(raw, n, prior, c, known, failure)) =
+    match failure
+      Some(d) -> reflexive(ContextSelectionRejected(d))
+      None() ->
+        match n.cyclic
+          True() -> reflexive(ContextSelectionRejected(ContextSelectionCyclicProvenance()))
+          False() -> sources_at_correspond(raw, scheduled_position(n), prior, c, known, 1)
+
+  @total true
+  local fn node_at_corresponds(raw: List(ContextSelectionNode), n: ContextSelectionScheduled, prior: List(ContextSelectionScheduled), c: ContextSelectionContext, known: List(ContextSelectionKey), found: Option(ContextSelectionNode)) -> Equivalent(ContextSelectionVerdict, node_at_verdict(prepare(raw, raw, ContextSelectionHere()), n, evaluate(prepare(raw, raw, ContextSelectionHere()), prior, c, known), c, known, found), spec_node_at(raw, n, prior, c, known, found)) =
+    match found
+      None() -> reflexive(ContextSelectionCacheFault())
+      Some(x) -> rewrite own_corresponds(x, c, known) in after_own_corresponds(raw, n, prior, c, known, spec_own(x, c, known))
+
+  @total true
+  local fn node_corresponds(raw: List(ContextSelectionNode), n: ContextSelectionScheduled, prior: List(ContextSelectionScheduled), c: ContextSelectionContext, known: List(ContextSelectionKey)) -> Equivalent(ContextSelectionVerdict, node_verdict(prepare(raw, raw, ContextSelectionHere()), n, evaluate(prepare(raw, raw, ContextSelectionHere()), prior, c, known), c, known), spec_node(raw, n, prior, c, known)) =
+    rewrite prepared_node_law(raw, raw, ContextSelectionHere(), scheduled_position(n)) in node_at_corresponds(raw, n, prior, c, known, raw_at(raw, scheduled_position(n)))
+
+  @total true
+  local fn memo_hit_corresponds(raw: List(ContextSelectionNode), n: ContextSelectionScheduled, prior: List(ContextSelectionScheduled), p: ContextSelectionPos, c: ContextSelectionContext, known: List(ContextSelectionKey), hit: Bool) -> Equivalent(Option(ContextSelectionVerdict), cache_hit(memo_entry(prepare(raw, raw, ContextSelectionHere()), n, evaluate(prepare(raw, raw, ContextSelectionHere()), prior, c, known), c, known), evaluate(prepare(raw, raw, ContextSelectionHere()), prior, c, known), p, hit), spec_hit(raw, n, prior, p, c, known, hit)) =
+    match hit
+      True() -> rewrite node_corresponds(raw, n, prior, c, known) in reflexive(Some(spec_node(raw, n, prior, c, known)))
+      False() -> memo_lookup_corresponds(raw, prior, p, c, known)
+
+  @total true
+  local fn candidate_option_corresponds(v: Option(ContextSelectionVerdict)) -> Equivalent(ContextSelectionVerdict, candidate_option(v), spec_candidate_option(v)) =
+    match v
+      None() -> reflexive(ContextSelectionCacheFault())
+      Some(value) -> reflexive(value)
+
+  @total true
+  local fn candidate_corresponds(raw: List(ContextSelectionNode), prior: List(ContextSelectionScheduled), loc: ContextSelectionLocation, c: ContextSelectionContext, known: List(ContextSelectionKey)) -> Equivalent(ContextSelectionVerdict, candidate_location(evaluate(prepare(raw, raw, ContextSelectionHere()), prior, c, known), loc), spec_candidate_location(raw, prior, loc, c, known)) =
+    match loc
+      ContextSelectionMissing() -> reflexive(ContextSelectionRejected(ContextSelectionMissingNode()))
+      ContextSelectionFound(p) -> rewrite memo_lookup_corresponds(raw, prior, p, c, known) in candidate_option_corresponds(spec_at(raw, prior, p, c, known))
+
+  @total true
+  local fn selected_access_corresponds(xs: List(ContextSelectionCandidate), raw: List(ContextSelectionNode), prior: List(ContextSelectionScheduled), c: ContextSelectionContext, known: List(ContextSelectionKey)) -> Equivalent(Bool, selected_access(xs, raw, evaluate(prepare(raw, raw, ContextSelectionHere()), prior, c, known)), spec_selected_access(xs, raw, prior, c, known)) =
+    match xs
+      [] -> reflexive(True())
+      [x | rest] -> rewrite candidate_corresponds(raw, prior, resolve(raw, x.key), c, known) in selected_with_corresponds(rest, raw, prior, c, known, spec_candidate(raw, prior, x, c, known))
+
+  @total true
+  local fn selected_with_corresponds(rest: List(ContextSelectionCandidate), raw: List(ContextSelectionNode), prior: List(ContextSelectionScheduled), c: ContextSelectionContext, known: List(ContextSelectionKey), v: ContextSelectionVerdict) -> Equivalent(Bool, selected_access_with(rest, raw, evaluate(prepare(raw, raw, ContextSelectionHere()), prior, c, known), v), spec_selected_with(rest, raw, prior, c, known, v)) =
+    match v
+      ContextSelectionCacheFault() -> reflexive(False())
+      ContextSelectionRejected(detail) -> reflexive(False())
+      ContextSelectionAllowed(depth) -> selected_access_corresponds(rest, raw, prior, c, known)
+
+  @total true
+  local fn guarded_access(xs: List(ContextSelectionCandidate), drops: List(ContextSelectionDrop), raw: List(ContextSelectionNode), prior: List(ContextSelectionScheduled), c: ContextSelectionContext, known: List(ContextSelectionKey), w: Bool, count: Bool, bytes: Bool, access: Bool, h: Equivalent(Bool, spec_selected_access(xs, raw, prior, c, known), access)) -> Equivalent(Bool, access_result(guarded(xs, drops, w, count, bytes, access), raw, prior, c, known), True()) =
+    match w
+      False() -> reflexive(True())
+      True() ->
+        match count
+          False() -> reflexive(True())
+          True() ->
+            match bytes
+              False() -> reflexive(True())
+              True() ->
+                match access
+                  False() -> reflexive(True())
+                  True() -> h
+
+  @total true
+  local fn finish_access_law(result: ContextSelectionResult, raw: List(ContextSelectionNode), prior: List(ContextSelectionScheduled), c: ContextSelectionContext, known: List(ContextSelectionKey)) -> Equivalent(Bool, access_result(finish(result, raw, evaluate(prepare(raw, raw, ContextSelectionHere()), prior, c, known), c), raw, prior, c, known), True()) =
+    match result
+      ContextSelectionFailed(kind) -> reflexive(True())
+      ContextSelectionSelected(xs, drops) -> rewrite selected_access_corresponds(xs, raw, prior, c, known) in guarded_access(xs, drops, raw, prior, c, known, fits_window(xs, c), selected_count(xs) <= c.max_count, sum_bytes(xs) <= c.max_bytes, spec_selected_access(xs, raw, prior, c, known), reflexive(spec_selected_access(xs, raw, prior, c, known)))
+
+  @total true
+  local fn complete_access_law(xs: List(ContextSelectionCandidate), raw: List(ContextSelectionNode), prior: List(ContextSelectionScheduled), c: ContextSelectionContext, known: List(ContextSelectionKey), complete: Bool) -> Equivalent(Bool, access_result(select_complete(xs, raw, c, evaluate(prepare(raw, raw, ContextSelectionHere()), prior, c, known), complete), raw, prior, c, known), True()) =
+    match complete
+      False() -> reflexive(True())
+      True() -> finish_access_law(pack(xs, raw, evaluate(prepare(raw, raw, ContextSelectionHere()), prior, c, known), c, [], c.window - c.reserved, 0, 0), raw, prior, c, known)
+
+  @total true
+  local fn charged_access_law(xs: List(ContextSelectionCandidate), raw: List(ContextSelectionNode), known: List(ContextSelectionKey), c: ContextSelectionContext, schedule: List(ContextSelectionScheduled), charged: Bool) -> Equivalent(Bool, access_result(select_charged(prepare(raw, raw, ContextSelectionHere()), xs, raw, known, c, schedule, charged), raw, reverse_order(schedule), c, known), True()) =
+    match charged
+      False() -> reflexive(True())
+      True() -> complete_access_law(xs, raw, reverse_order(schedule), c, known, cache_complete(evaluate(prepare(raw, raw, ContextSelectionHere()), reverse_order(schedule), c, known)))
+
+  @total true
+  local fn order_access_law(xs: List(ContextSelectionCandidate), raw: List(ContextSelectionNode), known: List(ContextSelectionKey), c: ContextSelectionContext, order: Option(List(ContextSelectionScheduled))) -> Equivalent(Bool, access_order_result(select_order(prepare(raw, raw, ContextSelectionHere()), xs, raw, known, c, order), raw, known, c, order), True()) =
+    match order
+      None() -> reflexive(True())
+      Some(schedule) -> charged_access_law(xs, raw, known, c, schedule, charge_schedule(prepare(raw, raw, ContextSelectionHere()), schedule, graph_fuel(raw)))
+
+  @total true
+  local fn pop_with_law(p: ContextSelectionPos, rest: List(ContextSelectionPos), raw: List(ContextSelectionNode), visited: List(Bool), ready: Bool) -> Equivalent(ContextSelectionReady, pop_with(p, rest, prepare(raw, raw, ContextSelectionHere()), visited, ready), spec_pop_with(p, rest, raw, visited, ready)) =
+    match ready
+      True() -> reflexive(ContextSelectionReadyNode(p, rest))
+      False() -> rewrite pop_law(rest, raw, visited) in reflexive(retain_pending(p, spec_pop_ready(rest, raw, visited)))
+
+  @total true
+  local fn pop_law(pending: List(ContextSelectionPos), raw: List(ContextSelectionNode), visited: List(Bool)) -> Equivalent(ContextSelectionReady, pop_ready(pending, prepare(raw, raw, ContextSelectionHere()), visited), spec_pop_ready(pending, raw, visited)) =
+    match pending
+      [] -> reflexive(ContextSelectionNoReady())
+      [p | rest] -> rewrite edges_at_law(raw, p) in pop_with_law(p, rest, raw, visited, ready_edges(spec_edges_at(raw, p), visited))
+
+  @total true
+  local fn seen_law(fuel: List(Bool), pos: ContextSelectionPos, tail: List(ContextSelectionLocation), target: ContextSelectionPos, raw: List(ContextSelectionNode), visited: List(Bool), seen: Bool) -> Equivalent(Bool, reach_seen(fuel, pos, tail, target, prepare(raw, raw, ContextSelectionHere()), visited, seen), spec_reach_seen(fuel, pos, tail, target, raw, visited, seen)) =
+    match seen
+      True() -> reach_law(fuel, tail, target, raw, visited)
+      False() -> rewrite edges_at_law(raw, pos) in reach_law(fuel, append_edges(spec_edges_at(raw, pos), tail), target, raw, mark(visited, pos))
+
+  @total true
+  local fn found_law(fuel: List(Bool), pos: ContextSelectionPos, tail: List(ContextSelectionLocation), target: ContextSelectionPos, raw: List(ContextSelectionNode), visited: List(Bool), hit: Bool) -> Equivalent(Bool, reach_found(fuel, pos, tail, target, prepare(raw, raw, ContextSelectionHere()), visited, hit), spec_reach_found(fuel, pos, tail, target, raw, visited, hit)) =
+    match hit
+      True() -> reflexive(True())
+      False() -> seen_law(fuel, pos, tail, target, raw, visited, flags_at(visited, pos))
+
+  @total true
+  local fn location_law(fuel: List(Bool), loc: ContextSelectionLocation, tail: List(ContextSelectionLocation), target: ContextSelectionPos, raw: List(ContextSelectionNode), visited: List(Bool)) -> Equivalent(Bool, reach_location(fuel, loc, tail, target, prepare(raw, raw, ContextSelectionHere()), visited), spec_reach_location(fuel, loc, tail, target, raw, visited)) =
+    match loc
+      ContextSelectionMissing() -> reach_law(fuel, tail, target, raw, visited)
+      ContextSelectionFound(p) -> found_law(fuel, p, tail, target, raw, visited, pos_eq(p, target))
+
+  @total true
+  local fn reach_law(fuel: List(Bool), queue: List(ContextSelectionLocation), target: ContextSelectionPos, raw: List(ContextSelectionNode), visited: List(Bool)) -> Equivalent(Bool, reachable(fuel, queue, target, prepare(raw, raw, ContextSelectionHere()), visited), spec_reachable(fuel, queue, target, raw, visited)) =
+    match fuel
+      [] -> reflexive(False())
+      [token | rest] ->
+        match queue
+          [] -> reflexive(False())
+          [x | tail] -> location_law(rest, x, tail, target, raw, visited)
+
+  @total true
+  local fn cycle_started_law(started: Bool, n: ContextSelectionPos, raw: List(ContextSelectionNode), fuel: List(Bool), blank: List(Bool)) -> Equivalent(Bool, cycle_if_started(started, n, prepare(raw, raw, ContextSelectionHere()), fuel, blank), spec_cycle_if_started(started, n, raw, fuel, blank)) =
+    match started
+      False() -> reflexive(False())
+      True() -> rewrite edges_at_law(raw, n) in reach_law(fuel, spec_edges_at(raw, n), n, raw, blank)
+
+  @total true
+  local fn pop_cycle_law(pending: List(ContextSelectionPos), raw: List(ContextSelectionNode), fuel: List(Bool), blank: List(Bool)) -> Equivalent(ContextSelectionReady, pop_cycle(pending, prepare(raw, raw, ContextSelectionHere()), fuel, blank), spec_pop_cycle(pending, raw, fuel, blank)) =
+    match pending
+      [] -> reflexive(ContextSelectionNoReady())
+      [p | rest] -> rewrite edges_at_law(raw, p) in rewrite reach_law(fuel, spec_edges_at(raw, p), p, raw, blank) in cycle_with_law(p, rest, raw, fuel, blank, spec_reachable(fuel, spec_edges_at(raw, p), p, raw, blank))
+
+  @total true
+  local fn cycle_with_law(p: ContextSelectionPos, rest: List(ContextSelectionPos), raw: List(ContextSelectionNode), fuel: List(Bool), blank: List(Bool), cyclic: Bool) -> Equivalent(ContextSelectionReady, cycle_with(p, rest, prepare(raw, raw, ContextSelectionHere()), fuel, blank, cyclic), spec_cycle_with(p, rest, raw, fuel, blank, cyclic)) =
+    match cyclic
+      True() -> reflexive(ContextSelectionReadyNode(p, rest))
+      False() -> rewrite pop_cycle_law(rest, raw, fuel, blank) in reflexive(retain_pending(p, spec_pop_cycle(rest, raw, fuel, blank)))
+
+  @total true
+  local fn schedule_one_law(fuel: List(ContextSelectionNode), n: ContextSelectionPos, pending: List(ContextSelectionPos), raw: List(ContextSelectionNode), visited: List(Bool), edge_fuel: List(Bool), blank: List(Bool), cycles_started: Bool, cyclic: Bool) -> Equivalent(Option(List(ContextSelectionScheduled)), schedule_one(fuel, n, pending, prepare(raw, raw, ContextSelectionHere()), visited, edge_fuel, blank, cycles_started, cyclic), spec_schedule_one(fuel, n, pending, raw, visited, edge_fuel, blank, cycles_started, cyclic)) =
+    rewrite order_law(fuel, pending, raw, mark(visited, n), edge_fuel, blank, cycles_started) in reflexive(prepend_scheduled(ContextSelectionScheduled{pos: n, cyclic: cyclic}, spec_order(fuel, pending, raw, mark(visited, n), edge_fuel, blank, cycles_started)))
+
+  @total true
+  local fn order_cycle_law(fuel: List(ContextSelectionNode), found: ContextSelectionReady, raw: List(ContextSelectionNode), visited: List(Bool), edge_fuel: List(Bool), blank: List(Bool)) -> Equivalent(Option(List(ContextSelectionScheduled)), order_cycle(fuel, found, prepare(raw, raw, ContextSelectionHere()), visited, edge_fuel, blank), spec_order_cycle(fuel, found, raw, visited, edge_fuel, blank)) =
+    match found
+      ContextSelectionNoReady() -> reflexive(no_order())
+      ContextSelectionReadyNode(n, rest) -> schedule_one_law(fuel, n, rest, raw, visited, edge_fuel, blank, True(), True())
+
+  @total true
+  local fn order_ready_law(fuel: List(ContextSelectionNode), found: ContextSelectionReady, pending: List(ContextSelectionPos), raw: List(ContextSelectionNode), visited: List(Bool), edge_fuel: List(Bool), blank: List(Bool), cycles_started: Bool) -> Equivalent(Option(List(ContextSelectionScheduled)), order_ready(fuel, found, pending, prepare(raw, raw, ContextSelectionHere()), visited, edge_fuel, blank, cycles_started), spec_order_ready(fuel, found, pending, raw, visited, edge_fuel, blank, cycles_started)) =
+    match found
+      ContextSelectionReadyNode(n, rest) -> rewrite cycle_started_law(cycles_started, n, raw, edge_fuel, blank) in schedule_one_law(fuel, n, rest, raw, visited, edge_fuel, blank, cycles_started, spec_cycle_if_started(cycles_started, n, raw, edge_fuel, blank))
+      ContextSelectionNoReady() -> rewrite pop_cycle_law(pending, raw, edge_fuel, blank) in order_cycle_law(fuel, spec_pop_cycle(pending, raw, edge_fuel, blank), raw, visited, edge_fuel, blank)
+
+  @total true
+  local fn order_law(fuel: List(ContextSelectionNode), pending: List(ContextSelectionPos), raw: List(ContextSelectionNode), visited: List(Bool), edge_fuel: List(Bool), blank: List(Bool), cycles_started: Bool) -> Equivalent(Option(List(ContextSelectionScheduled)), order(fuel, pending, prepare(raw, raw, ContextSelectionHere()), visited, edge_fuel, blank, cycles_started), spec_order(fuel, pending, raw, visited, edge_fuel, blank, cycles_started)) =
+    match pending
+      [] -> reflexive(Some(no_schedule()))
+      [ph | pt] ->
+        match fuel
+          [] -> reflexive(no_order())
+          [fh | ft] -> rewrite pop_law(pending, raw, visited) in order_ready_law(ft, spec_pop_ready(pending, raw, visited), pending, raw, visited, edge_fuel, blank, cycles_started)
+
+  @total true
+  fn raw_schedule_law(raw: List(ContextSelectionNode)) -> Equivalent(Option(List(ContextSelectionScheduled)), dependency_order(raw), spec_dependency_order(raw)) =
+    order_law(raw, positions(raw, ContextSelectionHere()), raw, blank_flags(raw), graph_fuel(raw), blank_flags(raw), False())
+
+  @total true
+  fn selected_access_law(xs: List(ContextSelectionCandidate), raw: List(ContextSelectionNode), known: List(ContextSelectionKey), c: ContextSelectionContext) -> Equivalent(Bool, access_order_result(select(xs, raw, known, c), raw, node_keys(raw, known), c, spec_dependency_order(raw)), True()) =
+    rewrite raw_schedule_law(raw) in order_access_law(xs, raw, node_keys(raw, known), c, spec_dependency_order(raw))
+
+  @total true
+  local fn shift_index(n: ContextSelectionNode, rest: List(ContextSelectionNode), loc: ContextSelectionLocation) -> Equivalent(Option(ContextSelectionNode), raw_index(prepend_raw(n, rest), shift(loc)), raw_index(rest, loc)) =
+    match loc
+      ContextSelectionMissing() -> reflexive(no_node())
+      ContextSelectionFound(i) -> reflexive(raw_at(rest, i))
+
+
+  @total true
+  fn resolution_law(raw: List(ContextSelectionNode), key: ContextSelectionKey) -> Equivalent(Option(ContextSelectionNode), raw_index(raw, resolve(raw, key)), raw_lookup(raw, key)) =
+    match raw
+      [] -> reflexive(no_node())
+      [n | rest] -> resolve_hit_law(n, rest, key, key_eq(n.key, key))
+
+
+  @total true
+  local fn resolve_hit_law(n: ContextSelectionNode, rest: List(ContextSelectionNode), key: ContextSelectionKey, hit: Bool) -> Equivalent(Option(ContextSelectionNode), raw_index(prepend_raw(n, rest), resolve_hit(rest, key, hit)), raw_hit(n, rest, key, hit)) =
+    match hit
+      True() -> reflexive(Some(n))
+      False() -> rewrite shift_index(n, rest, resolve(rest, key)) in resolution_law(rest, key)
+
+
+  @total true
+  local fn plus_zero(p: ContextSelectionPos) -> Equivalent(ContextSelectionPos, position_plus(p, ContextSelectionHere()), p) =
+    match p
+      ContextSelectionHere() -> reflexive(ContextSelectionHere())
+      ContextSelectionThere(tail) -> rewrite plus_zero(tail) in reflexive(ContextSelectionThere(tail))
+
+  @total true
+  local fn plus_successor(a: ContextSelectionPos, b: ContextSelectionPos) -> Equivalent(ContextSelectionPos, position_plus(a, ContextSelectionThere(b)), ContextSelectionThere(position_plus(a, b))) =
+    match a
+      ContextSelectionHere() -> reflexive(ContextSelectionThere(b))
+      ContextSelectionThere(tail) -> rewrite plus_successor(tail, b) in reflexive(ContextSelectionThere(ContextSelectionThere(position_plus(tail, b))))
+
+  @total true
+  fn prepared_position_law(raw: List(ContextSelectionNode), todo: List(ContextSelectionNode), start: ContextSelectionPos, p: ContextSelectionPos) -> Equivalent(Option(ContextSelectionPos), prepared_position(prepared_at(prepare(raw, todo, start), p)), label_found(raw_at(todo, p), position_plus(start, p))) =
+    match todo
+      [] -> reflexive(no_position())
+      [n | rest] ->
+        match p
+          ContextSelectionHere() -> rewrite plus_zero(start) in reflexive(Some(start))
+          ContextSelectionThere(tail) -> rewrite prepared_position_law(raw, rest, ContextSelectionThere(start), tail) in rewrite plus_successor(start, tail) in reflexive(label_found(raw_at(rest, tail), ContextSelectionThere(position_plus(start, tail))))
+
+
+end

@@ -1,0 +1,135 @@
+{
+  "schema_version": 1,
+  "id": "workflow/context-selection",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": [
+    "cure",
+    "elixir",
+    "otp"
+  ],
+  "dependencies": [
+    "core/envelope",
+    "domain/authorization"
+  ],
+  "contract": "Pure bounded context selection over host-owned window/reservations/current access/provenance/time/configuration: retrieval veto, bound current and transitive source access, freshness, input-relative supersession, deterministic ranking/dedupe, ordered drop reasons, window then selected-count then actual-byte caps; structural positional scheduling and one memoized final verdict per node within fixed ingress and 4096 node-plus-edge bounds.",
+  "limits": [
+    "Only select/2 facade is supported; well-typed Cure safety laws do not validate arbitrary erased BEAM terms or prove progress, ranking, candidate membership or external authenticity.",
+    "Retrieval veto/post-check, schema/hash/byte validation, sorting/reconstruction and source-copy translation are test-grounded.",
+    "Native Cure/BEAM numeric arithmetic/comparison, String/binary equality, list and record semantics are pinned upstream contracts, not local equality axioms.",
+    "Host supplies coherent truthful current snapshot, complete provenance and immutable nil-hash identity/version binding; post-snapshot revocations are invisible.",
+    "No retrieval, tokenizer, summarization, persistent memory, truth, provider accuracy, optimal packing, live-permission or delivery guarantee.",
+    "ELZ-024 integration is an explicit exact-write read-marker fixture, not a general read ACL provider.",
+    "Five-second max-DAG timing is a named-machine scenario; deterministic one-verdict-per-node instrumentation is primary."
+  ],
+  "files": [
+    "cure/elzoo/context_selection.cure",
+    "lib/elzoo/context_selection.ex",
+    "test/elzoo/context_selection_test.exs",
+    "examples/brief.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/context_selection.cure",
+      "symbol": "selected_window",
+      "claim": "Every successful production Cure selection satisfies the separate selected-estimate plus reservations window predicate, over well-typed inputs."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/context_selection.cure",
+      "symbol": "selected_access_law",
+      "claim": "Every successful production Cure selection satisfies the separate raw-node current/transitive access evaluator instantiated with the raw reference scheduler; no assumed-safe cache or order premise. Retrieval and facade validation remain test-grounded."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/context_selection.cure",
+      "symbol": "raw_schedule_law",
+      "claim": "Prepared positional dependency scheduling and cycle classification equal the reference traversal over the immutable raw graph; no caller-supplied ordering or cycle flags."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/context_selection.cure",
+      "symbol": "memo_lookup_corresponds",
+      "claim": "Actual positional memo lookup equals recursive raw-node reference evaluation over the preceding schedule suffix, including full own checks, failure details and depth."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/context_selection.cure",
+      "symbol": "resolution_law",
+      "claim": "Indexing the structural first-match resolution returns exactly the independently written raw first-match lookup, including missing keys."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/context_selection.cure",
+      "symbol": "prepared_node_law",
+      "claim": "Prepared positional node lookup corresponds to raw positional node lookup."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/context_selection.cure",
+      "symbol": "prepared_edges_law",
+      "claim": "Prepared positional edges retain every raw declared reference in order under first-match resolution."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/context_selection.cure",
+      "symbol": "prepared_position_law",
+      "claim": "Prepared node labels correspond to their structural raw-list positions."
+    },
+    {
+      "kind": "type",
+      "file": "cure/elzoo/context_selection.cure",
+      "claim": "Pinned Cure checks production records, recursive scheduling/evaluation and lemmas with a clean audit, structural totality, no axioms, holes, opacity, unresolved or unaudited definitions; no Elixir typespec validation claim."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/context_selection_test.exs",
+      "claim": "Named positive, revocation/authority/configuration, provenance/cycle/depth/order, caps/dedupe/ranking, validation, exact DAG work/time, finite native-comparison and independent small-DAG oracle scenarios; genuine proof-negative mutations and E2/E3/E4 scenario controls; actual copied original and renamed module/record-tag consumption in a separate VM without root Application; explicit envelope and ELZ-024 read-marker fixtures."
+    },
+    {
+      "kind": "upstream",
+      "provider": "cure",
+      "reference": "https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89",
+      "claim": "Pinned compiler/conversion/audit and BEAM native Int arithmetic/comparison, String/list and erased record semantics; no local soundness proof."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/Enum.html",
+      "claim": "Boundary maps/binaries/arbitrary-precision sums and deterministic Enum sorting and translation."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/apps/crypto/crypto.html",
+      "claim": "OTP 29.1.2 crypto SHA-256 for candidate bytes; OTP call-count tracing is test instrumentation only."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The host supplies authentic current access and complete provenance/supersession snapshot, coherent time, immutable nil-hash bindings, consistent estimator/window units, and rechecks relevant changes before injection."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "Pure selection has no events/process; caller owns redacted instrumentation and observations."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Trusted per-call principal/tenant/time/snapshot, closed window selection, reservations and policy including selected count/bytes caps; request overrides rejected; no hot reconfiguration or state revisions.",
+      "evidence": [
+        "test/elzoo/context_selection_test.exs"
+      ]
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "Pure call has no lifecycle, stop/drain protocol, persistent control state or durable receipts."
+    }
+  },
+  "applications": [
+    "crypto"
+  ]
+}
