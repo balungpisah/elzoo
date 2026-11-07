@@ -1,0 +1,642 @@
+# SPDX-License-Identifier: Apache-2.0
+# workflow/budget (ELZ-022): reserve/settle/release/reset decisions over a
+# supplied wall-clock `now`. No I/O, no clock read, no money semantics.
+mod Elzoo.Budget
+  local fn equal(left: a, right: a) -> Bool = Std.Builtin.struct_eq(a, left, right)
+
+  type Entry = Open(Int, Int) | Expired(Int) | Released(Int) | Settled(Int, Int, Bool)
+
+  rec EntryRow
+    cost_ref: String
+    entry: Entry
+
+  rec Generation
+    incarnation: String
+    counter: Int
+
+  rec BudgetState
+    budget_id: String
+    cap: Int
+    unit: String
+    generation: Generation
+    committed: Int
+    reserved: Int
+    entries: List(EntryRow)
+
+  type Lookup = Missing | Present(Entry)
+
+  type BudgetResult = Reserved(Int, Int) | Rejected(Atom) | SettledRefund(Int, Bool) | SettledOverage(Int, Bool) | ReleasedOk | ResetOk(Int) | Status(Int, Int) | Swept(Int)
+
+  rec Step
+    state: BudgetState
+    result: BudgetResult
+
+  rec SweepAcc
+    rows: List(EntryRow)
+    reserved: Int
+    expired: Int
+
+  type Admission = Admit(Int) | DeadlineInsufficient(Int)
+
+  # ── construction and reads ──────────────────────────────────────────────
+
+  fn initial(budget_id: String, incarnation: String, cap: Int, unit: String) -> BudgetState =
+    BudgetState{budget_id: budget_id, cap: cap, unit: unit, generation: Generation{incarnation: incarnation, counter: 1}, committed: 0, reserved: 0, entries: []}
+
+  @total true
+  @reducible
+  fn with_scalars(s: BudgetState, generation: Generation, committed: Int, reserved: Int, entries: List(EntryRow)) -> BudgetState =
+    BudgetState{budget_id: s.budget_id, cap: s.cap, unit: s.unit, generation: generation, committed: committed, reserved: reserved, entries: entries}
+
+  fn remaining(s: BudgetState) -> Int =
+    pickup
+      s.cap - s.committed - s.reserved > 0 -> s.cap - s.committed - s.reserved
+      else -> 0
+
+  fn lookup(rows: List(EntryRow), cost_ref: String) -> Lookup =
+    match rows
+      [] -> Missing()
+      [row | rest] ->
+        pickup
+          equal(row.cost_ref, cost_ref) -> Present(row.entry)
+          else -> lookup(rest, cost_ref)
+
+  fn replace(rows: List(EntryRow), cost_ref: String, entry: Entry) -> List(EntryRow) =
+    match rows
+      [] -> []
+      [row | rest] ->
+        pickup
+          equal(row.cost_ref, cost_ref) -> [EntryRow{cost_ref: cost_ref, entry: entry} | rest]
+          else -> [row | replace(rest, cost_ref, entry)]
+
+  fn is_open(entry: Entry) -> Int =
+    match entry
+      Open(_e, _x) -> 1
+      Expired(_e) -> 0
+      Released(_e) -> 0
+      Settled(_e, _a, _l) -> 0
+
+  fn count_open(rows: List(EntryRow)) -> Int =
+    match rows
+      [] -> 0
+      [row | rest] -> is_open(row.entry) + count_open(rest)
+
+  @total true
+  @reducible
+  fn reject(s: BudgetState, reason: Atom) -> Step = Step{state: s, result: Rejected(reason)}
+
+  @total true
+  @reducible
+  fn result_of(st: Step) -> BudgetResult = st.result
+
+  @total true
+  @reducible
+  fn state_of(st: Step) -> BudgetState = st.state
+
+  fn status(s: BudgetState) -> Step =
+    Step{state: s, result: Status(remaining(s), count_open(s.entries))}
+
+  # ── expiry sweep: an open entry expires when now >= expiry ─────────────
+
+  @total true
+  @reducible
+  fn push(row: EntryRow, acc: SweepAcc) -> SweepAcc =
+    SweepAcc{rows: [row | acc.rows], reserved: acc.reserved, expired: acc.expired}
+
+  fn sweep_rows(rows: List(EntryRow), now: Int, reserved: Int, expired: Int) -> SweepAcc =
+    match rows
+      [] -> SweepAcc{rows: [], reserved: reserved, expired: expired}
+      [row | rest] -> sweep_row(row, rest, now, reserved, expired)
+
+  fn sweep_row(row: EntryRow, rest: List(EntryRow), now: Int, reserved: Int, expired: Int) -> SweepAcc =
+    match row.entry
+      Open(estimate, expiry) ->
+        pickup
+          now >= expiry -> push(EntryRow{cost_ref: row.cost_ref, entry: Expired(estimate)}, sweep_rows(rest, now, reserved - estimate, expired + 1))
+          else -> push(row, sweep_rows(rest, now, reserved, expired))
+      Expired(_e) -> push(row, sweep_rows(rest, now, reserved, expired))
+      Released(_e) -> push(row, sweep_rows(rest, now, reserved, expired))
+      Settled(_e, _a, _l) -> push(row, sweep_rows(rest, now, reserved, expired))
+
+  fn sweep_acc(s: BudgetState, now: Int) -> SweepAcc = sweep_rows(s.entries, now, s.reserved, 0)
+
+  fn swept_state(s: BudgetState, acc: SweepAcc) -> BudgetState =
+    with_scalars(s, s.generation, s.committed, acc.reserved, acc.rows)
+
+  fn sweep(s: BudgetState, now: Int) -> BudgetState = swept_state(s, sweep_acc(s, now))
+
+  fn sweep_step(s: BudgetState, now: Int) -> Step =
+    Step{state: swept_state(s, sweep_acc(s, now)), result: Swept(sweep_acc(s, now).expired)}
+
+  # ── reserve: one check-and-record decision ─────────────────────────────
+
+  @total true
+  @reducible
+  fn fits_new(s: BudgetState, estimate: Int) -> Bool = s.committed + (s.reserved + estimate) <= s.cap
+
+  @total true
+  @reducible
+  fn fits_replay(s: BudgetState) -> Bool = s.committed + s.reserved <= s.cap
+
+  fn over(s: BudgetState) -> Bool = s.committed > s.cap
+
+  fn changed(s: BudgetState, cap: Int, unit: String) -> Bool = cap != s.cap or not equal(unit, s.unit)
+
+  @total true
+  @reducible
+  fn admitted(s: BudgetState, cost_ref: String, estimate: Int, expiry: Int) -> BudgetState =
+    with_scalars(s, s.generation, s.committed, s.reserved + estimate, [EntryRow{cost_ref: cost_ref, entry: Open(estimate, expiry)} | s.entries])
+
+  @total true
+  @reducible
+  fn admit_new_with(s: BudgetState, cost_ref: String, estimate: Int, expiry: Int, fits: Bool) -> Step =
+    match fits
+      True() -> Step{state: admitted(s, cost_ref, estimate, expiry), result: Reserved(estimate, remaining(admitted(s, cost_ref, estimate, expiry)))}
+      False() -> reject(s, :insufficient)
+
+  @total true
+  @reducible
+  fn admit_new(s: BudgetState, cost_ref: String, estimate: Int, expiry: Int) -> Step =
+    admit_new_with(s, cost_ref, estimate, expiry, fits_new(s, estimate))
+
+  @total true
+  @reducible
+  fn replay_with(s: BudgetState, estimate: Int, same: Bool, fits: Bool) -> Step =
+    match same
+      False() -> reject(s, :cost_ref_conflict)
+      True() ->
+        match fits
+          True() -> Step{state: s, result: Reserved(estimate, remaining(s))}
+          False() -> reject(s, :insufficient)
+
+  @total true
+  @reducible
+  fn replay(s: BudgetState, estimate: Int, expiry: Int, stored_estimate: Int, stored_expiry: Int) -> Step =
+    replay_with(s, stored_estimate, stored_estimate == estimate and stored_expiry == expiry, fits_replay(s))
+
+  @total true
+  @reducible
+  fn reserve_existing(s: BudgetState, estimate: Int, expiry: Int, entry: Entry) -> Step =
+    match entry
+      Open(e, x) -> replay(s, estimate, expiry, e, x)
+      Expired(_e) -> reject(s, :cost_ref_closed)
+      Released(_e) -> reject(s, :cost_ref_closed)
+      Settled(_e, _a, _l) -> reject(s, :cost_ref_closed)
+
+  @total true
+  @reducible
+  fn reserve_with(s: BudgetState, cost_ref: String, estimate: Int, expiry: Int, bad_expiry: Bool, changed_limits: Bool, overage: Bool, found: Lookup) -> Step =
+    match bad_expiry
+      True() -> reject(s, :invalid_expiry)
+      False() ->
+        match changed_limits
+          True() -> reject(s, :changed_limits)
+          False() ->
+            match overage
+              True() -> reject(s, :overage)
+              False() ->
+                match found
+                  Missing() -> admit_new(s, cost_ref, estimate, expiry)
+                  Present(entry) -> reserve_existing(s, estimate, expiry, entry)
+
+  @total true
+  @reducible
+  fn reserve(s: BudgetState, now: Int, cap: Int, unit: String, cost_ref: String, estimate: Int, expiry: Int) -> Step =
+    reserve_with(s, cost_ref, estimate, expiry, expiry <= now, changed(s, cap, unit), over(s), lookup(s.entries, cost_ref))
+
+  # ── settle: derived refund/overage, late settle commits only the actual ─
+
+  @total true
+  @reducible
+  fn no_refund() -> Int = 0
+
+  @total true
+  @reducible
+  fn refund_of(estimate: Int, actual: Int, late: Bool) -> Int =
+    match late
+      True() -> no_refund()
+      False() -> estimate - actual
+
+  @total true
+  @reducible
+  fn derive_with(estimate: Int, actual: Int, late: Bool, within: Bool) -> BudgetResult =
+    match within
+      True() -> SettledRefund(refund_of(estimate, actual, late), late)
+      False() -> SettledOverage(actual - estimate, late)
+
+  @total true
+  @reducible
+  fn derive(estimate: Int, actual: Int, late: Bool) -> BudgetResult =
+    derive_with(estimate, actual, late, actual <= estimate)
+
+  @total true
+  @reducible
+  fn derive_entry(entry: Entry) -> BudgetResult =
+    match entry
+      Open(_e, _x) -> Rejected(:not_settled)
+      Expired(_e) -> Rejected(:not_settled)
+      Released(_e) -> Rejected(:not_settled)
+      Settled(e, a, l) -> derive(e, a, l)
+
+  fn stale(s: BudgetState, generation: Generation) -> Bool =
+    not (equal(generation.incarnation, s.generation.incarnation) and generation.counter == s.generation.counter)
+
+  @total true
+  @reducible
+  fn settled_state(s: BudgetState, cost_ref: String, estimate: Int, actual: Int, late: Bool, reserved: Int) -> BudgetState =
+    with_scalars(s, s.generation, s.committed + actual, reserved, replace(s.entries, cost_ref, Settled(estimate, actual, late)))
+
+  @total true
+  @reducible
+  fn settle_first(s: BudgetState, cost_ref: String, actual: Int, estimate: Int, late: Bool, reserved: Int) -> Step =
+    Step{state: settled_state(s, cost_ref, estimate, actual, late, reserved), result: derive(estimate, actual, late)}
+
+  @total true
+  @reducible
+  fn settle_repeat_with(s: BudgetState, estimate: Int, actual: Int, late: Bool, same: Bool) -> Step =
+    match same
+      True() -> Step{state: s, result: derive(estimate, actual, late)}
+      False() -> reject(s, :actual_conflict)
+
+  @total true
+  @reducible
+  fn settle_entry(s: BudgetState, cost_ref: String, actual: Int, entry: Entry) -> Step =
+    match entry
+      Open(e, _x) -> settle_first(s, cost_ref, actual, e, False(), s.reserved - e)
+      Expired(e) -> settle_first(s, cost_ref, actual, e, True(), s.reserved)
+      Released(e) -> settle_first(s, cost_ref, actual, e, True(), s.reserved)
+      Settled(e, a, l) -> settle_repeat_with(s, e, a, l, actual == a)
+
+  @total true
+  @reducible
+  fn settle_with(s: BudgetState, cost_ref: String, actual: Int, is_stale: Bool, found: Lookup) -> Step =
+    match is_stale
+      True() -> reject(s, :stale_generation)
+      False() ->
+        match found
+          Missing() -> reject(s, :unknown_cost_ref)
+          Present(entry) -> settle_entry(s, cost_ref, actual, entry)
+
+  @total true
+  @reducible
+  fn settle(s: BudgetState, cost_ref: String, generation: Generation, actual: Int) -> Step =
+    settle_with(s, cost_ref, actual, stale(s, generation), lookup(s.entries, cost_ref))
+
+  # ── release: frees an open estimate; replays on released/expired ───────
+
+  @total true
+  @reducible
+  fn release_entry(s: BudgetState, cost_ref: String, entry: Entry) -> Step =
+    match entry
+      Open(e, _x) -> Step{state: with_scalars(s, s.generation, s.committed, s.reserved - e, replace(s.entries, cost_ref, Released(e))), result: ReleasedOk()}
+      Expired(_e) -> Step{state: s, result: ReleasedOk()}
+      Released(_e) -> Step{state: s, result: ReleasedOk()}
+      Settled(_e, _a, _l) -> reject(s, :already_settled)
+
+  @total true
+  @reducible
+  fn release_with(s: BudgetState, cost_ref: String, is_stale: Bool, found: Lookup) -> Step =
+    match is_stale
+      True() -> reject(s, :stale_generation)
+      False() ->
+        match found
+          Missing() -> reject(s, :unknown_cost_ref)
+          Present(entry) -> release_entry(s, cost_ref, entry)
+
+  @total true
+  @reducible
+  fn release(s: BudgetState, cost_ref: String, generation: Generation) -> Step =
+    release_with(s, cost_ref, stale(s, generation), lookup(s.entries, cost_ref))
+
+  # ── reset: expected-generation guard; forfeits open reservations ───────
+
+  @total true
+  @reducible
+  fn reset_with(s: BudgetState, is_stale: Bool, forfeited: Int) -> Step =
+    match is_stale
+      True() -> reject(s, :stale_generation)
+      False() -> Step{state: with_scalars(s, Generation{incarnation: s.generation.incarnation, counter: s.generation.counter + 1}, 0, 0, []), result: ResetOk(forfeited)}
+
+  @total true
+  @reducible
+  fn reset(s: BudgetState, generation: Generation) -> Step =
+    reset_with(s, stale(s, generation), count_open(s.entries))
+
+  # ── critical-path time admission (no clock, no scheduler) ──────────────
+
+  fn ceil_div(n: Int, k: Int) -> Int = (n + k - 1) / k
+
+  fn decide_deadline(required: Int, deadline: Int) -> Admission =
+    pickup
+      required <= deadline -> Admit(required)
+      else -> DeadlineInsufficient(required)
+
+  fn critical_path(n: Int, k: Int, bound: Int, deadline: Int) -> Admission =
+    decide_deadline(ceil_div(n, k) * bound, deadline)
+
+  fn max_of(bounds: List(Int), best: Int) -> Int =
+    match bounds
+      [] -> best
+      [b | rest] ->
+        pickup
+          b > best -> max_of(rest, b)
+          else -> max_of(rest, best)
+
+  fn length_of(bounds: List(Int)) -> Int =
+    match bounds
+      [] -> 0
+      [_b | rest] -> 1 + length_of(rest)
+
+  fn waves_required(waves: List(List(Int)), k: Int) -> Int =
+    match waves
+      [] -> 0
+      [wave | rest] -> ceil_div(length_of(wave), k) * max_of(wave, 0) + waves_required(rest, k)
+
+  fn critical_path_waves(waves: List(List(Int)), k: Int, deadline: Int) -> Admission =
+    decide_deadline(waves_required(waves, k), deadline)
+
+  # ── selected laws ───────────────────────────────────────────────────────
+
+  @total true
+  @reducible
+  fn cap_holds(st: Step) -> Bool =
+    match st.result
+      Reserved(_e, _r) -> st.state.committed + st.state.reserved <= st.state.cap
+      Rejected(_a) -> True()
+      SettledRefund(_r, _l) -> True()
+      SettledOverage(_o, _l) -> True()
+      ReleasedOk() -> True()
+      ResetOk(_f) -> True()
+      Status(_r, _o) -> True()
+      Swept(_x) -> True()
+
+  @total true
+  @reducible
+  fn is_reserved(st: Step) -> Bool =
+    match st.result
+      Reserved(_e, _r) -> True()
+      Rejected(_a) -> False()
+      SettledRefund(_r, _l) -> False()
+      SettledOverage(_o, _l) -> False()
+      ReleasedOk() -> False()
+      ResetOk(_f) -> False()
+      Status(_r, _o) -> False()
+      Swept(_x) -> False()
+
+  @total true
+  @reducible
+  fn kept(st: Step, s: BudgetState) -> BudgetState =
+    match st.result
+      Rejected(_a) -> st.state
+      Reserved(_e, _r) -> s
+      SettledRefund(_r, _l) -> s
+      SettledOverage(_o, _l) -> s
+      ReleasedOk() -> s
+      ResetOk(_f) -> s
+      Status(_r, _o) -> s
+      Swept(_x) -> s
+
+  # L1 admission cap
+  fn new_entry_cap(s: BudgetState, cost_ref: String, estimate: Int, expiry: Int, fits: Bool, evidence: Equivalent(Bool, fits_new(s, estimate), fits)) -> Equivalent(Bool, cap_holds(admit_new_with(s, cost_ref, estimate, expiry, fits)), True()) =
+    match fits
+      True() -> evidence
+      False() -> reflexive(True())
+
+  fn replay_cap(s: BudgetState, estimate: Int, same: Bool, fits: Bool, evidence: Equivalent(Bool, fits_replay(s), fits)) -> Equivalent(Bool, cap_holds(replay_with(s, estimate, same, fits)), True()) =
+    match same
+      False() -> reflexive(True())
+      True() ->
+        match fits
+          True() -> evidence
+          False() -> reflexive(True())
+
+  fn existing_cap(s: BudgetState, estimate: Int, expiry: Int, entry: Entry) -> Equivalent(Bool, cap_holds(reserve_existing(s, estimate, expiry, entry)), True()) =
+    match entry
+      Open(e, x) -> replay_cap(s, e, e == estimate and x == expiry, fits_replay(s), reflexive(fits_replay(s)))
+      Expired(_e) -> reflexive(True())
+      Released(_e) -> reflexive(True())
+      Settled(_e, _a, _l) -> reflexive(True())
+
+  fn reserve_with_cap(s: BudgetState, cost_ref: String, estimate: Int, expiry: Int, bad_expiry: Bool, changed_limits: Bool, overage: Bool, found: Lookup) -> Equivalent(Bool, cap_holds(reserve_with(s, cost_ref, estimate, expiry, bad_expiry, changed_limits, overage, found)), True()) =
+    match bad_expiry
+      True() -> reflexive(True())
+      False() ->
+        match changed_limits
+          True() -> reflexive(True())
+          False() ->
+            match overage
+              True() -> reflexive(True())
+              False() ->
+                match found
+                  Missing() -> new_entry_cap(s, cost_ref, estimate, expiry, fits_new(s, estimate), reflexive(fits_new(s, estimate)))
+                  Present(entry) -> existing_cap(s, estimate, expiry, entry)
+
+  fn admission_cap(s: BudgetState, now: Int, cap: Int, unit: String, cost_ref: String, estimate: Int, expiry: Int) -> Equivalent(Bool, cap_holds(reserve(s, now, cap, unit, cost_ref, estimate, expiry)), True()) =
+    reserve_with_cap(s, cost_ref, estimate, expiry, expiry <= now, changed(s, cap, unit), over(s), lookup(s.entries, cost_ref))
+
+  @total true
+  @reducible
+  fn step_of(state: BudgetState, result: BudgetResult) -> Step = Step{state: state, result: result}
+
+  @total true
+  @reducible
+  fn freed(s: BudgetState, estimate: Int) -> Int = s.reserved - estimate
+
+  @total true
+  @reducible
+  fn entries_of(s: BudgetState) -> List(EntryRow) = s.entries
+
+  @total true
+  @reducible
+  fn held(s: BudgetState) -> Int = s.reserved
+
+  @total true
+  @reducible
+  fn difference(left: Int, right: Int) -> Int = left - right
+
+  # L2 overage admits nothing
+  fn overage_with(s: BudgetState, cost_ref: String, estimate: Int, expiry: Int, bad_expiry: Bool, changed_limits: Bool, overage: Bool, found: Lookup, evidence: Equivalent(Bool, overage, True())) -> Equivalent(Bool, is_reserved(reserve_with(s, cost_ref, estimate, expiry, bad_expiry, changed_limits, overage, found)), False()) =
+    match evidence
+      reflexive() ->
+        match bad_expiry
+          True() -> reflexive(False())
+          False() ->
+            match changed_limits
+              True() -> reflexive(False())
+              False() -> reflexive(False())
+
+  fn overage_admits_nothing(s: BudgetState, now: Int, cap: Int, unit: String, cost_ref: String, estimate: Int, expiry: Int, evidence: Equivalent(Bool, over(s), True())) -> Equivalent(Bool, is_reserved(reserve(s, now, cap, unit, cost_ref, estimate, expiry)), False()) =
+    overage_with(s, cost_ref, estimate, expiry, expiry <= now, changed(s, cap, unit), over(s), lookup(entries_of(s), cost_ref), evidence)
+
+  # L3 settle idempotence, decision-split form: a closed Settled entry with
+  # an equal actual (equality decision True) returns the state unchanged and
+  # the result derived from the stored triple.
+  fn settle_repeat_same(s: BudgetState, estimate: Int, actual: Int, late: Bool, same: Bool, evidence: Equivalent(Bool, same, True())) -> Equivalent(Step, settle_repeat_with(s, estimate, actual, late, same), step_of(s, derive(estimate, actual, late))) =
+    match evidence
+      reflexive() -> reflexive(step_of(s, derive(estimate, actual, late)))
+
+  fn settle_closed_with(s: BudgetState, cost_ref: String, actual: Int, estimate: Int, stored_actual: Int, late: Bool, is_stale: Bool, look: Lookup, fresh: Equivalent(Bool, is_stale, False()), found: Equivalent(Lookup, look, Present(Settled(estimate, stored_actual, late))), same: Equivalent(Bool, actual == stored_actual, True())) -> Equivalent(Step, settle_with(s, cost_ref, actual, is_stale, look), step_of(s, derive(estimate, stored_actual, late))) =
+    match fresh
+      reflexive() ->
+        match found
+          reflexive() -> settle_repeat_same(s, estimate, stored_actual, late, actual == stored_actual, same)
+
+  fn settle_idempotent(s: BudgetState, cost_ref: String, generation: Generation, actual: Int, estimate: Int, stored_actual: Int, late: Bool, fresh: Equivalent(Bool, stale(s, generation), False()), found: Equivalent(Lookup, lookup(entries_of(s), cost_ref), Present(Settled(estimate, stored_actual, late))), same: Equivalent(Bool, actual == stored_actual, True())) -> Equivalent(Step, settle(s, cost_ref, generation, actual), step_of(s, derive(estimate, stored_actual, late))) =
+    settle_closed_with(s, cost_ref, actual, estimate, stored_actual, late, stale(s, generation), lookup(entries_of(s), cost_ref), fresh, found, same)
+
+  # L4 release idempotence, decision-split form: a Released or Expired entry
+  # returns the state unchanged and ReleasedOk.
+  fn release_released_with(s: BudgetState, cost_ref: String, estimate: Int, is_stale: Bool, look: Lookup, fresh: Equivalent(Bool, is_stale, False()), found: Equivalent(Lookup, look, Present(Released(estimate)))) -> Equivalent(Step, release_with(s, cost_ref, is_stale, look), step_of(s, ReleasedOk())) =
+    match fresh
+      reflexive() ->
+        match found
+          reflexive() -> reflexive(step_of(s, ReleasedOk()))
+
+  fn release_idempotent(s: BudgetState, cost_ref: String, generation: Generation, estimate: Int, fresh: Equivalent(Bool, stale(s, generation), False()), found: Equivalent(Lookup, lookup(entries_of(s), cost_ref), Present(Released(estimate)))) -> Equivalent(Step, release(s, cost_ref, generation), step_of(s, ReleasedOk())) =
+    release_released_with(s, cost_ref, estimate, stale(s, generation), lookup(entries_of(s), cost_ref), fresh, found)
+
+  fn release_expired_with(s: BudgetState, cost_ref: String, estimate: Int, is_stale: Bool, look: Lookup, fresh: Equivalent(Bool, is_stale, False()), found: Equivalent(Lookup, look, Present(Expired(estimate)))) -> Equivalent(Step, release_with(s, cost_ref, is_stale, look), step_of(s, ReleasedOk())) =
+    match fresh
+      reflexive() ->
+        match found
+          reflexive() -> reflexive(step_of(s, ReleasedOk()))
+
+  fn release_expired_replays(s: BudgetState, cost_ref: String, generation: Generation, estimate: Int, fresh: Equivalent(Bool, stale(s, generation), False()), found: Equivalent(Lookup, lookup(entries_of(s), cost_ref), Present(Expired(estimate)))) -> Equivalent(Step, release(s, cost_ref, generation), step_of(s, ReleasedOk())) =
+    release_expired_with(s, cost_ref, estimate, stale(s, generation), lookup(entries_of(s), cost_ref), fresh, found)
+
+  # L5 rejection keeps state
+  fn new_entry_kept(s: BudgetState, cost_ref: String, estimate: Int, expiry: Int, fits: Bool) -> Equivalent(BudgetState, kept(admit_new_with(s, cost_ref, estimate, expiry, fits), s), s) =
+    match fits
+      True() -> reflexive(s)
+      False() -> reflexive(s)
+
+  fn replay_kept(s: BudgetState, estimate: Int, same: Bool, fits: Bool) -> Equivalent(BudgetState, kept(replay_with(s, estimate, same, fits), s), s) =
+    match same
+      False() -> reflexive(s)
+      True() ->
+        match fits
+          True() -> reflexive(s)
+          False() -> reflexive(s)
+
+  fn existing_kept(s: BudgetState, estimate: Int, expiry: Int, entry: Entry) -> Equivalent(BudgetState, kept(reserve_existing(s, estimate, expiry, entry), s), s) =
+    match entry
+      Open(e, x) -> replay_kept(s, e, e == estimate and x == expiry, fits_replay(s))
+      Expired(_e) -> reflexive(s)
+      Released(_e) -> reflexive(s)
+      Settled(_e, _a, _l) -> reflexive(s)
+
+  fn reserve_with_kept(s: BudgetState, cost_ref: String, estimate: Int, expiry: Int, bad_expiry: Bool, changed_limits: Bool, overage: Bool, found: Lookup) -> Equivalent(BudgetState, kept(reserve_with(s, cost_ref, estimate, expiry, bad_expiry, changed_limits, overage, found), s), s) =
+    match bad_expiry
+      True() -> reflexive(s)
+      False() ->
+        match changed_limits
+          True() -> reflexive(s)
+          False() ->
+            match overage
+              True() -> reflexive(s)
+              False() ->
+                match found
+                  Missing() -> new_entry_kept(s, cost_ref, estimate, expiry, fits_new(s, estimate))
+                  Present(entry) -> existing_kept(s, estimate, expiry, entry)
+
+  fn reserve_rejection_keeps_state(s: BudgetState, now: Int, cap: Int, unit: String, cost_ref: String, estimate: Int, expiry: Int) -> Equivalent(BudgetState, kept(reserve(s, now, cap, unit, cost_ref, estimate, expiry), s), s) =
+    reserve_with_kept(s, cost_ref, estimate, expiry, expiry <= now, changed(s, cap, unit), over(s), lookup(entries_of(s), cost_ref))
+
+  fn repeat_kept(s: BudgetState, estimate: Int, actual: Int, late: Bool, same: Bool) -> Equivalent(BudgetState, kept(settle_repeat_with(s, estimate, actual, late, same), s), s) =
+    match same
+      True() -> derived_kept(s, s, estimate, actual, late, actual <= estimate)
+      False() -> reflexive(s)
+
+  fn settle_entry_kept(s: BudgetState, cost_ref: String, actual: Int, entry: Entry) -> Equivalent(BudgetState, kept(settle_entry(s, cost_ref, actual, entry), s), s) =
+    match entry
+      Open(e, _x) -> derived_kept(s, settled_state(s, cost_ref, e, actual, False(), freed(s, e)), e, actual, False(), actual <= e)
+      Expired(e) -> derived_kept(s, settled_state(s, cost_ref, e, actual, True(), held(s)), e, actual, True(), actual <= e)
+      Released(e) -> derived_kept(s, settled_state(s, cost_ref, e, actual, True(), held(s)), e, actual, True(), actual <= e)
+      Settled(e, a, l) -> repeat_kept(s, e, a, l, actual == a)
+
+  fn derived_kept(s: BudgetState, next: BudgetState, estimate: Int, actual: Int, late: Bool, within: Bool) -> Equivalent(BudgetState, kept(step_of(next, derive_with(estimate, actual, late, within)), s), s) =
+    match within
+      True() -> reflexive(s)
+      False() -> reflexive(s)
+
+  fn settle_with_kept(s: BudgetState, cost_ref: String, actual: Int, is_stale: Bool, found: Lookup) -> Equivalent(BudgetState, kept(settle_with(s, cost_ref, actual, is_stale, found), s), s) =
+    match is_stale
+      True() -> reflexive(s)
+      False() ->
+        match found
+          Missing() -> reflexive(s)
+          Present(entry) -> settle_entry_kept(s, cost_ref, actual, entry)
+
+  fn settle_rejection_keeps_state(s: BudgetState, cost_ref: String, generation: Generation, actual: Int) -> Equivalent(BudgetState, kept(settle(s, cost_ref, generation, actual), s), s) =
+    settle_with_kept(s, cost_ref, actual, stale(s, generation), lookup(entries_of(s), cost_ref))
+
+  fn release_entry_kept(s: BudgetState, cost_ref: String, entry: Entry) -> Equivalent(BudgetState, kept(release_entry(s, cost_ref, entry), s), s) =
+    match entry
+      Open(_e, _x) -> reflexive(s)
+      Expired(_e) -> reflexive(s)
+      Released(_e) -> reflexive(s)
+      Settled(_e, _a, _l) -> reflexive(s)
+
+  fn release_with_kept(s: BudgetState, cost_ref: String, is_stale: Bool, found: Lookup) -> Equivalent(BudgetState, kept(release_with(s, cost_ref, is_stale, found), s), s) =
+    match is_stale
+      True() -> reflexive(s)
+      False() ->
+        match found
+          Missing() -> reflexive(s)
+          Present(entry) -> release_entry_kept(s, cost_ref, entry)
+
+  fn release_rejection_keeps_state(s: BudgetState, cost_ref: String, generation: Generation) -> Equivalent(BudgetState, kept(release(s, cost_ref, generation), s), s) =
+    release_with_kept(s, cost_ref, stale(s, generation), lookup(entries_of(s), cost_ref))
+
+  fn reset_with_kept(s: BudgetState, is_stale: Bool, forfeited: Int) -> Equivalent(BudgetState, kept(reset_with(s, is_stale, forfeited), s), s) =
+    match is_stale
+      True() -> reflexive(s)
+      False() -> reflexive(s)
+
+  fn reset_rejection_keeps_state(s: BudgetState, generation: Generation) -> Equivalent(BudgetState, kept(reset(s, generation), s), s) =
+    reset_with_kept(s, stale(s, generation), count_open(entries_of(s)))
+
+  # L6 derived settlement: a first settle's result is derived from the triple
+  # it stores; a late refund is 0.
+  fn settle_open_with(s: BudgetState, cost_ref: String, actual: Int, estimate: Int, expiry: Int, is_stale: Bool, look: Lookup, fresh: Equivalent(Bool, is_stale, False()), found: Equivalent(Lookup, look, Present(Open(estimate, expiry)))) -> Equivalent(Step, settle_with(s, cost_ref, actual, is_stale, look), settle_first(s, cost_ref, actual, estimate, False(), freed(s, estimate))) =
+    match fresh
+      reflexive() ->
+        match found
+          reflexive() -> reflexive(settle_first(s, cost_ref, actual, estimate, False(), freed(s, estimate)))
+
+  fn settle_open_derived(s: BudgetState, cost_ref: String, generation: Generation, actual: Int, estimate: Int, expiry: Int, fresh: Equivalent(Bool, stale(s, generation), False()), found: Equivalent(Lookup, lookup(entries_of(s), cost_ref), Present(Open(estimate, expiry)))) -> Equivalent(Step, settle(s, cost_ref, generation, actual), settle_first(s, cost_ref, actual, estimate, False(), freed(s, estimate))) =
+    settle_open_with(s, cost_ref, actual, estimate, expiry, stale(s, generation), lookup(entries_of(s), cost_ref), fresh, found)
+
+  fn settle_expired_with(s: BudgetState, cost_ref: String, actual: Int, estimate: Int, is_stale: Bool, look: Lookup, fresh: Equivalent(Bool, is_stale, False()), found: Equivalent(Lookup, look, Present(Expired(estimate)))) -> Equivalent(Step, settle_with(s, cost_ref, actual, is_stale, look), settle_first(s, cost_ref, actual, estimate, True(), held(s))) =
+    match fresh
+      reflexive() ->
+        match found
+          reflexive() -> reflexive(settle_first(s, cost_ref, actual, estimate, True(), held(s)))
+
+  fn settle_expired_derived(s: BudgetState, cost_ref: String, generation: Generation, actual: Int, estimate: Int, fresh: Equivalent(Bool, stale(s, generation), False()), found: Equivalent(Lookup, lookup(entries_of(s), cost_ref), Present(Expired(estimate)))) -> Equivalent(Step, settle(s, cost_ref, generation, actual), settle_first(s, cost_ref, actual, estimate, True(), held(s))) =
+    settle_expired_with(s, cost_ref, actual, estimate, stale(s, generation), lookup(entries_of(s), cost_ref), fresh, found)
+
+  fn settle_released_with(s: BudgetState, cost_ref: String, actual: Int, estimate: Int, is_stale: Bool, look: Lookup, fresh: Equivalent(Bool, is_stale, False()), found: Equivalent(Lookup, look, Present(Released(estimate)))) -> Equivalent(Step, settle_with(s, cost_ref, actual, is_stale, look), settle_first(s, cost_ref, actual, estimate, True(), held(s))) =
+    match fresh
+      reflexive() ->
+        match found
+          reflexive() -> reflexive(settle_first(s, cost_ref, actual, estimate, True(), held(s)))
+
+  fn settle_released_derived(s: BudgetState, cost_ref: String, generation: Generation, actual: Int, estimate: Int, fresh: Equivalent(Bool, stale(s, generation), False()), found: Equivalent(Lookup, lookup(entries_of(s), cost_ref), Present(Released(estimate)))) -> Equivalent(Step, settle(s, cost_ref, generation, actual), settle_first(s, cost_ref, actual, estimate, True(), held(s))) =
+    settle_released_with(s, cost_ref, actual, estimate, stale(s, generation), lookup(entries_of(s), cost_ref), fresh, found)
+
+  fn settle_first_derived(s: BudgetState, cost_ref: String, actual: Int, estimate: Int, late: Bool, reserved: Int) -> Equivalent(BudgetResult, result_of(settle_first(s, cost_ref, actual, estimate, late, reserved)), derive_entry(Settled(estimate, actual, late))) =
+    reflexive(derive(estimate, actual, late))
+
+  fn settle_first_stores(s: BudgetState, cost_ref: String, actual: Int, estimate: Int, late: Bool, reserved: Int) -> Equivalent(BudgetState, state_of(settle_first(s, cost_ref, actual, estimate, late, reserved)), settled_state(s, cost_ref, estimate, actual, late, reserved)) =
+    reflexive(settled_state(s, cost_ref, estimate, actual, late, reserved))
+
+  fn late_refund_is_zero(estimate: Int, actual: Int) -> Equivalent(BudgetResult, derive_with(estimate, actual, True(), True()), SettledRefund(no_refund(), True())) =
+    reflexive(SettledRefund(no_refund(), True()))
+
+  fn on_time_refund_is_difference(estimate: Int, actual: Int) -> Equivalent(BudgetResult, derive_with(estimate, actual, False(), True()), SettledRefund(difference(estimate, actual), False())) =
+    reflexive(SettledRefund(difference(estimate, actual), False()))
+
+  fn overage_is_difference(estimate: Int, actual: Int, late: Bool) -> Equivalent(BudgetResult, derive_with(estimate, actual, late, False()), SettledOverage(difference(actual, estimate), late)) =
+    reflexive(SettledOverage(difference(actual, estimate), late))
+end

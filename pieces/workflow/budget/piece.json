@@ -1,0 +1,196 @@
+{
+  "schema_version": 1,
+  "id": "workflow/budget",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": [
+    "cure",
+    "elixir",
+    "otp"
+  ],
+  "applications": [
+    "crypto"
+  ],
+  "dependencies": [
+    "runtime/unit"
+  ],
+  "contract": "Unit-tagged budget Elzoo.Budget: pure Cure reserve/settle/release/reset/status/sweep over a sealed cap/unit, absolute Unix-ms now/expiry (expired when now >= expiry), generation {incarnation, counter} and per-cost_ref entries; one serialized check-and-reserve through the unchanged Elzoo.Unit (step/2 with {now_ms, input}); derived refund/overage, late settle commits only the actual, overage admits nothing, unreadable state and unavailable owner fail closed; volatile Elzoo.Budget.Owner with restart :temporary; critical_path/4 and critical_path_waves/3. Not money settlement, quota or rate limiting.",
+  "limits": [
+    "Subset only: one volatile owner per budget identity; no durability, cross-node agreement or continuity across reset or restart; open reservations are forfeited by reset and lost by restart.",
+    "Selected laws cover the named Cure functions. L3/L4 are decision-split: the step from a first settle/release to the second call finding the closed entry (lookup by cost_ref, value equality) is test-grounded because pinned Cure a004c335 keeps native == (Std.Builtin#int_eq) neutral on symbolic values.",
+    "Test-grounded, not proved: Elixir step/2 dispatch and translation, key decoding, the I0 readable?/1 check, I0 preservation over the entry collection, and sweep idempotence at the same now (pinned Cure does not refine a match on a symbolic record projection).",
+    "Admission bounds spending permission, not the total charge; a strict total needs a provider-enforced maximum charge at or below each estimate.",
+    "Entries are kept per generation for idempotence, so memory grows with distinct cost_refs until reset; GenServer.call timeout is Unit's fixed 5000 ms default.",
+    "critical_path_waves assumes wave barriers and worst-case bounds and is not an optimal schedule; retries are excluded by statement."
+  ],
+  "files": [
+    "cure/elzoo/budget.cure",
+    "lib/elzoo/budget.ex",
+    "lib/elzoo/budget/owner.ex",
+    "test/elzoo/budget_owner_test.exs",
+    "test/elzoo/budget_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/budget.cure",
+      "symbol": "admission_cap",
+      "claim": "L1 admission cap: every Reserved result of the production Cure reserve/7 (new entry or replay) has committed + reserved <= cap in its post-state, over native Int; selected law, not a property of the Elixir step/2 path or the entry collection."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/budget.cure",
+      "symbol": "overage_admits_nothing",
+      "claim": "L2: when over(s) (committed > cap) is True, reserve/7 returns no Reserved result for any argument, replays included."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/budget.cure",
+      "symbol": "settle_idempotent",
+      "claim": "L3 decision-split form: settle/4 on a state whose lookup finds Settled(estimate, a, late), with a fresh generation and actual == a decided True, returns the state unchanged and derive(estimate, a, late). The link from a first settle to that lookup is test-grounded."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/budget.cure",
+      "symbol": "release_idempotent",
+      "claim": "L4 decision-split form: release/3 on a state whose lookup finds Released(estimate), with a fresh generation, returns the state unchanged and ReleasedOk. The link from a first release to that lookup is test-grounded."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/budget.cure",
+      "symbol": "release_expired_replays",
+      "claim": "L4 decision-split form for an Expired entry: release/3 returns the state unchanged and ReleasedOk."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/budget.cure",
+      "symbol": "reserve_rejection_keeps_state",
+      "claim": "L5: a Rejected result of reserve/7 returns its input state unchanged."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/budget.cure",
+      "symbol": "settle_rejection_keeps_state",
+      "claim": "L5: a Rejected result of settle/4 returns its input state unchanged."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/budget.cure",
+      "symbol": "release_rejection_keeps_state",
+      "claim": "L5: a Rejected result of release/3 returns its input state unchanged."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/budget.cure",
+      "symbol": "reset_rejection_keeps_state",
+      "claim": "L5: a Rejected result of reset/2 returns its input state unchanged."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/budget.cure",
+      "symbol": "settle_open_derived",
+      "claim": "L6: settle/4 on an Open(estimate, expiry) entry (fresh generation) is settle_first with late False and reserved - estimate."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/budget.cure",
+      "symbol": "settle_expired_derived",
+      "claim": "L6: settle/4 on an Expired entry is settle_first with late True and reserved unchanged (late settle commits only the actual)."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/budget.cure",
+      "symbol": "settle_released_derived",
+      "claim": "L6: settle/4 on a Released entry is settle_first with late True and reserved unchanged."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/budget.cure",
+      "symbol": "settle_first_derived",
+      "claim": "L6: the result of settle_first equals derive_entry of the Settled(estimate, actual, late) triple it stores."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/budget.cure",
+      "symbol": "settle_first_stores",
+      "claim": "L6: settle_first stores Settled(estimate, actual, late) through settled_state."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/budget.cure",
+      "symbol": "late_refund_is_zero",
+      "claim": "L6: a late settle within the estimate reports refund 0."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/budget.cure",
+      "symbol": "on_time_refund_is_difference",
+      "claim": "L6: an on-time settle within the estimate reports refund estimate - actual."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/budget.cure",
+      "symbol": "overage_is_difference",
+      "claim": "L6: a settle above the estimate reports overage actual - estimate."
+    },
+    {
+      "kind": "type",
+      "file": "cure/elzoo/budget.cure",
+      "claim": "Pinned Cure type-checks the BudgetState, EntryRow, Generation, Entry, Lookup, BudgetResult and Step declarations and the production functions. No Elixir check is claimed here."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/budget_test.exs",
+      "claim": "Clean Cure audit; nine compile-time negative controls, each rejected at an asserted proof name (L6 settle_expired_with and L4 release_expired_with controls are law-specific; the L2 overage_with control shows only that the L2 proof requires the overage branch to reject, since a readable overage state cannot pass fits_replay; any admission under overage violates L1 and is caught by the L1 proof; the other L5/L6 laws have no law-specific control); the Elixir readable?/1 (I0) check, including chardata and nested text, fails closed; input decoding and key forms; replay/expiry/late-settle/overage scenarios; repeat settle and release through step/2 (L3/L4 link); step/2 next states and translated results equal direct Cure results; seeded random traces for I0, the cap invariant, repeat equality and sweep idempotence at the same now; critical-path formulas. Finite evidence, not proofs."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/budget_owner_test.exs",
+      "claim": "Owner scenarios: start validation and seal, distinct incarnations, 20 rounds of 50 concurrent callers for the last unit, expiry and late settle, overage, reset and forfeits, unreadable and stopped owner fail closed, supervised crash of the temporary child, two distinct budgets under one ordinary Supervisor with child ids {Elzoo.Budget.Owner, budget_id}, timeout then replay, conflict, rejected retry and release, timed-out reset resolved by status; finite evidence."
+    },
+    {
+      "kind": "upstream",
+      "provider": "cure",
+      "reference": "https://github.com/cure-lang/cure-lang/tree/a004c335cc4e9f2203ba6f51fc31e8540b66378d",
+      "claim": "Relies on pinned Cure compilation, conversion checking and audit; native Int ops coincide with the inductive Int on BEAM bignums per Std.Int. Not a local soundness proof."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/GenServer.html",
+      "claim": "GenServer.call/2 default 5000 ms timeout and exit semantics; Supervisor :temporary restart semantics."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/apps/crypto/crypto.html",
+      "claim": "OTP 29.1.2 process mailbox serialization, :sys.suspend/resume in tests, and :crypto.strong_rand_bytes/1 for incarnations (uniqueness is probabilistic, not proved)."
+    },
+    {
+      "kind": "assumption",
+      "claim": "Callers resend the same cost_ref, estimate and absolute expiry on retry, compute expiry in the same wall-clock domain, and pass a provider-enforced maximum charge at or below the estimate when a strict total is required."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "planned",
+      "contract": "The owner emits no events in this subset; results are returned to the caller. No observability guarantee is claimed."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Static per owner start: budget_id, cap and unit are validated and sealed for that incarnation; the child id is {Elzoo.Budget.Owner, budget_id}; the incarnation is generated; the call timeout is Unit's fixed default. No hot reconfiguration; a different cap or unit is rejected changed_limits.",
+      "evidence": [
+        "test/elzoo/budget_owner_test.exs"
+      ]
+    },
+    "control": {
+      "status": "supported",
+      "contract": "Narrow: reset/2 with the expected generation as expected revision and sweep/1. Holding the owner pid is the only authority. A timed-out reset is resolved with status. An OTP stop is not a business drain.",
+      "evidence": [
+        "test/elzoo/budget_owner_test.exs"
+      ]
+    }
+  }
+}
