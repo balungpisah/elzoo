@@ -326,6 +326,39 @@ class RunnerPolicyTest(unittest.TestCase):
         self.append("symbolic-check.yml", "      - [ { uses: actions/cache@v4 } ]\n")
         self.assertIn("flow mappings are outside", self.check(1).stderr)
 
+    # ELZ-043 re-review (comment 6706080840) controls.
+    GATE_START = "      - name: Verify approved backend runner\n"
+    GATE_END = "      - name: Report host load and memory context\n"
+
+    def gate_text(self):
+        source = (self.root / ".github" / "workflows" / "symbolic-check.yml").read_text()
+        start = source.index(self.GATE_START)
+        return source[start:source.index(self.GATE_END, start)]
+
+    def test_flow_sequence_step_mapping_rejected(self):
+        self.append("symbolic-check.yml", "      - [ uses: actions/cache@main ]\n")
+        self.assertIn("mappings inside flow sequences are outside", self.check(1).stderr)
+
+    def test_one_line_steps_rejected(self):
+        gate = self.gate_text()
+        self.change("symbolic-check.yml", gate, "")
+        self.change("symbolic-check.yml", "jobs:\n", "env:\n  NOTE: |\n" + gate + "\njobs:\n")
+        self.change("symbolic-check.yml", "    steps:\n", "    steps: [ uses: docker://alpine:3 ]\n    old-steps:\n")
+        stderr = self.check(1).stderr
+        self.assertIn("mappings inside flow sequences are outside", stderr)
+        self.assertIn("one block-style steps: list", stderr)
+
+    def test_gate_only_in_block_scalar_rejected(self):
+        gate = self.gate_text()
+        self.change("symbolic-check.yml", gate, "")
+        self.change("symbolic-check.yml", "jobs:\n", "env:\n  NOTE: |\n" + gate + "\njobs:\n")
+        self.assertIn("approved runner identity gate is missing or changed", self.check(1).stderr)
+
+    def test_uses_plain_continuation_rejected(self):
+        pinned = "actions/cache/restore@" + self.CACHE_SHA + " # v4.3.0\n"
+        self.change("symbolic-check.yml", pinned, pinned + "          actions/cache@v4\n")
+        self.assertIn("plain-scalar continuation lines are outside", self.check(1).stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
