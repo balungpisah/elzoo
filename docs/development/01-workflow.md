@@ -82,6 +82,12 @@ skipped.
 mix check must compile real Cure, execute selected Cure proofs, meaningful
 runtime tests and negative controls. It is not documentation or formatting
 lint. Targeted tests are feedback; report the full mix check before review.
+The default retains every independent consumer, including the full aggregate.
+For explicit PR-style iteration, `mix check --affected origin/main` selects
+affected fixed per-ID consumers and omits the aggregate; all other root checks
+remain. Shared/unknown changes or unavailable comparison data select all fixed
+consumers. This subset is not full acceptance; see the selection policy and
+limits in [CI on user-owned machines](10-symbolic-ci.md#affected-consumer-checks-elz-038).
 
 The task decides which proofs and scenarios are selected. No finite test set
 silently becomes a universal proof, and no external library is required to
