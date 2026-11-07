@@ -86,7 +86,7 @@ jobs:
             _build
             spikes/ash_foundation/deps
             spikes/ash_foundation/_build
-          key: elzoo-ubuntu24-v2-${{ runner.name }}-${{ runner.os }}-otp29.1.2-elixir1.20.4-${{ hashFiles('mix.lock', 'mix.exs', 'spikes/ash_foundation/mix.lock', 'spikes/ash_foundation/mix.exs') }}-elz043-demo
+          key: elzoo-ubuntu24-v2-${{ runner.name }}-${{ runner.os }}-otp29.1.2-elixir1.20.4-${{ hashFiles('mix.lock', 'mix.exs', 'spikes/ash_foundation/mix.lock', 'spikes/ash_foundation/mix.exs') }}
           restore-keys: |
             elzoo-ubuntu24-v2-${{ runner.name }}-${{ runner.os }}-otp29.1.2-elixir1.20.4-
       - run: mix local.hex --force
@@ -102,8 +102,6 @@ jobs:
             spikes/ash_foundation/deps
             spikes/ash_foundation/_build
           key: ${{ steps.deps-cache.outputs.cache-primary-key }}
-      - name: ELZ-043 demo, fail after mix setup (reverted next commit)
-        run: exit 1
       - name: Run mix check
         run: sh scripts/run-ci-check.sh
       - name: Report container resource observations
