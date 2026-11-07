@@ -1,4 +1,4 @@
-name: Check on symbolic
+name: Check on user-owned CI
 
 on:
   push:
@@ -15,7 +15,8 @@ concurrency:
 
 jobs:
   check:
-    runs-on: [self-hosted, linux, x64, symbolic, elzoo, backend]
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'task/ELZ-034' && fromJSON('["self-hosted","linux","x64","macbook-ubuntu","elzoo","ci-candidate"]') || fromJSON('["self-hosted","linux","x64","elzoo","backend"]') }}
     container:
       image: ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852
     timeout-minutes: 45
@@ -23,6 +24,21 @@ jobs:
       ImageOS: ubuntu24
       ERL_FLAGS: '+S 4:4 +SDcpu 1 +SDio 1'
     steps:
+      - name: Verify approved backend runner
+        run: |
+          case "$RUNNER_NAME" in
+            symbolic-elzoo) ;;
+            macbook-ubuntu-elzoo-candidate)
+              echo 'ERL_FLAGS=+S 2:2 +SDcpu 1 +SDio 1' >> "$GITHUB_ENV"
+              ;;
+            *) echo "Unapproved backend runner: $RUNNER_NAME" >&2; exit 1 ;;
+          esac
+          echo "Backend runner: $RUNNER_NAME"
+          free -h || true
+      - name: Report host load and memory context
+        run: |
+          sed -n '1,5p' /proc/meminfo
+          cat /proc/loadavg
       - name: Prepare Ubuntu job container
         working-directory: /
         run: |
@@ -50,6 +66,7 @@ jobs:
           git rev-parse --is-inside-work-tree
       - run: python3 scripts/check-claims.py
       - run: python3 scripts/check-ci-runners.py
+      - run: python3 scripts/test-ci-runners.py
       - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1
         with:
           elixir-version: '1.20.4'
@@ -64,10 +81,26 @@ jobs:
             _build
             spikes/ash_foundation/deps
             spikes/ash_foundation/_build
-          key: symbolic-ubuntu24-v1-${{ runner.os }}-otp29.1.2-elixir1.20.4-${{ hashFiles('mix.lock', 'mix.exs', 'spikes/ash_foundation/mix.lock', 'spikes/ash_foundation/mix.exs') }}
+          key: elzoo-ubuntu24-v2-${{ runner.name }}-${{ runner.os }}-otp29.1.2-elixir1.20.4-${{ hashFiles('mix.lock', 'mix.exs', 'spikes/ash_foundation/mix.lock', 'spikes/ash_foundation/mix.exs') }}
           restore-keys: |
-            symbolic-ubuntu24-v1-${{ runner.os }}-otp29.1.2-elixir1.20.4-
+            elzoo-ubuntu24-v2-${{ runner.name }}-${{ runner.os }}-otp29.1.2-elixir1.20.4-
       - run: mix local.hex --force
       - run: mix local.rebar --force
       - run: mix setup
-      - run: mix check
+      - name: Run mix check
+        run: sh scripts/run-ci-check.sh
+      - name: Report container resource observations
+        if: always()
+        run: |
+          if test -r /sys/fs/cgroup/memory.peak; then
+            echo "cgroup memory peak bytes: $(cat /sys/fs/cgroup/memory.peak)"
+          else
+            echo "cgroup memory peak unavailable"
+          fi
+          if test -r "$RUNNER_TEMP/elzoo-ci-cpu.json"; then
+            cat "$RUNNER_TEMP/elzoo-ci-cpu.json"
+          else
+            echo "cgroup CPU sample unavailable"
+          fi
+          sed -n '1,5p' /proc/meminfo
+          cat /proc/loadavg

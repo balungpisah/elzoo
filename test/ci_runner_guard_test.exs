@@ -24,10 +24,11 @@ defmodule Elzoo.CiRunnerGuardTest do
         ] do
       File.write!(
         Path.join(workflows, "symbolic-check.yml"),
-        "jobs:\n  check:\n    runs-on: #{selector}\n"
+        replace_selector(workflow("backend"), "    runs-on: #{selector}")
       )
 
-      assert {_, 1} = System.cmd("python3", [@script], cd: root, stderr_to_stdout: true)
+      assert {output, 1} = System.cmd("python3", [@script], cd: root, stderr_to_stdout: true)
+      assert output =~ "every job must use"
     end
 
     File.write!(Path.join(workflows, "symbolic-check.yml"), workflow("backend"))
@@ -36,8 +37,10 @@ defmodule Elzoo.CiRunnerGuardTest do
           {"symbolic-check.yml", "backend", "gleam"},
           {"symbolic-gleam.yml", "gleam", "backend"}
         ] do
-      File.write!(Path.join(workflows, file), workflow(wrong))
-      assert {_, 1} = System.cmd("python3", [@script], cd: root, stderr_to_stdout: true)
+      [wrong_selector] = Regex.run(~r/^    runs-on:.*$/m, workflow(wrong))
+      File.write!(Path.join(workflows, file), replace_selector(workflow(correct), wrong_selector))
+      assert {output, 1} = System.cmd("python3", [@script], cd: root, stderr_to_stdout: true)
+      assert output =~ "every job must use"
       File.write!(Path.join(workflows, file), workflow(correct))
       assert {_, 0} = System.cmd("python3", [@script], cd: root, stderr_to_stdout: true)
     end
@@ -49,6 +52,9 @@ defmodule Elzoo.CiRunnerGuardTest do
     assert {_, 1} = System.cmd("python3", [@script], cd: root, stderr_to_stdout: true)
   end
 
-  defp workflow(role),
-    do: "jobs:\n  check:\n    runs-on: [self-hosted, linux, x64, symbolic, elzoo, #{role}]\n"
+  defp workflow("backend"), do: File.read!(Path.expand(".github/workflows/symbolic-check.yml"))
+  defp workflow("gleam"), do: File.read!(Path.expand(".github/workflows/symbolic-gleam.yml"))
+
+  defp replace_selector(workflow, selector),
+    do: Regex.replace(~r/^    runs-on:.*$/m, workflow, selector, global: false)
 end
