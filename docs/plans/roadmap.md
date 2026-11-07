@@ -212,7 +212,7 @@ ELZ-047 (#84, merged 230cc5b) moved the Cure pin to `balungpisah/cure-lang`
 reference URL and the pin named in prose inside 24 ready Piece manifests. No
 ready Contract, summary, disposition, owner or status changed. ELZ-048 (#86)
 re-recorded the 24 `manifest_sha256` values against the merged manifest bytes
-and regenerated the views. This is a reconciliation of an inherited pin
+and regenerated the views (no change in them). This is a reconciliation of an inherited pin
 migration, not a new acceptance; the Piece evidence binds to the fork revision
 as recorded in `docs/dependencies/forks/cure.md`.
 
