@@ -110,6 +110,7 @@ defmodule Elzoo.ExportTest do
   # on 2026-11-07 (PR #59 head 4fdc8ad), where 360 s timed out twice on symbolic CI.
   # ~2.4x local margin (ELZ-036). A split is a possible later task.
   @tag timeout: 1_200_000
+  @tag :aggregate_consumer
   test "all selected sources compile and run outside Elzoo with only upstream code paths", ctx do
     ids =
       ctx.registry.entries
@@ -123,11 +124,65 @@ defmodule Elzoo.ExportTest do
     assert_cure_consumer(ctx, ids, inner_timeout: 300_000)
   end
 
-  for id <-
-        ~w(core/operator core/port core/assembly core/envelope core/edge core/wiring core/selection delivery/idempotency delivery/windowed-idempotency delivery/request-reply delivery/routing delivery/transformation delivery/backpressure delivery/dead-letter delivery/retry-timeout runtime/adapter runtime/host assembly/ingest-json-unit assembly/request-route-retry state/event-log state/checkpoint state/outbox integration/sql workflow/state-machine integration/jobs assembly/durable-job) do
+  for id <- Elzoo.CheckSelection.consumer_ids() do
     @tag timeout: 120_000
+    @tag consumer_id: id
     test "#{id} carries its own checks into an independent consumer", ctx do
       assert_cure_consumer(ctx, [unquote(id)])
+    end
+  end
+
+  test "affected selection only filters the existing consumer tests", ctx do
+    selection =
+      Elzoo.CheckSelection.for_changes(
+        ctx.registry,
+        {:ok, ["pieces/delivery/transformation/README.md"]}
+      )
+
+    assert selection.selected == ["assembly/request-route-retry", "delivery/transformation"]
+    refute selection.aggregate
+    assert selection.uncovered == []
+
+    uncovered =
+      Elzoo.CheckSelection.for_changes(
+        ctx.registry,
+        {:ok, ["pieces/workflow/approval/README.md"]}
+      )
+
+    assert uncovered.selected == []
+    assert uncovered.aggregate
+    assert uncovered.uncovered == ["workflow/approval"]
+    tests = __MODULE__.__ex_unit__().tests
+    per_id = Enum.filter(tests, &Map.has_key?(&1.tags, :consumer_id))
+    aggregate = Enum.filter(tests, &Map.has_key?(&1.tags, :aggregate_consumer))
+    assert length(per_id) == 26
+    assert length(aggregate) == 1
+
+    assert Enum.sort(Enum.map(per_id, & &1.tags.consumer_id)) ==
+             Enum.sort(Elzoo.CheckSelection.consumer_ids())
+
+    for test <- per_id do
+      assert test.name ==
+               String.to_atom(
+                 "test #{test.tags.consumer_id} carries its own checks into an independent consumer"
+               )
+    end
+
+    {opts, [], []} =
+      OptionParser.parse(Elzoo.CheckSelection.test_args(selection),
+        strict: [exclude: :keep, warnings_as_errors: :boolean]
+      )
+
+    filters = opts |> Keyword.get_values(:exclude) |> ExUnit.Filters.parse()
+    remaining = Enum.filter(tests, &(ExUnit.Filters.eval([], filters, &1.tags, tests) == :ok))
+    assert length(remaining) == length(tests) - 25
+
+    assert Enum.any?(remaining, fn test ->
+             test.name == :"test an OTP-only piece runs in a normal independent Mix project"
+           end)
+
+    for test <- tests -- (per_id ++ aggregate) do
+      assert test in remaining
     end
   end
 
