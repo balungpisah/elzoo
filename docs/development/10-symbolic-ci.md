@@ -35,8 +35,21 @@ identity, and a runner name check happens after the host starts the container.
 with its fork-PR gate immediately below the job name; it checks the exact `on:`
 trigger block, rejects `pull_request_target` and quoted YAML keys, requires every
 container `image:` to carry an `@sha256:` digest, and checks exact selector
-conventions, the identity gate and known workflow files. It disallows reusable
-workflows without a policy. An added job requires deliberate guard review.
+conventions, the identity gate and known workflow files. Jobs must be
+block-style: a flow-style, aliased or explicit-key job line under `jobs:` is
+rejected, and `jobs:` must be the last top-level key. Each job must keep exactly
+one `container:` mapping whose first key is a digest-pinned `image:`, so its steps
+run in that image rather than in a plain host shell. `container.options` (for
+example `--privileged` or host mounts) is not restricted, so this is not host
+isolation. The guard fails closed on YAML forms the workflows never use: anchors,
+aliases, tags, explicit `?` keys, merge keys, quoted scalars or flow collections
+that do not close on their own line, document markers and directives.
+Text inside plain block scalars (`run: |`, content deeper than the key column)
+and full-line comments is not read as YAML keys for the trigger-name,
+quoted-key, image and form checks. The `runs-on:` and `container:` lines must be
+visible keys outside that text, and any copy of them inside script text still
+counts against the one allowed. It disallows reusable workflows without a policy.
+An added job requires deliberate guard review.
 `python3 scripts/test-ci-runners.py` exercises positive routing and negative
 controls. This is a source convention guard, not protection against hostile YAML
 or an account-level runner admission policy. Workflow and trust-model changes
@@ -195,4 +208,5 @@ ELZ-019 moved CI from hosted machines to symbolic. ELZ-020 measured BEAM
 scheduler settings and split backend and Gleam roles. Earlier hosted runs are
 historical evidence and do not satisfy the user-owned machine policy. ELZ-034
 admitted the second backend runner (PR #61, merge `9890dee`). ELZ-040 removed its
-one-time route and hardened the guard.
+one-time route and hardened the guard. ELZ-042 closed the flow-style job and
+missing-container gaps found in the ELZ-040 review.
