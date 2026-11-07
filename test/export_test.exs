@@ -39,7 +39,7 @@ defmodule Elzoo.ExportTest do
     plan = Elzoo.Export.plan!(ctx.registry, ["integration/cure-json"], ctx.destination)
     instructions = plan.files[plan.instructions]
     assert instructions =~ "runtime: false"
-    assert instructions =~ "a004c335cc4e9f2203ba6f51fc31e8540b66378d"
+    assert instructions =~ "208248063d64e621782cd26dd30698ee42850a89"
     assert instructions =~ ~s({:jason, "~> 1.4.5"})
     assert instructions =~ "not evidence for untested releases"
     receipt = Jason.decode!(plan.files[plan.receipt])

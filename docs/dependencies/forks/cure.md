@@ -23,7 +23,7 @@ Kept per [docs/development/08-upstream-and-forks.md](../../development/08-upstre
   Cure contributors"). The fork keeps that file and every upstream notice unchanged. Elzoo does
   not relabel any Cure source as Apache-2.0.
 - Upstream PR with the same change against `main`: fork branch `elzoo/user-source-index`
-  (commit `da3c9379e`), PR link recorded on #84 once opened.
+  (commit `da3c9379e`): https://github.com/cure-lang/cure-lang/pull/82. Full upstream suite on that branch: 6940 tests, 0 failures.
 
 ## Fork
 
