@@ -112,6 +112,28 @@ After this run and independent review, ELZ-034 merged and runner 23 received
 the `backend` label. This is one observation, not a resource guarantee or proof
 of reliability; the earlier failed runs above remain part of the record.
 
+ELZ-040 raised the backend job `timeout-minutes` from 45 to 90 (Gleam stays
+30; test time limits are unchanged). Measured basis:
+
+- Main `94df396` run 42340251145 on `symbolic-elzoo` passed, but the run took
+  44m17s (job 04:51:50Z–05:35:51Z, 44m01s). The root suite reported
+  `Finished in 1377.4 seconds` and 510 tests.
+- PR #71 run 42342334978 attempt 1 at `11abcfa` on
+  `macbook-ubuntu-elzoo-candidate` was cancelled: "The job has exceeded the
+  maximum execution time of 45m0s" (check run 128312535761, 05:20:51Z–06:06:03Z).
+  `mix check` was still running and had reported no test failure. The cache
+  missed, so `mix setup` took 13m16s (1m22s in run 42335711837).
+- Attempt 2 of the same run, which is a separate observation and does not
+  replace attempt 1, passed on `symbolic-elzoo` (06:07:51Z–06:36:38Z, 28m47s)
+  with a restored cache: 510 root tests, `Finished in 1356.5 seconds`, cgroup
+  memory peak 2,814,078,976 bytes, sampled CPU peak 5.037 cores over 1,479
+  samples.
+
+Contributing factors: more Pieces and tests after ELZ-024; the ELZ-034 cache
+prefix change, which left runners with cold caches; and `+S 2:2` on the
+candidate. A 90-minute limit is headroom, not a performance target. Look into
+a growing duration rather than raising the limit again.
+
 Each role runs at most one job per runner. The candidate has no hard container
 memory or CPU quota. The backend workflow keeps `+S 4:4 +SDcpu 1 +SDio 1` on
 symbolic and selects `+S 2:2 +SDcpu 1 +SDio 1` on macbook-ubuntu, per BEAM VM;

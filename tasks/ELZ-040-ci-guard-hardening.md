@@ -22,6 +22,12 @@ permissions.
    after registry-1.docker.io timed out from symbolic; digest pins unchanged).
 4. Optional, if cheap: reject quoted-key `"runs-on":` and container-image changes without a digest.
 - Add this task's source body at `tasks/ELZ-040-ci-guard-hardening.md`.
+5. Scope addition (owner-approved, recorded on PR #71): raise the backend job
+   `timeout-minutes` in `.github/workflows/symbolic-check.yml` from 45 to 90.
+   Basis: PR #71 run 42342334978 attempt 1 exceeded 45m0s on
+   `macbook-ubuntu-elzoo-candidate`; main `94df396` run 42340251145 passed on
+   `symbolic-elzoo` in 44m17s. `symbolic-gleam.yml` (30) and test time limits
+   are unchanged.
 
 ## Acceptance
 

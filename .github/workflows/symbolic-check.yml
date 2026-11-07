@@ -19,7 +19,9 @@ jobs:
     runs-on: [self-hosted, linux, x64, elzoo, backend]
     container:
       image: ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852
-    timeout-minutes: 45
+    # ELZ-040: 45 min was exceeded (run 42342334978) and nearly reached (44m on
+    # symbolic, run 42340251145); see docs/development/10-symbolic-ci.md.
+    timeout-minutes: 90
     env:
       ImageOS: ubuntu24
       ERL_FLAGS: '+S 4:4 +SDcpu 1 +SDio 1'
