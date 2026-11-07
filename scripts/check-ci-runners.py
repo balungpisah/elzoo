@@ -18,6 +18,8 @@ expected_triggers = [
     "  workflow_dispatch:",
 ]
 digest_image = re.compile(r'\s+image:\s*[^\s@\'"]+@sha256:[0-9a-f]{64}\s*')
+# ELZ-043: every action is pinned by a full commit SHA; a tag or branch can move.
+pinned_action = re.compile(r'\s*(?:-\s+)?uses:\s*[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*@[0-9a-f]{40}(?:\s+#.*)?')
 quoted_key = re.compile(r'\s*(?:-\s*)?(["\'])[^"\']*\1\s*:(?:\s|$)')
 # Plain block scalars (`key: |`, `key: >-`); explicit indentation digits are not
 # recognised, so their content stays subject to every check.
@@ -155,6 +157,8 @@ for file in files:
     for line in yaml_lines:
         if re.match(r'\s*image\s*:', line) and not digest_image.fullmatch(line):
             errors.append(f'{file}: container images must be pinned by @sha256 digest: {line.strip()}')
+        if re.match(r'\s*(?:-\s*)?uses\s*:', line) and not pinned_action.fullmatch(line):
+            errors.append(f'{file}: actions must be pinned by a full commit SHA: {line.strip()}')
         if re.fullmatch(r'\s*container\s*:\s*[^\s#].*', line):
             errors.append(f'{file}: container must be a mapping with a digest-pinned image')
     selectors = [i for i, line in enumerate(lines) if re.match(r'\s*(?:-\s*)?runs-on\s*:', line)]

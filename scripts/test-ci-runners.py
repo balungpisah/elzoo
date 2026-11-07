@@ -298,5 +298,26 @@ class RunnerPolicyTest(unittest.TestCase):
         self.check(1)
 
 
+    # ELZ-043 controls: split cache actions and every other action stay SHA-pinned.
+    CACHE_SHA = "0057852bfaa89a56745cba8c7296529d2fc39830"
+
+    def test_tag_pinned_cache_save_rejected(self):
+        self.change("symbolic-check.yml", "actions/cache/save@" + self.CACHE_SHA, "actions/cache/save@v4")
+        self.assertIn("pinned by a full commit SHA", self.check(1).stderr)
+
+    def test_branch_pinned_cache_restore_rejected(self):
+        self.change("symbolic-check.yml", "actions/cache/restore@" + self.CACHE_SHA, "actions/cache/restore@main")
+        self.assertIn("pinned by a full commit SHA", self.check(1).stderr)
+
+    def test_short_sha_action_rejected(self):
+        self.change("symbolic-gleam.yml", "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020",
+                    "actions/setup-node@49933ea")
+        self.assertIn("pinned by a full commit SHA", self.check(1).stderr)
+
+    def test_unpinned_added_action_rejected(self):
+        self.append("symbolic-check.yml", "      - uses: actions/cache@v4\n")
+        self.assertIn("pinned by a full commit SHA", self.check(1).stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

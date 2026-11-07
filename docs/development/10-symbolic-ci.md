@@ -48,7 +48,9 @@ Text inside plain block scalars (`run: |`, content deeper than the key column)
 and full-line comments is not read as YAML keys for the trigger-name,
 quoted-key, image and form checks. The `runs-on:` and `container:` lines must be
 visible keys outside that text, and any copy of them inside script text still
-counts against the one allowed. It disallows reusable workflows without a policy.
+counts against the one allowed. It disallows reusable workflows without a policy. Every `uses:` action
+must be pinned by a full 40-character commit SHA (ELZ-043); a tag, branch or
+short SHA is rejected.
 An added job requires deliberate guard review.
 `python3 scripts/test-ci-runners.py` exercises positive routing and negative
 controls. This is a source convention guard, not protection against hostile YAML
@@ -173,6 +175,53 @@ toolchain/dependency pins: compiled Cure and Mix artifacts are not restored from
 another machine's checkout. GitHub's cache service remains in use; no claim is
 made about other GitHub account costs.
 
+### Dependency cache (ELZ-043)
+
+The backend job restores with `actions/cache/restore` and saves with
+`actions/cache/save`, both pinned at `0057852bfaa89a56745cba8c7296529d2fc39830`
+(tag v4.3.0). The key and restore-keys prefix are unchanged:
+`elzoo-ubuntu24-v2-<runner name>-Linux-otp29.1.2-elixir1.20.4-<hash of the two
+mix.lock/mix.exs pairs>`. The save step runs immediately after `mix setup`
+succeeds and before `mix check`, only when the restore had no exact
+primary-key hit (`cache-hit != 'true'`), using the restore step's
+`cache-primary-key`. It runs on the same events as the job itself (push to
+`main`, same-repository PRs, `workflow_dispatch`), as the earlier combined step
+did. A `mix check` failure, cancellation or timeout now keeps the saved state;
+a failed `mix setup` saves nothing. GitHub scopes caches by ref: a PR save is
+visible to that PR only, while a `main` save is visible to every branch.
+
+What is saved is the post-`mix setup` state (`deps`, `_build` and the spike's
+`deps`/`_build`, `test` env). Files that `mix check` adds later are no longer in
+a newly saved entry. The save stays on the same runner key, so compiled Mix and
+Cure artifacts, including the root application's BEAMs in `_build`, are still
+never restored on another machine or path; they are not a substitute for the
+source-copy boundary.
+
+No per-runner warm job was added. Measured on the backend workflow, steps
+`Run mix setup` and the cache save:
+
+| Restore | Runs (runner) | `mix setup` |
+|---|---|---|
+| exact hit | 42342334978 attempt 2, 42306658171 (symbolic) | 111 s, 54 s |
+| restore-key hit on the runner's own older key, after a lock change | 42215808401, 42224055535, 42256519279, 42267542586 (symbolic) | 346 s, 306 s, 38 s, 36 s |
+| no cache for the prefix (after the ELZ-034 v1→v2 change) | 42340251145 (symbolic); 42342334978 attempt 1, 42337998577, 42351427886 (macbook-ubuntu) | 662 s; 796 s, 739 s, 811 s |
+
+Saves took 45–543 s (for example 273 s in 42340251145, 543 s in 42215808401).
+After a `mix.lock` or `mix.exs` change, the runner that did not take the `main`
+run still restores its own older main entry by prefix, so its first run costs
+an incremental `mix setup` plus one save, not a cold build. A warm job would
+need a second, per-runner job and route (a guard and trust-model change) and
+would occupy each runner for a setup and save on every key change. The fully
+cold case comes only from a changed key prefix or an evicted entry. Change the
+prefix only deliberately and expect one cold run per runner. These are
+observations from listed runs, not a timing guarantee; no claim is made about
+warm-run speed.
+
+Coordinator check after merge: `gh api
+'repos/balungpisah/elzoo/actions/caches?per_page=50' --jq '.actions_caches[] |
+select(.ref=="refs/heads/main") | {id,key,created_at}'` must list one entry per
+backend runner name with the current hash.
+
 On 2026-11-07, pulls from `registry-1.docker.io` timed out from `symbolic`
 while `github.com` and `auth.docker.io` were reachable. The Docker daemon on
 `symbolic` now has `/etc/docker/daemon.json` set to
@@ -209,4 +258,5 @@ scheduler settings and split backend and Gleam roles. Earlier hosted runs are
 historical evidence and do not satisfy the user-owned machine policy. ELZ-034
 admitted the second backend runner (PR #61, merge `9890dee`). ELZ-040 removed its
 one-time route and hardened the guard. ELZ-042 closed the flow-style job and
-missing-container gaps found in the ELZ-040 review.
+missing-container gaps found in the ELZ-040 review. ELZ-043 split the dependency
+cache so it is saved after `mix setup` and added the action SHA-pin check.
