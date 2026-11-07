@@ -15,9 +15,12 @@ defmodule Elzoo.CompileCureFingerprintTest do
 
   setup do
     tag = System.unique_integer([:positive])
-    dir = Path.join(System.tmp_dir!(), "elzoo-cure-fingerprint-#{tag}")
+    dir = Path.join(System.tmp_dir!(), "elzoo-cure-fingerprint-#{System.pid()}-#{tag}")
     File.rm_rf!(dir)
     File.mkdir_p!(Path.join(dir, "cure"))
+    # `in_project` changes into the directory; macOS resolves /var to /private/var.
+    dir = File.cd!(dir, fn -> File.cwd!() end)
+    File.write!(Path.join(dir, ".git"), "gitdir: fixture\n")
 
     File.write!(Path.join(dir, "mix.exs"), """
     defmodule ElzooCureFingerprintFixture#{tag}.MixProject do
@@ -90,6 +93,51 @@ defmodule Elzoo.CompileCureFingerprintTest do
     File.rm!(Path.join(ctx.ebin, "#{ctx.module}.beam"))
     assert compile(ctx) == :compiled
     assert File.regular?(Path.join(ctx.ebin, "#{ctx.module}.beam"))
+    assert compile(ctx) == :skipped
+
+    # Negative control 5: a well-formed but wrong fingerprint recompiles.
+    wrong =
+      Regex.replace(
+        ~r/^fingerprint [0-9a-f]{64}$/m,
+        File.read!(ctx.manifest),
+        "fingerprint " <> String.duplicate("0", 64)
+      )
+
+    File.write!(ctx.manifest, wrong)
+    assert compile(ctx) == :compiled
+    assert compile(ctx) == :skipped
+
+    # Negative control 6: a manifest module line that is not `Cure.<name>` is
+    # rejected, so the fingerprint is dropped and nothing outside ebin is removed.
+    victim = Path.join(ctx.dir, "victim.beam")
+    File.write!(victim, "keep")
+    File.write!(ctx.manifest, File.read!(ctx.manifest) <> "module ../../../../victim\n")
+    assert compile(ctx) == :compiled
+    assert File.read!(victim) == "keep"
+    assert compile(ctx) == :skipped
+
+    # Negative control 7: --force recompiles with a matching fingerprint.
+    assert compile(ctx, [], ["--force"]) == :compiled
+    assert compile(ctx) == :skipped
+
+    # Negative control 8: a new or edited Cure.toml above the source recompiles.
+    File.write!(Path.join(ctx.dir, "Cure.toml"), "[project]\nname = \"fixture\"\n")
+    assert compile(ctx) == :compiled
+    assert compile(ctx) == :skipped
+    File.write!(Path.join(ctx.dir, "Cure.toml"), "[project]\nname = \"fixture2\"\n")
+    assert compile(ctx) == :compiled
+    assert compile(ctx) == :skipped
+
+    # Negative control 9: a new or edited mix.lock recompiles.
+    File.write!(Path.join(ctx.dir, "mix.lock"), "%{}\n")
+    assert compile(ctx) == :compiled
+    assert compile(ctx) == :skipped
+    File.write!(Path.join(ctx.dir, "mix.lock"), "%{\"x\" => 1}\n")
+    assert compile(ctx) == :compiled
+    assert compile(ctx) == :skipped
+
+    # The skip path keeps the ebin on the code path.
+    assert String.to_charlist(ctx.ebin) in :code.get_path()
   end
 
   test "a changed source-root list recompiles", ctx do
@@ -102,11 +150,11 @@ defmodule Elzoo.CompileCureFingerprintTest do
     assert compile(ctx) == :compiled
   end
 
-  defp compile(ctx, post_config \\ []) do
+  defp compile(ctx, post_config \\ [], args \\ []) do
     flush_shell()
 
     Mix.Project.in_project(:cure_fingerprint_fixture, ctx.dir, post_config, fn _module ->
-      Mix.Task.rerun("compile.cure", [])
+      Mix.Task.rerun("compile.cure", args)
     end)
 
     messages = drain_shell([])

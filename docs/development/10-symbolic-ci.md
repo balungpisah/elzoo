@@ -245,15 +245,18 @@ run does not satisfy them.
 
 ## Owned Cure compile fingerprint (ELZ-046)
 
-`Mix.Tasks.Compile.Cure` writes `elzoo.cure.manifest` (format 2) with a sha256 fingerprint over the
-path and content of every owned `.cure` source, the sorted source roots, the Cure entry in
-`mix.lock`, the loaded `cure.app` descriptor, the compiler module's own BEAM md5 and the Elixir and
-OTP versions. When the fingerprint matches and every listed BEAM exists, the log says
-`Cure sources unchanged (...); skipping N modules`. Any other state recompiles everything.
+`Mix.Tasks.Compile.Cure` writes `elzoo.cure.manifest` (format 2) with a sha256 fingerprint over
+named inputs: the path and content of every owned `.cure` source, the nearest `Cure.toml` of each
+source, the sorted source roots, the whole `mix.lock`, every file in the loaded Cure `ebin`, the
+compiler module's own BEAM md5, and the Elixir, OTP and ERTS versions. The compile is skipped only
+when the fingerprint matches, every listed BEAM exists and `--force` was not given; the log then
+says `Cure sources unchanged (...); skipping N modules`. A mismatch on any named input, a missing
+or malformed manifest, a missing BEAM, or `mix compile --force` recompiles everything.
 
-Copied consumers carry the same compiler and start with an empty `_build`, so they always
-compile. The fingerprint covers the named inputs only. It is not a proof that no other input exists.
-Negative controls live in `test/compile_cure_fingerprint_test.exs`.
+Copied consumers carry the same compiler. Their first build starts from an empty `_build` and
+always compiles; a later build in the same consumer skips under the same rule. The fingerprint
+covers the named inputs only. It is not a proof that no other input exists. Negative controls live
+in `test/compile_cure_fingerprint_test.exs`.
 
 ## Machine and container setup
 

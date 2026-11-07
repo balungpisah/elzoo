@@ -14,15 +14,17 @@ content fingerprint matches and every expected BEAM is present. Any mismatch or 
 
 ## Scope
 
-- `Mix.Tasks.Compile.Cure` writes a manifest with a sha256 fingerprint over: the relative path and
-  content of every `.cure` source, the sorted source-root list, the Cure entry in `mix.lock`, the loaded
-  `cure.app` descriptor, the compiler module's own BEAM md5, and the Elixir and OTP versions. It
-  keeps the module list for stale removal. An old-format or unreadable manifest, an unreadable
-  `cure.app`, or a missing BEAM recompiles.
-- Consumers copy the same file and compile fresh (no manifest in a fresh `_build`), so their
-  behavior does not change.
+- `Mix.Tasks.Compile.Cure` writes a manifest with a sha256 fingerprint over: the path and
+  content of every `.cure` source, the nearest `Cure.toml` of each source, the sorted source-root
+  list, the whole `mix.lock`, every file in the loaded Cure `ebin`, the compiler module's own BEAM
+  md5, and the Elixir, OTP and ERTS versions. It keeps the module list for stale removal. A
+  mismatch, an old-format or malformed manifest, a missing BEAM, or `--force` recompiles.
+- Consumers copy the same file. Their first build starts from an empty `_build` and compiles;
+  a later build in the same consumer skips under the same rule.
 - New negative controls in a new test file: unchanged inputs skip; one edited `.cure` source
-  recompiles; a corrupted manifest recompiles; a deleted BEAM recompiles. These run in an isolated
+  recompiles; a corrupted, wrong or old-format manifest recompiles; a deleted BEAM recompiles;
+  `--force`, a changed source-root list, a new or edited `Cure.toml` and a new or edited
+  `mix.lock` recompile; a manifest module line outside `Cure.<name>` is rejected. These run in an isolated
   temporary Mix project. Existing tests and assertions stay as they are.
 - `docs/development/10-symbolic-ci.md`: what the skip means and what it does not.
 

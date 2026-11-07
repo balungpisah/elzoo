@@ -8,12 +8,13 @@ defmodule Mix.Tasks.Compile.Cure do
   and a production build load the same compiled bytes instead of JIT-loading
   source from a test harness.
 
-  ELZ-046: the manifest carries a sha256 fingerprint of the named inputs (every
-  source path and content, the sorted source roots, the Cure dependency lock
-  entry, the loaded `cure.app` descriptor, this module's BEAM md5, and the
-  Elixir and OTP versions). When the fingerprint matches and every listed BEAM
-  exists, the compile is skipped. Any other state recompiles everything. The
-  fingerprint covers only these inputs; it is not a proof that no other input
+  ELZ-046: the manifest carries a sha256 fingerprint of named inputs: every
+  source path and content, the nearest `Cure.toml` of each source, the sorted
+  source roots, the project `mix.lock`, every file in the loaded Cure `ebin`,
+  this module's BEAM md5, and the Elixir, OTP and ERTS versions. The compile is
+  skipped only when the fingerprint matches, every listed BEAM exists, and
+  `--force` was not given. A mismatch on any named input recompiles. The
+  fingerprint covers these inputs only; it is not a proof that no other input
   exists.
   """
 
@@ -21,9 +22,12 @@ defmodule Mix.Tasks.Compile.Cure do
 
   @manifest "elzoo.cure.manifest"
   @manifest_version "elzoo-cure-manifest 2"
+  @module_line ~r/^Cure\.[A-Za-z0-9_.]+$/
 
   @impl Mix.Task.Compiler
-  def run(_args) do
+  def run(args) do
+    force? = "--force" in args
+
     source_roots =
       Mix.Project.config() |> Keyword.get(:cure_paths, ["cure"]) |> Enum.map(&Path.expand/1)
 
@@ -43,7 +47,7 @@ defmodule Mix.Tasks.Compile.Cure do
       ensure_cure_started!()
       fingerprint = fingerprint(sources, source_roots)
 
-      if skip?(previous, fingerprint, output_dir) do
+      if not force? and skip?(previous, fingerprint, output_dir) do
         Mix.shell().info(
           "Cure sources unchanged (fingerprint #{String.slice(fingerprint, 0, 12)}); " <>
             "skipping #{length(previous.modules)} modules"
@@ -102,7 +106,7 @@ defmodule Mix.Tasks.Compile.Cure do
 
   # Skip only when the recorded fingerprint equals the current one and every
   # recorded BEAM is present. A missing fingerprint (old manifest format,
-  # unreadable file) never skips.
+  # unreadable or malformed file) never skips.
   defp skip?(%{fingerprint: recorded, modules: modules}, current, output_dir) do
     is_binary(recorded) and recorded == current and modules != [] and
       Enum.all?(modules, &File.regular?(Path.join(output_dir, "#{&1}.beam")))
@@ -115,35 +119,83 @@ defmodule Mix.Tasks.Compile.Cure do
         @manifest_version,
         "elixir=" <> System.version(),
         "otp=" <> List.to_string(:erlang.system_info(:otp_release)),
-        "compiler_md5=" <> Base.encode16(__MODULE__.module_info(:md5), case: :lower),
-        "cure_lock=" <> cure_lock_entry(),
-        "cure_app=" <> cure_app_digest(),
-        "roots=" <> Enum.join(Enum.sort(source_roots), "\n")
+        "erts=" <> List.to_string(:erlang.system_info(:version)),
+        "compiler_md5=" <> hex(__MODULE__.module_info(:md5)),
+        "lockfile=" <> lockfile_digest(),
+        "cure_ebin=" <> cure_ebin_digest(),
+        "roots=" <> Enum.join(Enum.sort(source_roots), "\n"),
+        "cure_toml=" <> cure_toml_digest(sources)
       ] ++
-        Enum.map(sources, fn source ->
-          "source=" <> source <> "\n" <> Base.encode16(:crypto.hash(:sha256, File.read!(source)))
-        end)
+        Enum.map(sources, fn source -> "source=" <> source <> "\n" <> file_digest(source) end)
 
-    :crypto.hash(:sha256, Enum.join(lines, "\n\n")) |> Base.encode16(case: :lower)
+    hex(:crypto.hash(:sha256, Enum.join(lines, "\n\n")))
   end
 
-  defp cure_lock_entry do
-    case Mix.Dep.Lock.read() do
-      %{cure: entry} -> inspect(entry, limit: :infinity)
-      _ -> "none"
+  defp hex(bytes), do: Base.encode16(bytes, case: :lower)
+
+  defp file_digest(path), do: hex(:crypto.hash(:sha256, File.read!(path)))
+
+  # Doubt never skips: an unreadable input yields a fresh random digest.
+  defp doubt, do: "unreadable-" <> hex(:crypto.strong_rand_bytes(8))
+
+  # The whole lock file, so a bump of Cure or any of its dependencies changes
+  # the fingerprint. A project without a lock file (a copied consumer before
+  # its first deps.get) records a constant; its Cure ebin is hashed below.
+  defp lockfile_digest do
+    lockfile = Mix.Project.config() |> Keyword.get(:lockfile, "mix.lock")
+
+    case File.read(lockfile) do
+      {:ok, contents} -> hex(:crypto.hash(:sha256, contents))
+      {:error, :enoent} -> "nolock"
+      {:error, _} -> doubt()
+    end
+  end
+
+  # Every file in the loaded Cure ebin: the compiler that produces the BEAMs.
+  # This catches a pin bump, a local edit under deps/cure, and a different
+  # Cure build on the same version.
+  defp cure_ebin_digest do
+    with dir when is_list(dir) <- :code.lib_dir(:cure),
+         ebin = Path.join(List.to_string(dir), "ebin"),
+         files = Enum.sort(Path.wildcard(Path.join(ebin, "*"))),
+         true <- files != [] do
+      files
+      |> Enum.map(&(Path.basename(&1) <> "=" <> file_digest(&1)))
+      |> Enum.join("\n")
+      |> then(&hex(:crypto.hash(:sha256, &1)))
+    else
+      _ -> doubt()
     end
   rescue
-    _ -> "unreadable"
+    _ -> doubt()
   end
 
-  # The loaded cure.app lists the Cure version and every compiler module.
-  # If it cannot be read, the digest is a fresh random value so nothing skips.
-  defp cure_app_digest do
-    with dir when is_list(dir) <- :code.lib_dir(:cure),
-         {:ok, app} <- File.read(Path.join([List.to_string(dir), "ebin", "cure.app"])) do
-      Base.encode16(:crypto.hash(:sha256, app), case: :lower)
-    else
-      _ -> "unreadable-" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
+  # Cure binds each source to the nearest ancestor Cure.toml, stopping at the
+  # repository root (a `.git` entry) or the filesystem root. Mirror that walk
+  # and hash each manifest found, so an edition change recompiles.
+  defp cure_toml_digest(sources) do
+    sources
+    |> Enum.map(&nearest_cure_toml(Path.dirname(Path.expand(&1))))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> Enum.sort()
+    |> Enum.map(&(&1 <> "=" <> file_digest(&1)))
+    |> Enum.join("\n")
+    |> case do
+      "" -> "none"
+      listing -> hex(:crypto.hash(:sha256, listing))
+    end
+  end
+
+  defp nearest_cure_toml(dir) do
+    manifest = Path.join(dir, "Cure.toml")
+    parent = Path.dirname(dir)
+
+    cond do
+      File.regular?(manifest) -> manifest
+      File.exists?(Path.join(dir, ".git")) -> nil
+      parent == dir -> nil
+      true -> nearest_cure_toml(parent)
     end
   end
 
@@ -176,8 +228,10 @@ defmodule Mix.Tasks.Compile.Cure do
   #     module Cure.Elzoo.Core
   #     ...
   #
-  # A version 1 manifest held one module name per line. It still yields its
-  # module list for stale removal, but no fingerprint, so it never skips.
+  # Module lines must match `Cure.<name>`; anything else makes the manifest
+  # invalid, which keeps its well-formed module list for stale removal but
+  # drops the fingerprint. A version 1 manifest held one module name per line
+  # and has no fingerprint. Neither case skips.
   defp read_manifest(output_dir) do
     case File.read(manifest_path(output_dir)) do
       {:ok, contents} -> parse_manifest(String.split(contents, "\n", trim: true))
@@ -186,15 +240,25 @@ defmodule Mix.Tasks.Compile.Cure do
   end
 
   defp parse_manifest([@manifest_version | rest]) do
-    Enum.reduce(rest, %{fingerprint: nil, modules: []}, fn
-      "fingerprint " <> hex, acc when byte_size(hex) == 64 -> %{acc | fingerprint: hex}
-      "module " <> name, acc -> %{acc | modules: [String.to_atom(name) | acc.modules]}
-      _other, acc -> %{acc | fingerprint: nil}
-    end)
+    {fingerprint, modules, valid?} =
+      Enum.reduce(rest, {nil, [], true}, fn
+        "fingerprint " <> hex, {nil, modules, valid?} when byte_size(hex) == 64 ->
+          {hex, modules, valid? and String.match?(hex, ~r/^[0-9a-f]{64}$/)}
+
+        "module " <> name, {fingerprint, modules, valid?} ->
+          if String.match?(name, @module_line),
+            do: {fingerprint, [String.to_atom(name) | modules], valid?},
+            else: {fingerprint, modules, false}
+
+        _other, {fingerprint, modules, _valid?} ->
+          {fingerprint, modules, false}
+      end)
+
+    %{fingerprint: if(valid?, do: fingerprint), modules: modules}
   end
 
   defp parse_manifest(lines) do
-    modules = for line <- lines, line =~ ~r/^Cure\.[A-Za-z0-9_.]+$/, do: String.to_atom(line)
+    modules = for line <- lines, String.match?(line, @module_line), do: String.to_atom(line)
     %{fingerprint: nil, modules: modules}
   end
 
