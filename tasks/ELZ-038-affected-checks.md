@@ -59,13 +59,18 @@ every Piece runs three times. The backend job limit is now 90 minutes.
 
 ELZ-043 / PR #75 merged as `63179941f45fbcb51b015a9b42caa90f58f3c6d1` before
 this task's claim. Preserve all root tests and the OTP-only consumer on every
-run. Shared or unknown changes select every fixed per-ID consumer in PR mode;
-the aggregate stays in the main and local-default full run.
+run. Shared or unknown changes select every fixed per-ID consumer and the
+aggregate in PR mode. The main and local-default full run retain everything.
 
-The coordinator approved that this implementation PR changes the shared harness
-and therefore selects all 26 fixed consumers while omitting the aggregate. A
-genuine one-Piece PR is a separate acceptance observation after integration;
+After the independent review, the coordinator tightened the approved plan:
+if any affected ready ID is outside the selected fixed consumers' dependency
+closures, also run the full aggregate. IDs without standalone consumers must
+not lose their PR copying evidence. Shared/unknown comparisons retain the
+aggregate too, because the affected IDs cannot safely be narrowed. This
+supersedes the earlier main-only-aggregate plan. This implementation PR changes
+the shared harness and therefore selects all 26 fixed consumers **and** the
+aggregate. A genuine covered one-Piece PR is a separate acceptance observation after integration;
 merge-commit full CI and independent review remain the coordinator's gates.
-No selector test or subset result establishes the unselected Pieces' consumer
-behavior. Compiler scans, registry parse reuse, incremental compilation and
+No selector test or subset result establishes the unselected consumer checks'
+behavior or an omitted aggregate. Compiler scans, registry parse reuse, incremental compilation and
 test partitioning are separate follow-ups, not this task's implementation.

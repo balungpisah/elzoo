@@ -91,31 +91,42 @@ mix check --affected origin/main
 directories to IDs, including their manifests, README and test files. It
 follows reverse `piece.json` dependencies transitively across all ready IDs,
 then selects from the existing 26 per-ID consumers. A dependency without its
-own fixed consumer still selects its dependants. A ready ID with no fixed
-consumer and no fixed dependant selects none of these 26; its root tests still
-run, and its aggregate copying evidence is deferred to the full run.
+own fixed consumer still selects its dependants. The selector uses
+`Registry.select!`, the same dependency closure as the exporter, to check which
+affected IDs those selected consumers actually copy. If any affected ready ID
+is outside those closures, it also runs the full aggregate and logs the
+uncovered IDs and reason. For example, `workflow/approval` selects no fixed
+consumer but still runs the aggregate on the PR. A change confined to
+`delivery/transformation` and its covered dependants can omit the aggregate.
+The 26 fixed consumers currently cover 31 of the 40 ready IDs through their
+dependencies; 14 lack a standalone consumer, but only nine lack coverage in
+every fixed consumer's closure.
 
 Every shared harness, toolchain, `mix.exs`/`mix.lock`, registry, workflow or
-unknown/unmapped path selects all 26. There is no docs-only exception. Missing
-Git history, failed Git commands, malformed paths and an empty diff also
-select all 26 with a logged fallback reason. A dependency or registry validation
-failure still fails `mix check`; selection does not suppress it.
+unknown/unmapped path selects all 26 **and the aggregate**. There is no docs-only
+exception. Missing Git history, failed Git commands, malformed paths and an empty diff also
+select all 26 and the aggregate with a logged fallback reason. Shared changes
+cannot rule out effects on IDs outside the fixed consumers' closures, or on
+aggregate composition. A dependency or registry validation failure still fails
+`mix check`; selection does not suppress it.
 
-Affected mode omits the aggregate and excludes only the unaffected tagged
-per-ID consumer tests. It retains all other root proofs, runtime tests,
-negative controls, export assertions, the OTP-only consumer, the Ash spike,
+Affected mode excludes only unaffected tagged per-ID consumer tests and, when
+every affected ID has selected-consumer closure coverage, the aggregate. It
+retains all other root proofs, runtime tests, negative controls, export
+assertions, the OTP-only consumer, the Ash spike,
 formatting, compilation and ledger checks. No test body or time limit changes.
 The log names the mode/comparison, affected ready IDs, selected/skipped consumer
-IDs, ready IDs without a standalone consumer, and aggregate/OTP disposition.
-The success marker is `ELZOO AFFECTED CHECK PASSED (not full consumer acceptance)`;
+IDs, ready IDs without a standalone consumer, uncovered affected IDs, and
+aggregate/OTP disposition with the aggregate selection reason.
+The success marker is `ELZOO AFFECTED CHECK PASSED (see selected consumer scope)`;
 only the default full run emits `ELZOO CHECK PASSED`.
 
-A PR subset does not validate unselected Pieces or the aggregate. Merge
-acceptance still needs the full run on the merge commit. A failure found there
+A PR subset does not validate unselected consumer checks or an omitted
+aggregate. Merge acceptance still needs the full run on the merge commit. A failure found there
 is a regression to fix forward, not justification to reduce the full run.
 The ELZ-038 implementation PR itself changes the shared harness and must select
-all 26 consumers; a later genuine one-Piece PR supplies the narrow-subset CI
-observation. Compare wall times with runner, cache state and commit differences
+all 26 consumers and the aggregate; a later genuine covered one-Piece PR supplies
+the narrow-subset CI observation. Compare wall times with runner, cache state and commit differences
 visible, rather than treating unrelated runs as a controlled speed experiment.
 Cure source-scan caching, registry parse reuse, incremental Cure compilation
 and test partitioning remain separate work.

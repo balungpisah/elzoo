@@ -18,6 +18,8 @@ defmodule Elzoo.CheckSelectionTest do
     assert selection.selected == ["delivery/transformation"]
     assert selection.affected == ["delivery/transformation"]
     assert length(selection.skipped) == 25
+    refute selection.aggregate
+    assert selection.uncovered == []
     assert_partition(selection)
   end
 
@@ -26,6 +28,8 @@ defmodule Elzoo.CheckSelectionTest do
     assert selection.selected == ["assembly/ingest-json-unit", "runtime/host"]
     assert selection.affected == ["assembly/ingest-json-unit", "runtime/host", "runtime/unit"]
     assert "runtime/unit" in selection.without_consumer
+    refute selection.aggregate
+    assert selection.uncovered == []
     assert_partition(selection)
   end
 
@@ -36,14 +40,41 @@ defmodule Elzoo.CheckSelectionTest do
     end
   end
 
-  test "a known Piece without a standalone consumer is reported, not invented", ctx do
+  test "an affected Piece without consumer closure coverage retains the aggregate", ctx do
     selection = select(ctx.registry, ["pieces/workflow/approval/lib/approval.ex"])
     assert selection.selected == []
     assert selection.affected == ["workflow/approval"]
     assert "workflow/approval" in selection.without_consumer
+    assert selection.aggregate
+    assert selection.uncovered == ["workflow/approval"]
+    assert selection.aggregate_reason =~ "lack copying coverage"
+    assert Selection.report(selection) =~ "Aggregate consumer: selected (all ready IDs)"
     assert Selection.report(selection) =~ "OTP-only consumer and all root tests: selected"
-    assert Selection.report(selection) =~ "does not validate unselected Pieces"
+    assert Selection.report(selection) =~ "unselected consumer checks are not validated"
+
+    assert :ok ==
+             ExUnit.Filters.eval([], exclusion_filters(selection), %{aggregate_consumer: true}, [])
+
     assert_partition(selection)
+  end
+
+  test "an uncovered transitive dependant also requires the aggregate", ctx do
+    registry = put_in(ctx.registry, [:entries, "workflow/approval", "dependencies"], ["core/port"])
+    selection = select(registry, ["pieces/core/port/README.md"])
+    assert selection.selected == ["core/port"]
+    assert selection.affected == ["core/port", "workflow/approval"]
+    assert selection.uncovered == ["workflow/approval"]
+    assert selection.aggregate
+  end
+
+  test "shared fallback keeps the aggregate even when all ready IDs have fixed consumers", ctx do
+    registry = %{entries: Map.take(ctx.registry.entries, Selection.consumer_ids())}
+    registry = put_in(registry.entries["runtime/host"]["dependencies"], [])
+    selection = select(registry, ["test/export_test.exs"])
+    assert selection.uncovered == []
+    assert selection.aggregate
+    assert selection.aggregate_reason =~ "full fallback"
+    assert Selection.test_args(selection) == ["--warnings-as-errors"]
   end
 
   test "shared harness, toolchain, registry, workflow and unknown paths select all", ctx do
@@ -68,6 +99,8 @@ defmodule Elzoo.CheckSelectionTest do
         ] do
       selection = select(ctx.registry, ["pieces/runtime/host/README.md", path])
       assert_all(selection)
+      assert selection.aggregate
+      assert selection.aggregate_reason =~ "full fallback"
       assert selection.reason =~ inspect(path)
     end
   end
@@ -222,6 +255,7 @@ defmodule Elzoo.CheckSelectionTest do
   defp assert_all(selection) do
     assert selection.selected == Enum.sort(Selection.consumer_ids())
     assert selection.skipped == []
+    assert selection.aggregate
   end
 
   defp assert_partition(selection) do

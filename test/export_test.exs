@@ -140,6 +140,18 @@ defmodule Elzoo.ExportTest do
       )
 
     assert selection.selected == ["assembly/request-route-retry", "delivery/transformation"]
+    refute selection.aggregate
+    assert selection.uncovered == []
+
+    uncovered =
+      Elzoo.CheckSelection.for_changes(
+        ctx.registry,
+        {:ok, ["pieces/workflow/approval/README.md"]}
+      )
+
+    assert uncovered.selected == []
+    assert uncovered.aggregate
+    assert uncovered.uncovered == ["workflow/approval"]
     tests = __MODULE__.__ex_unit__().tests
     per_id = Enum.filter(tests, &Map.has_key?(&1.tags, :consumer_id))
     aggregate = Enum.filter(tests, &Map.has_key?(&1.tags, :aggregate_consumer))

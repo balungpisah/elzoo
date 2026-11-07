@@ -73,8 +73,9 @@ defmodule Elzoo.CheckSelection do
 
   def test_args(%{mode: :full}), do: ["--warnings-as-errors"]
 
-  def test_args(%{mode: :affected, skipped: skipped}) do
-    ["--warnings-as-errors", "--exclude", "aggregate_consumer"] ++
+  def test_args(%{mode: :affected, skipped: skipped, aggregate: aggregate}) do
+    ["--warnings-as-errors"] ++
+      if(aggregate, do: [], else: ["--exclude", "aggregate_consumer"]) ++
       Enum.flat_map(skipped, &["--exclude", "consumer_id:#{&1}"])
   end
 
@@ -87,10 +88,12 @@ defmodule Elzoo.CheckSelection do
       "Selected consumer IDs (#{length(selection.selected)}): #{inspect(selection.selected, limit: :infinity)}",
       "Skipped consumer IDs (#{length(selection.skipped)}): #{inspect(selection.skipped, limit: :infinity)}",
       "Ready IDs without a fixed per-ID consumer: #{inspect(selection.without_consumer, limit: :infinity)}",
-      "Aggregate consumer: #{if selection.mode == :full, do: "selected (all ready IDs)", else: "skipped (PR/opt-in mode)"}",
+      "Affected ready IDs outside selected consumer closures: #{inspect(selection.uncovered, limit: :infinity)}",
+      "Aggregate consumer: #{if selection.aggregate, do: "selected (all ready IDs)", else: "skipped"}; #{selection.aggregate_reason}",
       "OTP-only consumer and all root tests: selected",
       if(selection.mode == :affected,
-        do: "LIMIT: this subset does not validate unselected Pieces or the full aggregate.",
+        do:
+          "LIMIT: unselected consumer checks are not validated; main's full check remains required.",
         else: "Full consumer coverage requested."
       )
     ]
@@ -100,20 +103,40 @@ defmodule Elzoo.CheckSelection do
   def success_marker(%{mode: :full}), do: "ELZOO CHECK PASSED"
 
   def success_marker(%{mode: :affected}),
-    do: "ELZOO AFFECTED CHECK PASSED (not full consumer acceptance)"
+    do: "ELZOO AFFECTED CHECK PASSED (see selected consumer scope)"
 
   defp fallback(registry, reason) do
     plan(registry, :affected, ready_ids(registry), @consumer_ids, "select all: #{reason}")
+    |> Map.put(:aggregate, true)
+    |> Map.put(:aggregate_reason, "full fallback: #{reason}")
   end
 
   defp plan(registry, mode, affected, selected, reason) do
+    # Use the same closure as Export.plan!, including dependencies of consumers
+    # that have no standalone test of their own. Never trade their copying
+    # evidence for a shorter PR: uncovered affected IDs need the aggregate.
+    covered =
+      if selected == [],
+        do: [],
+        else: registry |> Elzoo.Registry.select!(selected) |> Enum.map(& &1["id"])
+
+    uncovered = Enum.sort(affected -- covered)
+
     %{
       mode: mode,
       reason: reason,
       affected: Enum.sort(affected),
       selected: Enum.sort(selected),
       skipped: Enum.sort(@consumer_ids -- selected),
-      without_consumer: ready_ids(registry) -- @consumer_ids
+      without_consumer: ready_ids(registry) -- @consumer_ids,
+      uncovered: uncovered,
+      aggregate: mode == :full or uncovered != [],
+      aggregate_reason:
+        cond do
+          mode == :full -> "full check (default)"
+          uncovered != [] -> "affected IDs lack copying coverage in selected per-ID consumers"
+          true -> "every affected ready ID is covered by selected per-ID consumers"
+        end
     }
   end
 
