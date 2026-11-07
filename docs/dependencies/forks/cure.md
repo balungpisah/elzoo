@@ -28,7 +28,9 @@ Kept per [docs/development/08-upstream-and-forks.md](../../development/08-upstre
 ## Fork
 
 - URL: https://github.com/balungpisah/cure-lang (GitHub fork, ancestry preserved, `upstream` =
-  cure-lang/cure-lang).
+  cure-lang/cure-lang). The branch `elzoo/pin-a004c335-user-source-index` must stay: every
+  copied consumer fetches the pinned commit from it. It is protected against deletion and
+  force-push on GitHub (ELZ-047).
 - Consumed revision (immutable): `208248063d64e621782cd26dd30698ee42850a89` on branch
   `elzoo/pin-a004c335-user-source-index` = `a004c335` + exactly one commit (cherry-pick `-x` of
   `da3c9379e`).
@@ -38,14 +40,21 @@ Kept per [docs/development/08-upstream-and-forks.md](../../development/08-upstre
   reported; `lib/cure/compiler.ex` — `with_source_roots/3` drops that cache when the outermost
   compilation ends; `test/cure/elab/user_source_path_cache_test.exs` — 4 tests (edit between
   lookups seen; duplicate identity; index consulted first; cache dropped).
-- No kernel, type checker, totality checker, codegen or stdlib change. Import resolution results
-  are identical for identical inputs; only the number of parses differs.
+- No kernel, type checker, totality checker, codegen or stdlib change. On the path Elzoo uses
+  (`Mix.Tasks.Compile.Cure` passes no `:module_index`, so the scan-and-cache path runs) the
+  resolution result for a given set of files is the same as before; only the number of parses
+  differs. The new index-first path, which Elzoo does not use, differs in two ways: a module name
+  that the index maps to a provider resolves to the provider's path, and a duplicate on disk
+  outside the index is not reported while the index answers. Evidence for both paths is the 4
+  finite tests in the fork, not a proof.
 
 ## Consumers and records
 
 - `mix.exs` `@cure_revision`, `mix.lock` `cure` entry, `registry/providers.json` `cure`
   (url, revision, reference) and every Piece manifest `upstream` reference now name the fork URL
-  and revision. `mix elzoo.ledger --check` rejects drift between them.
+  and revision. `mix elzoo.ledger --check` rejects drift between the lock's url/revision and the provider's
+  url/revision; Piece references and the provider `reference` are only checked to be `https://`
+  links, so they were updated by hand and reviewed.
 - Every ready Piece with Cure sources consumes it (see `registry/catalogue.json`). Copied consumers
   receive the same `{:cure, git: <fork>, ref: <revision>, runtime: false}` line in their install
   instructions.
@@ -54,7 +63,10 @@ Kept per [docs/development/08-upstream-and-forks.md](../../development/08-upstre
 
 - Fork tests: `mix test test/cure/elab/user_source_path_cache_test.exs
   test/cure/elab/imported_module_dup_test.exs test/cure/elab/canonical_module_loader_test.exs`
-  (12 tests) pass at `da3c9379e` on upstream `main`; the same at `208248063` is recorded on #84.
+  (12 tests) pass at `da3c9379e` on upstream `main` and at `208248063` (recorded on #84). Full
+  upstream suite at `da3c9379e`: 6940 tests, 0 failures, 8 excluded. Benchmark compiling the 25
+  Elzoo sources at `208248063` on the same laptop: 17.6 s, 14.6 s (13.2 s, 13.4 s at `da3c9379e`;
+  82.3 s, 79.8 s without the fix).
   `mix format --check-formatted` and `mix credo --strict` pass on the changed files.
 - Elzoo: full `mix check` on the new pin (recorded on the ELZ-047 PR); selected Cure proofs are
   re-run by `mix check` on every run, so proof evidence is re-established on the fork, not
