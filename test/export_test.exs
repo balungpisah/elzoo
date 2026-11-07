@@ -95,11 +95,13 @@ defmodule Elzoo.ExportTest do
     File.write!(Path.join(ctx.destination, "test/test_helper.exs"), "ExUnit.start()\n")
 
     {output, status} =
-      System.cmd("mix", ["test"],
-        cd: ctx.destination,
-        stderr_to_stdout: true,
-        env: [{"MIX_ENV", "test"}, {"MIX_BUILD_PATH", nil}, {"MIX_DEPS_PATH", nil}]
-      )
+      timed("consumer=runtime/unit consumer_mix_test", fn ->
+        System.cmd("mix", ["test"],
+          cd: ctx.destination,
+          stderr_to_stdout: true,
+          env: [{"MIX_ENV", "test"}, {"MIX_BUILD_PATH", nil}, {"MIX_DEPS_PATH", nil}]
+        )
+      end)
 
     assert status == 0, output
     assert output =~ "1 passed"
@@ -186,9 +188,36 @@ defmodule Elzoo.ExportTest do
     end
   end
 
+  # ELZ-045: observation only. One line per step, monotonic clock. Printed on
+  # success, assertion failure, raise or exit; not when ExUnit kills the test
+  # process on a tag timeout.
+  defp timed(label, fun) do
+    started = System.monotonic_time(:millisecond)
+
+    try do
+      fun.()
+    after
+      seconds = (System.monotonic_time(:millisecond) - started) / 1000
+      IO.puts("ELZOO TIMING #{label} seconds=#{:erlang.float_to_binary(seconds, decimals: 1)}")
+    end
+  end
+
+  defp consumer_label(ids),
+    do: "consumer=" <> if(length(ids) == 1, do: hd(ids), else: "aggregate(#{length(ids)})")
+
   defp assert_cure_consumer(ctx, ids, opts \\ []) do
-    plan = Elzoo.Export.plan!(ctx.registry, ids, ctx.destination)
-    Elzoo.Export.write!(plan)
+    label = consumer_label(ids)
+
+    timed("#{label} total", fn -> assert_cure_consumer_steps(ctx, ids, opts, label) end)
+  end
+
+  defp assert_cure_consumer_steps(ctx, ids, opts, label) do
+    plan =
+      timed("#{label} plan_write", fn ->
+        plan = Elzoo.Export.plan!(ctx.registry, ids, ctx.destination)
+        Elzoo.Export.write!(plan)
+        plan
+      end)
 
     File.write!(
       Path.join(ctx.destination, "mix.exs"),
@@ -232,11 +261,13 @@ defmodule Elzoo.ExportTest do
     args = Enum.flat_map(paths, &["-pa", &1]) ++ [bootstrap]
 
     {output, status} =
-      System.cmd("elixir", args,
-        cd: ctx.destination,
-        stderr_to_stdout: true,
-        env: [{"MIX_ENV", "test"}, {"MIX_BUILD_PATH", nil}, {"MIX_DEPS_PATH", nil}]
-      )
+      timed("#{label} consumer_mix_test", fn ->
+        System.cmd("elixir", args,
+          cd: ctx.destination,
+          stderr_to_stdout: true,
+          env: [{"MIX_ENV", "test"}, {"MIX_BUILD_PATH", nil}, {"MIX_DEPS_PATH", nil}]
+        )
+      end)
 
     assert status == 0, output
     assert output =~ "passed"
@@ -461,12 +492,14 @@ defmodule Elzoo.ExportTest do
     """
 
     {output, status} =
-      System.cmd(
-        "elixir",
-        Enum.flat_map(runtime_paths, &["-pa", &1]) ++ ["--eval", runtime],
-        cd: ctx.destination,
-        stderr_to_stdout: true
-      )
+      timed("#{label} runtime_vm", fn ->
+        System.cmd(
+          "elixir",
+          Enum.flat_map(runtime_paths, &["-pa", &1]) ++ ["--eval", runtime],
+          cd: ctx.destination,
+          stderr_to_stdout: true
+        )
+      end)
 
     assert status == 0, output
 
