@@ -188,7 +188,9 @@ defmodule Elzoo.ExportTest do
     end
   end
 
-  # ELZ-045: observation only. One line per step, always printed, monotonic clock.
+  # ELZ-045: observation only. One line per step, monotonic clock. Printed on
+  # success, assertion failure, raise or exit; not when ExUnit kills the test
+  # process on a tag timeout.
   defp timed(label, fun) do
     started = System.monotonic_time(:millisecond)
 

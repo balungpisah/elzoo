@@ -10,7 +10,8 @@
 CI logs show where the time goes. Today consumer output is captured, so one silent gap of about
 1146 s hides the copied-consumer tests. After this task each log has:
 
-1. One `ELZOO TIMING` line per copied consumer step, always printed, with a monotonic clock:
+1. One `ELZOO TIMING` line per copied consumer step with a monotonic clock, printed on success,
+   assertion failure, raise or exit (not when ExUnit kills a test on a tag timeout):
    plan and write, the consumer `mix test` VM, and the compiler-free runtime VM.
 2. One `ELZOO STAGE` line with a UTC time and elapsed seconds before and after each `mix check`
    stage: format, compile, ledger, Ash spike, registry load, root suite.
