@@ -260,6 +260,20 @@ match them without a `^` anchor.
 These lines are monitored behavior from a monotonic clock. They prove nothing about correctness.
 They add no stage, test or assertion. Queue time is not part of any line. Compare runs only on the
 same SHA and the same runner.
+## Owned Cure compile fingerprint (ELZ-046)
+
+`Mix.Tasks.Compile.Cure` writes `elzoo.cure.manifest` (format 2) with a sha256 fingerprint over
+named inputs: the path and content of every owned `.cure` source, the nearest `Cure.toml` of each
+source, the sorted source roots, the whole `mix.lock`, every file in the loaded Cure `ebin`, the
+compiler module's own BEAM md5, and the Elixir, OTP and ERTS versions. The compile is skipped only
+when the fingerprint matches, every listed BEAM exists and `--force` was not given; the log then
+says `Cure sources unchanged (...); skipping N modules`. A mismatch on any named input, a missing
+or malformed manifest, a missing BEAM, or `mix compile --force` recompiles everything.
+
+Copied consumers carry the same compiler. Their first build starts from an empty `_build` and
+always compiles; a later build in the same consumer skips under the same rule. The fingerprint
+covers the named inputs only. It is not a proof that no other input exists. Negative controls live
+in `test/compile_cure_fingerprint_test.exs`.
 
 ## Machine and container setup
 
