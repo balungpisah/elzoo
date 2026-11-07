@@ -60,6 +60,8 @@ jobs:
           echo 'ELZOO_TEST_DATABASE_URL=ecto://elzoo_test:elzoo_test@localhost/elzoo_test' >> "$GITHUB_ENV"
           su postgres -c "psql -d elzoo_test -c 'SHOW server_version'"
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
       - name: Trust only this container checkout
         working-directory: ${{ github.workspace }}
         run: |
@@ -103,7 +105,15 @@ jobs:
             spikes/ash_foundation/_build
           key: ${{ steps.deps-cache.outputs.cache-primary-key }}
       - name: Run mix check
-        run: sh scripts/run-ci-check.sh
+        env:
+          ELZOO_CHECK_EVENT: ${{ github.event_name }}
+          ELZOO_CHECK_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ "${ELZOO_CHECK_EVENT:-}" = pull_request ]; then
+            sh scripts/run-ci-check.sh --affected "${ELZOO_CHECK_BASE:-}"
+          else
+            sh scripts/run-ci-check.sh
+          fi
       - name: Report container resource observations
         if: always()
         run: |

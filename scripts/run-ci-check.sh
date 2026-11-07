@@ -9,4 +9,4 @@ cleanup() {
   wait "$sampler" 2>/dev/null || true
 }
 trap cleanup EXIT
-mix check
+mix check "$@"

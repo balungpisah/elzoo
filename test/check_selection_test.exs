@@ -1,0 +1,264 @@
+defmodule Elzoo.CheckSelectionTest do
+  use ExUnit.Case, async: true
+  alias Elzoo.CheckSelection, as: Selection
+
+  setup do
+    entries =
+      Map.new(Selection.consumer_ids() ++ ["runtime/unit", "workflow/approval"], fn id ->
+        {id, %{"id" => id, "status" => "ready", "dependencies" => []}}
+      end)
+      |> put_in(["runtime/host", "dependencies"], ["runtime/unit"])
+      |> put_in(["assembly/ingest-json-unit", "dependencies"], ["runtime/host"])
+
+    %{registry: %{entries: entries}}
+  end
+
+  test "a Piece change selects its existing independent consumer", %{registry: registry} do
+    selection = select(registry, ["pieces/delivery/transformation/lib/transform.ex"])
+    assert selection.selected == ["delivery/transformation"]
+    assert selection.affected == ["delivery/transformation"]
+    assert length(selection.skipped) == 25
+    assert_partition(selection)
+  end
+
+  test "dependency changes select transitive dependants through IDs without a consumer", ctx do
+    selection = select(ctx.registry, ["pieces/runtime/unit/lib/unit.ex"])
+    assert selection.selected == ["assembly/ingest-json-unit", "runtime/host"]
+    assert selection.affected == ["assembly/ingest-json-unit", "runtime/host", "runtime/unit"]
+    assert "runtime/unit" in selection.without_consumer
+    assert_partition(selection)
+  end
+
+  test "manifest, README, new and deleted paths inside a known Piece select its dependants", ctx do
+    for relative <- ["piece.json", "README.md", "test/new_test.exs", "lib/deleted.ex"] do
+      selection = select(ctx.registry, ["pieces/runtime/host/" <> relative])
+      assert selection.selected == ["assembly/ingest-json-unit", "runtime/host"]
+    end
+  end
+
+  test "a known Piece without a standalone consumer is reported, not invented", ctx do
+    selection = select(ctx.registry, ["pieces/workflow/approval/lib/approval.ex"])
+    assert selection.selected == []
+    assert selection.affected == ["workflow/approval"]
+    assert "workflow/approval" in selection.without_consumer
+    assert Selection.report(selection) =~ "OTP-only consumer and all root tests: selected"
+    assert Selection.report(selection) =~ "does not validate unselected Pieces"
+    assert_partition(selection)
+  end
+
+  test "shared harness, toolchain, registry, workflow and unknown paths select all", ctx do
+    for path <- [
+          "lib/elzoo/export.ex",
+          "lib/elzoo/check_selection.ex",
+          "lib/mix/tasks/check.ex",
+          "test/export_test.exs",
+          "test/test_helper.exs",
+          "config/test.exs",
+          "mix.exs",
+          "mix.lock",
+          ".tool-versions",
+          ".github/workflows/symbolic-check.yml",
+          "scripts/run-ci-check.sh",
+          "registry/catalogue.json",
+          "registry/providers.json",
+          "spikes/ash_foundation/mix.lock",
+          "pieces/unknown/piece/lib/new.ex",
+          "pieces/runtime/unit-other/lib/new.ex",
+          "docs/unknown.md"
+        ] do
+      selection = select(ctx.registry, ["pieces/runtime/host/README.md", path])
+      assert_all(selection)
+      assert selection.reason =~ inspect(path)
+    end
+  end
+
+  test "unsafe, malformed, missing and empty inputs never select an empty subset", ctx do
+    for paths <- [
+          [],
+          ["../pieces/runtime/host/README.md"],
+          ["/pieces/runtime/host/README.md"],
+          ["pieces/runtime/host/../../mix.exs"],
+          ["pieces/runtime/host//README.md"],
+          ["pieces/runtime/host/"],
+          ["pieces\\runtime\\host\\README.md"],
+          ["pieces/runtime/host/evil\nname"],
+          [<<255>>],
+          [nil]
+        ] do
+      assert_all(select(ctx.registry, paths))
+    end
+
+    assert_all(Selection.for_changes(ctx.registry, {:ok, "not a path list"}))
+    assert_all(Selection.for_changes(ctx.registry, {:error, "comparison unavailable"}))
+  end
+
+  test "selection is deterministic with duplicates and unions", ctx do
+    paths = ["pieces/runtime/host/README.md", "pieces/core/port/README.md"]
+    left = select(ctx.registry, paths)
+    assert left == select(ctx.registry, Enum.reverse(paths ++ paths))
+    assert left.selected == ["assembly/ingest-json-unit", "core/port", "runtime/host"]
+    assert_partition(left)
+  end
+
+  test "default full mode excludes nothing and retains its acceptance marker", ctx do
+    selection = Selection.full(ctx.registry)
+    assert_all(selection)
+    assert Selection.test_args(selection) == ["--warnings-as-errors"]
+    assert Selection.report(selection) =~ "Aggregate consumer: selected (all ready IDs)"
+    assert Selection.success_marker(selection) == "ELZOO CHECK PASSED"
+  end
+
+  test "affected filters exclude only aggregate and skipped per-ID consumers", ctx do
+    selection = select(ctx.registry, ["pieces/core/port/README.md"])
+    filters = exclusion_filters(selection)
+    assert :ok == ExUnit.Filters.eval([], filters, %{}, [])
+    assert :ok == ExUnit.Filters.eval([], filters, %{consumer_id: "core/port"}, [])
+
+    for id <- selection.skipped do
+      assert {:excluded, _} = ExUnit.Filters.eval([], filters, %{consumer_id: id}, [])
+    end
+
+    assert {:excluded, _} = ExUnit.Filters.eval([], filters, %{aggregate_consumer: true}, [])
+    refute Selection.success_marker(selection) =~ "ELZOO CHECK PASSED"
+  end
+
+  test "Git changes include commits, staged/unstaged edits, renames, deletions and untracked files",
+       ctx do
+    root = git_fixture()
+    base = git!(root, ["rev-parse", "HEAD"]) |> String.trim()
+    File.rename!(Path.join(root, "pieces/core/port/a.ex"), Path.join(root, "renamed.ex"))
+    git!(root, ["add", "-A"])
+    git!(root, ["-c", "commit.gpgsign=false", "commit", "-qm", "rename"])
+    File.write!(Path.join(root, "pieces/runtime/unit/u.ex"), "staged")
+    git!(root, ["add", "."])
+    File.write!(Path.join(root, "pieces/runtime/unit/u.ex"), "unstaged")
+    File.rm!(Path.join(root, "pieces/runtime/host/h.ex"))
+    File.write!(Path.join(root, "new unknown file.ex"), "new")
+
+    assert {:ok, diff} = Selection.changed_paths(root, base)
+
+    assert diff.paths == [
+             "new unknown file.ex",
+             "pieces/core/port/a.ex",
+             "pieces/runtime/host/h.ex",
+             "pieces/runtime/unit/u.ex",
+             "renamed.ex"
+           ]
+
+    assert diff.base == base
+    assert diff.head != base
+    assert_all(Selection.from_git(ctx.registry, base, root))
+  end
+
+  test "real Git diff can narrow a known Piece; missing base and empty diff select all", ctx do
+    root = git_fixture()
+    base = git!(root, ["rev-parse", "HEAD"]) |> String.trim()
+    assert_all(Selection.from_git(ctx.registry, base, root))
+    File.write!(Path.join(root, "pieces/runtime/unit/u.ex"), "changed")
+    selection = Selection.from_git(ctx.registry, base, root)
+    assert selection.selected == ["assembly/ingest-json-unit", "runtime/host"]
+    assert selection.comparison =~ base
+
+    for ref <- ["", "missing-ref", "--help"] do
+      assert_all(Selection.from_git(ctx.registry, ref, root))
+    end
+
+    assert_all(Selection.from_git(ctx.registry, base, Path.join(root, "missing-directory")))
+  end
+
+  test "CI invokes affected mode only for PRs; main, dispatch and unknown events stay full" do
+    workflow = File.read!(".github/workflows/symbolic-check.yml")
+    assert workflow =~ "fetch-depth: 0"
+    assert workflow =~ "ELZOO_CHECK_EVENT: ${{ github.event_name }}"
+    assert workflow =~ "ELZOO_CHECK_BASE: ${{ github.event.pull_request.base.sha }}"
+    # Execute the actual run block using a harmless stand-in for the check wrapper.
+    [_, step] = Regex.run(~r/      - name: Run mix check\n(.*?)      - name:/s, workflow)
+    [_, script] = String.split(step, "        run: |\n", parts: 2)
+    script = String.replace(script, ~r/^          /m, "")
+    root = git_fixture()
+    stub = Path.join(root, "sh")
+    File.write!(stub, "#!/bin/sh\nprintf '%s\\n' \"$@\"\n")
+    File.chmod!(stub, 0o755)
+    base = "base with spaces; not shell code"
+
+    for event <- ["pull_request", "push", "workflow_dispatch", "unknown", ""] do
+      {output, 0} =
+        System.cmd("/bin/sh", ["-eu", "-c", script],
+          env: [
+            {"PATH", root <> ":" <> System.fetch_env!("PATH")},
+            {"ELZOO_CHECK_EVENT", event},
+            {"ELZOO_CHECK_BASE", base}
+          ]
+        )
+
+      assert output ==
+               if(event == "pull_request",
+                 do: "scripts/run-ci-check.sh\n--affected\n#{base}\n",
+                 else: "scripts/run-ci-check.sh\n"
+               )
+    end
+  end
+
+  test "resource sampler wrapper forwards arguments and command failure" do
+    root = git_fixture()
+    File.write!(Path.join(root, "python3"), "#!/bin/sh\nexit 0\n")
+    File.write!(Path.join(root, "mix"), "#!/bin/sh\nprintf '%s\\n' \"$@\"\nexit 7\n")
+    File.chmod!(Path.join(root, "python3"), 0o755)
+    File.chmod!(Path.join(root, "mix"), 0o755)
+
+    for args <- [[], ["--affected", "base with spaces"]] do
+      {output, status} =
+        System.cmd("/bin/sh", ["scripts/run-ci-check.sh" | args],
+          env: [{"PATH", root <> ":" <> System.fetch_env!("PATH")}, {"RUNNER_TEMP", root}]
+        )
+
+      assert status == 7
+      assert output == Enum.join(["check" | args], "\n") <> "\n"
+    end
+  end
+
+  defp select(registry, paths), do: Selection.for_changes(registry, {:ok, paths})
+
+  defp assert_all(selection) do
+    assert selection.selected == Enum.sort(Selection.consumer_ids())
+    assert selection.skipped == []
+  end
+
+  defp assert_partition(selection) do
+    assert Enum.sort(selection.selected ++ selection.skipped) == Enum.sort(Selection.consumer_ids())
+    assert MapSet.disjoint?(MapSet.new(selection.selected), MapSet.new(selection.skipped))
+  end
+
+  defp exclusion_filters(selection) do
+    {opts, [], []} =
+      OptionParser.parse(Selection.test_args(selection),
+        strict: [exclude: :keep, warnings_as_errors: :boolean]
+      )
+
+    opts |> Keyword.get_values(:exclude) |> ExUnit.Filters.parse()
+  end
+
+  defp git_fixture do
+    root = Path.join(System.tmp_dir!(), "elzoo-selection-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(root)
+    on_exit(fn -> File.rm_rf!(root) end)
+    git!(root, ["init", "-q"])
+    git!(root, ["config", "user.email", "selector-test@example.invalid"])
+    git!(root, ["config", "user.name", "Selector test"])
+
+    for path <- ["pieces/core/port/a.ex", "pieces/runtime/unit/u.ex", "pieces/runtime/host/h.ex"] do
+      File.mkdir_p!(Path.dirname(Path.join(root, path)))
+      File.write!(Path.join(root, path), "original")
+    end
+
+    git!(root, ["add", "."])
+    git!(root, ["-c", "commit.gpgsign=false", "commit", "-qm", "base"])
+    root
+  end
+
+  defp git!(root, args) do
+    {output, status} = System.cmd("git", args, cd: root, stderr_to_stdout: true)
+    assert status == 0, output
+    output
+  end
+end
