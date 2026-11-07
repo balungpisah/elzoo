@@ -1,0 +1,241 @@
+#!/usr/bin/env python3
+"""Serial coordinator queue: full, exact-head CI before a merge (own gh login).
+
+Run from this repository. This is not branch protection or an independent review.
+No branch deletion, issue closure, or acceptance posting is performed.
+"""
+import argparse
+import json
+import re
+import subprocess
+import sys
+import time
+from urllib.parse import urlencode
+
+REPO = "balungpisah/elzoo"
+WORKFLOW = "symbolic-check.yml"
+RUNNERS = {"symbolic-elzoo", "macbook-ubuntu-elzoo-candidate"}
+SHA = re.compile(r"[0-9a-f]{40}")
+PR_FIELDS = ("number,state,isDraft,isCrossRepository,baseRefName,headRefName,"
+             "headRefOid,headRepository,mergeable,mergeCommit")
+
+
+class QueueError(Exception):
+    """A refusal or unavailable evidence; never a reason to merge anyway."""
+
+
+def command(argv, allowed=(0,)):
+    try:
+        result = subprocess.run(argv, capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise QueueError(f"{argv[0]} failed: {error}") from error
+    if result.returncode not in allowed:
+        raise QueueError(f"{' '.join(argv)} exited {result.returncode}: "
+                         f"{result.stderr.strip() or result.stdout.strip()}")
+    return result
+
+
+def require(condition, reason):
+    if not condition:
+        raise QueueError(reason)
+
+
+def valid_sha(value):
+    return isinstance(value, str) and SHA.fullmatch(value) is not None
+
+
+class Queue:
+    def __init__(self, run=command, sleep=time.sleep, clock=time.monotonic,
+                 timeout=10800, poll=15, emit=print):
+        self.run, self.sleep, self.clock = run, sleep, clock
+        self.timeout, self.poll, self.emit = timeout, poll, emit
+        self.deadline = 0
+
+    def text(self, *argv):
+        return self.run(list(argv)).stdout.strip()
+
+    def data(self, *argv):
+        try:
+            return json.loads(self.text(*argv))
+        except (ValueError, TypeError) as error:
+            raise QueueError(f"Invalid JSON from {' '.join(argv)}") from error
+
+    def api(self, path):
+        return self.data("gh", "api", f"repos/{REPO}/{path}")
+
+    def pause(self, reason, deadline=None):
+        remaining = min(self.deadline, deadline or self.deadline) - self.clock()
+        require(remaining > 0, f"Timed out: {reason}")
+        self.emit(f"Waiting: {reason}", flush=True)
+        self.sleep(min(self.poll, remaining))
+
+    def pr(self, number, ready=True):
+        end = self.clock() + 60
+        while True:
+            pr = self.data("gh", "pr", "view", str(number), "-R", REPO,
+                           "--json", PR_FIELDS)
+            require(pr.get("number") == number, "PR identity mismatch")
+            require(pr.get("state") == "OPEN", "PR is not open")
+            require(pr.get("isDraft") is False, "Draft PR refused")
+            require(pr.get("isCrossRepository") is False and
+                    (pr.get("headRepository") or {}).get("nameWithOwner") == REPO,
+                    "Fork or unknown head repository refused")
+            require(pr.get("baseRefName") == "main", "PR must target main")
+            require(re.fullmatch(r"task/ELZ-[0-9]{3}", pr.get("headRefName", "")),
+                    "PR must use exact task/ELZ-### branch")
+            require(valid_sha(pr.get("headRefOid")), "Missing or invalid PR head SHA")
+            if not ready or pr.get("mergeable") == "MERGEABLE":
+                return pr
+            require(pr.get("mergeable") == "UNKNOWN", "PR is not mergeable")
+            self.pause("GitHub calculating mergeability", end)
+
+    def fetch(self, pr):
+        # Fetch only the two relevant refs, without touching the working tree.
+        branch = pr["headRefName"]
+        self.text("git", "fetch", "origin",
+                  "refs/heads/main:refs/remotes/origin/main",
+                  f"refs/heads/{branch}:refs/remotes/origin/{branch}")
+        main = self.text("git", "rev-parse", "refs/remotes/origin/main")
+        head = self.text("git", "rev-parse", f"refs/remotes/origin/{branch}")
+        require(valid_sha(main) and head == pr["headRefOid"],
+                "Fetched refs disagree with PR metadata; retry queue after inspecting head")
+        result = self.run(["git", "merge-base", "--is-ancestor", main, head], allowed=(0, 1))
+        return result.returncode == 0
+
+    def runs(self, branch):
+        query = urlencode({"event": "workflow_dispatch", "branch": branch, "per_page": 100})
+        pages = self.data("gh", "api", "--paginate", "--slurp",
+                          f"repos/{REPO}/actions/workflows/{WORKFLOW}/runs?{query}")
+        require(isinstance(pages, list), "Invalid run pages")
+        return [run for page in pages for run in page["workflow_runs"]]
+
+    @staticmethod
+    def matches(run, pr, workflow_id):
+        return (run.get("event") == "workflow_dispatch" and
+                run.get("head_branch") == pr["headRefName"] and
+                run.get("head_sha") == pr["headRefOid"] and
+                run.get("workflow_id") == workflow_id and
+                run.get("path") == f".github/workflows/{WORKFLOW}")
+
+    def dispatch(self, pr, workflow_id):
+        previous = {run["id"] for run in self.runs(pr["headRefName"])}
+        self.text("gh", "workflow", "run", WORKFLOW, "-R", REPO,
+                  "--ref", pr["headRefName"])
+        end = self.clock() + 300
+        while True:
+            candidates = [run for run in self.runs(pr["headRefName"])
+                          if run["id"] not in previous and self.matches(run, pr, workflow_id)]
+            require(len(candidates) <= 1, "Ambiguous new dispatch runs; refusing to choose latest")
+            if candidates:
+                run = candidates[0]
+                require(isinstance(run.get("id"), int), "Invalid run ID")
+                self.emit(f"Dispatched PR #{pr['number']} head={pr['headRefOid']} run={run['id']}", flush=True)
+                return run["id"]
+            self.pause("new exact-head workflow_dispatch run", end)
+
+    def evidence(self, run_id, pr, workflow_id):
+        while True:
+            run = self.api(f"actions/runs/{run_id}")
+            require(run.get("id") == run_id and self.matches(run, pr, workflow_id),
+                    "Run event/branch/workflow/head SHA mismatch")
+            if run.get("status") == "completed":
+                break
+            self.pause(f"run {run_id} status={run.get('status')}")
+        require(run.get("conclusion") == "success", f"Run {run_id}: {run.get('conclusion')}")
+        attempt = run.get("run_attempt")
+        require(isinstance(attempt, int) and attempt > 0, "Missing run attempt")
+        pages = self.data("gh", "api", "--paginate", "--slurp",
+                          f"repos/{REPO}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100")
+        jobs = [job for page in pages for job in page["jobs"]]
+        require(len(jobs) == 1 and jobs[0].get("name") == "check", "Expected exactly one backend check job")
+        job = jobs[0]
+        require(job.get("run_id") == run_id and job.get("head_sha") == pr["headRefOid"] and
+                job.get("status") == "completed" and job.get("conclusion") == "success",
+                "Backend job is not successful on the exact head/run")
+        require(job.get("runner_name") in RUNNERS, "Unapproved backend runner")
+        steps = [step for step in job.get("steps", []) if step.get("name") == "Run mix check"]
+        require(len(steps) == 1 and steps[0].get("conclusion") == "success",
+                "Full check step missing, skipped or failed")
+        require(isinstance(job.get("id"), int), "Invalid job ID")
+        log = self.text("gh", "api", "--allow-escape-sequences",
+                        f"repos/{REPO}/actions/jobs/{job['id']}/logs")
+        # Raw job logs have a UTC timestamp prefix. Do not accept an echoed command
+        # containing the marker, nor any affected-mode success marker.
+        full = re.search(r"(?m)^(?:\d{4}-\d\d-\d\dT[0-9:.]+Z )?ELZOO CHECK PASSED\s*$", log)
+        require(full and "ELZOO AFFECTED CHECK PASSED" not in log,
+                "Missing full success marker or affected-mode marker present")
+        latest = self.api(f"actions/runs/{run_id}")
+        require(self.matches(latest, pr, workflow_id) and latest.get("status") == "completed" and
+                latest.get("conclusion") == "success" and latest.get("run_attempt") == attempt,
+                "Run changed while collecting evidence")
+        return job
+
+    def process(self, number):
+        self.deadline = self.clock() + self.timeout
+        workflow_id = self.api(f"actions/workflows/{WORKFLOW}")["id"]
+        for _ in range(10):
+            require(self.clock() < self.deadline, "PR deadline exceeded")
+            pr = self.pr(number)
+            if not self.fetch(pr):
+                self.emit(f"Updating PR #{number} by merging main", flush=True)
+                self.text("gh", "pr", "update-branch", str(number), "-R", REPO)
+                end = self.clock() + 60
+                while self.pr(number, ready=False)["headRefOid"] == pr["headRefOid"]:
+                    self.pause("updated PR head", end)
+                continue
+            run_id = self.dispatch(pr, workflow_id)
+            job = self.evidence(run_id, pr, workflow_id)
+            fresh = self.pr(number)
+            require(fresh["headRefOid"] == pr["headRefOid"] and
+                    fresh["headRefName"] == pr["headRefName"],
+                    "PR head changed during check; refusing stale evidence")
+            if not self.fetch(fresh):
+                self.emit("Main moved during check; updating and validating a new head", flush=True)
+                continue
+            require(self.clock() < self.deadline, "PR deadline exceeded before merge")
+            self.text("gh", "pr", "merge", str(number), "-R", REPO,
+                      "--merge", "--match-head-commit", pr["headRefOid"])
+            merged = self.data("gh", "pr", "view", str(number), "-R", REPO,
+                               "--json", "state,headRefOid,mergeCommit")
+            merge_sha = (merged.get("mergeCommit") or {}).get("oid")
+            require(merged.get("state") == "MERGED" and merged.get("headRefOid") == pr["headRefOid"]
+                    and valid_sha(merge_sha), "Merge not confirmed; inspect PR before retrying")
+            self.emit(f"ELZOO MERGE EVIDENCE pr={number} run={run_id} job={job['id']} "
+                      f"runner={job['runner_name']} head={pr['headRefOid']} merge={merge_sha}", flush=True)
+            return
+        raise QueueError("Main/head did not stabilize after 10 passes; inspect before retrying")
+
+
+def positive_int(value):
+    number = int(value)
+    if number <= 0:
+        raise argparse.ArgumentTypeError("must be positive")
+    return number
+
+
+def main(argv=None, queue=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("prs", type=positive_int, nargs="+", metavar="PR")
+    parser.add_argument("--continue-on-failure", action="store_true")
+    parser.add_argument("--timeout", type=positive_int, default=10800,
+                        help="maximum seconds per PR (default: 10800)")
+    args = parser.parse_args(argv)
+    queue = queue or Queue(timeout=args.timeout)
+    failed = False
+    for number in args.prs:
+        try:
+            queue.process(number)
+        except (QueueError, KeyError, TypeError, ValueError) as error:
+            print(f"PR #{number} STOPPED: {error}", file=sys.stderr, flush=True)
+            failed = True
+            if not args.continue_on_failure:
+                break
+    return int(failed)
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        print("Queue interrupted; no further PRs processed. Inspect any dispatched run/merge.", file=sys.stderr)
+        sys.exit(130)
