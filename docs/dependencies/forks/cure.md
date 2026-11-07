@@ -45,8 +45,9 @@ Kept per [docs/development/08-upstream-and-forks.md](../../development/08-upstre
   resolution result for a given set of files is the same as before; only the number of parses
   differs. The new index-first path, which Elzoo does not use, differs in two ways: a module name
   that the index maps to a provider resolves to the provider's path, and a duplicate on disk
-  outside the index is not reported while the index answers. Evidence for both paths is the 4
-  finite tests in the fork, not a proof.
+  outside the index is not reported while the index answers. The scan path is covered by the 4
+  finite tests in the fork (not a proof). The two index-path differences are read from the code and
+  are untested.
 
 ## Consumers and records
 

@@ -27,8 +27,8 @@ no other upstream change.
 - AGENTS.md "mix setup must use Cure commit a004c335..." sentence and `docs/development/10-symbolic-ci.md`
   updated to the new pin and its reason. Any other place that names the pin commit.
 - Piece manifests and READMEs: only the `upstream` reference URL/revision and the pin named in
-  prose change; no Contract, law or behavior changes. One existing assertion changes with the
-  owner's explicit approval: `test/export_test.exs:42` asserts the exact pinned revision in the
+  prose change; no Contract, law or behavior changes. One existing assertion changes, approved by the
+  owner in the ELZ-047 session (quoted on #84): `test/export_test.exs:42` asserts the exact pinned revision in the
   consumer install instructions, and now names the fork commit (same intent). Cure's own tests
   for the fix live in the fork.
 
