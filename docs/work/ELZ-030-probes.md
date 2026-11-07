@@ -1,6 +1,12 @@
 # ELZ-030 — Executed Cure feasibility probes
 
-Proposal-stage evidence only. The full Contract is in [ELZ-030.md](ELZ-030.md).
+Historical stage-one evidence only (source bytes unchanged by revision two).
+The revised Contract is in [ELZ-030.md](ELZ-030.md). The original probe shares
+its access predicate with the guard and has no trusted snapshot, memoization,
+selected caps or facade validation. It does not satisfy those revised production
+conditions; its successful-result laws quantify only over well-typed Cure terms.
+Direct calls with erased malformed BEAM terms are unsupported. See the separate
+[recursive feasibility probe](ELZ-030-provenance-probe.md) for revision-two work.
 The executable files ran from `/tmp/elz030-probes`; they are preserved below as
 documentation, outside tracked implementation and outside the Piece compiler's
 source roots. No new ready source, production test or proof is claimed.
@@ -75,17 +81,23 @@ Result: 17 passed (3 compiler/audit checks, 8 finite runtime scenarios, 5 proof 
 The checked `select` actually runs a greedy access/freshness filter and packing
 pass, then recomputes the selected-list total and access predicate before it
 can return `ProbeAccepted`. Its two public laws have no safety hypothesis.
-Private inspect lemmas receive defining equalities constructed by reflexivity
-inside those laws. All functions have checked totality; the clean audit has
+Inspect lemmas receive defining equalities constructed by reflexivity
+inside those laws. They are not private: this original source has no `local fn`,
+and even `local fn` does not guarantee hiding in the pinned BEAM code generator.
+Only the future validated Elixir facade is a supported production surface.
+All functions have checked totality; the clean audit has
 no axioms, holes, unresolved, unaudited, opaque or unproved-total entries and
 zero absurd terms.
 
 Window evidence includes the selected list and reservations, not a disconnected
 scalar balance. The access predicate includes allowed/denied, future checks
 and age arithmetic. Native arithmetic is a trusted Cure/BEAM operation, not an
-axiom supplied by this module. The independent window predicate catches removed
+axiom supplied by this module. The separate window result predicate catches removed
 estimates/reservations; access mutations break the final guard's linkage to the
-same access predicate at the original `now`/`age`.
+same access predicate at the original `now`/`age`. This is not an independent
+access specification; the revised Contract requires separately written guard and
+law predicates plus mandatory positive and E2/E3/E4 scenario gates. The old
+source and log are retained as historical feasibility, not retroactively upgraded.
 
 This is a reduced executable feasibility kernel. It does **not** implement the
 new schema, trusted-snapshot lookup, latest-version policy, source references,
