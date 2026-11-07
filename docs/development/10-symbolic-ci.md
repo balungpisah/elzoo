@@ -250,6 +250,11 @@ ledger, Ash spike, registry load and the root suite. `test/export_test.exs` prin
 `ELZOO TIMING consumer=<id|aggregate(N)> <step> seconds=...` for each copied consumer. Steps are
 `plan_write`, `consumer_mix_test`, `runtime_vm` and `total`.
 
+Mix compiles the project before it loads the `mix check` task, so the `compile` stage brackets
+only recompilation triggered inside the task and normally reads about 0 s. The real compile time
+is the gap between the `Run mix check` step `started_at` in the jobs API and the `format start`
+stamp (110 s on symbolic, run 42404495544).
+
 These lines are monitored behavior from a monotonic clock. They prove nothing about correctness.
 They add no stage, test or assertion. Queue time is not part of any line. Compare runs only on the
 same SHA and the same runner.
