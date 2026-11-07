@@ -243,6 +243,23 @@ checks (or an explicit statement that the pair was not observed). Those live
 observations and independent review belong to the coordinator; a local fake
 run does not satisfy them.
 
+## Timing lines in CI logs (ELZ-045)
+
+`mix check` prints `ELZOO STAGE <name> start|end utc=... elapsed=...` around format, compile,
+ledger, Ash spike, registry load and the root suite. `test/export_test.exs` prints
+`ELZOO TIMING consumer=<id|aggregate(N)> <step> seconds=...` for each copied consumer. Steps are
+`plan_write`, `consumer_mix_test`, `runtime_vm` and `total`.
+
+Mix compiles the project before it loads the `mix check` task, and runs each task once, so the
+`compile` stage brackets a no-op and reads about 0 s. The pre-task work (VM boot, `deps.loadpaths`
+and the compile) is the gap between the `Run mix check` step `started_at` in the jobs API and the
+`format start` stamp: 110 s on symbolic, run 42404495544. The OTP-only `runtime/unit` test prints
+one `consumer_mix_test` line only. Timing lines can share a line with ExUnit progress dots, so
+match them without a `^` anchor.
+
+These lines are monitored behavior from a monotonic clock. They prove nothing about correctness.
+They add no stage, test or assertion. Queue time is not part of any line. Compare runs only on the
+same SHA and the same runner.
 ## Owned Cure compile fingerprint (ELZ-046)
 
 `Mix.Tasks.Compile.Cure` writes `elzoo.cure.manifest` (format 2) with a sha256 fingerprint over
