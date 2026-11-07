@@ -53,8 +53,9 @@ Its list-induction technique follows the checked `blocked_anywhere` precedent in
 ### What depends on representation and upstream semantics
 
 The theorem holds for arbitrary typed lists under the **ordered suffix** semantics,
-including duplicate IDs, but the public Piece must reject conflicting duplicates,
-canonicalize identical node identities and supply validated unique dependency order. It does not prove that an arbitrary input graph
+including duplicate IDs, but the public Piece must reject duplicate provenance
+node identities (even identical ones), reject conflicting candidate duplicates
+and supply validated unique dependency order. It does not prove that an arbitrary input graph
 was correctly topologically ordered or cycle-classified. That transformation is
 assigned to Cure in the production plan and remains to be implemented, checked
 and tested; silently dropping nodes/edges to obtain a convenient order is forbidden.
