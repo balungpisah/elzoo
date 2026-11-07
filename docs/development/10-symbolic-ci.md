@@ -71,6 +71,15 @@ scenario failed while starting Oban's notifier with `no process`; the cause is
 unconfirmed. This failed run does not establish reliable capacity or a passing
 check. Repeat the full run on the final head and retain both results.
 
+The next trial, Actions run 42310175044 at `d061e50`, passed `mix setup`
+but failed `mix check`: the outer suite reported 393/394, with the copied
+durable-job consumer reporting 177/179. Two PostgreSQL scenarios failed while
+starting Oban's PG notifier with `no process`, the same error class as the
+earlier run. Its cause remains unconfirmed. The run reported a cgroup memory
+peak of 2,319,937,536 bytes (about 2.16 GiB). These results do not establish
+reliable capacity. Retest on the current merged main and do not lower the
+test or delivery Contracts to obtain a pass.
+
 Each role runs at most one job per runner. The candidate has no hard container
 memory or CPU quota. The backend workflow keeps `+S 4:4 +SDcpu 1 +SDio 1` on
 symbolic and selects `+S 2:2 +SDcpu 1 +SDio 1` on macbook-ubuntu, per BEAM VM;
