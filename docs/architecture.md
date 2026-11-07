@@ -74,7 +74,7 @@ existing `core/operator` transition and its laws are unchanged.
 The bootstrap is deliberately small and observable:
 
 * One Mix application, pinned to Cure commit
-  [`a004c335cc4e9f2203ba6f51fc31e8540b66378d`](https://github.com/cure-lang/cure-lang/commit/a004c335cc4e9f2203ba6f51fc31e8540b66378d),
+  [`208248063d64e621782cd26dd30698ee42850a89`](https://github.com/balungpisah/cure-lang/commit/208248063d64e621782cd26dd30698ee42850a89),
   Elixir 1.20.4 and OTP 29.1.2.
 * A Cure operator/assembly with a typed transition and zero-or-one output.
   The same decision code is called directly and from a supervised OTP unit.
@@ -446,7 +446,7 @@ not invent an untracked `ELZ-ARCH-*` backlog.
 
 ## Sources
 
-* [Cure pinned source and README](https://github.com/cure-lang/cure-lang/tree/a004c335cc4e9f2203ba6f51fc31e8540b66378d)
+* [Cure pinned source and README](https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89)
 * [Erlang/OTP design principles](https://www.erlang.org/doc/system/design_principles.html)
 * [Elixir GenServer](https://hexdocs.pm/elixir/1.20.4/GenServer.html),
   [Supervisor](https://hexdocs.pm/elixir/1.20.4/Supervisor.html),

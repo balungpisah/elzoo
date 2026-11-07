@@ -209,8 +209,10 @@ PRs nor merges them.
 
 The durable commands are the roadmap checker above, `git diff --check`,
 `python3 scripts/check-claims.py`, `python3 scripts/check-ci-runners.py`,
-`mix setup` and full `mix check`. Preserve Cure
-`a004c335cc4e9f2203ba6f51fc31e8540b66378d`, Elixir 1.20.4 and OTP 29.1.2.
+`mix setup` and full `mix check`. Preserve the Cure pin that `mix.lock` and
+`registry/providers.json` record (since ELZ-047: `balungpisah/cure-lang`
+`208248063d64e621782cd26dd30698ee42850a89`, see `docs/dependencies/forks/cure.md`;
+before that, upstream `a004c335`), Elixir 1.20.4 and OTP 29.1.2.
 Actual execution results and blockers are recorded in [validation.md](validation.md).
 Independent review must inspect the actual policy/evidence diff at its exact
 head. The coordinator owns affected rechecks, symbolic checks, merged-commit

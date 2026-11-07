@@ -430,7 +430,7 @@ product writes a target/field denotes.
 Pieces: none at runtime. It consumes `core/envelope` and `core/port`
 unchanged only where a consumer carries a decision in an Envelope payload
 (opaque) behind its own schema id; no Envelope/Port field is extended.
-Providers: pinned Cure `a004c335cc4e9f2203ba6f51fc31e8540b66378d`, Elixir
+Providers: pinned Cure `208248063d64e621782cd26dd30698ee42850a89`, Elixir
 1.20.4, OTP 29.1.2.
 
 ## Limits
