@@ -842,7 +842,25 @@ defmodule Elzoo.ContextSelectionTest do
     File.write!(script_path, script)
 
     # Use only upstream artifacts, including when this test itself runs in an exported app.
-    dep_paths = [Application.app_dir(:cure, "ebin")]
+    closure = fn recur, app, seen ->
+      if MapSet.member?(seen, app) do
+        seen
+      else
+        _ = Application.load(app)
+
+        Enum.reduce(
+          (Application.spec(app, :applications) || []) --
+            (Application.spec(app, :optional_applications) || []),
+          MapSet.put(seen, app),
+          fn dependency, acc -> recur.(recur, dependency, acc) end
+        )
+      end
+    end
+
+    apps = closure.(closure, :cure, MapSet.new())
+    refute MapSet.member?(apps, :elzoo)
+    refute MapSet.member?(apps, :consumer)
+    dep_paths = Enum.map(apps, &Application.app_dir(&1, "ebin"))
 
     args = Enum.flat_map(dep_paths, &["-pa", &1]) ++ [script_path]
 
