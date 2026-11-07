@@ -25,8 +25,9 @@ permissions.
 5. Scope addition (owner-approved, recorded on PR #71): raise the backend job
    `timeout-minutes` in `.github/workflows/symbolic-check.yml` from 45 to 90.
    Basis: PR #71 run 42342334978 attempt 1 exceeded 45m0s on
-   `macbook-ubuntu-elzoo-candidate`; main `94df396` run 42340251145 passed on
-   `symbolic-elzoo` in 44m17s. `symbolic-gleam.yml` (30) and test time limits
+   `macbook-ubuntu-elzoo-candidate` (05:20:51Z–06:06:03Z, cancelled); attempt 2
+   passed on `symbolic-elzoo` (06:07:51Z–06:36:38Z, 28m47s) and does not replace
+   attempt 1. Main `94df396` run 42340251145 passed on `symbolic-elzoo` in 44m17s. `symbolic-gleam.yml` (30) and test time limits
    are unchanged.
 
 ## Acceptance
