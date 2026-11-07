@@ -1,0 +1,987 @@
+# SPDX-License-Identifier: Apache-2.0
+# workflow/approval: pure exact-action consent over a caller-held state.
+# Release runs a fixed list of gates; Cure release re-runs Cure decide on the
+# current context and emits only the current decision's escrow, guarded by
+# the approver's authority. Text identities are byte-integer lists.
+mod Elzoo.Approval
+  use Std.Option
+  use Elzoo.Authorization
+
+  rec ApprKey
+    run: List(Int)
+    action_id: List(Int)
+    req_name: List(Int)
+    req_version: Int
+    revision: Int
+
+  rec ApprBinding
+    action: Elzoo.Authorization.AuthAction
+    escrowed: List(Elzoo.Authorization.AuthWrite)
+    policy: Elzoo.Authorization.AuthPolicyIdentity
+    requirement: Elzoo.Authorization.AuthRequirement
+
+  type ApprStatus = ApprOpen | ApprReleased | ApprSuperseded
+
+  rec ApprRequest
+    key: ApprKey
+    binding: ApprBinding
+    status: ApprStatus
+
+  type ApprDecision = ApprApprove | ApprReject
+
+  rec ApprEvidence
+    verifier: List(Int)
+    evidence_id: List(Int)
+    reviewer: List(Int)
+    request: ApprKey
+    decision: ApprDecision
+    scope: Elzoo.Authorization.AuthScope
+    issued_at: Int
+    expiry: Int
+
+  rec ApprEvidenceKey
+    verifier: List(Int)
+    evidence_id: List(Int)
+
+  rec ApprConsent
+    evidence: ApprEvidence
+    binding: ApprBinding
+    run: List(Int)
+    root: List(Int)
+
+  rec ApprRelease
+    key: ApprKey
+    binding: ApprBinding
+    writes: List(Elzoo.Authorization.AuthWrite)
+    evidence: ApprEvidence
+    run: List(Int)
+    root: List(Int)
+    released_at: Int
+
+  rec ApprState
+    requests: List(ApprRequest)
+    consents: List(ApprConsent)
+    releases: List(ApprRelease)
+    consumed: List(ApprEvidenceKey)
+    revoked: List(ApprEvidenceKey)
+
+  rec ApprContext
+    now: Int
+    max_age: Int
+    verifiers: List(List(Int))
+    run_id: List(Int)
+    run_root: List(Int)
+    ancestry: List(List(Int))
+    policy: Elzoo.Authorization.AuthPolicy
+    action: Elzoo.Authorization.AuthAction
+    own: List(Elzoo.Authorization.AuthWrite)
+    parent: Elzoo.Authorization.AuthParent
+    proposer: List(Int)
+    approver: List(Int)
+    approver_authority: List(Elzoo.Authorization.AuthWrite)
+
+  type ApprSource = ApprFresh(ApprEvidence) | ApprRetained
+
+  type ApprRefusal = RRunMismatch | RUnknownRequest | RAlreadyReleased | RSuperseded | RStaleRevision | RRequestMismatch | RVerifierNotAllowed | RRevoked | RConsumed | REvidenceReused | RRejectedByReviewer | RIssuedInFuture | REvidenceTooOld | RExpired | RScopeMismatch | RApproverMismatch | RSelfApproval | RDenyAtRelease(Elzoo.Authorization.AuthReason) | RPolicyChanged | RPayloadChanged | RRequirementChanged | RApproverNotAuthorized | RNoRetainedConsent | RNotReleased
+
+  type ApprGate = GatePass | GateRefuse(ApprRefusal) | GateFail(Elzoo.Authorization.AuthFailureClass, Elzoo.Authorization.AuthFailure)
+  type ApprCheck = ApprApproved(ApprEvidence, ApprBinding, List(Int), List(Int)) | ApprRefused(ApprRefusal) | ApprFailed(Elzoo.Authorization.AuthFailureClass, Elzoo.Authorization.AuthFailure)
+  type ApprSelection = SelectedConsent(ApprConsent) | SelectRefused(ApprRefusal)
+  type ApprEvent = EvRequested(ApprRequest) | EvSuperseded(ApprKey, ApprRequest) | EvReleased(ApprRelease, Option(ApprConsent)) | EvRevoked(ApprEvidenceKey)
+
+  rec ApprStep
+    state: ApprState
+    writes: List(Elzoo.Authorization.AuthWrite)
+    result: ApprCheck
+    event: Option(ApprEvent)
+
+  rec ApprRequestStep
+    state: ApprState
+    request: ApprRequest
+    event: Option(ApprEvent)
+
+  # Accessors: law types cannot contain field projections.
+  @total true
+  @reducible
+  fn reviewer_of(e: ApprEvidence) -> List(Int) = e.reviewer
+
+  @total true
+  @reducible
+  fn proposer_of(ctx: ApprContext) -> List(Int) = ctx.proposer
+
+  @total true
+  @reducible
+  fn run_id_of(ctx: ApprContext) -> List(Int) = ctx.run_id
+
+  @total true
+  @reducible
+  fn run_of(k: ApprKey) -> List(Int) = k.run
+
+  @total true
+  @reducible
+  fn releases_of(s: ApprState) -> List(ApprRelease) = s.releases
+
+  @total true
+  @reducible
+  fn own_of(ctx: ApprContext) -> List(Elzoo.Authorization.AuthWrite) = ctx.own
+
+  @total true
+  @reducible
+  fn approver_authority_of(ctx: ApprContext) -> List(Elzoo.Authorization.AuthWrite) = ctx.approver_authority
+
+  # ---------------------------------------------------------------- basics
+
+  @total true
+  @reducible
+  fn initial() -> ApprState = ApprState{requests: [], consents: [], releases: [], consumed: [], revoked: []}
+
+  @total true
+  @reducible
+  fn not_b(a: Bool) -> Bool =
+    match a
+      True() -> False()
+      False() -> True()
+
+  @total true
+  @reducible
+  fn either(a: Bool, b: Bool) -> Bool =
+    match a
+      True() -> True()
+      False() -> b
+
+  @total true
+  @reducible
+  fn lt_int(a: Int, b: Int) -> Bool =
+    pickup
+      a < b -> True()
+      else -> False()
+
+  @total true
+  @reducible
+  fn le_int(a: Int, b: Int) -> Bool =
+    pickup
+      a <= b -> True()
+      else -> False()
+
+  # Strict UTF-8 byte order on byte lists.
+  @total true
+  @reducible
+  fn lex_lt(a: List(Int), b: List(Int)) -> Bool =
+    match a
+      [] ->
+        match b
+          [] -> False()
+          [y | ys] -> True()
+      [x | xs] ->
+        match b
+          [] -> False()
+          [y | ys] ->
+            match lt_int(x, y)
+              True() -> True()
+              False() ->
+                match eq_int(x, y)
+                  True() -> lex_lt(xs, ys)
+                  False() -> False()
+
+  @total true
+  @reducible
+  fn member_text(t: List(Int), ts: List(List(Int))) -> Bool =
+    match ts
+      [] -> False()
+      [x | rest] -> either(eq_ints(t, x), member_text(t, rest))
+
+  @total true
+  @reducible
+  fn eq_key(a: ApprKey, b: ApprKey) -> Bool =
+    both(eq_ints(a.run, b.run), both(eq_ints(a.action_id, b.action_id), both(eq_ints(a.req_name, b.req_name), both(eq_int(a.req_version, b.req_version), eq_int(a.revision, b.revision)))))
+
+  @total true
+  @reducible
+  fn same_lineage(a: ApprKey, b: ApprKey) -> Bool =
+    both(eq_ints(a.run, b.run), both(eq_ints(a.action_id, b.action_id), both(eq_ints(a.req_name, b.req_name), eq_int(a.req_version, b.req_version))))
+
+  @total true
+  @reducible
+  fn eq_binding(a: ApprBinding, b: ApprBinding) -> Bool =
+    both(eq_action(a.action, b.action), both(eq_writes(a.escrowed, b.escrowed), both(eq_identity(a.policy, b.policy), eq_requirement(a.requirement, b.requirement))))
+
+  @total true
+  @reducible
+  fn evidence_key(e: ApprEvidence) -> ApprEvidenceKey = ApprEvidenceKey{verifier: e.verifier, evidence_id: e.evidence_id}
+
+  @total true
+  @reducible
+  fn eq_ekey(a: ApprEvidenceKey, b: ApprEvidenceKey) -> Bool =
+    both(eq_ints(a.verifier, b.verifier), eq_ints(a.evidence_id, b.evidence_id))
+
+  @total true
+  @reducible
+  fn member_ekey(k: ApprEvidenceKey, ks: List(ApprEvidenceKey)) -> Bool =
+    match ks
+      [] -> False()
+      [x | rest] -> either(eq_ekey(k, x), member_ekey(k, rest))
+
+  @total true
+  @reducible
+  fn find_request(rs: List(ApprRequest), k: ApprKey) -> Option(ApprRequest) =
+    match rs
+      [] -> None()
+      [r | rest] ->
+        match eq_key(r.key, k)
+          True() -> Some(r)
+          False() -> find_request(rest, k)
+
+  # Cure lookup used by release gate 2 and released_twice_emits_nothing.
+  @total true
+  @reducible
+  fn has_release(rs: List(ApprRelease), k: ApprKey) -> Bool =
+    match rs
+      [] -> False()
+      [r | rest] -> either(eq_key(r.key, k), has_release(rest, k))
+
+  @total true
+  @reducible
+  fn find_release(rs: List(ApprRelease), k: ApprKey) -> Option(ApprRelease) =
+    match rs
+      [] -> None()
+      [r | rest] ->
+        match eq_key(r.key, k)
+          True() -> Some(r)
+          False() -> find_release(rest, k)
+
+  @total true
+  @reducible
+  fn binding_of(found: Option(ApprRequest)) -> Option(ApprBinding) =
+    match found
+      None() -> None()
+      Some(r) -> Some(r.binding)
+
+  @total true
+  @reducible
+  fn current(ctx: ApprContext) -> Elzoo.Authorization.AuthDecideResult = decide(ctx.policy, ctx.action, ctx.own, ctx.parent)
+
+  @total true
+  @reducible
+  fn guard(b: Bool, ws: List(Elzoo.Authorization.AuthWrite)) -> List(Elzoo.Authorization.AuthWrite) =
+    match b
+      True() -> ws
+      False() -> []
+
+  # Released writes: the current decision's escrow, within approver authority.
+  @total true
+  @reducible
+  fn release_writes(ctx: ApprContext) -> List(Elzoo.Authorization.AuthWrite) =
+    guard(subset(escrowed_of(current(ctx)), approver_authority_of(ctx)), escrowed_of(current(ctx)))
+
+  # ---------------------------------------------------------------- gates
+
+  @total true
+  @reducible
+  fn pass_if(ok: Bool, r: ApprRefusal) -> ApprGate =
+    match ok
+      True() -> GatePass()
+      False() -> GateRefuse(r)
+
+  @total true
+  @reducible
+  fn refuse_if(bad: Bool, r: ApprRefusal) -> ApprGate =
+    match bad
+      True() -> GateRefuse(r)
+      False() -> GatePass()
+
+  @total true
+  @reducible
+  fn g_run(k: ApprKey, ctx: ApprContext) -> ApprGate = pass_if(eq_ints(run_id_of(ctx), run_of(k)), RRunMismatch())
+
+  @total true
+  @reducible
+  fn g_known(found: Option(ApprRequest)) -> ApprGate =
+    match found
+      None() -> GateRefuse(RUnknownRequest())
+      Some(r) -> GatePass()
+
+  @total true
+  @reducible
+  fn g_unreleased(s: ApprState, k: ApprKey) -> ApprGate = refuse_if(has_release(releases_of(s), k), RAlreadyReleased())
+
+  @total true
+  @reducible
+  fn status_gate(st: ApprStatus) -> ApprGate =
+    match st
+      ApprOpen() -> GatePass()
+      ApprReleased() -> GateRefuse(RAlreadyReleased())
+      ApprSuperseded() -> GateRefuse(RSuperseded())
+
+  @total true
+  @reducible
+  fn g_open(found: Option(ApprRequest)) -> ApprGate =
+    match found
+      None() -> GatePass()
+      Some(r) -> status_gate(r.status)
+
+  @total true
+  @reducible
+  fn g_request(e: ApprEvidence, k: ApprKey) -> ApprGate =
+    match eq_key(e.request, k)
+      True() -> GatePass()
+      False() ->
+        match same_lineage(e.request, k)
+          True() -> GateRefuse(RStaleRevision())
+          False() -> GateRefuse(RRequestMismatch())
+
+  @total true
+  @reducible
+  fn g_verifier(e: ApprEvidence, ctx: ApprContext) -> ApprGate = pass_if(member_text(e.verifier, ctx.verifiers), RVerifierNotAllowed())
+
+  @total true
+  @reducible
+  fn g_revoked(s: ApprState, e: ApprEvidence) -> ApprGate = refuse_if(member_ekey(evidence_key(e), s.revoked), RRevoked())
+
+  @total true
+  @reducible
+  fn g_consumed(s: ApprState, e: ApprEvidence) -> ApprGate = refuse_if(member_ekey(evidence_key(e), s.consumed), RConsumed())
+
+  @total true
+  @reducible
+  fn consent_conflict(cs: List(ApprConsent), ek: ApprEvidenceKey, b: ApprBinding) -> Bool =
+    match cs
+      [] -> False()
+      [c | rest] -> either(both(eq_ekey(evidence_key(c.evidence), ek), not_b(eq_binding(c.binding, b))), consent_conflict(rest, ek, b))
+
+  @total true
+  @reducible
+  fn release_conflict(rs: List(ApprRelease), ek: ApprEvidenceKey, b: ApprBinding) -> Bool =
+    match rs
+      [] -> False()
+      [r | rest] -> either(both(eq_ekey(evidence_key(r.evidence), ek), not_b(eq_binding(r.binding, b))), release_conflict(rest, ek, b))
+
+  # Gate 8 compares only the binding, never the request key (F4).
+  @total true
+  @reducible
+  fn g_reuse(s: ApprState, e: ApprEvidence, b: Option(ApprBinding)) -> ApprGate =
+    match b
+      None() -> GatePass()
+      Some(x) -> refuse_if(either(consent_conflict(s.consents, evidence_key(e), x), release_conflict(s.releases, evidence_key(e), x)), REvidenceReused())
+
+  @total true
+  @reducible
+  fn decision_gate(d: ApprDecision) -> ApprGate =
+    match d
+      ApprApprove() -> GatePass()
+      ApprReject() -> GateRefuse(RRejectedByReviewer())
+
+  @total true
+  @reducible
+  fn g_decision(e: ApprEvidence) -> ApprGate = decision_gate(e.decision)
+
+  @total true
+  @reducible
+  fn g_issued(e: ApprEvidence, ctx: ApprContext) -> ApprGate = pass_if(le_int(e.issued_at, ctx.now), RIssuedInFuture())
+
+  @total true
+  @reducible
+  fn g_age(e: ApprEvidence, ctx: ApprContext) -> ApprGate = pass_if(lt_int(ctx.now - e.issued_at, ctx.max_age), REvidenceTooOld())
+
+  @total true
+  @reducible
+  fn g_expiry(e: ApprEvidence, ctx: ApprContext) -> ApprGate = pass_if(lt_int(ctx.now, e.expiry), RExpired())
+
+  @total true
+  @reducible
+  fn admits(sc: Elzoo.Authorization.AuthScope, e: ApprEvidence, k: ApprKey, run: List(Int), root: List(Int), ctx: ApprContext) -> Bool =
+    match sc
+      ScopeOnce() -> eq_key(e.request, k)
+      ScopeRun() -> eq_ints(run, k.run)
+      ScopeRoot() -> either(eq_ints(ctx.run_id, root), member_text(root, ctx.ancestry))
+
+  @total true
+  @reducible
+  fn g_scope(e: ApprEvidence, b: Option(ApprBinding), k: ApprKey, run: List(Int), root: List(Int), ctx: ApprContext) -> ApprGate =
+    match b
+      None() -> GatePass()
+      Some(x) -> pass_if(both(eq_scope(e.scope, x.requirement.scope), admits(e.scope, e, k, run, root, ctx)), RScopeMismatch())
+
+  @total true
+  @reducible
+  fn g_approver(e: ApprEvidence, ctx: ApprContext) -> ApprGate = pass_if(eq_ints(ctx.approver, e.reviewer), RApproverMismatch())
+
+  @total true
+  @reducible
+  fn g_self(e: ApprEvidence, ctx: ApprContext) -> ApprGate = refuse_if(eq_ints(reviewer_of(e), proposer_of(ctx)), RSelfApproval())
+
+  @total true
+  @reducible
+  fn g_decide(d: Elzoo.Authorization.AuthDecideResult) -> ApprGate =
+    match d
+      DecideFailed(c, f) -> GateFail(c, f)
+      Decided(o) -> GatePass()
+
+  @total true
+  @reducible
+  fn deny_gate(v: Elzoo.Authorization.AuthVerdict, reason: Elzoo.Authorization.AuthReason) -> ApprGate =
+    match v
+      AuthDeny() -> GateRefuse(RDenyAtRelease(reason))
+      _ -> GatePass()
+
+  @total true
+  @reducible
+  fn g_deny(d: Elzoo.Authorization.AuthDecideResult) -> ApprGate =
+    match d
+      DecideFailed(c, f) -> GatePass()
+      Decided(o) -> deny_gate(o.verdict, o.reason)
+
+  @total true
+  @reducible
+  fn g_policy(ctx: ApprContext, b: Option(ApprBinding)) -> ApprGate =
+    match b
+      None() -> GatePass()
+      Some(x) -> pass_if(eq_identity(ctx.policy.identity, x.policy), RPolicyChanged())
+
+  @total true
+  @reducible
+  fn g_payload(ctx: ApprContext, b: Option(ApprBinding)) -> ApprGate =
+    match b
+      None() -> GatePass()
+      Some(x) -> pass_if(eq_action(ctx.action, x.action), RPayloadChanged())
+
+  @total true
+  @reducible
+  fn same_requirement(q: Option(Elzoo.Authorization.AuthRequirement), r: Elzoo.Authorization.AuthRequirement) -> Bool =
+    match q
+      None() -> False()
+      Some(x) -> eq_requirement(x, r)
+
+  @total true
+  @reducible
+  fn g_requirement(d: Elzoo.Authorization.AuthDecideResult, b: Option(ApprBinding)) -> ApprGate =
+    match b
+      None() -> GatePass()
+      Some(x) ->
+        match d
+          DecideFailed(c, f) -> GatePass()
+          Decided(o) -> pass_if(both(is_ask(o.verdict), both(same_requirement(o.requirement, x.requirement), eq_writes(o.escrowed, x.escrowed))), RRequirementChanged())
+
+  @total true
+  @reducible
+  fn g_approver_authority(d: Elzoo.Authorization.AuthDecideResult, ctx: ApprContext) -> ApprGate = pass_if(subset(escrowed_of(d), ctx.approver_authority), RApproverNotAuthorized())
+
+  @total true
+  @reducible
+  fn blocks(g: ApprGate) -> Bool =
+    match g
+      GatePass() -> False()
+      GateRefuse(r) -> True()
+      GateFail(c, f) -> True()
+
+  @total true
+  @reducible
+  fn seq(g: ApprGate, rest: ApprCheck) -> ApprCheck =
+    match g
+      GatePass() -> rest
+      GateRefuse(r) -> ApprRefused(r)
+      GateFail(c, f) -> ApprFailed(c, f)
+
+  @total true
+  @reducible
+  fn run_gates(gs: List(ApprGate), final: ApprCheck) -> ApprCheck =
+    match gs
+      [] -> final
+      [g | rest] -> seq(g, run_gates(rest, final))
+
+  @total true
+  @reducible
+  fn append_gates(xs: List(ApprGate), ys: List(ApprGate)) -> List(ApprGate) =
+    match xs
+      [] -> ys
+      [x | rest] -> [x | append_gates(rest, ys)]
+
+  @total true
+  @reducible
+  fn cons_gate(g: ApprGate, rest: List(ApprGate)) -> List(ApprGate) = [g | rest]
+
+  @total true
+  @reducible
+  fn approved(c: ApprCheck) -> Bool =
+    match c
+      ApprApproved(e, b, run, root) -> True()
+      ApprRefused(r) -> False()
+      ApprFailed(x, f) -> False()
+
+  @total true
+  @reducible
+  fn final_for(e: ApprEvidence, found: Option(ApprRequest), run: List(Int), root: List(Int)) -> ApprCheck =
+    match found
+      None() -> ApprRefused(RUnknownRequest())
+      Some(r) -> ApprApproved(e, r.binding, run, root)
+
+  # Gates 0-3: request preconditions.
+  @total true
+  @reducible
+  fn pre_gates(s: ApprState, k: ApprKey, ctx: ApprContext) -> List(ApprGate) =
+    [g_run(k, ctx), g_known(find_request(s.requests, k)), g_unreleased(s, k), g_open(find_request(s.requests, k))]
+
+  # Gates 14-21: approver, self-approval, re-decide and current-context checks.
+  @total true
+  @reducible
+  fn tail_gates(e: ApprEvidence, b: Option(ApprBinding), ctx: ApprContext) -> List(ApprGate) =
+    [g_approver(e, ctx), g_self(e, ctx), g_decide(current(ctx)), g_deny(current(ctx)), g_policy(ctx, b), g_payload(ctx, b), g_requirement(current(ctx), b), g_approver_authority(current(ctx), ctx)]
+
+  # Gates 4-13 for fresh evidence (run and root are this release's context).
+  @total true
+  @reducible
+  fn evidence_gates(s: ApprState, k: ApprKey, e: ApprEvidence, b: Option(ApprBinding), ctx: ApprContext) -> List(ApprGate) =
+    [g_request(e, k), g_verifier(e, ctx), g_revoked(s, e), g_consumed(s, e), g_reuse(s, e, b), g_decision(e), g_issued(e, ctx), g_age(e, ctx), g_expiry(e, ctx), g_scope(e, b, k, ctx.run_id, ctx.run_root, ctx)]
+
+  @total true
+  @reducible
+  fn fresh_gates(s: ApprState, k: ApprKey, e: ApprEvidence, ctx: ApprContext) -> List(ApprGate) =
+    append_gates(pre_gates(s, k, ctx), append_gates(evidence_gates(s, k, e, binding_of(find_request(s.requests, k)), ctx), tail_gates(e, binding_of(find_request(s.requests, k)), ctx)))
+
+  # ---------------------------------------------------------------- retained selection
+
+  @total true
+  @reducible
+  fn candidate_ok(s: ApprState, k: ApprKey, b: ApprBinding, c: ApprConsent, ctx: ApprContext) -> Bool =
+    both(eq_binding(c.binding, b), not_b(blocks_any([g_verifier(c.evidence, ctx), g_revoked(s, c.evidence), g_consumed(s, c.evidence), g_reuse(s, c.evidence, Some(b)), g_decision(c.evidence), g_issued(c.evidence, ctx), g_age(c.evidence, ctx), g_expiry(c.evidence, ctx), g_scope(c.evidence, Some(b), k, c.run, c.root, ctx)])))
+
+  @total true
+  @reducible
+  fn blocks_any(gs: List(ApprGate)) -> Bool =
+    match gs
+      [] -> False()
+      [g | rest] -> either(blocks(g), blocks_any(rest))
+
+  # Earlier issued_at first, then evidence key in UTF-8 byte order.
+  @total true
+  @reducible
+  fn before(a: ApprConsent, b: ApprConsent) -> Bool =
+    match lt_int(a.evidence.issued_at, b.evidence.issued_at)
+      True() -> True()
+      False() ->
+        match eq_int(a.evidence.issued_at, b.evidence.issued_at)
+          False() -> False()
+          True() ->
+            match lex_lt(a.evidence.verifier, b.evidence.verifier)
+              True() -> True()
+              False() -> both(eq_ints(a.evidence.verifier, b.evidence.verifier), lex_lt(a.evidence.evidence_id, b.evidence.evidence_id))
+
+  @total true
+  @reducible
+  fn pick(best: Option(ApprConsent), c: ApprConsent) -> Option(ApprConsent) =
+    match best
+      None() -> Some(c)
+      Some(x) ->
+        match before(c, x)
+          True() -> Some(c)
+          False() -> Some(x)
+
+  @total true
+  @reducible
+  fn choose(s: ApprState, k: ApprKey, b: ApprBinding, cs: List(ApprConsent), ctx: ApprContext, best: Option(ApprConsent)) -> Option(ApprConsent) =
+    match cs
+      [] -> best
+      [c | rest] ->
+        match candidate_ok(s, k, b, c, ctx)
+          True() -> choose(s, k, b, rest, ctx, pick(best, c))
+          False() -> choose(s, k, b, rest, ctx, best)
+
+  @total true
+  @reducible
+  fn first_block(gs: List(ApprGate)) -> ApprGate =
+    match gs
+      [] -> GatePass()
+      [g | rest] ->
+        match g
+          GatePass() -> first_block(rest)
+          GateRefuse(r) -> GateRefuse(r)
+          GateFail(c, f) -> GateFail(c, f)
+
+  @total true
+  @reducible
+  fn select_from(found: Option(ApprRequest), s: ApprState, k: ApprKey, ctx: ApprContext) -> ApprSelection =
+    match found
+      None() -> SelectRefused(RUnknownRequest())
+      Some(r) ->
+        match choose(s, k, r.binding, s.consents, ctx, None())
+          None() -> SelectRefused(RNoRetainedConsent())
+          Some(c) -> SelectedConsent(c)
+
+  # Checks 1-3, then filter on 5-13 (check 9 fails closed on a forged log),
+  # then deterministic choice.
+  @total true
+  @reducible
+  fn select_after_run(run_ok: Bool, s: ApprState, k: ApprKey, ctx: ApprContext) -> ApprSelection =
+    match run_ok
+      False() -> SelectRefused(RRunMismatch())
+      True() ->
+        match first_block([g_known(find_request(s.requests, k)), g_unreleased(s, k), g_open(find_request(s.requests, k))])
+          GatePass() -> select_from(find_request(s.requests, k), s, k, ctx)
+          GateRefuse(r) -> SelectRefused(r)
+          GateFail(c, f) -> SelectRefused(RUnknownRequest())
+
+  # Check 0 first, then 1-3, filter, choice. The approver in ctx is ignored.
+  @total true
+  @reducible
+  fn select_retained(s: ApprState, k: ApprKey, ctx: ApprContext) -> ApprSelection =
+    select_after_run(eq_ints(run_id_of(ctx), run_of(k)), s, k, ctx)
+
+  @total true
+  @reducible
+  fn retained_check(sel: ApprSelection, s: ApprState, k: ApprKey, ctx: ApprContext) -> ApprCheck =
+    match sel
+      SelectRefused(r) -> ApprRefused(r)
+      SelectedConsent(c) -> run_gates(cons_gate(g_decision(c.evidence), tail_gates(c.evidence, binding_of(find_request(s.requests, k)), ctx)), final_for(c.evidence, find_request(s.requests, k), c.run, c.root))
+
+  @total true
+  @reducible
+  fn release_check(s: ApprState, k: ApprKey, src: ApprSource, ctx: ApprContext) -> ApprCheck =
+    match src
+      ApprFresh(e) -> run_gates(fresh_gates(s, k, e, ctx), final_for(e, find_request(s.requests, k), ctx.run_id, ctx.run_root))
+      ApprRetained() -> retained_check(select_retained(s, k, ctx), s, k, ctx)
+
+  # ---------------------------------------------------------------- transitions
+
+  @total true
+  @reducible
+  fn mark(rs: List(ApprRequest), k: ApprKey, st: ApprStatus) -> List(ApprRequest) =
+    match rs
+      [] -> []
+      [r | rest] ->
+        match eq_key(r.key, k)
+          True() -> [ApprRequest{key: r.key, binding: r.binding, status: st} | rest]
+          False() -> [r | mark(rest, k, st)]
+
+  @total true
+  @reducible
+  fn snoc_request(rs: List(ApprRequest), r: ApprRequest) -> List(ApprRequest) =
+    match rs
+      [] -> [r]
+      [x | rest] -> [x | snoc_request(rest, r)]
+
+  @total true
+  @reducible
+  fn snoc_release(rs: List(ApprRelease), r: ApprRelease) -> List(ApprRelease) =
+    match rs
+      [] -> [r]
+      [x | rest] -> [x | snoc_release(rest, r)]
+
+  @total true
+  @reducible
+  fn snoc_consent(cs: List(ApprConsent), c: Option(ApprConsent)) -> List(ApprConsent) =
+    match c
+      None() -> cs
+      Some(x) ->
+        match cs
+          [] -> [x]
+          [y | rest] -> [y | snoc_consent(rest, Some(x))]
+
+  @total true
+  @reducible
+  fn add_ekey(ks: List(ApprEvidenceKey), k: ApprEvidenceKey) -> List(ApprEvidenceKey) =
+    match member_ekey(k, ks)
+      True() -> ks
+      False() -> snoc_ekey(ks, k)
+
+  @total true
+  @reducible
+  fn snoc_ekey(ks: List(ApprEvidenceKey), k: ApprEvidenceKey) -> List(ApprEvidenceKey) =
+    match ks
+      [] -> [k]
+      [x | rest] -> [x | snoc_ekey(rest, k)]
+
+  @total true
+  @reducible
+  fn consume_if_once(ks: List(ApprEvidenceKey), e: ApprEvidence) -> List(ApprEvidenceKey) =
+    match e.scope
+      ScopeOnce() -> add_ekey(ks, evidence_key(e))
+      _ -> ks
+
+  @total true
+  @reducible
+  fn add_request(s: ApprState, r: ApprRequest) -> ApprState =
+    match find_request(s.requests, r.key)
+      Some(x) -> s
+      None() -> ApprState{requests: snoc_request(s.requests, r), consents: s.consents, releases: s.releases, consumed: s.consumed, revoked: s.revoked}
+
+  @total true
+  @reducible
+  fn supersede(s: ApprState, old: ApprKey) -> ApprState =
+    ApprState{requests: mark(s.requests, old, ApprSuperseded()), consents: s.consents, releases: s.releases, consumed: s.consumed, revoked: s.revoked}
+
+  @total true
+  @reducible
+  fn record_release(s: ApprState, rel: ApprRelease, c: Option(ApprConsent)) -> ApprState =
+    match has_release(s.releases, rel.key)
+      True() -> s
+      False() -> ApprState{requests: mark(s.requests, rel.key, ApprReleased()), consents: snoc_consent(s.consents, c), releases: snoc_release(s.releases, rel), consumed: consume_if_once(s.consumed, rel.evidence), revoked: s.revoked}
+
+  # Replay folds events into state; it returns state only, never writes.
+  @total true
+  @reducible
+  fn apply_event(s: ApprState, e: ApprEvent) -> ApprState =
+    match e
+      EvRequested(r) -> add_request(s, r)
+      EvSuperseded(old, r) -> add_request(supersede(s, old), r)
+      EvReleased(rel, c) -> record_release(s, rel, c)
+      EvRevoked(k) -> ApprState{requests: s.requests, consents: s.consents, releases: s.releases, consumed: s.consumed, revoked: add_ekey(s.revoked, k)}
+
+  @total true
+  @reducible
+  fn new_consent(src: ApprSource, e: ApprEvidence, b: ApprBinding, run: List(Int), root: List(Int)) -> Option(ApprConsent) =
+    match src
+      ApprRetained() -> None()
+      ApprFresh(x) ->
+        match e.scope
+          ScopeOnce() -> None()
+          _ -> Some(ApprConsent{evidence: e, binding: b, run: run, root: root})
+
+  @total true
+  @reducible
+  fn released_event(k: ApprKey, src: ApprSource, e: ApprEvidence, b: ApprBinding, run: List(Int), root: List(Int), ctx: ApprContext) -> ApprEvent =
+    EvReleased(ApprRelease{key: k, binding: b, writes: release_writes(ctx), evidence: e, run: run, root: root, released_at: ctx.now}, new_consent(src, e, b, run, root))
+
+  @total true
+  @reducible
+  fn finish_release(c: ApprCheck, s: ApprState, k: ApprKey, src: ApprSource, ctx: ApprContext) -> ApprStep =
+    match c
+      ApprApproved(e, b, run, root) -> ApprStep{state: apply_event(s, released_event(k, src, e, b, run, root, ctx)), writes: release_writes(ctx), result: c, event: Some(released_event(k, src, e, b, run, root, ctx))}
+      ApprRefused(r) -> ApprStep{state: s, writes: [], result: c, event: None()}
+      ApprFailed(x, f) -> ApprStep{state: s, writes: [], result: c, event: None()}
+
+  @total true
+  @reducible
+  fn release(s: ApprState, k: ApprKey, src: ApprSource, ctx: ApprContext) -> ApprStep =
+    finish_release(release_check(s, k, src, ctx), s, k, src, ctx)
+
+  # Restore of a recorded release: checks 0, 5, 6, 9, 10-21 from the stored
+  # evidence, binding, run and root. Returns a check, never writes.
+  @total true
+  @reducible
+  fn revalidate_record(rel: ApprRelease, s: ApprState, k: ApprKey, ctx: ApprContext) -> ApprCheck =
+    run_gates(append_gates([g_run(k, ctx), g_verifier(rel.evidence, ctx), g_revoked(s, rel.evidence), g_decision(rel.evidence), g_issued(rel.evidence, ctx), g_age(rel.evidence, ctx), g_expiry(rel.evidence, ctx), g_scope(rel.evidence, Some(rel.binding), k, rel.run, rel.root, ctx)], tail_gates(rel.evidence, Some(rel.binding), ctx)), ApprApproved(rel.evidence, rel.binding, rel.run, rel.root))
+
+  @total true
+  @reducible
+  fn revalidate(s: ApprState, k: ApprKey, ctx: ApprContext) -> ApprCheck =
+    match find_release(s.releases, k)
+      None() -> ApprRefused(RNotReleased())
+      Some(rel) -> revalidate_record(rel, s, k, ctx)
+
+  @total true
+  @reducible
+  fn same_action_line(r: ApprRequest, run: List(Int), action_id: List(Int)) -> Bool =
+    both(eq_ints(r.key.run, run), eq_ints(r.key.action_id, action_id))
+
+  @total true
+  @reducible
+  fn later(best: Option(ApprRequest), r: ApprRequest) -> Option(ApprRequest) =
+    match best
+      None() -> Some(r)
+      Some(x) ->
+        match lt_int(x.key.revision, r.key.revision)
+          True() -> Some(r)
+          False() -> Some(x)
+
+  @total true
+  @reducible
+  fn latest(rs: List(ApprRequest), run: List(Int), action_id: List(Int), best: Option(ApprRequest)) -> Option(ApprRequest) =
+    match rs
+      [] -> best
+      [r | rest] ->
+        match same_action_line(r, run, action_id)
+          True() -> latest(rest, run, action_id, later(best, r))
+          False() -> latest(rest, run, action_id, best)
+
+  @total true
+  @reducible
+  fn open_request(run: List(Int), b: ApprBinding, revision: Int) -> ApprRequest =
+    ApprRequest{key: ApprKey{run: run, action_id: b.action.action_id, req_name: b.requirement.name, req_version: b.requirement.version, revision: revision}, binding: b, status: ApprOpen()}
+
+  @total true
+  @reducible
+  fn request_on_latest(s: ApprState, run: List(Int), b: ApprBinding, l: ApprRequest) -> ApprRequestStep =
+    match l.status
+      ApprOpen() ->
+        match eq_binding(l.binding, b)
+          True() -> ApprRequestStep{state: s, request: l, event: None()}
+          False() -> ApprRequestStep{state: apply_event(s, EvSuperseded(l.key, open_request(run, b, l.key.revision + 1))), request: open_request(run, b, l.key.revision + 1), event: Some(EvSuperseded(l.key, open_request(run, b, l.key.revision + 1)))}
+      _ -> ApprRequestStep{state: apply_event(s, EvRequested(open_request(run, b, l.key.revision + 1))), request: open_request(run, b, l.key.revision + 1), event: Some(EvRequested(open_request(run, b, l.key.revision + 1)))}
+
+  # Open, keep or supersede the request for (run, action id).
+  @total true
+  @reducible
+  fn request(s: ApprState, run: List(Int), b: ApprBinding) -> ApprRequestStep =
+    match latest(s.requests, run, b.action.action_id, None())
+      None() -> ApprRequestStep{state: apply_event(s, EvRequested(open_request(run, b, 1))), request: open_request(run, b, 1), event: Some(EvRequested(open_request(run, b, 1)))}
+      Some(l) -> request_on_latest(s, run, b, l)
+
+  @total true
+  @reducible
+  fn writes_of(st: ApprStep) -> List(Elzoo.Authorization.AuthWrite) = st.writes
+
+  @total true
+  @reducible
+  fn state_of(st: ApprStep) -> ApprState = st.state
+
+  @total true
+  @reducible
+  fn with_parent(ctx: ApprContext, p: List(Elzoo.Authorization.AuthWrite)) -> ApprContext =
+    ApprContext{now: ctx.now, max_age: ctx.max_age, verifiers: ctx.verifiers, run_id: ctx.run_id, run_root: ctx.run_root, ancestry: ctx.ancestry, policy: ctx.policy, action: ctx.action, own: ctx.own, parent: ParentAuthority(p), proposer: ctx.proposer, approver: ctx.approver, approver_authority: ctx.approver_authority}
+
+  @total true
+  @reducible
+  fn with_decision(e: ApprEvidence, d: ApprDecision) -> ApprEvidence =
+    ApprEvidence{verifier: e.verifier, evidence_id: e.evidence_id, reviewer: e.reviewer, request: e.request, decision: d, scope: e.scope, issued_at: e.issued_at, expiry: e.expiry}
+
+  # ---------------------------------------------------------------- laws
+
+  # A refused or failed check emits nothing and keeps state.
+  @total true
+  fn finish_blocked_emits_nothing(c: ApprCheck, s: ApprState, k: ApprKey, src: ApprSource, ctx: ApprContext, h: Equivalent(Bool, approved(c), False())) -> Equivalent(List(Elzoo.Authorization.AuthWrite), writes_of(finish_release(c, s, k, src, ctx)), no_writes()) =
+    match c
+      ApprApproved(e, b, run, root) ->
+        match h
+          reflexive() -> impossible
+      ApprRefused(r) -> reflexive(no_writes())
+      ApprFailed(x, f) -> reflexive(no_writes())
+
+  @total true
+  fn finish_blocked_keeps_state(c: ApprCheck, s: ApprState, k: ApprKey, src: ApprSource, ctx: ApprContext, h: Equivalent(Bool, approved(c), False())) -> Equivalent(ApprState, state_of(finish_release(c, s, k, src, ctx)), s) =
+    match c
+      ApprApproved(e, b, run, root) ->
+        match h
+          reflexive() -> impossible
+      ApprRefused(r) -> reflexive(s)
+      ApprFailed(x, f) -> reflexive(s)
+
+  @total true
+  fn refused_emits_nothing(s: ApprState, k: ApprKey, src: ApprSource, ctx: ApprContext, h: Equivalent(Bool, approved(release_check(s, k, src, ctx)), False())) -> Equivalent(List(Elzoo.Authorization.AuthWrite), writes_of(release(s, k, src, ctx)), no_writes()) =
+    finish_blocked_emits_nothing(release_check(s, k, src, ctx), s, k, src, ctx, h)
+
+  @total true
+  fn refused_keeps_state(s: ApprState, k: ApprKey, src: ApprSource, ctx: ApprContext, h: Equivalent(Bool, approved(release_check(s, k, src, ctx)), False())) -> Equivalent(ApprState, state_of(release(s, k, src, ctx)), s) =
+    finish_blocked_keeps_state(release_check(s, k, src, ctx), s, k, src, ctx, h)
+
+  # Any blocking gate anywhere in the list blocks the whole check (induction).
+  @total true
+  fn seq_blocked(g: ApprGate, rest: ApprCheck, h: Equivalent(Bool, approved(rest), False())) -> Equivalent(Bool, approved(seq(g, rest)), False()) =
+    match g
+      GatePass() -> h
+      GateRefuse(r) -> reflexive(False())
+      GateFail(c, f) -> reflexive(False())
+
+  @total true
+  fn blocking_gate_blocks(g: ApprGate, rest: ApprCheck, h: Equivalent(Bool, blocks(g), True())) -> Equivalent(Bool, approved(seq(g, rest)), False()) =
+    match g
+      GatePass() ->
+        match h
+          reflexive() -> impossible
+      GateRefuse(r) -> reflexive(False())
+      GateFail(c, f) -> reflexive(False())
+
+  @total true
+  fn blocked_anywhere(p: List(ApprGate), g: ApprGate, sfx: List(ApprGate), final: ApprCheck, h: Equivalent(Bool, blocks(g), True())) -> Equivalent(Bool, approved(run_gates(append_gates(p, cons_gate(g, sfx)), final)), False()) =
+    match p
+      [] -> blocking_gate_blocks(g, run_gates(sfx, final), h)
+      [x | rest] -> seq_blocked(x, run_gates(append_gates(rest, cons_gate(g, sfx)), final), blocked_anywhere(rest, g, sfx, final, h))
+
+  # Released writes stay within the approver's current authority.
+  @total true
+  fn guard_self_within(b: Bool, xs: List(Elzoo.Authorization.AuthWrite), y: List(Elzoo.Authorization.AuthWrite), hb: Equivalent(Bool, subset(xs, y), b)) -> Equivalent(Bool, subset(guard(b, xs), y), True()) =
+    match b
+      True() -> hb
+      False() -> reflexive(True())
+
+  @total true
+  fn guard_within(b: Bool, xs: List(Elzoo.Authorization.AuthWrite), y: List(Elzoo.Authorization.AuthWrite), h: Equivalent(Bool, subset(xs, y), True())) -> Equivalent(Bool, subset(guard(b, xs), y), True()) =
+    match b
+      True() -> h
+      False() -> reflexive(True())
+
+  @total true
+  fn finish_within_approver(c: ApprCheck, s: ApprState, k: ApprKey, src: ApprSource, ctx: ApprContext) -> Equivalent(Bool, subset(writes_of(finish_release(c, s, k, src, ctx)), approver_authority_of(ctx)), True()) =
+    match c
+      ApprApproved(e, b, run, root) -> guard_self_within(subset(escrowed_of(current(ctx)), approver_authority_of(ctx)), escrowed_of(current(ctx)), approver_authority_of(ctx), reflexive(subset(escrowed_of(current(ctx)), approver_authority_of(ctx))))
+      ApprRefused(r) -> reflexive(True())
+      ApprFailed(x, f) -> reflexive(True())
+
+  @total true
+  fn release_within_approver(s: ApprState, k: ApprKey, src: ApprSource, ctx: ApprContext) -> Equivalent(Bool, subset(writes_of(release(s, k, src, ctx)), approver_authority_of(ctx)), True()) =
+    finish_within_approver(release_check(s, k, src, ctx), s, k, src, ctx)
+
+  @total true
+  fn finish_within(c: ApprCheck, s: ApprState, k: ApprKey, src: ApprSource, ctx: ApprContext, x: List(Elzoo.Authorization.AuthWrite), h: Equivalent(Bool, subset(escrowed_of(current(ctx)), x), True())) -> Equivalent(Bool, subset(writes_of(finish_release(c, s, k, src, ctx)), x), True()) =
+    match c
+      ApprApproved(e, b, run, root) -> guard_within(subset(escrowed_of(current(ctx)), approver_authority_of(ctx)), escrowed_of(current(ctx)), x, h)
+      ApprRefused(r) -> reflexive(True())
+      ApprFailed(y, f) -> reflexive(True())
+
+  # Released writes stay within the proposer's current own authority.
+  @total true
+  fn release_within_own(s: ApprState, k: ApprKey, src: ApprSource, ctx: ApprContext) -> Equivalent(Bool, subset(writes_of(release(s, k, src, ctx)), own_of(ctx)), True()) =
+    finish_within(release_check(s, k, src, ctx), s, k, src, ctx, own_of(ctx), escrowed_within_own(ctx.policy, ctx.action, ctx.own, ctx.parent))
+
+  # For every context whose parent authority is p, released writes stay within p.
+  @total true
+  fn release_within_parent(s: ApprState, k: ApprKey, src: ApprSource, ctx: ApprContext, p: List(Elzoo.Authorization.AuthWrite)) -> Equivalent(Bool, subset(writes_of(release(s, k, src, with_parent(ctx, p))), p), True()) =
+    finish_within(release_check(s, k, src, with_parent(ctx, p)), s, k, src, with_parent(ctx, p), p, escrowed_within_parent(ctx.policy, ctx.action, ctx.own, p))
+
+  # A current DENY releases nothing, whatever the gates said.
+  @total true
+  fn finish_deny_nothing(c: ApprCheck, s: ApprState, k: ApprKey, src: ApprSource, ctx: ApprContext, h: Equivalent(Elzoo.Authorization.AuthVerdict, verdict_of(current(ctx)), AuthDeny())) -> Equivalent(List(Elzoo.Authorization.AuthWrite), writes_of(finish_release(c, s, k, src, ctx)), no_writes()) =
+    match c
+      ApprApproved(e, b, run, root) -> rewrite deny_decision_escrows_nothing(ctx.policy, ctx.action, ctx.own, ctx.parent, h) in reflexive(no_writes())
+      ApprRefused(r) -> reflexive(no_writes())
+      ApprFailed(y, f) -> reflexive(no_writes())
+
+  @total true
+  fn deny_at_release_wins(s: ApprState, k: ApprKey, src: ApprSource, ctx: ApprContext, h: Equivalent(Elzoo.Authorization.AuthVerdict, verdict_of(current(ctx)), AuthDeny())) -> Equivalent(List(Elzoo.Authorization.AuthWrite), writes_of(release(s, k, src, ctx)), no_writes()) =
+    finish_deny_nothing(release_check(s, k, src, ctx), s, k, src, ctx, h)
+
+  # Gate lemmas: the hypothesis decides the gate.
+  @total true
+  fn run_gate_blocks(k: ApprKey, ctx: ApprContext, h: Equivalent(Bool, eq_ints(run_id_of(ctx), run_of(k)), False())) -> Equivalent(Bool, blocks(g_run(k, ctx)), True()) =
+    rewrite h in reflexive(True())
+
+  @total true
+  fn retained_blocked_when(b: Bool, s: ApprState, k: ApprKey, ctx: ApprContext, hb: Equivalent(Bool, b, False())) -> Equivalent(Bool, approved(retained_check(select_after_run(b, s, k, ctx), s, k, ctx)), False()) =
+    match b
+      False() -> reflexive(False())
+      True() ->
+        match hb
+          reflexive() -> impossible
+
+  @total true
+  fn retained_run_blocked(s: ApprState, k: ApprKey, ctx: ApprContext, h: Equivalent(Bool, eq_ints(run_id_of(ctx), run_of(k)), False())) -> Equivalent(Bool, approved(release_check(s, k, ApprRetained(), ctx)), False()) =
+    retained_blocked_when(eq_ints(run_id_of(ctx), run_of(k)), s, k, ctx, h)
+
+  @total true
+  fn unreleased_gate_blocks(s: ApprState, k: ApprKey, h: Equivalent(Bool, has_release(releases_of(s), k), True())) -> Equivalent(Bool, blocks(g_unreleased(s, k)), True()) =
+    rewrite h in reflexive(True())
+
+  @total true
+  fn self_gate_blocks(e: ApprEvidence, ctx: ApprContext, h: Equivalent(Bool, eq_ints(reviewer_of(e), proposer_of(ctx)), True())) -> Equivalent(Bool, blocks(g_self(e, ctx)), True()) =
+    rewrite h in reflexive(True())
+
+  # Gate 0: a release in another Run emits nothing.
+  @total true
+  fn run_mismatch_refused(s: ApprState, k: ApprKey, src: ApprSource, ctx: ApprContext, h: Equivalent(Bool, eq_ints(run_id_of(ctx), run_of(k)), False())) -> Equivalent(List(Elzoo.Authorization.AuthWrite), writes_of(release(s, k, src, ctx)), no_writes()) =
+    match src
+      ApprFresh(e) -> refused_emits_nothing(s, k, ApprFresh(e), ctx, blocked_anywhere([], g_run(k, ctx), append_gates([g_known(find_request(s.requests, k)), g_unreleased(s, k), g_open(find_request(s.requests, k))], append_gates(evidence_gates(s, k, e, binding_of(find_request(s.requests, k)), ctx), tail_gates(e, binding_of(find_request(s.requests, k)), ctx))), final_for(e, find_request(s.requests, k), ctx.run_id, ctx.run_root), run_gate_blocks(k, ctx, h)))
+      ApprRetained() -> refused_emits_nothing(s, k, ApprRetained(), ctx, retained_run_blocked(s, k, ctx, h))
+
+  # Gate 2: a key that already has a release record emits nothing (fresh evidence).
+  @total true
+  fn released_twice_emits_nothing(s: ApprState, k: ApprKey, e: ApprEvidence, ctx: ApprContext, h: Equivalent(Bool, has_release(releases_of(s), k), True())) -> Equivalent(List(Elzoo.Authorization.AuthWrite), writes_of(release(s, k, ApprFresh(e), ctx)), no_writes()) =
+    refused_emits_nothing(s, k, ApprFresh(e), ctx, blocked_anywhere([g_run(k, ctx), g_known(find_request(s.requests, k))], g_unreleased(s, k), append_gates([g_open(find_request(s.requests, k))], append_gates(evidence_gates(s, k, e, binding_of(find_request(s.requests, k)), ctx), tail_gates(e, binding_of(find_request(s.requests, k)), ctx))), final_for(e, find_request(s.requests, k), ctx.run_id, ctx.run_root), unreleased_gate_blocks(s, k, h)))
+
+  # Gate 9: reviewer-rejected evidence emits nothing, for every evidence record.
+  @total true
+  fn reject_evidence_refused(s: ApprState, k: ApprKey, e: ApprEvidence, ctx: ApprContext) -> Equivalent(List(Elzoo.Authorization.AuthWrite), writes_of(release(s, k, ApprFresh(with_decision(e, ApprReject())), ctx)), no_writes()) =
+    refused_emits_nothing(s, k, ApprFresh(with_decision(e, ApprReject())), ctx, blocked_anywhere(append_gates(pre_gates(s, k, ctx), [g_request(with_decision(e, ApprReject()), k), g_verifier(with_decision(e, ApprReject()), ctx), g_revoked(s, with_decision(e, ApprReject())), g_consumed(s, with_decision(e, ApprReject())), g_reuse(s, with_decision(e, ApprReject()), binding_of(find_request(s.requests, k)))]), g_decision(with_decision(e, ApprReject())), append_gates([g_issued(with_decision(e, ApprReject()), ctx), g_age(with_decision(e, ApprReject()), ctx), g_expiry(with_decision(e, ApprReject()), ctx), g_scope(with_decision(e, ApprReject()), binding_of(find_request(s.requests, k)), k, ctx.run_id, ctx.run_root, ctx)], tail_gates(with_decision(e, ApprReject()), binding_of(find_request(s.requests, k)), ctx)), final_for(with_decision(e, ApprReject()), find_request(s.requests, k), ctx.run_id, ctx.run_root), reflexive(True())))
+
+  # Gate 15: a reviewer equal to the trusted proposer emits nothing (fresh evidence).
+  @total true
+  fn self_approval_refused(s: ApprState, k: ApprKey, e: ApprEvidence, ctx: ApprContext, h: Equivalent(Bool, eq_ints(reviewer_of(e), proposer_of(ctx)), True())) -> Equivalent(List(Elzoo.Authorization.AuthWrite), writes_of(release(s, k, ApprFresh(e), ctx)), no_writes()) =
+    refused_emits_nothing(s, k, ApprFresh(e), ctx, blocked_anywhere(append_gates(pre_gates(s, k, ctx), append_gates(evidence_gates(s, k, e, binding_of(find_request(s.requests, k)), ctx), [g_approver(e, ctx)])), g_self(e, ctx), [g_decide(current(ctx)), g_deny(current(ctx)), g_policy(ctx, binding_of(find_request(s.requests, k))), g_payload(ctx, binding_of(find_request(s.requests, k))), g_requirement(current(ctx), binding_of(find_request(s.requests, k))), g_approver_authority(current(ctx), ctx)], final_for(e, find_request(s.requests, k), ctx.run_id, ctx.run_root), self_gate_blocks(e, ctx, h)))
+end

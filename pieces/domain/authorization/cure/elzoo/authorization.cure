@@ -1,0 +1,776 @@
+# SPDX-License-Identifier: Apache-2.0
+# domain/authorization: pure ALLOW/ASK/DENY reducer over typed rules with
+# bounded-authority containment. Text and bytes are byte-integer lists because
+# pinned Cure reduces Int equality on literals only and never unfolds String
+# or derived equality inside proofs; all equality here is hand-written.
+mod Elzoo.Authorization
+  use Std.Option
+
+  type AuthValue = AVNull | AVBool(Bool) | AVInt(Int) | AVText(List(Int)) | AVBytes(List(Int)) | AVList(List(AuthValue)) | AVRecord(List(AuthField))
+  type AuthField = AuthFieldOf(List(Int), AuthValue)
+
+  rec AuthWrite
+    target: List(Int)
+    field: List(Int)
+    value: AuthValue
+
+  type AuthMatchText = AnyText | ExactText(List(Int))
+  type AuthMatchValue = AnyValue | ExactValue(AuthValue)
+  type AuthVerdict = AuthAllow | AuthAsk | AuthDeny
+  type AuthScope = ScopeOnce | ScopeRun | ScopeRoot
+
+  rec AuthRequirement
+    name: List(Int)
+    version: Int
+    scope: AuthScope
+
+  rec AuthRule
+    id: List(Int)
+    effect_class: List(Int)
+    principal: AuthMatchText
+    tenant: AuthMatchText
+    resource: AuthMatchText
+    payload: AuthMatchValue
+    target: AuthMatchText
+    field: AuthMatchText
+    value: AuthMatchValue
+    verdict: AuthVerdict
+    requirement: Option(AuthRequirement)
+
+  rec AuthPolicyIdentity
+    id: List(Int)
+    version: Int
+    content_hash: List(Int)
+
+  rec AuthPolicy
+    identity: AuthPolicyIdentity
+    rules: List(AuthRule)
+
+  rec AuthAction
+    proposer: List(Int)
+    tenant: List(Int)
+    resource: List(Int)
+    action_id: List(Int)
+    effect_class: List(Int)
+    payload: AuthValue
+    writes: List(AuthWrite)
+
+  type AuthParent = NoParent | ParentAuthority(List(AuthWrite))
+  type AuthReason = ReasonAllowed | ReasonAsk | ReasonRule(List(Int)) | ReasonNoMatchingRule | ReasonAuthorityExceeded
+  type AuthRequirementChoice = RequirementNone | RequirementOne(AuthRequirement) | RequirementMany(List(AuthRequirement))
+
+  rec AuthOutcome
+    verdict: AuthVerdict
+    reason: AuthReason
+    permitted: List(AuthWrite)
+    escrowed: List(AuthWrite)
+    requirement: Option(AuthRequirement)
+    rules: List(List(Int))
+
+  type AuthFailureClass = FailInvalidInput | FailUnavailableContext
+  type AuthFailure = MissingRequirement | AmbiguousRequirement(List(AuthRequirement))
+  type AuthDecideResult = Decided(AuthOutcome) | DecideFailed(AuthFailureClass, AuthFailure)
+
+  # ---------------------------------------------------------------- equality
+
+  @total true
+  @reducible
+  fn both(a: Bool, b: Bool) -> Bool =
+    match a
+      True() -> b
+      False() -> False()
+
+  @total true
+  @reducible
+  fn eq_bool(a: Bool, b: Bool) -> Bool =
+    match a
+      True() ->
+        match b
+          True() -> True()
+          False() -> False()
+      False() ->
+        match b
+          True() -> False()
+          False() -> True()
+
+  @total true
+  @reducible
+  fn eq_int(a: Int, b: Int) -> Bool =
+    pickup
+      a == b -> True()
+      else -> False()
+
+  @total true
+  @reducible
+  fn eq_ints(a: List(Int), b: List(Int)) -> Bool =
+    match a
+      [] ->
+        match b
+          [] -> True()
+          [y | ys] -> False()
+      [x | xs] ->
+        match b
+          [] -> False()
+          [y | ys] -> both(eq_int(x, y), eq_ints(xs, ys))
+
+  @total true
+  @reducible
+  fn eq_value(a: AuthValue, b: AuthValue) -> Bool =
+    match a
+      AVNull() ->
+        match b
+          AVNull() -> True()
+          _ -> False()
+      AVBool(x) ->
+        match b
+          AVBool(y) -> eq_bool(x, y)
+          _ -> False()
+      AVInt(x) ->
+        match b
+          AVInt(y) -> eq_int(x, y)
+          _ -> False()
+      AVText(x) ->
+        match b
+          AVText(y) -> eq_ints(x, y)
+          _ -> False()
+      AVBytes(x) ->
+        match b
+          AVBytes(y) -> eq_ints(x, y)
+          _ -> False()
+      AVList(xs) ->
+        match b
+          AVList(ys) -> eq_values(xs, ys)
+          _ -> False()
+      AVRecord(xs) ->
+        match b
+          AVRecord(ys) -> eq_fields(xs, ys)
+          _ -> False()
+
+  @total true
+  @reducible
+  fn eq_values(a: List(AuthValue), b: List(AuthValue)) -> Bool =
+    match a
+      [] ->
+        match b
+          [] -> True()
+          [y | ys] -> False()
+      [x | xs] ->
+        match b
+          [] -> False()
+          [y | ys] -> both(eq_value(x, y), eq_values(xs, ys))
+
+  @total true
+  @reducible
+  fn eq_fields(a: List(AuthField), b: List(AuthField)) -> Bool =
+    match a
+      [] ->
+        match b
+          [] -> True()
+          [y | ys] -> False()
+      [x | xs] ->
+        match b
+          [] -> False()
+          [y | ys] ->
+            match x
+              AuthFieldOf(xn, xv) ->
+                match y
+                  AuthFieldOf(yn, yv) -> both(eq_ints(xn, yn), both(eq_value(xv, yv), eq_fields(xs, ys)))
+
+  @total true
+  @reducible
+  fn eq_write(a: AuthWrite, b: AuthWrite) -> Bool =
+    both(eq_ints(a.target, b.target), both(eq_ints(a.field, b.field), eq_value(a.value, b.value)))
+
+  @total true
+  @reducible
+  fn eq_writes(a: List(AuthWrite), b: List(AuthWrite)) -> Bool =
+    match a
+      [] ->
+        match b
+          [] -> True()
+          [y | ys] -> False()
+      [x | xs] ->
+        match b
+          [] -> False()
+          [y | ys] -> both(eq_write(x, y), eq_writes(xs, ys))
+
+  @total true
+  @reducible
+  fn eq_action(a: AuthAction, b: AuthAction) -> Bool =
+    both(eq_ints(a.proposer, b.proposer), both(eq_ints(a.tenant, b.tenant), both(eq_ints(a.resource, b.resource), both(eq_ints(a.action_id, b.action_id), both(eq_ints(a.effect_class, b.effect_class), both(eq_value(a.payload, b.payload), eq_writes(a.writes, b.writes)))))))
+
+  @total true
+  @reducible
+  fn eq_scope(a: AuthScope, b: AuthScope) -> Bool =
+    match a
+      ScopeOnce() ->
+        match b
+          ScopeOnce() -> True()
+          _ -> False()
+      ScopeRun() ->
+        match b
+          ScopeRun() -> True()
+          _ -> False()
+      ScopeRoot() ->
+        match b
+          ScopeRoot() -> True()
+          _ -> False()
+
+  @total true
+  @reducible
+  fn eq_requirement(a: AuthRequirement, b: AuthRequirement) -> Bool =
+    both(eq_ints(a.name, b.name), both(eq_int(a.version, b.version), eq_scope(a.scope, b.scope)))
+
+  @total true
+  @reducible
+  fn eq_identity(a: AuthPolicyIdentity, b: AuthPolicyIdentity) -> Bool =
+    both(eq_ints(a.id, b.id), both(eq_int(a.version, b.version), eq_ints(a.content_hash, b.content_hash)))
+
+  @total true
+  @reducible
+  fn member(w: AuthWrite, ws: List(AuthWrite)) -> Bool =
+    match ws
+      [] -> False()
+      [x | rest] ->
+        match eq_write(w, x)
+          True() -> True()
+          False() -> member(w, rest)
+
+  # Subset with respect to eq_write.
+  @total true
+  @reducible
+  fn subset(xs: List(AuthWrite), ys: List(AuthWrite)) -> Bool =
+    match xs
+      [] -> True()
+      [x | rest] ->
+        match member(x, ys)
+          True() -> subset(rest, ys)
+          False() -> False()
+
+  @total true
+  @reducible
+  fn no_writes() -> List(AuthWrite) = []
+
+  # ---------------------------------------------------------------- verdicts
+
+  @total true
+  @reducible
+  fn join(a: AuthVerdict, b: AuthVerdict) -> AuthVerdict =
+    match a
+      AuthDeny() -> AuthDeny()
+      AuthAsk() ->
+        match b
+          AuthDeny() -> AuthDeny()
+          _ -> AuthAsk()
+      AuthAllow() -> b
+
+  @total true
+  @reducible
+  fn join_all(vs: List(AuthVerdict)) -> AuthVerdict =
+    match vs
+      [] -> AuthAllow()
+      [v | rest] -> join(v, join_all(rest))
+
+  @total true
+  @reducible
+  fn append_verdicts(xs: List(AuthVerdict), ys: List(AuthVerdict)) -> List(AuthVerdict) =
+    match xs
+      [] -> ys
+      [x | rest] -> [x | append_verdicts(rest, ys)]
+
+  @total true
+  @reducible
+  fn cons_verdict(v: AuthVerdict, rest: List(AuthVerdict)) -> List(AuthVerdict) = [v | rest]
+
+  # ---------------------------------------------------------------- rules
+
+  @total true
+  @reducible
+  fn text_matches(m: AuthMatchText, t: List(Int)) -> Bool =
+    match m
+      AnyText() -> True()
+      ExactText(x) -> eq_ints(x, t)
+
+  @total true
+  @reducible
+  fn value_matches(m: AuthMatchValue, v: AuthValue) -> Bool =
+    match m
+      AnyValue() -> True()
+      ExactValue(x) -> eq_value(x, v)
+
+  @total true
+  @reducible
+  fn rule_applies(r: AuthRule, a: AuthAction, w: AuthWrite) -> Bool =
+    both(eq_ints(r.effect_class, a.effect_class), both(text_matches(r.principal, a.proposer), both(text_matches(r.tenant, a.tenant), both(text_matches(r.resource, a.resource), both(value_matches(r.payload, a.payload), both(text_matches(r.target, w.target), both(text_matches(r.field, w.field), value_matches(r.value, w.value))))))))
+
+  @total true
+  @reducible
+  fn rule_verdicts(rules: List(AuthRule), a: AuthAction, w: AuthWrite) -> List(AuthVerdict) =
+    match rules
+      [] -> []
+      [r | rest] ->
+        match rule_applies(r, a, w)
+          True() -> [r.verdict | rule_verdicts(rest, a, w)]
+          False() -> rule_verdicts(rest, a, w)
+
+  # No applicable rule is DENY (default deny).
+  @total true
+  @reducible
+  fn write_verdict(rules: List(AuthRule), a: AuthAction, w: AuthWrite) -> AuthVerdict =
+    match rule_verdicts(rules, a, w)
+      [] -> AuthDeny()
+      [v | rest] -> join(v, join_all(rest))
+
+  @total true
+  @reducible
+  fn write_verdicts(rules: List(AuthRule), a: AuthAction, ws: List(AuthWrite)) -> List(AuthVerdict) =
+    match ws
+      [] -> []
+      [w | rest] -> [write_verdict(rules, a, w) | write_verdicts(rules, a, rest)]
+
+  @total true
+  @reducible
+  fn applies_any(r: AuthRule, a: AuthAction, ws: List(AuthWrite)) -> Bool =
+    match ws
+      [] -> False()
+      [w | rest] ->
+        match rule_applies(r, a, w)
+          True() -> True()
+          False() -> applies_any(r, a, rest)
+
+  # Contributing rule ids in policy order.
+  @total true
+  @reducible
+  fn contributing(rules: List(AuthRule), a: AuthAction) -> List(List(Int)) =
+    match rules
+      [] -> []
+      [r | rest] ->
+        match applies_any(r, a, a.writes)
+          True() -> [r.id | contributing(rest, a)]
+          False() -> contributing(rest, a)
+
+  @total true
+  @reducible
+  fn is_deny(v: AuthVerdict) -> Bool =
+    match v
+      AuthDeny() -> True()
+      _ -> False()
+
+  @total true
+  @reducible
+  fn first_deny_rule(rules: List(AuthRule), a: AuthAction) -> Option(List(Int)) =
+    match rules
+      [] -> None()
+      [r | rest] ->
+        match both(is_deny(r.verdict), applies_any(r, a, a.writes))
+          True() -> Some(r.id)
+          False() -> first_deny_rule(rest, a)
+
+  @total true
+  @reducible
+  fn deny_reason(rules: List(AuthRule), a: AuthAction) -> AuthReason =
+    match first_deny_rule(rules, a)
+      Some(id) -> ReasonRule(id)
+      None() -> ReasonNoMatchingRule()
+
+  @total true
+  @reducible
+  fn has_requirement(r: AuthRequirement, rs: List(AuthRequirement)) -> Bool =
+    match rs
+      [] -> False()
+      [x | rest] ->
+        match eq_requirement(r, x)
+          True() -> True()
+          False() -> has_requirement(r, rest)
+
+  @total true
+  @reducible
+  fn is_ask(v: AuthVerdict) -> Bool =
+    match v
+      AuthAsk() -> True()
+      _ -> False()
+
+  # Distinct requirements of applicable ASK rules, policy order.
+  @total true
+  @reducible
+  fn ask_requirements(rules: List(AuthRule), a: AuthAction, seen: List(AuthRequirement)) -> List(AuthRequirement) =
+    match rules
+      [] -> seen
+      [r | rest] ->
+        match both(is_ask(r.verdict), applies_any(r, a, a.writes))
+          False() -> ask_requirements(rest, a, seen)
+          True() ->
+            match r.requirement
+              None() -> ask_requirements(rest, a, seen)
+              Some(q) ->
+                match has_requirement(q, seen)
+                  True() -> ask_requirements(rest, a, seen)
+                  False() -> ask_requirements(rest, a, append_requirement(seen, q))
+
+  @total true
+  @reducible
+  fn append_requirement(xs: List(AuthRequirement), q: AuthRequirement) -> List(AuthRequirement) =
+    match xs
+      [] -> [q]
+      [x | rest] -> [x | append_requirement(rest, q)]
+
+  @total true
+  @reducible
+  fn choose_requirement(rs: List(AuthRequirement)) -> AuthRequirementChoice =
+    match rs
+      [] -> RequirementNone()
+      [q | rest] ->
+        match rest
+          [] -> RequirementOne(q)
+          [x | more] -> RequirementMany(rs)
+
+  # ---------------------------------------------------------------- decide
+
+  @total true
+  @reducible
+  fn finish(v: AuthVerdict, choice: AuthRequirementChoice, ws: List(AuthWrite), reason: AuthReason, rules: List(List(Int))) -> AuthDecideResult =
+    match v
+      AuthAllow() -> Decided(AuthOutcome{verdict: AuthAllow(), reason: ReasonAllowed(), permitted: ws, escrowed: [], requirement: None(), rules: rules})
+      AuthDeny() -> Decided(AuthOutcome{verdict: AuthDeny(), reason: reason, permitted: [], escrowed: [], requirement: None(), rules: rules})
+      AuthAsk() ->
+        match choice
+          RequirementOne(q) -> Decided(AuthOutcome{verdict: AuthAsk(), reason: ReasonAsk(), permitted: [], escrowed: ws, requirement: Some(q), rules: rules})
+          RequirementNone() -> DecideFailed(FailUnavailableContext(), MissingRequirement())
+          RequirementMany(qs) -> DecideFailed(FailUnavailableContext(), AmbiguousRequirement(qs))
+
+  @total true
+  @reducible
+  fn evaluate(policy: AuthPolicy, a: AuthAction, ws: List(AuthWrite)) -> AuthDecideResult =
+    finish(join_all(write_verdicts(policy.rules, a, ws)), choose_requirement(ask_requirements(policy.rules, a, [])), ws, deny_reason(policy.rules, a), contributing(policy.rules, a))
+
+  @total true
+  @reducible
+  fn exceeded() -> AuthDecideResult =
+    Decided(AuthOutcome{verdict: AuthDeny(), reason: ReasonAuthorityExceeded(), permitted: [], escrowed: [], requirement: None(), rules: []})
+
+  @total true
+  @reducible
+  fn parent_ok(ws: List(AuthWrite), parent: AuthParent) -> Bool =
+    match parent
+      NoParent() -> True()
+      ParentAuthority(p) -> subset(ws, p)
+
+  @total true
+  @reducible
+  fn contain(own_ok: Bool, par_ok: Bool, policy: AuthPolicy, a: AuthAction, ws: List(AuthWrite)) -> AuthDecideResult =
+    match own_ok
+      False() -> exceeded()
+      True() ->
+        match par_ok
+          False() -> exceeded()
+          True() -> evaluate(policy, a, ws)
+
+  # Whole-proposal containment first (B24.3), then the reducer.
+  @total true
+  @reducible
+  fn decide(policy: AuthPolicy, a: AuthAction, own: List(AuthWrite), parent: AuthParent) -> AuthDecideResult =
+    contain(subset(a.writes, own), parent_ok(a.writes, parent), policy, a, a.writes)
+
+  @total true
+  @reducible
+  fn permitted_of(r: AuthDecideResult) -> List(AuthWrite) =
+    match r
+      Decided(o) -> o.permitted
+      DecideFailed(c, f) -> []
+
+  @total true
+  @reducible
+  fn escrowed_of(r: AuthDecideResult) -> List(AuthWrite) =
+    match r
+      Decided(o) -> o.escrowed
+      DecideFailed(c, f) -> []
+
+  @total true
+  @reducible
+  fn verdict_of(r: AuthDecideResult) -> AuthVerdict =
+    match r
+      Decided(o) -> o.verdict
+      DecideFailed(c, f) -> AuthDeny()
+
+  # ---------------------------------------------------------------- laws: join
+
+  @total true
+  fn deny_absorbs_left(v: AuthVerdict) -> Equivalent(AuthVerdict, join(AuthDeny(), v), AuthDeny()) =
+    reflexive(AuthDeny())
+
+  @total true
+  fn deny_absorbs_right(v: AuthVerdict) -> Equivalent(AuthVerdict, join(v, AuthDeny()), AuthDeny()) =
+    match v
+      AuthAllow() -> reflexive(AuthDeny())
+      AuthAsk() -> reflexive(AuthDeny())
+      AuthDeny() -> reflexive(AuthDeny())
+
+  @total true
+  fn ask_over_allow_left() -> Equivalent(AuthVerdict, join(AuthAsk(), AuthAllow()), AuthAsk()) =
+    reflexive(AuthAsk())
+
+  @total true
+  fn ask_over_allow_right() -> Equivalent(AuthVerdict, join(AuthAllow(), AuthAsk()), AuthAsk()) =
+    reflexive(AuthAsk())
+
+  @total true
+  fn join_idem(v: AuthVerdict) -> Equivalent(AuthVerdict, join(v, v), v) =
+    match v
+      AuthAllow() -> reflexive(AuthAllow())
+      AuthAsk() -> reflexive(AuthAsk())
+      AuthDeny() -> reflexive(AuthDeny())
+
+  @total true
+  fn join_comm(a: AuthVerdict, b: AuthVerdict) -> Equivalent(AuthVerdict, join(a, b), join(b, a)) =
+    match a
+      AuthAllow() ->
+        match b
+          AuthAllow() -> reflexive(AuthAllow())
+          AuthAsk() -> reflexive(AuthAsk())
+          AuthDeny() -> reflexive(AuthDeny())
+      AuthAsk() ->
+        match b
+          AuthAllow() -> reflexive(AuthAsk())
+          AuthAsk() -> reflexive(AuthAsk())
+          AuthDeny() -> reflexive(AuthDeny())
+      AuthDeny() ->
+        match b
+          AuthAllow() -> reflexive(AuthDeny())
+          AuthAsk() -> reflexive(AuthDeny())
+          AuthDeny() -> reflexive(AuthDeny())
+
+  @total true
+  fn join_assoc(a: AuthVerdict, b: AuthVerdict, c: AuthVerdict) -> Equivalent(AuthVerdict, join(join(a, b), c), join(a, join(b, c))) =
+    match a
+      AuthDeny() -> reflexive(AuthDeny())
+      AuthAllow() -> reflexive(join(b, c))
+      AuthAsk() ->
+        match b
+          AuthDeny() -> reflexive(AuthDeny())
+          AuthAllow() ->
+            match c
+              AuthDeny() -> reflexive(AuthDeny())
+              AuthAsk() -> reflexive(AuthAsk())
+              AuthAllow() -> reflexive(AuthAsk())
+          AuthAsk() ->
+            match c
+              AuthDeny() -> reflexive(AuthDeny())
+              AuthAsk() -> reflexive(AuthAsk())
+              AuthAllow() -> reflexive(AuthAsk())
+
+  # For all p, s: join_all(p ++ [Deny | s]) = Deny.
+  @total true
+  fn deny_anywhere(p: List(AuthVerdict), s: List(AuthVerdict)) -> Equivalent(AuthVerdict, join_all(append_verdicts(p, cons_verdict(AuthDeny(), s))), AuthDeny()) =
+    match p
+      [] -> reflexive(AuthDeny())
+      [v | rest] -> rewrite deny_anywhere(rest, s) in deny_absorbs_right(v)
+
+  # join(join(v, j), v) = join(v, j), exhaustive.
+  @total true
+  fn join_absorb(v: AuthVerdict, j: AuthVerdict) -> Equivalent(AuthVerdict, join(join(v, j), v), join(v, j)) =
+    match v
+      AuthDeny() -> reflexive(AuthDeny())
+      AuthAllow() ->
+        match j
+          AuthAllow() -> reflexive(AuthAllow())
+          AuthAsk() -> reflexive(AuthAsk())
+          AuthDeny() -> reflexive(AuthDeny())
+      AuthAsk() ->
+        match j
+          AuthAllow() -> reflexive(AuthAsk())
+          AuthAsk() -> reflexive(AuthAsk())
+          AuthDeny() -> reflexive(AuthDeny())
+
+  # For all p, v, s: the reduced verdict is at least every element.
+  @total true
+  fn reduced_dominates(p: List(AuthVerdict), v: AuthVerdict, s: List(AuthVerdict)) -> Equivalent(AuthVerdict, join(join_all(append_verdicts(p, cons_verdict(v, s))), v), join_all(append_verdicts(p, cons_verdict(v, s)))) =
+    match p
+      [] -> join_absorb(v, join_all(s))
+      [x | rest] -> rewrite join_assoc(x, join_all(append_verdicts(rest, cons_verdict(v, s))), v) in rewrite reduced_dominates(rest, v, s) in reflexive(join(x, join_all(append_verdicts(rest, cons_verdict(v, s)))))
+
+  # ---------------------------------------------------------------- laws: shape
+
+  @total true
+  fn ask_escrows(q: AuthRequirement, ws: List(AuthWrite), reason: AuthReason, rules: List(List(Int))) -> Equivalent(List(AuthWrite), escrowed_of(finish(AuthAsk(), RequirementOne(q), ws, reason, rules)), ws) =
+    reflexive(ws)
+
+  @total true
+  fn ask_permits_nothing(choice: AuthRequirementChoice, ws: List(AuthWrite), reason: AuthReason, rules: List(List(Int))) -> Equivalent(List(AuthWrite), permitted_of(finish(AuthAsk(), choice, ws, reason, rules)), no_writes()) =
+    match choice
+      RequirementOne(q) -> reflexive(no_writes())
+      RequirementNone() -> reflexive(no_writes())
+      RequirementMany(qs) -> reflexive(no_writes())
+
+  @total true
+  fn deny_permits_nothing(choice: AuthRequirementChoice, ws: List(AuthWrite), reason: AuthReason, rules: List(List(Int))) -> Equivalent(List(AuthWrite), permitted_of(finish(AuthDeny(), choice, ws, reason, rules)), no_writes()) =
+    reflexive(no_writes())
+
+  @total true
+  fn deny_escrows_nothing(choice: AuthRequirementChoice, ws: List(AuthWrite), reason: AuthReason, rules: List(List(Int))) -> Equivalent(List(AuthWrite), escrowed_of(finish(AuthDeny(), choice, ws, reason, rules)), no_writes()) =
+    reflexive(no_writes())
+
+  @total true
+  fn allow_escrows_nothing(choice: AuthRequirementChoice, ws: List(AuthWrite), reason: AuthReason, rules: List(List(Int))) -> Equivalent(List(AuthWrite), escrowed_of(finish(AuthAllow(), choice, ws, reason, rules)), no_writes()) =
+    reflexive(no_writes())
+
+  @total true
+  fn exceeded_writes_nothing() -> Equivalent(List(AuthWrite), escrowed_of(exceeded()), no_writes()) =
+    reflexive(no_writes())
+
+  # ---------------------------------------------------------------- laws: containment
+
+  @total true
+  fn finish_permitted_within(v: AuthVerdict, choice: AuthRequirementChoice, ws: List(AuthWrite), reason: AuthReason, rules: List(List(Int)), x: List(AuthWrite), h: Equivalent(Bool, subset(ws, x), True())) -> Equivalent(Bool, subset(permitted_of(finish(v, choice, ws, reason, rules)), x), True()) =
+    match v
+      AuthAllow() -> h
+      AuthDeny() -> reflexive(True())
+      AuthAsk() ->
+        match choice
+          RequirementOne(q) -> reflexive(True())
+          RequirementNone() -> reflexive(True())
+          RequirementMany(qs) -> reflexive(True())
+
+  @total true
+  fn finish_escrowed_within(v: AuthVerdict, choice: AuthRequirementChoice, ws: List(AuthWrite), reason: AuthReason, rules: List(List(Int)), x: List(AuthWrite), h: Equivalent(Bool, subset(ws, x), True())) -> Equivalent(Bool, subset(escrowed_of(finish(v, choice, ws, reason, rules)), x), True()) =
+    match v
+      AuthAllow() -> reflexive(True())
+      AuthDeny() -> reflexive(True())
+      AuthAsk() ->
+        match choice
+          RequirementOne(q) -> h
+          RequirementNone() -> reflexive(True())
+          RequirementMany(qs) -> reflexive(True())
+
+  # Inspect pattern: b is the containment result against x, hb its equation.
+  @total true
+  fn contain_permitted_within_own(b: Bool, c: Bool, policy: AuthPolicy, a: AuthAction, ws: List(AuthWrite), x: List(AuthWrite), hb: Equivalent(Bool, subset(ws, x), b)) -> Equivalent(Bool, subset(permitted_of(contain(b, c, policy, a, ws)), x), True()) =
+    match b
+      False() -> reflexive(True())
+      True() ->
+        match c
+          False() -> reflexive(True())
+          True() -> finish_permitted_within(join_all(write_verdicts(policy.rules, a, ws)), choose_requirement(ask_requirements(policy.rules, a, [])), ws, deny_reason(policy.rules, a), contributing(policy.rules, a), x, hb)
+
+  # Inspect pattern: c is the containment result against x, hc its equation.
+  @total true
+  fn contain_permitted_within_parent(b: Bool, c: Bool, policy: AuthPolicy, a: AuthAction, ws: List(AuthWrite), x: List(AuthWrite), hc: Equivalent(Bool, subset(ws, x), c)) -> Equivalent(Bool, subset(permitted_of(contain(b, c, policy, a, ws)), x), True()) =
+    match b
+      False() -> reflexive(True())
+      True() ->
+        match c
+          False() -> reflexive(True())
+          True() -> finish_permitted_within(join_all(write_verdicts(policy.rules, a, ws)), choose_requirement(ask_requirements(policy.rules, a, [])), ws, deny_reason(policy.rules, a), contributing(policy.rules, a), x, hc)
+
+  @total true
+  fn permitted_within_own(policy: AuthPolicy, a: AuthAction, own: List(AuthWrite), parent: AuthParent) -> Equivalent(Bool, subset(permitted_of(decide(policy, a, own, parent)), own), True()) =
+    contain_permitted_within_own(subset(a.writes, own), parent_ok(a.writes, parent), policy, a, a.writes, own, reflexive(subset(a.writes, own)))
+
+  @total true
+  fn permitted_within_parent(policy: AuthPolicy, a: AuthAction, own: List(AuthWrite), p: List(AuthWrite)) -> Equivalent(Bool, subset(permitted_of(decide(policy, a, own, ParentAuthority(p))), p), True()) =
+    contain_permitted_within_parent(subset(a.writes, own), subset(a.writes, p), policy, a, a.writes, p, reflexive(subset(a.writes, p)))
+
+  # Inspect pattern: b is the containment result against x, hb its equation.
+  @total true
+  fn contain_escrowed_within_own(b: Bool, c: Bool, policy: AuthPolicy, a: AuthAction, ws: List(AuthWrite), x: List(AuthWrite), hb: Equivalent(Bool, subset(ws, x), b)) -> Equivalent(Bool, subset(escrowed_of(contain(b, c, policy, a, ws)), x), True()) =
+    match b
+      False() -> reflexive(True())
+      True() ->
+        match c
+          False() -> reflexive(True())
+          True() -> finish_escrowed_within(join_all(write_verdicts(policy.rules, a, ws)), choose_requirement(ask_requirements(policy.rules, a, [])), ws, deny_reason(policy.rules, a), contributing(policy.rules, a), x, hb)
+
+  # Inspect pattern: c is the containment result against x, hc its equation.
+  @total true
+  fn contain_escrowed_within_parent(b: Bool, c: Bool, policy: AuthPolicy, a: AuthAction, ws: List(AuthWrite), x: List(AuthWrite), hc: Equivalent(Bool, subset(ws, x), c)) -> Equivalent(Bool, subset(escrowed_of(contain(b, c, policy, a, ws)), x), True()) =
+    match b
+      False() -> reflexive(True())
+      True() ->
+        match c
+          False() -> reflexive(True())
+          True() -> finish_escrowed_within(join_all(write_verdicts(policy.rules, a, ws)), choose_requirement(ask_requirements(policy.rules, a, [])), ws, deny_reason(policy.rules, a), contributing(policy.rules, a), x, hc)
+
+  @total true
+  fn escrowed_within_own(policy: AuthPolicy, a: AuthAction, own: List(AuthWrite), parent: AuthParent) -> Equivalent(Bool, subset(escrowed_of(decide(policy, a, own, parent)), own), True()) =
+    contain_escrowed_within_own(subset(a.writes, own), parent_ok(a.writes, parent), policy, a, a.writes, own, reflexive(subset(a.writes, own)))
+
+  @total true
+  fn escrowed_within_parent(policy: AuthPolicy, a: AuthAction, own: List(AuthWrite), p: List(AuthWrite)) -> Equivalent(Bool, subset(escrowed_of(decide(policy, a, own, ParentAuthority(p))), p), True()) =
+    contain_escrowed_within_parent(subset(a.writes, own), subset(a.writes, p), policy, a, a.writes, p, reflexive(subset(a.writes, p)))
+
+  # A DENY decision escrows nothing (used by deny-at-release in approval).
+  @total true
+  fn finish_deny_escrows_nothing(v: AuthVerdict, choice: AuthRequirementChoice, ws: List(AuthWrite), reason: AuthReason, rules: List(List(Int)), h: Equivalent(AuthVerdict, verdict_of(finish(v, choice, ws, reason, rules)), AuthDeny())) -> Equivalent(List(AuthWrite), escrowed_of(finish(v, choice, ws, reason, rules)), no_writes()) =
+    match v
+      AuthAllow() -> reflexive(no_writes())
+      AuthDeny() -> reflexive(no_writes())
+      AuthAsk() ->
+        match choice
+          RequirementOne(q) ->
+            match h
+              reflexive() -> impossible
+          RequirementNone() -> reflexive(no_writes())
+          RequirementMany(qs) -> reflexive(no_writes())
+
+  @total true
+  fn contain_deny_escrows_nothing(b: Bool, c: Bool, policy: AuthPolicy, a: AuthAction, ws: List(AuthWrite), h: Equivalent(AuthVerdict, verdict_of(contain(b, c, policy, a, ws)), AuthDeny())) -> Equivalent(List(AuthWrite), escrowed_of(contain(b, c, policy, a, ws)), no_writes()) =
+    match b
+      False() -> reflexive(no_writes())
+      True() ->
+        match c
+          False() -> reflexive(no_writes())
+          True() -> finish_deny_escrows_nothing(join_all(write_verdicts(policy.rules, a, ws)), choose_requirement(ask_requirements(policy.rules, a, [])), ws, deny_reason(policy.rules, a), contributing(policy.rules, a), h)
+
+  @total true
+  fn deny_decision_escrows_nothing(policy: AuthPolicy, a: AuthAction, own: List(AuthWrite), parent: AuthParent, h: Equivalent(AuthVerdict, verdict_of(decide(policy, a, own, parent)), AuthDeny())) -> Equivalent(List(AuthWrite), escrowed_of(decide(policy, a, own, parent)), no_writes()) =
+    contain_deny_escrows_nothing(subset(a.writes, own), parent_ok(a.writes, parent), policy, a, a.writes, h)
+
+  # ---------------------------------------------------------------- laws: value constructors distinct
+
+  @total true
+  fn text_ne_bytes(x: List(Int), y: List(Int)) -> Equivalent(Bool, eq_value(AVText(x), AVBytes(y)), False()) =
+    reflexive(False())
+
+  @total true
+  fn bytes_ne_text(x: List(Int), y: List(Int)) -> Equivalent(Bool, eq_value(AVBytes(x), AVText(y)), False()) =
+    reflexive(False())
+
+  @total true
+  fn int_ne_text(x: Int, y: List(Int)) -> Equivalent(Bool, eq_value(AVInt(x), AVText(y)), False()) =
+    reflexive(False())
+
+  @total true
+  fn text_ne_int(x: List(Int), y: Int) -> Equivalent(Bool, eq_value(AVText(x), AVInt(y)), False()) =
+    reflexive(False())
+
+  @total true
+  fn int_ne_bool(x: Int, y: Bool) -> Equivalent(Bool, eq_value(AVInt(x), AVBool(y)), False()) =
+    reflexive(False())
+
+  @total true
+  fn bool_ne_int(x: Bool, y: Int) -> Equivalent(Bool, eq_value(AVBool(x), AVInt(y)), False()) =
+    reflexive(False())
+
+  @total true
+  fn bool_ne_text(x: Bool, y: List(Int)) -> Equivalent(Bool, eq_value(AVBool(x), AVText(y)), False()) =
+    reflexive(False())
+
+  @total true
+  fn null_ne_int(y: Int) -> Equivalent(Bool, eq_value(AVNull(), AVInt(y)), False()) =
+    reflexive(False())
+
+  @total true
+  fn null_ne_bool(y: Bool) -> Equivalent(Bool, eq_value(AVNull(), AVBool(y)), False()) =
+    reflexive(False())
+
+  @total true
+  fn null_ne_text(y: List(Int)) -> Equivalent(Bool, eq_value(AVNull(), AVText(y)), False()) =
+    reflexive(False())
+
+  @total true
+  fn list_ne_record(x: List(AuthValue), y: List(AuthField)) -> Equivalent(Bool, eq_value(AVList(x), AVRecord(y)), False()) =
+    reflexive(False())
+
+  @total true
+  fn record_ne_list(x: List(AuthField), y: List(AuthValue)) -> Equivalent(Bool, eq_value(AVRecord(x), AVList(y)), False()) =
+    reflexive(False())
+end

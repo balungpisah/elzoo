@@ -1,0 +1,142 @@
+{
+  "schema_version": 1,
+  "id": "workflow/approval",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": [
+    "cure",
+    "elixir"
+  ],
+  "dependencies": [
+    "domain/authorization"
+  ],
+  "contract": "Pure consent record over a caller-held state: request/3 opens, keeps or supersedes (revision + 1) a request bound structurally to the ASK action, escrow, policy identity and requirement; release/4 accepts host-verified evidence or a retained run/root consent, runs gates 0-21 in Cure (run, request, verifier allowlist, revocation, consumption, binding-only reuse, decision, Unix-ms issue/age/expiry, scope, approver, self-approval, re-decide, DENY, policy, payload, requirement, approver authority) and emits only the current decision's escrow within approver authority, once. select_retained/3, revalidate/3, revoke/2, apply_event/2 and replay/1 complete the Contract; replay returns state only.",
+  "limits": [
+    "No authentication, verifier transport, durable storage, shared Run schema, UI prompting, security certification or identity guarantee; trusted fixtures stand in for verifier output.",
+    "Laws are in decision-split (hypothesis) form; self-approval, rejection and released-twice laws cover fresh evidence; retained paths are covered by the general laws and tests.",
+    "Test-grounded only: lookup after insert (release-then-release), replay and request/3 idempotence, eq_value reflexivity and Elixir agreement, released writes equal to the originally bound escrow, retained selection order, time/age comparisons (native <=, < and + are neutral in pinned Cure), the Elixir-side validation and control-key refusal.",
+    "Check 7 (consumed) is defence in depth: public transitions consume a once key only together with its release record, so check 2 or 4 reports first.",
+    "Single approver per request; evidence scope must equal the requirement scope; exact-value authority. Changing these needs a new Piece ID.",
+    "A fixed retained choice can block other valid consents when the chosen reviewer lost authority; the owner revokes that consent or obtains fresh evidence.",
+    "Volatile pure value: the owner serializes transitions, retains events durably if needed, and owns dispatch of released writes; a timeout after dispatch is an unknown outcome.",
+    "apply_event/replay validate each event with the live validators, bounds and transition invariants, but cannot prove that a consistent approving event was produced by a live transition; log origin is an owner assumption."
+  ],
+  "files": [
+    "cure/elzoo/approval.cure",
+    "lib/elzoo/approval.ex",
+    "test/elzoo/approval_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/approval.cure",
+      "symbol": "refused_emits_nothing",
+      "claim": "For all state, key, source, context: if approved(release_check(...)) = False then release emits no writes."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/approval.cure",
+      "symbol": "refused_keeps_state",
+      "claim": "Same hypothesis: release returns the input state unchanged."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/approval.cure",
+      "symbol": "blocked_anywhere",
+      "claim": "For all gate lists p, s, gate g with blocks(g) = True and any final check: run_gates(p ++ [g | s], final) is not approved (induction on p)."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/approval.cure",
+      "symbol": "release_within_approver",
+      "claim": "For all inputs: subset(writes_of(release(...)), approver authority) = True, with respect to eq_write."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/approval.cure",
+      "symbol": "release_within_own",
+      "claim": "For all inputs: released writes are a subset of the context's own authority (from escrowed_within_own), with respect to eq_write."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/approval.cure",
+      "symbol": "release_within_parent",
+      "claim": "For every context whose parent authority is p (with_parent(ctx, p)): released writes are a subset of p, with respect to eq_write."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/approval.cure",
+      "symbol": "deny_at_release_wins",
+      "claim": "If the current Cure decide verdict is Deny, release emits no writes, whatever the gates returned (hypothesis form)."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/approval.cure",
+      "symbol": "run_mismatch_refused",
+      "claim": "If eq_ints(run id, key run) = False, release emits no writes, for fresh and retained sources (hypothesis form)."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/approval.cure",
+      "symbol": "released_twice_emits_nothing",
+      "claim": "For fresh evidence: if has_release(releases, key) = True, release emits no writes (hypothesis form)."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/approval.cure",
+      "symbol": "reject_evidence_refused",
+      "claim": "For fresh evidence with decision Reject (any other fields): release emits no writes."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/approval.cure",
+      "symbol": "self_approval_refused",
+      "claim": "For fresh evidence: if eq_ints(reviewer, trusted proposer) = True, release emits no writes (hypothesis form)."
+    },
+    {
+      "kind": "type",
+      "file": "cure/elzoo/approval.cure",
+      "claim": "Pinned Cure checks the production release with a clean audit; every function is @total; Auth types are module-qualified. Tests reject a refused release that emits writes, a release without the approver guard, a passing self-approval gate, a gate list without g_self and an unfinished law."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/approval_test.exs",
+      "claim": "Listed scenarios: payload/policy/hash drift, release DENY, stale revision and supersession, self-approval and forged proposer, under-authorized approver, model text, verifier allowlist, age/expiry boundaries, revocation, once/run/root scope, retained selection (two reviewers, stale earliest, T1, T2, byte-order tie), revalidate, replay, restore, bounds, pinned refusal order, request/3 decision validation and bounds, apply_event validation of every event kind at limit and limit + 1, forged rejecting release/consent events refused (Elixir boundary and Cure check 9). Not universal proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "cure",
+      "reference": "https://github.com/cure-lang/cure-lang/tree/a004c335cc4e9f2203ba6f51fc31e8540b66378d",
+      "claim": "Relies on the pinned Cure compiler, kernel and audit."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Relies on pinned Elixir/OTP term equality and binary handling."
+    },
+    {
+      "kind": "assumption",
+      "claim": "Only the trusted host's configured verifier path builds evidence; the owner supplies a trusted Unix-ms clock, Run/root/ancestry, proposer identity, effect class and current authorities, and serializes transitions. The owner's event log is not trusted for shape or bounds, but its origin is assumed."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "Pure; the owning Unit/Assembly instruments. Release records and events are caller-retained records, not telemetry."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Per call, no default, no hot reconfiguration: verifiers (1..64 identity texts, exact match), max_age (integer ms, 1..2^63-1, compared as now - issued_at < max_age) and the current policy for re-decide.",
+      "evidence": [
+        "test/elzoo/approval_test.exs"
+      ]
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No lifecycle; revocation is a domain transition on the caller's state, not a Control."
+    }
+  }
+}

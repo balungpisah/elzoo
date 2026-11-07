@@ -1,0 +1,266 @@
+{
+  "schema_version": 1,
+  "id": "domain/authorization",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": [
+    "cure",
+    "elixir"
+  ],
+  "dependencies": [],
+  "contract": "Pure ALLOW/ASK/DENY reducer over typed exact-match rules (effect class, principal, tenant, resource, payload, target, field, write value) with deny > ask > allow, default deny, whole-action escrow on ASK, and whole-proposal rejection when writes exceed the trusted own authority or, for a child, the parent's authority. Trusted proposer and host-derived effect class come from context; proposal copies must match. Portable tagged value domain with duplicate-preserving records and fixed bounds; three failure classes (DENY, invalid_input, unavailable_context). Policy identity (id, version, content_hash) on every decision.",
+  "limits": [
+    "No security certification, identity guarantee, authentication, principal service or policy-engine provider.",
+    "Selected laws hold with respect to Cure eq_write; its agreement with Elixir structural equality and its reflexivity are finite tests (pinned Cure keeps symbolic Int equality neutral).",
+    "Validation, normalization, bounds, the control-key DENY and proposer/effect-class mismatch are Elixir-side and test-grounded only.",
+    "No law states that decide's verdict equals join_all of its per-write rule verdicts; that composition is by construction and tested.",
+    "Authority is exact writes, one value per (target, field); the host builds exact-value authority per action. No wildcard or range authority.",
+    "One requirement per ASK; several distinct requirements fail closed. Multi-approver needs a new Piece ID.",
+    "The host supplies the policy SHA-256; the Piece compares it and does not authenticate its origin. External decoders must reject duplicate keys.",
+    "Every gated effect must be at least one typed write; an empty write set is rejected."
+  ],
+  "files": [
+    "cure/elzoo/authorization.cure",
+    "lib/elzoo/authorization.ex",
+    "test/elzoo/authorization_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/authorization.cure",
+      "symbol": "deny_absorbs_left",
+      "claim": "join(Deny, v) = Deny for every verdict v."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/authorization.cure",
+      "symbol": "deny_absorbs_right",
+      "claim": "join(v, Deny) = Deny for every verdict v (exhaustive)."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/authorization.cure",
+      "symbol": "ask_over_allow_left",
+      "claim": "join(Ask, Allow) = Ask."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/authorization.cure",
+      "symbol": "ask_over_allow_right",
+      "claim": "join(Allow, Ask) = Ask."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/authorization.cure",
+      "symbol": "join_idem",
+      "claim": "join is idempotent (exhaustive over the 3 verdicts)."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/authorization.cure",
+      "symbol": "join_comm",
+      "claim": "join is commutative (exhaustive)."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/authorization.cure",
+      "symbol": "join_assoc",
+      "claim": "join is associative (exhaustive)."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/authorization.cure",
+      "symbol": "deny_anywhere",
+      "claim": "For all verdict lists p, s: join_all(p ++ [Deny | s]) = Deny (induction on p). About join_all; decide applies join_all to its per-write verdicts by construction."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/authorization.cure",
+      "symbol": "reduced_dominates",
+      "claim": "For all p, v, s: join(join_all(p ++ [v | s]), v) = join_all(p ++ [v | s]) (induction); the reduced verdict is at least every element."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/authorization.cure",
+      "symbol": "ask_escrows",
+      "claim": "finish(Ask, RequirementOne(q), ws, ...) escrows exactly ws."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/authorization.cure",
+      "symbol": "ask_permits_nothing",
+      "claim": "finish(Ask, any choice, ws, ...) permits no writes."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/authorization.cure",
+      "symbol": "deny_permits_nothing",
+      "claim": "finish(Deny, ...) permits no writes."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/authorization.cure",
+      "symbol": "deny_escrows_nothing",
+      "claim": "finish(Deny, ...) escrows no writes."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/authorization.cure",
+      "symbol": "allow_escrows_nothing",
+      "claim": "finish(Allow, ...) escrows no writes."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/authorization.cure",
+      "symbol": "exceeded_writes_nothing",
+      "claim": "The authority-exceeded decision escrows no writes."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/authorization.cure",
+      "symbol": "permitted_within_own",
+      "claim": "For all policy, action, own, parent: subset(permitted_of(decide(...)), own) = True, subset with respect to eq_write."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/authorization.cure",
+      "symbol": "escrowed_within_own",
+      "claim": "For all policy, action, own, parent: subset(escrowed_of(decide(...)), own) = True, with respect to eq_write."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/authorization.cure",
+      "symbol": "permitted_within_parent",
+      "claim": "For all policy, action, own, p: subset(permitted_of(decide(policy, action, own, ParentAuthority(p))), p) = True, with respect to eq_write."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/authorization.cure",
+      "symbol": "escrowed_within_parent",
+      "claim": "For all policy, action, own, p: escrowed writes of a child decision are a subset of p, with respect to eq_write."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/authorization.cure",
+      "symbol": "deny_decision_escrows_nothing",
+      "claim": "If verdict_of(decide(...)) = Deny then escrowed_of(decide(...)) = [] (hypothesis form)."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/authorization.cure",
+      "symbol": "text_ne_bytes",
+      "claim": "Constructor distinctness by reduction: eq_value of different value constructors is False for all arguments."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/authorization.cure",
+      "symbol": "bytes_ne_text",
+      "claim": "Constructor distinctness by reduction: eq_value of different value constructors is False for all arguments."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/authorization.cure",
+      "symbol": "int_ne_text",
+      "claim": "Constructor distinctness by reduction: eq_value of different value constructors is False for all arguments."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/authorization.cure",
+      "symbol": "text_ne_int",
+      "claim": "Constructor distinctness by reduction: eq_value of different value constructors is False for all arguments."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/authorization.cure",
+      "symbol": "int_ne_bool",
+      "claim": "Constructor distinctness by reduction: eq_value of different value constructors is False for all arguments."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/authorization.cure",
+      "symbol": "bool_ne_int",
+      "claim": "Constructor distinctness by reduction: eq_value of different value constructors is False for all arguments."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/authorization.cure",
+      "symbol": "bool_ne_text",
+      "claim": "Constructor distinctness by reduction: eq_value of different value constructors is False for all arguments."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/authorization.cure",
+      "symbol": "null_ne_int",
+      "claim": "Constructor distinctness by reduction: eq_value of different value constructors is False for all arguments."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/authorization.cure",
+      "symbol": "null_ne_bool",
+      "claim": "Constructor distinctness by reduction: eq_value of different value constructors is False for all arguments."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/authorization.cure",
+      "symbol": "null_ne_text",
+      "claim": "Constructor distinctness by reduction: eq_value of different value constructors is False for all arguments."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/authorization.cure",
+      "symbol": "list_ne_record",
+      "claim": "Constructor distinctness by reduction: eq_value of different value constructors is False for all arguments."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/authorization.cure",
+      "symbol": "record_ne_list",
+      "claim": "Constructor distinctness by reduction: eq_value of different value constructors is False for all arguments."
+    },
+    {
+      "kind": "type",
+      "file": "cure/elzoo/authorization.cure",
+      "claim": "Pinned Cure checks the production reducer with a clean audit (no axioms, holes, opacity or unproven totality); every function is @total. Tests reject mutated DENY absorption, ASK permitting writes, skipped containment, text equal to bytes, and an unfinished law."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/authorization_test.exs",
+      "claim": "Listed scenarios: verdict precedence, default deny, rule conditions, forged proposer, mislabelled effect class, containment and child bound, exact-value authority, unavailable context, ambiguous requirement, control keys, pinned fault order, empty writes, model text, value validation, normalization, bounds at limit and limit + 1, Elixir/Cure equality agreement, proposer_view. Not universal proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "cure",
+      "reference": "https://github.com/cure-lang/cure-lang/tree/a004c335cc4e9f2203ba6f51fc31e8540b66378d",
+      "claim": "Relies on the pinned Cure compiler, kernel and audit."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Relies on pinned Elixir/OTP binary byte order, String.valid?/1 and term equality for normalization."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The host derives the trusted proposer identity, effect class and authority from its own authenticated state, supplies the policy artifact and its SHA-256, and serializes decisions with the state they guard."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "Pure callable; the invoking Unit/Assembly instruments. Decisions are caller-retained records, not telemetry."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Per call, no default, no hot reconfiguration: the trusted policy (schema and bounds as in the README, immutable per id/version/content_hash) and proposer_view disclosure (:full | :verdict_only). Bounds are fixed Contract constants.",
+      "evidence": [
+        "test/elzoo/authorization_test.exs"
+      ]
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No lifecycle to pause, drain or resume."
+    }
+  }
+}
