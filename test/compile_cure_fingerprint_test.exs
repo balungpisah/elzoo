@@ -108,10 +108,12 @@ defmodule Elzoo.CompileCureFingerprintTest do
     assert compile(ctx) == :skipped
 
     # Negative control 6: a manifest module line that is not `Cure.<name>` is
-    # rejected, so the fingerprint is dropped and nothing outside ebin is removed.
-    victim = Path.join(ctx.dir, "victim.beam")
+    # rejected, so the fingerprint is dropped and the named path is not removed.
+    # Four `..` steps from ebin resolve to `_build/victim.beam`.
+    victim = Path.join([ctx.dir, "_build", "victim.beam"])
     File.write!(victim, "keep")
     File.write!(ctx.manifest, File.read!(ctx.manifest) <> "module ../../../../victim\n")
+    assert Path.expand("../../../../victim.beam", ctx.ebin) == victim
     assert compile(ctx) == :compiled
     assert File.read!(victim) == "keep"
     assert compile(ctx) == :skipped

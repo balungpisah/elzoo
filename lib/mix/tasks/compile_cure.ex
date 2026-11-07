@@ -133,7 +133,12 @@ defmodule Mix.Tasks.Compile.Cure do
 
   defp hex(bytes), do: Base.encode16(bytes, case: :lower)
 
-  defp file_digest(path), do: hex(:crypto.hash(:sha256, File.read!(path)))
+  defp file_digest(path) do
+    case File.read(path) do
+      {:ok, contents} -> hex(:crypto.hash(:sha256, contents))
+      {:error, _} -> doubt()
+    end
+  end
 
   # Doubt never skips: an unreadable input yields a fresh random digest.
   defp doubt, do: "unreadable-" <> hex(:crypto.strong_rand_bytes(8))
@@ -151,9 +156,10 @@ defmodule Mix.Tasks.Compile.Cure do
     end
   end
 
-  # Every file in the loaded Cure ebin: the compiler that produces the BEAMs.
-  # This catches a pin bump, a local edit under deps/cure, and a different
-  # Cure build on the same version.
+  # Every file in the loaded Cure ebin: the compiler modules that produce the
+  # BEAMs. This catches a pin bump and a different Cure build on the same
+  # version. Cure's stdlib under priv/ is not hashed; on CI the lock file
+  # covers it.
   defp cure_ebin_digest do
     with dir when is_list(dir) <- :code.lib_dir(:cure),
          ebin = Path.join(List.to_string(dir), "ebin"),
