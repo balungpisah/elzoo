@@ -91,6 +91,15 @@ not erase the earlier failures or establish behavior under different load.
 ELZ-035 owns the independently reproduced notifier race and a separate durable
 job Contract defect; its fixes and scoped evidence remain pending review.
 
+Actions run 42325304955 at `1700cad` reported `mix setup` passed but
+`mix check` failed (427/428 root tests). The DJ21 PostgreSQL test could not
+start the Oban PG notifier and exited `:noproc`, the previously reported
+failure class. The full job took 24m49s. The cgroup reported 2,271,883,264
+bytes peak memory (about 2.12 GiB), and the sampler observed a maximum
+one-second average of 3.267 CPU cores across 1,235 samples. These are
+container observations, not hard resource limits or proof of isolation from
+other workloads. The failing run does not establish reliable CI capacity.
+
 Each role runs at most one job per runner. The candidate has no hard container
 memory or CPU quota. The backend workflow keeps `+S 4:4 +SDcpu 1 +SDio 1` on
 symbolic and selects `+S 2:2 +SDcpu 1 +SDio 1` on macbook-ubuntu, per BEAM VM;

@@ -25,6 +25,7 @@ class RunnerPolicyTest(unittest.TestCase):
             cwd=self.root, capture_output=True, text=True, check=False
         )
         self.assertEqual(expected, result.returncode, result.stdout + result.stderr)
+        return result
 
     def change(self, filename, old, new):
         path = self.root / ".github" / "workflows" / filename
@@ -79,11 +80,23 @@ class RunnerPolicyTest(unittest.TestCase):
         self.add_ungated_job("symbolic-gleam.yml")
         self.check(1)
 
+    def test_extra_backend_job_header_rejected_independently(self):
+        self.add_job_header_without_selector("symbolic-check.yml")
+        self.assertIn("exactly one check job is required", self.check(1).stderr)
+
+    def test_extra_gleam_job_header_rejected_independently(self):
+        self.add_job_header_without_selector("symbolic-gleam.yml")
+        self.assertIn("exactly one gleam job is required", self.check(1).stderr)
+
     def add_ungated_job(self, filename):
         path = self.root / ".github" / "workflows" / filename
         source = path.read_text()
         selector = next(line for line in source.splitlines() if line.strip().startswith("runs-on:"))
         path.write_text(source + f"\n  unreviewed:\n{selector}\n    steps:\n      - run: true\n")
+
+    def add_job_header_without_selector(self, filename):
+        path = self.root / ".github" / "workflows" / filename
+        path.write_text(path.read_text() + "\n  unreviewed:\n    steps:\n      - run: true\n")
 
     def test_gleam_role_cannot_move(self):
         self.change("symbolic-gleam.yml", "symbolic, elzoo, gleam", "macbook-ubuntu, elzoo, backend")
