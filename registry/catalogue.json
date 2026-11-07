@@ -700,10 +700,10 @@
     {
       "id": "workflow/budget",
       "summary": "Bound execution resource consumption",
-      "disposition": "defer",
+      "disposition": "own",
       "phase": "demand-led",
-      "status": "deferred",
-      "reason": "Admission/reservation/settlement of unit-tagged costs for C2/C6/C7; shared authority under concurrency, explicit estimate versus observed cost. Not a financial ledger. ELZ-022 carries the admission record."
+      "status": "ready",
+      "manifest": "pieces/workflow/budget/piece.json"
     },
     {
       "id": "workflow/build-graph",
@@ -723,11 +723,11 @@
     },
     {
       "id": "workflow/dependency-graph",
-      "summary": "Prerequisite and join readiness",
-      "disposition": "defer",
+      "summary": "Readiness from attributable facts and acyclic blocking-edge admission (Cure laws); no execution or scheduling",
+      "disposition": "own",
       "phase": "demand-led",
-      "status": "deferred",
-      "reason": "Cycle/readiness/failure/join semantics for C5/C6/C7; libgraph candidate for mechanics, application-specific execution policy remains explicit. ELZ-026 carries the admission record (pure readiness and cycle admission; closed is not completed; provenance-tagged readiness)."
+      "status": "ready",
+      "manifest": "pieces/workflow/dependency-graph/piece.json"
     },
     {
       "id": "workflow/run",
