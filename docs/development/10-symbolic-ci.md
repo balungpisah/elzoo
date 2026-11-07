@@ -275,6 +275,14 @@ always compiles; a later build in the same consumer skips under the same rule. T
 covers the named inputs only. It is not a proof that no other input exists. Negative controls live
 in `test/compile_cure_fingerprint_test.exs`.
 
+## Cure pin on the balungpisah fork (ELZ-047)
+
+`mix.lock` pins Cure to `balungpisah/cure-lang` commit `208248063`, which is upstream `a004c335`
+plus one import-resolution fix (see `docs/dependencies/forks/cure.md`). The first CI run on each
+backend runner after this change restores the previous cache by prefix key, then `mix deps.get`
+refetches Cure because `mix.lock` changed and Cure compiles from source once per runner; that run
+saves a new cache. Later runs are warm. Compare consumer timings only between warm runs.
+
 ## Machine and container setup
 
 Both machines use repository-scoped runner installations and dedicated

@@ -10,7 +10,7 @@ Workflow depends on these public commands:
 The bootstrap uses:
 
 - Cure v0.35.0 at exact commit
-  a004c335cc4e9f2203ba6f51fc31e8540b66378d, not a moving same-named ref;
+  208248063d64e621782cd26dd30698ee42850a89, not a moving same-named ref;
 - Elixir 1.20.4;
 - OTP 29.1.2.
 

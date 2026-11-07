@@ -36,7 +36,7 @@
     {
       "kind": "upstream",
       "provider": "cure",
-      "reference": "https://github.com/cure-lang/cure-lang/tree/a004c335cc4e9f2203ba6f51fc31e8540b66378d",
+      "reference": "https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89",
       "claim": "Relies on pinned Cure type checking, structural equality and record/Result/tuple erasure."
     },
     {

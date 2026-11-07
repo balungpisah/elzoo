@@ -98,6 +98,6 @@ decisions in label_step only; not classify, worker, Runner or traces.
 Type/contract: real Cure imports, exact codecs and unchanged connection
 validators. Tests: finite bundle checks, false-law/production-mutation/wrong-type
 negatives; root S1–S22 and isolated copied-source consumers. Upstream: Cure
-a004c335, Elixir 1.20.4, OTP 29.1.2. Monitored behavior: none.
+20824806 (balungpisah fork of a004c335 plus the import source-scan fix), Elixir 1.20.4, OTP 29.1.2. Monitored behavior: none.
 Telemetry planned (snapshot is inspection); Config supported at start only;
 Control inherited from Runner (OTP stop, not business drain).

@@ -19,7 +19,7 @@ This directory is a source bundle. See [consumption instructions](../../../docs/
 - **proof**: Composing discard with any downstream operator preserves downstream state. `cure/elzoo/composition.cure`
 - **type**: The pinned Cure compiler checks this source before emitting its BEAM. `cure/elzoo/composition.cure`
 - **test**: The named scenarios in this ExUnit file are executable evidence, not universal proofs. `test/elzoo/composition_test.exs`
-- **upstream**: Relies on the pinned provider implementation and public contract. https://github.com/cure-lang/cure-lang/tree/a004c335cc4e9f2203ba6f51fc31e8540b66378d
+- **upstream**: Relies on the pinned provider implementation and public contract. https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89
 
 ## Limits
 
