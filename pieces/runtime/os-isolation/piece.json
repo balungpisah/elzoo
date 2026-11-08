@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "id": "runtime/os-isolation",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "adapter",
+  "providers": ["elixir", "otp", "erlexec"],
+  "applications": ["erlexec"],
+  "dependencies": ["delivery/backpressure", "core/envelope"],
+  "contract": "Run one OS command per request with bounded slots and queue, an absolute deadline, group-scoped termination performed by erlexec's port program, and an observed result mapped to the shared delivery result; the Adapter never signals itself.",
+  "limits": [
+    "Not security isolation: no sandbox, container, seccomp, path confinement or network isolation; no shell parsing; stdin is /dev/null.",
+    "Terminations the provider performs on request (cancel, caller or owner death) report no ending signal and are unknown; a member that ignores SIGTERM after the leader exits, a descendant that leaves the group, and the provider port program's own death are declared residuals.",
+    "An exec failure after pre-dispatch validation is reported by the provider as exit 1 and appears as completed; group observation with pgrep reports what the process table shows, not a proof of cleanup; one OS at a time."
+  ],
+  "files": [
+    "lib/elzoo/os_process.ex",
+    "lib/elzoo/os_process/adapter.ex",
+    "lib/elzoo/os_process/config.ex",
+    "lib/elzoo/os_process/owner.ex",
+    "lib/elzoo/os_process/result.ex",
+    "test/elzoo/os_process_fixture.sh",
+    "test/elzoo/os_process_mapping_test.exs",
+    "test/elzoo/os_process_provider_failure_test.exs",
+    "test/elzoo/os_process_test.exs"
+  ],
+  "grounding": [
+    {"kind": "test", "file": "test/elzoo/os_process_test.exs", "claim": "Named real-process scenarios (transition rows T1-T23, T26-T29, controls C1-C3, provider protocol P1, consumer priv dir) with group emptiness observed by the test's own pgrep; finite observations on one OS per run, not proofs."},
+    {"kind": "test", "file": "test/elzoo/os_process_provider_failure_test.exs", "claim": "Provider application stop (T24) and port-program SIGKILL (T25): the orphan is reported, not hidden; finite observations."},
+    {"kind": "test", "file": "test/elzoo/os_process_mapping_test.exs", "claim": "Every Adapter result row validates through Elzoo.Envelope.validate_result/1 with correlation fallback and the unchanged sidecar; wait-status decoding."},
+    {"kind": "type", "file": "lib/elzoo/os_process/result.ex", "claim": "Delivery-result maps are checked by the named checker Elzoo.Envelope.validate_result/1 at construction; Elixir typespecs are documentation."},
+    {"kind": "upstream", "provider": "erlexec", "reference": "https://hexdocs.pm/erlexec/2.6.0/exec.html", "claim": "Relies on erlexec 2.6.0: group creation ({group, 0}, kill_group), wall-clock timeout with SIGTERM then SIGKILL after kill_timeout, linked-owner stop, finalize on port EOF, exit-status report, env clear; its masked status on stop and single at-exit TERM are pinned implementation observations, not promises."},
+    {"kind": "upstream", "provider": "elixir", "reference": "https://hexdocs.pm/elixir/1.20.4/", "claim": "Relies on pinned GenServer, Supervisor, DynamicSupervisor, Process.monitor and Process.send_after semantics."},
+    {"kind": "upstream", "provider": "otp", "reference": "https://www.erlang.org/doc/", "claim": "Relies on ETS ownership, link and monitor signal ordering (messages before the exit signal) and the 4_294_967_295 ms timer bound."},
+    {"kind": "assumption", "claim": "The OS delivers a group signal to every member; PID 1 reaps orphans; the provider's check-to-signal gap does not coincide with a PID wrap; a C++ toolchain builds the port program; pgrep and the POSIX sh used by the fixture behave as observed on macOS and Ubuntu."}
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "planned",
+      "contract": "No event, log or measurement is emitted; a future event family must exclude the command line, arguments, environment and output (tested: no observation channel carries them today)."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Construction-time max_concurrent, queue_limit, queue_timeout_ms, grace_s, observe_timeout_ms, max_output_bytes, pgrep_path, now_unix_ms; per-call deadline_unix_ms or max_run_ms, cwd and environment allowlist; validated with the OTP timer bound; no hot update, a change needs a new instance.",
+      "evidence": ["test/elzoo/os_process_test.exs"]
+    },
+    "control": {
+      "status": "supported",
+      "contract": "cancel/2 by run ref: acceptance ({:ok, :requested}), idempotent ({:ok, :already_requested}), {:error, :unknown_run}; a queued run becomes rejected{cancelled}, a running run is stopped through the provider and reported unknown{provider_masked_stop}; no pause or drain; stopping the instance terminates running commands through the provider.",
+      "evidence": ["test/elzoo/os_process_test.exs"]
+    }
+  }
+}
