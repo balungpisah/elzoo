@@ -1026,7 +1026,7 @@
       ],
       "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
       "issue": 37,
-      "issue_body_sha256": "52f2312c013f75a7ae98d8bbb2c5e076c38354ebc1d4646f5b31426d90a5e539",
+      "issue_body_sha256": "b3fae2e02e9ee8789320e76491568759f9e9f28693b8cf5561bb086ccffeee58",
       "observed_issue_state": "OPEN",
       "owner_role": "one claimed task worker after admission",
       "product_aims": [

@@ -113,10 +113,7 @@ machine; the store and the provider poll are Adapters.
   an ordinary stale result; confirmed/stranded remain terminal for dispatch;
 - unavailable/indeterminate evidence writes halt active ownership and are
   unknown, never reported as retained; inability to retain a contradiction
-  cannot leave rearm enabled; after an uncertain halt, restart is read-only
-  until host/operator reconciliation re-establishes an authoritative outcome
-  and valid ground; the host must preserve/deliver this recovery obligation
-  across restart, because an in-memory flag is not durable quarantine;
+  cannot leave rearm enabled; every recovery startup is treated as potentially uncertain and is read-only until host/operator reconciliation re-establishes an authoritative outcome and valid ground and grants activation; no clean-release path is supplied in this subset; the host must preserve/deliver this recovery obligation across restart, because an in-memory flag is not durable quarantine;
 - make replay a declared Adapter capability (provider idempotency contract
   keyed by the logical request), never a per-call flag; list as dangerous
   paths a transport-layer plugin (auth refresh, redirect, library retry) that
@@ -202,7 +199,7 @@ input; no cross-host clock-skew guarantee is inferred.
 
 - [ ] A simulated timeout after dispatch never re-dispatches without a definite
       failure or reconciliation result.
-- [ ] Restart at each boundary resumes the existing intent by derived key.
+- [ ] Restart at each boundary finds the existing intent by derived key in read-only mode; active polling/settlement resumes only after a bound host activation grant, and a recovered dispatched reservation never authorizes a local send.
 - [ ] `stranded` is a distinct, tested outcome with a documented operator path.
 - [ ] Build-time total failure mapping, late-settlement-once and the
       transport re-send negative case are listed, executable scenarios.
