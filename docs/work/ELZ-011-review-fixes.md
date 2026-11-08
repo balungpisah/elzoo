@@ -1,5 +1,7 @@
 # ELZ-011 final-review fixes
 
+> Redacted before publication (ELZ-065): the password part of local test-database URLs (`ecto://user:…@localhost`) and role commands is replaced by an ellipsis; the recorded commands are otherwise exact.
+
 Independent reviewer: Orca session `0f974e4c-75e1-4daf-9a19-7720ad2b1633`,
 head `694fda8a797fa2fe7535e6be1ca164f86483d281`, dispatch `ctx_44d327567ce3`.
 [Original report](ELZ-011-final-review.md): CONDITIONAL, F1 required and F2 fix
@@ -71,7 +73,7 @@ exited 0: `Result: 29 passed`. Exact prefix for all Mix runs:
 export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 export ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1'
 export MIX_ENV=test
-export ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:elzoo_elz024@localhost/elzoo_pieces_test
+export ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:…@localhost/elzoo_pieces_test
 ```
 
 Fresh `mix setup` and full default `mix check` both exited 0 on the fixed source:
@@ -191,7 +193,7 @@ refusal: transport timeout is not accepted as an alternative.
 
 Local before/after environment: `LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8`,
 `ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1'`, `MIX_ENV=test`, own database
-`ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:elzoo_elz024@localhost/elzoo_pieces_test`.
+`ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:…@localhost/elzoo_pieces_test`.
 Load consisted of four owned `nice -n 15 yes` processes and concurrent
 `mix test pieces/assembly/request-route-retry/test`; every concurrent suite exited
 0 and every load process was stopped after its run.

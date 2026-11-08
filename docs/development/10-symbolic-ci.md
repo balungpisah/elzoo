@@ -1,11 +1,13 @@
 # CI on the owner's machines
 
 Elzoo uses only the owner's Linux machines: the user-owned `symbolic` and `macbook-ubuntu` and, from
-ELZ-056 (owner decision 2026-11-08), the user-rented Contabo VPS `ratahq-ci-contabo-01`
+ELZ-056 (owner decision 2026-11-08), the user-rented slow VPS
 (runner `contabo-elzoo-1`; trialled and currently unrouted, see "Runner tiers" and "Contabo VPS" below). GitHub provides scheduling
 and check reporting; it does not supply compute.
-Never select a GitHub-hosted image or add a hosted fallback. If a runner is
-offline, diagnose it or let work queue on the other approved runner.
+While the repository is private, never select a GitHub-hosted image or add a hosted fallback. Once it is public
+(owner decision 2026-11-09), CI runs on the hosted lane that the repository variable `ELZOO_CI_LANE` selects, and this
+self-hosted lane is retiring; see "Lanes". If a self-hosted runner is offline, diagnose it or let work queue on the
+other approved runner.
 
 ## Roles and routing
 
@@ -634,199 +636,107 @@ layers are fetched: the job image stays pinned by the same digest, so Docker
 verifies the same content. The mirror is host configuration, not repository
 state. This record covers `symbolic` only.
 
-### Contabo VPS `ratahq-ci-contabo-01` (ELZ-056)
+### The slow VPS runner `contabo-elzoo-1` (ELZ-056)
 
-Status: **unrouted (owner decision 2026-11-08, option a; then option b, ELZ-062, after the re-test).** The runner has no `backend` label. One
-full run passed on an older tree (trial 2, below) and one failed on the current tree (the `tier` = `any`
-observation of ELZ-057). The label was on only for those runs. It takes no job while it has no `backend`
-label (GitHub gives a job to any idle runner with matching labels); a person may add the label for a measurement run
-or an explicit `tier` = `any` dispatch and must remove it afterwards. No test limit was changed for it.
+Public record of the runner, with host details left out (ELZ-065): the host, its address and the other workloads that
+run on it are described only by role. The machine is a user-rented VPS with 8 virtual CPUs and 23 GiB of RAM, on which
+the owner also runs other workloads; the owner decided on 2026-11-08 to use it for this development. The runner is
+version 2.338.2 (tarball SHA-256 `baebf204307bac6193480852732f0aba2ae97b6c5597c244f4d5558390147c40`, equal to the
+GitHub release digest), registered repository-scoped with a short-lived registration token that was never written to a
+file or log, runs as a dedicated system account, and is a systemd service. An earlier unused runner install of another
+repository on the same host was renamed (not deleted) and had no registration.
 
-**ELZ-057 observation (failed).** Run 42484236992, job 128742521023, `workflow_dispatch` with `tier` = `any`
-on `main` at `ade0e45`, runner `contabo-elzoo-1`; `check-fast` skipped. 13:17:27Z to 14:25:54Z (20:17 to
-21:25 WIB), 68 min 27 s: `mix setup` 23 min 44 s (cold cache), `Run mix check` failed after 41 min 15 s with
-`Result: 640/642 passed`. Both failures were `ExUnit.TimeoutError` after 120000 ms (the per-test default):
-`pieces/workflow/approval/test/elzoo/approval_test.exs:177` (a negative control inside a Cure proof check,
-stack in `Cure.Core.Normalise` and `Cure.Core.Conv`) and `test/export_test.exs:120` (the `assembly/durable-job`
-consumer step). Root suite `Finished in 2243.7 seconds (438.6s async, 1805.1s sync)`; aggregate consumer 816.6 s.
-Job-reported cgroup memory peak 3,690,496,000 bytes; sampled CPU maximum 5.091 cores (the 5-core cap was
-reached). Read from the host: `cpu.max` `500000 100000`, `memory.max` `8589934592`, `memory.swap.max` `0`;
-`nr_throttled` 1026 and `throttled_usec` 62,213,128 at 14:25:14Z (62 s in total, in bursts). The same
-tree passed on `symbolic-elzoo` (run 42484152352, job 128742259599) and its main push run passed
-(42484121902). No test and no limit was changed. Interpretation, not proven: the 120 s per-test limit
-was set on faster machines, and on this VPS (about 1.8 times slower per thread) with the consumer groups of
-ELZ-049 running at the same time under a 5-core cap, two tests exceed it.
+Status: **unrouted (owner decision 2026-11-08, option a; then option b, ELZ-062, after the re-test).** The runner has no
+`backend` label. One full run passed on an older tree (trial 2) and two failed on the current tree (the `tier` = `any`
+observation of ELZ-057 and its re-test). The label was on only for those runs. It takes no job while it has no `backend`
+label (GitHub gives a job to any idle runner with matching labels); a person may add the label for a measurement run or an
+explicit `tier` = `any` dispatch and must remove it afterwards. No test limit was changed for it. A failed or timed-out job
+there means removing the label. Times are WIB (UTC+7) unless a log line is quoted.
 
-**Re-test with the 8-core cap (failed the same way).** After the cap was raised (below), run 42492726966, job 128768391228
-(`check-any`, `tier` = `any`, runner `contabo-elzoo-1`, `main` at `665d3e07c58f`, warm cache: `mix setup` 6 s), ran
-15:02:15Z to 15:45:46Z (22:02 to 22:45 WIB), 43 min 31 s; `Run mix check` 15:04:42Z to 15:45:35Z failed with
-`Result: 640/642 passed`, the same two `ExUnit.TimeoutError` after 120000 ms (`approval_test.exs:177`, and
-`export_test.exs:120`). Root suite `Finished in 2228.9 seconds (463.0s async, 1765.8s sync)` against 2243.7 s under
-the 5-core cap; aggregate consumer 805.1 s; `ash_spike` 180.8 s (20.5 s to 201.3 s into the check). Job-reported cgroup memory peak 3,881,250,816 bytes;
-sampled CPU maximum 6.914 cores over 2,449 samples (the job used more than the old cap of 5 and stayed under the new
-one). Interpretation, not proven: raising the cap did not help (2228.9 s against 2243.7 s), so the CPU cap does not look like the limit; per-thread speed is the likely cause. Limit of this measurement: my host sampler (one
-sample per 60 s) lost its SSH connection after two samples (container `cpu.max` 800000 `100000`, `nr_throttled` 0 at
-15:04:21Z, memory peak 1.74 GB then), so the throttling counters at the end of the run were not read; the job's own
-CPU sample is the only CPU evidence after that. Host load average (1 minute) peaked at 5.71 and the four production
-containers stayed at 0.00 to 1.33 percent CPU in the samples taken every two minutes. A health probe of
-`https://storage.balungpisah.id/minio/health/live` from the coordinator's machine answered HTTP 200 in 0.12 to 0.49 s,
-with one slow answer (4.0 s at 15:22:14Z), one slow first answer (1.8 s at 15:03:36Z, before the load) and one failed
-connect (15:05:41Z); that probe cannot attribute these to the CI job (Cloudflare and the path from the probe are in
-between). The label was removed again after the run. Owner decision after the re-test (option b, via the coordinator): raise
-the per-test limit of the two tests to 300 s in a separate measured task (ELZ-062), so that Contabo can take
-`tier` = `any` runs; that task changes this status.
+**ELZ-057 observation (failed).** Run 42484236992, job 128742521023, `workflow_dispatch` with `tier` = `any` on `main` at
+`ade0e45`, runner `contabo-elzoo-1`; `check-fast` skipped. 13:17:27Z to 14:25:54Z, 68 min 27 s: `mix setup` 23 min 44 s
+(cold cache), `Run mix check` failed after 41 min 15 s with `Result: 640/642 passed`. Both failures were
+`ExUnit.TimeoutError` after 120000 ms (the per-test default): `pieces/workflow/approval/test/elzoo/approval_test.exs:177`
+(a negative control inside a Cure proof check) and `test/export_test.exs:120` (the `assembly/durable-job` consumer step).
+Root suite `Finished in 2243.7 seconds (438.6s async, 1805.1s sync)`; aggregate consumer 816.6 s. Job-reported cgroup memory
+peak 3,690,496,000 bytes; sampled CPU maximum 5.091 cores (the 5-core cap was reached). Read from the host: `cpu.max`
+`500000 100000`, `memory.max` `8589934592`, `memory.swap.max` `0`; `nr_throttled` 1026 and `throttled_usec` 62,213,128 at
+14:25:14Z (62 s in total, in bursts). The same tree passed on `symbolic-elzoo` (run 42484152352, job 128742259599) and its
+main push run passed (42484121902). Interpretation, not proven: the 120 s per-test limit was set on faster machines, and on
+this VPS (about 1.8 times slower per thread) with the consumer groups of ELZ-049 running at the same time under a 5-core cap,
+two tests exceed it.
 
-Options considered after the first failure: (a) keep Contabo unrouted; (b) raise the per-test time limits of the two
-tests in a separate reviewed task, with measurements (a limit change, not a weaker proof); (c) raise the Contabo CPU
-cap (done on 2026-11-08, from 5 to 8 cores, see below; the re-test did not change the result). After the re-test the
-owner chose (b): ELZ-062 (issue #106) raises the limit of the two tests to 300 s, and Contabo stays unrouted until that
-task merges and a steered run passes. A failed or timed-out job here means removing the label. Host facts and the host-side limit
-readings below come from the worker's SSH inspection on 2026-11-08, not from files in this
-repository. Times are WIB (UTC+7) unless a log line is quoted.
+**Re-test with the 8-core cap (failed the same way).** Run 42492726966, job 128768391228 (`check-any`, `tier` = `any`,
+`main` at `665d3e07c58f`, warm cache: `mix setup` 6 s), 15:02:15Z to 15:45:46Z, 43 min 31 s; `Run mix check` failed with
+`Result: 640/642 passed`, the same two `ExUnit.TimeoutError` after 120000 ms. Root suite `Finished in 2228.9 seconds (463.0s
+async, 1765.8s sync)` against 2243.7 s under the 5-core cap; aggregate consumer 805.1 s; `ash_spike` 180.8 s. Job-reported
+cgroup memory peak 3,881,250,816 bytes; sampled CPU maximum 6.914 cores over 2,449 samples. Interpretation, not proven:
+raising the cap did not help, so the CPU cap does not look like the limit; per-thread speed is the likely cause. Limit of the
+measurement: the host sampler (one sample per 60 s) lost its SSH connection after two samples (container `cpu.max` 800000
+100000, `nr_throttled` 0 at 15:04:21Z, memory peak 1.74 GB then), so the throttling counters at the end of the run were not
+read; the job's own CPU sample is the only CPU evidence after that. Host load average (1 minute) peaked at 5.71 and the
+owner's other workloads stayed near idle in samples every two minutes. The label was removed again after the run.
 
-**Trial 2 (passed).** Run 42452912435, job 128645769173, `workflow_dispatch` on `task/ELZ-056`
-at `b9284c7c9dcaad70554c5c205bea16b0b5c420d3`, runner `contabo-elzoo-1`, success, job
-13:00:04 to 14:12:46 WIB (06:00:04Z to 07:12:46Z), 72 min 42 s of the 90 min limit. Cold
-dependency cache (first run for this runner name): `mix setup` 22 min 02 s, cache save 24 s (the
-entry is scoped to `refs/heads/task/ELZ-056`, so the first `main` run saves its own).
-`Run mix check` 06:25:20Z to 07:12:36Z, 47 min 16 s; `ELZOO CHECK PASSED` printed. The root
-suite reported `Finished in 2625.6 seconds (191.6s async, 2433.9s sync)`; the aggregate
-consumer took 711.0 s (`consumer_mix_test` 708.7 s). Stages: `ledger` 19.2 s, `ash_spike`
-168.4 s (`Finished in 10.3 seconds` for its tests), `registry_load` 19.1 s, `root_suite`
-2625.9 s. Job log: `ELZOO STAGE` lines, `BEAM schedulers=4 online=4`. Resource lines printed by
-the job: cgroup memory peak 2,767,269,888 bytes (about 2.58 GiB); sampled CPU maximum
-5.028 cores over 2,831 one-second samples (the cap is 5, so the job reached its cap). Read
-from the host during the run through the container's cgroup path (not from inside the
-container): `cpu.max` `500000 100000`, `memory.max` `8589934592`, `memory.swap.max` `0`;
-throttling counters `nr_throttled` 45 and `throttled_usec` 2,001,766 at 07:09Z, about 69
-minutes into the job and near its end. Host load average stayed about 1.4 to 1.8
-and the four production containers stayed up.
+Options considered after the first failure: (a) keep the runner unrouted; (b) raise the per-test time limits of the two tests
+in a separate reviewed task, with measurements (a limit change, not a weaker proof); (c) raise the CPU cap (done, see below;
+the re-test did not change the result). After the re-test the owner chose (b): ELZ-062 (issue #106) raises the limit of the two
+tests to 300 s, and the runner stays unrouted until that task merges and a steered run passes.
 
-What this shows: the wrapper cap applies to a real job container, and `setup-beam`, `mix setup`
-and the full `mix check` pass on this machine. It is slow. The same `main` tree (`a5f0e63`,
-without the ELZ-056 files) ran on `macbook-ubuntu-elzoo-candidate` in run 42451768392, job
-128642319790: root suite `Finished in 1340.4 seconds`, aggregate consumer 373.3 s, `mix check`
-22 min 50 s, with `+S 2:2` on four logical cores. Trial 2 took 2625.6 s for the root suite and
-711.0 s for the aggregate, about 1.96 and 1.9 times as long. `symbolic-elzoo` took 1116.3 s
-for the root suite (run 42448003515, job 128630949025, a different tree: ELZ-023 head
-`aa16605`, so not a controlled comparison), about 2.4 times faster than this machine. The
-cap does not explain the gap: the job was throttled 45 times for 2.0 s in total. The cause is
-not established; slower virtual CPUs or disk on this VPS, or CPU contention from other guests
-of the same host, are untested candidates. What the trial does not show: reliability over many
-runs, behavior under a production load spike, or warm-cache time. Expect a warm run (no
-22-minute `mix setup`) to take about 50 minutes, but that is an estimate and not an observation.
-A cold run is only 17 minutes below the 90-minute limit, so a changed cache key prefix or a
-longer suite may exceed it here first.
+**Trial 2 (passed).** Run 42452912435, job 128645769173, `workflow_dispatch` on `task/ELZ-056` at
+`b9284c7c9dcaad70554c5c205bea16b0b5c420d3`, success, job 06:00:04Z to 07:12:46Z, 72 min 42 s of the 90 min limit. Cold
+dependency cache: `mix setup` 22 min 02 s, cache save 24 s. `Run mix check` 47 min 16 s; `ELZOO CHECK PASSED` printed. Root
+suite `Finished in 2625.6 seconds (191.6s async, 2433.9s sync)`; aggregate consumer 711.0 s; stages `ledger` 19.2 s,
+`ash_spike` 168.4 s, `registry_load` 19.1 s. Cgroup memory peak 2,767,269,888 bytes; sampled CPU maximum 5.028 cores over
+2,831 samples (the cap was reached); read from the host: `cpu.max` `500000 100000`, `memory.max` `8589934592`;
+`nr_throttled` 45 and `throttled_usec` 2,001,766 near the end. What this shows: the cap applies to a real job container,
+and `setup-beam`, `mix setup` and the full `mix check` pass on this machine; it is slow. The same `main` tree (`a5f0e63`) ran on
+`macbook-ubuntu-elzoo-candidate` in run 42451768392, job 128642319790: root suite `Finished in 1340.4 seconds`, aggregate
+consumer 373.3 s, `mix check` 22 min 50 s. Trial 2 took about 1.96 and 1.9 times as long. `symbolic-elzoo` took 1116.3 s for
+the root suite (run 42448003515, a different tree, so not a controlled comparison). The cause is not established; slower
+virtual CPUs or disk, or contention with other guests of the same host, are untested candidates. The trial does not show
+reliability over many runs, behavior under a load spike elsewhere on the host, or warm-cache time (an estimate of about 50
+minutes for a warm run is not an observation). A cold run is only 17 minutes below the 90-minute limit.
 
-Owner decision (2026-11-08), quoted: "u may remove/rename those ci ratahq. i dont use it
-anymore. use it for this development". The owner rents this machine. It runs production
-workloads of the owner's `balungpisah` product, which stay untouched.
+**Trial 1 (failed, kept as evidence).** Run 42452504044, job 128644528184, `workflow_dispatch` on `task/ELZ-056` at
+`1406f40c8d98b0218f8bdf8afb80998522086f39`, 05:53:20Z to 05:55:05Z (1 min 45 s). The steps before `Run erlef/setup-beam`
+passed. `setup-beam` failed with `##[error]otp-architecture must be 32 or 64`; `mix setup` and `mix check` were skipped.
+Cause: the first version of the Docker wrapper was a `/bin/sh` script, and Ubuntu's `/bin/sh` is `dash`, which drops
+environment variables whose names contain a hyphen; Actions passes inputs that way (`INPUT_OTP-ARCHITECTURE`). Do not
+write the wrapper as a shell script (it is a short Python script that adds the caps and then replaces itself with the real
+`docker` by `os.execv`, so arguments, environment, stdin, stdout, stderr and the exit code stay unchanged).
 
-Host facts at inventory (2026-11-08): hostname `vmi2852974`, Ubuntu 24.04.3 LTS x86_64,
-AMD EPYC (8 vCPU, one thread per core), 23 GiB RAM, no swap, 387 GB disk with 345 GB free,
-load average 0.15, cgroup v2 (systemd cgroup driver), systemd 255, Docker CE 29.2.0
-(`docker-ce 5:29.2.0` and `containerd.io 2.2.1` from Docker's apt repository, which were
-already installed; the Ubuntu `docker.io` package was not swapped in because that would
-disturb the production containers). Other workloads: nginx on ports 80 and 443 and four
-containers (`balungpisah-core`, `balungpisah-tensorzero`, `balungpisah-minio`,
-`balungpisah-postgres`). Headroom was about 22 GiB of RAM and an idle CPU. The other Contabo host in the
-owner's SSH config (`ratahq-dev-contabo-01`, 3 cores, 7.8 GiB) was rejected: it
-is below the selection rule used for ELZ-056 (at least 4 cores, 8 GiB RAM and 40 GB free
-disk), which is not a repository requirement for the other runners.
+**Shared Docker daemon (accepted risk).** The runner's Docker access is root-equivalent, and the daemon is shared with the
+owner's other workloads on the host. A job container is not a sandbox: hostile or buggy pull request code could reach those
+workloads. The accepted mitigation while the repository was private was trusted code only plus the resource cap below. This
+is why the owner decided on 2026-11-09 to unregister all self-hosted runners before the repository becomes public (ELZ-066).
 
-Runner: version 2.338.2, tarball SHA-256
-`baebf204307bac6193480852732f0aba2ae97b6c5597c244f4d5558390147c40` (checked with `sha256sum -c` on the host; equal to the
-GitHub release digest read through `gh api` and to the macbook record above), installed at
-`/opt/actions-runner/elzoo-backend`, system account `elzoo-ci` (uid 999, in group `docker`),
-service `actions.runner.balungpisah-elzoo.contabo-elzoo-1.service` (enabled, running as
-`elzoo-ci`). It was registered repository-scoped with a short-lived registration token that
-was piped over SSH into `config.sh` and never written to a file or log.
+**Resource mechanism.** Job containers are children of the Docker daemon, not of the runner service, so a systemd cap on the
+service alone does not limit them. Two caps apply: the service drop-in (`CPUQuota=800%`, `MemoryMax=10G`, `MemoryHigh=9G`,
+`TasksMax=8192`) for the runner's own processes, and the wrapper, which adds `--cpus=8 --memory=8g --memory-swap=8g` to
+`docker create` and `docker run`. The runner runs one job at a time, so the container cap is the practical limit; a job that
+reaches 8 GiB is killed by the kernel. The wrapper caps only containers that the runner creates through its `PATH`; by the
+upstream actions/runner contract (not re-checked here), the runner mounts the Docker socket into job containers, so code inside
+a job can start containers with no cap. The cap guards against accidents and runaway builds, not against hostile code.
 
-**Shared Docker daemon.** The runner's Docker access is root-equivalent and the daemon is
-the same one that runs the production containers above. A job container is not a sandbox:
-hostile or buggy PR code could reach those containers. The accepted mitigation is only
-trusted code in this private repository plus the resource cap below. This is the owner's
-accepted risk. Rootless Docker for `elzoo-ci` is a possible follow-up; it is **not** done.
+**CPU cap raised to 8 cores (owner decision 2026-11-08, "Increase cap to max cpu").** The cap was 5 cores (`CPUQuota=500%`,
+`--cpus=5`) until the failed observation above (the before-measurement: `nr_throttled` 1026, `throttled_usec` 62,213,128, two
+120 s timeouts). The change was made while the runner was idle with no job container: the unit's `cpu.max` read `800000
+100000` after `systemctl daemon-reload`, and a container started through the wrapper read `cpu.max` `800000 100000`,
+`memory.max` `8589934592`, `memory.swap.max` `0`, and still received `INPUT_OTP-ARCHITECTURE=64`. The memory caps are
+unchanged and backups of the previous files were kept on the host. **Consequence, accepted by the owner:** while a CI job runs,
+the owner's other workloads on that host have no CPU reserved; a CI job that uses all 8 cores competes with them on equal
+terms. The re-test failed the same way (above); the test limits are the subject of ELZ-062.
 
-**Resource mechanism.** Job containers are children of `dockerd`, not of the runner
-service, so a systemd cap on the service does not limit them. Two caps apply:
+**Network.** The pinned `ubuntu:24.04` image is pulled by digest. Inside a container `builds.hex.pm`, `repo.hex.pm` and
+`github.com` resolve over IPv4 and answer HTTPS 200. The Docker bridge has no IPv6, so IPv6 requests fail by design; resolvers
+returned only IPv4 (v4-mapped) answers and no NXDOMAIN, unlike the MacBook failure on `builds.hex.pm`. Jobs there are
+IPv4-only. No registry mirror is configured.
 
-- The service drop-in `/etc/systemd/system/actions.runner.balungpisah-elzoo.contabo-elzoo-1.service.d/10-elzoo-cap.conf`
-  sets `CPUQuota=800%` (all 8 cores; it was 500% until 2026-11-08, see "CPU cap raised" below),
-  `MemoryMax=10G`, `MemoryHigh=9G` and `TasksMax=8192` for the runner listener and worker processes.
-- A root-owned wrapper `/opt/actions-runner/elzoo-backend-bin/docker` (mode 755, a
-  `#!/usr/bin/python3 -I` script) is first in the runner's `.path`. For `docker create` and
-  `docker run` it adds `--cpus=8 --memory=8g --memory-swap=8g` (`--cpus=5` until 2026-11-08); it then replaces itself with
-  `/usr/bin/docker` by `os.execv`, so every other subcommand keeps its arguments,
-  environment, stdin, stdout, stderr and exit code. The first version was a `/bin/sh`
-  script and broke the first trial (see below): Ubuntu's `/bin/sh` is `dash`, which drops
-  environment variables whose names contain a hyphen, and Actions passes inputs that way
-  (`INPUT_OTP-ARCHITECTURE`). Do not rewrite the wrapper as a shell script.
-  After the fix, as `elzoo-ci`, `INPUT_OTP-ARCHITECTURE=64` reached the container's
-  initial environment through the wrapper (it was missing before); `docker exec` output
-  and the exit code (7) matched plain `docker` by SHA-256 of stdout and stderr, and
-  `getconf LONG_BIT` printed `64`.
+**ERL_FLAGS.** The workflow sets `+S 4:4 +SDcpu 1 +SDio 1` for this runner, the same as `symbolic-elzoo`: four schedulers
+are well inside the 8-core cap (they were sized for the 5-core cap).
 
-The runner runs one job at a time, so the job container cap is the practical limit. Memory: it leaves
-about 15 GiB (23 GiB minus 8 GiB) for the production workloads; the service cap covers only the runner's
-own processes and does not add to the container cap (worst case 10 GiB plus 8 GiB). A job that reaches
-8 GiB is killed by the kernel; that is the intended protection, not a failure of the host. CPU: since
-2026-11-08 the cap is all 8 cores (below).
-
-**CPU cap raised to 8 cores (owner decision 2026-11-08, "Increase cap to max cpu").** After the failed
-`tier` = `any` observation (the before-measurement: `nr_throttled` 1026, `throttled_usec` 62,213,128 under a
-5-core cap, two 120 s timeouts), the owner decided to give CI all 8 cores of `ratahq-ci-contabo-01`. Changes on
-the host, made while the runner was idle with no job container: `CPUQuota=800%` in the drop-in (applied by
-`systemctl daemon-reload`; `CPUQuotaPerSecUSec` reads 8s and the unit's `cpu.max` reads `800000 100000`) and
-`--cpus=8` in the wrapper (a container started through the wrapper as `elzoo-ci` read `cpu.max` `800000 100000`,
-`memory.max` `8589934592`, `memory.swap.max` `0`, and still received `INPUT_OTP-ARCHITECTURE=64`). The memory
-caps are unchanged. Backups of the previous files are in `/root` on the host
-(`10-elzoo-cap.conf.before-8cores`, `docker-wrapper.before-8cores`). **Consequence, accepted by the owner:** while a CI
-job runs, the production containers on that host (`balungpisah-core`, `-tensorzero`, `-minio`, `-postgres`) have no
-CPU reserved; a CI job that uses all 8 cores competes with them on equal terms, and the production services
-can slow down for the duration of a job. The re-test (one `tier` = `any` run on `main` with the label added only while both
-fast runners are busy) failed the same way (see "Re-test with the 8-core cap"); the test limits are the subject of ELZ-062,
-a separate measured task.
-
-**Trial 1 (failed, kept as evidence).** Run 42452504044, job 128644528184, `workflow_dispatch`
-on `task/ELZ-056` at `1406f40c8d98b0218f8bdf8afb80998522086f39`, runner `contabo-elzoo-1`,
-job 12:53:20 to 12:55:05 WIB (05:53:20Z to 05:55:05Z, 1 min 45 s). The steps before
-`Run erlef/setup-beam` passed: container start, PostgreSQL, checkout, the guard scripts and the
-38 merge-queue tests. `setup-beam` failed with `##[error]otp-architecture must be 32 or 64`;
-`mix setup` and `mix check` were skipped. Cause: the `dash` wrapper dropped
-`INPUT_OTP-ARCHITECTURE` (reproduced on the host, see above). During this job, read from the host,
-the job container had `cpu.max` `500000 100000`, `memory.max` `8589934592`,
-`memory.swap.max` `0`, Docker `NanoCpus` 5000000000, `Memory` 8589934592, and
-`nr_throttled` 0; the cgroup memory peak seen was 1,059,106,816 bytes in the early part of
-the job only. This shows the cap applies to a real job container. It says nothing about a full
-`mix check`, which did not run. The `backend` label was removed after the failure.
-
-**Limit of the cap.** The wrapper caps only containers that the runner creates through its
-`PATH`. By the upstream actions/runner contract (not re-checked here), the runner mounts the
-Docker socket into job containers, so code inside a job can
-start containers with no cap, or reach the production containers. The cap is a guard
-against accidents and runaway builds, not isolation from hostile code.
-
-**Network.** The pinned `ubuntu:24.04` image is pulled by digest. Inside a container
-`builds.hex.pm`, `repo.hex.pm` and `github.com` resolve over IPv4 and answer HTTPS 200.
-The Docker bridge has no IPv6, so IPv6 requests fail by design; host and container resolvers
-returned only IPv4 (v4-mapped) answers and no NXDOMAIN, unlike the macbook failure on
-`builds.hex.pm`. Jobs here are IPv4-only. No registry mirror is configured; Docker Hub
-reachability was not an issue on 2026-11-08.
-
-**Retired runner.** The host previously had an unused runner install for another repository
-(`sabrang-mdp/rakan`, service name `actions.runner.sabrang-mdp-rakan.sabrang-ci-ephemeral-rakan-v98`).
-It had no `.runner` registration file, no systemd unit and no process. Its directory was
-renamed to `/opt/actions-runner.retired-rakan-20261108` (about 953 MB of `_work`) and not
-deleted. The owner may delete it.
-
-**ERL_FLAGS.** The workflow sets `+S 4:4 +SDcpu 1 +SDio 1` for `contabo-elzoo-1`, the same as
-`symbolic-elzoo`: four schedulers are well inside the 8-core cap (they were sized for the 5-core cap).
-
-Operation, as for the other runners: `ssh ratahq-ci-contabo-01 'systemctl status
-actions.runner.balungpisah-elzoo.contabo-elzoo-1.service --no-pager'`. To withdraw the
-machine, remove the `backend` label after the current job finishes; the other two runners keep
-accepting backend jobs. Do not restart the service while it is busy.
+To withdraw the machine, remove the `backend` label after the current job finishes; the other two runners keep accepting
+backend jobs. Do not restart the service while it is busy.
 
 ### Gleam compiler download (ELZ-060)
 
@@ -977,3 +887,11 @@ one-time route and hardened the guard. ELZ-042 closed the flow-style job and
 missing-container gaps found in the ELZ-040 review. ELZ-043 split the dependency
 cache so it is saved after `mix setup` and added the action SHA-pin check. ELZ-056 added
 the Contabo VPS runner as an unrouted candidate. ELZ-057 added the fast tier (pull request and queue runs on the fast runners only) and the runner budget rules. ELZ-060 moved the Gleam compiler download to the release-asset API after the browser URL answered 504. ELZ-066 added the hosted lane selected by `ELZOO_CI_LANE`, ELZ-064 the disposable S3 test server.
+
+### Publishing refs (ELZ-065)
+
+Push only named branches from the owner's checkout (`git push origin <branch>`). Never use `git push --all`, `--mirror`
+or `refs/t3/*`: the local-only refs `refs/t3/orchestration-v2/*` hold agent session files with local paths and a test
+password, and they must stay off the remote. Git history is not rewritten for publication (owner decision 2026-11-09); older
+commits keep the older text of files that were redacted later, so a secret that ever reaches a commit must be rotated, not
+edited away.

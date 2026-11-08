@@ -75,7 +75,10 @@ mix check also needs a disposable PostgreSQL database for the
 `integration/sql` tests (ELZ-009). Point `ELZOO_TEST_DATABASE_URL` at a
 throwaway local database, never a production or personal one:
 
-    export ELZOO_TEST_DATABASE_URL=ecto://elzoo_test:elzoo_test@localhost/elzoo_test
+    export ELZOO_TEST_DATABASE_URL=ecto://elzoo_test:…@localhost/elzoo_test
+
+Use your own throwaway local role and password; no password is recorded in this repository. The CI jobs create
+their own role and database for each job.
 
 Without it, or when it is unreachable, those tests fail closed; they are never
 skipped.
