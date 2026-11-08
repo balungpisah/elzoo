@@ -227,7 +227,7 @@ defmodule Elzoo.Lease.Postgres do
     rescue
       e -> failure(e)
     catch
-      :exit, _ -> failure(nil)
+      :exit, reason -> failure(reason)
     end
   end
 
@@ -432,6 +432,13 @@ defmodule Elzoo.Lease.Postgres do
 
   defp timeout?(%Postgrex.Error{postgres: %{code: code}}),
     do: code in [:query_canceled, :lock_not_available]
+
+  defp timeout?(:timeout), do: true
+
+  defp timeout?(reason) when is_tuple(reason),
+    do: reason |> Tuple.to_list() |> Enum.any?(&timeout?/1)
+
+  defp timeout?(reason) when is_list(reason), do: Enum.any?(reason, &timeout?/1)
 
   defp timeout?(_), do: false
 

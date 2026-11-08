@@ -859,15 +859,15 @@ defmodule Elzoo.LeasePostgresTest do
              Lease.status(lease, "mix")
   end
 
-  test "LS28 absent-head races: uncommitted first claim looks free, locked head is skipped, a commit between the two probes is evaluated, single-key claim waits or reports contended",
+  test "LS28 absent-head races: uncommitted first claim looks free, locked head is skipped, a commit between the two probes is evaluated, single-key claim serializes after the first commit",
        %{lease: lease, store: store, prefix: prefix} do
     heads = "#{Postgres.identifier(prefix)}.elzoo_log_heads"
     test = self()
 
-    # The short contender has its own pool: the 700 ms outcome below is the
-    # held unique-key lock, never a checkout delay in the shared test pool.
+    # Holder and contender use the two already-reserved connections of this
+    # dedicated pool, never the shared suite pool or a short checkout timeout.
     {:ok, contention_repo} =
-      LS28Repo.start_link(url: TestHelper.url!(), pool_size: 4, log: false)
+      LS28Repo.start_link(url: TestHelper.url!(), pool_size: 2, log: false)
 
     Process.unlink(contention_repo)
 
@@ -895,14 +895,39 @@ defmodule Elzoo.LeasePostgresTest do
     assert {:claimed, %{refused: %{"x" => %{reason: :free}}, skipped_locked: []}} =
              Lease.claim_expired(lease, "sweeper", @minute, 1, ["x"])
 
-    # (d) a single-key claim on the absent head waits on the ON CONFLICT unique wait, then proceeds against the committed state
-    {:ok, short} = TestHelper.pg_lease(contention_store, timeout_ms: 700)
-    assert {:error, :contended} = Lease.claim(short, "x", "bob", @minute)
-    claim = Task.async(fn -> Lease.claim(lease, "x", "bob", @minute) end)
-    Process.sleep(200)
-    refute Task.yield(claim, 0)
+    # (d) the contender has checked out its reserved connection and entered
+    # the Piece's transaction before the first insert commits. It then sees
+    # that committed free head and grants exactly one lease without a timed
+    # checkout or a widened outcome assertion.
+    {:ok, contender} =
+      TestHelper.pg_lease(contention_store,
+        hook: fn
+          :before_lock, %{key: "x"} ->
+            send(test, {:contender_ready, self()})
+
+            receive do
+              :continue_contender -> :ok
+            after
+              5_000 -> raise "contender was not released"
+            end
+
+          _, _ ->
+            :ok
+        end
+      )
+
+    claim = Task.async(fn -> Lease.claim(contender, "x", "bob", @minute) end)
+
+    contender_pid =
+      receive do
+        {:contender_ready, pid} -> pid
+      after
+        5_000 -> raise "contender did not enter its reserved connection"
+      end
+
+    send(contender_pid, :continue_contender)
     send(holder.pid, :commit)
-    Task.await(holder, 10_000)
+    assert {:ok, _} = Task.await(holder, 10_000)
     assert {:held, _} = Task.await(claim, 10_000)
 
     # (b) a committed head locked by another transaction is skipped_locked and the sweep's transaction still commits its other claims
