@@ -1,6 +1,6 @@
 # ELZ-049 — Run the database-free copied consumers concurrently
 
-- Phase: P0 harness (`test/export_test.exs`, new `test/support/cure_consumer_case.exs`, new consumer group test files)
+- Phase: P0 harness (`test/export_test.exs`, new `test/support/cure_consumer_case_test_helper.exs`, new consumer group test files)
 - Catalogue IDs: none
 - Dependencies: ELZ-045 (#80) for the per-consumer timing lines that measure this. Merged.
 - Source: CI speed assessment 2026-11-08, item 3. Design option A, chosen by the owner on 2026-11-08 ("A").
@@ -8,9 +8,9 @@
 ## Outcome
 
 Today every copied consumer test runs in one ExUnit module with `async: false`, one after the
-other. On main `0a42370` the 23 consumers that do not use PostgreSQL took about 190 s in
-sequence on `symbolic-elzoo` (job 128581094645) and about 215 s on
-`macbook-ubuntu-elzoo-candidate` (job 128568158091). After this task those 23 consumers run in
+other. On main `0a42370` the 23 consumers that do not use PostgreSQL took 189.5 s in
+sequence on `symbolic-elzoo` (job 128581094645); on `macbook-ubuntu-elzoo-candidate` they took
+224.3 s on main `97456c8` (job 128568158091, one merge earlier). After this task those 23 consumers run in
 three ExUnit modules with `async: true`, so up to three consumers run at the same time. The three
 PostgreSQL consumers (`integration/sql`, `integration/jobs`, `assembly/durable-job`), the
 aggregate consumer and the OTP-only consumer stay in sequence in `test/export_test.exs`.
@@ -39,8 +39,9 @@ aggregate consumer and the OTP-only consumer stay in sequence in `test/export_te
 
 - [ ] Full `mix setup` and `mix check` pass locally.
 - [ ] 20 repeats of the three database-free group files on `macbook-ubuntu-elzoo-candidate`
-      (dispatch runs on the branch head) with no failure and no time limit hit; the largest
-      observed per-consumer `total` recorded.
+      (a measurement branch with the same test tree) with no failure and no time limit hit; the
+      largest observed per-consumer `total` recorded. The repeats run the group files alone, so
+      they do not sample the overlap with other async modules inside `mix check`.
 - [ ] Root suite `Finished in` and the `ELZOO STAGE root_suite` elapsed on the same SHA before and
       after, both runners, run and job IDs recorded.
 - [ ] Root test count unchanged (564 on main `0a42370`); no assertion weakened.
