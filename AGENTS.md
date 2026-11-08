@@ -136,13 +136,17 @@ ownership areas.
 
 CI must run only on the owner's machines: the user-owned symbolic and
 macbook-ubuntu, and the user-rented Contabo VPS runner contabo-elzoo-1 (owner
-decision 2026-11-08; any tier only), with pull request checks and queue runs on the fast
-runners only, in the roles defined in
+decision 2026-11-08; unrouted, for measurement runs a person steers), with pull request
+checks and queue runs on the fast runners only, in the roles defined in
 docs/development/10-symbolic-ci.md. Use the explicit
 self-hosted selectors and runner identity checks documented there.
-Never use or fall back to GitHub-hosted runners: the owner does not have hosted
-minutes available. If a runner is offline, diagnose its service/queue; do not
-change runs-on to a hosted image. Verify actual job runner identity when
+While the repository is private, never use or fall back to GitHub-hosted runners:
+the owner does not have hosted minutes available. Once the repository is public
+(owner decision 2026-11-09), CI runs on the GitHub-hosted lane that the
+repository variable ELZOO_CI_LANE selects (docs/development/10-symbolic-ci.md,
+"Lanes"); the self-hosted lane is retiring, and self-hosted runners must never
+stay attached to a public repository. If a runner is offline, diagnose its
+service/queue; do not change runs-on to a hosted image outside the documented lane. Verify actual job runner identity when
 changing workflows. GitHub still provides repository/PR/check orchestration.
 
 ## Verify the actual claim
@@ -199,7 +203,8 @@ The coordinator merges only after checks and required review:
 
 1. resolve findings and rerun relevant checks;
 2. merge through GitHub, never rewrite main;
-3. verify acceptance on the merge commit (including its CI result);
+3. verify acceptance on the merge commit (including its CI result: its own green full run, or a push run that
+   logs `ELZOO PUSH CHECK SKIPPED` with the passed exact-head run and job IDs, see docs/development/10-symbolic-ci.md);
 4. delete the merged remote and local task branch;
 5. remove the worktree and confirm git status --short is empty;
 6. close the issue with PR and merge SHA.
