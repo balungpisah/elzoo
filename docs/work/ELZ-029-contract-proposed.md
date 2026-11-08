@@ -1,6 +1,6 @@
 # ELZ-029 — proposed Contract amendments (exact before/after text, revision 2)
 
-Status: **approved wording, not yet applied in this form.** The main
+Status: **approved wording (A1–A7), not yet applied in this form; A7″ and A8 proposed in revision 4, A7′ withdrawn.** The main
 coordinator approved A2 and A3 as written in revision 1 and the **reworded**
 A1, A4, A5, A6 and A7 below (byte-exact before-texts from the focused re-review
 [ELZ-029-early-rereview.md](ELZ-029-early-rereview.md), section "Exact
@@ -140,11 +140,18 @@ this text (as a continuation of the same list item):
    Needs: an executable path and declared executable version, a working directory, an explicit environment allowlist (names inherited from the host plus names set per call; everything else is unset for the child), and declared host `kill` and `pgrep` utilities for signalling and group observation. The `integration/agent-runner` task records the exact Claude Code CLI and Codex CLI versions.
 ```
 
-## A7′ — proposed addition, NOT yet approved (author, revision 3 design)
+## A7′ — WITHDRAWN (revision 4)
 
-Revision 3 of the design runs the command behind a constant POSIX `sh` wrapper
-(in-group watchdog; see docs/work/ELZ-029.md). `/bin/sh` therefore becomes a
-declared Need. Proposed: in the A7 text replace
+The `/bin/sh` wrapper of revision 3 is withdrawn: the main coordinator ruled
+that a library is exercised first, and the probe
+([ELZ-029-provider-probe.md](ELZ-029-provider-probe.md)) found erlexec 2.6.0
+fit. No `/bin/sh` or `setsid` Need.
+
+## A7″ — proposed replacement of the A7 Needs sentence (author, revision 4; NOT yet approved)
+
+With erlexec as the provider, the Adapter sends no signal itself, so `kill`
+is no longer a Need; the provider's port program and `pgrep` are. Proposed:
+in the approved A7 text replace
 
 ```text
 and declared host `kill` and `pgrep` utilities for signalling and group observation.
@@ -153,8 +160,33 @@ and declared host `kill` and `pgrep` utilities for signalling and group observat
 with
 
 ```text
-and declared host `/bin/sh` (POSIX shell, used only to run a constant wrapper script with the command passed as positional arguments, never parsed), `kill` and `pgrep` utilities for signalling and group observation.
+the erlexec 2.6.0 port program (`exec-port`, built from the pinned Hex package with the host C++ toolchain) for spawning, group creation, deadline escalation and owner-death cleanup, and the declared host `pgrep` utility for group observation.
 ```
 
-Pending the main coordinator's decision; if declined, the README declares the
-`sh` Need without a Contract sentence.
+## A8 — proposed addition (author, revision 4; NOT yet approved)
+
+erlexec masks the exit status of a termination it performed on request
+(`exec:stop`, and the stop it performs when a linked owner dies). The ending
+signal is then not reported, while the group's emptiness is still observed.
+Proposed: in the A5 text replace
+
+```text
+`terminated{stage: none | term | kill, deadline}`
+```
+
+with
+
+```text
+`terminated{stage: none | term | kill | unobserved, deadline}`
+```
+
+and append to the A5 parenthesis, before its closing `)`:
+
+```text
+; `unobserved` only when the provider performed the staged termination on the Adapter's or the owner-death request and does not report the ending signal, while the group was observed empty afterwards
+```
+
+Reason: the only alternatives are to infer the stage from timing (rejected by
+review) or to send group signals from the BEAM (refused by erlexec, and the
+identity race the review rejected). `unobserved` is a truthful label; it does
+not claim `term` or `kill`.
