@@ -1,6 +1,8 @@
+Redacted for publication; SHA-256 of the reviewer's original report: f6299a3bf9e10209fa369604e169209076698deb9a735faa10fe78d5cc2f79e5
+
 # ELZ-028 focused independent early re-review, round 4
 
-Reviewer: Codex, Orca session `orca_session_id:968c44f1-c4fa-4fe3-a9a4-9a7c3de825fc`, task `task_63e0dbef8dec`, dispatch `ctx_433200a242de`. Reviewed `origin/task/ELZ-028` at `e721a0c1d9101e27e589a1c166a481420e8a9e8c`, after fetch, against live issue #45, the ready SQL and event-log Stores, and prior review. Read-only review; no Mix or database commands were run, and no implementation or proof was established.
+Reviewer: the independent reviewer (Codex), a read-only dispatch. Reviewed `origin/task/ELZ-028` at `e721a0c1d9101e27e589a1c166a481420e8a9e8c`, after fetch, against live issue #45, the ready SQL and event-log Stores, and prior review. Read-only review; no Mix or database commands were run, and no implementation or proof was established.
 
 ## Finding dispositions
 
@@ -35,6 +37,6 @@ All seven G1–G7 lines in §9 compare byte-for-byte with the first review. Verb
 
 ## Commands and exit codes
 
-Ran in the assigned workspace unless absolute paths shown. `git fetch origin --prune` 0; `git status --short` 0 (pre-existing untracked `.reticle-setup-crash.log`, untouched); `git rev-parse origin/task/ELZ-028` 0; `git diff --stat 6cd6663 e721a0c` 0; `git diff 6cd6663 e721a0c -- docs/work/ELZ-028.md docs/work/ELZ-028-contract-proposed.md` 0; `git diff --name-status origin/main...e721a0c` 0; `git diff --check 6cd6663 e721a0c` 0; `git show` of current design, amendments and first/third reviews 0; third-review `git show ... | cmp - /tmp/elz028-early-rereview3-545d4b52-5b67-47ea-8a03-fc3a76865bae.md` 0; `gh issue view 45 -R balungpisah/elzoo --json body` 0; Python literal anchor counts and seven gate-line comparison 0; targeted `rg` of ready Store sources and docs 0; `cat` orchestration skill 0; `printenv ORCA_CLI_COMMAND ORCA_DEV_REPO_ROOT` 0; `/Applications/Orca.app/Contents/Resources/bin/orca skills get orchestration` 0. Initial bare `orca skills get orchestration` exited 1 with `Unable to determine Orca.app path from symlink: /usr/local/bin/orca`; used the session-specified executable thereafter. No Mix, DB, issue, label, branch, commit, push or source writes; the requested report alone was written in `/tmp`.
+Ran in the assigned workspace unless absolute paths shown. `git fetch origin --prune` 0; `git status --short` 0 (pre-existing untracked `.reticle-setup-crash.log`, untouched); `git rev-parse origin/task/ELZ-028` 0; `git diff --stat 6cd6663 e721a0c` 0; `git diff 6cd6663 e721a0c -- docs/work/ELZ-028.md docs/work/ELZ-028-contract-proposed.md` 0; `git diff --name-status origin/main...e721a0c` 0; `git diff --check 6cd6663 e721a0c` 0; `git show` of current design, amendments and first/third reviews 0; third-review `git show ... | cmp - the reviewer's original report` 0; `gh issue view 45 -R balungpisah/elzoo --json body` 0; Python literal anchor counts and seven gate-line comparison 0; targeted `rg` of ready Store sources and docs 0; `cat` orchestration skill 0; `printenv ORCA_CLI_COMMAND ORCA_DEV_REPO_ROOT` 0; the session-provided Orca executable's `skills get orchestration` 0. Initial bare `orca skills get orchestration` exited 1 with an Orca path-resolution error; used the session-specified executable thereafter. No Mix, DB, issue, label, branch, commit, push or source writes; the requested report alone was written in `/tmp`.
 
 NOT CLEAR

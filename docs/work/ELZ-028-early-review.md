@@ -1,6 +1,8 @@
+Redacted for publication; SHA-256 of the reviewer's original report: 8581059b9327b26a93d75516662f3a9d4a1b7ba10b0e6302359a98f7518b5510
+
 # ELZ-028 independent early Contract review
 
-Reviewer: Codex, Orca session `orca_session_id:2b4150d0-e531-4448-ba35-cf8087e563c8`, independent read-only dispatch `task_07044bcb1975`. Reviewed `origin/task/ELZ-028` SHA `0b99406f2c5ea0ff92496f5dd79fbcceffd6bf53`; comparison `origin/task/ELZ-050:docs/plans/catalogue-dispositions.md`, live #45 body and comments, task copy and ready Piece contracts/source in this checkout. This is a design review, not a review of an implementation. `git diff --name-only origin/main origin/task/ELZ-028` shows only `.claims/ELZ-028.md` and `docs/work/ELZ-028.md`; the claim marker is temporary and must not merge. No Mix, database tests or changes to the checkout were performed. The pre-existing untracked `.reticle-setup-crash.log` was left untouched.
+Reviewer: the independent reviewer (Codex), an independent read-only dispatch. Reviewed `origin/task/ELZ-028` SHA `0b99406f2c5ea0ff92496f5dd79fbcceffd6bf53`; comparison `origin/task/ELZ-050:docs/plans/catalogue-dispositions.md`, live #45 body and comments, task copy and ready Piece contracts/source in this checkout. This is a design review, not a review of an implementation. `git diff --name-only origin/main origin/task/ELZ-028` shows only `.claims/ELZ-028.md` and `docs/work/ELZ-028.md`; the claim marker is temporary and must not merge. No Mix, database tests or changes to the checkout were performed. The pre-existing untracked `.reticle-setup-crash.log` was left untouched.
 
 ## Findings
 

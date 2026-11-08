@@ -1,6 +1,8 @@
+Redacted for publication; SHA-256 of the reviewer's original report: 03c3e0cf7dac611691227317988ac158dffa2e22f14cd261997c4d04852f40be
+
 # ELZ-028 focused independent early re-review
 
-Reviewer: Codex, Orca session `orca_session_id:7ac9a0a1-26ca-41b6-ae35-b1bd3bef9cb7`, dispatch `task_385318bb60de`. Reviewed `origin/task/ELZ-028` at `c32e62c0e34922e4a20686ee9d6aa054f5151058`; live #45 and `origin/main` at `f4e3283` after fetch. This is a read-only design review, not implementation or execution evidence. No Mix or database commands were run.
+Reviewer: the independent reviewer (Codex), a read-only dispatch. Reviewed `origin/task/ELZ-028` at `c32e62c0e34922e4a20686ee9d6aa054f5151058`; live #45 and `origin/main` at `f4e3283` after fetch. This is a read-only design review, not implementation or execution evidence. No Mix or database commands were run.
 
 ## Findings
 
@@ -16,7 +18,7 @@ Reviewer: Codex, Orca session `orca_session_id:7ac9a0a1-26ca-41b6-ae35-b1bd3bef9
 | R3 | **PARTIAL.** `complete/4`, terminal-kind routing and bypass exclusion are described; A4 conflicts with the unconditional acceptance wording and needs deliberate resolution. Further, §2.6 returns `{:held, held'}` after `complete/4` with an advanced fence: a consumer using that returned fence may write after terminal release. Specify a terminal result that cannot be used as an active lease and test the returned value, not merely an old fence. The Store fence does not enforce caller identity. |
 | R4 | **PARTIAL.** Operational declarations, Store/Repo clock binding, caller-transaction check, bounded inputs, and nonce/digest confirmation are planned. Confirm all construction and operation paths comply with the existing Store's no-statement caller-transaction behavior, and ground actual declarations in bundle tests; no implementation exists. |
 | R5 | **PARTIAL.** Pins, provenance, comparisons, scenario plan and evidence categories are clearer. The missing real expiry-before-CAS, clock regression during selection, transactional ready selection, and retention/replay races above remain; LS8b's described crossing result is not a passing control for live-only renewal. Actual tests/proofs and reproducible evidence remain future work. |
-| R6 | **OPEN.** The proposal accepts any reachable database in `ELZOO_TEST_DATABASE_URL`; this dispatch authorizes **only `elzoo_pieces_test`**. Before any setup, migration or test, parse and verify the effective database target is exactly `elzoo_pieces_test`, fail closed for absent, mismatched, overridden or unreachable configuration, and report target and commands without credentials. A URL being supplied is not sufficient. |
+| R6 | **OPEN.** The proposal accepts any reachable database in `ELZOO_TEST_DATABASE_URL`; this dispatch authorizes **only the worker's disposable database**. Before any setup, migration or test, parse and verify the effective database target is exactly the worker's disposable database, fail closed for absent, mismatched, overridden or unreachable configuration, and report target and commands without credentials. A URL being supplied is not sufficient. |
 | L1 | **PARTIAL.** Status meanings, held mapping, limits and refusal paths are described, subject to the issues above and review of newly chosen bounds. |
 
 ## Amendment verdicts
@@ -79,9 +81,9 @@ Commands and exit codes (all run in the stated workspace):
 
 - `git fetch origin --prune` — 0; `git status --short --branch` — 0; `git rev-parse origin/task/ELZ-028` — 0.
 - `git diff 0b99406 c32e62c`, `git diff --name-status 0b99406 c32e62c`, `git diff --name-only origin/main c32e62c`, `git diff --name-status origin/main...c32e62c`, `git merge-base origin/main c32e62c`, `git diff --stat origin/main c32e62c`, `git diff --check 0b99406 c32e62c` — each 0.
-- `cat /tmp/elz028-early-review-2b4150d0-e531-4448-ba35-cf8087e563c8.md` — 0; `git show c32e62c:docs/work/ELZ-028-early-review.md | cmp - /tmp/elz028-early-review-2b4150d0-e531-4448-ba35-cf8087e563c8.md` — cmp 0; Python comparison of G1–G7 — 0, all identical.
+- `cat` of the reviewer's original report — 0; `git show c32e62c:docs/work/ELZ-028-early-review.md | cmp - the reviewer's original report` — cmp 0; Python comparison of G1–G7 — 0, all identical.
 - `git show c32e62c:docs/work/ELZ-028.md`, `git show c32e62c:docs/work/ELZ-028-contract-proposed.md`, `git show origin/main:docs/plans/catalogue-dispositions.md | rg -n -C 5 'state/lease|ELZ-028'`, and reads of ready SQL/event-log README and SQL source via `rg`/`sed` — each 0.
 - `gh issue view 45 -R balungpisah/elzoo --json body` and `gh issue view 45 -R balungpisah/elzoo --json body --jq .body` inspections including the Python literal match check — each 0. Literal check found A1 and A4's before substrings once, normalized A3 and A5 zero times.
-- `cat AGENTS.md` — 0; `/Applications/Orca.app/Contents/Resources/bin/orca skills get orchestration` — 0. Initial bare `orca skills get orchestration` — 1 (`Unable to determine Orca.app path from symlink: /usr/local/bin/orca`); selected the session-provided executable thereafter.
+- `cat AGENTS.md` — 0; the session-provided Orca executable's `skills get orchestration` — 0. Initial bare `orca skills get orchestration` — 1 (an Orca path-resolution error); selected the session-provided executable thereafter.
 
 NOT CLEAR
