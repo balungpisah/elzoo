@@ -84,3 +84,83 @@ above is now resolved locally:
 
 Each result reports 97 catalogue IDs, 2 separate candidates, 76 jobs, 12 products
 and 136 local links. Final PR/CI/queue/merge acceptance remains separate.
+
+## Final-review regression additions (F1–F4)
+
+Author: Orca `7c1b608d-f91b-4573-b2e7-310670b76a04`, 2026-11-08.
+Baseline `664652d4f1d134a26b223ae3042a7d3618197346` includes the ELZ-048
+merge and regenerated views above. Test commit
+`cde8d20b5f773c11024e16039a11e6619cf5759d` appends three tests (126 lines)
+to the existing context-selection suite; every pre-existing test/helper/assertion
+is preserved. Production source, README, manifest and example remain byte-identical
+to independently reviewed `cc01f8163d60ef13d56152a16f3ffbe4f94d6fa3`.
+No Contract, metadata, protected file, dependency or configuration changed in
+this stage.
+
+- **F1:** with `now: 100` and `snapshot_at: 95`, the exact-boundary check at 95
+  selects its item; an own check at 97 drops with
+  `stale_access_check/future_check`; the same ancestor check drops the derivative
+  with `stale_access_check/source_stale`. A mutation replacing the snapshot bound
+  with `now` in both runtime and reference still passes Cure checking but selects
+  all three items. The new scenario asserts that disagreement explicitly.
+- **F2:** a trusted node with tenant `other` and `check: nil` drops both an own
+  candidate and a derivative using that ancestor with
+  `access_denied/binding_mismatch`; an independent valid item is selected.
+  Removing both runtime/reference early node-tenant gates still passes Cure
+  checking but produces `missing_check` and `source_unchecked`. The scenario
+  asserts these incorrect details and their disagreement with the required ones.
+- **F3:** a separate test exercises 14 deterministic malformed request/context
+  pairs, including nested node, check and reference values, improper lists,
+  invalid types and invalid UTF-8. Each returns the expected error class with
+  zero calls to Cure `select/4`. The original five-request seam test is unchanged;
+  valid denied/missing checks are not classified as malformed.
+- **F4 (PR wording):** the laws establish successful-result safety relative to
+  the recursive reference evaluator. Runtime and reference share primitive and
+  structural helpers, including `has_newer`, `resolve`, `resolve_edges`, `key_eq`,
+  `same`, `hash_eq`, `both`, `pos_eq`, `flags_at`, `mark`, `ready_edges` and
+  `append_edges`. `resolution_law` is separate from `selected_access_law`.
+  These additions make no new proof or independence claim. The reviewer's
+  scratch 10,000 oracle cases and 30,000 malformed cases remain independent
+  observations, not durable regression tests added by this stage.
+
+### Executed commands and results
+
+Both commands ran from the assigned task worktree:
+
+```sh
+env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 \
+  ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' \
+  ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:elzoo_elz024@localhost/elzoo_pieces_test \
+  mix test pieces/workflow/context-selection/test/elzoo/context_selection_test.exs
+
+env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 \
+  ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' \
+  ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:elzoo_elz024@localhost/elzoo_pieces_test \
+  mix check
+```
+
+- Targeted suite: exit **0**, **`Result: 36 passed`**, 27.3 seconds, including
+  both new mutation controls. Mutation evidence is scenario disagreement despite
+  successful Cure checking, not proof rejection or a failing overall test run.
+- Full check at `cde8d20`: exit **0**, **07:06:37–07:17:50 WIB** on
+  2026-11-08; **`Result: 32 passed`** (Ash spike),
+  **`Result: 564 passed`** (root suite), **`ELZOO CHECK PASSED`**.
+  This supersedes the earlier root total of 561 for the three added tests.
+- Full selection retained all 26 fixed consumers, zero skipped, and the
+  aggregate of all 41 ready IDs. Aggregate total: **165.7 seconds**, a local
+  observation only. The worktree stayed clean during the full run.
+- `mix setup` was not repeated in this additive-test stage: the coordinator's
+  successful setup is recorded above and dependencies/configuration are unchanged.
+  Cure remains `208248063d64e621782cd26dd30698ee42850a89`, Elixir 1.20.4,
+  OTP 29.1.2; only the authorized `elzoo_pieces_test` database was used.
+- Logs: `/tmp/elz030-review-additions/targeted.log`,
+  `/tmp/elz030-review-additions/full-check.log`; start metadata in `start.json`.
+
+Independent incremental review of these additions and the ELZ-048 metadata merge,
+PR/CI, merge acceptance and cleanup remain coordinator-owned gates. No PR,
+merge or queue action was performed in this stage.
+
+Final scope audit: `git diff --check` exited **0**; a byte-prefix comparison
+confirmed every existing test/helper/assertion was preserved, and a Git-blob
+comparison confirmed all non-test Piece files are unchanged from `cc01f81`.
+Only the additive suite and this evidence document differ from `664652d`.
