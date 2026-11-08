@@ -284,10 +284,10 @@
     {
       "id": "delivery/trigger",
       "summary": "Normalize externally initiated work",
-      "disposition": "defer",
+      "disposition": "own",
       "phase": "demand-led",
-      "status": "deferred",
-      "reason": "Schedule/webhook/app-event input with source identity and dedup scope; delivery/time is only a timer recipe. Needed by C1/C7; no trigger adapter adopted. ELZ-027 carries the schedule-occurrence slice (identity from schedule id, generation and instant; declared skip/queue/replace overlap policy)."
+      "status": "ready",
+      "manifest": "pieces/delivery/trigger/piece.json"
     },
     {
       "id": "delivery/windowed-idempotency",
