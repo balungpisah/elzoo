@@ -1,6 +1,12 @@
 # ELZ-023 focused amendment probe evidence
 
-Status: executed feasibility evidence; focused independent review pending; no production acceptance.
+Status: executed feasibility evidence; [independent review](ELZ-023-focused-review.md)
+is CONDITIONAL at 82287ca; no production acceptance.
+The reviewer reproduced the green checks but found an unsafe history-dependent
+replay sequence outside these label laws: after replay-safe rearm, a later
+adapter_no_send erases the horizon requirement. Monotone history G1 and root
+restart-breadth acknowledgement A1 are required; see the
+[decision/gates handoff](ELZ-023-focused-handoff.md).
 Root decision R-A–R-F (~08:55 WIB, 2026-11-08) and amendment comment
 [6715823301](https://github.com/balungpisah/elzoo/issues/37#issuecomment-6715823301)
 are applied in the live/task Contract and [revised proposal](ELZ-023.md).
