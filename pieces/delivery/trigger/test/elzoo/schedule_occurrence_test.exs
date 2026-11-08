@@ -44,14 +44,29 @@ defmodule Elzoo.ScheduleOccurrenceTest do
       {:reply, decisions, %{owner | state: next}}
     end
 
-    def handle_call(:schedule_tick, _from, owner) do
-      timer = Process.send_after(self(), :tick, 0)
-      {:reply, timer, %{owner | timer: timer}}
+    # The delivery/time recipe: Process.send_after schedules the tick and the
+    # returned reference cancels it. The owner keeps at most one pending timer.
+    def handle_call({:schedule_tick, delay_ms}, _from, %{timer: nil} = owner) do
+      timer = Process.send_after(self(), :tick, delay_ms)
+      {:reply, {:ok, timer}, %{owner | timer: timer}}
     end
 
+    def handle_call({:schedule_tick, _delay_ms}, _from, owner),
+      do: {:reply, {:error, :timer_pending}, owner}
+
+    # A tick already handled leaves no timer; cancelling then is a no-op reply,
+    # never a call to Process.cancel_timer(nil).
+    def handle_call(:cancel_tick, _from, %{timer: nil} = owner),
+      do: {:reply, {:ok, :no_timer}, owner}
+
     def handle_call(:cancel_tick, _from, owner) do
-      result = Process.cancel_timer(owner.timer)
-      {:reply, result, %{owner | timer: nil}}
+      case Process.cancel_timer(owner.timer) do
+        remaining when is_integer(remaining) ->
+          {:reply, {:ok, {:cancelled, remaining}}, %{owner | timer: nil}}
+
+        false ->
+          {:reply, {:ok, :already_fired}, %{owner | timer: nil}}
+      end
     end
 
     def handle_call(:log, _from, owner), do: {:reply, Enum.reverse(owner.log), owner}
@@ -478,7 +493,9 @@ defmodule Elzoo.ScheduleOccurrenceTest do
         slots: [500, 1_000, 2_000]
       )
 
-    timer = GenServer.call(owner, :schedule_tick)
+    # tick 1: Process.send_after delivers, the shell reads the clock, the pure
+    # transition receives the instant and the boundary as data
+    assert {:ok, timer} = GenServer.call(owner, {:schedule_tick, 0})
     assert is_reference(timer)
     assert eventually(fn -> GenServer.call(owner, :log) != [] end)
 
@@ -486,22 +503,48 @@ defmodule Elzoo.ScheduleOccurrenceTest do
              {1_000, [{:skipped, 500, :offline_catch_up}, {:occurrence, id(1_000), :live}]}
            ]
 
+    # tick 2 with a later clock reading
     Agent.update(clock, fn _ -> 2_000 end)
-    GenServer.call(owner, :schedule_tick)
+    assert {:ok, _} = GenServer.call(owner, {:schedule_tick, 0})
     assert eventually(fn -> length(GenServer.call(owner, :log)) == 2 end)
 
     assert Enum.at(GenServer.call(owner, :log), 1) ==
              {2_000,
               [{:already_recorded, 500}, {:already_recorded, 1_000}, {:skipped, 2_000, :overlap}]}
 
-    # a cancelled timer reference produces no further admission
+    # deterministic cancellation: a timer one hour away is still pending when
+    # cancelled, Process.cancel_timer returns the remaining time, and no tick
+    # message reaches the owner afterwards
     Agent.update(clock, fn _ -> 3_000 end)
-    GenServer.call(owner, :schedule_tick)
-    cancelled = GenServer.call(owner, :cancel_tick)
-    Process.sleep(20)
-    log = GenServer.call(owner, :log)
-    if cancelled == false, do: assert(length(log) == 3), else: assert(length(log) == 2)
-    assert is_integer(System.monotonic_time(:millisecond))
+    assert {:ok, pending} = GenServer.call(owner, {:schedule_tick, 3_600_000})
+    assert is_integer(Process.read_timer(pending))
+    assert {:ok, {:cancelled, remaining}} = GenServer.call(owner, :cancel_tick)
+    assert is_integer(remaining) and remaining > 0
+    assert Process.read_timer(pending) == false
+    assert {:message_queue_len, 0} = Process.info(owner, :message_queue_len)
+    assert length(GenServer.call(owner, :log)) == 2
+    assert {:ok, :no_timer} = GenServer.call(owner, :cancel_tick)
+    assert Process.alive?(owner)
+  end
+
+  test "S13d tick handled before cancel: the owner replies no_timer and survives" do
+    {:ok, state} = S.new(schedule(:skip), 0)
+
+    {:ok, owner} =
+      Owner.start_link(state, clock: fn -> 1_000 end, boundary: 0, slots: [1_000])
+
+    assert {:ok, timer} = GenServer.call(owner, {:schedule_tick, 0})
+    # wait until the tick is handled, so the cancel deterministically comes after it
+    assert eventually(fn -> GenServer.call(owner, :log) != [] end)
+    assert Process.read_timer(timer) == false
+    assert {:ok, :no_timer} = GenServer.call(owner, :cancel_tick)
+    assert Process.alive?(owner)
+    assert GenServer.call(owner, :log) == [{1_000, [{:occurrence, id(1_000), :live}]}]
+    # a second pending timer is refused while one exists, then cancels cleanly
+    assert {:ok, _} = GenServer.call(owner, {:schedule_tick, 3_600_000})
+    assert {:error, :timer_pending} = GenServer.call(owner, {:schedule_tick, 0})
+    assert {:ok, {:cancelled, _}} = GenServer.call(owner, :cancel_tick)
+    assert length(GenServer.call(owner, :log)) == 1
   end
 
   defp eventually(fun, tries \\ 50) do
