@@ -137,3 +137,19 @@ this machine, not proof of all possible schedules.
 `/tmp/elz011-proposal/T1-repeated.log` SHA256 `b6ed0d5f49ee100ab2995f9c56108fb816176642cd39fb4b8542d34d972d4270`.
 
 `/tmp/elz011-proposal/T1-export.log` SHA256 `1f9b020e62a92f96af1d0de5e72b58738bce0e109fce7480d8216f0fdf68ac89`.
+
+Before final narrow review, marker removal/test fix commit `477799b` retained
+the original claim commit in history. Normal merge `f70ffa452d79dfa697ea2bedf53bb3c50aa733ad`
+brings `origin/main` at `452caa1f8140d6ec1cfee6cea1119a65e1c87a11` (ELZ-056
+CI-runner admission); no rebase, force push or conflict. The inherited changes
+are CI policy/docs/scripts only, with no provider, runtime or Piece changes.
+Relative to current main the task authors no protected-path changes.
+
+Post-merge checks: `python3 scripts/check-roadmap.py` and `--live` exit 0
+(139 links); `python3 scripts/check-claims.py` exits 0 (no tracked metadata);
+`python3 scripts/check-ci-runners.py` passes; `python3 scripts/test-ci-runners.py`
+passes 70 tests; `python3 scripts/test-merge-queue.py` passes 38 tests.
+Production-range whitespace passes excluding the preserved historical patches.
+The full Mix suite was not repeated for this inherited CI-only merge or the
+test synchronization change; exact checked commits and the narrower new checks
+are stated above, and the coordinator queue owns full exact-head acceptance.

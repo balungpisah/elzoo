@@ -1,3 +1,9 @@
+> Latest status: the [incremental review](ELZ-011-incremental-review.md) cleared
+> the product fixes; its required T1 synchronization fix and L2 temp-directory
+> correction now pass targeted/repeated/export checks. Claim marker removed,
+> main ELZ-056 merged, and roadmap/claims/CI-policy checks pass. See the
+> [final delta evidence](ELZ-011-review-fixes.md); final narrow review and PR remain.
+
 # ELZ-011 production and acceptance record
 
 Implementation source commit: `36384d4e90cf1487f17dfbb41322a06e59766ae0`.
