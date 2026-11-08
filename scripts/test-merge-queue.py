@@ -434,6 +434,17 @@ class QueueTest(unittest.TestCase):
                 self.assertEqual(1, self.fake.transient_calls)
                 self.assertFalse(any("Transient failure" in m for m in self.fake.messages))
 
+    def test_a_non_queue_error_inside_evidence_still_names_the_run(self):
+        self.fake.stale = False
+        original = self.q.evidence
+
+        def broken(run_id, pr, workflow_id):
+            raise KeyError("workflow_runs")
+        self.q.evidence = broken
+        with self.assertRaises(KeyError):
+            self.q.process(79)
+        self.assertTrue(any("Stopped while awaiting run 101 for PR #79" in m for m in self.fake.messages))
+
     def test_write_commands_are_never_retried(self):
         for argv in (["gh", "workflow", "run", "symbolic-check.yml"], ["gh", "pr", "merge", "79"],
                      ["gh", "pr", "update-branch", "79"], ["gh", "api", "-X", "POST", "repos/x/actions/runs/1/cancel"],
@@ -464,6 +475,12 @@ class QueueTest(unittest.TestCase):
             run(["gh", "api", "repos/x/actions/runs/1"])
         self.assertEqual(2, len(calls))  # one retry after 10 s; the next 20 s wait would pass the deadline of 25 s
         self.assertLessEqual(now[0], 25)
+        # exact boundary: a wait that ends exactly at the deadline is not taken
+        now[0], calls[:] = 0, []
+        run = queue.retrying(failing, sleep, lambda *a, **k: None, clock=lambda: now[0], deadline=lambda: 10)
+        with self.assertRaises(queue.QueueError):
+            run(["gh", "api", "repos/x/actions/runs/1"])
+        self.assertEqual(1, len(calls))
 
     def test_transient_pattern_and_read_only_rules(self):
         for text in ("TLS handshake timeout", "connection reset by peer", "HTTP 502", "HTTP 503: x", "HTTP 504",
@@ -473,6 +490,22 @@ class QueueTest(unittest.TestCase):
         for text in ("HTTP 404", "HTTP 401", "Not Found", "HTTP 429", "HTTP 422", "mergeable"):
             with self.subTest(text=text):
                 self.assertFalse(queue.TRANSIENT.search(text))
+        for text in ("fatal: early EOF", "unexpected EOF", "HTTP 500", "connection refused", "server closed idle connection",
+                     "Client.Timeout exceeded while awaiting headers"):
+            with self.subTest(text=text):
+                self.assertTrue(queue.TRANSIENT.search(text))
+        # only the tool's message counts, never the arguments of the command
+        error = queue.QueueError("gh api repos/x/actions/runs/502 exited 1: HTTP 404: Not Found")
+        self.assertFalse(queue.TRANSIENT.search(queue.error_detail(error)))
+        self.assertTrue(queue.TRANSIENT.search(queue.error_detail(queue.QueueError("gh api x exited 1: HTTP 502"))))
+        for argv in (["gh", "api", "-f", "a=b", "repos/x"], ["gh", "api", "-fa=b", "repos/x"], ["gh", "api", "-F", "a=1", "x"],
+                     ["gh", "api", "--field", "a=1", "x"], ["gh", "api", "--field=a=1", "x"], ["gh", "api", "--raw-field", "a=b", "x"],
+                     ["gh", "api", "--input", "f.json", "x"], ["gh", "api", "--input=f.json", "x"], ["gh", "api", "-XPOST", "x"],
+                     ["gh", "api", "--method=POST", "x"], ["gh", "api", "--method", "DELETE", "x"]):
+            with self.subTest(argv=argv):
+                self.assertFalse(queue.is_read_only(argv))
+        self.assertTrue(queue.is_read_only(["git", "fetch", "origin", "refs/heads/main:refs/remotes/origin/main"]))
+        self.assertTrue(queue.is_read_only(["gh", "api", "--paginate", "--slurp", "repos/x/actions/runs?a=b"]))
         self.assertTrue(queue.is_read_only(["gh", "api", "repos/x/actions/runs/1"]))
         self.assertTrue(queue.is_read_only(["gh", "pr", "view", "79"]))
         self.assertFalse(queue.is_read_only(["gh", "api", "-X", "POST", "x"]))

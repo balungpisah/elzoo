@@ -187,9 +187,11 @@ task branches restore an older entry by prefix key until a full run of `main` sa
 timeout, connection reset, connection refused, i/o timeout, unexpected EOF, HTTP 500, 502, 503, 504) in five attempts with waits of
 10, 20, 40 and 50 seconds (two minutes in all), never past the PR deadline; each retry is logged (`Transient failure of ...
 retrying in N s`). Writes are never retried by the queue (dispatch, update-branch, merge, cancel): a repeated dispatch would create
-a second run. Other errors (404, 401, 403, 422, mergeability, evidence mismatches) stop at once. When the queue stops after
-dispatching it prints `Stopped while awaiting run <id> for PR #N head=<sha>`, so the run can be inspected or adopted before
-anything is dispatched again. The retry does not change what counts as evidence.
+a second run. Other errors (404, 401, 403, 422, mergeability, evidence mismatches) stop at once. When evidence collection
+fails after the dispatch it prints `Stopped while awaiting run <id> for PR #N head=<sha>` (the `Dispatched ... run=<id>` line
+names the run too), so the run can be inspected or adopted before anything is dispatched again. Only the tool's own message is
+matched against the transient patterns, not the arguments of the command; `gh api` with any field, input or method flag counts
+as a write and is never retried. The retry does not change what counts as evidence.
 
 Measurement over the next five merges (fast-runner minutes per merge: queue run, push run, pull request runs, with
 run IDs) is recorded in issue #96, not here. Live observations of the decision script against real merge commits

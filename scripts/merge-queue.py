@@ -50,10 +50,22 @@ TRANSIENT = re.compile(
 RETRY_WAITS = (10, 20, 40, 50)  # five attempts over two minutes of waiting
 
 
+# `gh api` switches to POST by itself when a field or an input file is given, so every spelling of a method, a
+# field or an input counts as a write, including the attached forms (-XPOST, --method=POST, -fname=value).
+WRITE_FLAG = re.compile(r"^(?:-X|--method|-f|-F|--field|--raw-field|--input)")
+
+
 def is_read_only(argv):
     if argv[:2] == ["gh", "api"]:
-        return "-X" not in argv and "--method" not in argv
+        return not any(WRITE_FLAG.match(arg) for arg in argv[2:])
     return argv[:3] == ["gh", "pr", "view"] or argv[:2] == ["git", "fetch"]
+
+
+def error_detail(error):
+    """The tool's own message: what follows `exited N:` in a command failure, so that the arguments of the
+    command are never matched against the transient patterns."""
+    text = str(error)
+    return text.split(" exited ", 1)[1] if " exited " in text else text
 
 
 def retrying(run, sleep, emit, clock=None, deadline=None):
@@ -65,7 +77,7 @@ def retrying(run, sleep, emit, clock=None, deadline=None):
                 return run(argv, allowed)
             except QueueError as error:
                 if (attempt == len(RETRY_WAITS) or not is_read_only(argv)
-                        or not TRANSIENT.search(str(error))):
+                        or not TRANSIENT.search(error_detail(error))):
                     raise
                 wait = RETRY_WAITS[attempt]
                 if clock and deadline and clock() + wait >= deadline():
