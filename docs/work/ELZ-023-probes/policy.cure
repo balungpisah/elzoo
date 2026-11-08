@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 # Proposal feasibility only; not a production Piece or accepted Contract.
 mod Elzoo.IntentProbe
   type Capability = NoReplay | ReplaySafe
