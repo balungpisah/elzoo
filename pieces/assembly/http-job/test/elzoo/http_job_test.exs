@@ -808,7 +808,12 @@ defmodule Elzoo.HttpJobTest do
 
   test "stream size guard closes a large response early and its removal violates the bound", c do
     total = 16 * 1024 * 1024
-    cfg = %{c.cfg | total_ms: 3000, receive_ms: 1000, poll_seconds: 4}
+    # Isolate the size oracle from transport clocks, including on slow CI hosts.
+    # This direct Adapter fixture injects an untimed clock; public configuration
+    # still rejects it, and the separate total-time/slow-drip tests remain timed.
+    clocks = [total_ms: :infinity, receive_ms: :infinity, connect_ms: :infinity]
+    assert {:error, :configuration} = H.configure(Keyword.merge(c.opts, clocks))
+    cfg = struct(c.cfg, clocks)
     request = adapter_request(c, cfg)
 
     run = fn ->

@@ -166,3 +166,67 @@ runtime markers. Optional L1 coverage gaps remain non-blocking and disclosed.
 The report was copied byte-for-byte; this post-review commit changes only
 review/evidence documents. Queue exact-head CI, merge, main acceptance and
 cleanup remain with the coordinator/author handoff.
+
+
+## PR CI stream mutation timing correction (2026-11-08)
+
+PR run 42462993434, job 128676111874 on symbolic-elzoo, failed the stream-size
+negative control: it expected `{:error, :receipt_invalid, :schema}` but the
+unguarded mutant reached `{:error, :transport_timeout, :unknown}` first. The
+same test failed in the root suite and aggregate copied consumer. The coordinator
+stopped the queue and cancelled obsolete exact-head run 42463178216. This is a
+test isolation defect, not evidence that the guarded size limit failed.
+
+Only this branch's unmerged size test and its stream fixture change. The direct
+Adapter fixture supplies `:infinity` for total, receive and connect clocks, and
+the size-only server uses an infinite send timeout. A new assertion confirms
+that public `configure/1` rejects these values. Production configuration and
+transport deadlines are unchanged; the separate deadline/slow-drip tests remain
+timed. ExUnit's 120-second watchdog still bounds the test. All original strict
+assertions remain: guarded traffic closes before 8 MiB of the 16 MiB response;
+removing the actual size guard reads all 16 MiB and violates that same early-close
+assertion; restoring the source passes again. The mutant still must reach schema
+refusal: transport timeout is not accepted as an alternative.
+
+Local before/after environment: `LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8`,
+`ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1'`, `MIX_ENV=test`, own database
+`ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:elzoo_elz024@localhost/elzoo_pieces_test`.
+Load consisted of four owned `nice -n 15 yes` processes and concurrent
+`mix test pieces/assembly/request-route-retry/test`; every concurrent suite exited
+0 and every load process was stopped after its run.
+
+- Before: `mix test pieces/core/effect/test pieces/assembly/http-job/test --seed 0`
+  passed 29 tests in 22.1 seconds under load. Natural CI timing did not reproduce
+  on this host; this pass is not presented as a reproduction.
+- Controlled before: a scratch copy adds a 50 ms sleep per streaming callback
+  only to the size-guard-removal mutant. `mix test
+  /tmp/elz011-size-clock/before-slow_test.exs --only controlled_size_reproduction`
+  under the same load exits 2 with the exact CI schema-versus-timeout mismatch
+  (0 passed, 1 failed, 26 excluded; 4.3 seconds).
+- After: the same full targeted command under load passes 29 in 21.8 seconds.
+- Controlled after: the equivalent scratch copy of the corrected test, with
+  the identical 50 ms callback delay and same load, runs via `mix test
+  /tmp/elz011-size-clock/after-slow_test.exs --only controlled_size_reproduction`
+  and exits 0 (1 passed, 26 excluded; 48.1 seconds). It reaches schema refusal
+  beyond the old three-second deadline and preserves every size assertion.
+
+These are finite local observations, not a guarantee for every host schedule.
+The controlled delay is a scratch reproduction instrument, not a product edit.
+Incremental independent review and fresh setup/full check are pending; historical
+CLEAR verdicts above do not cover this delta. No production source, Cure law,
+Contract, manifest, protected file or merged test changes in this correction.
+
+Evidence SHA256 (local logs and reproducible scratch inputs):
+
+- `/tmp/elz011-size-clock/before-pieces.log`: `1f0d7fbd9d639a400528eb36fca1a341ebff6682d3663260488c89bc51df242e`.
+- `/tmp/elz011-size-clock/before-concurrent.log`: `f284fa732664302621743b365dba0b0b409a9a9134824a7d81de73c8cee181f7`.
+- `/tmp/elz011-size-clock/before-controlled.log`: `856a6cb9f1c5852bb72127e9200599907f5262ac5c8efdb5c572d5fff5acb4c2`.
+- `/tmp/elz011-size-clock/before-controlled-concurrent.log`: `b7fbe73cdb40a66c47267cd7157e6d78222c683720f98733c5970e19fec7359e`.
+- `/tmp/elz011-size-clock/before-slow-source.txt`: `9674fa9c6eec00e3419fcfaf2cbff0e8bbf91db6014e90eabce49d06de0f11fd`.
+- `/tmp/elz011-size-clock/before-slow_test.exs`: `f76298cfd95ce20835dccc3d8099e488c8ac2dd8bd4eadb43369d93acdb43f1b`.
+- `/tmp/elz011-size-clock/after-pieces.log`: `a1ec4743d2f4777558ca615b9953c900095ef34346298358d61372ab286b9072`.
+- `/tmp/elz011-size-clock/after-concurrent.log`: `ce327e30fe9d0a9be941a06fd8ee58f59bf5f0ff82eb0f83dec73c3be131c14f`.
+- `/tmp/elz011-size-clock/after-controlled.log`: `ca4c7d2ef1e59cd175660905ba5550d5b6d4383a822dee037939f3af68bc0662`.
+- `/tmp/elz011-size-clock/after-controlled-concurrent.log`: `4a50aa802d460e39244c37c5e4961abc017055f9d6c0ecd6e1356ab86a57308e`.
+- `/tmp/elz011-size-clock/after-slow-source.txt`: `40af3deaa267fc2e459213ce0ce1507b103604774d4e99c83f18d60cd487484a`.
+- `/tmp/elz011-size-clock/after-slow_test.exs`: `9006e95a7f0712a046a98352ed94428f9b3907fd950f03907cf85c998b9e9961`.

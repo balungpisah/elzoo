@@ -152,7 +152,9 @@ defmodule Elzoo.HttpJob.Fixture do
       cond do
         match?({:stream, _, _, _}, mode) ->
           {:stream, total, receiver, ref} = mode
-          :inet.setopts(s, sndbuf: 16384, send_timeout: 2000)
+          # Size-only fixture: a slow reader must not turn a complete mutant
+          # response into a write timeout. ExUnit's watchdog still bounds hangs.
+          :inet.setopts(s, sndbuf: 16384, send_timeout: :infinity)
 
           :gen_tcp.send(
             s,

@@ -1,3 +1,11 @@
+> Current status: PR #94 queue stopped after CI run 42462993434 exposed a
+> transport-clock race in the stream-size mutation test (root and aggregate).
+> The test now isolates size checking from transport clocks while preserving
+> every guarded-size assertion; controlled before/after load evidence is in
+> [review fixes](ELZ-011-review-fixes.md#pr-ci-stream-mutation-timing-correction-2026-11-08).
+> Incremental review and fresh full validation of this correction are pending.
+> The following CLEAR verdict applies to the preceding head only.
+
 > Final independent verdict: **CLEAR**, no blocking findings, at
 > `094eff10b05ec9a60756f73f0faf77c3bec0fe3a`, Orca reviewer session
 > `0f974e4c-75e1-4daf-9a19-7720ad2b1633`.
