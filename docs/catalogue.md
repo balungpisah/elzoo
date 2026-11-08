@@ -22,8 +22,12 @@ stable; family and provider-adapter entries do not license duplicate engines.
 
 The generated [Piece Ledger](../LEDGER.md) is the live inventory of ready and
 planned/deferred IDs. The
-`demand-led` phase has no promised place in the existing P0–P3 task chain;
-select a real Assembly before opening implementation tasks. Candidate libraries
+`demand-led` phase has no promised place in the existing P0–P3 task chain.
+The earlier instruction to select a real Assembly before opening
+implementation tasks is superseded on 2026-11-08 by the owner's admission
+rule recorded below: a published, admitted Piece with a concrete caller,
+invariant and failure paths may be selected for a product aim before a new
+Assembly exists. Candidate libraries
 are documented in the [reference study](research/orchestration-references.md),
 with adoption tests rather than assumed compatibility.
 
@@ -64,7 +68,7 @@ the generated ledger are unchanged by them.
 | **own** | New decision logic or an Elzoo contract. Cure is preferred for pure state transitions; Elixir owns the shell. | Elzoo: contract, invariants and evidence |
 | **reuse** | Call a maintained OTP/platform API without copying it. | Upstream implementation; Elzoo still checks the API it relies on |
 | **adapt** | Keep a small Elzoo adapter that validates, translates errors, adds correlation/redaction and runs integration checks around a reused dependency. | Split: upstream behavior plus Elzoo boundary |
-| **defer** | A named capability is acknowledged but has no implementation phase. It must be pulled in by a concrete assembly and researched then. | No claim until a task adopts it |
+| **defer** | A named capability is acknowledged but has no implementation phase yet. Since 2026-11-08 it is part of the build plan: a published task with a concrete caller, invariant and failure paths admits it, or its record marks it conditional when no caller exists; an assembly pulling it in is no longer required. | No claim until a task adopts it |
 
 Grounding labels use `P` (Cure proof), `T` (type/contract check), `X`
 (executable check), `M` (monitor/telemetry), `U` (upstream contract), and `A`
