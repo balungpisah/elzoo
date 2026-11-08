@@ -16,6 +16,10 @@ Code.require_file("../support/lease_test_helper.exs", __DIR__)
   path -> Code.require_file(path)
 end
 
+defmodule Elzoo.Lease.LS28Repo do
+  use Ecto.Repo, otp_app: :elzoo, adapter: Ecto.Adapters.Postgres
+end
+
 defmodule Elzoo.LeasePostgresTest do
   @moduledoc """
   `state/lease` on a disposable PostgreSQL database with the store clock sampled
@@ -28,7 +32,7 @@ defmodule Elzoo.LeasePostgresTest do
   alias Elzoo.DurableLog, as: Log
   alias Elzoo.DurableLog.{Conformance, Memory, Postgres, PostgresHarness}
   alias Elzoo.Lease
-  alias Elzoo.Lease.{Record, TestHelper, TestRepo}
+  alias Elzoo.Lease.{LS28Repo, Record, TestHelper, TestRepo}
 
   @minute 60_000
   @hour_us 3_600_000_000
@@ -860,11 +864,24 @@ defmodule Elzoo.LeasePostgresTest do
     heads = "#{Postgres.identifier(prefix)}.elzoo_log_heads"
     test = self()
 
+    # The short contender has its own pool: the 700 ms outcome below is the
+    # held unique-key lock, never a checkout delay in the shared test pool.
+    {:ok, contention_repo} =
+      LS28Repo.start_link(url: TestHelper.url!(), pool_size: 4, log: false)
+
+    Process.unlink(contention_repo)
+
+    on_exit(fn ->
+      if pid = Process.whereis(LS28Repo), do: Supervisor.stop(pid)
+    end)
+
+    contention_store = TestHelper.pg_store(LS28Repo, prefix)
+
     # (a) a transaction holds an uncommitted head insert for "x": the sweep sees no committed head and reports free without blocking
     holder =
       Task.async(fn ->
-        TestRepo.transaction(fn ->
-          SQL.query!(TestRepo, "INSERT INTO #{heads} (stream, revision) VALUES ('x', 0)", [],
+        LS28Repo.transaction(fn ->
+          SQL.query!(LS28Repo, "INSERT INTO #{heads} (stream, revision) VALUES ('x', 0)", [],
             log: false
           )
 
@@ -879,7 +896,7 @@ defmodule Elzoo.LeasePostgresTest do
              Lease.claim_expired(lease, "sweeper", @minute, 1, ["x"])
 
     # (d) a single-key claim on the absent head waits on the ON CONFLICT unique wait, then proceeds against the committed state
-    {:ok, short} = TestHelper.pg_lease(store, timeout_ms: 700)
+    {:ok, short} = TestHelper.pg_lease(contention_store, timeout_ms: 700)
     assert {:error, :contended} = Lease.claim(short, "x", "bob", @minute)
     claim = Task.async(fn -> Lease.claim(lease, "x", "bob", @minute) end)
     Process.sleep(200)
