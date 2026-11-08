@@ -32,7 +32,7 @@ ASSETS = {
     ("Linux", "aarch64"): ("aarch64-unknown-linux-musl", 633423257, 10126116,
                            "d1d1a9d53f6b317c0563a4806873c8ccace54291ead023373728af379402d4f1"),
 }
-RETRY_STATUS = {502, 503, 504}
+RETRY_STATUS = {500, 502, 503, 504}
 ATTEMPTS = 3
 REDIRECT_STATUS = {301, 302, 303, 307, 308}
 USER_AGENT = "elzoo-setup-gleam"

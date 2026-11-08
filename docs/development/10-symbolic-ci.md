@@ -628,8 +628,10 @@ The API answers with a redirect to a
 signed storage URL; the script follows it by hand, refuses any redirect that is not plain HTTPS (no user info, no
 other port, no percent or backslash tricks) to `github.com`, `*.github.com` or `*.githubusercontent.com`, and sends
 no `Authorization` header to the storage host. It checks
-the pinned size and SHA-256 and stops on any mismatch or error; only HTTP 502, 503 and 504 are retried (three
-attempts, 2 s and 4 s waits).
+the pinned size and SHA-256 and stops on any mismatch or error; only HTTP 500, 502, 503 and 504 are retried (three
+attempts, 2 s and 4 s waits). The API route can fail the same way as the browser URL: a reviewer saw HTTP 500 or
+504 on about 9 of 10 requests from one machine between about 17:35 and 17:45 WIB on 2026-11-08, so a job can
+still fail closed; a second source (a hash-verified mirror) is planned as ELZ-061.
 
 | Platform | Asset ID | Size (bytes) | SHA-256 |
 |---|---|---|---|

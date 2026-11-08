@@ -24,7 +24,8 @@ GLEAM_SETUP_STEP = """      - name: Install the pinned Gleam compiler
           GITHUB_TOKEN: ${{ github.token }}
         run: ./scripts/setup.sh"""
 TOKEN_EXPRESSION = re.compile(
-    r"github\s*\.\s*token|github\s*\[|\bsecrets\b|tojson\s*\(\s*(?:github|secrets)\b", re.IGNORECASE)
+    r"github\s*\.\s*token|github\s*\.\s*\*|github\s*\[|\bsecrets\b|tojson\s*\(\s*(?:github|secrets)\b",
+    re.IGNORECASE)
 digest_image = re.compile(r'\s+image:\s*[^\s@\'"]+@sha256:[0-9a-f]{64}\s*')
 # ELZ-043: every action is pinned by a full commit SHA; a tag or branch can move.
 pinned_action = re.compile(r'\s*(?:-\s+)?uses:\s*[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*@[0-9a-f]{40}(?:\s+#.*)?')
@@ -256,11 +257,13 @@ for file in files:
         pinned = len(starts) == 1 and starts[0] not in skip and token_lines == [starts[0] + 2]
         if pinned:
             before = lines[starts[0] - 1]
-            after = lines[starts[0] + len(step)] if starts[0] + len(step) < len(lines) else ''
+            # The first line after the step that is neither blank nor a comment decides where the step ends.
+            rest = [line for line in lines[starts[0] + len(step):] if line.strip() and not line.lstrip().startswith('#')]
+            after = rest[0] if rest else ''
             # The step must follow the setup-node step and end where the next step starts, so no key
             # (shell:, if:, working-directory:, continue-on-error:) can be appended to it.
             pinned = (before == "          node-version: '24.16.0'"
-                      and (not after.strip() or after.startswith('      - ')
+                      and (not after or after.startswith('      - ')
                            or len(after) - len(after.lstrip(' ')) <= 4))
         if not pinned:
             errors.append(f'{file}: the pinned Gleam setup step is missing or changed, or the token appears elsewhere')

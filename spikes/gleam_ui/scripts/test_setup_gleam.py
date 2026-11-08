@@ -141,6 +141,11 @@ class SetupGleamTest(unittest.TestCase):
         self.run_install(fake)
         self.assertEqual([2, 4], fake.sleeps)
 
+    def test_500_is_retried_like_the_gateway_errors(self):
+        fake = FakeHttp(self.data, api=[(500, {}, b""), (500, {}, b""), (302, {"Location": "https://objects.githubusercontent.com/x"}, b"")])
+        self.run_install(fake)
+        self.assertEqual([2, 4], fake.sleeps)
+
     def test_three_504_fail_closed(self):
         fake = FakeHttp(self.data, storage=[(504, {}, b"")])
         with self.assertRaisesRegex(SystemExit, "HTTP 504"):
@@ -149,7 +154,7 @@ class SetupGleamTest(unittest.TestCase):
         self.assertFalse((self.root / ".tools" / "gleam").exists())
 
     def test_other_http_errors_do_not_retry(self):
-        for status in (401, 403, 404, 429, 500):
+        for status in (401, 403, 404, 429):
             with self.subTest(status=status):
                 fake = FakeHttp(self.data, api=[(status, {}, b"")])
                 with self.assertRaisesRegex(SystemExit, f"HTTP {status}"):

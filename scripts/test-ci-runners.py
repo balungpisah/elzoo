@@ -472,7 +472,8 @@ class RunnerPolicyTest(unittest.TestCase):
 
     def test_other_token_spellings_rejected_everywhere(self):
         for text in ("github.TOKEN", "Github.Token", "github['token']", "github . token", "secrets['X']",
-                     "SECRETS.X", "toJSON(secrets)", "toJSON(github)", "toJson( github )"):
+                     "SECRETS.X", "toJSON(secrets)", "toJSON(github)", "toJson( github )",
+                     "join(github.*, ',')", "join(github . *, ',')"):
             for filename in ("symbolic-gleam.yml", "symbolic-check.yml"):
                 with self.subTest(text=text, file=filename):
                     self.change(filename, "      ImageOS: ubuntu24\n",
@@ -485,7 +486,11 @@ class RunnerPolicyTest(unittest.TestCase):
     def test_gleam_setup_step_cannot_get_extra_keys_or_move(self):
         step = self.GLEAM_STEP
         for extra in ("        shell: bash -c 'echo $GITHUB_TOKEN; bash {0}'\n", "        continue-on-error: true\n",
-                      "        if: ${{ false }}\n", "        working-directory: /tmp\n"):
+                      "        if: ${{ false }}\n", "        working-directory: /tmp\n",
+                      # after a blank line or a comment line, the key still belongs to the step
+                      "\n        shell: bash -c 'echo $GITHUB_TOKEN; bash {0}'\n",
+                      "# note\n        shell: bash -c 'echo $GITHUB_TOKEN; bash {0}'\n",
+                      "    # note\n        if: ${{ false }}\n"):
             with self.subTest(extra=extra.strip()):
                 self.change("symbolic-gleam.yml", step, step + extra)
                 self.assertIn("pinned Gleam setup step is missing or changed", self.check(1).stderr)
