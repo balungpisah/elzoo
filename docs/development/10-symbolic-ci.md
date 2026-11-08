@@ -4,12 +4,14 @@ Elzoo uses only the owner's Linux machines: the user-owned `symbolic` and `macbo
 ELZ-056 (owner decision 2026-11-08), the user-rented slow VPS
 (runner `contabo-elzoo-1`; trialled and currently unrouted, see "Runner tiers" and "Contabo VPS" below). GitHub provides scheduling
 and check reporting; it does not supply compute.
-While the repository is private, never select a GitHub-hosted image or add a hosted fallback. Once it is public
-(owner decision 2026-11-09), CI runs on the hosted lane that the repository variable `ELZOO_CI_LANE` selects, and this
-self-hosted lane is retiring; see "Lanes". If a self-hosted runner is offline, diagnose it or let work queue on the
-other approved runner.
+**Status 2026-11-09:** the repository is public and CI runs on the GitHub-hosted lane (`ELZOO_CI_LANE=hosted`); all
+four self-hosted runners are unregistered, and the sections about them below are history until the cleanup change
+removes the self-hosted jobs. See "Lanes" for the flip record, the measured figures and the fallback.
 
 ## Roles and routing
+
+*History: all four runners in this list were unregistered at the flip (2026-11-09); the repository has no self-hosted
+runner. The list stays until the cleanup change removes the self-hosted jobs.*
 
 - `symbolic-elzoo`: backend, fast tier (the `fast` label is assigned by the coordinator before
   ELZ-057 merges); labels `self-hosted`, `linux`, `x64`, `elzoo`,
@@ -786,11 +788,11 @@ table and the README. Platforms other than the four above stay unsupported.
 ## Lanes: hosted and self-hosted (ELZ-066)
 
 The owner decided on 2026-11-09 that the repository becomes public and that CI moves to GitHub-hosted
-runners. The repository variable `ELZOO_CI_LANE` selects the lane for every run:
+runners; both happened on that day (see "Flip record"). The repository variable `ELZOO_CI_LANE` selects the lane for every run:
 
 | Value | Jobs that run | Jobs that skip |
 | --- | --- | --- |
-| unset or `self` (default while the repository is private) | `check-fast` / `check-any`, `gleam` | `check-hosted`, `gleam-hosted` |
+| unset or `self` (the original lane) | `check-fast` / `check-any`, `gleam` | `check-hosted`, `gleam-hosted` |
 | `hosted` | `check-hosted`, `gleam-hosted` | `check-fast`, `check-any`, `gleam` |
 
 The variable appears only in the five job-level `if:` lines. `scripts/check-ci-runners.py` pins every one of
@@ -811,16 +813,50 @@ approved self-hosted runner, or `check-hosted` with `runner_group_name` = `GitHu
 never supplies evidence. The Gleam gate accepts `gleam` or `gleam-hosted` under the same rule. The queue still
 dispatches with `tier=fast`; the hosted job ignores the tier.
 
-**Planned flip (owned by the coordinator).** Merge the public-surface scrub (ELZ-065); unregister all four
-self-hosted runners, because a fork can change a workflow file and target a runner that stays attached; make the
-repository public and set `ELZOO_CI_LANE=hosted` in the same sitting (a private repository would spend the account's
-hosted minutes); enable "Require approval for all outside collaborators"; watch one hosted full run of `main`.
-After the runners are gone there is no self-hosted lane to fall back to, so the rehearsal in a throw-away public
-repository is the only test before the flip. A later change removes the self-hosted jobs, the runner roles above and
-this table.
+**Flip record (executed by the coordinator on 2026-11-09 WIB, after hosted run 2 was green).** Order: the
+public-surface scrub (ELZ-065) was merged first; all four self-hosted runners were unregistered, because a fork can
+change a workflow file and target a runner that stays attached; the repository was made public with
+`ELZOO_CI_LANE=hosted` kept set; one verification run was dispatched on `main` (run 42521924097). The coordinator
+reported the flip at about 03:40 WIB; the GitHub API does not record the time of the visibility change. Settings read
+back from the GitHub API on 2026-11-08 20:49 UTC (2026-11-09 03:49 WIB), except the protection row, which was read
+again at 20:56 UTC (03:56 WIB) after the change described below:
 
-**Required checks.** `check-hosted` and `gleam-hosted` may be set as required checks, but a skipped job counts as
-passing, and a pull request from a fork skips them. The merge queue is the gate: it needs a dispatch run on the exact
+| Setting | Value |
+| --- | --- |
+| Repository visibility | public |
+| Self-hosted runners | 0 |
+| `ELZOO_CI_LANE` | `hosted` |
+| Default workflow token | `read`; workflows cannot approve pull request reviews |
+| Fork pull request approval | `all_external_contributors` (every outside contributor needs approval before a workflow runs) |
+| Branch protection on `main` | no required status checks (removed between 03:49 and 03:56 WIB on 2026-11-09, see below); no force pushes; no deletions; not enforced for administrators; no review requirement |
+
+A later change removes the self-hosted jobs, the runner roles above and this table.
+
+**Branch protection change (2026-11-09, between 03:49 and 03:56 WIB).** At the flip, branch protection required
+`check-hosted` and `gleam-hosted` (read at 20:49 UTC). The coordinator removed that rule a short time later; the protection read at 20:56 UTC
+(03:56 WIB) shows no required checks. The coordinator reported "about 04:05 WIB" for the removal; the API shows no
+later time and does not record the removal itself. PR #122 was merged at 20:52:00 UTC (03:52 WIB); the API does not
+show whether the rule was already gone then (administrators are not enforced). The
+reason, as the coordinator reported it (the refusal is not recorded in the pull request timeline): the merge queue
+cancels the duplicate `pull_request` run and relies on a `workflow_dispatch` run on the exact head as evidence, and
+GitHub does not count a `workflow_dispatch` run as a status of the pull request, so the queue's merge of PR #122 was
+refused with "the base branch policy prohibits the merge". Until ELZ-059 (#99) makes the `pull_request` run the evidence that the queue adopts, `main`
+has no required checks: the merge queue and its evidence rules are the only gate, and a person with write access can push
+or merge without them (administrators are not enforced either way). ELZ-059 is the path back to required `check-hosted`
+and `gleam-hosted`.
+
+**Organisation runners.** The organisation `balungpisah` still has 2 offline self-hosted runners in its Default runner
+group. The group does not allow public repositories (`allows_public_repositories: false`), which keeps them away from this
+repository. Do not switch that setting on.
+
+**Fallback.** If the hosted lane fails and cannot be repaired quickly, make the repository private again and register
+self-hosted runners again, then set `ELZOO_CI_LANE` to `self`. Do not set `self` on a public repository: there is no
+self-hosted lane for a public repository, because a fork pull request can change a workflow and reach an attached
+runner. If required checks are set again (ELZ-059), they name the hosted jobs, so a return to the self lane also needs
+the required checks changed.
+
+**Required checks.** `check-hosted` and `gleam-hosted` are not required checks at present (see "Branch protection
+change"). When they are set again, a skipped job counts as passing, and a pull request from a fork skips them. The merge queue is the gate: it needs a dispatch run on the exact
 head with one executed job and the identity rules above, and no fork pull request is queued.
 
 **Time limit.** `check-hosted` has `timeout-minutes: 120`. A cold-cache run on a comparable 4 to 5 vCPU machine took
@@ -831,11 +867,31 @@ the whole VM (Postgres included) and its "job container cgroup" label is not exa
 there and the report prints "cgroup memory peak unavailable". Use the host lines (`/proc/meminfo`, load, `nproc`) for
 hosted numbers.
 
-**Limits.** The hosted jobs were checked with `actionlint`, the guard and its tests, and the merge-queue tests.
-They have not yet run on a GitHub-hosted runner in this repository; a rehearsal in a throw-away public
-repository is planned before the flip, and its run IDs belong in the ELZ-066 pull request. Hosted minutes are
-free for public repositories; a private repository with `ELZOO_CI_LANE=hosted` would use the account's minute
-quota, so the variable must stay unset or `self` until the repository is public. Self-hosted runners must never stay attached to a public repository.
+**Measured figures (rehearsal and verification in this repository, 2026-11-09 WIB; times in UTC from the job records).**
+All hosted jobs ran on `ubuntu-24.04`. The backend job reported `BEAM schedulers=4 online=4`; the Gleam job is set to `+S 2:2` in `symbolic-gleam.yml`.
+
+| Run | Job | Caches | Job time | `mix setup` | `mix check` | Root suite | Result |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Run 1, dispatch on `main` at 48462d4: run 42517023581 | `check-hosted` 128842174590 | cold (S3 binary and dependencies) | 33 min 7 s | 10 min 17 s | 21 min 14 s | 1139.0 s | 641 of 642 passed; `http_job_test.exs:472` failed |
+| Run 2, same commit: run 42520133125 | `check-hosted` 128851610565 | warm | 18 min 38 s | 2 s | 17 min 28 s | 932.0 s | 642 passed, `ELZOO CHECK PASSED` |
+| Verification run after the flip, dispatch on `main`: run 42521924097 | `check-hosted` 128857085850 | warm | 13 min 39 s | 2 s | 12 min 46 s | 695.2 s | passed, `ELZOO CHECK PASSED` |
+| Pull request check of PR #123 (affected mode): run 42518583815 | `check-hosted` 128846911946 | dependency cache warm | 22 min 19 s | 5 s | 21 min 5 s | 1132.7 s | passed (`ELZOO AFFECTED CHECK PASSED`) |
+| Run 1 and run 2 Gleam: runs 42517027888, 42520136422 | `gleam-hosted` 128842186520, 128851620715 | none | 59 s, 60 s | | `./scripts/check.sh` 7 s and 5 s | | passed |
+
+The S3 test server step took 1 s in all three dispatch runs (restore of the pinned binary 1 s on a cache hit; the cold run
+saved it in 2 s). Before `mix setup` the cold run spent 1 min 26 s on the job start, service containers, runner
+identity gate, host report, libraries, PostgreSQL role and database, checkout, six check and test scripts, the decision
+step, the S3 steps, setup-beam, the BEAM report, the dependency cache restore and `mix local.hex`/`mix local.rebar`. The
+root suite took 1139.0 s, 932.0 s and 695.2 s in the three full runs on the same commit, so expect a wide spread (the fastest was 61 percent of the slowest).
+A job started 3 s after its dispatch (run 2). The Contabo and MacBook sections above hold the self-hosted figures; they were measured
+in different modes and are not directly comparable.
+
+**Limits.** The first two rows come from the rehearsal before the flip (the repository was private, as the coordinator
+reported; the API does not record the time of the change), the third from the first run after the flip, all on the same
+commit of `main` (48462d4); a public repository may differ. `http_job_test.exs:472` ("real Oban job completion and cancellation are job
+control, not provider rollback") failed once in run 1 and passed in run 2 on the same commit: it looks timing-dependent
+(one failure and two passes; not measured further) and not like a lane defect. Hosted minutes are free for public repositories. Self-hosted runners must never stay attached
+to a public repository.
 
 ## Disposable S3 test server (ELZ-064)
 
@@ -855,6 +911,53 @@ and licensed AGPL-3.0; CI runs the binary unchanged and does not redistribute it
 backend step besides the skip decision that receives the job token; the guard pins it.
 
 Limit: the step duration on a hosted runner is not measured yet.
+
+## Per-test limits of two slow tests (ELZ-062)
+
+Owner approval 2026-11-08 ("1.", relayed by the coordinator): raise the per-test limit of the two tests that timed out on
+`contabo-elzoo-1` to 300 s, so that machine can take `any`-tier runs. That runner was unregistered at the flip on
+2026-11-09; the coordinator's decision rule for the changed situation was: if both tests stay under 60 percent of 120 s (72 s) on
+the hosted runner, close the task with no code change; otherwise raise only these two limits to 300 s (see "Hosted
+measurement" below). Time limits only: no assertion, scenario or proof
+changed, and no other limit changed (not the 120 s default in `test/test_helper.exs`, not the 240 s of the concurrent
+consumer groups, not the inner consumer limits).
+
+- `pieces/workflow/approval/test/elzoo/approval_test.exs`: `@tag timeout: 300_000` on "negative control: dropping g_self
+  from the gate list is rejected inside self_approval_refused" (a Cure proof check).
+- `test/export_test.exs`: `Elzoo.CureConsumerCase.consumer_tests/2` takes one `timeout:` for all IDs of a call, so the three
+  PostgreSQL consumers are defined by two calls: `integration/sql` and `integration/jobs` keep 120 s, `assembly/durable-job`
+  gets `timeout: 300_000`. The selection test "affected selection only filters the existing consumer tests" asserts the
+  limits exactly (120 s, 300 s for `assembly/durable-job` in `Elzoo.ExportTest`, 240 s for the concurrent groups); it was
+  updated for the one new value and fails if that value or an ID's limit is wrong (checked locally by expecting 120 s).
+
+Measured basis. CI logs print no per-test times, so a measurement branch (`measure/ELZ-062`, never merged) ran the full root
+suite as `mix check` does in full mode with `--slowest 60` and every per-test limit raised to 900 s, one run per machine on
+the same tree (`main` at `f4e3283`):
+
+| Test | `symbolic-elzoo` | `macbook-ubuntu-elzoo-candidate` | `contabo-elzoo-1` (8 cores) |
+|---|---|---|---|
+| approval negative control | 39.1 s | 45.3 s | 93.1 s |
+| `assembly/durable-job` consumer | 77.6 s | 91.3 s | 128.7 s |
+| `integration/sql` consumer | 18.8 s | 26.1 s | 52.8 s |
+| `integration/jobs` consumer | 13.9 s | 17.0 s | 37.6 s |
+| root suite | 1266.5 s | 1492.2 s | 3136.7 s |
+
+Runs 42500718766, 42497402091 and 42497486307 (jobs 128792642738, 128782613975, 128782875563). On Contabo the approval test
+exceeded 120 s in the two earlier full runs (42484236992 and 42492726966) and took 93.1 s here, so the spread on one
+machine is large; 300 s is 2.3 times the slowest measured time (128.7 s) and 3.2 times the approval test's 93.1 s. It is a
+margin, not a performance target. A hung test now costs up to 300 s instead of 120 s before it fails. The measurement
+runs of that branch failed two tests each, as expected there (the selection test's 120 s expectation and the test that reads
+`scripts/run-ci-check.sh`, which the branch changes). Host readings on Contabo: no throttling in 99 samples, host load
+average (1 minute) at most 2.94, cgroup memory peak 2.89 GB; peaks on the fast runners 3.45 GB (symbolic) and 2.75 GB (MacBook).
+
+Hosted measurement (2026-11-09). The same measurement branch, merged with `main` at 48462d4 (the later commits of `main`
+change only docs), ran once on the GitHub-hosted runner (run 42522317222, job 128858289534; the default per-test limits
+raised to 900 s, the explicit tags unchanged; line numbers are those of the measurement commit): approval negative control 40.8 s (34 percent of
+the 120 s default); `assembly/durable-job` consumer test 79.0 s (66 percent; inner `consumer_mix_test` 71.2 s; 74.8 s, 67.5 s and
+61.9 s in the full hosted runs 42517023581, 42520133125 and 42521924097); `integration/sql` 19.0 s; `integration/jobs` 14.9 s; root
+suite 1307.8 s (the two failures of that run are the two expected on the branch). The decision rule needs both tests under 72 s
+(60 percent of 120 s) to close the task without a change: the durable-job test is above it, so the two limits are raised
+to 300 s as approved.
 
 ## Operation and rollback
 

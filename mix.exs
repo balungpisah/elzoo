@@ -44,7 +44,9 @@ defmodule Elzoo.MixProject do
       {:ecto_sql, "== 3.14.0"},
       {:postgrex, "== 0.22.4"},
       # ELZ-010 integration/jobs provider (also used by the test/elz010_* probes).
-      {:oban, "== 2.24.2"}
+      {:oban, "== 2.24.2"},
+      # ELZ-031 domain/money provider (already locked transitively at 3.2.0).
+      {:decimal, "== 3.2.0"}
     ]
   end
 
