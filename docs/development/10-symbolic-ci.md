@@ -514,12 +514,18 @@ service, so a systemd cap on the service does not limit them. Two caps apply:
 - The service drop-in `/etc/systemd/system/actions.runner.balungpisah-elzoo.contabo-elzoo-1.service.d/10-elzoo-cap.conf`
   sets `CPUQuota=500%`, `MemoryMax=10G`, `MemoryHigh=9G` and `TasksMax=8192` for the runner
   listener and worker processes.
-- A root-owned wrapper `/opt/actions-runner/elzoo-backend-bin/docker` (mode 755) is first in
-  the runner's `.path`. For `docker create` and `docker run` it adds
-  `--cpus=5 --memory=8g --memory-swap=8g` and then runs `/usr/bin/docker`; every other
-  subcommand passes through unchanged. A test as `elzoo-ci` read `cpu.max` `500000 100000`
-  and `memory.max` `8589934592` inside a container. That test is not yet a job observation:
-  the trial must show the same values inside the real job container.
+- A root-owned wrapper `/opt/actions-runner/elzoo-backend-bin/docker` (mode 755, a
+  `#!/usr/bin/python3 -I` script) is first in the runner's `.path`. For `docker create` and
+  `docker run` it adds `--cpus=5 --memory=8g --memory-swap=8g`; it then replaces itself with
+  `/usr/bin/docker` by `os.execv`, so every other subcommand keeps its arguments,
+  environment, stdin, stdout, stderr and exit code. The first version was a `/bin/sh`
+  script and broke the first trial (see below): Ubuntu's `/bin/sh` is `dash`, which drops
+  environment variables whose names contain a hyphen, and Actions passes inputs that way
+  (`INPUT_OTP-ARCHITECTURE`). Do not rewrite the wrapper as a shell script.
+  After the fix, as `elzoo-ci`, `INPUT_OTP-ARCHITECTURE=64` reached the container's
+  initial environment through the wrapper (it was missing before); `docker exec` output
+  and the exit code (7) matched plain `docker` by SHA-256 of stdout and stderr, and
+  `getconf LONG_BIT` printed `64`.
 
 The runner runs one job at a time, so the job container cap is the practical limit: it
 leaves about 3 cores and 15 GiB (23 GiB minus 8 GiB) for the production workloads. The
@@ -530,6 +536,19 @@ though a CPU peak near 5 cores may be throttled; the cap is 5 of 8 cores, and th
 service and container CPU caps could add up to 10 cores' worth, which only the 8 physical
 cores limit. A job that reaches 8 GiB is killed by the
 kernel; that is the intended protection, not a failure of the host.
+
+**Trial 1 (failed, kept as evidence).** Run 42452504044, job 128644528184, `workflow_dispatch`
+on `task/ELZ-056` at `1406f40c8d98b0218f8bdf8afb80998522086f39`, runner `contabo-elzoo-1`,
+job 12:53:20 to 12:55:05 WIB (05:53:20Z to 05:55:05Z, 1 min 45 s). The steps before
+`Run erlef/setup-beam` passed: container start, PostgreSQL, checkout, the guard scripts and the
+38 merge-queue tests. `setup-beam` failed with `##[error]otp-architecture must be 32 or 64`;
+`mix setup` and `mix check` were skipped. Cause: the `dash` wrapper dropped
+`INPUT_OTP-ARCHITECTURE` (reproduced on the host, see above). During this job, read from the host,
+the job container had `cpu.max` `500000 100000`, `memory.max` `8589934592`,
+`memory.swap.max` `0`, Docker `NanoCpus` 5000000000, `Memory` 8589934592, and
+`nr_throttled` 0; the cgroup memory peak seen was 1,059,106,816 bytes in the early part of
+the job only. This shows the cap applies to a real job container. It says nothing about a full
+`mix check`, which did not run. The `backend` label was removed after the failure.
 
 **Limit of the cap.** The wrapper caps only containers that the runner creates through its
 `PATH`. By the upstream actions/runner contract (not re-checked here), the runner mounts the
