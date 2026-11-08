@@ -62,8 +62,8 @@ The owner closed the build queue on 2026-11-09; this task is the last before the
      a time; nobody dispatches a check by hand while the queue identifies its run; when the
      queue stops on a transport failure with its run still in progress, it is resumed by
      adopting that run (the queue's own retries reduce this); measurement series are budgeted:
-     one at a time, never while a queue run is pending, on the slow or idle runner, under the
-     90-minute job limit.
+     at most one at a time while a merge queue is pending, on the slow or idle runner, under
+     the 90-minute job limit.
 - Link the new document from `docs/development/01-workflow.md` with one sentence.
 - Propose the `AGENTS.md` diff (agent identifier sentence; the hosted-runner sentence if the
   hosted lane has merged by then) as exact before/after to the main coordinator; apply only the

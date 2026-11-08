@@ -103,10 +103,9 @@ owner's priorities and the live task bodies decide what is built.
   while its run is in progress, inspect or manually adopt the identified run before dispatching
   another; the queue retries certain transient reads but does not automatically resume from
   that run. Source: `docs/development/10-symbolic-ci.md` and `scripts/merge-queue.py`.
-- Run measurement series on a slow or idle runner and state the expected duration, staying
-  under the backend job's 90-minute limit. Source: `docs/development/10-symbolic-ci.md`.
-  Conflict pending the main coordinator's resolution: that document allows at most one series
-  while a merge queue is pending, while the decision record (#119) says never while a queue run
-  is pending; until resolved, follow the stricter rule.
+- Run measurement series on a slow or idle runner; while a merge queue is pending, run at most
+  one series at a time. State the expected duration and stay under the backend job's 90-minute
+  limit. Source: `docs/development/10-symbolic-ci.md` and the decision record (#119), whose
+  rule 7 was amended on 2026-11-09 to this wording after a conflict between the two was found.
 - The decision record (#119) states that only the main coordinator runs
   `scripts/merge-queue.py`, one PR at a time.
