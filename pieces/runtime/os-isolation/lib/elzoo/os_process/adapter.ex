@@ -258,7 +258,13 @@ defmodule Elzoo.OsProcess.Adapter do
 
         members = Owner.observe_until_empty(config.pgrep_path, os_pid, bound)
         notify(submitter, ref, Result.unknown(:owner_exit, %{os_pid: os_pid, members: members}))
-        :ets.delete(tid, ref)
+
+        # The instance (and its table) may have stopped while this observer ran.
+        try do
+          :ets.delete(tid, ref)
+        rescue
+          ArgumentError -> :ok
+        end
       end)
 
     :ets.insert(tid, {ref, owner, submitter, os_pid, {:observing, pid}})

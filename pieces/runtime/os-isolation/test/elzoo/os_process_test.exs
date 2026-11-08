@@ -270,10 +270,7 @@ defmodule Elzoo.OsProcessTest do
     {:ok, ref} = OsProcess.submit(sup, spec("late-self-term", ["0.8"]), max_run_ms: 200)
     os_pid = os_pid_of(sup, ref)
 
-    assert %{status: :unknown, reason: :signal_after_deadline, signal: :sigterm} =
-             result = result(ref)
-
-    refute result.status == :terminated
+    assert %{status: :unknown, reason: :signal_after_deadline, signal: :sigterm} = result(ref)
     assert members(os_pid) == []
   end
 
