@@ -1,24 +1,34 @@
-# ELZ-028 — proposed Contract clarifications for issue #45 (not applied)
+# ELZ-028 — Contract amendments for issue #45 (approved by main; not yet applied)
 
-Written by the ELZ-028 worker; revised after the round-3 re-review
-([ELZ-028-early-rereview3.md](ELZ-028-early-rereview3.md)). The worker does
-**not** edit the issue body or the task copy. The main coordinator decides;
-an authorized coordinator applies accepted amendments to the live issue, the
-task copy and the roadmap hash. Every "before" text below is a byte-exact
-substring of the live body fetched on 2026-11-08 (`gh issue view 45 --json
-body`), including hard line wraps and three-space continuation indents; a
-script checked that each occurs exactly once.
+Written by the ELZ-028 worker. Status after the round-4 re-review
+([ELZ-028-early-rereview4.md](ELZ-028-early-rereview4.md)) and the main
+coordinator's decision relayed by the pieces coordinator: the **reviewer's
+reworded texts** for B1, B3a, B3b and R3 replace the worker's originals, and
+one more checkbox amendment (B3c) is added at main's request. A1, A3 and A6
+stand as accepted. A2, A4 and A5 remain withdrawn. The worker applies nothing
+live until the pieces coordinator confirms CLEAR; then all accepted texts are
+applied to the live issue and the task copy in one commit by the usual
+procedure (exact diff comment, `gh issue edit`, task copy bytewise,
+release-plan hash, roadmap views).
 
-## A-amendments (round 3: ACCEPTABLE)
+Every "before" text is a byte-exact substring of the live body fetched on
+2026-11-08 (`gh issue view 45 --json body`), including hard line wraps and
+three-space continuation indents; a script checked that each occurs exactly
+once. The "after" texts are given as the reviewer and main approved them; the
+applying coordinator re-wraps them with the body's three-space continuation
+and keeps the list delimiters (`;` inside the invariant list), without
+changing any word.
 
-### A1 — `claim_expired` candidates (reviewer R1 wording)
+## A-amendments (accepted)
+
+### A1 — `claim_expired` candidates
 
 - **Before:** `claim_expired{owner, ttl, limit}`, and the store clock.
 - **After:** `claim_expired{owner, ttl, limit, candidates}` (the caller
   supplies the bounded candidate keys; key discovery is a caller Need), and
   the store clock.
 
-### A3 — attributable release (reviewer's byte-exact text)
+### A3 — attributable release
 
 Exact before:
 
@@ -40,7 +50,7 @@ stale and
    record that release atomically in the same transaction
 ```
 
-### A6 — `claim_expired` does not take free keys (reviewer's byte-exact anchor)
+### A6 — `claim_expired` does not take free keys
 
 Exact insertion anchor (single occurrence, replaced):
 
@@ -57,13 +67,9 @@ Exact after:
    `claim`.
 ```
 
-## B-amendments (Contract interpretations requested from the main coordinator)
+## B-amendments (reviewer's reworded texts, approved by main)
 
-These three points cannot be closed by design alone (round-3 findings B1, B3,
-R3). Each gives the exact replacement and a consistency argument. They
-qualify how an existing law is evaluated or evidenced; none removes a law.
-
-### B1 — the linearization point of "renew extends only a live lease"
+### B1 — sampled-time rule for "renew extends only a live lease"
 
 Exact before:
 
@@ -72,62 +78,34 @@ Exact before:
    issued before a handoff and applied after it cannot revive it;
 ```
 
-Exact after:
+Exact after (reviewer's text, verbatim):
 
 ```text
-`renew` extends only a live lease, so a renewal
-   issued before a handoff and applied after it cannot revive it; liveness for
-   `renew`, and for a holder's re-`claim`, is evaluated at the store-clock
-   sample taken under the key's head lock inside the transaction that records
-   the change (the linearization point), so a renewal whose sample preceded
-   the expiry extends the lease even if its commit is later in wall time, and a
-   renewal whose sample followed the expiry is refused and records nothing; a
-   reader without the lock compares its own later store-clock sample with the
-   recorded stamps and treats a stamp later than its sample as ambiguous;
+`renew` extends only a lease that is live at the store-clock sample taken under the key's head lock within the transaction recording the change; a renewal issued before a handoff and evaluated after the handoff cannot revive the prior lease. A renewal sampled before expiry may commit after expiry; an unlocked status or hold may report the prior lease stale before that commit and report the renewed lease active afterwards. A renewal sampled at or after expiry is refused and records nothing. The same sampled-time rule applies to the active holder's re-claim; a reader reports a recorded stamp later than its own sample as ambiguous.
 ```
 
-Consistency argument. No database primitive evaluates a wall-clock condition
-at the commit instant: PostgreSQL `now()` is the transaction start time and
-`clock_timestamp()` is the time of its own statement, so every SQL design
-evaluates liveness at a sample taken before the commit. The design takes
-that sample under the key's head row lock, inside the transaction that
-inserts the record and advances the revision. Because every writer of the
-key samples under the same lock, the samples of admitted transitions are
-totally ordered in the same order as the revisions they produce (a sample
-earlier than the latest recorded stamp is a clock regression and is refused),
-so the recorded history is a linearizable sequence in store-sample time in
-which every admitted renewal satisfied `sample < until` at its linearization
-point. A renewal cannot revive a lease after a handoff because the handoff
-holds the lock first and changes the head, which the renewal's transaction
-then observes (refused). What readers see: a holder learns its `until` from
-the committed record; a `status`/`hold` reader without the lock takes its
-own sample later than the write's and may observe (a) an active lease whose
-previous lease had expired in wall time before the renewal committed, which
-is the admitted semantics, or (b) a stamp later than its own sample, which
-it reports as ambiguous (fail closed). The deterministic control on both
-stores (ELZ-028.md LS8c) shows the admitted case explicitly: the clock is
-sampled live under the lock, the transaction is held past the expiry, and
-the commit is accepted with the earlier stamp; the mirror control (LS8b)
-shows a sample after expiry refusing and writing nothing.
+Accepted qualification (main): a renewal sampled before expiry may commit
+after expiry, and unlocked readers may see the prior lease stale before that
+commit; the sample is **not** called the linearization point of the combined
+object. Design: ELZ-028.md §2.2, §2.4, tests LS8, LS8b, LS8c, LS26.
 
-### B3 — qualification of the disjointness law and the sweep transaction
+### B3a — exclusive live ownership instead of disjoint result sets
 
-Exact before (invariant):
+Exact before:
 
 ```text
 `claim_expired` results are disjoint across concurrent claimers;
 ```
 
-Exact after:
+Exact after (reviewer's text, verbatim):
 
 ```text
-`claim_expired` results are disjoint across concurrent claimers: no key is
-   held by two owners at once, and a key whose lease expired and was re-claimed
-   between two overlapping sweeps may appear in both results only with
-   different fence revisions;
+`claim_expired` never grants the same key to two concurrently live lease owners. Overlapping invocations may both return the same key only when the earlier grant has ceased to be live before the later grant, and then the grants carry different record-revision fences; their result sets are not necessarily disjoint.
 ```
 
-Exact before (evidence sentence):
+### B3b — the sweep transaction law is established on the provider
+
+Exact before:
 
 ```text
 Tests on the double and the selected provider: concurrent
@@ -135,39 +113,27 @@ Tests on the double and the selected provider: concurrent
    lease refused by revision, claim-next-ready under one transaction.
 ```
 
+Exact after (reviewer's text, verbatim):
+
+```text
+Tests on the double and the selected provider: concurrent `claim_expired` ownership and repeated-key fence revisions, renewal after handoff, write with expired lease refused by the old revision after a replacement, and claim-next-ready under one database transaction on the selected provider. The volatile double serializes its sweep through one shared owner but does not roll back prior per-key commits after a later failure; it exercises the same scenarios and separately tests and reports this partial-commit limit.
+```
+
+### B3c — acceptance checkbox aligned with B3a (added at main's request)
+
+Exact before:
+
+```text
+- [ ] Concurrent `claim_expired` never hands one key to two owners (test).
+```
+
 Exact after:
 
 ```text
-Tests on the double and the selected provider: concurrent
-   `claim_expired` disjointness, renewal after handoff, write with expired
-   lease refused by revision, claim-next-ready under one transaction (on the
-   selected provider the sweep is one database transaction; on the volatile
-   double it is one serialized owner without batch rollback, a finite
-   approximation, so the one-transaction law is established on the provider
-   and the double exercises the same scenarios).
+- [ ] Concurrent `claim_expired` never hands one key to two concurrently live owners (test).
 ```
 
-Consistency argument. On PostgreSQL a sweep is one transaction: each
-candidate's head row is locked (`FOR UPDATE SKIP LOCKED`), the clock is
-sampled under that lock, readiness (`stale`) is evaluated on the committed
-records, and the release and claim records are inserted and the revision
-advanced in the same transaction; two concurrent sweeps therefore cannot
-both claim one key (one skips the locked row or sees the other's committed
-claim as active), which is the checkbox "never hands one key to two
-owners". What the unqualified sentence cannot promise is that two
-*overlapping invocations* never both list a key: if sweep A claims key k
-with a short TTL and the lease expires before A returns, sweep B may
-legitimately claim k again; both results list k, with different fence
-revisions, and at no instant were two owners held. The qualification states
-exactly this. The Memory double has no transaction over several keys: a
-single serialized owner performs all of the sweep's Store calls (so sweeps
-and lease steps through that owner do not interleave), but an error on a
-later candidate cannot roll back an earlier committed claim; the double is
-therefore a finite approximation of the one-transaction law, which the
-evidence sentence now says explicitly instead of implying equal strength on
-both stores.
-
-### R3 — the acceptance checkbox on expired-holder writes
+### R3 — the expired-holder checkbox, narrowed
 
 Exact before:
 
@@ -175,45 +141,50 @@ Exact before:
 - [ ] A write from an expired lease holder is refused by revision (test).
 ```
 
-Exact after:
+Exact after (reviewer's text, verbatim):
 
 ```text
-- [ ] A write from an expired lease holder is refused by revision once any
-  replacement record has moved the head (test); while no record has moved the
-  head, the revision cannot observe elapsed time and the lease never refuses a
-  write (documented limit with a control test).
+- [ ] A write using an expired holder's old fence is refused by revision after a replacement or other record has moved the head (test); if the head has not moved, expiry alone is not detected by the revision and does not by itself refuse that write (documented limit with a control test).
 ```
 
-Consistency argument. The same Contract states that the lease never
-authorizes a write and that the record revision is the fence. A revision is
-a counter of committed records; it cannot observe elapsed time, so an
-expired holder whose key nobody has written since still presents the current
-revision and the Store accepts its write (the Store accepts any caller with
-the current revision; owner strings are not identity). The guarantee that
-can be given and tested is therefore: as soon as any replacement record
-(claim, seize, release or any other record) has moved the head, the expired
-holder's write is refused by revision (LS4). The no-takeover case is a
-documented limit with a control test, consistent with "the lease never
-authorizes a write" and with "completion from a non-holder is rejected by
-the record revision (the fencing value), never by timestamp comparison".
+## Reconciliations required by the decision
 
-## Withdrawn (rounds 2–3: REJECT)
+**G1/G2 wording.** The gates in ELZ-028.md §9 are kept verbatim as adopted
+text. Under the approved amendments their terms are read as follows, and
+this reading is recorded next to the gates in §9: "live-only renewal" means
+live at the store-clock sample taken under the key's head lock within the
+transaction recording the change (B1); "atomic condition/change" and "the
+actual atomic point" mean that sample, the decision and the record change
+are in one database transaction under the head lock on the provider, and in
+one serialized owner section on the double; "disjoint claims" means no key
+granted to two concurrently live owners, with repeated keys across
+overlapping invocations carrying different fence revisions (B3a, B3c);
+"claim-next-ready transaction" means one database transaction on the
+selected provider, with the double exercising the scenarios and reporting
+its partial-commit limit (B3b). A decision accepting these qualifications is
+not evidence that the older, stronger reading held.
 
-- **A2** (claim-next-ready sentence): withdrawn; superseded by B3's exact
-  evidence-sentence amendment above.
-- **A4** (expired-holder write): withdrawn; superseded by R3 above.
-- **A5** ("one atomic step" in store time): withdrawn; superseded by B1
-  above, which keeps the law and names its evaluation point.
+**Non-holder completion sentence.** The unchanged sentence "completion from
+a non-holder is rejected by the record revision (the fencing value), never by
+timestamp comparison" is consistent with the design: `complete/4` is
+admitted by the fence alone (an old fence is refused once any record moved
+the head; no owner string is compared); the regression gate on the terminal
+path refuses when the store-clock sample is earlier than the latest recorded
+stamp, which is a fail-closed guard against a regressed store clock applied
+to every operation except `seize` and to holders and non-holders alike, not
+a holder/non-holder decision by timestamp and not an expiry check on the
+completing writer. The narrowed R3 checkbox states what the revision can and
+cannot detect.
+
+## Withdrawn
+
+- **A2**, **A4**, **A5**: withdrawn in rounds 2–3; superseded by B3b, R3 and
+  B1 respectively.
 
 ## Not a Contract amendment: ownership decision OD-1
 
-May `state/lease` own Adapters that act on the `integration/sql` tables
-(`elzoo_log_heads`, `elzoo_log_records`, migration version 1, under the
-Store's prefix) for lease operations, while the holder's state writes keep
-using the ready Store's public `append`? Options and consequences are in
-ELZ-028.md §1.2 (Option L recommended; Option S changes the ready Store's
-Contract under a separate task). The worker implements nothing before this
-decision.
+Decided by main: **Option L** with two conditions, recorded as gates OD-1a and
+OD-1b in ELZ-028.md §7. Option S rejected.
 
 ## Not proposed
 
