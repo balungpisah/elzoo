@@ -136,7 +136,7 @@ ownership areas.
 
 CI must run only on the owner's machines: the user-owned symbolic and
 macbook-ubuntu, and the user-rented Contabo VPS runner contabo-elzoo-1 (owner
-decision 2026-11-08; a candidate until proven), in the roles defined in
+decision 2026-11-08; one full trial passed, slowest of the three), in the roles defined in
 docs/development/10-symbolic-ci.md. Use the explicit
 self-hosted selectors and runner identity checks documented there.
 Never use or fall back to GitHub-hosted runners: the owner does not have hosted

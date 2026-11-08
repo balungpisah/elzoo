@@ -1,4 +1,4 @@
-# ELZ-056 — Admit the Contabo VPS contabo-elzoo-1 as a candidate backend runner
+# ELZ-056 — Admit the Contabo VPS contabo-elzoo-1 as a backend runner (trial first)
 
 - Phase: P0 harness (CI; `.github/workflows/symbolic-check.yml`, `scripts/check-ci-runners.py`,
   `scripts/test-ci-runners.py`, `scripts/merge-queue.py`, `docs/development/10-symbolic-ci.md`)
@@ -32,7 +32,7 @@ makes the repository accept the runner name, so a coordinator-run trial can add 
 - `AGENTS.md` CI machine policy names the user-owned machines; this task records the VPS in
   `docs/development/10-symbolic-ci.md` and in the policy sentence of `AGENTS.md` only.
 
-## Role: candidate until proven
+## Role: trial first, then the backend pool
 
 The runner gets the `backend` label only after a trial passes. The coordinator adds the label,
 dispatches `symbolic-check.yml` on the exact PR head and steers other runners so the job lands

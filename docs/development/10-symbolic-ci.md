@@ -2,7 +2,7 @@
 
 Elzoo uses only the owner's Linux machines: the user-owned `symbolic` and `macbook-ubuntu` and, from
 ELZ-056 (owner decision 2026-11-08), the user-rented Contabo VPS `ratahq-ci-contabo-01`
-(runner `contabo-elzoo-1`, a candidate until a trial passes). GitHub provides scheduling
+(runner `contabo-elzoo-1`; one full trial passed, see "Contabo VPS" below). GitHub provides scheduling
 and check reporting; it does not supply compute.
 Never select a GitHub-hosted image or add a hosted fallback. If a runner is
 offline, diagnose it or let work queue on the other approved runner.
@@ -16,10 +16,11 @@ offline, diagnose it or let work queue on the other approved runner.
   `ci-candidate`. It received `backend` after ELZ-034 merged (PR #61), so it
   is in the normal backend pool. The name and `ci-candidate` label are
   historical; they do not select a separate route.
-- `contabo-elzoo-1` (runner id 24): **candidate, not routed.** Labels `self-hosted`,
-  `Linux`, `X64`, `elzoo`, `contabo`; it has no `backend` label until a trial
-  passes (see "Contabo VPS" below). The workflow identity gate already accepts its name, so
-  adding the label is the only routing change.
+- `contabo-elzoo-1` (runner id 24): backend after the coordinator re-adds the label once
+  ELZ-056 has merged; labels `self-hosted`, `Linux`, `X64`, `elzoo`, `contabo` and then
+  `backend`. The label was added for trial 2 only and removed again before the merge queue
+  ran, because the queue on `main` did not yet know this runner name. One passing full run
+  is the only evidence; it is the slowest of the three backend machines (see below).
 - `symbolic-elzoo-gleam`: Gleam only; labels `self-hosted`, `linux`, `x64`,
   `symbolic`, `elzoo`, `gleam`.
 
@@ -468,15 +469,40 @@ state. This record covers `symbolic` only.
 
 ### Contabo VPS `ratahq-ci-contabo-01` (ELZ-056)
 
-Status: **candidate until proven.** When ELZ-056 was opened the runner was online with no
-`backend` label, so no job was routed to it. The coordinator adds the label **for the trial**
-and steers the other runners so the trial job lands here; while the label is present, other
-backend jobs may also land on this unproven machine until the label is removed or the trial
-passes. The trial run records run and job IDs, duration, cgroup peak, sampled CPU, and
-`cpu.max`/`memory.max` read from inside the job container, in the ELZ-056 issue before
-merge. Update this status line with the trial result; a failed trial means removing the label.
-Host facts and the `cpu.max` test below come from the worker's SSH inspection on 2026-11-08,
-not from files in this repository.
+Status: **one full trial passed; slowest backend machine.** When ELZ-056 was opened the
+runner had no `backend` label. The coordinator added it for the trials and removed it before the
+merge queue ran (the queue on `main` did not yet accept this runner name) and re-adds it after the
+merge. While the label is present, any backend job can land here. A failed or timed-out job on this
+machine means removing the label, as for the other runners. Host facts and the host-side limit
+readings below come from the worker's SSH inspection on 2026-11-08, not from files in this
+repository. Times are WIB (UTC+7) unless a log line is quoted.
+
+**Trial 2 (passed).** Run 42452912435, job 128645769173, `workflow_dispatch` on `task/ELZ-056`
+at `b9284c7c9dcaad70554c5c205bea16b0b5c420d3`, runner `contabo-elzoo-1`, success, job
+13:00:04 to 14:12:46 WIB (06:00:04Z to 07:12:46Z), 72 min 42 s of the 90 min limit. Cold
+dependency cache (first run for this runner name): `mix setup` 22 min 02 s, cache save 24 s (the
+entry is scoped to `refs/heads/task/ELZ-056`, so the first `main` run saves its own).
+`Run mix check` 06:25:20Z to 07:12:36Z, 47 min 16 s; `ELZOO CHECK PASSED` printed. The root
+suite reported `Finished in 2625.6 seconds (191.6s async, 2433.9s sync)`; the aggregate
+consumer took 711.0 s (`consumer_mix_test` 708.7 s). Stages: `ledger` 19.2 s, `ash_spike`
+168.4 s (`Finished in 10.3 seconds` for its tests), `registry_load` 19.1 s, `root_suite`
+2625.9 s. Job log: `ELZOO STAGE` lines, `BEAM schedulers=4 online=4`. Resource lines printed by
+the job: cgroup memory peak 2,767,269,888 bytes (about 2.58 GiB); sampled CPU maximum
+5.028 cores over 2,831 one-second samples (the cap is 5, so the job reached its cap). Read
+from the host during the run through the container's cgroup path (not from inside the
+container): `cpu.max` `500000 100000`, `memory.max` `8589934592`, `memory.swap.max` `0`;
+throttling counters `nr_throttled` 45 and `throttled_usec` 2,001,766 at 07:09Z, about 69
+minutes into the job and near its end. Host load average stayed about 1.4 to 1.8
+and the four production containers stayed up.
+
+What this shows: the wrapper cap applies to a real job container, `setup-beam`, `mix setup`
+and the full `mix check` pass on this machine, and the root suite took about 1.9 times as long
+as the 1,377 s recorded on `symbolic` (run 42340251145, an older suite size, so not a
+controlled comparison). What it does not show: reliability over many runs, behavior under a
+production load spike, or warm-cache time. Expect a warm run (no 22-minute `mix setup`) to
+take about 50 minutes, but that is an estimate and not an observation. A cold run is only
+17 minutes below the 90-minute limit, so a changed cache key prefix or a longer suite may
+exceed it here first.
 
 Owner decision (2026-11-08), quoted: "u may remove/rename those ci ratahq. i dont use it
 anymore. use it for this development". The owner rents this machine. It runs production
