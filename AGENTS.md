@@ -199,7 +199,8 @@ The coordinator merges only after checks and required review:
 
 1. resolve findings and rerun relevant checks;
 2. merge through GitHub, never rewrite main;
-3. verify acceptance on the merge commit (including its CI result);
+3. verify acceptance on the merge commit (including its CI result: its own green full run, or a push run that
+   logs `ELZOO PUSH CHECK SKIPPED` with the passed exact-head run and job IDs, see docs/development/10-symbolic-ci.md);
 4. delete the merged remote and local task branch;
 5. remove the worktree and confirm git status --short is empty;
 6. close the issue with PR and merge SHA.

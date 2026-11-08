@@ -123,9 +123,69 @@ anything outside this repository that expects the old job name `check` must be u
    one is refused at the evidence step), or it makes the match ambiguous and the queue refuses.
    Either way the queue's own run is lost, so do not dispatch by hand.
 
+## Redundant push runs and duplicate pull request checks (ELZ-058)
+
+A merge cost several full checks of the same content: the queue's exact-head run, then the push run on
+the merge commit (23 to 29 minutes on a fast runner), and, after every `update-branch`, a pull request check
+that duplicated the queue run. ELZ-058 removes two of these without weakening the evidence.
+
+**Push run skip.** The `check-any` job on a push to `main` (both jobs carry the same steps) runs
+`scripts/ci-skip-decision.py` after the guard tests. It prints `skip=true` only when all of these hold:
+the event is a push to `refs/heads/main`; the pushed commit is a two-parent merge commit; its tree equals
+the tree of its second parent (the pull request head that the queue merged with `--match-head-commit`);
+the latest `workflow_dispatch` run of `symbolic-check.yml` on that second parent (branch `task/ELZ-###`,
+`tier` = `fast`, found by `head_sha`) is a completed success whose exact attempt has one successful
+`check-fast` job on `symbolic-elzoo` or `macbook-ubuntu-elzoo-candidate`, a successful `Run mix check` step,
+the full `ELZOO CHECK PASSED` log line, no `ELZOO AFFECTED CHECK PASSED` marker and a skipped `check-any` job;
+and that run is unchanged when read again. The same evidence rules as the queue apply (`scripts/merge-queue.py`).
+Then the steps after the decision (`setup-beam`, cache, `mix setup`, `mix check`) are skipped, the job ends green
+and its log shows `ELZOO PUSH CHECK SKIPPED (identical tree; exact-head full run passed): second_parent=...
+tree=... run=<id> job=<id> runner=<name>`. That line is not `ELZOO CHECK PASSED`, which stays reserved for a run that
+executed `mix check`. In every other case, including a fast-forward, squash or octopus push, a moved main (the
+trees differ), a missing, red, cancelled, ambiguous or newer-failed run, an API, Git or parse error and a missing
+token, the script prints `skip=false` with the reason and the full check runs. It never fails the job because it
+cannot decide. A later run is not hidden by an older success: the run with the highest ID decides.
+`workflow_dispatch` runs (the queue and `tier` = `any` measurement runs), pull requests and anything that
+is not a push to `main` are never skipped.
+
+Why it is the same evidence: an identical tree is identical content, and the full check of that content passed on
+a fast runner at the exact head, with its run and job IDs in the push log. What it does not prove: the push run
+no longer observes the merge commit itself (its path, runner, cache or toolchain state). A runner or cache fault
+at merge time is invisible to a skipped push run; the next full run of `main` catches it. Acceptance on the
+merge commit is therefore either its own green full run or this logged skip (see `AGENTS.md`).
+
+Trust model: `check-any` gets `permissions: actions: read` and `contents: read` at job level (to read the exact-head run,
+its jobs and its log); `check-fast` and the top level keep `contents: read`. The decision step is the only step
+that receives `GITHUB_TOKEN`, in both jobs, because their bodies are identical; the pull request job's token can read
+only contents, and the script refuses everything but a push to `main` before any request. The token is never sent to
+the log storage redirect, which is accepted only for `github.com`, `*.github.com`, `*.githubusercontent.com` and
+`productionresultssa<N>.blob.core.windows.net/actions-results/...`. `scripts/check-ci-runners.py` pins the
+`permissions` lines (and rejects any `write` scope), the exact decision step and its position after
+`scripts/test-ci-skip.py`, the token on that line only, and the complete list of step-level `if:` conditions:
+every step after the decision, except the resource report, carries `steps.skip.outputs.skip != 'true'`
+(the cache save combines it with `cache-hit != 'true'`) and the resource report keeps `always()`. A different `if:` on
+`Run mix check`, or on any other step, fails the guard. Like the other guard rules this is a source-convention
+check, not proof against every YAML form.
+
+**Duplicate pull request check.** When `scripts/merge-queue.py` updates a pull request branch by merging
+`main` (`gh pr update-branch`), GitHub starts a `pull_request` run on the new head; the queue's own exact-head
+dispatch follows on that same head, so that run is a duplicate (observed cost 20 minutes of a fast runner per
+update, run 42478439366 cancelled by hand). Right after the new head is visible, the queue cancels only the
+`pull_request` run of `symbolic-check.yml` on that exact head and branch, logs `Cancelled duplicate pull_request
+run <id> head=<sha>`, and carries on. It never cancels another head, another pull request, a dispatch or a push run, or
+the Gleam run (the Gleam workflow is not queried). A completed run is left alone. A failed lookup, a failed cancel or no
+run within 30 seconds is logged (`Duplicate pull_request run not cancelled: ...`) and does not block the queue.
+This is not evidence: the cancelled run was never part of the merge gate.
+
+Measurement over the next five merges (fast-runner minutes per merge: queue run, push run, pull request runs, with
+run IDs) is recorded in issue #96, not here. Live observations of the decision script against real merge commits
+(run locally with a read token, 2026-11-08): `ade0e45` skipped, naming run 42482549411 and job 128737440624;
+`665d3e0` skipped, naming run 42484386191 and job 128742976143; `b62c26a` ran the full check, because its exact-head
+run predates the `check-fast` job name ("jobs are not one check-fast and a skipped check-any").
+
 ## Affected consumer checks (ELZ-038)
 
-`mix check` defaults to the full check. Every push to `main` and every
+`mix check` defaults to the full check. Every push to `main` that is not skipped under ELZ-058 and every
 `workflow_dispatch` uses that default: all root tests, all 26 existing per-ID
 consumers, the separate OTP-only consumer, and the aggregate over every ready
 ID (40 at ELZ-038). The aggregate and per-ID consumers are tests inside the
