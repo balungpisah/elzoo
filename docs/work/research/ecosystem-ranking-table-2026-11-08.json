@@ -1,0 +1,626 @@
+[
+  {
+    "rank": 1,
+    "id": "core/effect",
+    "disposition": "CLEAN-ROOM",
+    "candidate": "Existing ELZ-011 data-shaped Effect/Adapter Contract; no replacement framework",
+    "size": "M",
+    "dependencies": [],
+    "gate": "Existing task; live Contract owns acceptance."
+  },
+  {
+    "rank": 2,
+    "id": "delivery/effect-intent",
+    "disposition": "CLEAN-ROOM",
+    "candidate": "Existing ELZ-023 over ready Store/outbox; preserve unknown outcomes",
+    "size": "M",
+    "dependencies": [],
+    "gate": "Existing task; coordinate core/effect for dispatch, not a new prerequisite claim."
+  },
+  {
+    "rank": 3,
+    "id": "runtime/telemetry",
+    "disposition": "ADOPT",
+    "candidate": "telemetry 1.4.2; telemetry_metrics 1.2.0 only if needed",
+    "size": "S",
+    "dependencies": [],
+    "gate": "One bounded redacted event family; synchronous handlers, no durable audit."
+  },
+  {
+    "rank": 4,
+    "id": "runtime/faces",
+    "disposition": "WRAP",
+    "candidate": "nimble_options 1.2.0 plus existing operational conventions",
+    "size": "S",
+    "dependencies": [],
+    "gate": "Config validation only; no implicit hot reload/drain/control engine."
+  },
+  {
+    "rank": 5,
+    "id": "integration/secrets",
+    "disposition": "WRAP",
+    "candidate": "Compare aws 1.0.15 service client with ExAws; own scoped references/redaction",
+    "size": "M",
+    "dependencies": [
+      "core/effect"
+    ],
+    "gate": "Hush/ExAws Hackney conflict unresolved; boot config is not per-call authority."
+  },
+  {
+    "rank": 6,
+    "id": "domain/money",
+    "disposition": "ADOPT",
+    "candidate": "Existing ELZ-031: ex_money 6.3.0 / decimal 3.2.0 comparison; AshMoney only for Ash",
+    "size": "M",
+    "dependencies": [],
+    "gate": "Existing task; do not start another money representation."
+  },
+  {
+    "rank": 7,
+    "id": "state/lease",
+    "disposition": "WRAP",
+    "candidate": "Existing ELZ-028: transactional provider/ready SQL plus explicit revision fence",
+    "size": "M",
+    "dependencies": [],
+    "gate": "Existing task; no distributed-lock or Raft adoption inferred."
+  },
+  {
+    "rank": 8,
+    "id": "runtime/os-isolation",
+    "disposition": "ADOPT",
+    "candidate": "Existing ELZ-029 selected OS/process provider and OTP Port boundary",
+    "size": "M",
+    "dependencies": [
+      "core/effect"
+    ],
+    "gate": "Provider pin belongs to live task; process libraries not freshly rechecked in these reports."
+  },
+  {
+    "rank": 9,
+    "id": "integration/identity",
+    "disposition": "ADOPT",
+    "candidate": "AshAuthentication 4.15.1 in Ash, or oidcc 3.9.2/Assent as a direct boundary",
+    "size": "M",
+    "dependencies": [
+      "integration/secrets"
+    ],
+    "gate": "Choose provider/session scope; AshAuthentication cannot pair with latest Assent 0.4.0."
+  },
+  {
+    "rank": 10,
+    "id": "domain/principal",
+    "disposition": "WRAP",
+    "candidate": "Chosen authentication facts plus explicit scoped identity/linking translation",
+    "size": "S",
+    "dependencies": [
+      "integration/identity"
+    ],
+    "gate": "Stable human/service/agent mapping, not token bytes or model identity."
+  },
+  {
+    "rank": 11,
+    "id": "integration/auth-policy",
+    "disposition": "WRAP",
+    "candidate": "Ash policies or let_me 3.0.4 translated to ready authorization inputs",
+    "size": "M",
+    "dependencies": [
+      "domain/principal"
+    ],
+    "gate": "Fresh authority and tenant context; ready domain/authorization remains unchanged."
+  },
+  {
+    "rank": 12,
+    "id": "domain/membership",
+    "disposition": "WRAP",
+    "candidate": "Ash 3.37.3 resource actions / ash_state_machine 0.3.0",
+    "size": "M",
+    "dependencies": [
+      "domain/principal",
+      "integration/auth-policy"
+    ],
+    "gate": "Own invitation, tenant binding and revocation; exercise transaction/concurrency."
+  },
+  {
+    "rank": 13,
+    "id": "domain/entitlement",
+    "disposition": "CLEAN-ROOM",
+    "candidate": "Ash resources and optional fun_with_flags 1.13.0 rollout input; missing entitlement policy",
+    "size": "M",
+    "dependencies": [
+      "domain/membership"
+    ],
+    "gate": "Flags are not subscription/grace/revocation authority; exact fit still needs search."
+  },
+  {
+    "rank": 14,
+    "id": "domain/policy-rules",
+    "disposition": "WRAP",
+    "candidate": "Ash/LetMe for a finite resource-policy subset; general rule engine not selected",
+    "size": "M",
+    "dependencies": [
+      "integration/auth-policy"
+    ],
+    "gate": "Caller must specify finite rule schema and conflicts; no universal evaluator admitted."
+  },
+  {
+    "rank": 15,
+    "id": "state/audit-log",
+    "disposition": "ADOPT",
+    "candidate": "carbonite 0.17.0 versus ash_paper_trail 0.8.1 for the selected mutation owner",
+    "size": "M",
+    "dependencies": [
+      "domain/principal"
+    ],
+    "gate": "Consumer transaction/Repo; TRUNCATE, exclusions, denied/no-mutation events and retention explicit."
+  },
+  {
+    "rank": 16,
+    "id": "integration/ai-model",
+    "disposition": "ADOPT",
+    "candidate": "req_llm 1.30.0 + llm_db 2026.11.0; InstructorLite only if extraction earns it",
+    "size": "M",
+    "dependencies": [
+      "core/effect",
+      "delivery/effect-intent",
+      "integration/secrets"
+    ],
+    "gate": "Select one provider/model; proposals as data, usage provenance and bounded retries."
+  },
+  {
+    "rank": 17,
+    "id": "delivery/data-stream",
+    "disposition": "ADOPT",
+    "candidate": "gen_stage 1.3.2 / selected provider stream; Membrane only for media",
+    "size": "M",
+    "dependencies": [
+      "core/effect"
+    ],
+    "gate": "Ready backpressure reused; no general engine for Enum/Stream work."
+  },
+  {
+    "rank": 18,
+    "id": "integration/object-store",
+    "disposition": "ADOPT",
+    "candidate": "Recommend req_s3 0.2.5; ExAws S3 2.5.9 for larger operations; VFS 1.0.1 conditional",
+    "size": "M",
+    "dependencies": [
+      "core/effect",
+      "delivery/effect-intent",
+      "integration/secrets"
+    ],
+    "gate": "Owner chooses A S3-only or B explicit local/S3 Need; backing store never hidden."
+  },
+  {
+    "rank": 19,
+    "id": "state/artifact",
+    "disposition": "WRAP",
+    "candidate": "Selected object store + ready crypto/Store; owned references, integrity and retention",
+    "size": "M",
+    "dependencies": [
+      "integration/object-store"
+    ],
+    "gate": "Storage does not supply content ownership; explicit versions, authority and expiry."
+  },
+  {
+    "rank": 20,
+    "id": "integration/notification",
+    "disposition": "ADOPT",
+    "candidate": "swoosh 1.29.3 + selected provider/Req; Bamboo alternative, Pigeon for push",
+    "size": "M",
+    "dependencies": [
+      "core/effect",
+      "delivery/effect-intent",
+      "integration/secrets"
+    ],
+    "gate": "Provider acceptance is not delivery; choose one email provider first."
+  },
+  {
+    "rank": 21,
+    "id": "delivery/trigger",
+    "disposition": "WRAP",
+    "candidate": "Existing ELZ-027: crontab 1.2.1/Oban mechanisms plus occurrence Contract",
+    "size": "M",
+    "dependencies": [],
+    "gate": "Existing schedule slice; other webhook/event slices separately admitted."
+  },
+  {
+    "rank": 22,
+    "id": "state/scheduler",
+    "disposition": "ADOPT",
+    "candidate": "Existing Oban 2.24.2 staging/cron; no second Quantum runtime by default",
+    "size": "M",
+    "dependencies": [
+      "delivery/trigger"
+    ],
+    "gate": "Coordinate occurrence identity; ready jobs currently do not promise recurring schedules."
+  },
+  {
+    "rank": 23,
+    "id": "delivery/pubsub",
+    "disposition": "ADOPT",
+    "candidate": "phoenix_pubsub 2.4.1 or direct OTP pg for the required scope",
+    "size": "S",
+    "dependencies": [],
+    "gate": "Volatile broadcast only; no all-subscriber consumption/durable replay claim."
+  },
+  {
+    "rank": 24,
+    "id": "delivery/circuit-breaker",
+    "disposition": "ADOPT",
+    "candidate": "fuse 2.5.0 behind explicit permit/error boundary",
+    "size": "M",
+    "dependencies": [],
+    "gate": "2021 last observed commit; exercise OTP 29 and preserve ready retry/backpressure policies."
+  },
+  {
+    "rank": 25,
+    "id": "integration/observability",
+    "disposition": "ADOPT",
+    "candidate": "OpenTelemetry API/SDK/exporter 1.5.0/1.7.0/1.11.0; PromEx or LoggerJSON as needed",
+    "size": "M",
+    "dependencies": [
+      "runtime/telemetry"
+    ],
+    "gate": "Choose exporter; bound cardinality, redaction, sampling and drops."
+  },
+  {
+    "rank": 26,
+    "id": "workflow/work-item",
+    "disposition": "WRAP",
+    "candidate": "Ash resources + ash_state_machine 0.3.0, optional AshOban 0.10.3",
+    "size": "M",
+    "dependencies": [
+      "domain/principal",
+      "integration/auth-policy"
+    ],
+    "gate": "Acceptance differs from job success; use state/lease only if the chosen authority model needs it."
+  },
+  {
+    "rank": 27,
+    "id": "workflow/run",
+    "disposition": "WRAP",
+    "candidate": "Compare ready Oban/job lifecycle with Reactor 1.0.7 and Jizoku 0.4.0 before new machinery",
+    "size": "L",
+    "dependencies": [
+      "core/effect",
+      "delivery/effect-intent"
+    ],
+    "gate": "Split attempts, child settlement, cancellation; work-item/lease dependencies conditional on caller."
+  },
+  {
+    "rank": 28,
+    "id": "delivery/aggregation",
+    "disposition": "WRAP",
+    "candidate": "OTP Task.Supervisor/async_stream or Reactor for the selected fan-in",
+    "size": "M",
+    "dependencies": [],
+    "gate": "Correlate branches, partial results and deadlines; workflow/run only for durable branches."
+  },
+  {
+    "rank": 29,
+    "id": "delivery/resequence",
+    "disposition": "CLEAN-ROOM",
+    "candidate": "No exact fit identified; ready envelope/windowed dedup plus scoped sequence policy",
+    "size": "M",
+    "dependencies": [],
+    "gate": "Targeted reuse search and gap/timeout/retention Contract before implementation."
+  },
+  {
+    "rank": 30,
+    "id": "domain/metering",
+    "disposition": "WRAP",
+    "candidate": "Provider usage facts + ready Store/idempotency; retain units/provenance/corrections",
+    "size": "M",
+    "dependencies": [
+      "integration/ai-model"
+    ],
+    "gate": "AI usage is one source, not universal prerequisite; telemetry alone is insufficient."
+  },
+  {
+    "rank": 31,
+    "id": "domain/quota",
+    "disposition": "WRAP",
+    "candidate": "Ready workflow/budget plus retained allocation; Hammer 7.5.1 only for rate limits",
+    "size": "M",
+    "dependencies": [
+      "domain/membership",
+      "domain/entitlement",
+      "domain/metering"
+    ],
+    "gate": "Define reset/release/reconciliation; time-window counters are not monthly quota."
+  },
+  {
+    "rank": 32,
+    "id": "domain/pricing",
+    "disposition": "CLEAN-ROOM",
+    "candidate": "ExMoney arithmetic plus versioned tariff policy; llm_db estimates only as inputs",
+    "size": "M",
+    "dependencies": [
+      "domain/money",
+      "domain/metering"
+    ],
+    "gate": "No exact tariff engine established; currency/rounding and immutable versions required."
+  },
+  {
+    "rank": 33,
+    "id": "domain/journal",
+    "disposition": "ADOPT",
+    "candidate": "ash_double_entry 1.1.1 + compatible AshMoney/data-layer graph",
+    "size": "M",
+    "dependencies": [
+      "domain/money",
+      "state/audit-log"
+    ],
+    "gate": "Test atomic balanced posting/reversal and retries; multi-line journals may exceed pair transfers."
+  },
+  {
+    "rank": 34,
+    "id": "integration/payments",
+    "disposition": "ADOPT",
+    "candidate": "stripity_stripe 3.3.3 for a Stripe caller; exact provider otherwise",
+    "size": "M",
+    "dependencies": [
+      "core/effect",
+      "delivery/effect-intent",
+      "integration/secrets",
+      "domain/money"
+    ],
+    "gate": "BSD notices; API version/webhooks/idempotency; no fork proposed."
+  },
+  {
+    "rank": 35,
+    "id": "domain/payment-lifecycle",
+    "disposition": "WRAP",
+    "candidate": "Selected payment provider + Ash transitions/Reactor; pure owned reconciliation policy",
+    "size": "M",
+    "dependencies": [
+      "integration/payments",
+      "delivery/effect-intent"
+    ],
+    "gate": "Separate authorize/capture/refund/unknown; journal required only for the selected settlement scope."
+  },
+  {
+    "rank": 36,
+    "id": "delivery/model-routing",
+    "disposition": "WRAP",
+    "candidate": "llm_db 2026.11.0 metadata with ready selection/budget and explicit eligibility",
+    "size": "M",
+    "dependencies": [
+      "integration/ai-model"
+    ],
+    "gate": "Quota/pricing depend on selected policy; no silent fallback across authority/region constraints."
+  },
+  {
+    "rank": 37,
+    "id": "integration/sdk",
+    "disposition": "ADOPT",
+    "candidate": "ex_mcp 1.8.1 for client/protocol; PhantomMCP 0.8.0 or Ash AI for server-only scope",
+    "size": "M",
+    "dependencies": [
+      "core/effect",
+      "delivery/effect-intent",
+      "integration/secrets"
+    ],
+    "gate": "Choose protocol/transport; stdio needs OS boundary. Copyleft Anubis excluded."
+  },
+  {
+    "rank": 38,
+    "id": "integration/agent-runner",
+    "disposition": "ADOPT",
+    "candidate": "ExMCP 1.8.1 ACP boundary plus one acceptable provider CLI/runtime",
+    "size": "M",
+    "dependencies": [
+      "runtime/os-isolation",
+      "workflow/run",
+      "integration/sdk"
+    ],
+    "gate": "Exact CLI/adapter license and lifecycle still gated; ClaudeCode SDK blocked by Anubis dependency."
+  },
+  {
+    "rank": 39,
+    "id": "integration/search-data",
+    "disposition": "ADOPT",
+    "candidate": "Split TextChunker 1.0.1, pgvector 0.4.2, Floki 0.38.5, Explorer 0.13.0 by caller",
+    "size": "L",
+    "dependencies": [],
+    "gate": "P2 chunking is S, vector Adapter M; retained references need artifact, embeddings need selected model."
+  },
+  {
+    "rank": 40,
+    "id": "state/schema-evolution",
+    "disposition": "CLEAN-ROOM",
+    "candidate": "Current version refusal + specific upcast/migration; compare Commanded ideas",
+    "size": "M",
+    "dependencies": [],
+    "gate": "Only a real format change earns work; frozen old reader/golden corpora, no CQRS kernel."
+  },
+  {
+    "rank": 41,
+    "id": "workflow/build-graph",
+    "disposition": "WRAP",
+    "candidate": "Reactor graph execution / Flow with ready dependency readiness and artifact storage",
+    "size": "L",
+    "dependencies": [
+      "state/artifact",
+      "workflow/run"
+    ],
+    "gate": "Caller fixes rebuild/cache/trace semantics; a DAG alone is not a build system."
+  },
+  {
+    "rank": 42,
+    "id": "integration/message-broker",
+    "disposition": "ADOPT",
+    "candidate": "Broadway 1.3.1 + broadway_rabbitmq 0.8.2/amqp 4.3.0 for one broker",
+    "size": "M",
+    "dependencies": [
+      "core/effect"
+    ],
+    "gate": "Select provider; reuse ready admission/dedup/DLQ, test crash/ack/redelivery. Other brokers separately checked."
+  },
+  {
+    "rank": 43,
+    "id": "ui/component",
+    "disposition": "ADOPT",
+    "candidate": "phoenix_live_view 1.2.13 for Phoenix, or prior Lustre experiment",
+    "size": "M",
+    "dependencies": [],
+    "gate": "Owner chooses host; no UI dependency imposed on other Pieces. Lustre pin not freshly rechecked."
+  },
+  {
+    "rank": 44,
+    "id": "core/grounding",
+    "disposition": "WRAP",
+    "candidate": "Existing ELZ-033 evidence index + project checks/ledger",
+    "size": "S",
+    "dependencies": [],
+    "gate": "Index-only resolution already recorded; no new badge/proof/evaluation runtime task."
+  },
+  {
+    "rank": 45,
+    "id": "domain/value-types",
+    "disposition": "WRAP",
+    "candidate": "Index existing domain/money and separately admitted value recipes",
+    "size": "S",
+    "dependencies": [
+      "domain/money"
+    ],
+    "gate": "Index-only, not a second executable money/value abstraction."
+  },
+  {
+    "rank": 46,
+    "id": "domain/saas-controls",
+    "disposition": "WRAP",
+    "candidate": "Index membership/authorization/entitlement/quota and observation capabilities",
+    "size": "S",
+    "dependencies": [
+      "domain/membership",
+      "domain/entitlement",
+      "domain/quota"
+    ],
+    "gate": "Index-only; dependencies describe links, not a new SaaS engine or readiness claim."
+  },
+  {
+    "rank": 47,
+    "id": "assembly/http-job",
+    "disposition": "WRAP",
+    "candidate": "Existing ELZ-011 over ready Req/JSON/jobs and explicit Effects",
+    "size": "M",
+    "dependencies": [
+      "core/effect",
+      "delivery/effect-intent"
+    ],
+    "gate": "Existing task, not a new Assembly proposal; live Contract governs actual dependencies."
+  },
+  {
+    "rank": 48,
+    "id": "assembly/task-workflow",
+    "disposition": "CLEAN-ROOM",
+    "candidate": "Ash work resources + Oban + Swoosh + existing approval/readiness",
+    "size": "L",
+    "dependencies": [
+      "workflow/work-item",
+      "workflow/run",
+      "integration/notification",
+      "state/audit-log"
+    ],
+    "gate": "Later Assembly wave; acceptance/current authority, not successful attempt alone."
+  },
+  {
+    "rank": 49,
+    "id": "assembly/agent-product",
+    "disposition": "CLEAN-ROOM",
+    "candidate": "Selected model/runner/tool Adapters + ready authority/approval/budget/context/readiness",
+    "size": "L",
+    "dependencies": [
+      "integration/ai-model",
+      "workflow/run",
+      "integration/agent-runner"
+    ],
+    "gate": "Later Assembly wave; no privileged agent kernel or universal hierarchy."
+  },
+  {
+    "rank": 50,
+    "id": "assembly/tenant-edge",
+    "disposition": "CLEAN-ROOM",
+    "candidate": "Identity/membership/entitlement/quota/metering/pricing composition",
+    "size": "L",
+    "dependencies": [
+      "integration/identity",
+      "domain/membership",
+      "domain/entitlement",
+      "domain/quota",
+      "domain/pricing"
+    ],
+    "gate": "Later Assembly wave; tenant authority and billing meaning explicit."
+  },
+  {
+    "rank": 51,
+    "id": "assembly/ledger-checkout",
+    "disposition": "CLEAN-ROOM",
+    "candidate": "AshDoubleEntry + payment Adapter/lifecycle + optional Reactor",
+    "size": "L",
+    "dependencies": [
+      "domain/journal",
+      "integration/payments",
+      "domain/payment-lifecycle"
+    ],
+    "gate": "Later Assembly wave; external payment and atomic journal are separate settlement facts."
+  },
+  {
+    "rank": 52,
+    "id": "assembly/data-pipeline",
+    "disposition": "CLEAN-ROOM",
+    "candidate": "Explorer/Flow/Broadway with explicit storage and optional rebuild graph",
+    "size": "L",
+    "dependencies": [
+      "delivery/data-stream",
+      "state/artifact",
+      "integration/search-data"
+    ],
+    "gate": "Later Assembly wave; build-graph only if workload requires rebuild/cache semantics."
+  },
+  {
+    "rank": 53,
+    "id": "assembly/device-ingest",
+    "disposition": "CLEAN-ROOM",
+    "candidate": "Selected broker + ready dedup/window/backpressure + device principal mapping",
+    "size": "L",
+    "dependencies": [
+      "integration/message-broker",
+      "domain/principal"
+    ],
+    "gate": "Later Assembly wave; no implicit new MQTT/device control kernel."
+  },
+  {
+    "rank": 54,
+    "id": "assembly/consent-records",
+    "disposition": "CLEAN-ROOM",
+    "candidate": "Selected identity/authority/audit/artifact mechanisms; FHIR provider still unverified",
+    "size": "L",
+    "dependencies": [
+      "integration/identity",
+      "integration/auth-policy",
+      "state/audit-log",
+      "state/artifact"
+    ],
+    "gate": "Classified-record caller, consent/retention rules and exact FHIR boundary required before admission."
+  },
+  {
+    "rank": 55,
+    "id": "state/crdt",
+    "disposition": "ADOPT",
+    "candidate": "delta_crdt 0.6.5 / horde 0.10.0 for a selected replication/registry caller",
+    "size": "L",
+    "dependencies": [],
+    "gate": "Conditional research tier; partition/convergence and maintenance evidence first, no writer-lease claim."
+  },
+  {
+    "rank": 56,
+    "id": "state/replication",
+    "disposition": "ADOPT",
+    "candidate": "ra 3.2.0 or khepri 0.19.3 under Apache-2.0 option and recorded full license closure",
+    "size": "L",
+    "dependencies": [],
+    "gate": "Conditional research tier; real caller and owner batch selection, no Ra/Khepri forks."
+  }
+]
