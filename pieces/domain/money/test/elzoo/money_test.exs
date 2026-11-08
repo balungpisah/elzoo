@@ -441,6 +441,19 @@ defmodule Elzoo.MoneyTest do
           ],
           do: assert(result == overflow)
 
+      # Rejection order: membership before the range, so an oversized amount with a
+      # forged currency is forged_currency, and with a valid currency scale_overflow.
+      forged_big = %Amount{currency: %{eur | numeric: 999}, minor_units: Integer.pow(10, 38)}
+
+      for result <- [
+            M.add(forged_big, one),
+            M.negate(forged_big),
+            Elzoo.Money.Codec.encode(forged_big)
+          ],
+          do: assert(result == {:error, {:forged_currency, %{eur | numeric: 999}}})
+
+      assert M.add(one, forged_big) == {:error, {:forged_currency, %{eur | numeric: 999}}}
+
       too_long = "elzoo-money/1 2026-09-17 EUR 978 2 " <> Integer.to_string(Integer.pow(10, 38))
       assert Elzoo.Money.Codec.decode(too_long) == {:error, {:malformed_amount, too_long}}
     end

@@ -471,19 +471,17 @@ defmodule Elzoo.Money do
 
   defp scalable(%Currency{alpha: alpha}), do: {:error, {:retired_currency, alpha}}
 
-  defp amount(_registry, %Amount{currency: c, minor_units: minor}, _requested)
-       when is_integer(minor) and abs(minor) >= @bound,
-       do: {:error, {:scale_overflow, %{alpha: alpha_of(c), minor_units_bound: @bound}}}
-
+  # Rejection order for an amount argument: membership (forged_currency or
+  # unknown_registry_version), then a recorded exponent, then the declared range.
   defp amount(registry, %Amount{currency: currency, minor_units: minor}, requested)
        when is_integer(minor) do
-    with :ok <- member(registry, currency, requested), do: scalable(currency)
+    with :ok <- member(registry, currency, requested),
+         :ok <- scalable(currency),
+         {:ok, _} <- bounded(currency, minor),
+         do: :ok
   end
 
   defp amount(_registry, other, _requested), do: {:error, {:malformed_amount, other}}
-
-  defp alpha_of(%Currency{alpha: alpha}), do: alpha
-  defp alpha_of(_), do: nil
 
   defp cure(%Amount{currency: c, minor_units: minor}),
     do:
