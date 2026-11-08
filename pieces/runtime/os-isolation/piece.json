@@ -47,7 +47,7 @@
     },
     "control": {
       "status": "supported",
-      "contract": "cancel/2 by run ref: acceptance ({:ok, :requested}); a repeated cancel answers {:ok, :already_requested} for a running run and for one of the last 1024 queued runs settled by cancellation (it acknowledges the duplicate request); {:error, :already_exited} once the leader has exited (the provider can no longer stop the group); every other finished or foreign ref gets {:error, :unknown_run}; a queued run becomes rejected{cancelled}, a running run is stopped through the provider and reported unknown{provider_masked_stop}; no pause or drain; stopping the instance terminates running commands through the provider.",
+      "contract": "cancel/2 by run ref: acceptance ({:ok, :requested}); a repeated cancel answers {:ok, :already_requested} for a running run and for one of the last 1024 queued runs settled by cancellation (it acknowledges the duplicate request); {:error, :already_exited} only after a provider exit report confirms that the leader exited (the provider can no longer stop the group); {:error, :exit_unconfirmed} when the provider closed or did not report an exit, so the Adapter cannot claim that the leader exited or rely on the provider to stop it; every other finished or foreign ref gets {:error, :unknown_run}; a queued run becomes rejected{cancelled}, a running run is stopped through the provider and reported unknown{provider_masked_stop}; no pause or drain; stopping the instance terminates running commands through the provider.",
       "evidence": ["test/elzoo/os_process_test.exs"]
     }
   }

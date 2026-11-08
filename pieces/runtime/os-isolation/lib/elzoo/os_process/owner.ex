@@ -185,16 +185,28 @@ defmodule Elzoo.OsProcess.Owner do
         observe_until: System.monotonic_time(:millisecond) + state.config.observe_timeout_ms
     }
 
-    # The leader is gone: the provider can no longer stop the group, so a cancel must not be
-    # accepted from now on. The registry row tells the Adapter without a call into this owner.
+    # Only an exit report from the proxy proves that the leader is gone. A closed provider or a
+    # missing exit notification leaves the leader unobserved, so the Adapter must not describe it
+    # as exited when a caller asks to cancel.
     if state.os_pid,
-      do: :ets.insert(state.tid, {state.ref, self(), state.submitter, state.os_pid, :exited})
+      do:
+        :ets.insert(state.tid, {
+          state.ref,
+          self(),
+          state.submitter,
+          state.os_pid,
+          registry_status(reason)
+        })
 
     send(self(), :observe)
     {:noreply, state}
   end
 
   defp terminal(state, _reason), do: {:noreply, state}
+
+  defp registry_status(:normal), do: :exited
+  defp registry_status({:exit_status, _status}), do: :exited
+  defp registry_status(reason), do: {:exit_unconfirmed, reason}
 
   defp schedule_observe(state, delay \\ @poll_ms) do
     Process.send_after(self(), :observe, delay)
@@ -294,7 +306,14 @@ defmodule Elzoo.OsProcess.Owner do
 
   defp finish(state, result) do
     unless state.dropped, do: send(state.submitter, {Elzoo.OsProcess, state.ref, result})
-    :ets.insert(state.tid, {state.ref, self(), state.submitter, state.os_pid, :finished})
+
+    status =
+      case registry_status(state.terminal) do
+        :exited -> :finished
+        {:exit_unconfirmed, _reason} -> {:finished, :exit_unconfirmed}
+      end
+
+    :ets.insert(state.tid, {state.ref, self(), state.submitter, state.os_pid, status})
     {:stop, :normal, state}
   end
 

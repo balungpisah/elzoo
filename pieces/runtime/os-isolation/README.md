@@ -53,9 +53,12 @@ arrival order, bounded by `max_output_bytes` (`truncated: true` beyond it).
 early, cancels the run (acceptance only) and returns `{:error, {:no_result,
 ref}}`; the late result message still arrives. `cancel/2` returns
 `{:ok, :requested}` once and `{:ok, :already_requested}` for a repeated cancel
-of a running run; `{:error, :already_exited}` once the leader has exited (the
-provider can no longer stop the group; the result then reports what remains,
-`completed` or `unknown{group_alive}`). Acceptance is not application: if the
+of a running run; `{:error, :already_exited}` only once a provider exit report
+confirms that the leader has exited (the provider can no longer stop the group;
+the result then reports what remains, `completed` or `unknown{group_alive}`);
+`{:error, :exit_unconfirmed}` if the provider closed or did not report an exit,
+so the Adapter cannot say that the leader exited or rely on the provider to
+stop it. Acceptance is not application: if the
 leader exits before the owner handles an accepted cancel, the result reports
 what happened; it never waits for the owner (an owner inside `exec:run`
 handles the request as soon as the provider has returned the OS pid, then asks

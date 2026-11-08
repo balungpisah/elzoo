@@ -94,6 +94,20 @@ defmodule Elzoo.OsProcessProviderFailureTest do
     {_, 0} =
       System.cmd(@kill, ["-s", "KILL", Integer.to_string(port_os_pid)], stderr_to_stdout: true)
 
+    assert :ok =
+             wait_until(
+               fn ->
+                 match?(
+                   %{status: {:exit_unconfirmed, :port_closed}},
+                   OsProcess.info(sup, ref)
+                 )
+               end,
+               5_000
+             )
+
+    assert {:error, :exit_unconfirmed} = OsProcess.cancel(sup, ref)
+    assert members(os_pid) != [], "the Adapter does not claim that the live orphan already exited"
+
     assert_receive {OsProcess, ^ref,
                     %{status: :unknown, reason: :port_closed, members: members, os_pid: ^os_pid}},
                    10_000

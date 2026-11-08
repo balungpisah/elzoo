@@ -536,9 +536,29 @@ defmodule Elzoo.OsProcessTest do
   end
 
   test "R2 a submitter that dies while exec:run is still in progress: the group is stopped" do
-    sup = start(test_hooks: %{before_run: fn -> Process.sleep(400) end})
     before = :exec.which_children()
     parent = self()
+    gate = make_ref()
+
+    sup =
+      start(
+        test_hooks: %{
+          before_run: fn ->
+            send(parent, {:before_run, self(), gate})
+
+            receive do
+              {^gate, :run} -> :ok
+            end
+          end,
+          after_run: fn ->
+            send(parent, {:after_run, self(), gate})
+
+            receive do
+              {^gate, :observe} -> :ok
+            end
+          end
+        }
+      )
 
     pid =
       spawn(fn ->
@@ -557,11 +577,35 @@ defmodule Elzoo.OsProcessTest do
         2_000 -> flunk("no ref")
       end
 
+    owner =
+      receive do
+        {:before_run, owner, ^gate} -> owner
+      after
+        2_000 -> flunk("owner did not reach the spawn gate")
+      end
+
+    on_exit(fn ->
+      send(owner, {gate, :run})
+      send(owner, {gate, :observe})
+
+      :exec.which_children()
+      |> Kernel.--(before)
+      |> Enum.each(&kill_group/1)
+    end)
+
     Process.exit(pid, :kill)
-    # The run may be stopped and its registry row removed before a poll could read the OS pid,
-    # so the test observes the provider's child list instead: a `sleep 30` that was not stopped
-    # would still be listed after 5 s.
-    assert :ok = wait_until(fn -> :exec.which_children() -- before == [] end, 5_000)
+    # Let the command start after the submitter has died, then hold the owner before it can
+    # consume the DOWN. This proves that a real group exists and gives the test its group id
+    # before it verifies the linked-owner stop.
+    send(owner, {gate, :run})
+
+    assert_receive {:after_run, ^owner, ^gate}, 5_000
+    os_pids = :exec.which_children() -- before
+    assert os_pids != []
+    assert Enum.all?(os_pids, &(members(&1) != []))
+
+    send(owner, {gate, :observe})
+    assert :ok = wait_until(fn -> Enum.all?(os_pids, &(members(&1) == [])) end, 5_000)
     assert :ok = wait_until(fn -> OsProcess.snapshot(sup).in_flight == 0 end, 5_000)
     assert :ok = wait_until(fn -> OsProcess.info(sup, ref) == nil end, 5_000)
   end

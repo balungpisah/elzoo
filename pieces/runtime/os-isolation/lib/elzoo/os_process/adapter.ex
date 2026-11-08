@@ -102,6 +102,14 @@ defmodule Elzoo.OsProcess.Adapter do
             # result reports what remains (completed or unknown{group_alive}).
             {:reply, {:error, :already_exited}, state}
 
+          {_, [{^ref, _owner, _submitter, _os_pid, {:exit_unconfirmed, _reason}}]} ->
+            # The provider closed or did not report an exit. The leader may still be alive and
+            # the provider cannot be relied on to stop it, so do not claim it already exited.
+            {:reply, {:error, :exit_unconfirmed}, state}
+
+          {_, [{^ref, _owner, _submitter, _os_pid, {:finished, :exit_unconfirmed}}]} ->
+            {:reply, {:error, :exit_unconfirmed}, state}
+
           {entry, _} ->
             Owner.cancel(entry.owner)
             running = Map.put(state.running, ref, Map.put(entry, :cancel_requested, true))
@@ -226,6 +234,9 @@ defmodule Elzoo.OsProcess.Adapter do
 
     case :ets.lookup(state.tid, ref) do
       [{^ref, ^owner, _submitter, _os_pid, :finished}] ->
+        :ets.delete(state.tid, ref)
+
+      [{^ref, ^owner, _submitter, _os_pid, {:finished, :exit_unconfirmed}}] ->
         :ets.delete(state.tid, ref)
 
       [{^ref, ^owner, submitter, nil, _status}] ->
