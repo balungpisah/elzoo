@@ -3,5 +3,7 @@ defmodule Elzoo.ConsumerGroupATest do
   # tests inside one module stay in sequence. See Elzoo.CureConsumerCase.
   use Elzoo.CureConsumerCase, async: true
 
-  Elzoo.CureConsumerCase.consumer_tests(Elzoo.CureConsumerCase.database_free_group(:a))
+  Elzoo.CureConsumerCase.consumer_tests(Elzoo.CureConsumerCase.database_free_group(:a),
+    timeout: Elzoo.CureConsumerCase.concurrent_timeout()
+  )
 end

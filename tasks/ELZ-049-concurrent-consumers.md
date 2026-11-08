@@ -22,8 +22,10 @@ aggregate consumer and the OTP-only consumer stay in sequence in `test/export_te
   `ExUnit.CaseTemplate` under `test/support/`, loaded by `test/test_helper.exs`. The helper code
   moves; it does not change.
 - Add three test files, one module each, `async: true`. Each module defines the same per-ID test
-  (same name, same `consumer_id` tag, same 120 s limit) for its group of database-free consumer
-  IDs. The groups are explicit lists in the case module, balanced by the measured per-consumer
+  (same name, same `consumer_id` tag) for its group of database-free consumer IDs, with a 240 s
+  limit (measured basis in the PR: 99.1 s worst observed, two 120 s timeouts under sustained load
+  on the two-core runner; 2.4x margin as in ELZ-036). `test/test_helper.exs` bounds `max_cases` to
+  `System.schedulers_online()`: three concurrent consumer VMs on symbolic, two on macbook-ubuntu. The groups are explicit lists in the case module, balanced by the measured per-consumer
   times on main `0a42370`. The union of the groups plus the PostgreSQL list equals
   `Elzoo.CheckSelection.consumer_ids/0`.
 - `test/export_test.exs` keeps the five plan/write tests, the OTP-only consumer, the aggregate
@@ -41,7 +43,9 @@ aggregate consumer and the OTP-only consumer stay in sequence in `test/export_te
 - [ ] 20 repeats of the three database-free group files on `macbook-ubuntu-elzoo-candidate`
       (a measurement branch with the same test tree) with no failure and no time limit hit; the
       largest observed per-consumer `total` recorded. The repeats run the group files alone, so
-      they do not sample the overlap with other async modules inside `mix check`.
+      they do not sample the overlap with other async modules inside `mix check`. Record: the
+      first 20 (three VMs, 120 s limit) gave 18 passes and 2 timeouts; after the fix (two VMs on
+      that runner, 240 s limit) a further series of 7 on a warm host must pass with no time limit hit.
 - [ ] Root suite `Finished in` and the `ELZOO STAGE root_suite` elapsed on the same SHA before and
       after, both runners, run and job IDs recorded.
 - [ ] Root test count unchanged (564 on main `0a42370`); no assertion weakened.
@@ -49,6 +53,6 @@ aggregate consumer and the OTP-only consumer stay in sequence in `test/export_te
 
 ## Limits
 
-Concurrency is bounded by module count (three), not by a measured CPU budget. The gain is
+Concurrency is bounded by module count (three) and online schedulers, not by a measured CPU budget. The gain is
 hypothetical until measured on both runners. Three concurrent consumer VMs add memory; the cgroup
 peak before and after is recorded, not guaranteed. A passing repeat series is a finite sample.

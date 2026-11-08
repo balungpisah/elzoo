@@ -60,14 +60,24 @@ defmodule Elzoo.CureConsumerCase do
     {:ok, destination: destination, registry: Elzoo.Registry.load!(@root)}
   end
 
+  # Per-test limit for the concurrent database-free groups. Measured basis (PR #90): under three
+  # concurrent consumer VMs on the two-core macbook-ubuntu runner, after about 30 minutes of
+  # sustained load, `assembly/request-route-retry` reached 99.1 s and then hit 120 s twice
+  # (run 42454973591). 240 s is about 2.4x the worst observed value, the ELZ-036 margin rule.
+  # Concurrency is also bounded to `System.schedulers_online()` in test/test_helper.exs.
+  # Sequential consumers keep the 120 s default.
+  @concurrent_timeout 240_000
+  def concurrent_timeout, do: @concurrent_timeout
+
   @doc """
-  Defines one per-ID consumer test for each ID. The name, the `consumer_id` tag and the time
-  limit are the same in every module, so `--exclude consumer_id:<id>` (ELZ-038) keeps working.
+  Defines one per-ID consumer test for each ID. The name and the `consumer_id` tag are the same
+  in every module, so `--exclude consumer_id:<id>` (ELZ-038) keeps working. `:timeout` is the
+  per-test limit (default 120 s; the concurrent groups pass `concurrent_timeout/0`).
   """
-  defmacro consumer_tests(ids) do
-    quote bind_quoted: [ids: ids] do
+  defmacro consumer_tests(ids, opts \\ []) do
+    quote bind_quoted: [ids: ids, opts: opts] do
       for id <- ids do
-        @tag timeout: 120_000
+        @tag timeout: Keyword.get(opts, :timeout, 120_000)
         @tag consumer_id: id
         test "#{id} carries its own checks into an independent consumer", ctx do
           assert_cure_consumer(ctx, [unquote(id)])
