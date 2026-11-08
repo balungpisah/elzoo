@@ -720,11 +720,11 @@ accepted risk. Rootless Docker for `elzoo-ci` is a possible follow-up; it is **n
 service, so a systemd cap on the service does not limit them. Two caps apply:
 
 - The service drop-in `/etc/systemd/system/actions.runner.balungpisah-elzoo.contabo-elzoo-1.service.d/10-elzoo-cap.conf`
-  sets `CPUQuota=500%`, `MemoryMax=10G`, `MemoryHigh=9G` and `TasksMax=8192` for the runner
-  listener and worker processes.
+  sets `CPUQuota=800%` (all 8 cores; it was 500% until 2026-11-08, see "CPU cap raised" below),
+  `MemoryMax=10G`, `MemoryHigh=9G` and `TasksMax=8192` for the runner listener and worker processes.
 - A root-owned wrapper `/opt/actions-runner/elzoo-backend-bin/docker` (mode 755, a
   `#!/usr/bin/python3 -I` script) is first in the runner's `.path`. For `docker create` and
-  `docker run` it adds `--cpus=5 --memory=8g --memory-swap=8g`; it then replaces itself with
+  `docker run` it adds `--cpus=8 --memory=8g --memory-swap=8g` (`--cpus=5` until 2026-11-08); it then replaces itself with
   `/usr/bin/docker` by `os.execv`, so every other subcommand keeps its arguments,
   environment, stdin, stdout, stderr and exit code. The first version was a `/bin/sh`
   script and broke the first trial (see below): Ubuntu's `/bin/sh` is `dash`, which drops
@@ -735,15 +735,26 @@ service, so a systemd cap on the service does not limit them. Two caps apply:
   and the exit code (7) matched plain `docker` by SHA-256 of stdout and stderr, and
   `getconf LONG_BIT` printed `64`.
 
-The runner runs one job at a time, so the job container cap is the practical limit: it
-leaves about 3 cores and 15 GiB (23 GiB minus 8 GiB) for the production workloads. The
-service cap covers only the runner's own processes and does not add to the container cap;
-worst case with both at their limits is 10 GiB plus 8 GiB. Memory observed on the other
-runners (2.1 to 2.8 GiB cgroup peak, 3.3 to 5.0 sampled cores) fits inside the container cap,
-though a CPU peak near 5 cores may be throttled; the cap is 5 of 8 cores, and the
-service and container CPU caps could add up to 10 cores' worth, which only the 8 vCPUs
-of the host limit. A job that reaches 8 GiB is killed by the
-kernel; that is the intended protection, not a failure of the host.
+The runner runs one job at a time, so the job container cap is the practical limit. Memory: it leaves
+about 15 GiB (23 GiB minus 8 GiB) for the production workloads; the service cap covers only the runner's
+own processes and does not add to the container cap (worst case 10 GiB plus 8 GiB). A job that reaches
+8 GiB is killed by the kernel; that is the intended protection, not a failure of the host. CPU: since
+2026-11-08 the cap is all 8 cores (below).
+
+**CPU cap raised to 8 cores (owner decision 2026-11-08, "Increase cap to max cpu").** After the failed
+`tier` = `any` observation (the before-measurement: `nr_throttled` 1026, `throttled_usec` 62,213,128 under a
+5-core cap, two 120 s timeouts), the owner decided to give CI all 8 cores of `ratahq-ci-contabo-01`. Changes on
+the host, made while the runner was idle with no job container: `CPUQuota=800%` in the drop-in (applied by
+`systemctl daemon-reload`; `CPUQuotaPerSecUSec` reads 8s and the unit's `cpu.max` reads `800000 100000`) and
+`--cpus=8` in the wrapper (a container started through the wrapper as `elzoo-ci` read `cpu.max` `800000 100000`,
+`memory.max` `8589934592`, `memory.swap.max` `0`, and still received `INPUT_OTP-ARCHITECTURE=64`). The memory
+caps are unchanged. Backups of the previous files are in `/root` on the host
+(`10-elzoo-cap.conf.before-8cores`, `docker-wrapper.before-8cores`). **Consequence, accepted by the owner:** while a CI
+job runs, the production containers on that host (`balungpisah-core`, `-tensorzero`, `-minio`, `-postgres`) have no
+CPU reserved; a CI job that uses all 8 cores competes with them on equal terms, and the production services
+can slow down for the duration of a job. The re-test (one `tier` = `any` run on `main` with the label added only while both
+fast runners are busy) decides whether Contabo joins the pool or stays measurement-only. No test limit changes without a
+separate measured task.
 
 **Trial 1 (failed, kept as evidence).** Run 42452504044, job 128644528184, `workflow_dispatch`
 on `task/ELZ-056` at `1406f40c8d98b0218f8bdf8afb80998522086f39`, runner `contabo-elzoo-1`,
@@ -778,7 +789,7 @@ renamed to `/opt/actions-runner.retired-rakan-20261108` (about 953 MB of `_work`
 deleted. The owner may delete it.
 
 **ERL_FLAGS.** The workflow sets `+S 4:4 +SDcpu 1 +SDio 1` for `contabo-elzoo-1`, the same as
-`symbolic-elzoo`: four schedulers fit inside the 5-core cap on an 8-core host.
+`symbolic-elzoo`: four schedulers are well inside the 8-core cap (they were sized for the 5-core cap).
 
 Operation, as for the other runners: `ssh ratahq-ci-contabo-01 'systemctl status
 actions.runner.balungpisah-elzoo.contabo-elzoo-1.service --no-pager'`. To withdraw the
