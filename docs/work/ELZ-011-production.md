@@ -1,14 +1,17 @@
-> Latest status: the [incremental review](ELZ-011-incremental-review.md) cleared
-> the product fixes; its required T1 synchronization fix and L2 temp-directory
-> correction now pass targeted/repeated/export checks. Claim marker removed,
-> main ELZ-056 merged, and roadmap/claims/CI-policy checks pass. See the
-> [final delta evidence](ELZ-011-review-fixes.md); final narrow review and PR remain.
+> Final independent verdict: **CLEAR**, no blocking findings, at
+> `094eff10b05ec9a60756f73f0faf77c3bec0fe3a`, Orca reviewer session
+> `0f974e4c-75e1-4daf-9a19-7720ad2b1633`.
+> [Final report](ELZ-011-final-narrow-review.md) carries forward the earlier
+> product review. Source at `087c1de` passed fresh setup/full check (32 + 642);
+> final tests/export pass 29/221 with 114 receipt hashes and both runtime markers.
+> Claim removed; main `452caa1` merged. PR checks, coordinator queue/merge,
+> main acceptance and cleanup remain; this is not merged acceptance.
 
 # ELZ-011 production and acceptance record
 
 Implementation source commit: `36384d4e90cf1487f17dfbb41322a06e59766ae0`.
-Status at source `36384d4`: fresh pinned setup, full check and standalone export
-passed. Independent review at `694fda8` was CONDITIONAL; see
+Historical implementation validation below refers to source `36384d4`;
+final fixed-source validation is recorded in ELZ-011-review-fixes.md. Independent review at `694fda8` was CONDITIONAL; see
 [review](ELZ-011-final-review.md) and [fixes](ELZ-011-review-fixes.md).
 Fixed source `087c1de` now passes fresh setup, full check (32 + 642 tests),
 standalone export (221 tests, 114 hashes) and both isolated runtime checks.
