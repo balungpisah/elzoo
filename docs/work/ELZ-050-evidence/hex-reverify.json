@@ -1,0 +1,508 @@
+{
+  "utc": "2026-11-08T13:35:50.336745+00:00",
+  "source": "https://hex.pm/api/packages/<name>",
+  "packages": {
+    "amqp": {
+      "latest_stable_version": "4.3.0",
+      "latest_version": "4.3.0",
+      "licenses": [
+        "MIT"
+      ],
+      "latest_release_at": "2026-10-06T22:00:06.912703Z",
+      "selected_retired": false,
+      "repo": "https://github.com/pma/amqp"
+    },
+    "ash": {
+      "latest_stable_version": "3.37.3",
+      "latest_version": "3.37.3",
+      "licenses": [
+        "MIT"
+      ],
+      "latest_release_at": "2026-11-05T06:20:35.444503Z",
+      "selected_retired": false,
+      "repo": "https://github.com/ash-project/ash"
+    },
+    "ash_authentication": {
+      "latest_stable_version": "4.15.1",
+      "latest_version": "5.0.0-rc.17",
+      "licenses": [
+        "MIT"
+      ],
+      "latest_release_at": "2026-11-03T16:31:55.043094Z",
+      "selected_retired": false,
+      "repo": null
+    },
+    "ash_double_entry": {
+      "latest_stable_version": "1.1.1",
+      "latest_version": "1.1.1",
+      "licenses": [
+        "MIT"
+      ],
+      "latest_release_at": "2026-10-22T01:07:11.748746Z",
+      "selected_retired": false,
+      "repo": "https://github.com/ash-project/ash_double_entry"
+    },
+    "ash_money": {
+      "latest_stable_version": "0.2.7",
+      "latest_version": "0.2.7",
+      "licenses": [
+        "MIT"
+      ],
+      "latest_release_at": "2026-10-25T18:35:18.191167Z",
+      "selected_retired": false,
+      "repo": "https://github.com/ash-project/ash_money"
+    },
+    "ash_oban": {
+      "latest_stable_version": "0.10.3",
+      "latest_version": "0.10.3",
+      "licenses": [
+        "MIT"
+      ],
+      "latest_release_at": "2026-10-25T18:29:34.750716Z",
+      "selected_retired": false,
+      "repo": "https://github.com/ash-project/ash_oban"
+    },
+    "ash_paper_trail": {
+      "latest_stable_version": "0.8.1",
+      "latest_version": "0.8.1",
+      "licenses": [
+        "MIT"
+      ],
+      "latest_release_at": "2026-10-19T03:17:32.102325Z",
+      "selected_retired": false,
+      "repo": "https://github.com/ash-project/ash_paper_trail"
+    },
+    "ash_state_machine": {
+      "latest_stable_version": "0.3.0",
+      "latest_version": "0.3.0",
+      "licenses": [
+        "MIT"
+      ],
+      "latest_release_at": "2026-10-25T17:43:32.512051Z",
+      "selected_retired": false,
+      "repo": "https://github.com/ash-project/ash_state_machine"
+    },
+    "assent": {
+      "latest_stable_version": "0.4.0",
+      "latest_version": "0.4.0",
+      "licenses": [
+        "MIT"
+      ],
+      "latest_release_at": "2026-11-07T21:53:00.657438Z",
+      "selected_retired": false,
+      "repo": "https://github.com/pow-auth/assent"
+    },
+    "aws": {
+      "latest_stable_version": "1.0.15",
+      "latest_version": "1.0.15",
+      "licenses": [
+        "Apache-2.0"
+      ],
+      "latest_release_at": "2026-08-07T15:16:10.421860Z",
+      "selected_retired": false,
+      "repo": "https://github.com/aws-beam/aws-elixir"
+    },
+    "broadway": {
+      "latest_stable_version": "1.3.1",
+      "latest_version": "1.3.1",
+      "licenses": [
+        "Apache-2.0"
+      ],
+      "latest_release_at": "2026-11-04T07:36:46.723228Z",
+      "selected_retired": false,
+      "repo": "https://github.com/dashbitco/broadway"
+    },
+    "broadway_rabbitmq": {
+      "latest_stable_version": "0.8.2",
+      "latest_version": "0.8.2",
+      "licenses": [
+        "Apache-2.0"
+      ],
+      "latest_release_at": "2024-11-12T18:02:30.837073Z",
+      "selected_retired": false,
+      "repo": "https://github.com/dashbitco/broadway_rabbitmq"
+    },
+    "carbonite": {
+      "latest_stable_version": "0.17.0",
+      "latest_version": "0.17.0",
+      "licenses": [
+        "Apache-2.0"
+      ],
+      "latest_release_at": "2026-09-11T10:08:25.426577Z",
+      "selected_retired": false,
+      "repo": "https://github.com/bitcrowd/carbonite"
+    },
+    "crontab": {
+      "latest_stable_version": "1.2.1",
+      "latest_version": "1.2.1",
+      "licenses": [
+        "MIT"
+      ],
+      "latest_release_at": "2026-10-09T08:50:49.428651Z",
+      "selected_retired": false,
+      "repo": "https://github.com/maennchen/crontab"
+    },
+    "decimal": {
+      "latest_stable_version": "3.2.0",
+      "latest_version": "3.2.0",
+      "licenses": [
+        "Apache-2.0"
+      ],
+      "latest_release_at": "2026-10-10T19:40:10.994318Z",
+      "selected_retired": false,
+      "repo": "https://github.com/ericmj/decimal"
+    },
+    "delta_crdt": {
+      "latest_stable_version": "0.6.5",
+      "latest_version": "0.6.5",
+      "licenses": [
+        "MIT"
+      ],
+      "latest_release_at": "2024-04-16T06:33:47.003750Z",
+      "selected_retired": false,
+      "repo": "https://github.com/derekkraan/delta_crdt_ex"
+    },
+    "ex_aws": {
+      "latest_stable_version": "2.7.0",
+      "latest_version": "2.7.0",
+      "licenses": [
+        "MIT"
+      ],
+      "latest_release_at": "2026-05-06T09:27:33.650735Z",
+      "selected_retired": false,
+      "repo": "https://github.com/ex-aws/ex_aws"
+    },
+    "ex_aws_s3": {
+      "latest_stable_version": "2.5.9",
+      "latest_version": "2.5.9",
+      "licenses": [
+        "MIT"
+      ],
+      "latest_release_at": "2025-12-09T04:40:35.929041Z",
+      "selected_retired": false,
+      "repo": "https://github.com/ex-aws/ex_aws_s3"
+    },
+    "ex_mcp": {
+      "latest_stable_version": "1.8.1",
+      "latest_version": "1.8.1",
+      "licenses": [
+        "MIT"
+      ],
+      "latest_release_at": "2026-10-31T19:00:18.750618Z",
+      "selected_retired": false,
+      "repo": "https://github.com/trust-arbor/arbor_mcp"
+    },
+    "ex_money": {
+      "latest_stable_version": "6.3.0",
+      "latest_version": "6.3.0",
+      "licenses": [
+        "Apache-2.0"
+      ],
+      "latest_release_at": "2026-10-29T23:22:38.744195Z",
+      "selected_retired": false,
+      "repo": "https://github.com/ex-money/money"
+    },
+    "explorer": {
+      "latest_stable_version": "0.13.0",
+      "latest_version": "0.13.0",
+      "licenses": [
+        "MIT"
+      ],
+      "latest_release_at": "2026-09-28T17:17:50.682276Z",
+      "selected_retired": false,
+      "repo": "https://github.com/elixir-nx/explorer"
+    },
+    "floki": {
+      "latest_stable_version": "0.38.5",
+      "latest_version": "0.38.5",
+      "licenses": [
+        "MIT"
+      ],
+      "latest_release_at": "2026-10-29T14:47:01.246849Z",
+      "selected_retired": false,
+      "repo": "https://github.com/philss/floki"
+    },
+    "fun_with_flags": {
+      "latest_stable_version": "1.13.0",
+      "latest_version": "1.13.0",
+      "licenses": [
+        "MIT"
+      ],
+      "latest_release_at": "2025-03-23T14:53:02.465129Z",
+      "selected_retired": false,
+      "repo": "https://github.com/tompave/fun_with_flags"
+    },
+    "fuse": {
+      "latest_stable_version": "2.5.0",
+      "latest_version": "2.5.0",
+      "licenses": [
+        "MIT"
+      ],
+      "latest_release_at": "2021-07-01T14:16:44.229117Z",
+      "selected_retired": false,
+      "repo": null
+    },
+    "gen_stage": {
+      "latest_stable_version": "1.3.2",
+      "latest_version": "1.3.2",
+      "licenses": [
+        "Apache-2.0"
+      ],
+      "latest_release_at": "2025-07-15T19:19:51.225710Z",
+      "selected_retired": false,
+      "repo": "https://github.com/elixir-lang/gen_stage"
+    },
+    "hammer": {
+      "latest_stable_version": "7.5.1",
+      "latest_version": "7.5.1",
+      "licenses": [
+        "MIT"
+      ],
+      "latest_release_at": "2026-10-27T04:59:27.839355Z",
+      "selected_retired": false,
+      "repo": "https://github.com/ExHammer/hammer"
+    },
+    "horde": {
+      "latest_stable_version": "0.10.0",
+      "latest_version": "0.10.0",
+      "licenses": [
+        "MIT"
+      ],
+      "latest_release_at": "2025-11-03T15:23:50.318295Z",
+      "selected_retired": false,
+      "repo": "https://github.com/derekkraan/horde"
+    },
+    "jizoku": {
+      "latest_stable_version": "0.4.0",
+      "latest_version": "0.4.0",
+      "licenses": [
+        "Apache-2.0"
+      ],
+      "latest_release_at": "2026-08-15T23:05:21.554315Z",
+      "selected_retired": false,
+      "repo": "https://github.com/dark-trench/jizoku"
+    },
+    "khepri": {
+      "latest_stable_version": "0.19.3",
+      "latest_version": "0.19.3",
+      "licenses": [
+        "Apache-2.0",
+        "MPL-2.0"
+      ],
+      "latest_release_at": "2026-09-29T12:02:57.202730Z",
+      "selected_retired": false,
+      "repo": "https://github.com/rabbitmq/khepri"
+    },
+    "let_me": {
+      "latest_stable_version": "3.0.4",
+      "latest_version": "3.0.4",
+      "licenses": [
+        "MIT"
+      ],
+      "latest_release_at": "2026-09-09T20:28:18.477881Z",
+      "selected_retired": false,
+      "repo": "https://github.com/woylie/let_me"
+    },
+    "llm_db": {
+      "latest_stable_version": "2026.11.0",
+      "latest_version": "2026.11.0",
+      "licenses": [
+        "Apache-2.0"
+      ],
+      "latest_release_at": "2026-11-03T00:40:38.275952Z",
+      "selected_retired": false,
+      "repo": "https://github.com/agentjido/llmdb"
+    },
+    "nimble_options": {
+      "latest_stable_version": "1.2.0",
+      "latest_version": "1.2.0",
+      "licenses": [
+        "Apache-2.0"
+      ],
+      "latest_release_at": "2026-11-02T08:37:25.588622Z",
+      "selected_retired": false,
+      "repo": "https://github.com/dashbitco/nimble_options"
+    },
+    "oban": {
+      "latest_stable_version": "2.24.2",
+      "latest_version": "2.24.2",
+      "licenses": [
+        "Apache-2.0"
+      ],
+      "latest_release_at": "2026-10-14T07:41:37.176731Z",
+      "selected_retired": false,
+      "repo": "https://github.com/oban-bg/oban"
+    },
+    "oidcc": {
+      "latest_stable_version": "3.9.2",
+      "latest_version": "3.9.2",
+      "licenses": [
+        "Apache-2.0"
+      ],
+      "latest_release_at": "2026-11-03T22:29:49.856016Z",
+      "selected_retired": false,
+      "repo": null
+    },
+    "opentelemetry": {
+      "latest_stable_version": "1.7.0",
+      "latest_version": "1.7.0",
+      "licenses": [
+        "Apache-2.0"
+      ],
+      "latest_release_at": "2025-10-17T20:45:48.070442Z",
+      "selected_retired": false,
+      "repo": "https://github.com/open-telemetry/opentelemetry-erlang"
+    },
+    "opentelemetry_api": {
+      "latest_stable_version": "1.5.0",
+      "latest_version": "1.5.0",
+      "licenses": [
+        "Apache-2.0"
+      ],
+      "latest_release_at": "2025-10-17T20:44:22.463764Z",
+      "selected_retired": false,
+      "repo": "https://github.com/open-telemetry/opentelemetry-erlang"
+    },
+    "opentelemetry_exporter": {
+      "latest_stable_version": "1.11.0",
+      "latest_version": "1.11.0",
+      "licenses": [
+        "Apache-2.0"
+      ],
+      "latest_release_at": "2026-09-16T10:09:27.701161Z",
+      "selected_retired": false,
+      "repo": "https://github.com/open-telemetry/opentelemetry-erlang"
+    },
+    "pgvector": {
+      "latest_stable_version": "0.4.2",
+      "latest_version": "0.4.2",
+      "licenses": [
+        "MIT"
+      ],
+      "latest_release_at": "2026-10-02T19:29:18.827696Z",
+      "selected_retired": false,
+      "repo": "https://github.com/pgvector/pgvector-elixir"
+    },
+    "phantom_mcp": {
+      "latest_stable_version": "0.8.0",
+      "latest_version": "0.8.0",
+      "licenses": [
+        "MIT"
+      ],
+      "latest_release_at": "2026-11-05T01:57:34.122066Z",
+      "selected_retired": false,
+      "repo": "https://github.com/dbernheisel/phantom_mcp"
+    },
+    "phoenix_live_view": {
+      "latest_stable_version": "1.2.13",
+      "latest_version": "1.2.13",
+      "licenses": [
+        "MIT"
+      ],
+      "latest_release_at": "2026-10-20T10:49:35.790611Z",
+      "selected_retired": false,
+      "repo": "https://github.com/phoenixframework/phoenix_live_view"
+    },
+    "phoenix_pubsub": {
+      "latest_stable_version": "2.4.1",
+      "latest_version": "2.4.1",
+      "licenses": [
+        "MIT"
+      ],
+      "latest_release_at": "2026-10-08T13:13:26.878344Z",
+      "selected_retired": false,
+      "repo": null
+    },
+    "ra": {
+      "latest_stable_version": "3.2.0",
+      "latest_version": "3.2.0",
+      "licenses": [
+        "Apache-2.0",
+        "MPL-2.0"
+      ],
+      "latest_release_at": "2026-09-01T11:35:36.546076Z",
+      "selected_retired": false,
+      "repo": null
+    },
+    "reactor": {
+      "latest_stable_version": "1.0.7",
+      "latest_version": "1.0.7",
+      "licenses": [
+        "MIT"
+      ],
+      "latest_release_at": "2026-09-16T02:06:58.138843Z",
+      "selected_retired": false,
+      "repo": "https://github.com/ash-project/reactor"
+    },
+    "req_llm": {
+      "latest_stable_version": "1.30.0",
+      "latest_version": "1.30.0",
+      "licenses": [
+        "Apache-2.0"
+      ],
+      "latest_release_at": "2026-11-03T01:18:11.669732Z",
+      "selected_retired": false,
+      "repo": "https://github.com/agentjido/req_llm"
+    },
+    "req_s3": {
+      "latest_stable_version": "0.2.5",
+      "latest_version": "0.2.5",
+      "licenses": [
+        "Apache-2.0"
+      ],
+      "latest_release_at": "2026-07-31T08:22:19.192356Z",
+      "selected_retired": false,
+      "repo": "https://github.com/wojtekmach/req_s3"
+    },
+    "stripity_stripe": {
+      "latest_stable_version": "3.3.3",
+      "latest_version": "3.3.3",
+      "licenses": [
+        "BSD-3-Clause"
+      ],
+      "latest_release_at": "2026-10-29T19:32:51.771907Z",
+      "selected_retired": false,
+      "repo": "https://github.com/code-corps/stripity_stripe"
+    },
+    "swoosh": {
+      "latest_stable_version": "1.29.3",
+      "latest_version": "1.29.3",
+      "licenses": [
+        "MIT"
+      ],
+      "latest_release_at": "2026-10-28T12:32:07.667347Z",
+      "selected_retired": false,
+      "repo": "https://github.com/swoosh/swoosh"
+    },
+    "telemetry": {
+      "latest_stable_version": "1.4.2",
+      "latest_version": "1.4.2",
+      "licenses": [
+        "Apache-2.0"
+      ],
+      "latest_release_at": "2026-05-11T08:17:59.173587Z",
+      "selected_retired": false,
+      "repo": "https://github.com/beam-telemetry/telemetry"
+    },
+    "telemetry_metrics": {
+      "latest_stable_version": "1.2.0",
+      "latest_version": "1.2.0",
+      "licenses": [
+        "Apache-2.0"
+      ],
+      "latest_release_at": "2026-08-25T08:25:27.170901Z",
+      "selected_retired": false,
+      "repo": "https://github.com/beam-telemetry/telemetry_metrics"
+    },
+    "text_chunker": {
+      "latest_stable_version": "1.0.1",
+      "latest_version": "1.0.1",
+      "licenses": [
+        "MIT"
+      ],
+      "latest_release_at": "2026-10-22T18:12:25.569182Z",
+      "selected_retired": false,
+      "repo": "https://github.com/revelrylabs/text_chunker_ex"
+    }
+  }
+}
