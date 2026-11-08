@@ -59,6 +59,7 @@ Pre-step on every wake-up: resolve owner; check `status.key` equals the job key;
 | Condition | Action | Oban return |
 | --- | --- | --- |
 | Resolver error, exit, key mismatch, `active: false` (read-only or halted) | no send | `{:error, :owner_unavailable}` (uses an attempt and `backoff/1`, so it is bounded) |
+| Phase Intended or Dispatched, flags.quarantined | none (no dispatch, no poll) | {:cancel, :operator_required} |
 | Phase Intended | `advance(:dispatch)`: `{:ok, :dispatched}` | `{:snooze, first_poll_delay}` (at least total + 1 s) |
 | Phase Intended and `{:error, :not_dispatchable}` | none | `{:cancel, :not_dispatchable}` |
 | Phase Dispatched | `advance(:poll)`: `{:ok, :polling}` | `{:snooze, poll_delay}` |
@@ -85,14 +86,15 @@ Host re-wake after reconciliation uses the existing job (for example `Oban.retry
    encoding is invalid. Wrong key/digest/MAC reaches owner refusal only through
    a structurally valid completed Envelope; malformed bytes use receipt_invalid.
 2. Make the runner table exhaustive over validated snapshots and all replies:
-   check quarantined before any dispatch/rearm, enforce the persisted maximum
+   check quarantined before any dispatch/rearm/poll;
+   quarantined Intended or Dispatched cancels with operator_required, enforce the persisted maximum
    in Intended as well as Definite, and cancel disarmed states. Every status,
    expiry and action call is bounded and catches exits; unknown replies fail
    closed using a fixed error tag. The pre-step handles expire error/timeout
    before continuing. No private deadline/state inspection. A timed-out call
    may still complete in the owner: never interpret caller-task shutdown as
    cancellation of that operation. Subsequent wake-ups reread the owner.
-3. First scheduled poll delay is at least ceil(total_ms/1000)+1 seconds;
+3. Every scheduled poll delay, first and later, is at least ceil(total_ms/1000)+1 seconds;
    task_start is a wait and never a ground. Require finite recovery grace and
    ceil(recovery_grace_ms/poll_delay_ms) <=512. This arithmetic alone does NOT
    cap concurrent/rescued wakes or the interval before admission deadline;
@@ -137,3 +139,6 @@ and need pinned-source plus real-DB verification. No full mix check or productio
 Cure proof exists for this proposal. All high/medium findings remain tracked
 until the revised proposal/probes receive explicit focused clearance. Root's
 ELZ-023 main CI retry and cleanup remain independent pending work.
+
+R1–R3 approval: coordinator msg_98ca8e655f8f, 2026-11-08;
+see [focused review](ELZ-011-focused-review.md) for binding G1–G9.

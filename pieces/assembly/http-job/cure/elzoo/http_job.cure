@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: Apache-2.0
+mod Elzoo.HttpJobPolicy
+  type JobPhase = JobIntended | JobDispatched | JobDefinite | JobConfirmed | JobStranded
+  type JobAction = JobDispatch | JobPoll | JobRearm | JobFinish | JobOperator | JobExhausted | JobUnavailable
+
+  fn decide(phase: JobPhase, active: Bool, quarantined: Bool, disarmed: Bool, attempts: Int, maximum: Int) -> JobAction =
+    pickup
+      not active -> JobUnavailable()
+      else ->
+        match phase
+          JobConfirmed() -> JobFinish()
+          JobStranded() -> JobOperator()
+          JobIntended() ->
+            pickup
+              quarantined or disarmed -> JobOperator()
+              attempts >= maximum -> JobExhausted()
+              else -> JobDispatch()
+          JobDispatched() ->
+            pickup
+              quarantined -> JobOperator()
+              else -> JobPoll()
+          JobDefinite() ->
+            pickup
+              quarantined or disarmed -> JobOperator()
+              attempts >= maximum -> JobExhausted()
+              else -> JobRearm()
+end

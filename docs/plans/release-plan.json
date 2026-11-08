@@ -605,7 +605,7 @@
       ],
       "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
       "issue": 11,
-      "issue_body_sha256": "4d811943c4d3ce87289f6dd24619b9862174876490d40d165b7f70a23c105183",
+      "issue_body_sha256": "617508c89d83bdb197dd0dd77fca5b4dabf36092a5ddb950ac921824a63c8a9f",
       "observed_issue_state": "OPEN",
       "owner_role": "one claimed task worker after admission",
       "product_aims": [
@@ -2833,10 +2833,12 @@
     {
       "id": "assembly/http-job",
       "job": "ELZ-011",
-      "note": "selected HTTP adapter + Jason + job/storage + telemetry",
+      "note": "Bounded immutable JSON publication at a fixed HTTP origin through EffectIntent and Jobs; no provider replay/no-effect grounds, explicit read-only recovery and job-control-only cancellation.",
       "baseline_status": "planned",
-      "disposition": "published-scoped-work",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "implementation prepared; acceptance requires merged PR",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/assembly/http-job/piece.json",
+      "manifest_sha256": "b02783ba761f70fc64599e52b4ad7cb050c9746c89d436b12d827edf169cb7ed"
     },
     {
       "id": "assembly/ingest-dedup-accumulate",
@@ -2915,10 +2917,12 @@
     {
       "id": "core/effect",
       "job": "ELZ-011",
-      "note": "`T,X`; effects cannot be hidden in pure operators",
+      "note": "Data-only three-field Effect declaration wrapping an unchanged validated Envelope command; pure Needs membership is declaration, never execution authority.",
       "baseline_status": "planned",
-      "disposition": "published-scoped-work",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "implementation prepared; acceptance requires merged PR",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/core/effect/piece.json",
+      "manifest_sha256": "7871cfd927e328453cdff0d3f4a9ac83c358059f9017c3de9b8ede351dab5317"
     },
     {
       "id": "core/envelope",

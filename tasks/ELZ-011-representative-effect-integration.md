@@ -19,7 +19,7 @@ The selected Effect publishes one bounded JSON object under an immutable logical
 
 ## Scope
 
-- core/effect is a data-only declaration (capability_id, operation, classification) carried in an Envelope command. It reuses Envelope identity, schema and payload fields. It adds no executor, dispatcher or authorization.
+- core/effect is a data-only declaration (capability_id, operation, classification) that wraps an unchanged, separately validated Envelope command. It reuses Envelope identity, schema and payload fields. It adds no executor, dispatcher or authorization.
 
 - define request/result/error ports and the Unit's Needs;
 - compare at least one realistic maintained candidate at the boundary and pin

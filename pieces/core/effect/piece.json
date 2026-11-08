@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "id": "core/effect",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": [
+    "cure",
+    "elixir"
+  ],
+  "dependencies": [
+    "core/envelope"
+  ],
+  "contract": "Data-only three-field Effect declaration wrapping an unchanged validated Envelope command; pure Needs membership is declaration, never execution authority.",
+  "limits": [
+    "No proof of external-provider truth, authorization or exactly-once effects; named tests and type/source checks only."
+  ],
+  "files": [
+    "cure/elzoo/effect.cure",
+    "examples/declaration.exs",
+    "lib/elzoo/effect.ex",
+    "test/elzoo/effect_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "type",
+      "file": "cure/elzoo/effect.cure",
+      "claim": "Pinned Cure compilation checks consumed pure declaration/decision types; owned-source audit and finite scenarios do not prove arbitrary consumer or external behavior."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/effect_test.exs",
+      "claim": "Named executable boundary, ABI, malformed-input and failure scenarios; finite evidence, not quantified proof."
+    },
+    {
+      "kind": "upstream",
+      "provider": "cure",
+      "reference": "https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89",
+      "claim": "Relies on the pinned implementation and documented contract; not a local correctness proof."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Relies on the pinned implementation and documented contract; not a local correctness proof."
+    },
+    {
+      "kind": "assumption",
+      "claim": "Host keeps capability declarations, identities and external observations truthful and supplies declared runtime/durability Needs."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "Pure data declaration with no ambient configuration, observations or running lifecycle."
+    },
+    "config": {
+      "status": "not_applicable",
+      "contract": "Pure data declaration with no ambient configuration, observations or running lifecycle."
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "Pure data declaration with no ambient configuration, observations or running lifecycle."
+    }
+  }
+}
