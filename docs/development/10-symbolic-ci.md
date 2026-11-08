@@ -230,9 +230,9 @@ This corrects the original issue's request to keep the group for all events,
 with owner approval. The review correction applies it to both workflows,
 so Gleam merge-commit evidence is retained too.
 
-A's merge-commit backend check can overlap B's full pre-merge dispatch on the
-two approved backend runners. There is no new per-runner route, speculative
-stack checking, or guarantee of immediate capacity. Preserving pending checks
+A's merge-commit backend check can overlap B's full pre-merge dispatch on
+two hosted runners. There is no speculative stack checking, or guarantee of
+immediate capacity. Preserving pending checks
 can increase queue length; this does not speed up an individual full check.
 
 ### Limits and acceptance
@@ -344,60 +344,41 @@ backend runner after this change restores the previous cache by prefix key, then
 refetches Cure because `mix.lock` changed and Cure compiles from source once per runner; that run
 saves a new cache. Later runs are warm. Compare consumer timings only between warm runs.
 
-### Dependency cache (ELZ-043)
+### Dependency cache (ELZ-043, ELZ-066)
 
 The backend job restores with `actions/cache/restore` and saves with
 `actions/cache/save`, both pinned at `0057852bfaa89a56745cba8c7296529d2fc39830`
-(tag v4.3.0). The key and restore-keys prefix are unchanged:
-`elzoo-ubuntu24-v2-<runner name>-Linux-otp29.1.2-elixir1.20.4-<hash of the two
-mix.lock/mix.exs pairs>`. The save step runs immediately after `mix setup`
+(tag v4.3.0). The key is `elzoo-hosted-v1-<OS>-<ImageOS>-otp29.1.2-elixir1.20.4-<hash of the two
+mix.lock/mix.exs pairs>`; the restore-keys prefix is the same without the hash. The key has no runner name: hosted
+runners are interchangeable. The save step runs immediately after `mix setup`
 succeeds and before `mix check`, only when the restore had no exact
 primary-key hit (`cache-hit != 'true'`), using the restore step's
 `cache-primary-key`. It runs on the same events as the job itself (push to
-`main`, same-repository PRs, `workflow_dispatch`), as the earlier combined step
-did. A `mix check` failure, cancellation or timeout now keeps the saved state;
+`main`, same-repository PRs, `workflow_dispatch`). A `mix check` failure, cancellation or timeout keeps the saved state;
 a failed `mix setup` saves nothing. GitHub scopes caches by ref: a PR save is
 visible to that PR only, while a `main` save is visible to every branch.
 
 What is saved is the post-`mix setup` state (`deps`, `_build` and the spike's
-`deps`/`_build`, `test` env). Files that `mix check` adds later are no longer in
-a newly saved entry. The save stays on the same runner key, so compiled Mix and
-Cure artifacts, including the root application's BEAMs in `_build`, are still
-never restored on another machine or path; they are not a substitute for the
-source-copy boundary.
+`deps`/`_build`, `test` env). Files that `mix check` adds later are not in
+a newly saved entry. Compiled Mix and Cure artifacts, including the root
+application's BEAMs in `_build`, are restored only for the same OS image, OTP and Elixir versions; they are not a
+substitute for the source-copy boundary.
 
-No per-runner warm job was added. Measured on the backend workflow, steps
-`Run mix setup` and the cache save:
+Observed on the hosted runner (`mix setup` step; the cache restore itself took 1 to 2 s):
 
-| Restore | Runs (runner) | `mix setup` |
+| Restore | Runs | `mix setup` |
 |---|---|---|
-| exact hit | 42342334978 attempt 2, 42306658171 (symbolic) | 111 s, 54 s |
-| restore-key hit on the runner's own older key, after a lock change | 42215808401, 42224055535, 42256519279, 42267542586 (symbolic) | 346 s, 306 s, 38 s, 36 s |
-| no cache for the prefix (after the ELZ-034 v1→v2 change) | 42340251145 (symbolic); 42342334978 attempt 1, 42337998577, 42351427886 (macbook-ubuntu) | 662 s; 796 s, 739 s, 811 s |
+| no entry for the prefix (first run after the key change) | 42517023581 (job 128842174590) | 617 s (10 min 17 s) |
+| exact hit | 42520133125, 42521924097, pull request run 42518583815 | 2 s, 2 s, 5 s |
 
-Saves took 45–543 s (for example 273 s in 42340251145, 543 s in 42215808401).
-After a `mix.lock` or `mix.exs` change, the runner that did not take the `main`
-run still restores its own older main entry by prefix, so its first run costs
-an incremental `mix setup` plus one save, not a cold build. A warm job would
-need a second, per-runner job and route (a guard and trust-model change) and
-would occupy each runner for a setup and save on every key change. The fully
-cold case comes only from a changed key prefix or an evicted entry. Change the
-prefix only deliberately and expect one cold run per runner. These are
-observations from listed runs, not a timing guarantee; no claim is made about
-warm-run speed.
+These are observations from listed runs, not a timing guarantee. A change of `mix.lock` or `mix.exs` makes one run take the
+restore-keys prefix hit and pay an incremental `mix setup` plus one save (not measured here); a changed key prefix (`v1`)
+or an evicted entry costs one cold run (about 10 minutes of `mix setup`).
 
-Coordinator check after merge: `gh api
+Coordinator check after a lock change: `gh api
 'repos/balungpisah/elzoo/actions/caches?per_page=50' --jq '.actions_caches[] |
-select(.ref=="refs/heads/main") | {id,key,created_at}'` must list one entry per
-backend runner name with the current hash.
-
-On 2026-11-07, pulls from `registry-1.docker.io` timed out from `symbolic`
-while `github.com` and `auth.docker.io` were reachable. The Docker daemon on
-`symbolic` now has `/etc/docker/daemon.json` set to
-`{"registry-mirrors": ["https://mirror.gcr.io"]}`. A mirror changes only where
-layers are fetched: the job image stays pinned by the same digest, so Docker
-verifies the same content. The mirror is host configuration, not repository
-state. This record covers `symbolic` only.
+select(.ref=="refs/heads/main") | {id,key,created_at}'` must list one `elzoo-hosted-v1-...` entry with the current hash
+(and the pinned `elzoo-minio-...` entry of the S3 test server).
 
 ### Gleam compiler download (ELZ-060)
 
