@@ -260,7 +260,8 @@ run does not satisfy them.
 ## Timing lines in CI logs (ELZ-045)
 
 `mix check` prints `ELZOO STAGE <name> start|end utc=... elapsed=...` around format, compile,
-ledger, Ash spike, registry load and the root suite. `test/export_test.exs` prints
+ledger, Ash spike, registry load and the root suite. The consumer harness (`Elzoo.CureConsumerCase`
+since ELZ-049; `test/export_test.exs` before) prints
 `ELZOO TIMING consumer=<id|aggregate(N)> <step> seconds=...` for each copied consumer. Steps are
 `plan_write`, `consumer_mix_test`, `runtime_vm` and `total`.
 
@@ -274,6 +275,52 @@ match them without a `^` anchor.
 These lines are monitored behavior from a monotonic clock. They prove nothing about correctness.
 They add no stage, test or assertion. Queue time is not part of any line. Compare runs only on the
 same SHA and the same runner.
+
+## Concurrent database-free consumers (ELZ-049)
+
+The copied-consumer tests share one harness, `Elzoo.CureConsumerCase` in
+`test/support/cure_consumer_case_test_helper.exs`. The 23 consumers whose copy closure names no PostgreSQL
+provider (`postgrex`, `ecto_sql`, `oban`) are defined in three modules with `async: true`:
+`test/consumer_group_a_test.exs`, `_b_` and `_c_`. ExUnit runs async modules at the same time
+and tests inside one module in sequence. `test/test_helper.exs` sets `max_cases` to
+`System.schedulers_online()`; this caps every async module in `test/` and `pieces/`, not only the
+consumer groups. With `+S 4:4` on symbolic the cap is 4, so all three consumer group modules run
+at once (the module count is the bound there); with `+S 2:2` on macbook-ubuntu the cap is 2, so
+at most two consumer VMs run at once (the cap is shared with the other async modules). The groups are explicit lists balanced by the
+measured `total` seconds on main `0a42370`. The three
+PostgreSQL consumers (`integration/sql`, `integration/jobs`, `assembly/durable-job`) and the
+aggregate consumer stay in `test/export_test.exs` with `async: false`, because the CI job prepares
+one disposable database. The OTP-only consumer and the plan/write tests stay there too; they
+were not moved.
+
+Each per-ID test keeps its name and its `consumer_id` tag, so the affected mode (ELZ-038)
+filters them with the same `--exclude consumer_id:<id>` arguments. The 23 concurrent tests have a
+240 s limit (`Elzoo.CureConsumerCase.concurrent_timeout/0`); the sequential consumers keep 120 s.
+Measured basis for 240 s: on macbook-ubuntu with three concurrent VMs, after about 30 minutes of
+sustained load, `assembly/request-route-retry` rose from 35.8 s (sequential) to 99.1 s in the last
+completed repeat, and two later repeats went over 120 s by an unknown amount (PR #90, run
+42454973591, repeats 6 and 7). 240 s is 2x that 120 s lower bound. The same series on symbolic
+stayed at 123 to 125 s per repeat with 35.7 s for that consumer, which is consistent with a
+slowdown of the two-core host under sustained load. The two-VM setup is to be measured by a later
+repeat series, recorded in the PR. The selection test in
+`test/export_test.exs` counts the per-ID tests over the four modules (still 26, plus one
+aggregate), checks that the groups plus the PostgreSQL list equal
+`Elzoo.CheckSelection.consumer_ids/0`, and checks that no database-free group ID copies a Piece
+with a PostgreSQL provider. That test needs the four modules loaded: run the whole suite, or name
+the four files together.
+
+Measured basis before the change, main `0a42370` on `symbolic-elzoo` (job 128581094645): the 23
+database-free consumers took 189.5 s in sequence; the root suite reported `Finished in 862.2
+seconds`. Locally on the implementation branch, the three group files ran in 100.7 s wall time
+for 205.0 s of summed consumer `total` time. Under concurrency a per-consumer `total` includes
+contention, so it is not comparable with a sequential `total`; compare the root suite `Finished
+in` and the stage elapsed on the same SHA and runner. CI before/after figures and the repeat
+series are recorded in the ELZ-049 PR. The repeat series runs the three group files alone; in
+`mix check` they also overlap the other async root and piece test modules, so the per-test
+margin under full load is shown only by whole-suite runs. Three concurrent consumer VMs add
+memory: compare the cgroup peak before and after on the same runner. The concurrency bound is
+the module count, not a measured CPU budget; a passing repeat series is a finite sample.
+
 ## Owned Cure compile fingerprint (ELZ-046)
 
 `Mix.Tasks.Compile.Cure` writes `elzoo.cure.manifest` (format 2) with a sha256 fingerprint over
