@@ -27,15 +27,15 @@ This table summarizes the sections below; it adds no Contract or claim.
 
 | The Elzoo catalogue provides | The consuming application provides |
 | --- | --- |
-| Source bundles per ready Piece: source, Cure laws, tests, examples, README Contract and limits, `piece.json` claims, Apache-2.0 license and NOTICE | Its own Mix project, `mix.exs`, `mix.lock` and dependency resolution, including transitive packages |
-| A receipt per copy under `.elzoo/receipts/`: origin commit, dirty-source indicator, original file hashes, selected claims and the provider versions tested in Elzoo | Pinning or updating those provider versions, and rerunning boundary tests after any update |
+| Ready Piece bundles with the applicable source, tests, examples, README Contract and limits, `piece.json` claims, and Apache-2.0 license and NOTICE | Its own Mix project, `mix.exs`, `mix.lock` and dependency resolution, including transitive packages |
+| A receipt per selection under `.elzoo/receipts/`: origin revision when available, dirty-source indicator, original file hashes, selected claims and the provider versions tested in Elzoo | Pinning recorded versions for exact reproduction and rerunning boundary tests after any update |
 | Install snippets under `.elzoo/install/*.md`: dependency and configuration text to merge by hand | Its Application, supervisor tree, test helper and configuration; the copier rewrites none of them |
 | For Cure Pieces: the small Mix compiler source and instructions to register it before `:app`; Cure stays a pinned build/test dependency | The recorded Elixir 1.20.4 / OTP 29.1.2 baseline for the recorded proof results |
-| Evidence recorded at the origin revision: selected laws, finite tests, upstream contracts and assumptions, as named in each README and `piece.json` | Evidence for its own edits and composition; copied evidence does not survive edits automatically |
-| Declared Needs on each Piece: databases, credentials, endpoints, executables, clocks | Every declared Need, supplied through its own configuration, never through the copied source |
-| Pure Operators, Adapters and explicit Effect declarations with their delivery-result mapping | Its effect, delivery policy, persistence and retry choices, and the OTP shell that runs them |
-| The application-owned `Elzoo.*` / `Cure.Elzoo.*` namespace and the documented public record tags | Renaming modules, Cure imports, MFA references, tests and public record tags before redistributing copies as a library, and translating tags at an Adapter where two copies meet |
-| Conflict detection before any write; identical files left intact; no force replacement | Serialized use of the copier against one destination, and deliberate merging of updates through a scratch project |
+| Claim-level grounding and limits, including selected laws, tests, upstream contracts or assumptions where recorded in the README and `piece.json` | Evidence for its own edits and composition; copied evidence does not survive edits automatically |
+| Explicit Needs where declared by a Piece | Supplying the external capabilities a selected Piece declares it needs |
+| Pure Operators and explicit Effect and Adapter boundaries where provided | Its effects, delivery policy and persistence, and an OTP shell where a lifecycle needs a process |
+| The default `Elzoo.*` / `Cure.Elzoo.*` namespace for application-owned copies and documented public record tags | Before redistributing copied source as a library, renaming modules, Cure imports, Elixir MFA/atom references and tests; explicitly renaming public record tags or translating them at an Adapter and testing the boundary |
+| Known conflicts detected before writing, identical files left intact and no force replacement; copying is not a multi-file transaction | No concurrent writers against a destination, and deliberate merging of updates through a scratch project |
 | A new Piece ID for a changed ready Contract, with migration notes | Opting in to a new ID by changing its dependency IDs, and resolving any module or data-tag overlap |
 
 ## Copy
