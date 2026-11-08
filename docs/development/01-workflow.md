@@ -25,7 +25,7 @@ body and current issue/PR state before acting.
 
 Claim a deterministic branch, never an agent-suffixed branch:
 
-    export ELZOO_AGENT="$(hostname -s)-$(od -An -N2 -tx1 /dev/urandom | tr -d ' ')"
+    export ELZOO_AGENT="worker-$(od -An -N2 -tx1 /dev/urandom | tr -d ' ')"
     git fetch origin --prune
     git worktree add ../elzoo-ELZ-003 -b task/ELZ-003 origin/main
     cd ../elzoo-ELZ-003
