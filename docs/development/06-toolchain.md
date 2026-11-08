@@ -41,3 +41,5 @@ normal provider of `integration/jobs`). See its README for versions and limits.
 Linux CI runs on symbolic through a repository-scoped self-hosted runner and
 pinned Ubuntu job containers. See [runner operations](10-symbolic-ci.md);
 GitHub-hosted compute and hosted fallback are prohibited.
+
+For the current exemplar and selected P1/P2/P3 evidence, see the [clean-check handoff](clean-check-handoff.md).

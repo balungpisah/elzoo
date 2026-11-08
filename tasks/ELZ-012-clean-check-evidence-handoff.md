@@ -38,3 +38,10 @@ behavior.
 ## Out of scope
 
 No new runtime feature, automatic issue publication or custom task engine.
+
+
+## Repository references
+
+Source: https://github.com/balungpisah/elzoo/blob/main/tasks/ELZ-012-clean-check-evidence-handoff.md
+
+Dependency issues: https://github.com/balungpisah/elzoo/issues/11
