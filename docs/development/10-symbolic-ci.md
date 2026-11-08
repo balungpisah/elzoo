@@ -1,145 +1,25 @@
-# CI on the owner's machines
+# CI on GitHub-hosted runners
 
-Elzoo uses only the owner's Linux machines: the user-owned `symbolic` and `macbook-ubuntu` and, from
-ELZ-056 (owner decision 2026-11-08), the user-rented slow VPS
-(runner `contabo-elzoo-1`; trialled and currently unrouted, see "Runner tiers" and "Contabo VPS" below). GitHub provides scheduling
-and check reporting; it does not supply compute.
-**Status 2026-11-09:** the repository is public and CI runs on the GitHub-hosted lane (`ELZOO_CI_LANE=hosted`); all
-four self-hosted runners are unregistered, and the sections about them below are history until the cleanup change
-removes the self-hosted jobs. See "Lanes" for the flip record, the measured figures and the fallback.
-
-## Roles and routing
-
-*History: all four runners in this list were unregistered at the flip (2026-11-09); the repository has no self-hosted
-runner. The list stays until the cleanup change removes the self-hosted jobs.*
-
-- `symbolic-elzoo`: backend, fast tier (the `fast` label is assigned by the coordinator before
-  ELZ-057 merges); labels `self-hosted`, `linux`, `x64`, `elzoo`,
-  `backend`, `fast`, `symbolic`.
-- `macbook-ubuntu-elzoo-candidate` (runner id 23): backend; labels
-  `self-hosted`, `linux`, `x64`, `elzoo`, `backend`, `fast`, `macbook-ubuntu`,
-  `ci-candidate`. It is in the fast tier. It received `backend` after ELZ-034 merged (PR #61), so it
-  is in the normal backend pool. The name and `ci-candidate` label are
-  historical; they do not select a separate route.
-- `contabo-elzoo-1` (runner id 24): **unrouted**, never `fast`; labels `self-hosted`, `Linux`, `X64`,
-  `elzoo`, `contabo`. It has no `backend` label (removed again on 2026-11-08 after its `tier` = `any`
-  observation failed; owner decision, option a). It takes no job at present; a person may add the `backend` label for a
-  measurement run or an explicit `tier` = `any` dispatch and must remove it afterwards. See "Contabo VPS" for the two failed or slow runs.
-- `symbolic-elzoo-gleam`: Gleam only; labels `self-hosted`, `linux`, `x64`,
-  `symbolic`, `elzoo`, `gleam`.
-
-The backend workflow has two jobs, chosen by the event (see "Runner tiers"). ELZ-040
-removed the one-time `task/ELZ-034` candidate selector. Both workflows run only on `push` to `main`,
-`pull_request` and `workflow_dispatch`. `pull_request_target` and other events
-are not approved. Both backend and Gleam jobs skip fork PRs before runner
-selection; a skipped job is not validation and must not be treated as evidence
-for merging a fork. This does not make arbitrary same-repository code trustworthy.
-The first container step refuses any backend `RUNNER_NAME` other than the three
-names above (`symbolic-elzoo`, `macbook-ubuntu-elzoo-candidate`, `contabo-elzoo-1`);
-`scripts/check-ci-runners.py` pins the lines of that step, so adding a fourth case arm,
-changing a runner name or changing the `ERL_FLAGS` value in an arm fails the guard. It does
-not read script text after the gate or the job-level `env: ERL_FLAGS`, so a later line
-could still override `ERL_FLAGS`; this relies on independent review of workflow changes. `scripts/merge-queue.py` accepts only the two fast runners as
-backend queue evidence (ELZ-057); Gleam evidence stays symbolic-only. The Gleam selector stays symbolic-only. A new backend machine
-needs a full task-branch check and independent review before it gets `backend`.
-Registration is repository-scoped; administrators must assign these labels only
-to the named trusted machines. GitHub label selection is not cryptographic host
-identity, and a runner name check happens after the host starts the container.
-
-`scripts/check-ci-runners.py` requires exactly the reviewed named jobs per workflow (`check-fast`, `check-any`
-in `symbolic-check.yml`, in this order; `gleam` in `symbolic-gleam.yml`),
-with its fork-PR gate immediately below the job name; it checks the exact `on:`
-trigger block, rejects `pull_request_target` and quoted YAML keys, requires every
-container `image:` to carry an `@sha256:` digest, and checks exact selector
-conventions, the identity gate and known workflow files. Jobs must be
-block-style: a flow-style, aliased or explicit-key job line under `jobs:` is
-rejected, and `jobs:` must be the last top-level key. Each job must keep exactly
-one `container:` mapping whose first key is a digest-pinned `image:`, so its steps
-run in that image rather than in a plain host shell. `container.options` (for
-example `--privileged` or host mounts) is not restricted, so this is not host
-isolation. The guard fails closed on YAML forms the workflows never use: anchors,
-aliases, tags, explicit `?` keys, merge keys, quoted scalars or flow collections
-that do not close on their own line, document markers and directives.
-Text inside plain block scalars (`run: |`, content deeper than the key column)
-and full-line comments is not read as YAML keys for the trigger-name,
-quoted-key, image and form checks. The `runs-on:` and `container:` lines must be
-visible keys outside that text, and any copy of them inside script text still
-counts against the one allowed. It disallows reusable workflows without a policy. Every `uses:` action
-must be pinned by a full 40-character commit SHA (ELZ-043); a tag, branch or
-short SHA is rejected. Flow mappings (`{ ... }`, for example a
-`- { uses: ... }` step) are rejected even on one line, so no key hides from
-these line checks; one-line flow sequences of plain words such as
-`[self-hosted, ...]` stay allowed, but a `key: value` inside `[ ... ]` is rejected.
-Every visible line must start a key or a list item, so a plain-scalar
-continuation line is rejected. The job keeps one block-style `    steps:` list,
-and the backend runner identity gate must be its first step, outside script text.
-The gate is a whole step: only its own script text may follow it before the next
-step, so no `if:`, `continue-on-error:` or `shell:` can switch it off, and
-`symbolic-check.yml` may not use `defaults:`, `shell:` or `continue-on-error:`.
-An added job requires deliberate guard review.
-`python3 scripts/test-ci-runners.py` exercises positive routing and negative
-controls. This is a source convention guard, not protection against hostile YAML
-or an account-level runner admission policy. Workflow and trust-model changes
-require independent review. Inspect the actual GitHub job `runner_name` and
-labels, not just the check name, when verifying a machine.
-
-## Runner tiers and the runner budget (ELZ-057)
-
-Owner decision 2026-11-08: pull request checks and merge-queue runs run only on the **fast** runners
-(`symbolic-elzoo`, `macbook-ubuntu-elzoo-candidate`, label `fast`). `main` pushes and measurement
-runs may use any runner that has the `backend` label; `contabo-elzoo-1` never gets `fast` and has no `backend` label at present.
-`symbolic-check.yml` therefore has two jobs with identical bodies:
-
-| Job | Runs for | `runs-on` |
-|---|---|---|
-| `check-fast` | `pull_request` from this repository; `workflow_dispatch` with `tier` = `fast` | `[self-hosted, linux, x64, elzoo, backend, fast]` |
-| `check-any` | `push` to `main`; `workflow_dispatch` with `tier` = `any` | `[self-hosted, linux, x64, elzoo, backend]` |
-
-The `tier` input of `workflow_dispatch` is a choice with default `fast`. The merge queue always
-dispatches `fast` (`-f tier=fast`); only a person sets `any`, for a measurement run. The other
-job is skipped, so every run shows one skipped job (a fork pull request skips both): a skipped
-job is not evidence. The guard pins
-both `if:` lines, both `runs-on` lines and the whole `workflow_dispatch` input block, and requires the
-two bodies below `runs-on` to be identical, so the two jobs cannot differ from each other. It pins
-the container digest, the identity gate and the action pins; it does not pin the job-level `ERL_FLAGS`
-value (see above), so a change there applies to both jobs and relies on independent review. The queue accepts a run only when exactly one `check-fast`
-job succeeded on a fast runner and no `check-any` job executed.
-
-The `fast` label is an account-level setting, as `backend` is; the guard cannot prove it. Add
-`fast` to both fast runners **before** the workflow with `check-fast` merges, or pull request checks
-queue without a runner. The runner identity gate still allows three names in both jobs; the label,
-not the name check, keeps `contabo-elzoo-1` away from `check-fast`, and the queue refuses evidence from
-any other runner name.
-
-Until ELZ-058 lands, the two fast runners are the capacity for pull request checks and queue runs,
-and `main` push runs share the backend pool. A pull request check shows as `check-fast`, not `check`;
-anything outside this repository that expects the old job name `check` must be updated.
-
-### Runner budget
-
-1. Measurement series (repeat loops, benchmarks) run on the slow or an idle runner (`tier` = `any`) and
-   never more than one at a time while a merge queue is pending.
-2. A measurement job states its expected duration and stays under the 90-minute job limit.
-3. A coordinator does not dispatch by hand while a queue run is being identified: the queue finds its
-   run by workflow, event, branch and exact head SHA. A hand dispatch on the same head can be adopted
-   as the queue's run when it appears first (a `tier` = `fast` one passes as evidence, a `tier` = `any`
-   one is refused at the evidence step), or it makes the match ambiguous and the queue refuses.
-   Either way the queue's own run is lost, so do not dispatch by hand.
+Elzoo CI runs on GitHub-hosted runners: every job uses the one label `ubuntu-24.04`, the repository is public (owner
+decision 2026-11-09), and GitHub provides the compute, the scheduling and the check reporting. From ELZ-019 to ELZ-066 CI ran on the
+owner's own machines; "History" at the end summarises that period. ELZ-069 removed its jobs, its guard rules, the runner
+roles and the lane variable. "Hosted CI" below has the job shapes, the flip record, the measured figures and the fallback.
 
 ## Redundant push runs and duplicate pull request checks (ELZ-058)
 
 A merge cost several full checks of the same content: the queue's exact-head run, then the push run on
-the merge commit (23 to 29 minutes on a fast runner), and, after every `update-branch`, a pull request check
+the merge commit (23 to 29 minutes on a former self-hosted runner), and, after every `update-branch`, a pull request check
 that duplicated the queue run. ELZ-058 removes two of these without weakening the evidence.
 
-**Push run skip.** The `check-any` job on a push to `main` (both jobs carry the same steps) runs
+**Push run skip.** The `check-hosted` job on a push to `main` runs
 `scripts/ci-skip-decision.py` after the guard tests. It prints `skip=true` only when all of these hold:
 the event is a push to `refs/heads/main`; the pushed commit is a two-parent merge commit; its tree equals
 the tree of its second parent (the pull request head that the queue merged with `--match-head-commit`);
 the latest `workflow_dispatch` run of `symbolic-check.yml` on that second parent (branch `task/ELZ-###`,
-`tier` = `fast`, found by `head_sha`) is a completed success whose exact attempt has one successful
-`check-fast` job on `symbolic-elzoo` or `macbook-ubuntu-elzoo-candidate`, a successful `Run mix check` step,
-the full `ELZOO CHECK PASSED` log line, no `ELZOO AFFECTED CHECK PASSED` marker and a skipped `check-any` job;
+found by `head_sha`) is a completed success whose exact attempt has exactly one job, a successful `check-hosted` job on a
+GitHub-hosted runner (group `GitHub Actions`, label `ubuntu-24.04`, runner name `GitHub Actions <number>`), a successful
+runner identity step, a successful `Run mix check` step, the full `ELZOO CHECK PASSED` log line and no
+`ELZOO AFFECTED CHECK PASSED` marker;
 and that run is unchanged when read again. The same evidence rules as the queue apply (`scripts/merge-queue.py`).
 Then the steps after the decision (`setup-beam`, cache, `mix setup`, `mix check`) are skipped, the job ends green
 and its log shows `ELZOO PUSH CHECK SKIPPED (identical tree; exact-head full run passed): second_parent=...
@@ -148,24 +28,23 @@ executed `mix check`. In every other case, including a fast-forward, squash or o
 trees differ), a missing, red, cancelled, ambiguous or newer-failed run, an API, Git or parse error and a missing
 token, the script prints `skip=false` with the reason and the full check runs. It never fails the job because it
 cannot decide. A later run is not hidden by an older success: the run with the highest ID decides.
-`workflow_dispatch` runs (the queue and `tier` = `any` measurement runs), pull requests and anything that
+`workflow_dispatch` runs (the queue's), pull requests and anything that
 is not a push to `main` are never skipped.
 
 Why it is the same evidence: an identical tree is identical content, and the full check of that content passed on
-a fast runner at the exact head, with its run and job IDs in the push log. What it does not prove: the push run
+a hosted runner at the exact head, with its run and job IDs in the push log. What it does not prove: the push run
 no longer observes the merge commit itself (its path, runner, cache or toolchain state). A runner or cache fault
 at merge time is invisible to a skipped push run; the next full run of `main` catches it. Acceptance on the
 merge commit is therefore either its own green full run or this logged skip (see `AGENTS.md`).
 
-Trust model: `check-any` gets `permissions: actions: read` and `contents: read` at job level (to read the exact-head run,
-its jobs and its log); `check-fast` and the top level keep `contents: read`. The decision step is the only step
-that receives `GITHUB_TOKEN`, in both jobs, because their bodies are identical; the pull request job's token can read
-only contents, and the script refuses everything but a push to `main` before any request. The token is never sent to
+Trust model: `check-hosted` gets `permissions: actions: read` and `contents: read` at job level (to read the exact-head
+run, its jobs and its log); the top level keeps `contents: read`. The decision step and the S3 test server start step
+are the only steps that receive `GITHUB_TOKEN`, and the script refuses everything but a push to `main` before any request. The token is never sent to
 the log storage redirect, which is accepted only for `github.com`, `*.github.com`, `*.githubusercontent.com` and
 `productionresultssa<N>.blob.core.windows.net/actions-results/...`. `scripts/check-ci-runners.py` pins the
 `permissions` lines (and rejects any `write` scope), the checkout step with `persist-credentials: false` (the default
 would leave the job token in `.git/config`, readable by every later step, including dependency code, and with this change
-that token carries `actions: read` on `check-any`), the exact decision step and its position after
+that token carries `actions: read` on `check-hosted`), the exact decision step and its position after
 `scripts/test-ci-skip.py`, the token on that line only, and the complete list of step-level `if:` conditions:
 every step after the decision, except the resource report, carries `steps.skip.outputs.skip != 'true'`
 (the cache save combines it with `cache-hit != 'true'`) and the resource report keeps `always()`. A different `if:` on
@@ -174,8 +53,7 @@ check, not proof against every YAML form.
 
 **Duplicate pull request check.** When `scripts/merge-queue.py` updates a pull request branch by merging
 `main` (`gh pr update-branch`), GitHub starts a `pull_request` run on the new head; the queue's own exact-head
-dispatch follows on that same head, so that run is a duplicate (a full-size check, 19 to 29 minutes on a fast runner, estimated; one such run,
-42478439366, waited ten minutes for a runner and was cancelled by hand after 40 seconds). Right after the new head is visible, the queue cancels only the
+dispatch follows on that same head, so that run is a duplicate (a full-size check, 13 to 33 minutes on a hosted runner). Right after the new head is visible, the queue cancels only the
 `pull_request` run of `symbolic-check.yml` on that exact head and branch, logs `Cancelled duplicate pull_request
 run <id> head=<sha>`, and carries on. It never cancels another head, another pull request, a dispatch or a push run, or
 the Gleam run (the Gleam workflow is not queried). A completed run is left alone. A failed lookup, a failed cancel or no
@@ -197,11 +75,11 @@ names the run too), so the run can be inspected or adopted before anything is di
 matched against the transient patterns, not the arguments of the command; `gh api` with any field, input or method flag counts
 as a write and is never retried. The retry does not change what counts as evidence.
 
-Measurement over the next five merges (fast-runner minutes per merge: queue run, push run, pull request runs, with
+Measurement over the next five merges (runner minutes per merge: queue run, push run, pull request runs, with
 run IDs) is recorded in issue #96, not here. Live observations of the decision script against real merge commits
 (run locally with a read token, 2026-11-08): `ade0e45` skipped, naming run 42482549411 and job 128737440624;
 `665d3e0` skipped, naming run 42484386191 and job 128742976143; `b62c26a` ran the full check, because its exact-head
-run predates the `check-fast` job name ("jobs are not one check-fast and a skipped check-any").
+run predates the `check-fast` job name, which the evidence rule of that time did not accept.
 
 ## Affected consumer checks (ELZ-038)
 
@@ -287,15 +165,15 @@ repository owns the base; a misconfigured origin cannot substitute a different
 main SHA. Missing commit objects fail closed. If main is not an ancestor of the
 head, `gh pr update-branch` creates a merge update; it never
 rebases or force-pushes. The new head must become visible before continuing.
-It dispatches `symbolic-check.yml` on that branch with `tier=fast` and identifies a **new** run
+It dispatches `symbolic-check.yml` on that branch (no input) and identifies a **new** run
 by workflow, `workflow_dispatch` event, branch and exact `head_sha`. It records
 existing run IDs before dispatch, never chooses an old or merely latest green
 run, and refuses an ambiguous match. A dispatch that races a head update cannot
 supply evidence for the previous head.
 
-The completed run must succeed. Its exact attempt must have one successful
-`check-fast` job on `symbolic-elzoo` or `macbook-ubuntu-elzoo-candidate`, with the
-`check-any` job skipped, on the same head, with a successful `Run mix check` step. The job log must contain the full
+The completed run must succeed. Its exact attempt must have exactly one job, a successful
+`check-hosted` job on a GitHub-hosted runner (group `GitHub Actions`, label `ubuntu-24.04`, runner name
+`GitHub Actions <number>`), on the same head, with a successful runner identity step and a successful `Run mix check` step. The job log must contain the full
 `ELZOO CHECK PASSED` output line and no `ELZOO AFFECTED CHECK PASSED` marker.
 Missing logs, API/command failures, cancelled runs and reruns during evidence
 collection fail closed. This validates observed evidence from trusted workflow
@@ -304,8 +182,8 @@ code, not authenticity against a hostile PR or administrator.
 The queue also waits for a successful `symbolic-gleam.yml` **pull_request**
 run on the exact same head SHA, including after `update-branch`. That update
 triggers the synchronize event; no extra Gleam dispatch is added. The latest
-matching run must succeed, have one successful `gleam` job on
-`symbolic-elzoo-gleam`, and a successful `Run ./scripts/check.sh` step. An old
+matching run must succeed, have one successful `gleam-hosted` job on a GitHub-hosted
+runner (same identity rule), a successful identity step and a successful `Run ./scripts/check.sh` step. An old
 head’s green Gleam run, a missing run, or a failed/cancelled run cannot satisfy
 this gate. It rechecks run identity and attempt after collecting the job.
 
@@ -466,123 +344,6 @@ backend runner after this change restores the previous cache by prefix key, then
 refetches Cure because `mix.lock` changed and Cure compiles from source once per runner; that run
 saves a new cache. Later runs are warm. Compare consumer timings only between warm runs.
 
-## Machine and container setup
-
-All backend machines use repository-scoped runner installations and dedicated
-`elzoo-ci` accounts. The account can access Docker, which is root-equivalent;
-job containers are not a sandbox for hostile PR code. Run only trusted code in
-this private repository. Never store runner registration tokens in the repo or
-logs. Use a short-lived registration token directly for `config.sh`.
-
-`symbolic` is Ubuntu 26.04.1 x86_64, four physical/eight logical CPUs and
-about 30 GiB RAM. Its backend and Gleam services are
-`actions.runner.balungpisah-elzoo.symbolic-elzoo.service` and
-`actions.runner.balungpisah-elzoo.symbolic-elzoo-gleam.service`, with separate
-installations and `_work` directories.
-
-`macbook-ubuntu` is Ubuntu 26.04.1 x86_64, two physical/four logical CPUs,
-7.1 GiB usable RAM and 4 GiB swap, also running other user workloads. Docker
-29.1.3 was installed from Ubuntu packages. Its candidate runner is version
-2.338.2, verified against SHA-256
-`baebf204307bac6193480852732f0aba2ae97b6c5597c244f4d5558390147c40`, installed
-at `/opt/actions-runner/elzoo-backend` and served by
-`actions.runner.balungpisah-elzoo.macbook-ubuntu-elzoo-candidate.service`.
-It has a separate `_work` directory. Docker startup and a pull/run of the pinned
-CI image passed during provisioning; those are not a full CI validation.
-
-The first complete candidate trial, Actions run 42305933284 at `2346426`,
-ran for 29 minutes 45 seconds; the container reported a cgroup memory peak of
-2,312,663,040 bytes (about 2.15 GiB). `mix setup` passed, but `mix check`
-failed with 364/366 root tests passing. The CI guard test used an outdated
-symbolic-only fixture; ELZ-034 updates it. A separate durable-job PostgreSQL
-scenario failed while starting Oban's notifier with `no process`; the cause is
-unconfirmed. This failed run does not establish reliable capacity or a passing
-check. Repeat the full run on the final head and retain both results.
-
-The next trial, Actions run 42310175044 at `d061e50`, passed `mix setup`
-but failed `mix check`: the outer suite reported 393/394, with the copied
-durable-job consumer reporting 177/179. Two PostgreSQL scenarios failed while
-starting Oban's PG notifier with `no process`, the same error class as the
-earlier run. Its cause remains unconfirmed. The run reported a cgroup memory
-peak of 2,319,937,536 bytes (about 2.16 GiB). These results do not establish
-reliable capacity. Retest on the current merged main and do not lower the
-test or delivery Contracts to obtain a pass.
-
-Actions run 42315972879 at `1fe2bf7`, with current main merged, passed
-`mix setup` and `mix check` on `macbook-ubuntu-elzoo-candidate`: 32 spike tests
-and 428 root tests passed. The job took 38m06s and reported cgroup memory peak
-2,325,393,408 bytes (about 2.17 GiB). CPU was not sampled in that run; two
-configured BEAM schedulers per VM do not measure peak CPU. A passing run does
-not erase the earlier failures or establish behavior under different load.
-ELZ-035 owns the independently reproduced notifier race and a separate durable
-job Contract defect; its fixes and scoped evidence remain pending review.
-
-Actions run 42325304955 at `1700cad` reported `mix setup` passed but
-`mix check` failed (427/428 root tests). The DJ21 PostgreSQL test could not
-start the Oban PG notifier and exited `:noproc`, the previously reported
-failure class. The full job took 24m49s. The cgroup reported 2,271,883,264
-bytes peak memory (about 2.12 GiB), and the sampler observed a maximum
-one-second average of 3.267 CPU cores across 1,235 samples. These are
-container observations, not hard resource limits or proof of isolation from
-other workloads. The failing run does not establish reliable CI capacity.
-
-Actions run 42335711837 at `33dc45f` (job 128292087874, the final ELZ-034
-head) passed `mix setup` and `mix check` on `macbook-ubuntu-elzoo-candidate`:
-32 spike tests and 432 root tests passed. The job took 25m21s. The cgroup
-reported 2,251,575,296 bytes peak memory (about 2.10 GiB), and the sampler
-observed a maximum one-second average of 3.385 CPU cores across 1,265 samples.
-After this run and independent review, ELZ-034 merged and runner 23 received
-the `backend` label. This is one observation, not a resource guarantee or proof
-of reliability; the earlier failed runs above remain part of the record.
-
-ELZ-040 raised the backend job `timeout-minutes` from 45 to 90 (Gleam stays
-30; test time limits are unchanged). Measured basis:
-
-- Main `94df396` run 42340251145 on `symbolic-elzoo` passed, but the run took
-  44m17s (job 04:51:50Z–05:35:51Z, 44m01s). The root suite reported
-  `Finished in 1377.4 seconds` and 510 tests.
-- PR #71 run 42342334978 attempt 1 at `11abcfa` on
-  `macbook-ubuntu-elzoo-candidate` was cancelled: "The job has exceeded the
-  maximum execution time of 45m0s" (check run 128312535761, 05:20:51Z–06:06:03Z).
-  `mix check` was still running and had reported no test failure. The cache
-  missed, so `mix setup` took 13m16s (1m22s in run 42335711837).
-- Attempt 2 of the same run, which is a separate observation and does not
-  replace attempt 1, passed on `symbolic-elzoo` (06:07:51Z–06:36:38Z, 28m47s)
-  with a restored cache: 510 root tests, `Finished in 1356.5 seconds`, cgroup
-  memory peak 2,814,078,976 bytes, sampled CPU peak 5.037 cores over 1,479
-  samples.
-
-Contributing factors: more Pieces and tests after ELZ-024; the ELZ-034 cache
-prefix change, which left runners with cold caches; and `+S 2:2` on the
-candidate. A 90-minute limit is headroom, not a performance target. Look into
-a growing duration rather than raising the limit again.
-
-Each role runs at most one job per runner. The candidate has no hard container
-memory or CPU quota. The backend workflow keeps `+S 4:4 +SDcpu 1 +SDio 1` on
-symbolic and selects `+S 2:2 +SDcpu 1 +SDio 1` on macbook-ubuntu, per BEAM VM;
-child VMs and other processes are additional. The host is smaller, so check the
-actual run's duration and cgroup peak, inspect host memory and user workload
-contention, and keep it candidate-only if the full workload is unreliable.
-The check wrapper samples cgroup CPU usage at one-second intervals during
-`mix check` and reports the largest observed interval average in logical-core
-equivalents. It is not an instantaneous peak or a CPU quota; child VMs and
-all other processes inside the job container are included. Before/after
-`/proc/meminfo` and load averages provide host context but do not attribute
-resource use to individual user workloads. Missing metrics are reported as
-unavailable rather than treated as zero.
-
-Jobs run inside Ubuntu 24.04 pinned to
-`sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852`.
-`ImageOS: ubuntu24` selects setup-beam's container build. Packages are installed
-from apt repositories and are not a bit-for-bit package snapshot. Exact Cure,
-Elixir, OTP, Node and Gleam pins remain in the repository. Backend jobs create a
-per-container disposable PostgreSQL role and database and export
-`ELZOO_TEST_DATABASE_URL`; required tests fail closed without it. Do not use a
-personal or production database. Cache keys include the runner name as well as
-toolchain/dependency pins: compiled Cure and Mix artifacts are not restored from
-another machine's checkout. GitHub's cache service remains in use; no claim is
-made about other GitHub account costs.
-
 ### Dependency cache (ELZ-043)
 
 The backend job restores with `actions/cache/restore` and saves with
@@ -638,108 +399,6 @@ layers are fetched: the job image stays pinned by the same digest, so Docker
 verifies the same content. The mirror is host configuration, not repository
 state. This record covers `symbolic` only.
 
-### The slow VPS runner `contabo-elzoo-1` (ELZ-056)
-
-Public record of the runner, with host details left out (ELZ-065): the host, its address and the other workloads that
-run on it are described only by role. The machine is a user-rented VPS with 8 virtual CPUs and 23 GiB of RAM, on which
-the owner also runs other workloads; the owner decided on 2026-11-08 to use it for this development. The runner is
-version 2.338.2 (tarball SHA-256 `baebf204307bac6193480852732f0aba2ae97b6c5597c244f4d5558390147c40`, equal to the
-GitHub release digest), registered repository-scoped with a short-lived registration token that was never written to a
-file or log, runs as a dedicated system account, and is a systemd service. An earlier unused runner install of another
-repository on the same host was renamed (not deleted) and had no registration.
-
-Status: **unrouted (owner decision 2026-11-08, option a; then option b, ELZ-062, after the re-test).** The runner has no
-`backend` label. One full run passed on an older tree (trial 2) and two failed on the current tree (the `tier` = `any`
-observation of ELZ-057 and its re-test). The label was on only for those runs. It takes no job while it has no `backend`
-label (GitHub gives a job to any idle runner with matching labels); a person may add the label for a measurement run or an
-explicit `tier` = `any` dispatch and must remove it afterwards. No test limit was changed for it. A failed or timed-out job
-there means removing the label. Times are WIB (UTC+7) unless a log line is quoted.
-
-**ELZ-057 observation (failed).** Run 42484236992, job 128742521023, `workflow_dispatch` with `tier` = `any` on `main` at
-`ade0e45`, runner `contabo-elzoo-1`; `check-fast` skipped. 13:17:27Z to 14:25:54Z, 68 min 27 s: `mix setup` 23 min 44 s
-(cold cache), `Run mix check` failed after 41 min 15 s with `Result: 640/642 passed`. Both failures were
-`ExUnit.TimeoutError` after 120000 ms (the per-test default): `pieces/workflow/approval/test/elzoo/approval_test.exs:177`
-(a negative control inside a Cure proof check) and `test/export_test.exs:120` (the `assembly/durable-job` consumer step).
-Root suite `Finished in 2243.7 seconds (438.6s async, 1805.1s sync)`; aggregate consumer 816.6 s. Job-reported cgroup memory
-peak 3,690,496,000 bytes; sampled CPU maximum 5.091 cores (the 5-core cap was reached). Read from the host: `cpu.max`
-`500000 100000`, `memory.max` `8589934592`, `memory.swap.max` `0`; `nr_throttled` 1026 and `throttled_usec` 62,213,128 at
-14:25:14Z (62 s in total, in bursts). The same tree passed on `symbolic-elzoo` (run 42484152352, job 128742259599) and its
-main push run passed (42484121902). Interpretation, not proven: the 120 s per-test limit was set on faster machines, and on
-this VPS (about 1.8 times slower per thread) with the consumer groups of ELZ-049 running at the same time under a 5-core cap,
-two tests exceed it.
-
-**Re-test with the 8-core cap (failed the same way).** Run 42492726966, job 128768391228 (`check-any`, `tier` = `any`,
-`main` at `665d3e07c58f`, warm cache: `mix setup` 6 s), 15:02:15Z to 15:45:46Z, 43 min 31 s; `Run mix check` failed with
-`Result: 640/642 passed`, the same two `ExUnit.TimeoutError` after 120000 ms. Root suite `Finished in 2228.9 seconds (463.0s
-async, 1765.8s sync)` against 2243.7 s under the 5-core cap; aggregate consumer 805.1 s; `ash_spike` 180.8 s. Job-reported
-cgroup memory peak 3,881,250,816 bytes; sampled CPU maximum 6.914 cores over 2,449 samples. Interpretation, not proven:
-raising the cap did not help, so the CPU cap does not look like the limit; per-thread speed is the likely cause. Limit of the
-measurement: the host sampler (one sample per 60 s) lost its SSH connection after two samples (container `cpu.max` 800000
-100000, `nr_throttled` 0 at 15:04:21Z, memory peak 1.74 GB then), so the throttling counters at the end of the run were not
-read; the job's own CPU sample is the only CPU evidence after that. Host load average (1 minute) peaked at 5.71 and the
-owner's other workloads stayed near idle in samples every two minutes. The label was removed again after the run.
-
-Options considered after the first failure: (a) keep the runner unrouted; (b) raise the per-test time limits of the two tests
-in a separate reviewed task, with measurements (a limit change, not a weaker proof); (c) raise the CPU cap (done, see below;
-the re-test did not change the result). After the re-test the owner chose (b): ELZ-062 (issue #106) raises the limit of the two
-tests to 300 s, and the runner stays unrouted until that task merges and a steered run passes.
-
-**Trial 2 (passed).** Run 42452912435, job 128645769173, `workflow_dispatch` on `task/ELZ-056` at
-`b9284c7c9dcaad70554c5c205bea16b0b5c420d3`, success, job 06:00:04Z to 07:12:46Z, 72 min 42 s of the 90 min limit. Cold
-dependency cache: `mix setup` 22 min 02 s, cache save 24 s. `Run mix check` 47 min 16 s; `ELZOO CHECK PASSED` printed. Root
-suite `Finished in 2625.6 seconds (191.6s async, 2433.9s sync)`; aggregate consumer 711.0 s; stages `ledger` 19.2 s,
-`ash_spike` 168.4 s, `registry_load` 19.1 s. Cgroup memory peak 2,767,269,888 bytes; sampled CPU maximum 5.028 cores over
-2,831 samples (the cap was reached); read from the host: `cpu.max` `500000 100000`, `memory.max` `8589934592`;
-`nr_throttled` 45 and `throttled_usec` 2,001,766 near the end. What this shows: the cap applies to a real job container,
-and `setup-beam`, `mix setup` and the full `mix check` pass on this machine; it is slow. The same `main` tree (`a5f0e63`) ran on
-`macbook-ubuntu-elzoo-candidate` in run 42451768392, job 128642319790: root suite `Finished in 1340.4 seconds`, aggregate
-consumer 373.3 s, `mix check` 22 min 50 s. Trial 2 took about 1.96 and 1.9 times as long. `symbolic-elzoo` took 1116.3 s for
-the root suite (run 42448003515, a different tree, so not a controlled comparison). The cause is not established; slower
-virtual CPUs or disk, or contention with other guests of the same host, are untested candidates. The trial does not show
-reliability over many runs, behavior under a load spike elsewhere on the host, or warm-cache time (an estimate of about 50
-minutes for a warm run is not an observation). A cold run is only 17 minutes below the 90-minute limit.
-
-**Trial 1 (failed, kept as evidence).** Run 42452504044, job 128644528184, `workflow_dispatch` on `task/ELZ-056` at
-`1406f40c8d98b0218f8bdf8afb80998522086f39`, 05:53:20Z to 05:55:05Z (1 min 45 s). The steps before `Run erlef/setup-beam`
-passed. `setup-beam` failed with `##[error]otp-architecture must be 32 or 64`; `mix setup` and `mix check` were skipped.
-Cause: the first version of the Docker wrapper was a `/bin/sh` script, and Ubuntu's `/bin/sh` is `dash`, which drops
-environment variables whose names contain a hyphen; Actions passes inputs that way (`INPUT_OTP-ARCHITECTURE`). Do not
-write the wrapper as a shell script (it is a short Python script that adds the caps and then replaces itself with the real
-`docker` by `os.execv`, so arguments, environment, stdin, stdout, stderr and the exit code stay unchanged).
-
-**Shared Docker daemon (accepted risk).** The runner's Docker access is root-equivalent, and the daemon is shared with the
-owner's other workloads on the host. A job container is not a sandbox: hostile or buggy pull request code could reach those
-workloads. The accepted mitigation while the repository was private was trusted code only plus the resource cap below. This
-is why the owner decided on 2026-11-09 to unregister all self-hosted runners before the repository becomes public (ELZ-066).
-
-**Resource mechanism.** Job containers are children of the Docker daemon, not of the runner service, so a systemd cap on the
-service alone does not limit them. Two caps apply: the service drop-in (`CPUQuota=800%`, `MemoryMax=10G`, `MemoryHigh=9G`,
-`TasksMax=8192`) for the runner's own processes, and the wrapper, which adds `--cpus=8 --memory=8g --memory-swap=8g` to
-`docker create` and `docker run`. The runner runs one job at a time, so the container cap is the practical limit; a job that
-reaches 8 GiB is killed by the kernel. The wrapper caps only containers that the runner creates through its `PATH`; by the
-upstream actions/runner contract (not re-checked here), the runner mounts the Docker socket into job containers, so code inside
-a job can start containers with no cap. The cap guards against accidents and runaway builds, not against hostile code.
-
-**CPU cap raised to 8 cores (owner decision 2026-11-08, "Increase cap to max cpu").** The cap was 5 cores (`CPUQuota=500%`,
-`--cpus=5`) until the failed observation above (the before-measurement: `nr_throttled` 1026, `throttled_usec` 62,213,128, two
-120 s timeouts). The change was made while the runner was idle with no job container: the unit's `cpu.max` read `800000
-100000` after `systemctl daemon-reload`, and a container started through the wrapper read `cpu.max` `800000 100000`,
-`memory.max` `8589934592`, `memory.swap.max` `0`, and still received `INPUT_OTP-ARCHITECTURE=64`. The memory caps are
-unchanged and backups of the previous files were kept on the host. **Consequence, accepted by the owner:** while a CI job runs,
-the owner's other workloads on that host have no CPU reserved; a CI job that uses all 8 cores competes with them on equal
-terms. The re-test failed the same way (above); the test limits are the subject of ELZ-062.
-
-**Network.** The pinned `ubuntu:24.04` image is pulled by digest. Inside a container `builds.hex.pm`, `repo.hex.pm` and
-`github.com` resolve over IPv4 and answer HTTPS 200. The Docker bridge has no IPv6, so IPv6 requests fail by design; resolvers
-returned only IPv4 (v4-mapped) answers and no NXDOMAIN, unlike the MacBook failure on `builds.hex.pm`. Jobs there are
-IPv4-only. No registry mirror is configured.
-
-**ERL_FLAGS.** The workflow sets `+S 4:4 +SDcpu 1 +SDio 1` for this runner, the same as `symbolic-elzoo`: four schedulers
-are well inside the 8-core cap (they were sized for the 5-core cap).
-
-To withdraw the machine, remove the `backend` label after the current job finishes; the other two runners keep accepting
-backend jobs. Do not restart the service while it is busy.
-
 ### Gleam compiler download (ELZ-060)
 
 The Gleam job installs the pinned compiler (v1.19.2) with `spikes/gleam_ui/scripts/setup_gleam.py`, called
@@ -785,33 +444,30 @@ browser URL works again. Without `GITHUB_TOKEN` the unauthenticated API rate lim
 address) applies. A changed pin (new Gleam version) needs new asset IDs, sizes and hashes in the script, this
 table and the README. Platforms other than the four above stay unsupported.
 
-## Lanes: hosted and self-hosted (ELZ-066)
+## Hosted CI (ELZ-066, ELZ-069)
 
 The owner decided on 2026-11-09 that the repository becomes public and that CI moves to GitHub-hosted
-runners; both happened on that day (see "Flip record"). The repository variable `ELZOO_CI_LANE` selects the lane for every run:
+runners; both happened on that day (see "Flip record"). ELZ-066 added the hosted jobs next to the self-hosted ones,
+chosen by a repository variable; ELZ-069 removed the self-hosted jobs, the runner roles, the `tier` input of the manual
+run and the variable. There is one lane.
 
-| Value | Jobs that run | Jobs that skip |
-| --- | --- | --- |
-| unset or `self` (the original lane) | `check-fast` / `check-any`, `gleam` | `check-hosted`, `gleam-hosted` |
-| `hosted` | `check-hosted`, `gleam-hosted` | `check-fast`, `check-any`, `gleam` |
-
-The variable appears only in the five job-level `if:` lines. `scripts/check-ci-runners.py` pins every one of
-them and rejects the variable (in any letter case, also in script text) anywhere else, so a step cannot read it and
-a job cannot run in both lanes.
-
-**Hosted jobs.** `check-hosted` and `gleam-hosted` run on the one label `ubuntu-24.04`, without a job container.
-The guard rejects every other label (`ubuntu-latest`, larger runners, `self-hosted` combinations, expressions).
-Their header lines are pinned exactly: token permissions, time limit, `ERL_FLAGS`, and for `check-hosted` the
-Postgres service container (image pinned by digest, health check). The first step of each hosted job checks
-`RUNNER_ENVIRONMENT`, `RUNNER_OS`, `RUNNER_ARCH` and `/etc/os-release`. The dependency cache key has no runner name:
-`elzoo-hosted-v1-<OS>-<ImageOS>-<OTP>-<Elixir>-<lock files hash>`.
+**Jobs.** `symbolic-check.yml` has one job, `check-hosted`; `symbolic-gleam.yml` has one job, `gleam-hosted`. Both run
+on the one label `ubuntu-24.04`, without a job container, and run for a push to `main`, a manual run
+(`workflow_dispatch`, no inputs) and a pull request from the same repository (a fork pull request skips them).
+`scripts/check-ci-runners.py` pins their `if:` lines and their header lines exactly: token permissions, time limit,
+`ERL_FLAGS`, and for `check-hosted` the Postgres service container (image pinned by digest, health check). It rejects
+every other label (`ubuntu-latest`, larger runners, expressions), any `self-hosted` text, any `labels:` list on a job,
+any workflow input, any use of `vars` or of the former variable name `ELZOO_CI_LANE` (in any letter case, also in script
+text and comments), a job container, and a second job of any name, so the removed shapes cannot return silently. The
+first step of each job checks `RUNNER_ENVIRONMENT`, `RUNNER_OS`, `RUNNER_ARCH` and `/etc/os-release`. The dependency
+cache key has no runner name: `elzoo-hosted-v1-<OS>-<ImageOS>-<OTP>-<Elixir>-<lock files hash>`.
 
 **Evidence.** The merge queue (`scripts/merge-queue.py`) and the push skip decision (`scripts/ci-skip-decision.py`)
-accept a run when exactly one backend job executed and every other job skipped. That job is `check-fast` on an
-approved self-hosted runner, or `check-hosted` with `runner_group_name` = `GitHub Actions`, `labels` =
-`["ubuntu-24.04"]`, a `runner_name` of the form `GitHub Actions <number>` and a green identity step. `check-any`
-never supplies evidence. The Gleam gate accepts `gleam` or `gleam-hosted` under the same rule. The queue still
-dispatches with `tier=fast`; the hosted job ignores the tier.
+accept a run when its job list holds exactly one job, `check-hosted` with `runner_group_name` = `GitHub Actions`,
+`labels` = `["ubuntu-24.04"]`, a `runner_name` of the form `GitHub Actions <number>`, a green identity step and a green
+`Run mix check` step. The Gleam gate accepts exactly one `gleam-hosted` job under the same rule. A run of the former
+shape (a job named `check-fast`, `check-any` or `gleam`, or any second job) is not evidence. The queue dispatches without
+an input.
 
 **Flip record (executed by the coordinator on 2026-11-09 WIB, after hosted run 2 was green).** Order: the
 public-surface scrub (ELZ-065) was merged first; all four self-hosted runners were unregistered, because a fork can
@@ -825,12 +481,10 @@ again at 20:56 UTC (03:56 WIB) after the change described below:
 | --- | --- |
 | Repository visibility | public |
 | Self-hosted runners | 0 |
-| `ELZOO_CI_LANE` | `hosted` |
+| `ELZOO_CI_LANE` | `hosted` at the flip; deleted by the coordinator after ELZ-069 merged (no workflow reads it) |
 | Default workflow token | `read`; workflows cannot approve pull request reviews |
 | Fork pull request approval | `all_external_contributors` (every outside contributor needs approval before a workflow runs) |
 | Branch protection on `main` | no required status checks (removed between 03:49 and 03:56 WIB on 2026-11-09, see below); no force pushes; no deletions; not enforced for administrators; no review requirement |
-
-A later change removes the self-hosted jobs, the runner roles above and this table.
 
 **Branch protection change (2026-11-09, between 03:49 and 03:56 WIB).** At the flip, branch protection required
 `check-hosted` and `gleam-hosted` (read at 20:49 UTC). The coordinator removed that rule a short time later; the protection read at 20:56 UTC
@@ -849,18 +503,23 @@ and `gleam-hosted`.
 group. The group does not allow public repositories (`allows_public_repositories: false`), which keeps them away from this
 repository. Do not switch that setting on.
 
-**Fallback.** If the hosted lane fails and cannot be repaired quickly, make the repository private again and register
-self-hosted runners again, then set `ELZOO_CI_LANE` to `self`. Do not set `self` on a public repository: there is no
-self-hosted lane for a public repository, because a fork pull request can change a workflow and reach an attached
-runner. If required checks are set again (ELZ-059), they name the hosted jobs, so a return to the self lane also needs
-the required checks changed.
+**Fallback (decided 2026-11-09).** There is no switch back: ELZ-069 removed the self-hosted jobs. If the hosted lane fails
+and cannot be repaired quickly, three steps, in this order:
+1. Open a revert PR of the ELZ-069 change (it restores the self-hosted jobs, the guard rules and the lane variable) and
+   merge it through the queue; the queue's evidence rules of that revert are those of the revert commit.
+2. Register self-hosted runners with the roles that the revert's documentation describes, and set the repository
+   variable `ELZOO_CI_LANE` to `self`. Never do this on a public repository: a fork pull request can change a workflow
+   and reach an attached runner. If the repository is public and the hosted lane cannot be repaired, do step 3 first.
+3. Change the repository visibility to private only if step 2 cannot be done safely on the public repository.
+The revert is the rare path: the hosted lane carried every merge from 2026-11-09 WIB. If required checks are set again
+(ELZ-059), they name the hosted jobs, so a return to the self-hosted lane also needs the required checks changed.
 
 **Required checks.** `check-hosted` and `gleam-hosted` are not required checks at present (see "Branch protection
-change"). When they are set again, a skipped job counts as passing, and a pull request from a fork skips them. The merge queue is the gate: it needs a dispatch run on the exact
-head with one executed job and the identity rules above, and no fork pull request is queued.
+change"). When they are set again, a skipped job counts as passing, and a pull request from a fork skips them. The merge queue is the gate: it needs a run on the exact
+head with the one job and the identity rules above, and no fork pull request is queued.
 
 **Time limit.** `check-hosted` has `timeout-minutes: 120`. A cold-cache run on a comparable 4 to 5 vCPU machine took
-72 minutes (the Contabo section), and the first run on `main` starts with an empty `elzoo-hosted-v1` cache.
+72 minutes (see "History"), and the first run on `main` starts with an empty `elzoo-hosted-v1` cache.
 
 **Resource report.** On a hosted runner there is no job container, so `scripts/sample-ci-cpu.py` reads the cgroup of
 the whole VM (Postgres included) and its "job container cgroup" label is not exact; `memory.peak` is not available
@@ -883,7 +542,7 @@ saved it in 2 s). Before `mix setup` the cold run spent 1 min 26 s on the job st
 identity gate, host report, libraries, PostgreSQL role and database, checkout, six check and test scripts, the decision
 step, the S3 steps, setup-beam, the BEAM report, the dependency cache restore and `mix local.hex`/`mix local.rebar`. The
 root suite took 1139.0 s, 932.0 s and 695.2 s in the three full runs on the same commit, so expect a wide spread (the fastest was 61 percent of the slowest).
-A job started 3 s after its dispatch (run 2). The Contabo and MacBook sections above hold the self-hosted figures; they were measured
+A job started 3 s after its dispatch (run 2). The self-hosted figures (see "History" and git history) were measured
 in different modes and are not directly comparable.
 
 **Limits.** The first two rows come from the rehearsal before the flip (the repository was private, as the coordinator
@@ -959,37 +618,26 @@ suite 1307.8 s (the two failures of that run are the two expected on the branch)
 (60 percent of 120 s) to close the task without a change: the durable-job test is above it, so the two limits are raised
 to 300 s as approved.
 
-## Operation and rollback
+## History
 
-```sh
-ssh symbolic 'sudo systemctl status actions.runner.balungpisah-elzoo.symbolic-elzoo.service --no-pager'
-ssh macbook-ubuntu 'systemctl status actions.runner.balungpisah-elzoo.macbook-ubuntu-elzoo-candidate.service --no-pager'
-gh api repos/balungpisah/elzoo/actions/runners --jq '.runners[] | {name,status,busy,labels: [.labels[].name]}'
-```
+CI ran on GitHub-hosted machines before ELZ-019, on the owner's machines from ELZ-019 to ELZ-066, and runs on GitHub-hosted
+runners again since 2026-11-09.
 
-Do not restart or remove a busy runner or its `_work` directory. If the candidate
-is unavailable, remove its `backend` label after the current job is finished;
-symbolic continues to accept backend jobs. If it is the cause of failures,
-record the exact run, environment and failure; preserve failed evidence and
-route only to the healthy named machine. Outside the documented hosted lane (see "Lanes"), never change to hosted CI.
-
-To replace a runner, verify the published release archive checksum, provision a
-separate service account and work directory, configure a short-lived repository
-registration token without printing it, assign only the documented role labels,
-and verify runner identity and the full job on a reviewed change. Do not point
-two runners at one `_work` directory or blindly register more runners to reduce
-queue time.
-
-## Historical evidence
-
-ELZ-019 moved CI from hosted machines to symbolic. ELZ-020 measured BEAM
-scheduler settings and split backend and Gleam roles. Earlier hosted runs are
-historical evidence and do not satisfy the user-owned machine policy. ELZ-034
-admitted the second backend runner (PR #61, merge `9890dee`). ELZ-040 removed its
-one-time route and hardened the guard. ELZ-042 closed the flow-style job and
-missing-container gaps found in the ELZ-040 review. ELZ-043 split the dependency
-cache so it is saved after `mix setup` and added the action SHA-pin check. ELZ-056 added
-the Contabo VPS runner as an unrouted candidate. ELZ-057 added the fast tier (pull request and queue runs on the fast runners only) and the runner budget rules. ELZ-060 moved the Gleam compiler download to the release-asset API after the browser URL answered 504. ELZ-066 added the hosted lane selected by `ELZOO_CI_LANE`, ELZ-064 the disposable S3 test server.
+- ELZ-019 moved CI from hosted machines to the first self-hosted runner. ELZ-020 measured BEAM scheduler settings and
+  split the backend and Gleam roles. ELZ-034 admitted a second backend runner (PR #61, merge `9890dee`); ELZ-040 removed its
+  one-time route and hardened the guard; ELZ-042 closed the flow-style job and missing-container gaps found in the
+  ELZ-040 review; ELZ-043 split the dependency cache so it is saved after `mix setup`, and added the action SHA-pin check.
+- ELZ-056 added a slow rented VPS as an unrouted candidate runner. Its cold full run took 72 min 42 s (`mix setup` 22 min 2 s,
+  `mix check` 47 min 16 s), and two tests exceeded the 120 s per-test default there, which led to ELZ-062. ELZ-057 added the
+  fast tier (pull request and queue runs on the fast runners only) and the runner budget rules.
+- ELZ-058 skipped redundant push runs; ELZ-060 moved the Gleam compiler download to the release-asset API after the
+  browser URL answered 504; ELZ-064 added the disposable S3 test server; ELZ-065 removed private details before
+  publication.
+- ELZ-066 added the hosted jobs next to the self-hosted ones, chosen by a repository variable; the rehearsal runs, the flip
+  and the verification run are in "Hosted CI". ELZ-069 removed the self-hosted jobs, the runner roles, the tier input of the
+  manual run and the variable. The full text of the removed sections (runner roles and routing, runner tiers and budget, machine
+  and container setup, the slow VPS runner) is in git history: `git log -- docs/development/10-symbolic-ci.md` and the version
+  before ELZ-069. Published logs of past runs keep the old runner names (owner decision 2026-11-09).
 
 ### Publishing refs (ELZ-065)
 

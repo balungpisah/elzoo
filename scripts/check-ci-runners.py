@@ -1,19 +1,14 @@
 #!/usr/bin/env python3
-"""Check the repository's canonical user-owned runner routing convention."""
+"""Check the repository's CI workflows: two workflows, one GitHub-hosted job each, in the reviewed shape."""
 import pathlib
 import re
 import sys
 
-# ELZ-066: the repository variable ELZOO_CI_LANE picks the lane. Unset or `self` runs the self-hosted jobs;
-# `hosted` runs only the GitHub-hosted jobs. The variable appears in the five job-level `if:` lines and nowhere else.
-FORK_GATE = """    if: ${{ vars.ELZOO_CI_LANE != 'hosted' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}"""
-# ELZ-057: pull request and queue (workflow_dispatch tier fast) runs need the fast tier;
-# main pushes and measurement dispatches (tier any) may use any backend runner.
-FAST_GATE = """    if: ${{ vars.ELZOO_CI_LANE != 'hosted' && ((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'workflow_dispatch' && inputs.tier == 'fast')) }}"""
-ANY_GATE = """    if: ${{ vars.ELZOO_CI_LANE != 'hosted' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.tier == 'any')) }}"""
-HOSTED_BACKEND_GATE = """    if: ${{ vars.ELZOO_CI_LANE == 'hosted' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) }}"""
-HOSTED_GLEAM_GATE = """    if: ${{ vars.ELZOO_CI_LANE == 'hosted' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}"""
-# ELZ-066: a hosted job runs on the one GitHub-hosted label below, without a job container. Its header lines
+# ELZ-069: the repository has one lane, GitHub-hosted. The self-hosted jobs, the lane variable ELZOO_CI_LANE and the
+# tier input are gone; no workflow reads `vars`. Each workflow has exactly one job whose `if:` line is pinned here.
+HOSTED_BACKEND_GATE = """    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) }}"""
+HOSTED_GLEAM_GATE = """    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}"""
+# A hosted job runs on the one GitHub-hosted label below, without a job container. Its header lines
 # below runs-on are pinned exactly: token permissions, time limit, environment and the database service.
 HOSTED_LABEL = "runs-on: ubuntu-24.04"
 HOSTED_BACKEND_HEADER = """    permissions:
@@ -44,21 +39,15 @@ HOSTED_GLEAM_HEADER = """    timeout-minutes: 30
       ImageOS: ubuntu24
       ERL_FLAGS: '+S 2:2 +SDcpu 1 +SDio 1'
     steps:""".split("\n")
-# ELZ-058: the push job reads the exact-head run of the merged pull request head, so check-any alone
-# gets `actions: read` (job level, directly below runs-on); every other token is `contents: read` only.
-ANY_PERMISSIONS = ["    permissions:", "      actions: read", "      contents: read"]
-# Jobs in order: (name, exact if: line below the job name, exact runs-on line, exact lines below runs-on,
-# exact hosted header or None). A self-hosted job (hosted header None) keeps its digest-pinned container;
-# a hosted job has the exact header and no container.
+# Jobs in order: (name, exact if: line below the job name, exact runs-on line, exact hosted header lines below
+# runs-on). A hosted job has the exact header and no job container. `actions: read` (ELZ-058, the decision step
+# reads the exact-head run of the merged pull request head) is in the check-hosted header only.
 expected = {
     "symbolic-check.yml": [
-        ("check-fast", FAST_GATE, "runs-on: [self-hosted, linux, x64, elzoo, backend, fast]", [], None),
-        ("check-any", ANY_GATE, "runs-on: [self-hosted, linux, x64, elzoo, backend]", ANY_PERMISSIONS, None),
-        ("check-hosted", HOSTED_BACKEND_GATE, HOSTED_LABEL, [], HOSTED_BACKEND_HEADER),
+        ("check-hosted", HOSTED_BACKEND_GATE, HOSTED_LABEL, HOSTED_BACKEND_HEADER),
     ],
     "symbolic-gleam.yml": [
-        ("gleam", FORK_GATE, "runs-on: [self-hosted, linux, x64, symbolic, elzoo, gleam]", [], None),
-        ("gleam-hosted", HOSTED_GLEAM_GATE, HOSTED_LABEL, [], HOSTED_GLEAM_HEADER),
+        ("gleam-hosted", HOSTED_GLEAM_GATE, HOSTED_LABEL, HOSTED_GLEAM_HEADER),
     ],
 }
 # ELZ-058: the decision step is the only backend step that sees the job token, and the heavy steps after it
@@ -114,9 +103,8 @@ STEP_IFS = [
     ("      - name: Run mix check", SKIP_IF),
     ("      - name: Report container resource observations", "        if: always()"),
 ]
-# Approved triggers: push to main, same-repository pull_request, workflow_dispatch.
-# pull_request_target and every other event need a new reviewed policy. The backend
-# workflow_dispatch has exactly one input, tier (fast default, any).
+# Approved triggers: push to main, same-repository pull_request, workflow_dispatch (no inputs).
+# pull_request_target and every other event need a new reviewed policy.
 _triggers = [
     "on:",
     "  push:",
@@ -125,14 +113,7 @@ _triggers = [
     "  workflow_dispatch:",
 ]
 expected_triggers = {
-    "symbolic-check.yml": _triggers + [
-        "    inputs:",
-        "      tier:",
-        "        description: 'fast = fast runners only (merge queue, default); any = any backend runner (measurement runs)'",
-        "        type: choice",
-        "        options: [fast, any]",
-        "        default: fast",
-    ],
+    "symbolic-check.yml": _triggers,
     "symbolic-gleam.yml": _triggers,
 }
 HOSTED_BACKEND_GATE_STEP = """      - name: Verify the GitHub-hosted runner
@@ -159,20 +140,6 @@ HOSTED_GLEAM_GATE_STEP = """      - name: Verify the GitHub-hosted runner
           test "$ID" = ubuntu
           test "$VERSION_ID" = 24.04
           echo "Hosted runner: $RUNNER_NAME\""""
-REQUIRED_GATE = """      - name: Verify approved backend runner
-        run: |
-          case "$RUNNER_NAME" in
-            symbolic-elzoo) ;;
-            macbook-ubuntu-elzoo-candidate)
-              echo 'ERL_FLAGS=+S 2:2 +SDcpu 1 +SDio 1' >> "$GITHUB_ENV"
-              ;;
-            contabo-elzoo-1)
-              echo 'ERL_FLAGS=+S 4:4 +SDcpu 1 +SDio 1' >> "$GITHUB_ENV"
-              ;;
-            *) echo "Unapproved backend runner: $RUNNER_NAME" >&2; exit 1 ;;
-          esac
-          echo "Backend runner: $RUNNER_NAME"
-          free -h || true"""
 # ELZ-060: the Gleam job installs the pinned compiler through the release-asset API with the job token;
 # the token is exposed to this one step only.
 GLEAM_SETUP_STEP = """      - name: Install the pinned Gleam compiler
@@ -368,10 +335,9 @@ for file in files:
             errors.append(f'{file}: exactly one {names[0]} job is required')
         else:
             errors.append(f'{file}: exactly the jobs {", ".join(names)} are required, in this order')
-    bodies = []
     pinned_tokens = []
     job_ranges = []
-    for k, (name, if_line, runs_on, extra, hosted) in enumerate(spec if shape_ok else []):
+    for k, (name, if_line, runs_on, hosted) in enumerate(spec if shape_ok else []):
         h = job_headers[k][0]
         e = job_headers[k + 1][0] if k + 1 < len(job_headers) else len(lines)
         block = range(h, e)
@@ -383,31 +349,19 @@ for file in files:
                 or lines[selectors[0]] != '    ' + runs_on):
             errors.append(f'{file}: every job must use {runs_on} ({name})')
         containers = [i for i in block if re.match(r'\s*(?:-\s*)?container\s*:', lines[i])]
-        if hosted is not None:
-            # ELZ-066: a hosted job is pinned by its exact header and has no job container.
-            if lines[h + 3:h + 3 + len(hosted)] != hosted:
-                errors.append(f'{file}: the hosted job header lines below runs-on changed ({name})')
-            if containers:
-                errors.append(f'{file}: a hosted job must not use a job container ({name})')
-        else:
-            if lines[h + 3:h + 4 + len(extra)] != extra + ['    container:']:
-                errors.append(f'{file}: the job header lines below runs-on changed ({name})')
-            # The job must keep its digest-pinned container; without it steps run on the host.
-            if (len(containers) != 1 or lines[containers[0]] != '    container:'
-                    or not h < containers[0] < e - 1
-                    or containers[0] in skip or containers[0] + 1 in skip
-                    or not re.fullmatch(r'      image:\s*[^\s@\'"]+@sha256:[0-9a-f]{64}\s*',
-                                        lines[containers[0] + 1])):
-                errors.append(f'{file}: the job must keep one container: mapping whose first key is a digest-pinned image ({name})')
+        # A hosted job is pinned by its exact header and has no job container.
+        if lines[h + 3:h + 3 + len(hosted)] != hosted:
+            errors.append(f'{file}: the hosted job header lines below runs-on changed ({name})')
+        if containers:
+            errors.append(f'{file}: a hosted job must not use a job container ({name})')
         # Steps must be one visible block-style list, so the gate below is a real first step.
         steps = [i for i in block if re.match(r'\s*(?:-\s*)?steps\s*:', lines[i])]
         if len(steps) != 1 or lines[steps[0]] != '    steps:' or steps[0] in skip:
             errors.append(f'{file}: the job must keep one block-style steps: list ({name})')
         gate_step = {
-            ('symbolic-check.yml', False): REQUIRED_GATE,
-            ('symbolic-check.yml', True): HOSTED_BACKEND_GATE_STEP,
-            ('symbolic-gleam.yml', True): HOSTED_GLEAM_GATE_STEP,
-        }.get((file.name, hosted is not None))
+            'symbolic-check.yml': HOSTED_BACKEND_GATE_STEP,
+            'symbolic-gleam.yml': HOSTED_GLEAM_GATE_STEP,
+        }.get(file.name)
         if gate_step is not None:
             gate_lines = gate_step.split('\n')
             after_gate = steps[0] + 1 + len(gate_lines) if len(steps) == 1 else e
@@ -419,7 +373,7 @@ for file in files:
                     or next_step is None
                     or any(lines[i].strip() and i not in skip for i in range(after_gate, next_step))):
                 errors.append(f'{file}: approved runner identity gate is missing or changed ({name})')
-        if hosted is not None and len(steps) == 1:
+        if len(steps) == 1:
             # No job-level key (strategy:, services:, environment:, continue-on-error:) may follow the steps list.
             late = [i for i in range(steps[0] + 1, e)
                     if lines[i].strip() and not lines[i].lstrip().startswith('#') and i not in skip
@@ -431,14 +385,13 @@ for file in files:
             for i in block:
                 if i != h + 1 and i not in skip and re.match(r'\s*(?:-\s+)?if\s*:', lines[i]):
                     errors.append(f'{file}: unreviewed if: key ({name}): {lines[i].strip()}')
-            if hosted is not None:
-                pin = HOSTED_GLEAM_CHECKOUT.split('\n')
-                found = [i for i in block if re.match(r'\s*(?:-\s+)?uses\s*:\s*actions/checkout@', lines[i])]
-                after_pin = ([line for line in lines[found[0] + len(pin):e]
-                              if line.strip() and not line.lstrip().startswith('#')] if len(found) == 1 else [])
-                if (len(found) != 1 or lines[found[0]:found[0] + len(pin)] != pin or found[0] in skip
-                        or not after_pin or not after_pin[0].startswith('      - ')):
-                    errors.append(f'{file}: the pinned checkout step (persist-credentials: false) is missing or changed ({name})')
+            pin = HOSTED_GLEAM_CHECKOUT.split('\n')
+            found = [i for i in block if re.match(r'\s*(?:-\s+)?uses\s*:\s*actions/checkout@', lines[i])]
+            after_pin = ([line for line in lines[found[0] + len(pin):e]
+                          if line.strip() and not line.lstrip().startswith('#')] if len(found) == 1 else [])
+            if (len(found) != 1 or lines[found[0]:found[0] + len(pin)] != pin or found[0] in skip
+                    or not after_pin or not after_pin[0].startswith('      - ')):
+                errors.append(f'{file}: the pinned checkout step (persist-credentials: false) is missing or changed ({name})')
         if file.name == 'symbolic-check.yml':
             decision = DECISION_STEP.split('\n')
             starts = [i for i in block if lines[i:i + len(decision)] == decision]
@@ -481,21 +434,19 @@ for file in files:
                     pairs.append((lines[header] if header is not None else '', lines[i]))
             if pairs != STEP_IFS:
                 errors.append(f'{file}: step-level conditions are not the reviewed ones ({name})')
-        if hosted is None:
-            body = lines[h + 3 + len(extra):e]
-            while body and not body[-1].strip():
-                body.pop()
-            bodies.append(body)
-    # The two self-hosted backend jobs differ only in their if: and runs-on: lines, so every pinned
-    # check above (image digest, ERL_FLAGS, gate, steps, action SHAs) holds for both.
-    if file.name == 'symbolic-check.yml' and shape_ok and len(bodies) == 2 and bodies[0] != bodies[1]:
-        errors.append(f'{file}: check-fast and check-any must have identical bodies below runs-on')
-    # ELZ-066: the lane variable appears only in the job-level if: lines, so no step reads it.
-    # Case-insensitive and on raw lines, script text and comments included: GitHub expressions ignore case.
-    lane_lines = [i for i, line in enumerate(lines)
-                  if re.search(r'\bvars\b|ELZOO_CI_LANE', line, re.IGNORECASE)]
-    if not shape_ok or lane_lines != [r.start + 1 for r in job_ranges]:
-        errors.append(f'{file}: the repository variable ELZOO_CI_LANE and vars may appear only in the job-level if: lines')
+    # ELZ-069: no workflow reads `vars` (the lane variable is gone), and no self-hosted runner, label list or
+    # tier input may come back. Case-insensitive and on raw lines, script text and comments included: GitHub
+    # expressions ignore case.
+    for i, line in enumerate(lines):
+        if re.search(r'\bvars\b|ELZOO_CI_LANE', line, re.IGNORECASE):
+            errors.append(f'{file}: vars and the repository variable ELZOO_CI_LANE are not allowed: {line.strip()}')
+        if re.search(r'self[-_ ]?hosted', line, re.IGNORECASE):
+            errors.append(f'{file}: self-hosted runners are not allowed in this repository: {line.strip()}')
+    for line in yaml_lines:
+        if re.match(r'\s*(?:-\s+)?labels\s*:', line):
+            errors.append(f'{file}: a labels: list could select a runner and is not allowed: {line.strip()}')
+        if re.match(r'\s*(?:-\s+)?inputs\s*:', line):
+            errors.append(f'{file}: workflow_dispatch inputs (the tier input) are not allowed: {line.strip()}')
     # Token exposure: github.token and secrets appear nowhere except the pinned steps.
     # Case-insensitive and tolerant of spacing, bracket access and whole-object dumps; script text and
     # comments are included on purpose (the check reads raw lines). A source-convention check only.
@@ -522,14 +473,14 @@ for file in files:
             errors.append(f'{file}: the pinned Gleam setup step is missing or changed, or the token appears elsewhere')
     elif token_lines != pinned_tokens:
         errors.append(f'{file}: github.token and secrets are not allowed in this workflow outside the pinned decision and S3 test server steps')
-    # Token permissions: one top-level contents: read block, plus actions: read on check-any and check-hosted only; never write.
+    # Token permissions: one top-level contents: read block, plus actions: read on check-hosted only; never write.
     perm_lines = [i for i, line in enumerate(lines) if re.match(r'\s*permissions\s*:', line)]
-    expected_perms = ['permissions:'] + (['    permissions:'] * 2 if file.name == 'symbolic-check.yml' else [])
+    expected_perms = ['permissions:'] + (['    permissions:'] if file.name == 'symbolic-check.yml' else [])
     top = perm_lines[0] if perm_lines else None
     if ([lines[i] for i in perm_lines] != expected_perms or top is None or lines[top:top + 2] != ['permissions:', '  contents: read']
             or (top + 2 < len(lines) and lines[top + 2].strip() and lines[top + 2][0] == ' ')
             or any(re.search(r':\s*write(?:-all)?\b|permissions\s*:\s*\S', line) for line in yaml_lines)):
-        errors.append(f'{file}: token permissions must be exactly the reviewed ones (contents: read; actions: read on check-any and check-hosted only; no write)')
+        errors.append(f'{file}: token permissions must be exactly the reviewed ones (contents: read; actions: read on check-hosted only; no write)')
     if file.name == 'symbolic-check.yml' and any(
             re.match(r'\s*(?:-\s+)?(?:defaults|shell|continue-on-error)\s*:', line) for line in yaml_lines):
         errors.append(f'{file}: defaults:, shell: and continue-on-error: could disable the runner identity gate')
@@ -541,4 +492,4 @@ for file in files:
 if errors:
     print('\n'.join(errors), file=sys.stderr)
     sys.exit(1)
-print('All workflow jobs use the reviewed lanes: user-owned runner roles, or the one pinned GitHub-hosted label chosen by ELZOO_CI_LANE')
+print('All workflow jobs are the reviewed GitHub-hosted jobs; no self-hosted runner, label list, tier input or lane variable')

@@ -2,7 +2,7 @@ defmodule Elzoo.CiRunnerGuardTest do
   use ExUnit.Case, async: true
   @script Path.expand("scripts/check-ci-runners.py")
 
-  test "CI rejects hosted, missing, unknown and swapped-role workflows" do
+  test "CI rejects other runners, containers, missing and unknown workflows" do
     root = Path.join(System.tmp_dir!(), "elzoo-runner-guard-#{System.unique_integer([:positive])}")
     workflows = Path.join(root, ".github/workflows")
     File.mkdir_p!(workflows)
@@ -16,11 +16,13 @@ defmodule Elzoo.CiRunnerGuardTest do
     assert {_, 0} = System.cmd("python3", [@script], cd: root, stderr_to_stdout: true)
 
     for selector <- [
-          "ubuntu-24.04",
+          "ubuntu-latest",
+          "ubuntu-22.04",
           "${{ matrix.runner }}",
+          "[ubuntu-24.04]",
+          "self-hosted",
           "[self-hosted, linux]",
-          "[self-hosted, linux, x64, symbolic, elzoo]",
-          "[self-hosted, linux, x64, symbolic, elzoo, backend, gleam]"
+          "[self-hosted, ubuntu-24.04]"
         ] do
       File.write!(
         Path.join(workflows, "symbolic-check.yml"),
@@ -33,15 +35,19 @@ defmodule Elzoo.CiRunnerGuardTest do
 
     File.write!(Path.join(workflows, "symbolic-check.yml"), workflow("backend"))
 
-    for {file, correct, wrong} <- [
-          {"symbolic-check.yml", "backend", "gleam"},
-          {"symbolic-gleam.yml", "gleam", "backend"}
-        ] do
-      [wrong_selector] = Regex.run(~r/^    runs-on:.*$/m, workflow(wrong))
-      File.write!(Path.join(workflows, file), replace_selector(workflow(correct), wrong_selector))
-      assert {output, 1} = System.cmd("python3", [@script], cd: root, stderr_to_stdout: true)
-      assert output =~ "every job must use"
-      File.write!(Path.join(workflows, file), workflow(correct))
+    for file <- ["symbolic-check.yml", "symbolic-gleam.yml"] do
+      role = if file == "symbolic-check.yml", do: "backend", else: "gleam"
+      source = workflow(role)
+
+      File.write!(
+        Path.join(workflows, file),
+        String.replace(source, "    steps:\n", "    container: ubuntu:24.04\n    steps:\n",
+          global: false
+        )
+      )
+
+      assert {_, 1} = System.cmd("python3", [@script], cd: root, stderr_to_stdout: true)
+      File.write!(Path.join(workflows, file), source)
       assert {_, 0} = System.cmd("python3", [@script], cd: root, stderr_to_stdout: true)
     end
 

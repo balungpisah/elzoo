@@ -75,11 +75,13 @@ class FakeApi:
                         conclusion="success", run_attempt=1)
         self.listing_changes = {}
         self.runs = None
-        self.job = dict(id=901, run_id=900, name="check-fast", head_sha=second, status="completed",
-                        conclusion="success", runner_name="symbolic-elzoo",
-                        steps=[{"name": "Run mix check", "conclusion": "success"}])
-        self.skipped = dict(id=902, run_id=900, name="check-any", head_sha=second, status="completed",
-                            conclusion="skipped", runner_name=None, steps=[])
+        self.job = dict(id=901, run_id=900, name="check-hosted", head_sha=second, status="completed",
+                        conclusion="success", runner_name="GitHub Actions 7",
+                        runner_group_name="GitHub Actions", labels=["ubuntu-24.04"],
+                        steps=[{"name": "Verify the GitHub-hosted runner", "conclusion": "success"},
+                               {"name": "Run mix check", "conclusion": "success"}])
+        # A second job in the listing (any name): ELZ-069 refuses every run that has one.
+        self.skipped = dict(self.job, id=902, name="check-any", conclusion="skipped", steps=[])
         self.jobs = None
         self.log = "2026-11-08T12:00:00.0000000Z ELZOO CHECK PASSED\n"
         self.reread = {}
@@ -95,7 +97,7 @@ class FakeApi:
             body.update(self.listing_changes)
             return body
         if "/attempts/" in path:
-            jobs = self.jobs if self.jobs is not None else [copy.deepcopy(self.job), copy.deepcopy(self.skipped)]
+            jobs = self.jobs if self.jobs is not None else [copy.deepcopy(self.job)]
             return dict(total_count=len(jobs), jobs=jobs)
         out = copy.deepcopy(self.run)
         out.update(self.reread)
@@ -137,7 +139,7 @@ class DecisionTest(unittest.TestCase):
     def test_identical_tree_and_passed_exact_head_run_skips(self):
         (verdict, reason, details), api, second = self.decide("merge")
         self.assertTrue(verdict)
-        self.assertEqual((second, 900, 901, "symbolic-elzoo"),
+        self.assertEqual((second, 900, 901, "GitHub Actions 7"),
                          (details["second_parent"], details["run"], details["job"], details["runner"]))
         self.assertRegex(reason, "identical tree")
 
@@ -233,19 +235,33 @@ class DecisionTest(unittest.TestCase):
             skip.decide(env, run_git, api)
 
     def test_job_evidence_rules(self):
+        gate = {"name": "Verify the GitHub-hosted runner", "conclusion": "success"}
+        mix = {"name": "Run mix check", "conclusion": "success"}
         cases = {
             "job not success": dict(conclusion="failure"),
             "job not completed": dict(status="in_progress"),
             "job other head": dict(head_sha="f" * 40),
             "job other run": dict(run_id=1),
             "job wrong name": dict(name="check"),
-            "job on contabo": dict(runner_name="contabo-elzoo-1"),
-            "job on unknown runner": dict(runner_name="github-hosted"),
-            "job without runner": dict(runner_name=None),
-            "no mix check step": dict(steps=[]),
-            "mix check skipped": dict(steps=[{"name": "Run mix check", "conclusion": "skipped"}]),
-            "mix check failed": dict(steps=[{"name": "Run mix check", "conclusion": "failure"}]),
-            "mix check twice": dict(steps=[{"name": "Run mix check", "conclusion": "success"}] * 2),
+            "removed job name check-fast": dict(name="check-fast"),
+            "other runner group": dict(runner_group_name="Default"),
+            "no runner group": dict(runner_group_name=None),
+            "other label": dict(labels=["ubuntu-latest"]),
+            "extra label": dict(labels=["ubuntu-24.04", "extra"]),
+            "self-hosted label": dict(labels=["self-hosted", "ubuntu-24.04"]),
+            "no labels": dict(labels=None),
+            "self-hosted runner name": dict(runner_name="symbolic-elzoo"),
+            "short runner name": dict(runner_name="GitHub Actions"),
+            "long runner name": dict(runner_name="GitHub Actions 7 extra"),
+            "no runner name": dict(runner_name=None),
+            "no identity step": dict(steps=[mix]),
+            "identity step skipped": dict(steps=[dict(gate, conclusion="skipped"), mix]),
+            "identity step failed": dict(steps=[dict(gate, conclusion="failure"), mix]),
+            "identity step twice": dict(steps=[gate, gate, mix]),
+            "no mix check step": dict(steps=[gate]),
+            "mix check skipped": dict(steps=[gate, dict(mix, conclusion="skipped")]),
+            "mix check failed": dict(steps=[gate, dict(mix, conclusion="failure")]),
+            "mix check twice": dict(steps=[gate, mix, mix]),
         }
         for label, changes in cases.items():
             with self.subTest(label=label):
@@ -257,85 +273,22 @@ class DecisionTest(unittest.TestCase):
 
     def test_job_list_shapes(self):
         env, run_git, second = self.scenario("merge")
-        fast, other = FakeApi(second).job, FakeApi(second).skipped
+        api0 = FakeApi(second)
+        hosted, other = api0.job, api0.skipped
         shapes = {
-            "check-any executed": [fast, dict(other, conclusion="success")],
-            "check-any failed": [fast, dict(other, conclusion="failure")],
-            "two check-fast": [fast, dict(fast, id=999), other],
-            "no check-fast": [other],
-            "extra job": [fast, other, dict(other, id=903, name="other")],
+            "no job ran": [dict(hosted, conclusion="skipped")],
+            "second job skipped": [hosted, other],
+            "second job executed": [hosted, dict(other, conclusion="success")],
+            "removed check-fast executed": [dict(hosted, name="check-fast")],
+            "removed check-any executed": [dict(hosted, name="check-any")],
+            "two check-hosted": [hosted, dict(hosted, id=999)],
+            "extra job": [hosted, dict(other, id=903, name="other")],
+            "empty": [],
         }
         for label, jobs in shapes.items():
             with self.subTest(label=label):
                 api = FakeApi(second)
                 api.jobs = copy.deepcopy(jobs)
-                with self.assertRaises(skip.Full):
-                    skip.decide(env, run_git, api)
-
-    # ELZ-066: evidence from the hosted lane (check-hosted on a GitHub-hosted runner).
-    def hosted_jobs(self, second, **changes):
-        api = FakeApi(second)
-        hosted = dict(api.job, id=903, name="check-hosted", runner_name="GitHub Actions 7",
-                      runner_group_name="GitHub Actions", labels=["ubuntu-24.04"],
-                      steps=[{"name": "Verify the GitHub-hosted runner", "conclusion": "success"},
-                             {"name": "Run mix check", "conclusion": "success"}])
-        hosted.update(changes)
-        return [dict(api.skipped, id=904, name="check-fast"), api.skipped, hosted]
-
-    def test_hosted_lane_evidence_allows_the_skip(self):
-        env, run_git, second = self.scenario("merge")
-        api = FakeApi(second)
-        api.jobs = self.hosted_jobs(second)
-        skipped, _reason, details = skip.decide(env, run_git, api)
-        self.assertTrue(skipped)
-        self.assertEqual("GitHub Actions 7", details["runner"])
-
-    def test_hosted_lane_evidence_rules(self):
-        cases = {
-            "other runner group": dict(runner_group_name="Default"),
-            "no runner group": dict(runner_group_name=None),
-            "other label": dict(labels=["ubuntu-latest"]),
-            "extra label": dict(labels=["ubuntu-24.04", "extra"]),
-            "self-hosted label": dict(labels=["self-hosted", "ubuntu-24.04"]),
-            "no labels": dict(labels=None),
-            "self-hosted runner name": dict(runner_name="symbolic-elzoo"),
-            "short runner name": dict(runner_name="GitHub Actions"),
-            "long runner name": dict(runner_name="GitHub Actions 7 extra"),
-            "no runner name": dict(runner_name=None),
-            "no identity step": dict(steps=[{"name": "Run mix check", "conclusion": "success"}]),
-            "identity step skipped": dict(steps=[{"name": "Verify the GitHub-hosted runner", "conclusion": "skipped"},
-                                                 {"name": "Run mix check", "conclusion": "success"}]),
-            "identity step failed": dict(steps=[{"name": "Verify the GitHub-hosted runner", "conclusion": "failure"},
-                                                {"name": "Run mix check", "conclusion": "success"}]),
-            "mix check skipped": dict(steps=[{"name": "Verify the GitHub-hosted runner", "conclusion": "success"},
-                                             {"name": "Run mix check", "conclusion": "skipped"}]),
-            "job failed": dict(conclusion="failure"),
-            "job other head": dict(head_sha="f" * 40),
-            "job other run": dict(run_id=1),
-        }
-        for label, changes in cases.items():
-            with self.subTest(label=label):
-                env, run_git, second = self.scenario("merge")
-                api = FakeApi(second)
-                api.jobs = self.hosted_jobs(second, **changes)
-                with self.assertRaises(skip.Full):
-                    skip.decide(env, run_git, api)
-
-    def test_hosted_lane_job_list_shapes(self):
-        env, run_git, second = self.scenario("merge")
-        jobs = self.hosted_jobs(second)
-        shapes = {
-            "check-fast also executed": [dict(jobs[0], conclusion="success"), jobs[1], jobs[2]],
-            "check-any executed": [jobs[0], dict(jobs[1], conclusion="success"), jobs[2]],
-            "only check-any ran": [jobs[0], dict(jobs[1], conclusion="success"), dict(jobs[2], conclusion="skipped")],
-            "no job ran": [jobs[0], jobs[1], dict(jobs[2], conclusion="skipped")],
-            "two check-hosted": [jobs[0], jobs[1], jobs[2], dict(jobs[2], id=999)],
-            "extra job": [jobs[0], jobs[1], jobs[2], dict(jobs[1], id=998, name="other")],
-        }
-        for label, shape in shapes.items():
-            with self.subTest(label=label):
-                api = FakeApi(second)
-                api.jobs = copy.deepcopy(shape)
                 with self.assertRaises(skip.Full):
                     skip.decide(env, run_git, api)
 
@@ -376,7 +329,7 @@ class DecisionTest(unittest.TestCase):
         skip.main(env, run_git, FakeApi(second), out=lines.append)
         self.assertEqual("skip=true\n", output.read_text())
         self.assertTrue(lines[0].startswith("ELZOO PUSH CHECK SKIPPED (identical tree; exact-head full run passed):"))
-        self.assertIn("run=900 job=901 runner=symbolic-elzoo", lines[0])
+        self.assertIn("run=900 job=901 runner=GitHub Actions 7", lines[0])
         self.assertNotIn("ELZOO CHECK PASSED", lines[0])  # the success marker stays reserved for a run of mix check
 
     def test_main_never_fails_and_prints_skip_false_on_any_error(self):
