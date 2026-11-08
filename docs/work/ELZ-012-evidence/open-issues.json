@@ -1,12 +1,27 @@
 {
-  "utc": "2026-11-08T12:09:41.955243+00:00",
+  "utc": "2026-11-08T13:14:17.724139+00:00",
   "command": "gh issue list -R balungpisah/elzoo --state open --limit 1000 --json number,title",
   "note": "Recheck dependencies and remote claims; not a lock",
-  "issues": [
+  "previous_snapshot_utc": "2026-11-08T12:09:41.955243+00:00",
+  "closed_since_previous_snapshot": [
     {
       "number": 100,
-      "title": "ELZ-060 \u2014 Install the pinned Gleam compiler through the release-asset API, with the job token"
+      "id": "ELZ-060",
+      "note": "merged into recorded follow-up revision d70bee6e22e830019065f04b509d367bc9b446eb"
     },
+    {
+      "number": 89,
+      "id": "ELZ-049",
+      "note": "merged into recorded follow-up revision 907c37f02ed857b4e83d55fb3a9929f3525e8419"
+    }
+  ],
+  "omitted": [
+    {
+      "number": 12,
+      "reason": "this task (ELZ-012); a finished task is not next work"
+    }
+  ],
+  "issues": [
     {
       "number": 99,
       "title": "ELZ-059 \u2014 Light pull request checks; staggered full runs of main; freeze rule"
@@ -22,10 +37,6 @@
     {
       "number": 95,
       "title": "ELZ-057 \u2014 Route backend checks by runner tier; add the runner budget rule"
-    },
-    {
-      "number": 89,
-      "title": "ELZ-049 \u2014 Run the database-free copied consumers concurrently"
     },
     {
       "number": 76,
@@ -50,10 +61,6 @@
     {
       "number": 44,
       "title": "ELZ-027 \u2014 Specify schedule occurrence identity and overlap policy"
-    },
-    {
-      "number": 12,
-      "title": "ELZ-012 \u2014 Reproduce the clean check and hand off evidence"
     }
   ]
 }

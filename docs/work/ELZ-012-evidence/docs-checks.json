@@ -1,5 +1,5 @@
 {
-  "utc": "2026-11-08T13:04:40.824305+00:00",
+  "utc": "2026-11-08T13:15:22.371483+00:00",
   "main_base": "b62c26a229fc86fa7700376d4cb6a21be536baa7",
   "checked_runtime_revision": "907c37f02ed857b4e83d55fb3a9929f3525e8419",
   "commands": [
@@ -67,6 +67,11 @@
       "exists": true
     },
     {
+      "source": "docs/development/clean-check-handoff.md",
+      "target": "../work/ELZ-012-evidence/open-issues.json",
+      "exists": true
+    },
+    {
       "source": "docs/development/06-toolchain.md",
       "target": "10-symbolic-ci.md",
       "exists": true
@@ -79,6 +84,11 @@
     {
       "source": "docs/work/ELZ-012.md",
       "target": "ELZ-012-early-review.md",
+      "exists": true
+    },
+    {
+      "source": "docs/work/ELZ-012.md",
+      "target": "ELZ-012-final-review.md",
       "exists": true
     },
     {
@@ -195,6 +205,16 @@
       "source": "docs/work/ELZ-012.md",
       "target": "ELZ-012-evidence/source-hashes-current.json",
       "exists": true
+    },
+    {
+      "source": "docs/work/ELZ-012.md",
+      "target": "ELZ-012-final-review.md",
+      "exists": true
+    },
+    {
+      "source": "docs/work/ELZ-012.md",
+      "target": "ELZ-012-evidence/open-issues.json",
+      "exists": true
     }
   ],
   "authored_paths_checked": [
@@ -210,6 +230,7 @@
     "docs/work/ELZ-012-evidence/cure-identity.json",
     "docs/work/ELZ-012-evidence/cure-inspection.log",
     "docs/work/ELZ-012-evidence/cure-manifest.txt",
+    "docs/work/ELZ-012-evidence/docs-checks.json",
     "docs/work/ELZ-012-evidence/final.json",
     "docs/work/ELZ-012-evidence/first-final.json",
     "docs/work/ELZ-012-evidence/initial.json",
@@ -225,9 +246,10 @@
     "docs/work/ELZ-012-evidence/source-consistency.json",
     "docs/work/ELZ-012-evidence/source-hashes-current.json",
     "docs/work/ELZ-012-evidence/source-hashes.json",
+    "docs/work/ELZ-012-final-review.md",
     "docs/work/ELZ-012.md",
     "tasks/ELZ-012-clean-check-evidence-handoff.md"
   ],
   "scope_pass": true,
-  "note": "Docs checks are separate from mix check; untracked evidence paths included in scope check; final PR SHA comparison is recorded after committing"
+  "note": "Docs checks are separate from mix check; rerun after final-review R1/L1 docs edits by the continuing session; untracked evidence paths included in scope check; final PR SHA comparison is recorded after committing"
 }

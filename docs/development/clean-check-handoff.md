@@ -83,6 +83,10 @@ spike. Its CI acceptance belongs to its own workflow and merge record.
 | P3 publication | Root suite plus aggregate: declaration/action types, EffectIntent history/grounding, loopback publication, recovery/quarantine, refusal/concurrency and size-guard mutation scenarios | No live vendor/TLS/DNS certification, physical cancellation, rollback or external exactly-once guarantee |
 | Source copying | Aggregate over all ready IDs and only the per-ID consumers printed by selection; runtime stages shown in the log | Consumers reuse root-built provider artifacts, not independent cold provider installs; edited downstream applications are excluded |
 
+Law and test names in this table come from the hashed sources and manifests;
+the log proves that those sources compiled and that the counted suites passed,
+not that each named law printed a line.
+
 `core/effect`, `delivery/effect-intent`, `integration/http`, `integration/json`
 and `assembly/http-job` have no fixed per-ID consumer: their bundle tests run
 in the root suite and the aggregate. Root-only cross-Piece tests do not
@@ -123,20 +127,22 @@ manifest row exists at this recorded revision, and the coordinator publishes
 it. This handoff does not supply its scope or decisions. No unpublished task
 issues are created here.
 
-Published/readable snapshot at 2026-11-08T12:09:41.955243+00:00:
+Issues #89 (ELZ-049) and #100 (ELZ-060) were merged after the first snapshot and
+appear in the recorded follow-up runs; #12 is this task and is omitted. Treat
+none of the rows as a claim lock. The snapshot file is
+[open-issues.json](../work/ELZ-012-evidence/open-issues.json).
+
+Published/readable snapshot at 2026-11-08T13:14:17.724139+00:00:
 
 | Issue | Published title | Use |
 | --- | --- | --- |
-| [#100](https://github.com/balungpisah/elzoo/issues/100) | ELZ-060 — Install the pinned Gleam compiler through the release-asset API, with the job token | Recheck dependencies and remote claims; not a lock |
 | [#99](https://github.com/balungpisah/elzoo/issues/99) | ELZ-059 — Light pull request checks; staggered full runs of main; freeze rule | Recheck dependencies and remote claims; not a lock |
 | [#98](https://github.com/balungpisah/elzoo/issues/98) | CI main status: freeze classifications (ELZ-059 tracking) | Recheck dependencies and remote claims; not a lock |
 | [#96](https://github.com/balungpisah/elzoo/issues/96) | ELZ-058 — Remove redundant full CI runs without weakening the evidence | Recheck dependencies and remote claims; not a lock |
 | [#95](https://github.com/balungpisah/elzoo/issues/95) | ELZ-057 — Route backend checks by runner tier; add the runner budget rule | Recheck dependencies and remote claims; not a lock |
-| [#89](https://github.com/balungpisah/elzoo/issues/89) | ELZ-049 — Run the database-free copied consumers concurrently | Recheck dependencies and remote claims; not a lock |
 | [#76](https://github.com/balungpisah/elzoo/issues/76) | ELZ-044 — Make the CI guard check workflow structure, not line shapes | Recheck dependencies and remote claims; not a lock |
 | [#70](https://github.com/balungpisah/elzoo/issues/70) | ELZ-041 — Trial an advisory ARM64 PR lane on the M1 Pro MacBook (Kinhin) | Recheck dependencies and remote claims; not a lock |
 | [#48](https://github.com/balungpisah/elzoo/issues/48) | ELZ-031 — Specify exact money amounts and the currency registry | Recheck dependencies and remote claims; not a lock |
 | [#46](https://github.com/balungpisah/elzoo/issues/46) | ELZ-029 — Specify the OS-process Adapter boundary | Recheck dependencies and remote claims; not a lock |
 | [#45](https://github.com/balungpisah/elzoo/issues/45) | ELZ-028 — Specify single-owner leases fenced by record revision | Recheck dependencies and remote claims; not a lock |
 | [#44](https://github.com/balungpisah/elzoo/issues/44) | ELZ-027 — Specify schedule occurrence identity and overlap policy | Recheck dependencies and remote claims; not a lock |
-| [#12](https://github.com/balungpisah/elzoo/issues/12) | ELZ-012 — Reproduce the clean check and hand off evidence | Recheck dependencies and remote claims; not a lock |
