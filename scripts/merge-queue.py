@@ -19,6 +19,14 @@ GLEAM_WORKFLOW = "symbolic-gleam.yml"
 FAST_RUNNERS = {"symbolic-elzoo", "macbook-ubuntu-elzoo-candidate"}
 FAST_JOB = "check-fast"
 ANY_JOB = "check-any"
+# ELZ-066: in the hosted lane the same run executes check-hosted on a GitHub-hosted runner instead of check-fast.
+HOSTED_JOB = "check-hosted"
+GLEAM_JOB = "gleam"
+GLEAM_HOSTED_JOB = "gleam-hosted"
+HOSTED_GROUP = "GitHub Actions"
+HOSTED_LABELS = ["ubuntu-24.04"]
+HOSTED_RUNNER = re.compile(r"GitHub Actions [0-9]+")
+HOSTED_GATE_STEP = "Verify the GitHub-hosted runner"
 SHA = re.compile(r"[0-9a-f]{40}")
 PR_FIELDS = ("number,state,isDraft,isCrossRepository,baseRefName,headRefName,"
              "headRefOid,headRepository,mergeable,mergeCommit")
@@ -26,6 +34,22 @@ PR_FIELDS = ("number,state,isDraft,isCrossRepository,baseRefName,headRefName,"
 
 class QueueError(Exception):
     """A refusal or unavailable evidence; never a reason to merge anyway."""
+
+
+def hosted_runner(job):
+    """True for a job that a GitHub-hosted runner of the one approved label ran."""
+    name = job.get("runner_name")
+    return (job.get("runner_group_name") == HOSTED_GROUP and job.get("labels") == HOSTED_LABELS and
+            isinstance(name, str) and HOSTED_RUNNER.fullmatch(name) is not None)
+
+
+def one_executed_job(jobs, known, executable, message):
+    """The one job of a run that did not skip. Every job must be known, once, and the executed one allowed."""
+    names = [job.get("name") for job in jobs]
+    require(len(set(names)) == len(names) and all(name in known for name in names), message)
+    executed = [job for job in jobs if job.get("conclusion") != "skipped"]
+    require(len(executed) == 1 and executed[0].get("name") in executable, message)
+    return executed[0]
 
 
 def command(argv, allowed=(0,)):
@@ -44,7 +68,7 @@ def command(argv, allowed=(0,)):
 # here: a repeated dispatch would create a second run.
 TRANSIENT = re.compile(
     r"TLS handshake timeout|connection reset|connection refused|i/o timeout|timeout awaiting|"
-    r"Client\.Timeout|unexpected EOF|\bEOF\b|server closed|temporary failure|"
+    r"Client\.Timeout|context deadline exceeded|timed out after \d+ seconds|operation timed out|unexpected EOF|\bEOF\b|server closed|temporary failure|"
     r"HTTP 50[0234]\b|\b50[0234] (?:Bad Gateway|Service Unavailable|Gateway Time-?out|Internal Server Error)",
     re.IGNORECASE)
 RETRY_WAITS = (10, 20, 40, 50)  # five attempts over two minutes of waiting
@@ -102,6 +126,7 @@ class Queue:
                  timeout=10800, poll=15, emit=print):
         self.sleep, self.clock = sleep, clock
         self.timeout, self.poll, self.emit = timeout, poll, emit
+        self.raw_run = run
         self.run = retrying(run, sleep, emit, clock, lambda: self.deadline)
         self.deadline = 0
 
@@ -116,6 +141,13 @@ class Queue:
 
     def api(self, path):
         return self.data("gh", "api", f"repos/{REPO}/{path}")
+
+    def data_once(self, *argv):
+        """Like data(), without the retries: for best-effort calls that must not hold the queue."""
+        try:
+            return json.loads(self.raw_run(list(argv)).stdout.strip())
+        except (ValueError, TypeError, AttributeError) as error:
+            raise QueueError(f"Invalid JSON from {' '.join(argv)}") from error
 
     def pause(self, reason, deadline=None):
         remaining = min(self.deadline, deadline or self.deadline) - self.clock()
@@ -192,8 +224,8 @@ class Queue:
                                "head_sha": pr["headRefOid"], "per_page": 100})
             end = self.clock() + 30
             while True:
-                pages = self.data("gh", "api", "--paginate", "--slurp",
-                                  f"repos/{REPO}/actions/workflows/{WORKFLOW}/runs?{query}")
+                pages = self.data_once("gh", "api", "--paginate", "--slurp",
+                                       f"repos/{REPO}/actions/workflows/{WORKFLOW}/runs?{query}")
                 runs = [run for page in pages for run in page["workflow_runs"]
                         if isinstance(run, dict) and self.pr_run_matches(run, pr, workflow_id)]
                 if runs:
@@ -245,17 +277,20 @@ class Queue:
         pages = self.data("gh", "api", "--paginate", "--slurp",
                           f"repos/{REPO}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100")
         jobs = [job for page in pages for job in page["jobs"]]
-        # Two backend jobs exist in the workflow; a fast-tier run runs check-fast and skips check-any.
-        fast_jobs = [job for job in jobs if job.get("name") == FAST_JOB]
-        other_jobs = [job for job in jobs if job.get("name") != FAST_JOB]
-        require(len(fast_jobs) == 1 and all(job.get("name") == ANY_JOB and job.get("conclusion") == "skipped"
-                                            for job in other_jobs),
-                "Expected exactly one check-fast job and no executed check-any job")
-        job = fast_jobs[0]
+        # Three backend jobs exist in the workflow. A fast-tier run on the self lane runs check-fast, a run on
+        # the hosted lane runs check-hosted, and every other job is skipped; check-any never supplies evidence.
+        job = one_executed_job(jobs, {FAST_JOB, ANY_JOB, HOSTED_JOB}, {FAST_JOB, HOSTED_JOB},
+                               "Expected exactly one executed check-fast job or check-hosted job and no executed check-any job")
         require(job.get("run_id") == run_id and job.get("head_sha") == pr["headRefOid"] and
                 job.get("status") == "completed" and job.get("conclusion") == "success",
                 "Backend job is not successful on the exact head/run")
-        require(job.get("runner_name") in FAST_RUNNERS, "Unapproved backend runner")
+        if job["name"] == HOSTED_JOB:
+            require(hosted_runner(job), "Unapproved hosted runner")
+            gate = [step for step in job.get("steps", []) if step.get("name") == HOSTED_GATE_STEP]
+            require(len(gate) == 1 and gate[0].get("conclusion") == "success",
+                    "Hosted runner identity step missing, skipped or failed")
+        else:
+            require(job.get("runner_name") in FAST_RUNNERS, "Unapproved backend runner")
         steps = [step for step in job.get("steps", []) if step.get("name") == "Run mix check"]
         require(len(steps) == 1 and steps[0].get("conclusion") == "success",
                 "Full check step missing, skipped or failed")
@@ -308,11 +343,17 @@ class Queue:
         pages = self.data("gh", "api", "--paginate", "--slurp",
                           f"repos/{REPO}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100")
         jobs = [job for page in pages for job in page["jobs"]]
-        require(len(jobs) == 1 and jobs[0].get("name") == "gleam", "Expected exactly one Gleam job")
-        job = jobs[0]
+        job = one_executed_job(jobs, {GLEAM_JOB, GLEAM_HOSTED_JOB}, {GLEAM_JOB, GLEAM_HOSTED_JOB},
+                               "Expected exactly one executed Gleam job")
         require(job.get("run_id") == run_id and job.get("head_sha") == pr["headRefOid"] and
-                job.get("status") == "completed" and job.get("conclusion") == "success" and
-                job.get("runner_name") == "symbolic-elzoo-gleam", "Gleam job evidence mismatch")
+                job.get("status") == "completed" and job.get("conclusion") == "success", "Gleam job evidence mismatch")
+        if job["name"] == GLEAM_HOSTED_JOB:
+            require(hosted_runner(job), "Gleam job evidence mismatch: unapproved hosted runner")
+            gate = [step for step in job.get("steps", []) if step.get("name") == HOSTED_GATE_STEP]
+            require(len(gate) == 1 and gate[0].get("conclusion") == "success",
+                    "Gleam hosted runner identity step missing, skipped or failed")
+        else:
+            require(job.get("runner_name") == "symbolic-elzoo-gleam", "Gleam job evidence mismatch")
         steps = [step for step in job.get("steps", []) if step.get("name") == "Run ./scripts/check.sh"]
         require(len(steps) == 1 and steps[0].get("conclusion") == "success", "Gleam check step did not pass")
         require(isinstance(job.get("id"), int), "Invalid Gleam job ID")
