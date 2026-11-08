@@ -4,6 +4,11 @@ Elzoo uses a small visible workflow made from Git, GitHub and Mix. There is no
 custom task engine, lease database or Zoo lifecycle to operate. The GitHub
 issue body is the task Contract; the remote task branch is the claim.
 
+The operating rules learned from running several tasks in parallel (worker caps, the
+coordination channel, review discipline, the Devin rule, public-repository writing, the
+agent identifier and the evidence packet) are in
+[coordination rules](11-coordination-rules.md).
+
 ## Pick and claim
 
 Select from the [product-led roadmap](../plans/roadmap.md). A published,
@@ -20,7 +25,7 @@ body and current issue/PR state before acting.
 
 Claim a deterministic branch, never an agent-suffixed branch:
 
-    export ELZOO_AGENT="$(hostname -s)-$(od -An -N2 -tx1 /dev/urandom | tr -d ' ')"
+    export ELZOO_AGENT="worker-$(od -An -N2 -tx1 /dev/urandom | tr -d ' ')"
     git fetch origin --prune
     git worktree add ../elzoo-ELZ-003 -b task/ELZ-003 origin/main
     cd ../elzoo-ELZ-003
@@ -75,7 +80,10 @@ mix check also needs a disposable PostgreSQL database for the
 `integration/sql` tests (ELZ-009). Point `ELZOO_TEST_DATABASE_URL` at a
 throwaway local database, never a production or personal one:
 
-    export ELZOO_TEST_DATABASE_URL=ecto://elzoo_test:elzoo_test@localhost/elzoo_test
+    export ELZOO_TEST_DATABASE_URL=ecto://elzoo_test:…@localhost/elzoo_test
+
+Use your own throwaway local role and password; no password is recorded in this repository. The CI jobs create
+their own role and database for each job.
 
 Without it, or when it is unreachable, those tests fail closed; they are never
 skipped.

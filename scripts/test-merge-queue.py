@@ -16,6 +16,8 @@ queue = importlib.util.module_from_spec(spec)
 sys.dont_write_bytecode = True
 spec.loader.exec_module(queue)
 A, B, M = "a" * 40, "b" * 40, "c" * 40
+# ELZ-066: job fields of a job that a GitHub-hosted runner ran (observed on a real hosted job).
+HOSTED_FIELDS = dict(runner_name="GitHub Actions 7", runner_group_name="GitHub Actions", labels=["ubuntu-24.04"])
 
 
 class Fake:
@@ -32,6 +34,17 @@ class Fake:
         self.merge_race = False
         self.dispatches = 0
         self.dispatch_args = []
+        self.pr_runs = None            # None: default duplicate run on the updated head
+        self.cancelled = []
+        self.cancel_error = False
+        self.cancel_fail_ids = set()
+        self.transient_calls = 0
+        self.transient_left = 0          # ELZ-058 item 4: the next N read-only gh api calls fail transiently
+        self.transient_text = "Get \"https://api.github.com/x\": net/http: TLS handshake timeout"
+        self.write_failure = None
+        self.pr_run_listing_error = False
+        self.pr_run_listing_calls = 0
+        self.pr_run_listing_text = "listing failed"
         self.other_job_changes = None
         self.merged = False
         self.run_changes = {}
@@ -50,6 +63,11 @@ class Fake:
         self.gleam_missing = False
         self.gleam_changes = {}
         self.gleam_job_changes = {}
+        # ELZ-066: the hosted lane runs check-hosted / gleam-hosted on a GitHub-hosted runner.
+        self.hosted = False
+        self.hosted_job_changes = {}
+        self.gleam_hosted = False
+        self.gleam_other_changes = {}
         self.canonical_main = M
         self.gleam_reads = 0
         self.gleam_rerun = False
@@ -59,6 +77,14 @@ class Fake:
                     event="workflow_dispatch", head_branch=self.pr["headRefName"],
                     head_sha=self.pr["headRefOid"], status="completed", conclusion="success",
                     run_attempt=1)
+
+    def pr_run(self, run_id, **changes):
+        run = dict(id=run_id, workflow_id=10, path=".github/workflows/symbolic-check.yml",
+                   event="pull_request", head_branch=self.pr["headRefName"],
+                   head_sha=self.pr["headRefOid"], status="in_progress", conclusion=None, run_attempt=1,
+                   head_repository={"full_name": queue.REPO})
+        run.update(changes)
+        return run
 
     def gleam_run(self):
         result = dict(id=501, workflow_id=20, path=".github/workflows/symbolic-gleam.yml",
@@ -94,8 +120,22 @@ class Fake:
         elif argv[:2] == ["gh", "api"]:
             if self.api_error:
                 raise queue.QueueError("API unavailable")
+            if self.transient_left > 0 and "-X" not in argv:
+                self.transient_left -= 1
+                self.transient_calls += 1
+                raise queue.QueueError(f"gh api exited 1: {self.transient_text}")
             path = argv[-1]
-            if path.endswith("git/ref/heads/main"):
+            if argv[2:4] == ["-X", "POST"]:
+                if self.cancel_error or int(path.split("/")[-2]) in self.cancel_fail_ids:
+                    raise queue.QueueError("cancel refused")
+                self.cancelled.append(int(path.split("/")[-2]))
+            elif "/workflows/symbolic-check.yml/runs?" in path and "event=pull_request" in path:
+                self.pr_run_listing_calls += 1
+                if self.pr_run_listing_error:
+                    raise queue.QueueError(f"gh api exited 1: {self.pr_run_listing_text}")
+                runs = [self.pr_run(700)] if self.pr_runs is None else self.pr_runs
+                out = [{"workflow_runs": runs}]  # malformed bodies are passed through as they are
+            elif path.endswith("git/ref/heads/main"):
                 out = {"object": {"sha": self.canonical_main}}
             elif "/workflows/symbolic-gleam.yml/runs?" in path:
                 out = [{"workflow_runs": [] if self.gleam_missing else [self.gleam_run()]}]
@@ -105,8 +145,17 @@ class Fake:
                 job = dict(id=601, run_id=501, name="gleam", head_sha=self.pr["headRefOid"],
                            status="completed", conclusion="success", runner_name="symbolic-elzoo-gleam",
                            steps=[{"name": "Run ./scripts/check.sh", "conclusion": "success"}])
+                jobs = [job]
+                if self.gleam_hosted:
+                    job.update(name="gleam-hosted", **HOSTED_FIELDS,
+                               steps=[{"name": "Verify the GitHub-hosted runner", "conclusion": "success"},
+                                      {"name": "Run ./scripts/check.sh", "conclusion": "success"}])
+                    other = dict(job, id=602, name="gleam", conclusion="skipped", runner_name=None,
+                                 runner_group_name=None, labels=[], steps=[])
+                    other.update(self.gleam_other_changes)
+                    jobs.append(other)
                 job.update(self.gleam_job_changes)
-                out = [{"jobs": [job]}]
+                out = [{"jobs": jobs}]
             elif path.endswith("/actions/runs/501"):
                 self.gleam_reads += 1
                 out = self.gleam_run()
@@ -133,6 +182,11 @@ class Fake:
                 if self.other_job_changes is not None:
                     skipped.update(self.other_job_changes)
                 jobs = [job, skipped]
+                if self.hosted:
+                    job.update(name="check-hosted", **HOSTED_FIELDS,
+                               steps=[{"name": "Verify the GitHub-hosted runner", "conclusion": "success"}] + self.steps)
+                    job.update(self.hosted_job_changes)
+                    jobs = [dict(skipped, id=997, name="check-fast"), skipped, job]
                 if self.duplicate_job:
                     jobs.append(dict(job, id=999))
                 out = [{"jobs": jobs}]
@@ -159,9 +213,9 @@ class Fake:
     def sleep(self, seconds):
         self.now += seconds
 
-    def make_queue(self):
+    def make_queue(self, timeout=30):
         return queue.Queue(run=self.execute, sleep=self.sleep, clock=lambda: self.now,
-                           timeout=30, poll=15, emit=lambda text, **_: self.messages.append(text))
+                           timeout=timeout, poll=15, emit=lambda text, **_: self.messages.append(text))
 
     def commands(self, prefix):
         return [call for call in self.calls if call[:len(prefix)] == prefix]
@@ -242,6 +296,257 @@ class QueueTest(unittest.TestCase):
                          [["gh", "pr", "update-branch", "79", "-R", queue.REPO]])
         self.assertEqual(self.fake.commands(["gh", "pr", "merge"])[0][-1], B)
         self.assertIn(f"head={B}", self.fake.messages[-1])
+
+    # ELZ-058 item 3: the queue cancels the duplicate pull_request run after update-branch.
+    def test_update_cancels_duplicate_pr_run_of_the_exact_new_head(self):
+        self.fake.stale = True
+        self.q.process(79)
+        self.assertEqual([700], self.fake.cancelled)
+        self.assertIn(f"Cancelled duplicate pull_request run 700 head={B}", self.fake.messages)
+        self.assertTrue(self.fake.merged)
+        # the cancel call comes after update-branch and before the dispatch
+        calls = [c for c in self.fake.calls if c[:3] in (["gh", "pr", "update-branch"], ["gh", "workflow", "run"])
+                 or c[2:4] == ["-X", "POST"]]
+        self.assertEqual(["update-branch", "-X", "run"], [c[2] if c[:3] != ["gh", "api", "-X"] else "-X" for c in calls][:3])
+
+    def test_no_cancel_when_no_update_was_needed(self):
+        self.q.process(79)
+        self.assertEqual([], self.fake.cancelled)
+
+    def test_cancel_only_exact_head_pull_request_runs_of_this_workflow(self):
+        self.fake.stale = True
+        # Every run below matches the new head B except in one respect, so each is refused for its own reason.
+        others = [self.fake.pr_run(701, head_sha=A),                                  # previous head
+                  self.fake.pr_run(702, head_sha=B, head_branch="task/ELZ-040"),      # another PR branch
+                  self.fake.pr_run(703, head_sha=B, event="workflow_dispatch"),       # a dispatch run
+                  self.fake.pr_run(704, head_sha=B, event="push"),                    # a push run
+                  self.fake.pr_run(705, head_sha=B, workflow_id=20),                  # another workflow id
+                  self.fake.pr_run(706, head_sha=B, path=".github/workflows/symbolic-gleam.yml"),
+                  self.fake.pr_run(707, head_sha=B)]                                  # the duplicate
+        self.fake.pr_runs = others
+        self.q.process(79)
+        self.assertEqual([707], self.fake.cancelled)
+
+    def test_fork_run_with_the_same_branch_and_head_is_not_cancelled(self):
+        self.fake.stale = True
+        self.fake.pr_runs = [self.fake.pr_run(710, head_sha=B, head_repository={"full_name": "someone/elzoo"}),
+                             self.fake.pr_run(711, head_sha=B, head_repository=None),
+                             self.fake.pr_run(712, head_sha=B)]
+        self.q = self.fake.make_queue(timeout=300)
+        self.q.process(79)
+        self.assertEqual([712], self.fake.cancelled)
+
+    def test_malformed_run_data_never_blocks_the_queue(self):
+        for runs in ([None], ["x"], [1], [[]], [{"id": "7", "status": "queued"}]):
+            with self.subTest(runs=runs):
+                self.setUp()
+                self.fake.stale = True
+                self.fake.pr_runs = [self.fake.pr_run(700, head_sha=B)] if runs == [{"id": "7", "status": "queued"}] else runs
+                if runs == [{"id": "7", "status": "queued"}]:
+                    self.fake.pr_runs[0]["id"] = "7"
+                self.q = self.fake.make_queue(timeout=300)
+                self.q.process(79)
+                self.assertEqual([], self.fake.cancelled)
+                self.assertTrue(self.fake.merged)
+        for body in ("notalist", None, {"x": 1}):
+            with self.subTest(body=body):
+                self.setUp()
+                self.fake.stale = True
+                self.fake.pr_runs = body
+                self.q = self.fake.make_queue(timeout=300)
+                self.q.process(79)
+                self.assertTrue(self.fake.merged)
+
+    def test_a_failed_cancel_of_one_run_still_tries_the_others(self):
+        self.fake.stale = True
+        self.fake.pr_runs = [self.fake.pr_run(720, head_sha=B), self.fake.pr_run(721, head_sha=B)]
+        self.fake.cancel_fail_ids = {720}
+        self.q.process(79)
+        self.assertEqual([721], self.fake.cancelled)
+        self.assertTrue(any("not cancelled" in m for m in self.fake.messages))
+        self.assertTrue(self.fake.merged)
+
+    def test_completed_duplicate_is_not_cancelled(self):
+        self.fake.stale = True
+        self.fake.pr_runs = [self.fake.pr_run(700, head_sha=B, status="completed", conclusion="success")]
+        self.q.process(79)
+        self.assertEqual([], self.fake.cancelled)
+        self.assertTrue(any("already completed" in m for m in self.fake.messages))
+        self.assertTrue(self.fake.merged)
+
+    def test_failed_cancel_is_logged_and_does_not_block(self):
+        self.fake.stale = True
+        self.fake.cancel_error = True
+        self.q.process(79)
+        self.assertTrue(any("not cancelled" in m and "cancel refused" in m for m in self.fake.messages))
+        self.assertTrue(self.fake.merged)
+
+    def test_failed_run_listing_is_logged_and_does_not_block(self):
+        self.fake.stale = True
+        self.fake.pr_run_listing_error = True
+        self.q = self.fake.make_queue(timeout=300)
+        self.q.process(79)
+        self.assertEqual([], self.fake.cancelled)
+        self.assertTrue(any("not cancelled" in m for m in self.fake.messages))
+        self.assertTrue(self.fake.merged)
+
+    def test_missing_duplicate_run_waits_a_bounded_time_then_continues(self):
+        self.fake.stale = True
+        self.fake.pr_runs = []
+        self.q = self.fake.make_queue(timeout=300)
+        self.q.process(79)
+        self.assertLessEqual(self.fake.now, 120)  # waited about 30 s, not the whole PR deadline
+        self.assertEqual([], self.fake.cancelled)
+        self.assertTrue(any("not cancelled" in m for m in self.fake.messages))
+        self.assertTrue(self.fake.merged)
+
+    def test_cancelling_never_replaces_the_exact_head_dispatch(self):
+        self.fake.stale = True
+        self.q.process(79)
+        self.assertEqual(1, self.fake.dispatches)  # the queue still dispatches and checks its own run
+        self.assertEqual(f"ELZOO MERGE EVIDENCE pr=79 run=101 job=201 runner=symbolic-elzoo head={B} merge={M}",
+                         self.fake.messages[-1])
+
+    # ELZ-058 item 4: bounded retries of read-only calls, and the awaited run named when the queue stops.
+    def test_transient_gh_api_failures_are_retried_then_succeed(self):
+        for text in ("Get \"https://api.github.com/x\": net/http: TLS handshake timeout",
+                     "read tcp 1.2.3.4:1->5.6.7.8:443: read: connection reset by peer",
+                     "dial tcp: i/o timeout", "gh: HTTP 502: Bad Gateway", "HTTP 503", "HTTP 504 Gateway Timeout",
+                     "unexpected EOF"):
+            with self.subTest(text=text):
+                self.setUp()
+                self.fake.transient_text = text
+                self.fake.transient_left = 3
+                self.q = self.fake.make_queue(timeout=3600)
+                self.q.process(79)
+                self.assertTrue(self.fake.merged)
+                self.assertEqual(3, self.fake.transient_calls)
+                self.assertEqual(3, sum("Transient failure" in m for m in self.fake.messages))
+                self.assertGreaterEqual(self.fake.now, 10 + 20 + 40)  # backoff waits were taken
+
+    def test_persistent_transient_failure_stops_after_five_attempts_and_names_the_run(self):
+        self.fake.transient_left = 0
+        self.q = self.fake.make_queue(timeout=3600)
+        original = self.fake.execute
+
+        def failing_after_dispatch(argv, allowed=(0,)):
+            if (self.fake.dispatches and argv[:2] == ["gh", "api"] and "-X" not in argv
+                    and "/actions/runs/101" in argv[-1]):
+                self.fake.calls.append(argv)
+                self.fake.transient_calls += 1
+                raise queue.QueueError(f"gh api exited 1: {self.fake.transient_text}")
+            return original(argv, allowed)
+        self.q = queue.Queue(run=failing_after_dispatch, sleep=self.fake.sleep, clock=lambda: self.fake.now,
+                             timeout=3600, poll=15, emit=lambda text, **_: self.fake.messages.append(text))
+        with self.assertRaisesRegex(queue.QueueError, "TLS handshake timeout"):
+            self.q.process(79)
+        self.assertEqual(5, self.fake.transient_calls)  # five attempts of the same read
+        self.assertEqual(4, sum("Transient failure" in m for m in self.fake.messages))
+        self.assertTrue(any("Stopped while awaiting run 101 for PR #79" in m and f"head={A}" in m
+                            for m in self.fake.messages))
+        self.assertFalse(self.fake.merged)
+
+    def test_non_transient_errors_are_not_retried(self):
+        for text in ("gh api exited 1: HTTP 404: Not Found", "gh api exited 1: HTTP 401: Bad credentials",
+                     "gh api exited 1: HTTP 403: rate limit", "gh api exited 1: HTTP 422"):
+            with self.subTest(text=text):
+                self.setUp()
+                self.fake.transient_text = text.replace("gh api exited 1: ", "")
+                self.fake.transient_left = 1
+                with self.assertRaises(queue.QueueError):
+                    self.q.process(79)
+                self.assertEqual(1, self.fake.transient_calls)
+                self.assertFalse(any("Transient failure" in m for m in self.fake.messages))
+
+    def test_a_non_queue_error_inside_evidence_still_names_the_run(self):
+        self.fake.stale = False
+        original = self.q.evidence
+
+        def broken(run_id, pr, workflow_id):
+            raise KeyError("workflow_runs")
+        self.q.evidence = broken
+        with self.assertRaises(KeyError):
+            self.q.process(79)
+        self.assertTrue(any("Stopped while awaiting run 101 for PR #79" in m for m in self.fake.messages))
+
+    def test_write_commands_are_never_retried(self):
+        for argv in (["gh", "workflow", "run", "symbolic-check.yml"], ["gh", "pr", "merge", "79"],
+                     ["gh", "pr", "update-branch", "79"], ["gh", "api", "-X", "POST", "repos/x/actions/runs/1/cancel"],
+                     ["gh", "api", "--method", "POST", "repos/x/actions/runs/1/cancel"]):
+            with self.subTest(argv=argv):
+                calls = []
+
+                def failing(command, allowed=(0,)):
+                    calls.append(command)
+                    raise queue.QueueError("net/http: TLS handshake timeout")
+                run = queue.retrying(failing, lambda s: None, lambda *a, **k: None)
+                with self.assertRaises(queue.QueueError):
+                    run(argv)
+                self.assertEqual(1, len(calls))
+
+    def test_retry_never_waits_past_the_pr_deadline(self):
+        now = [0]
+        calls = []
+
+        def failing(command, allowed=(0,)):
+            calls.append(command)
+            raise queue.QueueError("net/http: TLS handshake timeout")
+
+        def sleep(seconds):
+            now[0] += seconds
+        run = queue.retrying(failing, sleep, lambda *a, **k: None, clock=lambda: now[0], deadline=lambda: 25)
+        with self.assertRaises(queue.QueueError):
+            run(["gh", "api", "repos/x/actions/runs/1"])
+        self.assertEqual(2, len(calls))  # one retry after 10 s; the next 20 s wait would pass the deadline of 25 s
+        self.assertLessEqual(now[0], 25)
+        # exact boundary: a wait that ends exactly at the deadline is not taken
+        now[0], calls[:] = 0, []
+        run = queue.retrying(failing, sleep, lambda *a, **k: None, clock=lambda: now[0], deadline=lambda: 10)
+        with self.assertRaises(queue.QueueError):
+            run(["gh", "api", "repos/x/actions/runs/1"])
+        self.assertEqual(1, len(calls))
+
+    def test_transient_pattern_and_read_only_rules(self):
+        for text in ("TLS handshake timeout", "connection reset by peer", "HTTP 502", "HTTP 503: x", "HTTP 504",
+                     "502 Bad Gateway", "i/o timeout", "unexpected EOF", "context deadline exceeded",
+                     "gh failed: Command '['gh', 'api', 'x']' timed out after 120 seconds", "operation timed out"):
+            with self.subTest(text=text):
+                self.assertTrue(queue.TRANSIENT.search(text))
+        for text in ("HTTP 404", "HTTP 401", "Not Found", "HTTP 429", "HTTP 422", "mergeable"):
+            with self.subTest(text=text):
+                self.assertFalse(queue.TRANSIENT.search(text))
+        for text in ("fatal: early EOF", "unexpected EOF", "HTTP 500", "connection refused", "server closed idle connection",
+                     "Client.Timeout exceeded while awaiting headers"):
+            with self.subTest(text=text):
+                self.assertTrue(queue.TRANSIENT.search(text))
+        # only the tool's message counts, never the arguments of the command
+        error = queue.QueueError("gh api repos/x/actions/runs/502 exited 1: HTTP 404: Not Found")
+        self.assertFalse(queue.TRANSIENT.search(queue.error_detail(error)))
+        self.assertTrue(queue.TRANSIENT.search(queue.error_detail(queue.QueueError("gh api x exited 1: HTTP 502"))))
+        for argv in (["gh", "api", "-f", "a=b", "repos/x"], ["gh", "api", "-fa=b", "repos/x"], ["gh", "api", "-F", "a=1", "x"],
+                     ["gh", "api", "--field", "a=1", "x"], ["gh", "api", "--field=a=1", "x"], ["gh", "api", "--raw-field", "a=b", "x"],
+                     ["gh", "api", "--input", "f.json", "x"], ["gh", "api", "--input=f.json", "x"], ["gh", "api", "-XPOST", "x"],
+                     ["gh", "api", "--method=POST", "x"], ["gh", "api", "--method", "DELETE", "x"]):
+            with self.subTest(argv=argv):
+                self.assertFalse(queue.is_read_only(argv))
+        self.assertTrue(queue.is_read_only(["git", "fetch", "origin", "refs/heads/main:refs/remotes/origin/main"]))
+        self.assertTrue(queue.is_read_only(["gh", "api", "--paginate", "--slurp", "repos/x/actions/runs?a=b"]))
+        self.assertTrue(queue.is_read_only(["gh", "api", "repos/x/actions/runs/1"]))
+        self.assertTrue(queue.is_read_only(["gh", "pr", "view", "79"]))
+        self.assertFalse(queue.is_read_only(["gh", "api", "-X", "POST", "x"]))
+        self.assertFalse(queue.is_read_only(["gh", "pr", "merge", "79"]))
+
+    def test_the_duplicate_run_lookup_is_not_retried(self):
+        # Devin Review finding: a best-effort lookup must not hold the queue for the whole retry window.
+        self.fake.stale = True
+        self.fake.pr_run_listing_error = True
+        self.fake.pr_run_listing_text = "net/http: TLS handshake timeout"
+        self.q = self.fake.make_queue(timeout=3600)
+        self.q.process(79)
+        self.assertEqual(1, self.fake.pr_run_listing_calls)  # one attempt, no retry waits for this call
+        self.assertFalse(any("Transient failure of gh api --paginate" in m for m in self.fake.messages))
+        self.assertTrue(any("not cancelled" in m for m in self.fake.messages))
+        self.assertTrue(self.fake.merged)
 
     def test_main_moves_during_check_requires_new_full_run(self):
         self.fake.move_main = True
@@ -388,6 +693,146 @@ class QueueTest(unittest.TestCase):
         self.assertIn("\nconcurrency:\n  group: check-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}\n  cancel-in-progress: ${{ github.event_name == 'pull_request' }}\n", source)
         self.assertIn("      - run: python3 scripts/test-merge-queue.py\n", source)
         self.assertIn("permissions:\n  contents: read\n", source)
+
+
+class HostedLaneEvidence(unittest.TestCase):
+    """ELZ-066: the same queue accepts evidence from the hosted lane, under stricter job identity rules."""
+
+    def setUp(self):
+        self.fake = Fake()
+        self.fake.hosted = True
+        self.q = self.fake.make_queue()
+
+    def refuses(self, pattern=None):
+        with self.assertRaisesRegex(queue.QueueError, pattern or ".+"):
+            self.q.process(79)
+        self.assertFalse(self.fake.merged)
+        self.assertFalse(self.fake.commands(["gh", "pr", "merge"]))
+
+    def test_hosted_job_is_accepted_and_recorded(self):
+        self.q.process(79)
+        self.assertTrue(self.fake.merged)
+        self.assertEqual(self.fake.messages[-1],
+                         f"ELZOO MERGE EVIDENCE pr=79 run=101 job=201 runner=GitHub Actions 7 head={A} merge={M}")
+
+    def test_hosted_runner_identity_is_exact(self):
+        for change in ({"runner_group_name": "Default"}, {"runner_group_name": None}, {"runner_group_name": "github actions"},
+                       {"labels": ["self-hosted", "ubuntu-24.04"]}, {"labels": ["ubuntu-latest"]},
+                       {"labels": ["ubuntu-24.04", "extra"]}, {"labels": ["ubuntu-24.04-arm"]}, {"labels": []},
+                       {"labels": "ubuntu-24.04"}, {"labels": None},
+                       {"runner_name": "symbolic-elzoo"}, {"runner_name": "GitHub Actions"},
+                       {"runner_name": "GitHub Actions 7 extra"}, {"runner_name": "github actions 7"},
+                       {"runner_name": "GitHub Actions x"}, {"runner_name": None}, {"runner_name": ""}):
+            with self.subTest(change=change):
+                self.setUp()
+                self.fake.hosted_job_changes = change
+                self.refuses("Unapproved hosted runner")
+
+    def test_hosted_identity_fields_cannot_be_empty(self):
+        for field in ("runner_name", "runner_group_name", "labels"):
+            with self.subTest(field=field):
+                self.setUp()
+                self.fake.hosted_job_changes = {field: None}
+                self.refuses("Unapproved hosted runner")
+
+    def test_self_hosted_runner_name_cannot_pass_as_hosted_evidence(self):
+        self.fake.hosted_job_changes = {"runner_name": "symbolic-elzoo", "labels": ["self-hosted", "linux", "x64", "elzoo", "backend", "fast"],
+                                        "runner_group_name": "Default"}
+        self.refuses("Unapproved hosted runner")
+
+    def test_hosted_identity_step_must_have_run_and_passed(self):
+        for steps in ([{"name": "Run mix check", "conclusion": "success"}],
+                      [{"name": "Verify the GitHub-hosted runner", "conclusion": "skipped"},
+                       {"name": "Run mix check", "conclusion": "success"}],
+                      [{"name": "Verify the GitHub-hosted runner", "conclusion": "failure"},
+                       {"name": "Run mix check", "conclusion": "success"}],
+                      [{"name": "Verify the GitHub-hosted runner", "conclusion": "success"},
+                       {"name": "Verify the GitHub-hosted runner", "conclusion": "success"},
+                       {"name": "Run mix check", "conclusion": "success"}]):
+            with self.subTest(steps=steps):
+                self.setUp()
+                self.fake.hosted_job_changes = {"steps": steps}
+                self.refuses("identity step")
+
+    def test_hosted_job_still_needs_the_exact_head_run_and_full_check(self):
+        for change in ({"conclusion": "failure"}, {"conclusion": "cancelled"}, {"status": "queued"},
+                       {"head_sha": B}, {"run_id": 1}):
+            with self.subTest(change=change):
+                self.setUp()
+                self.fake.hosted_job_changes = change
+                self.refuses()
+        for steps in ([{"name": "Verify the GitHub-hosted runner", "conclusion": "success"}],
+                      [{"name": "Verify the GitHub-hosted runner", "conclusion": "success"},
+                       {"name": "Run mix check", "conclusion": "skipped"}],
+                      [{"name": "Verify the GitHub-hosted runner", "conclusion": "success"},
+                       {"name": "Run mix check", "conclusion": "failure"}]):
+            with self.subTest(steps=steps):
+                self.setUp()
+                self.fake.hosted_job_changes = {"steps": steps}
+                self.refuses("Full check step")
+
+    def test_skipped_hosted_job_is_not_evidence(self):
+        # The run succeeded because every job was skipped: no job ran the check.
+        self.fake.hosted_job_changes = {"conclusion": "skipped"}
+        self.refuses("Expected exactly one executed")
+
+    def test_only_one_backend_job_may_have_run(self):
+        # check-fast and check-hosted both executed: the lane variable cannot have selected both.
+        self.fake.other_job_changes = {"conclusion": "success"}
+        self.refuses("Expected exactly one executed")
+
+    def test_executed_check_any_is_never_evidence_in_either_lane(self):
+        self.fake.hosted_job_changes = {"name": "check-any"}
+        self.refuses("Expected exactly one executed")
+
+    def test_unknown_or_duplicate_job_names_refused(self):
+        for change in ({"name": "other"}, {"name": "check"}, {"name": "gleam-hosted"}):
+            with self.subTest(change=change):
+                self.setUp()
+                self.fake.hosted_job_changes = change
+                self.refuses("Expected exactly one executed")
+        self.setUp()
+        self.fake.duplicate_job = True
+        self.refuses("Expected exactly one executed")
+
+    def test_hosted_lane_dispatch_still_requests_the_fast_tier(self):
+        self.q.process(79)
+        self.assertEqual(["-f", "tier=fast"], self.fake.dispatch_args[0][-2:])
+
+    def test_hosted_gleam_job_is_accepted_and_recorded(self):
+        self.fake.gleam_hosted = True
+        self.q.process(79)
+        self.assertTrue(self.fake.merged)
+        self.assertIn(f"ELZOO GLEAM EVIDENCE pr=79 run=501 job=601 runner=GitHub Actions 7 head={A}", self.fake.messages)
+
+    def test_hosted_gleam_job_identity_is_exact(self):
+        for change in ({"runner_group_name": "Default"}, {"labels": ["ubuntu-latest"]}, {"labels": ["self-hosted", "ubuntu-24.04"]},
+                       {"runner_name": "symbolic-elzoo-gleam"}, {"runner_name": "GitHub Actions x"}, {"runner_name": None},
+                       {"conclusion": "failure"}, {"head_sha": B}, {"run_id": 101}):
+            with self.subTest(change=change):
+                self.setUp()
+                self.fake.gleam_hosted = True
+                self.fake.gleam_job_changes = change
+                self.refuses()
+        for steps in ([{"name": "Run ./scripts/check.sh", "conclusion": "success"}],
+                      [{"name": "Verify the GitHub-hosted runner", "conclusion": "failure"},
+                       {"name": "Run ./scripts/check.sh", "conclusion": "success"}],
+                      [{"name": "Verify the GitHub-hosted runner", "conclusion": "success"},
+                       {"name": "Run ./scripts/check.sh", "conclusion": "skipped"}]):
+            with self.subTest(steps=steps):
+                self.setUp()
+                self.fake.gleam_hosted = True
+                self.fake.gleam_job_changes = {"steps": steps}
+                self.refuses()
+
+    def test_both_gleam_jobs_executed_or_none_refused(self):
+        self.fake.gleam_hosted = True
+        self.fake.gleam_job_changes = {"conclusion": "skipped"}
+        self.refuses("Expected exactly one executed Gleam job")
+        self.setUp()
+        self.fake.gleam_hosted = True
+        self.fake.gleam_other_changes = {"conclusion": "success"}
+        self.refuses("Expected exactly one executed Gleam job")
 
 
 class ReviewControls(unittest.TestCase):

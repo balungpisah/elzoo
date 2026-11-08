@@ -316,7 +316,6 @@
           "retirement": null,
           "publisher": {
             "url": "https://hex.pm/api/users/mikehostetler",
-            "email": "mike.hostetler@gmail.com",
             "username": "mikehostetler"
           },
           "package_url": "https://hex.pm/api/packages/ash_jido",
@@ -436,7 +435,6 @@
           "retirement": null,
           "publisher": {
             "url": "https://hex.pm/api/users/jamesotron",
-            "email": "james@harton.nz",
             "username": "jamesotron"
           },
           "package_url": "https://hex.pm/api/packages/bb_jido",
@@ -573,7 +571,6 @@
           },
           "publisher": {
             "url": "https://hex.pm/api/users/elimydlarz",
-            "email": "eli.mydlarz@gmail.com",
             "username": "elimydlarz"
           },
           "package_url": "https://hex.pm/api/packages/gralkor",
@@ -747,7 +744,6 @@
           },
           "publisher": {
             "url": "https://hex.pm/api/users/elimydlarz",
-            "email": "eli.mydlarz@gmail.com",
             "username": "elimydlarz"
           },
           "package_url": "https://hex.pm/api/packages/gralkor_ex",
@@ -898,7 +894,6 @@
           "retirement": null,
           "publisher": {
             "url": "https://hex.pm/api/users/mikehostetler",
-            "email": "mike.hostetler@gmail.com",
             "username": "mikehostetler"
           },
           "package_url": "https://hex.pm/api/packages/jido",
@@ -1047,7 +1042,6 @@
           "retirement": null,
           "publisher": {
             "url": "https://hex.pm/api/users/mikehostetler",
-            "email": "mike.hostetler@gmail.com",
             "username": "mikehostetler"
           },
           "package_url": "https://hex.pm/api/packages/jido_action",
@@ -1190,7 +1184,6 @@
           "retirement": null,
           "publisher": {
             "url": "https://hex.pm/api/users/mikehostetler",
-            "email": "mike.hostetler@gmail.com",
             "username": "mikehostetler"
           },
           "package_url": "https://hex.pm/api/packages/jido_ai",
@@ -1333,7 +1326,6 @@
           "retirement": null,
           "publisher": {
             "url": "https://hex.pm/api/users/towry",
-            "email": "towry@outlook.com",
             "username": "towry"
           },
           "package_url": "https://hex.pm/api/packages/jido_ai_twpatch",
@@ -1526,7 +1518,6 @@
           "retirement": null,
           "publisher": {
             "url": "https://hex.pm/api/users/mikehostetler",
-            "email": "mike.hostetler@gmail.com",
             "username": "mikehostetler"
           },
           "package_url": "https://hex.pm/api/packages/jido_behaviortree",
@@ -1687,7 +1678,6 @@
           "retirement": null,
           "publisher": {
             "url": "https://hex.pm/api/users/mikehostetler",
-            "email": "mike.hostetler@gmail.com",
             "username": "mikehostetler"
           },
           "package_url": "https://hex.pm/api/packages/jido_browser",
@@ -1805,7 +1795,6 @@
           "retirement": null,
           "publisher": {
             "url": "https://hex.pm/api/users/mikehostetler",
-            "email": "mike.hostetler@gmail.com",
             "username": "mikehostetler"
           },
           "package_url": "https://hex.pm/api/packages/jido_character",
@@ -1916,7 +1905,6 @@
           "retirement": null,
           "publisher": {
             "url": "https://hex.pm/api/users/mikehostetler",
-            "email": "mike.hostetler@gmail.com",
             "username": "mikehostetler"
           },
           "package_url": "https://hex.pm/api/packages/jido_chat",
@@ -2062,7 +2050,6 @@
           "retirement": null,
           "publisher": {
             "url": "https://hex.pm/api/users/mikehostetler",
-            "email": "mike.hostetler@gmail.com",
             "username": "mikehostetler"
           },
           "package_url": "https://hex.pm/api/packages/jido_chat_discord",
@@ -2175,7 +2162,6 @@
           "retirement": null,
           "publisher": {
             "url": "https://hex.pm/api/users/mikehostetler",
-            "email": "mike.hostetler@gmail.com",
             "username": "mikehostetler"
           },
           "package_url": "https://hex.pm/api/packages/jido_chat_github",
@@ -2287,7 +2273,6 @@
           "retirement": null,
           "publisher": {
             "url": "https://hex.pm/api/users/mikehostetler",
-            "email": "mike.hostetler@gmail.com",
             "username": "mikehostetler"
           },
           "package_url": "https://hex.pm/api/packages/jido_chat_signal",
@@ -2403,7 +2388,6 @@
           "retirement": null,
           "publisher": {
             "url": "https://hex.pm/api/users/mikehostetler",
-            "email": "mike.hostetler@gmail.com",
             "username": "mikehostetler"
           },
           "package_url": "https://hex.pm/api/packages/jido_chat_slack",
@@ -2554,7 +2538,6 @@
           "retirement": null,
           "publisher": {
             "url": "https://hex.pm/api/users/mikehostetler",
-            "email": "mike.hostetler@gmail.com",
             "username": "mikehostetler"
           },
           "package_url": "https://hex.pm/api/packages/jido_chat_telegram",
@@ -2737,7 +2720,6 @@
           "retirement": null,
           "publisher": {
             "url": "https://hex.pm/api/users/mikehostetler",
-            "email": "mike.hostetler@gmail.com",
             "username": "mikehostetler"
           },
           "package_url": "https://hex.pm/api/packages/jido_chat_x",
@@ -3058,7 +3040,6 @@
           "retirement": null,
           "publisher": {
             "url": "https://hex.pm/api/users/lostbean",
-            "email": "talktoedgar@gmail.com",
             "username": "lostbean"
           },
           "package_url": "https://hex.pm/api/packages/jido_composer",
@@ -3208,7 +3189,6 @@
           "retirement": null,
           "publisher": {
             "url": "https://hex.pm/api/users/mikehostetler",
-            "email": "mike.hostetler@gmail.com",
             "username": "mikehostetler"
           },
           "package_url": "https://hex.pm/api/packages/jido_ecto",
@@ -3368,7 +3348,6 @@
           "retirement": null,
           "publisher": {
             "url": "https://hex.pm/api/users/mikehostetler",
-            "email": "mike.hostetler@gmail.com",
             "username": "mikehostetler"
           },
           "package_url": "https://hex.pm/api/packages/jido_evolve",
@@ -3520,7 +3499,6 @@
           "retirement": null,
           "publisher": {
             "url": "https://hex.pm/api/users/elimydlarz",
-            "email": "eli.mydlarz@gmail.com",
             "username": "elimydlarz"
           },
           "package_url": "https://hex.pm/api/packages/jido_gralkor",
@@ -3702,7 +3680,6 @@
           },
           "publisher": {
             "url": "https://hex.pm/api/users/mikehostetler",
-            "email": "mike.hostetler@gmail.com",
             "username": "mikehostetler"
           },
           "package_url": "https://hex.pm/api/packages/jido_keys",
@@ -3949,7 +3926,6 @@
           },
           "publisher": {
             "url": "https://hex.pm/api/users/mikehostetler",
-            "email": "mike.hostetler@gmail.com",
             "username": "mikehostetler"
           },
           "package_url": "https://hex.pm/api/packages/jido_mcp",
@@ -4079,7 +4055,6 @@
           "retirement": null,
           "publisher": {
             "url": "https://hex.pm/api/users/mikehostetler",
-            "email": "mike.hostetler@gmail.com",
             "username": "mikehostetler"
           },
           "package_url": "https://hex.pm/api/packages/jido_memory",
@@ -4263,7 +4238,6 @@
           "retirement": null,
           "publisher": {
             "url": "https://hex.pm/api/users/mikehostetler",
-            "email": "mike.hostetler@gmail.com",
             "username": "mikehostetler"
           },
           "package_url": "https://hex.pm/api/packages/jido_messaging",
@@ -4411,7 +4385,6 @@
           "retirement": null,
           "publisher": {
             "url": "https://hex.pm/api/users/mikehostetler",
-            "email": "mike.hostetler@gmail.com",
             "username": "mikehostetler"
           },
           "package_url": "https://hex.pm/api/packages/jido_otel",
@@ -4529,7 +4502,6 @@
           "retirement": null,
           "publisher": {
             "url": "https://hex.pm/api/users/mikehostetler",
-            "email": "mike.hostetler@gmail.com",
             "username": "mikehostetler"
           },
           "package_url": "https://hex.pm/api/packages/jido_runic",
@@ -4716,7 +4688,6 @@
           "retirement": null,
           "publisher": {
             "url": "https://hex.pm/api/users/mikehostetler",
-            "email": "mike.hostetler@gmail.com",
             "username": "mikehostetler"
           },
           "package_url": "https://hex.pm/api/packages/jido_signal",
@@ -5081,7 +5052,6 @@
           },
           "publisher": {
             "url": "https://hex.pm/api/users/mikehostetler",
-            "email": "mike.hostetler@gmail.com",
             "username": "mikehostetler"
           },
           "package_url": "https://hex.pm/api/packages/jido_tools",
@@ -5252,7 +5222,6 @@
           "retirement": null,
           "publisher": {
             "url": "https://hex.pm/api/users/mikehostetler",
-            "email": "mike.hostetler@gmail.com",
             "username": "mikehostetler"
           },
           "package_url": "https://hex.pm/api/packages/jido_vfs",
@@ -5477,7 +5446,6 @@
           "retirement": null,
           "publisher": {
             "url": "https://hex.pm/api/users/mikehostetler",
-            "email": "mike.hostetler@gmail.com",
             "username": "mikehostetler"
           },
           "package_url": "https://hex.pm/api/packages/jidoka",
@@ -5645,7 +5613,6 @@
           "retirement": null,
           "publisher": {
             "url": "https://hex.pm/api/users/ccarvalho-eng",
-            "email": "cristiano.carvalho23@icloud.com",
             "username": "ccarvalho-eng"
           },
           "package_url": "https://hex.pm/api/packages/jizoku",
@@ -5765,7 +5732,6 @@
           "retirement": null,
           "publisher": {
             "url": "https://hex.pm/api/users/ccarvalho-eng",
-            "email": "cristiano.carvalho23@icloud.com",
             "username": "ccarvalho-eng"
           },
           "package_url": "https://hex.pm/api/packages/kansoku",
@@ -5931,7 +5897,6 @@
           "retirement": null,
           "publisher": {
             "url": "https://hex.pm/api/users/mikehostetler",
-            "email": "mike.hostetler@gmail.com",
             "username": "mikehostetler"
           },
           "package_url": "https://hex.pm/api/packages/llm_db",
@@ -6100,7 +6065,6 @@
           "retirement": null,
           "publisher": {
             "url": "https://hex.pm/api/users/mikehostetler",
-            "email": "mike.hostetler@gmail.com",
             "username": "mikehostetler"
           },
           "package_url": "https://hex.pm/api/packages/req_llm",
@@ -6227,7 +6191,6 @@
           "retirement": null,
           "publisher": {
             "url": "https://hex.pm/api/users/pcharbon70",
-            "email": "pcharbon70@gmail.com",
             "username": "pcharbon70"
           },
           "package_url": "https://hex.pm/api/packages/term_ui",

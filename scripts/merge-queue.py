@@ -19,6 +19,14 @@ GLEAM_WORKFLOW = "symbolic-gleam.yml"
 FAST_RUNNERS = {"symbolic-elzoo", "macbook-ubuntu-elzoo-candidate"}
 FAST_JOB = "check-fast"
 ANY_JOB = "check-any"
+# ELZ-066: in the hosted lane the same run executes check-hosted on a GitHub-hosted runner instead of check-fast.
+HOSTED_JOB = "check-hosted"
+GLEAM_JOB = "gleam"
+GLEAM_HOSTED_JOB = "gleam-hosted"
+HOSTED_GROUP = "GitHub Actions"
+HOSTED_LABELS = ["ubuntu-24.04"]
+HOSTED_RUNNER = re.compile(r"GitHub Actions [0-9]+")
+HOSTED_GATE_STEP = "Verify the GitHub-hosted runner"
 SHA = re.compile(r"[0-9a-f]{40}")
 PR_FIELDS = ("number,state,isDraft,isCrossRepository,baseRefName,headRefName,"
              "headRefOid,headRepository,mergeable,mergeCommit")
@@ -26,6 +34,22 @@ PR_FIELDS = ("number,state,isDraft,isCrossRepository,baseRefName,headRefName,"
 
 class QueueError(Exception):
     """A refusal or unavailable evidence; never a reason to merge anyway."""
+
+
+def hosted_runner(job):
+    """True for a job that a GitHub-hosted runner of the one approved label ran."""
+    name = job.get("runner_name")
+    return (job.get("runner_group_name") == HOSTED_GROUP and job.get("labels") == HOSTED_LABELS and
+            isinstance(name, str) and HOSTED_RUNNER.fullmatch(name) is not None)
+
+
+def one_executed_job(jobs, known, executable, message):
+    """The one job of a run that did not skip. Every job must be known, once, and the executed one allowed."""
+    names = [job.get("name") for job in jobs]
+    require(len(set(names)) == len(names) and all(name in known for name in names), message)
+    executed = [job for job in jobs if job.get("conclusion") != "skipped"]
+    require(len(executed) == 1 and executed[0].get("name") in executable, message)
+    return executed[0]
 
 
 def command(argv, allowed=(0,)):
@@ -37,6 +61,55 @@ def command(argv, allowed=(0,)):
         raise QueueError(f"{' '.join(argv)} exited {result.returncode}: "
                          f"{result.stderr.strip() or result.stdout.strip()}")
     return result
+
+
+# ELZ-058 item 4: read-only gh and git calls are retried on transport errors and gateway errors, with a
+# bounded backoff, before the queue stops. Writes (dispatch, update-branch, merge, cancel) are never retried
+# here: a repeated dispatch would create a second run.
+TRANSIENT = re.compile(
+    r"TLS handshake timeout|connection reset|connection refused|i/o timeout|timeout awaiting|"
+    r"Client\.Timeout|context deadline exceeded|timed out after \d+ seconds|operation timed out|unexpected EOF|\bEOF\b|server closed|temporary failure|"
+    r"HTTP 50[0234]\b|\b50[0234] (?:Bad Gateway|Service Unavailable|Gateway Time-?out|Internal Server Error)",
+    re.IGNORECASE)
+RETRY_WAITS = (10, 20, 40, 50)  # five attempts over two minutes of waiting
+
+
+# `gh api` switches to POST by itself when a field or an input file is given, so every spelling of a method, a
+# field or an input counts as a write, including the attached forms (-XPOST, --method=POST, -fname=value).
+WRITE_FLAG = re.compile(r"^(?:-X|--method|-f|-F|--field|--raw-field|--input)")
+
+
+def is_read_only(argv):
+    if argv[:2] == ["gh", "api"]:
+        return not any(WRITE_FLAG.match(arg) for arg in argv[2:])
+    return argv[:3] == ["gh", "pr", "view"] or argv[:2] == ["git", "fetch"]
+
+
+def error_detail(error):
+    """The tool's own message: what follows `exited N:` in a command failure, so that the arguments of the
+    command are never matched against the transient patterns."""
+    text = str(error)
+    return text.split(" exited ", 1)[1] if " exited " in text else text
+
+
+def retrying(run, sleep, emit, clock=None, deadline=None):
+    """Wrap a command runner so that read-only calls survive a short network or gateway failure.
+    The wait never runs past the PR deadline: past it, the original error is raised."""
+    def wrapped(argv, allowed=(0,)):
+        for attempt in range(len(RETRY_WAITS) + 1):
+            try:
+                return run(argv, allowed)
+            except QueueError as error:
+                if (attempt == len(RETRY_WAITS) or not is_read_only(argv)
+                        or not TRANSIENT.search(error_detail(error))):
+                    raise
+                wait = RETRY_WAITS[attempt]
+                if clock and deadline and clock() + wait >= deadline():
+                    raise
+                emit(f"Transient failure of {' '.join(argv[:3])} (attempt {attempt + 1} of "
+                     f"{len(RETRY_WAITS) + 1}): {str(error)[:200]}; retrying in {wait} s", flush=True)
+                sleep(wait)
+    return wrapped
 
 
 def require(condition, reason):
@@ -51,8 +124,10 @@ def valid_sha(value):
 class Queue:
     def __init__(self, run=command, sleep=time.sleep, clock=time.monotonic,
                  timeout=10800, poll=15, emit=print):
-        self.run, self.sleep, self.clock = run, sleep, clock
+        self.sleep, self.clock = sleep, clock
         self.timeout, self.poll, self.emit = timeout, poll, emit
+        self.raw_run = run
+        self.run = retrying(run, sleep, emit, clock, lambda: self.deadline)
         self.deadline = 0
 
     def text(self, *argv):
@@ -66,6 +141,13 @@ class Queue:
 
     def api(self, path):
         return self.data("gh", "api", f"repos/{REPO}/{path}")
+
+    def data_once(self, *argv):
+        """Like data(), without the retries: for best-effort calls that must not hold the queue."""
+        try:
+            return json.loads(self.raw_run(list(argv)).stdout.strip())
+        except (ValueError, TypeError, AttributeError) as error:
+            raise QueueError(f"Invalid JSON from {' '.join(argv)}") from error
 
     def pause(self, reason, deadline=None):
         remaining = min(self.deadline, deadline or self.deadline) - self.clock()
@@ -122,6 +204,49 @@ class Queue:
                 run.get("workflow_id") == workflow_id and
                 run.get("path") == f".github/workflows/{WORKFLOW}")
 
+    @staticmethod
+    def pr_run_matches(run, pr, workflow_id):
+        return (run.get("event") == "pull_request" and
+                run.get("head_branch") == pr["headRefName"] and
+                run.get("head_sha") == pr["headRefOid"] and
+                run.get("workflow_id") == workflow_id and
+                run.get("path") == f".github/workflows/{WORKFLOW}" and
+                (run.get("head_repository") or {}).get("full_name") == REPO)
+
+    def cancel_duplicate_pr_run(self, pr, workflow_id):
+        """ELZ-058: update-branch makes GitHub start a pull_request check on the new head, and the
+        queue's own exact-head dispatch follows on that same head, so the check is a duplicate.
+        Cancel only that run (same workflow, pull_request event, branch and exact head SHA); never
+        another head, another PR, a dispatch, a push run or the Gleam workflow. A failure is
+        logged and never blocks the queue: the exact-head dispatch is the merge gate."""
+        try:
+            query = urlencode({"event": "pull_request", "branch": pr["headRefName"],
+                               "head_sha": pr["headRefOid"], "per_page": 100})
+            end = self.clock() + 30
+            while True:
+                pages = self.data_once("gh", "api", "--paginate", "--slurp",
+                                       f"repos/{REPO}/actions/workflows/{WORKFLOW}/runs?{query}")
+                runs = [run for page in pages for run in page["workflow_runs"]
+                        if isinstance(run, dict) and self.pr_run_matches(run, pr, workflow_id)]
+                if runs:
+                    break
+                self.pause("pull_request run on the updated head", end)
+            for run in runs:
+                try:
+                    if not isinstance(run.get("id"), int):
+                        raise QueueError("Invalid duplicate run ID")
+                    if run.get("status") == "completed":
+                        self.emit(f"Duplicate pull_request run {run['id']} already completed; not cancelled",
+                                  flush=True)
+                        continue
+                    self.text("gh", "api", "-X", "POST", f"repos/{REPO}/actions/runs/{run['id']}/cancel")
+                    self.emit(f"Cancelled duplicate pull_request run {run['id']} head={pr['headRefOid']}",
+                              flush=True)
+                except (QueueError, KeyError, TypeError, AttributeError, ValueError) as error:
+                    self.emit(f"Duplicate pull_request run not cancelled: {error}", flush=True)
+        except (QueueError, KeyError, TypeError, AttributeError, ValueError) as error:
+            self.emit(f"Duplicate pull_request run not cancelled: {error}", flush=True)
+
     def dispatch(self, pr, workflow_id):
         previous = {run["id"] for run in self.runs(pr["headRefName"])}
         self.text("gh", "workflow", "run", WORKFLOW, "-R", REPO,
@@ -152,17 +277,20 @@ class Queue:
         pages = self.data("gh", "api", "--paginate", "--slurp",
                           f"repos/{REPO}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100")
         jobs = [job for page in pages for job in page["jobs"]]
-        # Two backend jobs exist in the workflow; a fast-tier run runs check-fast and skips check-any.
-        fast_jobs = [job for job in jobs if job.get("name") == FAST_JOB]
-        other_jobs = [job for job in jobs if job.get("name") != FAST_JOB]
-        require(len(fast_jobs) == 1 and all(job.get("name") == ANY_JOB and job.get("conclusion") == "skipped"
-                                            for job in other_jobs),
-                "Expected exactly one check-fast job and no executed check-any job")
-        job = fast_jobs[0]
+        # Three backend jobs exist in the workflow. A fast-tier run on the self lane runs check-fast, a run on
+        # the hosted lane runs check-hosted, and every other job is skipped; check-any never supplies evidence.
+        job = one_executed_job(jobs, {FAST_JOB, ANY_JOB, HOSTED_JOB}, {FAST_JOB, HOSTED_JOB},
+                               "Expected exactly one executed check-fast job or check-hosted job and no executed check-any job")
         require(job.get("run_id") == run_id and job.get("head_sha") == pr["headRefOid"] and
                 job.get("status") == "completed" and job.get("conclusion") == "success",
                 "Backend job is not successful on the exact head/run")
-        require(job.get("runner_name") in FAST_RUNNERS, "Unapproved backend runner")
+        if job["name"] == HOSTED_JOB:
+            require(hosted_runner(job), "Unapproved hosted runner")
+            gate = [step for step in job.get("steps", []) if step.get("name") == HOSTED_GATE_STEP]
+            require(len(gate) == 1 and gate[0].get("conclusion") == "success",
+                    "Hosted runner identity step missing, skipped or failed")
+        else:
+            require(job.get("runner_name") in FAST_RUNNERS, "Unapproved backend runner")
         steps = [step for step in job.get("steps", []) if step.get("name") == "Run mix check"]
         require(len(steps) == 1 and steps[0].get("conclusion") == "success",
                 "Full check step missing, skipped or failed")
@@ -215,11 +343,17 @@ class Queue:
         pages = self.data("gh", "api", "--paginate", "--slurp",
                           f"repos/{REPO}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100")
         jobs = [job for page in pages for job in page["jobs"]]
-        require(len(jobs) == 1 and jobs[0].get("name") == "gleam", "Expected exactly one Gleam job")
-        job = jobs[0]
+        job = one_executed_job(jobs, {GLEAM_JOB, GLEAM_HOSTED_JOB}, {GLEAM_JOB, GLEAM_HOSTED_JOB},
+                               "Expected exactly one executed Gleam job")
         require(job.get("run_id") == run_id and job.get("head_sha") == pr["headRefOid"] and
-                job.get("status") == "completed" and job.get("conclusion") == "success" and
-                job.get("runner_name") == "symbolic-elzoo-gleam", "Gleam job evidence mismatch")
+                job.get("status") == "completed" and job.get("conclusion") == "success", "Gleam job evidence mismatch")
+        if job["name"] == GLEAM_HOSTED_JOB:
+            require(hosted_runner(job), "Gleam job evidence mismatch: unapproved hosted runner")
+            gate = [step for step in job.get("steps", []) if step.get("name") == HOSTED_GATE_STEP]
+            require(len(gate) == 1 and gate[0].get("conclusion") == "success",
+                    "Gleam hosted runner identity step missing, skipped or failed")
+        else:
+            require(job.get("runner_name") == "symbolic-elzoo-gleam", "Gleam job evidence mismatch")
         steps = [step for step in job.get("steps", []) if step.get("name") == "Run ./scripts/check.sh"]
         require(len(steps) == 1 and steps[0].get("conclusion") == "success", "Gleam check step did not pass")
         require(isinstance(job.get("id"), int), "Invalid Gleam job ID")
@@ -246,11 +380,20 @@ class Queue:
                 self.emit(f"Updating PR #{number} by merging main", flush=True)
                 self.text("gh", "pr", "update-branch", str(number), "-R", REPO)
                 end = self.clock() + 60
-                while self.pr(number, ready=False)["headRefOid"] == pr["headRefOid"]:
+                updated = self.pr(number, ready=False)
+                while updated["headRefOid"] == pr["headRefOid"]:
                     self.pause("updated PR head", end)
+                    updated = self.pr(number, ready=False)
+                self.cancel_duplicate_pr_run(updated, workflow_id)
                 continue
             run_id = self.dispatch(pr, workflow_id)
-            job = self.evidence(run_id, pr, workflow_id)
+            try:
+                job = self.evidence(run_id, pr, workflow_id)
+            except (QueueError, KeyError, TypeError, ValueError, AttributeError):
+                # The run goes on after the queue stops; name it so that it can be adopted by hand.
+                self.emit(f"Stopped while awaiting run {run_id} for PR #{number} head={pr['headRefOid']}: "
+                          "inspect or adopt that run before dispatching another", flush=True)
+                raise
             self.unchanged_pr(pr)
             gleam_job = self.gleam_evidence(pr)
             fresh = self.unchanged_pr(pr)
