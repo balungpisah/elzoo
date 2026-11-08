@@ -699,4 +699,158 @@ defmodule Elzoo.EffectIntentTest do
       assert {:error, :not_rearmable} = Intent.advance(pid, :rearm)
     end
   end
+
+  test "F1 saturated refusals cannot starve replay grounding or no-replay stranding", c do
+    for {binding_module, expected, label} <- [
+          {TestBinding, {:Definite, :ProviderReplaySafe, 1}, "replay"},
+          {Elzoo.EffectIntent.TestNoReplayBinding, {:Stranded, 1}, "no-replay"}
+        ] do
+      {:ok, binding} = Binding.load(binding_module)
+
+      memory =
+        start_supervised!(
+          Supervisor.child_spec({Memory, fold: Model.fold(binding), limits: Model.limits()},
+            id: make_ref()
+          )
+        )
+
+      context = %{c.context | poll: fn _ -> {:unknown_to_provider, "trusted"} end}
+
+      opts =
+        c.opts
+        |> Keyword.put(:binding, binding_module)
+        |> Keyword.put(:store, Memory.store(memory))
+        |> Keyword.put(:identity, List.replace_at(c.opts[:identity], 4, label))
+        |> Keyword.put(:adapter_context, context)
+
+      pid = owner(opts)
+      assert {:ok, :dispatched} = Intent.advance(pid, :dispatch)
+      assert_receive {:physical_send, _, req}
+      eventually(fn -> Intent.status(pid).revision == 3 end)
+      invalid = put_in(completed(req), ["value", "digest"], <<0::256>>)
+      for _ <- 1..1022, do: assert({:refused, :retained} = Intent.observe(pid, invalid))
+      assert {:not_retained, :capacity} = Intent.observe(pid, invalid)
+      assert {:ok, :polling} = Intent.advance(pid, :poll)
+      eventually(fn -> Intent.status(pid).phase == expected end)
+      assert Intent.status(pid).evidence == 1023
+      assert Intent.status(pid).active
+
+      recovered =
+        Elzoo.Checkpoint.recover(
+          Memory.store(memory),
+          Model.stream(req.key),
+          Model.fold(binding),
+          1,
+          &Model.decode(&1, binding)
+        )
+
+      assert Map.has_key?(recovered.model.evidence, {1, :settlement})
+      assert Policy.phase(recovered.model.policy) == expected
+    end
+  end
+
+  test "F1 saturated refusals reserve a deadline strand and failed grounding halts", c do
+    pid = owner(c.opts)
+    assert {:ok, :dispatched} = Intent.advance(pid, :dispatch)
+    assert_receive {:physical_send, _, req}
+    eventually(fn -> Intent.status(pid).revision == 3 end)
+    invalid = put_in(completed(req), ["value", "digest"], <<0::256>>)
+    for _ <- 1..1022, do: assert({:refused, :retained} = Intent.observe(pid, invalid))
+    Agent.update(c.clock, fn _ -> 5100 end)
+    assert {:ok, :Reconcile} = Intent.advance(pid, :expire)
+    assert Intent.status(pid).phase == {:Stranded, 1}
+    assert Intent.status(pid).evidence == 1023
+    revision = Intent.status(pid).revision
+    assert {:ok, _} = Intent.advance(pid, :expire)
+    assert Intent.status(pid).revision == revision
+
+    Agent.update(c.clock, fn _ -> 100 end)
+    context = %{c.context | poll: fn _ -> {:unknown_to_provider, "trusted"} end}
+
+    opts =
+      c.opts
+      |> Keyword.put(:identity, List.replace_at(c.opts[:identity], 4, "failed-ground"))
+      |> Keyword.put(:adapter_context, context)
+
+    second = owner(opts)
+    assert {:ok, :dispatched} = Intent.advance(second, :dispatch)
+    assert_receive {:physical_send, _, _}
+    eventually(fn -> Intent.status(second).revision == 3 end)
+    :ok = Memory.fault(c.store, :append, :unavailable)
+    assert {:ok, :polling} = Intent.advance(second, :poll)
+    eventually(fn -> not Intent.status(second).active end)
+    assert Intent.status(second).phase == {:Dispatched, :Fresh, 1}
+    assert {:error, :read_only} = Intent.advance(second, :rearm)
+  end
+
+  defp wait_intent_tasks(pid, remaining \\ 1000)
+  defp wait_intent_tasks(pid, 0), do: assert(map_size(:sys.get_state(pid).tasks) == 0)
+
+  defp wait_intent_tasks(pid, remaining) do
+    if map_size(:sys.get_state(pid).tasks) == 0 do
+      :ok
+    else
+      Process.sleep(1)
+      wait_intent_tasks(pid, remaining - 1)
+    end
+  end
+
+  @tag timeout: 120_000
+  test "F1 4090 pending polls preserve replay, another reservation and recovery expiry", c do
+    response =
+      start_supervised!(Supervisor.child_spec({Agent, fn -> :pending end}, id: :poll_response))
+
+    context = %{c.context | poll: fn _ -> {Agent.get(response, & &1), "trusted"} end}
+    pid = owner(Keyword.put(c.opts, :adapter_context, context))
+    assert {:ok, :dispatched} = Intent.advance(pid, :dispatch)
+    assert_receive {:physical_send, _, req}
+    eventually(fn -> Intent.status(pid).revision == 3 end)
+    for _ <- 1..100, do: assert({:ok, _} = Intent.advance(pid, :expire))
+    assert Intent.status(pid).revision == 3
+
+    for _ <- 1..4090 do
+      assert {:ok, :polling} = Intent.advance(pid, :poll)
+      assert_receive {:physical_poll, _, _}
+      wait_intent_tasks(pid)
+    end
+
+    assert Intent.status(pid).revision < 2000
+
+    snapshot =
+      Elzoo.Checkpoint.recover(
+        c.store,
+        Model.stream(req.key),
+        Model.fold(c.binding),
+        1,
+        &Model.decode(&1, c.binding)
+      )
+
+    assert snapshot.model.pending + snapshot.model.unavailable == Model.routine_budget()
+
+    timeout =
+      completed(req)
+      |> Map.drop(["value", "value_schema_id", "value_schema_version"])
+      |> Map.merge(%{
+        "outcome" => "timed_out",
+        "dispatch" => "unknown",
+        "error_class" => "retryable"
+      })
+
+    assert {:not_retained, :routine_budget} = Intent.observe(pid, timeout)
+    Agent.update(response, fn _ -> :unknown_to_provider end)
+    assert {:ok, :polling} = Intent.advance(pid, :poll)
+    eventually(fn -> Intent.status(pid).phase == {:Definite, :ProviderReplaySafe, 1} end)
+    assert {:ok, :Stop} = Intent.advance(pid, :rearm)
+    assert {:ok, :dispatched} = Intent.advance(pid, :dispatch)
+    assert_receive {:physical_send, _, second}
+    assert second.key == req.key
+    wait_intent_tasks(pid)
+    Agent.update(c.clock, fn _ -> 5100 end)
+    assert {:ok, :Reconcile} = Intent.advance(pid, :expire)
+    assert Intent.status(pid).phase == {:Stranded, 2}
+    GenServer.stop(pid)
+    recovered = owner(Keyword.put(c.opts, :adapter_context, context))
+    assert Intent.status(recovered).phase == {:Stranded, 2}
+    refute Intent.status(recovered).active
+  end
 end

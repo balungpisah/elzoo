@@ -197,9 +197,13 @@ defmodule Elzoo.EffectIntent do
         _ -> {:error, :not_dispatchable, s}
       end
     else
-      case commit(s, Model.transition(:SchemaInvalid, current(s), now(s)), false) do
-        {:ok, s, _} -> {:error, :schema, s}
-        other -> other
+      if Policy.flags(m.policy).disarmed do
+        {:error, :schema, s}
+      else
+        case commit(s, Model.transition(:SchemaInvalid, current(s), now(s)), false) do
+          {:ok, s, _} -> {:error, :schema, s}
+          other -> other
+        end
       end
     end
   end
@@ -214,7 +218,29 @@ defmodule Elzoo.EffectIntent do
     end
   end
 
-  defp advance_event(s, e), do: commit(s, Model.transition(e, current(s), now(s)), false)
+  defp advance_event(s, :Expired) do
+    m = s.snapshot.model
+    time = now(s)
+
+    with {:ok, c} <- Policy.config(s.binding, m.deadline, m.anchor, time),
+         {:Decision, policy, action} <- Policy.decide(m.policy, :Expired, current(s), c) do
+      if policy == m.policy do
+        {:ok, s, action}
+      else
+        delta =
+          Model.transition(:Expired, current(s), time, %{
+            evidence: Model.evidence(:Expired, current(s), time, :recovery_deadline)
+          })
+
+        case commit(s, delta, false) do
+          {:ok, _, _} = ok -> ok
+          {:error, reason, next} -> {:error, reason, halt(next, {:evidence, reason})}
+        end
+      end
+    else
+      _ -> {:error, :clock_or_deadline, s}
+    end
+  end
 
   defp reply_commit(s, delta, barrier) do
     case commit(s, delta, barrier) do
@@ -448,7 +474,9 @@ defmodule Elzoo.EffectIntent do
             :Completed,
             :NoSend,
             :PermanentNoSend,
-            :NoEffect
+            :NoEffect,
+            :ProviderUnknown,
+            :Expired
           ]
 
         {{:not_retained, r}, if(critical, do: halt(s, {:evidence, r}), else: s)}

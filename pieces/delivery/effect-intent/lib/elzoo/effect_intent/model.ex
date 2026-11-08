@@ -5,6 +5,10 @@ defmodule Elzoo.EffectIntent.Model do
   alias Elzoo.DurableLog.Codec
   @max 9_223_372_036_854_775_807
   @priority [:settlement, :contradiction, :refused]
+  @routine [:Pending, :Lost, :TimedOut, :Failed, :Resume]
+  @routine_budget 1024
+  def routine_budget, do: @routine_budget
+
   @model_keys ~w(version key identity binding arguments schema deadline policy attempts evidence events anchor pending unavailable)a
   def limits, do: %{max_record_bytes: 131_072, max_batch_size: 1, max_checkpoint_bytes: 1_048_576}
   def binary(term), do: :erlang.term_to_binary(term, [:deterministic])
@@ -114,6 +118,7 @@ defmodule Elzoo.EffectIntent.Model do
          true <- Enum.all?(Map.keys(opts), &(&1 in [:arguments, :schema, :evidence])),
          {:ok, config} <- Policy.config(binding, m.deadline, m.anchor, now),
          :ok <- validate_revision(m, event, opts, config),
+         :ok <- routine_capacity(m, event),
          normalized <- Policy.classify(m.policy, event, attempt),
          {:Decision, policy, action} <- Policy.decide(m.policy, event, attempt, config),
          {:ok, next} <-
@@ -130,6 +135,12 @@ defmodule Elzoo.EffectIntent.Model do
   end
 
   def apply_delta(_, _, _), do: {:error, :event}
+
+  defp routine_capacity(m, event) do
+    if event in @routine and m.pending + m.unavailable >= @routine_budget,
+      do: {:error, :routine_budget},
+      else: :ok
+  end
 
   defp validate_revision(m, :Revise, opts, config) do
     if Policy.permitted?(m.policy, :Revise, config) and
@@ -171,10 +182,18 @@ defmodule Elzoo.EffectIntent.Model do
       {:ok, bytes} when is_binary(bytes) and byte_size(bytes) <= 512 ->
         category =
           case event do
-            e when e in [:Completed, :NoSend, :PermanentNoSend, :NoEffect] -> :settlement
-            :Contradiction -> :contradiction
-            :Refused -> :refused
-            _ -> :optional
+            e
+            when e in [:Completed, :NoSend, :PermanentNoSend, :NoEffect, :ProviderUnknown, :Expired] ->
+              :settlement
+
+            :Contradiction ->
+              :contradiction
+
+            :Refused ->
+              :refused
+
+            _ ->
+              :optional
           end
 
         reserved = attempt > 0 and category in @priority

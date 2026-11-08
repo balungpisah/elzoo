@@ -148,9 +148,17 @@ duplicate; no automatic operator override is supplied.
 ## Capacity, evidence and storage accounting
 
 R-D deliberately replaced unbounded refused-result retention with bounded priority
-retention. Every attempt reserves its decisive settlement, first contradictory
-completion and first refused result. Routine pending/unavailable observations use
-bounded counters. Other evidence can return `{:not_retained, reason}` when full;
+retention. Every attempt reserves its first decisive settlement (including
+provider-unknown grounding or recovery-deadline stranding), first contradictory
+completion and first refused result. The first settlement is immutable: a later
+completion after a replay-safe ground uses optional capacity, and failure to
+retain that critical completion halts ownership with an explicit failure rather
+than claiming retention. Replay grounding and deadline-strand write failures
+also halt ownership. Routine pending/unavailable observations share a persisted allowance of 1024
+writes across the intent; further routine observations return
+`{:not_retained, :routine_budget}` without consuming event capacity. No-op expiry
+and repeated schema-disarm commands append nothing. These bounded counters do
+not count observations refused after the allowance. Other evidence can return `{:not_retained, reason}` when full;
 critical observations that cannot commit halt ownership and are never reported
 retained. Retained evidence is a bounded event/attempt/time plus SHA-256 summary of
 the raw result, not the raw provider value. The consumer retains authenticated
@@ -159,7 +167,9 @@ source material if its audit/reconciliation obligations require it.
 The production codec uses canonical deterministic **uncompressed ETF**, rejects
 compressed input before decoding, uses safe decoding and checks a roundtrip.
 It validates the model/history and replays the actual Cure policy for event folds.
-Store limits at startup must be at least 128 KiB payload per record, batch size 1,
+Startup checks trust the limits declared in the Store tuple; the host must
+keep that declaration consistent with what the Adapter enforces. An enforcement
+mismatch fails closed on append/checkpoint before a send. Store limits must be at least 128 KiB payload per record, batch size 1,
 and 1 MiB per encoded checkpoint. Canonical append framing/digest is additional
 to the payload limit. There are at most 4096 intent events, 1024 evidence entries
 of at most 512 encoded bytes, and 256 combined attempts/revisions. Capacity is

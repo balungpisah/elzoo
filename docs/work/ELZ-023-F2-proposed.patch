@@ -1,0 +1,74 @@
+--- a/pieces/delivery/effect-intent/lib/elzoo/effect_intent.ex
++++ b/pieces/delivery/effect-intent/lib/elzoo/effect_intent.ex
+@@ -427,6 +427,7 @@
+     m = s.snapshot.model
+ 
+     with {:ok, _} <- Elzoo.Envelope.validate_result(result),
++         true <- result["dispatch"] != "not_dispatched",
+          true <- result["message_id"] == s.key and result["correlation_id"] == s.key,
+          n when is_integer(n) <- find_attempt(m, result["attempt_id"]),
+          req = request(s, n),
+--- a/pieces/delivery/effect-intent/test/elzoo/effect_intent_test.exs
++++ b/pieces/delivery/effect-intent/test/elzoo/effect_intent_test.exs
+@@ -285,8 +285,13 @@
+       context = %{
+         c.context
+         | send: fn _ ->
+-            receive do
+-              :release -> {:error, :timeout, "timeout"}
++            if dispatch == "not_dispatched" do
++              tag = if outcome == "rejected", do: :permanent, else: :no_send
++              {:error, tag, :attested_no_bytes}
++            else
++              receive do
++                :release -> {:error, :timeout, "timeout"}
++              end
+             end
+           end
+       }
+@@ -318,7 +323,12 @@
+               Map.take(completed(req), ["value", "value_schema_id", "value_schema_version"])
+             )
+ 
+-      assert {:ok, _} = Intent.observe(pid, row)
++      if dispatch == "not_dispatched" do
++        eventually(fn -> Intent.status(pid).phase == {:Definite, :AdapterNoSend, 1} end)
++        assert {:refused, :retained} = Intent.observe(pid, row)
++      else
++        assert {:ok, _} = Intent.observe(pid, row)
++      end
+       status = Intent.status(pid)
+ 
+       case expected do
+@@ -585,7 +595,8 @@
+   test "known-attempt refusals fill only optional capacity and reserved settlement/contradiction still commit",
+        c do
+     assert Policy.initial() == {:State, :Empty, false, false, false, false, 0, []}
+-    pid = owner(c.opts)
++    context = %{c.context | poll: fn _ -> {:no_effect, "trusted"} end}
++    pid = owner(Keyword.put(c.opts, :adapter_context, context))
+     assert {:ok, :dispatched} = Intent.advance(pid, :dispatch)
+     assert_receive {:physical_send, _, req}
+     eventually(fn -> Intent.status(pid).revision == 3 end)
+@@ -600,17 +611,10 @@
+     assert Intent.status(pid).active
+     assert {:error, :not_rearmable} = Intent.advance(pid, :rearm)
+ 
+-    no_send =
+-      completed(req)
+-      |> Map.drop(["value", "value_schema_id", "value_schema_version"])
+-      |> Map.merge(%{
+-        "outcome" => "timed_out",
+-        "dispatch" => "not_dispatched",
+-        "error_class" => "retryable"
+-      })
+-
+-    assert {:ok, :retained} = Intent.observe(pid, no_send)
+-    assert Intent.status(pid).phase == {:Definite, :AdapterNoSend, 1}
++    assert {:ok, :polling} = Intent.advance(pid, :poll)
++    assert_receive {:physical_poll, _, _}
++    eventually(fn -> Intent.status(pid).phase == {:Definite, :ProviderNoEffect, 1} end)
++    assert Intent.status(pid).evidence == 1023
+     assert {:ok, :retained} = Intent.observe(pid, completed(req))
+     assert Intent.status(pid).flags.quarantined
+     assert Intent.status(pid).evidence == 1024
