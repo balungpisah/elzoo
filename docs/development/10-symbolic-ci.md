@@ -859,7 +859,9 @@ Limit: the step duration on a hosted runner is not measured yet.
 ## Per-test limits of two slow tests (ELZ-062)
 
 Owner approval 2026-11-08 ("1.", relayed by the coordinator): raise the per-test limit of the two tests that timed out on
-`contabo-elzoo-1` to 300 s, so that machine can take `any`-tier runs. Time limits only: no assertion, scenario or proof
+`contabo-elzoo-1` to 300 s, so that machine can take `any`-tier runs. That runner was unregistered at the flip on
+2026-11-09; the coordinator's decision rule for the changed situation was to raise only if a test exceeds 60 percent of
+120 s (72 s) on the hosted runner (see "Hosted measurement" below). Time limits only: no assertion, scenario or proof
 changed, and no other limit changed (not the 120 s default in `test/test_helper.exs`, not the 240 s of the concurrent
 consumer groups, not the inner consumer limits).
 
@@ -890,6 +892,13 @@ margin, not a performance target. A hung test now costs up to 300 s instead of 1
 runs of that branch failed two tests each, as expected there (the selection test's 120 s expectation and the test that reads
 `scripts/run-ci-check.sh`, which the branch changes). Host readings on Contabo: no throttling in 99 samples, host load
 average (1 minute) at most 2.94, cgroup memory peak 2.89 GB; peaks on the fast runners 3.45 GB (symbolic) and 2.75 GB (MacBook).
+
+Hosted measurement (2026-11-09). The same measurement branch, merged with `main` at e9df723, ran once on the GitHub-hosted
+runner (run 42522317222, job 128858289534; every per-test limit 900 s): approval negative control 40.8 s (34 percent of
+the 120 s default); `assembly/durable-job` consumer test 79.0 s (66 percent; inner `consumer_mix_test` 71.2 s, and 74.8 s
+and 75.3 s in the full hosted runs 42517023581 and 42520133125); `integration/sql` 19.0 s; `integration/jobs` 14.9 s; root
+suite 1307.8 s (the two failures of that run are the two expected on the branch). The decision rule was 72 s (60 percent
+of 120 s): the durable-job test is above it, so the two limits are raised to 300 s as approved.
 
 ## Operation and rollback
 

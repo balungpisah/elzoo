@@ -3,12 +3,16 @@
 - Phase: P0 harness (tests: `pieces/workflow/approval/test/elzoo/approval_test.exs`, `test/export_test.exs`;
   `docs/development/10-symbolic-ci.md`)
 - Catalogue IDs: none
-- Dependencies: ELZ-058 (#96) merged first (same docs section; no code overlap). Before or alongside ELZ-059 (#99):
-  ELZ-059's staggered `main` runs and push runs are meant to be able to land on `contabo-elzoo-1`.
+- Dependencies: ELZ-058 (#96) and ELZ-066 (#115) merged (same docs file; no code overlap). The Contabo runner this task
+  was written for was unregistered at the flip on 2026-11-09; the evidence is now a hosted run (see "Hosted
+  measurement").
 - Review: independent review required (protected test boundary).
 - Owner approval (2026-11-08, "1.", relayed by the coordinator): raise the per-test limit of the two tests that time
   out on `contabo-elzoo-1` to 300 s, as a small measured task, so Contabo can take the staggered full runs of
   `main` and the `main` push runs. Approval covers exactly these two limit changes; no assertion changes.
+- Coordinator decision (2026-11-09): decision rule for the changed situation: if both tests stay under 60 percent of
+  120 s (72 s) on the hosted runner, the task closes with no code change and a measurement record; otherwise the PR raises
+  only these two limits to 300 s.
 
 ## Outcome
 
@@ -42,6 +46,25 @@ that branch (the selection assertion of 120 s, and the test that reads `scripts/
 host samples on Contabo; host load (1 min) peaked at 2.94; cgroup peaks 3.45 GB (symbolic), 2.75 GB (MacBook),
 2.89 GB (Contabo).
 
+## Hosted measurement (2026-11-09)
+
+The same measurement branch (`measure/ELZ-062`, merged with `main` at e9df723, never merged back; every per-test limit
+900 s, `mix test --warnings-as-errors --slowest 60`) ran once on the GitHub-hosted runner: run 42522317222, job
+128858289534, 20:52:35Z to 21:15:27Z (rule input, same tree as the three machines above, newer `main`).
+
+| Test | Hosted `ubuntu-24.04` | Share of the 120 s default |
+|---|---|---|
+| approval negative control (`approval_test.exs:177`) | 40.8 s | 34 percent |
+| `assembly/durable-job` consumer (`export_test.exs:120`) | 79.0 s (inner `consumer_mix_test` 71.2 s; 74.8 s and 75.3 s in the full hosted runs 42517023581 and 42520133125) | 66 percent |
+| `integration/sql` consumer | 19.0 s | 16 percent |
+| `integration/jobs` consumer | 14.9 s | 12 percent |
+| root suite | 1307.8 s (504.7 s async, 803.1 s sync) | |
+
+The run passed 640 of 642 tests; the two failures are the ones expected on that branch (the selection test's 120 s
+expectation and the test that reads `scripts/run-ci-check.sh`). By the decision rule the approval test stays under the
+line (40.8 s of 72 s) and the durable-job test does not (79.0 s above 72 s), so the PR raises the two limits to 300 s:
+the margin of the durable-job test is 41 s on a runner whose full-suite time varied from 695 s to 1139 s on one commit.
+
 ## Scope
 
 - (1) add `@tag timeout: 300_000` to the first test, with a comment giving the measured basis: it exceeded 120 s
@@ -55,16 +78,16 @@ host samples on Contabo; host load (1 min) peaked at 2.94; cgroup peaks 3.45 GB 
   for the one new value (300 s for `assembly/durable-job`, 120 s for the others) and stays an exact assertion.
 - Time limits only. No assertion, scenario or proof changes. No other limit changes (not the 120 s default in
   `test/test_helper.exs`, not the 240 s of the concurrent groups, not the inner consumer limits).
-- Docs: `docs/development/10-symbolic-ci.md` Contabo status moves from "unrouted, measurement only" to "may take
-  `any`-tier runs after ELZ-062 merges (the coordinator adds `backend` after the steered run passed)".
+- Docs: `docs/development/10-symbolic-ci.md` records the hosted measurement and the decision rule; the Contabo status
+  stays history (the runner is unregistered).
 
 ## Acceptance
 
-- [ ] Measured times recorded for the approval test on `symbolic-elzoo`, `macbook-ubuntu-elzoo-candidate` and
-      `contabo-elzoo-1` (run and job IDs), and for `assembly/durable-job` on the same machines.
-- [ ] One steered `tier` = `any` run on `contabo-elzoo-1` on the PR head passes (`ELZOO CHECK PASSED`, run and job
-      IDs, duration, cgroup peak, sampled CPU).
-- [ ] The usual exact-head run on a fast runner passes.
+- [x] Measured times recorded for the approval test and for `assembly/durable-job` on `symbolic-elzoo`,
+      `macbook-ubuntu-elzoo-candidate`, `contabo-elzoo-1` (run and job IDs, above) and the hosted runner (run 42522317222,
+      job 128858289534).
+- [ ] The exact-head full run on the PR head passes on the hosted lane (`ELZOO CHECK PASSED`, run and job IDs).
+      (The steered Contabo run of the first draft is dropped: the runner is unregistered.)
 - [ ] The diff touches only the two time limits, the selection assertion value, the comments and the docs.
 - [ ] Independent review of the actual diff (separate agent session, reviewed SHA on the PR); the owner approval is
       quoted in the PR.
@@ -72,5 +95,5 @@ host samples on Contabo; host load (1 min) peaked at 2.94; cgroup peaks 3.45 GB 
 ## Limits
 
 A longer limit makes a hung test cost up to 300 s instead of 120 s before it fails; it does not prove the tests are
-fast. 300 s is a margin over measured times, not a performance target. Contabo reliability over many runs is not
-established by one passing run.
+fast. 300 s is a margin over measured times, not a performance target. The hosted figures come from one run of the
+measurement branch; the full-suite time on one hosted commit varied from 695 s to 1139 s.

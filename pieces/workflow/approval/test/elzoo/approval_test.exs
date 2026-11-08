@@ -179,7 +179,8 @@ defmodule Elzoo.ApprovalTest do
   # runs of the same tree: runs 42484236992 and 42492726966. Measured under the full suite with the limits
   # raised (branch measure/ELZ-062, `mix test --slowest`): 39.1 s on symbolic-elzoo (run 42500718766),
   # 45.3 s on macbook-ubuntu-elzoo-candidate (42497402091) and 93.1 s on contabo-elzoo-1 (42497486307).
-  # The spread on the same machine is large (above 120 s twice, 93.1 s once). 300 s is a margin over these
+  # The spread on the same machine is large (above 120 s twice, 93.1 s once). On the GitHub-hosted runner
+  # (ubuntu-24.04, run 42522317222, job 128858289534) it took 40.8 s. 300 s is a margin over these
   # times, not a performance target; the assertions are unchanged.
   @tag timeout: 300_000
   test "negative control: dropping g_self from the gate list is rejected inside self_approval_refused" do
