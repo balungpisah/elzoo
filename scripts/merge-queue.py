@@ -15,7 +15,7 @@ from urllib.parse import urlencode
 REPO = "balungpisah/elzoo"
 WORKFLOW = "symbolic-check.yml"
 GLEAM_WORKFLOW = "symbolic-gleam.yml"
-RUNNERS = {"symbolic-elzoo", "macbook-ubuntu-elzoo-candidate"}
+RUNNERS = {"symbolic-elzoo", "macbook-ubuntu-elzoo-candidate", "contabo-elzoo-1"}
 SHA = re.compile(r"[0-9a-f]{40}")
 PR_FIELDS = ("number,state,isDraft,isCrossRepository,baseRefName,headRefName,"
              "headRefOid,headRepository,mergeable,mergeCommit")
