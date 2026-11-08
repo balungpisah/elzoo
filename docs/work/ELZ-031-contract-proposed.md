@@ -214,10 +214,10 @@ Facts on record: the SIX [terms of use](https://www.six-group.com/en/services/le
 that "presentations, brochures, flyers, graphics, texts, designs, charts, etc., may not be
 reproduced or reused in any way or used for commercial purposes", and that information is
 provided "exclusively for personal use as well as information purposes". They do not name
-the list files or a derived factual extract. No permission for the list files was found. No
-legal conclusion is made here. The verification of terms for the extract, which option 2
-requires, is still open and belongs to the owner or the main coordinator. Implementation
-commits no extract before that is recorded.
+the list files or a derived factual extract. No permission for the list files was found.
+The main coordinator took option 2 as a prudence decision and reported it to the owner,
+who may override it. This record cites the SIX terms URL above and its read date
+(2026-11-08) and asserts no legal conclusion.
 
 Evidence limitation of option 2: `mix check` compares the registry with the committed
 extract, not with the SIX files. Fidelity of the extract to the SIX files rests on the
