@@ -87,7 +87,9 @@ locally, but only the first branch-create push can succeed.
    issue number, GitHub login, a distinct per-session agent ID, UTC time and
    base SHA. Generate the session ID once before any claim:
 
-       export ELZOO_AGENT="$(hostname -s)-$(od -An -N2 -tx1 /dev/urandom | tr -d ' ')"
+       export ELZOO_AGENT="worker-$(od -An -N2 -tx1 /dev/urandom | tr -d ' ')"
+
+   The identifier is role-based and never derived from the hostname.
 
    Commit the marker as claim ELZ-001 and push:
 
@@ -134,20 +136,16 @@ ownership areas.
 
 ## CI machine policy
 
-CI must run only on the owner's machines: the user-owned symbolic and
-macbook-ubuntu, and the user-rented Contabo VPS runner contabo-elzoo-1 (owner
-decision 2026-11-08; unrouted, for measurement runs a person steers), with pull request
-checks and queue runs on the fast runners only, in the roles defined in
-docs/development/10-symbolic-ci.md. Use the explicit
-self-hosted selectors and runner identity checks documented there.
-While the repository is private, never use or fall back to GitHub-hosted runners:
-the owner does not have hosted minutes available. Once the repository is public
-(owner decision 2026-11-09), CI runs on the GitHub-hosted lane that the
-repository variable ELZOO_CI_LANE selects (docs/development/10-symbolic-ci.md,
-"Lanes"); the self-hosted lane is retiring, and self-hosted runners must never
-stay attached to a public repository. If a runner is offline, diagnose its
-service/queue; do not change runs-on to a hosted image outside the documented lane. Verify actual job runner identity when
-changing workflows. GitHub still provides repository/PR/check orchestration.
+CI runs on GitHub-hosted runners: the repository is public (owner decision
+2026-11-09) and the repository variable ELZOO_CI_LANE is `hosted`, so the jobs
+check-hosted and gleam-hosted run on the one label ubuntu-24.04 with the runner
+identity gate described in docs/development/10-symbolic-ci.md ("Lanes"). The
+self-hosted runners are unregistered, and self-hosted runners must never be
+attached to a public repository. Never change runs-on, the lane variable or the
+required checks without the review that document describes. If the hosted lane
+fails, follow its fallback (make the repository private again and register
+runners again). Verify actual job runner identity when changing workflows.
+GitHub also provides repository/PR/check orchestration.
 
 ## Verify the actual claim
 
