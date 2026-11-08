@@ -1,6 +1,8 @@
 # ELZ-027 focused independent early re-review
 
-Reviewer: Orca session `orca_session_id:c936d728-5e2f-40e7-b225-7df6c98f0b18`, independent of the proposal author and first reviewer. Reviewed `origin/task/ELZ-027` at `957bd593e9fc871e134bc8e341a34428739cc0c0`, live issue #44, the first review and the ELZ-050 disposition. This is a design review, not an implementation review or proof execution.
+Redacted for publication; SHA-256 of the reviewer's original report: e0aa0ce4329714cd2630f9d75d0c8dcb0ca63a6c568525d629fc08227fcfbe8c
+
+Reviewer: the independent reviewer, independent of the implementation worker and the first reviewer. Reviewed `origin/task/ELZ-027` at `957bd593e9fc871e134bc8e341a34428739cc0c0`, live issue #44, the first review and the ELZ-050 disposition. This is a design review, not an implementation review or proof execution.
 
 ## Findings and conditions
 
@@ -63,13 +65,13 @@ Before implementation: reconcile findings 1–3, decide and publish A1 with sync
 
 - `git status --short && git rev-parse HEAD && git rev-parse origin/main && git rev-parse origin/task/ELZ-027 && git diff --name-only ba2fc53 957bd59 && git diff --name-only origin/main 957bd59` — exit 0; branch head `957bd593e9fc871e134bc8e341a34428739cc0c0`.
 - `git diff ba2fc53 957bd59` — exit 0; reviewed all changed proposal files via `git show` as well.
-- `cat /tmp/elz027-early-review-ad53de29-7162-4ff2-b848-05f18f2ec5c0.md` — exit 0.
-- `git show 957bd59:docs/work/ELZ-027-early-review.md | cmp - /tmp/elz027-early-review-ad53de29-7162-4ff2-b848-05f18f2ec5c0.md` — exit 0, byte-equal.
+- read the first reviewer's original report — exit 0.
+- `git show 957bd59:docs/work/ELZ-027-early-review.md | cmp - <the first reviewer's original report>` — exit 0, byte-equal.
 - `git show 957bd59:docs/work/ELZ-027.md`, `git show 957bd59:docs/work/ELZ-027-contract-proposed.md`, `git show origin/task/ELZ-050:docs/plans/catalogue-dispositions.md | rg -n -A 36 -B 6 'delivery/trigger'`, `cat AGENTS.md`, `rg --files | rg 'ELZ-027|AGENTS.md|CONTEXT.md'` — each exit 0.
 - Python comparison of the two complete G1–G8 blocks extracted from the original review and `git show 957bd59:docs/work/ELZ-027.md` — exit 0, byte-equal.
 - `gh issue view 44 -R balungpisah/elzoo --json body` — exit 0; whitespace-normalized A1 before matches, literal contiguous line does not because the issue wraps lines. Subsequent `gh issue view 44 -R balungpisah/elzoo --json body --jq .body` piped to the exact/normalized Python check — exit 0; results false/true respectively.
 - `git show origin/main:tasks/ELZ-027.md` — exit 128, no such path; actual task path is `tasks/ELZ-027-schedule-occurrence.md`. No conclusion depends on the failed lookup.
-- `orca skills get orchestration` using `/usr/local/bin/orca` — exit 1, `Unable to determine Orca.app path from symlink: /usr/local/bin/orca`; `ORCA_CLI_COMMAND` resolves the session binary to `/Applications/Orca.app/Contents/Resources/bin/orca`, whose `skills get orchestration` returned exit 0.
+- `orca skills get orchestration` using the Orca CLI symlink — exit 1, `Unable to determine Orca.app path from symlink: the Orca CLI symlink`; `ORCA_CLI_COMMAND` resolves the session binary to the Orca application bundle's CLI, whose `skills get orchestration` returned exit 0.
 - No Mix commands run, as instructed. No repository edits, switches, commits, pushes, labels or comments.
 
 NOT CLEAR

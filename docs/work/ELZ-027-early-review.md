@@ -1,6 +1,8 @@
 # ELZ-027 independent early Contract review
 
-Reviewer: Orca session `orca_session_id:ad53de29-7162-4ff2-b848-05f18f2ec5c0` (independent of proposal author). Reviewed `origin/task/ELZ-027` at `ba2fc530a1c1a856aa8923b5b218be5ac4ce1672`; proposal `docs/work/ELZ-027.md`, live issue #44, task copy, `origin/task/ELZ-050` delivery/trigger disposition and ready `core/envelope`, `delivery/time`, `delivery/idempotency`, `delivery/windowed-idempotency` source and Contracts. Branch diff contains only `.claims/ELZ-027.md` and `docs/work/ELZ-027.md`; no implementation exists in reviewed diff. No Mix commands were run. A pre-existing untracked `.reticle-setup-crash.log` was observed and left untouched.
+Redacted for publication; SHA-256 of the reviewer's original report: 38a9100bac2e5d06f2e384dc38713430e7f9b8e7c4eac42d343ee1b7757a23d3
+
+Reviewer: the independent reviewer (Codex), independent of the implementation worker. Reviewed `origin/task/ELZ-027` at `ba2fc530a1c1a856aa8923b5b218be5ac4ce1672`; proposal `docs/work/ELZ-027.md`, live issue #44, task copy, `origin/task/ELZ-050` delivery/trigger disposition and ready `core/envelope`, `delivery/time`, `delivery/idempotency`, `delivery/windowed-idempotency` source and Contracts. Branch diff contains only `.claims/ELZ-027.md` and `docs/work/ELZ-027.md`; no implementation exists in reviewed diff. No Mix commands were run. A pre-existing untracked `.reticle-setup-crash.log` was observed and left untouched.
 
 ## Findings
 

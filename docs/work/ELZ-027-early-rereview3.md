@@ -1,6 +1,8 @@
 # ELZ-027 focused independent early re-review, round 3
 
-Reviewer: Orca session `orca_session_id:837af235-08b1-4ef2-a656-deb217bc09e7`, independent of author `ba44606d-07d3-4747-b49a-3d8f4f770de1` and prior reviewers. Reviewed `origin/task/ELZ-027` at `957e2f598056d038f80fff753f37ada904e6562b`, live issue #44, prior review and re-review, and `origin/main` decision-ready record. This is read-only design review; none of the proposed proofs or executable tests has been run. Supplementary check of ELZ-031 uses `origin/task/ELZ-031` at `d9cbc1299f9aa4a265a4498ad51d2cfe1cf9c48a`, not the ELZ-027 reviewed SHA.
+Redacted for publication; SHA-256 of the reviewer's original report: 630353c5524e3bf660b366d7181d73d1d47db5ffef1cbf7a4f922cedc15f87d0
+
+Reviewer: the independent reviewer, independent of the implementation worker and prior reviewers. Reviewed `origin/task/ELZ-027` at `957e2f598056d038f80fff753f37ada904e6562b`, live issue #44, prior review and re-review, and `origin/main` decision-ready record. This is read-only design review; none of the proposed proofs or executable tests has been run. Supplementary check of ELZ-031 uses `origin/task/ELZ-031` at `d9cbc1299f9aa4a265a4498ad51d2cfe1cf9c48a`, not the ELZ-027 reviewed SHA.
 
 ## New findings requiring resolution
 
@@ -47,12 +49,12 @@ This is limited to the explicitly requested notes; it is not a full separate imp
 ## Commands and exit codes
 
 - `git fetch origin --prune` 0; `git status --short --branch`, `git log -1`, branch listings, requested diffs and `git diff --check` 0.
-- `cat AGENTS.md`, both `/tmp/elz027...` review records; `git show` for revision 4 work files, task and actual ready Envelope, Idempotency, Time sources/READMEs; targeted decision record extraction from `origin/main`; all 0.
+- `cat AGENTS.md`, both reviewers' original reports; `git show` for revision 4 work files, task and actual ready Envelope, Idempotency, Time sources/READMEs; targeted decision record extraction from `origin/main`; all 0.
 - `gh issue view 44 -R balungpisah/elzoo --json body` and equivalent issue 48 command 0.
 - Both ELZ-027 branch review files piped to `cmp` against `/tmp` originals 0; ELZ-031 copies against their `/tmp` originals likewise 0.
 - Python comparison of exact gate lines, historic amendment snippets, live issue/task bytes and SHA; and separate comparison of approved wording: 0. Results: 8/8 and 10/10 gate lines identical, ELZ-027 issue equals task, SHA matches, historical/after literal matches false but normalized words match, ELZ-031 A1–A6 before blocks literal true. A subsequent Python comparison of ELZ-031 replacement fragments exited 0 and returned false for A2/A3 because of their surrounding unchanged text and sentence continuation, as explained above; follow-up word diff exited 0.
 - A supplementary follow-up command was initially rejected before execution because its working directory misspelled `elzoo` as `elzzoo`; the corrected command exited 0.
-- Bare `orca skills get orchestration` exited 1 because its symlink cannot locate Orca.app. `printenv ORCA_CLI_COMMAND` identified `/Applications/Orca.app/Contents/Resources/bin/orca`; its `skills get orchestration` exited 0 and was used for dispatch communication.
+- Bare `orca skills get orchestration` exited 1 because its symlink cannot locate Orca.app. `printenv ORCA_CLI_COMMAND` identified the Orca application bundle's CLI; its `skills get orchestration` exited 0 and was used for dispatch communication.
 - No Mix command, repository edit, branch switch, commit, push, issue comment or label change.
 
 NOT CLEAR

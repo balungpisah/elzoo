@@ -1,6 +1,6 @@
 # ELZ-027 Contract amendments record (issue #44)
 
-Prepared by worker session `ba44606d-07d3-4747-b49a-3d8f4f770de1`. Reviews:
+Prepared by the implementation worker. Reviews:
 [early review](ELZ-027-early-review.md), [re-review](ELZ-027-early-rereview.md),
 [round 3](ELZ-027-early-rereview3.md). The worker edited the issue body only
 on the main coordinator's explicit approval and in the order the pieces
