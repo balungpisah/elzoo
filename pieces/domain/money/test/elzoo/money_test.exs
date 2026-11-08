@@ -135,7 +135,11 @@ defmodule Elzoo.MoneyTest do
     end
 
     test "EUR 1.00 three ways sums to 100 minor units; JPY 1000 and BHD 1.234" do
-      for {code, total, first} <- [{"EUR", 100, [34, 33, 33]}, {"JPY", 1000, [334, 333, 333]}, {"BHD", 1234, [412, 411, 411]}] do
+      for {code, total, first} <- [
+            {"EUR", 100, [34, 33, 33]},
+            {"JPY", 1000, [334, 333, 333]},
+            {"BHD", 1234, [412, 411, 411]}
+          ] do
         assert {:ok, result} = M.allocate(amount!(code, total), [1, 1, 1], :first)
         assert units(result) == first
         assert Enum.sum(units(result)) == total
@@ -146,7 +150,9 @@ defmodule Elzoo.MoneyTest do
     defp allocation_failures(allocate) do
       lists = for n <- 1..3, ratios <- combos(n), Enum.sum(ratios) > 0, do: ratios
 
-      for total <- -60..60, ratios <- lists, placement <- [:first, :last, :spread],
+      for total <- -60..60,
+          ratios <- lists,
+          placement <- [:first, :last, :spread],
           failure = check(allocate.(total, ratios, placement), total, ratios, placement),
           do: failure
     end
@@ -237,8 +243,12 @@ defmodule Elzoo.MoneyTest do
     test "a charge in one currency cannot post into an account of another" do
       account = %{id: "acct-1", balance: amount!("JPY", 5000)}
       charge = amount!("BHD", 1234)
-      assert {{:error, {:currency_mismatch, %{left: "JPY", right: "BHD"}}}, ^account} = post_charge(account, charge)
-      assert {:ok, %{balance: %Amount{minor_units: 6000}}} = post_charge(account, amount!("JPY", 1000))
+
+      assert {{:error, {:currency_mismatch, %{left: "JPY", right: "BHD"}}}, ^account} =
+               post_charge(account, charge)
+
+      assert {:ok, %{balance: %Amount{minor_units: 6000}}} =
+               post_charge(account, amount!("JPY", 1000))
     end
   end
 
@@ -254,7 +264,9 @@ defmodule Elzoo.MoneyTest do
             {"UYW", "0.0001", 1, "0.0001"},
             {"JPY", "0", 0, "0"}
           ] do
-        assert {:ok, %Amount{minor_units: ^minor} = a} = M.from_decimal_string(currency!(code), text)
+        assert {:ok, %Amount{minor_units: ^minor} = a} =
+                 M.from_decimal_string(currency!(code), text)
+
         assert M.to_decimal_string(a) == {:ok, back}
       end
 
@@ -270,8 +282,29 @@ defmodule Elzoo.MoneyTest do
 
       assert {:error, {:scale_overflow, _}} = M.from_decimal_string(currency!("JPY"), "1.5")
 
-      for bad <- ["1e3", "+1", " 1", "1 ", "1,00", "", "NaN", "Infinity", ".5", "1.", "01", "--1", "١", 1.5, 100, nil],
-          do: assert(M.from_decimal_string(currency!("EUR"), bad) == {:error, {:malformed_amount, bad}}, inspect(bad))
+      for bad <- [
+            "1e3",
+            "+1",
+            " 1",
+            "1 ",
+            "1,00",
+            "",
+            "NaN",
+            "Infinity",
+            ".5",
+            "1.",
+            "01",
+            "--1",
+            "١",
+            1.5,
+            100,
+            nil
+          ],
+          do:
+            assert(
+              M.from_decimal_string(currency!("EUR"), bad) == {:error, {:malformed_amount, bad}},
+              inspect(bad)
+            )
     end
 
     test "35 to 38 significant digits convert exactly; 39 are rejected" do
@@ -286,28 +319,56 @@ defmodule Elzoo.MoneyTest do
         assert M.from_decimal(eur, d, :down) == {:ok, a}
       end
 
-      assert {:error, {:malformed_amount, _}} = M.from_decimal_string(eur, String.duplicate("9", 37) <> ".99")
+      assert {:error, {:malformed_amount, _}} =
+               M.from_decimal_string(eur, String.duplicate("9", 37) <> ".99")
     end
 
     test "from_decimal rounds a sub-minor-unit value with every declared mode" do
       eur = currency!("EUR")
       rate_total = Decimal.new(1, 861, -4)
 
-      for {mode, minor} <- [down: 8, up: 9, half_up: 9, half_down: 9, half_even: 9, ceiling: 9, floor: 8],
+      for {mode, minor} <- [
+            down: 8,
+            up: 9,
+            half_up: 9,
+            half_down: 9,
+            half_even: 9,
+            ceiling: 9,
+            floor: 8
+          ],
           do: assert({:ok, %Amount{minor_units: ^minor}} = M.from_decimal(eur, rate_total, mode))
 
       negative = Decimal.new(-1, 1005, -3)
 
-      for {mode, minor} <- [down: -100, up: -101, half_up: -101, half_down: -100, half_even: -100, ceiling: -100, floor: -101],
-          do: assert({:ok, %Amount{minor_units: ^minor}} = M.from_decimal(eur, negative, mode), "#{mode}")
+      for {mode, minor} <- [
+            down: -100,
+            up: -101,
+            half_up: -101,
+            half_down: -100,
+            half_even: -100,
+            ceiling: -100,
+            floor: -101
+          ],
+          do:
+            assert(
+              {:ok, %Amount{minor_units: ^minor}} = M.from_decimal(eur, negative, mode),
+              "#{mode}"
+            )
 
-      assert {:ok, %Amount{minor_units: 1_230_000}} = M.from_decimal(eur, Decimal.new(1, 123, 2), :down)
+      assert {:ok, %Amount{minor_units: 1_230_000}} =
+               M.from_decimal(eur, Decimal.new(1, 123, 2), :down)
     end
 
     test "the caller's Decimal context does not change any result" do
       eur = currency!("EUR")
       big = Decimal.new(1, String.to_integer(String.duplicate("7", 38)), -4)
-      inputs = [{big, :half_even}, {Decimal.new(1, 861, -4), :half_down}, {Decimal.new(-1, 1005, -3), :half_up}]
+
+      inputs = [
+        {big, :half_even},
+        {Decimal.new(1, 861, -4), :half_down},
+        {Decimal.new(-1, 1005, -3), :half_up}
+      ]
+
       default = Enum.map(inputs, fn {d, m} -> M.from_decimal(eur, d, m) end)
 
       narrow =
@@ -336,7 +397,8 @@ defmodule Elzoo.MoneyTest do
             "1.00",
             %{sign: 1, coef: 1, exp: 0}
           ],
-          do: assert({:error, {:malformed_amount, _}} = M.from_decimal(eur, bad, :down), inspect(bad))
+          do:
+            assert({:error, {:malformed_amount, _}} = M.from_decimal(eur, bad, :down), inspect(bad))
 
       assert {:error, {:malformed_amount, %{magnitude: _}}} =
                M.from_decimal(eur, %Decimal{sign: 1, coef: 1, exp: 38}, :down)
@@ -346,8 +408,26 @@ defmodule Elzoo.MoneyTest do
       eur = currency!("EUR")
 
       table = [
-        {1050, 0, [down: 1000, up: 1100, half_up: 1100, half_down: 1000, half_even: 1000, ceiling: 1100, floor: 1000]},
-        {-1050, 0, [down: -1000, up: -1100, half_up: -1100, half_down: -1000, half_even: -1000, ceiling: -1000, floor: -1100]},
+        {1050, 0,
+         [
+           down: 1000,
+           up: 1100,
+           half_up: 1100,
+           half_down: 1000,
+           half_even: 1000,
+           ceiling: 1100,
+           floor: 1000
+         ]},
+        {-1050, 0,
+         [
+           down: -1000,
+           up: -1100,
+           half_up: -1100,
+           half_down: -1000,
+           half_even: -1000,
+           ceiling: -1000,
+           floor: -1100
+         ]},
         {1150, 0, [half_even: 1200, half_down: 1100]},
         {1051, 0, [half_down: 1100, down: 1000]},
         {1005, 1, [half_even: 1000, half_up: 1010, down: 1000, up: 1010]},
@@ -356,7 +436,9 @@ defmodule Elzoo.MoneyTest do
 
       for {minor, scale, modes} <- table, {mode, expected} <- modes do
         {:ok, a} = M.from_minor_units(eur, minor)
-        assert {:ok, %Amount{minor_units: ^expected}} = M.round(a, scale, mode), "#{minor} #{scale} #{mode}"
+
+        assert {:ok, %Amount{minor_units: ^expected}} = M.round(a, scale, mode),
+               "#{minor} #{scale} #{mode}"
       end
 
       jpy = amount!("JPY", 1250)
@@ -364,7 +446,10 @@ defmodule Elzoo.MoneyTest do
       assert {:ok, %Amount{minor_units: 1300}} = M.round(jpy, -2, :half_up)
 
       a = amount!("EUR", 1005)
-      assert M.round(a, 3, :down) == {:error, {:scale_overflow, %{alpha: "EUR", exponent: 2, scale: 3}}}
+
+      assert M.round(a, 3, :down) ==
+               {:error, {:scale_overflow, %{alpha: "EUR", exponent: 2, scale: 3}}}
+
       assert {:error, {:scale_overflow, _}} = M.round(a, -19, :down)
       assert {:ok, _} = M.round(a, -18, :down)
       assert M.round(a, 1.0, :down) == {:error, {:malformed_amount, 1.0}}
@@ -372,7 +457,9 @@ defmodule Elzoo.MoneyTest do
       for bad <- [:half_odd, "half_up", nil],
           do: assert(M.round(a, 0, bad) == {:error, {:unknown_rounding_mode, bad}})
 
-      assert M.from_decimal(eur, Decimal.new(1, 1, 0), :middle) == {:error, {:unknown_rounding_mode, :middle}}
+      assert M.from_decimal(eur, Decimal.new(1, 1, 0), :middle) ==
+               {:error, {:unknown_rounding_mode, :middle}}
+
       assert M.rounding_modes() == [:down, :half_up, :half_even, :ceiling, :floor, :half_down, :up]
     end
 
@@ -400,7 +487,9 @@ defmodule Elzoo.MoneyTest do
     end
 
     test "per-call options: an unknown registry version is rejected" do
-      assert M.parse("EUR", version: "1999-01-01") == {:error, {:unknown_registry_version, "1999-01-01"}}
+      assert M.parse("EUR", version: "1999-01-01") ==
+               {:error, {:unknown_registry_version, "1999-01-01"}}
+
       assert M.parse_numeric("978", version: nil) == {:error, {:unknown_registry_version, nil}}
     end
   end
@@ -408,7 +497,11 @@ defmodule Elzoo.MoneyTest do
   describe "fixed-hundredth and Float negative controls" do
     # Wrong implementations, run through the scaling assertion used above.
     defp scaling_failures(from_string) do
-      for {code, text, minor} <- [{"JPY", "1000", 1000}, {"BHD", "1.234", 1234}, {"EUR", "1.00", 100}],
+      for {code, text, minor} <- [
+            {"JPY", "1000", 1000},
+            {"BHD", "1.234", 1234},
+            {"EUR", "1.00", 100}
+          ],
           from_string.(code, text) != {:ok, minor},
           do: code
     end
@@ -419,7 +512,8 @@ defmodule Elzoo.MoneyTest do
       end
 
       hundredth = fn _code, text ->
-        {:ok, Decimal.new(text) |> Decimal.mult(100) |> Decimal.round(0, :down) |> Decimal.to_integer()}
+        {:ok,
+         Decimal.new(text) |> Decimal.mult(100) |> Decimal.round(0, :down) |> Decimal.to_integer()}
       end
 
       assert scaling_failures(production) == []
@@ -429,7 +523,10 @@ defmodule Elzoo.MoneyTest do
     test "a Float path is caught: Float input is rejected and Float math loses minor units" do
       float_path = fn _currency, text -> {:ok, trunc(String.to_float(text) * 100)} end
       assert float_path.(:eur, "1.15") == {:ok, 114}
-      assert M.from_decimal_string(currency!("EUR"), "1.15") |> elem(1) |> Map.get(:minor_units) == 115
+
+      assert M.from_decimal_string(currency!("EUR"), "1.15") |> elem(1) |> Map.get(:minor_units) ==
+               115
+
       assert M.from_minor_units(currency!("EUR"), 1.15) == {:error, {:malformed_amount, 1.15}}
     end
   end

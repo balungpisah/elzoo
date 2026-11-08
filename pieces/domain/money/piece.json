@@ -1,0 +1,171 @@
+{
+  "schema_version": 1,
+  "id": "domain/money",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": [
+    "cure",
+    "elixir",
+    "decimal"
+  ],
+  "dependencies": [],
+  "contract": "Exact currency amounts over a closed, versioned ISO 4217 registry folded append-only from a dated, source-attributed derived extract (current list 2026-09-17, historic list 2026-01-01): a currency is a registry member with alpha code, numeric code or explicit absence, and minor-unit exponent or explicit :not_applicable/:not_recorded, plus its status and registry version; an amount is an integer count of minor units scaled by that exponent. Pure Cure same-currency add/subtract/compare/negate and ratio allocation (1..1000 non-negative integer ratios, positive sum, shares truncated toward zero, residual placed :first/:last/:spread on positive-ratio parts and reported as already placed); untrusted alpha/numeric parse distinguishes malformed from unknown; version-specific membership on every call (forged_currency); exact Decimal-string and %Decimal{} boundaries with declared rounding modes; canonical versioned codec bytes that decode to the original identity after registry updates. Typed rejections: currency_mismatch, unknown_currency, malformed_code, retired_currency, scale_overflow, malformed_amount, invalid_ratios, unknown_rounding_mode, unknown_placement, no_minor_unit, forged_currency, unknown_registry_version. No Float.",
+  "limits": [
+    "No exchange rates, locale formatting, journal posting, payment provider or usage-unit semantics; whether a posting context accepts a retired currency is domain/journal's decision.",
+    "The allocation sum (parts sum to the total), the residual bound and every Elixir boundary are finite tests, not proofs: pinned Cure 20824806 keeps native Int + and Std.Builtin.struct_eq neutral on symbolic values, and Std.Proof.IntOrder has no runtime module, so arithmetic laws take the currency and ratio-validity decisions as evidence (decision-split form). A test records that a dropped-residual copy still checks.",
+    "Registry coverage is the held extract only (ISO current list published 2026-09-17, historic list 2026-01-01, downloaded 2026-11-08); no claim that the registry is current afterwards. Identities absent from held versions are not reconstructed: codes retired before the first held version have minor unit :not_recorded and construct no amount.",
+    "The extract is derived from the SIX Group files (source URLs and SHA-256 in its header); no SIX file is committed. mix check compares the registry with the extract, not with the SIX files; fidelity rests on the recorded run of test/support/iso4217_derive_test_helper.exs --check. Redistribution terms for the extract were not verified; the main coordinator chose this option as a prudence decision reported to the owner; no legal conclusion is made.",
+    "numeric_candidates/2 is an enumeration, not a parse: historic numeric codes are reused and the Piece never chooses among them. parse_numeric/2 resolves only among codes active in the stated version.",
+    "Decimal boundaries are bounded: decimal strings at most 40 bytes and 38 significant digits; %Decimal{} coefficient at most 38 digits and exponent -38..38; |minor units| below 10^38 at those boundaries; rounding scale -18..exponent. Conversion and rounding are integer arithmetic; the process Decimal context never applies.",
+    "Membership is checked in Elixir on every public call; calling Cure.Elzoo.Money directly bypasses it. Amounts of one alpha with different identities (for example after an exponent change) are different currencies.",
+    "Persistence is the caller's Store: Codec writes bytes and makes no storage, durability or delivery claim. The integration/sql round trip is a repository test, not part of this bundle."
+  ],
+  "files": [
+    "cure/elzoo/money.cure",
+    "lib/elzoo/money.ex",
+    "lib/elzoo/money/codec.ex",
+    "lib/elzoo/money/iso4217/2026-09-17.tsv",
+    "lib/elzoo/money/registry.ex",
+    "lib/elzoo/money/registry/source.ex",
+    "test/elzoo/money_registry_test.exs",
+    "test/elzoo/money_test.exs",
+    "test/support/iso4217_derive_test_helper.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/money.cure",
+      "symbol": "add_same_currency",
+      "claim": "M1: for amounts left, right and a same-currency decision proved True, add_with returns MoneyOk of left's currency and units(left) + units(right) (decision-split form)."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/money.cure",
+      "symbol": "add_mismatch_names_both",
+      "claim": "M2: with the same-currency decision proved False, add_with returns MoneyRejected(MoneyCurrencyMismatch(currency(left), currency(right)))."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/money.cure",
+      "symbol": "subtract_same_currency",
+      "claim": "M3: with the decision True, subtract_with returns MoneyOk of left's currency and units(left) - units(right)."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/money.cure",
+      "symbol": "subtract_mismatch_names_both",
+      "claim": "M4: with the decision False, subtract_with returns the mismatch naming left and right currencies."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/money.cure",
+      "symbol": "compare_mismatch_names_both",
+      "claim": "M5: with the decision False, compare_with returns the mismatch naming left and right currencies."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/money.cure",
+      "symbol": "negate_keeps_currency",
+      "claim": "M6: for every amount, negate keeps its currency (by reduction)."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/money.cure",
+      "symbol": "invalid_ratios_rejected",
+      "claim": "M7: with the ratio-validity decision proved False, allocate_with allocates nothing (MoneyAllocationRejected(MoneyInvalidRatios))."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/money.cure",
+      "symbol": "shares_count",
+      "claim": "M8: for every currency, total, ratio list and sum, shares has exactly one part per ratio (induction on ratios)."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/money.cure",
+      "symbol": "shares_currency",
+      "claim": "M9: every share carries the allocated currency (induction on ratios)."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/money.cure",
+      "symbol": "distribute_count",
+      "claim": "M10: residual placement keeps the part count for every placement, ratio list and remaining residual (induction on parts)."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/money.cure",
+      "symbol": "distribute_currency",
+      "claim": "M11: residual placement keeps every part's currency (induction on parts)."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/money.cure",
+      "symbol": "allocate_count",
+      "claim": "M12: with the validity decision True, the production allocate_with has exactly one part per ratio for every placement."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/money.cure",
+      "symbol": "allocate_currency",
+      "claim": "M13: with the validity decision True, every part of the production allocation is in the total's currency."
+    },
+    {
+      "kind": "type",
+      "file": "cure/elzoo/money.cure",
+      "claim": "Pinned Cure checks the MoneyCurrency, MoneyAmount, MoneyResult, MoneyComparison, MoneyAllocation and MoneyAllocationResult schema and the production arithmetic with a clean audit (no axioms, holes, unresolved, unaudited, opaque or unproven-total items; every function @total). Tests reject mutated copies at the named law: an extra part (distribute_count), a share in another currency (shares_currency), an add that keeps the right currency (add_same_currency), an add that ignores the mismatch and a swapped mismatch (add_mismatch_names_both)."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/money_test.exs",
+      "claim": "Listed scenarios: exact EUR parts and residual per placement for eight totals and ratio lists including negative, zero-ratio and zero totals; JPY 1000 and BHD 1.234 allocations; bounded exhaustive allocation (totals -60..60, ratio lists of length 1..3 over 0..3, all placements: sum, count, zero-ratio parts, |part - share| <= |residual|, changed-part count) with a dropped-residual negative control; invalid ratios and placements; same-currency arithmetic and typed mismatch; a test-only C9 account fixture refusing a charge in another currency; exponent scaling for JPY, BHD, EUR, CLF, UYW with fixed-hundredth and Float negative controls; scale_overflow and malformed strings; 35..38-digit exact conversion and 39-digit rejection; every rounding mode for from_decimal and round, including a non-default caller Decimal context; malformed %Decimal{} structs; Float and wrong-type rejection at every public function. Not universal proofs."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/money_registry_test.exs",
+      "claim": "Listed scenarios over the committed extract read by an independent parser: header sources, dates and SHA-256; row counts (280 current, 169 historic, 178 active, 307 entries); every currency-bearing current row resolves by alpha and numeric to the same canonical value with its minor unit or N.A.; the 3 other current rows carry no fields; every historic row resolves by alpha with its numeric or absence and withdrawal text and appears in numeric_candidates; every entry has a source row; a synthetic next version (EUR removed, ISK exponent changed, numeric 191 reused, FIM omitted) retains entries and exponents, decodes old bytes to the original identity, and separates version-qualified numeric lookups; a deleting fold is caught; version-specific forgery and non-canonical codec bytes are rejected. Not universal proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "cure",
+      "reference": "https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89",
+      "claim": "Relies on the pinned Cure compiler, kernel, Std.Equivalent.trans and audit."
+    },
+    {
+      "kind": "upstream",
+      "provider": "decimal",
+      "reference": "https://hexdocs.pm/decimal/3.2.0/Decimal.html",
+      "claim": "Relies on the Decimal 3.2.0 struct fields (sign, coef, exp), Decimal.new/3 exact construction and the rounding-mode names; Decimal arithmetic rounds to the process context and is not used for conversion. G3 comparison with ex_money 6.3.0 is recorded in docs/work/ELZ-031-sql-probe.md; ex_money behaviour is compared, not proved."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Relies on pinned Elixir/OTP integer arithmetic (div/rem truncation), Regex and binaries, and compile-time module attributes for the registry."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The SIX Group list files of 2026-09-17 and 2026-01-01 are the ISO 4217 maintenance agency's publications, and the committed extract equals the recorded derivation run on them; callers persist Codec bytes and the registry version they were resolved under."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "Pure callable, no process; the invoking Unit or Assembly instruments. Results are caller values, not telemetry."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Per call, no default for policy choices, no hot reconfiguration: rounding mode (one of :down, :half_up, :half_even, :ceiling, :floor, :half_down, :up), rounding scale (integer -18..exponent), allocation placement (:first | :last | :spread), allocation ratios (1..1000 non-negative integers, positive sum), and options registry: (a value from Elzoo.Money.Registry.build!/1, default the compiled registry) and version: (a held version id, default the newest). The registry data is fixed per bundle revision and changes only by adding a dated extract.",
+      "evidence": [
+        "test/elzoo/money_test.exs",
+        "test/elzoo/money_registry_test.exs"
+      ]
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No lifecycle to pause, drain or resume."
+    }
+  }
+}

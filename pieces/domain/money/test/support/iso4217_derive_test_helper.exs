@@ -2,23 +2,34 @@
 # domain/money (ELZ-031): derive the factual ISO 4217 extract from the two SIX
 # list files, or check a committed extract against them.
 #
-#   elixir iso4217_derive.exs LIST_ONE LIST_THREE [--downloaded YYYY-MM-DD]
-#   elixir iso4217_derive.exs LIST_ONE LIST_THREE --check EXTRACT
+#   elixir iso4217_derive_test_helper.exs LIST_ONE LIST_THREE [--downloaded YYYY-MM-DD]
+#   elixir iso4217_derive_test_helper.exs LIST_ONE LIST_THREE --check EXTRACT
 #
 # Run with plain `elixir` (OTP :xmerl on the code path); it needs a fresh
 # download and is not part of `mix check`. Exit codes: 0 equal (or extract
 # printed); 1 a hash difference, a missing hash field or a row difference;
 # 2 unreadable input or a parse failure. Only factual fields are extracted:
-# no country or currency names.
+# no country or currency names. The file name ends in test_helper.exs so the
+# test runner ignores it (the repository and consumer test_ignore_filters).
 defmodule Elzoo.Money.ISO4217Derive do
   @base "https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/"
 
   def main(args) do
     case args do
-      [one, three, "--check", extract] -> check(one, three, extract)
-      [one, three, "--downloaded", date] -> IO.write(derive(one, three, date))
-      [one, three] -> IO.write(derive(one, three, Date.utc_today() |> Date.to_iso8601()))
-      _ -> fail(2, "usage: elixir iso4217_derive.exs LIST_ONE LIST_THREE [--downloaded DATE | --check EXTRACT]")
+      [one, three, "--check", extract] ->
+        check(one, three, extract)
+
+      [one, three, "--downloaded", date] ->
+        IO.write(derive(one, three, date))
+
+      [one, three] ->
+        IO.write(derive(one, three, Date.utc_today() |> Date.to_iso8601()))
+
+      _ ->
+        fail(
+          2,
+          "usage: elixir iso4217_derive_test_helper.exs LIST_ONE LIST_THREE [--downloaded DATE | --check EXTRACT]"
+        )
     end
   end
 
@@ -93,9 +104,27 @@ defmodule Elzoo.Money.ISO4217Derive do
   defp fields({:xmlElement, _, _, _, _, _, _, _, content, _, _, _}) do
     Enum.reduce(content, %{}, fn
       {:xmlElement, name, _, _, _, _, _, attrs, inner, _, _, _}, acc ->
-        text = inner |> Enum.map(fn {:xmlText, _, _, _, v, _} -> List.to_string(v); _ -> "" end) |> Enum.join() |> String.trim()
-        fund? = Enum.any?(attrs, fn {:xmlAttribute, :IsFund, _, _, _, _, _, _, v, _} -> List.to_string(v) in ["true", "WAHR"]; _ -> false end)
-        acc |> Map.put(Atom.to_string(name), text) |> then(&if(fund?, do: Map.put(&1, :fund, true), else: &1))
+        text =
+          inner
+          |> Enum.map(fn
+            {:xmlText, _, _, _, v, _} -> List.to_string(v)
+            _ -> ""
+          end)
+          |> Enum.join()
+          |> String.trim()
+
+        fund? =
+          Enum.any?(attrs, fn
+            {:xmlAttribute, :IsFund, _, _, _, _, _, _, v, _} ->
+              List.to_string(v) in ["true", "WAHR"]
+
+            _ ->
+              false
+          end)
+
+        acc
+        |> Map.put(Atom.to_string(name), text)
+        |> then(&if(fund?, do: Map.put(&1, :fund, true), else: &1))
 
       _, acc ->
         acc
@@ -109,8 +138,12 @@ defmodule Elzoo.Money.ISO4217Derive do
 
     for {field, file} <- [{"current_sha256", one}, {"historic_sha256", three}] do
       case header[field] do
-        nil -> fail(1, "extract header lacks #{field}")
-        expected -> if expected != sha(read!(file)), do: fail(1, "#{field} differs: extract #{expected}, file #{sha(read!(file))}")
+        nil ->
+          fail(1, "extract header lacks #{field}")
+
+        expected ->
+          if expected != sha(read!(file)),
+            do: fail(1, "#{field} differs: extract #{expected}, file #{sha(read!(file))}")
       end
     end
 
@@ -119,18 +152,28 @@ defmodule Elzoo.Money.ISO4217Derive do
 
     if header_fields(fresh) != header or old_rows != new_rows do
       diff = List.myers_difference(old_rows, new_rows) |> Enum.reject(&match?({:eq, _}, &1))
-      IO.puts("DRIFT: header equal? #{header_fields(fresh) == header}; row differences: #{inspect(diff, limit: 20)}")
+
+      IO.puts(
+        "DRIFT: header equal? #{header_fields(fresh) == header}; row differences: #{inspect(diff, limit: 20)}"
+      )
+
       System.halt(1)
     end
 
-    IO.puts("EXTRACT MATCHES: #{length(old_rows)} rows; current_sha256 #{header["current_sha256"]}; historic_sha256 #{header["historic_sha256"]}")
+    IO.puts(
+      "EXTRACT MATCHES: #{length(old_rows)} rows; current_sha256 #{header["current_sha256"]}; historic_sha256 #{header["historic_sha256"]}"
+    )
   end
 
   defp header_fields(text) do
-    for "# " <> line <- String.split(text, "\n"), [k, v] <- [String.split(line, "\t", parts: 2)], into: %{}, do: {k, v}
+    for "# " <> line <- String.split(text, "\n"),
+        [k, v] <- [String.split(line, "\t", parts: 2)],
+        into: %{},
+        do: {k, v}
   end
 
-  defp rows(text), do: text |> String.split("\n", trim: true) |> Enum.reject(&String.starts_with?(&1, "#"))
+  defp rows(text),
+    do: text |> String.split("\n", trim: true) |> Enum.reject(&String.starts_with?(&1, "#"))
 
   defp read!(path) do
     case File.read(path) do

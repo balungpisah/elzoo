@@ -22,8 +22,10 @@ defmodule Elzoo.Money.Registry.Source do
     if List.first(lines) != @format, do: raise(ArgumentError, "not a format-1 extract")
 
     header =
-      for "# " <> line <- lines, [key, value] <- [String.split(line, "\t", parts: 2)], into: %{},
-        do: {key, value}
+      for "# " <> line <- lines,
+          [key, value] <- [String.split(line, "\t", parts: 2)],
+          into: %{},
+          do: {key, value}
 
     for key <- @required,
         do: if(not is_binary(header[key]), do: raise(ArgumentError, "extract header lacks #{key}"))
@@ -91,7 +93,10 @@ defmodule Elzoo.Money.Registry.Source do
   # a withdrawal text and never a minor unit.
   defp check_row!(%{table: :current} = row, line) do
     fields = [row.alpha, row.numeric, row.minor_unit]
-    ok = (Enum.all?(fields, &(&1 != nil)) or Enum.all?(fields, &is_nil/1)) and is_nil(row.withdrawal)
+
+    ok =
+      (Enum.all?(fields, &(&1 != nil)) or Enum.all?(fields, &is_nil/1)) and is_nil(row.withdrawal)
+
     if ok, do: row, else: raise(ArgumentError, "inconsistent current row: #{inspect(line)}")
   end
 
@@ -156,7 +161,8 @@ defmodule Elzoo.Money.Registry.Source do
         case Map.get(previous, alpha) do
           %{minor_unit: minor, numeric: prior} when is_integer(minor) ->
             if numeric != nil and numeric != prior,
-              do: raise(ArgumentError, "#{alpha} numeric changed on retirement in #{extract.version}")
+              do:
+                raise(ArgumentError, "#{alpha} numeric changed on retirement in #{extract.version}")
 
             {alpha, entry(alpha, prior, minor, status, rows, false)}
 

@@ -47,7 +47,9 @@ defmodule Elzoo.Money.Codec do
           {:ok, %Amount{currency: Money.currency(entry, version), minor_units: minor}}
 
         entry || Enum.any?(registry.versions, &Registry.entry(registry, &1, alpha)) ->
-          {:error, {:forged_currency, %{version: version, alpha: alpha, numeric: numeric, exponent: exponent}}}
+          {:error,
+           {:forged_currency,
+            %{version: version, alpha: alpha, numeric: numeric, exponent: exponent}}}
 
         true ->
           {:error, {:unknown_currency, alpha}}

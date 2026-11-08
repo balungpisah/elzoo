@@ -150,8 +150,7 @@ defmodule Elzoo.Money do
 
       if byte_size(fraction) > exponent do
         {:error,
-         {:scale_overflow,
-          %{alpha: currency.alpha, exponent: exponent, scale: byte_size(fraction)}}}
+         {:scale_overflow, %{alpha: currency.alpha, exponent: exponent, scale: byte_size(fraction)}}}
       else
         bounded(
           currency,
@@ -305,6 +304,7 @@ defmodule Elzoo.Money do
 
   # A proper list of 1 to 1000 integers (improper lists and other terms fail).
   defp proper_integers?([], count), do: count in 1..@max_ratios
+
   defp proper_integers?([r | rest], count) when is_integer(r) and count < @max_ratios,
     do: proper_integers?(rest, count + 1)
 
@@ -453,6 +453,6 @@ defmodule Elzoo.Money do
 
   defp cure(%Amount{currency: c, minor_units: minor}),
     do:
-      {:MoneyAmount, {:MoneyCurrency, {:String, String.to_charlist(c.alpha)}, c.numeric, c.minor_unit},
-       minor}
+      {:MoneyAmount,
+       {:MoneyCurrency, {:String, String.to_charlist(c.alpha)}, c.numeric, c.minor_unit}, minor}
 end
