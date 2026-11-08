@@ -11,7 +11,7 @@ The repository is public and CI runs on the hosted lane. The CI guide still desc
 
 ## Scope
 
-- **Flip record** in the "Lanes" section (replaces "Planned flip"): the order that was executed and the settings read back from the GitHub API: visibility public; 0 self-hosted runners; `ELZOO_CI_LANE=hosted`; default workflow token `read` and no pull request approval by workflows; fork pull request approval policy `all_external_contributors`; branch protection on `main` has no required status checks (the coordinator removed the rule for `check-hosted` and `gleam-hosted` at about 04:05 WIB because the queue relies on a `workflow_dispatch` run, which GitHub does not count as a pull request status; ELZ-059 is the path back), no force pushes, no deletions, not enforced for administrators, no review requirement.
+- **Flip record** in the "Lanes" section (replaces "Planned flip"): the order that was executed and the settings read back from the GitHub API: visibility public; 0 self-hosted runners; `ELZOO_CI_LANE=hosted`; default workflow token `read` and no pull request approval by workflows; fork pull request approval policy `all_external_contributors`; branch protection on `main` has no required status checks (the coordinator removed the rule for `check-hosted` and `gleam-hosted` between 03:49 and 03:56 WIB (the coordinator reported about 04:05 WIB), because the queue relies on a `workflow_dispatch` run, which GitHub does not count as a pull request status; ELZ-059 is the path back), no force pushes, no deletions, not enforced for administrators, no review requirement.
 - **Fallback.** If the hosted lane fails, make the repository private again and register runners again; there is no self-hosted lane on a public repository.
 - **Measured figures** from the rehearsal in this repository (hosted run 1 cold, hosted run 2 warm, a hosted pull request run), with run and job IDs.
 - **Status notes**: the self-hosted roles section is history (all four runners were unregistered at the flip); `AGENTS.md` policy sentence in the present tense.
@@ -25,4 +25,4 @@ The repository is public and CI runs on the hosted lane. The CI guide still desc
 
 ## Limits
 
-Docs only. The settings are the ones read on 2026-11-08 at 20:49 UTC (2026-11-09 03:49 WIB); the guide does not promise they stay.
+Docs only. The settings are the ones read on 2026-11-08 at 20:49 UTC (2026-11-09 03:49 WIB); the protection row was read again at 20:56 UTC (03:56 WIB). The guide does not promise they stay.

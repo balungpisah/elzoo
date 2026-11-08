@@ -792,7 +792,7 @@ runners; both happened on that day (see "Flip record"). The repository variable 
 
 | Value | Jobs that run | Jobs that skip |
 | --- | --- | --- |
-| unset or `self` (the lane while the repository was private) | `check-fast` / `check-any`, `gleam` | `check-hosted`, `gleam-hosted` |
+| unset or `self` (the original lane) | `check-fast` / `check-any`, `gleam` | `check-hosted`, `gleam-hosted` |
 | `hosted` | `check-hosted`, `gleam-hosted` | `check-fast`, `check-any`, `gleam` |
 
 The variable appears only in the five job-level `if:` lines. `scripts/check-ci-runners.py` pins every one of
@@ -816,8 +816,10 @@ dispatches with `tier=fast`; the hosted job ignores the tier.
 **Flip record (executed by the coordinator on 2026-11-09 WIB, after hosted run 2 was green).** Order: the
 public-surface scrub (ELZ-065) was merged first; all four self-hosted runners were unregistered, because a fork can
 change a workflow file and target a runner that stays attached; the repository was made public with
-`ELZOO_CI_LANE=hosted` kept set; one verification run was dispatched on `main` (run 42521924097). Settings read back
-from the GitHub API on 2026-11-08 20:49 UTC (2026-11-09 03:49 WIB):
+`ELZOO_CI_LANE=hosted` kept set; one verification run was dispatched on `main` (run 42521924097). The coordinator
+reported the flip at about 03:40 WIB; the GitHub API does not record the time of the visibility change. Settings read
+back from the GitHub API on 2026-11-08 20:49 UTC (2026-11-09 03:49 WIB), except the protection row, which was read
+again at 20:56 UTC (03:56 WIB) after the change described below:
 
 | Setting | Value |
 | --- | --- |
@@ -826,18 +828,26 @@ from the GitHub API on 2026-11-08 20:49 UTC (2026-11-09 03:49 WIB):
 | `ELZOO_CI_LANE` | `hosted` |
 | Default workflow token | `read`; workflows cannot approve pull request reviews |
 | Fork pull request approval | `all_external_contributors` (every outside contributor needs approval before a workflow runs) |
-| Branch protection on `main` | no required status checks (since about 04:05 WIB on 2026-11-09, see below); no force pushes; no deletions; not enforced for administrators; no review requirement |
+| Branch protection on `main` | no required status checks (removed between 03:49 and 03:56 WIB on 2026-11-09, see below); no force pushes; no deletions; not enforced for administrators; no review requirement |
 
 A later change removes the self-hosted jobs, the runner roles above and this table.
 
-**Branch protection change (about 04:05 WIB on 2026-11-09).** At the flip, branch protection required `check-hosted` and
-`gleam-hosted`. The coordinator removed that rule a short time later. The merge queue cancels the duplicate
-`pull_request` run and relies on a `workflow_dispatch` run on the exact head as evidence, and GitHub does not count a
-`workflow_dispatch` run as a status of the pull request, so a queue merge of PR #122 was refused with "the base branch
-policy prohibits the merge". Until ELZ-059 (#99) makes the `pull_request` run the evidence that the queue adopts, `main`
+**Branch protection change (2026-11-09, between 03:49 and 03:56 WIB).** At the flip, branch protection required
+`check-hosted` and `gleam-hosted` (read at 20:49 UTC). The coordinator removed that rule a short time later; the protection read at 20:56 UTC
+(03:56 WIB) shows no required checks. The coordinator reported "about 04:05 WIB" for the removal; the API shows no
+later time and does not record the removal itself. PR #122 was merged at 20:52:00 UTC (03:52 WIB); the API does not
+show whether the rule was already gone then (administrators are not enforced). The
+reason, as the coordinator reported it (the refusal is not recorded in the pull request timeline): the merge queue
+cancels the duplicate `pull_request` run and relies on a `workflow_dispatch` run on the exact head as evidence, and
+GitHub does not count a `workflow_dispatch` run as a status of the pull request, so the queue's merge of PR #122 was
+refused with "the base branch policy prohibits the merge". Until ELZ-059 (#99) makes the `pull_request` run the evidence that the queue adopts, `main`
 has no required checks: the merge queue and its evidence rules are the only gate, and a person with write access can push
 or merge without them (administrators are not enforced either way). ELZ-059 is the path back to required `check-hosted`
 and `gleam-hosted`.
+
+**Organisation runners.** The organisation `balungpisah` still has 2 offline self-hosted runners in its Default runner
+group. The group does not allow public repositories (`allows_public_repositories: false`), which keeps them away from this
+repository. Do not switch that setting on.
 
 **Fallback.** If the hosted lane fails and cannot be repaired quickly, make the repository private again and register
 self-hosted runners again, then set `ELZOO_CI_LANE` to `self`. Do not set `self` on a public repository: there is no
@@ -866,19 +876,21 @@ All hosted jobs ran on `ubuntu-24.04`. The backend job reported `BEAM schedulers
 | Run 2, same commit: run 42520133125 | `check-hosted` 128851610565 | warm | 18 min 38 s | 2 s | 17 min 28 s | 932.0 s | 642 passed, `ELZOO CHECK PASSED` |
 | Verification run after the flip, dispatch on `main`: run 42521924097 | `check-hosted` 128857085850 | warm | 13 min 39 s | 2 s | 12 min 46 s | 695.2 s | passed, `ELZOO CHECK PASSED` |
 | Pull request check of PR #123 (affected mode): run 42518583815 | `check-hosted` 128846911946 | dependency cache warm | 22 min 19 s | 5 s | 21 min 5 s | 1132.7 s | passed (`ELZOO AFFECTED CHECK PASSED`) |
-| Run 1 and run 2 Gleam: runs 42517027888, 42520136422 | `gleam-hosted` 128842186520, 128851620715 | none | 59 s, 60 s | | `./scripts/check.sh` 7 s | | passed |
+| Run 1 and run 2 Gleam: runs 42517027888, 42520136422 | `gleam-hosted` 128842186520, 128851620715 | none | 59 s, 60 s | | `./scripts/check.sh` 7 s and 5 s | | passed |
 
 The S3 test server step took 1 s in all three dispatch runs (restore of the pinned binary 1 s on a cache hit; the cold run
 saved it in 2 s). Before `mix setup` the cold run spent 1 min 26 s on the job start, service containers, runner
-identity gate, libraries, PostgreSQL role and database, checkout, five test scripts and the decision step. The
+identity gate, host report, libraries, PostgreSQL role and database, checkout, six check and test scripts, the decision
+step, the S3 steps, setup-beam, the BEAM report, the dependency cache restore and `mix local.hex`/`mix local.rebar`. The
 root suite took 1139.0 s, 932.0 s and 695.2 s in the three full runs on the same commit, so expect a wide spread (the fastest was 61 percent of the slowest).
 A job started 3 s after its dispatch (run 2). The Contabo and MacBook sections above hold the self-hosted figures; they were measured
 in different modes and are not directly comparable.
 
-**Limits.** The first two rows come from the rehearsal in the private repository, the third from the first run after the
-flip, all on the same commit of `main` (48462d4); a public repository may differ. `http_job_test.exs:472` ("real Oban job completion and cancellation are job
-control, not provider rollback") failed once in run 1 and passed in run 2 on the same commit: it is timing-dependent,
-not a lane defect. Hosted minutes are free for public repositories. Self-hosted runners must never stay attached
+**Limits.** The first two rows come from the rehearsal before the flip (the repository was private, as the coordinator
+reported; the API does not record the time of the change), the third from the first run after the flip, all on the same
+commit of `main` (48462d4); a public repository may differ. `http_job_test.exs:472` ("real Oban job completion and cancellation are job
+control, not provider rollback") failed once in run 1 and passed in run 2 on the same commit: it looks timing-dependent
+(one failure and two passes; not measured further) and not like a lane defect. Hosted minutes are free for public repositories. Self-hosted runners must never stay attached
 to a public repository.
 
 ## Disposable S3 test server (ELZ-064)
