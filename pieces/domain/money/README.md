@@ -32,7 +32,12 @@ version, alpha, numeric, exponent, minor units. `Elzoo.Money.Registry` holds
 the compiled registry and `build!/1` for other extract sets.
 
 Options on every call: `registry:` (default the compiled registry) and
-`version:` (default the newest held version).
+`version:`. For `parse` and `parse_numeric`, `version:` selects the version to
+resolve under (default the newest held version); for `numeric_candidates` it
+limits the enumeration to that version; for every function that takes a
+currency, an amount or codec bytes it is a check: each value must belong to that
+version, else `forged_currency`. A `version:` the registry does not hold is
+`unknown_registry_version`.
 
 ### Rejections
 
@@ -58,7 +63,10 @@ Options on every call: `registry:` (default the compiled registry) and
   stays `:not_applicable`. A historic-only code is retired with its latest
   withdrawal text verbatim, and keeps an exponent recorded by a prior version,
   else `:not_recorded`. A code known before and absent from a new version is
-  retained as retired. No entry is ever removed. Active numeric codes are unique
+  retained as retired. A code that was active before and is retired now takes
+  its withdrawal text only from historic rows the earlier version did not hold;
+  without such a row it is `{:retired, :not_recorded}`, never an older
+  country-level date. No entry is ever removed. Active numeric codes are unique
   within a version.
 - **Identity and membership.** Two amounts are the same currency when
   `{alpha, numeric, minor_unit}` are equal. A `%Currency{}` also carries its

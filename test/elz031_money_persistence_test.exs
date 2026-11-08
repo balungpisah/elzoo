@@ -131,6 +131,6 @@ defmodule Elzoo.Elz031MoneyPersistenceTest do
     assert {:ok, [stored], _} = Postgres.read(store, "replay", 1, 10)
     assert {:ok, replayed} = Codec.decode(stored.payload, registry: later)
     assert replayed == from_units
-    assert M.current_status(replayed.currency, registry: later) == {:ok, {:retired, "2006-10"}}
+    assert M.current_status(replayed.currency, registry: later) == {:ok, {:retired, :not_recorded}}
   end
 end

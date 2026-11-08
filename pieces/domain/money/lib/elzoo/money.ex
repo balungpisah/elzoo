@@ -17,7 +17,12 @@ defmodule Elzoo.Money do
 
   Options (per call; no default changes at runtime): `registry:` a registry
   value (default `Elzoo.Money.Registry.default/0`); `version:` a held registry
-  version id (default the newest held version).
+  version id. For `parse/2` and `parse_numeric/2` it selects the version to
+  resolve under (default the newest held version); for `numeric_candidates/2`
+  it limits the enumeration to that version. For every function that takes a
+  currency or amount it is a check: each value must be the member at that
+  version, else `forged_currency`. A `version:` the registry does not hold is
+  always `unknown_registry_version`.
   """
   alias Elzoo.Money.Registry
 
@@ -91,13 +96,17 @@ defmodule Elzoo.Money do
   in alpha order. It never chooses among reused codes.
   """
   def numeric_candidates(text, opts \\ []) do
-    registry = Keyword.get(opts, :registry, Registry.default())
+    with {:ok, registry, requested} <- scope(opts) do
+      candidates(registry, if(requested, do: [requested], else: registry.versions), text)
+    end
+  end
 
+  defp candidates(registry, versions, text) do
     if is_binary(text) and Regex.match?(~r/\A[0-9]{3}\z/, text) do
       n = String.to_integer(text)
 
       links =
-        for version <- registry.versions,
+        for version <- versions,
             {alpha, entry} <- registry.snapshots[version],
             entry.numeric == n or Enum.any?(entry.rows, &(&1.numeric == n)),
             do: {alpha, version}
@@ -114,9 +123,8 @@ defmodule Elzoo.Money do
 
   @doc "The status of the currency's code in the newest held version."
   def current_status(currency, opts \\ []) do
-    registry = Keyword.get(opts, :registry, Registry.default())
-
-    with :ok <- member(registry, currency) do
+    with {:ok, registry, requested} <- scope(opts),
+         :ok <- member(registry, currency, requested) do
       {:ok, Registry.entry(registry, Registry.latest(registry), currency.alpha).status}
     end
   end
@@ -125,9 +133,8 @@ defmodule Elzoo.Money do
 
   @doc "An amount of `minor_units` (an integer) in a registry currency."
   def from_minor_units(currency, minor_units, opts \\ []) do
-    registry = Keyword.get(opts, :registry, Registry.default())
-
-    with :ok <- member(registry, currency),
+    with {:ok, registry, requested} <- scope(opts),
+         :ok <- member(registry, currency, requested),
          :ok <- scalable(currency) do
       if is_integer(minor_units),
         do: {:ok, %Amount{currency: currency, minor_units: minor_units}},
@@ -141,9 +148,8 @@ defmodule Elzoo.Money do
   finer than the exponent is `scale_overflow`. No Decimal context is used.
   """
   def from_decimal_string(currency, text, opts \\ []) do
-    registry = Keyword.get(opts, :registry, Registry.default())
-
-    with :ok <- member(registry, currency),
+    with {:ok, registry, requested} <- scope(opts),
+         :ok <- member(registry, currency, requested),
          :ok <- scalable(currency),
          {:ok, sign, digits, fraction} <- decimal_text(text) do
       exponent = currency.minor_unit
@@ -184,9 +190,8 @@ defmodule Elzoo.Money do
   Decimal context never applies.
   """
   def from_decimal(currency, decimal, mode, opts \\ []) do
-    registry = Keyword.get(opts, :registry, Registry.default())
-
-    with :ok <- member(registry, currency),
+    with {:ok, registry, requested} <- scope(opts),
+         :ok <- member(registry, currency, requested),
          :ok <- scalable(currency),
          :ok <- mode(mode),
          {:ok, sign, coefficient, exp} <- decimal_fields(decimal) do
@@ -227,10 +232,9 @@ defmodule Elzoo.Money do
 
   @doc "`:lt`, `:eq` or `:gt` for same-currency amounts."
   def compare(left, right, opts \\ []) do
-    registry = Keyword.get(opts, :registry, Registry.default())
-
-    with :ok <- amount(registry, left),
-         :ok <- amount(registry, right) do
+    with {:ok, registry, requested} <- scope(opts),
+         :ok <- amount(registry, left, requested),
+         :ok <- amount(registry, right, requested) do
       case apply(@cure, :compare, [cure(left), cure(right)]) do
         {:MoneyCompared, :MoneyLess} -> {:ok, :lt}
         {:MoneyCompared, :MoneyEqual} -> {:ok, :eq}
@@ -242,19 +246,17 @@ defmodule Elzoo.Money do
 
   @doc "The amount with the opposite sign."
   def negate(value, opts \\ []) do
-    registry = Keyword.get(opts, :registry, Registry.default())
-
-    with :ok <- amount(registry, value) do
+    with {:ok, registry, requested} <- scope(opts),
+         :ok <- amount(registry, value, requested) do
       {:MoneyAmount, _, minor} = apply(@cure, :negate, [cure(value)])
       {:ok, %Amount{value | minor_units: minor}}
     end
   end
 
   defp binary(operation, left, right, opts) do
-    registry = Keyword.get(opts, :registry, Registry.default())
-
-    with :ok <- amount(registry, left),
-         :ok <- amount(registry, right) do
+    with {:ok, registry, requested} <- scope(opts),
+         :ok <- amount(registry, left, requested),
+         :ok <- amount(registry, right, requested) do
       case apply(@cure, operation, [cure(left), cure(right)]) do
         {:MoneyOk, {:MoneyAmount, _, minor}} -> {:ok, %Amount{left | minor_units: minor}}
         {:MoneyRejected, {:MoneyCurrencyMismatch, _, _}} -> mismatch(left, right)
@@ -274,9 +276,8 @@ defmodule Elzoo.Money do
   already inside the parts.
   """
   def allocate(total, ratios, placement, opts \\ []) do
-    registry = Keyword.get(opts, :registry, Registry.default())
-
-    with :ok <- amount(registry, total),
+    with {:ok, registry, requested} <- scope(opts),
+         :ok <- amount(registry, total, requested),
          :ok <- ratios(ratios),
          {:ok, cure_placement} <- placement(placement) do
       case apply(@cure, :allocate, [cure(total), ratios, cure_placement]) do
@@ -322,9 +323,8 @@ defmodule Elzoo.Money do
   declared mode; the result stays in minor units of the same currency.
   """
   def round(value, scale, mode, opts \\ []) do
-    registry = Keyword.get(opts, :registry, Registry.default())
-
-    with :ok <- amount(registry, value),
+    with {:ok, registry, requested} <- scope(opts),
+         :ok <- amount(registry, value, requested),
          :ok <- mode(mode),
          :ok <- scale(value.currency, scale) do
       factor = Integer.pow(10, value.currency.minor_unit - scale)
@@ -344,9 +344,8 @@ defmodule Elzoo.Money do
 
   @doc "The exact `%Decimal{}` value (`Decimal.new/3`; no context applies)."
   def to_decimal(value, opts \\ []) do
-    registry = Keyword.get(opts, :registry, Registry.default())
-
-    with :ok <- amount(registry, value) do
+    with {:ok, registry, requested} <- scope(opts),
+         :ok <- amount(registry, value, requested) do
       sign = if value.minor_units < 0, do: -1, else: 1
       {:ok, Decimal.new(sign, abs(value.minor_units), -value.currency.minor_unit)}
     end
@@ -354,9 +353,8 @@ defmodule Elzoo.Money do
 
   @doc ~S|The decimal string: `JPY 1000` is "1000", `BHD 1234` is "1.234".|
   def to_decimal_string(value, opts \\ []) do
-    registry = Keyword.get(opts, :registry, Registry.default())
-
-    with :ok <- amount(registry, value) do
+    with {:ok, registry, requested} <- scope(opts),
+         :ok <- amount(registry, value, requested) do
       exponent = value.currency.minor_unit
       digits = value.minor_units |> abs() |> Integer.to_string()
       sign = if value.minor_units < 0, do: "-", else: ""
@@ -397,6 +395,22 @@ defmodule Elzoo.Money do
 
   # ── membership and translation ──────────────────────────────────────────
 
+  # Options of value functions: an explicit `version:` must be held, and every
+  # currency argument must be the member at that version (else forged_currency).
+  defp scope(opts) do
+    registry = Keyword.get(opts, :registry, Registry.default())
+
+    case Keyword.fetch(opts, :version) do
+      :error ->
+        {:ok, registry, nil}
+
+      {:ok, version} ->
+        if is_binary(version) and Registry.held?(registry, version),
+          do: {:ok, registry, version},
+          else: {:error, {:unknown_registry_version, version}}
+    end
+  end
+
   defp context(opts) do
     registry = Keyword.get(opts, :registry, Registry.default())
     version = Keyword.get(opts, :version, Registry.latest(registry))
@@ -421,7 +435,14 @@ defmodule Elzoo.Money do
   equal identity and equal status. Otherwise `forged_currency`, or
   `unknown_registry_version` for a version this registry does not hold.
   """
-  def member(registry, %Currency{version: version, alpha: alpha} = c) when is_binary(version) do
+  def member(registry, currency, requested \\ nil)
+
+  def member(_registry, %Currency{version: version} = c, requested)
+      when is_binary(requested) and requested != version,
+      do: {:error, {:forged_currency, c}}
+
+  def member(registry, %Currency{version: version, alpha: alpha} = c, _requested)
+      when is_binary(version) do
     cond do
       not Registry.held?(registry, version) ->
         {:error, {:unknown_registry_version, version}}
@@ -434,7 +455,7 @@ defmodule Elzoo.Money do
     end
   end
 
-  def member(_registry, other), do: {:error, {:forged_currency, other}}
+  def member(_registry, other, _requested), do: {:error, {:forged_currency, other}}
 
   defp scalable(%Currency{minor_unit: minor, numeric: numeric})
        when is_integer(minor) and is_integer(numeric),
@@ -445,11 +466,12 @@ defmodule Elzoo.Money do
 
   defp scalable(%Currency{alpha: alpha}), do: {:error, {:retired_currency, alpha}}
 
-  defp amount(registry, %Amount{currency: currency, minor_units: minor}) when is_integer(minor) do
-    with :ok <- member(registry, currency), do: scalable(currency)
+  defp amount(registry, %Amount{currency: currency, minor_units: minor}, requested)
+       when is_integer(minor) do
+    with :ok <- member(registry, currency, requested), do: scalable(currency)
   end
 
-  defp amount(_registry, other), do: {:error, {:malformed_amount, other}}
+  defp amount(_registry, other, _requested), do: {:error, {:malformed_amount, other}}
 
   defp cure(%Amount{currency: c, minor_units: minor}),
     do:

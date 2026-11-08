@@ -205,7 +205,7 @@ defmodule Elzoo.MoneyRegistryTest do
       assert r.versions == [@v1, @v2]
       assert {:ok, eur2} = M.parse("EUR", registry: r)
 
-      assert %Currency{minor_unit: 2, numeric: 978, status: {:retired, "2006-10"}, version: @v2} =
+      assert %Currency{minor_unit: 2, numeric: 978, status: {:retired, :not_recorded}, version: @v2} =
                eur2
 
       assert {:ok, %Amount{minor_units: 100}} = M.from_minor_units(eur2, 100, registry: r)
@@ -223,7 +223,7 @@ defmodule Elzoo.MoneyRegistryTest do
       assert bytes == "elzoo-money/1 2026-09-17 EUR 978 2 12345"
       assert Codec.decode(bytes, registry: r) == {:ok, amount}
       assert Codec.decode(bytes) == {:ok, amount}
-      assert M.current_status(eur1, registry: r) == {:ok, {:retired, "2006-10"}}
+      assert M.current_status(eur1, registry: r) == {:ok, {:retired, :not_recorded}}
 
       {:ok, isk1} = M.parse("ISK", version: @v1, registry: r)
       {:ok, isk2} = M.parse("ISK", version: @v2, registry: r)
@@ -241,6 +241,68 @@ defmodule Elzoo.MoneyRegistryTest do
       {:ok, eur2} = M.parse("EUR", registry: r)
       {:ok, later} = M.from_minor_units(eur2, 5, registry: r)
       assert {:ok, %Amount{minor_units: 12350}} = M.add(amount, later, registry: r)
+    end
+
+    test "a newly retired code takes its withdrawal only from new historic rows" do
+      r = folded()
+      # EUR's only historic row (a country-level withdrawal) was already held
+      # while EUR was active; it is not the code's retirement date.
+      assert Registry.entry(r, @v1, "EUR").status == :active
+      assert {:ok, %Currency{status: {:retired, :not_recorded}}} = M.parse("EUR", registry: r)
+
+      with_row =
+        next_version() <> "\nhistoric\tEUR\t978\t\t2026-12\tfalse\n"
+
+      r2 = Registry.build!([with_row, @extract])
+      assert {:ok, %Currency{status: {:retired, "2026-12"}}} = M.parse("EUR", registry: r2)
+      # A code already retired keeps the latest of all its rows.
+      assert {:ok, %Currency{status: {:retired, "2023-01"}}} = M.parse("HRK", registry: r2)
+    end
+
+    test "an explicit version option is validated by every value function" do
+      r = folded()
+      {:ok, eur1} = M.parse("EUR", version: @v1, registry: r)
+      {:ok, amount} = M.from_minor_units(eur1, 100, registry: r)
+      {:ok, bytes} = Codec.encode(amount, registry: r)
+      unheld = [registry: r, version: "2030-01-01"]
+      other = [registry: r, version: @v2]
+      same = [registry: r, version: @v1]
+
+      for opts <- [unheld, [registry: r, version: nil]] do
+        expected = {:error, {:unknown_registry_version, Keyword.fetch!(opts, :version)}}
+        assert M.from_minor_units(eur1, 100, opts) == expected
+        assert M.from_decimal_string(eur1, "1.00", opts) == expected
+        assert M.from_decimal(eur1, Decimal.new(1, 1, 0), :down, opts) == expected
+        assert M.add(amount, amount, opts) == expected
+        assert M.subtract(amount, amount, opts) == expected
+        assert M.compare(amount, amount, opts) == expected
+        assert M.negate(amount, opts) == expected
+        assert M.allocate(amount, [1, 1], :first, opts) == expected
+        assert M.round(amount, 0, :down, opts) == expected
+        assert M.to_decimal(amount, opts) == expected
+        assert M.to_decimal_string(amount, opts) == expected
+        assert M.current_status(eur1, opts) == expected
+        assert M.numeric_candidates("978", opts) == expected
+        assert Codec.encode(amount, opts) == expected
+        assert Codec.decode(bytes, opts) == expected
+      end
+
+      forged = {:error, {:forged_currency, eur1}}
+      assert M.from_minor_units(eur1, 100, other) == forged
+      assert M.add(amount, amount, other) == forged
+      assert M.allocate(amount, [1, 1], :first, other) == forged
+      assert M.round(amount, 0, :down, other) == forged
+      assert M.to_decimal_string(amount, other) == forged
+      assert M.current_status(eur1, other) == forged
+      assert Codec.encode(amount, other) == forged
+      assert {:error, {:forged_currency, %{version: @v1}}} = Codec.decode(bytes, other)
+
+      assert {:ok, %Amount{minor_units: 200}} = M.add(amount, amount, same)
+      assert Codec.decode(bytes, same) == {:ok, amount}
+      assert {:ok, ^bytes} = Codec.encode(amount, same)
+
+      assert M.numeric_candidates("191", registry: r, version: @v1) ==
+               {:ok, [%{alpha: "HRD", versions: [@v1]}, %{alpha: "HRK", versions: [@v1]}]}
     end
 
     test "version-qualified active lookup distinguishes reused numeric codes" do
@@ -319,7 +381,7 @@ defmodule Elzoo.MoneyRegistryTest do
         %{isk2 | version: @v1},
         %{isk1 | version: @v2},
         %{eur2 | status: :active},
-        %{eur1 | status: {:retired, "2006-10"}},
+        %{eur1 | status: {:retired, :not_recorded}},
         %{eur1 | numeric: 999},
         %{eur1 | minor_unit: 3},
         %{eur1 | alpha: "USD"}

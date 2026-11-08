@@ -125,7 +125,7 @@
     {
       "kind": "test",
       "file": "test/elzoo/money_registry_test.exs",
-      "claim": "Listed scenarios over the committed extract read by an independent parser: header sources, dates and SHA-256; row counts (280 current, 169 historic, 178 active, 307 entries); every currency-bearing current row resolves by alpha and numeric to the same canonical value with its minor unit or N.A.; the 3 other current rows carry no fields; every historic row resolves by alpha with its numeric or absence and withdrawal text and appears in numeric_candidates; every entry has a source row; a synthetic next version (EUR removed, ISK exponent changed, numeric 191 reused, FIM omitted) retains entries and exponents, decodes old bytes to the original identity, and separates version-qualified numeric lookups; a deleting fold is caught; version-specific forgery and non-canonical codec bytes are rejected. Not universal proofs."
+      "claim": "Listed scenarios over the committed extract read by an independent parser: header sources, dates and SHA-256; row counts (280 current, 169 historic, 178 active, 307 entries); every currency-bearing current row resolves by alpha and numeric to the same canonical value with its minor unit or N.A.; the 3 other current rows carry no fields; every historic row resolves by alpha with its numeric or absence and withdrawal text and appears in numeric_candidates; every entry has a source row; a synthetic next version (EUR removed, ISK exponent changed, numeric 191 reused, FIM omitted) retains entries and exponents, decodes old bytes to the original identity, and separates version-qualified numeric lookups, and gives a newly retired code a withdrawal only from new historic rows (else :not_recorded); an explicit version option is validated by every value function and the codec; a deleting fold is caught; version-specific forgery and non-canonical codec bytes are rejected. Not universal proofs."
     },
     {
       "kind": "upstream",
@@ -157,7 +157,7 @@
     },
     "config": {
       "status": "supported",
-      "contract": "Per call, no default for policy choices, no hot reconfiguration: rounding mode (one of :down, :half_up, :half_even, :ceiling, :floor, :half_down, :up), rounding scale (integer -18..exponent), allocation placement (:first | :last | :spread), allocation ratios (1..1000 non-negative integers, positive sum), and options registry: (a value from Elzoo.Money.Registry.build!/1, default the compiled registry) and version: (a held version id, default the newest). The registry data is fixed per bundle revision and changes only by adding a dated extract.",
+      "contract": "Per call, no default for policy choices, no hot reconfiguration: rounding mode (one of :down, :half_up, :half_even, :ceiling, :floor, :half_down, :up), rounding scale (integer -18..exponent), allocation placement (:first | :last | :spread), allocation ratios (1..1000 non-negative integers, positive sum), and options registry: (a value from Elzoo.Money.Registry.build!/1, default the compiled registry) and version: (a held version id: selects the version for parse and parse_numeric, default the newest; limits numeric_candidates; for every function taking a currency, amount or codec bytes it must equal each value's version, else forged_currency; an unheld version is unknown_registry_version). The registry data is fixed per bundle revision and changes only by adding a dated extract.",
       "evidence": [
         "test/elzoo/money_test.exs",
         "test/elzoo/money_registry_test.exs"

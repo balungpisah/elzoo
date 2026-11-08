@@ -8,6 +8,8 @@ defmodule Elzoo.Money.Registry.Source do
   (ELZ-031 proposal §3.3–3.5): every current row with a code gives an active
   identity; `N.A.` stays `:not_applicable`; a historic-only code is retired and
   keeps an exponent recorded by a prior version, else `:not_recorded`; a code
+  that was active before takes its withdrawal only from new historic rows, else
+  `:not_recorded`; a code
   known before and absent now is retained as retired; no entry is ever removed;
   active numeric codes are unique within a version.
   """
@@ -156,7 +158,7 @@ defmodule Elzoo.Money.Registry.Source do
             _ -> raise ArgumentError, "historic rows of #{alpha} disagree in #{extract.version}"
           end
 
-        status = {:retired, latest_withdrawal(rows)}
+        status = retirement(Map.get(previous, alpha), rows)
 
         case Map.get(previous, alpha) do
           %{minor_unit: minor, numeric: prior} when is_integer(minor) ->
@@ -184,6 +186,19 @@ defmodule Elzoo.Money.Registry.Source do
     if missing != [], do: raise(ArgumentError, "fold would delete #{inspect(missing)}")
     snapshot
   end
+
+  # A code active in the previous version and retired now takes its withdrawal
+  # only from historic rows the previous version did not already hold (those
+  # older rows are country-level withdrawals of a still-active code). Without new
+  # evidence the withdrawal is :not_recorded, never an older row's date.
+  defp retirement(%{status: :active, rows: prior_rows}, rows) do
+    case rows -- Enum.filter(prior_rows, &(&1.table == :historic)) do
+      [] -> {:retired, :not_recorded}
+      fresh -> {:retired, latest_withdrawal(fresh)}
+    end
+  end
+
+  defp retirement(_previous, rows), do: {:retired, latest_withdrawal(rows)}
 
   defp entry(alpha, numeric, minor, status, rows, retained),
     do: %{

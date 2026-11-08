@@ -18,9 +18,7 @@ defmodule Elzoo.Money.Codec do
 
   @doc "Encode a registry-member amount."
   def encode(amount, opts \\ []) do
-    registry = Keyword.get(opts, :registry, Registry.default())
-
-    with {:ok, _} <- Money.to_decimal(amount, registry: registry) do
+    with {:ok, _} <- Money.to_decimal(amount, opts) do
       c = amount.currency
       numeric = c.numeric |> Integer.to_string() |> String.pad_leading(3, "0")
       {:ok, Enum.join([@tag, c.version, c.alpha, numeric, c.minor_unit, amount.minor_units], " ")}
@@ -29,19 +27,31 @@ defmodule Elzoo.Money.Codec do
 
   @doc """
   Decode canonical bytes. Wrong shape or a non-canonical integer is
-  `malformed_amount`; a version not held is `unknown_registry_version`; an
+  `malformed_amount`; a version not held (in the bytes or as an explicit
+  `version:` option) is `unknown_registry_version`; bytes of another version than
+  an explicit `version:` are `forged_currency`; an
   alpha held in no version is `unknown_currency`; an identity that is not the
   one in effect at the stated version is `forged_currency`.
   """
   def decode(bytes, opts \\ []) do
     registry = Keyword.get(opts, :registry, Registry.default())
+    requested = Keyword.get(opts, :version)
 
     with {:ok, version, alpha, numeric, exponent, minor} <- fields(bytes) do
       entry = Registry.entry(registry, version, alpha)
 
       cond do
+        Keyword.has_key?(opts, :version) and
+            not (is_binary(requested) and Registry.held?(registry, requested)) ->
+          {:error, {:unknown_registry_version, requested}}
+
         not Registry.held?(registry, version) ->
           {:error, {:unknown_registry_version, version}}
+
+        requested != nil and requested != version ->
+          {:error,
+           {:forged_currency,
+            %{version: version, alpha: alpha, numeric: numeric, exponent: exponent}}}
 
         entry && entry.numeric == numeric && entry.minor_unit == exponent ->
           {:ok, %Amount{currency: Money.currency(entry, version), minor_units: minor}}
