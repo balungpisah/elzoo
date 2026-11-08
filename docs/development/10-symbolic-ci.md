@@ -749,6 +749,41 @@ browser URL works again. Without `GITHUB_TOKEN` the unauthenticated API rate lim
 address) applies. A changed pin (new Gleam version) needs new asset IDs, sizes and hashes in the script, this
 table and the README. Platforms other than the four above stay unsupported.
 
+### Per-test limits of two slow tests (ELZ-062)
+
+Owner approval 2026-11-08 ("1.", relayed by the coordinator): raise the per-test limit of the two tests that timed out on
+`contabo-elzoo-1` to 300 s, so that machine can take `any`-tier runs. Time limits only: no assertion, scenario or proof
+changed, and no other limit changed (not the 120 s default in `test/test_helper.exs`, not the 240 s of the concurrent
+consumer groups, not the inner consumer limits).
+
+- `pieces/workflow/approval/test/elzoo/approval_test.exs`: `@tag timeout: 300_000` on "negative control: dropping g_self
+  from the gate list is rejected inside self_approval_refused" (a Cure proof check).
+- `test/export_test.exs`: `Elzoo.CureConsumerCase.consumer_tests/2` takes one `timeout:` for all IDs of a call, so the three
+  PostgreSQL consumers are defined by two calls: `integration/sql` and `integration/jobs` keep 120 s, `assembly/durable-job`
+  gets `timeout: 300_000`. The selection test "affected selection only filters the existing consumer tests" asserts the
+  limits exactly (120 s, 300 s for `assembly/durable-job` in `Elzoo.ExportTest`, 240 s for the concurrent groups); it was
+  updated for the one new value and fails if that value or an ID's limit is wrong (checked locally by expecting 120 s).
+
+Measured basis. CI logs print no per-test times, so a measurement branch (`measure/ELZ-062`, never merged) ran the full root
+suite as `mix check` does in full mode with `--slowest 60` and every per-test limit raised to 900 s, one run per machine on
+the same tree (`main` at `f4e3283`):
+
+| Test | `symbolic-elzoo` | `macbook-ubuntu-elzoo-candidate` | `contabo-elzoo-1` (8 cores) |
+|---|---|---|---|
+| approval negative control | 39.1 s | 45.3 s | 93.1 s |
+| `assembly/durable-job` consumer | 77.6 s | 91.3 s | 128.7 s |
+| `integration/sql` consumer | 18.8 s | 26.1 s | 52.8 s |
+| `integration/jobs` consumer | 13.9 s | 17.0 s | 37.6 s |
+| root suite | 1266.5 s | 1492.2 s | 3136.7 s |
+
+Runs 42500718766, 42497402091 and 42497486307 (jobs 128792642738, 128782613975, 128782875563). On Contabo the approval test
+exceeded 120 s in the two earlier full runs (42484236992 and 42492726966) and took 93.1 s here, so the spread on one
+machine is large; 300 s is 2.3 times the slowest measured time (128.7 s) and 3.2 times the approval test's 93.1 s. It is a
+margin, not a performance target. A hung test now costs up to 300 s instead of 120 s before it fails. The measurement
+runs of that branch failed two tests each, as expected there (the selection test's 120 s expectation and the test that reads
+`scripts/run-ci-check.sh`, which the branch changes). Host readings on Contabo: no throttling in 99 samples, host load
+average (1 minute) at most 2.94, cgroup memory peak 2.89 GB; peaks on the fast runners 3.45 GB (symbolic) and 2.75 GB (MacBook).
+
 ## Operation and rollback
 
 ```sh
