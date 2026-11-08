@@ -1,0 +1,10 @@
+{
+  "revision": "907c37f02ed857b4e83d55fb3a9929f3525e8419",
+  "git_status_short": "",
+  "lock_sha256": {
+    "mix.lock": "811e488854018dafb4faea12b53a86f0c4a397e6a36b35b3a574144017afe1ca",
+    "spikes/ash_foundation/mix.lock": "59205712ef298d42be4430d3f61b1c56c4da5cda3fed30f6cf6aba37da77c830"
+  },
+  "cure_revision": "208248063d64e621782cd26dd30698ee42850a89",
+  "cure_git_status_short": ""
+}

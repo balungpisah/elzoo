@@ -1,0 +1,181 @@
+Selected verbatim lines from post-merge-check.log; full log SHA256 0d84d20f2d7c9ccc242803c0cee314ea1217d7423a1cd906256d223f4b981992
+Not a complete log; line numbers refer to the full retained local log.
+
+1: Cure sources unchanged (fingerprint 8e592ae4cdcd); skipping 29 modules
+2: ELZOO STAGE format start utc=2026-11-08T12:26:21.357115Z elapsed=0.0
+3: ELZOO STAGE format end utc=2026-11-08T12:26:21.484178Z elapsed=0.1
+4: ELZOO STAGE compile start utc=2026-11-08T12:26:21.484326Z elapsed=0.1
+5: ELZOO STAGE compile end utc=2026-11-08T12:26:21.484408Z elapsed=0.1
+6: ELZOO STAGE ledger start utc=2026-11-08T12:26:21.484425Z elapsed=0.1
+8: ELZOO STAGE ledger end utc=2026-11-08T12:26:26.202591Z elapsed=4.8
+9: ELZOO STAGE ash_spike start utc=2026-11-08T12:26:26.202639Z elapsed=4.8
+186: Result: 32 passed
+187: ELZOO STAGE ash_spike end utc=2026-11-08T12:26:33.222370Z elapsed=11.9
+188: ELZOO STAGE registry_load start utc=2026-11-08T12:26:33.222583Z elapsed=11.9
+189: ELZOO STAGE registry_load end utc=2026-11-08T12:26:39.034299Z elapsed=17.7
+190: ELZOO CHECK SELECTION: full
+193: Affected ready IDs: ["assembly/durable-job", "assembly/http-job", "assembly/ingest-dedup-accumulate", "assembly/ingest-json-unit", "assembly/request-route-retry", "core/assembly", "core/edge", "core/effect", "core/envelope", "core/operator", "core/port", "core/selection", "core/wiring", "delivery/backpressure", "delivery/dead-letter", "delivery/effect-intent", "delivery/idempotency", "delivery/request-reply", "delivery/retry-timeout", "delivery/routing", "delivery/stream-combinators", "delivery/time", "delivery/transformation", "delivery/windowed-idempotency", "domain/authorization", "integration/crypto", "integration/cure-json", "integration/http", "integration/jobs", "integration/json", "integration/sql", "runtime/adapter", "runtime/host", "runtime/registry", "runtime/supervision", "runtime/unit", "state/checkpoint", "state/event-log", "state/outbox", "workflow/approval", "workflow/budget", "workflow/context-selection", "workflow/dependency-graph", "workflow/state-machine"]
+194: Selected consumer IDs (26): ["assembly/durable-job", "assembly/ingest-json-unit", "assembly/request-route-retry", "core/assembly", "core/edge", "core/envelope", "core/operator", "core/port", "core/selection", "core/wiring", "delivery/backpressure", "delivery/dead-letter", "delivery/idempotency", "delivery/request-reply", "delivery/retry-timeout", "delivery/routing", "delivery/transformation", "delivery/windowed-idempotency", "integration/jobs", "integration/sql", "runtime/adapter", "runtime/host", "state/checkpoint", "state/event-log", "state/outbox", "workflow/state-machine"]
+196: Ready IDs without a fixed per-ID consumer: ["assembly/http-job", "assembly/ingest-dedup-accumulate", "core/effect", "delivery/effect-intent", "delivery/stream-combinators", "delivery/time", "domain/authorization", "integration/crypto", "integration/cure-json", "integration/http", "integration/json", "runtime/registry", "runtime/supervision", "runtime/unit", "workflow/approval", "workflow/budget", "workflow/context-selection", "workflow/dependency-graph"]
+197: Affected ready IDs outside selected consumer closures: ["assembly/http-job", "core/effect", "delivery/effect-intent", "delivery/stream-combinators", "domain/authorization", "integration/crypto", "integration/cure-json", "integration/http", "runtime/registry", "workflow/approval", "workflow/budget", "workflow/context-selection", "workflow/dependency-graph"]
+200: Full consumer coverage requested.
+201: ELZOO STAGE root_suite start utc=2026-11-08T12:26:39.037009Z elapsed=17.7
+207: ELZ-010 DJ9: victim 43271 killed (137); records=["accepted", "attempt_started", "attempt_started", "succeeded"]
+209: ...................ELZ-008 law compiled: labelled_duplicate_keeps_state
+210: ELZ-008 law compiled: labelled_duplicate_not_accepted
+211: ELZ-008 law compiled: labelled_full_keeps_state
+212: ELZ-008 negative rejected: FalseLabelLaw
+213: ELZ-008 negative rejected: MutatedLabelStep
+214: ELZ-008 negative rejected: WrongLabelOperator
+232: ......Effect-intent production capacity: model=706230 checkpoint=870232 reserved=870758 delta=66376
+233: Effect-intent production cumulative checkpoint bound: 3229007872 bytes, plus SQL/index/append/replica overhead
+326: .............................ELZ-009 law compiled: duplicate_keeps_total
+327: ELZ-009 law compiled: duplicate_keeps_cursor
+328: ELZ-009 law compiled: out_of_order_keeps_total
+329: ELZ-009 law compiled: out_of_order_keeps_applied
+330: ELZ-009 law compiled: gap_marks_damaged
+331: ELZ-009 law compiled: non_state_bearing_keeps_total
+332: ELZ-009 negative rejected: ReplayFalseGap
+333: ELZ-009 negative rejected: ReplayMutatedDuplicate
+339: ELZ-010 JobRun negative rejected: FalseLaw at line 146 in succeeded_absorbing
+340: ELZ-010 JobRun negative rejected: CancelRevivesSucceeded at line 146 in succeeded_absorbing
+341: ELZ-010 JobRun negative rejected: ExhaustedBegins at line 224 in exhausted_never_begins
+342: ELZ-010 JobRun negative rejected: StaleCompletes at line 167 in stale_completed_ignored_active
+343: ELZ-010 JobRun negative rejected: DuplicateBegins at line 185 in duplicate_yields_active
+344: ELZ-010 JobRun negative rejected: StaleStartBegins at line 194 in stale_start_never_begins_active
+345: ....19:30:07.988 [warning] no `edition` declared in Cure.toml — add `edition = "2026"` under [project] to pin the language surface this project reads against
+350: ELZ-010 probe negative rejected: FalseLaw
+351: ELZ-010 probe negative rejected: CancelRevivesSucceeded
+352: ELZ-010 probe negative rejected: ExhaustedBegins
+353: ELZ-010 probe negative rejected: StaleCompletes
+354: ELZ-010 probe negative rejected: DuplicateBegins
+355: ELZ-010 probe negative rejected: StaleStartBegins
+357: .ELZ-026 negative rejected: FalseLaw (conversion_failure) in completed_satisfies
+358: ELZ-026 negative rejected: ModelAttributes (branch_type) in unattributed_no_attr
+359: ELZ-026 negative rejected: UnknownAttributes (branch_type) in unattributed_no_attr
+360: ELZ-026 negative rejected: ExpiredAttributes (branch_type) in unattributed_no_attr
+361: ELZ-026 negative rejected: CancelledSatisfies (conversion_failure) in cancelled_never_satisfies
+362: ELZ-026 negative rejected: ClosedSatisfies (conversion_failure) in closed_never_satisfies
+363: ELZ-026 negative rejected: DuplicateSatisfies (conversion_failure) in duplicate_never_satisfies
+364: ELZ-026 negative rejected: InformationalBlocks (conversion_failure) in informational_never_blocks
+365: ELZ-026 negative rejected: BlockingEdgeIgnored (unsolved_metavariables) in pick_head
+366: ELZ-026 negative rejected: DeferralIgnored (branch_type) in open_blocked
+367: ELZ-026 negative rejected: CertificateIgnoresSource (index_mismatch) in new_cycle_contradicts
+368: ELZ-026 negative rejected: ClosureSkipsEdge (index_mismatch) in closed_mem
+369: ELZ-026 negative rejected: ProjectionDropsBlocking (index_mismatch) in committed_cycle_inner
+370: ELZ-026 negative rejected: ProjectionKeepsInformational (conversion_failure) in blocking_drops_informational
+371: ELZ-026 negative rejected: RejectCommits (conversion_failure) in reject_inner
+372: ELZ-026 negative rejected: NonStructuralProof (total_required_by_decorator)
+373: .......................ELZ-026 completeness: every acyclic blocking graph on 2-3 nodes x every proposal (including self-loop proposals) and 543 on 4 nodes
+374: ..........ELZOO TIMING consumer=runtime/unit consumer_mix_test seconds=0.8
+375: .ELZOO TIMING consumer=aggregate(44) plan_write seconds=0.4
+376: ELZOO TIMING consumer=aggregate(44) consumer_mix_test seconds=270.3
+377: ELZOO TIMING consumer=aggregate(44) runtime_vm seconds=0.7
+378: ELZOO TIMING consumer=aggregate(44) total seconds=271.3
+379: .ELZOO TIMING consumer=core/operator plan_write seconds=0.1
+380: ELZOO TIMING consumer=core/operator consumer_mix_test seconds=4.3
+381: ELZOO TIMING consumer=core/operator runtime_vm seconds=0.3
+382: ELZOO TIMING consumer=core/operator total seconds=4.7
+383: .ELZOO TIMING consumer=core/port plan_write seconds=0.0
+384: ELZOO TIMING consumer=core/port consumer_mix_test seconds=4.0
+385: ELZOO TIMING consumer=core/port runtime_vm seconds=0.4
+386: ELZOO TIMING consumer=core/port total seconds=4.4
+387: .ELZOO TIMING consumer=core/assembly plan_write seconds=0.1
+388: ELZOO TIMING consumer=core/assembly consumer_mix_test seconds=5.0
+389: ELZOO TIMING consumer=core/assembly runtime_vm seconds=0.3
+390: ELZOO TIMING consumer=core/assembly total seconds=5.4
+391: .ELZOO TIMING consumer=core/envelope plan_write seconds=0.0
+392: ELZOO TIMING consumer=core/envelope consumer_mix_test seconds=3.9
+393: ELZOO TIMING consumer=core/envelope runtime_vm seconds=0.4
+394: ELZOO TIMING consumer=core/envelope total seconds=4.3
+395: .ELZOO TIMING consumer=core/edge plan_write seconds=0.1
+396: ELZOO TIMING consumer=core/edge consumer_mix_test seconds=4.3
+397: ELZOO TIMING consumer=core/edge runtime_vm seconds=0.4
+398: ELZOO TIMING consumer=core/edge total seconds=4.7
+399: .ELZOO TIMING consumer=core/wiring plan_write seconds=0.1
+400: ELZOO TIMING consumer=core/wiring consumer_mix_test seconds=6.4
+401: ELZOO TIMING consumer=core/wiring runtime_vm seconds=0.4
+402: ELZOO TIMING consumer=core/wiring total seconds=6.9
+403: .ELZOO TIMING consumer=core/selection plan_write seconds=0.1
+404: ELZOO TIMING consumer=core/selection consumer_mix_test seconds=6.1
+405: ELZOO TIMING consumer=core/selection runtime_vm seconds=0.3
+406: ELZOO TIMING consumer=core/selection total seconds=6.5
+407: .ELZOO TIMING consumer=delivery/idempotency plan_write seconds=0.0
+408: ELZOO TIMING consumer=delivery/idempotency consumer_mix_test seconds=4.5
+409: ELZOO TIMING consumer=delivery/idempotency runtime_vm seconds=0.3
+410: ELZOO TIMING consumer=delivery/idempotency total seconds=4.9
+411: .ELZOO TIMING consumer=delivery/windowed-idempotency plan_write seconds=0.0
+412: ELZOO TIMING consumer=delivery/windowed-idempotency consumer_mix_test seconds=6.1
+413: ELZOO TIMING consumer=delivery/windowed-idempotency runtime_vm seconds=0.4
+414: ELZOO TIMING consumer=delivery/windowed-idempotency total seconds=6.5
+415: .ELZOO TIMING consumer=delivery/request-reply plan_write seconds=0.0
+416: ELZOO TIMING consumer=delivery/request-reply consumer_mix_test seconds=4.4
+417: ELZOO TIMING consumer=delivery/request-reply runtime_vm seconds=0.4
+418: ELZOO TIMING consumer=delivery/request-reply total seconds=4.8
+419: .ELZOO TIMING consumer=delivery/routing plan_write seconds=0.1
+420: ELZOO TIMING consumer=delivery/routing consumer_mix_test seconds=7.4
+421: ELZOO TIMING consumer=delivery/routing runtime_vm seconds=0.4
+422: ELZOO TIMING consumer=delivery/routing total seconds=7.8
+423: .ELZOO TIMING consumer=delivery/transformation plan_write seconds=0.0
+424: ELZOO TIMING consumer=delivery/transformation consumer_mix_test seconds=5.5
+425: ELZOO TIMING consumer=delivery/transformation runtime_vm seconds=0.4
+426: ELZOO TIMING consumer=delivery/transformation total seconds=5.9
+427: .ELZOO TIMING consumer=delivery/backpressure plan_write seconds=0.0
+428: ELZOO TIMING consumer=delivery/backpressure consumer_mix_test seconds=3.7
+429: ELZOO TIMING consumer=delivery/backpressure runtime_vm seconds=0.4
+430: ELZOO TIMING consumer=delivery/backpressure total seconds=4.1
+431: .ELZOO TIMING consumer=delivery/dead-letter plan_write seconds=0.1
+432: ELZOO TIMING consumer=delivery/dead-letter consumer_mix_test seconds=4.7
+433: ELZOO TIMING consumer=delivery/dead-letter runtime_vm seconds=0.4
+434: ELZOO TIMING consumer=delivery/dead-letter total seconds=5.1
+435: .ELZOO TIMING consumer=delivery/retry-timeout plan_write seconds=0.1
+436: ELZOO TIMING consumer=delivery/retry-timeout consumer_mix_test seconds=9.7
+437: ELZOO TIMING consumer=delivery/retry-timeout runtime_vm seconds=0.4
+438: ELZOO TIMING consumer=delivery/retry-timeout total seconds=10.2
+439: .ELZOO TIMING consumer=runtime/adapter plan_write seconds=0.1
+440: ELZOO TIMING consumer=runtime/adapter consumer_mix_test seconds=11.8
+441: ELZOO TIMING consumer=runtime/adapter runtime_vm seconds=0.4
+442: ELZOO TIMING consumer=runtime/adapter total seconds=12.3
+443: .ELZOO TIMING consumer=runtime/host plan_write seconds=0.1
+444: ELZOO TIMING consumer=runtime/host consumer_mix_test seconds=0.7
+445: ELZOO TIMING consumer=runtime/host runtime_vm seconds=0.3
+446: ELZOO TIMING consumer=runtime/host total seconds=1.1
+447: .ELZOO TIMING consumer=assembly/ingest-json-unit plan_write seconds=0.1
+448: ELZOO TIMING consumer=assembly/ingest-json-unit consumer_mix_test seconds=16.4
+449: ELZOO TIMING consumer=assembly/ingest-json-unit runtime_vm seconds=0.5
+450: ELZOO TIMING consumer=assembly/ingest-json-unit total seconds=17.0
+451: .ELZOO TIMING consumer=assembly/request-route-retry plan_write seconds=0.2
+452: ELZOO TIMING consumer=assembly/request-route-retry consumer_mix_test seconds=34.7
+453: ELZOO TIMING consumer=assembly/request-route-retry runtime_vm seconds=0.6
+454: ELZOO TIMING consumer=assembly/request-route-retry total seconds=35.4
+455: .ELZOO TIMING consumer=state/event-log plan_write seconds=0.1
+456: ELZOO TIMING consumer=state/event-log consumer_mix_test seconds=5.2
+457: ELZOO TIMING consumer=state/event-log runtime_vm seconds=0.4
+458: ELZOO TIMING consumer=state/event-log total seconds=5.7
+459: .ELZOO TIMING consumer=state/checkpoint plan_write seconds=0.1
+460: ELZOO TIMING consumer=state/checkpoint consumer_mix_test seconds=4.8
+461: ELZOO TIMING consumer=state/checkpoint runtime_vm seconds=0.4
+462: ELZOO TIMING consumer=state/checkpoint total seconds=5.2
+463: .ELZOO TIMING consumer=state/outbox plan_write seconds=0.1
+464: ELZOO TIMING consumer=state/outbox consumer_mix_test seconds=5.0
+465: ELZOO TIMING consumer=state/outbox runtime_vm seconds=0.4
+466: ELZOO TIMING consumer=state/outbox total seconds=5.4
+467: .ELZOO TIMING consumer=integration/sql plan_write seconds=0.1
+468: ELZOO TIMING consumer=integration/sql consumer_mix_test seconds=7.7
+469: ELZOO TIMING consumer=integration/sql runtime_vm seconds=0.4
+470: ELZOO TIMING consumer=integration/sql total seconds=8.2
+471: .ELZOO TIMING consumer=workflow/state-machine plan_write seconds=0.1
+472: ELZOO TIMING consumer=workflow/state-machine consumer_mix_test seconds=11.9
+473: ELZOO TIMING consumer=workflow/state-machine runtime_vm seconds=0.4
+474: ELZOO TIMING consumer=workflow/state-machine total seconds=12.4
+475: .ELZOO TIMING consumer=integration/jobs plan_write seconds=0.1
+476: ELZOO TIMING consumer=integration/jobs consumer_mix_test seconds=5.0
+477: ELZOO TIMING consumer=integration/jobs runtime_vm seconds=0.4
+478: ELZOO TIMING consumer=integration/jobs total seconds=5.5
+479: .ELZOO TIMING consumer=assembly/durable-job plan_write seconds=0.1
+480: ELZOO TIMING consumer=assembly/durable-job consumer_mix_test seconds=65.3
+481: ELZOO TIMING consumer=assembly/durable-job runtime_vm seconds=0.5
+482: ELZOO TIMING consumer=assembly/durable-job total seconds=66.0
+502: Result: 642 passed
+504: ELZOO STAGE root_suite end utc=2026-11-08T12:42:50.772009Z elapsed=989.4
+505: ELZOO CHECK PASSED

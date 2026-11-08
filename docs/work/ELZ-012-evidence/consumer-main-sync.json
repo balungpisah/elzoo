@@ -1,0 +1,16 @@
+{
+  "from_revision": "d70bee6e22e830019065f04b509d367bc9b446eb",
+  "revision": "907c37f02ed857b4e83d55fb3a9929f3525e8419",
+  "inherited_main": "b62c26a",
+  "changed_paths": [
+    "docs/development/10-symbolic-ci.md",
+    "tasks/ELZ-049-concurrent-consumers.md",
+    "test/consumer_group_a_test.exs",
+    "test/consumer_group_b_test.exs",
+    "test/consumer_group_c_test.exs",
+    "test/export_test.exs",
+    "test/support/cure_consumer_case_test_helper.exs",
+    "test/test_helper.exs"
+  ],
+  "method": "pushed normal main merge with ELZ-049 consumer-test concurrency; full check repeated in same clone, build artifacts retained; no second fresh-clone claim"
+}

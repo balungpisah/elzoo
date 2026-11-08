@@ -1,0 +1,53 @@
+{
+  "recorded_utc": "2026-11-08T11:52:36.357609+00:00",
+  "kind": "read-only preflight, not clean-check acceptance",
+  "base_sha": "70cb2cbbe6ab005ed61edd01d37dee1131afef5a",
+  "live_issue_number": 12,
+  "live_state": "OPEN",
+  "live_body_bytes": 1723,
+  "live_body_sha256": "e6031ef6a8a93fefcf64ce097d49373f65e768e21540ada2b09db17165785962",
+  "local_body_bytes": 1527,
+  "local_body_sha256": "eb4b9c0d9de6a84dfe78f1c412fe15eaa07f48121d854fe2cdeec1a2d8c2f09c",
+  "live_extends_local_with_references_only": true,
+  "canonical_job": {
+    "id": "ELZ-012",
+    "title": "ELZ-012 \u2014 Reproduce the clean check and hand off evidence",
+    "kind": "published",
+    "release": "V1",
+    "stage": "pieces",
+    "dependencies": [
+      "ELZ-011"
+    ],
+    "status": "published; dispatch gates required",
+    "url": "https://github.com/balungpisah/elzoo/issues/12",
+    "paths": [
+      "tasks/ELZ-012-clean-check-evidence-handoff.md"
+    ],
+    "outputs": [],
+    "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
+    "issue": 12,
+    "issue_body_sha256": "e6031ef6a8a93fefcf64ce097d49373f65e768e21540ada2b09db17165785962",
+    "observed_issue_state": "OPEN",
+    "owner_role": "one claimed task worker after admission",
+    "product_aims": [
+      "P01",
+      "P02"
+    ],
+    "product_role": "Supporting policy, evidence, operations, discoverability or later example; not an additional product prerequisite or a delivered end-to-end product.",
+    "contributions": [
+      {
+        "id": "core/grounding",
+        "role": "Existing foundation clean-check evidence handoff; not the evidence-index owner or an executable ready Piece."
+      }
+    ]
+  },
+  "grounding_entry": {
+    "id": "core/grounding",
+    "job": "ELZ-033",
+    "note": "Planning deliverable: linked evidence index in roadmap.md to mix check, claim-level manifests and evidence distinctions. ELZ-012 remains the independent clean-check handoff for the existing exemplar only. No ready manifest/source/export is invented; a future reusable grounding tool needs separate admission.",
+    "baseline_status": "planned",
+    "disposition": "evidence-index; no executable Piece",
+    "catalogue_reference": "registry/catalogue.json"
+  },
+  "clean_clone_checks_executed": false
+}

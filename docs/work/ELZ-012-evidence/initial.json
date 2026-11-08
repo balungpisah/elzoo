@@ -1,0 +1,42 @@
+{
+  "revision": "36e097819e6039bb56c43eea3092c662df738c45",
+  "clone_path": "/tmp/elz012-acceptance-i02p01gy/clone",
+  "utc": "2026-11-08T11:58:34.470552+00:00",
+  "git_status_short": "",
+  "absent_before_setup": [
+    "deps",
+    "_build",
+    "spikes/ash_foundation/deps",
+    "spikes/ash_foundation/_build"
+  ],
+  "git_alternates": false,
+  "clone_command": "git clone --branch task/ELZ-012 <configured remote> <unique empty directory>",
+  "os": "macOS-27.2-arm64-arm-64bit-Mach-O",
+  "architecture": "arm64",
+  "machine_cache_presence": {
+    ".hex": true,
+    ".mix": true,
+    ".hex/packages/hexpm": true
+  },
+  "named_variables_present": [
+    "ERL_FLAGS"
+  ],
+  "unset": [
+    "MIX_ENV",
+    "MIX_DEPS_PATH",
+    "MIX_BUILD_PATH",
+    "ERL_LIBS"
+  ],
+  "locale": {
+    "LANG": "en_US.UTF-8",
+    "LC_ALL": "en_US.UTF-8"
+  },
+  "ERL_FLAGS": "+S 4:4 +SDcpu 1 +SDio 1",
+  "database_name": "elzoo_pieces_test",
+  "lock_sha256": {
+    "mix.lock": "811e488854018dafb4faea12b53a86f0c4a397e6a36b35b3a574144017afe1ca",
+    "spikes/ash_foundation/mix.lock": "59205712ef298d42be4430d3f61b1c56c4da5cda3fed30f6cf6aba37da77c830"
+  },
+  "elixir_version": "Erlang/OTP 29 [erts-17.1.1] [source] [64-bit] [smp:4:4] [ds:1:1:1] [async-threads:1] [jit] [dtrace]\n\nElixir 1.20.4 (compiled with Erlang/OTP 29)\n",
+  "otp_erts": "OTP_VERSION=29.1.2\nERTS=17.1.1\n"
+}

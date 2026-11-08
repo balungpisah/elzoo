@@ -1,0 +1,21 @@
+{
+  "revision": "208248063d64e621782cd26dd30698ee42850a89",
+  "git_status_short": "",
+  "manifest_path": "_build/test/lib/elzoo/ebin/elzoo.cure.manifest",
+  "manifest_sha256": "3a2bb8e8a31f3bf1a101af820ebc0f799b60878f8326521570304cf33a59f784",
+  "inspection_command": [
+    "mix",
+    "run",
+    "--no-start",
+    "-e",
+    "IO.puts(\"CURE_LIB=#{:code.lib_dir(:cure)}\"); IO.puts(\"CURE_COMPILER=#{:code.which(Cure.Compiler)}\"); IO.puts(\"MIX_ENV=#{Mix.env()}\")"
+  ],
+  "inspection_env": "MIX_ENV=test only for separate inspection; public setup/check unset",
+  "inspection_exit": 0,
+  "inspection_first_attempt": {
+    "exit": 1,
+    "reason": "author diagnostic command extra closing parenthesis; no source edit, not setup/check failure",
+    "log_sha256": "0d4373c9d2e33466471a69a65dbe69520f3533ea3ee457fc2c6ecdb9ed505030"
+  },
+  "root_cure_lock_entry": "\"cure\": {:git, \"https://github.com/balungpisah/cure-lang.git\", \"208248063d64e621782cd26dd30698ee42850a89\", [ref: \"208248063d64e621782cd26dd30698ee42850a89\", depth: 1]},"
+}

@@ -1,0 +1,4 @@
+Selected verbatim lines from consumer-main-setup.log; full log SHA256 99758b949d7253875b5ba732e1923d736ec737cfad0b68639e1d418993b6033b
+Not a complete log; line numbers refer to the full retained local log.
+
+39: Cure sources unchanged (fingerprint 8e592ae4cdcd); skipping 29 modules
