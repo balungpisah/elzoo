@@ -81,3 +81,29 @@ end
 
 IO.puts("CONSUMER=#{dir} EXIT=#{status} RECEIPT_HASHES=#{map_size(receipt["sha256"])}")
 if status != 0, do: System.halt(status)
+
+# Runtime smoke in a second VM without Cure/compiler or root application paths.
+runtime_paths = Enum.reject(paths, &(Path.basename(Path.dirname(&1)) == "cure"))
+consumer_ebin = Path.join(dir, "_build/test/lib/consumer/ebin")
+
+runtime = """
+false = Code.ensure_loaded?(Cure.Compiler)
+false = Code.ensure_loaded?(Elzoo.Application)
+{:ok, _} = Application.ensure_all_started(:crypto)
+{:ok, _} = Code.eval_file("examples/http_job.exs")
+s = %{active: true, flags: %{quarantined: false, disarmed: false}, attempts: 0, phase: {:Intended, :Fresh, 0}}
+:JobDispatch = Elzoo.HttpJob.Policy.action(s, 3)
+false = Enum.any?(Application.started_applications(), fn {a, _, _} -> a in [:elzoo, :cure] end)
+IO.puts("HTTP_JOB_COMPILER_FREE_RUNTIME_OK")
+"""
+
+{runtime_output, runtime_status} =
+  System.cmd(
+    "elixir",
+    Enum.flat_map([consumer_ebin | runtime_paths], &["-pa", &1]) ++ ["--eval", runtime],
+    cd: dir,
+    stderr_to_stdout: true
+  )
+
+IO.puts(runtime_output)
+if runtime_status != 0, do: System.halt(runtime_status)
