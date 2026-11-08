@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # Reproduction utility: real export closure in a new VM, upstream BEAM reuse only.
 root = File.cwd!()
-dir = Path.join(System.tmp_dir!(), "elz011-http-consumer-#{System.unique_integer([:positive])}")
-File.mkdir_p!(dir)
+suffix = Base.url_encode64(:crypto.strong_rand_bytes(12), padding: false)
+dir = Path.join(System.tmp_dir!(), "elz011-http-consumer-#{suffix}")
+File.mkdir!(dir)
 
 File.write!(
   Path.join(dir, "mix.exs"),

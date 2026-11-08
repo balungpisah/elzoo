@@ -958,6 +958,8 @@ defmodule Elzoo.HttpJobTest do
       assert_receive {:event, %{outcome: :waiting}}, 2000
       assert_receive {:event, %{outcome: :waiting}}, 2000
       wait(fn -> Elzoo.Jobs.state_by_id(name, id) == {:ok, {id, "scheduled"}} end)
+      # Dispatch acknowledges task scheduling; the loopback request arrives later.
+      wait(fn -> Enum.count(Fixture.calls(c.f), fn {m, _, _} -> m == "PUT" end) >= 1 end)
       assert Enum.count(Fixture.calls(c.f), fn {m, _, _} -> m == "PUT" end) == 1
       Fixture.mode(c.f, :success)
       # Subsequent snapshots are real poll and completion wakes.

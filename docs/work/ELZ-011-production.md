@@ -7,7 +7,10 @@ passed. Independent review at `694fda8` was CONDITIONAL; see
 Fixed source `087c1de` now passes fresh setup, full check (32 + 642 tests),
 standalone export (221 tests, 114 hashes) and both isolated runtime checks.
 [Fix evidence](ELZ-011-review-fixes.md) supersedes the historical counts below;
-independent incremental review and PR remain. This file is not an acceptance declaration and no merge is requested.
+incremental review at `877357d` cleared the product fixes and requested only
+T1 test synchronization. T1 and the export temp-directory issue are now fixed;
+targeted 29, ten repeated rescued-job executions, and export 221 pass. See the
+[record](ELZ-011-review-fixes.md); final narrow review and PR remain. This file is not an acceptance declaration and no merge is requested.
 
 ## Scope and approved Contract
 

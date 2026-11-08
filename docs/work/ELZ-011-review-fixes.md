@@ -98,3 +98,42 @@ only docs/work evidence is updated. Plain/live roadmap pass (139 local links),
 production diff whitespace checks pass, and the original approved patch context
 spaces remain the only historical range warnings. Claim removal is intentionally
 deferred until review clears, before PR.
+
+## T1 final test synchronization and L2 reproduction utility
+
+[Incremental independent review](ELZ-011-incremental-review.md) at `877357d`
+closed F1–F7 and found no blocking product defect. Its sole required item T1
+was a test assertion racing ahead of the loopback server: dispatch acknowledges
+task scheduling, not request arrival. The test now waits for at least one PUT
+before the existing strict `== 1` assertion. Both strict PUT assertions and all
+other assertions remain unchanged; no product source, law, Contract, manifest,
+provider or protected file is edited by this correction.
+
+L2 is also addressed: the export utility creates its destination with a fresh
+96-bit random suffix and `File.mkdir!`, so a leftover directory cannot be
+silently reused. Independent consumers remain unchanged apart from the two
+added synchronization/comment lines in the copied test. L1 terminal-after-refusal
+and rearm-same-action coverage gaps remain explicitly recorded non-blocking
+limits; their product implementation was independently inspected, not claimed
+to have new committed test coverage. The review's single unretained observation
+about the tag test under heavy load remains an observation, not a resolved
+failure or a timing guarantee.
+
+Verification for this narrow delta is targeted suite, repeated rescued-job case,
+and full standalone closure. The full 32+642 run remains the evidence for
+unchanged production source at `087c1de`; it is not relabelled as a fresh full
+run of the two-line test delta. The coordinator queue still runs full checks on
+the exact PR head before merge.
+
+T1 checks completed: targeted suite `Result: 29 passed`; ten isolated executions
+of `mix test pieces/assembly/http-job/test/elzoo/http_job_test.exs:943 --seed N`
+(seeds 1–10) each exit 0 with `Result: 1 passed, 26 excluded`; full standalone
+export exit 0, `Result: 221 passed`, 114 matching receipt hashes and both runtime
+markers. These repetitions are evidence of the synchronization correction on
+this machine, not proof of all possible schedules.
+
+`/tmp/elz011-proposal/T1-targeted.log` SHA256 `501654a3a95a66c011161548bb48deba6a705b7885b8caf0d8e5d20d9fb20646`.
+
+`/tmp/elz011-proposal/T1-repeated.log` SHA256 `b6ed0d5f49ee100ab2995f9c56108fb816176642cd39fb4b8542d34d972d4270`.
+
+`/tmp/elz011-proposal/T1-export.log` SHA256 `1f9b020e62a92f96af1d0de5e72b58738bce0e109fce7480d8216f0fdf68ac89`.
