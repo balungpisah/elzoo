@@ -23,16 +23,34 @@ record for the existing deferred handle.
    registry version, rounding mode, allocation ratios, untrusted code strings
    for parse. Outputs: amounts, typed rejections (`currency_mismatch{left,
    right}`, `unknown_currency`, `malformed_code`, `retired_currency`,
-   `scale_overflow`). State owner: none (pure). Invariants: a currency is a
-   value from a closed, versioned registry carrying alpha code, numeric code
-   and minor-unit exponent, never a bare string; an amount is an integer
-   count of minor units scaled by that exponent (JPY 0, EUR 2, BHD 3), never
-   a fixed hundredth; parse distinguishes malformed from unknown and returns
-   the canonical registry value; a code retired by ISO stays decodable as
-   `retired` on the parsed value (whether a posting context accepts it is
-   domain/journal's decision), retirement never deletes an entry; mixed-currency arithmetic is a typed
+   `scale_overflow`, `malformed_amount`, `invalid_ratios`,
+   `unknown_rounding_mode`, `unknown_placement`, `no_minor_unit`,
+   `forged_currency`, `unknown_registry_version`). The Contract defines which
+   operations return each rejection; it does not silently coerce floats.
+   State owner: none (pure). Invariants: a currency is a
+   value from a closed, versioned registry carrying an alpha code, a numeric
+   code when recorded by the source (otherwise an explicit absent marker),
+   and a minor-unit exponent when recorded and applicable (otherwise an
+   explicit not-recorded or not-applicable marker), never a bare string; an
+   amount may be constructed only when a numeric exponent is recorded, and is
+   an integer count of minor units scaled by that exponent (JPY 0, EUR 2,
+   BHD 3), never a fixed hundredth; parse distinguishes malformed from unknown
+   and returns the canonical registry value; a code retired by ISO stays
+   decodable as `retired` on the parsed value (whether a posting context
+   accepts it is domain/journal's decision), retirement never deletes an
+   entry; the registry version and any disambiguation required for reused
+   identifiers are explicit, and old recorded values retain their original
+   identity and exponent across registry updates; mixed-currency arithmetic is a typed
    rejection naming both currencies; an allocation sums exactly to its input
-   with the residual placement stated; no Float in any path. Non-goals:
+   with the residual placement stated (ratios are a list of 1 to 1000
+   non-negative integers with a positive sum; each share is the total times
+   its ratio divided by the ratio sum, truncated toward zero; the residual is
+   the total minus the sum of shares and is zero or has the total's sign; the
+   caller chooses to place it on the first positive-ratio part, the last
+   positive-ratio part, or to distribute one minor unit of the residual's sign
+   to successive positive-ratio parts in list order until it is exhausted;
+   the result reports the residual already placed in the parts, never an
+   extra amount); no Float in any path. Non-goals:
    exchange rates, locale formatting, journal posting, provider semantics,
    usage units (workflow/budget, domain/metering).
 3. **Reuse check.** ex_money 6.x (AshMoney where the consumer chose Ash) over
@@ -49,9 +67,18 @@ record for the existing deferred handle.
    the registry breaking historical replay; a dropped allocation residual.
    Proofs: selected Cure laws over minor-unit arithmetic (closure, allocation
    sum) if the pin's Int reasoning permits, otherwise finite tests with the
-   limitation recorded. Tests: every row of a pinned, dated ISO dataset parses
-   by alpha and numeric code with equal minor units and every registry entry
-   appears in that dataset or is marked retired (both directions); `JPY 1000`
+   limitation recorded. Tests: every currency-bearing row of the pinned,
+   dated current ISO dataset resolves by alpha and numeric to the same
+   canonical value, preserving the published minor-unit integer or N.A.
+   marker; each other current row is asserted to contain no alpha code,
+   numeric code or minor-unit value. Every row of the pinned historic dataset
+   is retained and resolves by alpha with its published numeric code or
+   explicit absence and withdrawal text; where a numeric code is present,
+   numeric history includes the row and never silently selects among reused
+   identifiers. Every registry entry is represented by a source row or
+   retained from a prior version as retired; tests cover both directions,
+   explicit version-qualified active lookup, reused identifiers, and
+   preservation of prior identities and exponents across updates; `JPY 1000`
    round-trips without a decimal point and `BHD 1.234` keeps three places;
    `EUR 1.00` split three ways sums to 100 minor units; a C9 charge in one
    currency cannot post into a journal account of another. Upstream: ex_money
@@ -67,8 +94,21 @@ record for the existing deferred handle.
   untrusted strings, allocation residuals, 0/3-exponent currencies and
   persistence round-trip through integration/sql;
 - define the result schema and the registry version evidence rule (an
-  externally sourced, dated dataset committed beside the test);
-- select laws or record why finite tests stand in.
+  externally sourced, dated dataset is used to create a source-attributed,
+  dated derived extract committed beside the test; source URLs, source
+  hashes and a reproducible derivation and comparison method are recorded);
+- select laws or record why finite tests stand in;
+- shared paths, exactly: `mix.exs` adds the direct dependency
+  `{:decimal, "== 3.2.0"}` (currently present transitively in mix.lock at
+  3.2.0; keep the lock consistent with the resolved dependency);
+  `registry/providers.json` adds the `decimal` provider (hex, package
+  `decimal`, version 3.2.0, Apache-2.0,
+  https://hexdocs.pm/decimal/3.2.0/Decimal.html); the repository test
+  `test/elz031_money_persistence_test.exs` runs the integration/sql round
+  trip, so the copied `domain/money` bundle stays pure and does not depend on
+  integration/sql; the `domain/money` row of `registry/catalogue.json`, its
+  `docs/plans/release-plan.json` entry, regenerated `LEDGER.md`, and only the
+  generated roadmap views that this authorized metadata change requires.
 
 ## Acceptance
 
