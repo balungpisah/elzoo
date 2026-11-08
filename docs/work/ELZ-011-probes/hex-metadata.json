@@ -1,0 +1,32 @@
+{
+  "req": {
+    "selected_probe_version": "0.7.5",
+    "release_inserted_at": "2026-10-06T10:09:04.265555Z",
+    "release_retirement": null,
+    "licenses": [
+      "Apache-2.0"
+    ],
+    "links": {
+      "Changelog": "https://hexdocs.pm/req/changelog.html",
+      "GitHub": "https://github.com/wojtekmach/req"
+    },
+    "latest_stable_version": "0.7.5",
+    "package_updated_at": "2026-10-06T10:09:06.448075Z",
+    "reference": "https://hex.pm/api/packages/req/releases/0.7.5"
+  },
+  "finch": {
+    "selected_probe_version": "0.24.0",
+    "release_inserted_at": "2026-09-29T10:14:26.983152Z",
+    "release_retirement": null,
+    "licenses": [
+      "MIT"
+    ],
+    "links": {
+      "Changelog": "https://hexdocs.pm/finch/changelog.html",
+      "GitHub": "https://github.com/sneako/finch"
+    },
+    "latest_stable_version": "0.24.0",
+    "package_updated_at": "2026-09-29T10:14:28.258432Z",
+    "reference": "https://hex.pm/api/packages/finch/releases/0.24.0"
+  }
+}
