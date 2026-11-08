@@ -580,4 +580,46 @@ defmodule Elzoo.EffectIntentTest do
     assert {:error, :read_only} = Intent.observe(pid, %{})
     refute_receive {:physical_send, _, _}, 20
   end
+
+  @tag timeout: 120_000
+  test "known-attempt refusals fill only optional capacity and reserved settlement/contradiction still commit",
+       c do
+    assert Policy.initial() == {:State, :Empty, false, false, false, false, 0, []}
+    pid = owner(c.opts)
+    assert {:ok, :dispatched} = Intent.advance(pid, :dispatch)
+    assert_receive {:physical_send, _, req}
+    eventually(fn -> Intent.status(pid).revision == 3 end)
+    invalid = put_in(completed(req), ["value", "digest"], <<0::256>>)
+
+    for _ <- 1..1022 do
+      assert {:refused, :retained} = Intent.observe(pid, invalid)
+    end
+
+    assert %{phase: {:Dispatched, :Fresh, 1}, evidence: 1022, active: true} = Intent.status(pid)
+    assert {:not_retained, :capacity} = Intent.observe(pid, invalid)
+    assert Intent.status(pid).active
+    assert {:error, :not_rearmable} = Intent.advance(pid, :rearm)
+
+    no_send =
+      completed(req)
+      |> Map.drop(["value", "value_schema_id", "value_schema_version"])
+      |> Map.merge(%{
+        "outcome" => "timed_out",
+        "dispatch" => "not_dispatched",
+        "error_class" => "retryable"
+      })
+
+    assert {:ok, :retained} = Intent.observe(pid, no_send)
+    assert Intent.status(pid).phase == {:Definite, :AdapterNoSend, 1}
+    assert {:ok, :retained} = Intent.observe(pid, completed(req))
+    assert Intent.status(pid).flags.quarantined
+    assert Intent.status(pid).evidence == 1024
+    assert {:error, :not_rearmable} = Intent.advance(pid, :rearm)
+    GenServer.stop(pid)
+    Agent.update(c.authority, fn _ -> :recover end)
+    recovered = owner(c.opts)
+    assert Intent.status(recovered).flags.quarantined
+    assert Intent.status(recovered).evidence == 1024
+    assert {:error, :not_rearmable} = Intent.advance(recovered, :rearm)
+  end
 end

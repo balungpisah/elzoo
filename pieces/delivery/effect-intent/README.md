@@ -45,6 +45,9 @@ one task; it does not acknowledge a provider effect. `:rearm` returns
 There is no automatic timer, retry, polling cadence, business drain or network
 cancellation. The host bounds command/task/mailbox rates and callback duration.
 `observe(owner, envelope)` accepts authenticated correlated provider results;
+invalid input naming a known correlated attempt returns `{:refused, :retained}`
+when its bounded refusal summary commits, or explicit `{:not_retained, reason}`;
+unattributable input returns `{:error, :invalid_observation}` without settlement;
 `revise(owner, canonical_arguments)` revalidates schema and allowed history.
 `status/1` exposes key, phase, revision, attempt/evidence counts, flags and active
 mode without argument/result payloads. It is inspection, not a durable receipt.

@@ -217,7 +217,8 @@ defmodule Elzoo.EffectIntent.Model do
 
   def evidence(event, attempt, now, raw) do
     # Only bounded summary/digest is retained; raw provider values are never
-    # copied to checkpoints or status. Authentication occurs before this call.
+    # copied to checkpoints or status. Positive evidence is authenticated first;
+    # refused input is only an untrusted digest and never settlement authority.
     binary({1, event, attempt, now, hash(binary(raw))})
   end
 

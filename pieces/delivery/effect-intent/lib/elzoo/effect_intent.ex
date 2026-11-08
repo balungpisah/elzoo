@@ -373,10 +373,28 @@ defmodule Elzoo.EffectIntent do
 
   defp observe_result(s, result) do
     case observe_envelope(s, result) do
-      {:error, :invalid_observation} -> {{:error, :invalid_observation}, s}
+      {:error, :invalid_observation} -> retain_refusal(s, result)
       other -> other
     end
   end
+
+  # An invalid result can never settle an attempt, but a known correlated
+  # attempt still owns its reserved first-refusal slot. Unattributable input
+  # has no such slot and is rejected without changing durable state.
+  defp retain_refusal(s, result) when is_map(result) do
+    n = find_attempt(s.snapshot.model, result["attempt_id"])
+
+    if is_integer(n) and result["message_id"] == s.key and result["correlation_id"] == s.key do
+      case observe_event(s, :Refused, n, {:invalid_observation, result}) do
+        {{:ok, :retained}, next} -> {{:refused, :retained}, next}
+        other -> other
+      end
+    else
+      {{:error, :invalid_observation}, s}
+    end
+  end
+
+  defp retain_refusal(s, _), do: {{:error, :invalid_observation}, s}
 
   defp observe_envelope(s, result) do
     m = s.snapshot.model
