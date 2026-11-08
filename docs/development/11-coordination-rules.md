@@ -96,6 +96,11 @@ owner's priorities and the live task bodies decide what is built.
   required by `AGENTS.md`. Distinguish failed checks and their diagnosed causes from passing
   runs. Source: `AGENTS.md`, "Verify the actual claim"; the ELZ-028 re-review record shows the
   risk of presenting planned or partial evidence as established.
+- The decision record (#119, rule 8) names the packet a finished task leaves: proposal and
+  Contract reading; exact review reports with dispositions; probe records for provider
+  comparisons; the executed check record with exit codes, counts and the marker; the
+  publication copy byte-equal to the live body; the PR body in the AGENTS report format with
+  grounding categories kept separate; environment failures disclosed as such.
 
 ## 8. Merge queue operation
 
