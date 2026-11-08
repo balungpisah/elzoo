@@ -183,6 +183,20 @@ class QueueTest(unittest.TestCase):
         self.q.process(79)
         self.assertTrue(self.fake.merged)
 
+    # ELZ-056: the Contabo VPS runner is a named backend runner; look-alike names are not.
+    def test_contabo_runner_accepted_as_backend_evidence(self):
+        self.fake.job_changes["runner_name"] = "contabo-elzoo-1"
+        self.q.process(79)
+        self.assertTrue(self.fake.merged)
+        self.assertIn("runner=contabo-elzoo-1", self.fake.messages[-1])
+
+    def test_contabo_lookalike_runner_names_refused(self):
+        for name in ("contabo-elzoo-2", "contabo-elzoo-1-extra", "Contabo-elzoo-1", "contabo-elzoo"):
+            with self.subTest(name=name):
+                self.setUp()
+                self.fake.job_changes["runner_name"] = name
+                self.refuses("Unapproved backend runner")
+
     def test_stale_main_updates_by_merge_and_checks_new_head(self):
         self.fake.stale = True
         self.q.process(79)
