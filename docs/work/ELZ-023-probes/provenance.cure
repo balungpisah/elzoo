@@ -1,0 +1,2641 @@
+# SPDX-License-Identifier: Apache-2.0
+# Focused feasibility probe, not production policy. Generator appends label laws.
+mod Elzoo.IntentProvenanceProbe
+  use Std.Option
+  type Capability = NoReplay | ReplaySafe
+  type Ground = AdapterNoSend | ProviderNoEffect | ProviderReplaySafe
+  type Origin = Fresh | After(Ground)
+  type Phase = Empty | Intended(Origin, Int) | Dispatched(Origin, Int) | Definite(Ground, Int) | Confirmed(Int) | Stranded(Int)
+  type Event = Admit | Arm | NoSend | PermanentNoSend | Lost | TimedOut | Failed | Pending | NoEffect | ProviderUnknown | Completed | Resume | Rearm | Expired | SchemaInvalid | CapacityRefused | Uncertain | Recover
+  type Action = Dispatch | Poll | Reconcile | Stop
+  type Recovery = NoRecovery | RecoveryAt(Int)
+  rec State
+    phase: Phase
+    disarmed: Bool
+    quarantined: Bool
+  rec Config
+    now: Int
+    admission: Int
+    anchor: Int
+    horizon: Int
+    flight: Int
+    allowance: Int
+    replay: Capability
+    recovery: Recovery
+  rec Decision
+    state: State
+    action: Action
+
+  @total true
+  @reducible
+  fn make(phase: Phase, disarmed: Bool, quarantined: Bool) -> State = State{phase: phase, disarmed: disarmed, quarantined: quarantined}
+  @total true
+  @reducible
+  fn initial() -> State = make(Empty(), False(), False())
+  @total true
+  @reducible
+  fn keep(state: State) -> Decision = Decision{state: state, action: Stop()}
+  @total true
+  @reducible
+  fn move(state: State, phase: Phase, action: Action) -> Decision = Decision{state: make(phase, state.disarmed, state.quarantined), action: action}
+  @total true
+  @reducible
+  fn disarm(state: State) -> Decision = Decision{state: make(state.phase, True(), state.quarantined), action: Stop()}
+
+  @total true
+  @reducible
+  fn live(config: Config) -> Bool =
+    pickup
+      config.now < 0 -> False()
+      config.admission > 9223372036854775807 -> False()
+      config.now >= config.admission -> False()
+      else -> True()
+
+  @total true
+  @reducible
+  fn replay_valid(config: Config) -> Bool =
+    match config.replay
+      NoReplay() -> False()
+      ReplaySafe() ->
+        pickup
+          config.anchor < 0 -> False()
+          config.now < config.anchor -> False()
+          config.flight < 0 -> False()
+          config.allowance < 0 -> False()
+          config.horizon > 9223372036854775807 -> False()
+          config.now + config.flight + config.allowance > config.horizon -> False()
+          else -> True()
+
+  @total true
+  @reducible
+  fn ground_live(ground: Ground, config: Config) -> Bool =
+    match ground
+      ProviderReplaySafe() -> replay_valid(config)
+      _ -> True()
+
+  @total true
+  @reducible
+  fn can_arm(state: State, config: Config) -> Bool =
+    pickup
+      state.disarmed -> False()
+      state.quarantined -> False()
+      else ->
+        match live(config)
+          False() -> False()
+          True() ->
+            match state.phase
+              Intended(origin, n) ->
+                pickup
+                  n >= 256 -> False()
+                  else ->
+                    match origin
+                      Fresh() -> n == 0
+                      After(ground) ->
+                        pickup
+                          n <= 0 -> False()
+                          else -> ground_live(ground, config)
+              _ -> False()
+
+  @total true
+  @reducible
+  fn can_rearm(state: State, config: Config) -> Bool =
+    pickup
+      state.disarmed -> False()
+      state.quarantined -> False()
+      else ->
+        match live(config)
+          False() -> False()
+          True() ->
+            match state.phase
+              Definite(ground, n) ->
+                pickup
+                  n <= 0 -> False()
+                  n >= 256 -> False()
+                  else -> ground_live(ground, config)
+              _ -> False()
+
+  @total true
+  @reducible
+  fn recovery_expired(config: Config) -> Bool =
+    match config.recovery
+      NoRecovery() -> False()
+      RecoveryAt(deadline) -> config.now >= deadline
+
+  @total true
+  @reducible
+  fn step(state: State, event: Event, config: Config) -> Decision =
+    step_gated(state, event, can_arm(state, config), can_rearm(state, config), replay_valid(config), recovery_expired(config))
+
+  @total true
+  @reducible
+  fn step_gated(state: State, event: Event, arm: Bool, rearm: Bool, replay: Bool, expired: Bool) -> Decision =
+    match state.quarantined
+      True() -> keep(state)
+      False() ->
+        match event
+          Uncertain() -> Decision{state: make(state.phase, state.disarmed, True()), action: Stop()}
+          Recover() -> Decision{state: make(state.phase, state.disarmed, True()), action: Stop()}
+          CapacityRefused() -> disarm(state)
+          _ -> active(state, event, arm, rearm, replay, expired)
+
+  @total true
+  @reducible
+  fn active(state: State, event: Event, arm: Bool, rearm: Bool, replay: Bool, expired: Bool) -> Decision =
+    match state.phase
+      Empty() ->
+        match event
+          Admit() -> move(state, Intended(Fresh(), 0), Stop())
+          _ -> keep(state)
+      Intended(origin, n) ->
+        match event
+          SchemaInvalid() -> disarm(state)
+          Arm() ->
+            match arm
+              True() -> move(state, Dispatched(origin, n + 1), Dispatch())
+              False() -> keep(state)
+          _ -> keep(state)
+      Dispatched(origin, n) ->
+        match event
+          NoSend() -> move(state, Definite(AdapterNoSend(), n), Stop())
+          PermanentNoSend() -> Decision{state: make(Definite(AdapterNoSend(), n), True(), False()), action: Stop()}
+          NoEffect() -> move(state, Definite(ProviderNoEffect(), n), Stop())
+          ProviderUnknown() ->
+            match replay
+              True() -> move(state, Definite(ProviderReplaySafe(), n), Stop())
+              False() -> move(state, Stranded(n), Reconcile())
+          Completed() -> move(state, Confirmed(n), Stop())
+          Expired() ->
+            match expired
+              True() -> move(state, Stranded(n), Reconcile())
+              False() -> move(state, state.phase, Poll())
+          _ -> move(state, state.phase, Poll())
+      Definite(g, n) ->
+        match event
+          Rearm() ->
+            match rearm
+              True() -> move(state, Intended(After(g), n), Stop())
+              False() -> keep(state)
+          _ -> keep(state)
+      Confirmed(n) -> keep(state)
+      Stranded(n) -> keep(state)
+
+  @total true
+  @reducible
+  fn no_origin() -> Option(Origin) = None()
+  @total true
+  @reducible
+  fn no_ground() -> Option(Ground) = None()
+  @total true
+  @reducible
+  fn dispatch_origin(decision: Decision) -> Option(Origin) =
+    match decision.action
+      Dispatch() ->
+        match decision.state.phase
+          Dispatched(origin, _) -> Some(origin)
+          _ -> no_origin()
+      _ -> no_origin()
+  @total true
+  @reducible
+  fn fresh_label(decision: Decision) -> Bool =
+    match decision.state.phase
+      Intended(Fresh(), _) -> True()
+      _ -> False()
+  @total true
+  @reducible
+  fn after_label(decision: Decision) -> Option(Ground) =
+    match decision.state.phase
+      Intended(After(g), _) -> Some(g)
+      _ -> no_ground()
+  @total true
+  @reducible
+  fn attempt_label(decision: Decision) -> Int =
+    match decision.state.phase
+      Empty() -> 0
+      Intended(_, n) -> n
+      Dispatched(_, n) -> n
+      Definite(_, n) -> n
+      Confirmed(n) -> n
+      Stranded(n) -> n
+
+
+  @total true
+  @reducible
+  fn dispatch_label(decision: Decision) -> Bool =
+    match decision.action
+      Dispatch() -> True()
+      _ -> False()
+  @total true
+  @reducible
+  fn definite_label(decision: Decision) -> Option(Ground) =
+    match decision.state.phase
+      Definite(g, _) -> Some(g)
+      _ -> no_ground()
+
+  @total true
+  @reducible
+  fn empty_label(decision: Decision) -> Bool =
+    match decision.state.phase
+      Empty() -> True()
+      _ -> False()
+
+  @total true
+  @reducible
+  fn expect_empty_label(phase: Phase, disarmed: Bool, quarantined: Bool, event: Event, arm: Bool, rearm: Bool, replay: Bool, expired: Bool) -> Bool =
+    match quarantined
+      True() ->
+        match phase
+          Empty() -> True()
+          Intended(Fresh(), n) -> False()
+          Intended(After(g), n) -> False()
+          Dispatched(origin, n) -> False()
+          Definite(g, n) -> False()
+          Confirmed(n) -> False()
+          Stranded(n) -> False()
+      False() ->
+        match phase
+          Empty() ->
+            match event
+              Admit() -> False()
+              Arm() -> True()
+              NoSend() -> True()
+              PermanentNoSend() -> True()
+              Lost() -> True()
+              TimedOut() -> True()
+              Failed() -> True()
+              Pending() -> True()
+              NoEffect() -> True()
+              ProviderUnknown() -> True()
+              Completed() -> True()
+              Resume() -> True()
+              Rearm() -> True()
+              Expired() -> True()
+              SchemaInvalid() -> True()
+              CapacityRefused() -> True()
+              Uncertain() -> True()
+              Recover() -> True()
+          Intended(Fresh(), n) ->
+            match event
+              Admit() -> False()
+              Arm() ->
+                match arm
+                  True() -> False()
+                  False() -> False()
+              NoSend() -> False()
+              PermanentNoSend() -> False()
+              Lost() -> False()
+              TimedOut() -> False()
+              Failed() -> False()
+              Pending() -> False()
+              NoEffect() -> False()
+              ProviderUnknown() -> False()
+              Completed() -> False()
+              Resume() -> False()
+              Rearm() -> False()
+              Expired() -> False()
+              SchemaInvalid() -> False()
+              CapacityRefused() -> False()
+              Uncertain() -> False()
+              Recover() -> False()
+          Intended(After(g), n) ->
+            match event
+              Admit() -> False()
+              Arm() ->
+                match arm
+                  True() -> False()
+                  False() -> False()
+              NoSend() -> False()
+              PermanentNoSend() -> False()
+              Lost() -> False()
+              TimedOut() -> False()
+              Failed() -> False()
+              Pending() -> False()
+              NoEffect() -> False()
+              ProviderUnknown() -> False()
+              Completed() -> False()
+              Resume() -> False()
+              Rearm() -> False()
+              Expired() -> False()
+              SchemaInvalid() -> False()
+              CapacityRefused() -> False()
+              Uncertain() -> False()
+              Recover() -> False()
+          Dispatched(origin, n) ->
+            match event
+              Admit() -> False()
+              Arm() -> False()
+              NoSend() -> False()
+              PermanentNoSend() -> False()
+              Lost() -> False()
+              TimedOut() -> False()
+              Failed() -> False()
+              Pending() -> False()
+              NoEffect() -> False()
+              ProviderUnknown() ->
+                match replay
+                  True() -> False()
+                  False() -> False()
+              Completed() -> False()
+              Resume() -> False()
+              Rearm() -> False()
+              Expired() ->
+                match expired
+                  True() -> False()
+                  False() -> False()
+              SchemaInvalid() -> False()
+              CapacityRefused() -> False()
+              Uncertain() -> False()
+              Recover() -> False()
+          Definite(g, n) ->
+            match event
+              Admit() -> False()
+              Arm() -> False()
+              NoSend() -> False()
+              PermanentNoSend() -> False()
+              Lost() -> False()
+              TimedOut() -> False()
+              Failed() -> False()
+              Pending() -> False()
+              NoEffect() -> False()
+              ProviderUnknown() -> False()
+              Completed() -> False()
+              Resume() -> False()
+              Rearm() ->
+                match rearm
+                  True() -> False()
+                  False() -> False()
+              Expired() -> False()
+              SchemaInvalid() -> False()
+              CapacityRefused() -> False()
+              Uncertain() -> False()
+              Recover() -> False()
+          Confirmed(n) ->
+            match event
+              Admit() -> False()
+              Arm() -> False()
+              NoSend() -> False()
+              PermanentNoSend() -> False()
+              Lost() -> False()
+              TimedOut() -> False()
+              Failed() -> False()
+              Pending() -> False()
+              NoEffect() -> False()
+              ProviderUnknown() -> False()
+              Completed() -> False()
+              Resume() -> False()
+              Rearm() -> False()
+              Expired() -> False()
+              SchemaInvalid() -> False()
+              CapacityRefused() -> False()
+              Uncertain() -> False()
+              Recover() -> False()
+          Stranded(n) ->
+            match event
+              Admit() -> False()
+              Arm() -> False()
+              NoSend() -> False()
+              PermanentNoSend() -> False()
+              Lost() -> False()
+              TimedOut() -> False()
+              Failed() -> False()
+              Pending() -> False()
+              NoEffect() -> False()
+              ProviderUnknown() -> False()
+              Completed() -> False()
+              Resume() -> False()
+              Rearm() -> False()
+              Expired() -> False()
+              SchemaInvalid() -> False()
+              CapacityRefused() -> False()
+              Uncertain() -> False()
+              Recover() -> False()
+
+  @total true
+  @reducible
+  fn expect_dispatch_label(phase: Phase, disarmed: Bool, quarantined: Bool, event: Event, arm: Bool, rearm: Bool, replay: Bool, expired: Bool) -> Bool =
+    match quarantined
+      True() ->
+        match phase
+          Empty() -> False()
+          Intended(Fresh(), n) -> False()
+          Intended(After(g), n) -> False()
+          Dispatched(origin, n) -> False()
+          Definite(g, n) -> False()
+          Confirmed(n) -> False()
+          Stranded(n) -> False()
+      False() ->
+        match phase
+          Empty() ->
+            match event
+              Admit() -> False()
+              Arm() -> False()
+              NoSend() -> False()
+              PermanentNoSend() -> False()
+              Lost() -> False()
+              TimedOut() -> False()
+              Failed() -> False()
+              Pending() -> False()
+              NoEffect() -> False()
+              ProviderUnknown() -> False()
+              Completed() -> False()
+              Resume() -> False()
+              Rearm() -> False()
+              Expired() -> False()
+              SchemaInvalid() -> False()
+              CapacityRefused() -> False()
+              Uncertain() -> False()
+              Recover() -> False()
+          Intended(Fresh(), n) ->
+            match event
+              Admit() -> False()
+              Arm() ->
+                match arm
+                  True() -> True()
+                  False() -> False()
+              NoSend() -> False()
+              PermanentNoSend() -> False()
+              Lost() -> False()
+              TimedOut() -> False()
+              Failed() -> False()
+              Pending() -> False()
+              NoEffect() -> False()
+              ProviderUnknown() -> False()
+              Completed() -> False()
+              Resume() -> False()
+              Rearm() -> False()
+              Expired() -> False()
+              SchemaInvalid() -> False()
+              CapacityRefused() -> False()
+              Uncertain() -> False()
+              Recover() -> False()
+          Intended(After(g), n) ->
+            match event
+              Admit() -> False()
+              Arm() ->
+                match arm
+                  True() -> True()
+                  False() -> False()
+              NoSend() -> False()
+              PermanentNoSend() -> False()
+              Lost() -> False()
+              TimedOut() -> False()
+              Failed() -> False()
+              Pending() -> False()
+              NoEffect() -> False()
+              ProviderUnknown() -> False()
+              Completed() -> False()
+              Resume() -> False()
+              Rearm() -> False()
+              Expired() -> False()
+              SchemaInvalid() -> False()
+              CapacityRefused() -> False()
+              Uncertain() -> False()
+              Recover() -> False()
+          Dispatched(origin, n) ->
+            match event
+              Admit() -> False()
+              Arm() -> False()
+              NoSend() -> False()
+              PermanentNoSend() -> False()
+              Lost() -> False()
+              TimedOut() -> False()
+              Failed() -> False()
+              Pending() -> False()
+              NoEffect() -> False()
+              ProviderUnknown() ->
+                match replay
+                  True() -> False()
+                  False() -> False()
+              Completed() -> False()
+              Resume() -> False()
+              Rearm() -> False()
+              Expired() ->
+                match expired
+                  True() -> False()
+                  False() -> False()
+              SchemaInvalid() -> False()
+              CapacityRefused() -> False()
+              Uncertain() -> False()
+              Recover() -> False()
+          Definite(g, n) ->
+            match event
+              Admit() -> False()
+              Arm() -> False()
+              NoSend() -> False()
+              PermanentNoSend() -> False()
+              Lost() -> False()
+              TimedOut() -> False()
+              Failed() -> False()
+              Pending() -> False()
+              NoEffect() -> False()
+              ProviderUnknown() -> False()
+              Completed() -> False()
+              Resume() -> False()
+              Rearm() ->
+                match rearm
+                  True() -> False()
+                  False() -> False()
+              Expired() -> False()
+              SchemaInvalid() -> False()
+              CapacityRefused() -> False()
+              Uncertain() -> False()
+              Recover() -> False()
+          Confirmed(n) ->
+            match event
+              Admit() -> False()
+              Arm() -> False()
+              NoSend() -> False()
+              PermanentNoSend() -> False()
+              Lost() -> False()
+              TimedOut() -> False()
+              Failed() -> False()
+              Pending() -> False()
+              NoEffect() -> False()
+              ProviderUnknown() -> False()
+              Completed() -> False()
+              Resume() -> False()
+              Rearm() -> False()
+              Expired() -> False()
+              SchemaInvalid() -> False()
+              CapacityRefused() -> False()
+              Uncertain() -> False()
+              Recover() -> False()
+          Stranded(n) ->
+            match event
+              Admit() -> False()
+              Arm() -> False()
+              NoSend() -> False()
+              PermanentNoSend() -> False()
+              Lost() -> False()
+              TimedOut() -> False()
+              Failed() -> False()
+              Pending() -> False()
+              NoEffect() -> False()
+              ProviderUnknown() -> False()
+              Completed() -> False()
+              Resume() -> False()
+              Rearm() -> False()
+              Expired() -> False()
+              SchemaInvalid() -> False()
+              CapacityRefused() -> False()
+              Uncertain() -> False()
+              Recover() -> False()
+
+  @total true
+  @reducible
+  fn expect_definite_label(phase: Phase, disarmed: Bool, quarantined: Bool, event: Event, arm: Bool, rearm: Bool, replay: Bool, expired: Bool) -> Option(Ground) =
+    match quarantined
+      True() ->
+        match phase
+          Empty() -> no_ground()
+          Intended(Fresh(), n) -> no_ground()
+          Intended(After(g), n) -> no_ground()
+          Dispatched(origin, n) -> no_ground()
+          Definite(g, n) -> Some(g)
+          Confirmed(n) -> no_ground()
+          Stranded(n) -> no_ground()
+      False() ->
+        match phase
+          Empty() ->
+            match event
+              Admit() -> no_ground()
+              Arm() -> no_ground()
+              NoSend() -> no_ground()
+              PermanentNoSend() -> no_ground()
+              Lost() -> no_ground()
+              TimedOut() -> no_ground()
+              Failed() -> no_ground()
+              Pending() -> no_ground()
+              NoEffect() -> no_ground()
+              ProviderUnknown() -> no_ground()
+              Completed() -> no_ground()
+              Resume() -> no_ground()
+              Rearm() -> no_ground()
+              Expired() -> no_ground()
+              SchemaInvalid() -> no_ground()
+              CapacityRefused() -> no_ground()
+              Uncertain() -> no_ground()
+              Recover() -> no_ground()
+          Intended(Fresh(), n) ->
+            match event
+              Admit() -> no_ground()
+              Arm() ->
+                match arm
+                  True() -> no_ground()
+                  False() -> no_ground()
+              NoSend() -> no_ground()
+              PermanentNoSend() -> no_ground()
+              Lost() -> no_ground()
+              TimedOut() -> no_ground()
+              Failed() -> no_ground()
+              Pending() -> no_ground()
+              NoEffect() -> no_ground()
+              ProviderUnknown() -> no_ground()
+              Completed() -> no_ground()
+              Resume() -> no_ground()
+              Rearm() -> no_ground()
+              Expired() -> no_ground()
+              SchemaInvalid() -> no_ground()
+              CapacityRefused() -> no_ground()
+              Uncertain() -> no_ground()
+              Recover() -> no_ground()
+          Intended(After(g), n) ->
+            match event
+              Admit() -> no_ground()
+              Arm() ->
+                match arm
+                  True() -> no_ground()
+                  False() -> no_ground()
+              NoSend() -> no_ground()
+              PermanentNoSend() -> no_ground()
+              Lost() -> no_ground()
+              TimedOut() -> no_ground()
+              Failed() -> no_ground()
+              Pending() -> no_ground()
+              NoEffect() -> no_ground()
+              ProviderUnknown() -> no_ground()
+              Completed() -> no_ground()
+              Resume() -> no_ground()
+              Rearm() -> no_ground()
+              Expired() -> no_ground()
+              SchemaInvalid() -> no_ground()
+              CapacityRefused() -> no_ground()
+              Uncertain() -> no_ground()
+              Recover() -> no_ground()
+          Dispatched(origin, n) ->
+            match event
+              Admit() -> no_ground()
+              Arm() -> no_ground()
+              NoSend() -> Some(AdapterNoSend())
+              PermanentNoSend() -> Some(AdapterNoSend())
+              Lost() -> no_ground()
+              TimedOut() -> no_ground()
+              Failed() -> no_ground()
+              Pending() -> no_ground()
+              NoEffect() -> Some(ProviderNoEffect())
+              ProviderUnknown() ->
+                match replay
+                  True() -> Some(ProviderReplaySafe())
+                  False() -> no_ground()
+              Completed() -> no_ground()
+              Resume() -> no_ground()
+              Rearm() -> no_ground()
+              Expired() ->
+                match expired
+                  True() -> no_ground()
+                  False() -> no_ground()
+              SchemaInvalid() -> no_ground()
+              CapacityRefused() -> no_ground()
+              Uncertain() -> no_ground()
+              Recover() -> no_ground()
+          Definite(g, n) ->
+            match event
+              Admit() -> Some(g)
+              Arm() -> Some(g)
+              NoSend() -> Some(g)
+              PermanentNoSend() -> Some(g)
+              Lost() -> Some(g)
+              TimedOut() -> Some(g)
+              Failed() -> Some(g)
+              Pending() -> Some(g)
+              NoEffect() -> Some(g)
+              ProviderUnknown() -> Some(g)
+              Completed() -> Some(g)
+              Resume() -> Some(g)
+              Rearm() ->
+                match rearm
+                  True() -> no_ground()
+                  False() -> Some(g)
+              Expired() -> Some(g)
+              SchemaInvalid() -> Some(g)
+              CapacityRefused() -> Some(g)
+              Uncertain() -> Some(g)
+              Recover() -> Some(g)
+          Confirmed(n) ->
+            match event
+              Admit() -> no_ground()
+              Arm() -> no_ground()
+              NoSend() -> no_ground()
+              PermanentNoSend() -> no_ground()
+              Lost() -> no_ground()
+              TimedOut() -> no_ground()
+              Failed() -> no_ground()
+              Pending() -> no_ground()
+              NoEffect() -> no_ground()
+              ProviderUnknown() -> no_ground()
+              Completed() -> no_ground()
+              Resume() -> no_ground()
+              Rearm() -> no_ground()
+              Expired() -> no_ground()
+              SchemaInvalid() -> no_ground()
+              CapacityRefused() -> no_ground()
+              Uncertain() -> no_ground()
+              Recover() -> no_ground()
+          Stranded(n) ->
+            match event
+              Admit() -> no_ground()
+              Arm() -> no_ground()
+              NoSend() -> no_ground()
+              PermanentNoSend() -> no_ground()
+              Lost() -> no_ground()
+              TimedOut() -> no_ground()
+              Failed() -> no_ground()
+              Pending() -> no_ground()
+              NoEffect() -> no_ground()
+              ProviderUnknown() -> no_ground()
+              Completed() -> no_ground()
+              Resume() -> no_ground()
+              Rearm() -> no_ground()
+              Expired() -> no_ground()
+              SchemaInvalid() -> no_ground()
+              CapacityRefused() -> no_ground()
+              Uncertain() -> no_ground()
+              Recover() -> no_ground()
+
+  @total true
+  @reducible
+  fn expect_dispatch_origin(phase: Phase, disarmed: Bool, quarantined: Bool, event: Event, arm: Bool, rearm: Bool, replay: Bool, expired: Bool) -> Option(Origin) =
+    match quarantined
+      True() ->
+        match phase
+          Empty() -> no_origin()
+          Intended(Fresh(), n) -> no_origin()
+          Intended(After(g), n) -> no_origin()
+          Dispatched(origin, n) -> no_origin()
+          Definite(g, n) -> no_origin()
+          Confirmed(n) -> no_origin()
+          Stranded(n) -> no_origin()
+      False() ->
+        match phase
+          Empty() ->
+            match event
+              Admit() -> no_origin()
+              Arm() -> no_origin()
+              NoSend() -> no_origin()
+              PermanentNoSend() -> no_origin()
+              Lost() -> no_origin()
+              TimedOut() -> no_origin()
+              Failed() -> no_origin()
+              Pending() -> no_origin()
+              NoEffect() -> no_origin()
+              ProviderUnknown() -> no_origin()
+              Completed() -> no_origin()
+              Resume() -> no_origin()
+              Rearm() -> no_origin()
+              Expired() -> no_origin()
+              SchemaInvalid() -> no_origin()
+              CapacityRefused() -> no_origin()
+              Uncertain() -> no_origin()
+              Recover() -> no_origin()
+          Intended(Fresh(), n) ->
+            match event
+              Admit() -> no_origin()
+              Arm() ->
+                match arm
+                  True() -> Some(Fresh())
+                  False() -> no_origin()
+              NoSend() -> no_origin()
+              PermanentNoSend() -> no_origin()
+              Lost() -> no_origin()
+              TimedOut() -> no_origin()
+              Failed() -> no_origin()
+              Pending() -> no_origin()
+              NoEffect() -> no_origin()
+              ProviderUnknown() -> no_origin()
+              Completed() -> no_origin()
+              Resume() -> no_origin()
+              Rearm() -> no_origin()
+              Expired() -> no_origin()
+              SchemaInvalid() -> no_origin()
+              CapacityRefused() -> no_origin()
+              Uncertain() -> no_origin()
+              Recover() -> no_origin()
+          Intended(After(g), n) ->
+            match event
+              Admit() -> no_origin()
+              Arm() ->
+                match arm
+                  True() -> Some(After(g))
+                  False() -> no_origin()
+              NoSend() -> no_origin()
+              PermanentNoSend() -> no_origin()
+              Lost() -> no_origin()
+              TimedOut() -> no_origin()
+              Failed() -> no_origin()
+              Pending() -> no_origin()
+              NoEffect() -> no_origin()
+              ProviderUnknown() -> no_origin()
+              Completed() -> no_origin()
+              Resume() -> no_origin()
+              Rearm() -> no_origin()
+              Expired() -> no_origin()
+              SchemaInvalid() -> no_origin()
+              CapacityRefused() -> no_origin()
+              Uncertain() -> no_origin()
+              Recover() -> no_origin()
+          Dispatched(origin, n) ->
+            match event
+              Admit() -> no_origin()
+              Arm() -> no_origin()
+              NoSend() -> no_origin()
+              PermanentNoSend() -> no_origin()
+              Lost() -> no_origin()
+              TimedOut() -> no_origin()
+              Failed() -> no_origin()
+              Pending() -> no_origin()
+              NoEffect() -> no_origin()
+              ProviderUnknown() ->
+                match replay
+                  True() -> no_origin()
+                  False() -> no_origin()
+              Completed() -> no_origin()
+              Resume() -> no_origin()
+              Rearm() -> no_origin()
+              Expired() ->
+                match expired
+                  True() -> no_origin()
+                  False() -> no_origin()
+              SchemaInvalid() -> no_origin()
+              CapacityRefused() -> no_origin()
+              Uncertain() -> no_origin()
+              Recover() -> no_origin()
+          Definite(g, n) ->
+            match event
+              Admit() -> no_origin()
+              Arm() -> no_origin()
+              NoSend() -> no_origin()
+              PermanentNoSend() -> no_origin()
+              Lost() -> no_origin()
+              TimedOut() -> no_origin()
+              Failed() -> no_origin()
+              Pending() -> no_origin()
+              NoEffect() -> no_origin()
+              ProviderUnknown() -> no_origin()
+              Completed() -> no_origin()
+              Resume() -> no_origin()
+              Rearm() ->
+                match rearm
+                  True() -> no_origin()
+                  False() -> no_origin()
+              Expired() -> no_origin()
+              SchemaInvalid() -> no_origin()
+              CapacityRefused() -> no_origin()
+              Uncertain() -> no_origin()
+              Recover() -> no_origin()
+          Confirmed(n) ->
+            match event
+              Admit() -> no_origin()
+              Arm() -> no_origin()
+              NoSend() -> no_origin()
+              PermanentNoSend() -> no_origin()
+              Lost() -> no_origin()
+              TimedOut() -> no_origin()
+              Failed() -> no_origin()
+              Pending() -> no_origin()
+              NoEffect() -> no_origin()
+              ProviderUnknown() -> no_origin()
+              Completed() -> no_origin()
+              Resume() -> no_origin()
+              Rearm() -> no_origin()
+              Expired() -> no_origin()
+              SchemaInvalid() -> no_origin()
+              CapacityRefused() -> no_origin()
+              Uncertain() -> no_origin()
+              Recover() -> no_origin()
+          Stranded(n) ->
+            match event
+              Admit() -> no_origin()
+              Arm() -> no_origin()
+              NoSend() -> no_origin()
+              PermanentNoSend() -> no_origin()
+              Lost() -> no_origin()
+              TimedOut() -> no_origin()
+              Failed() -> no_origin()
+              Pending() -> no_origin()
+              NoEffect() -> no_origin()
+              ProviderUnknown() -> no_origin()
+              Completed() -> no_origin()
+              Resume() -> no_origin()
+              Rearm() -> no_origin()
+              Expired() -> no_origin()
+              SchemaInvalid() -> no_origin()
+              CapacityRefused() -> no_origin()
+              Uncertain() -> no_origin()
+              Recover() -> no_origin()
+
+  @total true
+  @reducible
+  fn expect_fresh_label(phase: Phase, disarmed: Bool, quarantined: Bool, event: Event, arm: Bool, rearm: Bool, replay: Bool, expired: Bool) -> Bool =
+    match quarantined
+      True() ->
+        match phase
+          Empty() -> False()
+          Intended(Fresh(), n) -> True()
+          Intended(After(g), n) -> False()
+          Dispatched(origin, n) -> False()
+          Definite(g, n) -> False()
+          Confirmed(n) -> False()
+          Stranded(n) -> False()
+      False() ->
+        match phase
+          Empty() ->
+            match event
+              Admit() -> True()
+              Arm() -> False()
+              NoSend() -> False()
+              PermanentNoSend() -> False()
+              Lost() -> False()
+              TimedOut() -> False()
+              Failed() -> False()
+              Pending() -> False()
+              NoEffect() -> False()
+              ProviderUnknown() -> False()
+              Completed() -> False()
+              Resume() -> False()
+              Rearm() -> False()
+              Expired() -> False()
+              SchemaInvalid() -> False()
+              CapacityRefused() -> False()
+              Uncertain() -> False()
+              Recover() -> False()
+          Intended(Fresh(), n) ->
+            match event
+              Admit() -> True()
+              Arm() ->
+                match arm
+                  True() -> False()
+                  False() -> True()
+              NoSend() -> True()
+              PermanentNoSend() -> True()
+              Lost() -> True()
+              TimedOut() -> True()
+              Failed() -> True()
+              Pending() -> True()
+              NoEffect() -> True()
+              ProviderUnknown() -> True()
+              Completed() -> True()
+              Resume() -> True()
+              Rearm() -> True()
+              Expired() -> True()
+              SchemaInvalid() -> True()
+              CapacityRefused() -> True()
+              Uncertain() -> True()
+              Recover() -> True()
+          Intended(After(g), n) ->
+            match event
+              Admit() -> False()
+              Arm() ->
+                match arm
+                  True() -> False()
+                  False() -> False()
+              NoSend() -> False()
+              PermanentNoSend() -> False()
+              Lost() -> False()
+              TimedOut() -> False()
+              Failed() -> False()
+              Pending() -> False()
+              NoEffect() -> False()
+              ProviderUnknown() -> False()
+              Completed() -> False()
+              Resume() -> False()
+              Rearm() -> False()
+              Expired() -> False()
+              SchemaInvalid() -> False()
+              CapacityRefused() -> False()
+              Uncertain() -> False()
+              Recover() -> False()
+          Dispatched(origin, n) ->
+            match event
+              Admit() -> False()
+              Arm() -> False()
+              NoSend() -> False()
+              PermanentNoSend() -> False()
+              Lost() -> False()
+              TimedOut() -> False()
+              Failed() -> False()
+              Pending() -> False()
+              NoEffect() -> False()
+              ProviderUnknown() ->
+                match replay
+                  True() -> False()
+                  False() -> False()
+              Completed() -> False()
+              Resume() -> False()
+              Rearm() -> False()
+              Expired() ->
+                match expired
+                  True() -> False()
+                  False() -> False()
+              SchemaInvalid() -> False()
+              CapacityRefused() -> False()
+              Uncertain() -> False()
+              Recover() -> False()
+          Definite(g, n) ->
+            match event
+              Admit() -> False()
+              Arm() -> False()
+              NoSend() -> False()
+              PermanentNoSend() -> False()
+              Lost() -> False()
+              TimedOut() -> False()
+              Failed() -> False()
+              Pending() -> False()
+              NoEffect() -> False()
+              ProviderUnknown() -> False()
+              Completed() -> False()
+              Resume() -> False()
+              Rearm() ->
+                match rearm
+                  True() -> False()
+                  False() -> False()
+              Expired() -> False()
+              SchemaInvalid() -> False()
+              CapacityRefused() -> False()
+              Uncertain() -> False()
+              Recover() -> False()
+          Confirmed(n) ->
+            match event
+              Admit() -> False()
+              Arm() -> False()
+              NoSend() -> False()
+              PermanentNoSend() -> False()
+              Lost() -> False()
+              TimedOut() -> False()
+              Failed() -> False()
+              Pending() -> False()
+              NoEffect() -> False()
+              ProviderUnknown() -> False()
+              Completed() -> False()
+              Resume() -> False()
+              Rearm() -> False()
+              Expired() -> False()
+              SchemaInvalid() -> False()
+              CapacityRefused() -> False()
+              Uncertain() -> False()
+              Recover() -> False()
+          Stranded(n) ->
+            match event
+              Admit() -> False()
+              Arm() -> False()
+              NoSend() -> False()
+              PermanentNoSend() -> False()
+              Lost() -> False()
+              TimedOut() -> False()
+              Failed() -> False()
+              Pending() -> False()
+              NoEffect() -> False()
+              ProviderUnknown() -> False()
+              Completed() -> False()
+              Resume() -> False()
+              Rearm() -> False()
+              Expired() -> False()
+              SchemaInvalid() -> False()
+              CapacityRefused() -> False()
+              Uncertain() -> False()
+              Recover() -> False()
+
+  @total true
+  @reducible
+  fn expect_after_label(phase: Phase, disarmed: Bool, quarantined: Bool, event: Event, arm: Bool, rearm: Bool, replay: Bool, expired: Bool) -> Option(Ground) =
+    match quarantined
+      True() ->
+        match phase
+          Empty() -> no_ground()
+          Intended(Fresh(), n) -> no_ground()
+          Intended(After(g), n) -> Some(g)
+          Dispatched(origin, n) -> no_ground()
+          Definite(g, n) -> no_ground()
+          Confirmed(n) -> no_ground()
+          Stranded(n) -> no_ground()
+      False() ->
+        match phase
+          Empty() ->
+            match event
+              Admit() -> no_ground()
+              Arm() -> no_ground()
+              NoSend() -> no_ground()
+              PermanentNoSend() -> no_ground()
+              Lost() -> no_ground()
+              TimedOut() -> no_ground()
+              Failed() -> no_ground()
+              Pending() -> no_ground()
+              NoEffect() -> no_ground()
+              ProviderUnknown() -> no_ground()
+              Completed() -> no_ground()
+              Resume() -> no_ground()
+              Rearm() -> no_ground()
+              Expired() -> no_ground()
+              SchemaInvalid() -> no_ground()
+              CapacityRefused() -> no_ground()
+              Uncertain() -> no_ground()
+              Recover() -> no_ground()
+          Intended(Fresh(), n) ->
+            match event
+              Admit() -> no_ground()
+              Arm() ->
+                match arm
+                  True() -> no_ground()
+                  False() -> no_ground()
+              NoSend() -> no_ground()
+              PermanentNoSend() -> no_ground()
+              Lost() -> no_ground()
+              TimedOut() -> no_ground()
+              Failed() -> no_ground()
+              Pending() -> no_ground()
+              NoEffect() -> no_ground()
+              ProviderUnknown() -> no_ground()
+              Completed() -> no_ground()
+              Resume() -> no_ground()
+              Rearm() -> no_ground()
+              Expired() -> no_ground()
+              SchemaInvalid() -> no_ground()
+              CapacityRefused() -> no_ground()
+              Uncertain() -> no_ground()
+              Recover() -> no_ground()
+          Intended(After(g), n) ->
+            match event
+              Admit() -> Some(g)
+              Arm() ->
+                match arm
+                  True() -> no_ground()
+                  False() -> Some(g)
+              NoSend() -> Some(g)
+              PermanentNoSend() -> Some(g)
+              Lost() -> Some(g)
+              TimedOut() -> Some(g)
+              Failed() -> Some(g)
+              Pending() -> Some(g)
+              NoEffect() -> Some(g)
+              ProviderUnknown() -> Some(g)
+              Completed() -> Some(g)
+              Resume() -> Some(g)
+              Rearm() -> Some(g)
+              Expired() -> Some(g)
+              SchemaInvalid() -> Some(g)
+              CapacityRefused() -> Some(g)
+              Uncertain() -> Some(g)
+              Recover() -> Some(g)
+          Dispatched(origin, n) ->
+            match event
+              Admit() -> no_ground()
+              Arm() -> no_ground()
+              NoSend() -> no_ground()
+              PermanentNoSend() -> no_ground()
+              Lost() -> no_ground()
+              TimedOut() -> no_ground()
+              Failed() -> no_ground()
+              Pending() -> no_ground()
+              NoEffect() -> no_ground()
+              ProviderUnknown() ->
+                match replay
+                  True() -> no_ground()
+                  False() -> no_ground()
+              Completed() -> no_ground()
+              Resume() -> no_ground()
+              Rearm() -> no_ground()
+              Expired() ->
+                match expired
+                  True() -> no_ground()
+                  False() -> no_ground()
+              SchemaInvalid() -> no_ground()
+              CapacityRefused() -> no_ground()
+              Uncertain() -> no_ground()
+              Recover() -> no_ground()
+          Definite(g, n) ->
+            match event
+              Admit() -> no_ground()
+              Arm() -> no_ground()
+              NoSend() -> no_ground()
+              PermanentNoSend() -> no_ground()
+              Lost() -> no_ground()
+              TimedOut() -> no_ground()
+              Failed() -> no_ground()
+              Pending() -> no_ground()
+              NoEffect() -> no_ground()
+              ProviderUnknown() -> no_ground()
+              Completed() -> no_ground()
+              Resume() -> no_ground()
+              Rearm() ->
+                match rearm
+                  True() -> Some(g)
+                  False() -> no_ground()
+              Expired() -> no_ground()
+              SchemaInvalid() -> no_ground()
+              CapacityRefused() -> no_ground()
+              Uncertain() -> no_ground()
+              Recover() -> no_ground()
+          Confirmed(n) ->
+            match event
+              Admit() -> no_ground()
+              Arm() -> no_ground()
+              NoSend() -> no_ground()
+              PermanentNoSend() -> no_ground()
+              Lost() -> no_ground()
+              TimedOut() -> no_ground()
+              Failed() -> no_ground()
+              Pending() -> no_ground()
+              NoEffect() -> no_ground()
+              ProviderUnknown() -> no_ground()
+              Completed() -> no_ground()
+              Resume() -> no_ground()
+              Rearm() -> no_ground()
+              Expired() -> no_ground()
+              SchemaInvalid() -> no_ground()
+              CapacityRefused() -> no_ground()
+              Uncertain() -> no_ground()
+              Recover() -> no_ground()
+          Stranded(n) ->
+            match event
+              Admit() -> no_ground()
+              Arm() -> no_ground()
+              NoSend() -> no_ground()
+              PermanentNoSend() -> no_ground()
+              Lost() -> no_ground()
+              TimedOut() -> no_ground()
+              Failed() -> no_ground()
+              Pending() -> no_ground()
+              NoEffect() -> no_ground()
+              ProviderUnknown() -> no_ground()
+              Completed() -> no_ground()
+              Resume() -> no_ground()
+              Rearm() -> no_ground()
+              Expired() -> no_ground()
+              SchemaInvalid() -> no_ground()
+              CapacityRefused() -> no_ground()
+              Uncertain() -> no_ground()
+              Recover() -> no_ground()
+
+  @total true
+  @reducible
+  fn expect_attempt_label(phase: Phase, disarmed: Bool, quarantined: Bool, event: Event, arm: Bool, rearm: Bool, replay: Bool, expired: Bool) -> Int =
+    match quarantined
+      True() ->
+        match phase
+          Empty() -> 0
+          Intended(Fresh(), n) -> n
+          Intended(After(g), n) -> n
+          Dispatched(origin, n) -> n
+          Definite(g, n) -> n
+          Confirmed(n) -> n
+          Stranded(n) -> n
+      False() ->
+        match phase
+          Empty() ->
+            match event
+              Admit() -> 0
+              Arm() -> 0
+              NoSend() -> 0
+              PermanentNoSend() -> 0
+              Lost() -> 0
+              TimedOut() -> 0
+              Failed() -> 0
+              Pending() -> 0
+              NoEffect() -> 0
+              ProviderUnknown() -> 0
+              Completed() -> 0
+              Resume() -> 0
+              Rearm() -> 0
+              Expired() -> 0
+              SchemaInvalid() -> 0
+              CapacityRefused() -> 0
+              Uncertain() -> 0
+              Recover() -> 0
+          Intended(Fresh(), n) ->
+            match event
+              Admit() -> n
+              Arm() ->
+                match arm
+                  True() -> n + 1
+                  False() -> n
+              NoSend() -> n
+              PermanentNoSend() -> n
+              Lost() -> n
+              TimedOut() -> n
+              Failed() -> n
+              Pending() -> n
+              NoEffect() -> n
+              ProviderUnknown() -> n
+              Completed() -> n
+              Resume() -> n
+              Rearm() -> n
+              Expired() -> n
+              SchemaInvalid() -> n
+              CapacityRefused() -> n
+              Uncertain() -> n
+              Recover() -> n
+          Intended(After(g), n) ->
+            match event
+              Admit() -> n
+              Arm() ->
+                match arm
+                  True() -> n + 1
+                  False() -> n
+              NoSend() -> n
+              PermanentNoSend() -> n
+              Lost() -> n
+              TimedOut() -> n
+              Failed() -> n
+              Pending() -> n
+              NoEffect() -> n
+              ProviderUnknown() -> n
+              Completed() -> n
+              Resume() -> n
+              Rearm() -> n
+              Expired() -> n
+              SchemaInvalid() -> n
+              CapacityRefused() -> n
+              Uncertain() -> n
+              Recover() -> n
+          Dispatched(origin, n) ->
+            match event
+              Admit() -> n
+              Arm() -> n
+              NoSend() -> n
+              PermanentNoSend() -> n
+              Lost() -> n
+              TimedOut() -> n
+              Failed() -> n
+              Pending() -> n
+              NoEffect() -> n
+              ProviderUnknown() ->
+                match replay
+                  True() -> n
+                  False() -> n
+              Completed() -> n
+              Resume() -> n
+              Rearm() -> n
+              Expired() ->
+                match expired
+                  True() -> n
+                  False() -> n
+              SchemaInvalid() -> n
+              CapacityRefused() -> n
+              Uncertain() -> n
+              Recover() -> n
+          Definite(g, n) ->
+            match event
+              Admit() -> n
+              Arm() -> n
+              NoSend() -> n
+              PermanentNoSend() -> n
+              Lost() -> n
+              TimedOut() -> n
+              Failed() -> n
+              Pending() -> n
+              NoEffect() -> n
+              ProviderUnknown() -> n
+              Completed() -> n
+              Resume() -> n
+              Rearm() ->
+                match rearm
+                  True() -> n
+                  False() -> n
+              Expired() -> n
+              SchemaInvalid() -> n
+              CapacityRefused() -> n
+              Uncertain() -> n
+              Recover() -> n
+          Confirmed(n) ->
+            match event
+              Admit() -> n
+              Arm() -> n
+              NoSend() -> n
+              PermanentNoSend() -> n
+              Lost() -> n
+              TimedOut() -> n
+              Failed() -> n
+              Pending() -> n
+              NoEffect() -> n
+              ProviderUnknown() -> n
+              Completed() -> n
+              Resume() -> n
+              Rearm() -> n
+              Expired() -> n
+              SchemaInvalid() -> n
+              CapacityRefused() -> n
+              Uncertain() -> n
+              Recover() -> n
+          Stranded(n) ->
+            match event
+              Admit() -> n
+              Arm() -> n
+              NoSend() -> n
+              PermanentNoSend() -> n
+              Lost() -> n
+              TimedOut() -> n
+              Failed() -> n
+              Pending() -> n
+              NoEffect() -> n
+              ProviderUnknown() -> n
+              Completed() -> n
+              Resume() -> n
+              Rearm() -> n
+              Expired() -> n
+              SchemaInvalid() -> n
+              CapacityRefused() -> n
+              Uncertain() -> n
+              Recover() -> n
+
+  fn empty_never_recreated_gated(phase: Phase, disarmed: Bool, quarantined: Bool, event: Event, arm: Bool, rearm: Bool, replay: Bool, expired: Bool) -> Equivalent(Bool, empty_label(step_gated(make(phase, disarmed, quarantined), event, arm, rearm, replay, expired)), expect_empty_label(phase, disarmed, quarantined, event, arm, rearm, replay, expired)) =
+    match quarantined
+      True() ->
+        match phase
+          Empty() -> reflexive(True())
+          Intended(Fresh(), n) -> reflexive(False())
+          Intended(After(g), n) -> reflexive(False())
+          Dispatched(origin, n) -> reflexive(False())
+          Definite(g, n) -> reflexive(False())
+          Confirmed(n) -> reflexive(False())
+          Stranded(n) -> reflexive(False())
+      False() ->
+        match phase
+          Empty() ->
+            match event
+              Admit() -> reflexive(False())
+              Arm() -> reflexive(True())
+              NoSend() -> reflexive(True())
+              PermanentNoSend() -> reflexive(True())
+              Lost() -> reflexive(True())
+              TimedOut() -> reflexive(True())
+              Failed() -> reflexive(True())
+              Pending() -> reflexive(True())
+              NoEffect() -> reflexive(True())
+              ProviderUnknown() -> reflexive(True())
+              Completed() -> reflexive(True())
+              Resume() -> reflexive(True())
+              Rearm() -> reflexive(True())
+              Expired() -> reflexive(True())
+              SchemaInvalid() -> reflexive(True())
+              CapacityRefused() -> reflexive(True())
+              Uncertain() -> reflexive(True())
+              Recover() -> reflexive(True())
+          Intended(Fresh(), n) ->
+            match event
+              Admit() -> reflexive(False())
+              Arm() ->
+                match arm
+                  True() -> reflexive(False())
+                  False() -> reflexive(False())
+              NoSend() -> reflexive(False())
+              PermanentNoSend() -> reflexive(False())
+              Lost() -> reflexive(False())
+              TimedOut() -> reflexive(False())
+              Failed() -> reflexive(False())
+              Pending() -> reflexive(False())
+              NoEffect() -> reflexive(False())
+              ProviderUnknown() -> reflexive(False())
+              Completed() -> reflexive(False())
+              Resume() -> reflexive(False())
+              Rearm() -> reflexive(False())
+              Expired() -> reflexive(False())
+              SchemaInvalid() -> reflexive(False())
+              CapacityRefused() -> reflexive(False())
+              Uncertain() -> reflexive(False())
+              Recover() -> reflexive(False())
+          Intended(After(g), n) ->
+            match event
+              Admit() -> reflexive(False())
+              Arm() ->
+                match arm
+                  True() -> reflexive(False())
+                  False() -> reflexive(False())
+              NoSend() -> reflexive(False())
+              PermanentNoSend() -> reflexive(False())
+              Lost() -> reflexive(False())
+              TimedOut() -> reflexive(False())
+              Failed() -> reflexive(False())
+              Pending() -> reflexive(False())
+              NoEffect() -> reflexive(False())
+              ProviderUnknown() -> reflexive(False())
+              Completed() -> reflexive(False())
+              Resume() -> reflexive(False())
+              Rearm() -> reflexive(False())
+              Expired() -> reflexive(False())
+              SchemaInvalid() -> reflexive(False())
+              CapacityRefused() -> reflexive(False())
+              Uncertain() -> reflexive(False())
+              Recover() -> reflexive(False())
+          Dispatched(origin, n) ->
+            match event
+              Admit() -> reflexive(False())
+              Arm() -> reflexive(False())
+              NoSend() -> reflexive(False())
+              PermanentNoSend() -> reflexive(False())
+              Lost() -> reflexive(False())
+              TimedOut() -> reflexive(False())
+              Failed() -> reflexive(False())
+              Pending() -> reflexive(False())
+              NoEffect() -> reflexive(False())
+              ProviderUnknown() ->
+                match replay
+                  True() -> reflexive(False())
+                  False() -> reflexive(False())
+              Completed() -> reflexive(False())
+              Resume() -> reflexive(False())
+              Rearm() -> reflexive(False())
+              Expired() ->
+                match expired
+                  True() -> reflexive(False())
+                  False() -> reflexive(False())
+              SchemaInvalid() -> reflexive(False())
+              CapacityRefused() -> reflexive(False())
+              Uncertain() -> reflexive(False())
+              Recover() -> reflexive(False())
+          Definite(g, n) ->
+            match event
+              Admit() -> reflexive(False())
+              Arm() -> reflexive(False())
+              NoSend() -> reflexive(False())
+              PermanentNoSend() -> reflexive(False())
+              Lost() -> reflexive(False())
+              TimedOut() -> reflexive(False())
+              Failed() -> reflexive(False())
+              Pending() -> reflexive(False())
+              NoEffect() -> reflexive(False())
+              ProviderUnknown() -> reflexive(False())
+              Completed() -> reflexive(False())
+              Resume() -> reflexive(False())
+              Rearm() ->
+                match rearm
+                  True() -> reflexive(False())
+                  False() -> reflexive(False())
+              Expired() -> reflexive(False())
+              SchemaInvalid() -> reflexive(False())
+              CapacityRefused() -> reflexive(False())
+              Uncertain() -> reflexive(False())
+              Recover() -> reflexive(False())
+          Confirmed(n) ->
+            match event
+              Admit() -> reflexive(False())
+              Arm() -> reflexive(False())
+              NoSend() -> reflexive(False())
+              PermanentNoSend() -> reflexive(False())
+              Lost() -> reflexive(False())
+              TimedOut() -> reflexive(False())
+              Failed() -> reflexive(False())
+              Pending() -> reflexive(False())
+              NoEffect() -> reflexive(False())
+              ProviderUnknown() -> reflexive(False())
+              Completed() -> reflexive(False())
+              Resume() -> reflexive(False())
+              Rearm() -> reflexive(False())
+              Expired() -> reflexive(False())
+              SchemaInvalid() -> reflexive(False())
+              CapacityRefused() -> reflexive(False())
+              Uncertain() -> reflexive(False())
+              Recover() -> reflexive(False())
+          Stranded(n) ->
+            match event
+              Admit() -> reflexive(False())
+              Arm() -> reflexive(False())
+              NoSend() -> reflexive(False())
+              PermanentNoSend() -> reflexive(False())
+              Lost() -> reflexive(False())
+              TimedOut() -> reflexive(False())
+              Failed() -> reflexive(False())
+              Pending() -> reflexive(False())
+              NoEffect() -> reflexive(False())
+              ProviderUnknown() -> reflexive(False())
+              Completed() -> reflexive(False())
+              Resume() -> reflexive(False())
+              Rearm() -> reflexive(False())
+              Expired() -> reflexive(False())
+              SchemaInvalid() -> reflexive(False())
+              CapacityRefused() -> reflexive(False())
+              Uncertain() -> reflexive(False())
+              Recover() -> reflexive(False())
+
+  fn dispatch_action_only_after_arm_gated(phase: Phase, disarmed: Bool, quarantined: Bool, event: Event, arm: Bool, rearm: Bool, replay: Bool, expired: Bool) -> Equivalent(Bool, dispatch_label(step_gated(make(phase, disarmed, quarantined), event, arm, rearm, replay, expired)), expect_dispatch_label(phase, disarmed, quarantined, event, arm, rearm, replay, expired)) =
+    match quarantined
+      True() ->
+        match phase
+          Empty() -> reflexive(False())
+          Intended(Fresh(), n) -> reflexive(False())
+          Intended(After(g), n) -> reflexive(False())
+          Dispatched(origin, n) -> reflexive(False())
+          Definite(g, n) -> reflexive(False())
+          Confirmed(n) -> reflexive(False())
+          Stranded(n) -> reflexive(False())
+      False() ->
+        match phase
+          Empty() ->
+            match event
+              Admit() -> reflexive(False())
+              Arm() -> reflexive(False())
+              NoSend() -> reflexive(False())
+              PermanentNoSend() -> reflexive(False())
+              Lost() -> reflexive(False())
+              TimedOut() -> reflexive(False())
+              Failed() -> reflexive(False())
+              Pending() -> reflexive(False())
+              NoEffect() -> reflexive(False())
+              ProviderUnknown() -> reflexive(False())
+              Completed() -> reflexive(False())
+              Resume() -> reflexive(False())
+              Rearm() -> reflexive(False())
+              Expired() -> reflexive(False())
+              SchemaInvalid() -> reflexive(False())
+              CapacityRefused() -> reflexive(False())
+              Uncertain() -> reflexive(False())
+              Recover() -> reflexive(False())
+          Intended(Fresh(), n) ->
+            match event
+              Admit() -> reflexive(False())
+              Arm() ->
+                match arm
+                  True() -> reflexive(True())
+                  False() -> reflexive(False())
+              NoSend() -> reflexive(False())
+              PermanentNoSend() -> reflexive(False())
+              Lost() -> reflexive(False())
+              TimedOut() -> reflexive(False())
+              Failed() -> reflexive(False())
+              Pending() -> reflexive(False())
+              NoEffect() -> reflexive(False())
+              ProviderUnknown() -> reflexive(False())
+              Completed() -> reflexive(False())
+              Resume() -> reflexive(False())
+              Rearm() -> reflexive(False())
+              Expired() -> reflexive(False())
+              SchemaInvalid() -> reflexive(False())
+              CapacityRefused() -> reflexive(False())
+              Uncertain() -> reflexive(False())
+              Recover() -> reflexive(False())
+          Intended(After(g), n) ->
+            match event
+              Admit() -> reflexive(False())
+              Arm() ->
+                match arm
+                  True() -> reflexive(True())
+                  False() -> reflexive(False())
+              NoSend() -> reflexive(False())
+              PermanentNoSend() -> reflexive(False())
+              Lost() -> reflexive(False())
+              TimedOut() -> reflexive(False())
+              Failed() -> reflexive(False())
+              Pending() -> reflexive(False())
+              NoEffect() -> reflexive(False())
+              ProviderUnknown() -> reflexive(False())
+              Completed() -> reflexive(False())
+              Resume() -> reflexive(False())
+              Rearm() -> reflexive(False())
+              Expired() -> reflexive(False())
+              SchemaInvalid() -> reflexive(False())
+              CapacityRefused() -> reflexive(False())
+              Uncertain() -> reflexive(False())
+              Recover() -> reflexive(False())
+          Dispatched(origin, n) ->
+            match event
+              Admit() -> reflexive(False())
+              Arm() -> reflexive(False())
+              NoSend() -> reflexive(False())
+              PermanentNoSend() -> reflexive(False())
+              Lost() -> reflexive(False())
+              TimedOut() -> reflexive(False())
+              Failed() -> reflexive(False())
+              Pending() -> reflexive(False())
+              NoEffect() -> reflexive(False())
+              ProviderUnknown() ->
+                match replay
+                  True() -> reflexive(False())
+                  False() -> reflexive(False())
+              Completed() -> reflexive(False())
+              Resume() -> reflexive(False())
+              Rearm() -> reflexive(False())
+              Expired() ->
+                match expired
+                  True() -> reflexive(False())
+                  False() -> reflexive(False())
+              SchemaInvalid() -> reflexive(False())
+              CapacityRefused() -> reflexive(False())
+              Uncertain() -> reflexive(False())
+              Recover() -> reflexive(False())
+          Definite(g, n) ->
+            match event
+              Admit() -> reflexive(False())
+              Arm() -> reflexive(False())
+              NoSend() -> reflexive(False())
+              PermanentNoSend() -> reflexive(False())
+              Lost() -> reflexive(False())
+              TimedOut() -> reflexive(False())
+              Failed() -> reflexive(False())
+              Pending() -> reflexive(False())
+              NoEffect() -> reflexive(False())
+              ProviderUnknown() -> reflexive(False())
+              Completed() -> reflexive(False())
+              Resume() -> reflexive(False())
+              Rearm() ->
+                match rearm
+                  True() -> reflexive(False())
+                  False() -> reflexive(False())
+              Expired() -> reflexive(False())
+              SchemaInvalid() -> reflexive(False())
+              CapacityRefused() -> reflexive(False())
+              Uncertain() -> reflexive(False())
+              Recover() -> reflexive(False())
+          Confirmed(n) ->
+            match event
+              Admit() -> reflexive(False())
+              Arm() -> reflexive(False())
+              NoSend() -> reflexive(False())
+              PermanentNoSend() -> reflexive(False())
+              Lost() -> reflexive(False())
+              TimedOut() -> reflexive(False())
+              Failed() -> reflexive(False())
+              Pending() -> reflexive(False())
+              NoEffect() -> reflexive(False())
+              ProviderUnknown() -> reflexive(False())
+              Completed() -> reflexive(False())
+              Resume() -> reflexive(False())
+              Rearm() -> reflexive(False())
+              Expired() -> reflexive(False())
+              SchemaInvalid() -> reflexive(False())
+              CapacityRefused() -> reflexive(False())
+              Uncertain() -> reflexive(False())
+              Recover() -> reflexive(False())
+          Stranded(n) ->
+            match event
+              Admit() -> reflexive(False())
+              Arm() -> reflexive(False())
+              NoSend() -> reflexive(False())
+              PermanentNoSend() -> reflexive(False())
+              Lost() -> reflexive(False())
+              TimedOut() -> reflexive(False())
+              Failed() -> reflexive(False())
+              Pending() -> reflexive(False())
+              NoEffect() -> reflexive(False())
+              ProviderUnknown() -> reflexive(False())
+              Completed() -> reflexive(False())
+              Resume() -> reflexive(False())
+              Rearm() -> reflexive(False())
+              Expired() -> reflexive(False())
+              SchemaInvalid() -> reflexive(False())
+              CapacityRefused() -> reflexive(False())
+              Uncertain() -> reflexive(False())
+              Recover() -> reflexive(False())
+
+  fn definite_only_with_ground_gated(phase: Phase, disarmed: Bool, quarantined: Bool, event: Event, arm: Bool, rearm: Bool, replay: Bool, expired: Bool) -> Equivalent(Option(Ground), definite_label(step_gated(make(phase, disarmed, quarantined), event, arm, rearm, replay, expired)), expect_definite_label(phase, disarmed, quarantined, event, arm, rearm, replay, expired)) =
+    match quarantined
+      True() ->
+        match phase
+          Empty() -> reflexive(no_ground())
+          Intended(Fresh(), n) -> reflexive(no_ground())
+          Intended(After(g), n) -> reflexive(no_ground())
+          Dispatched(origin, n) -> reflexive(no_ground())
+          Definite(g, n) -> reflexive(Some(g))
+          Confirmed(n) -> reflexive(no_ground())
+          Stranded(n) -> reflexive(no_ground())
+      False() ->
+        match phase
+          Empty() ->
+            match event
+              Admit() -> reflexive(no_ground())
+              Arm() -> reflexive(no_ground())
+              NoSend() -> reflexive(no_ground())
+              PermanentNoSend() -> reflexive(no_ground())
+              Lost() -> reflexive(no_ground())
+              TimedOut() -> reflexive(no_ground())
+              Failed() -> reflexive(no_ground())
+              Pending() -> reflexive(no_ground())
+              NoEffect() -> reflexive(no_ground())
+              ProviderUnknown() -> reflexive(no_ground())
+              Completed() -> reflexive(no_ground())
+              Resume() -> reflexive(no_ground())
+              Rearm() -> reflexive(no_ground())
+              Expired() -> reflexive(no_ground())
+              SchemaInvalid() -> reflexive(no_ground())
+              CapacityRefused() -> reflexive(no_ground())
+              Uncertain() -> reflexive(no_ground())
+              Recover() -> reflexive(no_ground())
+          Intended(Fresh(), n) ->
+            match event
+              Admit() -> reflexive(no_ground())
+              Arm() ->
+                match arm
+                  True() -> reflexive(no_ground())
+                  False() -> reflexive(no_ground())
+              NoSend() -> reflexive(no_ground())
+              PermanentNoSend() -> reflexive(no_ground())
+              Lost() -> reflexive(no_ground())
+              TimedOut() -> reflexive(no_ground())
+              Failed() -> reflexive(no_ground())
+              Pending() -> reflexive(no_ground())
+              NoEffect() -> reflexive(no_ground())
+              ProviderUnknown() -> reflexive(no_ground())
+              Completed() -> reflexive(no_ground())
+              Resume() -> reflexive(no_ground())
+              Rearm() -> reflexive(no_ground())
+              Expired() -> reflexive(no_ground())
+              SchemaInvalid() -> reflexive(no_ground())
+              CapacityRefused() -> reflexive(no_ground())
+              Uncertain() -> reflexive(no_ground())
+              Recover() -> reflexive(no_ground())
+          Intended(After(g), n) ->
+            match event
+              Admit() -> reflexive(no_ground())
+              Arm() ->
+                match arm
+                  True() -> reflexive(no_ground())
+                  False() -> reflexive(no_ground())
+              NoSend() -> reflexive(no_ground())
+              PermanentNoSend() -> reflexive(no_ground())
+              Lost() -> reflexive(no_ground())
+              TimedOut() -> reflexive(no_ground())
+              Failed() -> reflexive(no_ground())
+              Pending() -> reflexive(no_ground())
+              NoEffect() -> reflexive(no_ground())
+              ProviderUnknown() -> reflexive(no_ground())
+              Completed() -> reflexive(no_ground())
+              Resume() -> reflexive(no_ground())
+              Rearm() -> reflexive(no_ground())
+              Expired() -> reflexive(no_ground())
+              SchemaInvalid() -> reflexive(no_ground())
+              CapacityRefused() -> reflexive(no_ground())
+              Uncertain() -> reflexive(no_ground())
+              Recover() -> reflexive(no_ground())
+          Dispatched(origin, n) ->
+            match event
+              Admit() -> reflexive(no_ground())
+              Arm() -> reflexive(no_ground())
+              NoSend() -> reflexive(Some(AdapterNoSend()))
+              PermanentNoSend() -> reflexive(Some(AdapterNoSend()))
+              Lost() -> reflexive(no_ground())
+              TimedOut() -> reflexive(no_ground())
+              Failed() -> reflexive(no_ground())
+              Pending() -> reflexive(no_ground())
+              NoEffect() -> reflexive(Some(ProviderNoEffect()))
+              ProviderUnknown() ->
+                match replay
+                  True() -> reflexive(Some(ProviderReplaySafe()))
+                  False() -> reflexive(no_ground())
+              Completed() -> reflexive(no_ground())
+              Resume() -> reflexive(no_ground())
+              Rearm() -> reflexive(no_ground())
+              Expired() ->
+                match expired
+                  True() -> reflexive(no_ground())
+                  False() -> reflexive(no_ground())
+              SchemaInvalid() -> reflexive(no_ground())
+              CapacityRefused() -> reflexive(no_ground())
+              Uncertain() -> reflexive(no_ground())
+              Recover() -> reflexive(no_ground())
+          Definite(g, n) ->
+            match event
+              Admit() -> reflexive(Some(g))
+              Arm() -> reflexive(Some(g))
+              NoSend() -> reflexive(Some(g))
+              PermanentNoSend() -> reflexive(Some(g))
+              Lost() -> reflexive(Some(g))
+              TimedOut() -> reflexive(Some(g))
+              Failed() -> reflexive(Some(g))
+              Pending() -> reflexive(Some(g))
+              NoEffect() -> reflexive(Some(g))
+              ProviderUnknown() -> reflexive(Some(g))
+              Completed() -> reflexive(Some(g))
+              Resume() -> reflexive(Some(g))
+              Rearm() ->
+                match rearm
+                  True() -> reflexive(no_ground())
+                  False() -> reflexive(Some(g))
+              Expired() -> reflexive(Some(g))
+              SchemaInvalid() -> reflexive(Some(g))
+              CapacityRefused() -> reflexive(Some(g))
+              Uncertain() -> reflexive(Some(g))
+              Recover() -> reflexive(Some(g))
+          Confirmed(n) ->
+            match event
+              Admit() -> reflexive(no_ground())
+              Arm() -> reflexive(no_ground())
+              NoSend() -> reflexive(no_ground())
+              PermanentNoSend() -> reflexive(no_ground())
+              Lost() -> reflexive(no_ground())
+              TimedOut() -> reflexive(no_ground())
+              Failed() -> reflexive(no_ground())
+              Pending() -> reflexive(no_ground())
+              NoEffect() -> reflexive(no_ground())
+              ProviderUnknown() -> reflexive(no_ground())
+              Completed() -> reflexive(no_ground())
+              Resume() -> reflexive(no_ground())
+              Rearm() -> reflexive(no_ground())
+              Expired() -> reflexive(no_ground())
+              SchemaInvalid() -> reflexive(no_ground())
+              CapacityRefused() -> reflexive(no_ground())
+              Uncertain() -> reflexive(no_ground())
+              Recover() -> reflexive(no_ground())
+          Stranded(n) ->
+            match event
+              Admit() -> reflexive(no_ground())
+              Arm() -> reflexive(no_ground())
+              NoSend() -> reflexive(no_ground())
+              PermanentNoSend() -> reflexive(no_ground())
+              Lost() -> reflexive(no_ground())
+              TimedOut() -> reflexive(no_ground())
+              Failed() -> reflexive(no_ground())
+              Pending() -> reflexive(no_ground())
+              NoEffect() -> reflexive(no_ground())
+              ProviderUnknown() -> reflexive(no_ground())
+              Completed() -> reflexive(no_ground())
+              Resume() -> reflexive(no_ground())
+              Rearm() -> reflexive(no_ground())
+              Expired() -> reflexive(no_ground())
+              SchemaInvalid() -> reflexive(no_ground())
+              CapacityRefused() -> reflexive(no_ground())
+              Uncertain() -> reflexive(no_ground())
+              Recover() -> reflexive(no_ground())
+
+  fn dispatch_only_after_arm_gated(phase: Phase, disarmed: Bool, quarantined: Bool, event: Event, arm: Bool, rearm: Bool, replay: Bool, expired: Bool) -> Equivalent(Option(Origin), dispatch_origin(step_gated(make(phase, disarmed, quarantined), event, arm, rearm, replay, expired)), expect_dispatch_origin(phase, disarmed, quarantined, event, arm, rearm, replay, expired)) =
+    match quarantined
+      True() ->
+        match phase
+          Empty() -> reflexive(no_origin())
+          Intended(Fresh(), n) -> reflexive(no_origin())
+          Intended(After(g), n) -> reflexive(no_origin())
+          Dispatched(origin, n) -> reflexive(no_origin())
+          Definite(g, n) -> reflexive(no_origin())
+          Confirmed(n) -> reflexive(no_origin())
+          Stranded(n) -> reflexive(no_origin())
+      False() ->
+        match phase
+          Empty() ->
+            match event
+              Admit() -> reflexive(no_origin())
+              Arm() -> reflexive(no_origin())
+              NoSend() -> reflexive(no_origin())
+              PermanentNoSend() -> reflexive(no_origin())
+              Lost() -> reflexive(no_origin())
+              TimedOut() -> reflexive(no_origin())
+              Failed() -> reflexive(no_origin())
+              Pending() -> reflexive(no_origin())
+              NoEffect() -> reflexive(no_origin())
+              ProviderUnknown() -> reflexive(no_origin())
+              Completed() -> reflexive(no_origin())
+              Resume() -> reflexive(no_origin())
+              Rearm() -> reflexive(no_origin())
+              Expired() -> reflexive(no_origin())
+              SchemaInvalid() -> reflexive(no_origin())
+              CapacityRefused() -> reflexive(no_origin())
+              Uncertain() -> reflexive(no_origin())
+              Recover() -> reflexive(no_origin())
+          Intended(Fresh(), n) ->
+            match event
+              Admit() -> reflexive(no_origin())
+              Arm() ->
+                match arm
+                  True() -> reflexive(Some(Fresh()))
+                  False() -> reflexive(no_origin())
+              NoSend() -> reflexive(no_origin())
+              PermanentNoSend() -> reflexive(no_origin())
+              Lost() -> reflexive(no_origin())
+              TimedOut() -> reflexive(no_origin())
+              Failed() -> reflexive(no_origin())
+              Pending() -> reflexive(no_origin())
+              NoEffect() -> reflexive(no_origin())
+              ProviderUnknown() -> reflexive(no_origin())
+              Completed() -> reflexive(no_origin())
+              Resume() -> reflexive(no_origin())
+              Rearm() -> reflexive(no_origin())
+              Expired() -> reflexive(no_origin())
+              SchemaInvalid() -> reflexive(no_origin())
+              CapacityRefused() -> reflexive(no_origin())
+              Uncertain() -> reflexive(no_origin())
+              Recover() -> reflexive(no_origin())
+          Intended(After(g), n) ->
+            match event
+              Admit() -> reflexive(no_origin())
+              Arm() ->
+                match arm
+                  True() -> reflexive(Some(After(g)))
+                  False() -> reflexive(no_origin())
+              NoSend() -> reflexive(no_origin())
+              PermanentNoSend() -> reflexive(no_origin())
+              Lost() -> reflexive(no_origin())
+              TimedOut() -> reflexive(no_origin())
+              Failed() -> reflexive(no_origin())
+              Pending() -> reflexive(no_origin())
+              NoEffect() -> reflexive(no_origin())
+              ProviderUnknown() -> reflexive(no_origin())
+              Completed() -> reflexive(no_origin())
+              Resume() -> reflexive(no_origin())
+              Rearm() -> reflexive(no_origin())
+              Expired() -> reflexive(no_origin())
+              SchemaInvalid() -> reflexive(no_origin())
+              CapacityRefused() -> reflexive(no_origin())
+              Uncertain() -> reflexive(no_origin())
+              Recover() -> reflexive(no_origin())
+          Dispatched(origin, n) ->
+            match event
+              Admit() -> reflexive(no_origin())
+              Arm() -> reflexive(no_origin())
+              NoSend() -> reflexive(no_origin())
+              PermanentNoSend() -> reflexive(no_origin())
+              Lost() -> reflexive(no_origin())
+              TimedOut() -> reflexive(no_origin())
+              Failed() -> reflexive(no_origin())
+              Pending() -> reflexive(no_origin())
+              NoEffect() -> reflexive(no_origin())
+              ProviderUnknown() ->
+                match replay
+                  True() -> reflexive(no_origin())
+                  False() -> reflexive(no_origin())
+              Completed() -> reflexive(no_origin())
+              Resume() -> reflexive(no_origin())
+              Rearm() -> reflexive(no_origin())
+              Expired() ->
+                match expired
+                  True() -> reflexive(no_origin())
+                  False() -> reflexive(no_origin())
+              SchemaInvalid() -> reflexive(no_origin())
+              CapacityRefused() -> reflexive(no_origin())
+              Uncertain() -> reflexive(no_origin())
+              Recover() -> reflexive(no_origin())
+          Definite(g, n) ->
+            match event
+              Admit() -> reflexive(no_origin())
+              Arm() -> reflexive(no_origin())
+              NoSend() -> reflexive(no_origin())
+              PermanentNoSend() -> reflexive(no_origin())
+              Lost() -> reflexive(no_origin())
+              TimedOut() -> reflexive(no_origin())
+              Failed() -> reflexive(no_origin())
+              Pending() -> reflexive(no_origin())
+              NoEffect() -> reflexive(no_origin())
+              ProviderUnknown() -> reflexive(no_origin())
+              Completed() -> reflexive(no_origin())
+              Resume() -> reflexive(no_origin())
+              Rearm() ->
+                match rearm
+                  True() -> reflexive(no_origin())
+                  False() -> reflexive(no_origin())
+              Expired() -> reflexive(no_origin())
+              SchemaInvalid() -> reflexive(no_origin())
+              CapacityRefused() -> reflexive(no_origin())
+              Uncertain() -> reflexive(no_origin())
+              Recover() -> reflexive(no_origin())
+          Confirmed(n) ->
+            match event
+              Admit() -> reflexive(no_origin())
+              Arm() -> reflexive(no_origin())
+              NoSend() -> reflexive(no_origin())
+              PermanentNoSend() -> reflexive(no_origin())
+              Lost() -> reflexive(no_origin())
+              TimedOut() -> reflexive(no_origin())
+              Failed() -> reflexive(no_origin())
+              Pending() -> reflexive(no_origin())
+              NoEffect() -> reflexive(no_origin())
+              ProviderUnknown() -> reflexive(no_origin())
+              Completed() -> reflexive(no_origin())
+              Resume() -> reflexive(no_origin())
+              Rearm() -> reflexive(no_origin())
+              Expired() -> reflexive(no_origin())
+              SchemaInvalid() -> reflexive(no_origin())
+              CapacityRefused() -> reflexive(no_origin())
+              Uncertain() -> reflexive(no_origin())
+              Recover() -> reflexive(no_origin())
+          Stranded(n) ->
+            match event
+              Admit() -> reflexive(no_origin())
+              Arm() -> reflexive(no_origin())
+              NoSend() -> reflexive(no_origin())
+              PermanentNoSend() -> reflexive(no_origin())
+              Lost() -> reflexive(no_origin())
+              TimedOut() -> reflexive(no_origin())
+              Failed() -> reflexive(no_origin())
+              Pending() -> reflexive(no_origin())
+              NoEffect() -> reflexive(no_origin())
+              ProviderUnknown() -> reflexive(no_origin())
+              Completed() -> reflexive(no_origin())
+              Resume() -> reflexive(no_origin())
+              Rearm() -> reflexive(no_origin())
+              Expired() -> reflexive(no_origin())
+              SchemaInvalid() -> reflexive(no_origin())
+              CapacityRefused() -> reflexive(no_origin())
+              Uncertain() -> reflexive(no_origin())
+              Recover() -> reflexive(no_origin())
+
+  fn fresh_only_from_empty_gated(phase: Phase, disarmed: Bool, quarantined: Bool, event: Event, arm: Bool, rearm: Bool, replay: Bool, expired: Bool) -> Equivalent(Bool, fresh_label(step_gated(make(phase, disarmed, quarantined), event, arm, rearm, replay, expired)), expect_fresh_label(phase, disarmed, quarantined, event, arm, rearm, replay, expired)) =
+    match quarantined
+      True() ->
+        match phase
+          Empty() -> reflexive(False())
+          Intended(Fresh(), n) -> reflexive(True())
+          Intended(After(g), n) -> reflexive(False())
+          Dispatched(origin, n) -> reflexive(False())
+          Definite(g, n) -> reflexive(False())
+          Confirmed(n) -> reflexive(False())
+          Stranded(n) -> reflexive(False())
+      False() ->
+        match phase
+          Empty() ->
+            match event
+              Admit() -> reflexive(True())
+              Arm() -> reflexive(False())
+              NoSend() -> reflexive(False())
+              PermanentNoSend() -> reflexive(False())
+              Lost() -> reflexive(False())
+              TimedOut() -> reflexive(False())
+              Failed() -> reflexive(False())
+              Pending() -> reflexive(False())
+              NoEffect() -> reflexive(False())
+              ProviderUnknown() -> reflexive(False())
+              Completed() -> reflexive(False())
+              Resume() -> reflexive(False())
+              Rearm() -> reflexive(False())
+              Expired() -> reflexive(False())
+              SchemaInvalid() -> reflexive(False())
+              CapacityRefused() -> reflexive(False())
+              Uncertain() -> reflexive(False())
+              Recover() -> reflexive(False())
+          Intended(Fresh(), n) ->
+            match event
+              Admit() -> reflexive(True())
+              Arm() ->
+                match arm
+                  True() -> reflexive(False())
+                  False() -> reflexive(True())
+              NoSend() -> reflexive(True())
+              PermanentNoSend() -> reflexive(True())
+              Lost() -> reflexive(True())
+              TimedOut() -> reflexive(True())
+              Failed() -> reflexive(True())
+              Pending() -> reflexive(True())
+              NoEffect() -> reflexive(True())
+              ProviderUnknown() -> reflexive(True())
+              Completed() -> reflexive(True())
+              Resume() -> reflexive(True())
+              Rearm() -> reflexive(True())
+              Expired() -> reflexive(True())
+              SchemaInvalid() -> reflexive(True())
+              CapacityRefused() -> reflexive(True())
+              Uncertain() -> reflexive(True())
+              Recover() -> reflexive(True())
+          Intended(After(g), n) ->
+            match event
+              Admit() -> reflexive(False())
+              Arm() ->
+                match arm
+                  True() -> reflexive(False())
+                  False() -> reflexive(False())
+              NoSend() -> reflexive(False())
+              PermanentNoSend() -> reflexive(False())
+              Lost() -> reflexive(False())
+              TimedOut() -> reflexive(False())
+              Failed() -> reflexive(False())
+              Pending() -> reflexive(False())
+              NoEffect() -> reflexive(False())
+              ProviderUnknown() -> reflexive(False())
+              Completed() -> reflexive(False())
+              Resume() -> reflexive(False())
+              Rearm() -> reflexive(False())
+              Expired() -> reflexive(False())
+              SchemaInvalid() -> reflexive(False())
+              CapacityRefused() -> reflexive(False())
+              Uncertain() -> reflexive(False())
+              Recover() -> reflexive(False())
+          Dispatched(origin, n) ->
+            match event
+              Admit() -> reflexive(False())
+              Arm() -> reflexive(False())
+              NoSend() -> reflexive(False())
+              PermanentNoSend() -> reflexive(False())
+              Lost() -> reflexive(False())
+              TimedOut() -> reflexive(False())
+              Failed() -> reflexive(False())
+              Pending() -> reflexive(False())
+              NoEffect() -> reflexive(False())
+              ProviderUnknown() ->
+                match replay
+                  True() -> reflexive(False())
+                  False() -> reflexive(False())
+              Completed() -> reflexive(False())
+              Resume() -> reflexive(False())
+              Rearm() -> reflexive(False())
+              Expired() ->
+                match expired
+                  True() -> reflexive(False())
+                  False() -> reflexive(False())
+              SchemaInvalid() -> reflexive(False())
+              CapacityRefused() -> reflexive(False())
+              Uncertain() -> reflexive(False())
+              Recover() -> reflexive(False())
+          Definite(g, n) ->
+            match event
+              Admit() -> reflexive(False())
+              Arm() -> reflexive(False())
+              NoSend() -> reflexive(False())
+              PermanentNoSend() -> reflexive(False())
+              Lost() -> reflexive(False())
+              TimedOut() -> reflexive(False())
+              Failed() -> reflexive(False())
+              Pending() -> reflexive(False())
+              NoEffect() -> reflexive(False())
+              ProviderUnknown() -> reflexive(False())
+              Completed() -> reflexive(False())
+              Resume() -> reflexive(False())
+              Rearm() ->
+                match rearm
+                  True() -> reflexive(False())
+                  False() -> reflexive(False())
+              Expired() -> reflexive(False())
+              SchemaInvalid() -> reflexive(False())
+              CapacityRefused() -> reflexive(False())
+              Uncertain() -> reflexive(False())
+              Recover() -> reflexive(False())
+          Confirmed(n) ->
+            match event
+              Admit() -> reflexive(False())
+              Arm() -> reflexive(False())
+              NoSend() -> reflexive(False())
+              PermanentNoSend() -> reflexive(False())
+              Lost() -> reflexive(False())
+              TimedOut() -> reflexive(False())
+              Failed() -> reflexive(False())
+              Pending() -> reflexive(False())
+              NoEffect() -> reflexive(False())
+              ProviderUnknown() -> reflexive(False())
+              Completed() -> reflexive(False())
+              Resume() -> reflexive(False())
+              Rearm() -> reflexive(False())
+              Expired() -> reflexive(False())
+              SchemaInvalid() -> reflexive(False())
+              CapacityRefused() -> reflexive(False())
+              Uncertain() -> reflexive(False())
+              Recover() -> reflexive(False())
+          Stranded(n) ->
+            match event
+              Admit() -> reflexive(False())
+              Arm() -> reflexive(False())
+              NoSend() -> reflexive(False())
+              PermanentNoSend() -> reflexive(False())
+              Lost() -> reflexive(False())
+              TimedOut() -> reflexive(False())
+              Failed() -> reflexive(False())
+              Pending() -> reflexive(False())
+              NoEffect() -> reflexive(False())
+              ProviderUnknown() -> reflexive(False())
+              Completed() -> reflexive(False())
+              Resume() -> reflexive(False())
+              Rearm() -> reflexive(False())
+              Expired() -> reflexive(False())
+              SchemaInvalid() -> reflexive(False())
+              CapacityRefused() -> reflexive(False())
+              Uncertain() -> reflexive(False())
+              Recover() -> reflexive(False())
+
+  fn after_only_from_definite_gated(phase: Phase, disarmed: Bool, quarantined: Bool, event: Event, arm: Bool, rearm: Bool, replay: Bool, expired: Bool) -> Equivalent(Option(Ground), after_label(step_gated(make(phase, disarmed, quarantined), event, arm, rearm, replay, expired)), expect_after_label(phase, disarmed, quarantined, event, arm, rearm, replay, expired)) =
+    match quarantined
+      True() ->
+        match phase
+          Empty() -> reflexive(no_ground())
+          Intended(Fresh(), n) -> reflexive(no_ground())
+          Intended(After(g), n) -> reflexive(Some(g))
+          Dispatched(origin, n) -> reflexive(no_ground())
+          Definite(g, n) -> reflexive(no_ground())
+          Confirmed(n) -> reflexive(no_ground())
+          Stranded(n) -> reflexive(no_ground())
+      False() ->
+        match phase
+          Empty() ->
+            match event
+              Admit() -> reflexive(no_ground())
+              Arm() -> reflexive(no_ground())
+              NoSend() -> reflexive(no_ground())
+              PermanentNoSend() -> reflexive(no_ground())
+              Lost() -> reflexive(no_ground())
+              TimedOut() -> reflexive(no_ground())
+              Failed() -> reflexive(no_ground())
+              Pending() -> reflexive(no_ground())
+              NoEffect() -> reflexive(no_ground())
+              ProviderUnknown() -> reflexive(no_ground())
+              Completed() -> reflexive(no_ground())
+              Resume() -> reflexive(no_ground())
+              Rearm() -> reflexive(no_ground())
+              Expired() -> reflexive(no_ground())
+              SchemaInvalid() -> reflexive(no_ground())
+              CapacityRefused() -> reflexive(no_ground())
+              Uncertain() -> reflexive(no_ground())
+              Recover() -> reflexive(no_ground())
+          Intended(Fresh(), n) ->
+            match event
+              Admit() -> reflexive(no_ground())
+              Arm() ->
+                match arm
+                  True() -> reflexive(no_ground())
+                  False() -> reflexive(no_ground())
+              NoSend() -> reflexive(no_ground())
+              PermanentNoSend() -> reflexive(no_ground())
+              Lost() -> reflexive(no_ground())
+              TimedOut() -> reflexive(no_ground())
+              Failed() -> reflexive(no_ground())
+              Pending() -> reflexive(no_ground())
+              NoEffect() -> reflexive(no_ground())
+              ProviderUnknown() -> reflexive(no_ground())
+              Completed() -> reflexive(no_ground())
+              Resume() -> reflexive(no_ground())
+              Rearm() -> reflexive(no_ground())
+              Expired() -> reflexive(no_ground())
+              SchemaInvalid() -> reflexive(no_ground())
+              CapacityRefused() -> reflexive(no_ground())
+              Uncertain() -> reflexive(no_ground())
+              Recover() -> reflexive(no_ground())
+          Intended(After(g), n) ->
+            match event
+              Admit() -> reflexive(Some(g))
+              Arm() ->
+                match arm
+                  True() -> reflexive(no_ground())
+                  False() -> reflexive(Some(g))
+              NoSend() -> reflexive(Some(g))
+              PermanentNoSend() -> reflexive(Some(g))
+              Lost() -> reflexive(Some(g))
+              TimedOut() -> reflexive(Some(g))
+              Failed() -> reflexive(Some(g))
+              Pending() -> reflexive(Some(g))
+              NoEffect() -> reflexive(Some(g))
+              ProviderUnknown() -> reflexive(Some(g))
+              Completed() -> reflexive(Some(g))
+              Resume() -> reflexive(Some(g))
+              Rearm() -> reflexive(Some(g))
+              Expired() -> reflexive(Some(g))
+              SchemaInvalid() -> reflexive(Some(g))
+              CapacityRefused() -> reflexive(Some(g))
+              Uncertain() -> reflexive(Some(g))
+              Recover() -> reflexive(Some(g))
+          Dispatched(origin, n) ->
+            match event
+              Admit() -> reflexive(no_ground())
+              Arm() -> reflexive(no_ground())
+              NoSend() -> reflexive(no_ground())
+              PermanentNoSend() -> reflexive(no_ground())
+              Lost() -> reflexive(no_ground())
+              TimedOut() -> reflexive(no_ground())
+              Failed() -> reflexive(no_ground())
+              Pending() -> reflexive(no_ground())
+              NoEffect() -> reflexive(no_ground())
+              ProviderUnknown() ->
+                match replay
+                  True() -> reflexive(no_ground())
+                  False() -> reflexive(no_ground())
+              Completed() -> reflexive(no_ground())
+              Resume() -> reflexive(no_ground())
+              Rearm() -> reflexive(no_ground())
+              Expired() ->
+                match expired
+                  True() -> reflexive(no_ground())
+                  False() -> reflexive(no_ground())
+              SchemaInvalid() -> reflexive(no_ground())
+              CapacityRefused() -> reflexive(no_ground())
+              Uncertain() -> reflexive(no_ground())
+              Recover() -> reflexive(no_ground())
+          Definite(g, n) ->
+            match event
+              Admit() -> reflexive(no_ground())
+              Arm() -> reflexive(no_ground())
+              NoSend() -> reflexive(no_ground())
+              PermanentNoSend() -> reflexive(no_ground())
+              Lost() -> reflexive(no_ground())
+              TimedOut() -> reflexive(no_ground())
+              Failed() -> reflexive(no_ground())
+              Pending() -> reflexive(no_ground())
+              NoEffect() -> reflexive(no_ground())
+              ProviderUnknown() -> reflexive(no_ground())
+              Completed() -> reflexive(no_ground())
+              Resume() -> reflexive(no_ground())
+              Rearm() ->
+                match rearm
+                  True() -> reflexive(Some(g))
+                  False() -> reflexive(no_ground())
+              Expired() -> reflexive(no_ground())
+              SchemaInvalid() -> reflexive(no_ground())
+              CapacityRefused() -> reflexive(no_ground())
+              Uncertain() -> reflexive(no_ground())
+              Recover() -> reflexive(no_ground())
+          Confirmed(n) ->
+            match event
+              Admit() -> reflexive(no_ground())
+              Arm() -> reflexive(no_ground())
+              NoSend() -> reflexive(no_ground())
+              PermanentNoSend() -> reflexive(no_ground())
+              Lost() -> reflexive(no_ground())
+              TimedOut() -> reflexive(no_ground())
+              Failed() -> reflexive(no_ground())
+              Pending() -> reflexive(no_ground())
+              NoEffect() -> reflexive(no_ground())
+              ProviderUnknown() -> reflexive(no_ground())
+              Completed() -> reflexive(no_ground())
+              Resume() -> reflexive(no_ground())
+              Rearm() -> reflexive(no_ground())
+              Expired() -> reflexive(no_ground())
+              SchemaInvalid() -> reflexive(no_ground())
+              CapacityRefused() -> reflexive(no_ground())
+              Uncertain() -> reflexive(no_ground())
+              Recover() -> reflexive(no_ground())
+          Stranded(n) ->
+            match event
+              Admit() -> reflexive(no_ground())
+              Arm() -> reflexive(no_ground())
+              NoSend() -> reflexive(no_ground())
+              PermanentNoSend() -> reflexive(no_ground())
+              Lost() -> reflexive(no_ground())
+              TimedOut() -> reflexive(no_ground())
+              Failed() -> reflexive(no_ground())
+              Pending() -> reflexive(no_ground())
+              NoEffect() -> reflexive(no_ground())
+              ProviderUnknown() -> reflexive(no_ground())
+              Completed() -> reflexive(no_ground())
+              Resume() -> reflexive(no_ground())
+              Rearm() -> reflexive(no_ground())
+              Expired() -> reflexive(no_ground())
+              SchemaInvalid() -> reflexive(no_ground())
+              CapacityRefused() -> reflexive(no_ground())
+              Uncertain() -> reflexive(no_ground())
+              Recover() -> reflexive(no_ground())
+
+  fn attempt_changes_only_on_send_gated(phase: Phase, disarmed: Bool, quarantined: Bool, event: Event, arm: Bool, rearm: Bool, replay: Bool, expired: Bool) -> Equivalent(Int, attempt_label(step_gated(make(phase, disarmed, quarantined), event, arm, rearm, replay, expired)), expect_attempt_label(phase, disarmed, quarantined, event, arm, rearm, replay, expired)) =
+    match quarantined
+      True() ->
+        match phase
+          Empty() -> reflexive(0)
+          Intended(Fresh(), n) -> reflexive(n)
+          Intended(After(g), n) -> reflexive(n)
+          Dispatched(origin, n) -> reflexive(n)
+          Definite(g, n) -> reflexive(n)
+          Confirmed(n) -> reflexive(n)
+          Stranded(n) -> reflexive(n)
+      False() ->
+        match phase
+          Empty() ->
+            match event
+              Admit() -> reflexive(0)
+              Arm() -> reflexive(0)
+              NoSend() -> reflexive(0)
+              PermanentNoSend() -> reflexive(0)
+              Lost() -> reflexive(0)
+              TimedOut() -> reflexive(0)
+              Failed() -> reflexive(0)
+              Pending() -> reflexive(0)
+              NoEffect() -> reflexive(0)
+              ProviderUnknown() -> reflexive(0)
+              Completed() -> reflexive(0)
+              Resume() -> reflexive(0)
+              Rearm() -> reflexive(0)
+              Expired() -> reflexive(0)
+              SchemaInvalid() -> reflexive(0)
+              CapacityRefused() -> reflexive(0)
+              Uncertain() -> reflexive(0)
+              Recover() -> reflexive(0)
+          Intended(Fresh(), n) ->
+            match event
+              Admit() -> reflexive(n)
+              Arm() ->
+                match arm
+                  True() -> reflexive(n + 1)
+                  False() -> reflexive(n)
+              NoSend() -> reflexive(n)
+              PermanentNoSend() -> reflexive(n)
+              Lost() -> reflexive(n)
+              TimedOut() -> reflexive(n)
+              Failed() -> reflexive(n)
+              Pending() -> reflexive(n)
+              NoEffect() -> reflexive(n)
+              ProviderUnknown() -> reflexive(n)
+              Completed() -> reflexive(n)
+              Resume() -> reflexive(n)
+              Rearm() -> reflexive(n)
+              Expired() -> reflexive(n)
+              SchemaInvalid() -> reflexive(n)
+              CapacityRefused() -> reflexive(n)
+              Uncertain() -> reflexive(n)
+              Recover() -> reflexive(n)
+          Intended(After(g), n) ->
+            match event
+              Admit() -> reflexive(n)
+              Arm() ->
+                match arm
+                  True() -> reflexive(n + 1)
+                  False() -> reflexive(n)
+              NoSend() -> reflexive(n)
+              PermanentNoSend() -> reflexive(n)
+              Lost() -> reflexive(n)
+              TimedOut() -> reflexive(n)
+              Failed() -> reflexive(n)
+              Pending() -> reflexive(n)
+              NoEffect() -> reflexive(n)
+              ProviderUnknown() -> reflexive(n)
+              Completed() -> reflexive(n)
+              Resume() -> reflexive(n)
+              Rearm() -> reflexive(n)
+              Expired() -> reflexive(n)
+              SchemaInvalid() -> reflexive(n)
+              CapacityRefused() -> reflexive(n)
+              Uncertain() -> reflexive(n)
+              Recover() -> reflexive(n)
+          Dispatched(origin, n) ->
+            match event
+              Admit() -> reflexive(n)
+              Arm() -> reflexive(n)
+              NoSend() -> reflexive(n)
+              PermanentNoSend() -> reflexive(n)
+              Lost() -> reflexive(n)
+              TimedOut() -> reflexive(n)
+              Failed() -> reflexive(n)
+              Pending() -> reflexive(n)
+              NoEffect() -> reflexive(n)
+              ProviderUnknown() ->
+                match replay
+                  True() -> reflexive(n)
+                  False() -> reflexive(n)
+              Completed() -> reflexive(n)
+              Resume() -> reflexive(n)
+              Rearm() -> reflexive(n)
+              Expired() ->
+                match expired
+                  True() -> reflexive(n)
+                  False() -> reflexive(n)
+              SchemaInvalid() -> reflexive(n)
+              CapacityRefused() -> reflexive(n)
+              Uncertain() -> reflexive(n)
+              Recover() -> reflexive(n)
+          Definite(g, n) ->
+            match event
+              Admit() -> reflexive(n)
+              Arm() -> reflexive(n)
+              NoSend() -> reflexive(n)
+              PermanentNoSend() -> reflexive(n)
+              Lost() -> reflexive(n)
+              TimedOut() -> reflexive(n)
+              Failed() -> reflexive(n)
+              Pending() -> reflexive(n)
+              NoEffect() -> reflexive(n)
+              ProviderUnknown() -> reflexive(n)
+              Completed() -> reflexive(n)
+              Resume() -> reflexive(n)
+              Rearm() ->
+                match rearm
+                  True() -> reflexive(n)
+                  False() -> reflexive(n)
+              Expired() -> reflexive(n)
+              SchemaInvalid() -> reflexive(n)
+              CapacityRefused() -> reflexive(n)
+              Uncertain() -> reflexive(n)
+              Recover() -> reflexive(n)
+          Confirmed(n) ->
+            match event
+              Admit() -> reflexive(n)
+              Arm() -> reflexive(n)
+              NoSend() -> reflexive(n)
+              PermanentNoSend() -> reflexive(n)
+              Lost() -> reflexive(n)
+              TimedOut() -> reflexive(n)
+              Failed() -> reflexive(n)
+              Pending() -> reflexive(n)
+              NoEffect() -> reflexive(n)
+              ProviderUnknown() -> reflexive(n)
+              Completed() -> reflexive(n)
+              Resume() -> reflexive(n)
+              Rearm() -> reflexive(n)
+              Expired() -> reflexive(n)
+              SchemaInvalid() -> reflexive(n)
+              CapacityRefused() -> reflexive(n)
+              Uncertain() -> reflexive(n)
+              Recover() -> reflexive(n)
+          Stranded(n) ->
+            match event
+              Admit() -> reflexive(n)
+              Arm() -> reflexive(n)
+              NoSend() -> reflexive(n)
+              PermanentNoSend() -> reflexive(n)
+              Lost() -> reflexive(n)
+              TimedOut() -> reflexive(n)
+              Failed() -> reflexive(n)
+              Pending() -> reflexive(n)
+              NoEffect() -> reflexive(n)
+              ProviderUnknown() -> reflexive(n)
+              Completed() -> reflexive(n)
+              Resume() -> reflexive(n)
+              Rearm() -> reflexive(n)
+              Expired() -> reflexive(n)
+              SchemaInvalid() -> reflexive(n)
+              CapacityRefused() -> reflexive(n)
+              Uncertain() -> reflexive(n)
+              Recover() -> reflexive(n)
+
+  fn empty_never_recreated(phase: Phase, disarmed: Bool, quarantined: Bool, event: Event, config: Config) -> Equivalent(Bool, empty_label(step(make(phase, disarmed, quarantined), event, config)), expect_empty_label(phase, disarmed, quarantined, event, can_arm(make(phase, disarmed, quarantined), config), can_rearm(make(phase, disarmed, quarantined), config), replay_valid(config), recovery_expired(config))) =
+    empty_never_recreated_gated(phase, disarmed, quarantined, event, can_arm(make(phase, disarmed, quarantined), config), can_rearm(make(phase, disarmed, quarantined), config), replay_valid(config), recovery_expired(config))
+
+  fn dispatch_action_only_after_arm(phase: Phase, disarmed: Bool, quarantined: Bool, event: Event, config: Config) -> Equivalent(Bool, dispatch_label(step(make(phase, disarmed, quarantined), event, config)), expect_dispatch_label(phase, disarmed, quarantined, event, can_arm(make(phase, disarmed, quarantined), config), can_rearm(make(phase, disarmed, quarantined), config), replay_valid(config), recovery_expired(config))) =
+    dispatch_action_only_after_arm_gated(phase, disarmed, quarantined, event, can_arm(make(phase, disarmed, quarantined), config), can_rearm(make(phase, disarmed, quarantined), config), replay_valid(config), recovery_expired(config))
+
+  fn definite_only_with_ground(phase: Phase, disarmed: Bool, quarantined: Bool, event: Event, config: Config) -> Equivalent(Option(Ground), definite_label(step(make(phase, disarmed, quarantined), event, config)), expect_definite_label(phase, disarmed, quarantined, event, can_arm(make(phase, disarmed, quarantined), config), can_rearm(make(phase, disarmed, quarantined), config), replay_valid(config), recovery_expired(config))) =
+    definite_only_with_ground_gated(phase, disarmed, quarantined, event, can_arm(make(phase, disarmed, quarantined), config), can_rearm(make(phase, disarmed, quarantined), config), replay_valid(config), recovery_expired(config))
+
+  fn dispatch_only_after_arm(phase: Phase, disarmed: Bool, quarantined: Bool, event: Event, config: Config) -> Equivalent(Option(Origin), dispatch_origin(step(make(phase, disarmed, quarantined), event, config)), expect_dispatch_origin(phase, disarmed, quarantined, event, can_arm(make(phase, disarmed, quarantined), config), can_rearm(make(phase, disarmed, quarantined), config), replay_valid(config), recovery_expired(config))) =
+    dispatch_only_after_arm_gated(phase, disarmed, quarantined, event, can_arm(make(phase, disarmed, quarantined), config), can_rearm(make(phase, disarmed, quarantined), config), replay_valid(config), recovery_expired(config))
+
+  fn fresh_only_from_empty(phase: Phase, disarmed: Bool, quarantined: Bool, event: Event, config: Config) -> Equivalent(Bool, fresh_label(step(make(phase, disarmed, quarantined), event, config)), expect_fresh_label(phase, disarmed, quarantined, event, can_arm(make(phase, disarmed, quarantined), config), can_rearm(make(phase, disarmed, quarantined), config), replay_valid(config), recovery_expired(config))) =
+    fresh_only_from_empty_gated(phase, disarmed, quarantined, event, can_arm(make(phase, disarmed, quarantined), config), can_rearm(make(phase, disarmed, quarantined), config), replay_valid(config), recovery_expired(config))
+
+  fn after_only_from_definite(phase: Phase, disarmed: Bool, quarantined: Bool, event: Event, config: Config) -> Equivalent(Option(Ground), after_label(step(make(phase, disarmed, quarantined), event, config)), expect_after_label(phase, disarmed, quarantined, event, can_arm(make(phase, disarmed, quarantined), config), can_rearm(make(phase, disarmed, quarantined), config), replay_valid(config), recovery_expired(config))) =
+    after_only_from_definite_gated(phase, disarmed, quarantined, event, can_arm(make(phase, disarmed, quarantined), config), can_rearm(make(phase, disarmed, quarantined), config), replay_valid(config), recovery_expired(config))
+
+  fn attempt_changes_only_on_send(phase: Phase, disarmed: Bool, quarantined: Bool, event: Event, config: Config) -> Equivalent(Int, attempt_label(step(make(phase, disarmed, quarantined), event, config)), expect_attempt_label(phase, disarmed, quarantined, event, can_arm(make(phase, disarmed, quarantined), config), can_rearm(make(phase, disarmed, quarantined), config), replay_valid(config), recovery_expired(config))) =
+    attempt_changes_only_on_send_gated(phase, disarmed, quarantined, event, can_arm(make(phase, disarmed, quarantined), config), can_rearm(make(phase, disarmed, quarantined), config), replay_valid(config), recovery_expired(config))
+end

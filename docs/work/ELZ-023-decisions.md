@@ -1,5 +1,14 @@
 # ELZ-023 early-review decision packet
 
+**Historical packet; superseded for decisions.** Root accepted R-A–R-F in their
+conservative form on 2026-11-08 ~08:55 WIB, explicitly choosing NARROW for R-B
+and requiring encoding/host-interface probes plus focused re-review.
+The authorized amendment is [issue comment 6715823301](https://github.com/balungpisah/elzoo/issues/37#issuecomment-6715823301);
+the [revised proposal](ELZ-023.md) and live/task Contract now govern.
+The original packet below is preserved as the review/decision trail; its
+“nothing adopted” and pending-decision statements describe its original date.
+
+
 ELZ-023: early review **CONDITIONAL**, not implementation clearance.
 Branch/PR: `task/ELZ-023`; no PR; reviewed proposal
 `c90a7385baafa1eadc4da30945dcf0312c521ec9`.
