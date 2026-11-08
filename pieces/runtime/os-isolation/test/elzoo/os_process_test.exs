@@ -501,7 +501,13 @@ defmodule Elzoo.OsProcessTest do
     Process.exit(owner, :kill)
     assert :ok = wait_until(fn -> map_size(:sys.get_state(adapter).observing) == 1 end, 2_000)
     Process.exit(adapter, :kill)
-    assert :ok = wait_until(fn -> is_pid(OsProcess.adapter(sup)) and OsProcess.adapter(sup) != adapter end, 2_000)
+
+    assert :ok =
+             wait_until(
+               fn -> is_pid(OsProcess.adapter(sup)) and OsProcess.adapter(sup) != adapter end,
+               2_000
+             )
+
     assert %{in_flight: 1} = OsProcess.snapshot(sup)
     {:ok, second} = OsProcess.submit(sup, spec("exit", [0]), max_run_ms: 5_000)
     assert %{in_flight: 1, queued: 1} = OsProcess.snapshot(sup)

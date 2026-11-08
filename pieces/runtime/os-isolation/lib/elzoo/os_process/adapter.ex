@@ -201,7 +201,12 @@ defmodule Elzoo.OsProcess.Adapter do
       case DynamicSupervisor.start_child(state.dsup, {Owner, args}) do
         {:ok, owner} ->
           mon = Process.monitor(owner)
-          %{state | running: Map.put(state.running, entry.ref, %{owner: owner, mon: mon, cancel_requested: false})}
+
+          %{
+            state
+            | running:
+                Map.put(state.running, entry.ref, %{owner: owner, mon: mon, cancel_requested: false})
+          }
 
         {:error, _} ->
           notify(entry.submitter, entry.ref, Result.unknown(:owner_start_failed, %{}))
@@ -412,7 +417,12 @@ defmodule Elzoo.OsProcess.Adapter do
               {:ok, c, _} -> c
             end
 
-          %{acc | running: Map.put(acc.running, ref, %{owner: owner, mon: mon, cancel_requested: false}), capacity: capacity}
+          %{
+            acc
+            | running:
+                Map.put(acc.running, ref, %{owner: owner, mon: mon, cancel_requested: false}),
+              capacity: capacity
+          }
 
         true ->
           if os_pid == nil do
