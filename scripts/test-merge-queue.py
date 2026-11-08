@@ -31,6 +31,8 @@ class Fake:
         self.move_head = False
         self.merge_race = False
         self.dispatches = 0
+        self.dispatch_args = []
+        self.other_job_changes = None
         self.merged = False
         self.run_changes = {}
         self.discovery_changes = {}
@@ -82,6 +84,7 @@ class Fake:
             self.merged = True
         elif argv[:3] == ["gh", "workflow", "run"]:
             self.dispatches += 1
+            self.dispatch_args.append(argv)
         elif argv[:2] == ["git", "fetch"]:
             pass
         elif argv[:2] == ["git", "rev-parse"]:
@@ -122,10 +125,17 @@ class Fake:
                 out = [{"workflow_runs": runs}]
             elif "/attempts/" in path:
                 job = dict(id=200 + self.dispatches, run_id=100 + self.dispatches,
-                           name="check", head_sha=self.pr["headRefOid"], status="completed",
+                           name="check-fast", head_sha=self.pr["headRefOid"], status="completed",
                            conclusion="success", runner_name="symbolic-elzoo", steps=self.steps)
                 job.update(self.job_changes)
-                out = [{"jobs": [job, dict(job, id=999)] if self.duplicate_job else [job]}]
+                # ELZ-057: the other tier's job is skipped in a fast-tier run.
+                skipped = dict(job, id=998, name="check-any", conclusion="skipped", runner_name=None, steps=[])
+                if self.other_job_changes is not None:
+                    skipped.update(self.other_job_changes)
+                jobs = [job, skipped]
+                if self.duplicate_job:
+                    jobs.append(dict(job, id=999))
+                out = [{"jobs": jobs}]
             elif path.endswith("/logs"):
                 out = self.log
             elif "/runs/" in path:
@@ -183,12 +193,11 @@ class QueueTest(unittest.TestCase):
         self.q.process(79)
         self.assertTrue(self.fake.merged)
 
-    # ELZ-056: the Contabo VPS runner is a named backend runner; look-alike names are not.
-    def test_contabo_runner_accepted_as_backend_evidence(self):
+    # ELZ-056 added the Contabo VPS runner as accepted evidence. ELZ-057 (owner decision 2026-11-08):
+    # queue runs are fast-tier runs, so evidence from the slower Contabo runner is refused.
+    def test_contabo_runner_refused_as_queue_evidence(self):
         self.fake.job_changes["runner_name"] = "contabo-elzoo-1"
-        self.q.process(79)
-        self.assertTrue(self.fake.merged)
-        self.assertIn("runner=contabo-elzoo-1", self.fake.messages[-1])
+        self.refuses("Unapproved backend runner")
 
     def test_contabo_lookalike_runner_names_refused(self):
         for name in ("contabo-elzoo-2", "contabo-elzoo-1-extra", "Contabo-elzoo-1", "contabo-elzoo"):
@@ -196,6 +205,35 @@ class QueueTest(unittest.TestCase):
                 self.setUp()
                 self.fake.job_changes["runner_name"] = name
                 self.refuses("Unapproved backend runner")
+
+    # ELZ-057: tier routing of queue runs.
+    def test_dispatch_requests_fast_tier(self):
+        self.q.process(79)
+        self.assertEqual(1, len(self.fake.dispatch_args))
+        args = self.fake.dispatch_args[0]
+        self.assertEqual(["-f", "tier=fast"], args[-2:])
+        self.assertNotIn("tier=any", " ".join(args))
+
+    def test_executed_check_any_job_refused(self):
+        for change in ({"conclusion": "success"}, {"conclusion": "failure"}, {"conclusion": "cancelled"},
+                       {"conclusion": None}):
+            with self.subTest(change=change):
+                self.setUp()
+                self.fake.other_job_changes = change
+                self.refuses("check-fast job")
+
+    def test_old_single_check_job_name_refused(self):
+        self.fake.job_changes["name"] = "check"
+        self.refuses("check-fast job")
+
+    def test_unknown_extra_job_refused(self):
+        self.fake.other_job_changes = {"name": "check-extra"}
+        self.refuses("check-fast job")
+
+    def test_check_any_runner_cannot_supply_evidence(self):
+        # Evidence comes only from check-fast, even if check-any ran on a fast runner.
+        self.fake.job_changes["name"] = "check-any"
+        self.refuses("check-fast job")
 
     def test_stale_main_updates_by_merge_and_checks_new_head(self):
         self.fake.stale = True

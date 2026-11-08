@@ -15,7 +15,10 @@ from urllib.parse import urlencode
 REPO = "balungpisah/elzoo"
 WORKFLOW = "symbolic-check.yml"
 GLEAM_WORKFLOW = "symbolic-gleam.yml"
-RUNNERS = {"symbolic-elzoo", "macbook-ubuntu-elzoo-candidate", "contabo-elzoo-1"}
+# ELZ-057: queue runs are dispatched with tier=fast and only the fast-tier runners may supply evidence.
+FAST_RUNNERS = {"symbolic-elzoo", "macbook-ubuntu-elzoo-candidate"}
+FAST_JOB = "check-fast"
+ANY_JOB = "check-any"
 SHA = re.compile(r"[0-9a-f]{40}")
 PR_FIELDS = ("number,state,isDraft,isCrossRepository,baseRefName,headRefName,"
              "headRefOid,headRepository,mergeable,mergeCommit")
@@ -122,7 +125,7 @@ class Queue:
     def dispatch(self, pr, workflow_id):
         previous = {run["id"] for run in self.runs(pr["headRefName"])}
         self.text("gh", "workflow", "run", WORKFLOW, "-R", REPO,
-                  "--ref", pr["headRefName"])
+                  "--ref", pr["headRefName"], "-f", "tier=fast")
         end = self.clock() + 300
         while True:
             candidates = [run for run in self.runs(pr["headRefName"])
@@ -149,12 +152,17 @@ class Queue:
         pages = self.data("gh", "api", "--paginate", "--slurp",
                           f"repos/{REPO}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100")
         jobs = [job for page in pages for job in page["jobs"]]
-        require(len(jobs) == 1 and jobs[0].get("name") == "check", "Expected exactly one backend check job")
-        job = jobs[0]
+        # Two backend jobs exist in the workflow; a fast-tier run runs check-fast and skips check-any.
+        fast_jobs = [job for job in jobs if job.get("name") == FAST_JOB]
+        other_jobs = [job for job in jobs if job.get("name") != FAST_JOB]
+        require(len(fast_jobs) == 1 and all(job.get("name") == ANY_JOB and job.get("conclusion") == "skipped"
+                                            for job in other_jobs),
+                "Expected exactly one check-fast job and no executed check-any job")
+        job = fast_jobs[0]
         require(job.get("run_id") == run_id and job.get("head_sha") == pr["headRefOid"] and
                 job.get("status") == "completed" and job.get("conclusion") == "success",
                 "Backend job is not successful on the exact head/run")
-        require(job.get("runner_name") in RUNNERS, "Unapproved backend runner")
+        require(job.get("runner_name") in FAST_RUNNERS, "Unapproved backend runner")
         steps = [step for step in job.get("steps", []) if step.get("name") == "Run mix check"]
         require(len(steps) == 1 and steps[0].get("conclusion") == "success",
                 "Full check step missing, skipped or failed")
