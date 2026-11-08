@@ -4,19 +4,56 @@ import pathlib
 import re
 import sys
 
+FORK_GATE = """    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}"""
+# ELZ-057: pull request and queue (workflow_dispatch tier fast) runs need the fast tier;
+# main pushes and measurement dispatches (tier any) may use any backend runner.
+FAST_GATE = """    if: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'workflow_dispatch' && inputs.tier == 'fast') }}"""
+ANY_GATE = """    if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.tier == 'any') }}"""
+# Jobs in order: (name, exact if: line below the job name, exact runs-on line).
 expected = {
-    "symbolic-check.yml": "runs-on: [self-hosted, linux, x64, elzoo, backend]",
-    "symbolic-gleam.yml": "runs-on: [self-hosted, linux, x64, symbolic, elzoo, gleam]",
+    "symbolic-check.yml": [
+        ("check-fast", FAST_GATE, "runs-on: [self-hosted, linux, x64, elzoo, backend, fast]"),
+        ("check-any", ANY_GATE, "runs-on: [self-hosted, linux, x64, elzoo, backend]"),
+    ],
+    "symbolic-gleam.yml": [
+        ("gleam", FORK_GATE, "runs-on: [self-hosted, linux, x64, symbolic, elzoo, gleam]"),
+    ],
 }
 # Approved triggers: push to main, same-repository pull_request, workflow_dispatch.
-# pull_request_target and every other event need a new reviewed policy.
-expected_triggers = [
+# pull_request_target and every other event need a new reviewed policy. The backend
+# workflow_dispatch has exactly one input, tier (fast default, any).
+_triggers = [
     "on:",
     "  push:",
     "    branches: [main]",
     "  pull_request:",
     "  workflow_dispatch:",
 ]
+expected_triggers = {
+    "symbolic-check.yml": _triggers + [
+        "    inputs:",
+        "      tier:",
+        "        description: 'fast = fast runners only (merge queue, default); any = any backend runner (measurement runs)'",
+        "        type: choice",
+        "        options: [fast, any]",
+        "        default: fast",
+    ],
+    "symbolic-gleam.yml": _triggers,
+}
+REQUIRED_GATE = """      - name: Verify approved backend runner
+        run: |
+          case "$RUNNER_NAME" in
+            symbolic-elzoo) ;;
+            macbook-ubuntu-elzoo-candidate)
+              echo 'ERL_FLAGS=+S 2:2 +SDcpu 1 +SDio 1' >> "$GITHUB_ENV"
+              ;;
+            contabo-elzoo-1)
+              echo 'ERL_FLAGS=+S 4:4 +SDcpu 1 +SDio 1' >> "$GITHUB_ENV"
+              ;;
+            *) echo "Unapproved backend runner: $RUNNER_NAME" >&2; exit 1 ;;
+          esac
+          echo "Backend runner: $RUNNER_NAME"
+          free -h || true"""
 digest_image = re.compile(r'\s+image:\s*[^\s@\'"]+@sha256:[0-9a-f]{64}\s*')
 # ELZ-043: every action is pinned by a full commit SHA; a tag or branch can move.
 pinned_action = re.compile(r'\s*(?:-\s+)?uses:\s*[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*@[0-9a-f]{40}(?:\s+#.*)?')
@@ -146,7 +183,7 @@ for file in files:
                     if re.match(r'^[^\s#]', lines[i])), len(lines))
         trigger_block = [line.rstrip() for line in lines[start:end]
                          if line.strip() and not line.lstrip().startswith('#')]
-    if trigger_block != expected_triggers:
+    if trigger_block != expected_triggers[file.name]:
         errors.append(f'{file}: triggers must be exactly push to main, pull_request and workflow_dispatch')
     # Script text and comments are not YAML keys; structure checks below still see every line.
     skip = scalar_or_comment_lines(lines)
@@ -173,12 +210,8 @@ for file in files:
             errors.append(f'{file}: actions must be pinned by a full commit SHA: {line.strip()}')
         if re.fullmatch(r'\s*container\s*:\s*[^\s#].*', line):
             errors.append(f'{file}: container must be a mapping with a digest-pinned image')
-    selectors = [i for i, line in enumerate(lines) if re.match(r'\s*(?:-\s*)?runs-on\s*:', line)]
-    if (len(selectors) != 1 or selectors[0] in skip
-            or lines[selectors[0]] != '    ' + expected[file.name]):
-        errors.append(f'{file}: every job must use {expected[file.name]}')
-    required_job_gate = """    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}"""
-    expected_job = 'check' if file.name == 'symbolic-check.yml' else 'gleam'
+    spec = expected[file.name]
+    names = [name for name, _, _ in spec]
     jobs_roots = [i for i, line in enumerate(lines) if line == 'jobs:']
     job_headers = []
     end = len(lines)
@@ -196,48 +229,54 @@ for file in files:
             if (line.strip() and not line.lstrip().startswith('#') and indent < 4
                     and not re.fullmatch(r'  [A-Za-z_][A-Za-z0-9_-]*:\s*', line)):
                 errors.append(f'{file}: jobs must be block-style mappings: {line.strip()}')
-    if len(job_headers) != 1 or job_headers[0][1] != expected_job:
-        errors.append(f'{file}: exactly one {expected_job} job is required')
-    elif job_headers[0][0] + 1 >= len(lines) or lines[job_headers[0][0] + 1] != required_job_gate:
-        errors.append(f'{file}: same-repository PR job gate is missing or changed')
-    # The job must keep its digest-pinned container; without it steps run on the host.
-    containers = [i for i, line in enumerate(lines) if re.match(r'\s*(?:-\s*)?container\s*:', line)]
-    if (len(containers) != 1 or lines[containers[0]] != '    container:'
-            or len(job_headers) != 1 or not job_headers[0][0] < containers[0] < end - 1
-            or containers[0] in skip or containers[0] + 1 in skip
-            or not re.fullmatch(r'      image:\s*[^\s@\'"]+@sha256:[0-9a-f]{64}\s*',
-                                lines[containers[0] + 1])):
-        errors.append(f'{file}: the job must keep one container: mapping whose first key is a digest-pinned image')
-    # Steps must be one visible block-style list, so the gate below is a real first step.
-    steps = [i for i, line in enumerate(lines) if re.match(r'\s*(?:-\s*)?steps\s*:', line)]
-    if (len(steps) != 1 or lines[steps[0]] != '    steps:' or steps[0] in skip
-            or len(job_headers) != 1 or not job_headers[0][0] < steps[0]):
-        errors.append(f'{file}: the job must keep one block-style steps: list')
-    if file.name == 'symbolic-check.yml':
-        required_gate = """      - name: Verify approved backend runner
-        run: |
-          case "$RUNNER_NAME" in
-            symbolic-elzoo) ;;
-            macbook-ubuntu-elzoo-candidate)
-              echo 'ERL_FLAGS=+S 2:2 +SDcpu 1 +SDio 1' >> "$GITHUB_ENV"
-              ;;
-            contabo-elzoo-1)
-              echo 'ERL_FLAGS=+S 4:4 +SDcpu 1 +SDio 1' >> "$GITHUB_ENV"
-              ;;
-            *) echo "Unapproved backend runner: $RUNNER_NAME" >&2; exit 1 ;;
-          esac
-          echo "Backend runner: $RUNNER_NAME"
-          free -h || true"""
-        gate_lines = required_gate.split('\n')
-        after_gate = steps[0] + 1 + len(gate_lines) if len(steps) == 1 else len(lines)
-        # The gate must be a whole step: up to the next step only its own script text
-        # may follow, so no key such as if:, continue-on-error: or shell: can switch it off.
-        next_step = next((i for i in range(after_gate, len(lines)) if lines[i].startswith('      - ')), None)
-        if (len(steps) != 1 or lines[steps[0] + 1:after_gate] != gate_lines
-                or any(i in skip for i in range(steps[0] + 1, steps[0] + 2))
-                or next_step is None
-                or any(lines[i].strip() and i not in skip for i in range(after_gate, next_step))):
-            errors.append(f'{file}: approved runner identity gate is missing or changed')
+    shape_ok = [name for _, name in job_headers] == names
+    if not shape_ok:
+        if len(names) == 1:
+            errors.append(f'{file}: exactly one {names[0]} job is required')
+        else:
+            errors.append(f'{file}: exactly the jobs {", ".join(names)} are required, in this order')
+    bodies = []
+    for k, (name, if_line, runs_on) in enumerate(spec if shape_ok else []):
+        h = job_headers[k][0]
+        e = job_headers[k + 1][0] if k + 1 < len(job_headers) else len(lines)
+        block = range(h, e)
+        if lines[h + 1:h + 2] != [if_line]:
+            errors.append(f'{file}: {name}: same-repository PR job gate is missing or changed')
+        selectors = [i for i in block if re.match(r'\s*(?:-\s*)?runs-on\s*:', lines[i])]
+        if (len(selectors) != 1 or selectors[0] in skip or selectors[0] != h + 2
+                or lines[selectors[0]] != '    ' + runs_on):
+            errors.append(f'{file}: every job must use {runs_on} ({name})')
+        # The job must keep its digest-pinned container; without it steps run on the host.
+        containers = [i for i in block if re.match(r'\s*(?:-\s*)?container\s*:', lines[i])]
+        if (len(containers) != 1 or lines[containers[0]] != '    container:'
+                or not h < containers[0] < e - 1
+                or containers[0] in skip or containers[0] + 1 in skip
+                or not re.fullmatch(r'      image:\s*[^\s@\'"]+@sha256:[0-9a-f]{64}\s*',
+                                    lines[containers[0] + 1])):
+            errors.append(f'{file}: the job must keep one container: mapping whose first key is a digest-pinned image ({name})')
+        # Steps must be one visible block-style list, so the gate below is a real first step.
+        steps = [i for i in block if re.match(r'\s*(?:-\s*)?steps\s*:', lines[i])]
+        if len(steps) != 1 or lines[steps[0]] != '    steps:' or steps[0] in skip:
+            errors.append(f'{file}: the job must keep one block-style steps: list ({name})')
+        if file.name == 'symbolic-check.yml':
+            gate_lines = REQUIRED_GATE.split('\n')
+            after_gate = steps[0] + 1 + len(gate_lines) if len(steps) == 1 else e
+            # The gate must be a whole step: up to the next step only its own script text
+            # may follow, so no key such as if:, continue-on-error: or shell: can switch it off.
+            next_step = next((i for i in range(after_gate, e) if lines[i].startswith('      - ')), None)
+            if (len(steps) != 1 or lines[steps[0] + 1:after_gate] != gate_lines
+                    or any(i in skip for i in range(steps[0] + 1, steps[0] + 2))
+                    or next_step is None
+                    or any(lines[i].strip() and i not in skip for i in range(after_gate, next_step))):
+                errors.append(f'{file}: approved runner identity gate is missing or changed ({name})')
+        body = lines[h + 3:e]
+        while body and not body[-1].strip():
+            body.pop()
+        bodies.append(body)
+    # The two backend jobs differ only in their if: and runs-on: lines, so every pinned
+    # check above (image digest, ERL_FLAGS, gate, steps, action SHAs) holds for both.
+    if len(bodies) == 2 and bodies[0] != bodies[1]:
+        errors.append(f'{file}: check-fast and check-any must have identical bodies below runs-on')
     if file.name == 'symbolic-check.yml' and any(
             re.match(r'\s*(?:-\s+)?(?:defaults|shell|continue-on-error)\s*:', line) for line in yaml_lines):
         errors.append(f'{file}: defaults:, shell: and continue-on-error: could disable the runner identity gate')

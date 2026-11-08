@@ -38,6 +38,12 @@ class RunnerPolicyTest(unittest.TestCase):
         self.assertIn(old, source)
         path.write_text(source.replace(old, new, 1))
 
+    def change_all(self, filename, old, new):
+        path = self.root / ".github" / "workflows" / filename
+        source = path.read_text()
+        self.assertIn(old, source)
+        path.write_text(source.replace(old, new))
+
     def test_reviewed_routing_passes(self):
         self.check(0)
 
@@ -102,9 +108,10 @@ class RunnerPolicyTest(unittest.TestCase):
         self.check(1)
 
     def test_fork_pr_job_gate_cannot_be_removed(self):
+        # ELZ-057: the backend fork-PR gate is now part of the check-fast if: line.
         self.change(
             "symbolic-check.yml",
-            "    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}",
+            "    if: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'workflow_dispatch' && inputs.tier == 'fast') }}",
             "    if: ${{ true }}",
         )
         self.check(1)
@@ -131,7 +138,7 @@ class RunnerPolicyTest(unittest.TestCase):
 
     def test_extra_backend_job_header_rejected_independently(self):
         self.add_job_header_without_selector("symbolic-check.yml")
-        self.assertIn("exactly one check job is required", self.check(1).stderr)
+        self.assertIn("exactly the jobs check-fast, check-any are required", self.check(1).stderr)
 
     def test_extra_gleam_job_header_rejected_independently(self):
         self.add_job_header_without_selector("symbolic-gleam.yml")
@@ -201,7 +208,8 @@ class RunnerPolicyTest(unittest.TestCase):
 
     # Script text and comments are not YAML keys (ELZ-040 review finding 3).
     def test_run_script_text_and_comments_allowed(self):
-        self.change(
+        # ELZ-057: apply to both backend jobs; their bodies must stay identical.
+        self.change_all(
             "symbolic-check.yml",
             "          free -h || true\n",
             "          free -h || true\n"
@@ -426,6 +434,112 @@ class RunnerPolicyTest(unittest.TestCase):
                 self.assertIn("every job must use", self.check(1).stderr)
                 self.tearDown()
                 self.setUp()
+
+    # ELZ-057: runner tiers. check-fast (pull_request and queue dispatch, tier fast) needs the fast
+    # label; check-any (push and measurement dispatch, tier any) may use any backend runner.
+    FAST_RUNS_ON = "    runs-on: [self-hosted, linux, x64, elzoo, backend, fast]"
+    ANY_RUNS_ON = "    runs-on: [self-hosted, linux, x64, elzoo, backend]\n"
+    FAST_IF = "(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'workflow_dispatch' && inputs.tier == 'fast')"
+    ANY_IF = "github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.tier == 'any')"
+
+    def test_two_tier_jobs_present_and_pinned(self):
+        source = (self.root / ".github" / "workflows" / "symbolic-check.yml").read_text()
+        self.assertEqual(1, source.count(self.FAST_RUNS_ON))
+        self.assertEqual(1, source.count(self.ANY_RUNS_ON))
+        self.assertIn("  check-fast:\n", source)
+        self.assertIn("  check-any:\n", source)
+        self.check(0)
+
+    def test_fast_job_without_fast_label_rejected(self):
+        self.change("symbolic-check.yml", self.FAST_RUNS_ON, self.ANY_RUNS_ON.rstrip("\n"))
+        self.assertIn("every job must use", self.check(1).stderr)
+
+    def test_any_job_with_fast_label_rejected(self):
+        self.change("symbolic-check.yml", self.ANY_RUNS_ON, self.FAST_RUNS_ON + "\n")
+        self.assertIn("every job must use", self.check(1).stderr)
+
+    def test_contabo_label_in_either_selector_rejected(self):
+        for old, new in ((self.FAST_RUNS_ON, "    runs-on: [self-hosted, linux, x64, elzoo, backend, fast, contabo]"),
+                         (self.ANY_RUNS_ON, "    runs-on: [self-hosted, linux, x64, elzoo, backend, contabo]\n")):
+            with self.subTest(selector=new):
+                self.change("symbolic-check.yml", old, new)
+                self.assertIn("every job must use", self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+
+    def test_fast_job_cannot_run_for_tier_any(self):
+        self.change("symbolic-check.yml", "inputs.tier == 'fast'", "inputs.tier == 'any'")
+        self.assertIn("same-repository PR job gate is missing or changed", self.check(1).stderr)
+
+    def test_fast_job_cannot_drop_fork_pr_gate(self):
+        self.change("symbolic-check.yml", "github.event.pull_request.head.repo.full_name == github.repository", "true")
+        self.assertIn("same-repository PR job gate is missing or changed", self.check(1).stderr)
+
+    def test_any_job_cannot_run_for_pull_request(self):
+        self.change("symbolic-check.yml", "github.event_name == 'push' || (",
+                    "github.event_name == 'push' || github.event_name == 'pull_request' || (")
+        self.assertIn("same-repository PR job gate is missing or changed", self.check(1).stderr)
+
+    def test_any_job_cannot_run_for_tier_fast(self):
+        self.change("symbolic-check.yml", "inputs.tier == 'any'", "inputs.tier == 'fast'")
+        self.assertIn("same-repository PR job gate is missing or changed", self.check(1).stderr)
+
+    def test_tier_input_cannot_change(self):
+        for old, new in (("        default: fast\n", "        default: any\n"),
+                         ("        options: [fast, any]\n", "        options: [fast, any, other]\n"),
+                         ("        type: choice\n", "        type: string\n"),
+                         ("      tier:\n", "      tier:\n        required: false\n")):
+            with self.subTest(change=new):
+                self.change("symbolic-check.yml", old, new)
+                self.assertIn("triggers must be exactly", self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+
+    def test_extra_dispatch_input_rejected(self):
+        self.change("symbolic-check.yml", "        default: fast\n",
+                    "        default: fast\n      runner:\n        type: string\n")
+        self.assertIn("triggers must be exactly", self.check(1).stderr)
+
+    def test_bodies_must_stay_identical(self):
+        # A change in only one job (here ERL_FLAGS) is rejected even though each job is otherwise valid.
+        self.change("symbolic-check.yml", "      ERL_FLAGS: '+S 4:4 +SDcpu 1 +SDio 1'\n",
+                    "      ERL_FLAGS: '+S 8:8 +SDcpu 1 +SDio 1'\n")
+        self.assertIn("identical bodies", self.check(1).stderr)
+
+    def test_identity_gate_removed_from_one_job_rejected(self):
+        source = (self.root / ".github" / "workflows" / "symbolic-check.yml").read_text()
+        # Rename only the second occurrence of the gate step name.
+        first = source.index("Verify approved backend runner")
+        second = source.index("Verify approved backend runner", first + 1)
+        path = self.root / ".github" / "workflows" / "symbolic-check.yml"
+        path.write_text(source[:second] + "Verify runner" + source[second + len("Verify approved backend runner"):])
+        stderr = self.check(1).stderr
+        self.assertIn("approved runner identity gate is missing or changed (check-any)", stderr)
+
+    def test_container_digest_removed_from_one_job_rejected(self):
+        source = (self.root / ".github" / "workflows" / "symbolic-check.yml").read_text()
+        first = source.index(IMAGE)
+        second = source.index(IMAGE, first + 1)
+        path = self.root / ".github" / "workflows" / "symbolic-check.yml"
+        path.write_text(source[:second] + "ubuntu:24.04" + source[second + len(IMAGE):])
+        self.assertIn("digest-pinned image", self.check(1).stderr)
+
+    def test_jobs_must_keep_names_and_order(self):
+        source = (self.root / ".github" / "workflows" / "symbolic-check.yml").read_text()
+        path = self.root / ".github" / "workflows" / "symbolic-check.yml"
+        path.write_text(source.replace("  check-fast:\n", "  TMPNAME:\n").replace("  check-any:\n", "  check-fast:\n").replace("  TMPNAME:\n", "  check-any:\n"))
+        self.assertIn("exactly the jobs check-fast, check-any are required, in this order", self.check(1).stderr)
+
+    def test_backend_workflow_with_one_job_rejected(self):
+        path = self.root / ".github" / "workflows" / "symbolic-check.yml"
+        source = path.read_text()
+        path.write_text(source[:source.index("\n  check-any:\n")] + "\n")
+        self.assertIn("exactly the jobs check-fast, check-any are required", self.check(1).stderr)
+
+    def test_pull_request_cannot_reach_any_tier_through_selector_text(self):
+        # The if: lines are pinned exactly; there is no expression that routes pull requests to check-any.
+        self.change("symbolic-check.yml", self.ANY_IF, self.ANY_IF + " || github.event_name == 'pull_request'")
+        self.assertIn("same-repository PR job gate is missing or changed", self.check(1).stderr)
 
 
 if __name__ == "__main__":
