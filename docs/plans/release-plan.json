@@ -3235,7 +3235,7 @@
       "disposition": "merged-ready-contract; task acceptance separate",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/domain/money/piece.json",
-      "manifest_sha256": "93d6f489fe20211dd391bf16803fad98ea3456c0983ec547c92e9b71db0645ec"
+      "manifest_sha256": "8210a1a1eed92e2df7b4b043835a053955f0a8deae6a71b4d923c19233ab0d85"
     },
     {
       "id": "domain/payment-lifecycle",

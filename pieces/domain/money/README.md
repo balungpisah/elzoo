@@ -109,6 +109,10 @@ Without `--check` (and with `--downloaded YYYY-MM-DD`) it prints a new extract.
 A new ISO publication is added as a new dated `.tsv`; the fold keeps older
 identities. Run that check on 2026-11-08: exit 0, `EXTRACT MATCHES: 449 rows`.
 
+Dataset disposition (G5, disposed by recorded decision, not verified):
+
+> The committed extract reproduces factual currency data (alphabetic codes, numeric codes, minor units, withdrawal dates) derived from the ISO 4217 lists published by the maintenance agency; no publisher file is redistributed; the source URLs, publication dates, download dates and SHA-256 of the source files are recorded with a re-derivation command that fails on drift. The coordinator took this as a prudence decision on 2026-11-09 and reported it to the owner; the applicable redistribution terms of the publisher were not legally verified and remain a recorded residual.
+
 ## Grounding
 
 - **Proof (pinned Cure):** the 13 laws in `cure/elzoo/money.cure`, listed in
@@ -140,9 +144,8 @@ identities. Run that check on 2026-11-08: exit 0, `EXTRACT MATCHES: 449 rows`.
   Whether a posting context accepts a retired currency is `domain/journal`'s
   decision.
 - Calling `Cure.Elzoo.Money` directly bypasses the membership check.
-- Redistribution terms for the extract were not verified. The main
-  coordinator chose this option as a prudence decision reported to the owner.
-  No legal conclusion is made.
+- The registry is only as faithful as the extract: `mix check` compares the
+  registry with the committed extract, not with the publisher's files.
 
 ## Provider choice
 
