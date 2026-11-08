@@ -12,7 +12,11 @@ defmodule Elzoo.Lease.Record do
   alias Elzoo.DurableLog.Codec
 
   @version 1
-  @holder_kinds %{"lease_claimed" => :EvClaim, "lease_renewed" => :EvRenew, "lease_seized" => :EvSeize}
+  @holder_kinds %{
+    "lease_claimed" => :EvClaim,
+    "lease_renewed" => :EvRenew,
+    "lease_seized" => :EvSeize
+  }
   @release_kind "lease_released"
   @kinds Map.keys(@holder_kinds) ++ [@release_kind]
   @reasons ~w(released stale terminal operator_takeover crashed_owner pruned_prefix corrupt_record clock_regression)a
@@ -62,14 +66,21 @@ defmodule Elzoo.Lease.Record do
   the Cure reading, the owner named by the latest record (nil when none or
   unreadable) and a reason tag for ambiguous readings.
   """
-  def reading(nil, low_water, _fold, _limits) when low_water > 0, do: {:Unreadable, nil, :pruned_prefix}
+  def reading(nil, low_water, _fold, _limits) when low_water > 0,
+    do: {:Unreadable, nil, :pruned_prefix}
+
   def reading(nil, _low_water, _fold, _limits), do: {{:NoHolder, 0}, nil, nil}
 
   def reading(row, _low_water, fold, limits) do
     case event(row, fold, limits) do
-      {:EvRelease, at, _prior} -> {{:NoHolder, at}, nil, nil}
-      {tag, at, until, owner} when tag in [:EvClaim, :EvRenew, :EvSeize] -> {{:HolderStamp, at, until}, owner, nil}
-      :unreadable -> {:Unreadable, nil, :unreadable}
+      {:EvRelease, at, _prior} ->
+        {{:NoHolder, at}, nil, nil}
+
+      {tag, at, until, owner} when tag in [:EvClaim, :EvRenew, :EvSeize] ->
+        {{:HolderStamp, at, until}, owner, nil}
+
+      :unreadable ->
+        {:Unreadable, nil, :unreadable}
     end
   end
 
@@ -131,7 +142,12 @@ defmodule Elzoo.Lease.Record do
 
     tuples = Enum.map(specs, fn {kind, version, payload} -> {kind, version, payload} end)
 
-    with :ok <- Log.preflight(%{stream: key, expected: expected, records: tuples, outbox: []}, fold, limits),
+    with :ok <-
+           Log.preflight(
+             %{stream: key, expected: expected, records: tuples, outbox: []},
+             fold,
+             limits
+           ),
          true <- Enum.all?(rows, &(Log.validate_row(&1, fold, limits) == :ok)) do
       request = %{
         operation: :append,

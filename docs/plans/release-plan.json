@@ -3531,10 +3531,12 @@
     {
       "id": "state/lease",
       "job": "ELZ-028",
-      "note": "ELZ-028 is conditional: if the provider already satisfies ownership/fencing, retain deferred status and name provider evidence; do not force a redundant Piece.",
+      "note": "Single-owner leases fenced by the record revision over the ready Store: lease records live in the guarded stream as self-contained non_state_bearing records; claim, hold, renew, release, seize, claim_expired, status, the holder's fenced write and the terminal complete, each as one atomic step on the Adapter (PostgreSQL: one transaction under the head row lock with clock_timestamp() sampled under that lock; Memory: one serialized owner section with a manual clock), with the pure Cure classification, reading, regression gate and decision tables. Sampled-time liveness; revision fencing, not identity.",
       "baseline_status": "deferred",
-      "disposition": "conditional-upstream-or-new-policy",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract on task branch; task acceptance separate",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/state/lease/piece.json",
+      "manifest_sha256": "d96ffac97c8ab8080d06d456bdd261e5d98cc8b7e419ca583f73c99416cb6fbe"
     },
     {
       "id": "state/outbox",

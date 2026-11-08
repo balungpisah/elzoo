@@ -164,6 +164,9 @@ defmodule Elzoo.Lease do
               {:refuse,
                %{reason: :error, holder: nil, status: nil, revision: ctx.revision, detail: other}}
 
+            {:write, rows, request, {:held, held}} ->
+              {:write, rows, request, held}
+
             write ->
               write
           end
@@ -493,7 +496,9 @@ defmodule Elzoo.Lease do
       {:candidates, keys} ->
         unless(
           is_list(keys) and length(keys) <= @max_candidates and Enum.all?(keys, &Codec.stream?/1) and
-            length(Enum.uniq(keys)) == length(keys), do: {:error, {:invalid, :candidates}})
+            length(Enum.uniq(keys)) == length(keys),
+          do: {:error, {:invalid, :candidates}}
+        )
     end)
   end
 end

@@ -89,7 +89,10 @@ defmodule Elzoo.Lease.Postgres do
       ).rows
 
     actual = fn table ->
-      rows |> Enum.filter(&(hd(&1) == table)) |> Enum.map(fn [_, c, t] -> {c, t} end) |> MapSet.new()
+      rows
+      |> Enum.filter(&(hd(&1) == table))
+      |> Enum.map(fn [_, c, t] -> {c, t} end)
+      |> MapSet.new()
     end
 
     heads = actual.("elzoo_log_heads")
@@ -102,7 +105,10 @@ defmodule Elzoo.Lease.Postgres do
   end
 
   defp diff(expected, actual),
-    do: %{missing: MapSet.difference(expected, actual) |> Enum.sort(), unexpected: MapSet.difference(actual, expected) |> Enum.sort()}
+    do: %{
+      missing: MapSet.difference(expected, actual) |> Enum.sort(),
+      unexpected: MapSet.difference(actual, expected) |> Enum.sort()
+    }
 
   @doc """
   One single-key lease transaction. `fun.(ctx)` receives
@@ -111,7 +117,9 @@ defmodule Elzoo.Lease.Postgres do
   `{:refuse, result}`.
   """
   def single(backend, key, fun) do
-    if caller_transaction?(backend), do: {:error, :caller_transaction}, else: transact(backend, key, fun)
+    if caller_transaction?(backend),
+      do: {:error, :caller_transaction},
+      else: transact(backend, key, fun)
   end
 
   defp transact(backend, key, fun) do
@@ -129,7 +137,13 @@ defmodule Elzoo.Lease.Postgres do
             hook(backend, :after_clock, key)
             latest = latest(backend, key, head)
 
-            case fun.(%{key: key, revision: head.revision, low_water: head.low_water, latest: latest, now: now}) do
+            case fun.(%{
+                   key: key,
+                   revision: head.revision,
+                   low_water: head.low_water,
+                   latest: latest,
+                   now: now
+                 }) do
               {:refuse, result} -> backend.repo.rollback({:refuse, result})
               {:write, rows, request, result} -> write!(backend, key, head, rows, request, result)
             end
@@ -137,9 +151,10 @@ defmodule Elzoo.Lease.Postgres do
           timeout: backend.timeout
         )
 
+      if match?({:ok, _}, result), do: hook(backend, :after_commit, key)
       unwrap(result)
     rescue
-      e in [Postgrex.Error, DBConnection.ConnectionError] -> failure(e)
+      e -> failure(e)
     catch
       :exit, _ -> failure(nil)
     end
@@ -154,7 +169,9 @@ defmodule Elzoo.Lease.Postgres do
   `free_fun.(key)` yields the refusal for a key without a committed head.
   """
   def sweep(backend, keys, limit, fun, free_fun) do
-    if caller_transaction?(backend), do: {:error, :caller_transaction}, else: sweep_transact(backend, keys, limit, fun, free_fun)
+    if caller_transaction?(backend),
+      do: {:error, :caller_transaction},
+      else: sweep_transact(backend, keys, limit, fun, free_fun)
   end
 
   defp sweep_transact(backend, keys, limit, fun, free_fun) do
@@ -183,7 +200,13 @@ defmodule Elzoo.Lease.Postgres do
                     hook(backend, :after_clock, key)
                     latest = latest(backend, key, head)
 
-                    case fun.(%{key: key, revision: head.revision, low_water: head.low_water, latest: latest, now: now}) do
+                    case fun.(%{
+                           key: key,
+                           revision: head.revision,
+                           low_water: head.low_water,
+                           latest: latest,
+                           now: now
+                         }) do
                       {:refuse, refusal} ->
                         %{acc | refused: Map.put(acc.refused, key, refusal)}
 
@@ -199,11 +222,15 @@ defmodule Elzoo.Lease.Postgres do
         )
 
       case result do
-        {:ok, acc} -> {:claimed, acc}
-        other -> unwrap(other)
+        {:ok, acc} ->
+          hook(backend, :before_return, :sweep)
+          {:claimed, acc}
+
+        other ->
+          unwrap(other)
       end
     rescue
-      e in [Postgrex.Error, DBConnection.ConnectionError] -> failure(e)
+      e -> failure(e)
     catch
       :exit, _ -> failure(nil)
     end
@@ -248,7 +275,9 @@ defmodule Elzoo.Lease.Postgres do
   at most three times, then `{:error, :contended}`.
   """
   def read(backend, key) do
-    if caller_transaction?(backend), do: {:error, :caller_transaction}, else: read_attempt(backend, key, 3)
+    if caller_transaction?(backend),
+      do: {:error, :caller_transaction},
+      else: read_attempt(backend, key, 3)
   end
 
   defp read_attempt(_backend, _key, 0), do: {:error, :contended}
@@ -261,10 +290,18 @@ defmodule Elzoo.Lease.Postgres do
       second = fetch_head(backend, key)
 
       if first == second,
-        do: {:ok, %{key: key, revision: first.revision, low_water: first.low_water, latest: latest, now: now}},
+        do:
+          {:ok,
+           %{
+             key: key,
+             revision: first.revision,
+             low_water: first.low_water,
+             latest: latest,
+             now: now
+           }},
         else: read_attempt(backend, key, attempts - 1)
     rescue
-      _ in [Postgrex.Error, DBConnection.ConnectionError] -> {:error, :unavailable}
+      _ -> {:error, :unavailable}
     catch
       :throw, :malformed -> {:error, :malformed}
       :exit, _ -> {:error, :unavailable}
@@ -290,6 +327,7 @@ defmodule Elzoo.Lease.Postgres do
       backend.repo.rollback({:indeterminate, Map.put(info, :records, request.records)})
     end
 
+    hook(backend, :after_write, key)
     result
   end
 
@@ -408,7 +446,14 @@ defmodule Elzoo.Lease.Postgres do
   defp hook(%{hook: nil}, _, _), do: :ok
   defp hook(backend, phase, key), do: backend.hook.(phase, %{key: key, repo: backend.repo})
 
-  defp table(backend, name), do: Postgres.identifier(backend.prefix) <> "." <> Postgres.identifier(name)
+  defp table(backend, name),
+    do: Postgres.identifier(backend.prefix) <> "." <> Postgres.identifier(name)
+
   defp query(backend, sql, params \\ []), do: SQL.query!(backend.repo, sql, params, log: false)
-  defp caller_transaction?(backend), do: backend.repo.in_transaction?() == true
+  # False when the Repo is not running: the next statement then reports :unavailable.
+  defp caller_transaction?(backend) do
+    backend.repo.in_transaction?() == true
+  rescue
+    _ -> false
+  end
 end

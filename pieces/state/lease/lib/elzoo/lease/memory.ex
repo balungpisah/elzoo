@@ -48,7 +48,10 @@ defmodule Elzoo.Lease.Memory do
   def owner(%__MODULE__{owner: pid}), do: pid
 
   def single(backend, key, fun), do: call(backend, {:single, key, fun})
-  def sweep(backend, keys, limit, fun, free_fun), do: call(backend, {:sweep, keys, limit, fun, free_fun})
+
+  def sweep(backend, keys, limit, fun, free_fun),
+    do: call(backend, {:sweep, keys, limit, fun, free_fun})
+
   def read(backend, key), do: call(backend, {:read, key})
 
   @doc "Retention on a leased stream, serialized through the owner (the ready Store's `retain/5`)."
@@ -79,7 +82,14 @@ defmodule Elzoo.Lease.Memory do
         with {:ok, head} <- head(state, key),
              {:ok, now} <- Clock.sample(state.clock) do
           hook(state, :after_clock, key)
-          ctx = %{key: key, revision: head.revision, low_water: head.low_water, latest: latest(state, key, head), now: now}
+
+          ctx = %{
+            key: key,
+            revision: head.revision,
+            low_water: head.low_water,
+            latest: latest(state, key, head),
+            now: now
+          }
 
           case fun.(ctx) do
             {:refuse, result} -> result
@@ -110,7 +120,14 @@ defmodule Elzoo.Lease.Memory do
                   case Clock.sample(state.clock) do
                     {:ok, now} ->
                       hook(state, :after_clock, key)
-                      ctx = %{key: key, revision: head.revision, low_water: head.low_water, latest: latest(state, key, head), now: now}
+
+                      ctx = %{
+                        key: key,
+                        revision: head.revision,
+                        low_water: head.low_water,
+                        latest: latest(state, key, head),
+                        now: now
+                      }
 
                       case fun.(ctx) do
                         {:refuse, refusal} ->
@@ -118,23 +135,47 @@ defmodule Elzoo.Lease.Memory do
 
                         {:write, rows, request, held} ->
                           case append(state, key, head, rows, request, held) do
-                            {:held, h} ->
+                            %{live: _} = h ->
                               {:cont, {:claimed, %{acc | held: acc.held ++ [h]}}}
 
                             failure ->
                               rest = Enum.drop_while(Enum.sort(keys), &(&1 != key)) |> tl()
-                              {:halt, {:partial, %{committed: acc.held, refused: acc.refused, failed: {key, failure}, not_evaluated: rest}}}
+
+                              {:halt,
+                               {:partial,
+                                %{
+                                  committed: acc.held,
+                                  refused: acc.refused,
+                                  failed: {key, failure},
+                                  not_evaluated: rest
+                                }}}
                           end
                       end
 
                     {:error, reason} ->
                       rest = Enum.drop_while(Enum.sort(keys), &(&1 != key))
-                      {:halt, {:partial, %{committed: acc.held, refused: acc.refused, failed: {key, {:error, reason}}, not_evaluated: rest}}}
+
+                      {:halt,
+                       {:partial,
+                        %{
+                          committed: acc.held,
+                          refused: acc.refused,
+                          failed: {key, {:error, reason}},
+                          not_evaluated: rest
+                        }}}
                   end
 
                 {:error, reason} ->
                   rest = Enum.drop_while(Enum.sort(keys), &(&1 != key))
-                  {:halt, {:partial, %{committed: acc.held, refused: acc.refused, failed: {key, {:error, reason}}, not_evaluated: rest}}}
+
+                  {:halt,
+                   {:partial,
+                    %{
+                      committed: acc.held,
+                      refused: acc.refused,
+                      failed: {key, {:error, reason}},
+                      not_evaluated: rest
+                    }}}
               end
           end
         end)
@@ -147,7 +188,14 @@ defmodule Elzoo.Lease.Memory do
     reply =
       guarded(fn ->
         with {:ok, head} <- head(state, key), {:ok, now} <- Clock.sample(state.clock) do
-          {:ok, %{key: key, revision: head.revision, low_water: head.low_water, latest: latest(state, key, head), now: now}}
+          {:ok,
+           %{
+             key: key,
+             revision: head.revision,
+             low_water: head.low_water,
+             latest: latest(state, key, head),
+             now: now
+           }}
         end
       end)
 
@@ -185,6 +233,7 @@ defmodule Elzoo.Lease.Memory do
   end
 
   defp flag({tag, map}, true) when is_map(map), do: {tag, Map.put(map, :retention_observed, true)}
+  defp flag(%{} = map, true), do: Map.put(map, :retention_observed, true)
   defp flag(other, _), do: other
 
   defp head(state, key) do
@@ -207,8 +256,15 @@ defmodule Elzoo.Lease.Memory do
           end)
           |> Enum.max_by(& &1.sequence, fn -> nil end)
 
-        best = if candidate && (best == nil or candidate.sequence > best.sequence), do: candidate, else: best
-        last = Enum.reduce(rows, from - 1, fn r, acc -> if is_map(r) and is_integer(Map.get(r, :sequence)), do: max(acc, r.sequence), else: acc end)
+        best =
+          if candidate && (best == nil or candidate.sequence > best.sequence),
+            do: candidate,
+            else: best
+
+        last =
+          Enum.reduce(rows, from - 1, fn r, acc ->
+            if is_map(r) and is_integer(Map.get(r, :sequence)), do: max(acc, r.sequence), else: acc
+          end)
 
         if length(rows) == @page and last >= from and last < head.revision,
           do: latest(state, key, head, last + 1, best),
