@@ -143,7 +143,7 @@ docs/development/10-symbolic-ci.md ("Hosted CI"). There is no self-hosted lane,
 no lane variable and no workflow input; self-hosted runners must never be
 attached to a public repository. Never change runs-on or the required checks
 without the review that document describes. If the hosted lane fails, follow
-its three-step fallback (revert PR, register runners, visibility). Verify
+its three-step fallback (make the repository private, register runners, merge the revert PR). Verify
 actual job runner identity when changing workflows. GitHub also provides
 repository/PR/check orchestration.
 

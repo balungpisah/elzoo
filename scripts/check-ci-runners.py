@@ -82,7 +82,7 @@ MINIO_CACHE_STEPS = [
           key: """ + MINIO_KEY,
 ]
 # The checkout must not persist the job token in .git/config, where every later step (mix setup, mix check,
-# dependency code) could read it; with ELZ-058 that token carries actions: read on check-any.
+# dependency code) could read it; with ELZ-058 that token carries actions: read on check-hosted.
 CHECKOUT_STEP = """      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
@@ -454,7 +454,7 @@ for file in files:
     if file.name == 'symbolic-gleam.yml':
         step = GLEAM_SETUP_STEP.split('\n')
         starts = [i for i in range(len(lines)) if lines[i:i + len(step)] == step]
-        # Each of the two Gleam jobs (self-hosted and hosted) has exactly one pinned setup step.
+        # The Gleam job has exactly one pinned setup step.
         pinned = (shape_ok and len(starts) == len(job_ranges)
                   and all(sum(1 for t in starts if t in r) == 1 for r in job_ranges)
                   and all(t not in skip for t in starts)

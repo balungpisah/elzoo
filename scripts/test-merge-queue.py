@@ -733,7 +733,7 @@ class HostedLaneEvidence(unittest.TestCase):
         self.refuses("Expected exactly one executed")
 
     def test_only_one_backend_job_may_have_run(self):
-        # check-fast and check-hosted both executed: the lane variable cannot have selected both.
+        # A second backend job that executed, whatever its name, is refused: the run has no single evidence job.
         self.fake.other_job_changes = {"conclusion": "success"}
         self.refuses("Expected exactly one executed")
 
@@ -773,6 +773,11 @@ class HostedLaneEvidence(unittest.TestCase):
                 self.setUp()
                 self.fake.gleam_job_changes = {"steps": steps}
                 self.refuses()
+
+    def test_old_gleam_job_name_is_refused_even_when_skipped(self):
+        # A run of the former shape lists a skipped `gleam` job next to `gleam-hosted`: not evidence.
+        self.fake.gleam_other_changes = {"name": "gleam", "conclusion": "skipped"}
+        self.refuses("Expected exactly one executed Gleam job")
 
     def test_both_gleam_jobs_executed_or_none_refused(self):
         self.fake.gleam_job_changes = {"conclusion": "skipped"}

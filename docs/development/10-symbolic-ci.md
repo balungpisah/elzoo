@@ -79,7 +79,7 @@ Measurement over the next five merges (runner minutes per merge: queue run, push
 run IDs) is recorded in issue #96, not here. Live observations of the decision script against real merge commits
 (run locally with a read token, 2026-11-08): `ade0e45` skipped, naming run 42482549411 and job 128737440624;
 `665d3e0` skipped, naming run 42484386191 and job 128742976143; `b62c26a` ran the full check, because its exact-head
-run predates the `check-fast` job name, which the evidence rule of that time did not accept.
+run predates the job name that the evidence rule of that time accepted.
 
 ## Affected consumer checks (ELZ-038)
 
@@ -481,7 +481,7 @@ again at 20:56 UTC (03:56 WIB) after the change described below:
 | --- | --- |
 | Repository visibility | public |
 | Self-hosted runners | 0 |
-| `ELZOO_CI_LANE` | `hosted` at the flip; deleted by the coordinator after ELZ-069 merged (no workflow reads it) |
+| `ELZOO_CI_LANE` | `hosted` at the flip; no workflow reads it after ELZ-069; the coordinator deletes it after ELZ-069 is merged and its push run on `main` is green |
 | Default workflow token | `read`; workflows cannot approve pull request reviews |
 | Fork pull request approval | `all_external_contributors` (every outside contributor needs approval before a workflow runs) |
 | Branch protection on `main` | no required status checks (removed between 03:49 and 03:56 WIB on 2026-11-09, see below); no force pushes; no deletions; not enforced for administrators; no review requirement |
@@ -503,14 +503,15 @@ and `gleam-hosted`.
 group. The group does not allow public repositories (`allows_public_repositories: false`), which keeps them away from this
 repository. Do not switch that setting on.
 
-**Fallback (decided 2026-11-09).** There is no switch back: ELZ-069 removed the self-hosted jobs. If the hosted lane fails
-and cannot be repaired quickly, three steps, in this order:
-1. Open a revert PR of the ELZ-069 change (it restores the self-hosted jobs, the guard rules and the lane variable) and
-   merge it through the queue; the queue's evidence rules of that revert are those of the revert commit.
-2. Register self-hosted runners with the roles that the revert's documentation describes, and set the repository
-   variable `ELZOO_CI_LANE` to `self`. Never do this on a public repository: a fork pull request can change a workflow
-   and reach an attached runner. If the repository is public and the hosted lane cannot be repaired, do step 3 first.
-3. Change the repository visibility to private only if step 2 cannot be done safely on the public repository.
+**Fallback (decided 2026-11-09; order corrected after the independent review).** There is no switch back: ELZ-069 removed
+the self-hosted jobs. If the hosted lane fails and cannot be repaired quickly, three steps, in this order:
+1. Make the repository private (the owner's action). A self-hosted runner must never be registered while the repository is
+   public: a fork pull request can change a workflow and reach an attached runner.
+2. Register the self-hosted runners with the roles that the documentation before ELZ-069 describes (git history), and set
+   the repository variable `ELZOO_CI_LANE` to `self`.
+3. Merge a revert PR of the ELZ-069 change (it restores the self-hosted jobs, the guard rules and the lane variable). Run the
+   merge queue from the revert's own checkout, because the queue on `main` accepts hosted-job evidence only and would send
+   no `tier` input; the revert's own `scripts/merge-queue.py` matches its workflow.
 The revert is the rare path: the hosted lane carried every merge from 2026-11-09 WIB. If required checks are set again
 (ELZ-059), they name the hosted jobs, so a return to the self-hosted lane also needs the required checks changed.
 

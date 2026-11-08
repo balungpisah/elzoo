@@ -100,11 +100,13 @@ class RunnerPolicyTest(unittest.TestCase):
 
     def test_inline_container_image_rejected(self):
         self.change("symbolic-check.yml", "    steps:\n", "    container: ubuntu:latest\n    steps:\n")
-        self.check(1)
+        stderr = self.check(1).stderr
+        self.assertIn("container must be a mapping with a digest-pinned image", stderr)
+        self.assertIn("a hosted job must not use a job container", stderr)
         self.tearDown()
         self.setUp()
         self.change("symbolic-gleam.yml", "    steps:\n", "    container:\n      image: " + IMAGE + "\n    steps:\n")
-        self.check(1)
+        self.assertIn("a hosted job must not use a job container", self.check(1).stderr)
 
     def test_fork_pr_job_gate_cannot_be_removed(self):
         # The backend job runs for same-repository pull requests only; a fork pull request must not reach it.
@@ -662,7 +664,7 @@ class RunnerPolicyTest(unittest.TestCase):
         for filename, job in self.HOSTED_JOBS:
             with self.subTest(job=job):
                 self.change_in_job(filename, job, "    steps:\n", "    container:\n      image: " + IMAGE + "\n    steps:\n")
-                self.assertTrue(self.check(1).stderr)
+                self.assertIn("a hosted job must not use a job container", self.check(1).stderr)
                 self.tearDown()
                 self.setUp()
 
