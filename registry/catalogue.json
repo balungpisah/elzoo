@@ -46,8 +46,8 @@
       "summary": "Edge request to durable job",
       "disposition": "adapt",
       "phase": "P3",
-      "status": "planned",
-      "reason": "selected HTTP adapter + Jason + job/storage + telemetry"
+      "status": "ready",
+      "manifest": "pieces/assembly/http-job/piece.json"
     },
     {
       "id": "assembly/ingest-dedup-accumulate",
@@ -114,8 +114,8 @@
       "summary": "Data-shaped external request/result boundary",
       "disposition": "own",
       "phase": "P1",
-      "status": "planned",
-      "reason": "`T,X`; effects cannot be hidden in pure operators"
+      "status": "ready",
+      "manifest": "pieces/core/effect/piece.json"
     },
     {
       "id": "core/envelope",

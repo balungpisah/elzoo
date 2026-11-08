@@ -3,7 +3,7 @@
 - Phase: P3 edge integration
 - Catalogue IDs: core/effect, runtime/adapter, integration/http,
   integration/json, assembly/http-job boundary
-- Dependencies: ELZ-004, ELZ-006, ELZ-010
+- Dependencies: ELZ-004, ELZ-006, ELZ-010, ELZ-013, ELZ-023
 
 ## Outcome
 
@@ -15,7 +15,11 @@ ELZ-013 already supplies a tested direct Req client recipe at
 `pieces/integration/http/`. Reuse it; this task adds the actual application
 Effect/job policy, limits and failure translation, not another HTTP client.
 
+The selected Effect publishes one bounded JSON object under an immutable logical key at a consumer-controlled HTTP endpoint. Reuse delivery/effect-intent and integration/jobs; never call HTTP through assembly/durable-job's pure handler. Job retries inspect or poll the existing intent; only its durable permitted ground can authorize a later dispatch. This subset records only attested typed local no-send as a ground; final provider no-effect and provider replay are excluded. Every recovered intent remains read-only until the bound host grant required by its ready Contract. Cancellation stops future job wake-ups only and never retracts a dispatched request. Evidence is loopback/provider-double and real PostgreSQL/Oban composition, not a live vendor integration.
+
 ## Scope
+
+- core/effect is a data-only declaration (capability_id, operation, classification) that wraps an unchanged, separately validated Envelope command. It reuses Envelope identity, schema and payload fields. It adds no executor, dispatcher or authorization.
 
 - define request/result/error ports and the Unit's Needs;
 - compare at least one realistic maintained candidate at the boundary and pin
@@ -47,6 +51,16 @@ Effect/job policy, limits and failure translation, not another HTTP client.
 - [ ] Contract limits the claim to the selected Effect and environment.
 - [ ] Listed malformed inputs are rejected or made opaque without raising,
       and normalizing twice equals normalizing once (selected law or test).
+
+- [ ] Every HTTP and transport outcome maps to a frozen Envelope or typed failure row;
+      cancellation is job-control only and is never reported as no-send.
+- [ ] No second dispatch occurs without a durable permitted ground; HTTP is never
+      called from assembly/durable-job's handler.
+- [ ] The total request time, response size bound and slow-drip stall are executable
+      with negative controls; redirect, retry, atom-minting, trust-upgrade,
+      field-retention and ack-guessing mutants of the real code fail.
+- [ ] Read-only recovery, job exhaustion while Dispatched and the unique-key re-wake
+      path are exercised with real PostgreSQL and Oban.
 
 ## Evidence and limits
 
