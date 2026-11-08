@@ -24,7 +24,7 @@ The owner closed the build queue on 2026-11-09; this task is the last before the
      a time because the shared PostgreSQL server allows 100 connections and two concurrent full
      checks exhaust it (observed as `too_many_connections` failures in the copied-consumer
      tests); one disposable database per worker, verified by a fail-closed guard before any
-     statement; shared files (`registry/catalogue.json` own row, `docs/plans/release-plan.json`
+     schema or data effect (the identification query itself precedes that verification); shared files (`registry/catalogue.json` own row, `docs/plans/release-plan.json`
      own entry, `LEDGER.md`, roadmap views, `mix.exs`, `registry/providers.json`) touched only
      with explicit authorization and regenerated in the final merge step; idle held workers do
      not count against the cap. The caps are per host and are re-measured whenever the CI lane
@@ -60,8 +60,8 @@ The owner closed the build queue on 2026-11-09; this task is the last before the
      test failures and never hidden.
   8. Merge queue operation: only the main coordinator runs `scripts/merge-queue.py`, one PR at
      a time; nobody dispatches a check by hand while the queue identifies its run; when the
-     queue stops on a transport failure with its run still in progress, it is resumed by
-     adopting that run (the queue's own retries reduce this); measurement series are budgeted:
+     queue stops with its run still in progress, that run is inspected or manually adopted
+     before another dispatch (the queue retries transient reads but does not resume by itself); measurement series are budgeted:
      at most one at a time while a merge queue is pending, on the slow or idle runner, under
      the 90-minute job limit.
 - Link the new document from `docs/development/01-workflow.md` with one sentence.
@@ -73,7 +73,8 @@ The owner closed the build queue on 2026-11-09; this task is the last before the
 
 - [ ] `docs/development/11-coordination-rules.md` exists with the eight sections and a link from
       the workflow document.
-- [ ] Every rule names the observed reason and the failure it prevents; no rule claims a
+- [ ] Every rule names its source and, where the records hold one, the observed reason and the
+      failure it prevents; no rule claims a
       guarantee the tooling does not enforce.
 - [ ] `python3 scripts/check-roadmap.py`, `python3 scripts/check-claims.py` and `git diff --check`
       pass; no path outside `docs/`, `tasks/` and the approved `AGENTS.md` lines changes.
