@@ -9,16 +9,45 @@ FORK_GATE = """    if: ${{ github.event_name != 'pull_request' || github.event.p
 # main pushes and measurement dispatches (tier any) may use any backend runner.
 FAST_GATE = """    if: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'workflow_dispatch' && inputs.tier == 'fast') }}"""
 ANY_GATE = """    if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.tier == 'any') }}"""
-# Jobs in order: (name, exact if: line below the job name, exact runs-on line).
+# ELZ-058: the push job reads the exact-head run of the merged pull request head, so check-any alone
+# gets `actions: read` (job level, directly below runs-on); every other token is `contents: read` only.
+ANY_PERMISSIONS = ["    permissions:", "      actions: read", "      contents: read"]
+# Jobs in order: (name, exact if: line below the job name, exact runs-on line, exact lines below runs-on).
 expected = {
     "symbolic-check.yml": [
-        ("check-fast", FAST_GATE, "runs-on: [self-hosted, linux, x64, elzoo, backend, fast]"),
-        ("check-any", ANY_GATE, "runs-on: [self-hosted, linux, x64, elzoo, backend]"),
+        ("check-fast", FAST_GATE, "runs-on: [self-hosted, linux, x64, elzoo, backend, fast]", []),
+        ("check-any", ANY_GATE, "runs-on: [self-hosted, linux, x64, elzoo, backend]", ANY_PERMISSIONS),
     ],
     "symbolic-gleam.yml": [
-        ("gleam", FORK_GATE, "runs-on: [self-hosted, linux, x64, symbolic, elzoo, gleam]"),
+        ("gleam", FORK_GATE, "runs-on: [self-hosted, linux, x64, symbolic, elzoo, gleam]", []),
     ],
 }
+# ELZ-058: the decision step is the only backend step that sees the job token, and the heavy steps after it
+# may carry exactly these step-level conditions. Pairs are (step header line, if: line), in order.
+DECISION_STEP = """      - name: Decide whether the full check is redundant
+        id: skip
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci-skip-decision.py"""
+SKIP_IF = "        if: ${{ steps.skip.outputs.skip != 'true' }}"
+# The checkout must not persist the job token in .git/config, where every later step (mix setup, mix check,
+# dependency code) could read it; with ELZ-058 that token carries actions: read on check-any.
+CHECKOUT_STEP = """      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false"""
+STEP_IFS = [
+    ("      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1", SKIP_IF),
+    ("      - name: Report BEAM capacity", SKIP_IF),
+    ("      - name: Restore dependency cache", SKIP_IF),
+    ("      - run: mix local.hex --force", SKIP_IF),
+    ("      - run: mix local.rebar --force", SKIP_IF),
+    ("      - run: mix setup", SKIP_IF),
+    ("      - name: Save dependency cache after mix setup",
+     "        if: ${{ steps.deps-cache.outputs.cache-hit != 'true' && steps.skip.outputs.skip != 'true' }}"),
+    ("      - name: Run mix check", SKIP_IF),
+    ("      - name: Report container resource observations", "        if: always()"),
+]
 # Approved triggers: push to main, same-repository pull_request, workflow_dispatch.
 # pull_request_target and every other event need a new reviewed policy. The backend
 # workflow_dispatch has exactly one input, tier (fast default, any).
@@ -220,7 +249,7 @@ for file in files:
         if re.fullmatch(r'\s*container\s*:\s*[^\s#].*', line):
             errors.append(f'{file}: container must be a mapping with a digest-pinned image')
     spec = expected[file.name]
-    names = [name for name, _, _ in spec]
+    names = [item[0] for item in spec]
     jobs_roots = [i for i, line in enumerate(lines) if line == 'jobs:']
     job_headers = []
     end = len(lines)
@@ -245,7 +274,8 @@ for file in files:
         else:
             errors.append(f'{file}: exactly the jobs {", ".join(names)} are required, in this order')
     bodies = []
-    for k, (name, if_line, runs_on) in enumerate(spec if shape_ok else []):
+    decision_tokens = []
+    for k, (name, if_line, runs_on, extra) in enumerate(spec if shape_ok else []):
         h = job_headers[k][0]
         e = job_headers[k + 1][0] if k + 1 < len(job_headers) else len(lines)
         block = range(h, e)
@@ -255,6 +285,8 @@ for file in files:
         if (len(selectors) != 1 or selectors[0] in skip or selectors[0] != h + 2
                 or lines[selectors[0]] != '    ' + runs_on):
             errors.append(f'{file}: every job must use {runs_on} ({name})')
+        if lines[h + 3:h + 4 + len(extra)] != extra + ['    container:']:
+            errors.append(f'{file}: the job header lines below runs-on changed ({name})')
         # The job must keep its digest-pinned container; without it steps run on the host.
         containers = [i for i in block if re.match(r'\s*(?:-\s*)?container\s*:', lines[i])]
         if (len(containers) != 1 or lines[containers[0]] != '    container:'
@@ -278,7 +310,39 @@ for file in files:
                     or next_step is None
                     or any(lines[i].strip() and i not in skip for i in range(after_gate, next_step))):
                 errors.append(f'{file}: approved runner identity gate is missing or changed ({name})')
-        body = lines[h + 3:e]
+        if file.name == 'symbolic-check.yml':
+            decision = DECISION_STEP.split('\n')
+            starts = [i for i in block if lines[i:i + len(decision)] == decision]
+            rest = [line for line in lines[starts[0] + len(decision):e]
+                    if line.strip() and not line.lstrip().startswith('#')] if len(starts) == 1 else []
+            if (len(starts) != 1 or starts[0] in skip or lines[starts[0] - 1] != '      - run: python3 scripts/test-ci-skip.py'
+                    or not rest or not rest[0].startswith('      - ')):
+                errors.append(f'{file}: the pinned decision step is missing or changed ({name})')
+            else:
+                decision_tokens.append(starts[0] + 3)
+            checkout = CHECKOUT_STEP.split('\n')
+            checkouts = [i for i in block if re.match(r'\s*(?:-\s+)?uses\s*:\s*actions/checkout@', lines[i])]
+            # The step must end where the next step starts: no further input (ref:, repository:, token:) may follow.
+            after_checkout = ([line for line in lines[checkouts[0] + len(checkout):e]
+                               if line.strip() and not line.lstrip().startswith('#')]
+                              if len(checkouts) == 1 else [])
+            if (len(checkouts) != 1 or lines[checkouts[0]:checkouts[0] + len(checkout)] != checkout
+                    or checkouts[0] in skip or not after_checkout or not after_checkout[0].startswith('      - ')):
+                errors.append(f'{file}: the pinned checkout step (persist-credentials: false) is missing or changed ({name})')
+            # Any if: key other than the reviewed 8-space step-level lines (a header-form `- if:`, or another
+            # indentation) is outside the convention; the job-level gate sits at h + 1.
+            for i in block:
+                if (i != h + 1 and i not in skip and re.match(r'\s*(?:-\s+)?if\s*:', lines[i])
+                        and not lines[i].startswith('        if:')):
+                    errors.append(f'{file}: unreviewed if: key ({name}): {lines[i].strip()}')
+            pairs = []
+            for i in block:
+                if lines[i].startswith('        if:') and i not in skip:
+                    header = next((j for j in range(i - 1, h, -1) if lines[j].startswith('      - ')), None)
+                    pairs.append((lines[header] if header is not None else '', lines[i]))
+            if pairs != STEP_IFS:
+                errors.append(f'{file}: step-level conditions are not the reviewed ones ({name})')
+        body = lines[h + 3 + len(extra):e]
         while body and not body[-1].strip():
             body.pop()
         bodies.append(body)
@@ -306,8 +370,16 @@ for file in files:
                            or len(after) - len(after.lstrip(' ')) <= 4))
         if not pinned:
             errors.append(f'{file}: the pinned Gleam setup step is missing or changed, or the token appears elsewhere')
-    elif token_lines:
-        errors.append(f'{file}: github.token and secrets are not allowed in this workflow')
+    elif token_lines != decision_tokens:
+        errors.append(f'{file}: github.token and secrets are not allowed in this workflow outside the pinned decision steps')
+    # Token permissions: one top-level contents: read block, plus actions: read on check-any only; never write.
+    perm_lines = [i for i, line in enumerate(lines) if re.match(r'\s*permissions\s*:', line)]
+    expected_perms = ['permissions:'] + (['    permissions:'] if file.name == 'symbolic-check.yml' else [])
+    top = perm_lines[0] if perm_lines else None
+    if ([lines[i] for i in perm_lines] != expected_perms or top is None or lines[top:top + 2] != ['permissions:', '  contents: read']
+            or (top + 2 < len(lines) and lines[top + 2].strip() and lines[top + 2][0] == ' ')
+            or any(re.search(r':\s*write(?:-all)?\b|permissions\s*:\s*\S', line) for line in yaml_lines)):
+        errors.append(f'{file}: token permissions must be exactly the reviewed ones (contents: read; actions: read on check-any only; no write)')
     if file.name == 'symbolic-check.yml' and any(
             re.match(r'\s*(?:-\s+)?(?:defaults|shell|continue-on-error)\s*:', line) for line in yaml_lines):
         errors.append(f'{file}: defaults:, shell: and continue-on-error: could disable the runner identity gate')

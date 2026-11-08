@@ -39,6 +39,55 @@ def command(argv, allowed=(0,)):
     return result
 
 
+# ELZ-058 item 4: read-only gh and git calls are retried on transport errors and gateway errors, with a
+# bounded backoff, before the queue stops. Writes (dispatch, update-branch, merge, cancel) are never retried
+# here: a repeated dispatch would create a second run.
+TRANSIENT = re.compile(
+    r"TLS handshake timeout|connection reset|connection refused|i/o timeout|timeout awaiting|"
+    r"Client\.Timeout|unexpected EOF|\bEOF\b|server closed|temporary failure|"
+    r"HTTP 50[0234]\b|\b50[0234] (?:Bad Gateway|Service Unavailable|Gateway Time-?out|Internal Server Error)",
+    re.IGNORECASE)
+RETRY_WAITS = (10, 20, 40, 50)  # five attempts over two minutes of waiting
+
+
+# `gh api` switches to POST by itself when a field or an input file is given, so every spelling of a method, a
+# field or an input counts as a write, including the attached forms (-XPOST, --method=POST, -fname=value).
+WRITE_FLAG = re.compile(r"^(?:-X|--method|-f|-F|--field|--raw-field|--input)")
+
+
+def is_read_only(argv):
+    if argv[:2] == ["gh", "api"]:
+        return not any(WRITE_FLAG.match(arg) for arg in argv[2:])
+    return argv[:3] == ["gh", "pr", "view"] or argv[:2] == ["git", "fetch"]
+
+
+def error_detail(error):
+    """The tool's own message: what follows `exited N:` in a command failure, so that the arguments of the
+    command are never matched against the transient patterns."""
+    text = str(error)
+    return text.split(" exited ", 1)[1] if " exited " in text else text
+
+
+def retrying(run, sleep, emit, clock=None, deadline=None):
+    """Wrap a command runner so that read-only calls survive a short network or gateway failure.
+    The wait never runs past the PR deadline: past it, the original error is raised."""
+    def wrapped(argv, allowed=(0,)):
+        for attempt in range(len(RETRY_WAITS) + 1):
+            try:
+                return run(argv, allowed)
+            except QueueError as error:
+                if (attempt == len(RETRY_WAITS) or not is_read_only(argv)
+                        or not TRANSIENT.search(error_detail(error))):
+                    raise
+                wait = RETRY_WAITS[attempt]
+                if clock and deadline and clock() + wait >= deadline():
+                    raise
+                emit(f"Transient failure of {' '.join(argv[:3])} (attempt {attempt + 1} of "
+                     f"{len(RETRY_WAITS) + 1}): {str(error)[:200]}; retrying in {wait} s", flush=True)
+                sleep(wait)
+    return wrapped
+
+
 def require(condition, reason):
     if not condition:
         raise QueueError(reason)
@@ -51,8 +100,9 @@ def valid_sha(value):
 class Queue:
     def __init__(self, run=command, sleep=time.sleep, clock=time.monotonic,
                  timeout=10800, poll=15, emit=print):
-        self.run, self.sleep, self.clock = run, sleep, clock
+        self.sleep, self.clock = sleep, clock
         self.timeout, self.poll, self.emit = timeout, poll, emit
+        self.run = retrying(run, sleep, emit, clock, lambda: self.deadline)
         self.deadline = 0
 
     def text(self, *argv):
@@ -121,6 +171,49 @@ class Queue:
                 run.get("head_sha") == pr["headRefOid"] and
                 run.get("workflow_id") == workflow_id and
                 run.get("path") == f".github/workflows/{WORKFLOW}")
+
+    @staticmethod
+    def pr_run_matches(run, pr, workflow_id):
+        return (run.get("event") == "pull_request" and
+                run.get("head_branch") == pr["headRefName"] and
+                run.get("head_sha") == pr["headRefOid"] and
+                run.get("workflow_id") == workflow_id and
+                run.get("path") == f".github/workflows/{WORKFLOW}" and
+                (run.get("head_repository") or {}).get("full_name") == REPO)
+
+    def cancel_duplicate_pr_run(self, pr, workflow_id):
+        """ELZ-058: update-branch makes GitHub start a pull_request check on the new head, and the
+        queue's own exact-head dispatch follows on that same head, so the check is a duplicate.
+        Cancel only that run (same workflow, pull_request event, branch and exact head SHA); never
+        another head, another PR, a dispatch, a push run or the Gleam workflow. A failure is
+        logged and never blocks the queue: the exact-head dispatch is the merge gate."""
+        try:
+            query = urlencode({"event": "pull_request", "branch": pr["headRefName"],
+                               "head_sha": pr["headRefOid"], "per_page": 100})
+            end = self.clock() + 30
+            while True:
+                pages = self.data("gh", "api", "--paginate", "--slurp",
+                                  f"repos/{REPO}/actions/workflows/{WORKFLOW}/runs?{query}")
+                runs = [run for page in pages for run in page["workflow_runs"]
+                        if isinstance(run, dict) and self.pr_run_matches(run, pr, workflow_id)]
+                if runs:
+                    break
+                self.pause("pull_request run on the updated head", end)
+            for run in runs:
+                try:
+                    if not isinstance(run.get("id"), int):
+                        raise QueueError("Invalid duplicate run ID")
+                    if run.get("status") == "completed":
+                        self.emit(f"Duplicate pull_request run {run['id']} already completed; not cancelled",
+                                  flush=True)
+                        continue
+                    self.text("gh", "api", "-X", "POST", f"repos/{REPO}/actions/runs/{run['id']}/cancel")
+                    self.emit(f"Cancelled duplicate pull_request run {run['id']} head={pr['headRefOid']}",
+                              flush=True)
+                except (QueueError, KeyError, TypeError, AttributeError, ValueError) as error:
+                    self.emit(f"Duplicate pull_request run not cancelled: {error}", flush=True)
+        except (QueueError, KeyError, TypeError, AttributeError, ValueError) as error:
+            self.emit(f"Duplicate pull_request run not cancelled: {error}", flush=True)
 
     def dispatch(self, pr, workflow_id):
         previous = {run["id"] for run in self.runs(pr["headRefName"])}
@@ -246,11 +339,20 @@ class Queue:
                 self.emit(f"Updating PR #{number} by merging main", flush=True)
                 self.text("gh", "pr", "update-branch", str(number), "-R", REPO)
                 end = self.clock() + 60
-                while self.pr(number, ready=False)["headRefOid"] == pr["headRefOid"]:
+                updated = self.pr(number, ready=False)
+                while updated["headRefOid"] == pr["headRefOid"]:
                     self.pause("updated PR head", end)
+                    updated = self.pr(number, ready=False)
+                self.cancel_duplicate_pr_run(updated, workflow_id)
                 continue
             run_id = self.dispatch(pr, workflow_id)
-            job = self.evidence(run_id, pr, workflow_id)
+            try:
+                job = self.evidence(run_id, pr, workflow_id)
+            except (QueueError, KeyError, TypeError, ValueError, AttributeError):
+                # The run goes on after the queue stops; name it so that it can be adopted by hand.
+                self.emit(f"Stopped while awaiting run {run_id} for PR #{number} head={pr['headRefOid']}: "
+                          "inspect or adopt that run before dispatching another", flush=True)
+                raise
             self.unchanged_pr(pr)
             gleam_job = self.gleam_evidence(pr)
             fresh = self.unchanged_pr(pr)

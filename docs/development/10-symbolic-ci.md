@@ -2,8 +2,7 @@
 
 Elzoo uses only the owner's Linux machines: the user-owned `symbolic` and `macbook-ubuntu` and, from
 ELZ-056 (owner decision 2026-11-08), the user-rented Contabo VPS `ratahq-ci-contabo-01`
-(runner `contabo-elzoo-1`; trialled, routed only for `main` pushes and measurement runs, see "Runner tiers"
-and "Contabo VPS" below). GitHub provides scheduling
+(runner `contabo-elzoo-1`; trialled and currently unrouted, see "Runner tiers" and "Contabo VPS" below). GitHub provides scheduling
 and check reporting; it does not supply compute.
 Never select a GitHub-hosted image or add a hosted fallback. If a runner is
 offline, diagnose it or let work queue on the other approved runner.
@@ -18,10 +17,10 @@ offline, diagnose it or let work queue on the other approved runner.
   `ci-candidate`. It is in the fast tier. It received `backend` after ELZ-034 merged (PR #61), so it
   is in the normal backend pool. The name and `ci-candidate` label are
   historical; they do not select a separate route.
-- `contabo-elzoo-1` (runner id 24): backend, **any tier only, never `fast`**; labels `self-hosted`,
-  `Linux`, `X64`, `elzoo`, `contabo`, and `backend` once the coordinator adds it after ELZ-057
-  merges (owner decision 2026-11-08: the machine took about twice as long as the MacBook on the
-  same tree, so it never serves pull request checks or queue runs; see "Contabo VPS").
+- `contabo-elzoo-1` (runner id 24): **unrouted**, never `fast`; labels `self-hosted`, `Linux`, `X64`,
+  `elzoo`, `contabo`. It has no `backend` label (removed again on 2026-11-08 after its `tier` = `any`
+  observation failed; owner decision, option a). It takes no job at present; a person may add the `backend` label for a
+  measurement run or an explicit `tier` = `any` dispatch and must remove it afterwards. See "Contabo VPS" for the two failed or slow runs.
 - `symbolic-elzoo-gleam`: Gleam only; labels `self-hosted`, `linux`, `x64`,
   `symbolic`, `elzoo`, `gleam`.
 
@@ -84,7 +83,7 @@ labels, not just the check name, when verifying a machine.
 
 Owner decision 2026-11-08: pull request checks and merge-queue runs run only on the **fast** runners
 (`symbolic-elzoo`, `macbook-ubuntu-elzoo-candidate`, label `fast`). `main` pushes and measurement
-runs may use any backend runner, including `contabo-elzoo-1`, which never gets `fast`.
+runs may use any runner that has the `backend` label; `contabo-elzoo-1` never gets `fast` and has no `backend` label at present.
 `symbolic-check.yml` therefore has two jobs with identical bodies:
 
 | Job | Runs for | `runs-on` |
@@ -123,9 +122,86 @@ anything outside this repository that expects the old job name `check` must be u
    one is refused at the evidence step), or it makes the match ambiguous and the queue refuses.
    Either way the queue's own run is lost, so do not dispatch by hand.
 
+## Redundant push runs and duplicate pull request checks (ELZ-058)
+
+A merge cost several full checks of the same content: the queue's exact-head run, then the push run on
+the merge commit (23 to 29 minutes on a fast runner), and, after every `update-branch`, a pull request check
+that duplicated the queue run. ELZ-058 removes two of these without weakening the evidence.
+
+**Push run skip.** The `check-any` job on a push to `main` (both jobs carry the same steps) runs
+`scripts/ci-skip-decision.py` after the guard tests. It prints `skip=true` only when all of these hold:
+the event is a push to `refs/heads/main`; the pushed commit is a two-parent merge commit; its tree equals
+the tree of its second parent (the pull request head that the queue merged with `--match-head-commit`);
+the latest `workflow_dispatch` run of `symbolic-check.yml` on that second parent (branch `task/ELZ-###`,
+`tier` = `fast`, found by `head_sha`) is a completed success whose exact attempt has one successful
+`check-fast` job on `symbolic-elzoo` or `macbook-ubuntu-elzoo-candidate`, a successful `Run mix check` step,
+the full `ELZOO CHECK PASSED` log line, no `ELZOO AFFECTED CHECK PASSED` marker and a skipped `check-any` job;
+and that run is unchanged when read again. The same evidence rules as the queue apply (`scripts/merge-queue.py`).
+Then the steps after the decision (`setup-beam`, cache, `mix setup`, `mix check`) are skipped, the job ends green
+and its log shows `ELZOO PUSH CHECK SKIPPED (identical tree; exact-head full run passed): second_parent=...
+tree=... run=<id> job=<id> runner=<name>`. That line is not `ELZOO CHECK PASSED`, which stays reserved for a run that
+executed `mix check`. In every other case, including a fast-forward, squash or octopus push, a moved main (the
+trees differ), a missing, red, cancelled, ambiguous or newer-failed run, an API, Git or parse error and a missing
+token, the script prints `skip=false` with the reason and the full check runs. It never fails the job because it
+cannot decide. A later run is not hidden by an older success: the run with the highest ID decides.
+`workflow_dispatch` runs (the queue and `tier` = `any` measurement runs), pull requests and anything that
+is not a push to `main` are never skipped.
+
+Why it is the same evidence: an identical tree is identical content, and the full check of that content passed on
+a fast runner at the exact head, with its run and job IDs in the push log. What it does not prove: the push run
+no longer observes the merge commit itself (its path, runner, cache or toolchain state). A runner or cache fault
+at merge time is invisible to a skipped push run; the next full run of `main` catches it. Acceptance on the
+merge commit is therefore either its own green full run or this logged skip (see `AGENTS.md`).
+
+Trust model: `check-any` gets `permissions: actions: read` and `contents: read` at job level (to read the exact-head run,
+its jobs and its log); `check-fast` and the top level keep `contents: read`. The decision step is the only step
+that receives `GITHUB_TOKEN`, in both jobs, because their bodies are identical; the pull request job's token can read
+only contents, and the script refuses everything but a push to `main` before any request. The token is never sent to
+the log storage redirect, which is accepted only for `github.com`, `*.github.com`, `*.githubusercontent.com` and
+`productionresultssa<N>.blob.core.windows.net/actions-results/...`. `scripts/check-ci-runners.py` pins the
+`permissions` lines (and rejects any `write` scope), the checkout step with `persist-credentials: false` (the default
+would leave the job token in `.git/config`, readable by every later step, including dependency code, and with this change
+that token carries `actions: read` on `check-any`), the exact decision step and its position after
+`scripts/test-ci-skip.py`, the token on that line only, and the complete list of step-level `if:` conditions:
+every step after the decision, except the resource report, carries `steps.skip.outputs.skip != 'true'`
+(the cache save combines it with `cache-hit != 'true'`) and the resource report keeps `always()`. A different `if:` on
+`Run mix check`, or on any other step, fails the guard. Like the other guard rules this is a source-convention
+check, not proof against every YAML form.
+
+**Duplicate pull request check.** When `scripts/merge-queue.py` updates a pull request branch by merging
+`main` (`gh pr update-branch`), GitHub starts a `pull_request` run on the new head; the queue's own exact-head
+dispatch follows on that same head, so that run is a duplicate (a full-size check, 19 to 29 minutes on a fast runner, estimated; one such run,
+42478439366, waited ten minutes for a runner and was cancelled by hand after 40 seconds). Right after the new head is visible, the queue cancels only the
+`pull_request` run of `symbolic-check.yml` on that exact head and branch, logs `Cancelled duplicate pull_request
+run <id> head=<sha>`, and carries on. It never cancels another head, another pull request, a dispatch or a push run, or
+the Gleam run (the Gleam workflow is not queried). A completed run is left alone. A failed lookup, a failed cancel or no
+run within 30 seconds is logged (`Duplicate pull_request run not cancelled: ...`) and does not block the queue.
+This is not evidence: the cancelled run was never part of the merge gate.
+
+Cache effect: a skipped push run saves no main-scoped dependency cache, so after a `mix.lock` or `mix.exs` change
+task branches restore an older entry by prefix key until a full run of `main` saves a new one (time, not correctness).
+
+**Transient failures of the queue's reads (ELZ-058 item 4).** On 2026-11-08 the queue stopped twice (PRs #104 and #113) on
+`net/http: TLS handshake timeout` from `gh api` while waiting on a run that was still in progress. Read-only calls
+(`gh api` without `-X`/`--method`, `gh pr view`, `git fetch`) are now retried on transport and gateway errors (TLS handshake
+timeout, connection reset, connection refused, i/o timeout, unexpected EOF, HTTP 500, 502, 503, 504) in five attempts with waits of
+10, 20, 40 and 50 seconds (two minutes in all), never past the PR deadline; each retry is logged (`Transient failure of ...
+retrying in N s`). Writes are never retried by the queue (dispatch, update-branch, merge, cancel): a repeated dispatch would create
+a second run. Other errors (404, 401, 403, 422, mergeability, evidence mismatches) stop at once. When evidence collection
+fails after the dispatch it prints `Stopped while awaiting run <id> for PR #N head=<sha>` (the `Dispatched ... run=<id>` line
+names the run too), so the run can be inspected or adopted before anything is dispatched again. Only the tool's own message is
+matched against the transient patterns, not the arguments of the command; `gh api` with any field, input or method flag counts
+as a write and is never retried. The retry does not change what counts as evidence.
+
+Measurement over the next five merges (fast-runner minutes per merge: queue run, push run, pull request runs, with
+run IDs) is recorded in issue #96, not here. Live observations of the decision script against real merge commits
+(run locally with a read token, 2026-11-08): `ade0e45` skipped, naming run 42482549411 and job 128737440624;
+`665d3e0` skipped, naming run 42484386191 and job 128742976143; `b62c26a` ran the full check, because its exact-head
+run predates the `check-fast` job name ("jobs are not one check-fast and a skipped check-any").
+
 ## Affected consumer checks (ELZ-038)
 
-`mix check` defaults to the full check. Every push to `main` and every
+`mix check` defaults to the full check. Every push to `main` that is not skipped under ELZ-058 and every
 `workflow_dispatch` uses that default: all root tests, all 26 existing per-ID
 consumers, the separate OTP-only consumer, and the aggregate over every ready
 ID (40 at ELZ-038). The aggregate and per-ID consumers are tests inside the
@@ -560,14 +636,51 @@ state. This record covers `symbolic` only.
 
 ### Contabo VPS `ratahq-ci-contabo-01` (ELZ-056)
 
-Status: **one full trial passed; to be routed for `main` pushes and measurement runs only.** The
-`backend` label is not part of any diff: the coordinator adds it to runner 24 after ELZ-057 merges
-and confirms it with one `tier` = `any` dispatch that lands here. The runner never has `fast`, so it
-takes only the `check-any` job. Before that (ELZ-056) it was registered without `backend`, and the
-label was on only for the trials (owner decision 2026-11-08, then ELZ-057). The trial record is in the
-issue: run and job IDs, duration, cgroup memory peak, sampled CPU maximum, and `cpu.max`
-and `memory.max` read from the host through the job container's cgroup path.
-A failed or timed-out job here means removing the label. Host facts and the host-side limit
+Status: **unrouted (owner decision 2026-11-08, option a; then option b, ELZ-062, after the re-test).** The runner has no `backend` label. One
+full run passed on an older tree (trial 2, below) and one failed on the current tree (the `tier` = `any`
+observation of ELZ-057). The label was on only for those runs. It takes no job while it has no `backend`
+label (GitHub gives a job to any idle runner with matching labels); a person may add the label for a measurement run
+or an explicit `tier` = `any` dispatch and must remove it afterwards. No test limit was changed for it.
+
+**ELZ-057 observation (failed).** Run 42484236992, job 128742521023, `workflow_dispatch` with `tier` = `any`
+on `main` at `ade0e45`, runner `contabo-elzoo-1`; `check-fast` skipped. 13:17:27Z to 14:25:54Z (20:17 to
+21:25 WIB), 68 min 27 s: `mix setup` 23 min 44 s (cold cache), `Run mix check` failed after 41 min 15 s with
+`Result: 640/642 passed`. Both failures were `ExUnit.TimeoutError` after 120000 ms (the per-test default):
+`pieces/workflow/approval/test/elzoo/approval_test.exs:177` (a negative control inside a Cure proof check,
+stack in `Cure.Core.Normalise` and `Cure.Core.Conv`) and `test/export_test.exs:120` (the `assembly/durable-job`
+consumer step). Root suite `Finished in 2243.7 seconds (438.6s async, 1805.1s sync)`; aggregate consumer 816.6 s.
+Job-reported cgroup memory peak 3,690,496,000 bytes; sampled CPU maximum 5.091 cores (the 5-core cap was
+reached). Read from the host: `cpu.max` `500000 100000`, `memory.max` `8589934592`, `memory.swap.max` `0`;
+`nr_throttled` 1026 and `throttled_usec` 62,213,128 at 14:25:14Z (62 s in total, in bursts). The same
+tree passed on `symbolic-elzoo` (run 42484152352, job 128742259599) and its main push run passed
+(42484121902). No test and no limit was changed. Interpretation, not proven: the 120 s per-test limit
+was set on faster machines, and on this VPS (about 1.8 times slower per thread) with the consumer groups of
+ELZ-049 running at the same time under a 5-core cap, two tests exceed it.
+
+**Re-test with the 8-core cap (failed the same way).** After the cap was raised (below), run 42492726966, job 128768391228
+(`check-any`, `tier` = `any`, runner `contabo-elzoo-1`, `main` at `665d3e07c58f`, warm cache: `mix setup` 6 s), ran
+15:02:15Z to 15:45:46Z (22:02 to 22:45 WIB), 43 min 31 s; `Run mix check` 15:04:42Z to 15:45:35Z failed with
+`Result: 640/642 passed`, the same two `ExUnit.TimeoutError` after 120000 ms (`approval_test.exs:177`, and
+`export_test.exs:120`). Root suite `Finished in 2228.9 seconds (463.0s async, 1765.8s sync)` against 2243.7 s under
+the 5-core cap; aggregate consumer 805.1 s; `ash_spike` 180.8 s (20.5 s to 201.3 s into the check). Job-reported cgroup memory peak 3,881,250,816 bytes;
+sampled CPU maximum 6.914 cores over 2,449 samples (the job used more than the old cap of 5 and stayed under the new
+one). Interpretation, not proven: raising the cap did not help (2228.9 s against 2243.7 s), so the CPU cap does not look like the limit; per-thread speed is the likely cause. Limit of this measurement: my host sampler (one
+sample per 60 s) lost its SSH connection after two samples (container `cpu.max` 800000 `100000`, `nr_throttled` 0 at
+15:04:21Z, memory peak 1.74 GB then), so the throttling counters at the end of the run were not read; the job's own
+CPU sample is the only CPU evidence after that. Host load average (1 minute) peaked at 5.71 and the four production
+containers stayed at 0.00 to 1.33 percent CPU in the samples taken every two minutes. A health probe of
+`https://storage.balungpisah.id/minio/health/live` from the coordinator's machine answered HTTP 200 in 0.12 to 0.49 s,
+with one slow answer (4.0 s at 15:22:14Z), one slow first answer (1.8 s at 15:03:36Z, before the load) and one failed
+connect (15:05:41Z); that probe cannot attribute these to the CI job (Cloudflare and the path from the probe are in
+between). The label was removed again after the run. Owner decision after the re-test (option b, via the coordinator): raise
+the per-test limit of the two tests to 300 s in a separate measured task (ELZ-062), so that Contabo can take
+`tier` = `any` runs; that task changes this status.
+
+Options considered after the first failure: (a) keep Contabo unrouted; (b) raise the per-test time limits of the two
+tests in a separate reviewed task, with measurements (a limit change, not a weaker proof); (c) raise the Contabo CPU
+cap (done on 2026-11-08, from 5 to 8 cores, see below; the re-test did not change the result). After the re-test the
+owner chose (b): ELZ-062 (issue #106) raises the limit of the two tests to 300 s, and Contabo stays unrouted until that
+task merges and a steered run passes. A failed or timed-out job here means removing the label. Host facts and the host-side limit
 readings below come from the worker's SSH inspection on 2026-11-08, not from files in this
 repository. Times are WIB (UTC+7) unless a log line is quoted.
 
@@ -639,11 +752,11 @@ accepted risk. Rootless Docker for `elzoo-ci` is a possible follow-up; it is **n
 service, so a systemd cap on the service does not limit them. Two caps apply:
 
 - The service drop-in `/etc/systemd/system/actions.runner.balungpisah-elzoo.contabo-elzoo-1.service.d/10-elzoo-cap.conf`
-  sets `CPUQuota=500%`, `MemoryMax=10G`, `MemoryHigh=9G` and `TasksMax=8192` for the runner
-  listener and worker processes.
+  sets `CPUQuota=800%` (all 8 cores; it was 500% until 2026-11-08, see "CPU cap raised" below),
+  `MemoryMax=10G`, `MemoryHigh=9G` and `TasksMax=8192` for the runner listener and worker processes.
 - A root-owned wrapper `/opt/actions-runner/elzoo-backend-bin/docker` (mode 755, a
   `#!/usr/bin/python3 -I` script) is first in the runner's `.path`. For `docker create` and
-  `docker run` it adds `--cpus=5 --memory=8g --memory-swap=8g`; it then replaces itself with
+  `docker run` it adds `--cpus=8 --memory=8g --memory-swap=8g` (`--cpus=5` until 2026-11-08); it then replaces itself with
   `/usr/bin/docker` by `os.execv`, so every other subcommand keeps its arguments,
   environment, stdin, stdout, stderr and exit code. The first version was a `/bin/sh`
   script and broke the first trial (see below): Ubuntu's `/bin/sh` is `dash`, which drops
@@ -654,15 +767,26 @@ service, so a systemd cap on the service does not limit them. Two caps apply:
   and the exit code (7) matched plain `docker` by SHA-256 of stdout and stderr, and
   `getconf LONG_BIT` printed `64`.
 
-The runner runs one job at a time, so the job container cap is the practical limit: it
-leaves about 3 cores and 15 GiB (23 GiB minus 8 GiB) for the production workloads. The
-service cap covers only the runner's own processes and does not add to the container cap;
-worst case with both at their limits is 10 GiB plus 8 GiB. Memory observed on the other
-runners (2.1 to 2.8 GiB cgroup peak, 3.3 to 5.0 sampled cores) fits inside the container cap,
-though a CPU peak near 5 cores may be throttled; the cap is 5 of 8 cores, and the
-service and container CPU caps could add up to 10 cores' worth, which only the 8 vCPUs
-of the host limit. A job that reaches 8 GiB is killed by the
-kernel; that is the intended protection, not a failure of the host.
+The runner runs one job at a time, so the job container cap is the practical limit. Memory: it leaves
+about 15 GiB (23 GiB minus 8 GiB) for the production workloads; the service cap covers only the runner's
+own processes and does not add to the container cap (worst case 10 GiB plus 8 GiB). A job that reaches
+8 GiB is killed by the kernel; that is the intended protection, not a failure of the host. CPU: since
+2026-11-08 the cap is all 8 cores (below).
+
+**CPU cap raised to 8 cores (owner decision 2026-11-08, "Increase cap to max cpu").** After the failed
+`tier` = `any` observation (the before-measurement: `nr_throttled` 1026, `throttled_usec` 62,213,128 under a
+5-core cap, two 120 s timeouts), the owner decided to give CI all 8 cores of `ratahq-ci-contabo-01`. Changes on
+the host, made while the runner was idle with no job container: `CPUQuota=800%` in the drop-in (applied by
+`systemctl daemon-reload`; `CPUQuotaPerSecUSec` reads 8s and the unit's `cpu.max` reads `800000 100000`) and
+`--cpus=8` in the wrapper (a container started through the wrapper as `elzoo-ci` read `cpu.max` `800000 100000`,
+`memory.max` `8589934592`, `memory.swap.max` `0`, and still received `INPUT_OTP-ARCHITECTURE=64`). The memory
+caps are unchanged. Backups of the previous files are in `/root` on the host
+(`10-elzoo-cap.conf.before-8cores`, `docker-wrapper.before-8cores`). **Consequence, accepted by the owner:** while a CI
+job runs, the production containers on that host (`balungpisah-core`, `-tensorzero`, `-minio`, `-postgres`) have no
+CPU reserved; a CI job that uses all 8 cores competes with them on equal terms, and the production services
+can slow down for the duration of a job. The re-test (one `tier` = `any` run on `main` with the label added only while both
+fast runners are busy) failed the same way (see "Re-test with the 8-core cap"); the test limits are the subject of ELZ-062,
+a separate measured task.
 
 **Trial 1 (failed, kept as evidence).** Run 42452504044, job 128644528184, `workflow_dispatch`
 on `task/ELZ-056` at `1406f40c8d98b0218f8bdf8afb80998522086f39`, runner `contabo-elzoo-1`,
@@ -697,7 +821,7 @@ renamed to `/opt/actions-runner.retired-rakan-20261108` (about 953 MB of `_work`
 deleted. The owner may delete it.
 
 **ERL_FLAGS.** The workflow sets `+S 4:4 +SDcpu 1 +SDio 1` for `contabo-elzoo-1`, the same as
-`symbolic-elzoo`: four schedulers fit inside the 5-core cap on an 8-core host.
+`symbolic-elzoo`: four schedulers are well inside the 8-core cap (they were sized for the 5-core cap).
 
 Operation, as for the other runners: `ssh ratahq-ci-contabo-01 'systemctl status
 actions.runner.balungpisah-elzoo.contabo-elzoo-1.service --no-pager'`. To withdraw the
