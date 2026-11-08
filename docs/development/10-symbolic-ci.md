@@ -2,33 +2,30 @@
 
 Elzoo uses only the owner's Linux machines: the user-owned `symbolic` and `macbook-ubuntu` and, from
 ELZ-056 (owner decision 2026-11-08), the user-rented Contabo VPS `ratahq-ci-contabo-01`
-(runner `contabo-elzoo-1`; registered and trialled, not routed, see "Contabo VPS" below). GitHub provides scheduling
+(runner `contabo-elzoo-1`; trialled, routed only for `main` pushes and measurement runs, see "Runner tiers"
+and "Contabo VPS" below). GitHub provides scheduling
 and check reporting; it does not supply compute.
 Never select a GitHub-hosted image or add a hosted fallback. If a runner is
 offline, diagnose it or let work queue on the other approved runner.
 
 ## Roles and routing
 
-- `symbolic-elzoo`: backend; labels `self-hosted`, `linux`, `x64`, `elzoo`,
-  `backend`, `symbolic`.
+- `symbolic-elzoo`: backend, fast tier; labels `self-hosted`, `linux`, `x64`, `elzoo`,
+  `backend`, `fast`, `symbolic`.
 - `macbook-ubuntu-elzoo-candidate` (runner id 23): backend; labels
-  `self-hosted`, `linux`, `x64`, `elzoo`, `backend`, `macbook-ubuntu`,
-  `ci-candidate`. It received `backend` after ELZ-034 merged (PR #61), so it
+  `self-hosted`, `linux`, `x64`, `elzoo`, `backend`, `fast`, `macbook-ubuntu`,
+  `ci-candidate`. It is in the fast tier. It received `backend` after ELZ-034 merged (PR #61), so it
   is in the normal backend pool. The name and `ci-candidate` label are
   historical; they do not select a separate route.
-- `contabo-elzoo-1` (runner id 24): registered and documented, **not routed**. It has no
-  `backend` label after ELZ-056 merges; labels `self-hosted`, `Linux`, `X64`, `elzoo`,
-  `contabo`. One full run passed, but it took about twice as long as on the MacBook (see
-  "Contabo VPS"). Owner decision (2026-11-08): merge it unrouted. A separate follow-up task
-  (not yet published) adds a tier so that pull request checks require the faster runners and
-  only `main` pushes and measurement runs may use any runner; only after that does this runner
-  get a routing label. The workflow identity gate already accepts its name.
+- `contabo-elzoo-1` (runner id 24): backend, **any tier only, never `fast`**; labels `self-hosted`,
+  `Linux`, `X64`, `elzoo`, `contabo`, and `backend` once the coordinator adds it after ELZ-057
+  merges (owner decision 2026-11-08: the machine took about twice as long as the MacBook on the
+  same tree, so it never serves pull request checks or queue runs; see "Contabo VPS").
 - `symbolic-elzoo-gleam`: Gleam only; labels `self-hosted`, `linux`, `x64`,
   `symbolic`, `elzoo`, `gleam`.
 
-The backend workflow uses `[self-hosted, linux, x64, elzoo, backend]` for every
-event; either backend runner may take the job. ELZ-040 removed the one-time
-`task/ELZ-034` candidate selector. Both workflows run only on `push` to `main`,
+The backend workflow has two jobs, chosen by the event (see "Runner tiers"). ELZ-040
+removed the one-time `task/ELZ-034` candidate selector. Both workflows run only on `push` to `main`,
 `pull_request` and `workflow_dispatch`. `pull_request_target` and other events
 are not approved. Both backend and Gleam jobs skip fork PRs before runner
 selection; a skipped job is not validation and must not be treated as evidence
@@ -38,14 +35,15 @@ names above (`symbolic-elzoo`, `macbook-ubuntu-elzoo-candidate`, `contabo-elzoo-
 `scripts/check-ci-runners.py` pins the lines of that step, so adding a fourth case arm,
 changing a runner name or changing the `ERL_FLAGS` value in an arm fails the guard. It does
 not read script text after the gate or the job-level `env: ERL_FLAGS`, so a later line
-could still override `ERL_FLAGS`; this relies on independent review of workflow changes. `scripts/merge-queue.py` accepts the same three names as
-backend job evidence; Gleam evidence stays symbolic-only. The Gleam selector stays symbolic-only. A new backend machine
+could still override `ERL_FLAGS`; this relies on independent review of workflow changes. `scripts/merge-queue.py` accepts only the two fast runners as
+backend queue evidence (ELZ-057); Gleam evidence stays symbolic-only. The Gleam selector stays symbolic-only. A new backend machine
 needs a full task-branch check and independent review before it gets `backend`.
 Registration is repository-scoped; administrators must assign these labels only
 to the named trusted machines. GitHub label selection is not cryptographic host
 identity, and a runner name check happens after the host starts the container.
 
-`scripts/check-ci-runners.py` requires exactly one named job per reviewed workflow,
+`scripts/check-ci-runners.py` requires exactly the reviewed named jobs per workflow (`check-fast`, `check-any`
+in `symbolic-check.yml`, in this order; `gleam` in `symbolic-gleam.yml`),
 with its fork-PR gate immediately below the job name; it checks the exact `on:`
 trigger block, rejects `pull_request_target` and quoted YAML keys, requires every
 container `image:` to carry an `@sha256:` digest, and checks exact selector
@@ -80,6 +78,45 @@ controls. This is a source convention guard, not protection against hostile YAML
 or an account-level runner admission policy. Workflow and trust-model changes
 require independent review. Inspect the actual GitHub job `runner_name` and
 labels, not just the check name, when verifying a machine.
+
+## Runner tiers and the runner budget (ELZ-057)
+
+Owner decision 2026-11-08: pull request checks and merge-queue runs run only on the **fast** runners
+(`symbolic-elzoo`, `macbook-ubuntu-elzoo-candidate`, label `fast`). `main` pushes and measurement
+runs may use any backend runner, including `contabo-elzoo-1`, which never gets `fast`.
+`symbolic-check.yml` therefore has two jobs with identical bodies:
+
+| Job | Runs for | `runs-on` |
+|---|---|---|
+| `check-fast` | `pull_request` from this repository; `workflow_dispatch` with `tier` = `fast` | `[self-hosted, linux, x64, elzoo, backend, fast]` |
+| `check-any` | `push` to `main`; `workflow_dispatch` with `tier` = `any` | `[self-hosted, linux, x64, elzoo, backend]` |
+
+The `tier` input of `workflow_dispatch` is a choice with default `fast`. The merge queue always
+dispatches `fast` (`-f tier=fast`); only a person sets `any`, for a measurement run. The other
+job is skipped, so every run shows one skipped job: a skipped job is not evidence. The guard pins
+both `if:` lines, both `runs-on` lines and the whole `workflow_dispatch` input block, and requires the
+two bodies below `runs-on` to be identical, so the container digest, `ERL_FLAGS`, the identity
+gate and the action pins hold for both. The queue accepts a run only when exactly one `check-fast`
+job succeeded on a fast runner and no `check-any` job executed.
+
+The `fast` label is an account-level setting, as `backend` is; the guard cannot prove it. Add
+`fast` to both fast runners **before** the workflow with `check-fast` merges, or pull request checks
+queue without a runner. The runner identity gate still allows three names in both jobs; the label,
+not the name check, keeps `contabo-elzoo-1` away from `check-fast`, and the queue refuses evidence from
+any other runner name.
+
+Until ELZ-058 lands, the two fast runners are the capacity for pull request checks and queue runs,
+and `main` push runs share the backend pool. A pull request check shows as `check-fast`, not `check`;
+anything outside this repository that expects the old job name `check` must be updated.
+
+### Runner budget
+
+1. Measurement series (repeat loops, benchmarks) run on the slow or an idle runner (`tier` = `any`) and
+   never more than one at a time while a merge queue is pending.
+2. A measurement job states its expected duration and stays under the 90-minute job limit.
+3. A coordinator does not dispatch by hand while a queue run is being identified: the queue finds its
+   run by workflow, event, branch and exact head SHA, and a hand dispatch on the same head makes the
+   match ambiguous (the queue then refuses).
 
 ## Affected consumer checks (ELZ-038)
 
@@ -165,15 +202,15 @@ repository owns the base; a misconfigured origin cannot substitute a different
 main SHA. Missing commit objects fail closed. If main is not an ancestor of the
 head, `gh pr update-branch` creates a merge update; it never
 rebases or force-pushes. The new head must become visible before continuing.
-It dispatches `symbolic-check.yml` on that branch and identifies a **new** run
+It dispatches `symbolic-check.yml` on that branch with `tier=fast` and identifies a **new** run
 by workflow, `workflow_dispatch` event, branch and exact `head_sha`. It records
 existing run IDs before dispatch, never chooses an old or merely latest green
 run, and refuses an ambiguous match. A dispatch that races a head update cannot
 supply evidence for the previous head.
 
 The completed run must succeed. Its exact attempt must have one successful
-`check` job on `symbolic-elzoo` or `macbook-ubuntu-elzoo-candidate`, on the same
-head, with a successful `Run mix check` step. The job log must contain the full
+`check-fast` job on `symbolic-elzoo` or `macbook-ubuntu-elzoo-candidate`, with the
+`check-any` job skipped, on the same head, with a successful `Run mix check` step. The job log must contain the full
 `ELZOO CHECK PASSED` output line and no `ELZOO AFFECTED CHECK PASSED` marker.
 Missing logs, API/command failures, cancelled runs and reruns during evidence
 collection fail closed. This validates observed evidence from trusted workflow
@@ -471,12 +508,14 @@ state. This record covers `symbolic` only.
 
 ### Contabo VPS `ratahq-ci-contabo-01` (ELZ-056)
 
-Status: **registered, one full trial passed, not routed.** The runner has no `backend` label after
-ELZ-056 merges (owner decision 2026-11-08). The coordinator added the `backend` label for the trials only and removed it before the merge
-queue ran (the queue on `main` did not yet accept this runner name). The trial record is in
-the issue: run and job IDs, duration, cgroup memory peak, sampled CPU maximum, and `cpu.max`
+Status: **one full trial passed; routed for `main` pushes and measurement runs only.** The
+`backend` label is not part of any diff: the coordinator adds it to runner 24 after ELZ-057 merges
+and confirms it with one `tier` = `any` dispatch that lands here. The runner never has `fast`, so it
+takes only the `check-any` job. Before that (ELZ-056) it was registered without `backend`, and the
+label was on only for the trials (owner decision 2026-11-08, then ELZ-057). The trial record is in the
+issue: run and job IDs, duration, cgroup memory peak, sampled CPU maximum, and `cpu.max`
 and `memory.max` read from the host through the job container's cgroup path.
-A later task decides routing; until then no job lands here. Host facts and the host-side limit
+A failed or timed-out job here means removing the label. Host facts and the host-side limit
 readings below come from the worker's SSH inspection on 2026-11-08, not from files in this
 repository. Times are WIB (UTC+7) unless a log line is quoted.
 
@@ -643,4 +682,4 @@ admitted the second backend runner (PR #61, merge `9890dee`). ELZ-040 removed it
 one-time route and hardened the guard. ELZ-042 closed the flow-style job and
 missing-container gaps found in the ELZ-040 review. ELZ-043 split the dependency
 cache so it is saved after `mix setup` and added the action SHA-pin check. ELZ-056 added
-the Contabo VPS runner as an unrouted candidate.
+the Contabo VPS runner as an unrouted candidate. ELZ-057 added the fast tier (pull request and queue runs on the fast runners only) and the runner budget rules.
