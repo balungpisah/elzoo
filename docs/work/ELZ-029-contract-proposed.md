@@ -147,46 +147,240 @@ that a library is exercised first, and the probe
 ([ELZ-029-provider-probe.md](ELZ-029-provider-probe.md)) found erlexec 2.6.0
 fit. No `/bin/sh` or `setsid` Need.
 
-## A7″ — proposed replacement of the A7 Needs sentence (author, revision 4; NOT yet approved)
+## A7″ and A8 — superseded by the B-series below (revision 5)
 
-With erlexec as the provider, the Adapter sends no signal itself, so `kill`
-is no longer a Need; the provider's port program and `pgrep` are. Proposed:
-in the approved A7 text replace
+The round-4 re-review graded A7″ ACCEPTABLE (conditional on the provider and
+its anchor) and **rejected A8** as a weakening. A7″ is kept as B8 below,
+anchored against the intermediate body. A8 is withdrawn: provider-masked stops
+are reported as `unknown`, not as a `terminated` with an unobserved stage.
+
+## B-series — Contract amendment packet (option A; revision 5; drafts for the main coordinator)
+
+Base for every before-text: the **intermediate body** (original live body of
+2026-11-08 with the approved A1–A7 rewordings applied in the documented order),
+not the current live body, which carries the revision-1 wording. The final edit
+of #46 is therefore one ordered rewrite computed from the original body:
+A1, A4, A5, A2, A3, A6, A7, then B1–B9. Every weakened sentence names the
+residual it leaves.
+
+Anchoring: every before-text below is an exact substring, occurring once, of
+the **intermediate body** = original #46 body (SHA-256
+`f844ecc1000034daac0a7b9d245c63797e4f811f5690d17fb72340cd7bf09ebb`) with the
+approved A1, A4, A5, A2, A3, A6, A7 applied in that order (SHA-256
+`a9a1daa0b8b6fcfae7abd78a7688365744089276032efbce772b8a0a0a5046dd`, equal to
+the round-4 reviewer's own computation). Applying B1–B9 in order to that body
+gives the final draft (SHA-256 `c256b771513d1b6aa0beb9f799afcf198d30afb9115a631d576d7df7993c56a2`). Each entry names the provider
+behaviour that forces it and the erlexec 2.6.0 source lines (local pinned copy
+of the Hex package), so the main coordinator can judge each change as a
+deliberate reviewed amendment, not a silent weakening. Nothing is applied to
+#46 until the main coordinator decides.
+
+### B1 — stage is the provider-reported ending signal; `none` removed; masked stops are `unknown`
+
+Replace this exact substring:
+
+```text
+`terminated{stage: none | term | kill, deadline}` (`none` only when a reliable observation establishes that the original group is empty before any termination signal; `none` does not claim signal delivery)
+```
+
+with:
+
+```text
+`terminated{stage: term | kill, deadline}` (`stage` is the ending signal the selected provider reports for the group leader after a termination it performed: `term` for SIGTERM, `kill` for SIGKILL; it is never derived from timing or from the Adapter's own requests; when the provider reports no signal for a termination it performed, the result is `unknown`, never `terminated`)
+```
+
+**Provider behaviour that forces it:** erlexec reports the leader's wait status in `{exit_status, Status}` and `exec:status/1` decodes `{signal, sigterm|sigkill, _}`; after `exec:stop/1` and after a linked owner's death the status is masked to `normal`, so no signal is reported on those paths. With this provider the Adapter sends no signal, so a `none` observation before any signal cannot occur: a group empty at the deadline means the leader has exited (`completed`).
+
+**Source:** `c_src/exec_impl.cpp` 1512–1521 (`PidStatusT ps(… (sigterm && !timed_out) ? 0 …)`), `src/exec.erl` 1368–1374 (`{'DOWN', OsPid, {exit_status, Status}}` → `normal` for 0)
+
+**Residual left by this sentence:** a termination the provider performed on request or on owner death has no observable ending signal; such runs are `unknown`, so a caller cannot distinguish a stopped-by-TERM from a stopped-by-KILL cancellation.
+
+
+### B2 — `unknown` also for provider-masked stops and for a survivor after leader exit
+
+Replace this exact substring:
+
+```text
+`unknown` when the liveness check itself fails or the group is still observed alive after the kill stage and the bounded reap wait; `unknown` does not establish cleanup or relax the termination invariant or acceptance criteria
+```
+
+with:
+
+```text
+`unknown` when the liveness check itself fails, when the group is still observed alive after the provider's termination sequence or after the leader's exit and the bounded reap wait, when the provider performed a termination (explicit stop or owner death) and reports no ending signal, or when the provider's port program stopped reporting; `unknown` does not establish cleanup or relax the termination invariant or acceptance criteria
+```
+
+**Provider behaviour that forces it:** erlexec sends one SIGTERM to the group when the leader exits and does not escalate for members that ignore it; its stop masks the status; its port program death yields `port_closed`.
+
+**Source:** `c_src/exec_impl.cpp` 1524–1525 (at-exit `erl_exec_kill(-(gid), SIGTERM)`), 1512–1521 (masking), `src/exec.erl` 1385–1387 (`port_closed`)
+
+**Residual left by this sentence:** a member that ignores SIGTERM after the leader has exited is not killed by anyone; a stuck or dead port program leaves children; both are reported, not resolved.
+
+
+### B3 — invariants follow the provider's documented sequence; the Adapter never signals
+
+Replace this exact substring:
+
+```text
+termination signals the group,
+   waits the grace period and escalates only if the group is still alive; the
+   escalation stage reached is reported, never assumed; cleanup runs even if
+   the owning BEAM process dies; a process that leaves its group is a
+   declared residual.
+```
+
+with:
+
+```text
+termination is performed by the selected provider's port program in its documented sequence: SIGTERM to the group, then SIGKILL to the group after the configured kill timeout if the leader is still alive, and SIGKILL at once if the SIGTERM request itself fails; the Adapter itself never sends a signal; the stage reported is the ending signal the provider reports, otherwise the result is `unknown`; when the owning BEAM process dies, the provider's port program stops the group through the link it holds to that process, and when the VM exits, the port program's own finalize stops every child it started; a process that leaves its group, a group member that ignores SIGTERM after the leader has exited, and the death of the port program itself are declared residuals reported as `unknown`, never as `terminated` or `completed`.
+```
+
+**Provider behaviour that forces it:** erlexec `stop_child` sends SIGTERM to `-gid`, arms `kill_timeout`, and on a failed SIGTERM request sends SIGKILL immediately (no grace, no liveness observation on that path); `check_children` escalates after the deadline when `kill(pid, 0)` still succeeds; `do_unlink_ospid` stops the group when a linked owner dies; `finalize()` stops every child on port-program stdin EOF, bounded by `FINALIZE_DEADLINE_SEC` and an `alarm`; SIGKILL of the port program leaves children.
+
+**Source:** `c_src/exec_impl.cpp` 1370–1392 (`stop_child`), 1618–1632 (`check_children` deadline), `src/exec.erl` 1481–1495 (`do_unlink_ospid`), `c_src/exec.cpp` 952–990 (`finalize`)
+
+**Residual left by this sentence:** the provider sends SIGKILL at once when its SIGTERM request fails (no grace on that path); its post-exit SIGTERM is sent after the leader was reaped, so PGID reuse before that signal is not excluded; port-program death orphans children.
+
+
+### B4 — reuse check names the probed providers
+
+Replace this exact substring:
+
+```text
+OTP `Port` and `System.cmd` spawn; no maintained library
+   owns group-scoped termination with staged escalation across BSD and procps
+   `kill` variants. Elzoo owns the state machine and result schema; signal
+   delivery is OS behaviour.
+```
+
+with:
+
+```text
+erlexec 2.6.0 (BSD-2-Clause) owns spawning through its port program, process-group creation (`{group, 0}`), the staged SIGTERM→SIGKILL escalation on the group (`kill_group`, `kill_timeout`), the wall-clock deadline (`timeout`), owner-death and VM-exit cleanup, environment clearing and output capture; muontrap 2.0.1 was probed and rejected (it kills only its direct child unless a Linux cgroup is configured and reports no ending signal). Elzoo owns admission, the deadline conversion, the output bound, the group observation after the exit notification, the result schema and the delivery mapping; signal delivery and escalation timing are the provider's and the OS's behaviour.
+```
+
+**Provider behaviour that forces it:** probe record ELZ-029-provider-probe.md (M2, M3, E1–E16).
+
+**Source:** `src/exec.erl` option docs 300–345; `c_src/muontrap.c` `kill_child_nicely` 629–647
+
+**Residual left by this sentence:** none (specification of the reuse decision).
+
+
+### B5 — exec failure after validation is a declared residual in the result mapping
+
+Replace this exact substring:
+
+```text
+mapped to the
+   core/envelope result matrix as `completed` (any exit code) →
+   `completed/dispatched`,
+```
+
+with:
+
+```text
+mapped to the
+   core/envelope result matrix as `completed` (any exit code) →
+   `completed/dispatched` (pre-dispatch validation requires an absolute path to an existing regular file with an execute bit and an existing working directory, otherwise `rejected{spawn_failed}`; an exec failure that occurs after that validation is reported by the provider as exit status 1 and therefore as `completed{exit_code: 1}`, indistinguishable from a command that exits 1: a declared residual),
+```
+
+**Provider behaviour that forces it:** erlexec's child exits 1 when `execve` fails; the owner sees `{exit_status, 256}` for a missing file, a non-executable file and a genuine `exit 1` alike (probe E11, E11b).
+
+**Source:** `c_src/exec_impl.cpp` 1236–1245 (`execve` failure path)
+
+**Residual left by this sentence:** an exec failure after validation (file replaced or removed, loader or interpreter error) is reported as `completed{exit_code: 1}` although nothing ran.
+
+
+### B6 — dangerous-path tests include the provider controls
+
+Replace this exact substring:
+
+```text
+Tests: timeout → group dead; brutal
+   kill of the collector → group dead; escalation stage reported;
+   `queue_full` vs `queue_timeout`; non-zero exit is `completed`.
+```
+
+with:
+
+```text
+Tests: timeout → group observed empty; brutal
+   kill of the collector → group observed empty through the provider's owner-death stop; escalation stage reported from the provider's ending signal (SIGTERM honoured → `term`, SIGTERM ignored → `kill`); a signal request accepted without effect (SIGTERM ignored) never yields `term`; a member that ignores SIGTERM after the leader exits → `unknown`; exec failure after validation → `completed{exit_code: 1}`; provider stopped reporting → `unknown`; `queue_full` vs `queue_timeout`; non-zero exit is `completed`.
+```
+
+**Provider behaviour that forces it:** the controls the reviews asked for (G6 signal success without delivery, TERM-ignoring survivor, exec failure, stuck provider) become named scenarios.
+
+**Source:** —
+
+**Residual left by this sentence:** none (test list).
+
+
+### B7 — acceptance: cleanup through the provider, observed; stage from the provider's report
+
+Replace this exact substring:
+
+```text
+- [ ] Timeout and collector death both leave no surviving process group
+      (executable tests on the symbolic runner).
+- [ ] Escalation stage is reported from observation, not assumed.
+```
+
+with:
+
+```text
+- [ ] Timeout and collector death both stop the group through the selected provider's port program, and the group is observed empty after the bounded reap wait; a member that ignores SIGTERM after the leader has exited is reported as `unknown`, never as `terminated` or `completed` (executable tests on the Linux CI runner).
+- [ ] The reported escalation stage is the provider-reported ending signal; when the provider reports none, the result is `unknown`, never an assumed stage.
+```
+
+**Provider behaviour that forces it:** as B1–B3.
+
+**Source:** as B1–B3
+
+**Residual left by this sentence:** the first acceptance item no longer promises an empty group in every case: the TERM-ignoring survivor after leader exit is reported as `unknown`.
+
+
+### B8 — Needs sentence (A7″ as graded ACCEPTABLE, applied to the intermediate anchor)
+
+Replace this exact substring:
 
 ```text
 and declared host `kill` and `pgrep` utilities for signalling and group observation.
 ```
 
-with
+with:
 
 ```text
 the erlexec 2.6.0 port program (`exec-port`, built from the pinned Hex package with the host C++ toolchain) for spawning, group creation, deadline escalation and owner-death cleanup, and the declared host `pgrep` utility for group observation.
 ```
 
-## A8 — proposed addition (author, revision 4; NOT yet approved)
+**Provider behaviour that forces it:** the Adapter sends no signal, so `kill` is not a Need; the port program and `pgrep` are.
 
-erlexec masks the exit status of a termination it performed on request
-(`exec:stop`, and the stop it performs when a linked owner dies). The ending
-signal is then not reported, while the group's emptiness is still observed.
-Proposed: in the A5 text replace
+**Source:** —
 
-```text
-`terminated{stage: none | term | kill, deadline}`
-```
+**Residual left by this sentence:** none (Needs).
 
-with
+### B9 — owner death before registration, owner death after it, Adapter restart (composition record)
+
+Replace this exact substring:
 
 ```text
-`terminated{stage: none | term | kill | unobserved, deadline}`
+6. **Composition record.** Depends on ELZ-006 admission results and
+   core/envelope result schema; consumes a deadline from
+   delivery/retry-timeout. Termination requests are at-most-once within a
+   host. Command lines may carry secrets; redact in Telemetry.
 ```
 
-and append to the A5 parenthesis, before its closing `)`:
+with:
 
 ```text
-; `unobserved` only when the provider performed the staged termination on the Adapter's or the owner-death request and does not report the ending signal, while the group was observed empty afterwards
+6. **Composition record.** Depends on ELZ-006 admission results and
+   core/envelope result schema; consumes a deadline from
+   delivery/retry-timeout. Termination requests are at-most-once within a
+   host. Command lines may carry secrets; redact in Telemetry. Owner death and recovery: the Adapter records a registry row for a run before it asks the provider to spawn and records the provider's OS pid as the owner's first action after the spawn returns; if the owning BEAM process dies before that pid is recorded, the provider still stops the child through the link it established at spawn, but the Adapter cannot name the group and reports `unknown{owner_exit_before_registration}`; if it dies after, the provider stops the group, the Adapter observes the group with `pgrep` and reports `unknown{owner_exit, members}` with the last observed members, because the provider reports no ending signal on that path; after an Adapter restart, runs whose owner is alive continue and reply to their callers, runs whose owner is dead are reported as above, and queued requests are lost (their callers' calls exit with the Adapter's exit reason); in every `unknown` case the caller must inspect or reconcile the external outcome and must not retry blindly.
 ```
 
-Reason: the only alternatives are to infer the stage from timing (rejected by
-review) or to send group signals from the BEAM (refused by erlexec, and the
-identity race the review rejected). `unobserved` is a truthful label; it does
-not claim `term` or `kill`.
+**Provider behaviour that forces it:** with `link`, erlexec links the proxy to the owner inside the proxy's init and, when the owner dies, the `exec` server sends `{stop, OsPid}` to the port program, whose stop masks the exit status; the Adapter therefore observes emptiness with `pgrep` but no ending signal. The provider's own child list has no caller reference, so replies after a restart need the Adapter's registry.
+
+**Source:** `src/exec.erl` 1341–1349 (`ospid_init` link), 1481–1495 (`do_unlink_ospid`), `c_src/exec_impl.cpp` 1512–1521 (masking).
+
+**Residual left by this sentence:** owner death before the pid is recorded leaves the group unnamed to the Adapter; owner death after it leaves the stage unobservable; a restart loses queued requests.
