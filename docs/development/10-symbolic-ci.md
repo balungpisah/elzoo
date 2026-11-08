@@ -858,7 +858,7 @@ there and the report prints "cgroup memory peak unavailable". Use the host lines
 hosted numbers.
 
 **Measured figures (rehearsal and verification in this repository, 2026-11-09 WIB; times in UTC from the job records).**
-All hosted jobs ran on `ubuntu-24.04` with 4 BEAM schedulers (`BEAM schedulers=4 online=4`).
+All hosted jobs ran on `ubuntu-24.04`. The backend job reported `BEAM schedulers=4 online=4`; the Gleam job is set to `+S 2:2` in `symbolic-gleam.yml`.
 
 | Run | Job | Caches | Job time | `mix setup` | `mix check` | Root suite | Result |
 | --- | --- | --- | --- | --- | --- | --- | --- |

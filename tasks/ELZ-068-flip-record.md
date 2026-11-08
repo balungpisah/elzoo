@@ -3,7 +3,7 @@
 - Phase: P0 harness (docs only: `docs/development/10-symbolic-ci.md`, the CI policy sentence of `AGENTS.md`)
 - Catalogue IDs: none
 - Dependencies: ELZ-066 (#115, PR #121) merged; the flip done by the coordinator on 2026-11-09 (WIB).
-- Review: docs only; Devin Review findings dispositioned in the PR.
+- Review: docs only, but the new text makes evidence claims (measured figures, API settings): an independent agent session checks each figure and setting against the GitHub API and records its agent ID and reviewed SHA in a PR comment; Devin Review findings dispositioned in the PR.
 
 ## Outcome
 
@@ -25,4 +25,4 @@ The repository is public and CI runs on the hosted lane. The CI guide still desc
 
 ## Limits
 
-Docs only. The settings are the ones read on 2026-11-09 (UTC 20:49); the guide does not promise they stay.
+Docs only. The settings are the ones read on 2026-11-08 at 20:49 UTC (2026-11-09 03:49 WIB); the guide does not promise they stay.
