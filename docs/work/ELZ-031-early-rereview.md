@@ -1,6 +1,8 @@
 # ELZ-031 focused independent early re-review
 
-Reviewer: Orca session `bbfec4af-0d30-4d6e-974d-710f9593d505`, independent of proposal author `945fad36-d73d-42f1-9b99-730202e76f0a`. Reviewed `origin/task/ELZ-031` at `97d93124fdaecbe2d32deac56459adfed29d45c8` against prior review at `5374b9670b9d1dbd9a8e83d9983c577b17e9575b`, live issue #48, and decision record now on `origin/main`. This is a design review, not verification of implementation or the author's experiments. No Mix command was run.
+Redacted for publication; SHA-256 of the reviewer's original report: 7c2f79ec10ab52dde2cdd421c740b01d30d10469eb9a6abb39cfa8505268f22c
+
+Reviewer: the independent reviewer (Codex), independent of proposal the implementation worker. Reviewed `origin/task/ELZ-031` at `97d93124fdaecbe2d32deac56459adfed29d45c8` against prior review at `5374b9670b9d1dbd9a8e83d9983c577b17e9575b`, live issue #48, and decision record now on `origin/main`. This is a design review, not verification of implementation or the author's experiments. No Mix command was run.
 
 **Verdict: NOT CLEAR.** The proposed amendments are not yet decisions; A2/A3 change the actual law and need honest reviewed replacements, the version-specific authenticity rule is insufficient, and G3 has not been completed. The dataset rights decision and shared-path authorization remain open.
 
@@ -50,12 +52,12 @@ ELZ-050's merged decision record at `origin/main:docs/plans/catalogue-dispositio
 ## Commands and exit codes
 
 - `git show 97d9312:docs/work/ELZ-031{,-contract-proposed,-early-review,-sql-probe,-provider-probe}.md` (individual calls): 0; `git diff 5374b96 97d9312` and `git diff --name-status origin/main 97d9312`: 0.
-- `cmp -s /tmp/elz031-early-review-b793220c-30f2-44a3-b829-38ce8e17cffb.md <(git show 97d9312:docs/work/ELZ-031-early-review.md)`: 0; Python exact G1–G10 comparison: 0, equal.
+- `cmp -s the reviewer's original report (early review) <(git show 97d9312:docs/work/ELZ-031-early-review.md)`: 0; Python exact G1–G10 comparison: 0, equal.
 - `gh issue view 48 -R balungpisah/elzoo --json body`: 0.
 - `git show origin/task/ELZ-050:docs/plans/catalogue-dispositions.md`: 1, ref no longer exists; `git show origin/main:docs/plans/catalogue-dispositions.md`: 0, merged record read instead. `git show 97d9312:docs/plans/catalogue-dispositions.md`: 128, not present at old branch base.
 - `git merge-base origin/main 97d9312` and `git diff --name-status <merge-base> 97d9312`: 0; `git merge-base --is-ancestor 97d9312 origin/main`: 1 (not ancestor). `git show 97d9312:mix.lock | rg '"decimal"'`: 0.
 - `curl -L -sS --max-time 25` for SIX terms and Decimal 3.2.0 documentation, each piped to HTML text extraction: 0; no legal opinion or independently reproduced provider test.
-- `orca skills get orchestration` using bare executable: 1, `Unable to determine Orca.app path from symlink: /usr/local/bin/orca`; session `ORCA_CLI_COMMAND` points to `/Applications/Orca.app/Contents/Resources/bin/orca`, whose `skills get orchestration` succeeds, exit 0.
+- `orca skills get orchestration` using bare executable: 1, `Unable to determine application path from symlink: the orchestration CLI symlink`; session the session CLI-path variable points to `the orchestration CLI binary`, whose `skills get orchestration` succeeds, exit 0.
 - No repository file changed; existing untracked `.reticle-setup-crash.log` was present. Report written only under `/tmp`. No Mix command run.
 
 NOT CLEAR

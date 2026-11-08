@@ -4,7 +4,9 @@ Status: **complete (attempt 3, exit 0).** Selection: **Decimal 3.2.0** (section 
 Attempt 1 stopped on probe-harness defects; attempt 2 ran every scenario but its cleanup
 failed; attempt 3 passed. All three are recorded below. Slot granted by the pieces
 coordinator on 2026-11-08 for this comparison (targeted `mix test` only, one Mix process,
-database `elzoo_pieces_4` only).
+the worker's disposable database only).
+Redacted for publication: the worker's disposable database name and URL are replaced by role
+words below, in the commands, the recorded output and the probe source.
 
 ## Setup (2026-11-08, Elixir 1.20.4 / OTP 29.1.2)
 
@@ -72,17 +74,17 @@ print as lists. Command, from the scratch consumer directory:
 ```sh
 export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1'
 unset MIX_ENV MIX_DEPS_PATH MIX_BUILD_PATH ERL_LIBS
-export ELZOO_TEST_DATABASE_URL=ecto://<assigned role>@localhost:5432/elzoo_pieces_4
+export ELZOO_TEST_DATABASE_URL=<URL of the worker's disposable database>
 MIX_ENV=test mix test test/money_sql_probe_test.exs --seed 0
 ```
 
-Guard: before any statement, the URL path must be `elzoo_pieces_4`; the first statement is
-`SELECT current_database()`, which must also return `elzoo_pieces_4`, before any DDL.
+Guard: before any statement, the URL path must name the worker's disposable database; the first statement is
+`SELECT current_database()`, which must also return that database, before any DDL.
 
 Output (every `PROBE` line, in order; ExUnit progress dots kept where they share a line):
 
 ```text
-PROBE guard: URL path and current_database() both elzoo_pieces_4
+PROBE guard: URL path and current_database() both <the worker's disposable database>
 PROBE guard: dropped leftover probe schema elz031_probe_4966df0b
 PROBE guard: dropped leftover probe schema elz031_probe_536df954
 PROBE PostgreSQL observed: server_version=17.11 (Homebrew) fsync=on synchronous_commit=on
@@ -177,7 +179,7 @@ defmodule MoneySqlProbeTest do
   alias Elzoo.DurableLog.{Postgres, PostgresHarness, Record, TestMigration, TestRepo}
 
   @url PostgresHarness.database_url!()
-  @assigned "elzoo_pieces_4"
+  @assigned "<the worker's disposable database>"
   @limits %{max_record_bytes: 256, max_batch_size: 16, max_checkpoint_bytes: 10_000}
 
   def reduce(n, _, _, _), do: n + 1

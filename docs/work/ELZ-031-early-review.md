@@ -1,6 +1,8 @@
 # ELZ-031 independent early Contract review
 
-Reviewer: Orca session `b793220c-30f2-44a3-b829-38ce8e17cffb` (independent of author `945fad36-d73d-42f1-9b99-730202e76f0a`). Reviewed remote-tracking branch `origin/task/ELZ-031` at `5374b9670b9d1dbd9a8e83d9983c577b17e9575b`; this is a proposal review, not an implementation review. Read live issue #48, its matching task copy, ELZ-050's decision-ready record, both ELZ-031 work files and listed ready Piece boundaries. No Mix command was run; provider-probe results below are the author's reported observations, not independently reproduced. The checkout already had an untracked `.reticle-setup-crash.log`; this review did not modify it.
+Redacted for publication; SHA-256 of the reviewer's original report: cef51e87ff06fe10bfe9c314915af622a49fa0e7ab960373d6473f638853e57a
+
+Reviewer: the independent reviewer (Codex) (independent of the implementation worker). Reviewed remote-tracking branch `origin/task/ELZ-031` at `5374b9670b9d1dbd9a8e83d9983c577b17e9575b`; this is a proposal review, not an implementation review. Read live issue #48, its matching task copy, ELZ-050's decision-ready record, both ELZ-031 work files and listed ready Piece boundaries. No Mix command was run; provider-probe results below are the author's reported observations, not independently reproduced. The checkout already had an untracked `.reticle-setup-crash.log`; this review did not modify it.
 
 ## Findings
 

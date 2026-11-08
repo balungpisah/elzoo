@@ -1,6 +1,8 @@
 # ELZ-031 focused independent early re-review, round 3
 
-Reviewer: Codex, Orca session `a48c2c04-2d87-46d5-9927-c287875a1eba`, independent of proposal author `945fad36-d73d-42f1-9b99-730202e76f0a`. Reviewed `origin/task/ELZ-031` at `d9cbc1299f9aa4a265a4498ad51d2cfe1cf9c48a`, against prior review at `97d93124fdaecbe2d32deac56459adfed29d45c8`, current live issue #48 and `origin/main` at `f4e328319ec23fa7bc6d8c8f0a19c2a3122bd938`. This is a design review; it does not verify the implementation, provider experiments, or legal rights. No Mix command was run.
+Redacted for publication; SHA-256 of the reviewer's original report: b480da4d3316f4ed63e0f8b9978c35ecbe954eb4c9494c147fdb2bac3d96b4b8
+
+Reviewer: Codex, the independent reviewer (Codex), independent of proposal the implementation worker. Reviewed `origin/task/ELZ-031` at `d9cbc1299f9aa4a265a4498ad51d2cfe1cf9c48a`, against prior review at `97d93124fdaecbe2d32deac56459adfed29d45c8`, current live issue #48 and `origin/main` at `f4e328319ec23fa7bc6d8c8f0a19c2a3122bd938`. This is a design review; it does not verify the implementation, provider experiments, or legal rights. No Mix command was run.
 
 ## New required correction
 
@@ -48,9 +50,9 @@ The three-dot branch-only diff lists only `.claims/ELZ-031.md` and six ELZ-031 w
 
 - `git fetch origin --prune`: 0. `git rev-parse origin/main origin/task/ELZ-031`, `git diff --stat 97d9312 d9cbc12`, `git diff --name-status origin/main...d9cbc12`, and relevant `git show`, `git log`, `git status`: 0.
 - `gh issue view 48 -R balungpisah/elzoo --json body` and the equivalent for issue 44: 0; bodies saved under `/tmp`.
-- `git show d9cbc12:docs/work/ELZ-031-early-review.md | cmp - /tmp/elz031-early-review-b793220c-30f2-44a3-b829-38ce8e17cffb.md`: 0. Equivalent compare of `ELZ-031-early-rereview.md` against `/tmp/elz031-early-rereview-bbfec4af-0d30-4d6e-974d-710f9593d505.md`: 0.
+- `git show d9cbc12:docs/work/ELZ-031-early-review.md | cmp - the reviewer's original report (early review)`: 0. Equivalent compare of `ELZ-031-early-rereview.md` against `the reviewer's original report (early re-review)`: 0.
 - Python exact before-block and G1–G10 comparison: 0, six before blocks each present once and ten gates equal. `git diff --check origin/main...d9cbc12`: 0. Task #44 copy at `bbc0eff` against live issue body with `diff -u`: 0.
 - `curl -fsSL --max-time 20 https://hexdocs.pm/decimal/3.2.0/Decimal.html | rg -o ... | sort -u`: 0, docs list `new/1`, `new/2`, `new/3`; this does not execute Decimal. Attempt to inspect local `deps/decimal` with `rg`: 2, files absent; no dependency setup run.
-- `orca skills get orchestration` and `orca skills get orca-cli` via bare symlink: 1 (`Unable to determine Orca.app path from symlink: /usr/local/bin/orca`); both through session `ORCA_CLI_COMMAND`: 0. Only `/tmp` report and captured issue bodies were written.
+- `orca skills get orchestration` and `orca skills get orca-cli` via bare symlink: 1 (`Unable to determine application path from symlink: the orchestration CLI symlink`); both through session the session CLI-path variable: 0. Only the report and captured issue bodies outside the repository were written.
 
 NOT CLEAR — correct R3-1 in the proposed evidence plan and resolve R3-2's derivation invocation; G1 and all other execution gates still apply.
