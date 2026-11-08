@@ -69,3 +69,18 @@ run `python3 scripts/check-roadmap.py --write`, then plain
 `python3 scripts/check-roadmap.py`, and require both to exit 0 before queue entry.
 Generated roadmap views remain pending until then. This local validation does not
 claim that planning check or final CI has already passed.
+
+## ELZ-048 integration resolved
+
+At 2026-11-08 07:03 WIB, normal merge `b8b513db33920e726acf74a28254653dfba453c6` incorporated root-owned ELZ-048
+main `97456c8c846e7bfc9e56516c37e6ea1a592f575c`. No Piece source or test
+changed in this merge. The inherited 24 hashes were reconciled by that upstream
+commit; this task authored only its own rows. The formerly pending planning gate
+above is now resolved locally:
+
+- `python3 scripts/check-roadmap.py --write`: exit **0**, views regenerated.
+- `python3 scripts/check-roadmap.py`: exit **0**, generated views agree.
+- `python3 scripts/check-roadmap.py --live`: exit **0**, all live Contracts match.
+
+Each result reports 97 catalogue IDs, 2 separate candidates, 76 jobs, 12 products
+and 136 local links. Final PR/CI/queue/merge acceptance remains separate.
