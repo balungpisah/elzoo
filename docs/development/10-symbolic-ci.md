@@ -4,8 +4,10 @@ Elzoo uses only the owner's Linux machines: the user-owned `symbolic` and `macbo
 ELZ-056 (owner decision 2026-11-08), the user-rented slow VPS
 (runner `contabo-elzoo-1`; trialled and currently unrouted, see "Runner tiers" and "Contabo VPS" below). GitHub provides scheduling
 and check reporting; it does not supply compute.
-Never select a GitHub-hosted image or add a hosted fallback. If a runner is
-offline, diagnose it or let work queue on the other approved runner.
+While the repository is private, never select a GitHub-hosted image or add a hosted fallback. Once it is public
+(owner decision 2026-11-09), CI runs on the hosted lane that the repository variable `ELZOO_CI_LANE` selects, and this
+self-hosted lane is retiring; see "Lanes". If a self-hosted runner is offline, diagnose it or let work queue on the
+other approved runner.
 
 ## Roles and routing
 
@@ -781,6 +783,79 @@ browser URL works again. Without `GITHUB_TOKEN` the unauthenticated API rate lim
 address) applies. A changed pin (new Gleam version) needs new asset IDs, sizes and hashes in the script, this
 table and the README. Platforms other than the four above stay unsupported.
 
+## Lanes: hosted and self-hosted (ELZ-066)
+
+The owner decided on 2026-11-09 that the repository becomes public and that CI moves to GitHub-hosted
+runners. The repository variable `ELZOO_CI_LANE` selects the lane for every run:
+
+| Value | Jobs that run | Jobs that skip |
+| --- | --- | --- |
+| unset or `self` (default while the repository is private) | `check-fast` / `check-any`, `gleam` | `check-hosted`, `gleam-hosted` |
+| `hosted` | `check-hosted`, `gleam-hosted` | `check-fast`, `check-any`, `gleam` |
+
+The variable appears only in the five job-level `if:` lines. `scripts/check-ci-runners.py` pins every one of
+them and rejects the variable (in any letter case, also in script text) anywhere else, so a step cannot read it and
+a job cannot run in both lanes.
+
+**Hosted jobs.** `check-hosted` and `gleam-hosted` run on the one label `ubuntu-24.04`, without a job container.
+The guard rejects every other label (`ubuntu-latest`, larger runners, `self-hosted` combinations, expressions).
+Their header lines are pinned exactly: token permissions, time limit, `ERL_FLAGS`, and for `check-hosted` the
+Postgres service container (image pinned by digest, health check). The first step of each hosted job checks
+`RUNNER_ENVIRONMENT`, `RUNNER_OS`, `RUNNER_ARCH` and `/etc/os-release`. The dependency cache key has no runner name:
+`elzoo-hosted-v1-<OS>-<ImageOS>-<OTP>-<Elixir>-<lock files hash>`.
+
+**Evidence.** The merge queue (`scripts/merge-queue.py`) and the push skip decision (`scripts/ci-skip-decision.py`)
+accept a run when exactly one backend job executed and every other job skipped. That job is `check-fast` on an
+approved self-hosted runner, or `check-hosted` with `runner_group_name` = `GitHub Actions`, `labels` =
+`["ubuntu-24.04"]`, a `runner_name` of the form `GitHub Actions <number>` and a green identity step. `check-any`
+never supplies evidence. The Gleam gate accepts `gleam` or `gleam-hosted` under the same rule. The queue still
+dispatches with `tier=fast`; the hosted job ignores the tier.
+
+**Planned flip (owned by the coordinator).** Merge the public-surface scrub (ELZ-065); unregister all four
+self-hosted runners, because a fork can change a workflow file and target a runner that stays attached; make the
+repository public and set `ELZOO_CI_LANE=hosted` in the same sitting (a private repository would spend the account's
+hosted minutes); enable "Require approval for all outside collaborators"; watch one hosted full run of `main`.
+After the runners are gone there is no self-hosted lane to fall back to, so the rehearsal in a throw-away public
+repository is the only test before the flip. A later change removes the self-hosted jobs, the runner roles above and
+this table.
+
+**Required checks.** `check-hosted` and `gleam-hosted` may be set as required checks, but a skipped job counts as
+passing, and a pull request from a fork skips them. The merge queue is the gate: it needs a dispatch run on the exact
+head with one executed job and the identity rules above, and no fork pull request is queued.
+
+**Time limit.** `check-hosted` has `timeout-minutes: 120`. A cold-cache run on a comparable 4 to 5 vCPU machine took
+72 minutes (the Contabo section), and the first run on `main` starts with an empty `elzoo-hosted-v1` cache.
+
+**Resource report.** On a hosted runner there is no job container, so `scripts/sample-ci-cpu.py` reads the cgroup of
+the whole VM (Postgres included) and its "job container cgroup" label is not exact; `memory.peak` is not available
+there and the report prints "cgroup memory peak unavailable". Use the host lines (`/proc/meminfo`, load, `nproc`) for
+hosted numbers.
+
+**Limits.** The hosted jobs were checked with `actionlint`, the guard and its tests, and the merge-queue tests.
+They have not yet run on a GitHub-hosted runner in this repository; a rehearsal in a throw-away public
+repository is planned before the flip, and its run IDs belong in the ELZ-066 pull request. Hosted minutes are
+free for public repositories; a private repository with `ELZOO_CI_LANE=hosted` would use the account's minute
+quota, so the variable must stay unset or `self` until the repository is public. Self-hosted runners must never stay attached to a public repository.
+
+## Disposable S3 test server (ELZ-064)
+
+The export tests need an S3-compatible server. The workflow starts one per job with `scripts/ci-minio.py`
+and passes it to `mix check` through these variables: `ELZOO_TEST_S3_URL`, `ELZOO_TEST_S3_BUCKET`
+(`elzoo-test`), `ELZOO_TEST_S3_ACCESS_KEY_ID`, `ELZOO_TEST_S3_SECRET_ACCESS_KEY` (random per job, masked) and
+`ELZOO_TEST_S3_REGION` (`us-east-1`). The server listens on the loopback address only; port 9000 is used when
+it is free, otherwise a free port.
+
+The Docker image is no longer published (the Docker Hub repository is gone and no Quay tag exists), so the
+script runs a pinned binary: MinIO release `RELEASE.2025-09-07T16-13-09Z`, release asset id 404655976,
+110,989,496 bytes, SHA-256 `7c5bd8512c6e966455b1d198209358b2d191c77a83ab377c4073281065fb855f`. The script gets
+the file from the Actions cache, then from the release-asset API (job token; the redirect is followed by hand and
+the token is never sent to the redirect host), then from the browser URL. `dl.min.io` answers HTTP 410 and is
+not used. Every route checks the size and the SHA-256 before the file runs. The upstream project is archived
+and licensed AGPL-3.0; CI runs the binary unchanged and does not redistribute it. The start step is the only
+backend step besides the skip decision that receives the job token; the guard pins it.
+
+Limit: the step duration on a hosted runner is not measured yet.
+
 ## Operation and rollback
 
 ```sh
@@ -793,7 +868,7 @@ Do not restart or remove a busy runner or its `_work` directory. If the candidat
 is unavailable, remove its `backend` label after the current job is finished;
 symbolic continues to accept backend jobs. If it is the cause of failures,
 record the exact run, environment and failure; preserve failed evidence and
-route only to the healthy named machine. Never change to hosted CI.
+route only to the healthy named machine. Outside the documented hosted lane (see "Lanes"), never change to hosted CI.
 
 To replace a runner, verify the published release archive checksum, provision a
 separate service account and work directory, configure a short-lived repository
@@ -811,7 +886,7 @@ admitted the second backend runner (PR #61, merge `9890dee`). ELZ-040 removed it
 one-time route and hardened the guard. ELZ-042 closed the flow-style job and
 missing-container gaps found in the ELZ-040 review. ELZ-043 split the dependency
 cache so it is saved after `mix setup` and added the action SHA-pin check. ELZ-056 added
-the Contabo VPS runner as an unrouted candidate. ELZ-057 added the fast tier (pull request and queue runs on the fast runners only) and the runner budget rules. ELZ-060 moved the Gleam compiler download to the release-asset API after the browser URL answered 504.
+the Contabo VPS runner as an unrouted candidate. ELZ-057 added the fast tier (pull request and queue runs on the fast runners only) and the runner budget rules. ELZ-060 moved the Gleam compiler download to the release-asset API after the browser URL answered 504. ELZ-066 added the hosted lane selected by `ELZOO_CI_LANE`, ELZ-064 the disposable S3 test server.
 
 ### Publishing refs (ELZ-065)
 

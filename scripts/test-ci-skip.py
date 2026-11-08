@@ -272,6 +272,73 @@ class DecisionTest(unittest.TestCase):
                 with self.assertRaises(skip.Full):
                     skip.decide(env, run_git, api)
 
+    # ELZ-066: evidence from the hosted lane (check-hosted on a GitHub-hosted runner).
+    def hosted_jobs(self, second, **changes):
+        api = FakeApi(second)
+        hosted = dict(api.job, id=903, name="check-hosted", runner_name="GitHub Actions 7",
+                      runner_group_name="GitHub Actions", labels=["ubuntu-24.04"],
+                      steps=[{"name": "Verify the GitHub-hosted runner", "conclusion": "success"},
+                             {"name": "Run mix check", "conclusion": "success"}])
+        hosted.update(changes)
+        return [dict(api.skipped, id=904, name="check-fast"), api.skipped, hosted]
+
+    def test_hosted_lane_evidence_allows_the_skip(self):
+        env, run_git, second = self.scenario("merge")
+        api = FakeApi(second)
+        api.jobs = self.hosted_jobs(second)
+        skipped, _reason, details = skip.decide(env, run_git, api)
+        self.assertTrue(skipped)
+        self.assertEqual("GitHub Actions 7", details["runner"])
+
+    def test_hosted_lane_evidence_rules(self):
+        cases = {
+            "other runner group": dict(runner_group_name="Default"),
+            "no runner group": dict(runner_group_name=None),
+            "other label": dict(labels=["ubuntu-latest"]),
+            "extra label": dict(labels=["ubuntu-24.04", "extra"]),
+            "self-hosted label": dict(labels=["self-hosted", "ubuntu-24.04"]),
+            "no labels": dict(labels=None),
+            "self-hosted runner name": dict(runner_name="symbolic-elzoo"),
+            "short runner name": dict(runner_name="GitHub Actions"),
+            "long runner name": dict(runner_name="GitHub Actions 7 extra"),
+            "no runner name": dict(runner_name=None),
+            "no identity step": dict(steps=[{"name": "Run mix check", "conclusion": "success"}]),
+            "identity step skipped": dict(steps=[{"name": "Verify the GitHub-hosted runner", "conclusion": "skipped"},
+                                                 {"name": "Run mix check", "conclusion": "success"}]),
+            "identity step failed": dict(steps=[{"name": "Verify the GitHub-hosted runner", "conclusion": "failure"},
+                                                {"name": "Run mix check", "conclusion": "success"}]),
+            "mix check skipped": dict(steps=[{"name": "Verify the GitHub-hosted runner", "conclusion": "success"},
+                                             {"name": "Run mix check", "conclusion": "skipped"}]),
+            "job failed": dict(conclusion="failure"),
+            "job other head": dict(head_sha="f" * 40),
+            "job other run": dict(run_id=1),
+        }
+        for label, changes in cases.items():
+            with self.subTest(label=label):
+                env, run_git, second = self.scenario("merge")
+                api = FakeApi(second)
+                api.jobs = self.hosted_jobs(second, **changes)
+                with self.assertRaises(skip.Full):
+                    skip.decide(env, run_git, api)
+
+    def test_hosted_lane_job_list_shapes(self):
+        env, run_git, second = self.scenario("merge")
+        jobs = self.hosted_jobs(second)
+        shapes = {
+            "check-fast also executed": [dict(jobs[0], conclusion="success"), jobs[1], jobs[2]],
+            "check-any executed": [jobs[0], dict(jobs[1], conclusion="success"), jobs[2]],
+            "only check-any ran": [jobs[0], dict(jobs[1], conclusion="success"), dict(jobs[2], conclusion="skipped")],
+            "no job ran": [jobs[0], jobs[1], dict(jobs[2], conclusion="skipped")],
+            "two check-hosted": [jobs[0], jobs[1], jobs[2], dict(jobs[2], id=999)],
+            "extra job": [jobs[0], jobs[1], jobs[2], dict(jobs[1], id=998, name="other")],
+        }
+        for label, shape in shapes.items():
+            with self.subTest(label=label):
+                api = FakeApi(second)
+                api.jobs = copy.deepcopy(shape)
+                with self.assertRaises(skip.Full):
+                    skip.decide(env, run_git, api)
+
     def test_log_markers(self):
         env, run_git, second = self.scenario("merge")
         for log in ("", "ELZOO AFFECTED CHECK PASSED", "echo 'ELZOO CHECK PASSED'",
