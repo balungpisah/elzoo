@@ -216,6 +216,27 @@ and regenerated the views (no change in them). This is a reconciliation of an in
 migration, not a new acceptance; the Piece evidence binds to the fork revision
 as recorded in `docs/dependencies/forks/cure.md`.
 
+## Catalogue admission rule and dispositions (ELZ-050)
+
+The owner set the admission rule on 2026-11-08: all planned and deferred
+catalogue entries are open for development as part of the build plan;
+demand-led admission applies only to gaps outside the catalogue; prefer a
+maintained Elixir library and build only what does not exist; copy or
+clean-room only for a concrete recorded reason. ELZ-050 ([live #103](https://github.com/balungpisah/elzoo/issues/103),
+copied exactly to [ELZ-050](../../tasks/ELZ-050-catalogue-dispositions.md))
+records one decision-ready disposition per planned or deferred ID in
+[catalogue-dispositions.md](catalogue-dispositions.md), rendered from
+hand-authored records by `docs/work/ELZ-050-tools/render_dispositions.py` with
+a coverage check and a Hex re-read kept under `docs/work/ELZ-050-evidence/`.
+The owner decisions it rests on are in
+[owner-decisions-2026-11-08.md](../work/research/owner-decisions-2026-11-08.md),
+merged from `research/ecosystem-survey`. The owner's build order is telemetry,
+object store, notification, audit log, then the first model boundary; the
+payments provider and the message broker stay explicit open owner choices.
+A disposition changes no planning status, readiness, manifest or registry row
+in this manifest; each later task still needs its own published issue,
+Contract review, evidence and merge.
+
 ## Verification and limits
 
 The durable commands are the roadmap checker above, `git diff --check`,
