@@ -792,4 +792,231 @@ defmodule Elzoo.HttpJobTest do
     assert a.axioms == [] and a.holes == [] and a.unresolved == [] and a.unaudited == [] and
              a.not_proven_total == [] and a.absurd == 0
   end
+
+  defp adapter_request(c, cfg) do
+    %{
+      key: c.admission.key,
+      attempt: 1,
+      attempt_id: c.admission.key <> "/attempt/1",
+      arguments: c.body,
+      arguments_digest: :crypto.hash(:sha256, c.body),
+      schema: H.Adapter.schema(),
+      binding: TestBinding.__effect_intent_binding__().digest,
+      context: cfg
+    }
+  end
+
+  test "stream size guard closes a large response early and its removal violates the bound", c do
+    total = 16 * 1024 * 1024
+    cfg = %{c.cfg | total_ms: 3000, receive_ms: 1000, poll_seconds: 4}
+    request = adapter_request(c, cfg)
+
+    run = fn ->
+      ref = make_ref()
+      Fixture.mode(c.f, {:stream, total, self(), ref})
+      assert {:error, :receipt_invalid, :schema} = H.Adapter.send_effect(request)
+      assert_receive {:stream_finished, ^ref, bytes}, 5000
+      bytes
+    end
+
+    within_bound = fn bytes -> assert bytes < div(total, 2) end
+    within_bound.(run.())
+
+    mutation("elzoo/http_job/adapter.ex", "<= Wire.limit(),", "<= 1_000_000_000,", fn ->
+      bytes = run.()
+      assert bytes == total
+      assert_raise ExUnit.AssertionError, fn -> within_bound.(bytes) end
+    end)
+
+    within_bound.(run.())
+  end
+
+  # Gate only the runner's already-read snapshot, never the owner or its state.
+  # The real owner/Store still serialize both competing commands.
+  defp with_snapshot_gate(fun, replacement \\ nil) do
+    parent = self()
+    key = {__MODULE__, :snapshot_gate}
+
+    :persistent_term.put(key, fn phase ->
+      send(parent, {:snapshot, self(), phase})
+
+      receive do
+        :release -> :ok
+      after
+        5000 -> raise "snapshot gate timed out"
+      end
+    end)
+
+    path = Path.expand("../../lib/elzoo/http_job.ex", __DIR__)
+    source = File.read!(path)
+    point = "act(c, pid, Policy.action(current, c.maximum))"
+    assert String.contains?(source, point)
+
+    gated =
+      String.replace(
+        source,
+        point,
+        ":persistent_term.get({Elzoo.HttpJobTest, :snapshot_gate}).(current.phase)\n      " <> point
+      )
+
+    gated =
+      case replacement do
+        nil ->
+          gated
+
+        {before_text, after_text} ->
+          assert String.contains?(gated, before_text)
+          String.replace(gated, before_text, after_text)
+      end
+
+    old = Code.compiler_options(ignore_module_conflict: true)
+
+    try do
+      Code.compile_string(gated, path)
+      fun.()
+    after
+      Code.compile_string(source, path)
+      Code.compiler_options(old)
+      :persistent_term.erase(key)
+    end
+  end
+
+  defp refused_race(c, phase, replacement \\ nil) do
+    identity =
+      List.replace_at(c.admission.identity, 4, "race-#{System.unique_integer([:positive])}")
+
+    admission = %{c.admission | identity: identity, key: I.Model.key(identity)}
+
+    cfg =
+      if phase == :rearm,
+        do: %{c.cfg | credentials: fn -> {:error, :preflight_unavailable} end},
+        else: c.cfg
+
+    opts = c.owner_opts |> Keyword.put(:identity, identity) |> Keyword.put(:adapter_context, cfg)
+    p = owner(c, opts)
+    c = %{c | admission: admission, cfg: cfg}
+    Fixture.mode(c.f, :hold)
+
+    if phase == :rearm do
+      assert {:ok, :dispatched} = I.advance(p, :dispatch)
+      wait(fn -> match?({:Definite, :AdapterNoSend, 1}, I.status(p).phase) end)
+    end
+
+    try do
+      with_snapshot_gate(
+        fn ->
+          first = Task.async(fn -> tick(c) end)
+          assert_receive {:snapshot, first_pid, old_phase}, 2000
+          second = Task.async(fn -> tick(c) end)
+          assert_receive {:snapshot, second_pid, ^old_phase}, 2000
+          send(first_pid, :release)
+          assert {:snooze, _} = Task.await(first)
+          expected = if phase == :rearm, do: :Intended, else: :Dispatched
+          assert elem(I.status(p).phase, 0) == expected
+          send(second_pid, :release)
+          Task.await(second)
+        end,
+        replacement
+      )
+    after
+      GenServer.stop(p)
+    end
+  end
+
+  test "stale dispatch and rearm refusals reread once without cancelling another execution", c do
+    assert {:snooze, 2} = refused_race(c, :dispatch)
+    assert {:snooze, 2} = refused_race(c, :rearm)
+
+    for {before_text, after_text, phase, reason} <- [
+          {"confirm_refusal(c, pid, :JobDispatch, :not_dispatchable)",
+           "{:cancel, :not_dispatchable}", :dispatch, :not_dispatchable},
+          {"confirm_refusal(c, pid, :JobRearm, :exhausted)", "{:cancel, :exhausted}", :rearm,
+           :exhausted}
+        ] do
+      result = refused_race(c, phase, {before_text, after_text})
+      assert {:cancel, ^reason} = result
+      assert_raise ExUnit.AssertionError, fn -> assert {:snooze, 2} = result end
+    end
+  end
+
+  test "live rescued Oban job retains wakeups after stale dispatch and then confirms", c do
+    Fixture.mode(c.f, :hold)
+    p = owner(c)
+
+    with_snapshot_gate(fn ->
+      name = oban(c)
+
+      assert {:ok, id} =
+               Elzoo.Jobs.enqueue(name, Elzoo.Jobs.changeset(c.cfg.queue, c.admission.key, 3))
+
+      assert_receive {:snapshot, first, {:Intended, :Fresh, 0}}, 3000
+      assert {:ok, [_]} = Oban.Engine.rescue_jobs(Oban.config(name), Oban.Job, rescue_after: 0)
+      assert_receive {:snapshot, second, {:Intended, :Fresh, 0}}, 3000
+      send(first, :release)
+      wait(fn -> match?({:Dispatched, _, 1}, I.status(p).phase) end)
+      send(second, :release)
+      assert_receive {:event, %{outcome: :waiting}}, 2000
+      assert_receive {:event, %{outcome: :waiting}}, 2000
+      wait(fn -> Elzoo.Jobs.state_by_id(name, id) == {:ok, {id, "scheduled"}} end)
+      assert Enum.count(Fixture.calls(c.f), fn {m, _, _} -> m == "PUT" end) == 1
+      Fixture.mode(c.f, :success)
+      # Subsequent snapshots are real poll and completion wakes.
+      assert_receive {:snapshot, poller, {:Dispatched, _, 1}}, 5000
+      send(poller, :release)
+      wait(fn -> I.status(p).phase == {:Confirmed, 1} end)
+      assert_receive {:snapshot, finisher, {:Confirmed, 1}}, 5000
+      send(finisher, :release)
+      wait(fn -> Elzoo.Jobs.state_by_id(name, id) == {:ok, {id, "completed"}} end)
+      assert Enum.count(Fixture.calls(c.f), fn {m, _, _} -> m == "PUT" end) == 1
+    end)
+  end
+
+  test "HTTP failure tags preserve the frozen rows and tag mutations are detected", c do
+    request = adapter_request(c, c.cfg)
+
+    rows = [
+      http404: :http_4xx,
+      http503: :http_5xx,
+      redirect: :http_redirect,
+      pending: :not_acknowledged,
+      invalid: :receipt_invalid,
+      drop: :transport_error,
+      hold: :transport_timeout
+    ]
+
+    check = fn mode, tag ->
+      Fixture.mode(c.f, mode)
+      assert {:error, ^tag, _} = H.Adapter.send_effect(request)
+    end
+
+    for {mode, tag} <- rows, do: check.(mode, tag)
+
+    for {tag, replacement, mode} <- [
+          {:http_5xx, :transport_error, :http503},
+          {:http_redirect, :http_4xx, :redirect}
+        ] do
+      mutation(
+        "elzoo/http_job/adapter.ex",
+        "{:error, :#{tag}, :status}",
+        "{:error, :#{replacement}, :status}",
+        fn ->
+          assert_raise ExUnit.AssertionError, fn -> check.(mode, tag) end
+        end
+      )
+    end
+
+    for tag <- [:preflight_unavailable, :request_rejected] do
+      req = %{request | context: %{c.cfg | credentials: fn -> {:error, tag} end}}
+      assert {:error, ^tag, :preflight} = H.Adapter.send_effect(req)
+    end
+  end
+
+  test "admission refuses a missing deadline and a different command schema", c do
+    for command <- [
+          Map.delete(c.declaration["command"], "deadline_unix_ms"),
+          Map.put(c.declaration["command"], "schema_id", "other")
+        ] do
+      assert {:error, :admission} = H.admission(c.cfg, Map.put(c.declaration, "command", command))
+    end
+  end
 end

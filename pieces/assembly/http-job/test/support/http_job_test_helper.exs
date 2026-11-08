@@ -150,6 +150,18 @@ defmodule Elzoo.HttpJob.Fixture do
       mode = state.mode
 
       cond do
+        match?({:stream, _, _, _}, mode) ->
+          {:stream, total, receiver, ref} = mode
+          :inet.setopts(s, sndbuf: 16384, send_timeout: 2000)
+
+          :gen_tcp.send(
+            s,
+            "HTTP/1.1 200 OK\r\ncontent-length: #{total}\r\nconnection: close\r\n\r\n"
+          )
+
+          sent = stream(s, String.duplicate("x", 65536), total, 0)
+          send(receiver, {:stream_finished, ref, sent})
+
         mode == :drop ->
           :ok
 
@@ -214,6 +226,15 @@ defmodule Elzoo.HttpJob.Fixture do
       end
     after
       :gen_tcp.close(s)
+    end
+  end
+
+  defp stream(_, _, total, sent) when sent >= total, do: sent
+
+  defp stream(socket, chunk, total, sent) do
+    case :gen_tcp.send(socket, chunk) do
+      :ok -> stream(socket, chunk, total, sent + byte_size(chunk))
+      _ -> sent
     end
   end
 end

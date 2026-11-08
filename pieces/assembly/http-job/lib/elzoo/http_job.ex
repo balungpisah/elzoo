@@ -183,17 +183,46 @@ defmodule Elzoo.HttpJob do
     command = %{JobDispatch: :dispatch, JobPoll: :poll, JobRearm: :rearm}[action]
 
     case {action, call(c, fn -> Intent.advance(pid, command) end)} do
-      {:JobDispatch, {:ok, {:ok, :dispatched}}} -> {:snooze, c.poll_seconds}
-      {:JobPoll, {:ok, {:ok, :polling}}} -> {:snooze, c.poll_seconds}
-      {:JobPoll, {:ok, {:error, :task_start}}} -> {:snooze, c.poll_seconds}
-      {:JobRearm, {:ok, {:ok, :Stop}}} -> {:snooze, 1}
-      {:JobDispatch, {:ok, {:error, :not_dispatchable}}} -> {:cancel, :not_dispatchable}
-      {:JobRearm, {:ok, {:error, :not_rearmable}}} -> {:cancel, :exhausted}
-      _ -> {:error, :owner_unavailable}
+      {:JobDispatch, {:ok, {:ok, :dispatched}}} ->
+        {:snooze, c.poll_seconds}
+
+      {:JobPoll, {:ok, {:ok, :polling}}} ->
+        {:snooze, c.poll_seconds}
+
+      {:JobPoll, {:ok, {:error, :task_start}}} ->
+        {:snooze, c.poll_seconds}
+
+      {:JobRearm, {:ok, {:ok, :Stop}}} ->
+        {:snooze, 1}
+
+      {:JobDispatch, {:ok, {:error, :not_dispatchable}}} ->
+        confirm_refusal(c, pid, :JobDispatch, :not_dispatchable)
+
+      {:JobRearm, {:ok, {:error, :not_rearmable}}} ->
+        confirm_refusal(c, pid, :JobRearm, :exhausted)
+
+      _ ->
+        {:error, :owner_unavailable}
     end
   end
 
   defp act(_, _, _), do: {:error, :owner_unavailable}
+  # Another live execution may have advanced the owner after our status read.
+  # Reconcile once; never issue another owner command from this wake.
+  defp confirm_refusal(c, pid, attempted, reason) do
+    case call(c, fn -> Intent.status(pid) end) do
+      {:ok, current} ->
+        case Policy.action(current, c.maximum) do
+          ^attempted -> {:cancel, reason}
+          next when next in [:JobDispatch, :JobPoll, :JobRearm] -> {:snooze, c.poll_seconds}
+          terminal -> act(c, pid, terminal)
+        end
+
+      _ ->
+        {:error, :owner_unavailable}
+    end
+  end
+
   defp call(c, fun), do: Call.run(c.caller_supervisor, c.call_ms, fun)
 
   defp observe(c, result, elapsed) do

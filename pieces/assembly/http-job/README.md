@@ -14,7 +14,9 @@ The origin is part of `provider_account` and therefore the binding digest and
 intent identity. A different origin requires a binding for that origin.
 Runtime origin must match it at configuration and every send. No query,
 credentials, path or fragment is allowed in the origin. DNS/TLS/network policy
-and authenticated provider behavior remain host Needs.
+and authenticated provider behavior remain host Needs. Plain HTTP is accepted
+for loopback/provider fixtures; the host must require HTTPS for credentials
+that must not travel in clear text.
 
 `Elzoo.HttpJob.configure/1` checks trusted construction options: binding, origin,
 tenant, queue, separate transport and caller Task.Supervisors, credentials/0,
@@ -110,7 +112,12 @@ Caller timeout does not cancel a queued owner operation. Confirmed returns :ok;
 Stranded or quarantined Intended/Dispatched returns cancel/operator_required,
 without polling. Definite quarantine/disarm also cancels. Intended dispatch
 refusal cancels/not_dispatchable; Definite rearm refusal or persisted attempt
-maximum cancels/exhausted. Owner CAS guards still decide actual permission.
+maximum cancels/exhausted. A dispatch/rearm refusal can race with another live
+execution advancing the owner. The runner rereads status once: if the same action
+is still selected it keeps that refusal; a new actionable phase snoozes for the
+normal poll delay, and a terminal phase returns its terminal result. It sends no
+second owner command in that wake. This prevents a stale refusal from cancelling
+healthy Dispatched work. Owner CAS guards still decide actual permission.
 
 Maximum persisted attempts 1..16 (default 3). Dispatch/poll success or poll
 start-capacity refusal snoozes poll_seconds; rearm success snoozes one second.
@@ -123,6 +130,11 @@ Pool capacity is finite and may refuse without authorizing send.
 
 Finite recovery grace is mandatory, and ceil(grace/poll_delay_ms)<=512. This
 arithmetic DOES NOT bound concurrent/rescued wakes or pre-deadline polling.
+Oban error backoff can start at one second; unlike scheduled polls, an error
+retry can overlap an existing send/poll and consume a counted Lost observation.
+Completion authentication also uses the bounded transport pool: contention can
+retain a refusal for an otherwise valid completion; later polling or host
+reconciliation is required. Neither condition supplies a rearm ground.
 The existing owner's event/evidence limits may saturate; saturation must fail
 closed. Clocks, store availability and scheduling fairness remain Needs.
 Host must continue expiry/operator reconciliation when a job exhausts or is

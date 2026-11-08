@@ -1,8 +1,10 @@
 # ELZ-011 production and acceptance record
 
 Implementation source commit: `36384d4e90cf1487f17dfbb41322a06e59766ae0`.
-Status: fresh pinned setup, full check and standalone export passed; independent
-actual-diff review and PR remain. This file is not an acceptance declaration and no merge is requested.
+Status at source `36384d4`: fresh pinned setup, full check and standalone export
+passed. Independent review at `694fda8` was CONDITIONAL; see
+[review](ELZ-011-final-review.md) and [fixes](ELZ-011-review-fixes.md).
+The follow-up source needs its own full-check result and incremental review. This file is not an acceptance declaration and no merge is requested.
 
 ## Scope and approved Contract
 
