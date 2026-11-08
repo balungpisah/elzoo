@@ -22,7 +22,7 @@ Codex CLI versions that run behind this boundary.
                                              cwd: nil, env: %{inherit: ["HOME"], set: [{"KEEP", "yes"}]}},
                                    deadline_unix_ms: System.os_time(:millisecond) + 10_000)
 receive do {Elzoo.OsProcess, ^ref, result} -> result end
-{:ok, result} = Elzoo.OsProcess.run(sup, spec, max_run_ms: 5_000)          # submit + await
+{:ok, result} = Elzoo.OsProcess.run(sup, spec, max_run_ms: 5_000)          # submit + await (bound derived from the request)
 {:ok, :requested} = Elzoo.OsProcess.cancel(sup, ref)                        # acceptance, not application
 %{status: _, os_pid: _, owner: _} = Elzoo.OsProcess.info(sup, ref)
 {:ok, delivery_result, result} = Elzoo.OsProcess.to_delivery_result(result, %{"message_id" => "m"})
@@ -36,6 +36,17 @@ explicit environment allowlist. The child's environment is `set` plus the
 `inherit` names present in the VM environment; everything else is unset. The
 child's stdin is `/dev/null`. stdout and stderr are merged into `output` in
 arrival order, bounded by `max_output_bytes` (`truncated: true` beyond it).
+
+`run/3` waits `queue_timeout_ms + run limit + grace + observation + 5 s`
+(`bounds/1` exposes the instance values); a shorter `await_ms` ends the wait
+early, cancels the run (acceptance only) and returns `{:error, {:no_result,
+ref}}`; the late result message still arrives. `cancel/2` returns
+`{:ok, :requested}` once, `{:ok, :already_requested}` for a repeated cancel of
+a queued or running run (queued cancellations are remembered in a bounded
+record of 1024 refs), and `{:error, :unknown_run}` for a finished or foreign
+ref. A slot stands for a running OS command: after an owner death it is
+released only when the Adapter has observed the group empty or the observation
+bound passed, so `max_concurrent` holds during the provider's grace.
 
 Config (construction, no hot update): `max_concurrent`, `queue_limit`,
 `queue_timeout_ms`, `grace_s` (provider wait between SIGTERM and SIGKILL,
@@ -64,7 +75,11 @@ so queue residence can only shorten a run, never restart its deadline.
 | `unknown` | `reason`, `cause`, `os_pid`, `members`, `output`, `truncated`, `exit_code` | see below |
 
 `stage` is the ending signal the provider reports (`term` = SIGTERM, `kill` =
-SIGKILL). It is never derived from timing or from a request the Adapter made.
+SIGKILL). It is never derived from a request the Adapter made. A SIGTERM or
+SIGKILL status reported before the deadline instant cannot be the provider's
+and is `completed{exit_code: 128 + signal}`; one reported at or after that
+instant is attributed to the provider's watchdog, which is indistinguishable
+from a command that signals itself after its deadline (declared residual).
 `unknown` reasons: `provider_masked_stop` (an explicit `cancel/2` or the
 submitter's death made the provider stop the group; erlexec masks the ending
 signal on that path, so a caller that needs a distinguished cancel outcome must

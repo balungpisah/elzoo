@@ -406,6 +406,71 @@ defmodule Elzoo.OsProcessTest do
              )
   end
 
+  # ---- review findings on PR #120 (F1-F5)
+
+  test "F1/F5 cancelling queued requests prunes the FIFO while a slot stays occupied; a repeated cancel is idempotent" do
+    sup = start(max_concurrent: 1, queue_limit: 1, queue_timeout_ms: 30_000)
+    {:ok, running} = OsProcess.submit(sup, spec("sleep", [30]), max_run_ms: 60_000)
+    _ = os_pid_of(sup, running)
+
+    refs =
+      for _ <- 1..50 do
+        {:ok, ref} = OsProcess.submit(sup, spec("exit", [0]), max_run_ms: 5_000)
+        assert {:ok, :requested} = OsProcess.cancel(sup, ref)
+        assert %{status: :rejected, reason: :cancelled} = result(ref)
+        assert {:ok, :already_requested} = OsProcess.cancel(sup, ref)
+        ref
+      end
+
+    state = :sys.get_state(OsProcess.adapter(sup))
+    assert :queue.len(state.queue) == 0
+    assert state.queued == %{}
+    assert %{queued: 0, in_flight: 1} = OsProcess.snapshot(sup)
+    assert {:ok, :already_requested} = OsProcess.cancel(sup, hd(refs))
+    assert {:ok, :requested} = OsProcess.cancel(sup, running)
+    assert %{status: :unknown} = result(running)
+  end
+
+  test "F2 an owner death keeps its slot until the group is observed empty; the queued command waits" do
+    sup = start(max_concurrent: 1, queue_limit: 1, queue_timeout_ms: 30_000, grace_s: 1)
+    {:ok, first} = OsProcess.submit(sup, spec("ignore-term", [30]), max_run_ms: 60_000)
+    os_pid = os_pid_of(sup, first)
+    %{owner: owner} = OsProcess.info(sup, first)
+    {:ok, second} = OsProcess.submit(sup, spec("exit", [0]), max_run_ms: 5_000)
+    assert %{in_flight: 1, queued: 1} = OsProcess.snapshot(sup)
+    Process.exit(owner, :kill)
+    Process.sleep(200)
+    # the TERM-ignoring group is still alive during the provider's grace: the second must not start
+    assert members(os_pid) != []
+    assert %{in_flight: 1, queued: 1} = OsProcess.snapshot(sup)
+    assert OsProcess.info(sup, second) == nil
+    assert %{status: :unknown, reason: :owner_exit, members: []} = result(first)
+    assert members(os_pid) == []
+    assert %{status: :completed, exit_code: 0} = result(second)
+  end
+
+  test "F3 run/3 waits for the request's own bound; a shorter await_ms cancels and reports the ref" do
+    sup = start(queue_timeout_ms: 1_000, grace_s: 1, observe_timeout_ms: 500)
+
+    assert %{queue_timeout_ms: 1_000, grace_ms: 1_000, observe_timeout_ms: 500} =
+             OsProcess.bounds(sup)
+
+    assert {:ok, %{status: :completed, exit_code: 0}} =
+             OsProcess.run(sup, spec("sleep", ["0.2"]), max_run_ms: 10_000)
+
+    assert {:error, {:no_result, ref}} =
+             OsProcess.run(sup, spec("sleep", [30]), max_run_ms: 60_000, await_ms: 300)
+
+    assert %{status: :unknown, reason: :provider_masked_stop, cause: :cancel} = result(ref)
+  end
+
+  test "F4 a SIGTERM the command sends itself before the deadline instant is completed 143, not a timeout" do
+    sup = start()
+
+    assert {:ok, %{status: :completed, exit_code: 143}} =
+             OsProcess.run(sup, spec("self-term"), max_run_ms: 1_500)
+  end
+
   # ---- spawn failure (T9) and exec failure after validation (B5)
 
   test "T9 pre-dispatch validation: missing file, no execute bit, missing cwd are rejected{spawn_failed}" do

@@ -25,6 +25,8 @@ defmodule Elzoo.OsProcess.Adapter do
       queue: :queue.new(),
       queued: %{},
       running: %{},
+      observing: %{},
+      cancelled: {:queue.new(), MapSet.new()},
       generation: 0
     }
 
@@ -37,6 +39,17 @@ defmodule Elzoo.OsProcess.Adapter do
   def handle_call(:snapshot, _from, state) do
     {:CapacityState, capacity, in_flight} = state.capacity
     {:reply, %{in_flight: in_flight, queued: map_size(state.queued), capacity: capacity}, state}
+  end
+
+  def handle_call(:bounds, _from, state) do
+    config = state.config
+
+    {:reply,
+     %{
+       queue_timeout_ms: config.queue_timeout_ms,
+       grace_ms: config.grace_s * 1000,
+       observe_timeout_ms: config.observe_timeout_ms
+     }, state}
   end
 
   def handle_call({:submit, spec, opts, submitter}, _from, state) do
@@ -76,10 +89,13 @@ defmodule Elzoo.OsProcess.Adapter do
         entry = state.queued[ref]
         state = drop_queued(state, ref)
         notify(entry.submitter, ref, Result.rejected(:cancelled))
-        {:reply, {:ok, :requested}, state}
+        {:reply, {:ok, :requested}, remember_cancelled(state, ref)}
 
       Map.has_key?(state.running, ref) ->
         {:reply, Owner.cancel(state.running[ref].owner), state}
+
+      MapSet.member?(elem(state.cancelled, 1), ref) ->
+        {:reply, {:ok, :already_requested}, state}
 
       true ->
         {:reply, {:error, :unknown_run}, state}
@@ -108,9 +124,17 @@ defmodule Elzoo.OsProcess.Adapter do
 
   def handle_info({:DOWN, _mon, :process, pid, reason}, state) do
     cond do
-      ref = find_running(state, pid) -> {:noreply, owner_down(state, ref, reason)}
-      ref = find_queued_submitter(state, pid) -> {:noreply, drop_queued(state, ref)}
-      true -> {:noreply, state}
+      ref = find_running(state, pid) ->
+        {:noreply, owner_down(state, ref, reason)}
+
+      ref = find_queued_submitter(state, pid) ->
+        {:noreply, drop_queued(state, ref)}
+
+      Map.has_key?(state.observing, pid) ->
+        {:noreply, release(%{state | observing: Map.delete(state.observing, pid)})}
+
+      true ->
+        {:noreply, state}
     end
   end
 
@@ -190,19 +214,47 @@ defmodule Elzoo.OsProcess.Adapter do
 
       [{^ref, ^owner, submitter, os_pid, _status}] ->
         :ets.delete(state.tid, ref)
-        config = state.config
-        bound = config.grace_s * 1000 + config.observe_timeout_ms
-
-        spawn(fn ->
-          members = Owner.observe_until_empty(config.pgrep_path, os_pid, bound)
-          notify(submitter, ref, Result.unknown(:owner_exit, %{os_pid: os_pid, members: members}))
-        end)
+        # The slot stands for a running OS command: it is released only when the group has been
+        # observed empty or the observation bound passed, by the observer's exit (handle_info DOWN).
+        {:observing, state_with_observer(state, ref, submitter, os_pid)}
 
       _ ->
         :ok
     end
+    |> case do
+      {:observing, observing_state} -> observing_state
+      _ -> release(state)
+    end
+  end
 
-    release(state)
+  defp state_with_observer(state, ref, submitter, os_pid) do
+    config = state.config
+    bound = config.grace_s * 1000 + config.observe_timeout_ms
+
+    {pid, _mon} =
+      spawn_monitor(fn ->
+        members = Owner.observe_until_empty(config.pgrep_path, os_pid, bound)
+        notify(submitter, ref, Result.unknown(:owner_exit, %{os_pid: os_pid, members: members}))
+      end)
+
+    %{state | observing: Map.put(state.observing, pid, ref)}
+  end
+
+  # Bounded memory of queued requests settled by cancel, so a repeated cancel stays idempotent.
+  @cancelled_limit 1024
+  defp remember_cancelled(state, ref) do
+    {q, set} = state.cancelled
+    {q, set} = {:queue.in(ref, q), MapSet.put(set, ref)}
+
+    {q, set} =
+      if :queue.len(q) > @cancelled_limit do
+        {{:value, old}, q} = :queue.out(q)
+        {q, MapSet.delete(set, old)}
+      else
+        {q, set}
+      end
+
+    %{state | cancelled: {q, set}}
   end
 
   defp release(state) do
@@ -270,7 +322,12 @@ defmodule Elzoo.OsProcess.Adapter do
       entry ->
         Process.cancel_timer(entry.timer)
         Process.demonitor(entry.mon, [:flush])
-        %{state | queued: Map.delete(state.queued, ref)}
+
+        %{
+          state
+          | queued: Map.delete(state.queued, ref),
+            queue: :queue.filter(&(&1 != ref), state.queue)
+        }
     end
   end
 
@@ -315,25 +372,18 @@ defmodule Elzoo.OsProcess.Adapter do
 
         true ->
           :ets.delete(acc.tid, ref)
-          config = acc.config
 
           if os_pid == nil do
             notify(submitter, ref, Result.unknown(:owner_exit_before_registration, %{}))
+            acc
           else
-            bound = config.grace_s * 1000 + config.observe_timeout_ms
+            capacity =
+              case Backpressure.admit(acc.capacity) do
+                {:ok, c, _} -> c
+              end
 
-            spawn(fn ->
-              members = Owner.observe_until_empty(config.pgrep_path, os_pid, bound)
-
-              notify(
-                submitter,
-                ref,
-                Result.unknown(:owner_exit, %{os_pid: os_pid, members: members})
-              )
-            end)
+            state_with_observer(%{acc | capacity: capacity}, ref, submitter, os_pid)
           end
-
-          acc
       end
     end)
   end

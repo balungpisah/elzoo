@@ -272,8 +272,12 @@ defmodule Elzoo.OsProcess.Owner do
   defp exit_code(%{terminal: :normal}), do: 0
   defp exit_code(_), do: nil
 
+  # The provider's watchdog fires at or after the deadline instant. A SIGTERM or SIGKILL status
+  # reported before it is not the provider's; one reported after it is attributed to the provider,
+  # indistinguishable from a self- or externally signalled command ending after that instant
+  # (declared residual).
   defp deadline_due?(state),
-    do: System.monotonic_time(:millisecond) >= state.dispatched_at + state.timeout_ms - 100
+    do: System.monotonic_time(:millisecond) >= state.dispatched_at + state.timeout_ms
 
   defp finish(state, result) do
     unless state.dropped, do: send(state.submitter, {Elzoo.OsProcess, state.ref, result})
