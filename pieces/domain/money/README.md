@@ -49,8 +49,8 @@ version, else `forged_currency`. A `version:` the registry does not hold is
 | `forged_currency` | any call whose currency is not the member in effect at its own version (identity and status), or is not a `%Currency{}`; `Codec.decode` for an identity of another version. |
 | `no_minor_unit` | construction for an ISO `N.A.` code (XAU, XXX, XTS and others). |
 | `retired_currency` | construction for a retired code whose exponent no held version recorded (for example HRK). |
-| `malformed_amount` | a non-integer minor-unit value, a malformed decimal string or `%Decimal{}`, a magnitude at or above 10^38 at a decimal boundary, a non-integer scale, non-canonical codec bytes. |
-| `scale_overflow` | a decimal string finer than the exponent; a rounding scale outside `-18..exponent`. |
+| `malformed_amount` | a non-integer minor-unit value, a malformed decimal string or `%Decimal{}`, a non-integer scale, non-canonical codec bytes (including a value outside the amount range). |
+| `scale_overflow` | a decimal string finer than the exponent; a rounding scale outside `-18..exponent`; any amount, constructed or computed, outside the declared range `abs(minor_units) < 10^38`. |
 | `currency_mismatch` | `add`, `subtract`, `compare` on different identities; detail names both alpha codes. |
 | `invalid_ratios` | `allocate` with ratios that are not 1 to 1000 non-negative integers with a positive sum. |
 | `unknown_placement`, `unknown_rounding_mode` | a placement or mode outside the declared atoms. |
@@ -78,6 +78,11 @@ version, else `forged_currency`. A `version:` the registry does not hold is
   unit of its sign to each positive-ratio part in order until it is used. The
   result is `%{parts: [Amount], residual_placed: integer}`; the residual is
   already inside the parts, so adding it again double counts.
+- **Amount range.** Every amount satisfies `abs(minor_units) < 10^38`
+  (`Elzoo.Money.bound/0`), checked at construction and after every add,
+  subtract and rounding step (`scale_overflow` beyond it). Every accepted amount
+  therefore encodes in at most 75 bytes and decodes again; `Codec.decode/2`
+  rejects bytes longer than 128 or with a value outside the range.
 - **Rounding.** `round/4` and `from_decimal/4` use integer arithmetic for the
   seven Decimal mode names; the process Decimal context never applies.
 - **Replay.** Bytes encoded under one version decode to the same identity

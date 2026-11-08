@@ -259,6 +259,24 @@ defmodule Elzoo.MoneyRegistryTest do
       assert {:ok, %Currency{status: {:retired, "2023-01"}}} = M.parse("HRK", registry: r2)
     end
 
+    test "a three-version fold keeps :not_recorded until new retirement evidence appears" do
+      v3 = String.replace(next_version(), "\t#{@v2}", "\t2027-06-01")
+      r = Registry.build!([@extract, next_version(), v3])
+      assert r.versions == [@v1, @v2, "2027-06-01"]
+
+      for version <- [@v2, "2027-06-01"],
+          do: assert(Registry.entry(r, version, "EUR").status == {:retired, :not_recorded}, version)
+
+      v3_row = v3 <> "\nhistoric\tEUR\t978\t\t2027-05\tfalse\n"
+      r2 = Registry.build!([@extract, next_version(), v3_row])
+      assert Registry.entry(r2, @v2, "EUR").status == {:retired, :not_recorded}
+      assert Registry.entry(r2, "2027-06-01", "EUR").status == {:retired, "2027-05"}
+
+      # A code retired before the first held version keeps its latest row across versions.
+      for version <- r.versions,
+          do: assert(Registry.entry(r, version, "HRK").status == {:retired, "2023-01"})
+    end
+
     test "an explicit version option is validated by every value function" do
       r = folded()
       {:ok, eur1} = M.parse("EUR", version: @v1, registry: r)
@@ -285,6 +303,7 @@ defmodule Elzoo.MoneyRegistryTest do
         assert M.numeric_candidates("978", opts) == expected
         assert Codec.encode(amount, opts) == expected
         assert Codec.decode(bytes, opts) == expected
+        assert Codec.decode("bad", opts) == expected
       end
 
       forged = {:error, {:forged_currency, eur1}}

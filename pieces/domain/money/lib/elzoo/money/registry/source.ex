@@ -8,8 +8,9 @@ defmodule Elzoo.Money.Registry.Source do
   (ELZ-031 proposal §3.3–3.5): every current row with a code gives an active
   identity; `N.A.` stays `:not_applicable`; a historic-only code is retired and
   keeps an exponent recorded by a prior version, else `:not_recorded`; a code
-  that was active before takes its withdrawal only from new historic rows, else
-  `:not_recorded`; a code
+  that was active before takes its withdrawal only from historic rows not held in
+  any earlier version, else `:not_recorded`, and keeps that status until new
+  evidence appears; a code
   known before and absent now is retained as retired; no entry is ever removed;
   active numeric codes are unique within a version.
   """
@@ -181,24 +182,42 @@ defmodule Elzoo.Money.Registry.Source do
         {alpha, %{prior | status: status, rows: [], retained: true}}
       end
 
-    snapshot = active |> Map.merge(retired) |> Map.merge(retained)
+    snapshot =
+      active
+      |> Map.merge(retired)
+      |> Map.merge(retained)
+      |> Map.new(fn {alpha, e} -> {alpha, Map.put(e, :seen, seen(Map.get(previous, alpha), e))} end)
+
     missing = Map.keys(previous) -- Map.keys(snapshot)
     if missing != [], do: raise(ArgumentError, "fold would delete #{inspect(missing)}")
     snapshot
   end
 
-  # A code active in the previous version and retired now takes its withdrawal
-  # only from historic rows the previous version did not already hold (those
-  # older rows are country-level withdrawals of a still-active code). Without new
-  # evidence the withdrawal is :not_recorded, never an older row's date.
-  defp retirement(%{status: :active, rows: prior_rows}, rows) do
-    case rows -- Enum.filter(prior_rows, &(&1.table == :historic)) do
-      [] -> {:retired, :not_recorded}
-      fresh -> {:retired, latest_withdrawal(fresh)}
-    end
+  # `seen` accumulates every historic row held for a code in any version so far
+  # (a multiset), so a row is new evidence only once.
+  defp seen(nil, entry), do: Enum.filter(entry.rows, &(&1.table == :historic))
+
+  defp seen(previous, entry) do
+    prior = Map.get(previous, :seen, [])
+    prior ++ (Enum.filter(entry.rows, &(&1.table == :historic)) -- prior)
   end
 
-  defp retirement(_previous, rows), do: {:retired, latest_withdrawal(rows)}
+  # Withdrawal of a retired code. In the first held version every historic row
+  # counts. Later, only historic rows not seen in any earlier version are new
+  # evidence: a code that was active and has no new row is :not_recorded (older
+  # rows are country-level withdrawals of a still-active code), and a retired
+  # code without a new row keeps its status, :not_recorded included.
+  defp retirement(nil, rows), do: {:retired, latest_withdrawal(rows)}
+
+  defp retirement(previous, rows) do
+    case {previous.status, rows -- Map.get(previous, :seen, [])} do
+      {:active, []} -> {:retired, :not_recorded}
+      {:active, fresh} -> {:retired, latest_withdrawal(fresh)}
+      {{:retired, _} = status, []} -> status
+      {{:retired, :not_recorded}, fresh} -> {:retired, latest_withdrawal(fresh)}
+      {{:retired, prior}, fresh} -> {:retired, latest_withdrawal([%{withdrawal: prior} | fresh])}
+    end
+  end
 
   defp entry(alpha, numeric, minor, status, rows, retained),
     do: %{

@@ -400,8 +400,49 @@ defmodule Elzoo.MoneyTest do
           do:
             assert({:error, {:malformed_amount, _}} = M.from_decimal(eur, bad, :down), inspect(bad))
 
-      assert {:error, {:malformed_amount, %{magnitude: _}}} =
+      assert {:error, {:scale_overflow, %{alpha: "EUR"}}} =
                M.from_decimal(eur, %Decimal{sign: 1, coef: 1, exp: 38}, :down)
+    end
+
+    test "the declared amount range: |minor units| < 10^38 everywhere, so every amount replays" do
+      eur = currency!("EUR")
+      max = Integer.pow(10, 38) - 1
+
+      overflow =
+        {:error, {:scale_overflow, %{alpha: "EUR", minor_units_bound: Integer.pow(10, 38)}}}
+
+      assert M.bound() == Integer.pow(10, 38)
+
+      for edge <- [max, -max] do
+        assert {:ok, a} = M.from_minor_units(eur, edge)
+        assert {:ok, bytes} = Elzoo.Money.Codec.encode(a)
+        assert byte_size(bytes) <= 128
+        assert Elzoo.Money.Codec.decode(bytes) == {:ok, a}
+        assert {:ok, ^a} = M.from_decimal_string(eur, elem(M.to_decimal_string(a), 1))
+      end
+
+      for beyond <- [Integer.pow(10, 38), -Integer.pow(10, 38), Integer.pow(10, 100)],
+          do: assert(M.from_minor_units(eur, beyond) == overflow)
+
+      {:ok, big} = M.from_minor_units(eur, max)
+      {:ok, one} = M.from_minor_units(eur, 1)
+      {:ok, minus_big} = M.negate(big)
+      assert M.add(big, one) == overflow
+      assert M.subtract(minus_big, one) == overflow
+      assert {:ok, %Amount{minor_units: ^max}} = M.add(big, %Amount{one | minor_units: 0})
+      assert M.round(big, 0, :up) == overflow
+      assert {:ok, _} = M.round(big, 0, :down)
+      hand_built = %Amount{currency: eur, minor_units: Integer.pow(10, 100)}
+
+      for result <- [
+            M.add(hand_built, one),
+            M.negate(hand_built),
+            Elzoo.Money.Codec.encode(hand_built)
+          ],
+          do: assert(result == overflow)
+
+      too_long = "elzoo-money/1 2026-09-17 EUR 978 2 " <> Integer.to_string(Integer.pow(10, 38))
+      assert Elzoo.Money.Codec.decode(too_long) == {:error, {:malformed_amount, too_long}}
     end
 
     test "rounding at a declared scale with every mode" do

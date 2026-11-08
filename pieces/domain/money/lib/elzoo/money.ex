@@ -137,7 +137,7 @@ defmodule Elzoo.Money do
          :ok <- member(registry, currency, requested),
          :ok <- scalable(currency) do
       if is_integer(minor_units),
-        do: {:ok, %Amount{currency: currency, minor_units: minor_units}},
+        do: bounded(currency, minor_units),
         else: {:error, {:malformed_amount, minor_units}}
     end
   end
@@ -160,8 +160,7 @@ defmodule Elzoo.Money do
       else
         bounded(
           currency,
-          sign * String.to_integer(digits <> String.pad_trailing(fraction, exponent, "0")),
-          text
+          sign * String.to_integer(digits <> String.pad_trailing(fraction, exponent, "0"))
         )
       end
     end
@@ -202,7 +201,7 @@ defmodule Elzoo.Money do
           do: sign * coefficient * Integer.pow(10, shift),
           else: divide(sign * coefficient, Integer.pow(10, -shift), mode)
 
-      bounded(currency, minor, decimal)
+      bounded(currency, minor)
     end
   end
 
@@ -216,10 +215,16 @@ defmodule Elzoo.Money do
 
   defp decimal_fields(other), do: {:error, {:malformed_amount, other}}
 
-  defp bounded(currency, minor, input) do
+  @doc "Every amount satisfies `abs(minor_units) < bound()` (10^38)."
+  def bound, do: @bound
+
+  # The declared integer range of every amount, at construction and after every
+  # arithmetic or rounding step: |minor units| < 10^38, else scale_overflow. It
+  # keeps every accepted amount within the codec's byte limit.
+  defp bounded(currency, minor) do
     if abs(minor) < @bound,
       do: {:ok, %Amount{currency: currency, minor_units: minor}},
-      else: {:error, {:malformed_amount, %{magnitude: input}}}
+      else: {:error, {:scale_overflow, %{alpha: currency.alpha, minor_units_bound: @bound}}}
   end
 
   # ── arithmetic (Cure) ───────────────────────────────────────────────────
@@ -258,7 +263,7 @@ defmodule Elzoo.Money do
          :ok <- amount(registry, left, requested),
          :ok <- amount(registry, right, requested) do
       case apply(@cure, operation, [cure(left), cure(right)]) do
-        {:MoneyOk, {:MoneyAmount, _, minor}} -> {:ok, %Amount{left | minor_units: minor}}
+        {:MoneyOk, {:MoneyAmount, _, minor}} -> bounded(left.currency, minor)
         {:MoneyRejected, {:MoneyCurrencyMismatch, _, _}} -> mismatch(left, right)
       end
     end
@@ -328,7 +333,7 @@ defmodule Elzoo.Money do
          :ok <- mode(mode),
          :ok <- scale(value.currency, scale) do
       factor = Integer.pow(10, value.currency.minor_unit - scale)
-      {:ok, %Amount{value | minor_units: divide(value.minor_units, factor, mode) * factor}}
+      bounded(value.currency, divide(value.minor_units, factor, mode) * factor)
     end
   end
 
@@ -466,12 +471,19 @@ defmodule Elzoo.Money do
 
   defp scalable(%Currency{alpha: alpha}), do: {:error, {:retired_currency, alpha}}
 
+  defp amount(_registry, %Amount{currency: c, minor_units: minor}, _requested)
+       when is_integer(minor) and abs(minor) >= @bound,
+       do: {:error, {:scale_overflow, %{alpha: alpha_of(c), minor_units_bound: @bound}}}
+
   defp amount(registry, %Amount{currency: currency, minor_units: minor}, requested)
        when is_integer(minor) do
     with :ok <- member(registry, currency, requested), do: scalable(currency)
   end
 
   defp amount(_registry, other, _requested), do: {:error, {:malformed_amount, other}}
+
+  defp alpha_of(%Currency{alpha: alpha}), do: alpha
+  defp alpha_of(_), do: nil
 
   defp cure(%Amount{currency: c, minor_units: minor}),
     do:

@@ -57,7 +57,7 @@ ELZ-050's merged decision record at `origin/main:docs/plans/catalogue-dispositio
 - `git show origin/task/ELZ-050:docs/plans/catalogue-dispositions.md`: 1, ref no longer exists; `git show origin/main:docs/plans/catalogue-dispositions.md`: 0, merged record read instead. `git show 97d9312:docs/plans/catalogue-dispositions.md`: 128, not present at old branch base.
 - `git merge-base origin/main 97d9312` and `git diff --name-status <merge-base> 97d9312`: 0; `git merge-base --is-ancestor 97d9312 origin/main`: 1 (not ancestor). `git show 97d9312:mix.lock | rg '"decimal"'`: 0.
 - `curl -L -sS --max-time 25` for SIX terms and Decimal 3.2.0 documentation, each piped to HTML text extraction: 0; no legal opinion or independently reproduced provider test.
-- `orca skills get orchestration` using bare executable: 1, `Unable to determine application path from symlink: the orchestration CLI symlink`; session the session CLI-path variable points to `the orchestration CLI binary`, whose `skills get orchestration` succeeds, exit 0.
-- No repository file changed; existing untracked `.reticle-setup-crash.log` was present. Report written only under `/tmp`. No Mix command run.
+- the agent-platform CLI's skill lookup using its bare executable: 1, `Unable to determine application path from symlink: the orchestration CLI symlink`; the session CLI-path variable points to the orchestration CLI binary, whose skill lookup succeeds, exit 0.
+- No repository file changed; existing untracked `.reticle-setup-crash.log` was present. Report written only outside the repository. No Mix command run.
 
 NOT CLEAR

@@ -37,14 +37,12 @@ defmodule Elzoo.Money.Codec do
     registry = Keyword.get(opts, :registry, Registry.default())
     requested = Keyword.get(opts, :version)
 
-    with {:ok, version, alpha, numeric, exponent, minor} <- fields(bytes) do
+    # An explicit version is validated before the bytes are parsed.
+    with :ok <- requested_version(opts, registry, requested),
+         {:ok, version, alpha, numeric, exponent, minor} <- fields(bytes) do
       entry = Registry.entry(registry, version, alpha)
 
       cond do
-        Keyword.has_key?(opts, :version) and
-            not (is_binary(requested) and Registry.held?(registry, requested)) ->
-          {:error, {:unknown_registry_version, requested}}
-
         not Registry.held?(registry, version) ->
           {:error, {:unknown_registry_version, version}}
 
@@ -67,6 +65,15 @@ defmodule Elzoo.Money.Codec do
     end
   end
 
+  defp requested_version(opts, registry, requested) do
+    if Keyword.has_key?(opts, :version) and
+         not (is_binary(requested) and Registry.held?(registry, requested)),
+       do: {:error, {:unknown_registry_version, requested}},
+       else: :ok
+  end
+
+  # Every accepted amount satisfies |minor units| < 10^38 (Elzoo.Money), so its
+  # bytes are at most 75 bytes; 128 is the decode limit.
   defp fields(bytes) when is_binary(bytes) and byte_size(bytes) <= 128 do
     with [@tag, version, alpha, numeric, exponent, minor] <- String.split(bytes, " "),
          true <- Regex.match?(~r/\A\d{4}-\d{2}-\d{2}\z/, version),
@@ -74,8 +81,11 @@ defmodule Elzoo.Money.Codec do
          true <- Regex.match?(~r/\A\d{3}\z/, numeric),
          true <- Regex.match?(~r/\A(0|[1-9][0-9]?)\z/, exponent),
          true <- Regex.match?(~r/\A(0|-?[1-9][0-9]*)\z/, minor) do
-      {:ok, version, alpha, String.to_integer(numeric), String.to_integer(exponent),
-       String.to_integer(minor)}
+      units = String.to_integer(minor)
+
+      if abs(units) < Money.bound(),
+        do: {:ok, version, alpha, String.to_integer(numeric), String.to_integer(exponent), units},
+        else: {:error, {:malformed_amount, bytes}}
     else
       _ -> {:error, {:malformed_amount, bytes}}
     end
