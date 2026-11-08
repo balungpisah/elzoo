@@ -165,11 +165,12 @@ defmodule Elzoo.EffectIntent do
     end
   end
 
-  def handle_call({:observe, result}, _, s) do
+  def handle_call({:observe, result}, _, s) when is_map(result) do
     {reply, s} = observe_result(s, result)
     {:reply, reply, s}
   end
 
+  def handle_call({:observe, _}, _, s), do: {:reply, {:error, :invalid_observation}, s}
   def handle_call(_, _, s), do: {:reply, {:error, :command}, s}
 
   defp advance_event(s, :Arm) do
@@ -321,7 +322,7 @@ defmodule Elzoo.EffectIntent do
          }, detail}
 
       :error ->
-        {:unclassified, :unknown}
+        {:observed, {:unclassified, :unknown}}
     end
   end
 
@@ -329,9 +330,9 @@ defmodule Elzoo.EffectIntent do
   # A send callback returning a poll-shaped value is an invalid observation.
   defp translate(_, {kind, _}, _, :send)
        when kind in [:pending, :unavailable, :unknown_to_provider, :no_effect],
-       do: {:invalid_send_evidence, kind}
+       do: {:observed, {:invalid_send_evidence, kind}}
 
-  defp translate(_, result, _, _), do: result
+  defp translate(_, result, _, _), do: {:observed, result}
 
   defp observe_result(s, {:from_adapter, n, {:mapped, envelope, detail}}) do
     with {:ok, _} <- Elzoo.Envelope.validate_result(envelope) do
@@ -341,7 +342,7 @@ defmodule Elzoo.EffectIntent do
     end
   end
 
-  defp observe_result(s, {:from_adapter, n, {kind, evidence}})
+  defp observe_result(s, {:from_adapter, n, {:observed, {kind, evidence}}})
        when kind in [:pending, :unavailable, :unknown_to_provider, :no_effect] do
     # Poll evidence still requires binding authentication, even from our task.
     req = request(s, n)
@@ -364,7 +365,7 @@ defmodule Elzoo.EffectIntent do
     end
   end
 
-  defp observe_result(s, {:from_adapter, n, result}) do
+  defp observe_result(s, {:from_adapter, n, {:observed, result}}) do
     case observe_envelope(s, result) do
       {:error, :invalid_observation} -> observe_event(s, :Refused, n, :invalid_observation)
       other -> other

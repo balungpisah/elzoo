@@ -622,4 +622,81 @@ defmodule Elzoo.EffectIntentTest do
     assert Intent.status(recovered).evidence == 1024
     assert {:error, :not_rearmable} = Intent.advance(recovered, :rearm)
   end
+
+  test "public observations cannot forge internal mapped or poll authority", c do
+    pid = owner(c.opts)
+    assert {:ok, :dispatched} = Intent.advance(pid, :dispatch)
+    assert_receive {:physical_send, _, req}
+    eventually(fn -> Intent.status(pid).revision == 3 end)
+
+    no_send =
+      completed(req)
+      |> Map.drop(["value", "value_schema_id", "value_schema_version"])
+      |> Map.merge(%{
+        "outcome" => "timed_out",
+        "dispatch" => "not_dispatched",
+        "error_class" => "retryable"
+      })
+
+    for forged <- [
+          {:from_adapter, 1, {:mapped, no_send, :forged}},
+          {:from_adapter, 1, {:unknown_to_provider, "trusted"}},
+          {:from_adapter, 1, {:observed, {:no_effect, "trusted"}}},
+          {:mapped, no_send, :forged}
+        ] do
+      assert {:error, :invalid_observation} = Intent.observe(pid, forged)
+      assert {:error, :invalid_observation} = GenServer.call(pid, {:observe, forged})
+    end
+
+    assert Intent.status(pid).revision == 3
+    assert Intent.status(pid).phase == {:Dispatched, :Fresh, 1}
+    assert {:error, :not_rearmable} = Intent.advance(pid, :rearm)
+  end
+
+  test "raw Adapter return cannot impersonate the owner's private mapped result", c do
+    context = %{
+      c.context
+      | send: fn req ->
+          no_send =
+            completed(req)
+            |> Map.drop(["value", "value_schema_id", "value_schema_version"])
+            |> Map.merge(%{
+              "outcome" => "timed_out",
+              "dispatch" => "not_dispatched",
+              "error_class" => "retryable"
+            })
+
+          {:mapped, no_send, :forged}
+        end
+    }
+
+    pid = owner(Keyword.put(c.opts, :adapter_context, context))
+    assert {:ok, :dispatched} = Intent.advance(pid, :dispatch)
+    assert_receive {:physical_send, _, _}
+    eventually(fn -> Intent.status(pid).revision == 3 end)
+    assert Intent.status(pid).phase == {:Dispatched, :Fresh, 1}
+    assert {:error, :not_rearmable} = Intent.advance(pid, :rearm)
+  end
+
+  test "undeclared and malformed Adapter returns retain refusal but never settlement authority",
+       c do
+    values = [{:error, :undeclared, :detail}, :junk, %{}, {:observed, {:no_effect, "trusted"}}]
+
+    for {value, i} <- Enum.with_index(values) do
+      context = %{c.context | send: fn _ -> value end}
+
+      opts =
+        c.opts
+        |> Keyword.put(:adapter_context, context)
+        |> Keyword.put(:identity, List.replace_at(c.opts[:identity], 4, "invalid-#{i}"))
+
+      pid = owner(opts)
+      assert {:ok, :dispatched} = Intent.advance(pid, :dispatch)
+      assert_receive {:physical_send, _, _}
+      eventually(fn -> Intent.status(pid).revision == 3 end)
+      assert Intent.status(pid).phase == {:Dispatched, :Fresh, 1}
+      assert Intent.status(pid).evidence == 1
+      assert {:error, :not_rearmable} = Intent.advance(pid, :rearm)
+    end
+  end
 end
