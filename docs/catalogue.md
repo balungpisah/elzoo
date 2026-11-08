@@ -46,6 +46,17 @@ ELZ-027 (schedule occurrence), ELZ-028 (writer lease), ELZ-029 (OS-process
 Adapter), ELZ-030 (context selection) and ELZ-031 (money amounts), plus
 design tests on open tasks and reason text on deferred handles.
 
+ELZ-050 records the owner's admission rule of 2026-11-08: every planned and
+deferred entry is part of the build plan, not a parking lot; demand-led
+admission applies only to gaps found outside the catalogue; adopt a maintained
+library by default, and copy or clean-room only for a concrete recorded reason.
+Before claiming any planned or deferred entry, read its record in
+[catalogue dispositions](plans/catalogue-dispositions.md): disposition with
+reason, library and version or clean-room idea source, the owner decision it
+rests on, dependencies, caller and invariant, and open questions. Those
+records are admission decisions, not readiness; the inventory table below and
+the generated ledger are unchanged by them.
+
 ## Dispositions and grounding
 
 | Disposition | Meaning | Who owns the risk |
