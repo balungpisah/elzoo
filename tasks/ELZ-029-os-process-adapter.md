@@ -20,18 +20,38 @@ state machine and result schema, not security isolation.
    deadline, grace period, limits `{max_concurrent, queue_limit,
    queue_timeout}`. Outputs: `completed{exit_code, output}` (a non-zero exit
    is a completed result, not an Adapter error), `rejected{queue_full |
-   queue_timeout}` (not dispatched), `terminated{stage: term | kill,
-   deadline}`, `unknown` when the liveness check itself fails; mapped to the
+   queue_timeout | spawn_failed | cancelled}` (not dispatched; `spawn_failed`
+   only where no command was dispatched; `cancelled` only where a queued
+   command was not dispatched), `expired{deadline}` when the declared deadline
+   passed before dispatch (while queued or at dispatch; not dispatched),
+   `terminated{stage: none | term | kill, deadline}` (`none` only when the
+   first group observation at termination time already found no member, so no
+   signal was sent), `unknown` when the liveness check itself fails, or when
+   the group is still observed alive after the kill stage within the Adapter's
+   bounded reap wait (cleanup not established); mapped to the
    core/envelope result matrix as `completed` (any exit code) →
    `completed/dispatched`, `rejected{…}` → `rejected/not_dispatched`,
-   `terminated` on deadline → `timed_out/dispatched` carrying the stage,
-   liveness-check failure → `unknown/dispatched`. Invariants: the
+   `expired` → `timed_out/not_dispatched`, `terminated` on deadline →
+   `timed_out/dispatched`, paired with the Adapter result carrying the
+   observed stage; the shared delivery-result map remains unchanged and has no
+   stage field; `terminated` on explicit cancellation, caller death or death
+   of the collecting BEAM process → `failed/dispatched`, paired with the
+   Adapter result carrying the observed stage; only report definitive
+   termination when it is observed, and partial external Effects remain
+   possible; liveness-check failure → `unknown/dispatched`. Invariants: the
    spawned process is a process-group leader; termination signals the group,
    waits the grace period and escalates only if the group is still alive; the
    escalation stage reached is reported, never assumed; cleanup runs even if
    the owning BEAM process dies; a process that leaves its group is a
    declared residual. Non-goals: security isolation, shell parsing, path
-   confinement (domain/authorization).
+   confinement (domain/authorization). Needs: the executable path (and its
+   version, recorded by the composing task), the working directory, an
+   explicit environment allowlist (names inherited from the host plus names
+   set per call; everything else is unset for the child), and the host `kill`
+   and `pgrep` utilities used for signalling and group observation.
+   Executable versions for the Claude Code CLI and the Codex CLI are recorded
+   by the task that composes them (`integration/agent-runner`), not by this
+   Adapter.
 3. **Reuse check.** OTP `Port` and `System.cmd` spawn; no maintained library
    owns group-scoped termination with staged escalation across BSD and procps
    `kill` variants. Elzoo owns the state machine and result schema; signal
