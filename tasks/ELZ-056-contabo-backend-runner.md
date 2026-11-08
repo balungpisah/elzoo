@@ -12,7 +12,7 @@
 The owner rents a mostly idle Contabo VPS (`ratahq-ci-contabo-01`, Ubuntu 24.04, 8 cores,
 23 GiB RAM) and decided on 2026-11-08 to use it for Elzoo CI. A repository-scoped runner
 `contabo-elzoo-1` (runner id 24) is installed and online with labels `self-hosted`, `Linux`,
-`X64`, `elzoo`, `contabo`. It has **no** `backend` label, so no job is routed to it. This task
+`X64`, `elzoo`, `contabo`. It had **no** `backend` label when this task opened, so no job was routed to it. This task
 makes the repository accept the runner name, so a coordinator-run trial can add the label.
 
 ## Scope
@@ -43,7 +43,8 @@ job container (to show the Docker wrapper cap applies to real job containers).
 ## Acceptance
 
 - [ ] `python3 scripts/check-ci-runners.py`, `scripts/test-ci-runners.py` and
-      `scripts/test-merge-queue.py` pass; new controls fail on the old guard.
+      `scripts/test-merge-queue.py` pass. The old guard rejects the new workflow shape; the new
+      controls pin the new shape (not all of them fail on the old guard).
 - [ ] Independent review (separate agent session): identity, reviewed SHA, findings recorded on the PR.
 - [ ] Trial evidence above recorded in the issue before merge.
 - [ ] Full `mix check` on the PR head and on the merge commit, with runner identity shown.

@@ -1,6 +1,6 @@
-# CI on user-owned machines
+# CI on the owner's machines
 
-Elzoo uses only user-owned Linux machines: `symbolic`, `macbook-ubuntu` and, from
+Elzoo uses only the owner's Linux machines: the user-owned `symbolic` and `macbook-ubuntu` and, from
 ELZ-056 (owner decision 2026-11-08), the user-rented Contabo VPS `ratahq-ci-contabo-01`
 (runner `contabo-elzoo-1`, a candidate until a trial passes). GitHub provides scheduling
 and check reporting; it does not supply compute.
@@ -17,9 +17,9 @@ offline, diagnose it or let work queue on the other approved runner.
   is in the normal backend pool. The name and `ci-candidate` label are
   historical; they do not select a separate route.
 - `contabo-elzoo-1` (runner id 24): **candidate, not routed.** Labels `self-hosted`,
-  `Linux`, `X64`, `elzoo`, `contabo`; it has no `backend` label until a trial passes
-  (see "Contabo VPS" below). The workflow identity gate already accepts its name, so
-  adding the label later is the only routing change.
+  `Linux`, `X64`, `elzoo`, `contabo`; it has no `backend` label until a trial
+  passes (see "Contabo VPS" below). The workflow identity gate already accepts its name, so
+  adding the label is the only routing change.
 - `symbolic-elzoo-gleam`: Gleam only; labels `self-hosted`, `linux`, `x64`,
   `symbolic`, `elzoo`, `gleam`.
 
@@ -32,8 +32,10 @@ selection; a skipped job is not validation and must not be treated as evidence
 for merging a fork. This does not make arbitrary same-repository code trustworthy.
 The first container step refuses any backend `RUNNER_NAME` other than the three
 names above (`symbolic-elzoo`, `macbook-ubuntu-elzoo-candidate`, `contabo-elzoo-1`);
-`scripts/check-ci-runners.py` pins that whole step text, so a fourth name or changed
-`ERL_FLAGS` fails the guard. `scripts/merge-queue.py` accepts the same three names as
+`scripts/check-ci-runners.py` pins the lines of that step, so adding a fourth case arm,
+changing a runner name or changing the `ERL_FLAGS` value in an arm fails the guard. It does
+not read script text after the gate or the job-level `env: ERL_FLAGS`, so a later line
+could still override `ERL_FLAGS`; independent review of workflow changes covers that. `scripts/merge-queue.py` accepts the same three names as
 backend job evidence; Gleam evidence stays symbolic-only. The Gleam selector stays symbolic-only. A new backend machine
 needs a full task-branch check and independent review before it gets `backend`.
 Registration is repository-scoped; administrators must assign these labels only
@@ -466,10 +468,15 @@ state. This record covers `symbolic` only.
 
 ### Contabo VPS `ratahq-ci-contabo-01` (ELZ-056)
 
-Status: **candidate until proven.** The runner is online but has no `backend` label, so no
-job is routed to it. The label is added only after a full trial passes on the exact head
-(run and job IDs, duration, cgroup peak, sampled CPU, and `cpu.max`/`memory.max` read from
-inside the job container). Trial evidence is recorded in the ELZ-056 issue before merge.
+Status: **candidate until proven.** When ELZ-056 was opened the runner was online with no
+`backend` label, so no job was routed to it. The coordinator adds the label **for the trial**
+and steers the other runners so the trial job lands here; while the label is present, other
+backend jobs may also land on this unproven machine until the label is removed or the trial
+passes. The trial run records run and job IDs, duration, cgroup peak, sampled CPU, and
+`cpu.max`/`memory.max` read from inside the job container, in the ELZ-056 issue before
+merge. Update this status line with the trial result; a failed trial means removing the label.
+Host facts and the `cpu.max` test below come from the worker's SSH inspection on 2026-11-08,
+not from files in this repository.
 
 Owner decision (2026-11-08), quoted: "u may remove/rename those ci ratahq. i dont use it
 anymore. use it for this development". The owner rents this machine. It runs production
@@ -483,8 +490,9 @@ already installed; the Ubuntu `docker.io` package was not swapped in because tha
 disturb the production containers). Other workloads: nginx on ports 80 and 443 and four
 containers (`balungpisah-core`, `balungpisah-tensorzero`, `balungpisah-minio`,
 `balungpisah-postgres`). Headroom was about 22 GiB of RAM and an idle CPU. The other Contabo host in the
-owner's SSH config (`ratahq-dev-contabo-01`, 3 cores, 7.8 GiB) was rejected: it is below
-the 4 core / 8 GiB minimum.
+owner's SSH config (`ratahq-dev-contabo-01`, 3 cores, 7.8 GiB) was rejected: it
+is below the selection rule used for ELZ-056 (at least 4 cores, 8 GiB RAM and 40 GB free
+disk), which is not a repository requirement for the other runners.
 
 Runner: version 2.338.2, tarball SHA-256
 `baebf204307bac6193480852732f0aba2ae97b6c5597c244f4d5558390147c40` (verified; equal to the
@@ -513,10 +521,18 @@ service, so a systemd cap on the service does not limit them. Two caps apply:
   and `memory.max` `8589934592` inside a container. That test is not yet a job observation:
   the trial must show the same values inside the real job container.
 
-The cap leaves about 3 cores and 13 GiB for the production workloads. Memory observed on the
-other runners (2.1 to 2.8 GiB cgroup peak, 3.3 to 5.0 sampled cores) fits inside it, though a CPU peak near 5 cores may be throttled. A job
-that reaches 8 GiB is killed by the kernel; that is the intended protection, not a failure
-of the host.
+The runner runs one job at a time, so the job container cap is the practical limit: it
+leaves about 3 cores and 15 GiB (23 GiB minus 8 GiB) for the production workloads. The
+service cap covers only the runner's own processes and does not add to the container cap;
+worst case with both at their limits is 10 GiB plus 8 GiB. Memory observed on the other
+runners (2.1 to 2.8 GiB cgroup peak, 3.3 to 5.0 sampled cores) fits inside the container cap,
+though a CPU peak near 5 cores may be throttled. A job that reaches 8 GiB is killed by the
+kernel; that is the intended protection, not a failure of the host.
+
+**Limit of the cap.** The wrapper caps only containers that the runner creates through its
+`PATH`. The runner mounts the Docker socket into job containers, so code inside a job can
+start containers with no cap, or reach the production containers. The cap is a guard
+against accidents and runaway builds, not isolation from hostile code.
 
 **Network.** The pinned `ubuntu:24.04` image is pulled by digest. Inside a container
 `builds.hex.pm`, `repo.hex.pm` and `github.com` resolve over IPv4 and answer HTTPS 200.

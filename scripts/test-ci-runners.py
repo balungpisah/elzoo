@@ -416,10 +416,16 @@ class RunnerPolicyTest(unittest.TestCase):
                     self.CONTABO_CASE + "            other-runner) ;;\n")
         self.assertIn("approved runner identity gate is missing or changed", self.check(1).stderr)
 
-    def test_contabo_case_does_not_change_runs_on(self):
-        source = (self.root / ".github" / "workflows" / "symbolic-check.yml").read_text()
-        self.assertIn("    runs-on: [self-hosted, linux, x64, elzoo, backend]\n", source)
-        self.assertNotIn("contabo]", source)
+    def test_contabo_label_in_runs_on_rejected(self):
+        # The candidate is not routed: adding its label to the selector must fail the guard.
+        for selector in ("[self-hosted, linux, x64, elzoo, backend, contabo]",
+                         "[self-hosted, linux, x64, elzoo, contabo]",
+                         "[self-hosted, linux, x64, elzoo, contabo, backend]"):
+            with self.subTest(selector=selector):
+                self.change("symbolic-check.yml", "[self-hosted, linux, x64, elzoo, backend]", selector)
+                self.assertIn("every job must use", self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
 
 
 if __name__ == "__main__":
