@@ -761,6 +761,47 @@ defmodule Elzoo.LeaseTest do
     assert {:committed, 1} = Task.await(confirmer, 5_000)
   end
 
+  test "confirm/2 is a bounded read while the Memory owner is occupied" do
+    test = self()
+
+    hook = fn
+      :before_write, %{key: "b", owner: owner} ->
+        send(test, {:blocked_before_write, owner})
+
+        receive do
+          :release_before_write -> :ok
+        after
+          10_000 -> raise "owner remained blocked after the confirmation timeout"
+        end
+
+      _, _ ->
+        :ok
+    end
+
+    %{lease: lease, store: store} = TestHelper.memory(timeout_ms: 20, hook: hook)
+
+    assert {:held, _} = Lease.claim(lease, "a", "alice", @minute)
+
+    [row] = TestHelper.rows(store, "a")
+    writer = Task.async(fn -> Lease.claim(lease, "b", "bob", @minute) end)
+
+    owner =
+      receive do
+        {:blocked_before_write, owner} -> owner
+      after
+        5_000 -> raise "owner did not block before the competing write"
+      end
+
+    confirmer =
+      Task.async(fn ->
+        Lease.confirm(lease, %{stream: "a", expected: 0, nonce: row.nonce, records: [row]})
+      end)
+
+    assert {:error, :contended} = Task.await(confirmer, lease.backend.timeout + 6_000)
+    send(owner, :release_before_write)
+    assert {:held, _} = Task.await(writer, 5_000)
+  end
+
   test "LS27 duplicate owners on the double are rejected; the owner's section serializes" do
     %{lease: lease, store: store, clock: clock} = TestHelper.memory()
 

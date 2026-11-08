@@ -84,15 +84,23 @@ defmodule Elzoo.Lease.Memory do
   # be reported for a request that still commits. Only the read-only call
   # times out (`:contended`).
   defp call(backend, {:read, _} = message) do
-    GenServer.call(backend.owner, message, backend.timeout + 5_000)
-  catch
-    :exit, {:timeout, _} -> {:error, :contended}
-    :exit, _ -> {:error, :unavailable}
+    read_call(backend, message)
+  end
+
+  defp call(backend, {:confirm, _, _, _, _} = message) do
+    read_call(backend, message)
   end
 
   defp call(backend, message) do
     GenServer.call(backend.owner, message, :infinity)
   catch
+    :exit, _ -> {:error, :unavailable}
+  end
+
+  defp read_call(backend, message) do
+    GenServer.call(backend.owner, message, backend.timeout + 5_000)
+  catch
+    :exit, {:timeout, _} -> {:error, :contended}
     :exit, _ -> {:error, :unavailable}
   end
 
