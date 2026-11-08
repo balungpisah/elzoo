@@ -93,7 +93,9 @@ defmodule Elzoo.OsProcessProviderFailureTest do
     port = :sys.get_state(:exec) |> elem(1)
     {:os_pid, port_os_pid} = :erlang.port_info(port, :os_pid)
     on_exit(fn -> System.cmd(@kill, ["-s", "KILL", "--", "-#{os_pid}"], stderr_to_stdout: true) end)
-    {_, 0} = System.cmd(@kill, ["-s", "KILL", Integer.to_string(port_os_pid)], stderr_to_stdout: true)
+
+    {_, 0} =
+      System.cmd(@kill, ["-s", "KILL", Integer.to_string(port_os_pid)], stderr_to_stdout: true)
 
     assert_receive {OsProcess, ^ref,
                     %{status: :unknown, reason: :port_closed, members: members, os_pid: ^os_pid}},
