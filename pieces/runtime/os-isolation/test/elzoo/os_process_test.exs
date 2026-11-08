@@ -558,11 +558,12 @@ defmodule Elzoo.OsProcessTest do
       end
 
     Process.exit(pid, :kill)
-    os_pid = os_pid_of(sup, ref)
-    assert is_integer(os_pid)
-    assert :ok = wait_empty(os_pid)
+    # The run may be stopped and its registry row removed before a poll could read the OS pid,
+    # so the test observes the provider's child list instead: a `sleep 30` that was not stopped
+    # would still be listed after 5 s.
     assert :ok = wait_until(fn -> :exec.which_children() -- before == [] end, 5_000)
     assert :ok = wait_until(fn -> OsProcess.snapshot(sup).in_flight == 0 end, 5_000)
+    assert :ok = wait_until(fn -> OsProcess.info(sup, ref) == nil end, 5_000)
   end
 
   test "T10 the provider refuses the request before fork: rejected{spawn_failed}, no child exists" do
