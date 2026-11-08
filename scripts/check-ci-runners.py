@@ -17,6 +17,12 @@ expected_triggers = [
     "  pull_request:",
     "  workflow_dispatch:",
 ]
+# ELZ-060: the Gleam job installs the pinned compiler through the release-asset API with the job token;
+# the token is exposed to this one step only.
+GLEAM_SETUP_STEP = """      - name: Install the pinned Gleam compiler
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./scripts/setup.sh"""
 digest_image = re.compile(r'\s+image:\s*[^\s@\'"]+@sha256:[0-9a-f]{64}\s*')
 # ELZ-043: every action is pinned by a full commit SHA; a tag or branch can move.
 pinned_action = re.compile(r'\s*(?:-\s+)?uses:\s*[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*@[0-9a-f]{40}(?:\s+#.*)?')
@@ -238,6 +244,15 @@ for file in files:
                 or next_step is None
                 or any(lines[i].strip() and i not in skip for i in range(after_gate, next_step))):
             errors.append(f'{file}: approved runner identity gate is missing or changed')
+    # Token exposure: github.token and secrets appear nowhere except the one pinned Gleam setup step.
+    token_lines = [i for i, line in enumerate(lines) if 'github.token' in line or 'secrets.' in line]
+    if file.name == 'symbolic-gleam.yml':
+        step = GLEAM_SETUP_STEP.split('\n')
+        starts = [i for i in range(len(lines)) if lines[i:i + len(step)] == step]
+        if len(starts) != 1 or starts[0] in skip or token_lines != [starts[0] + 2]:
+            errors.append(f'{file}: the pinned Gleam setup step is missing or changed, or the token appears elsewhere')
+    elif token_lines:
+        errors.append(f'{file}: github.token and secrets are not allowed in this workflow')
     if file.name == 'symbolic-check.yml' and any(
             re.match(r'\s*(?:-\s+)?(?:defaults|shell|continue-on-error)\s*:', line) for line in yaml_lines):
         errors.append(f'{file}: defaults:, shell: and continue-on-error: could disable the runner identity gate')
