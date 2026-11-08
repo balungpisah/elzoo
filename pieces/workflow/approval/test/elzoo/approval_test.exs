@@ -174,6 +174,14 @@ defmodule Elzoo.ApprovalTest do
     assert info.definition == :"Elzoo.ApprovalNegHole#release_within_approver"
   end
 
+  # ELZ-062 (owner approval 2026-11-08, time limit only): this Cure proof check (the stack of its timeout is
+  # in Cure.Core.Normalise and Cure.Core.Conv) exceeded the 120 s default on contabo-elzoo-1 in both full
+  # runs of the same tree: runs 42484236992 and 42492726966. Measured under the full suite with the limits
+  # raised (branch measure/ELZ-062, `mix test --slowest`): 39.1 s on symbolic-elzoo (run 42500718766),
+  # 45.3 s on macbook-ubuntu-elzoo-candidate (42497402091) and 93.1 s on contabo-elzoo-1 (42497486307).
+  # The spread on the same machine is large (above 120 s twice, 93.1 s once). 300 s is a margin over these
+  # times, not a performance target; the assertions are unchanged.
+  @tag timeout: 300_000
   test "negative control: dropping g_self from the gate list is rejected inside self_approval_refused" do
     from = "[g_approver(e, ctx), g_self(e, ctx), g_decide(current(ctx))"
 
