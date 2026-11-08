@@ -130,7 +130,20 @@ defmodule Elzoo.ExportTest do
 
   # PostgreSQL consumers share one disposable CI database: in sequence, here. The
   # database-free consumers run from test/consumer_group_{a,b,c}_test.exs (ELZ-049).
-  Elzoo.CureConsumerCase.consumer_tests(Elzoo.CureConsumerCase.postgres_consumer_ids())
+  # ELZ-062 (owner approval 2026-11-08, time limit only): `assembly/durable-job` alone gets 300 s. It exceeded
+  # the 120 s default on contabo-elzoo-1 in runs 42484236992 and 42492726966. Measured under the full suite with
+  # the limits raised (branch measure/ELZ-062): 77.6 s on symbolic-elzoo (run 42500718766), 91.3 s on
+  # macbook-ubuntu-elzoo-candidate (42497402091) and 128.7 s on contabo-elzoo-1 (42497486307); earlier
+  # full runs on the fast runners took 71.2 s and 83.4 s (consumer totals); on the GitHub-hosted runner (ubuntu-24.04, run
+  # 42522317222, job 128858289534) it took 79.0 s, 66 percent of the 120 s default. 300 s is 2.3 times the slowest
+  # measured time. The other two PostgreSQL consumers keep 120 s (integration/sql 18.8, 26.1 and 52.8 s; integration/jobs
+  # 13.9, 17.0 and 37.6 s on the same three machines).
+  @durable_job_id "assembly/durable-job"
+  Elzoo.CureConsumerCase.consumer_tests(
+    Elzoo.CureConsumerCase.postgres_consumer_ids() -- [@durable_job_id]
+  )
+
+  Elzoo.CureConsumerCase.consumer_tests([@durable_job_id], timeout: 300_000)
 
   test "affected selection only filters the existing consumer tests", ctx do
     selection =
@@ -167,13 +180,15 @@ defmodule Elzoo.ExportTest do
     assert length(per_id) == 26
     assert length(aggregate) == 1
 
-    # The per-test limits are part of the measured layout: 240 s for the concurrent groups,
-    # 120 s for the sequential PostgreSQL consumers.
+    # The per-test limits are part of the measured layout: 240 s for the concurrent groups, 120 s for the
+    # sequential PostgreSQL consumers except `assembly/durable-job` with 300 s (ELZ-062).
     for test <- per_id do
       expected =
-        if test.module == __MODULE__,
-          do: 120_000,
-          else: Elzoo.CureConsumerCase.concurrent_timeout()
+        cond do
+          test.module != __MODULE__ -> Elzoo.CureConsumerCase.concurrent_timeout()
+          test.tags.consumer_id == "assembly/durable-job" -> 300_000
+          true -> 120_000
+        end
 
       assert test.tags.timeout == expected, "#{test.tags.consumer_id} in #{inspect(test.module)}"
     end
