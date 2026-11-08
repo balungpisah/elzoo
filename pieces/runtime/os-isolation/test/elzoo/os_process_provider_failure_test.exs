@@ -88,10 +88,12 @@ defmodule Elzoo.OsProcessProviderFailureTest do
       OsProcess.submit(sup, %{executable: @sh, args: [@fixture, "sleep", "30"]}, max_run_ms: 20_000)
 
     os_pid = os_pid_of(sup, ref)
-    {out, 0} = System.cmd(@pgrep, ["-f", "exec-port"], stderr_to_stdout: true)
-    ports = String.split(out, "\n", trim: true)
+    # Only this VM's port program: its OS pid comes from the provider server's Port, never from a
+    # name match, so no other VM on the host is touched.
+    port = :sys.get_state(:exec) |> elem(1)
+    {:os_pid, port_os_pid} = :erlang.port_info(port, :os_pid)
     on_exit(fn -> System.cmd(@kill, ["-s", "KILL", "--", "-#{os_pid}"], stderr_to_stdout: true) end)
-    for p <- ports, do: System.cmd(@kill, ["-s", "KILL", p], stderr_to_stdout: true)
+    {_, 0} = System.cmd(@kill, ["-s", "KILL", Integer.to_string(port_os_pid)], stderr_to_stdout: true)
 
     assert_receive {OsProcess, ^ref,
                     %{status: :unknown, reason: :port_closed, members: members, os_pid: ^os_pid}},
