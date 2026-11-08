@@ -1258,7 +1258,7 @@
         "ELZ-003",
         "ELZ-024"
       ],
-      "status": "published; dispatch gates required",
+      "status": "implementation prepared on task/ELZ-030; coordinator retains review and merge acceptance",
       "url": "https://github.com/balungpisah/elzoo/issues/47",
       "paths": [
         "tasks/ELZ-030-context-selection.md"
@@ -1268,7 +1268,7 @@
       ],
       "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
       "issue": 47,
-      "issue_body_sha256": "07ee72158f223cf0c08c4f776986e08674ee28c4bcea29a01324b6e4678b427e",
+      "issue_body_sha256": "a8354a552fff51569162cb738268e095dcba11efec87cd7c4c5fead31148994f",
       "observed_issue_state": "OPEN",
       "owner_role": "one claimed task worker after admission",
       "product_aims": [
@@ -3601,10 +3601,12 @@
     {
       "id": "workflow/context-selection",
       "job": "ELZ-030",
-      "note": "Select bounded permitted documents/results for C6/C7; tokenizer/retrieval provider contracts and access recheck required. No assertion of model truth or memory correctness. ELZ-030 carries the admission record (window plus reservations over access-checked versioned candidates; dropped-with-reason; derived items carry provenance).",
+      "note": "Pure bounded context selection over host-owned window/reservations/current access/provenance/time/configuration: retrieval veto, bound current and transitive source access, freshness, input-relative supersession, deterministic ranking/dedupe, ordered drop reasons, window then selected-count then actual-byte caps; structural positional scheduling and one memoized final verdict per node within fixed ingress and 4096 node-plus-edge bounds.",
       "baseline_status": "deferred",
-      "disposition": "published-scoped-work",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "prepared-ready-contract; task acceptance separate",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/workflow/context-selection/piece.json",
+      "manifest_sha256": "81007ed4b12f6437e3ffa67f161f6401741aaf023b28d2db98454f5c43d74369"
     },
     {
       "id": "workflow/dependency-graph",
