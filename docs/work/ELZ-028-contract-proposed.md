@@ -147,6 +147,31 @@ Exact after (reviewer's text, verbatim):
 - [ ] A write using an expired holder's old fence is refused by revision after a replacement or other record has moved the head (test); if the head has not moved, expiry alone is not detected by the revision and does not by itself refuse that write (documented limit with a control test).
 ```
 
+### B4 — non-holder completion (new; requested by confirmation point 1)
+
+Exact before:
+
+```text
+completion from a non-holder is rejected by the record
+   revision (the fencing value), never by timestamp comparison.
+```
+
+Exact after:
+
+```text
+completion from a non-holder presenting the fence of its superseded lease is rejected by the record revision (the fencing value), never by timestamp comparison; the revision cannot distinguish a writer that obtained the current revision outside the lease interface, which is a consumer bypass outside this Contract.
+```
+
+Why an amendment and not only a design restriction: the lease interface
+hands the fence only to the holder, so every non-holder that uses the
+interface is refused by revision after a takeover (LS4, LS20); but a writer
+that reads the head directly and presents the current revision is accepted
+by the ready Store, which cannot know who holds the lease and compares no
+owner string. Restricting "non-holder" only inside the design would leave the
+Contract promising a rejection the Piece cannot deliver against that bypass;
+the R3 checkbox was narrowed for the same reason. The design records the
+limit (ELZ-028.md §2.5, §2.8) until main decides.
+
 ## Reconciliations required by the decision
 
 **G1/G2 wording.** The gates in ELZ-028.md §9 are kept verbatim as adopted
@@ -164,11 +189,11 @@ selected provider, with the double exercising the scenarios and reporting
 its partial-commit limit (B3b). A decision accepting these qualifications is
 not evidence that the older, stronger reading held.
 
-**Non-holder completion sentence.** The unchanged sentence "completion from
-a non-holder is rejected by the record revision (the fencing value), never by
-timestamp comparison" is consistent with the design: `complete/4` is
-admitted by the fence alone (an old fence is refused once any record moved
-the head; no owner string is compared); the regression gate on the terminal
+**Non-holder completion sentence.** With amendment B4 the sentence states
+what the design delivers: `complete/4` is admitted by the fence alone (an
+old fence is refused once any record moved the head; no owner string is
+compared; a bypass presenting the current revision is outside the Contract);
+the regression gate on the terminal
 path refuses when the store-clock sample is earlier than the latest recorded
 stamp, which is a fail-closed guard against a regressed store clock applied
 to every operation except `seize` and to holders and non-holders alike, not
