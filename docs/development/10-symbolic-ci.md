@@ -2,7 +2,7 @@
 
 Elzoo uses only the owner's Linux machines: the user-owned `symbolic` and `macbook-ubuntu` and, from
 ELZ-056 (owner decision 2026-11-08), the user-rented Contabo VPS `ratahq-ci-contabo-01`
-(runner `contabo-elzoo-1`; one full trial passed, see "Contabo VPS" below). GitHub provides scheduling
+(runner `contabo-elzoo-1`; registered and trialled, not routed, see "Contabo VPS" below). GitHub provides scheduling
 and check reporting; it does not supply compute.
 Never select a GitHub-hosted image or add a hosted fallback. If a runner is
 offline, diagnose it or let work queue on the other approved runner.
@@ -16,11 +16,13 @@ offline, diagnose it or let work queue on the other approved runner.
   `ci-candidate`. It received `backend` after ELZ-034 merged (PR #61), so it
   is in the normal backend pool. The name and `ci-candidate` label are
   historical; they do not select a separate route.
-- `contabo-elzoo-1` (runner id 24): backend after the coordinator re-adds the label once
-  ELZ-056 has merged; labels `self-hosted`, `Linux`, `X64`, `elzoo`, `contabo` and then
-  `backend`. The label was added for trial 2 only and removed again before the merge queue
-  ran, because the queue on `main` did not yet know this runner name. One passing full run
-  is the only evidence; it is the slowest of the three backend machines (see below).
+- `contabo-elzoo-1` (runner id 24): registered and documented, **not routed**. It has no
+  `backend` label after ELZ-056 merges; labels `self-hosted`, `Linux`, `X64`, `elzoo`,
+  `contabo`. One full run passed, but it took about twice as long as on the MacBook (see
+  "Contabo VPS"). Owner decision (2026-11-08): merge it unrouted. A separate follow-up task
+  (not yet published) adds a tier so that pull request checks require the faster runners and
+  only `main` pushes and measurement runs may use any runner; only after that does this runner
+  get a routing label. The workflow identity gate already accepts its name.
 - `symbolic-elzoo-gleam`: Gleam only; labels `self-hosted`, `linux`, `x64`,
   `symbolic`, `elzoo`, `gleam`.
 
@@ -469,11 +471,12 @@ state. This record covers `symbolic` only.
 
 ### Contabo VPS `ratahq-ci-contabo-01` (ELZ-056)
 
-Status: **one full trial passed; slowest backend machine.** When ELZ-056 was opened the
-runner had no `backend` label. The coordinator added it for the trials and removed it before the
-merge queue ran (the queue on `main` did not yet accept this runner name) and re-adds it after the
-merge. While the label is present, any backend job can land here. A failed or timed-out job on this
-machine means removing the label, as for the other runners. Host facts and the host-side limit
+Status: **registered, one full trial passed, not routed.** The runner has no `backend` label after
+ELZ-056 merges (owner decision 2026-11-08). The coordinator added the `backend` label for the trials only and removed it before the merge
+queue ran (the queue on `main` did not yet accept this runner name). The trial record is in
+the issue: run and job IDs, duration, cgroup memory peak, sampled CPU maximum, and `cpu.max`
+and `memory.max` read from the host through the job container's cgroup path.
+A later task decides routing; until then no job lands here. Host facts and the host-side limit
 readings below come from the worker's SSH inspection on 2026-11-08, not from files in this
 repository. Times are WIB (UTC+7) unless a log line is quoted.
 
@@ -495,14 +498,21 @@ throttling counters `nr_throttled` 45 and `throttled_usec` 2,001,766 at 07:09Z, 
 minutes into the job and near its end. Host load average stayed about 1.4 to 1.8
 and the four production containers stayed up.
 
-What this shows: the wrapper cap applies to a real job container, `setup-beam`, `mix setup`
-and the full `mix check` pass on this machine, and the root suite took about 1.9 times as long
-as the 1,377 s recorded on `symbolic` (run 42340251145, an older suite size, so not a
-controlled comparison). What it does not show: reliability over many runs, behavior under a
-production load spike, or warm-cache time. Expect a warm run (no 22-minute `mix setup`) to
-take about 50 minutes, but that is an estimate and not an observation. A cold run is only
-17 minutes below the 90-minute limit, so a changed cache key prefix or a longer suite may
-exceed it here first.
+What this shows: the wrapper cap applies to a real job container, and `setup-beam`, `mix setup`
+and the full `mix check` pass on this machine. It is slow. The same `main` tree (`a5f0e63`,
+without the ELZ-056 files) ran on `macbook-ubuntu-elzoo-candidate` in run 42451768392, job
+128642319790: root suite `Finished in 1340.4 seconds`, aggregate consumer 373.3 s, `mix check`
+22 min 50 s, with `+S 2:2` on four logical cores. Trial 2 took 2625.6 s for the root suite and
+711.0 s for the aggregate, about 1.96 and 1.9 times as long. `symbolic-elzoo` took 1116.3 s
+for the root suite (run 42448003515, job 128630949025, a different tree: ELZ-023 head
+`aa16605`, so not a controlled comparison), about 2.4 times faster than this machine. The
+cap does not explain the gap: the job was throttled 45 times for 2.0 s in total. The cause is
+not established; slower virtual CPUs or disk on this VPS, or CPU contention from other guests
+of the same host, are untested candidates. What the trial does not show: reliability over many
+runs, behavior under a production load spike, or warm-cache time. Expect a warm run (no
+22-minute `mix setup`) to take about 50 minutes, but that is an estimate and not an observation.
+A cold run is only 17 minutes below the 90-minute limit, so a changed cache key prefix or a
+longer suite may exceed it here first.
 
 Owner decision (2026-11-08), quoted: "u may remove/rename those ci ratahq. i dont use it
 anymore. use it for this development". The owner rents this machine. It runs production
@@ -559,8 +569,8 @@ service cap covers only the runner's own processes and does not add to the conta
 worst case with both at their limits is 10 GiB plus 8 GiB. Memory observed on the other
 runners (2.1 to 2.8 GiB cgroup peak, 3.3 to 5.0 sampled cores) fits inside the container cap,
 though a CPU peak near 5 cores may be throttled; the cap is 5 of 8 cores, and the
-service and container CPU caps could add up to 10 cores' worth, which only the 8 physical
-cores limit. A job that reaches 8 GiB is killed by the
+service and container CPU caps could add up to 10 cores' worth, which only the 8 vCPUs
+of the host limit. A job that reaches 8 GiB is killed by the
 kernel; that is the intended protection, not a failure of the host.
 
 **Trial 1 (failed, kept as evidence).** Run 42452504044, job 128644528184, `workflow_dispatch`

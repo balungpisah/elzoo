@@ -32,13 +32,18 @@ makes the repository accept the runner name, so a coordinator-run trial can add 
 - `AGENTS.md` CI machine policy names the user-owned machines; this task records the VPS in
   `docs/development/10-symbolic-ci.md` and in the policy sentence of `AGENTS.md` only.
 
-## Role: trial first, then the backend pool
+## Role: registered, not routed
 
-The runner gets the `backend` label only after a trial passes. The coordinator adds the label,
-dispatches `symbolic-check.yml` on the exact PR head and steers other runners so the job lands
-on `contabo-elzoo-1`. The task records, before merge: run ID, job ID, runner name, duration,
-cgroup memory peak, sampled CPU maximum, and `cpu.max` and `memory.max` read from inside the
-job container (to show the Docker wrapper cap applies to real job containers).
+The coordinator added the `backend` label for the trials only and removed it before the merge
+queue ran (the queue on `main` did not yet accept this runner name). The trial record is in
+the issue: run and job IDs, duration, cgroup memory peak, sampled CPU maximum, and `cpu.max`
+and `memory.max` read from the host through the job container's cgroup path.
+Trial 2 ran at `b9284c7`; the final head differs from it only in `AGENTS.md`, the docs file and
+this task file (`git diff --name-only b9284c7 HEAD`), so the workflow, guard and scripts that
+were tested are the ones that merge. The `cpu.max` and `memory.max` readings come from the
+host, not from inside the container; this replaces the earlier wording of this item.
+After the merge the runner stays registered without the `backend` label. Routing it is a
+separate follow-up task.
 
 ## Acceptance
 
