@@ -9,11 +9,13 @@
 
 ## Outcome
 
-The owner rents a mostly idle Contabo VPS (`ratahq-ci-contabo-01`, Ubuntu 24.04, 8 cores,
+The owner rents a mostly idle Contabo VPS (Ubuntu 24.04, 8 cores,
 23 GiB RAM) and decided on 2026-11-08 to use it for Elzoo CI. A repository-scoped runner
 `contabo-elzoo-1` (runner id 24) is installed and online with labels `self-hosted`, `Linux`,
 `X64`, `elzoo`, `contabo`. It had **no** `backend` label when this task opened, so no job was routed to it. This task
 makes the repository accept the runner name, so a coordinator-run trial can add the label.
+
+*Redacted before publication (ELZ-065): the host alias was removed.*
 
 ## Scope
 
