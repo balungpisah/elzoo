@@ -1,0 +1,244 @@
+{
+  "schema_version": 1,
+  "id": "delivery/trigger",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": [
+    "cure",
+    "elixir",
+    "otp"
+  ],
+  "dependencies": [
+    "core/envelope",
+    "delivery/idempotency",
+    "delivery/time"
+  ],
+  "contract": "Pure schedule-occurrence policy over already computed due slots: identity {schedule id, generation, scheduled instant}; skip, replace and queue(n) overlap decisions with at most one (skip, replace) or n (queue) unsettled occurrences; caller-supplied availability boundary separates offline catch-up slots (occurrences only under queue) from live slots; per-schedule watermark records already_recorded{slot} without asserting an occurrence; settlement, delivery admission and generation-gated redefinition; translations to the core/envelope result schema and per-schedule delivery/idempotency histories. Bound and identity laws are proved over the production admit_slot for admissible configurations with the Int comparisons as hypotheses; the Elixir boundary validates terms and refuses a call without a valid boundary.",
+  "limits": [
+    "Schedule-occurrence slice only: webhook and app-event triggers of delivery/trigger are not implemented; the C1 caller here is the invitation expiry sweep, not the C1 acceptance webhook.",
+    "No cron parsing, due-instant or timezone computation, clock reading, transport, job execution or durable storage; instants are UTC Unix milliseconds supplied by the caller. Fixture instants test identity for supplied instants, not DST mapping.",
+    "One availability boundary per call: the piece validates boundary <= now and refuses otherwise; it cannot verify that the scheduler was continuously available from the boundary or that earlier unrecorded slots were offline.",
+    "Deterministic ids do not serialize activations: two activations yield one occurrence only through one serialized owner or a compare-and-set store (ELZ-009 when composed). No exactly-once or concurrent claim.",
+    "already_recorded{slot} asserts no historical occurrence; the piece cannot tell a duplicate from a slot the caller never presented. The watermark is per schedule and survives redefinition.",
+    "Settlement is terminal and cancels no dispatched work; timed_out and unknown results settle nothing. Repeated admitted deliveries are the consumer's concern (consumer_dedup/3 with volatile unbounded per-schedule histories).",
+    "Laws take the Int comparisons and string equality as hypotheses and quantify over states built by skip_state, replace_state and queue_state; the Elixir boundary's validation of foreign terms is test evidence. queue bound n is 1..1024 (Peano in Cure)."
+  ],
+  "files": [
+    "cure/elzoo/schedule_occurrence.cure",
+    "lib/elzoo/schedule_occurrence.ex",
+    "test/elzoo/schedule_occurrence_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/schedule_occurrence.cure",
+      "symbol": "identify_schedule_id",
+      "claim": "Production identify/3 returns the schedule id it was given; one of three field laws on the actual identity function."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/schedule_occurrence.cure",
+      "symbol": "identify_generation",
+      "claim": "Production identify/3 returns the generation it was given; the generation+1 mutation control fails here."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/schedule_occurrence.cure",
+      "symbol": "identify_instant",
+      "claim": "Production identify/3 returns the scheduled instant it was given; the constant-instant mutation control fails here."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/schedule_occurrence.cure",
+      "symbol": "bound_skip",
+      "claim": "For every schedule id, generation, payload, watermark, unsettled list with Within(one, list), slot and arrival: fits(one, unsettled after admit_slot under skip) is true. Equivalent form of within_one_skip (a kernel-checked Within proposition proved through the production dispatch chain)."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/schedule_occurrence.cure",
+      "symbol": "bound_replace",
+      "claim": "Same statement for replace; Equivalent form of within_one_replace."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/schedule_occurrence.cure",
+      "symbol": "bound_queue",
+      "claim": "For every Peano bound n and Within(n, list): fits(n, unsettled after admit_slot under queue(n)) is true. Equivalent form of within_bound_queue, proved by induction through room_true_within; the room-at-capacity mutation control fails there."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/schedule_occurrence.cure",
+      "symbol": "recorded_keeps_state",
+      "claim": "admit_slot keeps the whole state when slot <= watermark is True (hypothesis); the already-recorded dispatch mutation control fails at the skip bound chain."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/schedule_occurrence.cure",
+      "symbol": "not_due_keeps_state",
+      "claim": "admit_slot keeps the whole state when the slot is after now (hypotheses on the two production comparisons)."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/schedule_occurrence.cure",
+      "symbol": "offline_skip_keeps_unsettled",
+      "claim": "Under skip, an offline catch-up slot (slot before the boundary, due, not recorded) leaves the unsettled list unchanged."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/schedule_occurrence.cure",
+      "symbol": "offline_skip_advances",
+      "claim": "Under skip, an offline catch-up slot advances the watermark to the slot."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/schedule_occurrence.cure",
+      "symbol": "offline_replace_keeps_unsettled",
+      "claim": "Under replace, an offline catch-up slot leaves the unsettled list unchanged."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/schedule_occurrence.cure",
+      "symbol": "live_identity_skip",
+      "claim": "Under skip from an empty unsettled list, a live due slot admits exactly [Occurrence{identify(schedule id, generation, slot), payload}] for every arrival satisfying the live hypotheses; the slot+1 placement mutation control fails here."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/schedule_occurrence.cure",
+      "symbol": "live_identity_replace",
+      "claim": "Under replace from any unsettled list, a live due slot leaves exactly [Occurrence{identify(schedule id, generation, slot), payload}]."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/schedule_occurrence.cure",
+      "symbol": "live_identity_queue",
+      "claim": "Under queue(n) with room, a live due slot prepends exactly Occurrence{identify(schedule id, generation, slot), payload}."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/schedule_occurrence.cure",
+      "symbol": "arrival_independent_skip",
+      "claim": "Two arrivals that both satisfy the live hypotheses yield the same unsettled list under skip: now and boundary do not enter the admitted occurrence."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/schedule_occurrence.cure",
+      "symbol": "arrival_independent_replace",
+      "claim": "Arrival independence under replace."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/schedule_occurrence.cure",
+      "symbol": "arrival_independent_queue",
+      "claim": "Arrival independence under queue(n) with room."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/schedule_occurrence.cure",
+      "symbol": "stale_redefinition_keeps_state",
+      "claim": "redefine keeps the state when the new generation is not strictly greater (hypothesis on the production comparison), for any validity and schedule-id outcome; the equal-generation mutation control fails here."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/schedule_occurrence.cure",
+      "symbol": "redefinition_records_displaced",
+      "claim": "A valid, same-id, strictly greater redefinition records exactly the ids of the previously unsettled occurrences."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/schedule_occurrence.cure",
+      "symbol": "redefinition_clears_unsettled",
+      "claim": "A valid, same-id, strictly greater redefinition leaves no unsettled occurrence."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/schedule_occurrence.cure",
+      "symbol": "stale_settlement_keeps_state",
+      "claim": "settle keeps the state for an id of an older generation."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/schedule_occurrence.cure",
+      "symbol": "unknown_settlement_keeps_state",
+      "claim": "settle keeps the state when the id is not found among the unsettled occurrences."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/schedule_occurrence.cure",
+      "symbol": "stale_delivery_rejected",
+      "claim": "admit_delivery rejects an id of an older generation."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/schedule_occurrence.cure",
+      "symbol": "absent_delivery_rejected",
+      "claim": "admit_delivery rejects an id that is not unsettled."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/schedule_occurrence.cure",
+      "symbol": "mismatched_delivery_rejected",
+      "claim": "admit_delivery rejects a found occurrence whose payload differs (hypothesis on the string comparison)."
+    },
+    {
+      "kind": "type",
+      "file": "cure/elzoo/schedule_occurrence.cure",
+      "claim": "Pinned Cure checks the production module, the Within indexed proposition and every law; the in-bundle test audits the checked environment (no axioms, holes, unresolved, unaudited, opaque or not-proven-total items). Int comparisons and string equality are law hypotheses, not reduced facts."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/schedule_occurrence_test.exs",
+      "claim": "Named scenarios: two activations through a serialized owner and by sequential replay, restart with an unsettled occurrence, replay after skip/settlement/redefinition, skip, queue(2), replace, offline catch-up under each policy, clock and ordering edges with fail-closed refusals, generation conflict, delivery query, identity encoding and DST fixture instants, configuration and malformed terms, seeded trace against an independent model; finite evidence, not proofs."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/schedule_occurrence_test.exs",
+      "claim": "Composition at the three real boundaries named by issue #44: core/envelope DeliveryResult rows validated by Elzoo.Envelope.validate_result/1 and translated to settlements; per-schedule delivery/idempotency histories through Cure.Elzoo.Idempotency.receiver/2 including the two-schedule collision scenario and retirement; the delivery/time recipe as the owner's clock port (Process.send_after tick, clock read in the shell, cancelled timer)."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/schedule_occurrence_test.exs",
+      "claim": "Seven production mutation controls (identify generation, identify instant, placement slot, queue room at capacity, skip append when busy, already-recorded admits, equal-generation redefinition) each fail compilation inside the named law."
+    },
+    {
+      "kind": "upstream",
+      "provider": "cure",
+      "reference": "https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89",
+      "claim": "Relies on the pinned Cure compiler and dependent kernel for law checking and erased runtime semantics."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Relies on pinned Elixir integer, binary, map and list semantics in the validating boundary."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/",
+      "claim": "The test owner relies on OTP GenServer serialization and Process.send_after/cancel_timer; the piece itself starts no process."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The caller presents the complete due-slot sequence per schedule in order, establishes the availability predicate behind the boundary, applies transitions through one serialized owner, retains state (volatile here), settles each occurrence once, and holds the per-schedule idempotency histories. Due-instant and timezone computation are upstream (crontab 1.2.1 and oban 2.24.2 are recorded candidates, not exercised or pinned here). Jido Sensor ideas were clean-room input only; no source copied."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "Pure decisions without a process or lifecycle; the owning Unit or consumer instruments its own admissions and settlements."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Overlap policy skip | replace | queue(n) with n in 1..1024 unsettled occurrences, fixed per generation at new/2 or restore/3; changed only by redefine/2 with the same schedule id and a strictly greater generation, which supersedes pending occurrences; equal or lower generations are rejected unchanged; no hot update of an existing generation. The initial watermark is a construction argument. Payload, slots, instants and the boundary are data, not Config. Serialization of the redefinition commit is the owner's.",
+      "evidence": [
+        "test/elzoo/schedule_occurrence_test.exs"
+      ]
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "Settlement and redefinition are domain data transitions returned to the caller, not lifecycle commands; there is no pause, drain or resume."
+    }
+  }
+}

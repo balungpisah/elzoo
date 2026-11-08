@@ -1179,7 +1179,7 @@
       ],
       "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
       "issue": 44,
-      "issue_body_sha256": "48a50ec8c43d81a3adcb797b6e82ca5971e1c38893f8258303cfd12f158331da",
+      "issue_body_sha256": "1d1ea7504ebc53d39bb525906103771433a485d32b8e7a50eb132e8914393c22",
       "observed_issue_state": "OPEN",
       "owner_role": "one claimed task worker after admission",
       "product_aims": [
@@ -1297,7 +1297,7 @@
       ],
       "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
       "issue": 48,
-      "issue_body_sha256": "6e071ec849e644c601afe3188403908454058f7e11f9d23a0f66b52e7738748e",
+      "issue_body_sha256": "6ec6136b623ea5b00a5a1aff0827feafe71b6f1396a21cb896df101a10185dc4",
       "observed_issue_state": "OPEN",
       "owner_role": "one claimed task worker after admission",
       "product_aims": [
@@ -3170,10 +3170,12 @@
     {
       "id": "delivery/trigger",
       "job": "ELZ-027",
-      "note": "Schedule/webhook/app-event input with source identity and dedup scope; delivery/time is only a timer recipe. Needed by C1/C7; no trigger adapter adopted. ELZ-027 carries the schedule-occurrence slice (identity from schedule id, generation and instant; declared skip/queue/replace overlap policy).",
+      "note": "Pure schedule-occurrence policy over already computed due slots: identity {schedule id, generation, scheduled instant}; skip, replace and queue(n) overlap decisions with at most one (skip, replace) or n (queue) unsettled occurrences; caller-supplied availability boundary separates offline catch-up slots (occurrences only under queue) from live slots; per-schedule watermark records already_recorded{slot} without asserting an occurrence; settlement, delivery admission and generation-gated redefinition; translations to the core/envelope result schema and per-schedule delivery/idempotency histories. Bound and identity laws are proved over the production admit_slot for admissible configurations with the Int comparisons as hypotheses; the Elixir boundary validates terms and refuses a call without a valid boundary.",
       "baseline_status": "deferred",
       "disposition": "published-scoped-work",
-      "catalogue_reference": "registry/catalogue.json"
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/delivery/trigger/piece.json",
+      "manifest_sha256": "dd6b28e11645d88c26c98c7cf2553c6a7bc241f58c0e9ba2818bdfb8bd5c1b06"
     },
     {
       "id": "delivery/windowed-idempotency",
@@ -3230,10 +3232,12 @@
     {
       "id": "domain/money",
       "job": "ELZ-031",
-      "note": "Decimal/ex_money candidates for C3/C4; explicit units, currency mismatch and allocation residual policy. Not a journal, exchange service or payment guarantee. ELZ-031 carries the admission record (closed versioned registry with exponent, malformed vs unknown parse, retired codes, dataset round-trip tests) naming the ex_money/Decimal boundary.",
+      "note": "Exact currency amounts over a closed, versioned ISO 4217 registry folded append-only from a dated, source-attributed derived extract (current list 2026-09-17, historic list 2026-01-01): a currency is a registry member with alpha code, numeric code or explicit absence, and minor-unit exponent or explicit :not_applicable/:not_recorded, plus its status and registry version; an amount is an integer count of minor units scaled by that exponent. Pure Cure same-currency add/subtract/compare/negate and ratio allocation (1..1000 non-negative integer ratios, positive sum, shares truncated toward zero, residual placed :first/:last/:spread on positive-ratio parts and reported as already placed); untrusted alpha/numeric parse distinguishes malformed from unknown; version-specific membership on every call (forged_currency); exact Decimal-string and %Decimal{} boundaries with declared rounding modes; canonical versioned codec bytes that decode to the original identity after registry updates. Typed rejections: currency_mismatch, unknown_currency, malformed_code, retired_currency, scale_overflow, malformed_amount, invalid_ratios, unknown_rounding_mode, unknown_placement, no_minor_unit, forged_currency, unknown_registry_version. No Float.",
       "baseline_status": "deferred",
-      "disposition": "published-scoped-work",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "merged-ready-contract; task acceptance separate",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/domain/money/piece.json",
+      "manifest_sha256": "8210a1a1eed92e2df7b4b043835a053955f0a8deae6a71b4d923c19233ab0d85"
     },
     {
       "id": "domain/payment-lifecycle",

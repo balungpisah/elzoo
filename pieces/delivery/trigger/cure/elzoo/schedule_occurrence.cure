@@ -1,0 +1,667 @@
+# SPDX-License-Identifier: Apache-2.0
+# delivery/trigger (schedule occurrence slice): pure identity, overlap,
+# offline catch-up, settlement, delivery admission and redefinition decisions
+# over already computed due slots. Instants are UTC Unix milliseconds.
+# The production transitions are chains of total dispatch functions that take
+# the Bool they need as an argument computed at the call site; laws generalize
+# that Bool, prove both branches and instantiate with the production
+# expression, so every law below is about the production function itself.
+# Int comparisons and string equality do not reduce symbolically in the pinned
+# Cure; they appear as hypotheses. The queue bound is a Peano Nat so the bound
+# is a structural proposition (Within) proved by induction.
+mod Elzoo.ScheduleOccurrence
+  use Std.Option
+
+  local fn text_equal(left: a, right: a) -> Bool = Std.Builtin.struct_eq(a, left, right)
+
+  type Nat = Z | S(Nat)
+
+  type OverlapPolicy = Skip | Replace | Queue(Nat)
+
+  rec Schedule
+    schedule_id: String
+    generation: Int
+    policy: OverlapPolicy
+    payload: String
+
+  rec OccurrenceId
+    schedule_id: String
+    generation: Int
+    scheduled_unix_ms: Int
+
+  rec Occurrence
+    id: OccurrenceId
+    payload: String
+
+  rec ScheduleState
+    schedule: Schedule
+    last_recorded_unix_ms: Int
+    unsettled: List(Occurrence)
+
+  rec Arrival
+    now_unix_ms: Int
+    available_since_unix_ms: Int
+
+  type Origin = Live | CatchUp
+
+  type SlotDecision = Admitted(OccurrenceId, Origin) | AlreadyRecorded(Int) | NotDue | SkippedOffline | SkippedOverlap | SkippedQueueFull(Origin) | Replaced(OccurrenceId, OccurrenceId)
+
+  rec SlotResult
+    state: ScheduleState
+    decision: SlotDecision
+
+  type SettlementKind = Acknowledged | Released
+  type SettlementReason = UnknownOccurrence | StaleGeneration
+  type SettlementDecision = Settled(SettlementKind) | RejectedSettlement(SettlementReason)
+
+  rec SettlementResult
+    state: ScheduleState
+    decision: SettlementDecision
+
+  type DeliveryReason = DeliveryUnknownOccurrence | DeliveryStaleGeneration | PayloadMismatch
+  type DeliveryDecision = AdmittedDelivery | RejectedDelivery(DeliveryReason)
+
+  type RedefinitionReason = RedefinitionStaleGeneration | ScheduleMismatch | RedefinitionInvalid
+  type RedefinitionDecision = Redefined(List(OccurrenceId)) | RejectedRedefinition(RedefinitionReason)
+
+  rec RedefinitionResult
+    state: ScheduleState
+    decision: RedefinitionDecision
+
+  # ------------------------------------------------------------ identity
+
+  @total true
+  @reducible
+  fn identify(schedule_id: String, generation: Int, scheduled_unix_ms: Int) -> OccurrenceId =
+    OccurrenceId{schedule_id: schedule_id, generation: generation, scheduled_unix_ms: scheduled_unix_ms}
+
+  @total true
+  @reducible
+  fn created(schedule: Schedule, scheduled_unix_ms: Int) -> Occurrence =
+    Occurrence{id: identify(schedule.schedule_id, schedule.generation, scheduled_unix_ms), payload: schedule.payload}
+
+  fn schedule_id_of(id: OccurrenceId) -> String = id.schedule_id
+
+  fn generation_of(id: OccurrenceId) -> Int = id.generation
+
+  fn instant_of(id: OccurrenceId) -> Int = id.scheduled_unix_ms
+
+  # ------------------------------------------------------------ projections
+
+  @total true
+  @reducible
+  fn state_of(result: SlotResult) -> ScheduleState = result.state
+
+  @total true
+  @reducible
+  fn decision_of(result: SlotResult) -> SlotDecision = result.decision
+
+  fn unsettled(state: ScheduleState) -> List(Occurrence) = state.unsettled
+
+  fn last_of(state: ScheduleState) -> Int = state.last_recorded_unix_ms
+
+  fn generation_of_state(state: ScheduleState) -> Int =
+    let schedule = state.schedule
+    schedule.generation
+
+  @total true
+  @reducible
+  fn schedule_of(state: ScheduleState) -> Schedule = state.schedule
+
+  @total true
+  @reducible
+  fn settlement_state(result: SettlementResult) -> ScheduleState = result.state
+
+  @total true
+  @reducible
+  fn redefinition_state(result: RedefinitionResult) -> ScheduleState = result.state
+
+  @total true
+  @reducible
+  fn redefinition_decision(result: RedefinitionResult) -> RedefinitionDecision = result.decision
+
+  fn now_of(arrival: Arrival) -> Int = arrival.now_unix_ms
+
+  fn boundary_of(arrival: Arrival) -> Int = arrival.available_since_unix_ms
+
+  @total true
+  @reducible
+  fn admitted(decision: DeliveryDecision) -> Bool =
+    match decision
+      AdmittedDelivery() -> true
+      RejectedDelivery(reason) -> false
+
+  fn payload_of(occurrence: Occurrence) -> String = occurrence.payload
+
+  # ------------------------------------------------------------ constructors
+
+  @total true
+  @reducible
+  fn initial(schedule: Schedule, last_recorded_unix_ms: Int) -> ScheduleState =
+    ScheduleState{schedule: schedule, last_recorded_unix_ms: last_recorded_unix_ms, unsettled: []}
+
+  @total true
+  @reducible
+  fn restored(schedule: Schedule, last_recorded_unix_ms: Int, unsettled: List(Occurrence)) -> ScheduleState =
+    ScheduleState{schedule: schedule, last_recorded_unix_ms: last_recorded_unix_ms, unsettled: unsettled}
+
+  @total true
+  @reducible
+  fn skip_state(schedule_id: String, generation: Int, payload: String, last_recorded_unix_ms: Int, unsettled: List(Occurrence)) -> ScheduleState =
+    restored(Schedule{schedule_id: schedule_id, generation: generation, policy: Skip(), payload: payload}, last_recorded_unix_ms, unsettled)
+
+  @total true
+  @reducible
+  fn replace_state(schedule_id: String, generation: Int, payload: String, last_recorded_unix_ms: Int, unsettled: List(Occurrence)) -> ScheduleState =
+    restored(Schedule{schedule_id: schedule_id, generation: generation, policy: Replace(), payload: payload}, last_recorded_unix_ms, unsettled)
+
+  @total true
+  @reducible
+  fn queue_state(bound: Nat, schedule_id: String, generation: Int, payload: String, last_recorded_unix_ms: Int, unsettled: List(Occurrence)) -> ScheduleState =
+    restored(Schedule{schedule_id: schedule_id, generation: generation, policy: Queue(bound), payload: payload}, last_recorded_unix_ms, unsettled)
+
+  @total true
+  @reducible
+  fn one() -> Nat = S(Z())
+
+  @total true
+  @reducible
+  fn empty() -> List(Occurrence) = []
+
+  @total true
+  @reducible
+  fn advanced(state: ScheduleState, scheduled_unix_ms: Int, unsettled: List(Occurrence)) -> ScheduleState =
+    ScheduleState{schedule: state.schedule, last_recorded_unix_ms: scheduled_unix_ms, unsettled: unsettled}
+
+  # ------------------------------------------------------------ list helpers
+
+  fn same_id(left: OccurrenceId, right: OccurrenceId) -> Bool =
+    text_equal(left.schedule_id, right.schedule_id) and left.generation == right.generation and left.scheduled_unix_ms == right.scheduled_unix_ms
+
+  fn find(id: OccurrenceId, entries: List(Occurrence)) -> Option(Occurrence) =
+    match entries
+      [] -> None()
+      [head | tail] ->
+        pickup
+          same_id(head.id, id) -> Some(head)
+          else -> find(id, tail)
+
+  fn remove(id: OccurrenceId, entries: List(Occurrence)) -> List(Occurrence) =
+    match entries
+      [] -> []
+      [head | tail] ->
+        pickup
+          same_id(head.id, id) -> remove(id, tail)
+          else -> [head | remove(id, tail)]
+
+  fn ids(entries: List(Occurrence)) -> List(OccurrenceId) =
+    match entries
+      [] -> []
+      [head | tail] -> [head.id | ids(tail)]
+
+  # room(capacity, xs) is true when xs holds fewer than capacity entries.
+  fn room(capacity: Nat, entries: List(Occurrence)) -> Bool =
+    match capacity
+      Z() -> false
+      S(smaller) ->
+        match entries
+          [] -> true
+          [head | tail] -> room(smaller, tail)
+
+  fn policy_valid(policy: OverlapPolicy) -> Bool =
+    match policy
+      Skip() -> true
+      Replace() -> true
+      Queue(bound) ->
+        match bound
+          Z() -> false
+          S(smaller) -> true
+
+  fn schedule_valid(schedule: Schedule) -> Bool =
+    not text_equal(schedule.schedule_id, "") and schedule.generation >= 0 and policy_valid(schedule.policy)
+
+  # ------------------------------------------------------------ slot admission
+
+  @total true
+  @reducible
+  fn queue_step(state: ScheduleState, scheduled_unix_ms: Int, origin: Origin, has_room: Bool) -> SlotResult =
+    match has_room
+      True() -> SlotResult{state: advanced(state, scheduled_unix_ms, [created(state.schedule, scheduled_unix_ms) | state.unsettled]), decision: Admitted(identify(state.schedule.schedule_id, state.schedule.generation, scheduled_unix_ms), origin)}
+      False() -> SlotResult{state: advanced(state, scheduled_unix_ms, state.unsettled), decision: SkippedQueueFull(origin)}
+
+  @total true
+  @reducible
+  fn place_queue(state: ScheduleState, scheduled_unix_ms: Int, bound: Nat, origin: Origin) -> SlotResult =
+    queue_step(state, scheduled_unix_ms, origin, room(bound, unsettled(state)))
+
+  @total true
+  @reducible
+  fn place_skip(state: ScheduleState, scheduled_unix_ms: Int, entries: List(Occurrence)) -> SlotResult =
+    match entries
+      [] -> SlotResult{state: advanced(state, scheduled_unix_ms, [created(state.schedule, scheduled_unix_ms)]), decision: Admitted(identify(state.schedule.schedule_id, state.schedule.generation, scheduled_unix_ms), Live())}
+      [head | tail] -> SlotResult{state: advanced(state, scheduled_unix_ms, entries), decision: SkippedOverlap()}
+
+  @total true
+  @reducible
+  fn place_replace(state: ScheduleState, scheduled_unix_ms: Int, entries: List(Occurrence)) -> SlotResult =
+    match entries
+      [] -> SlotResult{state: advanced(state, scheduled_unix_ms, [created(state.schedule, scheduled_unix_ms)]), decision: Admitted(identify(state.schedule.schedule_id, state.schedule.generation, scheduled_unix_ms), Live())}
+      [head | tail] -> SlotResult{state: advanced(state, scheduled_unix_ms, [created(state.schedule, scheduled_unix_ms)]), decision: Replaced(head.id, identify(state.schedule.schedule_id, state.schedule.generation, scheduled_unix_ms))}
+
+  @total true
+  @reducible
+  fn place_live(state: ScheduleState, scheduled_unix_ms: Int, policy: OverlapPolicy) -> SlotResult =
+    match policy
+      Skip() -> place_skip(state, scheduled_unix_ms, state.unsettled)
+      Replace() -> place_replace(state, scheduled_unix_ms, state.unsettled)
+      Queue(bound) -> place_queue(state, scheduled_unix_ms, bound, Live())
+
+  @total true
+  @reducible
+  fn place_offline(state: ScheduleState, scheduled_unix_ms: Int, policy: OverlapPolicy) -> SlotResult =
+    match policy
+      Skip() -> SlotResult{state: advanced(state, scheduled_unix_ms, state.unsettled), decision: SkippedOffline()}
+      Replace() -> SlotResult{state: advanced(state, scheduled_unix_ms, state.unsettled), decision: SkippedOffline()}
+      Queue(bound) -> place_queue(state, scheduled_unix_ms, bound, CatchUp())
+
+  @total true
+  @reducible
+  fn admit_origin(state: ScheduleState, scheduled_unix_ms: Int, offline: Bool) -> SlotResult =
+    match offline
+      True() -> place_offline(state, scheduled_unix_ms, state.schedule.policy)
+      False() -> place_live(state, scheduled_unix_ms, state.schedule.policy)
+
+  @total true
+  @reducible
+  fn admit_due(state: ScheduleState, scheduled_unix_ms: Int, arrival: Arrival, not_due: Bool) -> SlotResult =
+    match not_due
+      True() -> SlotResult{state: state, decision: NotDue()}
+      False() -> admit_origin(state, scheduled_unix_ms, scheduled_unix_ms < boundary_of(arrival))
+
+  @total true
+  @reducible
+  fn admit_recorded(state: ScheduleState, scheduled_unix_ms: Int, arrival: Arrival, recorded: Bool) -> SlotResult =
+    match recorded
+      True() -> SlotResult{state: state, decision: AlreadyRecorded(scheduled_unix_ms)}
+      False() -> admit_due(state, scheduled_unix_ms, arrival, now_of(arrival) < scheduled_unix_ms)
+
+  # The production transition for one due slot.
+  @total true
+  @reducible
+  fn admit_slot(state: ScheduleState, scheduled_unix_ms: Int, arrival: Arrival) -> SlotResult =
+    admit_recorded(state, scheduled_unix_ms, arrival, scheduled_unix_ms <= last_of(state))
+
+  # ------------------------------------------------------------ settlement
+
+  @total true
+  @reducible
+  fn settle_found(state: ScheduleState, id: OccurrenceId, kind: SettlementKind, found: Option(Occurrence)) -> SettlementResult =
+    match found
+      None() -> SettlementResult{state: state, decision: RejectedSettlement(UnknownOccurrence())}
+      Some(occurrence) -> SettlementResult{state: ScheduleState{schedule: state.schedule, last_recorded_unix_ms: state.last_recorded_unix_ms, unsettled: remove(id, state.unsettled)}, decision: Settled(kind)}
+
+  @total true
+  @reducible
+  fn settle_generation(state: ScheduleState, id: OccurrenceId, kind: SettlementKind, stale: Bool) -> SettlementResult =
+    match stale
+      True() -> SettlementResult{state: state, decision: RejectedSettlement(StaleGeneration())}
+      False() -> settle_found(state, id, kind, find(id, unsettled(state)))
+
+  @total true
+  @reducible
+  fn settle(state: ScheduleState, id: OccurrenceId, kind: SettlementKind) -> SettlementResult =
+    settle_generation(state, id, kind, generation_of(id) < generation_of_state(state))
+
+  # ------------------------------------------------------------ delivery admission (a query)
+
+  @total true
+  @reducible
+  fn delivery_payload(matching: Bool) -> DeliveryDecision =
+    match matching
+      True() -> AdmittedDelivery()
+      False() -> RejectedDelivery(PayloadMismatch())
+
+  @total true
+  @reducible
+  fn delivery_found(payload: String, found: Option(Occurrence)) -> DeliveryDecision =
+    match found
+      None() -> RejectedDelivery(DeliveryUnknownOccurrence())
+      Some(occurrence) -> delivery_payload(text_equal(payload_of(occurrence), payload))
+
+  @total true
+  @reducible
+  fn delivery_generation(state: ScheduleState, id: OccurrenceId, payload: String, stale: Bool) -> DeliveryDecision =
+    match stale
+      True() -> RejectedDelivery(DeliveryStaleGeneration())
+      False() -> delivery_found(payload, find(id, unsettled(state)))
+
+  @total true
+  @reducible
+  fn admit_delivery(state: ScheduleState, id: OccurrenceId, payload: String) -> DeliveryDecision =
+    delivery_generation(state, id, payload, generation_of(id) < generation_of_state(state))
+
+  # ------------------------------------------------------------ redefinition
+
+  @total true
+  @reducible
+  fn greater_generation(state: ScheduleState, schedule: Schedule) -> Bool =
+    state.schedule.generation < schedule.generation
+
+  @total true
+  @reducible
+  fn same_schedule(state: ScheduleState, schedule: Schedule) -> Bool =
+    text_equal(schedule.schedule_id, state.schedule.schedule_id)
+
+  @total true
+  @reducible
+  fn redefine_generation(state: ScheduleState, schedule: Schedule, greater: Bool) -> RedefinitionResult =
+    match greater
+      True() -> RedefinitionResult{state: ScheduleState{schedule: schedule, last_recorded_unix_ms: state.last_recorded_unix_ms, unsettled: []}, decision: Redefined(ids(state.unsettled))}
+      False() -> RedefinitionResult{state: state, decision: RejectedRedefinition(RedefinitionStaleGeneration())}
+
+  @total true
+  @reducible
+  fn redefine_identity(state: ScheduleState, schedule: Schedule, same: Bool) -> RedefinitionResult =
+    match same
+      True() -> redefine_generation(state, schedule, greater_generation(state, schedule))
+      False() -> RedefinitionResult{state: state, decision: RejectedRedefinition(ScheduleMismatch())}
+
+  @total true
+  @reducible
+  fn redefine_valid(state: ScheduleState, schedule: Schedule, valid: Bool) -> RedefinitionResult =
+    match valid
+      True() -> redefine_identity(state, schedule, same_schedule(state, schedule))
+      False() -> RedefinitionResult{state: state, decision: RejectedRedefinition(RedefinitionInvalid())}
+
+  @total true
+  @reducible
+  fn redefine(state: ScheduleState, schedule: Schedule) -> RedefinitionResult =
+    redefine_valid(state, schedule, schedule_valid(schedule))
+
+  @total true
+  @reducible
+  fn displaced(result: RedefinitionResult) -> List(OccurrenceId) =
+    match result.decision
+      Redefined(superseded) -> superseded
+      RejectedRedefinition(reason) -> []
+
+  # ================================================================ laws
+
+  # --- identity: the production identify function, field by field.
+
+  fn identify_schedule_id(schedule_id: String, generation: Int, scheduled_unix_ms: Int) -> Equivalent(String, schedule_id_of(identify(schedule_id, generation, scheduled_unix_ms)), schedule_id) =
+    reflexive(schedule_id)
+
+  fn identify_generation(schedule_id: String, generation: Int, scheduled_unix_ms: Int) -> Equivalent(Int, generation_of(identify(schedule_id, generation, scheduled_unix_ms)), generation) =
+    reflexive(generation)
+
+  fn identify_instant(schedule_id: String, generation: Int, scheduled_unix_ms: Int) -> Equivalent(Int, instant_of(identify(schedule_id, generation, scheduled_unix_ms)), scheduled_unix_ms) =
+    reflexive(scheduled_unix_ms)
+
+  # --- the Within proposition: at most n entries.
+
+  type Within indices (capacity: Nat, entries: List(Occurrence))
+    within_nil : Within(capacity, Nil)
+    within_cons : Within(capacity, tail) -> Within(S(capacity), Cons(head, tail))
+
+  # room(n, xs) = true means one more entry still fits under n.
+  @total true
+  fn room_true_within(capacity: Nat, entries: List(Occurrence), extra: Occurrence, h: Equivalent(Bool, room(capacity, entries), True())) -> Within(capacity, Cons(extra, entries)) =
+    match capacity
+      Z() ->
+        match h
+          reflexive() -> impossible
+      S(smaller) ->
+        match entries
+          [] -> within_cons(within_nil())
+          [head | tail] -> within_cons(room_true_within(smaller, tail, head, h))
+
+  @total true
+  fn queue_step_within(state: ScheduleState, scheduled_unix_ms: Int, origin: Origin, has_room: Bool, capacity: Nat, hr: Equivalent(Bool, room(capacity, unsettled(state)), has_room), hs: Within(capacity, unsettled(state))) -> Within(capacity, unsettled(state_of(queue_step(state, scheduled_unix_ms, origin, has_room)))) =
+    match has_room
+      True() -> room_true_within(capacity, unsettled(state), created(schedule_of(state), scheduled_unix_ms), hr)
+      False() -> hs
+
+  @total true
+  fn place_queue_within(state: ScheduleState, scheduled_unix_ms: Int, origin: Origin, capacity: Nat, hs: Within(capacity, unsettled(state))) -> Within(capacity, unsettled(state_of(place_queue(state, scheduled_unix_ms, capacity, origin)))) =
+    queue_step_within(state, scheduled_unix_ms, origin, room(capacity, unsettled(state)), capacity, reflexive(room(capacity, unsettled(state))), hs)
+
+  # Skip and replace keep at most one entry.
+  @total true
+  fn place_skip_within(state: ScheduleState, scheduled_unix_ms: Int, entries: List(Occurrence), hs: Within(one(), entries)) -> Within(one(), unsettled(state_of(place_skip(state, scheduled_unix_ms, entries)))) =
+    match entries
+      [] -> within_cons(within_nil())
+      [head | tail] -> hs
+
+  @total true
+  fn place_replace_within(state: ScheduleState, scheduled_unix_ms: Int, entries: List(Occurrence)) -> Within(one(), unsettled(state_of(place_replace(state, scheduled_unix_ms, entries)))) =
+    match entries
+      [] -> within_cons(within_nil())
+      [head | tail] -> within_cons(within_nil())
+
+  # Per-policy bound over the production transition admit_slot, generalized over
+  # the three comparison Bools that the production chain computes.
+  @total true
+  fn admit_origin_skip_within(schedule_id: String, generation: Int, payload: String, last_recorded_unix_ms: Int, entries: List(Occurrence), scheduled_unix_ms: Int, offline: Bool, hs: Within(one(), entries)) -> Within(one(), unsettled(state_of(admit_origin(skip_state(schedule_id, generation, payload, last_recorded_unix_ms, entries), scheduled_unix_ms, offline)))) =
+    match offline
+      True() -> hs
+      False() -> place_skip_within(skip_state(schedule_id, generation, payload, last_recorded_unix_ms, entries), scheduled_unix_ms, entries, hs)
+
+  @total true
+  fn admit_due_skip_within(schedule_id: String, generation: Int, payload: String, last_recorded_unix_ms: Int, entries: List(Occurrence), scheduled_unix_ms: Int, arrival: Arrival, not_due: Bool, hs: Within(one(), entries)) -> Within(one(), unsettled(state_of(admit_due(skip_state(schedule_id, generation, payload, last_recorded_unix_ms, entries), scheduled_unix_ms, arrival, not_due)))) =
+    match not_due
+      True() -> hs
+      False() -> admit_origin_skip_within(schedule_id, generation, payload, last_recorded_unix_ms, entries, scheduled_unix_ms, scheduled_unix_ms < boundary_of(arrival), hs)
+
+  @total true
+  fn admit_recorded_skip_within(schedule_id: String, generation: Int, payload: String, last_recorded_unix_ms: Int, entries: List(Occurrence), scheduled_unix_ms: Int, arrival: Arrival, recorded: Bool, hs: Within(one(), entries)) -> Within(one(), unsettled(state_of(admit_recorded(skip_state(schedule_id, generation, payload, last_recorded_unix_ms, entries), scheduled_unix_ms, arrival, recorded)))) =
+    match recorded
+      True() -> hs
+      False() -> admit_due_skip_within(schedule_id, generation, payload, last_recorded_unix_ms, entries, scheduled_unix_ms, arrival, now_of(arrival) < scheduled_unix_ms, hs)
+
+  @total true
+  fn within_one_skip(schedule_id: String, generation: Int, payload: String, last_recorded_unix_ms: Int, entries: List(Occurrence), scheduled_unix_ms: Int, arrival: Arrival, hs: Within(one(), entries)) -> Within(one(), unsettled(state_of(admit_slot(skip_state(schedule_id, generation, payload, last_recorded_unix_ms, entries), scheduled_unix_ms, arrival)))) =
+    admit_recorded_skip_within(schedule_id, generation, payload, last_recorded_unix_ms, entries, scheduled_unix_ms, arrival, scheduled_unix_ms <= last_recorded_unix_ms, hs)
+
+  @total true
+  fn admit_origin_replace_within(schedule_id: String, generation: Int, payload: String, last_recorded_unix_ms: Int, entries: List(Occurrence), scheduled_unix_ms: Int, offline: Bool, hs: Within(one(), entries)) -> Within(one(), unsettled(state_of(admit_origin(replace_state(schedule_id, generation, payload, last_recorded_unix_ms, entries), scheduled_unix_ms, offline)))) =
+    match offline
+      True() -> hs
+      False() -> place_replace_within(replace_state(schedule_id, generation, payload, last_recorded_unix_ms, entries), scheduled_unix_ms, entries)
+
+  @total true
+  fn admit_due_replace_within(schedule_id: String, generation: Int, payload: String, last_recorded_unix_ms: Int, entries: List(Occurrence), scheduled_unix_ms: Int, arrival: Arrival, not_due: Bool, hs: Within(one(), entries)) -> Within(one(), unsettled(state_of(admit_due(replace_state(schedule_id, generation, payload, last_recorded_unix_ms, entries), scheduled_unix_ms, arrival, not_due)))) =
+    match not_due
+      True() -> hs
+      False() -> admit_origin_replace_within(schedule_id, generation, payload, last_recorded_unix_ms, entries, scheduled_unix_ms, scheduled_unix_ms < boundary_of(arrival), hs)
+
+  @total true
+  fn admit_recorded_replace_within(schedule_id: String, generation: Int, payload: String, last_recorded_unix_ms: Int, entries: List(Occurrence), scheduled_unix_ms: Int, arrival: Arrival, recorded: Bool, hs: Within(one(), entries)) -> Within(one(), unsettled(state_of(admit_recorded(replace_state(schedule_id, generation, payload, last_recorded_unix_ms, entries), scheduled_unix_ms, arrival, recorded)))) =
+    match recorded
+      True() -> hs
+      False() -> admit_due_replace_within(schedule_id, generation, payload, last_recorded_unix_ms, entries, scheduled_unix_ms, arrival, now_of(arrival) < scheduled_unix_ms, hs)
+
+  @total true
+  fn within_one_replace(schedule_id: String, generation: Int, payload: String, last_recorded_unix_ms: Int, entries: List(Occurrence), scheduled_unix_ms: Int, arrival: Arrival, hs: Within(one(), entries)) -> Within(one(), unsettled(state_of(admit_slot(replace_state(schedule_id, generation, payload, last_recorded_unix_ms, entries), scheduled_unix_ms, arrival)))) =
+    admit_recorded_replace_within(schedule_id, generation, payload, last_recorded_unix_ms, entries, scheduled_unix_ms, arrival, scheduled_unix_ms <= last_recorded_unix_ms, hs)
+
+  @total true
+  fn admit_origin_queue_within(bound: Nat, schedule_id: String, generation: Int, payload: String, last_recorded_unix_ms: Int, entries: List(Occurrence), scheduled_unix_ms: Int, offline: Bool, hs: Within(bound, entries)) -> Within(bound, unsettled(state_of(admit_origin(queue_state(bound, schedule_id, generation, payload, last_recorded_unix_ms, entries), scheduled_unix_ms, offline)))) =
+    match offline
+      True() -> place_queue_within(queue_state(bound, schedule_id, generation, payload, last_recorded_unix_ms, entries), scheduled_unix_ms, CatchUp(), bound, hs)
+      False() -> place_queue_within(queue_state(bound, schedule_id, generation, payload, last_recorded_unix_ms, entries), scheduled_unix_ms, Live(), bound, hs)
+
+  @total true
+  fn admit_due_queue_within(bound: Nat, schedule_id: String, generation: Int, payload: String, last_recorded_unix_ms: Int, entries: List(Occurrence), scheduled_unix_ms: Int, arrival: Arrival, not_due: Bool, hs: Within(bound, entries)) -> Within(bound, unsettled(state_of(admit_due(queue_state(bound, schedule_id, generation, payload, last_recorded_unix_ms, entries), scheduled_unix_ms, arrival, not_due)))) =
+    match not_due
+      True() -> hs
+      False() -> admit_origin_queue_within(bound, schedule_id, generation, payload, last_recorded_unix_ms, entries, scheduled_unix_ms, scheduled_unix_ms < boundary_of(arrival), hs)
+
+  @total true
+  fn admit_recorded_queue_within(bound: Nat, schedule_id: String, generation: Int, payload: String, last_recorded_unix_ms: Int, entries: List(Occurrence), scheduled_unix_ms: Int, arrival: Arrival, recorded: Bool, hs: Within(bound, entries)) -> Within(bound, unsettled(state_of(admit_recorded(queue_state(bound, schedule_id, generation, payload, last_recorded_unix_ms, entries), scheduled_unix_ms, arrival, recorded)))) =
+    match recorded
+      True() -> hs
+      False() -> admit_due_queue_within(bound, schedule_id, generation, payload, last_recorded_unix_ms, entries, scheduled_unix_ms, arrival, now_of(arrival) < scheduled_unix_ms, hs)
+
+  @total true
+  fn within_bound_queue(bound: Nat, schedule_id: String, generation: Int, payload: String, last_recorded_unix_ms: Int, entries: List(Occurrence), scheduled_unix_ms: Int, arrival: Arrival, hs: Within(bound, entries)) -> Within(bound, unsettled(state_of(admit_slot(queue_state(bound, schedule_id, generation, payload, last_recorded_unix_ms, entries), scheduled_unix_ms, arrival)))) =
+    admit_recorded_queue_within(bound, schedule_id, generation, payload, last_recorded_unix_ms, entries, scheduled_unix_ms, arrival, scheduled_unix_ms <= last_recorded_unix_ms, hs)
+
+  # fits(n, xs) is the Bool view of Within: xs holds at most n entries. The
+  # bound_* corollaries restate the Within laws as checked equalities.
+  fn fits(capacity: Nat, entries: List(Occurrence)) -> Bool =
+    match entries
+      [] -> true
+      [head | tail] ->
+        match capacity
+          Z() -> false
+          S(smaller) -> fits(smaller, tail)
+
+  @total true
+  fn within_fits(capacity: Nat, entries: List(Occurrence), w: Within(capacity, entries)) -> Equivalent(Bool, fits(capacity, entries), True()) =
+    match entries
+      [] -> reflexive(True())
+      [head | tail] ->
+        match capacity
+          Z() -> match w
+          S(smaller) ->
+            match w
+              within_cons(inner) -> within_fits(smaller, tail, inner)
+
+  @total true
+  fn bound_skip(schedule_id: String, generation: Int, payload: String, last_recorded_unix_ms: Int, entries: List(Occurrence), scheduled_unix_ms: Int, arrival: Arrival, hs: Within(one(), entries)) -> Equivalent(Bool, fits(one(), unsettled(state_of(admit_slot(skip_state(schedule_id, generation, payload, last_recorded_unix_ms, entries), scheduled_unix_ms, arrival)))), True()) =
+    within_fits(one(), unsettled(state_of(admit_slot(skip_state(schedule_id, generation, payload, last_recorded_unix_ms, entries), scheduled_unix_ms, arrival))), within_one_skip(schedule_id, generation, payload, last_recorded_unix_ms, entries, scheduled_unix_ms, arrival, hs))
+
+  @total true
+  fn bound_replace(schedule_id: String, generation: Int, payload: String, last_recorded_unix_ms: Int, entries: List(Occurrence), scheduled_unix_ms: Int, arrival: Arrival, hs: Within(one(), entries)) -> Equivalent(Bool, fits(one(), unsettled(state_of(admit_slot(replace_state(schedule_id, generation, payload, last_recorded_unix_ms, entries), scheduled_unix_ms, arrival)))), True()) =
+    within_fits(one(), unsettled(state_of(admit_slot(replace_state(schedule_id, generation, payload, last_recorded_unix_ms, entries), scheduled_unix_ms, arrival))), within_one_replace(schedule_id, generation, payload, last_recorded_unix_ms, entries, scheduled_unix_ms, arrival, hs))
+
+  @total true
+  fn bound_queue(bound: Nat, schedule_id: String, generation: Int, payload: String, last_recorded_unix_ms: Int, entries: List(Occurrence), scheduled_unix_ms: Int, arrival: Arrival, hs: Within(bound, entries)) -> Equivalent(Bool, fits(bound, unsettled(state_of(admit_slot(queue_state(bound, schedule_id, generation, payload, last_recorded_unix_ms, entries), scheduled_unix_ms, arrival)))), True()) =
+    within_fits(bound, unsettled(state_of(admit_slot(queue_state(bound, schedule_id, generation, payload, last_recorded_unix_ms, entries), scheduled_unix_ms, arrival))), within_bound_queue(bound, schedule_id, generation, payload, last_recorded_unix_ms, entries, scheduled_unix_ms, arrival, hs))
+
+  # --- watermark laws over the production transition.
+
+  @total true
+  fn recorded_keeps_state(state: ScheduleState, scheduled_unix_ms: Int, arrival: Arrival, h: Equivalent(Bool, scheduled_unix_ms <= last_of(state), True())) -> Equivalent(ScheduleState, state_of(admit_slot(state, scheduled_unix_ms, arrival)), state) =
+    rewrite h in reflexive(state)
+
+  @total true
+  fn not_due_keeps_state(state: ScheduleState, scheduled_unix_ms: Int, arrival: Arrival, hr: Equivalent(Bool, scheduled_unix_ms <= last_of(state), False()), hd: Equivalent(Bool, now_of(arrival) < scheduled_unix_ms, True())) -> Equivalent(ScheduleState, state_of(admit_slot(state, scheduled_unix_ms, arrival)), state) =
+    rewrite hr in rewrite hd in reflexive(state)
+
+  # --- offline catch-up under skip and replace: no admission, watermark advances.
+
+  @total true
+  fn offline_skip_keeps_unsettled(schedule_id: String, generation: Int, payload: String, last_recorded_unix_ms: Int, entries: List(Occurrence), scheduled_unix_ms: Int, arrival: Arrival, hr: Equivalent(Bool, scheduled_unix_ms <= last_recorded_unix_ms, False()), hd: Equivalent(Bool, now_of(arrival) < scheduled_unix_ms, False()), ho: Equivalent(Bool, scheduled_unix_ms < boundary_of(arrival), True())) -> Equivalent(List(Occurrence), unsettled(state_of(admit_slot(skip_state(schedule_id, generation, payload, last_recorded_unix_ms, entries), scheduled_unix_ms, arrival))), entries) =
+    rewrite hr in rewrite hd in rewrite ho in reflexive(entries)
+
+  @total true
+  fn offline_skip_advances(schedule_id: String, generation: Int, payload: String, last_recorded_unix_ms: Int, entries: List(Occurrence), scheduled_unix_ms: Int, arrival: Arrival, hr: Equivalent(Bool, scheduled_unix_ms <= last_recorded_unix_ms, False()), hd: Equivalent(Bool, now_of(arrival) < scheduled_unix_ms, False()), ho: Equivalent(Bool, scheduled_unix_ms < boundary_of(arrival), True())) -> Equivalent(Int, last_of(state_of(admit_slot(skip_state(schedule_id, generation, payload, last_recorded_unix_ms, entries), scheduled_unix_ms, arrival))), scheduled_unix_ms) =
+    rewrite hr in rewrite hd in rewrite ho in reflexive(scheduled_unix_ms)
+
+  @total true
+  fn offline_replace_keeps_unsettled(schedule_id: String, generation: Int, payload: String, last_recorded_unix_ms: Int, entries: List(Occurrence), scheduled_unix_ms: Int, arrival: Arrival, hr: Equivalent(Bool, scheduled_unix_ms <= last_recorded_unix_ms, False()), hd: Equivalent(Bool, now_of(arrival) < scheduled_unix_ms, False()), ho: Equivalent(Bool, scheduled_unix_ms < boundary_of(arrival), True())) -> Equivalent(List(Occurrence), unsettled(state_of(admit_slot(replace_state(schedule_id, generation, payload, last_recorded_unix_ms, entries), scheduled_unix_ms, arrival))), entries) =
+    rewrite hr in rewrite hd in rewrite ho in reflexive(entries)
+
+  # --- live admission carries exactly identify(schedule id, generation, slot) and the payload.
+
+  @total true
+  @reducible
+  fn expected_single(schedule_id: String, generation: Int, payload: String, scheduled_unix_ms: Int) -> List(Occurrence) =
+    [Occurrence{id: identify(schedule_id, generation, scheduled_unix_ms), payload: payload}]
+
+  @total true
+  @reducible
+  fn expected_queued(schedule_id: String, generation: Int, payload: String, scheduled_unix_ms: Int, entries: List(Occurrence)) -> List(Occurrence) =
+    [Occurrence{id: identify(schedule_id, generation, scheduled_unix_ms), payload: payload} | entries]
+
+  @total true
+  fn live_identity_skip(schedule_id: String, generation: Int, payload: String, last_recorded_unix_ms: Int, scheduled_unix_ms: Int, arrival: Arrival, hr: Equivalent(Bool, scheduled_unix_ms <= last_recorded_unix_ms, False()), hd: Equivalent(Bool, now_of(arrival) < scheduled_unix_ms, False()), ho: Equivalent(Bool, scheduled_unix_ms < boundary_of(arrival), False())) -> Equivalent(List(Occurrence), unsettled(state_of(admit_slot(skip_state(schedule_id, generation, payload, last_recorded_unix_ms, empty()), scheduled_unix_ms, arrival))), expected_single(schedule_id, generation, payload, scheduled_unix_ms)) =
+    rewrite hr in rewrite hd in rewrite ho in reflexive(expected_single(schedule_id, generation, payload, scheduled_unix_ms))
+
+  @total true
+  fn live_identity_replace(schedule_id: String, generation: Int, payload: String, last_recorded_unix_ms: Int, entries: List(Occurrence), scheduled_unix_ms: Int, arrival: Arrival, hr: Equivalent(Bool, scheduled_unix_ms <= last_recorded_unix_ms, False()), hd: Equivalent(Bool, now_of(arrival) < scheduled_unix_ms, False()), ho: Equivalent(Bool, scheduled_unix_ms < boundary_of(arrival), False())) -> Equivalent(List(Occurrence), unsettled(state_of(admit_slot(replace_state(schedule_id, generation, payload, last_recorded_unix_ms, entries), scheduled_unix_ms, arrival))), expected_single(schedule_id, generation, payload, scheduled_unix_ms)) =
+    match entries
+      [] -> rewrite hr in rewrite hd in rewrite ho in reflexive(expected_single(schedule_id, generation, payload, scheduled_unix_ms))
+      [head | tail] -> rewrite hr in rewrite hd in rewrite ho in reflexive(expected_single(schedule_id, generation, payload, scheduled_unix_ms))
+
+  @total true
+  fn live_identity_queue(bound: Nat, schedule_id: String, generation: Int, payload: String, last_recorded_unix_ms: Int, entries: List(Occurrence), scheduled_unix_ms: Int, arrival: Arrival, hr: Equivalent(Bool, scheduled_unix_ms <= last_recorded_unix_ms, False()), hd: Equivalent(Bool, now_of(arrival) < scheduled_unix_ms, False()), ho: Equivalent(Bool, scheduled_unix_ms < boundary_of(arrival), False()), hm: Equivalent(Bool, room(bound, entries), True())) -> Equivalent(List(Occurrence), unsettled(state_of(admit_slot(queue_state(bound, schedule_id, generation, payload, last_recorded_unix_ms, entries), scheduled_unix_ms, arrival))), expected_queued(schedule_id, generation, payload, scheduled_unix_ms, entries)) =
+    rewrite hr in rewrite hd in rewrite ho in rewrite hm in reflexive(expected_queued(schedule_id, generation, payload, scheduled_unix_ms, entries))
+
+  # --- arrival independence: two admissible arrivals give the same unsettled set.
+
+  @total true
+  fn arrival_independent_skip(schedule_id: String, generation: Int, payload: String, last_recorded_unix_ms: Int, scheduled_unix_ms: Int, first: Arrival, second: Arrival, hr: Equivalent(Bool, scheduled_unix_ms <= last_recorded_unix_ms, False()), hd1: Equivalent(Bool, now_of(first) < scheduled_unix_ms, False()), ho1: Equivalent(Bool, scheduled_unix_ms < boundary_of(first), False()), hd2: Equivalent(Bool, now_of(second) < scheduled_unix_ms, False()), ho2: Equivalent(Bool, scheduled_unix_ms < boundary_of(second), False())) -> Equivalent(List(Occurrence), unsettled(state_of(admit_slot(skip_state(schedule_id, generation, payload, last_recorded_unix_ms, empty()), scheduled_unix_ms, first))), unsettled(state_of(admit_slot(skip_state(schedule_id, generation, payload, last_recorded_unix_ms, empty()), scheduled_unix_ms, second)))) =
+    rewrite hr in rewrite hd1 in rewrite ho1 in rewrite hd2 in rewrite ho2 in reflexive(expected_single(schedule_id, generation, payload, scheduled_unix_ms))
+
+  @total true
+  fn arrival_independent_replace(schedule_id: String, generation: Int, payload: String, last_recorded_unix_ms: Int, entries: List(Occurrence), scheduled_unix_ms: Int, first: Arrival, second: Arrival, hr: Equivalent(Bool, scheduled_unix_ms <= last_recorded_unix_ms, False()), hd1: Equivalent(Bool, now_of(first) < scheduled_unix_ms, False()), ho1: Equivalent(Bool, scheduled_unix_ms < boundary_of(first), False()), hd2: Equivalent(Bool, now_of(second) < scheduled_unix_ms, False()), ho2: Equivalent(Bool, scheduled_unix_ms < boundary_of(second), False())) -> Equivalent(List(Occurrence), unsettled(state_of(admit_slot(replace_state(schedule_id, generation, payload, last_recorded_unix_ms, entries), scheduled_unix_ms, first))), unsettled(state_of(admit_slot(replace_state(schedule_id, generation, payload, last_recorded_unix_ms, entries), scheduled_unix_ms, second)))) =
+    match entries
+      [] -> rewrite hr in rewrite hd1 in rewrite ho1 in rewrite hd2 in rewrite ho2 in reflexive(expected_single(schedule_id, generation, payload, scheduled_unix_ms))
+      [head | tail] -> rewrite hr in rewrite hd1 in rewrite ho1 in rewrite hd2 in rewrite ho2 in reflexive(expected_single(schedule_id, generation, payload, scheduled_unix_ms))
+
+  @total true
+  fn arrival_independent_queue(bound: Nat, schedule_id: String, generation: Int, payload: String, last_recorded_unix_ms: Int, entries: List(Occurrence), scheduled_unix_ms: Int, first: Arrival, second: Arrival, hr: Equivalent(Bool, scheduled_unix_ms <= last_recorded_unix_ms, False()), hd1: Equivalent(Bool, now_of(first) < scheduled_unix_ms, False()), ho1: Equivalent(Bool, scheduled_unix_ms < boundary_of(first), False()), hd2: Equivalent(Bool, now_of(second) < scheduled_unix_ms, False()), ho2: Equivalent(Bool, scheduled_unix_ms < boundary_of(second), False()), hm: Equivalent(Bool, room(bound, entries), True())) -> Equivalent(List(Occurrence), unsettled(state_of(admit_slot(queue_state(bound, schedule_id, generation, payload, last_recorded_unix_ms, entries), scheduled_unix_ms, first))), unsettled(state_of(admit_slot(queue_state(bound, schedule_id, generation, payload, last_recorded_unix_ms, entries), scheduled_unix_ms, second)))) =
+    rewrite hr in rewrite hd1 in rewrite ho1 in rewrite hd2 in rewrite ho2 in rewrite hm in reflexive(expected_queued(schedule_id, generation, payload, scheduled_unix_ms, entries))
+
+  # --- redefinition over the production function.
+
+  @total true
+  fn redefine_generation_stale(state: ScheduleState, schedule: Schedule, greater: Bool, hg: Equivalent(Bool, greater, False())) -> Equivalent(ScheduleState, redefinition_state(redefine_generation(state, schedule, greater)), state) =
+    match greater
+      True() ->
+        match hg
+          reflexive() -> impossible
+      False() -> reflexive(state)
+
+  @total true
+  fn redefine_identity_stale(state: ScheduleState, schedule: Schedule, same: Bool, hg: Equivalent(Bool, greater_generation(state, schedule), False())) -> Equivalent(ScheduleState, redefinition_state(redefine_identity(state, schedule, same)), state) =
+    match same
+      True() -> redefine_generation_stale(state, schedule, greater_generation(state, schedule), hg)
+      False() -> reflexive(state)
+
+  @total true
+  fn redefine_valid_stale(state: ScheduleState, schedule: Schedule, valid: Bool, hg: Equivalent(Bool, greater_generation(state, schedule), False())) -> Equivalent(ScheduleState, redefinition_state(redefine_valid(state, schedule, valid)), state) =
+    match valid
+      True() -> redefine_identity_stale(state, schedule, same_schedule(state, schedule), hg)
+      False() -> reflexive(state)
+
+  @total true
+  fn stale_redefinition_keeps_state(state: ScheduleState, schedule: Schedule, hg: Equivalent(Bool, greater_generation(state, schedule), False())) -> Equivalent(ScheduleState, redefinition_state(redefine(state, schedule)), state) =
+    redefine_valid_stale(state, schedule, schedule_valid(schedule), hg)
+
+  @total true
+  fn redefinition_records_displaced(state: ScheduleState, schedule: Schedule, hv: Equivalent(Bool, schedule_valid(schedule), True()), hs: Equivalent(Bool, same_schedule(state, schedule), True()), hg: Equivalent(Bool, greater_generation(state, schedule), True())) -> Equivalent(List(OccurrenceId), displaced(redefine(state, schedule)), ids(unsettled(state))) =
+    rewrite hv in rewrite hs in rewrite hg in reflexive(ids(unsettled(state)))
+
+  @total true
+  fn redefinition_clears_unsettled(state: ScheduleState, schedule: Schedule, hv: Equivalent(Bool, schedule_valid(schedule), True()), hs: Equivalent(Bool, same_schedule(state, schedule), True()), hg: Equivalent(Bool, greater_generation(state, schedule), True())) -> Equivalent(List(Occurrence), unsettled(redefinition_state(redefine(state, schedule))), empty()) =
+    rewrite hv in rewrite hs in rewrite hg in reflexive(empty())
+
+  # --- settlement over the production function.
+
+  @total true
+  fn stale_settlement_keeps_state(state: ScheduleState, id: OccurrenceId, kind: SettlementKind, hg: Equivalent(Bool, generation_of(id) < generation_of_state(state), True())) -> Equivalent(ScheduleState, settlement_state(settle(state, id, kind)), state) =
+    rewrite hg in reflexive(state)
+
+  @total true
+  fn unknown_settlement_keeps_state(state: ScheduleState, id: OccurrenceId, kind: SettlementKind, hg: Equivalent(Bool, generation_of(id) < generation_of_state(state), False()), hf: Equivalent(Option(Occurrence), find(id, unsettled(state)), None())) -> Equivalent(ScheduleState, settlement_state(settle(state, id, kind)), state) =
+    rewrite hg in rewrite hf in reflexive(state)
+
+  # --- delivery admission over the production function.
+
+  @total true
+  fn absent_delivery_rejected(state: ScheduleState, id: OccurrenceId, payload: String, hg: Equivalent(Bool, generation_of(id) < generation_of_state(state), False()), hf: Equivalent(Option(Occurrence), find(id, unsettled(state)), None())) -> Equivalent(Bool, admitted(admit_delivery(state, id, payload)), False()) =
+    rewrite hg in rewrite hf in reflexive(False())
+
+  @total true
+  fn stale_delivery_rejected(state: ScheduleState, id: OccurrenceId, payload: String, hg: Equivalent(Bool, generation_of(id) < generation_of_state(state), True())) -> Equivalent(Bool, admitted(admit_delivery(state, id, payload)), False()) =
+    rewrite hg in reflexive(False())
+
+  @total true
+  fn mismatched_delivery_rejected(state: ScheduleState, id: OccurrenceId, payload: String, found: Occurrence, hg: Equivalent(Bool, generation_of(id) < generation_of_state(state), False()), hf: Equivalent(Option(Occurrence), find(id, unsettled(state)), Some(found)), hp: Equivalent(Bool, text_equal(payload_of(found), payload), False())) -> Equivalent(Bool, admitted(admit_delivery(state, id, payload)), False()) =
+    rewrite hg in rewrite hf in rewrite hp in reflexive(False())
+
+end

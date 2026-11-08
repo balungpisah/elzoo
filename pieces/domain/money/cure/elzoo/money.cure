@@ -1,0 +1,377 @@
+# SPDX-License-Identifier: Apache-2.0
+# domain/money (ELZ-031): exact minor-unit arithmetic over registry currencies.
+# Pure: no I/O, no Float, no registry data. The Elixir boundary
+# (Elzoo.Money) admits only registry members with a recorded integer exponent,
+# builds each MoneyCurrency from that member's identity and translates results.
+mod Elzoo.Money
+  local fn equal(left: a, right: a) -> Bool = Std.Builtin.struct_eq(a, left, right)
+
+  # ── result schema ───────────────────────────────────────────────────────
+
+  # Arithmetic identity of a currency: ISO alpha code, numeric code and the
+  # minor-unit exponent. Registry status and version stay at the boundary.
+  rec MoneyCurrency
+    alpha: String
+    numeric: Int
+    exponent: Int
+
+  rec MoneyAmount
+    currency: MoneyCurrency
+    minor_units: Int
+
+  type MoneyRejection = MoneyCurrencyMismatch(MoneyCurrency, MoneyCurrency) | MoneyInvalidRatios
+
+  type MoneyResult = MoneyOk(MoneyAmount) | MoneyRejected(MoneyRejection)
+
+  type MoneyOrder = MoneyLess | MoneyEqual | MoneyGreater
+
+  type MoneyComparison = MoneyCompared(MoneyOrder) | MoneyCompareRejected(MoneyRejection)
+
+  # Where the residual goes: on the first positive-ratio part, on the last
+  # positive-ratio part, or one minor unit of the residual's sign to each
+  # positive-ratio part in list order until it is exhausted.
+  type MoneyPlacement = MoneyFirst | MoneyLast | MoneySpread
+
+  # `residual` is already inside `parts`; it is reported, never an extra amount.
+  rec MoneyAllocation
+    parts: List(MoneyAmount)
+    residual: Int
+
+  type MoneyAllocationResult = MoneyAllocated(MoneyAllocation) | MoneyAllocationRejected(MoneyRejection)
+
+  # ── same-currency arithmetic ────────────────────────────────────────────
+
+  @total true
+  @reducible
+  fn same_currency(left: MoneyAmount, right: MoneyAmount) -> Bool = equal(left.currency, right.currency)
+
+  @total true
+  @reducible
+  fn amount(currency: MoneyCurrency, minor_units: Int) -> MoneyAmount =
+    MoneyAmount{currency: currency, minor_units: minor_units}
+
+  @total true
+  @reducible
+  fn mismatch(left: MoneyAmount, right: MoneyAmount) -> MoneyRejection =
+    MoneyCurrencyMismatch(left.currency, right.currency)
+
+  @total true
+  @reducible
+  fn summed(left: MoneyAmount, right: MoneyAmount) -> MoneyResult = MoneyOk(amount(left.currency, left.minor_units + right.minor_units))
+
+  @total true
+  @reducible
+  fn differenced(left: MoneyAmount, right: MoneyAmount) -> MoneyResult = MoneyOk(amount(left.currency, left.minor_units - right.minor_units))
+
+  @total true
+  @reducible
+  fn add_with(left: MoneyAmount, right: MoneyAmount, same: Bool) -> MoneyResult =
+    match same
+      True() -> summed(left, right)
+      False() -> MoneyRejected(mismatch(left, right))
+
+  @total true
+  @reducible
+  fn add(left: MoneyAmount, right: MoneyAmount) -> MoneyResult = add_with(left, right, same_currency(left, right))
+
+  @total true
+  @reducible
+  fn subtract_with(left: MoneyAmount, right: MoneyAmount, same: Bool) -> MoneyResult =
+    match same
+      True() -> differenced(left, right)
+      False() -> MoneyRejected(mismatch(left, right))
+
+  @total true
+  @reducible
+  fn subtract(left: MoneyAmount, right: MoneyAmount) -> MoneyResult = subtract_with(left, right, same_currency(left, right))
+
+  @total true
+  @reducible
+  fn negate(value: MoneyAmount) -> MoneyAmount = amount(value.currency, 0 - value.minor_units)
+
+  @total true
+  @reducible
+  fn order(left: Int, right: Int) -> MoneyOrder =
+    pickup
+      left < right -> MoneyLess()
+      left > right -> MoneyGreater()
+      else -> MoneyEqual()
+
+  @total true
+  @reducible
+  fn compare_with(left: MoneyAmount, right: MoneyAmount, same: Bool) -> MoneyComparison =
+    match same
+      True() -> MoneyCompared(order(left.minor_units, right.minor_units))
+      False() -> MoneyCompareRejected(mismatch(left, right))
+
+  @total true
+  @reducible
+  fn compare(left: MoneyAmount, right: MoneyAmount) -> MoneyComparison = compare_with(left, right, same_currency(left, right))
+
+  # ── allocation ──────────────────────────────────────────────────────────
+
+  @total true
+  @reducible
+  fn ratio_sum(ratios: List(Int)) -> Int =
+    match ratios
+      [] -> 0
+      [r | rest] -> r + ratio_sum(rest)
+
+  @total true
+  @reducible
+  fn all_non_negative(ratios: List(Int)) -> Bool =
+    match ratios
+      [] -> True()
+      [r | rest] -> r >= 0 and all_non_negative(rest)
+
+  @total true
+  @reducible
+  fn any_positive(ratios: List(Int)) -> Bool =
+    match ratios
+      [] -> False()
+      [r | rest] -> r > 0 or any_positive(rest)
+
+  # Valid ratios: nonempty, every ratio >= 0, and a positive sum. The length
+  # bound (1 to 1000) and integer elements are checked at the Elixir boundary.
+  @total true
+  @reducible
+  fn ratios_valid(ratios: List(Int)) -> Bool =
+    match ratios
+      [] -> False()
+      [_r | _rest] -> all_non_negative(ratios) and ratio_sum(ratios) > 0
+
+  # Share i = total * ratio_i / sum, truncated toward zero (native Int division).
+  @total true
+  @reducible
+  fn shares(currency: MoneyCurrency, total: Int, ratios: List(Int), sum: Int) -> List(MoneyAmount) =
+    match ratios
+      [] -> []
+      [r | rest] -> [amount(currency, (total * r) / sum) | shares(currency, total, rest, sum)]
+
+  @total true
+  @reducible
+  fn units_sum(parts: List(MoneyAmount)) -> Int =
+    match parts
+      [] -> 0
+      [p | rest] -> p.minor_units + units_sum(rest)
+
+  @total true
+  @reducible
+  fn bump(part: MoneyAmount, units: Int) -> MoneyAmount = amount(part.currency, part.minor_units + units)
+
+  @total true
+  @reducible
+  fn head_of(ratios: List(Int)) -> Int =
+    match ratios
+      [] -> 0
+      [r | _rest] -> r
+
+  @total true
+  @reducible
+  fn tail_of(ratios: List(Int)) -> List(Int) =
+    match ratios
+      [] -> []
+      [_r | rest] -> rest
+
+  @total true
+  @reducible
+  fn step_of(residual: Int) -> Int =
+    pickup
+      residual < 0 -> 0 - 1
+      else -> 1
+
+  # Units added to one part, given the residual not yet placed, the part's
+  # ratio and the ratios after it.
+  @total true
+  @reducible
+  fn delta(placement: MoneyPlacement, remaining: Int, ratio: Int, later: List(Int)) -> Int =
+    match placement
+      MoneyFirst() ->
+        pickup
+          remaining != 0 and ratio > 0 -> remaining
+          else -> 0
+      MoneyLast() ->
+        pickup
+          remaining != 0 and ratio > 0 and not any_positive(later) -> remaining
+          else -> 0
+      MoneySpread() ->
+        pickup
+          remaining != 0 and ratio > 0 -> step_of(remaining)
+          else -> 0
+
+  # Every part is bumped by its delta (often 0), so the list shape never
+  # depends on a decision: count and currency laws hold for every placement.
+  @total true
+  @reducible
+  fn distribute(parts: List(MoneyAmount), ratios: List(Int), remaining: Int, placement: MoneyPlacement) -> List(MoneyAmount) =
+    match parts
+      [] -> []
+      [p | rest] -> [bump(p, delta(placement, remaining, head_of(ratios), tail_of(ratios))) | distribute(rest, tail_of(ratios), remaining - delta(placement, remaining, head_of(ratios), tail_of(ratios)), placement)]
+
+  @total true
+  @reducible
+  fn currency_of(value: MoneyAmount) -> MoneyCurrency = value.currency
+
+  @total true
+  @reducible
+  fn units_of(value: MoneyAmount) -> Int = value.minor_units
+
+  @total true
+  @reducible
+  fn total_shares(total: MoneyAmount, ratios: List(Int)) -> List(MoneyAmount) =
+    shares(currency_of(total), units_of(total), ratios, ratio_sum(ratios))
+
+  @total true
+  @reducible
+  fn residual_of(total: MoneyAmount, ratios: List(Int)) -> Int = units_of(total) - units_sum(total_shares(total, ratios))
+
+  @total true
+  @reducible
+  fn allocated(total: MoneyAmount, ratios: List(Int), placement: MoneyPlacement) -> MoneyAllocation =
+    MoneyAllocation{parts: distribute(total_shares(total, ratios), ratios, residual_of(total, ratios), placement), residual: residual_of(total, ratios)}
+
+  @total true
+  @reducible
+  fn allocate_with(total: MoneyAmount, ratios: List(Int), placement: MoneyPlacement, valid: Bool) -> MoneyAllocationResult =
+    match valid
+      True() -> MoneyAllocated(allocated(total, ratios, placement))
+      False() -> MoneyAllocationRejected(MoneyInvalidRatios())
+
+  @total true
+  @reducible
+  fn allocate(total: MoneyAmount, ratios: List(Int), placement: MoneyPlacement) -> MoneyAllocationResult =
+    allocate_with(total, ratios, placement, ratios_valid(ratios))
+
+  # ── law helpers ─────────────────────────────────────────────────────────
+
+  @total true
+  @reducible
+  fn count(parts: List(MoneyAmount)) -> Int =
+    match parts
+      [] -> 0
+      [_p | rest] -> 1 + count(rest)
+
+  @total true
+  @reducible
+  fn ratio_count(ratios: List(Int)) -> Int =
+    match ratios
+      [] -> 0
+      [_r | rest] -> 1 + ratio_count(rest)
+
+  @total true
+  @reducible
+  fn currencies(parts: List(MoneyAmount)) -> List(MoneyCurrency) =
+    match parts
+      [] -> []
+      [p | rest] -> [p.currency | currencies(rest)]
+
+  @total true
+  @reducible
+  fn no_currencies() -> List(MoneyCurrency) = []
+
+  # One copy of the currency per ratio.
+  @total true
+  @reducible
+  fn copies(currency: MoneyCurrency, ratios: List(Int)) -> List(MoneyCurrency) =
+    match ratios
+      [] -> []
+      [_r | rest] -> [currency | copies(currency, rest)]
+
+  @total true
+  @reducible
+  fn allocation_parts(result: MoneyAllocationResult) -> List(MoneyAmount) =
+    match result
+      MoneyAllocated(a) -> a.parts
+      MoneyAllocationRejected(_r) -> []
+
+  # Law right-hand sides, stated independently of the production helpers.
+  @total true
+  @reducible
+  fn plus_units(left: MoneyAmount, right: MoneyAmount) -> Int = units_of(left) + units_of(right)
+
+  @total true
+  @reducible
+  fn minus_units(left: MoneyAmount, right: MoneyAmount) -> Int = units_of(left) - units_of(right)
+
+  @total true
+  @reducible
+  fn both_named(left: MoneyAmount, right: MoneyAmount) -> MoneyRejection = MoneyCurrencyMismatch(currency_of(left), currency_of(right))
+
+  # ── selected laws ───────────────────────────────────────────────────────
+  # Decision-split form: pinned Cure keeps Std.Builtin.struct_eq neutral on
+  # symbolic currencies, so each arithmetic law takes the currency decision as
+  # evidence. No law states the allocation sum (native Int + is neutral).
+
+  # M1 add closure: with the same-currency decision True, add is MoneyOk of the
+  # left currency and the integer sum.
+  fn add_same_currency(left: MoneyAmount, right: MoneyAmount, same: Bool, evidence: Equivalent(Bool, same, True())) -> Equivalent(MoneyResult, add_with(left, right, same), MoneyOk(amount(currency_of(left), plus_units(left, right)))) =
+    match evidence
+      reflexive() -> reflexive(MoneyOk(amount(currency_of(left), plus_units(left, right))))
+
+  # M2 mixed-currency add is a typed rejection naming both currencies.
+  fn add_mismatch_names_both(left: MoneyAmount, right: MoneyAmount, same: Bool, evidence: Equivalent(Bool, same, False())) -> Equivalent(MoneyResult, add_with(left, right, same), MoneyRejected(both_named(left, right))) =
+    match evidence
+      reflexive() -> reflexive(MoneyRejected(both_named(left, right)))
+
+  # M3 subtract closure.
+  fn subtract_same_currency(left: MoneyAmount, right: MoneyAmount, same: Bool, evidence: Equivalent(Bool, same, True())) -> Equivalent(MoneyResult, subtract_with(left, right, same), MoneyOk(amount(currency_of(left), minus_units(left, right)))) =
+    match evidence
+      reflexive() -> reflexive(MoneyOk(amount(currency_of(left), minus_units(left, right))))
+
+  # M4 mixed-currency subtract names both currencies.
+  fn subtract_mismatch_names_both(left: MoneyAmount, right: MoneyAmount, same: Bool, evidence: Equivalent(Bool, same, False())) -> Equivalent(MoneyResult, subtract_with(left, right, same), MoneyRejected(both_named(left, right))) =
+    match evidence
+      reflexive() -> reflexive(MoneyRejected(both_named(left, right)))
+
+  # M5 mixed-currency compare names both currencies.
+  fn compare_mismatch_names_both(left: MoneyAmount, right: MoneyAmount, same: Bool, evidence: Equivalent(Bool, same, False())) -> Equivalent(MoneyComparison, compare_with(left, right, same), MoneyCompareRejected(both_named(left, right))) =
+    match evidence
+      reflexive() -> reflexive(MoneyCompareRejected(both_named(left, right)))
+
+  # M6 negate keeps the currency (for every amount, by reduction).
+  @total true
+  fn negate_keeps_currency(value: MoneyAmount) -> Equivalent(MoneyCurrency, currency_of(negate(value)), currency_of(value)) =
+    reflexive(currency_of(value))
+
+  # M7 invalid ratios allocate nothing.
+  fn invalid_ratios_rejected(total: MoneyAmount, ratios: List(Int), placement: MoneyPlacement, valid: Bool, evidence: Equivalent(Bool, valid, False())) -> Equivalent(MoneyAllocationResult, allocate_with(total, ratios, placement, valid), MoneyAllocationRejected(MoneyInvalidRatios())) =
+    match evidence
+      reflexive() -> reflexive(MoneyAllocationRejected(MoneyInvalidRatios()))
+
+  # M8 one share per ratio (induction on ratios).
+  @total true
+  fn shares_count(currency: MoneyCurrency, total: Int, ratios: List(Int), sum: Int) -> Equivalent(Int, count(shares(currency, total, ratios, sum)), ratio_count(ratios)) =
+    match ratios
+      [] -> reflexive(0)
+      [_r | rest] -> rewrite shares_count(currency, total, rest, sum) in reflexive(1 + ratio_count(rest))
+
+  # M9 every share carries the allocated currency (induction on ratios).
+  @total true
+  fn shares_currency(currency: MoneyCurrency, total: Int, ratios: List(Int), sum: Int) -> Equivalent(List(MoneyCurrency), currencies(shares(currency, total, ratios, sum)), copies(currency, ratios)) =
+    match ratios
+      [] -> reflexive(no_currencies())
+      [_r | rest] -> rewrite shares_currency(currency, total, rest, sum) in reflexive([currency | copies(currency, rest)])
+
+  # M10 residual placement keeps the part count, for every placement (induction).
+  @total true
+  fn distribute_count(parts: List(MoneyAmount), ratios: List(Int), remaining: Int, placement: MoneyPlacement) -> Equivalent(Int, count(distribute(parts, ratios, remaining, placement)), count(parts)) =
+    match parts
+      [] -> reflexive(0)
+      [_p | rest] -> rewrite distribute_count(rest, tail_of(ratios), remaining - delta(placement, remaining, head_of(ratios), tail_of(ratios)), placement) in reflexive(1 + count(rest))
+
+  # M11 residual placement keeps every part's currency (induction).
+  @total true
+  fn distribute_currency(parts: List(MoneyAmount), ratios: List(Int), remaining: Int, placement: MoneyPlacement) -> Equivalent(List(MoneyCurrency), currencies(distribute(parts, ratios, remaining, placement)), currencies(parts)) =
+    match parts
+      [] -> reflexive(no_currencies())
+      [p | rest] -> rewrite distribute_currency(rest, tail_of(ratios), remaining - delta(placement, remaining, head_of(ratios), tail_of(ratios)), placement) in reflexive([p.currency | currencies(rest)])
+
+  # M12 a valid allocation has exactly one part per ratio, for every placement.
+  fn allocate_count(total: MoneyAmount, ratios: List(Int), placement: MoneyPlacement, valid: Bool, evidence: Equivalent(Bool, valid, True())) -> Equivalent(Int, count(allocation_parts(allocate_with(total, ratios, placement, valid))), ratio_count(ratios)) =
+    match evidence
+      reflexive() -> Std.Equivalent.trans(distribute_count(total_shares(total, ratios), ratios, residual_of(total, ratios), placement), shares_count(currency_of(total), units_of(total), ratios, ratio_sum(ratios)))
+
+  # M13 every part of a valid allocation is in the total's currency.
+  fn allocate_currency(total: MoneyAmount, ratios: List(Int), placement: MoneyPlacement, valid: Bool, evidence: Equivalent(Bool, valid, True())) -> Equivalent(List(MoneyCurrency), currencies(allocation_parts(allocate_with(total, ratios, placement, valid))), copies(currency_of(total), ratios)) =
+    match evidence
+      reflexive() -> Std.Equivalent.trans(distribute_currency(total_shares(total, ratios), ratios, residual_of(total, ratios), placement), shares_currency(currency_of(total), units_of(total), ratios, ratio_sum(ratios)))
