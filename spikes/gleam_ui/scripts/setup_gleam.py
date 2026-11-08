@@ -67,9 +67,12 @@ HOST_PATTERN = re.compile(r"[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[
 def redirect_target_allowed(location):
     """HTTPS only, plain host name, no user info, default port, and a GitHub-owned domain."""
     try:
-        if not location.isascii() or any(c in location for c in "\\ \t\r\n%"):
+        # Percent-encoding is normal in the signed query string; it is refused only in the host part.
+        if not location.isascii() or any(c in location for c in "\\ \t\r\n"):
             return False
         parts = urllib.parse.urlsplit(location)
+        if "%" in parts.netloc:
+            return False
         host = parts.hostname or ""
         if (parts.scheme != "https" or parts.username is not None or parts.password is not None
                 or parts.port not in (None, 443) or not HOST_PATTERN.fullmatch(host)):

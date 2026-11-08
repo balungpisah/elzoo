@@ -211,7 +211,11 @@ class SetupGleamTest(unittest.TestCase):
             with self.subTest(location=location):
                 self.assertFalse(setup_gleam.redirect_target_allowed(location))
         for location in ("https://github.com/x", "https://GitHub.com/x", "https://api.github.com:443/x",
-                         "https://objects.githubusercontent.com/x?a=b&c=d"):
+                         "https://objects.githubusercontent.com/x?a=b&c=d",
+                         # shape of a real signed release-asset URL: percent-encoded query values
+                         "https://release-assets.githubusercontent.com/github-production-release-asset/1234/abc"
+                         "?sp=r&sv=2018-11-09&sr=b&spr=https&se=2026-11-08T10%3A44%3A27Z&rscd=attachment%3B+filename%3Dgleam.tar.gz"
+                         "&sig=ab%2Bcd%2Fef%3D&rsct=application%2Foctet-stream"):
             with self.subTest(location=location):
                 self.assertTrue(setup_gleam.redirect_target_allowed(location))
 
