@@ -1,0 +1,117 @@
+# Proposal feasibility only; not a production Piece or accepted Contract.
+mod Elzoo.IntentProbe
+  type Capability = NoReplay | ReplaySafe
+  type Ground = AdapterNoSend | ProviderNoEffect | ProviderReplaySafe
+  type Evidence = NoGround | HasGround(Ground)
+  type Phase = Empty | Intended | Dispatched | Definite(Ground) | Confirmed | Stranded
+  type Event = Admit | Arm | NoSend | Lost | Pending | NoEffect | ProviderUnknown | Completed | Resume | Rearm | Expired
+  type Action = Dispatch | Poll | Reconcile | Stop
+  rec Decision
+    phase: Phase
+    action: Action
+
+  @total true
+  @reducible
+  fn next(phase: Phase, event: Event, capability: Capability) -> Decision =
+    match phase
+      Empty() ->
+        match event
+          Admit() -> Decision{phase: Intended(), action: Stop()}
+          _ -> Decision{phase: phase, action: Stop()}
+      Intended() ->
+        match event
+          Arm() -> Decision{phase: Dispatched(), action: Dispatch()}
+          _ -> Decision{phase: phase, action: Stop()}
+      Dispatched() ->
+        match event
+          NoSend() -> Decision{phase: Definite(AdapterNoSend()), action: Stop()}
+          NoEffect() -> Decision{phase: Definite(ProviderNoEffect()), action: Stop()}
+          ProviderUnknown() ->
+            match capability
+              NoReplay() -> Decision{phase: Stranded(), action: Reconcile()}
+              ReplaySafe() -> Decision{phase: Definite(ProviderReplaySafe()), action: Stop()}
+          Completed() -> Decision{phase: Confirmed(), action: Stop()}
+          Expired() -> Decision{phase: Stranded(), action: Reconcile()}
+          _ -> Decision{phase: Dispatched(), action: Poll()}
+      Definite(ground) ->
+        match event
+          Rearm() -> Decision{phase: Intended(), action: Stop()}
+          _ -> Decision{phase: phase, action: Stop()}
+      Confirmed() -> Decision{phase: phase, action: Stop()}
+      Stranded() -> Decision{phase: phase, action: Stop()}
+
+  @total true
+  @reducible
+  fn dispatches(decision: Decision) -> Bool =
+    match decision.action
+      Dispatch() -> True()
+      _ -> False()
+
+  @total true
+  @reducible
+  fn evidence(decision: Decision) -> Evidence =
+    match decision.phase
+      Definite(ground) -> HasGround(ground)
+      _ -> NoGround()
+
+  # Separate expected truth table; no reference to next/evidence.
+  @total true
+  @reducible
+  fn admitted_ground(event: Event, capability: Capability) -> Evidence =
+    match event
+      NoSend() -> HasGround(AdapterNoSend())
+      NoEffect() -> HasGround(ProviderNoEffect())
+      ProviderUnknown() ->
+        match capability
+          NoReplay() -> NoGround()
+          ReplaySafe() -> HasGround(ProviderReplaySafe())
+      _ -> NoGround()
+
+  fn no_direct_redispatch(event: Event, capability: Capability) -> Equivalent(Bool, dispatches(next(Dispatched(), event, capability)), False()) =
+    match event
+      NoSend() -> reflexive(False())
+      NoEffect() -> reflexive(False())
+      ProviderUnknown() ->
+        match capability
+          NoReplay() -> reflexive(False())
+          ReplaySafe() -> reflexive(False())
+      Completed() -> reflexive(False())
+      Expired() -> reflexive(False())
+      Admit() -> reflexive(False())
+      Arm() -> reflexive(False())
+      Lost() -> reflexive(False())
+      Pending() -> reflexive(False())
+      Resume() -> reflexive(False())
+      Rearm() -> reflexive(False())
+
+  fn definite_has_ground(event: Event, capability: Capability) -> Equivalent(Evidence, evidence(next(Dispatched(), event, capability)), admitted_ground(event, capability)) =
+    match event
+      NoSend() -> reflexive(HasGround(AdapterNoSend()))
+      NoEffect() -> reflexive(HasGround(ProviderNoEffect()))
+      ProviderUnknown() ->
+        match capability
+          NoReplay() -> reflexive(NoGround())
+          ReplaySafe() -> reflexive(HasGround(ProviderReplaySafe()))
+      Completed() -> reflexive(NoGround())
+      Expired() -> reflexive(NoGround())
+      Admit() -> reflexive(NoGround())
+      Arm() -> reflexive(NoGround())
+      Lost() -> reflexive(NoGround())
+      Pending() -> reflexive(NoGround())
+      Resume() -> reflexive(NoGround())
+      Rearm() -> reflexive(NoGround())
+
+  @total true
+  @reducible
+  fn stopped_stranded() -> Decision = Decision{phase: Stranded(), action: Stop()}
+
+  @total true
+  @reducible
+  fn reconcile_stranded() -> Decision = Decision{phase: Stranded(), action: Reconcile()}
+
+  fn stranded_terminal(event: Event, capability: Capability) -> Equivalent(Decision, next(Stranded(), event, capability), stopped_stranded()) =
+    reflexive(Decision{phase: Stranded(), action: Stop()})
+
+  fn unknown_without_replay() -> Equivalent(Decision, next(Dispatched(), ProviderUnknown(), NoReplay()), reconcile_stranded()) =
+    reflexive(Decision{phase: Stranded(), action: Reconcile()})
+end
