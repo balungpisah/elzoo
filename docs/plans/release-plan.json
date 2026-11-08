@@ -3170,10 +3170,12 @@
     {
       "id": "delivery/trigger",
       "job": "ELZ-027",
-      "note": "Schedule/webhook/app-event input with source identity and dedup scope; delivery/time is only a timer recipe. Needed by C1/C7; no trigger adapter adopted. ELZ-027 carries the schedule-occurrence slice (identity from schedule id, generation and instant; declared skip/queue/replace overlap policy).",
+      "note": "Pure schedule-occurrence policy over already computed due slots: identity {schedule id, generation, scheduled instant}; skip, replace and queue(n) overlap decisions with at most one (skip, replace) or n (queue) unsettled occurrences; caller-supplied availability boundary separates offline catch-up slots (occurrences only under queue) from live slots; per-schedule watermark records already_recorded{slot} without asserting an occurrence; settlement, delivery admission and generation-gated redefinition; translations to the core/envelope result schema and per-schedule delivery/idempotency histories. Bound and identity laws are proved over the production admit_slot for admissible configurations with the Int comparisons as hypotheses; the Elixir boundary validates terms and refuses a call without a valid boundary.",
       "baseline_status": "deferred",
       "disposition": "published-scoped-work",
-      "catalogue_reference": "registry/catalogue.json"
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/delivery/trigger/piece.json",
+      "manifest_sha256": "dd6b28e11645d88c26c98c7cf2553c6a7bc241f58c0e9ba2818bdfb8bd5c1b06"
     },
     {
       "id": "delivery/windowed-idempotency",

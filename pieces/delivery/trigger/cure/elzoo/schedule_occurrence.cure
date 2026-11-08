@@ -507,6 +507,39 @@ mod Elzoo.ScheduleOccurrence
   fn within_bound_queue(bound: Nat, schedule_id: String, generation: Int, payload: String, last_recorded_unix_ms: Int, entries: List(Occurrence), scheduled_unix_ms: Int, arrival: Arrival, hs: Within(bound, entries)) -> Within(bound, unsettled(state_of(admit_slot(queue_state(bound, schedule_id, generation, payload, last_recorded_unix_ms, entries), scheduled_unix_ms, arrival)))) =
     admit_recorded_queue_within(bound, schedule_id, generation, payload, last_recorded_unix_ms, entries, scheduled_unix_ms, arrival, scheduled_unix_ms <= last_recorded_unix_ms, hs)
 
+  # fits(n, xs) is the Bool view of Within: xs holds at most n entries. The
+  # bound_* corollaries restate the Within laws as checked equalities.
+  fn fits(capacity: Nat, entries: List(Occurrence)) -> Bool =
+    match entries
+      [] -> true
+      [head | tail] ->
+        match capacity
+          Z() -> false
+          S(smaller) -> fits(smaller, tail)
+
+  @total true
+  fn within_fits(capacity: Nat, entries: List(Occurrence), w: Within(capacity, entries)) -> Equivalent(Bool, fits(capacity, entries), True()) =
+    match entries
+      [] -> reflexive(True())
+      [head | tail] ->
+        match capacity
+          Z() -> match w
+          S(smaller) ->
+            match w
+              within_cons(inner) -> within_fits(smaller, tail, inner)
+
+  @total true
+  fn bound_skip(schedule_id: String, generation: Int, payload: String, last_recorded_unix_ms: Int, entries: List(Occurrence), scheduled_unix_ms: Int, arrival: Arrival, hs: Within(one(), entries)) -> Equivalent(Bool, fits(one(), unsettled(state_of(admit_slot(skip_state(schedule_id, generation, payload, last_recorded_unix_ms, entries), scheduled_unix_ms, arrival)))), True()) =
+    within_fits(one(), unsettled(state_of(admit_slot(skip_state(schedule_id, generation, payload, last_recorded_unix_ms, entries), scheduled_unix_ms, arrival))), within_one_skip(schedule_id, generation, payload, last_recorded_unix_ms, entries, scheduled_unix_ms, arrival, hs))
+
+  @total true
+  fn bound_replace(schedule_id: String, generation: Int, payload: String, last_recorded_unix_ms: Int, entries: List(Occurrence), scheduled_unix_ms: Int, arrival: Arrival, hs: Within(one(), entries)) -> Equivalent(Bool, fits(one(), unsettled(state_of(admit_slot(replace_state(schedule_id, generation, payload, last_recorded_unix_ms, entries), scheduled_unix_ms, arrival)))), True()) =
+    within_fits(one(), unsettled(state_of(admit_slot(replace_state(schedule_id, generation, payload, last_recorded_unix_ms, entries), scheduled_unix_ms, arrival))), within_one_replace(schedule_id, generation, payload, last_recorded_unix_ms, entries, scheduled_unix_ms, arrival, hs))
+
+  @total true
+  fn bound_queue(bound: Nat, schedule_id: String, generation: Int, payload: String, last_recorded_unix_ms: Int, entries: List(Occurrence), scheduled_unix_ms: Int, arrival: Arrival, hs: Within(bound, entries)) -> Equivalent(Bool, fits(bound, unsettled(state_of(admit_slot(queue_state(bound, schedule_id, generation, payload, last_recorded_unix_ms, entries), scheduled_unix_ms, arrival)))), True()) =
+    within_fits(bound, unsettled(state_of(admit_slot(queue_state(bound, schedule_id, generation, payload, last_recorded_unix_ms, entries), scheduled_unix_ms, arrival))), within_bound_queue(bound, schedule_id, generation, payload, last_recorded_unix_ms, entries, scheduled_unix_ms, arrival, hs))
+
   # --- watermark laws over the production transition.
 
   @total true
