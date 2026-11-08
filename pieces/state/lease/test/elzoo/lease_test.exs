@@ -546,7 +546,7 @@ defmodule Elzoo.LeaseTest do
 
     seams = [before_write: pass()]
     assert {:held, h} = seamed(fn -> Lease.claim(lease, "k", "alice", @minute) end, seams)
-    assert {:held, _} = Lease.write(lease, h, [{"added", 1, "x"}])
+    assert {:held, _} = seamed(fn -> Lease.write(lease, h, [{"added", 1, "x"}]) end, seams)
     {_, replay} = TestHelper.checkpoint(store, "k")
     # (a) through the owner: the Store's retain, serialized with the sections
     assert {:committed, 1} =
@@ -635,6 +635,67 @@ defmodule Elzoo.LeaseTest do
            } = r.refused
 
     assert r.errors == %{}
+  end
+
+  test "Devin findings: the owner serializes the holder's write; a modifying call waits instead of failing; fold and limits come from the Store" do
+    %{lease: lease, store: store, clock: clock} =
+      TestHelper.memory(hook: seam_hook([:before_write]))
+
+    seams = [before_write: pass()]
+    assert {:held, a} = seamed(fn -> Lease.claim(lease, "a", "alice", @minute) end, seams)
+
+    # a claim on another key is held at its seam; a holder write started meanwhile waits for the owner
+    test = self()
+
+    assert {:held, _} =
+             seamed(fn -> Lease.claim(lease, "b", "bob", @minute) end,
+               before_write: fn _ ->
+                 writer = Task.async(fn -> Lease.write(lease, a, [{"added", 1, "x"}]) end)
+                 Process.sleep(100)
+                 refute Task.yield(writer, 0), "the holder's write bypassed the owner"
+                 send(test, {:writer, writer})
+               end
+             )
+
+    writer =
+      receive do
+        {:writer, w} -> w
+      end
+
+    # the write runs in its own owner section afterwards (and passes the seam itself)
+    receive do
+      {:before_write, "a", owner} -> send(owner, {:continue, :before_write})
+    after
+      5_000 -> raise "the holder's write did not reach the owner"
+    end
+
+    assert {:held, %{live: %{revision: 2}}} = Task.await(writer, 5_000)
+    # the write itself passes the :before_write seam too
+    assert {:held, %{live: %{revision: 3}}} =
+             seamed(
+               fn ->
+                 Lease.write(lease, %{a | live: %{a.live | revision: 2}}, [{"added", 1, "y"}])
+               end,
+               seams
+             )
+
+    # fold and limits are the Store's: a different fold or limits is refused, equal ones are accepted
+    assert {:error, {:invalid, :fold}} =
+             Lease.new(
+               store: store,
+               fold: %{TestHelper.fold() | versions: [1, 2]},
+               clock: {:manual, clock}
+             )
+
+    assert {:error, {:invalid, :limits}} =
+             Lease.new(
+               store: store,
+               limits: %{TestHelper.limits() | max_batch_size: 3},
+               clock: {:manual, clock}
+             )
+
+    GenServer.stop(lease.backend.owner)
+    assert {:ok, _} = Lease.new(store: store, clock: {:manual, clock})
   end
 
   test "LS27 duplicate owners on the double are rejected; the owner's section serializes" do

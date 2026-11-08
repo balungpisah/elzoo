@@ -24,14 +24,14 @@ run without `Cure.Compiler`.
 # the consumer's fold carries the lease kinds; schema_version 1 stays in versions
 fold = %{fold | kinds: Map.merge(fold.kinds, Elzoo.Lease.kinds())}
 
-{:ok, lease} = Elzoo.Lease.new(store: store, fold: fold, limits: limits, clock: :store)
+{:ok, lease} = Elzoo.Lease.new(store: store, clock: :store)   # fold and limits are the Store term's own
 # PostgreSQL Store: clock: :store (clock_timestamp() of the Store's own Repo, sampled under the head lock)
 # Memory double:    clock: {:manual, pid} from Elzoo.Lease.Clock.manual/1
 
-{:held, held} = Elzoo.Lease.claim(lease, "job/q/42", "worker-7", 60_000)
-{:held, held} = Elzoo.Lease.write(lease, held, [{"attempt_started", 1, payload}])   # fenced by held.live.revision
-{:renewed, %{held: %{"job/q/42" => held}}} = Elzoo.Lease.renew(lease, "worker-7", ["job/q/42"], 60_000)
-{:completed, receipt} = Elzoo.Lease.complete(lease, held, [{"succeeded", 1, result}])  # + lease_released{terminal}, one step
+{:held, held0} = Elzoo.Lease.claim(lease, "job/q/42", "worker-7", 60_000)
+{:held, held1} = Elzoo.Lease.write(lease, held0, [{"attempt_started", 1, payload}])  # fenced by held0.live.revision
+{:renewed, %{held: %{"job/q/42" => held2}}} = Elzoo.Lease.renew(lease, "worker-7", ["job/q/42"], 60_000)
+{:completed, receipt} = Elzoo.Lease.complete(lease, held2, [{"succeeded", 1, result}])  # the renewed fence; + lease_released{terminal}, one step
 {:claimed, sweep} = Elzoo.Lease.claim_expired(lease, "recoverer", 60_000, 10, candidate_keys)
 {:ok, %{status: status}} = Elzoo.Lease.status(lease, "job/q/42")   # :free | :active | :stale | :ambiguous, as_of a revision
 ```
@@ -102,9 +102,12 @@ stamp (clock regression) refuses every operation except `seize`.
 - **Retention:** only the latest lease record is read; pruning it makes the key
   `pruned_prefix` ambiguous until a `seize`; `retention_bound/2` is advisory.
   PostgreSQL serializes retention with the lease step by the head lock; on the
-  Memory double only calls through the single owner (incl.
-  `Elzoo.Lease.Memory.retain/5`) are serialized, a second owner is rejected,
-  bypasses are outside the Contract, `retention_observed` is after-the-fact.
+  Memory double every call of this Piece (lease steps, `write/4`,
+  `complete/4`, `Elzoo.Lease.Memory.retain/5`) goes through the single owner,
+  a second owner is rejected, direct Store calls are outside the Contract,
+  `retention_observed` is after-the-fact. A modifying Memory call waits for
+  the owner without a timeout (a call timeout would not cancel the queued
+  request); only read-only calls can return `{:error, :contended}`.
 - **Proof scope:** selected laws cover the classification over ordering
   outcomes and the specification of the comparison; the production comparison
   is finite-test-grounded against the law-covered structural mirror, not

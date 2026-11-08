@@ -38,21 +38,36 @@ defmodule Elzoo.Lease do
   def reasons, do: Record.reasons()
 
   @doc """
-  Build a lease over a Store. Options: `store` (a Store term), `fold` and
-  `limits` (the Store's own, `max_record_bytes >= 1_024`, `max_batch_size >= 2`,
-  `fold.kinds` containing `kinds/0`, `1` in `fold.versions`), `clock`
-  (`:store` for the PostgreSQL Store; `{:manual, pid}` for the Memory Store),
-  `timeout_ms` (default 30_000), `test_hook` (test seams).
+  Build a lease over a Store. Options: `store` (a Store term whose own `fold`
+  and `limits` are the source of truth: `fold.kinds` must contain `kinds/0`,
+  `1` must be in `fold.versions`, `max_record_bytes >= 1_024`,
+  `max_batch_size >= 2`), optional `fold` and `limits` (accepted only when
+  equal to the Store's), `clock` (`:store` for the PostgreSQL Store;
+  `{:manual, pid}` for the Memory Store), `timeout_ms` (default 30_000),
+  `test_hook` (test seams).
   """
   def new(opts) do
     store = Keyword.get(opts, :store)
-    fold = Keyword.get(opts, :fold)
-    limits = Keyword.get(opts, :limits)
     clock = Keyword.get(opts, :clock)
+
+    store_opts =
+      case store do
+        {m, o} when is_atom(m) and (is_map(o) or is_list(o)) -> Map.new(o)
+        _ -> %{}
+      end
+
+    fold = Map.get(store_opts, :fold)
+    limits = Map.get(store_opts, :limits)
 
     cond do
       not match?({module, _} when is_atom(module), store) ->
         {:error, {:invalid, :store}}
+
+      Keyword.has_key?(opts, :fold) and Keyword.get(opts, :fold) != fold ->
+        {:error, {:invalid, :fold}}
+
+      Keyword.has_key?(opts, :limits) and Keyword.get(opts, :limits) != limits ->
+        {:error, {:invalid, :limits}}
 
       not (Codec.fold_valid?(fold) and Map.take(fold.kinds, Record.kind_names()) == kinds() and
                Record.version() in fold.versions) ->
@@ -239,12 +254,7 @@ defmodule Elzoo.Lease do
     with {:ok, key, owner, revision} <- fence(held),
          {:ok, rows, request} <- Record.records(key, revision, records, lease.fold, lease.limits),
          {:ok, outbox} <- items(key, request, items, lease) do
-      case Store.write(
-             lease.store,
-             :append,
-             [key, revision, rows, outbox],
-             Map.delete(request, :records)
-           ) do
+      case store_write(lease, key, revision, rows, outbox, Map.delete(request, :records)) do
         {:committed, target} -> {:held, held(key, owner, target, held.live.at, held.live.until)}
         {:conflict, %{expected: e, observed: o}} -> {:fenced, %{expected: e, observed: o}}
         {:rejected, :caller_transaction} -> {:error, :caller_transaction}
@@ -298,6 +308,14 @@ defmodule Elzoo.Lease do
       end)
     end
   end
+
+  # PostgreSQL: the ready Store's append serializes on the head row itself.
+  # Memory: every Store call on a leased stream goes through the single owner.
+  defp store_write(%{module: Elzoo.Lease.Memory} = lease, key, revision, rows, outbox, request),
+    do: Elzoo.Lease.Memory.store_write(lease.backend, key, revision, rows, outbox, request)
+
+  defp store_write(lease, key, revision, rows, outbox, request),
+    do: Store.write(lease.store, :append, [key, revision, rows, outbox], request)
 
   @doc "Confirm an unknown outcome by nonce through the ready Store's `confirm/5`."
   def confirm(lease, %{stream: key, expected: expected, nonce: nonce, records: rows}) do

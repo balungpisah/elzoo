@@ -58,10 +58,24 @@ defmodule Elzoo.Lease.Memory do
   def retain(backend, stream, expected, through, nonce),
     do: call(backend, {:retain, stream, expected, through, nonce})
 
-  defp call(backend, message) do
+  @doc "The holder's Store append (write/4), serialized through the owner like every other Store call."
+  def store_write(backend, key, revision, rows, outbox, request),
+    do: call(backend, {:store_write, key, revision, rows, outbox, request})
+
+  # A modifying call waits for the owner without a timeout: a GenServer call
+  # timeout would not cancel the queued request, so a definite failure could
+  # be reported for a request that still commits. Only the read-only call
+  # times out (`:contended`).
+  defp call(backend, {:read, _} = message) do
     GenServer.call(backend.owner, message, backend.timeout + 5_000)
   catch
     :exit, {:timeout, _} -> {:error, :contended}
+    :exit, _ -> {:error, :unavailable}
+  end
+
+  defp call(backend, message) do
+    GenServer.call(backend.owner, message, :infinity)
+  catch
     :exit, _ -> {:error, :unavailable}
   end
 
@@ -204,6 +218,16 @@ defmodule Elzoo.Lease.Memory do
 
   def handle_call({:retain, stream, expected, through, nonce}, _from, state) do
     {:reply, guarded(fn -> Memory.retain(state.store, stream, expected, through, nonce) end), state}
+  end
+
+  def handle_call({:store_write, key, revision, rows, outbox, request}, _from, state) do
+    reply =
+      guarded(fn ->
+        hook(state, :before_write, key)
+        Store.write(state.store, :append, [key, revision, rows, outbox], request)
+      end)
+
+    {:reply, reply, state}
   end
 
   # ── section internals ────────────────────────────────────────────────
