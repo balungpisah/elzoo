@@ -511,6 +511,7 @@ defmodule Elzoo.LeasePostgresTest do
     Supervisor.stop(Process.whereis(TestRepo))
     assert {:error, :unavailable} = Lease.claim(lease, "k3", "alice", @minute)
     assert {:error, :unavailable} = Lease.status(lease, "k")
+    assert {:error, :unavailable} = Lease.write(lease, h, [{"added", 1, "x"}])
     {:ok, repo} = TestRepo.start_link(url: TestHelper.url!(), pool_size: 20, log: false)
     Process.unlink(repo)
   end

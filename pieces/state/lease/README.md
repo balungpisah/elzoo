@@ -70,7 +70,7 @@ stamp (clock regression) refuses every operation except `seize`.
 | `release/3` | `{:free, %{revision, as_of}}` (idempotent on free, no write); refusals and errors as above |
 | `hold/3`, `status/2` | read-only, `as_of` a revision, information not authority; `status` adds `reason`; `{:error, :contended}` when the head moved during the unlocked read three times |
 | `claim_expired/5` | PostgreSQL: `{:claimed, %{held, refused, skipped_locked, skipped}}` or `{:error, …}` (nothing committed) or `{:indeterminate, info}`; Memory: the same or `{:partial, %{committed, refused, failed, not_evaluated}}` (no rollback of earlier per-key commits) |
-| `write/4` | `{:held, held'}` (fence advanced); `{:fenced, %{expected, observed}}`; `{:rejected, reason}`; `{:error, :caller_transaction}`; `{:indeterminate, info}` |
+| `write/4` | `{:held, held'}` (fence advanced); `{:fenced, %{expected, observed}}`; `{:rejected, reason}`; `{:error, :caller_transaction}`; `{:error, :unavailable}`; `{:indeterminate, info}` |
 | `complete/4` | `{:completed, %{key, owner, revision}}` (a receipt without a fence; `write/4`/`complete/4` refuse it with `{:error, {:invalid, :held}}`); `{:fenced, …}`; `{:lease_refused, %{reason: :regression}}`; `{:rejected, reason}`; `{:error, {:invalid, :items}}`; `{:error, :caller_transaction}`; `{:error, :contended}`; `{:indeterminate, info}` |
 | `confirm/2` | `{:committed, target}`; `:superseded`; `{:unknown, reason}` (the ready Store's `confirm/5` by nonce) |
 | `retention_bound/2` | `{:ok, %{through, as_of}}`: the highest `retain/5` `through` that keeps the latest lease record |

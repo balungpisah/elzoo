@@ -272,6 +272,9 @@ defmodule Elzoo.Lease do
 
         {:error, {:schema, detail}} ->
           {:error, {:schema, detail}}
+
+        {:error, :unavailable} ->
+          {:error, :unavailable}
       end
     end
   end
