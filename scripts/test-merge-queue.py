@@ -116,9 +116,7 @@ class Fake:
                 if self.pr_run_listing_error:
                     raise queue.QueueError("listing failed")
                 runs = [self.pr_run(700)] if self.pr_runs is None else self.pr_runs
-                out = [{"workflow_runs": runs}]
-                if not isinstance(runs, list):
-                    out = [{"workflow_runs": runs}]  # malformed bodies are passed through as they are
+                out = [{"workflow_runs": runs}]  # malformed bodies are passed through as they are
             elif path.endswith("git/ref/heads/main"):
                 out = {"object": {"sha": self.canonical_main}}
             elif "/workflows/symbolic-gleam.yml/runs?" in path:

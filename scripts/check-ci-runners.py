@@ -322,8 +322,12 @@ for file in files:
                 decision_tokens.append(starts[0] + 3)
             checkout = CHECKOUT_STEP.split('\n')
             checkouts = [i for i in block if re.match(r'\s*(?:-\s+)?uses\s*:\s*actions/checkout@', lines[i])]
+            # The step must end where the next step starts: no further input (ref:, repository:, token:) may follow.
+            after_checkout = ([line for line in lines[checkouts[0] + len(checkout):e]
+                               if line.strip() and not line.lstrip().startswith('#')]
+                              if len(checkouts) == 1 else [])
             if (len(checkouts) != 1 or lines[checkouts[0]:checkouts[0] + len(checkout)] != checkout
-                    or checkouts[0] in skip):
+                    or checkouts[0] in skip or not after_checkout or not after_checkout[0].startswith('      - ')):
                 errors.append(f'{file}: the pinned checkout step (persist-credentials: false) is missing or changed ({name})')
             # Any if: key other than the reviewed 8-space step-level lines (a header-form `- if:`, or another
             # indentation) is outside the convention; the job-level gate sits at h + 1.

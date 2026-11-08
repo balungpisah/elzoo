@@ -777,7 +777,10 @@ class RunnerPolicyTest(unittest.TestCase):
         for new in (self.CHECKOUT.replace("          persist-credentials: false\n", ""),
                     self.CHECKOUT.replace("persist-credentials: false", "persist-credentials: true"),
                     self.CHECKOUT.replace("fetch-depth: 0", "fetch-depth: 1"),
-                    self.CHECKOUT + "          token: ${{ secrets.X }}\n"):
+                    self.CHECKOUT + "          token: ${{ secrets.X }}\n",
+                    self.CHECKOUT + "          ref: main\n",
+                    self.CHECKOUT + "          repository: someone/else\n",
+                    self.CHECKOUT + "          persist-credentials: true\n"):
             with self.subTest(new=new.strip()[-40:]):
                 self.change_all("symbolic-check.yml", self.CHECKOUT, new)
                 self.assertTrue(self.check(1).stderr)
@@ -794,7 +797,7 @@ class RunnerPolicyTest(unittest.TestCase):
                          ("      - run: python3 scripts/test-ci-runners.py\n", "      - run: python3 scripts/test-ci-runners.py\n         if: ${{ false }}\n")):
             with self.subTest(new=new.strip()[:50]):
                 self.change_all("symbolic-check.yml", old, new)
-                self.assertTrue(self.check(1).stderr)
+                self.assertIn("unreviewed if: key", self.check(1).stderr)
                 self.tearDown()
                 self.setUp()
 
