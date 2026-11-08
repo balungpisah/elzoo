@@ -384,3 +384,134 @@ with:
 **Source:** `src/exec.erl` 1341–1349 (`ospid_init` link), 1481–1495 (`do_unlink_ospid`), `c_src/exec_impl.cpp` 1512–1521 (masking).
 
 **Residual left by this sentence:** owner death before the pid is recorded leaves the group unnamed to the Adapter; owner death after it leaves the stage unobservable; a restart loses queued requests.
+
+
+## B10–B11 — amendments forced by the final diff review (drafts for the main coordinator; NOT applied)
+
+Base for every before-text: the **current live #46 body**, SHA-256
+`c256b771513d1b6aa0beb9f799afcf198d30afb9115a631d576d7df7993c56a2` (A1–A7 and
+B1–B9 applied). Each before-text occurs exactly once. Applying B10.1–B10.6 and
+B11 in this order gives SHA-256 `c2c4b26947e2763d4ff771faf9ab23c2162fa46aa94258b85358d7b105e86ce8`.
+
+**Unreachable rows with erlexec 2.6.0 (stated plainly):** `terminated` is never
+produced. Therefore the A2 mapping row (`terminated` on deadline →
+`timed_out/dispatched`) and the A3 mapping row (`terminated` on cancellation,
+caller death or collector death → `failed/dispatched`) are unreachable; their
+text stays for a provider that reports who sent a signal, and B10.3/B10.4 mark
+them unreachable. Every deadline termination maps to `unknown/dispatched` via
+`unknown{signal_after_deadline}`; cancellation and owner death map to
+`unknown/dispatched` via `unknown{provider_masked_stop}` / `unknown{owner_exit}`.
+
+**Residual of B10:** a caller cannot tell a deadline termination from a command
+that signalled itself (or was signalled by another actor) after its deadline;
+it receives `unknown/dispatched`, not `timed_out/dispatched`, and must inspect
+or reconcile. **Residual of B11:** children run as `provider_user` when the VM
+is root; file permissions must allow that user; the VM's `SHELL` is set when
+unset; a consumer's own erlexec configuration is kept as is.
+
+Provider facts behind them (erlexec 2.6.0): the exit report is
+`{exit_status, Status}` with no cause field (`src/exec.erl` 1368–1374;
+`c_src/exec_impl.cpp` 1512–1521 only masks, it does not report who stopped);
+the port program exits with "Not allowed to run as root without setting
+effective user (-user option)!" and also exits when `SHELL` is unset
+(`c_src/exec.cpp` 784–795); `root` and `user` are read from the `erlexec`
+application environment (`src/exec_app.erl` 76–80, `src/exec.erl` 979–988).
+
+### B10.1
+
+Replace this exact substring:
+
+```text
+when the provider reports no signal for a termination it performed, the result is `unknown`, never `terminated`)
+```
+
+with:
+
+```text
+when the provider reports no signal for a termination it performed, the result is `unknown`, never `terminated`; the selected provider erlexec 2.6.0 reports the leader's ending signal but not who sent it, so a SIGTERM or SIGKILL reported at or after the deadline instant (taken before the spawn request) is `unknown{signal_after_deadline, signal}` and one reported before that instant is `completed{exit_code: 128 + signal}`: with erlexec 2.6.0 `terminated` is never produced)
+```
+
+### B10.2
+
+Replace this exact substring:
+
+```text
+or when the provider's port program stopped reporting;
+```
+
+with:
+
+```text
+when a SIGTERM or SIGKILL is reported at or after the deadline instant (`signal_after_deadline`, carrying the reported signal as an observation, not a stage), or when the provider's port program stopped reporting;
+```
+
+### B10.3
+
+Replace this exact substring:
+
+```text
+`terminated` on deadline → `timed_out/dispatched`, paired with the Adapter result carrying the observed stage; the shared delivery-result map remains unchanged and has no stage field;
+```
+
+with:
+
+```text
+`terminated` on deadline → `timed_out/dispatched`, paired with the Adapter result carrying the observed stage; the shared delivery-result map remains unchanged and has no stage field (this row is unreachable with erlexec 2.6.0: a deadline outcome is `unknown{signal_after_deadline}` → `unknown/dispatched`);
+```
+
+### B10.4
+
+Replace this exact substring:
+
+```text
+`terminated` on explicit cancellation, caller death or death of the collecting BEAM process → `failed/dispatched`, paired with the Adapter result carrying the observed stage;
+```
+
+with:
+
+```text
+`terminated` on explicit cancellation, caller death or death of the collecting BEAM process → `failed/dispatched`, paired with the Adapter result carrying the observed stage (this row is unreachable with erlexec 2.6.0, whose stop reports no ending signal: `unknown{provider_masked_stop}` or `unknown{owner_exit}` → `unknown/dispatched`);
+```
+
+### B10.5
+
+Replace this exact substring:
+
+```text
+the stage reported is the ending signal the provider reports, otherwise the result is `unknown`;
+```
+
+with:
+
+```text
+the stage reported is the ending signal the provider reports for a termination it can be shown to have performed, otherwise the result is `unknown` (with erlexec 2.6.0 no stage is ever reported);
+```
+
+### B10.6
+
+Replace this exact substring:
+
+```text
+- [ ] The reported escalation stage is the provider-reported ending signal; when the provider reports none, the result is `unknown`, never an assumed stage.
+```
+
+with:
+
+```text
+- [ ] The reported escalation stage is the provider-reported ending signal for a termination the provider can be shown to have performed; when the provider reports none, or reports a SIGTERM or SIGKILL at or after the deadline instant that it cannot be shown to have sent, the result is `unknown`, never an assumed stage; with erlexec 2.6.0 every deadline termination is therefore `unknown{signal_after_deadline}` carrying the reported signal.
+```
+
+### B11
+
+Replace this exact substring:
+
+```text
+and the declared host `pgrep` utility for group observation.
+```
+
+with:
+
+```text
+the declared host `pgrep` and `id` utilities for group observation and for detecting a root VM, and, when the VM's effective user is root and the consumer has not configured erlexec's `root`/`user` settings, erlexec started with `root: true` and the unprivileged effective user `provider_user` (Config, default `nobody`), with `SHELL=/bin/sh` set for the VM when `SHELL` is unset, because the port program refuses to run as root without an effective user and requires `SHELL`; a consumer that already configured or started erlexec keeps its configuration; residual: the port program and every child then run as that user and need read and execute permission on the executable, the working directory and every file they use, and the VM's `SHELL` is changed when it was unset.
+```
+

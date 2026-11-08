@@ -41,7 +41,8 @@ provider is started with `root: true, user: provider_user` (default
 user; when `SHELL` is unset it is set to `/bin/sh` for the VM, because the
 port program requires it. Declare the dependency as `{:erlexec, "== 2.6.0",
 runtime: false}` so it is not started before the Piece can configure it, or
-start and configure erlexec yourself. `cwd: nil` inherits the VM's working
+start and configure erlexec yourself: a consumer that already configured or
+started erlexec keeps its configuration, and the Piece then uses it as is. `cwd: nil` inherits the VM's working
 directory. The child's environment is `set` plus the
 `inherit` names present in the VM environment; everything else is unset. The
 child's stdin is `/dev/null`. stdout and stderr are merged into `output` in
