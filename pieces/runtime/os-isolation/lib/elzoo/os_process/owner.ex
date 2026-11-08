@@ -81,6 +81,10 @@ defmodule Elzoo.OsProcess.Owner do
           {:env, env}
         ] ++ if(request.cwd, do: [{:cd, String.to_charlist(request.cwd)}], else: [])
 
+      # Measured before exec:run: the provider's watchdog starts after this instant, so a signal
+      # it sends can only be reported at or after started_at + timeout.
+      started_at = System.monotonic_time(:millisecond)
+
       case :exec.run(argv, opts) do
         {:ok, proxy, os_pid} ->
           mref = Process.monitor(proxy)
@@ -96,7 +100,7 @@ defmodule Elzoo.OsProcess.Owner do
              | proxy: proxy,
                mref: mref,
                os_pid: os_pid,
-               dispatched_at: System.monotonic_time(:millisecond),
+               dispatched_at: started_at,
                timeout_ms: timeout,
                safety: safety
            }}
@@ -272,10 +276,10 @@ defmodule Elzoo.OsProcess.Owner do
   defp exit_code(%{terminal: :normal}), do: 0
   defp exit_code(_), do: nil
 
-  # The provider's watchdog fires at or after the deadline instant. A SIGTERM or SIGKILL status
-  # reported before it is not the provider's; one reported after it is attributed to the provider,
-  # indistinguishable from a self- or externally signalled command ending after that instant
-  # (declared residual).
+  # The provider's watchdog fires at or after started_at + timeout (started_at is taken before
+  # exec:run). A SIGTERM or SIGKILL status reported before that instant is not the provider's; one
+  # reported at or after it is attributed to the provider, indistinguishable from a self- or
+  # externally signalled command ending after that instant (declared residual).
   defp deadline_due?(state),
     do: System.monotonic_time(:millisecond) >= state.dispatched_at + state.timeout_ms
 

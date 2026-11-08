@@ -131,6 +131,7 @@ defmodule Elzoo.OsProcess.Adapter do
         {:noreply, drop_queued(state, ref)}
 
       Map.has_key?(state.observing, pid) ->
+        :ets.delete(state.tid, state.observing[pid])
         {:noreply, release(%{state | observing: Map.delete(state.observing, pid)})}
 
       true ->
@@ -213,10 +214,10 @@ defmodule Elzoo.OsProcess.Adapter do
         notify(submitter, ref, Result.unknown(:owner_exit_before_registration, %{}))
 
       [{^ref, ^owner, submitter, os_pid, _status}] ->
-        :ets.delete(state.tid, ref)
         # The slot stands for a running OS command: it is released only when the group has been
         # observed empty or the observation bound passed, by the observer's exit (handle_info DOWN).
-        {:observing, state_with_observer(state, ref, submitter, os_pid)}
+        # The registry row stays, marked {:observing, observer}, so a restarted Adapter counts it.
+        {:observing, state_with_observer(state, ref, owner, submitter, os_pid)}
 
       _ ->
         :ok
@@ -227,17 +228,39 @@ defmodule Elzoo.OsProcess.Adapter do
     end
   end
 
-  defp state_with_observer(state, ref, submitter, os_pid) do
+  # The observer is not linked to the Adapter: it survives an Adapter restart, notifies the
+  # submitter exactly once, and deletes its own registry row afterwards. It starts work only after
+  # its row is written, so the row can never outlive a finished observer.
+  defp state_with_observer(state, ref, owner, submitter, os_pid) do
     config = state.config
+    tid = state.tid
     bound = config.grace_s * 1000 + config.observe_timeout_ms
 
     {pid, _mon} =
       spawn_monitor(fn ->
+        receive do
+          :go -> :ok
+        end
+
         members = Owner.observe_until_empty(config.pgrep_path, os_pid, bound)
         notify(submitter, ref, Result.unknown(:owner_exit, %{os_pid: os_pid, members: members}))
+        :ets.delete(tid, ref)
       end)
 
+    :ets.insert(tid, {ref, owner, submitter, os_pid, {:observing, pid}})
+    send(pid, :go)
     %{state | observing: Map.put(state.observing, pid, ref)}
+  end
+
+  defp adopt_observer(state, ref, pid) do
+    Process.monitor(pid)
+
+    capacity =
+      case Backpressure.admit(state.capacity) do
+        {:ok, c, _} -> c
+      end
+
+    %{state | observing: Map.put(state.observing, pid, ref), capacity: capacity}
   end
 
   # Bounded memory of queued requests settled by cancel, so a repeated cancel stays idempotent.
@@ -360,6 +383,18 @@ defmodule Elzoo.OsProcess.Adapter do
           :ets.delete(acc.tid, ref)
           acc
 
+        match?({:observing, _}, status) ->
+          {:observing, observer} = status
+
+          if Process.alive?(observer) do
+            adopt_observer(acc, ref, observer)
+          else
+            # The observer ended between notifying and deleting its row, or was killed: it owned
+            # the only notification, so nothing is sent again (at most once).
+            :ets.delete(acc.tid, ref)
+            acc
+          end
+
         is_pid(owner) and Process.alive?(owner) ->
           mon = Process.monitor(owner)
 
@@ -371,9 +406,8 @@ defmodule Elzoo.OsProcess.Adapter do
           %{acc | running: Map.put(acc.running, ref, %{owner: owner, mon: mon}), capacity: capacity}
 
         true ->
-          :ets.delete(acc.tid, ref)
-
           if os_pid == nil do
+            :ets.delete(acc.tid, ref)
             notify(submitter, ref, Result.unknown(:owner_exit_before_registration, %{}))
             acc
           else
@@ -382,7 +416,7 @@ defmodule Elzoo.OsProcess.Adapter do
                 {:ok, c, _} -> c
               end
 
-            state_with_observer(%{acc | capacity: capacity}, ref, submitter, os_pid)
+            state_with_observer(%{acc | capacity: capacity}, ref, owner, submitter, os_pid)
           end
       end
     end)

@@ -471,6 +471,33 @@ defmodule Elzoo.OsProcessTest do
              OsProcess.run(sup, spec("self-term"), max_run_ms: 1_500)
   end
 
+  test "F6 an Adapter restart while an owner-death observation runs keeps that slot counted" do
+    sup = start(max_concurrent: 1, queue_limit: 1, queue_timeout_ms: 30_000, grace_s: 2)
+    {:ok, first} = OsProcess.submit(sup, spec("ignore-term", [30]), max_run_ms: 60_000)
+    os_pid = os_pid_of(sup, first)
+    %{owner: owner} = OsProcess.info(sup, first)
+    adapter = OsProcess.adapter(sup)
+    Process.exit(owner, :kill)
+    assert :ok = wait_until(fn -> map_size(:sys.get_state(adapter).observing) == 1 end, 2_000)
+    Process.exit(adapter, :kill)
+    assert :ok = wait_until(fn -> is_pid(OsProcess.adapter(sup)) and OsProcess.adapter(sup) != adapter end, 2_000)
+    assert %{in_flight: 1} = OsProcess.snapshot(sup)
+    {:ok, second} = OsProcess.submit(sup, spec("exit", [0]), max_run_ms: 5_000)
+    assert %{in_flight: 1, queued: 1} = OsProcess.snapshot(sup)
+    assert members(os_pid) != []
+    assert %{status: :unknown, reason: :owner_exit, members: []} = result(first)
+    refute_receive {OsProcess, ^first, _}, 300
+    assert members(os_pid) == []
+    assert %{status: :completed, exit_code: 0} = result(second)
+    assert :ok = wait_until(fn -> OsProcess.snapshot(sup).in_flight == 0 end, 2_000)
+  end
+
+  test "F7 a slow step between exec:run and registration does not turn a provider timeout into completed" do
+    sup = start(test_hooks: %{after_run: fn -> Process.sleep(250) end})
+    {:ok, ref} = OsProcess.submit(sup, spec("sleep", [30]), max_run_ms: 300)
+    assert %{status: :terminated, cause: :deadline, stage: :term} = result(ref)
+  end
+
   # ---- spawn failure (T9) and exec failure after validation (B5)
 
   test "T9 pre-dispatch validation: missing file, no execute bit, missing cwd are rejected{spawn_failed}" do

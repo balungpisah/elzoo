@@ -41,12 +41,16 @@ arrival order, bounded by `max_output_bytes` (`truncated: true` beyond it).
 (`bounds/1` exposes the instance values); a shorter `await_ms` ends the wait
 early, cancels the run (acceptance only) and returns `{:error, {:no_result,
 ref}}`; the late result message still arrives. `cancel/2` returns
-`{:ok, :requested}` once, `{:ok, :already_requested}` for a repeated cancel of
-a queued or running run (queued cancellations are remembered in a bounded
-record of 1024 refs), and `{:error, :unknown_run}` for a finished or foreign
-ref. A slot stands for a running OS command: after an owner death it is
+`{:ok, :requested}` once and `{:ok, :already_requested}` for a repeated cancel
+of a running run. A queued run is settled at once by its cancellation
+(`rejected{cancelled}`); a repeated cancel of one of the last 1024 refs so
+settled answers `{:ok, :already_requested}` (it acknowledges the duplicate
+request, not a run that is still alive). Every other finished or foreign ref
+gets `{:error, :unknown_run}`. A slot stands for a running OS command: after an owner death it is
 released only when the Adapter has observed the group empty or the observation
-bound passed, so `max_concurrent` holds during the provider's grace.
+bound passed, so `max_concurrent` holds during the provider's grace; the
+registry row of such a run stays (marked as observing) until that observation
+ends, so a restarted Adapter still counts the slot and does not notify twice.
 
 Config (construction, no hot update): `max_concurrent`, `queue_limit`,
 `queue_timeout_ms`, `grace_s` (provider wait between SIGTERM and SIGKILL,
