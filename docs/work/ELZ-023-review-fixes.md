@@ -1,11 +1,11 @@
 # ELZ-023 final review follow-up
 
-ELZ-023: F1 fixed locally; F2 requires approval to correct two existing tests.
+ELZ-023: F1 and approved F2 fixes applied; fresh validation and incremental review pending.
 Branch/PR: `task/ELZ-023`; issue #37; no PR; independent reviewed head `196d0881cd80a878029ff582e87c786732c2cbbf`.
-Checks: full setup/check at production `fed4026` previously exit 0 (32 + 608 passed); F1 targeted suite exit 0 (`Result: 47 passed`, 41.6 seconds); full check after all review fixes and incremental review remain pending.
+Checks: full setup/check at production `fed4026` previously exit 0 (32 + 608 passed); F1 targeted suite exit 0 (`Result: 47 passed`, 41.6 seconds); F1+F2 targeted suite exit 0 (`Result: 49 passed`, 41.9 seconds); full check after all review fixes and incremental review remain pending.
 Grounding: [verbatim independent review](ELZ-023-final-review.md), including its 160,000 finite oracle sequences and limits; new actual-owner F1 saturation and 4090-poll regressions; prior assertions preserved.
-Limits: F2 remains unfixed; no review clearance/PR/merge claimed; the old full check does not accept this delta.
-Open work: coordinator approval for the concrete F2 test corrections below; F2 regression, fresh full setup/check and independent incremental review.
+Limits: no review clearance/PR/merge claimed; the old full check does not accept this delta.
+Open work: fresh full setup/check and independent incremental review, then PR.
 
 Prepared 2026-11-08 11:07 WIB. Independent reviewer session
 `orca_session_id:0f974e4c-75e1-4daf-9a19-7720ad2b1633`, dispatch
@@ -38,14 +38,14 @@ env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_
 
 Log: `/tmp/elz023-a1/review-f1-tests.log`. No full check is claimed for F1 yet.
 
-## F2 approval request: source attribution, not accepting a limit
+## F2 approved correction: source attribution
 
 Original brief hard rule 7 says: “never edit, weaken or delete an existing test
 or assertion” and “If a task seems to need it, ask.” The reviewed existing tests
 explicitly assert the now-disallowed public no-send behavior. Correcting it while
 leaving those assertions unchanged cannot yield an honest green run.
 
-The [exact proposed patch](ELZ-023-F2-proposed.patch) is **not applied**. It:
+The [exact approved patch](ELZ-023-F2-proposed.patch) is now applied. It:
 
 1. Refuses `not_dispatched` at the raw Envelope observation path (public calls
    and raw callback Envelopes); only a declared, attested typed send failure can
@@ -68,3 +68,38 @@ approval, add the independent review's exact in-flight/no-replay attack as a new
 regression: public no-send cannot settle/rearm or cause a second physical send,
 while a genuine attested send-return no-send can still establish its ground.
 Then run fresh setup/full check and independent incremental review.
+
+
+### Approval and retained regression coverage
+
+The root coordinator approved question `msg_db1a9f1bb028` on 2026-11-08 about
+11:40 WIB, in dispatch `ctx_ada55dc734ce`: the two named tests were introduced
+in this unmerged branch at `dae4acf`; no merged existing test or assertion is
+changed. The independent CONDITIONAL verdict at `196d088` required F2's
+source-attribution correction. The exact two corrections listed above preserve
+the tests, their phase/disarm and capacity/contradiction assertions, and turn
+the formerly accepted public no-send case into an explicit refusal assertion.
+The preceding request text is historical; approval is granted and applied.
+
+Two appended tests add the reviewer's in-flight attack under a no-replay binding
+and raw send/poll Envelope controls. The first holds the send callback alive,
+asserts public no-send is retained only as refusal, leaves the phase dispatched,
+and rejects rearm and another dispatch with no second callback invocation;
+then a genuine declared/attested typed send return establishes AdapterNoSend,
+permits rearm and a second attempt with the same key/digest. The second rejects
+raw no-send Envelopes from both Adapter callback paths. Callback invocation is
+finite instrumentation, not a proof of bytes reaching transport.
+No test is deleted, no Cure source/law weakened, and no Contract or protected
+file changed. Fresh setup and full check results will be recorded below.
+
+
+### F1+F2 targeted validation
+
+At 2026-11-08 11:16:01 WIB (local command clock), the exact targeted command
+above exited 0 with `Result: 49 passed`, 41.9 seconds; log:
+`/tmp/elz023-a1/review-fixes-tests.log`. The approval time above is the
+coordinator's stated approximate time, preserved as supplied.
+`git fetch origin --prune` exited 0; `git merge --no-ff origin/main` exited 0
+(already up to date at `0a423705784f2c0223ed67d6f75bfdb5412845ce`).
+`python3 scripts/check-roadmap.py` and `python3 scripts/check-claims.py` each
+exited 0 (137 links, no tracked claims); protected-file diff is empty.

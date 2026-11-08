@@ -70,7 +70,11 @@ A send returns the unchanged core/envelope result map or
 `{outcome, dispatch, error_class}` in the seven valid failure pairs; successful
 `completed/dispatched` is the eighth pair. Every not-dispatched tag has an
 explicit `no_send_attestations` entry: no request bytes reached transport.
-That assertion is an upstream Need, not a local proof. Completed results must
+That assertion is an upstream Need, not a local proof. Only that declared,
+attested typed send-failure return establishes `adapter_no_send`; public
+observations and raw send/poll Envelopes with `not_dispatched` are refused,
+even when correlated and authenticated. They cannot settle, rearm or authorize
+a second send while the original send is in flight. Completed results must
 pass the binding's output-schema and exact-request checks. Envelope alone does
 not validate the provider payload or authenticate anything.
 

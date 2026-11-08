@@ -427,6 +427,7 @@ defmodule Elzoo.EffectIntent do
     m = s.snapshot.model
 
     with {:ok, _} <- Elzoo.Envelope.validate_result(result),
+         true <- result["dispatch"] != "not_dispatched",
          true <- result["message_id"] == s.key and result["correlation_id"] == s.key,
          n when is_integer(n) <- find_attempt(m, result["attempt_id"]),
          req = request(s, n),

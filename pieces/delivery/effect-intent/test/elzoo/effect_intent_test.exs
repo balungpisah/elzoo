@@ -285,8 +285,13 @@ defmodule Elzoo.EffectIntentTest do
       context = %{
         c.context
         | send: fn _ ->
-            receive do
-              :release -> {:error, :timeout, "timeout"}
+            if dispatch == "not_dispatched" do
+              tag = if outcome == "rejected", do: :permanent, else: :no_send
+              {:error, tag, :attested_no_bytes}
+            else
+              receive do
+                :release -> {:error, :timeout, "timeout"}
+              end
             end
           end
       }
@@ -318,7 +323,13 @@ defmodule Elzoo.EffectIntentTest do
               Map.take(completed(req), ["value", "value_schema_id", "value_schema_version"])
             )
 
-      assert {:ok, _} = Intent.observe(pid, row)
+      if dispatch == "not_dispatched" do
+        eventually(fn -> Intent.status(pid).phase == {:Definite, :AdapterNoSend, 1} end)
+        assert {:refused, :retained} = Intent.observe(pid, row)
+      else
+        assert {:ok, _} = Intent.observe(pid, row)
+      end
+
       status = Intent.status(pid)
 
       case expected do
@@ -585,7 +596,8 @@ defmodule Elzoo.EffectIntentTest do
   test "known-attempt refusals fill only optional capacity and reserved settlement/contradiction still commit",
        c do
     assert Policy.initial() == {:State, :Empty, false, false, false, false, 0, []}
-    pid = owner(c.opts)
+    context = %{c.context | poll: fn _ -> {:no_effect, "trusted"} end}
+    pid = owner(Keyword.put(c.opts, :adapter_context, context))
     assert {:ok, :dispatched} = Intent.advance(pid, :dispatch)
     assert_receive {:physical_send, _, req}
     eventually(fn -> Intent.status(pid).revision == 3 end)
@@ -600,17 +612,10 @@ defmodule Elzoo.EffectIntentTest do
     assert Intent.status(pid).active
     assert {:error, :not_rearmable} = Intent.advance(pid, :rearm)
 
-    no_send =
-      completed(req)
-      |> Map.drop(["value", "value_schema_id", "value_schema_version"])
-      |> Map.merge(%{
-        "outcome" => "timed_out",
-        "dispatch" => "not_dispatched",
-        "error_class" => "retryable"
-      })
-
-    assert {:ok, :retained} = Intent.observe(pid, no_send)
-    assert Intent.status(pid).phase == {:Definite, :AdapterNoSend, 1}
+    assert {:ok, :polling} = Intent.advance(pid, :poll)
+    assert_receive {:physical_poll, _, _}
+    eventually(fn -> Intent.status(pid).phase == {:Definite, :ProviderNoEffect, 1} end)
+    assert Intent.status(pid).evidence == 1023
     assert {:ok, :retained} = Intent.observe(pid, completed(req))
     assert Intent.status(pid).flags.quarantined
     assert Intent.status(pid).evidence == 1024
@@ -852,5 +857,107 @@ defmodule Elzoo.EffectIntentTest do
     recovered = owner(Keyword.put(c.opts, :adapter_context, context))
     assert Intent.status(recovered).phase == {:Stranded, 2}
     refute Intent.status(recovered).active
+  end
+
+  test "F2 public no-send during an in-flight no-replay send cannot settle or dispatch again", c do
+    {:ok, binding} = Binding.load(Elzoo.EffectIntent.TestNoReplayBinding)
+
+    memory =
+      start_supervised!(
+        Supervisor.child_spec({Memory, fold: Model.fold(binding), limits: Model.limits()},
+          id: :f2_no_replay
+        )
+      )
+
+    context = %{
+      c.context
+      | send: fn _ ->
+          receive do
+            :attested_no_send -> {:error, :no_send, :attested_no_bytes}
+          end
+        end
+    }
+
+    opts =
+      c.opts
+      |> Keyword.put(:binding, Elzoo.EffectIntent.TestNoReplayBinding)
+      |> Keyword.put(:store, Memory.store(memory))
+      |> Keyword.put(:adapter_context, context)
+
+    pid = owner(opts)
+    assert {:ok, :dispatched} = Intent.advance(pid, :dispatch)
+    assert_receive {:physical_send, send_task, req}
+    assert Process.alive?(send_task)
+
+    no_send =
+      completed(req)
+      |> Map.drop(["value", "value_schema_id", "value_schema_version"])
+      |> Map.merge(%{
+        "outcome" => "timed_out",
+        "dispatch" => "not_dispatched",
+        "error_class" => "retryable"
+      })
+
+    # Preserve the formerly accepted public case as an explicit refusal control.
+    assert {:refused, :retained} = Intent.observe(pid, no_send)
+    assert Intent.status(pid).phase == {:Dispatched, :Fresh, 1}
+    assert Intent.status(pid).evidence == 1
+    assert {:error, :not_rearmable} = Intent.advance(pid, :rearm)
+    assert {:error, :not_dispatchable} = Intent.advance(pid, :dispatch)
+    assert Process.alive?(send_task)
+    refute_receive {:physical_send, _, _}, 20
+
+    # Only the declared, attested typed return from that send grants no-send.
+    send(send_task, :attested_no_send)
+    eventually(fn -> Intent.status(pid).phase == {:Definite, :AdapterNoSend, 1} end)
+    wait_intent_tasks(pid)
+    refute Process.alive?(send_task)
+    assert {:ok, :Stop} = Intent.advance(pid, :rearm)
+    assert {:ok, :dispatched} = Intent.advance(pid, :dispatch)
+    assert_receive {:physical_send, second_task, second}
+    assert second.key == req.key
+    assert second.arguments_digest == req.arguments_digest
+    assert second.attempt == 2
+    refute second.attempt_id == req.attempt_id
+    send(second_task, :attested_no_send)
+    eventually(fn -> Intent.status(pid).phase == {:Definite, :AdapterNoSend, 2} end)
+  end
+
+  test "F2 raw send and poll no-send Envelopes never confer typed send authority", c do
+    no_send = fn req ->
+      completed(req)
+      |> Map.drop(["value", "value_schema_id", "value_schema_version"])
+      |> Map.merge(%{
+        "outcome" => "timed_out",
+        "dispatch" => "not_dispatched",
+        "error_class" => "retryable"
+      })
+    end
+
+    for source <- [:send, :poll] do
+      context = Map.put(c.context, source, no_send)
+
+      opts =
+        c.opts
+        |> Keyword.put(:adapter_context, context)
+        |> Keyword.put(:identity, List.replace_at(c.opts[:identity], 4, "f2-#{source}"))
+
+      pid = owner(opts)
+      assert {:ok, :dispatched} = Intent.advance(pid, :dispatch)
+      assert_receive {:physical_send, _, _}
+      wait_intent_tasks(pid)
+
+      if source == :poll do
+        assert {:ok, :polling} = Intent.advance(pid, :poll)
+        assert_receive {:physical_poll, _, _}
+        wait_intent_tasks(pid)
+      end
+
+      assert Intent.status(pid).phase == {:Dispatched, :Fresh, 1}
+      assert Intent.status(pid).evidence == 1
+      assert {:error, :not_rearmable} = Intent.advance(pid, :rearm)
+      assert {:error, :not_dispatchable} = Intent.advance(pid, :dispatch)
+      refute_receive {:physical_send, _, _}, 20
+    end
   end
 end
