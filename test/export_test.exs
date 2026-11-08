@@ -154,6 +154,17 @@ defmodule Elzoo.ExportTest do
     assert length(per_id) == 26
     assert length(aggregate) == 1
 
+    # The per-test limits are part of the measured layout: 240 s for the concurrent groups,
+    # 120 s for the sequential PostgreSQL consumers.
+    for test <- per_id do
+      expected =
+        if test.module == __MODULE__,
+          do: 120_000,
+          else: Elzoo.CureConsumerCase.concurrent_timeout()
+
+      assert test.tags.timeout == expected, "#{test.tags.consumer_id} in #{inspect(test.module)}"
+    end
+
     groups = Elzoo.CureConsumerCase.database_free_groups()
     database_free = Enum.flat_map([:a, :b, :c], &Map.fetch!(groups, &1))
 

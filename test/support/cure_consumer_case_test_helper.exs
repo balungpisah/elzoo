@@ -5,7 +5,8 @@ defmodule Elzoo.CureConsumerCase do
 
   The helpers below moved verbatim from `test/export_test.exs`, where every consumer ran in one
   `async: false` module. Database-free consumers now run from three `async: true` modules, so
-  up to three consumer VMs run at the same time. Consumers that need PostgreSQL stay in
+  up to three consumer VMs run at the same time (two where `max_cases` is 2, see
+  test/test_helper.exs). Consumers that need PostgreSQL stay in
   sequence in `Elzoo.ExportTest`: the CI job prepares one disposable database.
   """
   use ExUnit.CaseTemplate
@@ -60,12 +61,13 @@ defmodule Elzoo.CureConsumerCase do
     {:ok, destination: destination, registry: Elzoo.Registry.load!(@root)}
   end
 
-  # Per-test limit for the concurrent database-free groups. Measured basis (PR #90): under three
-  # concurrent consumer VMs on the two-core macbook-ubuntu runner, after about 30 minutes of
-  # sustained load, `assembly/request-route-retry` reached 99.1 s and then hit 120 s twice
-  # (run 42454973591). 240 s is about 2.4x the worst observed value, the ELZ-036 margin rule.
-  # Concurrency is also bounded to `System.schedulers_online()` in test/test_helper.exs.
-  # Sequential consumers keep the 120 s default.
+  # Per-test limit for the concurrent database-free groups. Measured basis (PR #90, run
+  # 42454973591): with three concurrent consumer VMs on the two-core macbook-ubuntu runner under
+  # about 30 minutes of sustained load, `assembly/request-route-retry` rose from 35.8 s
+  # (sequential) to 99.1 s in the last completed repeat, and two later repeats went over the 120 s
+  # limit by an unknown amount. 240 s is 2x that 120 s lower bound. The two-VM setup that
+  # test/test_helper.exs now enforces on that runner (`max_cases`) is measured in the PR's later
+  # repeat series. Sequential consumers keep the 120 s default.
   @concurrent_timeout 240_000
   def concurrent_timeout, do: @concurrent_timeout
 

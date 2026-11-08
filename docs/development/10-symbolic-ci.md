@@ -269,8 +269,10 @@ The copied-consumer tests share one harness, `Elzoo.CureConsumerCase` in
 provider (`postgrex`, `ecto_sql`, `oban`) are defined in three modules with `async: true`:
 `test/consumer_group_a_test.exs`, `_b_` and `_c_`. ExUnit runs async modules at the same time
 and tests inside one module in sequence. `test/test_helper.exs` sets `max_cases` to
-`System.schedulers_online()`, so at most three consumer VMs run at once on symbolic (`+S 4:4`)
-and at most two on macbook-ubuntu (`+S 2:2`). The groups are explicit lists balanced by the
+`System.schedulers_online()`; this caps every async module in `test/` and `pieces/`, not only the
+consumer groups. With `+S 4:4` on symbolic the cap is 4, so all three consumer group modules run
+at once (the module count is the bound there); with `+S 2:2` on macbook-ubuntu the cap is 2, so
+two consumer VMs run at once. The groups are explicit lists balanced by the
 measured `total` seconds on main `0a42370`. The three
 PostgreSQL consumers (`integration/sql`, `integration/jobs`, `assembly/durable-job`) and the
 aggregate consumer stay in `test/export_test.exs` with `async: false`, because the CI job prepares
@@ -280,11 +282,13 @@ were not moved.
 Each per-ID test keeps its name and its `consumer_id` tag, so the affected mode (ELZ-038)
 filters them with the same `--exclude consumer_id:<id>` arguments. The 23 concurrent tests have a
 240 s limit (`Elzoo.CureConsumerCase.concurrent_timeout/0`); the sequential consumers keep 120 s.
-Measured basis for 240 s: on macbook-ubuntu, three concurrent VMs after about 30 minutes of
-sustained load pushed `assembly/request-route-retry` from 35.8 s (sequential) to 99.1 s and then
-past 120 s twice (PR #90, run 42454973591, repeats 6 and 7). 240 s is about 2.4x that worst
-value, the ELZ-036 margin rule. The same series on symbolic stayed at 123 to 125 s per repeat with
-35.7 s for that consumer, so the slowdown is a property of the two-core host under sustained load. The selection test in
+Measured basis for 240 s: on macbook-ubuntu with three concurrent VMs, after about 30 minutes of
+sustained load, `assembly/request-route-retry` rose from 35.8 s (sequential) to 99.1 s in the last
+completed repeat, and two later repeats went over 120 s by an unknown amount (PR #90, run
+42454973591, repeats 6 and 7). 240 s is 2x that 120 s lower bound. The same series on symbolic
+stayed at 123 to 125 s per repeat with 35.7 s for that consumer, which is consistent with a
+slowdown of the two-core host under sustained load. The two-VM setup is measured by the later
+repeat series recorded in the PR. The selection test in
 `test/export_test.exs` counts the per-ID tests over the four modules (still 26, plus one
 aggregate), checks that the groups plus the PostgreSQL list equal
 `Elzoo.CheckSelection.consumer_ids/0`, and checks that no database-free group ID copies a Piece
