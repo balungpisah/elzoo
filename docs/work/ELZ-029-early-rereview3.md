@@ -1,6 +1,8 @@
+Redacted for publication; SHA-256 of the reviewer's original report: b254af2aff767b24c5c9ed3476a3914338b2ff274b0c522876ce5b677d1cef5d
+
 # ELZ-029 focused independent early re-review, round 3
 
-Reviewer: Codex, Orca session `orca_session_id:dd9bab13-1c49-4181-9766-3d8eb8f143f7`, task `task_a169612f762c`, dispatch `ctx_e807b2a7d5eb`. Reviewed proposal SHA `e446d2f45ecb6c3c05ed59d402ef71a543b0aeaa`, revision delta from `64acad7` and branch-only diff against fetched `origin/main` `f4e328319ec23fa7bc6d8c8f0a19c2a3122bd938`, the live issue, and the runtime/os-isolation disposition. This is a design review, not execution evidence. No Mix command was run. Pre-existing untracked `.reticle-setup-crash.log` was left untouched.
+Reviewer: the independent reviewer (Codex). Reviewed proposal SHA `e446d2f45ecb6c3c05ed59d402ef71a543b0aeaa`, revision delta from `64acad7` and branch-only diff against fetched `origin/main` `f4e328319ec23fa7bc6d8c8f0a19c2a3122bd938`, the live issue, and the runtime/os-isolation disposition. This is a design review, not execution evidence. No Mix command was run. A pre-existing untracked local file was left untouched.
 
 ## Blocking findings
 
@@ -39,16 +41,16 @@ The ordered dry-run substitutions from the original task body each matched exact
 
 ## Gates and scope
 
-All eight numbered G1–G8 paragraphs are byte-identical to the first report. G1 remains open for reviewed design resolution, final amendments in the live issue/task copy, and the new shell Need; G2 remains blocked by the findings above. G3's explicit authorized registry scope is separately recorded; the ordinary execution requirements G3–G8 remain in force, including finite real-process tests on symbolic, operational metadata, pinned `mix setup`, ledger regeneration, full `mix check`, independent implementation review and required CI. Do not treat the planned tests or earlier local probes as completed acceptance. Completion behavior, watchdog-after-completion, and fixture choice still need their stated coordinator decisions.
+All eight numbered G1–G8 paragraphs are byte-identical to the first report. G1 remains open for reviewed design resolution, final amendments in the live issue/task copy, and the new shell Need; G2 remains blocked by the findings above. G3's explicit authorized registry scope is separately recorded; the ordinary execution requirements G3–G8 remain in force, including finite real-process tests on the Linux CI runner, operational metadata, pinned `mix setup`, ledger regeneration, full `mix check`, independent implementation review and required CI. Do not treat the planned tests or earlier local probes as completed acceptance. Completion behavior, watchdog-after-completion, and fixture choice still need their stated coordinator decisions.
 
-The branch-only changed paths are claim metadata, ELZ-029 task copy, its plan-hash entry, and four work/review documents. No implementation is committed. The retained two review files compare byte-for-byte equal to their respective `/tmp` originals.
+The branch-only changed paths are claim metadata, ELZ-029 task copy, its plan-hash entry, and four work/review documents. No implementation is committed. The retained two review files compared byte-for-byte equal to their respective originals at review time.
 
 ## Commands and exit codes
 
 - `git fetch origin --prune` — 0; `git status --short --branch`, `git rev-parse origin/main origin/task/ELZ-029`, `git diff --stat origin/main...e446d2f`, `git diff 64acad7 e446d2f` — 0.
-- `orca skills get orchestration` via `/usr/local/bin/orca` — 1 (could not resolve Orca.app); `/Applications/Orca.app/Contents/Resources/bin/orca skills get orchestration` — 0 (resolved using `ORCA_CLI_COMMAND`).
-- `git show` of proposal, proposed amendments, task copy and main's catalogue dispositions; targeted `nl`, `sed` and `rg`; reads of both earlier `/tmp` reviews — 0.
-- `git diff --name-status origin/main...e446d2f`, `git log --oneline origin/main..e446d2f`, and both `git show ... | cmp - /tmp/...` review comparisons — 0; `git diff --check origin/main...e446d2f` — 0.
+- `orca skills get orchestration` via the default CLI path — 1 (could not resolve the application); the executable resolved from `ORCA_CLI_COMMAND` — 0.
+- `git show` of proposal, proposed amendments, task copy and main's catalogue dispositions; targeted `nl`, `sed` and `rg`; reads of both earlier reviewers' original reports — 0.
+- `git diff --name-status origin/main...e446d2f`, `git log --oneline origin/main..e446d2f`, and both `git show ... | cmp -` comparisons against the reviewers' original reports — 0; `git diff --check origin/main...e446d2f` — 0.
 - `gh issue view 46 -R balungpisah/elzoo --json title,body,comments` — 0; Python JSON-body/task-copy byte and SHA-256 comparison — 0.
 - Python exact fenced-block and ordered-substitution comparisons against revision 1, the previous review, and the original task body, plus G1–G8 byte comparison against the first review — 0.
 - `cat CONTEXT.md GOAL.md docs/development/01-workflow.md docs/development/02-task-dag.md docs/plans/roadmap.md docs/capability-model.md docs/capability-coverage.md docs/operational-contracts.md docs/adr/0005-ash-foundation-and-upstream-first.md LEDGER.md docs/consuming.md docs/architecture.md >/dev/null` — 0.

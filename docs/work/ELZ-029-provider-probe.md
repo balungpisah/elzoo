@@ -3,13 +3,13 @@
 Ordered by the main coordinator (2026-11-08): exercise muontrap first, then
 erlexec, against the four process-ownership points; a hand-written `/bin/sh`
 wrapper only if both are unfit. This record is **probe evidence on one host**
-(macOS 27.2 arm64, Elixir 1.20.4, OTP 29.1.2), not implementation acceptance.
-Scratch Mix project outside the repository
-(`…/scratchpad/probe/elz029_probe`, not committed); targeted `mix test` only;
+(the implementation worker's macOS arm64 machine, Elixir 1.20.4, OTP 29.1.2), not implementation acceptance.
+Scratch Mix project in the implementation worker's scratch directory outside the
+repository (not committed); targeted `mix test` only;
 no `mix check`; host load observed before each run (3.4–6.9, never above 8
 during a run; 8.47 was observed once right after `mix deps.compile`, and no
 test was started until it fell). Logs: `muontrap_probe2.log`,
-`erlexec_probe.log`, `erlexec_probe2.log` in the scratch `probe/` directory; the
+`erlexec_probe.log`, `erlexec_probe2.log` kept in that scratch directory; the
 `PROBE` lines below are copied from them.
 
 ## Versions and licenses (Hex, read 2026-11-08)

@@ -1,6 +1,8 @@
+Redacted for publication; SHA-256 of the reviewer's original report: 8f6fbaa5ff45a64a70879d2d2813fe08ab152a91fdc9dc4b9fdc58f66c2c3bcc
+
 # ELZ-029 independent focused early re-review
 
-Reviewer: Codex, Orca session `orca_session_id:f6cfa678-7d34-442f-8b4d-cfcd1c2e55b5`, task `task_852e0f157f46`, dispatch `ctx_de31ac0605cc`. Reviewed `64acad7c437f21db149a78776e3d27d81e6201ba`, proposal only, against live issue #46 and the ELZ-050 decision record. This review is independent of the first reviewer; it is not implementation or process-test evidence. No Mix command was run. The working tree had a pre-existing untracked `.reticle-setup-crash.log`; it was not touched.
+Reviewer: the independent reviewer (Codex). Reviewed `64acad7c437f21db149a78776e3d27d81e6201ba`, proposal only, against live issue #46 and the ELZ-050 decision record. This review is independent of the first reviewer; it is not implementation or process-test evidence. No Mix command was run. A pre-existing untracked local file in the working tree was not touched.
 
 ## Blocking observations
 
@@ -15,7 +17,7 @@ Reviewer: Codex, Orca session `orca_session_id:f6cfa678-7d34-442f-8b4d-cfcd1c2e5
 | --- | --- |
 | 1 scope, BLOCKING | Addressed for this dispatch: user explicitly authorizes the selected catalogue row, release-plan entry and regenerated ledger/roadmap views, in addition to Piece and `docs/work/ELZ-029*`. G3 accommodates explicit scope authorization. Claim marker is protocol metadata and must be removed before PR. |
 | 2 cleanup, BLOCKING | **Not addressed**: revised grace logic is an improvement, but Port ownership, spawn-to-registration, concurrent failure, signal handoff and terminal `unknown` cleanup remain unresolved (observations 1 and 4). |
-| 3 observation and identity, BLOCKING | **Not addressed**: separates `pgrep` from `kill` and includes fake-success failure control, but PGID identity is not retained by absence of a negative observation, unsafe check-to-signal and blind KILL remain, and stage remains inferred after failed signaling (observations 2–3). Verify `pgrep` semantics on actual symbolic OS; failure is not empty. |
+| 3 observation and identity, BLOCKING | **Not addressed**: separates `pgrep` from `kill` and includes fake-success failure control, but PGID identity is not retained by absence of a negative observation, unsafe check-to-signal and blind KILL remain, and stage remains inferred after failed signaling (observations 2–3). Verify `pgrep` semantics on the actual CI runner OS; failure is not empty. |
 | 4 result mismatch, BLOCKING | **Partially addressed**: A1–A5 propose sidecar, explicit pre-dispatch cases and cancellation mapping; no decision in live issue yet. An honest stage still needs observation 3 resolved. Amendment text must be reviewed as below; do not change ready Envelope. |
 | 5 Needs, BLOCKING | **Partially addressed**: default-empty environment allowlist and explicit host tools are proposed; A7's CLI version routing and direct-dependency composition await coordinator disposition. Executable and utility versions/semantics must be declared and tested at the actual owning boundary. |
 | 6 deadline/grace, REQUIRED | **Partially addressed**: admission monotonic target, queue deadline precedence, late timer generation and full grace are specified; A4 must be decided. Clarify the `max_run_ms`-only case when target is absent, bounds for all timers including queue/grace/reap, and actually test races. G2's no-blind-escalation issue remains. |
@@ -127,16 +129,16 @@ this text:
 
 ## Gates, scope and evidence
 
-G1–G8 in the revised proposal are **byte-identical** to the first review's binding gates, including the conditional registry authorization in G3. G1 and G2 remain unsatisfied: coordinator must decide reviewed issue amendments and Needs/dependency disposition, and the actual safe ownership, observation, signal accounting and cleanup design must be established before implementation. G3 now permits precisely the user-authorized row/entry/derived views, Piece paths, `docs/work/ELZ-029*`, and claim-marker removal; any task-copy edit needs separate assignment. G4–G8 remain execution/verification gates, including the symbolic tests, in-bundle operational declarations, pinned `mix setup`, generated ledger, full `mix check`, assigned disposable database where required, independent implementation review and required CI. Completion semantics and test reliability require explicit coordinator decisions as noted above.
+G1–G8 in the revised proposal are **byte-identical** to the first review's binding gates, including the conditional registry authorization in G3. G1 and G2 remain unsatisfied: coordinator must decide reviewed issue amendments and Needs/dependency disposition, and the actual safe ownership, observation, signal accounting and cleanup design must be established before implementation. G3 now permits precisely the user-authorized row/entry/derived views, Piece paths, `docs/work/ELZ-029*`, and claim-marker removal; any task-copy edit needs separate assignment. G4–G8 remain execution/verification gates, including the CI runner tests, in-bundle operational declarations, pinned `mix setup`, generated ledger, full `mix check`, assigned disposable database where required, independent implementation review and required CI. Completion semantics and test reliability require explicit coordinator decisions as noted above.
 
 `git diff --name-only origin/main 64acad7` contains only `.claims/ELZ-029.md` and the three proposal/review files under `docs/work/ELZ-029*`; no implementation is committed in the reviewed diff. The retained review copy is byte-equal to the first report. This scope check is against the observed local `origin/main` ref, SHA `665d3e07c58fb9a3e7818a037a6910132535fa53`.
 
 ## Commands and exit codes
 
-- `cat /Users/laptopdp/.agents/skills/orchestration/SKILL.md` — 0; `orca skills get orchestration` via the unresolved `/usr/local/bin/orca` printed an application-path error; resolved executable from `ORCA_CLI_COMMAND`, `/Applications/Orca.app/Contents/Resources/bin/orca skills get orchestration` — 0.
-- `cat /tmp/elz029-early-review-3ed21163-fd79-4e9b-bf56-10ef0a0d35e7.md` — 0; `git diff 75fc2ef 64acad7` — 0; `git diff --stat 75fc2ef 64acad7` — 0.
+- `cat` of the orchestration skill file in the reviewer's home directory — 0; `orca skills get orchestration` via the unresolved default CLI path printed an application-path error; the executable resolved from `ORCA_CLI_COMMAND` ran it — 0.
+- `cat` of the first reviewer's original report — 0; `git diff 75fc2ef 64acad7` — 0; `git diff --stat 75fc2ef 64acad7` — 0.
 - `git show 64acad7:docs/work/ELZ-029.md` and targeted `sed`/`nl`/`rg` reads — 0; `git show 64acad7:docs/work/ELZ-029-contract-proposed.md` — 0.
-- `git show 64acad7:docs/work/ELZ-029-early-review.md | cmp - /tmp/elz029-early-review-3ed21163-fd79-4e9b-bf56-10ef0a0d35e7.md` — 0 (equal).
+- `git show 64acad7:docs/work/ELZ-029-early-review.md | cmp -` against the first reviewer's original report — 0 (equal).
 - Python exact extraction/compare of G1–G8 from original and `git show` — 0 (`G1-G8 byte-identical: True`).
 - `gh issue view 46 -R balungpisah/elzoo --json body` and `--jq .body` — 0; `git show origin/task/ELZ-050:docs/plans/catalogue-dispositions.md` and targeted runtime/os-isolation extraction — 0.
 - `git diff --name-only origin/main 64acad7` — 0; `git log --format='%h %s' origin/main..64acad7` — 0; `git status --short; git rev-parse HEAD origin/main origin/task/ELZ-029` — 0.
