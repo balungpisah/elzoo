@@ -1,5 +1,7 @@
 # ELZ-030 production implementation handoff
 
+> Redacted before publication (ELZ-065): the password part of local test-database URLs (`ecto://user:…@localhost`) and role commands is replaced by an ellipsis; the recorded commands are otherwise exact.
+
 Author: Orca `7c1b608d-f91b-4573-b2e7-310670b76a04`, no helpers.
 Active dispatch: `task_fc529d2f1a82` / `ctx_e0b237d7552d`.
 Source commits: `134226178e1e25bb200d9bdd827383468d019f09` (production bundle)

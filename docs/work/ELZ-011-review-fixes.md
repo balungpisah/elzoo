@@ -1,5 +1,7 @@
 # ELZ-011 final-review fixes
 
+> Redacted before publication (ELZ-065): the password part of local test-database URLs (`ecto://user:…@localhost`) and role commands is replaced by an ellipsis; the recorded commands are otherwise exact.
+
 Independent reviewer: Orca session `0f974e4c-75e1-4daf-9a19-7720ad2b1633`,
 head `694fda8a797fa2fe7535e6be1ca164f86483d281`, dispatch `ctx_44d327567ce3`.
 [Original report](ELZ-011-final-review.md): CONDITIONAL, F1 required and F2 fix

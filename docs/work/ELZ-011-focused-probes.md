@@ -1,5 +1,7 @@
 # ELZ-011 amended-proposal feasibility evidence
 
+> Redacted before publication (ELZ-065): the password part of local test-database URLs (`ecto://user:…@localhost`) and role commands is replaced by an ellipsis; the recorded commands are otherwise exact.
+
 Root decision: msg_18881a0d44c3, 2026-11-08. D1/D2/D3 option A/D4/D5
 accepted, with real PostgreSQL composition and pinned-source retry_job state
 coverage. No production files or existing merged tests changed. This is

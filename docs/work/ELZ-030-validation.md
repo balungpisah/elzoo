@@ -1,5 +1,7 @@
 # ELZ-030 integrated validation
 
+> Redacted before publication (ELZ-065): the password part of local test-database URLs (`ecto://user:…@localhost`) and role commands is replaced by an ellipsis; the recorded commands are otherwise exact.
+
 Coordinator: Orca `3b13aceb-03fd-42ab-81ca-a11ca986749b`.
 Runtime/metadata tree checked: `33cb576bbae6e27128c1dcccc65c58d6cd452345` on `task/ELZ-030`, including
 `origin/main` `230cc5b211ef0599fe6a1980286c952111e5e0ae` through normal merges.

@@ -1,5 +1,7 @@
 # ELZ-023 final review follow-up
 
+> Redacted before publication (ELZ-065): the password part of local test-database URLs (`ecto://user:…@localhost`) and role commands is replaced by an ellipsis; the recorded commands are otherwise exact.
+
 ELZ-023: F1 and approved F2 fixes applied; fresh full check passed; incremental review pending.
 Branch/PR: `task/ELZ-023`; issue #37; no PR; independent reviewed head `196d0881cd80a878029ff582e87c786732c2cbbf`.
 Checks: full setup/check at production `fed4026` previously exit 0 (32 + 608 passed); F1 targeted suite exit 0 (`Result: 47 passed`, 41.6 seconds); F1+F2 targeted suite exit 0 (`Result: 49 passed`, 41.9 seconds); fresh setup and full check at `7fcc308` exit 0 (`Result: 32 passed`, `Result: 613 passed`, `ELZOO CHECK PASSED`); incremental review remains pending.

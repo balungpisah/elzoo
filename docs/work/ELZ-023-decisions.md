@@ -1,5 +1,7 @@
 # ELZ-023 early-review decision packet
 
+> Redacted before publication (ELZ-065): the password part of local test-database URLs (`ecto://user:…@localhost`) and role commands is replaced by an ellipsis; the recorded commands are otherwise exact.
+
 **Historical packet; superseded for decisions.** Root accepted R-A–R-F in their
 conservative form on 2026-11-08 ~08:55 WIB, explicitly choosing NARROW for R-B
 and requiring encoding/host-interface probes plus focused re-review.

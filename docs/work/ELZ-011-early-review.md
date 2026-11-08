@@ -1,5 +1,7 @@
 # ELZ-011 independent early Contract review
 
+> Redacted before publication (ELZ-065): the password part of local test-database URLs (`ecto://user:…@localhost`) and role commands is replaced by an ellipsis; the recorded commands are otherwise exact.
+
 Reviewer: Orca session 0f974e4c-75e1-4daf-9a19-7720ad2b1633 (task_a659ec353b6d, dispatch ctx_4a3fb5dd7ad9).
 Reviewed head: `0716e36865782847a9a786aa9d4ac28c7b1c5766` on `task/ELZ-011`
 (worktree `/Users/laptopdp/orca/workspaces/elzoo/elzoo-ELZ-011`, base `a5f0e630f61e93893f1a2c706268226681ca593a`, claim `2a9efcd`).

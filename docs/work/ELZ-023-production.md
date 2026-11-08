@@ -1,5 +1,7 @@
 # ELZ-023 production evidence and review handoff
 
+> Redacted before publication (ELZ-065): the password part of local test-database URLs (`ecto://user:…@localhost`) and role commands is replaced by an ellipsis; the recorded commands are otherwise exact.
+
 This records the initial implementation handoff. For the subsequent independent
 F1/F2 findings, approved corrections and fresh 32 + 613-test full check, see
 [ELZ-023-review-fixes.md](ELZ-023-review-fixes.md).

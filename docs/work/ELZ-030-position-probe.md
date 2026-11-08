@@ -1,5 +1,7 @@
 # ELZ-030 — raw-order positional correspondence probe
 
+> Redacted before publication (ELZ-065): the password part of local test-database URLs (`ecto://user:…@localhost`) and role commands is replaced by an ellipsis; the recorded commands are otherwise exact.
+
 **Outcome: reduced positional feasibility passed; full production implementation
 remains open.**
 

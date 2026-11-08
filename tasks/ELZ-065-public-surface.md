@@ -1,6 +1,7 @@
 # ELZ-065 — Remove private infrastructure details and third-party personal data before publication
 
-- Phase: P0 harness (docs only: `docs/development/10-symbolic-ci.md`, `docs/work/research/*.json`)
+- Phase: P0 harness (docs only: `docs/development/10-symbolic-ci.md`, `docs/development/01-workflow.md`, `docs/work/*.md`,
+  `docs/work/research/*.json`)
 - Catalogue IDs: none
 - Dependencies: ELZ-058 (#96) merged (same docs file). Precedes the visibility change.
 - Review: Devin Review plus the worker's own checks (docs-only, mechanical). Findings dispositioned in the PR.
@@ -32,7 +33,11 @@ paths, session ids) is a second pass after publication. Git history is not rewri
    readme text by `[email removed]` (names, package handles and URLs stay). The files are recorded research data
    that no code, test or manifest reads, and none of their hashes is pinned anywhere (checked with a search for the file
    names and for their SHA-256 values).
-3. Verify with the inventory scanner (kept outside the repository because its patterns name private hosts): zero
+3. Local test-database passwords: in `docs/development/01-workflow.md` and 18 historical work reports under
+   `docs/work/` (the recorded commands and their outputs) the password part of `ecto://user:password@localhost` URLs and of one
+   role command becomes an ellipsis or a placeholder, and each changed report gets one line saying so; the commands are
+   otherwise exact. The functional test-database URL in the workflow file and in test fixtures stays.
+4. Verify with the inventory scanner (kept outside the repository because its patterns name private hosts): zero
    MUST hits in the tree, and report the residual SHOULD list for the second pass.
 
 ## Acceptance

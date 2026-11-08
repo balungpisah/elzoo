@@ -1,5 +1,7 @@
 # ELZ-023 focused amendment probe evidence
 
+> Redacted before publication (ELZ-065): the password part of local test-database URLs (`ecto://user:…@localhost`) and role commands is replaced by an ellipsis; the recorded commands are otherwise exact.
+
 Status: executed feasibility evidence; [independent review](ELZ-023-focused-review.md)
 is CONDITIONAL at 82287ca; no production acceptance.
 The reviewer reproduced the green checks but found an unsafe history-dependent

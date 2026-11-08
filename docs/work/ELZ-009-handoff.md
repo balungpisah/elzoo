@@ -1,5 +1,7 @@
 # ELZ-009 — WIP checkpoint handoff (NOT ACCEPTED)
 
+> Redacted before publication (ELZ-065): the password part of local test-database URLs (`ecto://user:…@localhost`) and role commands is replaced by an ellipsis; the recorded commands are otherwise exact.
+
 Status: **work in progress, not accepted, no PR.** Stopped at a safe checkpoint
 by user scope change ("Stop at ELZ-009 at a safe checkpoint ... so other agent
 can continue working on it"). Any agent may adopt `task/ELZ-009` immediately
@@ -78,7 +80,7 @@ and unreachable (exit 2) URLs; `check-ci-runners.py` symbolic-only.
   by `mix.lock` at a004c335; `MIX_ENV=test mix setup` on a fresh worktree.
 - Disposable local PostgreSQL only (never production/user DBs): e.g.
   `sudo apt-get install -y postgresql`, then
-  `sudo -u postgres psql -c "create role elzoo_test login password 'elzoo_test'"`,
+  `sudo -u postgres psql -c "create role elzoo_test login password '<your throwaway password>'"`,
   `sudo -u postgres createdb -O elzoo_test elzoo_test`,
   `export ELZOO_TEST_DATABASE_URL=ecto://elzoo_test:…@localhost/elzoo_test`.
   Throwaway test-only credentials; tests fail closed without the variable.

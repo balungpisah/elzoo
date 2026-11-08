@@ -1,5 +1,7 @@
 # ELZ-023 (#37): final independent implementation review
 
+> Redacted before publication (ELZ-065): the password part of local test-database URLs (`ecto://user:…@localhost`) and role commands is replaced by an ellipsis; the recorded commands are otherwise exact.
+
 - Reviewer: Orca session `orca_session_id:0f974e4c-75e1-4daf-9a19-7720ad2b1633` (task `task_5390ac87ff86`, dispatch `ctx_ba3927238e5e`). The same independent reviewer as the early and focused reviews; I authored none of the code, tests or documents. No helpers. I will not claim GitHub approval.
 - Reviewed head: **`196d0881cd80a878029ff582e87c786732c2cbbf`** on `task/ELZ-023`, base `origin/main` `0a423705784f2c0223ed67d6f75bfdb5412845ce` (ancestor, no rebase). Worktree `/Users/laptopdp/orca/workspaces/elzoo/elzoo-ELZ-023`: `git status --short` empty before, during and after. I changed no tracked file, issue, label, pin, test or protected file. Only `docs/work/ELZ-023-production.md` and `docs/work/ELZ-023.md` differ from the fully checked commit `fed4026ce85c5df3dae5fbf8126f5529ee61389a`.
 - Pin `git -C deps/cure rev-parse HEAD` = `208248063d64e621782cd26dd30698ee42850a89`. Database: only `ecto://elzoo_elz024:…@localhost/elzoo_pieces_test`. Scratch files: `/tmp/elz023-final/`.
