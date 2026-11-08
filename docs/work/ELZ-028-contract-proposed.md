@@ -147,7 +147,7 @@ Exact after (reviewer's text, verbatim):
 - [ ] A write using an expired holder's old fence is refused by revision after a replacement or other record has moved the head (test); if the head has not moved, expiry alone is not detected by the revision and does not by itself refuse that write (documented limit with a control test).
 ```
 
-### B4 — non-holder completion (reviewer's minimal rewording; pending main's decision)
+### B4 — non-holder completion (reviewer's minimal rewording; APPROVED by main on 2026-11-09)
 
 Exact before:
 
