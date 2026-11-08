@@ -92,7 +92,16 @@ defmodule Elzoo.OsProcess.Adapter do
         {:reply, {:ok, :requested}, remember_cancelled(state, ref)}
 
       Map.has_key?(state.running, ref) ->
-        {:reply, Owner.cancel(state.running[ref].owner), state}
+        # Asynchronous: the owner may be inside exec:run; the Adapter never blocks on it.
+        case state.running[ref] do
+          %{cancel_requested: true} ->
+            {:reply, {:ok, :already_requested}, state}
+
+          entry ->
+            Owner.cancel(entry.owner)
+            running = Map.put(state.running, ref, Map.put(entry, :cancel_requested, true))
+            {:reply, {:ok, :requested}, %{state | running: running}}
+        end
 
       MapSet.member?(elem(state.cancelled, 1), ref) ->
         {:reply, {:ok, :already_requested}, state}
@@ -192,7 +201,7 @@ defmodule Elzoo.OsProcess.Adapter do
       case DynamicSupervisor.start_child(state.dsup, {Owner, args}) do
         {:ok, owner} ->
           mon = Process.monitor(owner)
-          %{state | running: Map.put(state.running, entry.ref, %{owner: owner, mon: mon})}
+          %{state | running: Map.put(state.running, entry.ref, %{owner: owner, mon: mon, cancel_requested: false})}
 
         {:error, _} ->
           notify(entry.submitter, entry.ref, Result.unknown(:owner_start_failed, %{}))
@@ -403,7 +412,7 @@ defmodule Elzoo.OsProcess.Adapter do
               {:ok, c, _} -> c
             end
 
-          %{acc | running: Map.put(acc.running, ref, %{owner: owner, mon: mon}), capacity: capacity}
+          %{acc | running: Map.put(acc.running, ref, %{owner: owner, mon: mon, cancel_requested: false}), capacity: capacity}
 
         true ->
           if os_pid == nil do

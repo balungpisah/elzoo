@@ -19,11 +19,8 @@ defmodule Elzoo.OsProcess.Owner do
 
   def start_link(args), do: GenServer.start_link(__MODULE__, args)
 
-  def cancel(owner) do
-    GenServer.call(owner, :cancel, 5_000)
-  catch
-    :exit, _ -> {:error, :unknown_run}
-  end
+  @doc "Ask the owner to stop its run through the provider. Asynchronous; acceptance only."
+  def cancel(owner), do: GenServer.cast(owner, :cancel)
 
   def caller_down(owner), do: GenServer.cast(owner, :caller_down)
 
@@ -84,6 +81,7 @@ defmodule Elzoo.OsProcess.Owner do
       # Measured before exec:run: the provider's watchdog starts after this instant, so a signal
       # it sends can only be reported at or after started_at + timeout.
       started_at = System.monotonic_time(:millisecond)
+      run_hook(state, :before_run)
 
       case :exec.run(argv, opts) do
         {:ok, proxy, os_pid} ->
@@ -91,6 +89,9 @@ defmodule Elzoo.OsProcess.Owner do
           run_hook(state, :before_register)
           :ets.insert(state.tid, {state.ref, self(), state.submitter, os_pid, :running})
           run_hook(state, :after_run)
+          # handle_continue runs before any message, so a cancel or a submitter DOWN is handled
+          # only after os_pid is known; this guard keeps that true if the order ever changes.
+          if state.cancel, do: request_stop(os_pid)
           bound = timeout + state.config.grace_s * 1000 + state.config.observe_timeout_ms
           safety = Process.send_after(self(), :safety, min(bound, 4_294_967_295))
 
@@ -115,20 +116,13 @@ defmodule Elzoo.OsProcess.Owner do
   end
 
   @impl true
-  def handle_call(:cancel, _from, %{terminal: nil} = state) do
-    case state.cancel do
-      nil ->
-        request_stop(state.os_pid)
-        {:reply, {:ok, :requested}, %{state | cancel: :cancel}}
-
-      _ ->
-        {:reply, {:ok, :already_requested}, state}
-    end
+  def handle_cast(:cancel, %{terminal: nil, cancel: nil} = state) do
+    if state.os_pid, do: request_stop(state.os_pid)
+    {:noreply, %{state | cancel: :cancel}}
   end
 
-  def handle_call(:cancel, _from, state), do: {:reply, {:error, :unknown_run}, state}
+  def handle_cast(:cancel, state), do: {:noreply, state}
 
-  @impl true
   def handle_cast(:caller_down, state), do: {:noreply, caller_down_state(state)}
 
   @impl true
@@ -225,6 +219,14 @@ defmodule Elzoo.OsProcess.Owner do
           Map.merge(common, %{cause: state.cancel, members: members, exit_code: exit_code(state)})
         )
 
+      {{:unknown, reason, extra}, _} ->
+        Result.unknown(
+          reason,
+          common
+          |> Map.merge(%{cause: state.cancel, members: members, exit_code: exit_code(state)})
+          |> Map.merge(extra)
+        )
+
       {_, {:alive, pids}} ->
         Result.unknown(
           :group_alive,
@@ -234,9 +236,6 @@ defmodule Elzoo.OsProcess.Owner do
       {{:completed, code}, {:empty, _}} ->
         leftovers = if state.saw_members, do: :reaped, else: :none
         Result.completed(code, output, state.truncated, leftovers, state.os_pid)
-
-      {{:terminated, stage, signal}, {:empty, _}} ->
-        Result.terminated(stage, signal, output, state.truncated, state.os_pid)
     end
   end
 
@@ -253,10 +252,15 @@ defmodule Elzoo.OsProcess.Owner do
         {:completed, code}
 
       {:signal, sig} when sig in [15, 9] ->
+        # erlexec reports the leader's ending signal but not who sent it. Before the deadline
+        # instant it cannot be the provider's watchdog, so the command was signalled by itself or
+        # another actor: completed. At or after it, the provider and any other sender are
+        # indistinguishable: unknown, carrying the reported signal as an observation only. With
+        # this provider, `terminated` is therefore never produced (amended #46 B1).
         if deadline_due?(state),
           do:
-            {:terminated, if(sig == 15, do: :term, else: :kill),
-             if(sig == 15, do: :sigterm, else: :sigkill)},
+            {:unknown, :signal_after_deadline,
+             %{signal: if(sig == 15, do: :sigterm, else: :sigkill)}},
           else: {:completed, 128 + sig}
 
       {:signal, sig} ->

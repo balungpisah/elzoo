@@ -9,7 +9,9 @@ defmodule Elzoo.OsProcess.Config do
   integer, bound of the group observation after the exit notification, default 3000),
   `max_output_bytes` (positive integer, default 1 MiB), `pgrep_path` (absolute path, default
   located with `System.find_executable/1`), `now_unix_ms` (zero-arity function, default
-  `System.os_time(:millisecond)`), `name` (optional registered name) and `test_hooks`
+  `System.os_time(:millisecond)`), `provider_user` (non-empty string, default `"nobody"`: the
+  effective user of erlexec's port program and children when the VM runs as root and erlexec
+  is not configured by the consumer), `name` (optional registered name) and `test_hooks`
   (map of zero-arity functions; test seam, `%{}` by default). Timers are bounded by the
   OTP limit 4_294_967_295 ms.
   """
@@ -23,6 +25,7 @@ defmodule Elzoo.OsProcess.Config do
             pgrep_path: nil,
             now_unix_ms: nil,
             name: nil,
+            provider_user: "nobody",
             test_hooks: %{},
             tid: nil,
             supervisor: nil
@@ -40,7 +43,8 @@ defmodule Elzoo.OsProcess.Config do
          {:ok, pgrep} <- tool(opts, :pgrep_path, "pgrep"),
          {:ok, now} <- fun0(opts, :now_unix_ms, fn -> System.os_time(:millisecond) end),
          {:ok, hooks} <- hooks(opts),
-         :ok <- provider_started() do
+         {:ok, provider_user} <- provider_user(opts),
+         :ok <- Elzoo.OsProcess.Provider.ensure_started(provider_user) do
       {:ok,
        %__MODULE__{
          max_concurrent: max,
@@ -52,6 +56,7 @@ defmodule Elzoo.OsProcess.Config do
          pgrep_path: pgrep,
          now_unix_ms: now,
          name: Keyword.get(opts, :name),
+         provider_user: provider_user,
          test_hooks: hooks
        }}
     end
@@ -102,8 +107,11 @@ defmodule Elzoo.OsProcess.Config do
     end
   end
 
-  defp provider_started do
-    if is_pid(Process.whereis(:exec)), do: :ok, else: {:error, :erlexec_not_started}
+  defp provider_user(opts) do
+    case Keyword.get(opts, :provider_user, "nobody") do
+      user when is_binary(user) and user != "" -> {:ok, user}
+      _ -> {:error, {:invalid_config, :provider_user}}
+    end
   end
 
   defp proper_keyword?(opts), do: is_list(opts) and Keyword.keyword?(opts)

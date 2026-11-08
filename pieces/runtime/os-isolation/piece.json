@@ -6,19 +6,19 @@
   "license": "Apache-2.0",
   "kind": "adapter",
   "providers": ["elixir", "otp", "erlexec"],
-  "applications": ["erlexec"],
   "dependencies": ["delivery/backpressure", "core/envelope"],
   "contract": "Run one OS command per request with bounded slots and queue, an absolute deadline, group-scoped termination performed by erlexec's port program, and an observed result mapped to the shared delivery result; the Adapter never signals itself.",
   "limits": [
     "Not security isolation: no sandbox, container, seccomp, path confinement or network isolation; no shell parsing; stdin is /dev/null.",
-    "Terminations the provider performs on request (cancel, caller or owner death) report no ending signal and are unknown; a member that ignores SIGTERM after the leader exits, a descendant that leaves the group, and the provider port program's own death are declared residuals.",
-    "An exec failure after pre-dispatch validation is reported by the provider as exit 1 and appears as completed; a SIGTERM or SIGKILL status reported at or after the deadline instant is attributed to the provider's watchdog and cannot be told from a self-signalled command; group observation with pgrep reports what the process table shows, not a proof of cleanup; one OS at a time."
+    "The provider reports the leader's ending signal but not who sent it: a SIGTERM or SIGKILL reported at or after the deadline instant is unknown{signal_after_deadline} (terminated is never produced with this provider); terminations the provider performs on request (cancel, caller or owner death) report no ending signal and are unknown; a member that ignores SIGTERM after the leader exits, a descendant that leaves the group, and the provider port program's own death are declared residuals.",
+    "An exec failure after pre-dispatch validation is reported by the provider as exit 1 and appears as completed; cwd nil inherits the VM's working directory; when the VM runs as root the port program and children run as provider_user (default nobody); group observation with pgrep reports what the process table shows, not a proof of cleanup; one OS at a time."
   ],
   "files": [
     "lib/elzoo/os_process.ex",
     "lib/elzoo/os_process/adapter.ex",
     "lib/elzoo/os_process/config.ex",
     "lib/elzoo/os_process/owner.ex",
+    "lib/elzoo/os_process/provider.ex",
     "lib/elzoo/os_process/result.ex",
     "test/elzoo/os_process_fixture.sh",
     "test/elzoo/os_process_mapping_test.exs",
@@ -26,7 +26,7 @@
     "test/elzoo/os_process_test.exs"
   ],
   "grounding": [
-    {"kind": "test", "file": "test/elzoo/os_process_test.exs", "claim": "Named real-process scenarios (transition rows T1-T23, T26-T29, controls C1-C3, review findings F1-F7, provider protocol P1, consumer priv dir) with group emptiness observed by the test's own pgrep; finite observations on one OS per run, not proofs."},
+    {"kind": "test", "file": "test/elzoo/os_process_test.exs", "claim": "Named real-process scenarios (transition rows T1-T23, T26-T29, controls C1-C3, review findings F1-F7 and R2, self-signal after the deadline B1, T8/T10/T30, provider protocol P1, consumer priv dir) with group emptiness observed by the test's own pgrep; finite observations on one OS per run, not proofs."},
     {"kind": "test", "file": "test/elzoo/os_process_provider_failure_test.exs", "claim": "Provider application stop (T24) and port-program SIGKILL (T25): the orphan is reported, not hidden; finite observations."},
     {"kind": "test", "file": "test/elzoo/os_process_mapping_test.exs", "claim": "Every Adapter result row validates through Elzoo.Envelope.validate_result/1 with correlation fallback and the unchanged sidecar; wait-status decoding."},
     {"kind": "type", "file": "lib/elzoo/os_process/result.ex", "claim": "Delivery-result maps are checked by the named checker Elzoo.Envelope.validate_result/1 at construction; Elixir typespecs are documentation."},
@@ -42,7 +42,7 @@
     },
     "config": {
       "status": "supported",
-      "contract": "Construction-time max_concurrent, queue_limit, queue_timeout_ms, grace_s, observe_timeout_ms, max_output_bytes, pgrep_path, now_unix_ms; per-call deadline_unix_ms or max_run_ms, cwd and environment allowlist; validated with the OTP timer bound; no hot update, a change needs a new instance.",
+      "contract": "Construction-time max_concurrent, queue_limit, queue_timeout_ms, grace_s, observe_timeout_ms, max_output_bytes, pgrep_path, now_unix_ms, provider_user (effective user of the provider when the VM runs as root and erlexec is not configured by the consumer); per-call deadline_unix_ms or max_run_ms, cwd and environment allowlist; validated with the OTP timer bound; no hot update, a change needs a new instance.",
       "evidence": ["test/elzoo/os_process_test.exs"]
     },
     "control": {

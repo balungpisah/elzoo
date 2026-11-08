@@ -15,7 +15,7 @@ defmodule Elzoo.OsProcessTest do
   @moduletag timeout: 60_000
 
   setup_all do
-    {:ok, _} = Application.ensure_all_started(:erlexec)
+    :ok = Elzoo.OsProcess.Provider.ensure_started()
     :ok
   end
 
@@ -175,6 +175,14 @@ defmodule Elzoo.OsProcessTest do
                now_unix_ms: :no
              )
 
+    assert {:error, {:invalid_config, :provider_user}} =
+             OsProcess.start_link(
+               max_concurrent: 1,
+               queue_limit: 0,
+               queue_timeout_ms: 1,
+               provider_user: ""
+             )
+
     assert {:error, {:invalid_config, :test_hooks}} =
              OsProcess.start_link(
                max_concurrent: 1,
@@ -223,36 +231,49 @@ defmodule Elzoo.OsProcessTest do
 
   # ---- deadline (T14, T15, T16, C1, C3)
 
-  test "T14 deadline, SIGTERM honoured: terminated with stage term from the provider's report; group empty" do
+  test "T14 deadline, SIGTERM honoured: the provider's reported signal is an observation in unknown, never a stage; group empty" do
     sup = start()
     {:ok, ref} = OsProcess.submit(sup, spec("sleep", [30]), max_run_ms: 300)
     os_pid = os_pid_of(sup, ref)
 
     assert %{
-             status: :terminated,
-             cause: :deadline,
-             stage: :term,
+             status: :unknown,
+             reason: :signal_after_deadline,
              signal: :sigterm,
-             exit_code: nil,
+             exit_code: 143,
+             members: [],
              os_pid: ^os_pid
-           } = result(ref)
+           } = result = result(ref)
 
+    refute Map.has_key?(result, :stage)
     assert members(os_pid) == []
   end
 
-  test "T15/C1 deadline, SIGTERM ignored: the provider escalates to SIGKILL; stage kill, never term" do
+  test "T15/C1 deadline, SIGTERM ignored: the provider escalates to SIGKILL; the reported signal is sigkill, never sigterm" do
     sup = start(grace_s: 1)
     {:ok, ref} = OsProcess.submit(sup, spec("ignore-term", [30]), max_run_ms: 300)
     os_pid = os_pid_of(sup, ref)
 
     assert %{
-             status: :terminated,
-             cause: :deadline,
-             stage: :kill,
+             status: :unknown,
+             reason: :signal_after_deadline,
              signal: :sigkill,
+             exit_code: 137,
              output: "ignoring\n"
            } = result(ref)
 
+    assert members(os_pid) == []
+  end
+
+  test "B1 a command that signals itself after the deadline is unknown, the same as the provider's signal" do
+    sup = start(grace_s: 3)
+    {:ok, ref} = OsProcess.submit(sup, spec("late-self-term", ["0.8"]), max_run_ms: 200)
+    os_pid = os_pid_of(sup, ref)
+
+    assert %{status: :unknown, reason: :signal_after_deadline, signal: :sigterm} =
+             result = result(ref)
+
+    refute result.status == :terminated
     assert members(os_pid) == []
   end
 
@@ -261,7 +282,7 @@ defmodule Elzoo.OsProcessTest do
     {:ok, ref} = OsProcess.submit(sup, spec("child", [30]), max_run_ms: 400)
     os_pid = os_pid_of(sup, ref)
     assert :ok = wait_until(fn -> length(members(os_pid)) >= 2 end, 2_000)
-    assert %{status: :terminated, cause: :deadline} = result(ref)
+    assert %{status: :unknown, reason: :signal_after_deadline} = result(ref)
     assert members(os_pid) == []
   end
 
@@ -302,7 +323,7 @@ defmodule Elzoo.OsProcessTest do
     {:ok, ref} = OsProcess.submit(sup, spec("ignore-term", [30]), max_run_ms: 200)
     os_pid = os_pid_of(sup, ref)
     result = result(ref)
-    assert result.status == :terminated
+    assert %{status: :unknown, reason: :signal_after_deadline} = result
     assert members(os_pid) == []
   end
 
@@ -495,7 +516,82 @@ defmodule Elzoo.OsProcessTest do
   test "F7 a slow step between exec:run and registration does not turn a provider timeout into completed" do
     sup = start(test_hooks: %{after_run: fn -> Process.sleep(250) end})
     {:ok, ref} = OsProcess.submit(sup, spec("sleep", [30]), max_run_ms: 300)
-    assert %{status: :terminated, cause: :deadline, stage: :term} = result(ref)
+    assert %{status: :unknown, reason: :signal_after_deadline, signal: :sigterm} = result(ref)
+  end
+
+  test "R2 a cancel accepted while exec:run is still in progress stops the group once os_pid is known" do
+    sup = start(test_hooks: %{before_run: fn -> Process.sleep(400) end})
+    {:ok, ref} = OsProcess.submit(sup, spec("sleep", [30]), max_run_ms: 20_000)
+    assert {:ok, :requested} = OsProcess.cancel(sup, ref)
+    assert {:ok, :already_requested} = OsProcess.cancel(sup, ref)
+
+    assert %{status: :unknown, reason: :provider_masked_stop, cause: :cancel, os_pid: os_pid} =
+             result(ref)
+
+    assert is_integer(os_pid)
+    assert members(os_pid) == []
+  end
+
+  test "R2 a submitter that dies while exec:run is still in progress: the group is stopped" do
+    sup = start(test_hooks: %{before_run: fn -> Process.sleep(400) end})
+    before = :exec.which_children()
+    parent = self()
+
+    pid =
+      spawn(fn ->
+        {:ok, ref} = OsProcess.submit(sup, spec("sleep", [30]), max_run_ms: 20_000)
+        send(parent, {:ref, ref})
+
+        receive do
+          :never -> :ok
+        end
+      end)
+
+    ref =
+      receive do
+        {:ref, r} -> r
+      after
+        2_000 -> flunk("no ref")
+      end
+
+    Process.exit(pid, :kill)
+    os_pid = os_pid_of(sup, ref)
+    assert is_integer(os_pid)
+    assert :ok = wait_empty(os_pid)
+    assert :ok = wait_until(fn -> :exec.which_children() -- before == [] end, 5_000)
+    assert :ok = wait_until(fn -> OsProcess.snapshot(sup).in_flight == 0 end, 5_000)
+  end
+
+  test "T10 the provider refuses the request before fork: rejected{spawn_failed}, no child exists" do
+    sup = start()
+    before = :exec.which_children()
+
+    assert {:ok, %{status: :rejected, reason: :spawn_failed}} =
+             OsProcess.run(sup, spec("exit", [0], %{env: %{inherit: [], set: [{"EMPTY", ""}]}}),
+               max_run_ms: 2_000
+             )
+
+    assert :exec.which_children() -- before == []
+  end
+
+  test "T8/T30 the deadline passes while the slot frees: dispatch-time expiry, and the late queue timer is ignored" do
+    sup = start(max_concurrent: 1, queue_limit: 1, queue_timeout_ms: 10_000)
+    {:ok, running} = OsProcess.submit(sup, spec("exit", [0]), max_run_ms: 5_000)
+
+    {:ok, queued} =
+      OsProcess.submit(sup, spec("exit", [0]), deadline_unix_ms: System.os_time(:millisecond) + 400)
+
+    adapter = OsProcess.adapter(sup)
+    :ok = :sys.suspend(adapter)
+    # the running command finishes (owner DOWN enters the mailbox) before the queued deadline;
+    # the queue timer message for the deadline enters the mailbox after it
+    assert %{status: :completed} = result(running)
+    Process.sleep(700)
+    :ok = :sys.resume(adapter)
+    assert %{status: :expired} = result(queued)
+    refute_receive {OsProcess, ^queued, _}, 500
+    assert %{in_flight: 0, queued: 0} = OsProcess.snapshot(sup)
+    assert OsProcess.info(sup, queued) == nil
   end
 
   # ---- spawn failure (T9) and exec failure after validation (B5)

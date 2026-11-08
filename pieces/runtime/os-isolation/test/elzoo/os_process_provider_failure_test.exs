@@ -15,8 +15,8 @@ defmodule Elzoo.OsProcessProviderFailureTest do
   @moduletag capture_log: true
 
   setup do
-    {:ok, _} = Application.ensure_all_started(:erlexec)
-    on_exit(fn -> {:ok, _} = Application.ensure_all_started(:erlexec) end)
+    :ok = Elzoo.OsProcess.Provider.ensure_started()
+    on_exit(fn -> :ok = Elzoo.OsProcess.Provider.ensure_started() end)
     :ok
   end
 
@@ -62,15 +62,12 @@ defmodule Elzoo.OsProcessProviderFailureTest do
     assert :ok = wait_until(fn -> length(members(os_pid)) >= 2 end, 2_000)
     :ok = Application.stop(:erlexec)
 
-    result =
-      receive do
-        {OsProcess, ^ref, r} -> r
-      after
-        8_000 -> :no_result
-      end
+    # The provider's finalize stops the child; its proxy exits with port_closed, which the owner
+    # reports after its own observation.
+    assert_receive {OsProcess, ^ref, %{status: :unknown, reason: :port_closed, os_pid: ^os_pid}},
+                   10_000
 
     assert :ok = wait_until(fn -> members(os_pid) == [] end, 5_000)
-    assert result == :no_result or match?(%{status: :unknown, reason: :port_closed}, result)
   end
 
   test "T25 the port program killed with SIGKILL orphans the child: unknown{port_closed} with the observed members" do

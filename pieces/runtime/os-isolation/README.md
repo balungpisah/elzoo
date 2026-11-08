@@ -28,11 +28,21 @@ receive do {Elzoo.OsProcess, ^ref, result} -> result end
 {:ok, delivery_result, result} = Elzoo.OsProcess.to_delivery_result(result, %{"message_id" => "m"})
 ```
 
-Needs: the `erlexec` application started (a dependency application; its port
-program is built from the pinned Hex package with the host C++ toolchain and
-found through `:code.priv_dir(:erlexec)`), the host `pgrep` utility, the
+Needs: the erlexec 2.6.0 package (its port program is built from the pinned
+Hex package with the host C++ toolchain and found through
+`:code.priv_dir(:erlexec)`), the host `pgrep` and `id` utilities, the
 executable path and version declared by the caller, a working directory and an
-explicit environment allowlist. The child's environment is `set` plus the
+explicit environment allowlist. `start_link/1` starts the erlexec application
+when it is not running (`Elzoo.OsProcess.Provider`). erlexec's port program
+refuses to run as root without an effective user: when `id -u` reports 0 and
+the consumer has not configured erlexec's `root`/`user` environment, the
+provider is started with `root: true, user: provider_user` (default
+`"nobody"`), so the port program and every child run as that unprivileged
+user; when `SHELL` is unset it is set to `/bin/sh` for the VM, because the
+port program requires it. Declare the dependency as `{:erlexec, "== 2.6.0",
+runtime: false}` so it is not started before the Piece can configure it, or
+start and configure erlexec yourself. `cwd: nil` inherits the VM's working
+directory. The child's environment is `set` plus the
 `inherit` names present in the VM environment; everything else is unset. The
 child's stdin is `/dev/null`. stdout and stderr are merged into `output` in
 arrival order, bounded by `max_output_bytes` (`truncated: true` beyond it).
@@ -42,7 +52,9 @@ arrival order, bounded by `max_output_bytes` (`truncated: true` beyond it).
 early, cancels the run (acceptance only) and returns `{:error, {:no_result,
 ref}}`; the late result message still arrives. `cancel/2` returns
 `{:ok, :requested}` once and `{:ok, :already_requested}` for a repeated cancel
-of a running run. A queued run is settled at once by its cancellation
+of a running run; it never waits for the owner (an owner inside `exec:run`
+handles the request as soon as the provider has returned the OS pid, then asks
+the provider to stop the group). A queued run is settled at once by its cancellation
 (`rejected{cancelled}`); a repeated cancel of one of the last 1024 refs so
 settled answers `{:ok, :already_requested}` (it acknowledges the duplicate
 request, not a run that is still alive). Every other finished or foreign ref
@@ -75,16 +87,19 @@ so queue residence can only shorten a run, never restart its deadline.
 | `completed` | `exit_code` (0..255, `128 + signal` for a self-ended child), `output`, `truncated`, `leftovers: :none \| :reaped`, `os_pid` | the leader exited and the group was observed empty afterwards |
 | `rejected` | `reason: :queue_full \| :queue_timeout \| :spawn_failed \| :cancelled` | nothing was dispatched |
 | `expired` | `deadline_unix_ms` | the deadline passed before dispatch |
-| `terminated` | `cause: :deadline`, `stage: :term \| :kill`, `signal: :sigterm \| :sigkill`, `exit_code: nil`, `output`, `truncated`, `os_pid` | the provider's watchdog ended the leader and reported the ending signal; the group was observed empty |
+| `terminated` | `cause: :deadline`, `stage: :term \| :kill`, … | **not produced with this provider**: erlexec reports the ending signal but not who sent it (see `signal_after_deadline`) |
 | `unknown` | `reason`, `cause`, `os_pid`, `members`, `output`, `truncated`, `exit_code` | see below |
 
-`stage` is the ending signal the provider reports (`term` = SIGTERM, `kill` =
-SIGKILL). It is never derived from a request the Adapter made. A SIGTERM or
-SIGKILL status reported before the deadline instant cannot be the provider's
-and is `completed{exit_code: 128 + signal}`; one reported at or after that
-instant is attributed to the provider's watchdog, which is indistinguishable
-from a command that signals itself after its deadline (declared residual).
-`unknown` reasons: `provider_masked_stop` (an explicit `cancel/2` or the
+No stage is ever derived from timing or from a request the Adapter made. A
+SIGTERM or SIGKILL status reported before the deadline instant (taken before
+`exec:run`, so the provider's watchdog cannot have fired yet) cannot be the
+provider's and is `completed{exit_code: 128 + signal}`. One reported at or after
+that instant may be the provider's watchdog or the command's own or another
+actor's signal; erlexec does not say which, so the result is
+`unknown{reason: :signal_after_deadline, signal: :sigterm | :sigkill}` with the
+group's `members` observed afterwards. The reported `signal` is an observation,
+not a stage: with SIGTERM ignored it is `:sigkill`, never `:sigterm`.
+`unknown` reasons: `signal_after_deadline` (above), `provider_masked_stop` (an explicit `cancel/2` or the
 submitter's death made the provider stop the group; erlexec masks the ending
 signal on that path, so a caller that needs a distinguished cancel outcome must
 observe the group itself), `owner_exit` / `owner_exit_before_registration`
@@ -147,16 +162,20 @@ registry. If the VM exits, the port program's `finalize` stops every child.
 | T6/T7 | submitter dies queued / cancel queued | dropped / `rejected{cancelled}` |
 | T9 | validation fails | `rejected{spawn_failed}` |
 | T11/T12/T13 | leader exits: no members / members reaped by the provider's at-exit TERM / members survive the bound | `completed{leftovers: :none}` / `completed{leftovers: :reaped}` / `unknown{group_alive}` |
-| T14/T15/T16 | deadline: SIGTERM honoured / ignored / with a member | `terminated{stage: :term}` / `terminated{stage: :kill}` / `terminated` |
+| T14/T15/T16 | deadline: SIGTERM honoured / ignored / with a member | `unknown{signal_after_deadline, signal: :sigterm}` / `… signal: :sigkill` / `unknown{signal_after_deadline}`; group observed empty |
+| B1 | the command signals itself after the deadline | `unknown{signal_after_deadline}` (indistinguishable from the provider) |
+| T8/T30 | deadline passes while the slot frees / late timer after settlement | `expired` / ignored |
+| T10 | the provider refuses the request before fork | `rejected{spawn_failed}`, no child |
+| R2 | cancel or submitter death while `exec:run` is in progress | `unknown{provider_masked_stop}` / group stopped |
 | T17/T18/T19 | cancel / duplicate cancel / submitter dies running | `unknown{provider_masked_stop}` / `{:ok, :already_requested}` / dropped |
 | T20 | provider stops reporting | `unknown{no_exit_notification}` |
 | T21a/T21b | owner dies before / after `os_pid` is recorded | `unknown{owner_exit_before_registration}` / `unknown{owner_exit}` |
 | T22/T23 | Adapter dies / Adapter and owner die | result still delivered, slots rebuilt / group stopped by the provider |
-| T24/T25 | provider application stops / port program killed | group stopped / `unknown{port_closed, members}` |
+| T24/T25 | provider application stops / port program killed | group stopped and `unknown{port_closed}` / `unknown{port_closed, members}` with the orphan |
 | T26 | `pgrep` fails | `unknown{observation_failed}` |
 | T27/T28 | output bound / environment allowlist and cwd | `truncated: true` / only allowlisted names |
 | T29 | descendant leaves the group | residual: alive, not a member |
-| C1/C2/C3 | SIGTERM ignored / observation tool lies / natural exit in grace | `stage: :kill` / Adapter reports its observation / `completed` |
+| C1/C2/C3 | SIGTERM ignored / observation tool lies / natural exit in grace | reported `signal: :sigkill` / Adapter reports its observation / `completed` |
 
 Grounding: tests over the rows above with real `/bin/sh` processes and the
 fixture `test/elzoo/os_process_fixture.sh`; group emptiness asserted by the

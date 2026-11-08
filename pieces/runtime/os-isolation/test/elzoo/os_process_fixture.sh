@@ -17,6 +17,7 @@ case "$mode" in
                /bin/sh -c 'trap "" TERM; i=0; while [ "$i" -lt "$1" ]; do sleep 1; i=$((i+1)); done' sh "${1:-30}" >/dev/null 2>&1 &
                sleep 0.3; printf 'linger-ignore %s\n' "$!"; exit 0 ;;
   natural-exit) trap '' TERM; printf 'ignoring\n'; sleep "${1:-1}"; exit 0 ;;
+  late-self-term) trap '' TERM; printf 'ignoring\n'; sleep "${1:-1}"; trap - TERM; kill -TERM $$; sleep 1; exit 99 ;;
   spew)        n=${1:-100000}; i=0; while [ "$i" -lt "$n" ]; do printf 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n'; i=$((i+100)); done; exit 0 ;;
   env)         for name in "$@"; do eval "v=\${$name-__unset__}"; printf '%s=%s\n' "$name" "$v"; done; exit 0 ;;
   cwd)         pwd; exit 0 ;;
