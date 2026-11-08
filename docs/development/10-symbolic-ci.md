@@ -18,10 +18,10 @@ offline, diagnose it or let work queue on the other approved runner.
   `ci-candidate`. It is in the fast tier. It received `backend` after ELZ-034 merged (PR #61), so it
   is in the normal backend pool. The name and `ci-candidate` label are
   historical; they do not select a separate route.
-- `contabo-elzoo-1` (runner id 24): backend, **any tier only, never `fast`**; labels `self-hosted`,
-  `Linux`, `X64`, `elzoo`, `contabo`, and `backend` once the coordinator adds it after ELZ-057
-  merges (owner decision 2026-11-08: the machine took about twice as long as the MacBook on the
-  same tree, so it never serves pull request checks or queue runs; see "Contabo VPS").
+- `contabo-elzoo-1` (runner id 24): **unrouted**, never `fast`; labels `self-hosted`, `Linux`, `X64`,
+  `elzoo`, `contabo`. It has no `backend` label (removed again on 2026-11-08 after its `tier` = `any`
+  observation failed; owner decision, option a). It serves measurement runs and explicit `tier` = `any`
+  dispatches only when a person steers them. See "Contabo VPS" for the two failed or slow runs.
 - `symbolic-elzoo-gleam`: Gleam only; labels `self-hosted`, `linux`, `x64`,
   `symbolic`, `elzoo`, `gleam`.
 
@@ -560,14 +560,31 @@ state. This record covers `symbolic` only.
 
 ### Contabo VPS `ratahq-ci-contabo-01` (ELZ-056)
 
-Status: **one full trial passed; to be routed for `main` pushes and measurement runs only.** The
-`backend` label is not part of any diff: the coordinator adds it to runner 24 after ELZ-057 merges
-and confirms it with one `tier` = `any` dispatch that lands here. The runner never has `fast`, so it
-takes only the `check-any` job. Before that (ELZ-056) it was registered without `backend`, and the
-label was on only for the trials (owner decision 2026-11-08, then ELZ-057). The trial record is in the
-issue: run and job IDs, duration, cgroup memory peak, sampled CPU maximum, and `cpu.max`
-and `memory.max` read from the host through the job container's cgroup path.
-A failed or timed-out job here means removing the label. Host facts and the host-side limit
+Status: **unrouted (owner decision 2026-11-08, option a).** The runner has no `backend` label. One
+full run passed on an older tree (trial 2, below) and one failed on the current tree (the `tier` = `any`
+observation of ELZ-057). The label was on only for those runs. It serves measurement runs and explicit
+`tier` = `any` dispatches that a person steers; GitHub gives a job to any idle matching runner, so it
+takes no `check-any` job while it has no `backend` label. No test limit was changed for it.
+
+**ELZ-057 observation (failed).** Run 42484236992, job 128742521023, `workflow_dispatch` with `tier` = `any`
+on `main` at `ade0e45`, runner `contabo-elzoo-1`; `check-fast` skipped. 13:17:27Z to 14:25:54Z (20:17 to
+21:25 WIB), 68 min 27 s: `mix setup` 23 min 44 s (cold cache), `Run mix check` failed after 41 min 15 s with
+`Result: 640/642 passed`. Both failures were `ExUnit.TimeoutError` after 120000 ms (the per-test default):
+`pieces/workflow/approval/test/elzoo/approval_test.exs:177` (a negative control inside a Cure proof check,
+stack in `Cure.Core.Normalise` and `Cure.Core.Conv`) and `test/export_test.exs:120` (the `assembly/durable-job`
+consumer step). Root suite `Finished in 2243.7 seconds (438.6s async, 1805.1s sync)`; aggregate consumer 816.6 s.
+Job-reported cgroup memory peak 3,690,496,000 bytes; sampled CPU maximum 5.091 cores (the 5-core cap was
+reached). Read from the host: `cpu.max` `500000 100000`, `memory.max` `8589934592`, `memory.swap.max` `0`;
+`nr_throttled` 1026 and `throttled_usec` 62,213,128 at 14:25:14Z (62 s in total, in bursts). The same
+tree passed on `symbolic-elzoo` (run 42484152352, job 128742259599) and its main push run passed
+(42484121902). No test and no limit was changed. Interpretation, not proven: the 120 s per-test limit
+was set on faster machines, and on this VPS (about 1.8 times slower per thread) with the consumer groups of
+ELZ-049 running at the same time under a 5-core cap, two tests exceed it.
+
+Later owner decision (not made): (a) keep Contabo unrouted, which is the current state and the
+recommendation; (b) raise the per-test time limits of the two tests in a separate reviewed task, with
+measurements (a limit change, not a weaker proof); (c) raise the Contabo CPU cap from 5 to 7 cores and
+measure again. A failed or timed-out job here means removing the label. Host facts and the host-side limit
 readings below come from the worker's SSH inspection on 2026-11-08, not from files in this
 repository. Times are WIB (UTC+7) unless a log line is quoted.
 
