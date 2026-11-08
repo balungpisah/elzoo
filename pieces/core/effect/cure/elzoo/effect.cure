@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: Apache-2.0
+mod Elzoo.Effect
+  use Elzoo.Envelope
+  use Std.List
+
+  rec EffectDeclaration(a)
+    capability_id: String
+    operation: String
+    classification: String
+    command: EnvelopeMessage(a)
+
+  local fn equal(left: a, right: a) -> Bool = Std.Builtin.struct_eq(a, left, right)
+
+  fn valid({a: Type}, declaration: EffectDeclaration(a)) -> Bool =
+    equal(declaration.command.kind, "command") and
+      (equal(declaration.classification, "untrusted") or equal(declaration.classification, "trusted"))
+
+  fn declared(capability: String, needs: List(String)) -> Bool =
+    match needs
+      Nil -> False()
+      Cons(head, tail) -> equal(capability, head) or declared(capability, tail)
+end

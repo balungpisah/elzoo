@@ -15,8 +15,10 @@ BEAM pin), network access and a supported browser host. From this directory:
 ./scripts/check.sh
 ```
 
-Setup installs Gleam **1.19.2** under `.tools/`, checks the release archive's
-SHA-256, resolves the committed Hex manifest, runs `npm ci`, and installs
+Setup installs Gleam **1.19.2** under `.tools/`, downloads the release archive
+through the GitHub release-asset API by asset ID (set `GITHUB_TOKEN` to avoid the
+unauthenticated rate limit; CI passes the job token), checks the archive's pinned
+size and SHA-256, resolves the committed Hex manifest, runs `npm ci`, and installs
 Playwright's pinned Chromium. macOS arm64/x86_64 and Linux arm64/x86_64 compiler
 assets are mapped; only macOS arm64 local and Ubuntu x86_64 CI are acceptance
 environments. On minimal Linux, also run
