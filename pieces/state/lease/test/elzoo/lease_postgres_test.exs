@@ -624,23 +624,33 @@ defmodule Elzoo.LeasePostgresTest do
     assert :ok = TestHelper.database_guard!(TestRepo)
   end
 
-  test "LS23 OD-1a: the migration v1 shape is pinned; a changed table shape fails closed with no write",
+  test "LS23 OD-1a: the complete migration v1 shape is pinned; any other shape fails closed with no write, also after construction",
        %{store: store, prefix: prefix} do
     {:ok, lease} = TestHelper.pg_lease(store)
-    {:held, _} = Lease.claim(lease, "k", "alice", @minute)
+    {:held, h} = Lease.claim(lease, "k", "alice", @minute)
     heads = "#{Postgres.identifier(prefix)}.elzoo_log_heads"
     records = "#{Postgres.identifier(prefix)}.elzoo_log_records"
+    # added column
     SQL.query!(TestRepo, "ALTER TABLE #{heads} ADD COLUMN extra integer", [], log: false)
 
-    assert {:error, {:schema, %{version: 1, heads: %{unexpected: [{"extra", "integer"}]}}}} =
+    assert {:error,
+            {:schema,
+             %{version: 1, heads: %{columns: %{unexpected: [{"extra", "integer", "YES", nil}]}}}}} =
              TestHelper.pg_lease(store)
 
     assert {:error, {:schema, _}} = Lease.claim(lease, "k2", "alice", @minute)
     assert {:error, {:schema, _}} = Lease.claim_expired(lease, "alice", @minute, 1, ["k"])
+
+    # compatible-looking mutation after construction: the holder's write/4, the reads and complete/4 are refused, nothing written
+    assert {:error, {:schema, _}} = Lease.write(lease, h, [{"added", 1, "x"}])
+    assert {:error, {:schema, _}} = Lease.status(lease, "k")
+    assert {:error, {:schema, _}} = Lease.complete(lease, h, [{"done", 1, "r"}])
     assert [] = TestHelper.rows(store, "k2")
+    assert length(TestHelper.rows(store, "k")) == 1
     SQL.query!(TestRepo, "ALTER TABLE #{heads} DROP COLUMN extra", [], log: false)
     assert {:ok, _} = TestHelper.pg_lease(store)
-
+    assert {:held, h} = Lease.write(lease, h, [{"added", 1, "x"}])
+    # retyped column
     SQL.query!(TestRepo, "ALTER TABLE #{records} ALTER COLUMN schema_version TYPE bigint", [],
       log: false
     )
@@ -649,8 +659,10 @@ defmodule Elzoo.LeasePostgresTest do
             {:schema,
              %{
                records: %{
-                 missing: [{"schema_version", "integer"}],
-                 unexpected: [{"schema_version", "bigint"}]
+                 columns: %{
+                   missing: [{"schema_version", "integer", "NO", nil}],
+                   unexpected: [{"schema_version", "bigint", "NO", nil}]
+                 }
                }
              }}} = TestHelper.pg_lease(store)
 
@@ -658,10 +670,64 @@ defmodule Elzoo.LeasePostgresTest do
       log: false
     )
 
+    # nullability change
+    SQL.query!(TestRepo, "ALTER TABLE #{heads} ALTER COLUMN revision DROP NOT NULL", [], log: false)
+
+    assert {:error,
+            {:schema,
+             %{
+               heads: %{
+                 columns: %{
+                   missing: [{"revision", "bigint", "NO", nil}],
+                   unexpected: [{"revision", "bigint", "YES", nil}]
+                 }
+               }
+             }}} = TestHelper.pg_lease(store)
+
+    SQL.query!(TestRepo, "ALTER TABLE #{heads} ALTER COLUMN revision SET NOT NULL", [], log: false)
+    # dropped check constraint
+    SQL.query!(TestRepo, "ALTER TABLE #{heads} DROP CONSTRAINT elzoo_head_bounds", [], log: false)
+
+    assert {:error,
+            {:schema,
+             %{heads: %{constraints: %{missing: [{"elzoo_head_bounds", "c", _}], unexpected: []}}}}} =
+             TestHelper.pg_lease(store)
+
+    assert {:error, {:schema, _}} = Lease.write(lease, h, [{"added", 1, "y"}])
+
+    SQL.query!(
+      TestRepo,
+      "ALTER TABLE #{heads} ADD CONSTRAINT elzoo_head_bounds CHECK (revision >= 0 AND low_water >= 0 AND low_water <= revision)",
+      [],
+      log: false
+    )
+
+    assert {:ok, _} = TestHelper.pg_lease(store)
+    # primary key change (the heads key; the records key carries the outbox foreign key)
+    SQL.query!(TestRepo, "ALTER TABLE #{heads} DROP CONSTRAINT elzoo_log_heads_pkey", [],
+      log: false
+    )
+
+    assert {:error,
+            {:schema,
+             %{
+               heads: %{
+                 constraints: %{missing: [{"elzoo_log_heads_pkey", "p", "PRIMARY KEY (stream)"}]}
+               }
+             }}} =
+             TestHelper.pg_lease(store)
+
+    SQL.query!(TestRepo, "ALTER TABLE #{heads} ADD PRIMARY KEY (stream)", [], log: false)
+    assert {:ok, _} = TestHelper.pg_lease(store)
+    # dropped column
     SQL.query!(TestRepo, "ALTER TABLE #{heads} DROP COLUMN last_retention_through", [], log: false)
 
-    assert {:error, {:schema, %{heads: %{missing: [{"last_retention_through", "bigint"}]}}}} =
+    assert {:error,
+            {:schema,
+             %{heads: %{columns: %{missing: [{"last_retention_through", "bigint", "YES", nil}]}}}}} =
              TestHelper.pg_lease(store)
+
+    _ = h
   end
 
   test "LS24 OD-1b: lease rows are the ready Store's rows (conformance K1–K11 over lease records, replay, confirm, retain)",
@@ -716,6 +782,35 @@ defmodule Elzoo.LeasePostgresTest do
 
     _ = prefix
 
+    # OD-1b counterexamples are refused at construction: a Store whose fold lacks the lease kinds,
+    # or caller-passed fold/limits that differ from the Store term's
+    plain_store =
+      Postgres.store(TestRepo,
+        prefix: prefix,
+        fold: %{TestHelper.fold() | kinds: %{"added" => :state_bearing}},
+        limits: TestHelper.limits()
+      )
+
+    assert {:error, {:invalid, :fold}} = Lease.new(store: plain_store, clock: :store)
+
+    assert {:error, {:invalid, :fold}} =
+             Lease.new(store: store, fold: %{TestHelper.fold() | versions: [1, 2]}, clock: :store)
+
+    assert {:error, {:invalid, :limits}} =
+             Lease.new(
+               store: store,
+               limits: %{TestHelper.limits() | max_record_bytes: 4_096},
+               clock: :store
+             )
+
+    assert {:ok, _} =
+             Lease.new(
+               store: store,
+               fold: TestHelper.fold(),
+               limits: TestHelper.limits(),
+               clock: :store
+             )
+
     # replay over an interleaved stream: the cursor advances over lease records, the reducer never sees them
     {:held, h} = Lease.claim(lease, "mix", "alice", @minute)
     {:held, h} = Lease.write(lease, h, [{"added", 1, "x"}])
@@ -731,6 +826,10 @@ defmodule Elzoo.LeasePostgresTest do
              Log.replay(rows, 5, TestHelper.fold())
 
     assert Enum.all?(rows, &(Log.validate_row(&1, TestHelper.fold(), TestHelper.limits()) == :ok))
+
+    # the Store's own read returns every Adapter-written row as a valid record (an invalid row would be a plain map)
+    assert Enum.all?(rows, &match?(%Log.Record{}, &1))
+    assert {:ok, %Log.Record{kind: "lease_renewed"}, _} = Postgres.read_at(store, "mix", 3)
     # confirm by nonce through the ready Store
     renewed = Enum.at(rows, 2)
     assert {:committed, 3} = Log.confirm(store, "mix", 2, renewed.nonce, [renewed])

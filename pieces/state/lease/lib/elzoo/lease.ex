@@ -24,7 +24,7 @@ defmodule Elzoo.Lease do
   Results never raise for domain inputs; see the README result tables.
   """
   alias Elzoo.DurableLog, as: Log
-  alias Elzoo.DurableLog.{Codec, Store}
+  alias Elzoo.DurableLog.Codec
   alias Elzoo.Lease.Record
 
   @cure :"Cure.Elzoo.Lease"
@@ -269,6 +269,9 @@ defmodule Elzoo.Lease do
 
         {:indeterminate, info} ->
           {:indeterminate, Map.put(info, :records, rows)}
+
+        {:error, {:schema, detail}} ->
+          {:error, {:schema, detail}}
       end
     end
   end
@@ -323,8 +326,17 @@ defmodule Elzoo.Lease do
   defp store_write(%{module: Elzoo.Lease.Memory} = lease, key, revision, rows, outbox, request),
     do: Elzoo.Lease.Memory.store_write(lease.backend, key, revision, rows, outbox, request)
 
-  defp store_write(lease, key, revision, rows, outbox, request),
-    do: Store.write(lease.store, :append, [key, revision, rows, outbox], request)
+  defp store_write(%{module: Elzoo.Lease.Postgres} = lease, key, revision, rows, outbox, request),
+    do:
+      Elzoo.Lease.Postgres.store_write(
+        lease.backend,
+        lease.store,
+        key,
+        revision,
+        rows,
+        outbox,
+        request
+      )
 
   @doc "Confirm an unknown outcome by nonce through the ready Store's `confirm/5`."
   def confirm(lease, %{stream: key, expected: expected, nonce: nonce, records: rows}) do

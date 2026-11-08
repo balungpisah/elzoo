@@ -97,8 +97,12 @@ stamp (clock regression) refuses every operation except `seize`.
   (`{:partial, …}`), a finite approximation of the provider's law.
 - **OD-1 Option L schema dependency:** `Elzoo.Lease.Postgres` acts on the
   `integration/sql` tables of migration version 1 under the Store's prefix and
-  fails closed on any other table shape; its rows are ordinary Store records.
-  No outbox items on `complete/4`.
+  fails closed on any other table shape (columns with type, nullability and
+  default, primary keys, the `elzoo_head_bounds` and `elzoo_record_bounds`
+  checks), checked at `new/1`, before every lease transaction, before the
+  holder's `write/4` and before every unlocked read; its rows are ordinary
+  Store records (the lease's fold and limits are the Store term's own). No
+  outbox items on `complete/4`.
 - **Retention:** only the latest lease record is read; pruning it makes the key
   `pruned_prefix` ambiguous until a `seize`; `retention_bound/2` is advisory.
   PostgreSQL serializes retention with the lease step by the head lock; on the

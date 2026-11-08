@@ -27,24 +27,36 @@ defmodule Elzoo.Lease.Postgres do
 
   defstruct [:repo, :prefix, :fold, :limits, :timeout, :hook]
 
-  @heads MapSet.new([
-           {"stream", "text"},
-           {"revision", "bigint"},
-           {"low_water", "bigint"},
-           {"last_retention_nonce", "bytea"},
-           {"last_retention_digest", "bytea"},
-           {"last_retention_expected", "bigint"},
-           {"last_retention_through", "bigint"}
-         ])
-  @records MapSet.new([
-             {"stream", "text"},
-             {"sequence", "bigint"},
-             {"kind", "text"},
-             {"schema_version", "integer"},
-             {"payload", "bytea"},
-             {"nonce", "bytea"},
-             {"digest", "bytea"}
-           ])
+  # Migration v1 pin (OD-1a): columns as {name, data_type, is_nullable, column_default}
+  # and constraints as {name, type, definition} exactly as PostgreSQL renders them.
+  @heads_columns MapSet.new([
+                   {"stream", "text", "NO", nil},
+                   {"revision", "bigint", "NO", nil},
+                   {"low_water", "bigint", "NO", "0"},
+                   {"last_retention_nonce", "bytea", "YES", nil},
+                   {"last_retention_digest", "bytea", "YES", nil},
+                   {"last_retention_expected", "bigint", "YES", nil},
+                   {"last_retention_through", "bigint", "YES", nil}
+                 ])
+  @heads_constraints MapSet.new([
+                       {"elzoo_log_heads_pkey", "p", "PRIMARY KEY (stream)"},
+                       {"elzoo_head_bounds", "c",
+                        "CHECK (((revision >= 0) AND (low_water >= 0) AND (low_water <= revision)))"}
+                     ])
+  @records_columns MapSet.new([
+                     {"stream", "text", "NO", nil},
+                     {"sequence", "bigint", "NO", nil},
+                     {"kind", "text", "NO", nil},
+                     {"schema_version", "integer", "NO", nil},
+                     {"payload", "bytea", "NO", nil},
+                     {"nonce", "bytea", "NO", nil},
+                     {"digest", "bytea", "NO", nil}
+                   ])
+  @records_constraints MapSet.new([
+                         {"elzoo_log_records_pkey", "p", "PRIMARY KEY (stream, sequence)"},
+                         {"elzoo_record_bounds", "c",
+                          "CHECK (((sequence > 0) AND (schema_version > 0) AND (octet_length(nonce) = 16) AND (octet_length(digest) = 32)))"}
+                       ])
   @record_fields "stream, sequence, kind, schema_version, payload, nonce, digest"
 
   @doc "Build the Adapter from the Store term; checks the schema shape (OD-1a)."
@@ -81,27 +93,58 @@ defmodule Elzoo.Lease.Postgres do
   end
 
   defp shape(backend) do
-    rows =
+    columns =
       query(
         backend,
-        "SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = $1 AND table_name IN ('elzoo_log_heads', 'elzoo_log_records')",
+        "SELECT table_name, column_name, data_type, is_nullable, column_default FROM information_schema.columns WHERE table_schema = $1 AND table_name IN ('elzoo_log_heads', 'elzoo_log_records')",
         [backend.prefix]
       ).rows
 
-    actual = fn table ->
-      rows
+    constraints =
+      query(
+        backend,
+        "SELECT cl.relname, c.conname, c.contype::text, pg_get_constraintdef(c.oid) FROM pg_constraint c JOIN pg_class cl ON cl.oid = c.conrelid JOIN pg_namespace n ON n.oid = cl.relnamespace WHERE n.nspname = $1 AND cl.relname IN ('elzoo_log_heads', 'elzoo_log_records')",
+        [backend.prefix]
+      ).rows
+
+    actual_columns = fn table ->
+      columns
       |> Enum.filter(&(hd(&1) == table))
-      |> Enum.map(fn [_, c, t] -> {c, t} end)
+      |> Enum.map(fn [_, c, t, n, d] -> {c, t, n, d} end)
       |> MapSet.new()
     end
 
-    heads = actual.("elzoo_log_heads")
-    records = actual.("elzoo_log_records")
-
-    cond do
-      heads == @heads and records == @records -> :ok
-      true -> {:schema, %{version: 1, heads: diff(@heads, heads), records: diff(@records, records)}}
+    actual_constraints = fn table ->
+      constraints
+      |> Enum.filter(&(hd(&1) == table))
+      |> Enum.map(fn [_, name, type, def] -> {name, type, def} end)
+      |> MapSet.new()
     end
+
+    detail = %{
+      version: 1,
+      heads: %{
+        columns: diff(@heads_columns, actual_columns.("elzoo_log_heads")),
+        constraints: diff(@heads_constraints, actual_constraints.("elzoo_log_heads"))
+      },
+      records: %{
+        columns: diff(@records_columns, actual_columns.("elzoo_log_records")),
+        constraints: diff(@records_constraints, actual_constraints.("elzoo_log_records"))
+      }
+    }
+
+    clean? =
+      Enum.all?(
+        [
+          detail.heads.columns,
+          detail.heads.constraints,
+          detail.records.columns,
+          detail.records.constraints
+        ],
+        &(&1.missing == [] and &1.unexpected == [])
+      )
+
+    if clean?, do: :ok, else: {:schema, detail}
   end
 
   defp diff(expected, actual),
@@ -109,6 +152,20 @@ defmodule Elzoo.Lease.Postgres do
       missing: MapSet.difference(expected, actual) |> Enum.sort(),
       unexpected: MapSet.difference(actual, expected) |> Enum.sort()
     }
+
+  @doc "The holder's non-terminal write on PostgreSQL: the OD-1a shape check, then the ready Store's append."
+  def store_write(backend, store, key, revision, rows, outbox, request) do
+    cond do
+      caller_transaction?(backend) ->
+        {:rejected, :caller_transaction}
+
+      true ->
+        case schema_check(backend) do
+          :ok -> Store.write(store, :append, [key, revision, rows, outbox], request)
+          {:error, reason} -> {:error, reason}
+        end
+    end
+  end
 
   @doc """
   One single-key lease transaction. `fun.(ctx)` receives
@@ -284,6 +341,11 @@ defmodule Elzoo.Lease.Postgres do
 
   defp read_attempt(backend, key, attempts) do
     try do
+      case shape(backend) do
+        :ok -> :ok
+        {:schema, detail} -> throw({:schema, detail})
+      end
+
       first = fetch_head(backend, key)
       now = clock(backend)
       latest = latest(backend, key, first)
@@ -304,6 +366,7 @@ defmodule Elzoo.Lease.Postgres do
       _ -> {:error, :unavailable}
     catch
       :throw, :malformed -> {:error, :malformed}
+      :throw, {:schema, detail} -> {:error, {:schema, detail}}
       :exit, _ -> {:error, :unavailable}
     end
   end
