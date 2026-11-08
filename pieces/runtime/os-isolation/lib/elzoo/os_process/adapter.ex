@@ -415,7 +415,7 @@ defmodule Elzoo.OsProcess.Adapter do
     :ets.tab2list(state.tid)
     |> Enum.reduce(state, fn {ref, owner, submitter, os_pid, status}, acc ->
       cond do
-        status == :finished ->
+        status in [:finished, {:finished, :exit_unconfirmed}] ->
           :ets.delete(acc.tid, ref)
           acc
 

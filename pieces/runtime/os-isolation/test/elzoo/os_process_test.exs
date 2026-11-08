@@ -791,6 +791,28 @@ defmodule Elzoo.OsProcessTest do
     assert :ok = wait_until(fn -> OsProcess.snapshot(sup).in_flight == 0 end, 2_000)
   end
 
+  test "R4 an Adapter restart drops a finished unconfirmed row without a second result" do
+    sup = start()
+    adapter = OsProcess.adapter(sup)
+    tid = GenServer.call(adapter, :tid)
+    owner = spawn(fn -> :ok end)
+    ref = make_ref()
+
+    assert :ok = wait_until(fn -> not Process.alive?(owner) end, 2_000)
+    :ets.insert(tid, {ref, owner, self(), 1, {:finished, :exit_unconfirmed}})
+    Process.exit(adapter, :kill)
+
+    assert :ok =
+             wait_until(
+               fn -> is_pid(OsProcess.adapter(sup)) and OsProcess.adapter(sup) != adapter end,
+               2_000
+             )
+
+    assert OsProcess.info(sup, ref) == nil
+    refute_receive {OsProcess, ^ref, _}, 300
+    assert %{in_flight: 0} = OsProcess.snapshot(sup)
+  end
+
   test "T23 the Adapter and the owner die together: the provider stops the group" do
     sup = start()
     {:ok, ref} = OsProcess.submit(sup, spec("child", [30]), max_run_ms: 20_000)
