@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   check-fast:
-    if: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'workflow_dispatch' && inputs.tier == 'fast') }}
+    if: ${{ vars.ELZOO_CI_LANE != 'hosted' && ((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'workflow_dispatch' && inputs.tier == 'fast')) }}
     runs-on: [self-hosted, linux, x64, elzoo, backend, fast]
     container:
       image: ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852
@@ -81,12 +81,31 @@ jobs:
       - run: python3 scripts/check-ci-runners.py
       - run: python3 scripts/test-ci-runners.py
       - run: python3 scripts/test-merge-queue.py
+      - run: python3 scripts/test-ci-minio.py
       - run: python3 scripts/test-ci-skip.py
       - name: Decide whether the full check is redundant
         id: skip
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: python3 scripts/ci-skip-decision.py
+      - name: Restore the pinned S3 test server binary
+        if: ${{ steps.skip.outputs.skip != 'true' }}
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/elzoo-minio-cache
+          key: elzoo-minio-RELEASE.2025-09-07T16-13-09Z-7c5bd8512c6e966455b1d198209358b2d191c77a83ab377c4073281065fb855f
+      - name: Start the disposable S3 test server
+        if: ${{ steps.skip.outputs.skip != 'true' }}
+        id: minio
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci-minio.py
+      - name: Save the pinned S3 test server binary
+        if: ${{ steps.skip.outputs.skip != 'true' && steps.minio.outputs.source != 'cache' }}
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/elzoo-minio-cache
+          key: elzoo-minio-RELEASE.2025-09-07T16-13-09Z-7c5bd8512c6e966455b1d198209358b2d191c77a83ab377c4073281065fb855f
       - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1
         if: ${{ steps.skip.outputs.skip != 'true' }}
         with:
@@ -155,7 +174,7 @@ jobs:
           cat /proc/loadavg
 
   check-any:
-    if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.tier == 'any') }}
+    if: ${{ vars.ELZOO_CI_LANE != 'hosted' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.tier == 'any')) }}
     runs-on: [self-hosted, linux, x64, elzoo, backend]
     permissions:
       actions: read
@@ -218,12 +237,31 @@ jobs:
       - run: python3 scripts/check-ci-runners.py
       - run: python3 scripts/test-ci-runners.py
       - run: python3 scripts/test-merge-queue.py
+      - run: python3 scripts/test-ci-minio.py
       - run: python3 scripts/test-ci-skip.py
       - name: Decide whether the full check is redundant
         id: skip
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: python3 scripts/ci-skip-decision.py
+      - name: Restore the pinned S3 test server binary
+        if: ${{ steps.skip.outputs.skip != 'true' }}
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/elzoo-minio-cache
+          key: elzoo-minio-RELEASE.2025-09-07T16-13-09Z-7c5bd8512c6e966455b1d198209358b2d191c77a83ab377c4073281065fb855f
+      - name: Start the disposable S3 test server
+        if: ${{ steps.skip.outputs.skip != 'true' }}
+        id: minio
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci-minio.py
+      - name: Save the pinned S3 test server binary
+        if: ${{ steps.skip.outputs.skip != 'true' && steps.minio.outputs.source != 'cache' }}
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/elzoo-minio-cache
+          key: elzoo-minio-RELEASE.2025-09-07T16-13-09Z-7c5bd8512c6e966455b1d198209358b2d191c77a83ab377c4073281065fb855f
       - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1
         if: ${{ steps.skip.outputs.skip != 'true' }}
         with:
@@ -248,6 +286,154 @@ jobs:
           key: elzoo-ubuntu24-v2-${{ runner.name }}-${{ runner.os }}-otp29.1.2-elixir1.20.4-${{ hashFiles('mix.lock', 'mix.exs', 'spikes/ash_foundation/mix.lock', 'spikes/ash_foundation/mix.exs') }}
           restore-keys: |
             elzoo-ubuntu24-v2-${{ runner.name }}-${{ runner.os }}-otp29.1.2-elixir1.20.4-
+      - run: mix local.hex --force
+        if: ${{ steps.skip.outputs.skip != 'true' }}
+      - run: mix local.rebar --force
+        if: ${{ steps.skip.outputs.skip != 'true' }}
+      - run: mix setup
+        if: ${{ steps.skip.outputs.skip != 'true' }}
+      - name: Save dependency cache after mix setup
+        if: ${{ steps.deps-cache.outputs.cache-hit != 'true' && steps.skip.outputs.skip != 'true' }}
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            deps
+            _build
+            spikes/ash_foundation/deps
+            spikes/ash_foundation/_build
+          key: ${{ steps.deps-cache.outputs.cache-primary-key }}
+      - name: Run mix check
+        if: ${{ steps.skip.outputs.skip != 'true' }}
+        env:
+          ELZOO_CHECK_EVENT: ${{ github.event_name }}
+          ELZOO_CHECK_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ "${ELZOO_CHECK_EVENT:-}" = pull_request ]; then
+            sh scripts/run-ci-check.sh --affected "${ELZOO_CHECK_BASE:-}"
+          else
+            sh scripts/run-ci-check.sh
+          fi
+      - name: Report container resource observations
+        if: always()
+        run: |
+          if test -r /sys/fs/cgroup/memory.peak; then
+            echo "cgroup memory peak bytes: $(cat /sys/fs/cgroup/memory.peak)"
+          else
+            echo "cgroup memory peak unavailable"
+          fi
+          if test -r "$RUNNER_TEMP/elzoo-ci-cpu.json"; then
+            cat "$RUNNER_TEMP/elzoo-ci-cpu.json"
+          else
+            echo "cgroup CPU sample unavailable"
+          fi
+          sed -n '1,5p' /proc/meminfo
+          cat /proc/loadavg
+
+  check-hosted:
+    if: ${{ vars.ELZOO_CI_LANE == 'hosted' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) }}
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+    timeout-minutes: 60
+    env:
+      ImageOS: ubuntu24
+      ERL_FLAGS: '+S 4:4 +SDcpu 1 +SDio 1'
+    services:
+      postgres:
+        image: postgres:16-bookworm@sha256:5264710be20f409750ac6dc4e5706dcef929c87e241605463f0f9aefa932a8d9
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - name: Verify the GitHub-hosted runner
+        run: |
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$RUNNER_OS" = Linux
+          test "$RUNNER_ARCH" = X64
+          . /etc/os-release
+          test "$ID" = ubuntu
+          test "$VERSION_ID" = 24.04
+          echo "Hosted runner: $RUNNER_NAME"
+          free -h || true
+      - name: Report host load and memory context
+        run: |
+          sed -n '1,5p' /proc/meminfo
+          cat /proc/loadavg
+          nproc
+      - name: Install runtime libraries
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libncurses6 libsctp1 libssl3
+      - name: Prepare disposable PostgreSQL database
+        run: |
+          set -eu
+          export PGPASSWORD=postgres PGHOST=localhost PGUSER=postgres
+          psql -v ON_ERROR_STOP=1 -c "CREATE ROLE elzoo_test LOGIN PASSWORD 'elzoo_test'"
+          createdb -O elzoo_test elzoo_test
+          echo 'ELZOO_TEST_DATABASE_URL=ecto://elzoo_test:elzoo_test@localhost/elzoo_test' >> "$GITHUB_ENV"
+          psql -d elzoo_test -c 'SHOW server_version'
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - run: python3 scripts/check-claims.py
+      - run: python3 scripts/check-ci-runners.py
+      - run: python3 scripts/test-ci-runners.py
+      - run: python3 scripts/test-merge-queue.py
+      - run: python3 scripts/test-ci-minio.py
+      - run: python3 scripts/test-ci-skip.py
+      - name: Decide whether the full check is redundant
+        id: skip
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci-skip-decision.py
+      - name: Restore the pinned S3 test server binary
+        if: ${{ steps.skip.outputs.skip != 'true' }}
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/elzoo-minio-cache
+          key: elzoo-minio-RELEASE.2025-09-07T16-13-09Z-7c5bd8512c6e966455b1d198209358b2d191c77a83ab377c4073281065fb855f
+      - name: Start the disposable S3 test server
+        if: ${{ steps.skip.outputs.skip != 'true' }}
+        id: minio
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci-minio.py
+      - name: Save the pinned S3 test server binary
+        if: ${{ steps.skip.outputs.skip != 'true' && steps.minio.outputs.source != 'cache' }}
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/elzoo-minio-cache
+          key: elzoo-minio-RELEASE.2025-09-07T16-13-09Z-7c5bd8512c6e966455b1d198209358b2d191c77a83ab377c4073281065fb855f
+      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1
+        if: ${{ steps.skip.outputs.skip != 'true' }}
+        with:
+          elixir-version: '1.20.4'
+          otp-version: '29.1.2'
+      - name: Report BEAM capacity
+        if: ${{ steps.skip.outputs.skip != 'true' }}
+        run: |
+          erl -noshell -eval 'io:format("BEAM schedulers=~p online=~p dirty_cpu=~p dirty_io=~p~n", [erlang:system_info(schedulers), erlang:system_info(schedulers_online), erlang:system_info(dirty_cpu_schedulers_online), erlang:system_info(dirty_io_schedulers)]), halt().'
+      - name: Restore dependency cache
+        if: ${{ steps.skip.outputs.skip != 'true' }}
+        id: deps-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            deps
+            _build
+            spikes/ash_foundation/deps
+            spikes/ash_foundation/_build
+          key: elzoo-hosted-v1-${{ runner.os }}-${{ env.ImageOS }}-otp29.1.2-elixir1.20.4-${{ hashFiles('mix.lock', 'mix.exs', 'spikes/ash_foundation/mix.lock', 'spikes/ash_foundation/mix.exs') }}
+          restore-keys: |
+            elzoo-hosted-v1-${{ runner.os }}-${{ env.ImageOS }}-otp29.1.2-elixir1.20.4-
       - run: mix local.hex --force
         if: ${{ steps.skip.outputs.skip != 'true' }}
       - run: mix local.rebar --force

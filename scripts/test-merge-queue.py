@@ -16,6 +16,8 @@ queue = importlib.util.module_from_spec(spec)
 sys.dont_write_bytecode = True
 spec.loader.exec_module(queue)
 A, B, M = "a" * 40, "b" * 40, "c" * 40
+# ELZ-066: job fields of a job that a GitHub-hosted runner ran (observed on a real hosted job).
+HOSTED_FIELDS = dict(runner_name="GitHub Actions 7", runner_group_name="GitHub Actions", labels=["ubuntu-24.04"])
 
 
 class Fake:
@@ -61,6 +63,11 @@ class Fake:
         self.gleam_missing = False
         self.gleam_changes = {}
         self.gleam_job_changes = {}
+        # ELZ-066: the hosted lane runs check-hosted / gleam-hosted on a GitHub-hosted runner.
+        self.hosted = False
+        self.hosted_job_changes = {}
+        self.gleam_hosted = False
+        self.gleam_other_changes = {}
         self.canonical_main = M
         self.gleam_reads = 0
         self.gleam_rerun = False
@@ -138,8 +145,17 @@ class Fake:
                 job = dict(id=601, run_id=501, name="gleam", head_sha=self.pr["headRefOid"],
                            status="completed", conclusion="success", runner_name="symbolic-elzoo-gleam",
                            steps=[{"name": "Run ./scripts/check.sh", "conclusion": "success"}])
+                jobs = [job]
+                if self.gleam_hosted:
+                    job.update(name="gleam-hosted", **HOSTED_FIELDS,
+                               steps=[{"name": "Verify the GitHub-hosted runner", "conclusion": "success"},
+                                      {"name": "Run ./scripts/check.sh", "conclusion": "success"}])
+                    other = dict(job, id=602, name="gleam", conclusion="skipped", runner_name=None,
+                                 runner_group_name=None, labels=[], steps=[])
+                    other.update(self.gleam_other_changes)
+                    jobs.append(other)
                 job.update(self.gleam_job_changes)
-                out = [{"jobs": [job]}]
+                out = [{"jobs": jobs}]
             elif path.endswith("/actions/runs/501"):
                 self.gleam_reads += 1
                 out = self.gleam_run()
@@ -166,6 +182,11 @@ class Fake:
                 if self.other_job_changes is not None:
                     skipped.update(self.other_job_changes)
                 jobs = [job, skipped]
+                if self.hosted:
+                    job.update(name="check-hosted", **HOSTED_FIELDS,
+                               steps=[{"name": "Verify the GitHub-hosted runner", "conclusion": "success"}] + self.steps)
+                    job.update(self.hosted_job_changes)
+                    jobs = [dict(skipped, id=997, name="check-fast"), skipped, job]
                 if self.duplicate_job:
                     jobs.append(dict(job, id=999))
                 out = [{"jobs": jobs}]
@@ -672,6 +693,146 @@ class QueueTest(unittest.TestCase):
         self.assertIn("\nconcurrency:\n  group: check-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}\n  cancel-in-progress: ${{ github.event_name == 'pull_request' }}\n", source)
         self.assertIn("      - run: python3 scripts/test-merge-queue.py\n", source)
         self.assertIn("permissions:\n  contents: read\n", source)
+
+
+class HostedLaneEvidence(unittest.TestCase):
+    """ELZ-066: the same queue accepts evidence from the hosted lane, under stricter job identity rules."""
+
+    def setUp(self):
+        self.fake = Fake()
+        self.fake.hosted = True
+        self.q = self.fake.make_queue()
+
+    def refuses(self, pattern=None):
+        with self.assertRaisesRegex(queue.QueueError, pattern or ".+"):
+            self.q.process(79)
+        self.assertFalse(self.fake.merged)
+        self.assertFalse(self.fake.commands(["gh", "pr", "merge"]))
+
+    def test_hosted_job_is_accepted_and_recorded(self):
+        self.q.process(79)
+        self.assertTrue(self.fake.merged)
+        self.assertEqual(self.fake.messages[-1],
+                         f"ELZOO MERGE EVIDENCE pr=79 run=101 job=201 runner=GitHub Actions 7 head={A} merge={M}")
+
+    def test_hosted_runner_identity_is_exact(self):
+        for change in ({"runner_group_name": "Default"}, {"runner_group_name": None}, {"runner_group_name": "github actions"},
+                       {"labels": ["self-hosted", "ubuntu-24.04"]}, {"labels": ["ubuntu-latest"]},
+                       {"labels": ["ubuntu-24.04", "extra"]}, {"labels": ["ubuntu-24.04-arm"]}, {"labels": []},
+                       {"labels": "ubuntu-24.04"}, {"labels": None},
+                       {"runner_name": "symbolic-elzoo"}, {"runner_name": "GitHub Actions"},
+                       {"runner_name": "GitHub Actions 7 extra"}, {"runner_name": "github actions 7"},
+                       {"runner_name": "GitHub Actions x"}, {"runner_name": None}, {"runner_name": ""}):
+            with self.subTest(change=change):
+                self.setUp()
+                self.fake.hosted_job_changes = change
+                self.refuses("Unapproved hosted runner")
+
+    def test_hosted_identity_fields_cannot_be_empty(self):
+        for field in ("runner_name", "runner_group_name", "labels"):
+            with self.subTest(field=field):
+                self.setUp()
+                self.fake.hosted_job_changes = {field: None}
+                self.refuses("Unapproved hosted runner")
+
+    def test_self_hosted_runner_name_cannot_pass_as_hosted_evidence(self):
+        self.fake.hosted_job_changes = {"runner_name": "symbolic-elzoo", "labels": ["self-hosted", "linux", "x64", "elzoo", "backend", "fast"],
+                                        "runner_group_name": "Default"}
+        self.refuses("Unapproved hosted runner")
+
+    def test_hosted_identity_step_must_have_run_and_passed(self):
+        for steps in ([{"name": "Run mix check", "conclusion": "success"}],
+                      [{"name": "Verify the GitHub-hosted runner", "conclusion": "skipped"},
+                       {"name": "Run mix check", "conclusion": "success"}],
+                      [{"name": "Verify the GitHub-hosted runner", "conclusion": "failure"},
+                       {"name": "Run mix check", "conclusion": "success"}],
+                      [{"name": "Verify the GitHub-hosted runner", "conclusion": "success"},
+                       {"name": "Verify the GitHub-hosted runner", "conclusion": "success"},
+                       {"name": "Run mix check", "conclusion": "success"}]):
+            with self.subTest(steps=steps):
+                self.setUp()
+                self.fake.hosted_job_changes = {"steps": steps}
+                self.refuses("identity step")
+
+    def test_hosted_job_still_needs_the_exact_head_run_and_full_check(self):
+        for change in ({"conclusion": "failure"}, {"conclusion": "cancelled"}, {"status": "queued"},
+                       {"head_sha": B}, {"run_id": 1}):
+            with self.subTest(change=change):
+                self.setUp()
+                self.fake.hosted_job_changes = change
+                self.refuses()
+        for steps in ([{"name": "Verify the GitHub-hosted runner", "conclusion": "success"}],
+                      [{"name": "Verify the GitHub-hosted runner", "conclusion": "success"},
+                       {"name": "Run mix check", "conclusion": "skipped"}],
+                      [{"name": "Verify the GitHub-hosted runner", "conclusion": "success"},
+                       {"name": "Run mix check", "conclusion": "failure"}]):
+            with self.subTest(steps=steps):
+                self.setUp()
+                self.fake.hosted_job_changes = {"steps": steps}
+                self.refuses("Full check step")
+
+    def test_skipped_hosted_job_is_not_evidence(self):
+        # The run succeeded because every job was skipped: no job ran the check.
+        self.fake.hosted_job_changes = {"conclusion": "skipped"}
+        self.refuses("Expected exactly one executed")
+
+    def test_only_one_backend_job_may_have_run(self):
+        # check-fast and check-hosted both executed: the lane variable cannot have selected both.
+        self.fake.other_job_changes = {"conclusion": "success"}
+        self.refuses("Expected exactly one executed")
+
+    def test_executed_check_any_is_never_evidence_in_either_lane(self):
+        self.fake.hosted_job_changes = {"name": "check-any"}
+        self.refuses("Expected exactly one executed")
+
+    def test_unknown_or_duplicate_job_names_refused(self):
+        for change in ({"name": "other"}, {"name": "check"}, {"name": "gleam-hosted"}):
+            with self.subTest(change=change):
+                self.setUp()
+                self.fake.hosted_job_changes = change
+                self.refuses("Expected exactly one executed")
+        self.setUp()
+        self.fake.duplicate_job = True
+        self.refuses("Expected exactly one executed")
+
+    def test_hosted_lane_dispatch_still_requests_the_fast_tier(self):
+        self.q.process(79)
+        self.assertEqual(["-f", "tier=fast"], self.fake.dispatch_args[0][-2:])
+
+    def test_hosted_gleam_job_is_accepted_and_recorded(self):
+        self.fake.gleam_hosted = True
+        self.q.process(79)
+        self.assertTrue(self.fake.merged)
+        self.assertIn(f"ELZOO GLEAM EVIDENCE pr=79 run=501 job=601 runner=GitHub Actions 7 head={A}", self.fake.messages)
+
+    def test_hosted_gleam_job_identity_is_exact(self):
+        for change in ({"runner_group_name": "Default"}, {"labels": ["ubuntu-latest"]}, {"labels": ["self-hosted", "ubuntu-24.04"]},
+                       {"runner_name": "symbolic-elzoo-gleam"}, {"runner_name": "GitHub Actions x"}, {"runner_name": None},
+                       {"conclusion": "failure"}, {"head_sha": B}, {"run_id": 101}):
+            with self.subTest(change=change):
+                self.setUp()
+                self.fake.gleam_hosted = True
+                self.fake.gleam_job_changes = change
+                self.refuses()
+        for steps in ([{"name": "Run ./scripts/check.sh", "conclusion": "success"}],
+                      [{"name": "Verify the GitHub-hosted runner", "conclusion": "failure"},
+                       {"name": "Run ./scripts/check.sh", "conclusion": "success"}],
+                      [{"name": "Verify the GitHub-hosted runner", "conclusion": "success"},
+                       {"name": "Run ./scripts/check.sh", "conclusion": "skipped"}]):
+            with self.subTest(steps=steps):
+                self.setUp()
+                self.fake.gleam_hosted = True
+                self.fake.gleam_job_changes = {"steps": steps}
+                self.refuses()
+
+    def test_both_gleam_jobs_executed_or_none_refused(self):
+        self.fake.gleam_hosted = True
+        self.fake.gleam_job_changes = {"conclusion": "skipped"}
+        self.refuses("Expected exactly one executed Gleam job")
+        self.setUp()
+        self.fake.gleam_hosted = True
+        self.fake.gleam_other_changes = {"conclusion": "success"}
+        self.refuses("Expected exactly one executed Gleam job")
 
 
 class ReviewControls(unittest.TestCase):

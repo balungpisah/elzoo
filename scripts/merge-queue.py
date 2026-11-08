@@ -19,6 +19,14 @@ GLEAM_WORKFLOW = "symbolic-gleam.yml"
 FAST_RUNNERS = {"symbolic-elzoo", "macbook-ubuntu-elzoo-candidate"}
 FAST_JOB = "check-fast"
 ANY_JOB = "check-any"
+# ELZ-066: in the hosted lane the same run executes check-hosted on a GitHub-hosted runner instead of check-fast.
+HOSTED_JOB = "check-hosted"
+GLEAM_JOB = "gleam"
+GLEAM_HOSTED_JOB = "gleam-hosted"
+HOSTED_GROUP = "GitHub Actions"
+HOSTED_LABELS = ["ubuntu-24.04"]
+HOSTED_RUNNER = re.compile(r"GitHub Actions [0-9]+")
+HOSTED_GATE_STEP = "Verify the GitHub-hosted runner"
 SHA = re.compile(r"[0-9a-f]{40}")
 PR_FIELDS = ("number,state,isDraft,isCrossRepository,baseRefName,headRefName,"
              "headRefOid,headRepository,mergeable,mergeCommit")
@@ -26,6 +34,22 @@ PR_FIELDS = ("number,state,isDraft,isCrossRepository,baseRefName,headRefName,"
 
 class QueueError(Exception):
     """A refusal or unavailable evidence; never a reason to merge anyway."""
+
+
+def hosted_runner(job):
+    """True for a job that a GitHub-hosted runner of the one approved label ran."""
+    name = job.get("runner_name")
+    return (job.get("runner_group_name") == HOSTED_GROUP and job.get("labels") == HOSTED_LABELS and
+            isinstance(name, str) and HOSTED_RUNNER.fullmatch(name) is not None)
+
+
+def one_executed_job(jobs, known, executable, message):
+    """The one job of a run that did not skip. Every job must be known, once, and the executed one allowed."""
+    names = [job.get("name") for job in jobs]
+    require(len(set(names)) == len(names) and all(name in known for name in names), message)
+    executed = [job for job in jobs if job.get("conclusion") != "skipped"]
+    require(len(executed) == 1 and executed[0].get("name") in executable, message)
+    return executed[0]
 
 
 def command(argv, allowed=(0,)):
@@ -253,17 +277,20 @@ class Queue:
         pages = self.data("gh", "api", "--paginate", "--slurp",
                           f"repos/{REPO}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100")
         jobs = [job for page in pages for job in page["jobs"]]
-        # Two backend jobs exist in the workflow; a fast-tier run runs check-fast and skips check-any.
-        fast_jobs = [job for job in jobs if job.get("name") == FAST_JOB]
-        other_jobs = [job for job in jobs if job.get("name") != FAST_JOB]
-        require(len(fast_jobs) == 1 and all(job.get("name") == ANY_JOB and job.get("conclusion") == "skipped"
-                                            for job in other_jobs),
-                "Expected exactly one check-fast job and no executed check-any job")
-        job = fast_jobs[0]
+        # Three backend jobs exist in the workflow. A fast-tier run on the self lane runs check-fast, a run on
+        # the hosted lane runs check-hosted, and every other job is skipped; check-any never supplies evidence.
+        job = one_executed_job(jobs, {FAST_JOB, ANY_JOB, HOSTED_JOB}, {FAST_JOB, HOSTED_JOB},
+                               "Expected exactly one executed check-fast job or check-hosted job and no executed check-any job")
         require(job.get("run_id") == run_id and job.get("head_sha") == pr["headRefOid"] and
                 job.get("status") == "completed" and job.get("conclusion") == "success",
                 "Backend job is not successful on the exact head/run")
-        require(job.get("runner_name") in FAST_RUNNERS, "Unapproved backend runner")
+        if job["name"] == HOSTED_JOB:
+            require(hosted_runner(job), "Unapproved hosted runner")
+            gate = [step for step in job.get("steps", []) if step.get("name") == HOSTED_GATE_STEP]
+            require(len(gate) == 1 and gate[0].get("conclusion") == "success",
+                    "Hosted runner identity step missing, skipped or failed")
+        else:
+            require(job.get("runner_name") in FAST_RUNNERS, "Unapproved backend runner")
         steps = [step for step in job.get("steps", []) if step.get("name") == "Run mix check"]
         require(len(steps) == 1 and steps[0].get("conclusion") == "success",
                 "Full check step missing, skipped or failed")
@@ -316,11 +343,17 @@ class Queue:
         pages = self.data("gh", "api", "--paginate", "--slurp",
                           f"repos/{REPO}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100")
         jobs = [job for page in pages for job in page["jobs"]]
-        require(len(jobs) == 1 and jobs[0].get("name") == "gleam", "Expected exactly one Gleam job")
-        job = jobs[0]
+        job = one_executed_job(jobs, {GLEAM_JOB, GLEAM_HOSTED_JOB}, {GLEAM_JOB, GLEAM_HOSTED_JOB},
+                               "Expected exactly one executed Gleam job")
         require(job.get("run_id") == run_id and job.get("head_sha") == pr["headRefOid"] and
-                job.get("status") == "completed" and job.get("conclusion") == "success" and
-                job.get("runner_name") == "symbolic-elzoo-gleam", "Gleam job evidence mismatch")
+                job.get("status") == "completed" and job.get("conclusion") == "success", "Gleam job evidence mismatch")
+        if job["name"] == GLEAM_HOSTED_JOB:
+            require(hosted_runner(job), "Gleam job evidence mismatch: unapproved hosted runner")
+            gate = [step for step in job.get("steps", []) if step.get("name") == HOSTED_GATE_STEP]
+            require(len(gate) == 1 and gate[0].get("conclusion") == "success",
+                    "Gleam hosted runner identity step missing, skipped or failed")
+        else:
+            require(job.get("runner_name") == "symbolic-elzoo-gleam", "Gleam job evidence mismatch")
         steps = [step for step in job.get("steps", []) if step.get("name") == "Run ./scripts/check.sh"]
         require(len(steps) == 1 and steps[0].get("conclusion") == "success", "Gleam check step did not pass")
         require(isinstance(job.get("id"), int), "Invalid Gleam job ID")
