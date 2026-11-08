@@ -3,10 +3,10 @@ defmodule Elzoo.Lease.Memory do
   @moduledoc """
   Memory Adapter of `state/lease` over the volatile `Elzoo.DurableLog.Memory`
   double: one **owner** process per Memory Store performs every Store call on
-  leased streams as one serialized section (lease steps, the holder's
-  terminal write, retention through `retain/5`), sampling the manual clock
-  inside the section. Atomicity on the double is process serialization, the
-  Memory Store's own atomicity model.
+  leased streams as one serialized section (lease steps, confirmation, the
+  holder's terminal write, retention through `retain/5`), sampling the manual
+  clock inside the section. Atomicity on the double is process serialization,
+  the Memory Store's own atomicity model.
 
   Reviewed boundary: a second owner for the same Memory Store is rejected
   (`{:error, {:invalid, :duplicate_owner}}`, OTP `:global` registration); a
@@ -53,6 +53,10 @@ defmodule Elzoo.Lease.Memory do
     do: call(backend, {:sweep, keys, limit, fun, free_fun})
 
   def read(backend, key), do: call(backend, {:read, key})
+
+  @doc "Nonce confirmation, read-only but serialized through the owner."
+  def confirm(backend, _store, key, expected, nonce, rows),
+    do: call(backend, {:confirm, key, expected, nonce, rows})
 
   @doc "Retention on a leased stream, serialized through the owner (the ready Store's `retain/5`)."
   def retain(backend, stream, expected, through, nonce),
@@ -224,6 +228,16 @@ defmodule Elzoo.Lease.Memory do
              now: now
            }}
         end
+      end)
+
+    {:reply, reply, state}
+  end
+
+  def handle_call({:confirm, key, expected, nonce, rows}, _from, state) do
+    reply =
+      guarded(fn ->
+        hook(state, :before_confirm, key)
+        Log.confirm(state.store, key, expected, nonce, rows)
       end)
 
     {:reply, reply, state}

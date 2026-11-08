@@ -494,6 +494,10 @@ defmodule Elzoo.LeasePostgresTest do
       assert {:error, :caller_transaction} = Lease.claim_expired(lease, "alice", @minute, 1, ["k"])
       assert {:error, :caller_transaction} = Lease.complete(lease, h, [{"done", 1, "r"}])
       assert {:error, :caller_transaction} = Lease.write(lease, h, [{"added", 1, "x"}])
+
+      assert {:error, :caller_transaction} =
+               Lease.confirm(lease, %{stream: "k", expected: 0, nonce: <<0::128>>, records: []})
+
       assert {:error, :caller_transaction} = TestHelper.pg_lease(store)
     end)
 
@@ -512,6 +516,10 @@ defmodule Elzoo.LeasePostgresTest do
     assert {:error, :unavailable} = Lease.claim(lease, "k3", "alice", @minute)
     assert {:error, :unavailable} = Lease.status(lease, "k")
     assert {:error, :unavailable} = Lease.write(lease, h, [{"added", 1, "x"}])
+
+    assert {:error, :unavailable} =
+             Lease.confirm(lease, %{stream: "k", expected: 0, nonce: <<0::128>>, records: []})
+
     {:ok, repo} = TestRepo.start_link(url: TestHelper.url!(), pool_size: 20, log: false)
     Process.unlink(repo)
   end
@@ -642,9 +650,14 @@ defmodule Elzoo.LeasePostgresTest do
     assert {:error, {:schema, _}} = Lease.claim(lease, "k2", "alice", @minute)
     assert {:error, {:schema, _}} = Lease.claim_expired(lease, "alice", @minute, 1, ["k"])
 
-    # compatible-looking mutation after construction: the holder's write/4, the reads and complete/4 are refused, nothing written
+    # compatible-looking mutation after construction: the holder's write/4, the reads,
+    # confirmation and complete/4 are refused, nothing written
     assert {:error, {:schema, _}} = Lease.write(lease, h, [{"added", 1, "x"}])
     assert {:error, {:schema, _}} = Lease.status(lease, "k")
+    # The malformed receipt would return {:unknown, :malformed} without the pre-read pin.
+    assert {:error, {:schema, _}} =
+             Lease.confirm(lease, %{stream: "k", expected: 0, nonce: <<0::128>>, records: []})
+
     assert {:error, {:schema, _}} = Lease.complete(lease, h, [{"done", 1, "r"}])
     assert [] = TestHelper.rows(store, "k2")
     assert length(TestHelper.rows(store, "k")) == 1

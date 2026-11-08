@@ -23,7 +23,6 @@ defmodule Elzoo.Lease do
 
   Results never raise for domain inputs; see the README result tables.
   """
-  alias Elzoo.DurableLog, as: Log
   alias Elzoo.DurableLog.Codec
   alias Elzoo.Lease.Record
 
@@ -341,13 +340,9 @@ defmodule Elzoo.Lease do
         request
       )
 
-  @doc "Confirm an unknown outcome by nonce through the ready Store's `confirm/5`."
+  @doc "Confirm an unknown outcome by nonce through the Adapter and the ready Store's `confirm/5`."
   def confirm(lease, %{stream: key, expected: expected, nonce: nonce, records: rows}) do
-    case Log.confirm(lease.store, key, expected, nonce, rows) do
-      {:committed, target} -> {:committed, target}
-      :superseded -> :superseded
-      {:unknown, reason} -> {:unknown, reason}
-    end
+    lease.module.confirm(lease.backend, lease.store, key, expected, nonce, rows)
   end
 
   def confirm(_, _), do: {:unknown, :malformed}

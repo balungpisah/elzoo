@@ -698,7 +698,7 @@ defmodule Elzoo.LeaseTest do
     assert {:ok, _} = Lease.new(store: store, clock: {:manual, clock})
   end
 
-  test "Devin finding 5: an owner exit during the holder's write is an unknown outcome with a confirmable receipt" do
+  test "Devin finding 5: an owner exit during the holder's write is an unknown outcome; confirm stays behind that owner" do
     %{lease: lease, store: store} = TestHelper.memory(hook: seam_hook([:before_write]))
     seams = [before_write: pass()]
     assert {:held, a} = seamed(fn -> Lease.claim(lease, "a", "alice", @minute) end, seams)
@@ -708,8 +708,57 @@ defmodule Elzoo.LeaseTest do
                before_write: fn _ -> Process.exit(lease.backend.owner, :kill) end
              )
 
-    assert {:unknown, :unfenced} = Lease.confirm(lease, info)
+    assert {:error, :unavailable} = Lease.confirm(lease, info)
     assert length(TestHelper.rows(store, "a")) == 1
+  end
+
+  test "confirm/2 is read-only but serialized through the Memory owner" do
+    %{lease: lease, store: store} =
+      TestHelper.memory(hook: seam_hook([:before_write, :before_confirm]))
+
+    assert {:held, _} =
+             seamed(fn -> Lease.claim(lease, "a", "alice", @minute) end,
+               before_write: pass()
+             )
+
+    [row] = TestHelper.rows(store, "a")
+    test = self()
+
+    assert {:held, _} =
+             seamed(fn -> Lease.claim(lease, "b", "bob", @minute) end,
+               before_write: fn _ ->
+                 confirmer =
+                   Task.async(fn ->
+                     Lease.confirm(lease, %{
+                       stream: "a",
+                       expected: 0,
+                       nonce: row.nonce,
+                       records: [row]
+                     })
+                   end)
+
+                 Process.sleep(100)
+                 refute Task.yield(confirmer, 0), "confirm/2 bypassed the owner"
+                 send(test, {:confirmer, confirmer})
+               end
+             )
+
+    confirmer =
+      receive do
+        {:confirmer, task} -> task
+      after
+        5_000 -> raise "confirm/2 did not queue behind the owner"
+      end
+
+    receive do
+      {:before_confirm, "a", owner} ->
+        assert owner == lease.backend.owner
+        send(owner, {:continue, :before_confirm})
+    after
+      5_000 -> raise "confirm/2 did not execute in the owner"
+    end
+
+    assert {:committed, 1} = Task.await(confirmer, 5_000)
   end
 
   test "LS27 duplicate owners on the double are rejected; the owner's section serializes" do

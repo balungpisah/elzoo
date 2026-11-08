@@ -167,6 +167,20 @@ defmodule Elzoo.Lease.Postgres do
     end
   end
 
+  @doc "Confirm by nonce only after the caller and OD-1a schema fences pass."
+  def confirm(backend, store, key, expected, nonce, rows) do
+    cond do
+      caller_transaction?(backend) ->
+        {:error, :caller_transaction}
+
+      true ->
+        case schema_check(backend) do
+          :ok -> Log.confirm(store, key, expected, nonce, rows)
+          {:error, reason} -> {:error, reason}
+        end
+    end
+  end
+
   @doc """
   One single-key lease transaction. `fun.(ctx)` receives
   `%{key, revision, low_water, latest, now}` (latest is the latest lease

@@ -72,7 +72,7 @@ stamp (clock regression) refuses every operation except `seize`.
 | `claim_expired/5` | PostgreSQL: `{:claimed, %{held, refused, skipped_locked, skipped}}` or `{:error, …}` (nothing committed) or `{:indeterminate, info}`; Memory: the same or `{:partial, %{committed, refused, failed, not_evaluated}}` (no rollback of earlier per-key commits) |
 | `write/4` | `{:held, held'}` (fence advanced); `{:fenced, %{expected, observed}}`; `{:rejected, reason}`; `{:error, :caller_transaction}`; `{:error, :unavailable}`; `{:indeterminate, info}` |
 | `complete/4` | `{:completed, %{key, owner, revision}}` (a receipt without a fence; `write/4`/`complete/4` refuse it with `{:error, {:invalid, :held}}`); `{:fenced, …}`; `{:lease_refused, %{reason: :regression}}`; `{:rejected, reason}`; `{:error, {:invalid, :items}}`; `{:error, :caller_transaction}`; `{:error, :contended}`; `{:indeterminate, info}` |
-| `confirm/2` | `{:committed, target}`; `:superseded`; `{:unknown, reason}` (the ready Store's `confirm/5` by nonce) |
+| `confirm/2` | `{:committed, target}`; `:superseded`; `{:unknown, reason}` (the ready Store's `confirm/5` by nonce); `{:error, :caller_transaction \| :unavailable \| {:schema, detail}}` |
 | `retention_bound/2` | `{:ok, %{through, as_of}}`: the highest `retain/5` `through` that keeps the latest lease record |
 
 ## Boundary and limits
@@ -100,13 +100,14 @@ stamp (clock regression) refuses every operation except `seize`.
   fails closed on any other table shape (columns with type, nullability and
   default, primary keys, the `elzoo_head_bounds` and `elzoo_record_bounds`
   checks), checked at `new/1`, before every lease transaction, before the
-  holder's `write/4` and before every unlocked read; its rows are ordinary
+  holder's `write/4` and before every unlocked read, including `confirm/2`;
+  its rows are ordinary
   Store records (the lease's fold and limits are the Store term's own). No
   outbox items on `complete/4`.
 - **Retention:** only the latest lease record is read; pruning it makes the key
   `pruned_prefix` ambiguous until a `seize`; `retention_bound/2` is advisory.
   PostgreSQL serializes retention with the lease step by the head lock; on the
-  Memory double every call of this Piece (lease steps, `write/4`,
+  Memory double every call of this Piece (lease steps, `confirm/2`, `write/4`,
   `complete/4`, `Elzoo.Lease.Memory.retain/5`) goes through the single owner,
   a second owner is rejected, direct Store calls are outside the Contract,
   `retention_observed` is after-the-fact. A modifying Memory call waits for
@@ -127,10 +128,11 @@ stamp (clock regression) refuses every operation except `seize`.
 
 - `cure/elzoo/lease.cure`: 48 laws (C1–C9, R1–R5, G1–G9, D1–D19, S1–S6),
   audit clean, seven negative controls rejected in the named law.
-- `test/elzoo/lease_test.exs`: Memory scenarios LS1–LS21, LS25, LS27 and the
-  law test; `test/elzoo/lease_postgres_test.exs`: PostgreSQL scenarios incl.
-  LS22 (guard), LS23 (OD-1a), LS24 (OD-1b conformance K1–K11 over lease
-  records on both harnesses), LS26, LS28.
+- `test/elzoo/lease_test.exs`: Memory scenarios LS1–LS21, LS25, LS27, the
+  adapter-routed `confirm/2` owner seam and the law test;
+  `test/elzoo/lease_postgres_test.exs`: PostgreSQL scenarios incl. LS22
+  (guard), LS23 (OD-1a, including post-mutation `confirm/2`), LS24 (OD-1b
+  conformance K1–K11 over lease records on both harnesses), LS26, LS28.
 - telemetry: **planned** — no events; decisions are return values and records.
 - config: **supported** — construction-time Store, fold, limits, clock
   binding, timeout; per-call bounds; no hot reconfiguration.
