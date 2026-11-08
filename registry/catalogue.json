@@ -210,10 +210,9 @@
     {
       "id": "delivery/effect-intent",
       "summary": "Dispatched external effect intent and unknown-outcome recovery",
-      "disposition": "defer",
+      "disposition": "own",
       "phase": "demand-led",
-      "status": "deferred",
-      "reason": "Checkpoint-before-dispatch lifecycle for C3/C6/C9: only a definite failure re-arms dispatch; a timeout is unknown and reconciled, never retried blindly. ELZ-023 carries the admission record and needs the ELZ-009 store; no implementation."
+      "manifest": "pieces/delivery/effect-intent/piece.json"
     },
     {
       "id": "delivery/model-routing",

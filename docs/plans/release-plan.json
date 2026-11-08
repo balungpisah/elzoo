@@ -1016,7 +1016,7 @@
         "ELZ-006",
         "ELZ-009"
       ],
-      "status": "published; dispatch gates required",
+      "status": "implementation prepared on task/ELZ-023; coordinator retains review and merge acceptance",
       "url": "https://github.com/balungpisah/elzoo/issues/37",
       "paths": [
         "tasks/ELZ-023-dispatched-effect-intent.md"
@@ -1024,7 +1024,7 @@
       "outputs": [
         "delivery/effect-intent"
       ],
-      "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
+      "acceptance": "Owner-approved amended live issue body; local task copy is byte-identical and planning dependencies retain the published direct dependencies.",
       "issue": 37,
       "issue_body_sha256": "b3fae2e02e9ee8789320e76491568759f9e9f28693b8cf5561bb086ccffeee58",
       "observed_issue_state": "OPEN",
@@ -3033,10 +3033,12 @@
     {
       "id": "delivery/effect-intent",
       "job": "ELZ-023",
-      "note": "Checkpoint-before-dispatch lifecycle for C3/C6/C9: only a definite failure re-arms dispatch; a timeout is unknown and reconciled, never retried blindly. ELZ-023 carries the admission record and needs the ELZ-009 store; no implementation.",
+      "note": "Bounded checkpoint-before-send intent owner over the existing Store with Cure rearm/history policy: three recorded grounds, narrow provider replay, monotone history, per-attempt settlement/contradiction evidence, and read-only recovery until a nonce/snapshot-bound trusted host activation.",
       "baseline_status": "deferred",
-      "disposition": "published-scoped-work",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "prepared-ready-contract; task acceptance separate",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/delivery/effect-intent/piece.json",
+      "manifest_sha256": "78353460631d9851abe089144242d8cb50936267eda1a02c4597a647a8428ed4"
     },
     {
       "id": "delivery/model-routing",
