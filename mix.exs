@@ -44,7 +44,10 @@ defmodule Elzoo.MixProject do
       {:ecto_sql, "== 3.14.0"},
       {:postgrex, "== 0.22.4"},
       # ELZ-010 integration/jobs provider (also used by the test/elz010_* probes).
-      {:oban, "== 2.24.2"}
+      {:oban, "== 2.24.2"},
+      # ELZ-029 runtime/os-isolation provider: OS-process spawn, group, deadline and reaping
+      # through its port program (BSD-2-Clause).
+      {:erlexec, "== 2.6.0"}
     ]
   end
 
