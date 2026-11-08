@@ -43,13 +43,13 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`; 42 current ready man
 | [ELZ-008](https://github.com/balungpisah/elzoo/issues/8) | V1 / pieces | ELZ-004, ELZ-005, ELZ-006, ELZ-007 | historical-closed; not independently reaccepted here | one claimed task worker after admission |
 | [ELZ-009](https://github.com/balungpisah/elzoo/issues/9) | V1 / pieces | ELZ-008 | historical-closed; not independently reaccepted here | one claimed task worker after admission |
 | [ELZ-010](https://github.com/balungpisah/elzoo/issues/10) | V1 / pieces | ELZ-008, ELZ-009 | merged on main; coordinator retains acceptance | existing ELZ-010 coordinator |
-| [ELZ-011](https://github.com/balungpisah/elzoo/issues/11) | V1 / pieces | ELZ-004, ELZ-006, ELZ-010 | published; dispatch gates required | one claimed task worker after admission |
+| [ELZ-023](https://github.com/balungpisah/elzoo/issues/37) | V1 / pieces | ELZ-006, ELZ-009 | implementation prepared on task/ELZ-023; coordinator retains review and merge acceptance | one claimed task worker after admission |
+| [ELZ-011](https://github.com/balungpisah/elzoo/issues/11) | V1 / pieces | ELZ-004, ELZ-006, ELZ-010, ELZ-013, ELZ-023 | published; dispatch gates required | one claimed task worker after admission |
 | [ELZ-012](https://github.com/balungpisah/elzoo/issues/12) | V1 / pieces | ELZ-011 | published; dispatch gates required | one claimed task worker after admission |
 | [ELZ-019](https://github.com/balungpisah/elzoo/issues/26) | V1 / pieces | ELZ-018 | historical-closed; not independently reaccepted here | one claimed task worker after admission |
 | [ELZ-020](https://github.com/balungpisah/elzoo/issues/28) | V1 / pieces | ELZ-019 | historical-closed; not independently reaccepted here | one claimed task worker after admission |
 | [ELZ-021](https://github.com/balungpisah/elzoo/issues/33) | V1 / pieces | ELZ-014, ELZ-015, ELZ-018 | historical-closed; not independently reaccepted here | one claimed task worker after admission |
 | [ELZ-022](https://github.com/balungpisah/elzoo/issues/36) | V1 / pieces | ELZ-003, ELZ-004 | implemented in PR #57; ready on main only once PR #57 merges; coordinator retains merge acceptance | one claimed task worker after admission |
-| [ELZ-023](https://github.com/balungpisah/elzoo/issues/37) | V1 / pieces | ELZ-006, ELZ-009 | implementation prepared on task/ELZ-023; coordinator retains review and merge acceptance | one claimed task worker after admission |
 | [ELZ-024](https://github.com/balungpisah/elzoo/issues/38) | V1 / pieces | ELZ-003, ELZ-015 | implemented in PR #59; ready on main only once PR #59 merges; coordinator retains merge acceptance | one claimed task worker after admission |
 | [ELZ-025](https://github.com/balungpisah/elzoo/issues/40) | V1 / pieces | ELZ-021 | historical-closed; not independently reaccepted here | one claimed task worker after admission |
 | [ELZ-026](https://github.com/balungpisah/elzoo/issues/43) | V1 / pieces | ELZ-003 | merged on main via PR #58 (e630d3a); accepted on #43 | one claimed task worker after admission |

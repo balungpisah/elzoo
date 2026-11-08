@@ -1,6 +1,12 @@
 # ELZ-011 owner decision packet after early review
 
-Status: awaiting root decision; no Contract amendment or production implementation.
+Status: ACCEPTED by coordinator decision msg_18881a0d44c3 on 2026-11-08.
+The exact amendment was posted on #11 before applying the body/task/hash update;
+no production implementation. The historical recommendations and D4 wording
+below are retained verbatim as the approved record.
+Additional binding gates: composition probes use PostgreSQL, not Memory only;
+record pinned-source retry_job state coverage on #11 before relying on it.
+The "awaiting approval" wording below describes the packet when submitted.
 The independent review at `0716e36865782847a9a786aa9d4ac28c7b1c5766` is
 **NOT CLEAR as written**, not implementation permission. Reviewer session
 `0f974e4c-75e1-4daf-9a19-7720ad2b1633`, dispatch `ctx_4a3fb5dd7ad9`.

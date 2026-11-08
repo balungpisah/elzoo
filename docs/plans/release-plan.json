@@ -590,7 +590,9 @@
       "dependencies": [
         "ELZ-004",
         "ELZ-006",
-        "ELZ-010"
+        "ELZ-010",
+        "ELZ-013",
+        "ELZ-023"
       ],
       "status": "published; dispatch gates required",
       "url": "https://github.com/balungpisah/elzoo/issues/11",
@@ -603,7 +605,7 @@
       ],
       "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
       "issue": 11,
-      "issue_body_sha256": "d75ae31c8d381cd87128ae101ce7bcaa9981ac5e96694002971eff98d8c98ef3",
+      "issue_body_sha256": "4d811943c4d3ce87289f6dd24619b9862174876490d40d165b7f70a23c105183",
       "observed_issue_state": "OPEN",
       "owner_role": "one claimed task worker after admission",
       "product_aims": [
