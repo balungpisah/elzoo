@@ -11,6 +11,8 @@
 
 # ELZ-011 production and acceptance record
 
+> Redacted before publication (ELZ-065): the password part of local test-database URLs (`ecto://user:…@localhost`) and role commands is replaced by an ellipsis; the recorded commands are otherwise exact.
+
 Implementation source commit: `36384d4e90cf1487f17dfbb41322a06e59766ae0`.
 Historical implementation validation below refers to source `36384d4`;
 final fixed-source validation is recorded in ELZ-011-review-fixes.md. Independent review at `694fda8` was CONDITIONAL; see
@@ -117,7 +119,7 @@ All Mix commands:
 export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 export ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1'
 export MIX_ENV=test
-export ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:elzoo_elz024@localhost/elzoo_pieces_test
+export ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:…@localhost/elzoo_pieces_test
 mix setup
 mix check
 mix run docs/work/ELZ-011-export-check.exs

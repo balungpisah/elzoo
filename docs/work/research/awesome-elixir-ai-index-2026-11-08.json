@@ -1,0 +1,134 @@
+{
+  "checked_at": "2026-11-08T05:11:20.521202+00:00",
+  "source": "https://github.com/agentjido/awesome-elixir-ai",
+  "sha": "ab749a45fae538a0b1daf5ec7466e2fce20b7e66",
+  "commit_date": "2026-09-14T23:58:28Z",
+  "license": {
+    "key": "mit",
+    "name": "MIT License",
+    "spdx_id": "MIT",
+    "url": "https://api.github.com/licenses/mit",
+    "node_id": "MDc6TGljZW5zZTEz"
+  },
+  "sections": {
+    "About the Swarm": [],
+    "What We Do": [
+      "- **Curate** an awesome-list of packages that work seamlessly together",
+      "- **Educate** through tutorials, examples, and partnerships",
+      "- **Maintain** packages to ensure compatibility and ease of use",
+      "- **Share** production patterns and real-world examples",
+      "- **Support** developers via Discord discussions and office hours",
+      "- **Build** starter templates and integration guides",
+      "- **Showcase** monthly highlights of production AI applications",
+      "- **Fund** integration bounties for connecting to AI services"
+    ],
+    "How to Join": [],
+    "Join the Community": [
+      "- **Discord** \u2014 Home base for real-time discussion and support: https://agentjido.xyz/discord",
+      "- **GitHub** \u2014 [`agentjido`](https://github.com/agentjido) org for awesome-list, templates, and examples",
+      "- **X/Twitter** \u2014 [@agentjido](https://x.com/agentjido) for announcements and highlights",
+      "- **ElixirForum** \u2014 Monthly showcases and major announcements",
+      "- **Elixir Weekly** \u2014 Submit highlights for newsletter inclusion"
+    ],
+    "Featured Learning: Elixir Mentor": [
+      "- **[Elixir Mentor YouTube](https://www.youtube.com/@ElixirMentor)** \u2014 Tutorials, deep dives, and monthly showcases focused on agentic AI with Elixir. Subscribe for expert content on building AI applications with Phoenix, LiveView, and the BEAM."
+    ],
+    "Contents": [
+      "- [Awesome Elixir AI ](#awesome-elixir-ai-)"
+    ],
+    "Ecosystem Map": [
+      "- **Build agents and orchestrations** \u2192 [High-Level Agent Frameworks](#high-level-agent-frameworks)",
+      "- **Call LLMs** \u2192 [LLM Clients & SDKs](#llm-clients--sdks)",
+      "- **Compose prompts, chains, tools, memory** \u2192 [LangChain-Style Components](#langchain-style-components)",
+      "- **Do RAG: chunk, embed, index, retrieve** \u2192 [RAG & Embeddings](#rag--embeddings), [Vector Databases](#vector-databases--indexers)",
+      "- **Observe, evaluate, and add guardrails** \u2192 [Observability & Evaluation](#observability-evaluation--guardrails)",
+      "- **Keep AI-assisted development aligned with project intent** \u2192 [AI Development Tools](#ai-development-tools)",
+      "- **Integrate with your data** \u2192 [Data Ingestion & ETL](#data-ingestion--etl)",
+      "- **Add speech and vision** \u2192 [Speech & Audio](#speech--audio), [Vision & Image Processing](#vision--image-processing)",
+      "- **Use starters and examples to ship faster** \u2192 [Starters & Templates](#starters-templates--examples)"
+    ],
+    "High-Level Agent Frameworks": [
+      "- [AshAi](https://github.com/ash-project/ash_ai) - Structured outputs, vectorization and tool calling for your Ash application with LangChain integration and MCP server capabilities.",
+      "- [Jido](https://github.com/agentjido/jido) - Framework for building autonomous, distributed agent systems with modular actions, stateful agents, and sensors. AI-framework agnostic.",
+      "- [LangChain](https://github.com/brainlid/langchain) - Framework for developing applications powered by language models, with support for OpenAI, Anthropic, Google, and Bumblebee models.",
+      "- [SwarmEx](https://github.com/nrrso/swarm_ex) - Lightweight library for AI agent orchestration with built-in telemetry and tool integration."
+    ],
+    "LangChain-Style Components": [
+      "- [Instructor.ex](https://github.com/thmsmlr/instructor_ex) - Structured outputs from LLMs using Ecto schemas. Works with OpenAI, llama.cpp and Bumblebee.",
+      "- [InstructorLite](https://github.com/martosaur/instructor_lite) - Lightweight structured outputs for LLMs using JSON schemas with multi-provider support including OpenAI, Anthropic, and Gemini.",
+      "- [Mentor](https://github.com/zoedsoupe/mentor) - Library for generating validated structured outputs from LLMs with automatic retries and schema validation."
+    ],
+    "LLM Clients & SDKs": [
+      "- [Honeycomb](https://github.com/seanmor5/honeycomb) - Fast LLM inference service and library built on Elixir, Bumblebee, and EXLA with OpenAI API compatibility.",
+      "- [LLM Composer](https://github.com/doofinder/llm_composer) - An Elixir library for integrating and managing multiple LLM backends including OpenAI, Ollama, and Google Gemini.",
+      "- [Ollama-ex](https://github.com/lebrunel/ollama-ex) - Elixir client for Ollama API with support for completions, chat, tools, and function calling.",
+      "- [ReqLLM](https://github.com/agentjido/req_llm) - Composable LLM client built on Req. Plugin-based providers for Anthropic, OpenAI, Google, and more with typed data structures."
+    ],
+    "RAG & Embeddings": [
+      "- [Rag](https://github.com/bitcrowd/rag) - Library for building Retrieval Augmented Generation (RAG) systems with support for vector stores like pgvector and chroma.",
+      "- [TextChunker](https://github.com/revelrylabs/text_chunker_ex) - Semantic text chunking library optimized for vector embedding and RAG applications."
+    ],
+    "Vector Databases & Indexers": [
+      "- [ExFaiss](https://github.com/elixir-nx/ex_faiss) - Elixir front-end to Facebook AI Similarity Search (Faiss) for efficient similarity search and clustering of dense vectors.",
+      "- [pgvector-elixir](https://hex.pm/packages/pgvector) - Ecto type and helpers for pgvector. Use Postgres as your vector store."
+    ],
+    "Observability, Evaluation & Guardrails": [
+      "- [DeepEvalEx](https://github.com/holsee/deep_eval_ex) - LLM evaluation framework benefiting from Elixir concurrency model with metrics for faithfulness, hallucination detection, answer relevancy, and RAG-specific evaluation. Output compliance with DeepEval standard for ecosystem integration.",
+      "- [Evals](https://github.com/ash-project/evals) - Tool for evaluating AI language models on Elixir code generation with side-by-side model comparisons and automated testing."
+    ],
+    "AI Development Tools": [
+      "- [Cohere](https://github.com/mhyrr/cohere) - Generates a system map for Elixir/Phoenix projects and checks project intent for drift.",
+      "- [Usage Rules](https://github.com/ash-project/usage_rules) - Tool for synchronizing LLM rules files with dependencies to prevent AI hallucinations and ensure consistent usage patterns."
+    ],
+    "Data Ingestion & ETL": [
+      "- [Crawly](https://github.com/elixir-crawly/crawly) - Powerful Elixir web crawler for building corpora and data extraction pipelines.",
+      "- [Explorer](https://github.com/elixir-explorer/explorer) - Series and dataframes for data exploration in Elixir. Essential for preprocessing and feature pipelines.",
+      "- [Floki](https://github.com/philss/floki) - HTML parser for extraction pipelines."
+    ],
+    "Speech & Audio": [
+      "- [Chatterbex](https://github.com/holsee/chatterbex) - Elixir wrapper for Chatterbox TTS with zero-shot voice cloning and support for multiple Chatterbox models including multilingual synthesis.",
+      "- [Membrane Framework](https://github.com/membraneframework/membrane_core) - Real-time multimedia processing framework. Great for TTS/STT pipelines and streaming audio applications."
+    ],
+    "Vision & Image Processing": [
+      "- [Evision](https://github.com/cocoa-xu/evision) - OpenCV bindings for Elixir/Erlang with comprehensive computer vision capabilities.",
+      "- [NxImage](https://github.com/elixir-nx/nx_image) - Image processing in Nx for preprocessing and augmentation.",
+      "- [Vix](https://github.com/akash-akya/vix) - Fast image processing via libvips for preprocessing and augmentation.",
+      "- [YOLO](https://github.com/poeticoding/yolo_elixir) - Real-time object detection using YOLOv8 models with 38ms processing time and optional Rust NIF for performance."
+    ],
+    "Evolutionary & Genetic Algorithms": [
+      "- [Genex](https://github.com/seanmor5/genex) - Genetic Algorithms in Elixir. Simple library for evolutionary computing and optimization problems."
+    ],
+    "Starters, Templates & Examples": [
+      "- [Livebook](https://livebook.dev/) - Write interactive and collaborative notebooks with integrations to databases, messaging, visualization and AI workflows.",
+      "- [Kino](https://github.com/livebook-dev/kino) - Render rich and interactive output in Livebook for building AI demos and explorations."
+    ],
+    "Resources": [],
+    "Tutorials & Learning": [
+      "- **[Elixir Mentor YouTube](https://www.youtube.com/@ElixirMentor)** \u2014 Tutorials, deep dives, and showcases for AI with Elixir.",
+      "- **[Elixir Mentor Podcast](https://podcasts.apple.com/gr/podcast/elixir-mentor/id1710056466)** \u2014 Community interviews and project showcases.",
+      "- **[Livebook Notebooks](https://livebook.dev/)** \u2014 Interactive notebooks and SmartCells for AI use-cases.",
+      "- **[Genetic Algorithms in Elixir](https://pragprog.com/titles/smgaelixir/genetic-algorithms-in-elixir/)** \u2014 Book by Sean Moriarity on evolutionary computing in Elixir."
+    ],
+    "Model Context Protocol (MCP)": [
+      "- [Anubis MCP](https://github.com/zoedsoupe/anubis-mcp) - SDK for the Model Context Protocol (MCP) with support for multiple transport options (STDIO, HTTP/SSE, WebSocket).",
+      "- [HexDocs MCP](https://github.com/bradleygolden/hexdocs-mcp) - Enables semantic search of Elixir package documentation for AI assistants via Model Context Protocol (MCP).",
+      "- [MCP Proxy](https://github.com/tidewave-ai/mcp_proxy_elixir) - Proxy that connects STDIO-based MCP clients to HTTP-based Server-Sent Events (SSE) MCP servers.",
+      "- [Tidewave Phoenix](https://github.com/tidewave-ai/tidewave_phoenix) - AI-powered development assistant for Phoenix web applications that connects editor AI assistants to web framework runtime via MCP.",
+      "- [TWZRD Agent Intel](https://intel.twzrd.xyz) - Trust scoring MCP server for AI agents on Solana. Provides wallet identity verification and trust receipts for Elixir-based agent pipelines via streamable-HTTP MCP. Free to use: `{\"mcpServers\":{\"twzrd-agent-intel\":{\"url\":\"https://intel.twzrd.xyz/mcp\"}}}`"
+    ],
+    "Community & Ecosystem": [
+      "- **[Discord](https://agentjido.xyz/discord)** \u2014 Home base for the Elixir AI Swarm Collective.",
+      "- **[agentjido GitHub Org](https://github.com/agentjido)** \u2014 Packages, templates, and examples.",
+      "- **[@agentjido on X/Twitter](https://x.com/agentjido)** \u2014 Announcements and highlights.",
+      "- **[ElixirForum AI Topics](https://elixirforum.com/)** \u2014 Monthly showcases and discussions."
+    ],
+    "Contributing": [
+      "- Format: `[Name](link) - Description.`",
+      "- Keep entries alphabetized within each section",
+      "- Descriptions should be short, clear, and descriptive",
+      "- Start with a capital letter and end with a period",
+      "- Ensure packages are generally useful, actively maintained, and documented"
+    ],
+    "License": []
+  }
+}

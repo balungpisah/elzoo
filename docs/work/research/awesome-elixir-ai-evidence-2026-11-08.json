@@ -1,0 +1,4703 @@
+{
+  "checked_at": "2026-11-08T05:12:59.385867+00:00",
+  "source_sha": "ab749a45fae538a0b1daf5ec7466e2fce20b7e66",
+  "records": [
+    {
+      "package": "ash_ai",
+      "checked_at": "2026-11-08T05:12:07.518428+00:00",
+      "hex_url": "https://hex.pm/api/packages/ash_ai",
+      "repo": "ash-project/ash_ai",
+      "hex_metadata_repo": "ash-project/ash_ai",
+      "identity_mismatch": false,
+      "discovery": "listed",
+      "index_matches": [
+        {
+          "section": "High-Level Agent Frameworks",
+          "line": "- [AshAi](https://github.com/ash-project/ash_ai) - Structured outputs, vectorization and tool calling for your Ash application with LangChain integration and MCP server capabilities."
+        }
+      ],
+      "hex": {
+        "name": "ash_ai",
+        "meta": {
+          "links": {
+            "Changelog": "https://github.com/ash-project/ash_ai/blob/main/CHANGELOG.md",
+            "Discord": "https://discord.gg/HTHRaaVPUc",
+            "Forum": "https://elixirforum.com/c/ash-framework-forum/",
+            "GitHub": "https://github.com/ash-project/ash_ai",
+            "REUSE Compliance": "https://api.reuse.software/info/github.com/ash-project/ash_ai",
+            "Website": "https://ash-hq.org"
+          },
+          "description": "Integrated LLM features for your Ash application.",
+          "licenses": [
+            "MIT"
+          ],
+          "maintainers": []
+        },
+        "latest_version": "1.5.1",
+        "latest_stable_version": "1.5.1",
+        "retirements": {},
+        "owners": [
+          "ash-project"
+        ],
+        "releases": [
+          {
+            "version": "1.5.1",
+            "url": "https://hex.pm/api/packages/ash_ai/releases/1.5.1",
+            "has_docs": true,
+            "inserted_at": "2026-11-07T22:09:11.050424Z"
+          }
+        ],
+        "selected_release": {
+          "meta": {
+            "elixir": "~> 1.17",
+            "app": "ash_ai",
+            "build_tools": [
+              "mix"
+            ]
+          },
+          "version": "1.5.1",
+          "checksum": "be6b1f2d1012ecd32fd8ed4a2bd3974aa1a277271afa3b9eee2838581172b5f4",
+          "url": "https://hex.pm/api/packages/ash_ai/releases/1.5.1",
+          "has_docs": true,
+          "inserted_at": "2026-11-07T22:09:11.050424Z",
+          "updated_at": "2026-11-07T22:09:11.950143Z",
+          "requirements": {
+            "ash": {
+              "app": "ash",
+              "optional": false,
+              "requirement": "~> 3.33 and >= 3.33.6"
+            },
+            "ash_authentication": {
+              "app": "ash_authentication",
+              "optional": true,
+              "requirement": "~> 4.8 or ~> 5.0-rc"
+            },
+            "ash_json_api": {
+              "app": "ash_json_api",
+              "optional": false,
+              "requirement": "~> 1.4 and >= 1.4.27"
+            },
+            "ash_oban": {
+              "app": "ash_oban",
+              "optional": true,
+              "requirement": "~> 0.5"
+            },
+            "ash_phoenix": {
+              "app": "ash_phoenix",
+              "optional": true,
+              "requirement": "~> 2.0"
+            },
+            "ash_postgres": {
+              "app": "ash_postgres",
+              "optional": true,
+              "requirement": "~> 2.5"
+            },
+            "igniter": {
+              "app": "igniter",
+              "optional": true,
+              "requirement": "~> 0.5"
+            },
+            "open_api_spex": {
+              "app": "open_api_spex",
+              "optional": false,
+              "requirement": "~> 3.0"
+            },
+            "phx_new": {
+              "app": "phx_new",
+              "optional": true,
+              "requirement": "~> 1.7"
+            },
+            "plug": {
+              "app": "plug",
+              "optional": true,
+              "requirement": "~> 1.17"
+            },
+            "req_llm": {
+              "app": "req_llm",
+              "optional": true,
+              "requirement": "~> 1.29"
+            }
+          },
+          "html_url": "https://hex.pm/packages/ash_ai/1.5.1",
+          "oidc_claims": null,
+          "retirement": null,
+          "package_url": "https://hex.pm/api/packages/ash_ai",
+          "downloads": 21,
+          "security_advisories": [],
+          "docs_html_url": "https://ash-ai.hexdocs.pm/1.5.1/",
+          "configs": {
+            "erlang.mk": "dep_ash_ai = hex 1.5.1",
+            "mix.exs": "{:ash_ai, \"~> 1.5\"}",
+            "rebar.config": "{ash_ai, \"1.5.1\"}"
+          }
+        }
+      },
+      "github": {
+        "full_name": "ash-project/ash_ai",
+        "description": "Structured outputs, vectorization and tool calling for your Ash application",
+        "archived": false,
+        "default_branch": "main",
+        "license": null,
+        "pushed_at": "2026-11-07T22:12:29Z",
+        "open_issues_count": 14,
+        "error": null,
+        "last_commit": {
+          "sha": "453cacda4f074af3e778dd07027924bb2fcd7d0c",
+          "date": "2026-11-07T22:10:52Z"
+        },
+        "open_issues_excluding_prs": 13
+      }
+    },
+    {
+      "package": "jido",
+      "checked_at": "2026-11-08T05:12:07.489124+00:00",
+      "hex_url": "https://hex.pm/api/packages/jido",
+      "repo": "agentjido/jido",
+      "hex_metadata_repo": "agentjido/jido",
+      "identity_mismatch": false,
+      "discovery": "listed",
+      "index_matches": [
+        {
+          "section": "High-Level Agent Frameworks",
+          "line": "- [Jido](https://github.com/agentjido/jido) - Framework for building autonomous, distributed agent systems with modular actions, stateful agents, and sensors. AI-framework agnostic."
+        }
+      ],
+      "hex": {
+        "name": "jido",
+        "meta": {
+          "links": {
+            "Changelog": "https://github.com/agentjido/jido/blob/main/CHANGELOG.md",
+            "Discord": "https://jido.run/discord",
+            "Documentation": "https://hexdocs.pm/jido",
+            "GitHub": "https://github.com/agentjido/jido",
+            "Website": "https://jido.run"
+          },
+          "description": "A declarative actor and agent framework for Elixir",
+          "licenses": [
+            "Apache-2.0"
+          ],
+          "maintainers": []
+        },
+        "latest_version": "3.0.0-beta.2",
+        "latest_stable_version": "2.4.0",
+        "retirements": {},
+        "owners": [
+          "mikehostetler"
+        ],
+        "releases": [
+          {
+            "version": "3.0.0-beta.2",
+            "url": "https://hex.pm/api/packages/jido/releases/3.0.0-beta.2",
+            "has_docs": true,
+            "inserted_at": "2026-10-19T17:43:40.938578Z"
+          },
+          {
+            "version": "2.4.0",
+            "url": "https://hex.pm/api/packages/jido/releases/2.4.0",
+            "has_docs": true,
+            "inserted_at": "2026-10-08T21:42:35.277040Z"
+          }
+        ],
+        "selected_release": {
+          "meta": {
+            "elixir": "~> 1.18",
+            "app": "jido",
+            "build_tools": [
+              "mix"
+            ]
+          },
+          "version": "2.4.0",
+          "checksum": "2b3fdf7812ac2656ddc1ebf96da6217116574576d0321d7a6e5b0c4d1a215d68",
+          "url": "https://hex.pm/api/packages/jido/releases/2.4.0",
+          "has_docs": true,
+          "inserted_at": "2026-10-08T21:42:35.277040Z",
+          "updated_at": "2026-10-08T21:42:36.698424Z",
+          "requirements": {
+            "crontab": {
+              "app": "crontab",
+              "optional": false,
+              "requirement": "~> 1.2"
+            },
+            "igniter": {
+              "app": "igniter",
+              "optional": true,
+              "requirement": "~> 0.7"
+            },
+            "jido_action": {
+              "app": "jido_action",
+              "optional": false,
+              "requirement": "~> 2.3"
+            },
+            "jido_signal": {
+              "app": "jido_signal",
+              "optional": false,
+              "requirement": "~> 2.3 and >= 2.3.1"
+            },
+            "nimble_options": {
+              "app": "nimble_options",
+              "optional": false,
+              "requirement": "~> 1.1"
+            },
+            "poolboy": {
+              "app": "poolboy",
+              "optional": false,
+              "requirement": "~> 1.5"
+            },
+            "splode": {
+              "app": "splode",
+              "optional": false,
+              "requirement": "~> 0.3.0"
+            },
+            "telemetry": {
+              "app": "telemetry",
+              "optional": false,
+              "requirement": "~> 1.3"
+            },
+            "telemetry_metrics": {
+              "app": "telemetry_metrics",
+              "optional": false,
+              "requirement": "~> 1.1"
+            },
+            "time_zone_info": {
+              "app": "time_zone_info",
+              "optional": false,
+              "requirement": "~> 0.7"
+            },
+            "zoi": {
+              "app": "zoi",
+              "optional": false,
+              "requirement": "~> 0.18.11"
+            }
+          },
+          "html_url": "https://hex.pm/packages/jido/2.4.0",
+          "oidc_claims": null,
+          "retirement": null,
+          "package_url": "https://hex.pm/api/packages/jido",
+          "downloads": 25920,
+          "security_advisories": [],
+          "docs_html_url": "https://jido.hexdocs.pm/2.4.0/",
+          "configs": {
+            "erlang.mk": "dep_jido = hex 2.4.0",
+            "mix.exs": "{:jido, \"~> 2.4\"}",
+            "rebar.config": "{jido, \"2.4.0\"}"
+          }
+        }
+      },
+      "github": {
+        "full_name": "agentjido/jido",
+        "description": "\ud83e\udd16 Autonomous agent framework for Elixir. Built for distributed, autonomous behavior and dynamic workflows.",
+        "archived": false,
+        "default_branch": "main",
+        "license": {
+          "key": "apache-2.0",
+          "name": "Apache License 2.0",
+          "spdx_id": "Apache-2.0",
+          "url": "https://api.github.com/licenses/apache-2.0",
+          "node_id": "MDc6TGljZW5zZTI="
+        },
+        "pushed_at": "2026-11-02T21:14:03Z",
+        "open_issues_count": 4,
+        "error": null,
+        "last_commit": {
+          "sha": "d0bf7c567a91f7b25e8f06a33c5c3ab10d1f1106",
+          "date": "2026-10-17T19:38:40Z"
+        },
+        "open_issues_excluding_prs": 1
+      }
+    },
+    {
+      "package": "langchain",
+      "checked_at": "2026-11-08T05:12:09.990054+00:00",
+      "hex_url": "https://hex.pm/api/packages/langchain",
+      "repo": "brainlid/langchain",
+      "hex_metadata_repo": "brainlid/langchain",
+      "identity_mismatch": false,
+      "discovery": "listed",
+      "index_matches": [
+        {
+          "section": "High-Level Agent Frameworks",
+          "line": "- [LangChain](https://github.com/brainlid/langchain) - Framework for developing applications powered by language models, with support for OpenAI, Anthropic, Google, and Bumblebee models."
+        }
+      ],
+      "hex": {
+        "name": "langchain",
+        "meta": {
+          "links": {
+            "GitHub": "https://github.com/brainlid/langchain"
+          },
+          "description": "Elixir implementation of a LangChain style framework that lets Elixir projects integrate with and leverage LLMs.",
+          "licenses": [
+            "Apache-2.0"
+          ],
+          "maintainers": []
+        },
+        "latest_version": "0.15.8",
+        "latest_stable_version": "0.15.8",
+        "retirements": {},
+        "owners": [
+          "brainlid"
+        ],
+        "releases": [
+          {
+            "version": "0.15.8",
+            "url": "https://hex.pm/api/packages/langchain/releases/0.15.8",
+            "has_docs": true,
+            "inserted_at": "2026-11-02T21:49:16.500203Z"
+          }
+        ],
+        "selected_release": {
+          "meta": {
+            "elixir": "~> 1.17",
+            "app": "langchain",
+            "build_tools": [
+              "mix"
+            ]
+          },
+          "version": "0.15.8",
+          "checksum": "c59894f80e56c4c180b84efc03d10b71603c96a1dd30fe42b7de5348f3147a47",
+          "url": "https://hex.pm/api/packages/langchain/releases/0.15.8",
+          "has_docs": true,
+          "inserted_at": "2026-11-02T21:49:16.500203Z",
+          "updated_at": "2026-11-02T21:49:18.112718Z",
+          "requirements": {
+            "abacus": {
+              "app": "abacus",
+              "optional": true,
+              "requirement": "~> 2.1.0"
+            },
+            "dotenvy": {
+              "app": "dotenvy",
+              "optional": false,
+              "requirement": "~> 1.1"
+            },
+            "ecto": {
+              "app": "ecto",
+              "optional": false,
+              "requirement": "~> 3.10 or ~> 3.11"
+            },
+            "gettext": {
+              "app": "gettext",
+              "optional": false,
+              "requirement": "~> 0.26.2 or ~> 1.0.0"
+            },
+            "mint_web_socket": {
+              "app": "mint_web_socket",
+              "optional": true,
+              "requirement": "~> 1.0"
+            },
+            "nimble_parsec": {
+              "app": "nimble_parsec",
+              "optional": true,
+              "requirement": "~> 1.4"
+            },
+            "nx": {
+              "app": "nx",
+              "optional": true,
+              "requirement": ">= 0.7.0"
+            },
+            "opentelemetry_api": {
+              "app": "opentelemetry_api",
+              "optional": true,
+              "requirement": "~> 1.4"
+            },
+            "req": {
+              "app": "req",
+              "optional": false,
+              "requirement": ">= 0.5.3"
+            },
+            "req_llm": {
+              "app": "req_llm",
+              "optional": true,
+              "requirement": ">= 1.29.0"
+            }
+          },
+          "html_url": "https://hex.pm/packages/langchain/0.15.8",
+          "oidc_claims": null,
+          "retirement": null,
+          "package_url": "https://hex.pm/api/packages/langchain",
+          "downloads": 2040,
+          "security_advisories": [],
+          "docs_html_url": "https://langchain.hexdocs.pm/0.15.8/",
+          "configs": {
+            "erlang.mk": "dep_langchain = hex 0.15.8",
+            "mix.exs": "{:langchain, \"~> 0.15.8\"}",
+            "rebar.config": "{langchain, \"0.15.8\"}"
+          }
+        }
+      },
+      "github": {
+        "full_name": "brainlid/langchain",
+        "description": "Elixir implementation of a LangChain style framework that lets Elixir projects integrate with and leverage LLMs.",
+        "archived": false,
+        "default_branch": "main",
+        "license": {
+          "key": "other",
+          "name": "Other",
+          "spdx_id": "NOASSERTION",
+          "url": null,
+          "node_id": "MDc6TGljZW5zZTA="
+        },
+        "pushed_at": "2026-11-02T22:38:18Z",
+        "open_issues_count": 33,
+        "error": null,
+        "last_commit": {
+          "sha": "f5faff6af9eebab49c2cfdff926ace5a1f073025",
+          "date": "2026-11-02T21:48:21Z"
+        },
+        "open_issues_excluding_prs": 25
+      }
+    },
+    {
+      "package": "swarm_ex",
+      "checked_at": "2026-11-08T05:12:10.151692+00:00",
+      "hex_url": "https://hex.pm/api/packages/swarm_ex",
+      "repo": "nrrso/swarm_ex",
+      "hex_metadata_repo": "nrrso/swarm_ex",
+      "identity_mismatch": false,
+      "discovery": "listed",
+      "index_matches": [
+        {
+          "section": "High-Level Agent Frameworks",
+          "line": "- [SwarmEx](https://github.com/nrrso/swarm_ex) - Lightweight library for AI agent orchestration with built-in telemetry and tool integration."
+        }
+      ],
+      "hex": {
+        "name": "swarm_ex",
+        "meta": {
+          "links": {
+            "GitHub": "https://github.com/nrrso/swarm_ex"
+          },
+          "description": "Elixir library for lightweight AI agent orchestration",
+          "licenses": [
+            "Apache-2.0"
+          ],
+          "maintainers": []
+        },
+        "latest_version": "0.2.0",
+        "latest_stable_version": "0.2.0",
+        "retirements": {},
+        "owners": [
+          "nrrso"
+        ],
+        "releases": [
+          {
+            "version": "0.2.0",
+            "url": "https://hex.pm/api/packages/swarm_ex/releases/0.2.0",
+            "has_docs": true,
+            "inserted_at": "2024-10-31T23:10:20.386524Z"
+          }
+        ],
+        "selected_release": {
+          "meta": {
+            "elixir": "~> 1.16",
+            "app": "swarm_ex",
+            "build_tools": [
+              "mix"
+            ]
+          },
+          "version": "0.2.0",
+          "checksum": "245c7a1acc80bbed0f87848832bfa2b03d3bddd621e4ad4cefff34ae9b619c84",
+          "url": "https://hex.pm/api/packages/swarm_ex/releases/0.2.0",
+          "has_docs": true,
+          "inserted_at": "2024-10-31T23:10:20.386524Z",
+          "updated_at": "2024-10-31T23:10:24.326016Z",
+          "requirements": {
+            "jason": {
+              "app": "jason",
+              "optional": false,
+              "requirement": "~> 1.4.4"
+            },
+            "telemetry": {
+              "app": "telemetry",
+              "optional": false,
+              "requirement": "~> 1.0"
+            },
+            "uuid": {
+              "app": "uuid",
+              "optional": false,
+              "requirement": "~> 1.1.8"
+            }
+          },
+          "html_url": "https://hex.pm/packages/swarm_ex/0.2.0",
+          "oidc_claims": null,
+          "retirement": null,
+          "package_url": "https://hex.pm/api/packages/swarm_ex",
+          "downloads": 280,
+          "security_advisories": [],
+          "docs_html_url": "https://swarm-ex.hexdocs.pm/0.2.0/",
+          "configs": {
+            "erlang.mk": "dep_swarm_ex = hex 0.2.0",
+            "mix.exs": "{:swarm_ex, \"~> 0.2.0\"}",
+            "rebar.config": "{swarm_ex, \"0.2.0\"}"
+          }
+        }
+      },
+      "github": {
+        "full_name": "nrrso/swarm_ex",
+        "description": "Elixir library for lightweight AI agent orchestration inspired by openai/swarm",
+        "archived": false,
+        "default_branch": "main",
+        "license": {
+          "key": "apache-2.0",
+          "name": "Apache License 2.0",
+          "spdx_id": "Apache-2.0",
+          "url": "https://api.github.com/licenses/apache-2.0",
+          "node_id": "MDc6TGljZW5zZTI="
+        },
+        "pushed_at": "2024-11-10T20:45:44Z",
+        "open_issues_count": 2,
+        "error": null,
+        "last_commit": {
+          "sha": "596f6eb37289d6414bc21ea0e53ea3640df8983a",
+          "date": "2024-11-02T14:35:25Z"
+        },
+        "open_issues_excluding_prs": 1
+      }
+    },
+    {
+      "package": "instructor",
+      "checked_at": "2026-11-08T05:12:12.567916+00:00",
+      "hex_url": "https://hex.pm/api/packages/instructor",
+      "repo": "thmsmlr/instructor_ex",
+      "hex_metadata_repo": "thmsmlr/instructor_ex",
+      "identity_mismatch": false,
+      "discovery": "listed",
+      "index_matches": [
+        {
+          "section": "LangChain-Style Components",
+          "line": "- [Instructor.ex](https://github.com/thmsmlr/instructor_ex) - Structured outputs from LLMs using Ecto schemas. Works with OpenAI, llama.cpp and Bumblebee."
+        }
+      ],
+      "hex": {
+        "name": "instructor",
+        "meta": {
+          "links": {
+            "GitHub": "https://github.com/thmsmlr/instructor_ex"
+          },
+          "description": "Structured prompting for OpenAI and OSS LLMs",
+          "licenses": [
+            "MIT"
+          ],
+          "maintainers": []
+        },
+        "latest_version": "0.1.0",
+        "latest_stable_version": "0.1.0",
+        "retirements": {},
+        "owners": [
+          "thmsmlr"
+        ],
+        "releases": [
+          {
+            "version": "0.1.0",
+            "url": "https://hex.pm/api/packages/instructor/releases/0.1.0",
+            "has_docs": true,
+            "inserted_at": "2025-02-09T18:44:36.635392Z"
+          }
+        ],
+        "selected_release": {
+          "meta": {
+            "elixir": "~> 1.15",
+            "app": "instructor",
+            "build_tools": [
+              "mix"
+            ]
+          },
+          "version": "0.1.0",
+          "checksum": "05a7020a460ca43dc1123c7903e928b678360cd37eac761f472bd8e0787fefcb",
+          "url": "https://hex.pm/api/packages/instructor/releases/0.1.0",
+          "has_docs": true,
+          "inserted_at": "2025-02-09T18:44:36.635392Z",
+          "updated_at": "2025-02-09T18:44:40.182247Z",
+          "requirements": {
+            "ecto": {
+              "app": "ecto",
+              "optional": false,
+              "requirement": "~> 3.12"
+            },
+            "jason": {
+              "app": "jason",
+              "optional": false,
+              "requirement": "~> 1.4.0"
+            },
+            "jaxon": {
+              "app": "jaxon",
+              "optional": false,
+              "requirement": "~> 2.0"
+            },
+            "req": {
+              "app": "req",
+              "optional": false,
+              "requirement": "~> 0.5 or ~> 1.0"
+            }
+          },
+          "html_url": "https://hex.pm/packages/instructor/0.1.0",
+          "oidc_claims": null,
+          "retirement": null,
+          "package_url": "https://hex.pm/api/packages/instructor",
+          "downloads": 238021,
+          "security_advisories": [],
+          "docs_html_url": "https://instructor.hexdocs.pm/0.1.0/",
+          "configs": {
+            "erlang.mk": "dep_instructor = hex 0.1.0",
+            "mix.exs": "{:instructor, \"~> 0.1.0\"}",
+            "rebar.config": "{instructor, \"0.1.0\"}"
+          }
+        }
+      },
+      "github": {
+        "full_name": "thmsmlr/instructor_ex",
+        "description": "Structured outputs for LLMs in Elixir",
+        "archived": false,
+        "default_branch": "main",
+        "license": null,
+        "pushed_at": "2025-06-07T23:53:41Z",
+        "open_issues_count": 41,
+        "error": null,
+        "last_commit": {
+          "sha": "c6dcad9e70c0db0d54c65efb85b56de4129d847b",
+          "date": "2025-06-07T23:53:39Z"
+        },
+        "open_issues_excluding_prs": 16
+      }
+    },
+    {
+      "package": "instructor_lite",
+      "checked_at": "2026-11-08T05:12:13.135212+00:00",
+      "hex_url": "https://hex.pm/api/packages/instructor_lite",
+      "repo": "martosaur/instructor_lite",
+      "hex_metadata_repo": "martosaur/instructor_lite",
+      "identity_mismatch": false,
+      "discovery": "listed",
+      "index_matches": [
+        {
+          "section": "LangChain-Style Components",
+          "line": "- [InstructorLite](https://github.com/martosaur/instructor_lite) - Lightweight structured outputs for LLMs using JSON schemas with multi-provider support including OpenAI, Anthropic, and Gemini."
+        }
+      ],
+      "hex": {
+        "name": "instructor_lite",
+        "meta": {
+          "links": {
+            "Changelog": "https://hexdocs.pm/instructor_lite/changelog.html",
+            "GitHub": "https://github.com/martosaur/instructor_lite"
+          },
+          "description": "Structured prompting for LLMs",
+          "licenses": [
+            "MIT"
+          ],
+          "maintainers": []
+        },
+        "latest_version": "1.3.0",
+        "latest_stable_version": "1.3.0",
+        "retirements": {},
+        "owners": [
+          "martosaur"
+        ],
+        "releases": [
+          {
+            "version": "1.3.0",
+            "url": "https://hex.pm/api/packages/instructor_lite/releases/1.3.0",
+            "has_docs": true,
+            "inserted_at": "2026-07-26T03:03:15.544704Z"
+          }
+        ],
+        "selected_release": {
+          "meta": {
+            "elixir": "~> 1.15",
+            "app": "instructor_lite",
+            "build_tools": [
+              "mix"
+            ]
+          },
+          "version": "1.3.0",
+          "checksum": "8108653ade148964e2911d382d228abc73aebb7d6da08807bec40306d7965fbc",
+          "url": "https://hex.pm/api/packages/instructor_lite/releases/1.3.0",
+          "has_docs": true,
+          "inserted_at": "2026-07-26T03:03:15.544704Z",
+          "updated_at": "2026-07-26T03:03:17.944090Z",
+          "requirements": {
+            "ecto": {
+              "app": "ecto",
+              "optional": false,
+              "requirement": "~> 3.12"
+            },
+            "jason": {
+              "app": "jason",
+              "optional": true,
+              "requirement": "~> 1.4"
+            },
+            "nimble_options": {
+              "app": "nimble_options",
+              "optional": false,
+              "requirement": "~> 1.1"
+            },
+            "req": {
+              "app": "req",
+              "optional": true,
+              "requirement": "~> 0.5 or ~> 1.0"
+            }
+          },
+          "html_url": "https://hex.pm/packages/instructor_lite/1.3.0",
+          "oidc_claims": null,
+          "retirement": null,
+          "package_url": "https://hex.pm/api/packages/instructor_lite",
+          "downloads": 2987,
+          "security_advisories": [],
+          "docs_html_url": "https://instructor-lite.hexdocs.pm/1.3.0/",
+          "configs": {
+            "erlang.mk": "dep_instructor_lite = hex 1.3.0",
+            "mix.exs": "{:instructor_lite, \"~> 1.3\"}",
+            "rebar.config": "{instructor_lite, \"1.3.0\"}"
+          }
+        }
+      },
+      "github": {
+        "full_name": "martosaur/instructor_lite",
+        "description": "Structured outputs for LLMs in Elixir ",
+        "archived": false,
+        "default_branch": "main",
+        "license": null,
+        "pushed_at": "2026-11-05T18:34:05Z",
+        "open_issues_count": 0,
+        "error": null,
+        "last_commit": {
+          "sha": "ca2ffd08a1a6f4e9b74b90d6f1674ba3a3c395c8",
+          "date": "2026-11-05T18:34:00Z"
+        },
+        "open_issues_excluding_prs": 0
+      }
+    },
+    {
+      "package": "mentor",
+      "checked_at": "2026-11-08T05:12:15.776934+00:00",
+      "hex_url": "https://hex.pm/api/packages/mentor",
+      "repo": "zoedsoupe/mentor",
+      "hex_metadata_repo": "zoedsoupe/mentor",
+      "identity_mismatch": false,
+      "discovery": "listed",
+      "index_matches": [
+        {
+          "section": "LangChain-Style Components",
+          "line": "- [Mentor](https://github.com/zoedsoupe/mentor) - Library for generating validated structured outputs from LLMs with automatic retries and schema validation."
+        }
+      ],
+      "hex": {
+        "name": "mentor",
+        "meta": {
+          "links": {
+            "GitHub": "https://github.com/zoedsoupe/mentor"
+          },
+          "description": "A Plug'n Play instructor implementation in Elixir, leveraging composability and extensibility",
+          "licenses": [
+            "MIT"
+          ],
+          "maintainers": []
+        },
+        "latest_version": "0.2.7",
+        "latest_stable_version": "0.2.7",
+        "retirements": {
+          "0.2.4": {
+            "message": "explicit passing `required_fields` option produces unexpected behaviour depending on the adapter being used, check (#12) for more details",
+            "reason": "invalid"
+          }
+        },
+        "owners": [
+          "zoedsoupe"
+        ],
+        "releases": [
+          {
+            "version": "0.2.7",
+            "url": "https://hex.pm/api/packages/mentor/releases/0.2.7",
+            "has_docs": true,
+            "inserted_at": "2025-07-18T13:04:45.645364Z"
+          }
+        ],
+        "selected_release": {
+          "meta": {
+            "elixir": "~> 1.18",
+            "app": "mentor",
+            "build_tools": [
+              "mix"
+            ]
+          },
+          "version": "0.2.7",
+          "checksum": "a3c371358a73dc4650f2f4766f3456189c80ad09b82d1af55bd458a416dcbd74",
+          "url": "https://hex.pm/api/packages/mentor/releases/0.2.7",
+          "has_docs": true,
+          "inserted_at": "2025-07-18T13:04:45.645364Z",
+          "updated_at": "2025-07-18T13:04:49.094865Z",
+          "requirements": {
+            "ecto": {
+              "app": "ecto",
+              "optional": true,
+              "requirement": "~> 3.12"
+            },
+            "finch": {
+              "app": "finch",
+              "optional": false,
+              "requirement": "~> 0.19"
+            },
+            "nimble_options": {
+              "app": "nimble_options",
+              "optional": false,
+              "requirement": "~> 1.1"
+            },
+            "peri": {
+              "app": "peri",
+              "optional": true,
+              "requirement": "~> 0.3"
+            }
+          },
+          "html_url": "https://hex.pm/packages/mentor/0.2.7",
+          "oidc_claims": null,
+          "retirement": null,
+          "package_url": "https://hex.pm/api/packages/mentor",
+          "downloads": 3534,
+          "security_advisories": [],
+          "docs_html_url": "https://mentor.hexdocs.pm/0.2.7/",
+          "configs": {
+            "erlang.mk": "dep_mentor = hex 0.2.7",
+            "mix.exs": "{:mentor, \"~> 0.2.7\"}",
+            "rebar.config": "{mentor, \"0.2.7\"}"
+          }
+        }
+      },
+      "github": {
+        "full_name": "zoedsoupe/mentor",
+        "description": "LLM strutured outputs done in a composable and extensible way for elixir",
+        "archived": false,
+        "default_branch": "main",
+        "license": {
+          "key": "mit",
+          "name": "MIT License",
+          "spdx_id": "MIT",
+          "url": "https://api.github.com/licenses/mit",
+          "node_id": "MDc6TGljZW5zZTEz"
+        },
+        "pushed_at": "2025-07-18T13:41:51Z",
+        "open_issues_count": 6,
+        "error": null,
+        "last_commit": {
+          "sha": "e83cdc49e86342206f179d4909ec09e7a9eb8823",
+          "date": "2025-07-18T13:41:32Z"
+        },
+        "open_issues_excluding_prs": 4
+      }
+    },
+    {
+      "package": "honeycomb",
+      "checked_at": "2026-11-08T05:12:16.064729+00:00",
+      "hex_url": "https://hex.pm/api/packages/honeycomb",
+      "repo": "seanmor5/honeycomb",
+      "hex_metadata_repo": "Hentioe/honeycomb",
+      "identity_mismatch": true,
+      "discovery": "listed",
+      "index_matches": [
+        {
+          "section": "LLM Clients & SDKs",
+          "line": "- [Honeycomb](https://github.com/seanmor5/honeycomb) - Fast LLM inference service and library built on Elixir, Bumblebee, and EXLA with OpenAI API compatibility."
+        }
+      ],
+      "hex": {
+        "name": "honeycomb",
+        "meta": {
+          "links": {
+            "GitHub": "https://github.com/Hentioe/honeycomb"
+          },
+          "description": "A scheduling system and result collection center for asynchronous/background tasks.",
+          "licenses": [
+            "MIT"
+          ],
+          "maintainers": []
+        },
+        "latest_version": "0.1.1",
+        "latest_stable_version": "0.1.1",
+        "retirements": {},
+        "owners": [
+          "hentioe"
+        ],
+        "releases": [
+          {
+            "version": "0.1.1",
+            "url": "https://hex.pm/api/packages/honeycomb/releases/0.1.1",
+            "has_docs": true,
+            "inserted_at": "2024-05-16T02:07:47.535743Z"
+          }
+        ],
+        "selected_release": {
+          "meta": {
+            "elixir": "~> 1.16",
+            "app": "honeycomb",
+            "build_tools": [
+              "mix"
+            ]
+          },
+          "version": "0.1.1",
+          "checksum": "bc5702a21d74db123fa123c6e2652c839834e905e8c5d54307609606a3cd9306",
+          "url": "https://hex.pm/api/packages/honeycomb/releases/0.1.1",
+          "has_docs": true,
+          "inserted_at": "2024-05-16T02:07:47.535743Z",
+          "updated_at": "2024-05-16T02:07:51.150282Z",
+          "requirements": {},
+          "html_url": "https://hex.pm/packages/honeycomb/0.1.1",
+          "oidc_claims": null,
+          "retirement": null,
+          "package_url": "https://hex.pm/api/packages/honeycomb",
+          "downloads": 1128,
+          "security_advisories": [],
+          "docs_html_url": "https://honeycomb.hexdocs.pm/0.1.1/",
+          "configs": {
+            "erlang.mk": "dep_honeycomb = hex 0.1.1",
+            "mix.exs": "{:honeycomb, \"~> 0.1.1\"}",
+            "rebar.config": "{honeycomb, \"0.1.1\"}"
+          }
+        }
+      },
+      "github": {
+        "full_name": "seanmor5/honeycomb",
+        "description": "Fast LLM inference with Elixir and Bumblebee",
+        "archived": false,
+        "default_branch": "main",
+        "license": null,
+        "pushed_at": "2026-01-15T18:30:34Z",
+        "open_issues_count": 11,
+        "error": null,
+        "last_commit": {
+          "sha": "2ff1539eb6b27d4531637ee74f2b9abfe9aab7aa",
+          "date": "2024-08-06T18:24:01Z"
+        },
+        "open_issues_excluding_prs": 11
+      }
+    },
+    {
+      "package": "llm_composer",
+      "checked_at": "2026-11-08T05:12:18.237945+00:00",
+      "hex_url": "https://hex.pm/api/packages/llm_composer",
+      "repo": "doofinder/llm_composer",
+      "hex_metadata_repo": "doofinder/llm_composer",
+      "identity_mismatch": false,
+      "discovery": "listed",
+      "index_matches": [
+        {
+          "section": "LLM Clients & SDKs",
+          "line": "- [LLM Composer](https://github.com/doofinder/llm_composer) - An Elixir library for integrating and managing multiple LLM backends including OpenAI, Ollama, and Google Gemini."
+        }
+      ],
+      "hex": {
+        "name": "llm_composer",
+        "meta": {
+          "links": {
+            "GitHub": "https://github.com/doofinder/llm_composer"
+          },
+          "description": "LlmComposer is an Elixir library that facilitates chat interactions with language models, providing tools to handle user messages, generate responses, and execute functions automatically based on model outputs.",
+          "licenses": [
+            "MIT"
+          ],
+          "maintainers": []
+        },
+        "latest_version": "0.21.1",
+        "latest_stable_version": "0.21.1",
+        "retirements": {},
+        "owners": [
+          "doofinder"
+        ],
+        "releases": [
+          {
+            "version": "0.21.1",
+            "url": "https://hex.pm/api/packages/llm_composer/releases/0.21.1",
+            "has_docs": true,
+            "inserted_at": "2026-09-30T12:05:08.803818Z"
+          }
+        ],
+        "selected_release": {
+          "meta": {
+            "elixir": "~> 1.18",
+            "app": "llm_composer",
+            "build_tools": [
+              "mix"
+            ]
+          },
+          "version": "0.21.1",
+          "checksum": "2e8614122f6987e201a3fc87feaf526308c64362936dc25691527051ed99cf26",
+          "url": "https://hex.pm/api/packages/llm_composer/releases/0.21.1",
+          "has_docs": true,
+          "inserted_at": "2026-09-30T12:05:08.803818Z",
+          "updated_at": "2026-09-30T12:05:10.131313Z",
+          "requirements": {
+            "decimal": {
+              "app": "decimal",
+              "optional": false,
+              "requirement": "~> 3.0 or ~> 2.3"
+            },
+            "ex_aws": {
+              "app": "ex_aws",
+              "optional": true,
+              "requirement": "~> 2.6"
+            },
+            "finch": {
+              "app": "finch",
+              "optional": true,
+              "requirement": "~> 0.18"
+            },
+            "goth": {
+              "app": "goth",
+              "optional": true,
+              "requirement": "~> 1.4"
+            },
+            "hackney": {
+              "app": "hackney",
+              "optional": true,
+              "requirement": "~> 1.21 or ~> 4.0"
+            },
+            "jason": {
+              "app": "jason",
+              "optional": true,
+              "requirement": "~> 1.4"
+            },
+            "mint": {
+              "app": "mint",
+              "optional": false,
+              "requirement": "~> 1.7"
+            },
+            "telemetry": {
+              "app": "telemetry",
+              "optional": false,
+              "requirement": "~> 1.0"
+            },
+            "tesla": {
+              "app": "tesla",
+              "optional": false,
+              "requirement": "~> 1.16"
+            }
+          },
+          "html_url": "https://hex.pm/packages/llm_composer/0.21.1",
+          "oidc_claims": null,
+          "retirement": null,
+          "package_url": "https://hex.pm/api/packages/llm_composer",
+          "downloads": 660,
+          "security_advisories": [],
+          "docs_html_url": "https://llm-composer.hexdocs.pm/0.21.1/",
+          "configs": {
+            "erlang.mk": "dep_llm_composer = hex 0.21.1",
+            "mix.exs": "{:llm_composer, \"~> 0.21.1\"}",
+            "rebar.config": "{llm_composer, \"0.21.1\"}"
+          }
+        }
+      },
+      "github": {
+        "full_name": "doofinder/llm_composer",
+        "description": "An Elixir library for integrating large language models (LLMs) via HTTP, supporting OpenAI, Ollama, and other future backends.",
+        "archived": false,
+        "default_branch": "master",
+        "license": {
+          "key": "mit",
+          "name": "MIT License",
+          "spdx_id": "MIT",
+          "url": "https://api.github.com/licenses/mit",
+          "node_id": "MDc6TGljZW5zZTEz"
+        },
+        "pushed_at": "2026-09-30T07:51:50Z",
+        "open_issues_count": 0,
+        "error": null,
+        "last_commit": {
+          "sha": "72eb813317a5478ccd3176c388ff9b5d449535e6",
+          "date": "2026-09-30T07:51:50Z"
+        },
+        "open_issues_excluding_prs": 0
+      }
+    },
+    {
+      "package": "ollama",
+      "checked_at": "2026-11-08T05:12:19.259986+00:00",
+      "hex_url": "https://hex.pm/api/packages/ollama",
+      "repo": "lebrunel/ollama-ex",
+      "hex_metadata_repo": "lebrunel/ollama-ex",
+      "identity_mismatch": false,
+      "discovery": "listed",
+      "index_matches": [
+        {
+          "section": "LLM Clients & SDKs",
+          "line": "- [Ollama-ex](https://github.com/lebrunel/ollama-ex) - Elixir client for Ollama API with support for completions, chat, tools, and function calling."
+        }
+      ],
+      "hex": {
+        "name": "ollama",
+        "meta": {
+          "links": {
+            "GitHub": "https://github.com/lebrunel/ollama-ex"
+          },
+          "description": "A nifty little library for working with Ollama in Elixir.",
+          "licenses": [
+            "Apache-2.0"
+          ],
+          "maintainers": []
+        },
+        "latest_version": "0.9.0",
+        "latest_stable_version": "0.9.0",
+        "retirements": {
+          "0.5.0": {
+            "message": "version released with breaking bug",
+            "reason": "invalid"
+          }
+        },
+        "owners": [
+          "aaronrussell",
+          "lebrunel"
+        ],
+        "releases": [
+          {
+            "version": "0.9.0",
+            "url": "https://hex.pm/api/packages/ollama/releases/0.9.0",
+            "has_docs": true,
+            "inserted_at": "2025-09-10T16:31:09.237784Z"
+          }
+        ],
+        "selected_release": {
+          "meta": {
+            "elixir": "~> 1.13",
+            "app": "ollama",
+            "build_tools": [
+              "mix"
+            ]
+          },
+          "version": "0.9.0",
+          "checksum": "bb7dbad1445e129c36facb8b771d4a309d1d65f04c389befdc1e58e07c0bc269",
+          "url": "https://hex.pm/api/packages/ollama/releases/0.9.0",
+          "has_docs": true,
+          "inserted_at": "2025-09-10T16:31:09.237784Z",
+          "updated_at": "2025-09-10T16:31:12.705025Z",
+          "requirements": {
+            "jason": {
+              "app": "jason",
+              "optional": false,
+              "requirement": "~> 1.4"
+            },
+            "nimble_options": {
+              "app": "nimble_options",
+              "optional": false,
+              "requirement": "~> 1.1"
+            },
+            "plug": {
+              "app": "plug",
+              "optional": false,
+              "requirement": "~> 1.18"
+            },
+            "req": {
+              "app": "req",
+              "optional": false,
+              "requirement": "~> 0.5"
+            }
+          },
+          "html_url": "https://hex.pm/packages/ollama/0.9.0",
+          "oidc_claims": null,
+          "retirement": null,
+          "package_url": "https://hex.pm/api/packages/ollama",
+          "downloads": 8154,
+          "security_advisories": [],
+          "docs_html_url": "https://ollama.hexdocs.pm/0.9.0/",
+          "configs": {
+            "erlang.mk": "dep_ollama = hex 0.9.0",
+            "mix.exs": "{:ollama, \"~> 0.9.0\"}",
+            "rebar.config": "{ollama, \"0.9.0\"}"
+          }
+        }
+      },
+      "github": {
+        "full_name": "aaronrussell/ollama-ex",
+        "description": "A nifty little library for working with Ollama in Elixir.",
+        "archived": false,
+        "default_branch": "main",
+        "license": {
+          "key": "apache-2.0",
+          "name": "Apache License 2.0",
+          "spdx_id": "Apache-2.0",
+          "url": "https://api.github.com/licenses/apache-2.0",
+          "node_id": "MDc6TGljZW5zZTI="
+        },
+        "pushed_at": "2026-10-22T11:22:40Z",
+        "open_issues_count": 1,
+        "error": null,
+        "last_commit": {
+          "sha": "fc329b1b8289607c812a365b0815e6e28a571a87",
+          "date": "2026-10-22T11:22:40Z"
+        },
+        "open_issues_excluding_prs": 1
+      }
+    },
+    {
+      "package": "req_llm",
+      "checked_at": "2026-11-08T05:12:20.651401+00:00",
+      "hex_url": "https://hex.pm/api/packages/req_llm",
+      "repo": "agentjido/req_llm",
+      "hex_metadata_repo": "agentjido/req_llm",
+      "identity_mismatch": false,
+      "discovery": "listed",
+      "index_matches": [
+        {
+          "section": "LLM Clients & SDKs",
+          "line": "- [ReqLLM](https://github.com/agentjido/req_llm) - Composable LLM client built on Req. Plugin-based providers for Anthropic, OpenAI, Google, and more with typed data structures."
+        }
+      ],
+      "hex": {
+        "name": "req_llm",
+        "meta": {
+          "links": {
+            "Changelog": "https://hexdocs.pm/req_llm/changelog.html",
+            "Discord": "https://agentjido.xyz/discord",
+            "Documentation": "https://hexdocs.pm/req_llm",
+            "GitHub": "https://github.com/agentjido/req_llm",
+            "Website": "https://agentjido.xyz"
+          },
+          "description": "Composable Elixir library for LLM interactions built on Req & Finch",
+          "licenses": [
+            "Apache-2.0"
+          ],
+          "maintainers": []
+        },
+        "latest_version": "1.30.0",
+        "latest_stable_version": "1.30.0",
+        "retirements": {},
+        "owners": [
+          "mikehostetler"
+        ],
+        "releases": [
+          {
+            "version": "1.30.0",
+            "url": "https://hex.pm/api/packages/req_llm/releases/1.30.0",
+            "has_docs": true,
+            "inserted_at": "2026-11-03T01:18:11.669732Z"
+          }
+        ],
+        "selected_release": {
+          "meta": {
+            "elixir": "~> 1.15",
+            "app": "req_llm",
+            "build_tools": [
+              "mix"
+            ]
+          },
+          "version": "1.30.0",
+          "checksum": "f9e0d5ba2d6e5f3f3e597e8b38973149dcc3fd98d63003ced575fa30a03c47b5",
+          "url": "https://hex.pm/api/packages/req_llm/releases/1.30.0",
+          "has_docs": true,
+          "inserted_at": "2026-11-03T01:18:11.669732Z",
+          "updated_at": "2026-11-03T01:18:13.401758Z",
+          "requirements": {
+            "dotenvy": {
+              "app": "dotenvy",
+              "optional": false,
+              "requirement": "~> 1.2"
+            },
+            "ex_aws_auth": {
+              "app": "ex_aws_auth",
+              "optional": true,
+              "requirement": "~> 1.5"
+            },
+            "finch": {
+              "app": "finch",
+              "optional": false,
+              "requirement": "~> 0.24"
+            },
+            "goth": {
+              "app": "goth",
+              "optional": true,
+              "requirement": "~> 1.4"
+            },
+            "igniter": {
+              "app": "igniter",
+              "optional": true,
+              "requirement": "~> 0.8"
+            },
+            "jason": {
+              "app": "jason",
+              "optional": false,
+              "requirement": "~> 1.4"
+            },
+            "jsv": {
+              "app": "jsv",
+              "optional": false,
+              "requirement": "~> 0.26 and >= 0.26.2"
+            },
+            "llm_db": {
+              "app": "llm_db",
+              "optional": false,
+              "requirement": "~> 2026.11.0"
+            },
+            "nimble_options": {
+              "app": "nimble_options",
+              "optional": false,
+              "requirement": "~> 1.2"
+            },
+            "req": {
+              "app": "req",
+              "optional": false,
+              "requirement": "~> 0.7"
+            },
+            "server_sent_events": {
+              "app": "server_sent_events",
+              "optional": false,
+              "requirement": "~> 1.1.0"
+            },
+            "splode": {
+              "app": "splode",
+              "optional": false,
+              "requirement": "~> 0.3.3"
+            },
+            "websockex": {
+              "app": "websockex",
+              "optional": false,
+              "requirement": "~> 0.5.1"
+            },
+            "zoi": {
+              "app": "zoi",
+              "optional": false,
+              "requirement": "~> 0.19.0"
+            }
+          },
+          "html_url": "https://hex.pm/packages/req_llm/1.30.0",
+          "oidc_claims": null,
+          "retirement": null,
+          "package_url": "https://hex.pm/api/packages/req_llm",
+          "downloads": 4265,
+          "security_advisories": [],
+          "docs_html_url": "https://req-llm.hexdocs.pm/1.30.0/",
+          "configs": {
+            "erlang.mk": "dep_req_llm = hex 1.30.0",
+            "mix.exs": "{:req_llm, \"~> 1.30\"}",
+            "rebar.config": "{req_llm, \"1.30.0\"}"
+          }
+        }
+      },
+      "github": {
+        "full_name": "agentjido/req_llm",
+        "description": "Composable Elixir library for LLM interactions built on Req and Finch",
+        "archived": false,
+        "default_branch": "main",
+        "license": {
+          "key": "apache-2.0",
+          "name": "Apache License 2.0",
+          "spdx_id": "Apache-2.0",
+          "url": "https://api.github.com/licenses/apache-2.0",
+          "node_id": "MDc6TGljZW5zZTI="
+        },
+        "pushed_at": "2026-11-08T01:19:58Z",
+        "open_issues_count": 1,
+        "error": null,
+        "last_commit": {
+          "sha": "446ca858f5e6c3c96483cf6fe65e19803599a7bd",
+          "date": "2026-11-08T01:19:58Z"
+        },
+        "open_issues_excluding_prs": 1
+      }
+    },
+    {
+      "package": "rag",
+      "checked_at": "2026-11-08T05:12:22.827199+00:00",
+      "hex_url": "https://hex.pm/api/packages/rag",
+      "repo": "bitcrowd/rag",
+      "hex_metadata_repo": "bitcrowd/rag",
+      "identity_mismatch": false,
+      "discovery": "listed",
+      "index_matches": [
+        {
+          "section": "RAG & Embeddings",
+          "line": "- [Rag](https://github.com/bitcrowd/rag) - Library for building Retrieval Augmented Generation (RAG) systems with support for vector stores like pgvector and chroma."
+        }
+      ],
+      "hex": {
+        "name": "rag",
+        "meta": {
+          "links": {
+            "GitHub": "https://github.com/bitcrowd/rag"
+          },
+          "description": "A library to make building performant RAG systems in Elixir easy",
+          "licenses": [
+            "MIT"
+          ],
+          "maintainers": []
+        },
+        "latest_version": "0.2.3",
+        "latest_stable_version": "0.2.3",
+        "retirements": {},
+        "owners": [
+          "bitcrowd"
+        ],
+        "releases": [
+          {
+            "version": "0.2.3",
+            "url": "https://hex.pm/api/packages/rag/releases/0.2.3",
+            "has_docs": true,
+            "inserted_at": "2025-05-12T12:55:21.954056Z"
+          }
+        ],
+        "selected_release": {
+          "meta": {
+            "elixir": "~> 1.15",
+            "app": "rag",
+            "build_tools": [
+              "mix"
+            ]
+          },
+          "version": "0.2.3",
+          "checksum": "3cbdf6fd2c2d2f34f08a4d781130511e172174ef4a000140990bfca64146e5bf",
+          "url": "https://hex.pm/api/packages/rag/releases/0.2.3",
+          "has_docs": true,
+          "inserted_at": "2025-05-12T12:55:21.954056Z",
+          "updated_at": "2025-05-12T12:55:25.650460Z",
+          "requirements": {
+            "igniter": {
+              "app": "igniter",
+              "optional": false,
+              "requirement": "~> 0.5.7"
+            },
+            "jason": {
+              "app": "jason",
+              "optional": false,
+              "requirement": "~> 1.4"
+            },
+            "nx": {
+              "app": "nx",
+              "optional": false,
+              "requirement": "~> 0.9.0"
+            },
+            "req": {
+              "app": "req",
+              "optional": false,
+              "requirement": "~> 0.5.0"
+            },
+            "telemetry": {
+              "app": "telemetry",
+              "optional": false,
+              "requirement": "~> 1.0"
+            }
+          },
+          "html_url": "https://hex.pm/packages/rag/0.2.3",
+          "oidc_claims": null,
+          "retirement": null,
+          "package_url": "https://hex.pm/api/packages/rag",
+          "downloads": 1491,
+          "security_advisories": [],
+          "docs_html_url": "https://rag.hexdocs.pm/0.2.3/",
+          "configs": {
+            "erlang.mk": "dep_rag = hex 0.2.3",
+            "mix.exs": "{:rag, \"~> 0.2.3\"}",
+            "rebar.config": "{rag, \"0.2.3\"}"
+          }
+        }
+      },
+      "github": {
+        "full_name": "bitcrowd/rag",
+        "description": "A library to make building performant RAG (Retrieval Augmented Generation) systems in Elixir easy.",
+        "archived": false,
+        "default_branch": "main",
+        "license": {
+          "key": "mit",
+          "name": "MIT License",
+          "spdx_id": "MIT",
+          "url": "https://api.github.com/licenses/mit",
+          "node_id": "MDc6TGljZW5zZTEz"
+        },
+        "pushed_at": "2025-05-12T12:51:47Z",
+        "open_issues_count": 7,
+        "error": null,
+        "last_commit": {
+          "sha": "c8c56eabc673658032af9189126ffdd82d293681",
+          "date": "2025-05-12T12:50:37Z"
+        },
+        "open_issues_excluding_prs": 7
+      }
+    },
+    {
+      "package": "text_chunker",
+      "checked_at": "2026-11-08T05:12:23.036071+00:00",
+      "hex_url": "https://hex.pm/api/packages/text_chunker",
+      "repo": "revelrylabs/text_chunker_ex",
+      "hex_metadata_repo": "revelrylabs/text_chunker_ex",
+      "identity_mismatch": false,
+      "discovery": "listed",
+      "index_matches": [
+        {
+          "section": "RAG & Embeddings",
+          "line": "- [TextChunker](https://github.com/revelrylabs/text_chunker_ex) - Semantic text chunking library optimized for vector embedding and RAG applications."
+        }
+      ],
+      "hex": {
+        "name": "text_chunker",
+        "meta": {
+          "links": {
+            "GitHub": "https://github.com/revelrylabs/text_chunker_ex"
+          },
+          "description": "A library for splitting text into semantically coherent chunks.",
+          "licenses": [
+            "MIT"
+          ],
+          "maintainers": []
+        },
+        "latest_version": "1.0.1",
+        "latest_stable_version": "1.0.1",
+        "retirements": {},
+        "owners": [
+          "revelrylabs"
+        ],
+        "releases": [
+          {
+            "version": "1.0.1",
+            "url": "https://hex.pm/api/packages/text_chunker/releases/1.0.1",
+            "has_docs": true,
+            "inserted_at": "2026-10-22T18:12:25.569182Z"
+          }
+        ],
+        "selected_release": {
+          "meta": {
+            "elixir": "~> 1.15",
+            "app": "text_chunker",
+            "build_tools": [
+              "mix"
+            ]
+          },
+          "version": "1.0.1",
+          "checksum": "139982ef9edb2fceb1e0fd9dfc15d91688ac8550cde8d78f64e7b4101565127d",
+          "url": "https://hex.pm/api/packages/text_chunker/releases/1.0.1",
+          "has_docs": true,
+          "inserted_at": "2026-10-22T18:12:25.569182Z",
+          "updated_at": "2026-10-22T18:12:26.637623Z",
+          "requirements": {
+            "nimble_options": {
+              "app": "nimble_options",
+              "optional": false,
+              "requirement": "~> 1.0"
+            }
+          },
+          "html_url": "https://hex.pm/packages/text_chunker/1.0.1",
+          "oidc_claims": null,
+          "retirement": null,
+          "package_url": "https://hex.pm/api/packages/text_chunker",
+          "downloads": 296,
+          "security_advisories": [],
+          "docs_html_url": "https://text-chunker.hexdocs.pm/1.0.1/",
+          "configs": {
+            "erlang.mk": "dep_text_chunker = hex 1.0.1",
+            "mix.exs": "{:text_chunker, \"~> 1.0\"}",
+            "rebar.config": "{text_chunker, \"1.0.1\"}"
+          }
+        }
+      },
+      "github": {
+        "full_name": "revelrylabs/text_chunker_ex",
+        "description": "A library for semantically coherent text chunking",
+        "archived": false,
+        "default_branch": "main",
+        "license": {
+          "key": "mit",
+          "name": "MIT License",
+          "spdx_id": "MIT",
+          "url": "https://api.github.com/licenses/mit",
+          "node_id": "MDc6TGljZW5zZTEz"
+        },
+        "pushed_at": "2026-10-22T18:11:23Z",
+        "open_issues_count": 0,
+        "error": null,
+        "last_commit": {
+          "sha": "e1781097d47a1dc741f441f3b89f7f12705995c0",
+          "date": "2026-10-22T18:10:42Z"
+        },
+        "open_issues_excluding_prs": 0
+      }
+    },
+    {
+      "package": "ex_faiss",
+      "checked_at": "2026-11-08T05:12:25.365557+00:00",
+      "hex_url": "https://hex.pm/api/packages/ex_faiss",
+      "repo": "elixir-nx/ex_faiss",
+      "hex_metadata_repo": null,
+      "identity_mismatch": false,
+      "discovery": "listed",
+      "index_matches": [],
+      "hex": {
+        "error": "HTTP Error 404: Not Found"
+      },
+      "github": {
+        "full_name": "elixir-nx/ex_faiss",
+        "description": "Elixir front-end to Facebook AI Similarity Search (Faiss)",
+        "archived": true,
+        "default_branch": "main",
+        "license": null,
+        "pushed_at": "2023-05-05T18:43:14Z",
+        "open_issues_count": 6,
+        "error": null,
+        "last_commit": {
+          "sha": "c3cf2af5ab31e4ab1f760fc29da614c6f3d5f4e2",
+          "date": "2023-05-05T18:43:14Z"
+        },
+        "open_issues_excluding_prs": 6
+      }
+    },
+    {
+      "package": "pgvector",
+      "checked_at": "2026-11-08T05:12:25.722227+00:00",
+      "hex_url": "https://hex.pm/api/packages/pgvector",
+      "repo": "pgvector/pgvector-elixir",
+      "hex_metadata_repo": "pgvector/pgvector-elixir",
+      "identity_mismatch": false,
+      "discovery": "adjacent comparison (not attributed to list)",
+      "index_matches": [],
+      "hex": {
+        "name": "pgvector",
+        "meta": {
+          "links": {
+            "GitHub": "https://github.com/pgvector/pgvector-elixir"
+          },
+          "description": "pgvector support for Elixir",
+          "licenses": [
+            "MIT"
+          ],
+          "maintainers": []
+        },
+        "latest_version": "0.4.2",
+        "latest_stable_version": "0.4.2",
+        "retirements": {},
+        "owners": [
+          "ankane"
+        ],
+        "releases": [
+          {
+            "version": "0.4.2",
+            "url": "https://hex.pm/api/packages/pgvector/releases/0.4.2",
+            "has_docs": true,
+            "inserted_at": "2026-10-02T19:29:18.827696Z"
+          }
+        ],
+        "selected_release": {
+          "meta": {
+            "elixir": "~> 1.16",
+            "app": "pgvector",
+            "build_tools": [
+              "mix"
+            ]
+          },
+          "version": "0.4.2",
+          "checksum": "19af41cc6757f05805ae7dbf25eae11834079022b0c582a376eca2222febb7e8",
+          "url": "https://hex.pm/api/packages/pgvector/releases/0.4.2",
+          "has_docs": true,
+          "inserted_at": "2026-10-02T19:29:18.827696Z",
+          "updated_at": "2026-10-02T19:29:20.093694Z",
+          "requirements": {
+            "ecto": {
+              "app": "ecto",
+              "optional": true,
+              "requirement": "~> 3.0"
+            },
+            "nx": {
+              "app": "nx",
+              "optional": true,
+              "requirement": "~> 0.5 or ~> 1.0"
+            },
+            "postgrex": {
+              "app": "postgrex",
+              "optional": false,
+              "requirement": ">= 0.0.0"
+            }
+          },
+          "html_url": "https://hex.pm/packages/pgvector/0.4.2",
+          "oidc_claims": null,
+          "retirement": null,
+          "package_url": "https://hex.pm/api/packages/pgvector",
+          "downloads": 47871,
+          "security_advisories": [],
+          "docs_html_url": "https://pgvector.hexdocs.pm/0.4.2/",
+          "configs": {
+            "erlang.mk": "dep_pgvector = hex 0.4.2",
+            "mix.exs": "{:pgvector, \"~> 0.4.2\"}",
+            "rebar.config": "{pgvector, \"0.4.2\"}"
+          }
+        }
+      },
+      "github": {
+        "full_name": "pgvector/pgvector-elixir",
+        "description": "pgvector support for Elixir",
+        "archived": false,
+        "default_branch": "master",
+        "license": {
+          "key": "mit",
+          "name": "MIT License",
+          "spdx_id": "MIT",
+          "url": "https://api.github.com/licenses/mit",
+          "node_id": "MDc6TGljZW5zZTEz"
+        },
+        "pushed_at": "2026-11-05T02:59:15Z",
+        "open_issues_count": 0,
+        "error": null,
+        "last_commit": {
+          "sha": "752e95ff405de49133c3a8bddf2d965914a18701",
+          "date": "2026-11-05T02:59:13Z"
+        },
+        "open_issues_excluding_prs": 0
+      }
+    },
+    {
+      "package": "deep_eval_ex",
+      "checked_at": "2026-11-08T05:12:25.898451+00:00",
+      "hex_url": "https://hex.pm/api/packages/deep_eval_ex",
+      "repo": "holsee/deep_eval_ex",
+      "hex_metadata_repo": "holsee/deep_eval_ex",
+      "identity_mismatch": false,
+      "discovery": "listed",
+      "index_matches": [
+        {
+          "section": "Observability, Evaluation & Guardrails",
+          "line": "- [DeepEvalEx](https://github.com/holsee/deep_eval_ex) - LLM evaluation framework benefiting from Elixir concurrency model with metrics for faithfulness, hallucination detection, answer relevancy, and RAG-specific evaluation. Output compliance with DeepEval standard for ecosystem integration."
+        }
+      ],
+      "hex": {
+        "name": "deep_eval_ex",
+        "meta": {
+          "links": {
+            "GitHub": "https://github.com/holsee/deep_eval_ex"
+          },
+          "description": "LLM evaluation framework for Elixir - port of DeepEval",
+          "licenses": [
+            "Apache-2.0"
+          ],
+          "maintainers": []
+        },
+        "latest_version": "0.1.0",
+        "latest_stable_version": "0.1.0",
+        "retirements": {},
+        "owners": [
+          "holsee"
+        ],
+        "releases": [
+          {
+            "version": "0.1.0",
+            "url": "https://hex.pm/api/packages/deep_eval_ex/releases/0.1.0",
+            "has_docs": true,
+            "inserted_at": "2025-12-26T15:09:01.037531Z"
+          }
+        ],
+        "selected_release": {
+          "meta": {
+            "elixir": "~> 1.15",
+            "app": "deep_eval_ex",
+            "build_tools": [
+              "mix"
+            ]
+          },
+          "version": "0.1.0",
+          "checksum": "ca1931c42f4ee5d40bfb07b0229f38a767a7f1239d950e91d3c2f67215f93117",
+          "url": "https://hex.pm/api/packages/deep_eval_ex/releases/0.1.0",
+          "has_docs": true,
+          "inserted_at": "2025-12-26T15:09:01.037531Z",
+          "updated_at": "2025-12-26T15:09:04.973817Z",
+          "requirements": {
+            "ecto": {
+              "app": "ecto",
+              "optional": false,
+              "requirement": "~> 3.11"
+            },
+            "jason": {
+              "app": "jason",
+              "optional": false,
+              "requirement": "~> 1.4"
+            },
+            "nimble_options": {
+              "app": "nimble_options",
+              "optional": false,
+              "requirement": "~> 1.0"
+            },
+            "req": {
+              "app": "req",
+              "optional": false,
+              "requirement": "~> 0.5"
+            },
+            "telemetry": {
+              "app": "telemetry",
+              "optional": false,
+              "requirement": "~> 1.0"
+            }
+          },
+          "html_url": "https://hex.pm/packages/deep_eval_ex/0.1.0",
+          "oidc_claims": null,
+          "retirement": null,
+          "package_url": "https://hex.pm/api/packages/deep_eval_ex",
+          "downloads": 311,
+          "security_advisories": [],
+          "docs_html_url": "https://deep-eval-ex.hexdocs.pm/0.1.0/",
+          "configs": {
+            "erlang.mk": "dep_deep_eval_ex = hex 0.1.0",
+            "mix.exs": "{:deep_eval_ex, \"~> 0.1.0\"}",
+            "rebar.config": "{deep_eval_ex, \"0.1.0\"}"
+          }
+        }
+      },
+      "github": {
+        "full_name": "holsee/deep_eval_ex",
+        "description": "LLM evaluation framework for Elixir",
+        "archived": false,
+        "default_branch": "main",
+        "license": {
+          "key": "apache-2.0",
+          "name": "Apache License 2.0",
+          "spdx_id": "Apache-2.0",
+          "url": "https://api.github.com/licenses/apache-2.0",
+          "node_id": "MDc6TGljZW5zZTI="
+        },
+        "pushed_at": "2026-10-26T20:10:13Z",
+        "open_issues_count": 1,
+        "error": null,
+        "last_commit": {
+          "sha": "d03fb568492f8cd2b7b223ab5772e0efdb923733",
+          "date": "2026-10-26T20:01:05Z"
+        },
+        "open_issues_excluding_prs": 1
+      }
+    },
+    {
+      "package": "evals",
+      "checked_at": "2026-11-08T05:12:28.105364+00:00",
+      "hex_url": "https://hex.pm/api/packages/evals",
+      "repo": "ash-project/evals",
+      "hex_metadata_repo": null,
+      "identity_mismatch": false,
+      "discovery": "listed",
+      "index_matches": [
+        {
+          "section": "Observability, Evaluation & Guardrails",
+          "line": "- [Evals](https://github.com/ash-project/evals) - Tool for evaluating AI language models on Elixir code generation with side-by-side model comparisons and automated testing."
+        }
+      ],
+      "hex": {
+        "error": "HTTP Error 404: Not Found"
+      },
+      "github": {
+        "full_name": "ash-project/evals",
+        "description": "Tools for evaluating models against Elixir code, helping us find what works and what doesn't",
+        "archived": false,
+        "default_branch": "main",
+        "license": null,
+        "pushed_at": "2026-10-01T01:34:46Z",
+        "open_issues_count": 6,
+        "error": null,
+        "last_commit": {
+          "sha": "35f512a7e1f65e8054ce30fec0e7e3115f569e87",
+          "date": "2026-09-01T14:21:19Z"
+        },
+        "open_issues_excluding_prs": 4
+      }
+    },
+    {
+      "package": "cohere",
+      "checked_at": "2026-11-08T05:12:28.444658+00:00",
+      "hex_url": "https://hex.pm/api/packages/cohere",
+      "repo": "mhyrr/cohere",
+      "hex_metadata_repo": "mhyrr/cohere",
+      "identity_mismatch": false,
+      "discovery": "listed",
+      "index_matches": [
+        {
+          "section": "AI Development Tools",
+          "line": "- [Cohere](https://github.com/mhyrr/cohere) - Generates a system map for Elixir/Phoenix projects and checks project intent for drift."
+        }
+      ],
+      "hex": {
+        "name": "cohere",
+        "meta": {
+          "links": {
+            "GitHub": "https://github.com/mhyrr/cohere"
+          },
+          "description": "A coherence layer for Elixir/Phoenix: a derived map of your system that cannot lie, thin authored intent cards, and a drift sentinel that keeps them honest.",
+          "licenses": [
+            "MIT"
+          ],
+          "maintainers": []
+        },
+        "latest_version": "0.1.1",
+        "latest_stable_version": "0.1.1",
+        "retirements": {},
+        "owners": [
+          "mhyrr"
+        ],
+        "releases": [
+          {
+            "version": "0.1.1",
+            "url": "https://hex.pm/api/packages/cohere/releases/0.1.1",
+            "has_docs": true,
+            "inserted_at": "2026-07-15T21:12:51.743420Z"
+          }
+        ],
+        "selected_release": {
+          "meta": {
+            "elixir": "~> 1.15",
+            "app": "cohere",
+            "build_tools": [
+              "mix"
+            ]
+          },
+          "version": "0.1.1",
+          "checksum": "b5c261f7e3abf669490453ce295cff5cd618a09acae859380bd4746fa6211319",
+          "url": "https://hex.pm/api/packages/cohere/releases/0.1.1",
+          "has_docs": true,
+          "inserted_at": "2026-07-15T21:12:51.743420Z",
+          "updated_at": "2026-07-15T21:12:53.374218Z",
+          "requirements": {},
+          "html_url": "https://hex.pm/packages/cohere/0.1.1",
+          "oidc_claims": null,
+          "retirement": null,
+          "package_url": "https://hex.pm/api/packages/cohere",
+          "downloads": 187,
+          "security_advisories": [],
+          "docs_html_url": "https://cohere.hexdocs.pm/0.1.1/",
+          "configs": {
+            "erlang.mk": "dep_cohere = hex 0.1.1",
+            "mix.exs": "{:cohere, \"~> 0.1.1\"}",
+            "rebar.config": "{cohere, \"0.1.1\"}"
+          }
+        }
+      },
+      "github": {
+        "full_name": "mhyrr/cohere",
+        "description": "A coherence layer for Elixir/Phoenix: a derived system map that cannot lie, thin authored intent cards, and a drift sentinel that keeps them honest.",
+        "archived": false,
+        "default_branch": "main",
+        "license": {
+          "key": "mit",
+          "name": "MIT License",
+          "spdx_id": "MIT",
+          "url": "https://api.github.com/licenses/mit",
+          "node_id": "MDc6TGljZW5zZTEz"
+        },
+        "pushed_at": "2026-07-26T19:27:14Z",
+        "open_issues_count": 0,
+        "error": null,
+        "last_commit": {
+          "sha": "92ba9ad3883746fb9fdab3b2ebe05a546c61cf7e",
+          "date": "2026-07-26T19:27:14Z"
+        },
+        "open_issues_excluding_prs": 0
+      }
+    },
+    {
+      "package": "usage_rules",
+      "checked_at": "2026-11-08T05:12:29.075023+00:00",
+      "hex_url": "https://hex.pm/api/packages/usage_rules",
+      "repo": "ash-project/usage_rules",
+      "hex_metadata_repo": "ash-project/usage_rules",
+      "identity_mismatch": false,
+      "discovery": "listed",
+      "index_matches": [
+        {
+          "section": "AI Development Tools",
+          "line": "- [Usage Rules](https://github.com/ash-project/usage_rules) - Tool for synchronizing LLM rules files with dependencies to prevent AI hallucinations and ensure consistent usage patterns."
+        }
+      ],
+      "hex": {
+        "name": "usage_rules",
+        "meta": {
+          "links": {
+            "Changelog": "https://github.com/ash-project/usage_rules/blob/main/CHANGELOG.md",
+            "Discord": "https://discord.gg/HTHRaaVPUc",
+            "Forum": "https://elixirforum.com/c/elixir-framework-forums/ash-framework-forum",
+            "GitHub": "https://github.com/ash-project/usage_rules",
+            "Website": "https://ash-hq.org"
+          },
+          "description": "A config-driven dev tool for Elixir projects to manage AGENTS.md files and agent skills from dependencies",
+          "licenses": [
+            "MIT"
+          ],
+          "maintainers": []
+        },
+        "latest_version": "1.3.1",
+        "latest_stable_version": "1.3.1",
+        "retirements": {},
+        "owners": [
+          "ash-project"
+        ],
+        "releases": [
+          {
+            "version": "1.3.1",
+            "url": "https://hex.pm/api/packages/usage_rules/releases/1.3.1",
+            "has_docs": true,
+            "inserted_at": "2026-10-30T14:09:12.969402Z"
+          }
+        ],
+        "selected_release": {
+          "meta": {
+            "elixir": "~> 1.18",
+            "app": "usage_rules",
+            "build_tools": [
+              "mix"
+            ]
+          },
+          "version": "1.3.1",
+          "checksum": "d32df06dc6b91a2172220316b3b6642a4e39181128bca7c25e78dbfc975969ca",
+          "url": "https://hex.pm/api/packages/usage_rules/releases/1.3.1",
+          "has_docs": true,
+          "inserted_at": "2026-10-30T14:09:12.969402Z",
+          "updated_at": "2026-10-30T14:09:13.980425Z",
+          "requirements": {
+            "ex_doc": {
+              "app": "ex_doc",
+              "optional": true,
+              "requirement": "~> 0.40"
+            },
+            "igniter": {
+              "app": "igniter",
+              "optional": false,
+              "requirement": "~> 0.6 and >= 0.6.6"
+            },
+            "jason": {
+              "app": "jason",
+              "optional": false,
+              "requirement": "~> 1.0"
+            },
+            "req": {
+              "app": "req",
+              "optional": false,
+              "requirement": "~> 0.5"
+            }
+          },
+          "html_url": "https://hex.pm/packages/usage_rules/1.3.1",
+          "oidc_claims": null,
+          "retirement": null,
+          "package_url": "https://hex.pm/api/packages/usage_rules",
+          "downloads": 11856,
+          "security_advisories": [],
+          "docs_html_url": "https://usage-rules.hexdocs.pm/1.3.1/",
+          "configs": {
+            "erlang.mk": "dep_usage_rules = hex 1.3.1",
+            "mix.exs": "{:usage_rules, \"~> 1.3\"}",
+            "rebar.config": "{usage_rules, \"1.3.1\"}"
+          }
+        }
+      },
+      "github": {
+        "full_name": "ash-project/usage_rules",
+        "description": "A tool for synchronizing LLM rules files with your dependencies.",
+        "archived": false,
+        "default_branch": "main",
+        "license": null,
+        "pushed_at": "2026-11-01T13:23:20Z",
+        "open_issues_count": 2,
+        "error": null,
+        "last_commit": {
+          "sha": "eadda953fee1ec3899e5bc762180ab9ef5ef96ae",
+          "date": "2026-11-01T13:23:20Z"
+        },
+        "open_issues_excluding_prs": 2
+      }
+    },
+    {
+      "package": "crawly",
+      "checked_at": "2026-11-08T05:12:30.937552+00:00",
+      "hex_url": "https://hex.pm/api/packages/crawly",
+      "repo": "oltarasenko/crawly",
+      "hex_metadata_repo": "oltarasenko/crawly",
+      "identity_mismatch": false,
+      "discovery": "listed",
+      "index_matches": [
+        {
+          "section": "Data Ingestion & ETL",
+          "line": "- [Crawly](https://github.com/elixir-crawly/crawly) - Powerful Elixir web crawler for building corpora and data extraction pipelines."
+        }
+      ],
+      "hex": {
+        "name": "crawly",
+        "meta": {
+          "links": {
+            "GitHub": "https://github.com/oltarasenko/crawly"
+          },
+          "description": "High-level web crawling & scraping framework for Elixir.",
+          "licenses": [
+            "Apache-2.0"
+          ],
+          "maintainers": []
+        },
+        "latest_version": "0.17.2",
+        "latest_stable_version": "0.17.2",
+        "retirements": {},
+        "owners": [
+          "oltarasenko"
+        ],
+        "releases": [
+          {
+            "version": "0.17.2",
+            "url": "https://hex.pm/api/packages/crawly/releases/0.17.2",
+            "has_docs": true,
+            "inserted_at": "2024-07-04T07:14:14.425668Z"
+          }
+        ],
+        "selected_release": {
+          "meta": {
+            "elixir": "~> 1.14",
+            "app": "crawly",
+            "build_tools": [
+              "mix"
+            ]
+          },
+          "version": "0.17.2",
+          "checksum": "3ca7691f2d7e1075b47dbc43ce36de6bc7050555fc55025b487cbe6473cbec67",
+          "url": "https://hex.pm/api/packages/crawly/releases/0.17.2",
+          "has_docs": true,
+          "inserted_at": "2024-07-04T07:14:14.425668Z",
+          "updated_at": "2024-07-04T07:14:18.420822Z",
+          "requirements": {
+            "elixir_uuid": {
+              "app": "elixir_uuid",
+              "optional": false,
+              "requirement": "~> 1.2"
+            },
+            "ex_json_schema": {
+              "app": "ex_json_schema",
+              "optional": false,
+              "requirement": "~> 0.9.2"
+            },
+            "httpoison": {
+              "app": "httpoison",
+              "optional": false,
+              "requirement": "~> 2.2"
+            },
+            "new_gollum": {
+              "app": "gollum",
+              "optional": false,
+              "requirement": "~> 0.5.0"
+            },
+            "plug_cowboy": {
+              "app": "plug_cowboy",
+              "optional": false,
+              "requirement": "~> 2.0"
+            },
+            "poison": {
+              "app": "poison",
+              "optional": false,
+              "requirement": "~> 3.1"
+            },
+            "yaml_elixir": {
+              "app": "yaml_elixir",
+              "optional": false,
+              "requirement": "~> 2.9"
+            }
+          },
+          "html_url": "https://hex.pm/packages/crawly/0.17.2",
+          "oidc_claims": null,
+          "retirement": null,
+          "package_url": "https://hex.pm/api/packages/crawly",
+          "downloads": 6591,
+          "security_advisories": [],
+          "docs_html_url": "https://crawly.hexdocs.pm/0.17.2/",
+          "configs": {
+            "erlang.mk": "dep_crawly = hex 0.17.2",
+            "mix.exs": "{:crawly, \"~> 0.17.2\"}",
+            "rebar.config": "{crawly, \"0.17.2\"}"
+          }
+        }
+      },
+      "github": {
+        "full_name": "elixir-crawly/crawly",
+        "description": "Crawly, a high-level web crawling & scraping framework for Elixir. ",
+        "archived": false,
+        "default_branch": "master",
+        "license": {
+          "key": "apache-2.0",
+          "name": "Apache License 2.0",
+          "spdx_id": "Apache-2.0",
+          "url": "https://api.github.com/licenses/apache-2.0",
+          "node_id": "MDc6TGljZW5zZTI="
+        },
+        "pushed_at": "2026-11-08T03:59:16Z",
+        "open_issues_count": 11,
+        "error": null,
+        "last_commit": {
+          "sha": "89db0d6d12d7c0e97961692ce0d07989c7b988c1",
+          "date": "2025-07-16T13:44:19Z"
+        },
+        "open_issues_excluding_prs": 8
+      }
+    },
+    {
+      "package": "explorer",
+      "checked_at": "2026-11-08T05:12:31.608089+00:00",
+      "hex_url": "https://hex.pm/api/packages/explorer",
+      "repo": "elixir-nx/explorer",
+      "hex_metadata_repo": "elixir-nx/explorer",
+      "identity_mismatch": false,
+      "discovery": "listed",
+      "index_matches": [
+        {
+          "section": "Data Ingestion & ETL",
+          "line": "- [Explorer](https://github.com/elixir-explorer/explorer) - Series and dataframes for data exploration in Elixir. Essential for preprocessing and feature pipelines."
+        }
+      ],
+      "hex": {
+        "name": "explorer",
+        "meta": {
+          "links": {
+            "Changelog": "https://github.com/elixir-nx/explorer/blob/v0.13.0/CHANGELOG.md",
+            "GitHub": "https://github.com/elixir-nx/explorer"
+          },
+          "description": "Series (one-dimensional) and dataframes (two-dimensional) for fast data exploration in Elixir",
+          "licenses": [
+            "MIT"
+          ],
+          "maintainers": []
+        },
+        "latest_version": "0.13.0",
+        "latest_stable_version": "0.13.0",
+        "retirements": {
+          "0.5.3": {
+            "message": "The package was published without a file needed for compilation. So it was not compiling.",
+            "reason": "invalid"
+          }
+        },
+        "owners": [
+          "akoutmos",
+          "billylanchantin",
+          "cigrainger"
+        ],
+        "releases": [
+          {
+            "version": "0.13.0",
+            "url": "https://hex.pm/api/packages/explorer/releases/0.13.0",
+            "has_docs": true,
+            "inserted_at": "2026-09-28T17:17:50.682276Z"
+          }
+        ],
+        "selected_release": {
+          "meta": {
+            "elixir": "~> 1.15",
+            "app": "explorer",
+            "build_tools": [
+              "mix"
+            ]
+          },
+          "version": "0.13.0",
+          "checksum": "2e421247277a3d3b3bd5f658564d5788a5552702aa4d3cef8c387cf25182b1e8",
+          "url": "https://hex.pm/api/packages/explorer/releases/0.13.0",
+          "has_docs": true,
+          "inserted_at": "2026-09-28T17:17:50.682276Z",
+          "updated_at": "2026-09-28T17:17:52.468753Z",
+          "requirements": {
+            "adbc": {
+              "app": "adbc",
+              "optional": true,
+              "requirement": "~> 0.12"
+            },
+            "aws_signature": {
+              "app": "aws_signature",
+              "optional": false,
+              "requirement": "~> 0.3"
+            },
+            "decimal": {
+              "app": "decimal",
+              "optional": false,
+              "requirement": "~> 3.1"
+            },
+            "nx": {
+              "app": "nx",
+              "optional": true,
+              "requirement": "~> 0.4 or ~> 1.0"
+            },
+            "rustler": {
+              "app": "rustler",
+              "optional": true,
+              "requirement": "~> 0.38"
+            },
+            "rustler_precompiled": {
+              "app": "rustler_precompiled",
+              "optional": false,
+              "requirement": "~> 0.7"
+            },
+            "table": {
+              "app": "table",
+              "optional": false,
+              "requirement": "~> 0.1.2"
+            },
+            "table_rex": {
+              "app": "table_rex",
+              "optional": false,
+              "requirement": "~> 4.1"
+            }
+          },
+          "html_url": "https://hex.pm/packages/explorer/0.13.0",
+          "oidc_claims": null,
+          "retirement": null,
+          "package_url": "https://hex.pm/api/packages/explorer",
+          "downloads": 108369,
+          "security_advisories": [],
+          "docs_html_url": "https://explorer.hexdocs.pm/0.13.0/",
+          "configs": {
+            "erlang.mk": "dep_explorer = hex 0.13.0",
+            "mix.exs": "{:explorer, \"~> 0.13.0\"}",
+            "rebar.config": "{explorer, \"0.13.0\"}"
+          }
+        }
+      },
+      "github": {
+        "full_name": "elixir-explorer/explorer",
+        "description": "Series (one-dimensional) and dataframes (two-dimensional) for fast and elegant data exploration in Elixir",
+        "archived": false,
+        "default_branch": "main",
+        "license": {
+          "key": "mit",
+          "name": "MIT License",
+          "spdx_id": "MIT",
+          "url": "https://api.github.com/licenses/mit",
+          "node_id": "MDc6TGljZW5zZTEz"
+        },
+        "pushed_at": "2026-09-28T17:23:47Z",
+        "open_issues_count": 52,
+        "error": null,
+        "last_commit": {
+          "sha": "5e75adb6a763b14b0e26d8cd3136562fb368b91d",
+          "date": "2026-09-28T17:23:44Z"
+        },
+        "open_issues_excluding_prs": 45
+      }
+    },
+    {
+      "package": "floki",
+      "checked_at": "2026-11-08T05:12:34.977205+00:00",
+      "hex_url": "https://hex.pm/api/packages/floki",
+      "repo": "philss/floki",
+      "hex_metadata_repo": "philss/floki",
+      "identity_mismatch": false,
+      "discovery": "listed",
+      "index_matches": [
+        {
+          "section": "Data Ingestion & ETL",
+          "line": "- [Floki](https://github.com/philss/floki) - HTML parser for extraction pipelines."
+        }
+      ],
+      "hex": {
+        "name": "floki",
+        "meta": {
+          "links": {
+            "Changelog": "https://hexdocs.pm/floki/changelog.html",
+            "GitHub": "https://github.com/philss/floki",
+            "Sponsor": "https://github.com/sponsors/philss"
+          },
+          "description": "Floki is a simple HTML parser that enables search for nodes using CSS selectors.",
+          "licenses": [
+            "MIT"
+          ],
+          "maintainers": []
+        },
+        "latest_version": "0.38.5",
+        "latest_stable_version": "0.38.5",
+        "retirements": {},
+        "owners": [
+          "philip"
+        ],
+        "releases": [
+          {
+            "version": "0.38.5",
+            "url": "https://hex.pm/api/packages/floki/releases/0.38.5",
+            "has_docs": true,
+            "inserted_at": "2026-10-29T14:47:01.246849Z"
+          }
+        ],
+        "selected_release": {
+          "meta": {
+            "elixir": "~> 1.15",
+            "app": "floki",
+            "build_tools": [
+              "mix"
+            ]
+          },
+          "version": "0.38.5",
+          "checksum": "c8c5b04455f01b076cd489fee7dc26b49edf9851ef61146e743f4676114bf6b0",
+          "url": "https://hex.pm/api/packages/floki/releases/0.38.5",
+          "has_docs": true,
+          "inserted_at": "2026-10-29T14:47:01.246849Z",
+          "updated_at": "2026-10-29T14:47:03.003589Z",
+          "requirements": {},
+          "html_url": "https://hex.pm/packages/floki/0.38.5",
+          "oidc_claims": null,
+          "retirement": null,
+          "package_url": "https://hex.pm/api/packages/floki",
+          "downloads": 130388,
+          "security_advisories": [],
+          "docs_html_url": "https://floki.hexdocs.pm/0.38.5/",
+          "configs": {
+            "erlang.mk": "dep_floki = hex 0.38.5",
+            "mix.exs": "{:floki, \"~> 0.38.5\"}",
+            "rebar.config": "{floki, \"0.38.5\"}"
+          }
+        }
+      },
+      "github": {
+        "full_name": "philss/floki",
+        "description": "Floki is a simple HTML parser that enables search for nodes using CSS selectors.",
+        "archived": false,
+        "default_branch": "main",
+        "license": {
+          "key": "mit",
+          "name": "MIT License",
+          "spdx_id": "MIT",
+          "url": "https://api.github.com/licenses/mit",
+          "node_id": "MDc6TGljZW5zZTEz"
+        },
+        "pushed_at": "2026-11-03T15:24:09Z",
+        "open_issues_count": 19,
+        "error": null,
+        "last_commit": {
+          "sha": "d8e83e587b45f7df029fb9912889a2d896ccac89",
+          "date": "2026-11-03T15:24:09Z"
+        },
+        "open_issues_excluding_prs": 18
+      }
+    },
+    {
+      "package": "chatterbex",
+      "checked_at": "2026-11-08T05:12:35.942656+00:00",
+      "hex_url": "https://hex.pm/api/packages/chatterbex",
+      "repo": "holsee/chatterbex",
+      "hex_metadata_repo": "holsee/chatterbex",
+      "identity_mismatch": false,
+      "discovery": "listed",
+      "index_matches": [
+        {
+          "section": "Speech & Audio",
+          "line": "- [Chatterbex](https://github.com/holsee/chatterbex) - Elixir wrapper for Chatterbox TTS with zero-shot voice cloning and support for multiple Chatterbox models including multilingual synthesis."
+        }
+      ],
+      "hex": {
+        "name": "chatterbex",
+        "meta": {
+          "links": {
+            "Chatterbox": "https://github.com/resemble-ai/chatterbox",
+            "GitHub": "https://github.com/holsee/chatterbex"
+          },
+          "description": "Elixir wrapper for Chatterbox TTS - state-of-the-art text-to-speech\nmodels from Resemble AI with zero-shot voice cloning capabilities.",
+          "licenses": [
+            "MIT"
+          ],
+          "maintainers": []
+        },
+        "latest_version": "0.1.0",
+        "latest_stable_version": "0.1.0",
+        "retirements": {},
+        "owners": [
+          "holsee"
+        ],
+        "releases": [
+          {
+            "version": "0.1.0",
+            "url": "https://hex.pm/api/packages/chatterbex/releases/0.1.0",
+            "has_docs": true,
+            "inserted_at": "2025-12-26T13:45:07.631634Z"
+          }
+        ],
+        "selected_release": {
+          "meta": {
+            "elixir": "~> 1.14",
+            "app": "chatterbex",
+            "build_tools": [
+              "mix"
+            ]
+          },
+          "version": "0.1.0",
+          "checksum": "b8f812809b3b51ff352518c35a35dd9eb14f542c2be750435005903a8fa7ef2a",
+          "url": "https://hex.pm/api/packages/chatterbex/releases/0.1.0",
+          "has_docs": true,
+          "inserted_at": "2025-12-26T13:45:07.631634Z",
+          "updated_at": "2025-12-26T13:45:11.353520Z",
+          "requirements": {
+            "jason": {
+              "app": "jason",
+              "optional": false,
+              "requirement": "~> 1.4"
+            }
+          },
+          "html_url": "https://hex.pm/packages/chatterbex/0.1.0",
+          "oidc_claims": null,
+          "retirement": null,
+          "package_url": "https://hex.pm/api/packages/chatterbex",
+          "downloads": 236,
+          "security_advisories": [],
+          "docs_html_url": "https://chatterbex.hexdocs.pm/0.1.0/",
+          "configs": {
+            "erlang.mk": "dep_chatterbex = hex 0.1.0",
+            "mix.exs": "{:chatterbex, \"~> 0.1.0\"}",
+            "rebar.config": "{chatterbex, \"0.1.0\"}"
+          }
+        }
+      },
+      "github": {
+        "full_name": "holsee/chatterbex",
+        "description": "Elixir wrapper for Chatterbox TTS - state-of-the-art text-to-speech models from Resemble AI.",
+        "archived": false,
+        "default_branch": "main",
+        "license": {
+          "key": "mit",
+          "name": "MIT License",
+          "spdx_id": "MIT",
+          "url": "https://api.github.com/licenses/mit",
+          "node_id": "MDc6TGljZW5zZTEz"
+        },
+        "pushed_at": "2025-12-26T13:59:51Z",
+        "open_issues_count": 0,
+        "error": null,
+        "last_commit": {
+          "sha": "720fdd99c6084959de21bd100e9203dd0e6ba7e1",
+          "date": "2025-12-26T13:14:21Z"
+        },
+        "open_issues_excluding_prs": 0
+      }
+    },
+    {
+      "package": "membrane_core",
+      "checked_at": "2026-11-08T05:12:37.726896+00:00",
+      "hex_url": "https://hex.pm/api/packages/membrane_core",
+      "repo": "membraneframework/membrane_core",
+      "hex_metadata_repo": "membraneframework/membrane_core",
+      "identity_mismatch": false,
+      "discovery": "listed",
+      "index_matches": [
+        {
+          "section": "Speech & Audio",
+          "line": "- [Membrane Framework](https://github.com/membraneframework/membrane_core) - Real-time multimedia processing framework. Great for TTS/STT pipelines and streaming audio applications."
+        }
+      ],
+      "hex": {
+        "name": "membrane_core",
+        "meta": {
+          "links": {
+            "GitHub": "https://github.com/membraneframework/membrane_core",
+            "Membrane Framework Homepage": "https://membrane.stream"
+          },
+          "description": "Membrane Multimedia Framework (Core)",
+          "licenses": [
+            "Apache-2.0"
+          ],
+          "maintainers": []
+        },
+        "latest_version": "1.3.5",
+        "latest_stable_version": "1.3.5",
+        "retirements": {
+          "0.12.0": {
+            "message": "Package has an API change that will be no longer supported, use version 0.12.1 instead of this one",
+            "reason": "deprecated"
+          },
+          "1.2.5": {
+            "message": "This release is broken and doesn't compile, please use 1.2.6 instead",
+            "reason": "invalid"
+          }
+        },
+        "owners": [
+          "membraneframework"
+        ],
+        "releases": [
+          {
+            "version": "1.3.5",
+            "url": "https://hex.pm/api/packages/membrane_core/releases/1.3.5",
+            "has_docs": true,
+            "inserted_at": "2026-10-27T13:24:01.188972Z"
+          }
+        ],
+        "selected_release": {
+          "meta": {
+            "elixir": "~> 1.17",
+            "app": "membrane_core",
+            "build_tools": [
+              "mix"
+            ]
+          },
+          "version": "1.3.5",
+          "checksum": "cec2027446d7fcc860289907ea7259e0385b468e795c635334cb80d3c5f2a366",
+          "url": "https://hex.pm/api/packages/membrane_core/releases/1.3.5",
+          "has_docs": true,
+          "inserted_at": "2026-10-27T13:24:01.188972Z",
+          "updated_at": "2026-10-27T13:24:02.588514Z",
+          "requirements": {
+            "bunch": {
+              "app": "bunch",
+              "optional": false,
+              "requirement": "~> 1.6"
+            },
+            "qex": {
+              "app": "qex",
+              "optional": false,
+              "requirement": "~> 0.3"
+            },
+            "ratio": {
+              "app": "ratio",
+              "optional": false,
+              "requirement": "~> 3.0 or ~> 4.0"
+            },
+            "telemetry": {
+              "app": "telemetry",
+              "optional": false,
+              "requirement": "~> 1.0"
+            }
+          },
+          "html_url": "https://hex.pm/packages/membrane_core/1.3.5",
+          "oidc_claims": null,
+          "retirement": null,
+          "package_url": "https://hex.pm/api/packages/membrane_core",
+          "downloads": 2477,
+          "security_advisories": [],
+          "docs_html_url": "https://membrane-core.hexdocs.pm/1.3.5/",
+          "configs": {
+            "erlang.mk": "dep_membrane_core = hex 1.3.5",
+            "mix.exs": "{:membrane_core, \"~> 1.3\"}",
+            "rebar.config": "{membrane_core, \"1.3.5\"}"
+          }
+        }
+      },
+      "github": {
+        "full_name": "membraneframework/membrane_core",
+        "description": "The core of Membrane Framework, multimedia processing framework written in Elixir",
+        "archived": false,
+        "default_branch": "master",
+        "license": {
+          "key": "apache-2.0",
+          "name": "Apache License 2.0",
+          "spdx_id": "Apache-2.0",
+          "url": "https://api.github.com/licenses/apache-2.0",
+          "node_id": "MDc6TGljZW5zZTI="
+        },
+        "pushed_at": "2026-11-06T11:59:42Z",
+        "open_issues_count": 92,
+        "error": null,
+        "last_commit": {
+          "sha": "edd1d34b225e10f0006fd07ebb4130acb55f7a53",
+          "date": "2026-11-06T11:59:41Z"
+        },
+        "open_issues_excluding_prs": 86
+      }
+    },
+    {
+      "package": "evision",
+      "checked_at": "2026-11-08T05:12:38.226899+00:00",
+      "hex_url": "https://hex.pm/api/packages/evision",
+      "repo": "cocoa-xu/evision",
+      "hex_metadata_repo": "cocoa-xu/evision",
+      "identity_mismatch": false,
+      "discovery": "listed",
+      "index_matches": [
+        {
+          "section": "Vision & Image Processing",
+          "line": "- [Evision](https://github.com/cocoa-xu/evision) - OpenCV bindings for Elixir/Erlang with comprehensive computer vision capabilities."
+        }
+      ],
+      "hex": {
+        "name": "evision",
+        "meta": {
+          "links": {
+            "Changelog": "https://github.com/cocoa-xu/evision/blob/v1.1.0-rc.1/CHANGELOG.md",
+            "GitHub": "https://github.com/cocoa-xu/evision",
+            "Readme": "https://github.com/cocoa-xu/evision/blob/v1.1.0-rc.1/README.md"
+          },
+          "description": "OpenCV-Erlang/Elixir binding.",
+          "licenses": [
+            "Apache-2.0"
+          ],
+          "maintainers": []
+        },
+        "latest_version": "1.1.0-rc.1",
+        "latest_stable_version": "1.0.0",
+        "retirements": {
+          "0.1.32": {
+            "message": "incorrect source files",
+            "reason": "invalid"
+          }
+        },
+        "owners": [
+          "uwu_cocoa"
+        ],
+        "releases": [
+          {
+            "version": "1.1.0-rc.1",
+            "url": "https://hex.pm/api/packages/evision/releases/1.1.0-rc.1",
+            "has_docs": true,
+            "inserted_at": "2026-11-01T03:15:25.862492Z"
+          },
+          {
+            "version": "1.0.0",
+            "url": "https://hex.pm/api/packages/evision/releases/1.0.0",
+            "has_docs": true,
+            "inserted_at": "2026-06-24T10:50:12.525816Z"
+          }
+        ],
+        "selected_release": {
+          "meta": {
+            "elixir": "~> 1.11",
+            "app": "evision",
+            "build_tools": [
+              "mix",
+              "rebar3",
+              "make"
+            ]
+          },
+          "version": "1.0.0",
+          "checksum": "7b4951fb53a41df9be34af93f3b982b6d75f52b23a0c4fdc6fe12fec97c25f19",
+          "url": "https://hex.pm/api/packages/evision/releases/1.0.0",
+          "has_docs": true,
+          "inserted_at": "2026-06-24T10:50:12.525816Z",
+          "updated_at": "2026-06-24T10:50:16.613926Z",
+          "requirements": {
+            "castore": {
+              "app": "castore",
+              "optional": false,
+              "requirement": "~> 0.1 or ~> 1.0"
+            },
+            "elixir_make": {
+              "app": "elixir_make",
+              "optional": false,
+              "requirement": "~> 0.7"
+            },
+            "kino": {
+              "app": "kino",
+              "optional": true,
+              "requirement": "~> 0.11"
+            },
+            "nx": {
+              "app": "nx",
+              "optional": false,
+              "requirement": "~> 0.12.1"
+            },
+            "progress_bar": {
+              "app": "progress_bar",
+              "optional": true,
+              "requirement": "~> 2.0 or ~> 3.0"
+            }
+          },
+          "html_url": "https://hex.pm/packages/evision/1.0.0",
+          "oidc_claims": null,
+          "retirement": null,
+          "package_url": "https://hex.pm/api/packages/evision",
+          "downloads": 35209,
+          "security_advisories": [],
+          "docs_html_url": "https://evision.hexdocs.pm/1.0.0/",
+          "configs": {
+            "erlang.mk": "dep_evision = hex 1.0.0",
+            "mix.exs": "{:evision, \"~> 1.0\"}",
+            "rebar.config": "{evision, \"1.0.0\"}"
+          }
+        }
+      },
+      "github": {
+        "full_name": "cocoa-xu/evision",
+        "description": "Evision: An OpenCV-Erlang/Elixir binding",
+        "archived": false,
+        "default_branch": "main",
+        "license": {
+          "key": "apache-2.0",
+          "name": "Apache License 2.0",
+          "spdx_id": "Apache-2.0",
+          "url": "https://api.github.com/licenses/apache-2.0",
+          "node_id": "MDc6TGljZW5zZTI="
+        },
+        "pushed_at": "2026-11-08T04:32:36Z",
+        "open_issues_count": 7,
+        "error": null,
+        "last_commit": {
+          "sha": "2ba11d98ab40f7f1abbe95a647f2d8068de25025",
+          "date": "2026-11-08T04:32:33Z"
+        },
+        "open_issues_excluding_prs": 7
+      }
+    },
+    {
+      "package": "nx_image",
+      "checked_at": "2026-11-08T05:12:40.971602+00:00",
+      "hex_url": "https://hex.pm/api/packages/nx_image",
+      "repo": "elixir-nx/nx_image",
+      "hex_metadata_repo": "elixir-nx/nx_image",
+      "identity_mismatch": false,
+      "discovery": "listed",
+      "index_matches": [
+        {
+          "section": "Vision & Image Processing",
+          "line": "- [NxImage](https://github.com/elixir-nx/nx_image) - Image processing in Nx for preprocessing and augmentation."
+        }
+      ],
+      "hex": {
+        "name": "nx_image",
+        "meta": {
+          "links": {
+            "GitHub": "https://github.com/elixir-nx/nx_image"
+          },
+          "description": "Image processing in Nx",
+          "licenses": [
+            "Apache-2.0"
+          ],
+          "maintainers": []
+        },
+        "latest_version": "0.2.0",
+        "latest_stable_version": "0.2.0",
+        "retirements": {},
+        "owners": [
+          "elixir_nx"
+        ],
+        "releases": [
+          {
+            "version": "0.2.0",
+            "url": "https://hex.pm/api/packages/nx_image/releases/0.2.0",
+            "has_docs": true,
+            "inserted_at": "2026-09-21T21:51:42.409946Z"
+          }
+        ],
+        "selected_release": {
+          "meta": {
+            "elixir": "~> 1.13",
+            "app": "nx_image",
+            "build_tools": [
+              "mix"
+            ]
+          },
+          "version": "0.2.0",
+          "checksum": "37276f456e82fb21b8f8b25d64b1889ffac56a9a46171e359ed2d696c712b597",
+          "url": "https://hex.pm/api/packages/nx_image/releases/0.2.0",
+          "has_docs": true,
+          "inserted_at": "2026-09-21T21:51:42.409946Z",
+          "updated_at": "2026-09-21T21:51:43.867278Z",
+          "requirements": {
+            "nx": {
+              "app": "nx",
+              "optional": false,
+              "requirement": "~> 1.0"
+            }
+          },
+          "html_url": "https://hex.pm/packages/nx_image/0.2.0",
+          "oidc_claims": null,
+          "retirement": null,
+          "package_url": "https://hex.pm/api/packages/nx_image",
+          "downloads": 4290,
+          "security_advisories": [],
+          "docs_html_url": "https://nx-image.hexdocs.pm/0.2.0/",
+          "configs": {
+            "erlang.mk": "dep_nx_image = hex 0.2.0",
+            "mix.exs": "{:nx_image, \"~> 0.2.0\"}",
+            "rebar.config": "{nx_image, \"0.2.0\"}"
+          }
+        }
+      },
+      "github": {
+        "full_name": "elixir-nx/nx_image",
+        "description": "Image processing in Nx",
+        "archived": false,
+        "default_branch": "main",
+        "license": {
+          "key": "apache-2.0",
+          "name": "Apache License 2.0",
+          "spdx_id": "Apache-2.0",
+          "url": "https://api.github.com/licenses/apache-2.0",
+          "node_id": "MDc6TGljZW5zZTI="
+        },
+        "pushed_at": "2026-09-21T21:52:17Z",
+        "open_issues_count": 1,
+        "error": null,
+        "last_commit": {
+          "sha": "9a5fd327830d8c791dc82ea2b509a122a96296ed",
+          "date": "2026-09-21T21:51:55Z"
+        },
+        "open_issues_excluding_prs": 1
+      }
+    },
+    {
+      "package": "vix",
+      "checked_at": "2026-11-08T05:12:41.091169+00:00",
+      "hex_url": "https://hex.pm/api/packages/vix",
+      "repo": "akash-akya/vix",
+      "hex_metadata_repo": "akash-akya/vix",
+      "identity_mismatch": false,
+      "discovery": "listed",
+      "index_matches": [
+        {
+          "section": "Vision & Image Processing",
+          "line": "- [Vix](https://github.com/akash-akya/vix) - Fast image processing via libvips for preprocessing and augmentation."
+        }
+      ],
+      "hex": {
+        "name": "vix",
+        "meta": {
+          "links": {
+            "GitHub": "https://github.com/akash-akya/vix",
+            "libvips": "https://libvips.github.io/libvips"
+          },
+          "description": "NIF based bindings for libvips",
+          "licenses": [
+            "MIT"
+          ],
+          "maintainers": []
+        },
+        "latest_version": "0.42.0",
+        "latest_stable_version": "0.42.0",
+        "retirements": {
+          "0.2.0": {
+            "message": "Incorrect package files, please use v0.2.1+",
+            "reason": "invalid"
+          }
+        },
+        "owners": [
+          "akash-akya"
+        ],
+        "releases": [
+          {
+            "version": "0.42.0",
+            "url": "https://hex.pm/api/packages/vix/releases/0.42.0",
+            "has_docs": true,
+            "inserted_at": "2026-09-27T13:14:14.262479Z"
+          }
+        ],
+        "selected_release": {
+          "meta": {
+            "elixir": "~> 1.12",
+            "app": "vix",
+            "build_tools": [
+              "mix",
+              "make"
+            ]
+          },
+          "version": "0.42.0",
+          "checksum": "c4c92051653859dc5219f553a93fa777d63525ee961c48e16e9f61fed02472ee",
+          "url": "https://hex.pm/api/packages/vix/releases/0.42.0",
+          "has_docs": true,
+          "inserted_at": "2026-09-27T13:14:14.262479Z",
+          "updated_at": "2026-09-27T13:14:16.948380Z",
+          "requirements": {
+            "cc_precompiler": {
+              "app": "cc_precompiler",
+              "optional": false,
+              "requirement": "~> 0.2 or ~> 0.1.4"
+            },
+            "elixir_make": {
+              "app": "elixir_make",
+              "optional": false,
+              "requirement": "~> 0.8 or ~> 0.7.3"
+            },
+            "kino": {
+              "app": "kino",
+              "optional": true,
+              "requirement": "~> 0.7"
+            }
+          },
+          "html_url": "https://hex.pm/packages/vix/0.42.0",
+          "oidc_claims": null,
+          "retirement": null,
+          "package_url": "https://hex.pm/api/packages/vix",
+          "downloads": 100725,
+          "security_advisories": [],
+          "docs_html_url": "https://vix.hexdocs.pm/0.42.0/",
+          "configs": {
+            "erlang.mk": "dep_vix = hex 0.42.0",
+            "mix.exs": "{:vix, \"~> 0.42.0\"}",
+            "rebar.config": "{vix, \"0.42.0\"}"
+          }
+        }
+      },
+      "github": {
+        "full_name": "akash-akya/vix",
+        "description": "Elixir extension for libvips",
+        "archived": false,
+        "default_branch": "master",
+        "license": {
+          "key": "mit",
+          "name": "MIT License",
+          "spdx_id": "MIT",
+          "url": "https://api.github.com/licenses/mit",
+          "node_id": "MDc6TGljZW5zZTEz"
+        },
+        "pushed_at": "2026-09-27T12:43:24Z",
+        "open_issues_count": 7,
+        "error": null,
+        "last_commit": {
+          "sha": "e70c50846b23ef516e2c77592c9527605e1a00cb",
+          "date": "2026-09-27T12:42:49Z"
+        },
+        "open_issues_excluding_prs": 5
+      }
+    },
+    {
+      "package": "yolo",
+      "checked_at": "2026-11-08T05:12:43.853828+00:00",
+      "hex_url": "https://hex.pm/api/packages/yolo",
+      "repo": "poeticoding/yolo_elixir",
+      "hex_metadata_repo": "poeticoding/yolo_elixir",
+      "identity_mismatch": false,
+      "discovery": "listed",
+      "index_matches": [
+        {
+          "section": "Vision & Image Processing",
+          "line": "- [YOLO](https://github.com/poeticoding/yolo_elixir) - Real-time object detection using YOLOv8 models with 38ms processing time and optional Rust NIF for performance."
+        }
+      ],
+      "hex": {
+        "name": "yolo",
+        "meta": {
+          "links": {
+            "GitHub": "https://github.com/poeticoding/yolo_elixir"
+          },
+          "description": "A library for object detection and seamless YOLO model integration in Elixir",
+          "licenses": [
+            "Apache-2.0"
+          ],
+          "maintainers": []
+        },
+        "latest_version": "0.2.0",
+        "latest_stable_version": "0.2.0",
+        "retirements": {},
+        "owners": [
+          "poeticoding"
+        ],
+        "releases": [
+          {
+            "version": "0.2.0",
+            "url": "https://hex.pm/api/packages/yolo/releases/0.2.0",
+            "has_docs": true,
+            "inserted_at": "2025-06-19T16:24:36.535480Z"
+          }
+        ],
+        "selected_release": {
+          "meta": {
+            "elixir": "~> 1.17",
+            "app": "yolo",
+            "build_tools": [
+              "mix"
+            ]
+          },
+          "version": "0.2.0",
+          "checksum": "f249a84150d02aada941915e6a422aa0c4a26e92f6fb83d1dfa0a8c8fcfe2348",
+          "url": "https://hex.pm/api/packages/yolo/releases/0.2.0",
+          "has_docs": true,
+          "inserted_at": "2025-06-19T16:24:36.535480Z",
+          "updated_at": "2025-06-19T16:24:40.640146Z",
+          "requirements": {
+            "evision": {
+              "app": "evision",
+              "optional": true,
+              "requirement": "~> 0.2.0"
+            },
+            "exla": {
+              "app": "exla",
+              "optional": true,
+              "requirement": "~> 0.9"
+            },
+            "image": {
+              "app": "image",
+              "optional": true,
+              "requirement": "~> 0.54.4"
+            },
+            "nx": {
+              "app": "nx",
+              "optional": false,
+              "requirement": "~> 0.9"
+            },
+            "ortex": {
+              "app": "ortex",
+              "optional": false,
+              "requirement": "~> 0.1.10"
+            },
+            "yolo_fast_nms": {
+              "app": "yolo_fast_nms",
+              "optional": true,
+              "requirement": "~> 0.2"
+            }
+          },
+          "html_url": "https://hex.pm/packages/yolo/0.2.0",
+          "oidc_claims": null,
+          "retirement": null,
+          "package_url": "https://hex.pm/api/packages/yolo",
+          "downloads": 2066,
+          "security_advisories": [],
+          "docs_html_url": "https://yolo.hexdocs.pm/0.2.0/",
+          "configs": {
+            "erlang.mk": "dep_yolo = hex 0.2.0",
+            "mix.exs": "{:yolo, \"~> 0.2.0\"}",
+            "rebar.config": "{yolo, \"0.2.0\"}"
+          }
+        }
+      },
+      "github": {
+        "full_name": "poeticoding/yolo_elixir",
+        "description": "A library for object detection and seamless YOLO model integration in Elixir",
+        "archived": false,
+        "default_branch": "main",
+        "license": {
+          "key": "apache-2.0",
+          "name": "Apache License 2.0",
+          "spdx_id": "Apache-2.0",
+          "url": "https://api.github.com/licenses/apache-2.0",
+          "node_id": "MDc6TGljZW5zZTI="
+        },
+        "pushed_at": "2025-10-13T21:39:04Z",
+        "open_issues_count": 9,
+        "error": null,
+        "last_commit": {
+          "sha": "f2072d3909efb913aa0a7c0bde0392c443ee1849",
+          "date": "2025-10-13T21:39:04Z"
+        },
+        "open_issues_excluding_prs": 8
+      }
+    },
+    {
+      "package": "genex",
+      "checked_at": "2026-11-08T05:12:44.017539+00:00",
+      "hex_url": "https://hex.pm/api/packages/genex",
+      "repo": "seanmor5/genex",
+      "hex_metadata_repo": "seanmor5/genex",
+      "identity_mismatch": false,
+      "discovery": "listed",
+      "index_matches": [
+        {
+          "section": "Evolutionary & Genetic Algorithms",
+          "line": "- [Genex](https://github.com/seanmor5/genex) - Genetic Algorithms in Elixir. Simple library for evolutionary computing and optimization problems."
+        }
+      ],
+      "hex": {
+        "name": "genex",
+        "meta": {
+          "links": {
+            "GitHub": "http://www.github.com/seanmor5/genex"
+          },
+          "description": "Genex makes it easy to write Evolutionary Algorithms in Elixir.",
+          "licenses": [
+            "Apache-2.0"
+          ],
+          "maintainers": []
+        },
+        "latest_version": "1.0.1-beta",
+        "latest_stable_version": "0.2.1",
+        "retirements": {},
+        "owners": [
+          "seanmor5"
+        ],
+        "releases": [
+          {
+            "version": "1.0.1-beta",
+            "url": "https://hex.pm/api/packages/genex/releases/1.0.1-beta",
+            "has_docs": true,
+            "inserted_at": "2020-03-25T02:38:09.561714Z"
+          },
+          {
+            "version": "0.2.1",
+            "url": "https://hex.pm/api/packages/genex/releases/0.2.1",
+            "has_docs": true,
+            "inserted_at": "2019-08-10T20:14:33.824952Z"
+          }
+        ],
+        "selected_release": {
+          "meta": {
+            "elixir": "~> 1.9",
+            "app": "genex",
+            "build_tools": [
+              "mix"
+            ]
+          },
+          "version": "0.2.1",
+          "checksum": "09c72c32205ef68cdae039c06fabae01de51b49384fedf61b498fca3e593df7d",
+          "url": "https://hex.pm/api/packages/genex/releases/0.2.1",
+          "has_docs": true,
+          "inserted_at": "2019-08-10T20:14:33.824952Z",
+          "updated_at": "2019-08-10T20:14:43.593544Z",
+          "requirements": {
+            "benchee": {
+              "app": "benchee",
+              "optional": false,
+              "requirement": "~> 1.0"
+            },
+            "libgraph": {
+              "app": "libgraph",
+              "optional": false,
+              "requirement": "~> 0.13.0"
+            },
+            "table_rex": {
+              "app": "table_rex",
+              "optional": false,
+              "requirement": "~> 2.0.0"
+            }
+          },
+          "html_url": "https://hex.pm/packages/genex/0.2.1",
+          "oidc_claims": null,
+          "retirement": null,
+          "package_url": "https://hex.pm/api/packages/genex",
+          "downloads": 494,
+          "security_advisories": [],
+          "docs_html_url": "https://genex.hexdocs.pm/0.2.1/",
+          "configs": {
+            "erlang.mk": "dep_genex = hex 0.2.1",
+            "mix.exs": "{:genex, \"~> 0.2.1\"}",
+            "rebar.config": "{genex, \"0.2.1\"}"
+          }
+        }
+      },
+      "github": {
+        "full_name": "seanmor5/genex",
+        "description": "Genetic Algorithms in Elixir!",
+        "archived": false,
+        "default_branch": "master",
+        "license": {
+          "key": "apache-2.0",
+          "name": "Apache License 2.0",
+          "spdx_id": "Apache-2.0",
+          "url": "https://api.github.com/licenses/apache-2.0",
+          "node_id": "MDc6TGljZW5zZTI="
+        },
+        "pushed_at": "2024-02-24T14:11:25Z",
+        "open_issues_count": 2,
+        "error": null,
+        "last_commit": {
+          "sha": "d1be8b030019f24180ddd0b1a9a91bd3039da076",
+          "date": "2020-08-15T16:15:29Z"
+        },
+        "open_issues_excluding_prs": 1
+      }
+    },
+    {
+      "package": "livebook",
+      "checked_at": "2026-11-08T05:12:46.417573+00:00",
+      "hex_url": "https://hex.pm/api/packages/livebook",
+      "repo": "livebook-dev/livebook",
+      "hex_metadata_repo": "livebook-dev/livebook",
+      "identity_mismatch": false,
+      "discovery": "listed",
+      "index_matches": [
+        {
+          "section": "Starters, Templates & Examples",
+          "line": "- [Livebook](https://livebook.dev/) - Write interactive and collaborative notebooks with integrations to databases, messaging, visualization and AI workflows."
+        }
+      ],
+      "hex": {
+        "name": "livebook",
+        "meta": {
+          "links": {
+            "GitHub": "https://github.com/livebook-dev/livebook"
+          },
+          "description": "Automate code & data workflows with interactive notebooks",
+          "licenses": [
+            "Apache-2.0"
+          ],
+          "maintainers": []
+        },
+        "latest_version": "0.19.10",
+        "latest_stable_version": "0.19.10",
+        "retirements": {},
+        "owners": [
+          "livebook"
+        ],
+        "releases": [
+          {
+            "version": "0.19.10",
+            "url": "https://hex.pm/api/packages/livebook/releases/0.19.10",
+            "has_docs": true,
+            "inserted_at": "2026-09-18T09:07:18.291975Z"
+          }
+        ],
+        "selected_release": {
+          "meta": {
+            "elixir": "~> 1.18",
+            "app": "livebook",
+            "build_tools": [
+              "mix"
+            ]
+          },
+          "version": "0.19.10",
+          "checksum": "0ebd5c52181f1f350eeaf97d9a9af22298734f800e93f403a2c472afffaa080c",
+          "url": "https://hex.pm/api/packages/livebook/releases/0.19.10",
+          "has_docs": true,
+          "inserted_at": "2026-09-18T09:07:18.291975Z",
+          "updated_at": "2026-09-18T09:07:20.836764Z",
+          "requirements": {
+            "aws_credentials": {
+              "app": "aws_credentials",
+              "optional": false,
+              "requirement": "0.3.2"
+            },
+            "bandit": {
+              "app": "bandit",
+              "optional": false,
+              "requirement": "1.11.1"
+            },
+            "bun": {
+              "app": "bun",
+              "optional": false,
+              "requirement": "1.6.0"
+            },
+            "dns_cluster": {
+              "app": "dns_cluster",
+              "optional": false,
+              "requirement": "0.1.3"
+            },
+            "earmark_parser": {
+              "app": "earmark_parser",
+              "optional": false,
+              "requirement": "1.4.44"
+            },
+            "ecto": {
+              "app": "ecto",
+              "optional": false,
+              "requirement": "3.13.6"
+            },
+            "kubereq": {
+              "app": "kubereq",
+              "optional": false,
+              "requirement": "0.4.2"
+            },
+            "logger_json": {
+              "app": "logger_json",
+              "optional": false,
+              "requirement": "6.2.1"
+            },
+            "mint_web_socket": {
+              "app": "mint_web_socket",
+              "optional": false,
+              "requirement": "1.0.4"
+            },
+            "nimble_zta": {
+              "app": "nimble_zta",
+              "optional": false,
+              "requirement": "0.1.0"
+            },
+            "phoenix": {
+              "app": "phoenix",
+              "optional": false,
+              "requirement": "1.8.7"
+            },
+            "phoenix_ecto": {
+              "app": "phoenix_ecto",
+              "optional": false,
+              "requirement": "4.6.3"
+            },
+            "phoenix_html": {
+              "app": "phoenix_html",
+              "optional": false,
+              "requirement": "4.2.1"
+            },
+            "phoenix_live_dashboard": {
+              "app": "phoenix_live_dashboard",
+              "optional": false,
+              "requirement": "0.8.6"
+            },
+            "phoenix_live_view": {
+              "app": "phoenix_live_view",
+              "optional": false,
+              "requirement": "1.1.24"
+            },
+            "plug": {
+              "app": "plug",
+              "optional": false,
+              "requirement": "1.19.2"
+            },
+            "plug_crypto": {
+              "app": "plug_crypto",
+              "optional": false,
+              "requirement": "2.1.0"
+            },
+            "protobuf": {
+              "app": "protobuf",
+              "optional": false,
+              "requirement": "0.13.0"
+            },
+            "req": {
+              "app": "req",
+              "optional": false,
+              "requirement": "0.5.8"
+            },
+            "telemetry_metrics": {
+              "app": "telemetry_metrics",
+              "optional": false,
+              "requirement": "1.1.0"
+            },
+            "telemetry_poller": {
+              "app": "telemetry_poller",
+              "optional": false,
+              "requirement": "1.1.0"
+            },
+            "yaml_elixir": {
+              "app": "yaml_elixir",
+              "optional": false,
+              "requirement": "2.11.0"
+            }
+          },
+          "html_url": "https://hex.pm/packages/livebook/0.19.10",
+          "oidc_claims": null,
+          "retirement": null,
+          "package_url": "https://hex.pm/api/packages/livebook",
+          "downloads": 3814,
+          "security_advisories": [],
+          "docs_html_url": "https://livebook.hexdocs.pm/0.19.10/",
+          "configs": {
+            "erlang.mk": "dep_livebook = hex 0.19.10",
+            "mix.exs": "{:livebook, \"~> 0.19.10\"}",
+            "rebar.config": "{livebook, \"0.19.10\"}"
+          }
+        }
+      },
+      "github": {
+        "full_name": "livebook-dev/livebook",
+        "description": "Automate code & data workflows with interactive Elixir notebooks",
+        "archived": false,
+        "default_branch": "main",
+        "license": {
+          "key": "apache-2.0",
+          "name": "Apache License 2.0",
+          "spdx_id": "Apache-2.0",
+          "url": "https://api.github.com/licenses/apache-2.0",
+          "node_id": "MDc6TGljZW5zZTI="
+        },
+        "pushed_at": "2026-11-06T00:05:52Z",
+        "open_issues_count": 23,
+        "error": null,
+        "last_commit": {
+          "sha": "8804d28662e4958961a33bd5344ca736ce44bf2b",
+          "date": "2026-11-05T13:00:09Z"
+        },
+        "open_issues_excluding_prs": 19
+      }
+    },
+    {
+      "package": "kino",
+      "checked_at": "2026-11-08T05:12:46.408761+00:00",
+      "hex_url": "https://hex.pm/api/packages/kino",
+      "repo": "livebook-dev/kino",
+      "hex_metadata_repo": "livebook-dev/kino",
+      "identity_mismatch": false,
+      "discovery": "listed",
+      "index_matches": [
+        {
+          "section": "Starters, Templates & Examples",
+          "line": "- [Kino](https://github.com/livebook-dev/kino) - Render rich and interactive output in Livebook for building AI demos and explorations."
+        }
+      ],
+      "hex": {
+        "name": "kino",
+        "meta": {
+          "links": {
+            "GitHub": "https://github.com/livebook-dev/kino"
+          },
+          "description": "Interactive widgets for Livebook",
+          "licenses": [
+            "Apache-2.0"
+          ],
+          "maintainers": []
+        },
+        "latest_version": "0.19.1",
+        "latest_stable_version": "0.19.1",
+        "retirements": {
+          "0.6.0": {
+            "message": "This version is not compatible with Livebook, please use a newer version",
+            "reason": "other"
+          }
+        },
+        "owners": [
+          "livebook"
+        ],
+        "releases": [
+          {
+            "version": "0.19.1",
+            "url": "https://hex.pm/api/packages/kino/releases/0.19.1",
+            "has_docs": true,
+            "inserted_at": "2026-09-15T15:00:10.097087Z"
+          }
+        ],
+        "selected_release": {
+          "meta": {
+            "elixir": "~> 1.14",
+            "app": "kino",
+            "build_tools": [
+              "mix"
+            ]
+          },
+          "version": "0.19.1",
+          "checksum": "71946d247bb12a6ac591405a29b696ce37edce44ff43f288dbe43278bb455429",
+          "url": "https://hex.pm/api/packages/kino/releases/0.19.1",
+          "has_docs": true,
+          "inserted_at": "2026-09-15T15:00:10.097087Z",
+          "updated_at": "2026-09-15T15:00:11.654452Z",
+          "requirements": {
+            "nx": {
+              "app": "nx",
+              "optional": true,
+              "requirement": "~> 0.1 or ~> 1.0"
+            },
+            "plug": {
+              "app": "plug",
+              "optional": true,
+              "requirement": "~> 1.0"
+            },
+            "table": {
+              "app": "table",
+              "optional": false,
+              "requirement": "~> 0.1.2"
+            }
+          },
+          "html_url": "https://hex.pm/packages/kino/0.19.1",
+          "oidc_claims": null,
+          "retirement": null,
+          "package_url": "https://hex.pm/api/packages/kino",
+          "downloads": 18292,
+          "security_advisories": [],
+          "docs_html_url": "https://kino.hexdocs.pm/0.19.1/",
+          "configs": {
+            "erlang.mk": "dep_kino = hex 0.19.1",
+            "mix.exs": "{:kino, \"~> 0.19.1\"}",
+            "rebar.config": "{kino, \"0.19.1\"}"
+          }
+        }
+      },
+      "github": {
+        "full_name": "livebook-dev/kino",
+        "description": "Client-driven interactive widgets for Livebook",
+        "archived": false,
+        "default_branch": "main",
+        "license": {
+          "key": "apache-2.0",
+          "name": "Apache License 2.0",
+          "spdx_id": "Apache-2.0",
+          "url": "https://api.github.com/licenses/apache-2.0",
+          "node_id": "MDc6TGljZW5zZTI="
+        },
+        "pushed_at": "2026-09-23T20:59:48Z",
+        "open_issues_count": 9,
+        "error": null,
+        "last_commit": {
+          "sha": "d8f6b0f3367967a112262716c97a620862648bc2",
+          "date": "2026-09-23T20:59:48Z"
+        },
+        "open_issues_excluding_prs": 7
+      }
+    },
+    {
+      "package": "anubis_mcp",
+      "checked_at": "2026-11-08T05:12:48.887874+00:00",
+      "hex_url": "https://hex.pm/api/packages/anubis_mcp",
+      "repo": "zoedsoupe/anubis-mcp",
+      "hex_metadata_repo": "zoedsoupe/anubis-mcp",
+      "identity_mismatch": false,
+      "discovery": "listed",
+      "index_matches": [
+        {
+          "section": "Model Context Protocol (MCP)",
+          "line": "- [Anubis MCP](https://github.com/zoedsoupe/anubis-mcp) - SDK for the Model Context Protocol (MCP) with support for multiple transport options (STDIO, HTTP/SSE, WebSocket)."
+        }
+      ],
+      "hex": {
+        "name": "anubis_mcp",
+        "meta": {
+          "links": {
+            "Docs": "https://hexdocs.pm/anubis_mcp",
+            "GitHub": "https://github.com/zoedsoupe/anubis-mcp"
+          },
+          "description": "Model Context Protocol (MCP) implementation in Elixir with Phoenix integration",
+          "licenses": [
+            "LGPL-3.0"
+          ],
+          "maintainers": []
+        },
+        "latest_version": "2.2.0",
+        "latest_stable_version": "2.2.0",
+        "retirements": {},
+        "owners": [
+          "zoedsoupe"
+        ],
+        "releases": [
+          {
+            "version": "2.2.0",
+            "url": "https://hex.pm/api/packages/anubis_mcp/releases/2.2.0",
+            "has_docs": true,
+            "inserted_at": "2026-10-19T14:09:34.653152Z"
+          }
+        ],
+        "selected_release": {
+          "meta": {
+            "elixir": "~> 1.18",
+            "app": "anubis_mcp",
+            "build_tools": [
+              "mix"
+            ]
+          },
+          "version": "2.2.0",
+          "checksum": "073c1226a6787c85793261dd5037349b86c817e12b9fc14a06e927af090990db",
+          "url": "https://hex.pm/api/packages/anubis_mcp/releases/2.2.0",
+          "has_docs": true,
+          "inserted_at": "2026-10-19T14:09:34.653152Z",
+          "updated_at": "2026-10-19T14:09:36.096676Z",
+          "requirements": {
+            "finch": {
+              "app": "finch",
+              "optional": false,
+              "requirement": "~> 0.24"
+            },
+            "jose": {
+              "app": "jose",
+              "optional": true,
+              "requirement": "~> 1.11"
+            },
+            "peri": {
+              "app": "peri",
+              "optional": false,
+              "requirement": "~> 0.11.2"
+            },
+            "plug": {
+              "app": "plug",
+              "optional": true,
+              "requirement": "~> 1.20"
+            },
+            "redix": {
+              "app": "redix",
+              "optional": true,
+              "requirement": "~> 1.9"
+            },
+            "telemetry": {
+              "app": "telemetry",
+              "optional": false,
+              "requirement": "~> 1.4"
+            }
+          },
+          "html_url": "https://hex.pm/packages/anubis_mcp/2.2.0",
+          "oidc_claims": null,
+          "retirement": null,
+          "package_url": "https://hex.pm/api/packages/anubis_mcp",
+          "downloads": 19950,
+          "security_advisories": [],
+          "docs_html_url": "https://anubis-mcp.hexdocs.pm/2.2.0/",
+          "configs": {
+            "erlang.mk": "dep_anubis_mcp = hex 2.2.0",
+            "mix.exs": "{:anubis_mcp, \"~> 2.2\"}",
+            "rebar.config": "{anubis_mcp, \"2.2.0\"}"
+          }
+        }
+      },
+      "github": {
+        "full_name": "zoedsoupe/anubis-mcp",
+        "description": "Elixir Model Context Protocol (MCP) SDK (hermes-mcp fork)",
+        "archived": false,
+        "default_branch": "main",
+        "license": {
+          "key": "other",
+          "name": "Other",
+          "spdx_id": "NOASSERTION",
+          "url": null,
+          "node_id": "MDc6TGljZW5zZTA="
+        },
+        "pushed_at": "2026-11-05T15:34:24Z",
+        "open_issues_count": 8,
+        "error": null,
+        "last_commit": {
+          "sha": "9fc16d9a22a4c55fe260793d92617052245ff68c",
+          "date": "2026-11-05T15:33:53Z"
+        },
+        "open_issues_excluding_prs": 7
+      }
+    },
+    {
+      "package": "hexdocs_mcp",
+      "checked_at": "2026-11-08T05:12:49.993653+00:00",
+      "hex_url": "https://hex.pm/api/packages/hexdocs_mcp",
+      "repo": "bradleygolden/hexdocs-mcp",
+      "hex_metadata_repo": "bradleygolden/hexdocs-mcp",
+      "identity_mismatch": false,
+      "discovery": "listed",
+      "index_matches": [
+        {
+          "section": "Model Context Protocol (MCP)",
+          "line": "- [HexDocs MCP](https://github.com/bradleygolden/hexdocs-mcp) - Enables semantic search of Elixir package documentation for AI assistants via Model Context Protocol (MCP)."
+        }
+      ],
+      "hex": {
+        "name": "hexdocs_mcp",
+        "meta": {
+          "links": {
+            "Changelog": "https://github.com/bradleygolden/hexdocs-mcp/blob/main/CHANGELOG.md",
+            "GitHub": "https://github.com/bradleygolden/hexdocs-mcp"
+          },
+          "description": "HexDocs MCP is a project that provides semantic search capabilities for Hex package documentation,\ndesigned specifically for AI applications. It downloads, processes, and generates embeddings from\nHex package documentation and provides a Model Context Protocol (MCP) server for searching.",
+          "licenses": [
+            "MIT"
+          ],
+          "maintainers": []
+        },
+        "latest_version": "0.6.0",
+        "latest_stable_version": "0.6.0",
+        "retirements": {},
+        "owners": [
+          "bgolde5"
+        ],
+        "releases": [
+          {
+            "version": "0.6.0",
+            "url": "https://hex.pm/api/packages/hexdocs_mcp/releases/0.6.0",
+            "has_docs": true,
+            "inserted_at": "2025-06-04T12:41:26.686943Z"
+          }
+        ],
+        "selected_release": {
+          "meta": {
+            "elixir": ">= 1.16.0",
+            "app": "hexdocs_mcp",
+            "build_tools": [
+              "mix"
+            ]
+          },
+          "version": "0.6.0",
+          "checksum": "81643445683dff3cd98fb335acc4f54c317f687979206f9e9600fd2862bb712c",
+          "url": "https://hex.pm/api/packages/hexdocs_mcp/releases/0.6.0",
+          "has_docs": true,
+          "inserted_at": "2025-06-04T12:41:26.686943Z",
+          "updated_at": "2025-06-04T12:41:29.605262Z",
+          "requirements": {
+            "burrito": {
+              "app": "burrito",
+              "optional": false,
+              "requirement": "~> 1.0"
+            },
+            "ecto": {
+              "app": "ecto",
+              "optional": false,
+              "requirement": "~> 3.0"
+            },
+            "ecto_sql": {
+              "app": "ecto_sql",
+              "optional": false,
+              "requirement": "~> 3.0"
+            },
+            "ecto_sqlite3": {
+              "app": "ecto_sqlite3",
+              "optional": false,
+              "requirement": "~> 0.16"
+            },
+            "floki": {
+              "app": "floki",
+              "optional": false,
+              "requirement": ">= 0.30.0"
+            },
+            "jason": {
+              "app": "jason",
+              "optional": false,
+              "requirement": "~> 1.0"
+            },
+            "ollama": {
+              "app": "ollama",
+              "optional": false,
+              "requirement": "~> 0.8"
+            },
+            "plug": {
+              "app": "plug",
+              "optional": false,
+              "requirement": "~> 1.0"
+            },
+            "sqlite_vec": {
+              "app": "sqlite_vec",
+              "optional": false,
+              "requirement": "~> 0.1"
+            },
+            "text_chunker": {
+              "app": "text_chunker",
+              "optional": false,
+              "requirement": "~> 0.3"
+            }
+          },
+          "html_url": "https://hex.pm/packages/hexdocs_mcp/0.6.0",
+          "oidc_claims": null,
+          "retirement": null,
+          "package_url": "https://hex.pm/api/packages/hexdocs_mcp",
+          "downloads": 1055,
+          "security_advisories": [],
+          "docs_html_url": "https://hexdocs-mcp.hexdocs.pm/0.6.0/",
+          "configs": {
+            "erlang.mk": "dep_hexdocs_mcp = hex 0.6.0",
+            "mix.exs": "{:hexdocs_mcp, \"~> 0.6.0\"}",
+            "rebar.config": "{hexdocs_mcp, \"0.6.0\"}"
+          }
+        }
+      },
+      "github": {
+        "full_name": "bradleygolden/hexdocs-mcp",
+        "description": "Semantic search for Hex documentation, right in your editor \u2728",
+        "archived": false,
+        "default_branch": "main",
+        "license": {
+          "key": "mit",
+          "name": "MIT License",
+          "spdx_id": "MIT",
+          "url": "https://api.github.com/licenses/mit",
+          "node_id": "MDc6TGljZW5zZTEz"
+        },
+        "pushed_at": "2025-06-18T05:37:20Z",
+        "open_issues_count": 2,
+        "error": null,
+        "last_commit": {
+          "sha": "9bc8c7b610da12bc9653922ab61ead5706bd08c5",
+          "date": "2025-06-18T05:37:16Z"
+        },
+        "open_issues_excluding_prs": 2
+      }
+    },
+    {
+      "package": "mcp_proxy",
+      "checked_at": "2026-11-08T05:12:51.315459+00:00",
+      "hex_url": "https://hex.pm/api/packages/mcp_proxy",
+      "repo": "tidewave-ai/mcp_proxy_elixir",
+      "hex_metadata_repo": "tidewave-ai/mcp_proxy_elixir",
+      "identity_mismatch": false,
+      "discovery": "listed",
+      "index_matches": [
+        {
+          "section": "Model Context Protocol (MCP)",
+          "line": "- [MCP Proxy](https://github.com/tidewave-ai/mcp_proxy_elixir) - Proxy that connects STDIO-based MCP clients to HTTP-based Server-Sent Events (SSE) MCP servers."
+        }
+      ],
+      "hex": {
+        "name": "mcp_proxy",
+        "meta": {
+          "links": {
+            "GitHub": "https://github.com/tidewave-ai/mcp_proxy_elixir"
+          },
+          "description": "An escript for connecting STDIO based MCP clients to HTTP (SSE) based MCP servers.",
+          "licenses": [
+            "Apache-2.0"
+          ],
+          "maintainers": []
+        },
+        "latest_version": "0.3.3",
+        "latest_stable_version": "0.3.3",
+        "retirements": {},
+        "owners": [
+          "tidewave"
+        ],
+        "releases": [
+          {
+            "version": "0.3.3",
+            "url": "https://hex.pm/api/packages/mcp_proxy/releases/0.3.3",
+            "has_docs": true,
+            "inserted_at": "2025-05-02T15:08:41.804102Z"
+          }
+        ],
+        "selected_release": {
+          "meta": {
+            "elixir": "~> 1.15",
+            "app": "mcp_proxy",
+            "build_tools": [
+              "mix"
+            ]
+          },
+          "version": "0.3.3",
+          "checksum": "7ff3b670bca27a0701a18cced2ffa3f55e83971c54f67211d74bb82f0df36cb7",
+          "url": "https://hex.pm/api/packages/mcp_proxy/releases/0.3.3",
+          "has_docs": true,
+          "inserted_at": "2025-05-02T15:08:41.804102Z",
+          "updated_at": "2025-05-02T15:08:45.372781Z",
+          "requirements": {
+            "jason": {
+              "app": "jason",
+              "optional": false,
+              "requirement": "~> 1.4"
+            },
+            "req": {
+              "app": "req",
+              "optional": false,
+              "requirement": "~> 0.5"
+            }
+          },
+          "html_url": "https://hex.pm/packages/mcp_proxy/0.3.3",
+          "oidc_claims": null,
+          "retirement": null,
+          "package_url": "https://hex.pm/api/packages/mcp_proxy",
+          "downloads": 1383,
+          "security_advisories": [],
+          "docs_html_url": "https://mcp-proxy.hexdocs.pm/0.3.3/",
+          "configs": {
+            "erlang.mk": "dep_mcp_proxy = hex 0.3.3",
+            "mix.exs": "{:mcp_proxy, \"~> 0.3.3\"}",
+            "rebar.config": "{mcp_proxy, \"0.3.3\"}"
+          }
+        }
+      },
+      "github": {
+        "full_name": "tidewave-ai/mcp_proxy_elixir",
+        "description": "A proxy to use SSE MCPs from STDIO clients",
+        "archived": true,
+        "default_branch": "main",
+        "license": {
+          "key": "apache-2.0",
+          "name": "Apache License 2.0",
+          "spdx_id": "Apache-2.0",
+          "url": "https://api.github.com/licenses/apache-2.0",
+          "node_id": "MDc6TGljZW5zZTI="
+        },
+        "pushed_at": "2025-05-06T18:33:52Z",
+        "open_issues_count": 1,
+        "error": null,
+        "last_commit": {
+          "sha": "4fb8a592ab56661a5a5198ebeafe76c18176cbe5",
+          "date": "2025-05-06T18:33:51Z"
+        },
+        "open_issues_excluding_prs": 1
+      }
+    },
+    {
+      "package": "tidewave",
+      "checked_at": "2026-11-08T05:12:52.623109+00:00",
+      "hex_url": "https://hex.pm/api/packages/tidewave",
+      "repo": "tidewave-ai/tidewave_phoenix",
+      "hex_metadata_repo": "tidewave-ai/tidewave_phoenix",
+      "identity_mismatch": false,
+      "discovery": "listed",
+      "index_matches": [
+        {
+          "section": "Model Context Protocol (MCP)",
+          "line": "- [Tidewave Phoenix](https://github.com/tidewave-ai/tidewave_phoenix) - AI-powered development assistant for Phoenix web applications that connects editor AI assistants to web framework runtime via MCP."
+        }
+      ],
+      "hex": {
+        "name": "tidewave",
+        "meta": {
+          "links": {
+            "GitHub": "https://github.com/tidewave-ai/tidewave_phoenix",
+            "Tidewave": "https://tidewave.ai/"
+          },
+          "description": "Tidewave for Phoenix",
+          "licenses": [
+            "Apache-2.0"
+          ],
+          "maintainers": []
+        },
+        "latest_version": "0.9.2",
+        "latest_stable_version": "0.9.2",
+        "retirements": {},
+        "owners": [
+          "tidewave"
+        ],
+        "releases": [
+          {
+            "version": "0.9.2",
+            "url": "https://hex.pm/api/packages/tidewave/releases/0.9.2",
+            "has_docs": true,
+            "inserted_at": "2026-10-27T12:43:33.563391Z"
+          }
+        ],
+        "selected_release": {
+          "meta": {
+            "elixir": "~> 1.15",
+            "app": "tidewave",
+            "build_tools": [
+              "mix"
+            ]
+          },
+          "version": "0.9.2",
+          "checksum": "66cba92861fa17cef3920caa9419bb001b81474dba0df3567f5b782675459879",
+          "url": "https://hex.pm/api/packages/tidewave/releases/0.9.2",
+          "has_docs": true,
+          "inserted_at": "2026-10-27T12:43:33.563391Z",
+          "updated_at": "2026-10-27T12:43:36.812555Z",
+          "requirements": {
+            "circular_buffer": {
+              "app": "circular_buffer",
+              "optional": false,
+              "requirement": "~> 0.4 or ~> 1.0"
+            },
+            "igniter": {
+              "app": "igniter",
+              "optional": true,
+              "requirement": "~> 0.6"
+            },
+            "jason": {
+              "app": "jason",
+              "optional": false,
+              "requirement": "~> 1.4"
+            },
+            "phoenix_live_reload": {
+              "app": "phoenix_live_reload",
+              "optional": true,
+              "requirement": ">= 1.6.1"
+            },
+            "plug": {
+              "app": "plug",
+              "optional": false,
+              "requirement": "~> 1.18"
+            },
+            "plug_cowboy": {
+              "app": "plug_cowboy",
+              "optional": true,
+              "requirement": "~> 2.9"
+            },
+            "websock_adapter": {
+              "app": "websock_adapter",
+              "optional": false,
+              "requirement": "~> 0.5"
+            }
+          },
+          "html_url": "https://hex.pm/packages/tidewave/0.9.2",
+          "oidc_claims": null,
+          "retirement": null,
+          "package_url": "https://hex.pm/api/packages/tidewave",
+          "downloads": 66619,
+          "security_advisories": [],
+          "docs_html_url": "https://tidewave.hexdocs.pm/0.9.2/",
+          "configs": {
+            "erlang.mk": "dep_tidewave = hex 0.9.2",
+            "mix.exs": "{:tidewave, \"~> 0.9.2\"}",
+            "rebar.config": "{tidewave, \"0.9.2\"}"
+          }
+        }
+      },
+      "github": {
+        "full_name": "tidewave-ai/tidewave_phoenix",
+        "description": "MCP server with runtime-level tools for Phoenix development",
+        "archived": false,
+        "default_branch": "main",
+        "license": {
+          "key": "apache-2.0",
+          "name": "Apache License 2.0",
+          "spdx_id": "Apache-2.0",
+          "url": "https://api.github.com/licenses/apache-2.0",
+          "node_id": "MDc6TGljZW5zZTI="
+        },
+        "pushed_at": "2026-10-30T12:21:05Z",
+        "open_issues_count": 5,
+        "error": null,
+        "last_commit": {
+          "sha": "8b429f8fdcfa9ed064e76f21b926ea3e33907075",
+          "date": "2026-10-30T12:20:59Z"
+        },
+        "open_issues_excluding_prs": 3
+      }
+    },
+    {
+      "package": "ex_mcp",
+      "checked_at": "2026-11-08T05:12:54.160566+00:00",
+      "hex_url": "https://hex.pm/api/packages/ex_mcp",
+      "repo": "trust-arbor/arbor_mcp",
+      "hex_metadata_repo": "trust-arbor/arbor_mcp",
+      "identity_mismatch": false,
+      "discovery": "adjacent comparison (not attributed to list)",
+      "index_matches": [],
+      "hex": {
+        "name": "ex_mcp",
+        "meta": {
+          "links": {
+            "ACP Spec": "https://agentclientprotocol.com",
+            "Changelog": "https://github.com/trust-arbor/arbor_mcp/blob/v1.8.1/CHANGELOG.md",
+            "GitHub": "https://github.com/trust-arbor/arbor_mcp",
+            "MCP Spec": "https://modelcontextprotocol.io",
+            "Maintenance": "https://github.com/trust-arbor/arbor_mcp/blob/codex/maintenance-1.x/docs/MAINTENANCE_POLICY.md"
+          },
+          "description": "Elixir implementation of MCP and ACP. Build MCP clients/servers with tools, resources, prompts over stdio, HTTP/SSE, and BEAM. Control coding agents via ACP with adapters for Claude Code, Codex, and more.",
+          "licenses": [
+            "MIT"
+          ],
+          "maintainers": []
+        },
+        "latest_version": "1.8.1",
+        "latest_stable_version": "1.8.1",
+        "retirements": {
+          "1.0.0-rc.7": {
+            "message": "Request cancellation not session-scoped (GHSA-22m7-hr37-pxg3). Upgrade to ex_mcp 1.6.2.",
+            "reason": "security"
+          },
+          "1.6.1": {
+            "message": "Request cancellation not session-scoped (GHSA-22m7-hr37-pxg3). Upgrade to ex_mcp 1.6.2.",
+            "reason": "security"
+          },
+          "0.8.4": {
+            "message": "Request cancellation not session-scoped (GHSA-22m7-hr37-pxg3). Upgrade to ex_mcp 1.6.2.",
+            "reason": "security"
+          },
+          "0.8.3": {
+            "message": "Request cancellation not session-scoped (GHSA-22m7-hr37-pxg3). Upgrade to ex_mcp 1.6.2.",
+            "reason": "security"
+          },
+          "0.9.1": {
+            "message": "Request cancellation not session-scoped (GHSA-22m7-hr37-pxg3). Upgrade to ex_mcp 1.6.2.",
+            "reason": "security"
+          },
+          "0.9.2": {
+            "message": "Request cancellation not session-scoped (GHSA-22m7-hr37-pxg3). Upgrade to ex_mcp 1.6.2.",
+            "reason": "security"
+          },
+          "0.9.0": {
+            "message": "Request cancellation not session-scoped (GHSA-22m7-hr37-pxg3). Upgrade to ex_mcp 1.6.2.",
+            "reason": "security"
+          },
+          "1.0.0-rc.4": {
+            "message": "Request cancellation not session-scoped (GHSA-22m7-hr37-pxg3). Upgrade to ex_mcp 1.6.2.",
+            "reason": "security"
+          },
+          "0.11.0": {
+            "message": "Request cancellation not session-scoped (GHSA-22m7-hr37-pxg3). Upgrade to ex_mcp 1.6.2.",
+            "reason": "security"
+          },
+          "1.7.2": {
+            "message": "logging/setLevel changes the host's Logger level (GHSA-5vm6-rrjx-3496); use 1.7.3",
+            "reason": "security"
+          },
+          "0.8.0": {
+            "message": "Request cancellation not session-scoped (GHSA-22m7-hr37-pxg3). Upgrade to ex_mcp 1.6.2.",
+            "reason": "security"
+          },
+          "0.8.1": {
+            "message": "Request cancellation not session-scoped (GHSA-22m7-hr37-pxg3). Upgrade to ex_mcp 1.6.2.",
+            "reason": "security"
+          },
+          "1.3.0": {
+            "message": "Request cancellation not session-scoped (GHSA-22m7-hr37-pxg3). Upgrade to ex_mcp 1.6.2.",
+            "reason": "security"
+          },
+          "0.7.0": {
+            "message": "Request cancellation not session-scoped (GHSA-22m7-hr37-pxg3). Upgrade to ex_mcp 1.6.2.",
+            "reason": "security"
+          },
+          "0.10.0": {
+            "message": "Request cancellation not session-scoped (GHSA-22m7-hr37-pxg3). Upgrade to ex_mcp 1.6.2.",
+            "reason": "security"
+          },
+          "1.0.0-rc.1": {
+            "message": "Request cancellation not session-scoped (GHSA-22m7-hr37-pxg3). Upgrade to ex_mcp 1.6.2.",
+            "reason": "security"
+          },
+          "0.8.2": {
+            "message": "Request cancellation not session-scoped (GHSA-22m7-hr37-pxg3). Upgrade to ex_mcp 1.6.2.",
+            "reason": "security"
+          },
+          "1.0.0-rc.8": {
+            "message": "Request cancellation not session-scoped (GHSA-22m7-hr37-pxg3). Upgrade to ex_mcp 1.6.2.",
+            "reason": "security"
+          },
+          "1.6.2": {
+            "message": "ACP adapter argument injection and workspace confinement bypass (GHSA-2q9v-qvwf-3m8w, GHSA-jrw4-h7gq-x4cj). Upgrade to ex_mcp 1.7.2.",
+            "reason": "security"
+          },
+          "1.0.0-rc.2": {
+            "message": "Request cancellation not session-scoped (GHSA-22m7-hr37-pxg3). Upgrade to ex_mcp 1.6.2.",
+            "reason": "security"
+          },
+          "0.7.3": {
+            "message": "Request cancellation not session-scoped (GHSA-22m7-hr37-pxg3). Upgrade to ex_mcp 1.6.2.",
+            "reason": "security"
+          },
+          "0.7.1": {
+            "message": "Request cancellation not session-scoped (GHSA-22m7-hr37-pxg3). Upgrade to ex_mcp 1.6.2.",
+            "reason": "security"
+          },
+          "1.0.0-rc.5": {
+            "message": "Request cancellation not session-scoped (GHSA-22m7-hr37-pxg3). Upgrade to ex_mcp 1.6.2.",
+            "reason": "security"
+          },
+          "1.5.0": {
+            "message": "Request cancellation not session-scoped (GHSA-22m7-hr37-pxg3). Upgrade to ex_mcp 1.6.2.",
+            "reason": "security"
+          },
+          "1.1.0": {
+            "message": "Request cancellation not session-scoped (GHSA-22m7-hr37-pxg3). Upgrade to ex_mcp 1.6.2.",
+            "reason": "security"
+          },
+          "0.1.0": {
+            "message": "Request cancellation not session-scoped (GHSA-22m7-hr37-pxg3). Upgrade to ex_mcp 1.6.2.",
+            "reason": "security"
+          },
+          "1.0.0-rc.0": {
+            "message": "Request cancellation not session-scoped (GHSA-22m7-hr37-pxg3). Upgrade to ex_mcp 1.6.2.",
+            "reason": "security"
+          },
+          "0.12.0": {
+            "message": "Request cancellation not session-scoped (GHSA-22m7-hr37-pxg3). Upgrade to ex_mcp 1.6.2.",
+            "reason": "security"
+          },
+          "1.2.0": {
+            "message": "Request cancellation not session-scoped (GHSA-22m7-hr37-pxg3). Upgrade to ex_mcp 1.6.2.",
+            "reason": "security"
+          },
+          "1.4.0": {
+            "message": "Request cancellation not session-scoped (GHSA-22m7-hr37-pxg3). Upgrade to ex_mcp 1.6.2.",
+            "reason": "security"
+          },
+          "1.7.0": {
+            "message": "ACP adapter argument injection and workspace confinement bypass (GHSA-2q9v-qvwf-3m8w, GHSA-jrw4-h7gq-x4cj). Upgrade to ex_mcp 1.7.2.",
+            "reason": "security"
+          },
+          "1.0.0-rc.6": {
+            "message": "Request cancellation not session-scoped (GHSA-22m7-hr37-pxg3). Upgrade to ex_mcp 1.6.2.",
+            "reason": "security"
+          },
+          "1.1.1": {
+            "message": "Request cancellation not session-scoped (GHSA-22m7-hr37-pxg3). Upgrade to ex_mcp 1.6.2.",
+            "reason": "security"
+          },
+          "1.6.0": {
+            "message": "Request cancellation not session-scoped (GHSA-22m7-hr37-pxg3). Upgrade to ex_mcp 1.6.2.",
+            "reason": "security"
+          },
+          "1.0.0": {
+            "message": "Request cancellation not session-scoped (GHSA-22m7-hr37-pxg3). Upgrade to ex_mcp 1.6.2.",
+            "reason": "security"
+          },
+          "0.7.4": {
+            "message": "Request cancellation not session-scoped (GHSA-22m7-hr37-pxg3). Upgrade to ex_mcp 1.6.2.",
+            "reason": "security"
+          }
+        },
+        "owners": [
+          "azmaveth"
+        ],
+        "releases": [
+          {
+            "version": "1.8.1",
+            "url": "https://hex.pm/api/packages/ex_mcp/releases/1.8.1",
+            "has_docs": true,
+            "inserted_at": "2026-10-31T19:00:18.750618Z"
+          }
+        ],
+        "selected_release": {
+          "meta": {
+            "elixir": "~> 1.17",
+            "app": "ex_mcp",
+            "build_tools": [
+              "mix"
+            ]
+          },
+          "version": "1.8.1",
+          "checksum": "fd72748411af530218b4d15151218cdf6f00ee9ba2244fe797bcecb39e4eb67c",
+          "url": "https://hex.pm/api/packages/ex_mcp/releases/1.8.1",
+          "has_docs": true,
+          "inserted_at": "2026-10-31T19:00:18.750618Z",
+          "updated_at": "2026-10-31T19:00:20.134506Z",
+          "requirements": {
+            "castore": {
+              "app": "castore",
+              "optional": false,
+              "requirement": "~> 1.0"
+            },
+            "cowlib": {
+              "app": "cowlib",
+              "optional": false,
+              "requirement": "~> 2.20"
+            },
+            "decimal": {
+              "app": "decimal",
+              "optional": false,
+              "requirement": "~> 3.1 and >= 3.1.2"
+            },
+            "ex_json_schema": {
+              "app": "ex_json_schema",
+              "optional": false,
+              "requirement": "~> 0.10"
+            },
+            "fuse": {
+              "app": "fuse",
+              "optional": true,
+              "requirement": "~> 2.4"
+            },
+            "jason": {
+              "app": "jason",
+              "optional": false,
+              "requirement": "~> 1.4"
+            },
+            "jose": {
+              "app": "jose",
+              "optional": false,
+              "requirement": "~> 1.11 and >= 1.11.13"
+            },
+            "mint": {
+              "app": "mint",
+              "optional": false,
+              "requirement": "~> 1.10 and >= 1.10.2"
+            },
+            "mint_web_socket": {
+              "app": "mint_web_socket",
+              "optional": false,
+              "requirement": "~> 1.0"
+            },
+            "plug": {
+              "app": "plug",
+              "optional": false,
+              "requirement": "~> 1.16"
+            },
+            "plug_cowboy": {
+              "app": "plug_cowboy",
+              "optional": false,
+              "requirement": "~> 2.7"
+            },
+            "telemetry": {
+              "app": "telemetry",
+              "optional": false,
+              "requirement": "~> 1.2"
+            }
+          },
+          "html_url": "https://hex.pm/packages/ex_mcp/1.8.1",
+          "oidc_claims": null,
+          "retirement": null,
+          "package_url": "https://hex.pm/api/packages/ex_mcp",
+          "downloads": 481,
+          "security_advisories": [],
+          "docs_html_url": "https://ex-mcp.hexdocs.pm/1.8.1/",
+          "configs": {
+            "erlang.mk": "dep_ex_mcp = hex 1.8.1",
+            "mix.exs": "{:ex_mcp, \"~> 1.8\"}",
+            "rebar.config": "{ex_mcp, \"1.8.1\"}"
+          }
+        }
+      },
+      "github": {
+        "full_name": "trust-arbor/arbor_mcp",
+        "description": "Model Context Protocol (MCP) and Agent Client Protocol (ACP) client/server library for Elixir",
+        "archived": false,
+        "default_branch": "master",
+        "license": {
+          "key": "mit",
+          "name": "MIT License",
+          "spdx_id": "MIT",
+          "url": "https://api.github.com/licenses/mit",
+          "node_id": "MDc6TGljZW5zZTEz"
+        },
+        "pushed_at": "2026-11-02T03:00:47Z",
+        "open_issues_count": 0,
+        "error": null,
+        "last_commit": {
+          "sha": "41ec46a66ecade290cd0eec3f6ece99bcc9302d2",
+          "date": "2026-11-02T03:00:47Z"
+        },
+        "open_issues_excluding_prs": 0
+      }
+    },
+    {
+      "package": "phantom_mcp",
+      "checked_at": "2026-11-08T05:12:55.053806+00:00",
+      "hex_url": "https://hex.pm/api/packages/phantom_mcp",
+      "repo": "dbernheisel/phantom_mcp",
+      "hex_metadata_repo": "dbernheisel/phantom_mcp",
+      "identity_mismatch": false,
+      "discovery": "adjacent comparison (not attributed to list)",
+      "index_matches": [],
+      "hex": {
+        "name": "phantom_mcp",
+        "meta": {
+          "links": {
+            "GitHub": "https://github.com/dbernheisel/phantom_mcp",
+            "MCP Inspector": "https://github.com/modelcontextprotocol/inspector",
+            "MCP Specification": "https://modelcontextprotocol.io"
+          },
+          "description": "Elixir MCP (Model Context Protocol) and A2A server library with Plug",
+          "licenses": [
+            "MIT"
+          ],
+          "maintainers": []
+        },
+        "latest_version": "0.8.0",
+        "latest_stable_version": "0.8.0",
+        "retirements": {},
+        "owners": [
+          "dbernheisel"
+        ],
+        "releases": [
+          {
+            "version": "0.8.0",
+            "url": "https://hex.pm/api/packages/phantom_mcp/releases/0.8.0",
+            "has_docs": true,
+            "inserted_at": "2026-11-05T01:57:34.122066Z"
+          }
+        ],
+        "selected_release": {
+          "meta": {
+            "elixir": "~> 1.18",
+            "app": "phantom_mcp",
+            "build_tools": [
+              "mix"
+            ]
+          },
+          "version": "0.8.0",
+          "checksum": "4b283320f11b08c45ed417ff170e1729f422f6c953617e65f27ca103a77fc75c",
+          "url": "https://hex.pm/api/packages/phantom_mcp/releases/0.8.0",
+          "has_docs": true,
+          "inserted_at": "2026-11-05T01:57:34.122066Z",
+          "updated_at": "2026-11-05T01:57:35.526437Z",
+          "requirements": {
+            "phoenix_pubsub": {
+              "app": "phoenix_pubsub",
+              "optional": true,
+              "requirement": "~> 2.0"
+            },
+            "plug": {
+              "app": "plug",
+              "optional": false,
+              "requirement": "~> 1.0"
+            },
+            "req": {
+              "app": "req",
+              "optional": true,
+              "requirement": "~> 0.5"
+            },
+            "telemetry": {
+              "app": "telemetry",
+              "optional": false,
+              "requirement": "~> 1.0"
+            },
+            "uuid_v7": {
+              "app": "uuid_v7",
+              "optional": false,
+              "requirement": "~> 0.6"
+            },
+            "yamerl": {
+              "app": "yamerl",
+              "optional": true,
+              "requirement": "~> 0.10"
+            }
+          },
+          "html_url": "https://hex.pm/packages/phantom_mcp/0.8.0",
+          "oidc_claims": null,
+          "retirement": null,
+          "package_url": "https://hex.pm/api/packages/phantom_mcp",
+          "downloads": 132,
+          "security_advisories": [],
+          "docs_html_url": "https://phantom-mcp.hexdocs.pm/0.8.0/",
+          "configs": {
+            "erlang.mk": "dep_phantom_mcp = hex 0.8.0",
+            "mix.exs": "{:phantom_mcp, \"~> 0.8.0\"}",
+            "rebar.config": "{phantom_mcp, \"0.8.0\"}"
+          }
+        }
+      },
+      "github": {
+        "full_name": "dbernheisel/phantom_mcp",
+        "description": "MCP server implemented in Elixir",
+        "archived": false,
+        "default_branch": "main",
+        "license": {
+          "key": "mit",
+          "name": "MIT License",
+          "spdx_id": "MIT",
+          "url": "https://api.github.com/licenses/mit",
+          "node_id": "MDc6TGljZW5zZTEz"
+        },
+        "pushed_at": "2026-11-06T03:35:14Z",
+        "open_issues_count": 2,
+        "error": null,
+        "last_commit": {
+          "sha": "3edfd633ac07304c4580a50928ef87f14004305f",
+          "date": "2026-11-06T03:35:14Z"
+        },
+        "open_issues_excluding_prs": 2
+      }
+    },
+    {
+      "package": "claude_code",
+      "checked_at": "2026-11-08T05:12:56.581903+00:00",
+      "hex_url": "https://hex.pm/api/packages/claude_code",
+      "repo": "guess/claude_code",
+      "hex_metadata_repo": "guess/claude_code",
+      "identity_mismatch": false,
+      "discovery": "adjacent comparison (not attributed to list)",
+      "index_matches": [],
+      "hex": {
+        "name": "claude_code",
+        "meta": {
+          "links": {
+            "Changelog": "https://github.com/guess/claude_code/blob/main/CHANGELOG.md",
+            "GitHub": "https://github.com/guess/claude_code"
+          },
+          "description": "Claude Agent SDK for Elixir \u2013 Build AI agents with Claude Code",
+          "licenses": [
+            "MIT"
+          ],
+          "maintainers": []
+        },
+        "latest_version": "0.36.5",
+        "latest_stable_version": "0.36.5",
+        "retirements": {},
+        "owners": [
+          "strates"
+        ],
+        "releases": [
+          {
+            "version": "0.36.5",
+            "url": "https://hex.pm/api/packages/claude_code/releases/0.36.5",
+            "has_docs": true,
+            "inserted_at": "2026-05-28T17:31:58.136124Z"
+          }
+        ],
+        "selected_release": {
+          "meta": {
+            "elixir": "~> 1.18",
+            "app": "claude_code",
+            "build_tools": [
+              "mix"
+            ]
+          },
+          "version": "0.36.5",
+          "checksum": "fb9c58b7a0fefb9d17872e8e9097526bf9b3d36f29c68143d4d8296e5231bdc7",
+          "url": "https://hex.pm/api/packages/claude_code/releases/0.36.5",
+          "has_docs": true,
+          "inserted_at": "2026-05-28T17:31:58.136124Z",
+          "updated_at": "2026-05-28T17:31:59.960886Z",
+          "requirements": {
+            "anubis_mcp": {
+              "app": "anubis_mcp",
+              "optional": false,
+              "requirement": "~> 1.0"
+            },
+            "jason": {
+              "app": "jason",
+              "optional": false,
+              "requirement": "~> 1.4"
+            },
+            "nimble_options": {
+              "app": "nimble_options",
+              "optional": false,
+              "requirement": "~> 1.0"
+            },
+            "nimble_ownership": {
+              "app": "nimble_ownership",
+              "optional": false,
+              "requirement": "~> 1.0"
+            },
+            "telemetry": {
+              "app": "telemetry",
+              "optional": false,
+              "requirement": "~> 1.2"
+            }
+          },
+          "html_url": "https://hex.pm/packages/claude_code/0.36.5",
+          "oidc_claims": null,
+          "retirement": null,
+          "package_url": "https://hex.pm/api/packages/claude_code",
+          "downloads": 13064,
+          "security_advisories": [],
+          "docs_html_url": "https://claude-code.hexdocs.pm/0.36.5/",
+          "configs": {
+            "erlang.mk": "dep_claude_code = hex 0.36.5",
+            "mix.exs": "{:claude_code, \"~> 0.36.5\"}",
+            "rebar.config": "{claude_code, \"0.36.5\"}"
+          }
+        }
+      },
+      "github": {
+        "full_name": "guess/claude_code",
+        "description": "Claude Agent SDK for Elixir \u2013 Build AI agents with Claude Code",
+        "archived": false,
+        "default_branch": "main",
+        "license": {
+          "key": "mit",
+          "name": "MIT License",
+          "spdx_id": "MIT",
+          "url": "https://api.github.com/licenses/mit",
+          "node_id": "MDc6TGljZW5zZTEz"
+        },
+        "pushed_at": "2026-06-05T13:26:15Z",
+        "open_issues_count": 2,
+        "error": null,
+        "last_commit": {
+          "sha": "3fb3b3d92c0107f1776ad7dcb27030a44a26bbfd",
+          "date": "2026-06-05T13:26:14Z"
+        },
+        "open_issues_excluding_prs": 0
+      }
+    },
+    {
+      "package": "hermes_mcp",
+      "checked_at": "2026-11-08T05:12:57.478419+00:00",
+      "hex_url": "https://hex.pm/api/packages/hermes_mcp",
+      "repo": "cloudwalk/hermes-mcp",
+      "hex_metadata_repo": "cloudwalk/hermes-mcp",
+      "identity_mismatch": false,
+      "discovery": "adjacent comparison (not attributed to list)",
+      "index_matches": [],
+      "hex": {
+        "name": "hermes_mcp",
+        "meta": {
+          "links": {
+            "Docs": "https://hexdocs.pm/hermes_mcp",
+            "GitHub": "https://github.com/cloudwalk/hermes-mcp"
+          },
+          "description": "Model Context Protocol (MCP) implementation in Elixir with Phoenix integration",
+          "licenses": [
+            "MIT"
+          ],
+          "maintainers": []
+        },
+        "latest_version": "0.14.1",
+        "latest_stable_version": "0.14.1",
+        "retirements": {
+          "0.7.0": {
+            "message": "wrong usage of Mix.env on runtime function prevents application to start",
+            "reason": "invalid"
+          }
+        },
+        "owners": [
+          "cloudwalk"
+        ],
+        "releases": [
+          {
+            "version": "0.14.1",
+            "url": "https://hex.pm/api/packages/hermes_mcp/releases/0.14.1",
+            "has_docs": true,
+            "inserted_at": "2025-08-14T18:04:58.539765Z"
+          }
+        ],
+        "selected_release": {
+          "meta": {
+            "elixir": "~> 1.18",
+            "app": "hermes_mcp",
+            "build_tools": [
+              "mix"
+            ]
+          },
+          "version": "0.14.1",
+          "checksum": "86ec898911d633d8e4a8ad94a79123beab95ba86baa1b6fe6197ab1ccf76f9a9",
+          "url": "https://hex.pm/api/packages/hermes_mcp/releases/0.14.1",
+          "has_docs": true,
+          "inserted_at": "2025-08-14T18:04:58.539765Z",
+          "updated_at": "2025-08-14T18:05:01.880673Z",
+          "requirements": {
+            "burrito": {
+              "app": "burrito",
+              "optional": true,
+              "requirement": "~> 1.0"
+            },
+            "finch": {
+              "app": "finch",
+              "optional": false,
+              "requirement": "~> 0.19"
+            },
+            "gun": {
+              "app": "gun",
+              "optional": true,
+              "requirement": "~> 2.2"
+            },
+            "peri": {
+              "app": "peri",
+              "optional": false,
+              "requirement": "~> 0.4"
+            },
+            "plug": {
+              "app": "plug",
+              "optional": true,
+              "requirement": "~> 1.18"
+            },
+            "telemetry": {
+              "app": "telemetry",
+              "optional": false,
+              "requirement": "~> 1.2"
+            }
+          },
+          "html_url": "https://hex.pm/packages/hermes_mcp/0.14.1",
+          "oidc_claims": null,
+          "retirement": null,
+          "package_url": "https://hex.pm/api/packages/hermes_mcp",
+          "downloads": 153249,
+          "security_advisories": [],
+          "docs_html_url": "https://hermes-mcp.hexdocs.pm/0.14.1/",
+          "configs": {
+            "erlang.mk": "dep_hermes_mcp = hex 0.14.1",
+            "mix.exs": "{:hermes_mcp, \"~> 0.14.1\"}",
+            "rebar.config": "{hermes_mcp, \"0.14.1\"}"
+          }
+        }
+      },
+      "github": {
+        "full_name": null,
+        "description": null,
+        "archived": null,
+        "default_branch": null,
+        "license": null,
+        "pushed_at": null,
+        "open_issues_count": null,
+        "error": "gh: Not Found (HTTP 404)",
+        "last_commit": {
+          "error": "gh: Not Found (HTTP 404)"
+        },
+        "open_issues_excluding_prs": {
+          "error": "gh: Not Found (HTTP 404)"
+        }
+      }
+    }
+  ]
+}
