@@ -30,7 +30,7 @@ the fast runners. The re-test with all 8 cores showed that the CPU cap was not t
 ## Measured basis (done on branch `measure/ELZ-062`, never merged)
 
 CI logs print no per-test times, so a measurement branch ran the full root suite as `mix check` does in full mode
-(`mix test --warnings-as-errors --slowest 60`) with every per-test limit raised to 900 s. Same tree, three machines:
+(`mix test --warnings-as-errors --slowest 60`) with the default per-test limits raised to 900 s. Same tree, three machines:
 
 | Test | `symbolic-elzoo` (run 42500718766, job 128792642738) | `macbook-ubuntu-elzoo-candidate` (42497402091, 128782613975) | `contabo-elzoo-1`, 8 cores (42497486307, 128782875563) |
 |---|---|---|---|
@@ -48,14 +48,14 @@ host samples on Contabo; host load (1 min) peaked at 2.94; cgroup peaks 3.45 GB 
 
 ## Hosted measurement (2026-11-09)
 
-The same measurement branch (`measure/ELZ-062`, merged with `main` at e9df723, never merged back; every per-test limit
-900 s, `mix test --warnings-as-errors --slowest 60`) ran once on the GitHub-hosted runner: run 42522317222, job
-128858289534, 20:52:35Z to 21:15:27Z (rule input, same tree as the three machines above, newer `main`).
+The same measurement branch (`measure/ELZ-062`, merged with `main` at 48462d4, never merged back; the default per-test limits
+900 s, the explicit tags unchanged, `mix test --warnings-as-errors --slowest 60`) ran once on the GitHub-hosted runner: run 42522317222, job
+128858289534, 20:52:35Z to 21:15:27Z (rule input, same tree as the three machines above, newer `main`; line numbers are those of the measurement commit).
 
 | Test | Hosted `ubuntu-24.04` | Share of the 120 s default |
 |---|---|---|
 | approval negative control (`approval_test.exs:177`) | 40.8 s | 34 percent |
-| `assembly/durable-job` consumer (`export_test.exs:120`) | 79.0 s (inner `consumer_mix_test` 71.2 s; 74.8 s and 75.3 s in the full hosted runs 42517023581 and 42520133125) | 66 percent |
+| `assembly/durable-job` consumer (`export_test.exs:120`) | 79.0 s (inner `consumer_mix_test` 71.2 s; 74.8 s, 67.5 s and 61.9 s in the full hosted runs 42517023581, 42520133125 and 42521924097) | 66 percent |
 | `integration/sql` consumer | 19.0 s | 16 percent |
 | `integration/jobs` consumer | 14.9 s | 12 percent |
 | root suite | 1307.8 s (504.7 s async, 803.1 s sync) | |

@@ -121,10 +121,9 @@ defmodule Elzoo.ExportTest do
   # the 120 s default on contabo-elzoo-1 in runs 42484236992 and 42492726966. Measured under the full suite with
   # the limits raised (branch measure/ELZ-062): 77.6 s on symbolic-elzoo (run 42500718766), 91.3 s on
   # macbook-ubuntu-elzoo-candidate (42497402091) and 128.7 s on contabo-elzoo-1 (42497486307); earlier
-  # full runs on the fast runners took 71.2 s and 83.4 s; on the GitHub-hosted runner (ubuntu-24.04, run
+  # full runs on the fast runners took 71.2 s and 83.4 s (consumer totals); on the GitHub-hosted runner (ubuntu-24.04, run
   # 42522317222, job 128858289534) it took 79.0 s, 66 percent of the 120 s default. 300 s is 2.3 times the slowest
-  # measured time. The
-  # other two PostgreSQL consumers keep 120 s (integration/sql 18.8, 26.1 and 52.8 s; integration/jobs
+  # measured time. The other two PostgreSQL consumers keep 120 s (integration/sql 18.8, 26.1 and 52.8 s; integration/jobs
   # 13.9, 17.0 and 37.6 s on the same three machines).
   @durable_job_id "assembly/durable-job"
   Elzoo.CureConsumerCase.consumer_tests(
