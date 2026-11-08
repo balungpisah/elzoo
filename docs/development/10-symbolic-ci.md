@@ -624,7 +624,7 @@ state. This record covers `symbolic` only.
 
 ### Contabo VPS `ratahq-ci-contabo-01` (ELZ-056)
 
-Status: **unrouted (owner decision 2026-11-08, option a).** The runner has no `backend` label. One
+Status: **unrouted (owner decision 2026-11-08, option a; then option b, ELZ-062, after the re-test).** The runner has no `backend` label. One
 full run passed on an older tree (trial 2, below) and one failed on the current tree (the `tier` = `any`
 observation of ELZ-057). The label was on only for those runs. It takes no job while it has no `backend`
 label (GitHub gives a job to any idle runner with matching labels); a person may add the label for a measurement run
@@ -646,13 +646,13 @@ was set on faster machines, and on this VPS (about 1.8 times slower per thread) 
 ELZ-049 running at the same time under a 5-core cap, two tests exceed it.
 
 **Re-test with the 8-core cap (failed the same way).** After the cap was raised (below), run 42492726966, job 128768391228
-(`check-any`, `tier` = `any`, runner `contabo-elzoo-1`, `main` at or after `ade0e45`, warm cache: `mix setup` 6 s), ran
+(`check-any`, `tier` = `any`, runner `contabo-elzoo-1`, `main` at `665d3e07c58f`, warm cache: `mix setup` 6 s), ran
 15:02:15Z to 15:45:46Z (22:02 to 22:45 WIB), 43 min 31 s; `Run mix check` 15:04:42Z to 15:45:35Z failed with
 `Result: 640/642 passed`, the same two `ExUnit.TimeoutError` after 120000 ms (`approval_test.exs:177`, and
 `export_test.exs:120`). Root suite `Finished in 2228.9 seconds (463.0s async, 1765.8s sync)` against 2243.7 s under
-the 5-core cap; aggregate consumer 805.1 s; `ash_spike` 201.3 s. Job-reported cgroup memory peak 3,881,250,816 bytes;
+the 5-core cap; aggregate consumer 805.1 s; `ash_spike` 180.8 s (20.5 s to 201.3 s into the check). Job-reported cgroup memory peak 3,881,250,816 bytes;
 sampled CPU maximum 6.914 cores over 2,449 samples (the job used more than the old cap of 5 and stayed under the new
-one). Reading: the CPU cap was not the limit, per-thread speed is. Limit of this measurement: my host sampler (one
+one). Interpretation, not proven: raising the cap did not help (2228.9 s against 2243.7 s), so the CPU cap does not look like the limit; per-thread speed is the likely cause. Limit of this measurement: my host sampler (one
 sample per 60 s) lost its SSH connection after two samples (container `cpu.max` 800000 `100000`, `nr_throttled` 0 at
 15:04:21Z, memory peak 1.74 GB then), so the throttling counters at the end of the run were not read; the job's own
 CPU sample is the only CPU evidence after that. Host load average (1 minute) peaked at 5.71 and the four production
@@ -664,10 +664,11 @@ between). The label was removed again after the run. Owner decision after the re
 the per-test limit of the two tests to 300 s in a separate measured task (ELZ-062), so that Contabo can take
 `tier` = `any` runs; that task changes this status.
 
-Later owner decision (not made): (a) keep Contabo unrouted, which is the current state and the
-recommendation; (b) raise the per-test time limits of the two tests in a separate reviewed task, with
-measurements (a limit change, not a weaker proof); (c) raise the Contabo CPU cap from 5 to 7 cores and
-measure again. A failed or timed-out job here means removing the label. Host facts and the host-side limit
+Options considered after the first failure: (a) keep Contabo unrouted; (b) raise the per-test time limits of the two
+tests in a separate reviewed task, with measurements (a limit change, not a weaker proof); (c) raise the Contabo CPU
+cap (done on 2026-11-08, from 5 to 8 cores, see below; the re-test did not change the result). After the re-test the
+owner chose (b): ELZ-062 (issue #106) raises the limit of the two tests to 300 s, and Contabo stays unrouted until that
+task merges and a steered run passes. A failed or timed-out job here means removing the label. Host facts and the host-side limit
 readings below come from the worker's SSH inspection on 2026-11-08, not from files in this
 repository. Times are WIB (UTC+7) unless a log line is quoted.
 
@@ -772,8 +773,8 @@ caps are unchanged. Backups of the previous files are in `/root` on the host
 job runs, the production containers on that host (`balungpisah-core`, `-tensorzero`, `-minio`, `-postgres`) have no
 CPU reserved; a CI job that uses all 8 cores competes with them on equal terms, and the production services
 can slow down for the duration of a job. The re-test (one `tier` = `any` run on `main` with the label added only while both
-fast runners are busy) decides whether Contabo joins the pool or stays measurement-only. No test limit changes without a
-separate measured task.
+fast runners are busy) failed the same way (see "Re-test with the 8-core cap"); the test limits are the subject of ELZ-062,
+a separate measured task.
 
 **Trial 1 (failed, kept as evidence).** Run 42452504044, job 128644528184, `workflow_dispatch`
 on `task/ELZ-056` at `1406f40c8d98b0218f8bdf8afb80998522086f39`, runner `contabo-elzoo-1`,
