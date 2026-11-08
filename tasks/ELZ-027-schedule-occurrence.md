@@ -29,9 +29,14 @@ and the overlap decision are Elzoo's.
    at most `n` unsettled occurrences per schedule under `queue(n)`, at most
    one under `skip`/`replace`; a redefinition needs a strictly greater
    generation; a delivery is admitted only when its occurrence id and payload
-   match an unsettled occurrence; due slots that passed while offline (those
-   between the last recorded instant and now) become occurrences only under
-   `queue`; the overlap decision is recorded, never silent.
+   match an unsettled occurrence. The caller identifies each due slot passed
+   while the scheduler was offline as an offline catch-up slot, using its
+   retained last recorded instant and availability boundary; an offline
+   catch-up slot becomes an occurrence only under `queue`, subject to its
+   bound. Slots identified as live use the declared overlap policy. The caller
+   supplies the availability boundary; elapsed time or a grace period alone
+   does not establish whether a slot was offline. The overlap decision is
+   recorded, never silent.
    Non-goals: cron parsing, transport, job execution.
 3. **Reuse check.** Oban cron, sched_ex and quantum compute due instants; none
    exposes generation-scoped identity or an explicit overlap policy as a
