@@ -645,6 +645,25 @@ tree passed on `symbolic-elzoo` (run 42484152352, job 128742259599) and its main
 was set on faster machines, and on this VPS (about 1.8 times slower per thread) with the consumer groups of
 ELZ-049 running at the same time under a 5-core cap, two tests exceed it.
 
+**Re-test with the 8-core cap (failed the same way).** After the cap was raised (below), run 42492726966, job 128768391228
+(`check-any`, `tier` = `any`, runner `contabo-elzoo-1`, `main` at or after `ade0e45`, warm cache: `mix setup` 6 s), ran
+15:02:15Z to 15:45:46Z (22:02 to 22:45 WIB), 43 min 31 s; `Run mix check` 15:04:42Z to 15:45:35Z failed with
+`Result: 640/642 passed`, the same two `ExUnit.TimeoutError` after 120000 ms (`approval_test.exs:177`, and
+`export_test.exs:120`). Root suite `Finished in 2228.9 seconds (463.0s async, 1765.8s sync)` against 2243.7 s under
+the 5-core cap; aggregate consumer 805.1 s; `ash_spike` 201.3 s. Job-reported cgroup memory peak 3,881,250,816 bytes;
+sampled CPU maximum 6.914 cores over 2,449 samples (the job used more than the old cap of 5 and stayed under the new
+one). Reading: the CPU cap was not the limit, per-thread speed is. Limit of this measurement: my host sampler (one
+sample per 60 s) lost its SSH connection after two samples (container `cpu.max` 800000 `100000`, `nr_throttled` 0 at
+15:04:21Z, memory peak 1.74 GB then), so the throttling counters at the end of the run were not read; the job's own
+CPU sample is the only CPU evidence after that. Host load average (1 minute) peaked at 5.71 and the four production
+containers stayed at 0.00 to 1.33 percent CPU in the samples taken every two minutes. A health probe of
+`https://storage.balungpisah.id/minio/health/live` from the coordinator's machine answered HTTP 200 in 0.12 to 0.49 s,
+with one slow answer (4.0 s at 15:22:14Z), one slow first answer (1.8 s at 15:03:36Z, before the load) and one failed
+connect (15:05:41Z); that probe cannot attribute these to the CI job (Cloudflare and the path from the probe are in
+between). The label was removed again after the run. Owner decision after the re-test (option b, via the coordinator): raise
+the per-test limit of the two tests to 300 s in a separate measured task (ELZ-062), so that Contabo can take
+`tier` = `any` runs; that task changes this status.
+
 Later owner decision (not made): (a) keep Contabo unrouted, which is the current state and the
 recommendation; (b) raise the per-test time limits of the two tests in a separate reviewed task, with
 measurements (a limit change, not a weaker proof); (c) raise the Contabo CPU cap from 5 to 7 cores and
