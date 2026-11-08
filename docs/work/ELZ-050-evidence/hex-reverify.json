@@ -1,5 +1,5 @@
 {
-  "utc": "2026-11-08T13:35:50.336745+00:00",
+  "utc": "2026-11-08T17:46:43.502712+00:00",
   "source": "https://hex.pm/api/packages/<name>",
   "packages": {
     "amqp": {
@@ -161,6 +161,16 @@
       "latest_release_at": "2024-04-16T06:33:47.003750Z",
       "selected_retired": false,
       "repo": "https://github.com/derekkraan/delta_crdt_ex"
+    },
+    "erlexec": {
+      "latest_stable_version": "2.6.0",
+      "latest_version": "2.6.0",
+      "licenses": [
+        "BSD-2-Clause"
+      ],
+      "latest_release_at": "2026-10-29T03:38:19.081628Z",
+      "selected_retired": false,
+      "repo": "https://github.com/saleyn/erlexec"
     },
     "ex_aws": {
       "latest_stable_version": "2.7.0",
