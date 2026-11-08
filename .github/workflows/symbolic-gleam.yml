@@ -47,7 +47,10 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24.16.0'
-      - run: ./scripts/setup.sh
+      - name: Install the pinned Gleam compiler
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./scripts/setup.sh
       - run: npx --no-install playwright install-deps chromium
       - run: ./scripts/check.sh
       - name: Locked dependencies remain unchanged

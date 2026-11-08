@@ -302,7 +302,8 @@ run does not satisfy them.
 ## Timing lines in CI logs (ELZ-045)
 
 `mix check` prints `ELZOO STAGE <name> start|end utc=... elapsed=...` around format, compile,
-ledger, Ash spike, registry load and the root suite. `test/export_test.exs` prints
+ledger, Ash spike, registry load and the root suite. The consumer harness (`Elzoo.CureConsumerCase`
+since ELZ-049; `test/export_test.exs` before) prints
 `ELZOO TIMING consumer=<id|aggregate(N)> <step> seconds=...` for each copied consumer. Steps are
 `plan_write`, `consumer_mix_test`, `runtime_vm` and `total`.
 
@@ -316,6 +317,52 @@ match them without a `^` anchor.
 These lines are monitored behavior from a monotonic clock. They prove nothing about correctness.
 They add no stage, test or assertion. Queue time is not part of any line. Compare runs only on the
 same SHA and the same runner.
+
+## Concurrent database-free consumers (ELZ-049)
+
+The copied-consumer tests share one harness, `Elzoo.CureConsumerCase` in
+`test/support/cure_consumer_case_test_helper.exs`. The 23 consumers whose copy closure names no PostgreSQL
+provider (`postgrex`, `ecto_sql`, `oban`) are defined in three modules with `async: true`:
+`test/consumer_group_a_test.exs`, `_b_` and `_c_`. ExUnit runs async modules at the same time
+and tests inside one module in sequence. `test/test_helper.exs` sets `max_cases` to
+`System.schedulers_online()`; this caps every async module in `test/` and `pieces/`, not only the
+consumer groups. With `+S 4:4` on symbolic the cap is 4, so all three consumer group modules run
+at once (the module count is the bound there); with `+S 2:2` on macbook-ubuntu the cap is 2, so
+at most two consumer VMs run at once (the cap is shared with the other async modules). The groups are explicit lists balanced by the
+measured `total` seconds on main `0a42370`. The three
+PostgreSQL consumers (`integration/sql`, `integration/jobs`, `assembly/durable-job`) and the
+aggregate consumer stay in `test/export_test.exs` with `async: false`, because the CI job prepares
+one disposable database. The OTP-only consumer and the plan/write tests stay there too; they
+were not moved.
+
+Each per-ID test keeps its name and its `consumer_id` tag, so the affected mode (ELZ-038)
+filters them with the same `--exclude consumer_id:<id>` arguments. The 23 concurrent tests have a
+240 s limit (`Elzoo.CureConsumerCase.concurrent_timeout/0`); the sequential consumers keep 120 s.
+Measured basis for 240 s: on macbook-ubuntu with three concurrent VMs, after about 30 minutes of
+sustained load, `assembly/request-route-retry` rose from 35.8 s (sequential) to 99.1 s in the last
+completed repeat, and two later repeats went over 120 s by an unknown amount (PR #90, run
+42454973591, repeats 6 and 7). 240 s is 2x that 120 s lower bound. The same series on symbolic
+stayed at 123 to 125 s per repeat with 35.7 s for that consumer, which is consistent with a
+slowdown of the two-core host under sustained load. The two-VM setup is to be measured by a later
+repeat series, recorded in the PR. The selection test in
+`test/export_test.exs` counts the per-ID tests over the four modules (still 26, plus one
+aggregate), checks that the groups plus the PostgreSQL list equal
+`Elzoo.CheckSelection.consumer_ids/0`, and checks that no database-free group ID copies a Piece
+with a PostgreSQL provider. That test needs the four modules loaded: run the whole suite, or name
+the four files together.
+
+Measured basis before the change, main `0a42370` on `symbolic-elzoo` (job 128581094645): the 23
+database-free consumers took 189.5 s in sequence; the root suite reported `Finished in 862.2
+seconds`. Locally on the implementation branch, the three group files ran in 100.7 s wall time
+for 205.0 s of summed consumer `total` time. Under concurrency a per-consumer `total` includes
+contention, so it is not comparable with a sequential `total`; compare the root suite `Finished
+in` and the stage elapsed on the same SHA and runner. CI before/after figures and the repeat
+series are recorded in the ELZ-049 PR. The repeat series runs the three group files alone; in
+`mix check` they also overlap the other async root and piece test modules, so the per-test
+margin under full load is shown only by whole-suite runs. Three concurrent consumer VMs add
+memory: compare the cgroup peak before and after on the same runner. The concurrency bound is
+the module count, not a measured CPU budget; a passing repeat series is a finite sample.
+
 ## Owned Cure compile fingerprint (ELZ-046)
 
 `Mix.Tasks.Compile.Cure` writes `elzoo.cure.manifest` (format 2) with a sha256 fingerprint over
@@ -657,6 +704,51 @@ actions.runner.balungpisah-elzoo.contabo-elzoo-1.service --no-pager'`. To withdr
 machine, remove the `backend` label after the current job finishes; the other two runners keep
 accepting backend jobs. Do not restart the service while it is busy.
 
+### Gleam compiler download (ELZ-060)
+
+The Gleam job installs the pinned compiler (v1.19.2) with `spikes/gleam_ui/scripts/setup_gleam.py`, called
+by `scripts/setup.sh` in the step `Install the pinned Gleam compiler` of `symbolic-gleam.yml`.
+`setup-beam` installs only OTP there. Since ELZ-060 the archive comes from the release-asset API,
+`GET https://api.github.com/repos/gleam-lang/gleam/releases/assets/<id>` with
+`Accept: application/octet-stream` and the job's `github.token` (step `env`, read-only; the guard allows
+`github.token` on that one step only, pins the step text, its position (right after `setup-node`) and its end, and
+rejects `secrets`, `github.token`, `github[...]` and `toJSON(github|secrets)` spelled in any case and spacing
+anywhere else in either workflow; this is a source-convention check, not proof against every YAML form;
+`setup.sh` unsets `GITHUB_TOKEN` right after the download so `npm ci` and the Playwright install do not see it).
+The API answers with a redirect to a
+signed storage URL; the script follows it by hand, refuses any redirect that is not plain HTTPS (no user info, no
+other port, no percent or backslash tricks) to `github.com`, `*.github.com` or `*.githubusercontent.com`, and sends
+no `Authorization` header to the storage host. It checks
+the pinned size and SHA-256 and stops on any mismatch or error; only HTTP 500, 502, 503 and 504 are retried (three
+attempts, 2 s and 4 s waits). The API route can fail the same way as the browser URL: a reviewer saw HTTP 500 or
+504 on about 9 of 10 requests from one machine between about 17:35 and 17:45 WIB on 2026-11-08, so a job can
+still fail closed; a second source (a hash-verified mirror) is planned as ELZ-061.
+
+| Platform | Asset ID | Size (bytes) | SHA-256 |
+|---|---|---|---|
+| Linux x86_64 (CI) | 633423401 | 10565692 | `2ba2afb66ca9f6dcc01a4a6e9169b6942963bad6483bec9571ddc078cfe6f41f` |
+| Linux aarch64 | 633423257 | 10126116 | `d1d1a9d53f6b317c0563a4806873c8ccace54291ead023373728af379402d4f1` |
+| macOS arm64 | 633423162 | 9234148 | `fa7c6113e162ab1d979f72e7dde3e907b87e4b30c518af178768e577d180324d` |
+| macOS x86_64 | 633423317 | 9702221 | `c578192530507b868c4a6c8cb7ad5d2ab0830890257f41036f17c82853f19d05` |
+
+The hashes are unchanged from the earlier browser-URL version; the asset IDs, sizes and hashes were read
+from `GET /repos/gleam-lang/gleam/releases/tags/v1.19.2` on 2026-11-08 (the API `digest` fields equal the pins),
+and the Linux x86_64 archive downloaded through the API had exactly the pinned size and hash.
+
+Reason: from about 16:20 WIB on 2026-11-08 the browser URL
+`https://github.com/gleam-lang/gleam/releases/download/v1.19.2/...` answered `HTTP Error 504: Gateway Time-out`
+from the job container (Gleam run 42467133717, job 128689127890, step `Run ./scripts/setup.sh`). That is the first
+step of every Gleam job, and the merge queue needs a green Gleam run, so no pull request could merge. The same
+URL answered 200 after 12 s from a developer machine at about 16:50 WIB, so the outage is intermittent or slow,
+not proven fixed. `spikes/gleam_ui/scripts/test_setup_gleam.py` (21 tests, run by `check.sh`) covers the script with a fake
+HTTP layer and a loopback redirect server (the target is never contacted): success, token only to the API host, checksum and size mismatch, 504 retries, no retry on other
+errors, refused redirect hosts, network errors, archive shape and unsupported platforms.
+
+Limits: this depends on `api.github.com` and the storage host that the redirect names; it does not show that the
+browser URL works again. Without `GITHUB_TOKEN` the unauthenticated API rate limit (60 requests per hour per
+address) applies. A changed pin (new Gleam version) needs new asset IDs, sizes and hashes in the script, this
+table and the README. Platforms other than the four above stay unsupported.
+
 ## Operation and rollback
 
 ```sh
@@ -687,4 +779,4 @@ admitted the second backend runner (PR #61, merge `9890dee`). ELZ-040 removed it
 one-time route and hardened the guard. ELZ-042 closed the flow-style job and
 missing-container gaps found in the ELZ-040 review. ELZ-043 split the dependency
 cache so it is saved after `mix setup` and added the action SHA-pin check. ELZ-056 added
-the Contabo VPS runner as an unrouted candidate. ELZ-057 added the fast tier (pull request and queue runs on the fast runners only) and the runner budget rules.
+the Contabo VPS runner as an unrouted candidate. ELZ-057 added the fast tier (pull request and queue runs on the fast runners only) and the runner budget rules. ELZ-060 moved the Gleam compiler download to the release-asset API after the browser URL answered 504.

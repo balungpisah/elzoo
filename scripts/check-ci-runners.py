@@ -54,6 +54,15 @@ REQUIRED_GATE = """      - name: Verify approved backend runner
           esac
           echo "Backend runner: $RUNNER_NAME"
           free -h || true"""
+# ELZ-060: the Gleam job installs the pinned compiler through the release-asset API with the job token;
+# the token is exposed to this one step only.
+GLEAM_SETUP_STEP = """      - name: Install the pinned Gleam compiler
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./scripts/setup.sh"""
+TOKEN_EXPRESSION = re.compile(
+    r"github\s*\.\s*token|github\s*\.\s*\*|github\s*\[|\bsecrets\b|tojson\s*\(\s*(?:github|secrets)\b",
+    re.IGNORECASE)
 digest_image = re.compile(r'\s+image:\s*[^\s@\'"]+@sha256:[0-9a-f]{64}\s*')
 # ELZ-043: every action is pinned by a full commit SHA; a tag or branch can move.
 pinned_action = re.compile(r'\s*(?:-\s+)?uses:\s*[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*@[0-9a-f]{40}(?:\s+#.*)?')
@@ -277,6 +286,28 @@ for file in files:
     # check above (image digest, ERL_FLAGS, gate, steps, action SHAs) holds for both.
     if len(bodies) == 2 and bodies[0] != bodies[1]:
         errors.append(f'{file}: check-fast and check-any must have identical bodies below runs-on')
+    # Token exposure: github.token and secrets appear nowhere except the one pinned Gleam setup step.
+    # Case-insensitive and tolerant of spacing, bracket access and whole-object dumps; script text and
+    # comments are included on purpose (the check reads raw lines). A source-convention check only.
+    token_lines = [i for i, line in enumerate(lines) if TOKEN_EXPRESSION.search(line)]
+    if file.name == 'symbolic-gleam.yml':
+        step = GLEAM_SETUP_STEP.split('\n')
+        starts = [i for i in range(len(lines)) if lines[i:i + len(step)] == step]
+        pinned = len(starts) == 1 and starts[0] not in skip and token_lines == [starts[0] + 2]
+        if pinned:
+            before = lines[starts[0] - 1]
+            # The first line after the step that is neither blank nor a comment decides where the step ends.
+            rest = [line for line in lines[starts[0] + len(step):] if line.strip() and not line.lstrip().startswith('#')]
+            after = rest[0] if rest else ''
+            # The step must follow the setup-node step and end where the next step starts, so no key
+            # (shell:, if:, working-directory:, continue-on-error:) can be appended to it.
+            pinned = (before == "          node-version: '24.16.0'"
+                      and (not after or after.startswith('      - ')
+                           or len(after) - len(after.lstrip(' ')) <= 4))
+        if not pinned:
+            errors.append(f'{file}: the pinned Gleam setup step is missing or changed, or the token appears elsewhere')
+    elif token_lines:
+        errors.append(f'{file}: github.token and secrets are not allowed in this workflow')
     if file.name == 'symbolic-check.yml' and any(
             re.match(r'\s*(?:-\s+)?(?:defaults|shell|continue-on-error)\s*:', line) for line in yaml_lines):
         errors.append(f'{file}: defaults:, shell: and continue-on-error: could disable the runner identity gate')
