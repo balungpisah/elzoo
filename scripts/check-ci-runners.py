@@ -221,6 +221,9 @@ for file in files:
             macbook-ubuntu-elzoo-candidate)
               echo 'ERL_FLAGS=+S 2:2 +SDcpu 1 +SDio 1' >> "$GITHUB_ENV"
               ;;
+            contabo-elzoo-1)
+              echo 'ERL_FLAGS=+S 4:4 +SDcpu 1 +SDio 1' >> "$GITHUB_ENV"
+              ;;
             *) echo "Unapproved backend runner: $RUNNER_NAME" >&2; exit 1 ;;
           esac
           echo "Backend runner: $RUNNER_NAME"

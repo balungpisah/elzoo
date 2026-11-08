@@ -134,8 +134,9 @@ ownership areas.
 
 ## CI machine policy
 
-CI must run only on the user-owned symbolic or macbook-ubuntu machine, in
-the roles defined in docs/development/10-symbolic-ci.md. Use the explicit
+CI must run only on user-owned machines: symbolic, macbook-ubuntu and the
+user-rented Contabo VPS runner contabo-elzoo-1 (owner decision 2026-11-08; a
+candidate until proven), in the roles defined in docs/development/10-symbolic-ci.md. Use the explicit
 self-hosted selectors and runner identity checks documented there.
 Never use or fall back to GitHub-hosted runners: the owner does not have hosted
 minutes available. If a runner is offline, diagnose its service/queue; do not

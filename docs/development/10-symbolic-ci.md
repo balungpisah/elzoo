@@ -1,7 +1,9 @@
 # CI on user-owned machines
 
-Elzoo uses only the user-owned Linux machines `symbolic` and `macbook-ubuntu`.
-GitHub provides scheduling and check reporting; it does not supply compute.
+Elzoo uses only user-owned Linux machines: `symbolic`, `macbook-ubuntu` and, from
+ELZ-056 (owner decision 2026-11-08), the user-rented Contabo VPS `ratahq-ci-contabo-01`
+(runner `contabo-elzoo-1`, a candidate until a trial passes). GitHub provides scheduling
+and check reporting; it does not supply compute.
 Never select a GitHub-hosted image or add a hosted fallback. If a runner is
 offline, diagnose it or let work queue on the other approved runner.
 
@@ -14,6 +16,10 @@ offline, diagnose it or let work queue on the other approved runner.
   `ci-candidate`. It received `backend` after ELZ-034 merged (PR #61), so it
   is in the normal backend pool. The name and `ci-candidate` label are
   historical; they do not select a separate route.
+- `contabo-elzoo-1` (runner id 24): **candidate, not routed.** Labels `self-hosted`,
+  `Linux`, `X64`, `elzoo`, `contabo`; it has no `backend` label until a trial passes
+  (see "Contabo VPS" below). The workflow identity gate already accepts its name, so
+  adding the label later is the only routing change.
 - `symbolic-elzoo-gleam`: Gleam only; labels `self-hosted`, `linux`, `x64`,
   `symbolic`, `elzoo`, `gleam`.
 
@@ -24,8 +30,11 @@ event; either backend runner may take the job. ELZ-040 removed the one-time
 are not approved. Both backend and Gleam jobs skip fork PRs before runner
 selection; a skipped job is not validation and must not be treated as evidence
 for merging a fork. This does not make arbitrary same-repository code trustworthy.
-The first container step refuses any backend `RUNNER_NAME` other than the two
-names above. The Gleam selector stays symbolic-only. A new backend machine
+The first container step refuses any backend `RUNNER_NAME` other than the three
+names above (`symbolic-elzoo`, `macbook-ubuntu-elzoo-candidate`, `contabo-elzoo-1`);
+`scripts/check-ci-runners.py` pins that whole step text, so a fourth name or changed
+`ERL_FLAGS` fails the guard. `scripts/merge-queue.py` accepts the same three names as
+backend job evidence; Gleam evidence stays symbolic-only. The Gleam selector stays symbolic-only. A new backend machine
 needs a full task-branch check and independent review before it gets `backend`.
 Registration is repository-scoped; administrators must assign these labels only
 to the named trusted machines. GitHub label selection is not cryptographic host
@@ -285,7 +294,7 @@ saves a new cache. Later runs are warm. Compare consumer timings only between wa
 
 ## Machine and container setup
 
-Both machines use repository-scoped runner installations and dedicated
+All backend machines use repository-scoped runner installations and dedicated
 `elzoo-ci` accounts. The account can access Docker, which is root-equivalent;
 job containers are not a sandbox for hostile PR code. Run only trusted code in
 this private repository. Never store runner registration tokens in the repo or
@@ -455,6 +464,81 @@ layers are fetched: the job image stays pinned by the same digest, so Docker
 verifies the same content. The mirror is host configuration, not repository
 state. This record covers `symbolic` only.
 
+### Contabo VPS `ratahq-ci-contabo-01` (ELZ-056)
+
+Status: **candidate until proven.** The runner is online but has no `backend` label, so no
+job is routed to it. The label is added only after a full trial passes on the exact head
+(run and job IDs, duration, cgroup peak, sampled CPU, and `cpu.max`/`memory.max` read from
+inside the job container). Trial evidence is recorded in the ELZ-056 issue before merge.
+
+Owner decision (2026-11-08), quoted: "u may remove/rename those ci ratahq. i dont use it
+anymore. use it for this development". The owner rents this machine. It runs production
+workloads of the owner's `balungpisah` product, which stay untouched.
+
+Host facts at inventory (2026-11-08): hostname `vmi2852974`, Ubuntu 24.04.3 LTS x86_64,
+AMD EPYC (8 vCPU, one thread per core), 23 GiB RAM, no swap, 387 GB disk with 345 GB free,
+load average 0.15, cgroup v2 (systemd cgroup driver), systemd 255, Docker CE 29.2.0
+(`docker-ce 5:29.2.0` and `containerd.io 2.2.1` from Docker's apt repository, which were
+already installed; the Ubuntu `docker.io` package was not swapped in because that would
+disturb the production containers). Other workloads: nginx on ports 80 and 443 and four
+containers (`balungpisah-core`, `balungpisah-tensorzero`, `balungpisah-minio`,
+`balungpisah-postgres`). Headroom was about 22 GiB of RAM and an idle CPU. The other Contabo host in the
+owner's SSH config (`ratahq-dev-contabo-01`, 3 cores, 7.8 GiB) was rejected: it is below
+the 4 core / 8 GiB minimum.
+
+Runner: version 2.338.2, tarball SHA-256
+`baebf204307bac6193480852732f0aba2ae97b6c5597c244f4d5558390147c40` (verified; equal to the
+GitHub release digest and to the macbook runner), installed at
+`/opt/actions-runner/elzoo-backend`, system account `elzoo-ci` (uid 999, in group `docker`),
+service `actions.runner.balungpisah-elzoo.contabo-elzoo-1.service` (enabled, running as
+`elzoo-ci`). It was registered repository-scoped with a short-lived registration token that
+was piped over SSH into `config.sh` and never written to a file or log.
+
+**Shared Docker daemon.** The runner's Docker access is root-equivalent and the daemon is
+the same one that runs the production containers above. A job container is not a sandbox:
+hostile or buggy PR code could reach those containers. The accepted mitigation is only
+trusted code in this private repository plus the resource cap below. This is the owner's
+accepted risk. Rootless Docker for `elzoo-ci` is a possible follow-up; it is **not** done.
+
+**Resource mechanism.** Job containers are children of `dockerd`, not of the runner
+service, so a systemd cap on the service does not limit them. Two caps apply:
+
+- The service drop-in `/etc/systemd/system/actions.runner.balungpisah-elzoo.contabo-elzoo-1.service.d/10-elzoo-cap.conf`
+  sets `CPUQuota=500%`, `MemoryMax=10G`, `MemoryHigh=9G` and `TasksMax=8192` for the runner
+  listener and worker processes.
+- A root-owned wrapper `/opt/actions-runner/elzoo-backend-bin/docker` (mode 755) is first in
+  the runner's `.path`. For `docker create` and `docker run` it adds
+  `--cpus=5 --memory=8g --memory-swap=8g` and then runs `/usr/bin/docker`; every other
+  subcommand passes through unchanged. A test as `elzoo-ci` read `cpu.max` `500000 100000`
+  and `memory.max` `8589934592` inside a container. That test is not yet a job observation:
+  the trial must show the same values inside the real job container.
+
+The cap leaves about 3 cores and 13 GiB for the production workloads. Memory observed on the
+other runners (2.1 to 2.8 GiB cgroup peak, 3.3 to 5.0 sampled cores) fits inside it, though a CPU peak near 5 cores may be throttled. A job
+that reaches 8 GiB is killed by the kernel; that is the intended protection, not a failure
+of the host.
+
+**Network.** The pinned `ubuntu:24.04` image is pulled by digest. Inside a container
+`builds.hex.pm`, `repo.hex.pm` and `github.com` resolve over IPv4 and answer HTTPS 200.
+The Docker bridge has no IPv6, so IPv6 requests fail by design; host and container resolvers
+returned only IPv4 (v4-mapped) answers and no NXDOMAIN, unlike the macbook failure on
+`builds.hex.pm`. Jobs here are IPv4-only. No registry mirror is configured; Docker Hub
+reachability was not an issue on 2026-11-08.
+
+**Retired runner.** The host previously had an unused runner install for another repository
+(`sabrang-mdp/rakan`, service name `actions.runner.sabrang-mdp-rakan.sabrang-ci-ephemeral-rakan-v98`).
+It had no `.runner` registration file, no systemd unit and no process. Its directory was
+renamed to `/opt/actions-runner.retired-rakan-20261108` (about 953 MB of `_work`) and not
+deleted. The owner may delete it.
+
+**ERL_FLAGS.** The workflow sets `+S 4:4 +SDcpu 1 +SDio 1` for `contabo-elzoo-1`, the same as
+`symbolic-elzoo`: four schedulers fit inside the 5-core cap on an 8-core host.
+
+Operation, as for the other runners: `ssh ratahq-ci-contabo-01 'systemctl status
+actions.runner.balungpisah-elzoo.contabo-elzoo-1.service --no-pager'`. To withdraw the
+machine, remove the `backend` label after the current job finishes; the other two runners keep
+accepting backend jobs. Do not restart the service while it is busy.
+
 ## Operation and rollback
 
 ```sh
@@ -484,4 +568,5 @@ historical evidence and do not satisfy the user-owned machine policy. ELZ-034
 admitted the second backend runner (PR #61, merge `9890dee`). ELZ-040 removed its
 one-time route and hardened the guard. ELZ-042 closed the flow-style job and
 missing-container gaps found in the ELZ-040 review. ELZ-043 split the dependency
-cache so it is saved after `mix setup` and added the action SHA-pin check.
+cache so it is saved after `mix setup` and added the action SHA-pin check. ELZ-056 added
+the Contabo VPS runner as an unrouted candidate.

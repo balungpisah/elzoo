@@ -383,6 +383,44 @@ class RunnerPolicyTest(unittest.TestCase):
         self.change("symbolic-check.yml", "jobs:\n", "defaults:\n  run:\n    shell: cat {0}\n\njobs:\n")
         self.assertIn("could disable the runner identity gate", self.check(1).stderr)
 
+    # ELZ-056: the Contabo VPS runner is admitted with its own ERL_FLAGS, and nothing else.
+    CONTABO_CASE = """            contabo-elzoo-1)
+              echo 'ERL_FLAGS=+S 4:4 +SDcpu 1 +SDio 1' >> "$GITHUB_ENV"
+              ;;
+"""
+
+    def test_contabo_case_present_and_exact(self):
+        source = (self.root / ".github" / "workflows" / "symbolic-check.yml").read_text()
+        self.assertIn(self.CONTABO_CASE, source)
+        self.check(0)
+
+    def test_contabo_case_removed_rejected(self):
+        self.change("symbolic-check.yml", self.CONTABO_CASE, "")
+        self.assertIn("approved runner identity gate is missing or changed", self.check(1).stderr)
+
+    def test_contabo_erl_flags_changed_rejected(self):
+        self.change("symbolic-check.yml", "ERL_FLAGS=+S 4:4 +SDcpu 1 +SDio 1' >> \"$GITHUB_ENV\"",
+                    "ERL_FLAGS=+S 8:8 +SDcpu 1 +SDio 1' >> \"$GITHUB_ENV\"")
+        self.assertIn("approved runner identity gate is missing or changed", self.check(1).stderr)
+
+    def test_contabo_runner_name_changed_rejected(self):
+        for name in ("contabo-elzoo-2", "contabo-elzoo-*", "contabo-*"):
+            with self.subTest(name=name):
+                self.change("symbolic-check.yml", "            contabo-elzoo-1)", "            " + name + ")")
+                self.assertIn("approved runner identity gate is missing or changed", self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+
+    def test_additional_unlisted_runner_case_rejected(self):
+        self.change("symbolic-check.yml", self.CONTABO_CASE,
+                    self.CONTABO_CASE + "            other-runner) ;;\n")
+        self.assertIn("approved runner identity gate is missing or changed", self.check(1).stderr)
+
+    def test_contabo_case_does_not_change_runs_on(self):
+        source = (self.root / ".github" / "workflows" / "symbolic-check.yml").read_text()
+        self.assertIn("    runs-on: [self-hosted, linux, x64, elzoo, backend]\n", source)
+        self.assertNotIn("contabo]", source)
+
 
 if __name__ == "__main__":
     unittest.main()
