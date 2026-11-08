@@ -3478,10 +3478,12 @@
     {
       "id": "runtime/os-isolation",
       "job": "ELZ-029",
-      "note": "OTP Port/OS process or service; BEAM process is not security isolation ELZ-029 carries the OS-process Adapter admission record (process-group leader, observed term/kill escalation, reaper, queue_full vs queue_timeout).",
+      "note": "Run one OS command per request with bounded slots and queue, an absolute deadline, group-scoped termination performed by erlexec's port program, and an observed result mapped to the shared delivery result; the Adapter never signals itself.",
       "baseline_status": "planned",
-      "disposition": "published-scoped-work",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "implementation prepared; acceptance requires merged PR",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/runtime/os-isolation/piece.json",
+      "manifest_sha256": "505c7a1e7ee40ec254096a2d08cab72939c681ddc91a257411243fbaf19183d2"
     },
     {
       "id": "runtime/registry",
