@@ -147,7 +147,7 @@ Exact after (reviewer's text, verbatim):
 - [ ] A write using an expired holder's old fence is refused by revision after a replacement or other record has moved the head (test); if the head has not moved, expiry alone is not detected by the revision and does not by itself refuse that write (documented limit with a control test).
 ```
 
-### B4 — non-holder completion (new; requested by confirmation point 1)
+### B4 — non-holder completion (reviewer's minimal rewording; pending main's decision)
 
 Exact before:
 
@@ -159,18 +159,21 @@ completion from a non-holder is rejected by the record
 Exact after:
 
 ```text
-completion from a non-holder presenting the fence of its superseded lease is rejected by the record revision (the fencing value), never by timestamp comparison; the revision cannot distinguish a writer that obtained the current revision outside the lease interface, which is a consumer bypass outside this Contract.
+completion using the fence of a superseded lease is rejected by the record revision (the fencing value), never by timestamp comparison; a writer presenting the current revision is not rejected on the basis of holder identity.
 ```
 
-Why an amendment and not only a design restriction: the lease interface
-hands the fence only to the holder, so every non-holder that uses the
-interface is refused by revision after a takeover (LS4, LS20); but a writer
-that reads the head directly and presents the current revision is accepted
-by the ready Store, which cannot know who holds the lease and compares no
-owner string. Restricting "non-holder" only inside the design would leave the
-Contract promising a rejection the Piece cannot deliver against that bypass;
-the R3 checkbox was narrowed for the same reason. The design records the
-limit (ELZ-028.md §2.5, §2.8) until main decides.
+History: main approved the worker's first B4 text; the narrow
+re-confirmation reworded it to the minimal limitation above, and the pieces
+coordinator has asked main to approve the reworded text in its place. Why an
+amendment and not only a design restriction: revision fencing rejects a
+superseded fence (LS4, LS20) but cannot authenticate how a current fence was
+obtained, and the interface has no authentication (`held` values are
+transferable, `hold/3` answers any caller supplying the recorded owner's
+identifier, a direct head read yields the current revision). Restricting
+"non-holder" only inside the design would leave the Contract promising a
+rejection the Piece cannot deliver; the R3 checkbox was narrowed for the same
+reason. The design records the limit (ELZ-028.md §2.5, §2.8) until main
+decides.
 
 ## Reconciliations required by the decision
 
@@ -190,9 +193,10 @@ its partial-commit limit (B3b). A decision accepting these qualifications is
 not evidence that the older, stronger reading held.
 
 **Non-holder completion sentence.** With amendment B4 the sentence states
-what the design delivers: `complete/4` is admitted by the fence alone (an
-old fence is refused once any record moved the head; no owner string is
-compared; a bypass presenting the current revision is outside the Contract);
+what the design delivers: `complete/4` is admitted by the fence alone (a
+superseded fence is refused once any record moved the head; no owner string
+is compared; a writer presenting the current revision is not rejected on the
+basis of holder identity);
 the regression gate on the terminal
 path refuses when the store-clock sample is earlier than the latest recorded
 stamp, which is a fail-closed guard against a regressed store clock applied
