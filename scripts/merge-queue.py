@@ -44,7 +44,7 @@ def command(argv, allowed=(0,)):
 # here: a repeated dispatch would create a second run.
 TRANSIENT = re.compile(
     r"TLS handshake timeout|connection reset|connection refused|i/o timeout|timeout awaiting|"
-    r"Client\.Timeout|unexpected EOF|\bEOF\b|server closed|temporary failure|"
+    r"Client\.Timeout|context deadline exceeded|timed out after \d+ seconds|operation timed out|unexpected EOF|\bEOF\b|server closed|temporary failure|"
     r"HTTP 50[0234]\b|\b50[0234] (?:Bad Gateway|Service Unavailable|Gateway Time-?out|Internal Server Error)",
     re.IGNORECASE)
 RETRY_WAITS = (10, 20, 40, 50)  # five attempts over two minutes of waiting
@@ -102,6 +102,7 @@ class Queue:
                  timeout=10800, poll=15, emit=print):
         self.sleep, self.clock = sleep, clock
         self.timeout, self.poll, self.emit = timeout, poll, emit
+        self.raw_run = run
         self.run = retrying(run, sleep, emit, clock, lambda: self.deadline)
         self.deadline = 0
 
@@ -116,6 +117,13 @@ class Queue:
 
     def api(self, path):
         return self.data("gh", "api", f"repos/{REPO}/{path}")
+
+    def data_once(self, *argv):
+        """Like data(), without the retries: for best-effort calls that must not hold the queue."""
+        try:
+            return json.loads(self.raw_run(list(argv)).stdout.strip())
+        except (ValueError, TypeError, AttributeError) as error:
+            raise QueueError(f"Invalid JSON from {' '.join(argv)}") from error
 
     def pause(self, reason, deadline=None):
         remaining = min(self.deadline, deadline or self.deadline) - self.clock()
@@ -192,8 +200,8 @@ class Queue:
                                "head_sha": pr["headRefOid"], "per_page": 100})
             end = self.clock() + 30
             while True:
-                pages = self.data("gh", "api", "--paginate", "--slurp",
-                                  f"repos/{REPO}/actions/workflows/{WORKFLOW}/runs?{query}")
+                pages = self.data_once("gh", "api", "--paginate", "--slurp",
+                                       f"repos/{REPO}/actions/workflows/{WORKFLOW}/runs?{query}")
                 runs = [run for page in pages for run in page["workflow_runs"]
                         if isinstance(run, dict) and self.pr_run_matches(run, pr, workflow_id)]
                 if runs:

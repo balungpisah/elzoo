@@ -41,6 +41,8 @@ class Fake:
         self.transient_text = "Get \"https://api.github.com/x\": net/http: TLS handshake timeout"
         self.write_failure = None
         self.pr_run_listing_error = False
+        self.pr_run_listing_calls = 0
+        self.pr_run_listing_text = "listing failed"
         self.other_job_changes = None
         self.merged = False
         self.run_changes = {}
@@ -121,8 +123,9 @@ class Fake:
                     raise queue.QueueError("cancel refused")
                 self.cancelled.append(int(path.split("/")[-2]))
             elif "/workflows/symbolic-check.yml/runs?" in path and "event=pull_request" in path:
+                self.pr_run_listing_calls += 1
                 if self.pr_run_listing_error:
-                    raise queue.QueueError("listing failed")
+                    raise queue.QueueError(f"gh api exited 1: {self.pr_run_listing_text}")
                 runs = [self.pr_run(700)] if self.pr_runs is None else self.pr_runs
                 out = [{"workflow_runs": runs}]  # malformed bodies are passed through as they are
             elif path.endswith("git/ref/heads/main"):
@@ -484,7 +487,8 @@ class QueueTest(unittest.TestCase):
 
     def test_transient_pattern_and_read_only_rules(self):
         for text in ("TLS handshake timeout", "connection reset by peer", "HTTP 502", "HTTP 503: x", "HTTP 504",
-                     "502 Bad Gateway", "i/o timeout", "unexpected EOF"):
+                     "502 Bad Gateway", "i/o timeout", "unexpected EOF", "context deadline exceeded",
+                     "gh failed: Command '['gh', 'api', 'x']' timed out after 120 seconds", "operation timed out"):
             with self.subTest(text=text):
                 self.assertTrue(queue.TRANSIENT.search(text))
         for text in ("HTTP 404", "HTTP 401", "Not Found", "HTTP 429", "HTTP 422", "mergeable"):
@@ -510,6 +514,18 @@ class QueueTest(unittest.TestCase):
         self.assertTrue(queue.is_read_only(["gh", "pr", "view", "79"]))
         self.assertFalse(queue.is_read_only(["gh", "api", "-X", "POST", "x"]))
         self.assertFalse(queue.is_read_only(["gh", "pr", "merge", "79"]))
+
+    def test_the_duplicate_run_lookup_is_not_retried(self):
+        # Devin Review finding: a best-effort lookup must not hold the queue for the whole retry window.
+        self.fake.stale = True
+        self.fake.pr_run_listing_error = True
+        self.fake.pr_run_listing_text = "net/http: TLS handshake timeout"
+        self.q = self.fake.make_queue(timeout=3600)
+        self.q.process(79)
+        self.assertEqual(1, self.fake.pr_run_listing_calls)  # one attempt, no retry waits for this call
+        self.assertFalse(any("Transient failure of gh api --paginate" in m for m in self.fake.messages))
+        self.assertTrue(any("not cancelled" in m for m in self.fake.messages))
+        self.assertTrue(self.fake.merged)
 
     def test_main_moves_during_check_requires_new_full_run(self):
         self.fake.move_main = True
