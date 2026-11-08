@@ -20,7 +20,7 @@ No tracked file, issue, metadata, branch, pin or test was changed. The worktree 
 
 | Item | Command or source | Result |
 | --- | --- | --- |
-| Probe reproduction | `env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_ENV=test ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:elzoo_elz024@localhost/elzoo_pieces_test mix run docs/work/ELZ-011-probes/boundary.exs` | exit 0, `Result: 14 passed`, log `/tmp/elz011-probe.log` |
+| Probe reproduction | `env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_ENV=test ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:…@localhost/elzoo_pieces_test mix run docs/work/ELZ-011-probes/boundary.exs` | exit 0, `Result: 14 passed`, log `/tmp/elz011-probe.log` |
 | Probe file hashes | `shasum -a 256 docs/work/ELZ-011-probes/*` | `boundary.exs` `80d075c5…e0b4`, `hex-metadata.json` `b56b2446…5c43`. Both match the proposal. |
 | Owner seam probe (mine) | `/tmp/elz011-review-probes/intent_seams.exs`, log `intent_seams.log` | exit 0. Results in H2, H3, M1. |
 | Req timing probe (mine) | `/tmp/elz011-review-probes/slow_drip.exs` | exit 0. Results in H4 and M9. |

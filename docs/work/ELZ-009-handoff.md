@@ -60,7 +60,7 @@ normal fast-forward pushes, never force/rebase/delete.
 ## Commands actually run at this checkpoint
 
 With `ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1'`,
-`ELZOO_TEST_DATABASE_URL=ecto://elzoo_test:elzoo_test@localhost/elzoo_test`:
+`ELZOO_TEST_DATABASE_URL=ecto://elzoo_test:…@localhost/elzoo_test`:
 
 - `MIX_ENV=test mix test pieces/state pieces/integration/sql test/durable_state_test.exs test/durable_log_disk_log_test.exs --warnings-as-errors` → `Result: 94 passed`
 - `mix format` on `test/export_test.exs`, then `mix format --check-formatted` (rerun before commit)
@@ -80,7 +80,7 @@ and unreachable (exit 2) URLs; `check-ci-runners.py` symbolic-only.
   `sudo apt-get install -y postgresql`, then
   `sudo -u postgres psql -c "create role elzoo_test login password 'elzoo_test'"`,
   `sudo -u postgres createdb -O elzoo_test elzoo_test`,
-  `export ELZOO_TEST_DATABASE_URL=ecto://elzoo_test:elzoo_test@localhost/elzoo_test`.
+  `export ELZOO_TEST_DATABASE_URL=ecto://elzoo_test:…@localhost/elzoo_test`.
   Throwaway test-only credentials; tests fail closed without the variable.
 - Do not copy Cure generated caches between checkout paths.
 

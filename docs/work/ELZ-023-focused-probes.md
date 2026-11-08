@@ -21,10 +21,10 @@ fresh full production check. All final probe commands below exited **0**.
 
 ```sh
 python3 docs/work/ELZ-023-probes/generate_provenance.py
-env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_ENV=test ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:elzoo_elz024@localhost/elzoo_pieces_test elixir -pa '_build/test/lib/*/ebin' docs/work/ELZ-023-probes/provenance.exs
-env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_ENV=test ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:elzoo_elz024@localhost/elzoo_pieces_test elixir -pa '_build/test/lib/*/ebin' docs/work/ELZ-023-probes/capacity.exs
-env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_ENV=test ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:elzoo_elz024@localhost/elzoo_pieces_test elixir -pa '_build/test/lib/*/ebin' docs/work/ELZ-023-probes/recovery.exs
-env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_ENV=test ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:elzoo_elz024@localhost/elzoo_pieces_test elixir -pa '_build/test/lib/*/ebin' docs/work/ELZ-023-probes/probe.exs
+env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_ENV=test ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:…@localhost/elzoo_pieces_test elixir -pa '_build/test/lib/*/ebin' docs/work/ELZ-023-probes/provenance.exs
+env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_ENV=test ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:…@localhost/elzoo_pieces_test elixir -pa '_build/test/lib/*/ebin' docs/work/ELZ-023-probes/capacity.exs
+env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_ENV=test ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:…@localhost/elzoo_pieces_test elixir -pa '_build/test/lib/*/ebin' docs/work/ELZ-023-probes/recovery.exs
+env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_ENV=test ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:…@localhost/elzoo_pieces_test elixir -pa '_build/test/lib/*/ebin' docs/work/ELZ-023-probes/probe.exs
 python3 scripts/check-roadmap.py --write
 python3 scripts/check-roadmap.py
 python3 scripts/check-roadmap.py --live

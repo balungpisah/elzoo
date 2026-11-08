@@ -130,7 +130,7 @@ env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 \
 
 | Command (after that environment prefix) | Exit and actual result | Log |
 | --- | --- | --- |
-| `ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:elzoo_elz024@localhost/elzoo_pieces_test mix setup` | 0; setup emits no `Result: N passed` | `/tmp/elz030-production/setup-production.log` |
+| `ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:…@localhost/elzoo_pieces_test mix setup` | 0; setup emits no `Result: N passed` | `/tmp/elz030-production/setup-production.log` |
 | `mix test pieces/workflow/context-selection/test/elzoo/context_selection_test.exs` | 0; `Result: 33 passed` | `/tmp/elz030-production/test-delivery.log` |
 | `MIX_ENV=test mix run /tmp/elz030-production/export.exs` (put `MIX_ENV=test` in `env`) | 0; `EXPORT_HASHES_OK: 21 files`, `Result: 73 passed`, `EXPORTED_CONSUMER_EXIT=0` | `/tmp/elz030-production/export3.log` |
 | `mix format --check-formatted` | 0 | tool output, no Result line |
