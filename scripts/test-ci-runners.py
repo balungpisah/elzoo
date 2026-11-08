@@ -470,6 +470,34 @@ class RunnerPolicyTest(unittest.TestCase):
                     "      ImageOS: ubuntu24\n      SECRET: ${{ secrets.ANYTHING }}\n")
         self.assertIn("token appears elsewhere", self.check(1).stderr)
 
+    def test_other_token_spellings_rejected_everywhere(self):
+        for text in ("github.TOKEN", "Github.Token", "github['token']", "github . token", "secrets['X']",
+                     "SECRETS.X", "toJSON(secrets)", "toJSON(github)", "toJson( github )"):
+            for filename in ("symbolic-gleam.yml", "symbolic-check.yml"):
+                with self.subTest(text=text, file=filename):
+                    self.change(filename, "      ImageOS: ubuntu24\n",
+                                "      ImageOS: ubuntu24\n      LEAK: ${{ " + text + " }}\n")
+                    self.assertIn("github.token and secrets are not allowed" if filename == "symbolic-check.yml"
+                                  else "token appears elsewhere", self.check(1).stderr)
+                    self.tearDown()
+                    self.setUp()
+
+    def test_gleam_setup_step_cannot_get_extra_keys_or_move(self):
+        step = self.GLEAM_STEP
+        for extra in ("        shell: bash -c 'echo $GITHUB_TOKEN; bash {0}'\n", "        continue-on-error: true\n",
+                      "        if: ${{ false }}\n", "        working-directory: /tmp\n"):
+            with self.subTest(extra=extra.strip()):
+                self.change("symbolic-gleam.yml", step, step + extra)
+                self.assertIn("pinned Gleam setup step is missing or changed", self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+        # Moved before the checkout step: the step text is intact but its position is not.
+        path = self.root / ".github" / "workflows" / "symbolic-gleam.yml"
+        source = path.read_text().replace(step, "")
+        marker = "      - name: Prepare Ubuntu job container\n"
+        path.write_text(source.replace(marker, step + marker, 1))
+        self.assertIn("pinned Gleam setup step is missing or changed", self.check(1).stderr)
+
     def test_token_or_secrets_in_backend_workflow_rejected(self):
         for text in ("github.token", "secrets.ANYTHING"):
             with self.subTest(text=text):

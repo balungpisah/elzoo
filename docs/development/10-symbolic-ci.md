@@ -620,9 +620,14 @@ by `scripts/setup.sh` in the step `Install the pinned Gleam compiler` of `symbol
 `setup-beam` installs only OTP there. Since ELZ-060 the archive comes from the release-asset API,
 `GET https://api.github.com/repos/gleam-lang/gleam/releases/assets/<id>` with
 `Accept: application/octet-stream` and the job's `github.token` (step `env`, read-only; the guard allows
-`github.token` on that one step only and rejects `secrets.` everywhere). The API answers with a redirect to a
-signed storage URL; the script follows it by hand, refuses any redirect that is not HTTPS to `github.com`,
-`*.github.com` or `*.githubusercontent.com`, and sends no `Authorization` header to the storage host. It checks
+`github.token` on that one step only, pins the step text, its position (right after `setup-node`) and its end, and
+rejects `secrets`, `github.token`, `github[...]` and `toJSON(github|secrets)` spelled in any case and spacing
+anywhere else in either workflow; this is a source-convention check, not proof against every YAML form;
+`setup.sh` unsets `GITHUB_TOKEN` right after the download so `npm ci` and the Playwright install do not see it).
+The API answers with a redirect to a
+signed storage URL; the script follows it by hand, refuses any redirect that is not plain HTTPS (no user info, no
+other port, no percent or backslash tricks) to `github.com`, `*.github.com` or `*.githubusercontent.com`, and sends
+no `Authorization` header to the storage host. It checks
 the pinned size and SHA-256 and stops on any mismatch or error; only HTTP 502, 503 and 504 are retried (three
 attempts, 2 s and 4 s waits).
 
@@ -642,8 +647,8 @@ Reason: from about 16:20 WIB on 2026-11-08 the browser URL
 from the job container (Gleam run 42467133717, job 128689127890, step `Run ./scripts/setup.sh`). That is the first
 step of every Gleam job, and the merge queue needs a green Gleam run, so no pull request could merge. The same
 URL answered 200 after 12 s from a developer machine at about 16:50 WIB, so the outage is intermittent or slow,
-not proven fixed. `spikes/gleam_ui/scripts/test_setup_gleam.py` (run by `check.sh`) covers the script with a fake
-HTTP layer: success, token only to the API host, checksum and size mismatch, 504 retries, no retry on other
+not proven fixed. `spikes/gleam_ui/scripts/test_setup_gleam.py` (21 tests, run by `check.sh`) covers the script with a fake
+HTTP layer and a loopback redirect server (the target is never contacted): success, token only to the API host, checksum and size mismatch, 504 retries, no retry on other
 errors, refused redirect hosts, network errors, archive shape and unsupported platforms.
 
 Limits: this depends on `api.github.com` and the storage host that the redirect names; it does not show that the

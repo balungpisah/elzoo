@@ -6,12 +6,13 @@ download URL (which answered HTTP 504 from CI on 2026-11-08). The pinned asset I
 every supported platform are checked; any mismatch or error stops the script (fail closed).
 """
 import hashlib
+import http.client
 import io
 import os
 import pathlib
 import platform
+import re
 import subprocess
-import sys
 import tarfile
 import time
 import urllib.error
@@ -60,11 +61,22 @@ def http_get(url, headers, timeout=60):
             error.close()
 
 
+HOST_PATTERN = re.compile(r"[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+")
+
+
 def redirect_target_allowed(location):
-    parts = urllib.parse.urlsplit(location)
-    host = (parts.hostname or "").lower()
-    return parts.scheme == "https" and (
-        host == "github.com" or host.endswith(".github.com") or host.endswith(".githubusercontent.com"))
+    """HTTPS only, plain host name, no user info, default port, and a GitHub-owned domain."""
+    try:
+        if not location.isascii() or any(c in location for c in "\\ \t\r\n%"):
+            return False
+        parts = urllib.parse.urlsplit(location)
+        host = parts.hostname or ""
+        if (parts.scheme != "https" or parts.username is not None or parts.password is not None
+                or parts.port not in (None, 443) or not HOST_PATTERN.fullmatch(host)):
+            return False
+    except ValueError:
+        return False
+    return host == "github.com" or host.endswith(".github.com") or host.endswith(".githubusercontent.com")
 
 
 def fetch_asset(asset_id, token, get=http_get, sleep=time.sleep):
@@ -83,8 +95,8 @@ def fetch_asset(asset_id, token, get=http_get, sleep=time.sleep):
                     raise SystemExit("Gleam asset redirect to an unexpected host refused")
                 # Signed storage URL: no Authorization header goes to this host.
                 status, response_headers, body = get(location, {"User-Agent": USER_AGENT})
-        except (urllib.error.URLError, TimeoutError, OSError) as error:
-            raise SystemExit(f"Gleam asset download failed: {error}") from error
+        except (urllib.error.URLError, http.client.HTTPException, ValueError, TimeoutError, OSError) as error:
+            raise SystemExit(f"Gleam asset download failed: {type(error).__name__}: {error}") from error
         if status == 200:
             return body
         last = status
@@ -106,13 +118,17 @@ def install(root, system, machine, token, get=http_get, sleep=time.sleep, run=su
         raise SystemExit("Gleam release archive size mismatch")
     if hashlib.sha256(data).hexdigest() != checksum:
         raise SystemExit("Gleam release archive checksum mismatch")
-    with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as archive:
-        members = [m for m in archive.getmembers() if m.isfile() and pathlib.PurePosixPath(m.name).name == "gleam"]
-        if len(members) != 1:
-            raise SystemExit("Expected exactly one compiler executable")
-        binary.parent.mkdir(parents=True, exist_ok=True)
-        binary.write_bytes(archive.extractfile(members[0]).read())
-        binary.chmod(0o755)
+    try:
+        with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as archive:
+            members = [m for m in archive.getmembers() if m.isfile() and pathlib.PurePosixPath(m.name).name == "gleam"]
+            if len(members) != 1:
+                raise SystemExit("Expected exactly one compiler executable")
+            compiler = archive.extractfile(members[0]).read()
+    except (tarfile.TarError, EOFError, OSError) as error:
+        raise SystemExit(f"Gleam release archive could not be read: {type(error).__name__}") from error
+    binary.parent.mkdir(parents=True, exist_ok=True)
+    binary.write_bytes(compiler)
+    binary.chmod(0o755)
     run([binary, "--version"], check=True)
     return binary
 

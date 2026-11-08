@@ -2,12 +2,16 @@
 """Tests for setup_gleam.py with a fake HTTP layer (no network, no real compiler)."""
 import hashlib
 import importlib.util
+import http.client
+import http.server
 import io
 import pathlib
 import sys
 import tarfile
 import tempfile
+import threading
 import unittest
+import unittest.mock
 import urllib.error
 
 sys.dont_write_bytecode = True  # keep the checkout clean: no __pycache__ next to the scripts
@@ -192,6 +196,85 @@ class SetupGleamTest(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "Unsupported"):
             self.run_install(fake, key=("Windows", "AMD64"))
         self.assertEqual([], fake.calls)
+
+    def test_api_url_is_the_pinned_repository_asset_endpoint(self):
+        self.assertEqual("https://api.github.com/repos/gleam-lang/gleam/releases/assets/", setup_gleam.API)
+
+    def test_redirect_hosts_are_parsed_strictly(self):
+        for location in ("https://evilgithubusercontent.com/x", "https://notgithub.com/x",
+                         "https://github.com@evil.example/x", "https://user:pw@github.com/x",
+                         "https://github.com:8443/x", "https://github.com:abc/x", "https://evil.example\\@github.com/x",
+                         "https://evil.example%2f.github.com/x", "https://GITHUB.COM.evil.example/x",
+                         "HTTP://github.com/x", "//github.com/x", "/relative/path", "https://github.com /x",
+                         "https://exa\u0430mple.githubusercontent.com/x", "https://.github.com/x",
+                         "https://github..com/x"):
+            with self.subTest(location=location):
+                self.assertFalse(setup_gleam.redirect_target_allowed(location))
+        for location in ("https://github.com/x", "https://GitHub.com/x", "https://api.github.com:443/x",
+                         "https://objects.githubusercontent.com/x?a=b&c=d"):
+            with self.subTest(location=location):
+                self.assertTrue(setup_gleam.redirect_target_allowed(location))
+
+    def test_http_exceptions_and_bad_urls_fail_closed(self):
+        for error in (http.client.IncompleteRead(b"abc"), http.client.BadStatusLine("x"),
+                      http.client.InvalidURL("bad"), ValueError("bad url")):
+            with self.subTest(error=type(error).__name__):
+                fake = FakeHttp(self.data, api=[error])
+                with self.assertRaisesRegex(SystemExit, "download failed"):
+                    self.run_install(fake)
+
+    def test_unreadable_archive_fails_closed(self):
+        data = b"not a gzip archive"
+        target, asset_id, _size, _sha = setup_gleam.ASSETS[KEY]
+        setup_gleam.ASSETS[KEY] = (target, asset_id, len(data), hashlib.sha256(data).hexdigest())
+        with self.assertRaisesRegex(SystemExit, "could not be read"):
+            self.run_install(FakeHttp(data))
+        self.assertFalse((self.root / ".tools" / "gleam").exists())
+
+    def test_http_get_passes_a_timeout(self):
+        with unittest.mock.patch.object(setup_gleam._OPENER, "open") as opened:
+            opened.return_value.__enter__.return_value.status = 200
+            opened.return_value.__enter__.return_value.headers = {}
+            opened.return_value.__enter__.return_value.read.return_value = b""
+            setup_gleam.http_get("https://api.github.com/x", {})
+        self.assertEqual(60, opened.call_args.kwargs["timeout"])
+
+    def test_http_get_does_not_follow_a_redirect_and_sends_no_request_to_the_target(self):
+        # Real sockets on loopback: server A redirects to server B; the opener must stop at A.
+        seen = {"a": [], "b": []}
+
+        def make(name, redirect_to=None):
+            class Handler(http.server.BaseHTTPRequestHandler):
+                def do_GET(self):
+                    seen[name].append(dict(self.headers))
+                    if redirect_to:
+                        self.send_response(302)
+                        self.send_header("Location", redirect_to())
+                        self.end_headers()
+                    else:
+                        self.send_response(200)
+                        self.end_headers()
+                        self.wfile.write(b"target")
+
+                def log_message(self, *args):
+                    pass
+            server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            return server
+        target = make("b")
+        first = make("a", redirect_to=lambda: f"http://127.0.0.1:{target.server_port}/signed")
+        try:
+            status, headers, body = setup_gleam.http_get(
+                f"http://127.0.0.1:{first.server_port}/asset", {"Authorization": "Bearer secret-token"})
+        finally:
+            for server in (first, target):
+                server.shutdown()
+                server.server_close()
+        self.assertEqual(302, status)
+        self.assertTrue(headers["Location"].endswith("/signed"))
+        self.assertEqual(1, len(seen["a"]))
+        self.assertEqual("Bearer secret-token", seen["a"][0]["Authorization"])
+        self.assertEqual([], seen["b"])  # the redirect target was never contacted
 
     def test_redirect_handler_never_follows(self):
         handler = setup_gleam._NoRedirect()
