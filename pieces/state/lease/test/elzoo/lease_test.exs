@@ -698,6 +698,20 @@ defmodule Elzoo.LeaseTest do
     assert {:ok, _} = Lease.new(store: store, clock: {:manual, clock})
   end
 
+  test "Devin finding 5: an owner exit during the holder's write is an unknown outcome with a confirmable receipt" do
+    %{lease: lease, store: store} = TestHelper.memory(hook: seam_hook([:before_write]))
+    seams = [before_write: pass()]
+    assert {:held, a} = seamed(fn -> Lease.claim(lease, "a", "alice", @minute) end, seams)
+
+    assert {:indeterminate, %{cause: :unavailable, records: [_]} = info} =
+             seamed(fn -> Lease.write(lease, a, [{"added", 1, "x"}]) end,
+               before_write: fn _ -> Process.exit(lease.backend.owner, :kill) end
+             )
+
+    assert {:unknown, :unfenced} = Lease.confirm(lease, info)
+    assert length(TestHelper.rows(store, "a")) == 1
+  end
+
   test "LS27 duplicate owners on the double are rejected; the owner's section serializes" do
     %{lease: lease, store: store, clock: clock} = TestHelper.memory()
 

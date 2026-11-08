@@ -255,11 +255,20 @@ defmodule Elzoo.Lease do
          {:ok, rows, request} <- Record.records(key, revision, records, lease.fold, lease.limits),
          {:ok, outbox} <- items(key, request, items, lease) do
       case store_write(lease, key, revision, rows, outbox, Map.delete(request, :records)) do
-        {:committed, target} -> {:held, held(key, owner, target, held.live.at, held.live.until)}
-        {:conflict, %{expected: e, observed: o}} -> {:fenced, %{expected: e, observed: o}}
-        {:rejected, :caller_transaction} -> {:error, :caller_transaction}
-        {:rejected, reason} -> {:rejected, reason}
-        {:indeterminate, info} -> {:indeterminate, Map.put(info, :records, rows)}
+        {:committed, target} ->
+          {:held, held(key, owner, target, held.live.at, held.live.until)}
+
+        {:conflict, %{expected: e, observed: o}} ->
+          {:fenced, %{expected: e, observed: o}}
+
+        {:rejected, :caller_transaction} ->
+          {:error, :caller_transaction}
+
+        {:rejected, reason} ->
+          {:rejected, reason}
+
+        {:indeterminate, info} ->
+          {:indeterminate, Map.put(info, :records, rows)}
       end
     end
   end

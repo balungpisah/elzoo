@@ -58,9 +58,22 @@ defmodule Elzoo.Lease.Memory do
   def retain(backend, stream, expected, through, nonce),
     do: call(backend, {:retain, stream, expected, through, nonce})
 
-  @doc "The holder's Store append (write/4), serialized through the owner like every other Store call."
-  def store_write(backend, key, revision, rows, outbox, request),
-    do: call(backend, {:store_write, key, revision, rows, outbox, request})
+  @doc """
+  The holder's Store append (write/4), serialized through the owner like every
+  other Store call. An owner failure or exit during the call is an unknown
+  outcome: `{:indeterminate, info}` with the request and its records for
+  `Elzoo.Lease.confirm/2`, never a definite error.
+  """
+  def store_write(backend, key, revision, rows, outbox, request) do
+    case call(backend, {:store_write, key, revision, rows, outbox, request}) do
+      {:error, _} ->
+        {:indeterminate, info} = Store.unknown(request, :unavailable)
+        {:indeterminate, Map.put(info, :records, rows)}
+
+      result ->
+        result
+    end
+  end
 
   # A modifying call waits for the owner without a timeout: a GenServer call
   # timeout would not cancel the queued request, so a definite failure could
