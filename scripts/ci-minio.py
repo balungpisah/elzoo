@@ -65,10 +65,11 @@ def http_get(url, headers, timeout=60):
     request = urllib.request.Request(url, headers=headers)
     try:
         with _OPENER.open(request, timeout=timeout) as response:
-            return response.status, response.headers, response.read()
+            # One byte more than the pinned size is enough to fail the size check; never read an unbounded body.
+            return response.status, response.headers, response.read(SIZE + 1)
     except urllib.error.HTTPError as error:
         try:
-            return error.code, error.headers, error.read()
+            return error.code, error.headers, error.read(65536)
         finally:
             error.close()
 

@@ -13,20 +13,22 @@
 
 Owner decision 2026-11-09: the repository becomes public, and CI moves to GitHub-hosted runners (minutes are free for a
 public repository). The four self-hosted runners are unregistered before the visibility change, because a fork can
-change a workflow file and target them. CI must never go dark during the move, so one workflow selects its lane from
-the repository variable `ELZOO_CI_LANE`:
+change a workflow file and target them. One workflow selects its lane from the repository variable `ELZOO_CI_LANE`, so
+that CI keeps running on the self-hosted lane until the flip:
 
-1. While the repository is private, the variable is unset (or `self`): today's self-hosted jobs run; the hosted job is skipped.
+1. While the repository is private, the variable is unset (or `self`): today's self-hosted jobs run; the hosted jobs are skipped.
 2. This PR is checked and queued on the self-hosted lane and merged.
-3. The coordinator changes the visibility, sets `ELZOO_CI_LANE` to `hosted`, verifies one hosted full run on `main`, then
-   unregisters the self-hosted runners and protects `main`.
+3. The coordinator unregisters the self-hosted runners, makes the repository public and sets `ELZOO_CI_LANE` to `hosted`
+   in the same sitting, enables the approval rule for outside collaborators and verifies one hosted full run on `main`.
+   After the runners are gone there is no self-hosted fallback; a rehearsal in a throw-away public repository is the test
+   before this step.
 4. A later cleanup PR removes the self lane.
 
 ## Scope
 
 - **Workflows.** `symbolic-check.yml`: `check-fast` and `check-any` get `vars.ELZOO_CI_LANE != 'hosted'` in their `if:`
   lines. New job `check-hosted`: `runs-on: ubuntu-24.04`, no job container (the runner VM), `if:` lane is `hosted` and
-  (same-repository pull request, push to `main`, or `workflow_dispatch`); `timeout-minutes: 60`; permissions
+  (same-repository pull request, push to `main`, or `workflow_dispatch`); `timeout-minutes: 120` (a cold-cache run took 72 minutes on a comparable machine); permissions
   `contents: read` and `actions: read` (the ELZ-058 decision step); hosted identity gate (first step, pinned): the step fails unless
   `RUNNER_ENVIRONMENT` is `github-hosted`, `RUNNER_OS` is `Linux`, `RUNNER_ARCH` is `X64` and `/etc/os-release` names Ubuntu 24.04.
   Same Elixir, OTP and Cure pins through `setup-beam`; `ERL_FLAGS` sized for 4 vCPUs. `symbolic-gleam.yml` gets the
@@ -48,7 +50,7 @@ the repository variable `ELZOO_CI_LANE`:
   the same restore, save-after-`mix setup` split as ELZ-043.
 - **Merge queue.** `scripts/merge-queue.py` accepts evidence from exactly one non-skipped job, either `check-fast` on a fast
   runner (self lane) or `check-hosted` with `runner_group_name` = `GitHub Actions`, `labels` = `["ubuntu-24.04"]` and a runner
-  name starting `GitHub Actions ` (fields observed on a real hosted job); the same for the Gleam job. The duplicate-run
+  name starting `GitHub Actions ` (fields seen on a hosted job earlier; the rehearsal records the run and job IDs that confirm them); the same for the Gleam job. The duplicate-run
   cancel stays. Ships the two Devin fixes from ELZ-058 (retry patterns for timeouts; no retry for the best-effort lookup;
   commit `e6726a5`, cherry-picked from the ELZ-058 follow-up branch).
 - **Push skip (ELZ-058).** `scripts/ci-skip-decision.py` accepts exact-head evidence from `check-hosted` as well.
@@ -77,8 +79,8 @@ the repository variable `ELZOO_CI_LANE`:
 ## Limits
 
 The hosted job cannot be exercised before the visibility change (the owner has no hosted minutes while the repository is
-private). The first hosted run is therefore the real test; the variable allows an immediate return to the self lane until the
-runners are unregistered. Published logs of past runs keep host names (owner decision 2026-11-09). Hosted runner capacity and
+private). The first hosted run is therefore the real test, and the rehearsal run replaces the fallback: once the runners are
+unregistered there is no return to the self lane without registering them again. Published logs of past runs keep host names (owner decision 2026-11-09). Hosted runner capacity and
 performance (4 vCPUs) are unmeasured.
 
 ## Existing tests edited (for the owner's approval)

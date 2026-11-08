@@ -335,7 +335,7 @@ jobs:
     permissions:
       actions: read
       contents: read
-    timeout-minutes: 60
+    timeout-minutes: 120
     env:
       ImageOS: ubuntu24
       ERL_FLAGS: '+S 4:4 +SDcpu 1 +SDio 1'

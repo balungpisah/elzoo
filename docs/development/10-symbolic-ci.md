@@ -884,7 +884,8 @@ runners. The repository variable `ELZOO_CI_LANE` selects the lane for every run:
 | `hosted` | `check-hosted`, `gleam-hosted` | `check-fast`, `check-any`, `gleam` |
 
 The variable appears only in the five job-level `if:` lines. `scripts/check-ci-runners.py` pins every one of
-them, so a step cannot read the variable and a job cannot run in both lanes.
+them and rejects the variable (in any letter case, also in script text) anywhere else, so a step cannot read it and
+a job cannot run in both lanes.
 
 **Hosted jobs.** `check-hosted` and `gleam-hosted` run on the one label `ubuntu-24.04`, without a job container.
 The guard rejects every other label (`ubuntu-latest`, larger runners, `self-hosted` combinations, expressions).
@@ -901,9 +902,24 @@ never supplies evidence. The Gleam gate accepts `gleam` or `gleam-hosted` under 
 dispatches with `tier=fast`; the hosted job ignores the tier.
 
 **Planned flip (owned by the coordinator).** Merge the public-surface scrub (ELZ-065); unregister all four
-self-hosted runners; set `ELZOO_CI_LANE=hosted`; make the repository public; enable "Require approval for all
-outside collaborators"; make `check-hosted` and `gleam-hosted` the required checks. A later change removes the
-self-hosted jobs, the runner roles above and this table.
+self-hosted runners, because a fork can change a workflow file and target a runner that stays attached; make the
+repository public and set `ELZOO_CI_LANE=hosted` in the same sitting (a private repository would spend the account's
+hosted minutes); enable "Require approval for all outside collaborators"; watch one hosted full run of `main`.
+After the runners are gone there is no self-hosted lane to fall back to, so the rehearsal in a throw-away public
+repository is the only test before the flip. A later change removes the self-hosted jobs, the runner roles above and
+this table.
+
+**Required checks.** `check-hosted` and `gleam-hosted` may be set as required checks, but a skipped job counts as
+passing, and a pull request from a fork skips them. The merge queue is the gate: it needs a dispatch run on the exact
+head with one executed job and the identity rules above, and no fork pull request is queued.
+
+**Time limit.** `check-hosted` has `timeout-minutes: 120`. A cold-cache run on a comparable 4 to 5 vCPU machine took
+72 minutes (the Contabo section), and the first run on `main` starts with an empty `elzoo-hosted-v1` cache.
+
+**Resource report.** On a hosted runner there is no job container, so `scripts/sample-ci-cpu.py` reads the cgroup of
+the whole VM (Postgres included) and its "job container cgroup" label is not exact; `memory.peak` is not available
+there and the report prints "cgroup memory peak unavailable". Use the host lines (`/proc/meminfo`, load, `nproc`) for
+hosted numbers.
 
 **Limits.** The hosted jobs were checked with `actionlint`, the guard and its tests, and the merge-queue tests.
 They have not yet run on a GitHub-hosted runner in this repository; a rehearsal in a throw-away public
@@ -942,7 +958,7 @@ Do not restart or remove a busy runner or its `_work` directory. If the candidat
 is unavailable, remove its `backend` label after the current job is finished;
 symbolic continues to accept backend jobs. If it is the cause of failures,
 record the exact run, environment and failure; preserve failed evidence and
-route only to the healthy named machine. Never change to hosted CI.
+route only to the healthy named machine. Outside the documented hosted lane (see "Lanes"), never change to hosted CI.
 
 To replace a runner, verify the published release archive checksum, provision a
 separate service account and work directory, configure a short-lived repository

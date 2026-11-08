@@ -860,7 +860,7 @@ class RunnerPolicyTest(unittest.TestCase):
 
     def test_hosted_job_header_is_pinned(self):
         for filename, job, old, new in (
-                ("symbolic-check.yml", "check-hosted", "timeout-minutes: 60", "timeout-minutes: 360"),
+                ("symbolic-check.yml", "check-hosted", "timeout-minutes: 120", "timeout-minutes: 360"),
                 ("symbolic-check.yml", "check-hosted", "      actions: read\n", "      actions: write\n"),
                 ("symbolic-check.yml", "check-hosted", "      contents: read\n", "      contents: write\n"),
                 ("symbolic-check.yml", "check-hosted", "ERL_FLAGS: '+S 4:4 +SDcpu 1 +SDio 1'", "ERL_FLAGS: '+S 8:8'"),
@@ -988,6 +988,48 @@ class RunnerPolicyTest(unittest.TestCase):
         self.change_in_job("symbolic-gleam.yml", "gleam-hosted", "        run: ./scripts/setup.sh\n",
                            "        run: ./scripts/setup.sh\n        if: ${{ false }}\n")
         self.assertIn("pinned Gleam setup step is missing or changed", self.check(1).stderr)
+
+    # ELZ-066 review findings: the lane variable in any spelling, and keys after the hosted steps list.
+    def test_lane_variable_in_any_case_or_script_text_rejected(self):
+        for filename, job, old in (("symbolic-check.yml", "check-hosted", "      - run: python3 scripts/check-claims.py\n"),
+                                   ("symbolic-gleam.yml", "gleam-hosted", "      - run: ./scripts/check.sh\n")):
+            for line in ("        env:\n          LANE: ${{ Vars.elzoo_ci_lane }}\n        run: true\n",
+                         "        run: |\n          echo \"${{ vars.ELZOO_CI_LANE }}\"\n",
+                         "        run: |\n          echo '${{ toJSON(vars) }}'\n",
+                         "        run: |\n          echo '${{ toJson(VARS) }}'\n"):
+                with self.subTest(job=job, line=line.strip()[:40]):
+                    self.change_in_job(filename, job, old, old + "      - name: Lane\n" + line)
+                    self.assertIn("may appear only in the job-level if: lines", self.check(1).stderr)
+                    self.tearDown()
+                    self.setUp()
+
+    def test_hosted_job_must_end_with_its_steps_list(self):
+        for filename, job in self.HOSTED_JOBS:
+            for extra in ("    environment: production\n", "    continue-on-error: true\n",
+                          "    strategy:\n      matrix:\n        x: [1]\n",
+                          "    services:\n      other:\n        image: " + IMAGE + "\n"):
+                with self.subTest(job=job, extra=extra.strip()[:30]):
+                    path = self.root / ".github" / "workflows" / filename
+                    source = path.read_text()
+                    start = source.index(f"\n  {job}:\n")
+                    following = source.find("\n  gleam", start + 1) if job != "gleam-hosted" else -1
+                    end = following if following != -1 else len(source)
+                    path.write_text(source[:end].rstrip("\n") + "\n" + extra + source[end:])
+                    self.assertTrue(self.check(1).stderr)
+                    self.tearDown()
+                    self.setUp()
+
+    def test_hosted_gleam_checkout_and_steps_are_pinned(self):
+        for old, new in (("          persist-credentials: false\n", "          persist-credentials: true\n"),
+                         ("          persist-credentials: false\n", "          persist-credentials: false\n          ref: main\n"),
+                         ("      - run: ./scripts/check.sh\n", "      - run: ./scripts/check.sh\n        if: ${{ false }}\n"),
+                         ("      - run: ./scripts/check.sh\n", "      - run: ./scripts/check.sh\n        continue-on-error: true\n"),
+                         ("      - run: ./scripts/check.sh\n", "      - run: ./scripts/check.sh\n        shell: bash {0}\n")):
+            with self.subTest(new=new.strip()[:40]):
+                self.change_in_job("symbolic-gleam.yml", "gleam-hosted", old, new)
+                self.assertTrue(self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
 
 
 if __name__ == "__main__":

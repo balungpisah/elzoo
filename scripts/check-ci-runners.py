@@ -19,7 +19,7 @@ HOSTED_LABEL = "runs-on: ubuntu-24.04"
 HOSTED_BACKEND_HEADER = """    permissions:
       actions: read
       contents: read
-    timeout-minutes: 60
+    timeout-minutes: 120
     env:
       ImageOS: ubuntu24
       ERL_FLAGS: '+S 4:4 +SDcpu 1 +SDio 1'
@@ -145,6 +145,10 @@ HOSTED_BACKEND_GATE_STEP = """      - name: Verify the GitHub-hosted runner
           test "$VERSION_ID" = 24.04
           echo "Hosted runner: $RUNNER_NAME"
           free -h || true"""
+# The hosted Gleam checkout must not persist the job token either.
+HOSTED_GLEAM_CHECKOUT = """      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false"""
 HOSTED_GLEAM_GATE_STEP = """      - name: Verify the GitHub-hosted runner
         working-directory: /
         run: |
@@ -410,6 +414,26 @@ for file in files:
                     or next_step is None
                     or any(lines[i].strip() and i not in skip for i in range(after_gate, next_step))):
                 errors.append(f'{file}: approved runner identity gate is missing or changed ({name})')
+        if hosted is not None and len(steps) == 1:
+            # No job-level key (strategy:, services:, environment:, continue-on-error:) may follow the steps list.
+            late = [i for i in range(steps[0] + 1, e)
+                    if lines[i].strip() and not lines[i].lstrip().startswith('#') and i not in skip
+                    and len(lines[i]) - len(lines[i].lstrip(' ')) <= 4]
+            if late:
+                errors.append(f'{file}: a hosted job must end with its steps list ({name}): {lines[late[0]].strip()}')
+        if file.name == 'symbolic-gleam.yml':
+            # Step-level conditions could switch off a Gleam gate or check; only the job-level gate may use if:.
+            for i in block:
+                if i != h + 1 and i not in skip and re.match(r'\s*(?:-\s+)?if\s*:', lines[i]):
+                    errors.append(f'{file}: unreviewed if: key ({name}): {lines[i].strip()}')
+            if hosted is not None:
+                pin = HOSTED_GLEAM_CHECKOUT.split('\n')
+                found = [i for i in block if re.match(r'\s*(?:-\s+)?uses\s*:\s*actions/checkout@', lines[i])]
+                after_pin = ([line for line in lines[found[0] + len(pin):e]
+                              if line.strip() and not line.lstrip().startswith('#')] if len(found) == 1 else [])
+                if (len(found) != 1 or lines[found[0]:found[0] + len(pin)] != pin or found[0] in skip
+                        or not after_pin or not after_pin[0].startswith('      - ')):
+                    errors.append(f'{file}: the pinned checkout step (persist-credentials: false) is missing or changed ({name})')
         if file.name == 'symbolic-check.yml':
             decision = DECISION_STEP.split('\n')
             starts = [i for i in block if lines[i:i + len(decision)] == decision]
@@ -462,8 +486,9 @@ for file in files:
     if file.name == 'symbolic-check.yml' and shape_ok and len(bodies) == 2 and bodies[0] != bodies[1]:
         errors.append(f'{file}: check-fast and check-any must have identical bodies below runs-on')
     # ELZ-066: the lane variable appears only in the job-level if: lines, so no step reads it.
+    # Case-insensitive and on raw lines, script text and comments included: GitHub expressions ignore case.
     lane_lines = [i for i, line in enumerate(lines)
-                  if i not in skip and re.search(r'\bvars\b|ELZOO_CI_LANE', line)]
+                  if re.search(r'\bvars\b|ELZOO_CI_LANE', line, re.IGNORECASE)]
     if not shape_ok or lane_lines != [r.start + 1 for r in job_ranges]:
         errors.append(f'{file}: the repository variable ELZOO_CI_LANE and vars may appear only in the job-level if: lines')
     # Token exposure: github.token and secrets appear nowhere except the pinned steps.
@@ -503,6 +528,9 @@ for file in files:
     if file.name == 'symbolic-check.yml' and any(
             re.match(r'\s*(?:-\s+)?(?:defaults|shell|continue-on-error)\s*:', line) for line in yaml_lines):
         errors.append(f'{file}: defaults:, shell: and continue-on-error: could disable the runner identity gate')
+    if file.name == 'symbolic-gleam.yml' and any(
+            re.match(r'\s*(?:-\s+)?(?:shell|continue-on-error)\s*:', line) for line in yaml_lines):
+        errors.append(f'{file}: shell: and continue-on-error: could disable a Gleam gate or check')
     if any(re.match(r'\s*(?:-\s*)?uses:\s*.*\.github/workflows/', line) for line in lines):
         errors.append(f'{file}: reusable workflow runners need explicit policy review')
 if errors:

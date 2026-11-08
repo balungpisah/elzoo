@@ -229,6 +229,34 @@ class ObtainTest(unittest.TestCase):
         self.assertEqual([], seen["b"])
 
 
+class BoundedReadTest(unittest.TestCase):
+    """A server cannot make the script read more than the pinned size plus one byte."""
+
+    def test_body_longer_than_the_pinned_size_is_cut(self):
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                body = b"x" * 5000
+                self.send_response(404 if self.path == "/missing" else 200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args):
+                pass
+        server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        pin_test_binary()
+        self.addCleanup(unpin)
+        base = f"http://127.0.0.1:{server.server_address[1]}"
+        status, _headers, body = minio.http_get(base + "/ok", {})
+        self.assertEqual((200, len(BINARY) + 1), (status, len(body)))
+        self.assertFalse(minio.verified(body))
+        status, _headers, body = minio.http_get(base + "/missing", {})
+        self.assertEqual(404, status)
+
+
 class SigV4Test(unittest.TestCase):
     def test_signature_matches_the_aws_documentation_example(self):
         now = datetime.datetime(2013, 5, 24, 0, 0, 0, tzinfo=datetime.timezone.utc)
