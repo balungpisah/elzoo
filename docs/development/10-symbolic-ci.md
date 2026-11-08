@@ -181,6 +181,16 @@ This is not evidence: the cancelled run was never part of the merge gate.
 Cache effect: a skipped push run saves no main-scoped dependency cache, so after a `mix.lock` or `mix.exs` change
 task branches restore an older entry by prefix key until a full run of `main` saves a new one (time, not correctness).
 
+**Transient failures of the queue's reads (ELZ-058 item 4).** On 2026-11-08 the queue stopped twice (PRs #104 and #113) on
+`net/http: TLS handshake timeout` from `gh api` while waiting on a run that was still in progress. Read-only calls
+(`gh api` without `-X`/`--method`, `gh pr view`, `git fetch`) are now retried on transport and gateway errors (TLS handshake
+timeout, connection reset, connection refused, i/o timeout, unexpected EOF, HTTP 500, 502, 503, 504) in five attempts with waits of
+10, 20, 40 and 50 seconds (two minutes in all), never past the PR deadline; each retry is logged (`Transient failure of ...
+retrying in N s`). Writes are never retried by the queue (dispatch, update-branch, merge, cancel): a repeated dispatch would create
+a second run. Other errors (404, 401, 403, 422, mergeability, evidence mismatches) stop at once. When the queue stops after
+dispatching it prints `Stopped while awaiting run <id> for PR #N head=<sha>`, so the run can be inspected or adopted before
+anything is dispatched again. The retry does not change what counts as evidence.
+
 Measurement over the next five merges (fast-runner minutes per merge: queue run, push run, pull request runs, with
 run IDs) is recorded in issue #96, not here. Live observations of the decision script against real merge commits
 (run locally with a read token, 2026-11-08): `ade0e45` skipped, naming run 42482549411 and job 128737440624;

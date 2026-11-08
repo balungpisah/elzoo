@@ -36,6 +36,10 @@ class Fake:
         self.cancelled = []
         self.cancel_error = False
         self.cancel_fail_ids = set()
+        self.transient_calls = 0
+        self.transient_left = 0          # ELZ-058 item 4: the next N read-only gh api calls fail transiently
+        self.transient_text = "Get \"https://api.github.com/x\": net/http: TLS handshake timeout"
+        self.write_failure = None
         self.pr_run_listing_error = False
         self.other_job_changes = None
         self.merged = False
@@ -107,6 +111,10 @@ class Fake:
         elif argv[:2] == ["gh", "api"]:
             if self.api_error:
                 raise queue.QueueError("API unavailable")
+            if self.transient_left > 0 and "-X" not in argv:
+                self.transient_left -= 1
+                self.transient_calls += 1
+                raise queue.QueueError(f"gh api exited 1: {self.transient_text}")
             path = argv[-1]
             if argv[2:4] == ["-X", "POST"]:
                 if self.cancel_error or int(path.split("/")[-2]) in self.cancel_fail_ids:
@@ -374,6 +382,101 @@ class QueueTest(unittest.TestCase):
         self.assertEqual(1, self.fake.dispatches)  # the queue still dispatches and checks its own run
         self.assertEqual(f"ELZOO MERGE EVIDENCE pr=79 run=101 job=201 runner=symbolic-elzoo head={B} merge={M}",
                          self.fake.messages[-1])
+
+    # ELZ-058 item 4: bounded retries of read-only calls, and the awaited run named when the queue stops.
+    def test_transient_gh_api_failures_are_retried_then_succeed(self):
+        for text in ("Get \"https://api.github.com/x\": net/http: TLS handshake timeout",
+                     "read tcp 1.2.3.4:1->5.6.7.8:443: read: connection reset by peer",
+                     "dial tcp: i/o timeout", "gh: HTTP 502: Bad Gateway", "HTTP 503", "HTTP 504 Gateway Timeout",
+                     "unexpected EOF"):
+            with self.subTest(text=text):
+                self.setUp()
+                self.fake.transient_text = text
+                self.fake.transient_left = 3
+                self.q = self.fake.make_queue(timeout=3600)
+                self.q.process(79)
+                self.assertTrue(self.fake.merged)
+                self.assertEqual(3, self.fake.transient_calls)
+                self.assertEqual(3, sum("Transient failure" in m for m in self.fake.messages))
+                self.assertGreaterEqual(self.fake.now, 10 + 20 + 40)  # backoff waits were taken
+
+    def test_persistent_transient_failure_stops_after_five_attempts_and_names_the_run(self):
+        self.fake.transient_left = 0
+        self.q = self.fake.make_queue(timeout=3600)
+        original = self.fake.execute
+
+        def failing_after_dispatch(argv, allowed=(0,)):
+            if (self.fake.dispatches and argv[:2] == ["gh", "api"] and "-X" not in argv
+                    and "/actions/runs/101" in argv[-1]):
+                self.fake.calls.append(argv)
+                self.fake.transient_calls += 1
+                raise queue.QueueError(f"gh api exited 1: {self.fake.transient_text}")
+            return original(argv, allowed)
+        self.q = queue.Queue(run=failing_after_dispatch, sleep=self.fake.sleep, clock=lambda: self.fake.now,
+                             timeout=3600, poll=15, emit=lambda text, **_: self.fake.messages.append(text))
+        with self.assertRaisesRegex(queue.QueueError, "TLS handshake timeout"):
+            self.q.process(79)
+        self.assertEqual(5, self.fake.transient_calls)  # five attempts of the same read
+        self.assertEqual(4, sum("Transient failure" in m for m in self.fake.messages))
+        self.assertTrue(any("Stopped while awaiting run 101 for PR #79" in m and f"head={A}" in m
+                            for m in self.fake.messages))
+        self.assertFalse(self.fake.merged)
+
+    def test_non_transient_errors_are_not_retried(self):
+        for text in ("gh api exited 1: HTTP 404: Not Found", "gh api exited 1: HTTP 401: Bad credentials",
+                     "gh api exited 1: HTTP 403: rate limit", "gh api exited 1: HTTP 422"):
+            with self.subTest(text=text):
+                self.setUp()
+                self.fake.transient_text = text.replace("gh api exited 1: ", "")
+                self.fake.transient_left = 1
+                with self.assertRaises(queue.QueueError):
+                    self.q.process(79)
+                self.assertEqual(1, self.fake.transient_calls)
+                self.assertFalse(any("Transient failure" in m for m in self.fake.messages))
+
+    def test_write_commands_are_never_retried(self):
+        for argv in (["gh", "workflow", "run", "symbolic-check.yml"], ["gh", "pr", "merge", "79"],
+                     ["gh", "pr", "update-branch", "79"], ["gh", "api", "-X", "POST", "repos/x/actions/runs/1/cancel"],
+                     ["gh", "api", "--method", "POST", "repos/x/actions/runs/1/cancel"]):
+            with self.subTest(argv=argv):
+                calls = []
+
+                def failing(command, allowed=(0,)):
+                    calls.append(command)
+                    raise queue.QueueError("net/http: TLS handshake timeout")
+                run = queue.retrying(failing, lambda s: None, lambda *a, **k: None)
+                with self.assertRaises(queue.QueueError):
+                    run(argv)
+                self.assertEqual(1, len(calls))
+
+    def test_retry_never_waits_past_the_pr_deadline(self):
+        now = [0]
+        calls = []
+
+        def failing(command, allowed=(0,)):
+            calls.append(command)
+            raise queue.QueueError("net/http: TLS handshake timeout")
+
+        def sleep(seconds):
+            now[0] += seconds
+        run = queue.retrying(failing, sleep, lambda *a, **k: None, clock=lambda: now[0], deadline=lambda: 25)
+        with self.assertRaises(queue.QueueError):
+            run(["gh", "api", "repos/x/actions/runs/1"])
+        self.assertEqual(2, len(calls))  # one retry after 10 s; the next 20 s wait would pass the deadline of 25 s
+        self.assertLessEqual(now[0], 25)
+
+    def test_transient_pattern_and_read_only_rules(self):
+        for text in ("TLS handshake timeout", "connection reset by peer", "HTTP 502", "HTTP 503: x", "HTTP 504",
+                     "502 Bad Gateway", "i/o timeout", "unexpected EOF"):
+            with self.subTest(text=text):
+                self.assertTrue(queue.TRANSIENT.search(text))
+        for text in ("HTTP 404", "HTTP 401", "Not Found", "HTTP 429", "HTTP 422", "mergeable"):
+            with self.subTest(text=text):
+                self.assertFalse(queue.TRANSIENT.search(text))
+        self.assertTrue(queue.is_read_only(["gh", "api", "repos/x/actions/runs/1"]))
+        self.assertTrue(queue.is_read_only(["gh", "pr", "view", "79"]))
+        self.assertFalse(queue.is_read_only(["gh", "api", "-X", "POST", "x"]))
+        self.assertFalse(queue.is_read_only(["gh", "pr", "merge", "79"]))
 
     def test_main_moves_during_check_requires_new_full_run(self):
         self.fake.move_main = True

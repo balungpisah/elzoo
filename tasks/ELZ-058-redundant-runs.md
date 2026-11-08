@@ -44,15 +44,20 @@ pull request run is never exact-head full evidence. The queue keeps dispatching 
    push run; a failed cancel is logged and does not block the queue. Note: with ELZ-059 the pull request
    run is light, so the cancelled run is only an early signal; the queue's exact-head dispatch stays the
    merge gate.
-4. Guard and tests. Update `scripts/check-ci-runners.py` and `scripts/test-ci-runners.py` to accept
+4. Retry transient `gh api` failures in the queue (coordinator addition): read-only `gh api`, `gh pr view` and `git fetch`
+   calls are retried on transport errors and HTTP 5xx with bounded backoff (five attempts over two minutes, never past
+   the PR deadline) before the queue stops, and when it stops it prints the run ID it was waiting on. Writes are never
+   retried. Tests: a fake that fails N times then succeeds; a fake that always fails stops with the run ID in the message;
+   404/401/403 are not retried.
+5. Guard and tests. Update `scripts/check-ci-runners.py` and `scripts/test-ci-runners.py` to accept
    exactly the new steps and permissions. Existing tests are not edited or weakened; edits forced by
    the new shape are listed in the PR for the owner's approval.
-5. Docs. `docs/development/10-symbolic-ci.md` explains what is skipped, why the evidence is the same
+6. Docs. `docs/development/10-symbolic-ci.md` explains what is skipped, why the evidence is the same
    (identical tree plus a passed exact-head full run, with run and job IDs in the push log) and
    what it does not cover (the push run no longer observes the merge commit's environment or a
    different runner or cache state). The merge-commit acceptance sentence in `AGENTS.md` states the
    new rule.
-6. Measure. Fast-runner minutes per merge before and after, over the next five merges: queue run
+7. Measure. Fast-runner minutes per merge before and after, over the next five merges: queue run
    minutes, push run minutes, pull request run minutes, with run IDs. Record the table in the issue.
 
 ## Acceptance
