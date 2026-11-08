@@ -2,7 +2,7 @@
 +++ b/pieces/delivery/effect-intent/lib/elzoo/effect_intent.ex
 @@ -427,6 +427,7 @@
      m = s.snapshot.model
- 
+
      with {:ok, _} <- Elzoo.Envelope.validate_result(result),
 +         true <- result["dispatch"] != "not_dispatched",
           true <- result["message_id"] == s.key and result["correlation_id"] == s.key,
@@ -29,7 +29,7 @@
 @@ -318,7 +323,12 @@
                Map.take(completed(req), ["value", "value_schema_id", "value_schema_version"])
              )
- 
+
 -      assert {:ok, _} = Intent.observe(pid, row)
 +      if dispatch == "not_dispatched" do
 +        eventually(fn -> Intent.status(pid).phase == {:Definite, :AdapterNoSend, 1} end)
@@ -38,7 +38,7 @@
 +        assert {:ok, _} = Intent.observe(pid, row)
 +      end
        status = Intent.status(pid)
- 
+
        case expected do
 @@ -585,7 +595,8 @@
    test "known-attempt refusals fill only optional capacity and reserved settlement/contradiction still commit",
@@ -53,7 +53,7 @@
 @@ -600,17 +611,10 @@
      assert Intent.status(pid).active
      assert {:error, :not_rearmable} = Intent.advance(pid, :rearm)
- 
+
 -    no_send =
 -      completed(req)
 -      |> Map.drop(["value", "value_schema_id", "value_schema_version"])

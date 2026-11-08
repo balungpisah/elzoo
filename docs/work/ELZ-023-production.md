@@ -1,5 +1,9 @@
 # ELZ-023 production evidence and review handoff
 
+This records the initial implementation handoff. For the subsequent independent
+F1/F2 findings, approved corrections and fresh 32 + 613-test full check, see
+[ELZ-023-review-fixes.md](ELZ-023-review-fixes.md).
+
 ELZ-023: production prepared; full check passed; independent actual-diff review pending.
 Branch/PR: `task/ELZ-023`, production head `fed4026ce85c5df3dae5fbf8126f5529ee61389a`; [issue #37](https://github.com/balungpisah/elzoo/issues/37); no PR yet.
 Checks: targeted production suite exit 0, `Result: 44 passed`; fresh pinned setup exit 0; full check exit 0, `Result: 32 passed`, `Result: 608 passed`, `ELZOO CHECK PASSED`; roadmap write/plain/live, claim and diff checks exit 0.
