@@ -1,0 +1,189 @@
+{
+  "schema_version": 1,
+  "id": "delivery/effect-intent",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": [
+    "cure",
+    "elixir",
+    "otp"
+  ],
+  "dependencies": [
+    "core/envelope",
+    "state/checkpoint",
+    "integration/sql"
+  ],
+  "applications": [
+    "crypto"
+  ],
+  "contract": "Bounded checkpoint-before-send intent owner over the existing Store with Cure rearm/history policy: three recorded grounds, narrow provider replay, monotone history, per-attempt settlement/contradiction evidence, and read-only recovery until a nonce/snapshot-bound trusted host activation.",
+  "limits": [
+    "No exactly-once, provider authenticity, physical-send cancellation/fencing, general scheduler, payment integration or distributed lock claim.",
+    "Only the validated Elixir owner is supported; step-label laws and a stated reachable-trace argument do not mechanize trace induction or prove Elixir/storage/transport behavior.",
+    "Every restart requires trusted reconciliation; no clean-release path, hot binding configuration, business drain or automatic polling/retry.",
+    "256-byte identity fields,64KiB arguments,256 attempts/revisions,1024 evidence records up to512B,4096 intent events,128KiB append payload,1MiB each checkpoint; bounded priority retention replaces unbounded retention.",
+    "No pruning: up to4GiB encoded intent checkpoints by the hard caps, plus append/SQL/index/replication and separate host activation-log overhead; host retains refusal/intent and activation markers.",
+    "Native arithmetic/ETF and provider no-send, final no-effect, replay, identity/clock/storage contracts are external Needs; Memory is explicitly volatile.",
+    "Bare Cure State/Config/Decision and dependency record tags require coordinated renaming for redistributed libraries; application copies own one revision."
+  ],
+  "files": [
+    "cure/elzoo/effect_intent.cure",
+    "examples/effect_intent.exs",
+    "lib/elzoo/effect_intent.ex",
+    "lib/elzoo/effect_intent/binding.ex",
+    "lib/elzoo/effect_intent/host.ex",
+    "lib/elzoo/effect_intent/model.ex",
+    "lib/elzoo/effect_intent/policy.ex",
+    "test/elzoo/effect_intent_copy_test.exs",
+    "test/elzoo/effect_intent_policy_test.exs",
+    "test/elzoo/effect_intent_postgres_test.exs",
+    "test/elzoo/effect_intent_storage_test.exs",
+    "test/elzoo/effect_intent_test.exs",
+    "test/support/effect_intent_test_helper.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/effect_intent.cure",
+      "symbol": "dispatch_action_only_after_arm",
+      "claim": "Actual step dispatch action occurs only on an allowed Arm from Intended; well-typed Cure inputs."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/effect_intent.cure",
+      "symbol": "definite_only_with_ground",
+      "claim": "Definite phase records exactly one declared ground through its named step cases."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/effect_intent.cure",
+      "symbol": "dispatch_only_after_arm",
+      "claim": "Dispatched provenance comes from Intended on Arm or an existing dispatched state."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/effect_intent.cure",
+      "symbol": "fresh_only_from_empty",
+      "claim": "Fresh intended provenance originates only at Empty admission and is otherwise preserved only by non-dispatch steps."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/effect_intent.cure",
+      "symbol": "after_only_from_definite",
+      "claim": "After(ground) intended provenance originates only from Definite(ground) rearm."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/effect_intent.cure",
+      "symbol": "empty_never_recreated",
+      "claim": "Step never recreates Empty from a nonempty phase."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/effect_intent.cure",
+      "symbol": "attempt_changes_only_on_send",
+      "claim": "Attempt count changes only on allowed Arm and increases by one."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/effect_intent.cure",
+      "symbol": "replay_history_preserved",
+      "claim": "Replay dependence is carried monotonically, including rearm from replay-safe ground."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/effect_intent.cure",
+      "symbol": "possibly_sent_history_preserved",
+      "claim": "Possibly-sent history flag is carried monotonically and set on dispatch."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/effect_intent.cure",
+      "symbol": "contradiction_and_uncertainty_freeze",
+      "claim": "Contradiction and uncertainty set quarantine, which subsequent steps preserve."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/effect_intent.cure",
+      "symbol": "revision_only_on_permitted_revision",
+      "claim": "Revision count changes only on permitted Revise; history is preserved."
+    },
+    {
+      "kind": "type",
+      "file": "cure/elzoo/effect_intent.cure",
+      "claim": "Pinned Cure checks production ADTs, decision and completion-history helpers and selected lemmas; audited without axioms, holes, opacity, unresolved, unaudited, non-total or absurd terms."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/effect_intent_test.exs",
+      "claim": "Owner Memory scenarios: intended/dispatched barriers, unknown timeout/task death, recovery activation, grant binding, replay horizon laundering, schema/revision, eight result pairs, completion races, delayed old send, physical resend negative and refused send-sourced poll evidence."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/effect_intent_policy_test.exs",
+      "claim": "Production audit, real silent-return/groundless/history proof mutations, positive and horizon controls, finite guard/history/deadline/revision and malformed-state scenarios."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/effect_intent_storage_test.exs",
+      "claim": "Actual codec/fold roundtrip, maximal-field layout/reservations, optional saturation and priority writes, limits plus one, canonical decoding and exhaustive build-time binding refusal scenarios."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/effect_intent_postgres_test.exs",
+      "claim": "Own disposable PostgreSQL database: real append/checkpoint barriers, read-only recovery and replay, indeterminate checkpoint, contradictory late evidence and competing fresh-host CAS; consumer owns durability settings."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/effect_intent_copy_test.exs",
+      "claim": "Byte-identical source closure runs original and renamed modules/record tags in a separate VM using only upstream artifacts, without catalogue Application."
+    },
+    {
+      "kind": "upstream",
+      "provider": "cure",
+      "reference": "https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89",
+      "claim": "Pinned compiler/conversion/audit, native Int comparisons/arithmetic and erased ADT/record runtime semantics; no compiler soundness claim."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/GenServer.html",
+      "claim": "GenServer serialization and Task.Supervisor execution/monitor lifecycle, maps and binary validation."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/apps/erts/erl_ext_dist.html",
+      "claim": "OTP29.1.2 deterministic ETF safe decoding and crypto SHA-256; no local serialization or cryptographic soundness proof."
+    },
+    {
+      "kind": "assumption",
+      "claim": "Host authenticates observations/reconciliation, stable canonical identity/arguments and clock; controls/fences live owners and uncertain writes; provider honors declared replay/no-effect/no-send contracts; Store durability and retention are external Needs."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "inherited",
+      "from": "otp",
+      "contract": "OTP process/task diagnostics only; no custom exporter or payload telemetry, consumer redacts Adapter exceptions and context; status is inspection not a durable receipt."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Build-time binding and startup Store/host/identity/time/deadline configuration with explicitly allowed schema/argument revision; no hot binding reconfiguration.",
+      "evidence": [
+        "test/elzoo/effect_intent_test.exs",
+        "test/elzoo/effect_intent_storage_test.exs"
+      ]
+    },
+    "control": {
+      "status": "supported",
+      "contract": "Trusted-host activated synchronous dispatch/rearm/poll/expire/observe/revise; read-only recovery, explicit unknown writes, no drain or physical-send cancellation.",
+      "evidence": [
+        "test/elzoo/effect_intent_test.exs",
+        "test/elzoo/effect_intent_postgres_test.exs"
+      ]
+    }
+  }
+}
