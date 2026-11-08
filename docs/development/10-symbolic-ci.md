@@ -35,7 +35,7 @@ names above (`symbolic-elzoo`, `macbook-ubuntu-elzoo-candidate`, `contabo-elzoo-
 `scripts/check-ci-runners.py` pins the lines of that step, so adding a fourth case arm,
 changing a runner name or changing the `ERL_FLAGS` value in an arm fails the guard. It does
 not read script text after the gate or the job-level `env: ERL_FLAGS`, so a later line
-could still override `ERL_FLAGS`; independent review of workflow changes covers that. `scripts/merge-queue.py` accepts the same three names as
+could still override `ERL_FLAGS`; this relies on independent review of workflow changes. `scripts/merge-queue.py` accepts the same three names as
 backend job evidence; Gleam evidence stays symbolic-only. The Gleam selector stays symbolic-only. A new backend machine
 needs a full task-branch check and independent review before it gets `backend`.
 Registration is repository-scoped; administrators must assign these labels only
@@ -495,8 +495,8 @@ is below the selection rule used for ELZ-056 (at least 4 cores, 8 GiB RAM and 40
 disk), which is not a repository requirement for the other runners.
 
 Runner: version 2.338.2, tarball SHA-256
-`baebf204307bac6193480852732f0aba2ae97b6c5597c244f4d5558390147c40` (verified; equal to the
-GitHub release digest and to the macbook runner), installed at
+`baebf204307bac6193480852732f0aba2ae97b6c5597c244f4d5558390147c40` (checked with `sha256sum -c` on the host; equal to the
+GitHub release digest read through `gh api` and to the macbook record above), installed at
 `/opt/actions-runner/elzoo-backend`, system account `elzoo-ci` (uid 999, in group `docker`),
 service `actions.runner.balungpisah-elzoo.contabo-elzoo-1.service` (enabled, running as
 `elzoo-ci`). It was registered repository-scoped with a short-lived registration token that
@@ -526,11 +526,14 @@ leaves about 3 cores and 15 GiB (23 GiB minus 8 GiB) for the production workload
 service cap covers only the runner's own processes and does not add to the container cap;
 worst case with both at their limits is 10 GiB plus 8 GiB. Memory observed on the other
 runners (2.1 to 2.8 GiB cgroup peak, 3.3 to 5.0 sampled cores) fits inside the container cap,
-though a CPU peak near 5 cores may be throttled. A job that reaches 8 GiB is killed by the
+though a CPU peak near 5 cores may be throttled; the cap is 5 of 8 cores, and the
+service and container CPU caps could add up to 10 cores' worth, which only the 8 physical
+cores limit. A job that reaches 8 GiB is killed by the
 kernel; that is the intended protection, not a failure of the host.
 
 **Limit of the cap.** The wrapper caps only containers that the runner creates through its
-`PATH`. The runner mounts the Docker socket into job containers, so code inside a job can
+`PATH`. By the upstream actions/runner contract (not re-checked here), the runner mounts the
+Docker socket into job containers, so code inside a job can
 start containers with no cap, or reach the production containers. The cap is a guard
 against accidents and runaway builds, not isolation from hostile code.
 

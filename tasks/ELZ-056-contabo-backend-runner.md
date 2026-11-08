@@ -47,6 +47,10 @@ job container (to show the Docker wrapper cap applies to real job containers).
       controls pin the new shape (not all of them fail on the old guard).
 - [ ] Independent review (separate agent session): identity, reviewed SHA, findings recorded on the PR.
 - [ ] Trial evidence above recorded in the issue before merge.
+- [ ] After the trial and before merge, a doc commit updates the status lines in
+      `docs/development/10-symbolic-ci.md` (roles list and Contabo section) and `AGENTS.md`
+      to the true state: backend label present or removed, trial result, no stale
+      "candidate, not routed" text.
 - [ ] Full `mix check` on the PR head and on the merge commit, with runner identity shown.
 
 ## Limits
