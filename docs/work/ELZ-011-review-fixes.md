@@ -25,7 +25,7 @@ The runner now rereads the real owner once after not_dispatchable or
 not_rearmable. It reuses the Cure action decision: the same action still selected
 keeps the original refusal, a different actionable phase snoozes using the full
 poll delay, and a terminal/unavailable phase returns its corresponding result.
-There is no second owner command in that wake, recursive retry, blind rearm,
+There is no second dispatch/poll/rearm command in that wake, recursive retry, blind rearm,
 new send authority or alteration of the owner/Cure Contract.
 
 Two real PostgreSQL owners exercise deterministic stale dispatch and rearm
@@ -62,6 +62,8 @@ production assertion was weakened to resolve those fixture failures.
 
 ## Validation
 
+Fixed source/test commit: `087c1de1618d2b4987b33058494983344a6274d9`.
+
 `mix test pieces/core/effect/test pieces/assembly/http-job/test --seed 0`
 exited 0: `Result: 29 passed`. Exact prefix for all Mix runs:
 
@@ -72,9 +74,27 @@ export MIX_ENV=test
 export ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:elzoo_elz024@localhost/elzoo_pieces_test
 ```
 
-Fresh `mix setup`, full `mix check`, updated copied closure and independent
-incremental actual-diff review remain before PR. The previous head's full
-32+637 and reviewer-reproduced export216 are historical, not this delta's
-full acceptance.
+Fresh `mix setup` and full default `mix check` both exited 0 on the fixed source:
+`Result: 32 passed` (Ash), `Result: 642 passed` (root), and `ELZOO CHECK PASSED`.
+Completion: 2026-11-08T07:30:45Z; root stage elapsed 1000.4 seconds. Aggregate(44)
+consumer test/runtime checks passed, total 261.5 seconds, as did all default
+individual consumers. The updated standalone utility also exited 0: `Result: 221 passed`,
+114 matching receipt hashes, `HTTP_JOB_NO_ROOT_APPLICATION` and
+`HTTP_JOB_COMPILER_FREE_RUNTIME_OK`. This time the entire utility, including
+its second compiler-free runtime stage, ran as one command. Independent
+incremental review and PR remain. The earlier source's 32+637 and
+reviewer-reproduced export216 are historical evidence.
 
 Targeted log: `/tmp/elz011-proposal/review-fixes-targeted.log`, SHA256 `736f8dde15431103807a4ceb53e7ec8f3c93fed35674ff538f929ddc7db87cbe`.
+
+`/tmp/elz011-proposal/review-fixes-setup.log` SHA256 `cb70138e021907bc84d4539c492ea7c0a1e57e2b75fd34d6c0810821bdc530cb`.
+
+`/tmp/elz011-proposal/review-fixes-full-check.log` SHA256 `4ab20aac82e0d98497ee4030f083663c450b6a431308d29c2d51e3d7ea973df6`.
+
+`/tmp/elz011-proposal/review-fixes-export.log` SHA256 `5d50173b82d0f388b2d079bd47499295876181bba033435bce61962e5712e40b`.
+
+Post-validation source/test/metadata bytes remain identical to `087c1de`;
+only docs/work evidence is updated. Plain/live roadmap pass (139 local links),
+production diff whitespace checks pass, and the original approved patch context
+spaces remain the only historical range warnings. Claim removal is intentionally
+deferred until review clears, before PR.
