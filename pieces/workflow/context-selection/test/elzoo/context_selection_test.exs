@@ -897,4 +897,130 @@ defmodule Elzoo.ContextSelectionTest do
     assert hd(r.selected).version == 7
     assert hd(r.selected).item_id == "document"
   end
+
+  @tag timeout: 120_000
+  test "F1 snapshot boundary and ancestor freshness reject checks between snapshot and now" do
+    exact = candidate("snapshot-exact")
+    future = candidate("snapshot-future")
+    derived = candidate("snapshot-derived", refs: [ref(future.item_id)])
+    items = [exact, future, derived]
+
+    ctx = %{
+      context([
+        provenance_node(derived, time: 95),
+        provenance_node(future, time: 97),
+        provenance_node(exact, time: 95)
+      ])
+      | now: 100,
+        snapshot_at: 95
+    }
+
+    assert {:ok, expected} = run(items, ctx)
+    assert ids(expected) == ["snapshot-exact"]
+    assert hd(expected.selected).access.checked_at == 95
+
+    assert details(expected) == [
+             {"snapshot-future", :stale_access_check, :future_check},
+             {"snapshot-derived", :stale_access_check, :source_stale}
+           ]
+
+    weakened =
+      mutant(
+        "F1Snapshot",
+        [
+          {"current_check.checked_at <= c.snapshot", "current_check.checked_at <= c.now"},
+          {"ck.checked_at <= c.snapshot", "ck.checked_at <= c.now"}
+        ],
+        proofs_pass: true
+      )
+
+    # Both runtime and reference were weakened: the proofs still check, but the
+    # same scenario's expected selection and drops no longer hold.
+    assert {:ok, wrong} = apply(weakened, :select, [%{candidates: items}, ctx])
+    assert ids(wrong) == ["snapshot-exact", "snapshot-future", "snapshot-derived"]
+    assert wrong.dropped == []
+    refute ids(wrong) == ids(expected)
+    refute details(wrong) == details(expected)
+  end
+
+  @tag timeout: 120_000
+  test "F2 node tenant mismatch precedes nil current check for candidates and ancestors" do
+    own = candidate("tenant-own")
+    ancestor = candidate("tenant-ancestor")
+    derived = candidate("tenant-derived", refs: [ref(ancestor.item_id)])
+    good = candidate("tenant-good")
+    items = [own, derived, good]
+
+    ctx =
+      context([
+        %{provenance_node(own) | tenant: "other", check: nil},
+        provenance_node(derived),
+        %{provenance_node(ancestor) | tenant: "other", check: nil},
+        provenance_node(good)
+      ])
+
+    assert {:ok, expected} = run(items, ctx)
+    assert ids(expected) == ["tenant-good"]
+
+    assert details(expected) == [
+             {"tenant-own", :access_denied, :binding_mismatch},
+             {"tenant-derived", :access_denied, :binding_mismatch}
+           ]
+
+    weakened =
+      mutant(
+        "F2Tenant",
+        [
+          {"own_tenant(n, c, known, same(n.tenant, c.tenant))", "own_tenant(n, c, known, True())"},
+          {"spec_tenant(n, c, known, same(n.tenant, c.tenant))", "spec_tenant(n, c, known, True())"}
+        ],
+        proofs_pass: true
+      )
+
+    assert {:ok, wrong} = apply(weakened, :select, [%{candidates: items}, ctx])
+    assert ids(wrong) == ["tenant-good"]
+
+    assert details(wrong) == [
+             {"tenant-own", :access_denied, :missing_check},
+             {"tenant-derived", :access_denied, :source_unchecked}
+           ]
+
+    refute details(wrong) == details(expected)
+  end
+
+  test "F3 malformed contexts and nested data fail before the Cure entry" do
+    item = candidate("boundary")
+    node = provenance_node(item)
+    ctx = context([node])
+    request = %{candidates: [item]}
+
+    cases = [
+      {request, nil, :unavailable_context},
+      {request, [], :unavailable_context},
+      {request, %{ctx | principal: 7}, :unavailable_context},
+      {request, put_in(ctx.policy.max_age, 1.5), :unavailable_context},
+      {request, put_in(ctx.window.size, "1000"), :unavailable_context},
+      {request, %{ctx | provenance: [node | :bad_tail]}, :unavailable_context},
+      {request, %{ctx | provenance: [%{node | derived_from: 3}]}, :unavailable_context},
+      {request, %{ctx | provenance: [%{node | version: 0}]}, :unavailable_context},
+      {request, %{ctx | provenance: [%{node | check: "not-a-check"}]}, :unavailable_context},
+      {request, %{ctx | provenance: [put_in(node.check.result, :unknown)]}, :unavailable_context},
+      {request, %{ctx | provenance: [put_in(node.check.checked_at, 95.5)]}, :unavailable_context},
+      {%{candidates: [%{item | content: :not_bytes}]}, ctx, :invalid_input},
+      {%{candidates: [%{item | access: []}]}, ctx, :invalid_input},
+      {%{candidates: [%{item | derived_from: [%{item_id: <<255>>, version: 1}]}]}, ctx,
+       :invalid_input}
+    ]
+
+    assert 1 == :erlang.trace_pattern({@cure, :select, 4}, true, [:call_count])
+
+    try do
+      for {bad_request, bad_context, class} <- cases do
+        assert {:error, {^class, _reason}} = S.select(bad_request, bad_context)
+        assert {:call_count, 0} == :erlang.trace_info({@cure, :select, 4}, :call_count)
+      end
+    after
+      :erlang.trace_pattern({@cure, :select, 4}, false, [:call_count])
+    end
+  end
 end
