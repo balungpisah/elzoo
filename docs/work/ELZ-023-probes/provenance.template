@@ -1,0 +1,239 @@
+# SPDX-License-Identifier: Apache-2.0
+# Focused feasibility probe, not production policy. Generator appends label laws.
+mod Elzoo.IntentProvenanceProbe
+  use Std.Option
+  type Capability = NoReplay | ReplaySafe
+  type Ground = AdapterNoSend | ProviderNoEffect | ProviderReplaySafe
+  type Origin = Fresh | After(Ground)
+  type Phase = Empty | Intended(Origin, Int) | Dispatched(Origin, Int) | Definite(Ground, Int) | Confirmed(Int) | Stranded(Int)
+  type Event = Admit | Arm | NoSend | PermanentNoSend | Lost | TimedOut | Failed | Pending | NoEffect | ProviderUnknown | Completed | Resume | Rearm | Expired | SchemaInvalid | CapacityRefused | Uncertain | Recover
+  type Action = Dispatch | Poll | Reconcile | Stop
+  type Recovery = NoRecovery | RecoveryAt(Int)
+  rec State
+    phase: Phase
+    disarmed: Bool
+    quarantined: Bool
+  rec Config
+    now: Int
+    admission: Int
+    anchor: Int
+    horizon: Int
+    flight: Int
+    allowance: Int
+    replay: Capability
+    recovery: Recovery
+  rec Decision
+    state: State
+    action: Action
+
+  @total true
+  @reducible
+  fn make(phase: Phase, disarmed: Bool, quarantined: Bool) -> State = State{phase: phase, disarmed: disarmed, quarantined: quarantined}
+  @total true
+  @reducible
+  fn initial() -> State = make(Empty(), False(), False())
+  @total true
+  @reducible
+  fn keep(state: State) -> Decision = Decision{state: state, action: Stop()}
+  @total true
+  @reducible
+  fn move(state: State, phase: Phase, action: Action) -> Decision = Decision{state: make(phase, state.disarmed, state.quarantined), action: action}
+  @total true
+  @reducible
+  fn disarm(state: State) -> Decision = Decision{state: make(state.phase, True(), state.quarantined), action: Stop()}
+
+  @total true
+  @reducible
+  fn live(config: Config) -> Bool =
+    pickup
+      config.now < 0 -> False()
+      config.admission > 9223372036854775807 -> False()
+      config.now >= config.admission -> False()
+      else -> True()
+
+  @total true
+  @reducible
+  fn replay_valid(config: Config) -> Bool =
+    match config.replay
+      NoReplay() -> False()
+      ReplaySafe() ->
+        pickup
+          config.anchor < 0 -> False()
+          config.now < config.anchor -> False()
+          config.flight < 0 -> False()
+          config.allowance < 0 -> False()
+          config.horizon > 9223372036854775807 -> False()
+          config.now + config.flight + config.allowance > config.horizon -> False()
+          else -> True()
+
+  @total true
+  @reducible
+  fn ground_live(ground: Ground, config: Config) -> Bool =
+    match ground
+      ProviderReplaySafe() -> replay_valid(config)
+      _ -> True()
+
+  @total true
+  @reducible
+  fn can_arm(state: State, config: Config) -> Bool =
+    pickup
+      state.disarmed -> False()
+      state.quarantined -> False()
+      else ->
+        match live(config)
+          False() -> False()
+          True() ->
+            match state.phase
+              Intended(origin, n) ->
+                pickup
+                  n >= 256 -> False()
+                  else ->
+                    match origin
+                      Fresh() -> n == 0
+                      After(ground) ->
+                        pickup
+                          n <= 0 -> False()
+                          else -> ground_live(ground, config)
+              _ -> False()
+
+  @total true
+  @reducible
+  fn can_rearm(state: State, config: Config) -> Bool =
+    pickup
+      state.disarmed -> False()
+      state.quarantined -> False()
+      else ->
+        match live(config)
+          False() -> False()
+          True() ->
+            match state.phase
+              Definite(ground, n) ->
+                pickup
+                  n <= 0 -> False()
+                  n >= 256 -> False()
+                  else -> ground_live(ground, config)
+              _ -> False()
+
+  @total true
+  @reducible
+  fn recovery_expired(config: Config) -> Bool =
+    match config.recovery
+      NoRecovery() -> False()
+      RecoveryAt(deadline) -> config.now >= deadline
+
+  @total true
+  @reducible
+  fn step(state: State, event: Event, config: Config) -> Decision =
+    step_gated(state, event, can_arm(state, config), can_rearm(state, config), replay_valid(config), recovery_expired(config))
+
+  @total true
+  @reducible
+  fn step_gated(state: State, event: Event, arm: Bool, rearm: Bool, replay: Bool, expired: Bool) -> Decision =
+    match state.quarantined
+      True() -> keep(state)
+      False() ->
+        match event
+          Uncertain() -> Decision{state: make(state.phase, state.disarmed, True()), action: Stop()}
+          Recover() -> Decision{state: make(state.phase, state.disarmed, True()), action: Stop()}
+          CapacityRefused() -> disarm(state)
+          _ -> active(state, event, arm, rearm, replay, expired)
+
+  @total true
+  @reducible
+  fn active(state: State, event: Event, arm: Bool, rearm: Bool, replay: Bool, expired: Bool) -> Decision =
+    match state.phase
+      Empty() ->
+        match event
+          Admit() -> move(state, Intended(Fresh(), 0), Stop())
+          _ -> keep(state)
+      Intended(origin, n) ->
+        match event
+          SchemaInvalid() -> disarm(state)
+          Arm() ->
+            match arm
+              True() -> move(state, Dispatched(origin, n + 1), Dispatch())
+              False() -> keep(state)
+          _ -> keep(state)
+      Dispatched(origin, n) ->
+        match event
+          NoSend() -> move(state, Definite(AdapterNoSend(), n), Stop())
+          PermanentNoSend() -> Decision{state: make(Definite(AdapterNoSend(), n), True(), False()), action: Stop()}
+          NoEffect() -> move(state, Definite(ProviderNoEffect(), n), Stop())
+          ProviderUnknown() ->
+            match replay
+              True() -> move(state, Definite(ProviderReplaySafe(), n), Stop())
+              False() -> move(state, Stranded(n), Reconcile())
+          Completed() -> move(state, Confirmed(n), Stop())
+          Expired() ->
+            match expired
+              True() -> move(state, Stranded(n), Reconcile())
+              False() -> move(state, state.phase, Poll())
+          _ -> move(state, state.phase, Poll())
+      Definite(g, n) ->
+        match event
+          Rearm() ->
+            match rearm
+              True() -> move(state, Intended(After(g), n), Stop())
+              False() -> keep(state)
+          _ -> keep(state)
+      Confirmed(n) -> keep(state)
+      Stranded(n) -> keep(state)
+
+  @total true
+  @reducible
+  fn no_origin() -> Option(Origin) = None()
+  @total true
+  @reducible
+  fn no_ground() -> Option(Ground) = None()
+  @total true
+  @reducible
+  fn dispatch_origin(decision: Decision) -> Option(Origin) =
+    match decision.action
+      Dispatch() ->
+        match decision.state.phase
+          Dispatched(origin, _) -> Some(origin)
+          _ -> no_origin()
+      _ -> no_origin()
+  @total true
+  @reducible
+  fn fresh_label(decision: Decision) -> Bool =
+    match decision.state.phase
+      Intended(Fresh(), _) -> True()
+      _ -> False()
+  @total true
+  @reducible
+  fn after_label(decision: Decision) -> Option(Ground) =
+    match decision.state.phase
+      Intended(After(g), _) -> Some(g)
+      _ -> no_ground()
+  @total true
+  @reducible
+  fn attempt_label(decision: Decision) -> Int =
+    match decision.state.phase
+      Empty() -> 0
+      Intended(_, n) -> n
+      Dispatched(_, n) -> n
+      Definite(_, n) -> n
+      Confirmed(n) -> n
+      Stranded(n) -> n
+
+
+  @total true
+  @reducible
+  fn dispatch_label(decision: Decision) -> Bool =
+    match decision.action
+      Dispatch() -> True()
+      _ -> False()
+  @total true
+  @reducible
+  fn definite_label(decision: Decision) -> Option(Ground) =
+    match decision.state.phase
+      Definite(g, _) -> Some(g)
+      _ -> no_ground()
+
+  @total true
+  @reducible
+  fn empty_label(decision: Decision) -> Bool =
+    match decision.state.phase
+      Empty() -> True()
+      _ -> False()
