@@ -1,19 +1,13 @@
-> Current status: PR #94 queue stopped after CI run 42462993434 exposed a
-> transport-clock race in the stream-size mutation test (root and aggregate).
-> The test now isolates size checking from transport clocks while preserving
-> every guarded-size assertion; controlled before/after load evidence is in
-> [review fixes](ELZ-011-review-fixes.md#pr-ci-stream-mutation-timing-correction-2026-11-08).
-> Incremental review and fresh full validation of this correction are pending.
-> The following CLEAR verdict applies to the preceding head only.
-
-> Final independent verdict: **CLEAR**, no blocking findings, at
-> `094eff10b05ec9a60756f73f0faf77c3bec0fe3a`, Orca reviewer session
-> `0f974e4c-75e1-4daf-9a19-7720ad2b1633`.
-> [Final report](ELZ-011-final-narrow-review.md) carries forward the earlier
-> product review. Source at `087c1de` passed fresh setup/full check (32 + 642);
-> final tests/export pass 29/221 with 114 receipt hashes and both runtime markers.
-> Claim removed; main `452caa1` merged. PR checks, coordinator queue/merge,
-> main acceptance and cleanup remain; this is not merged acceptance.
+> Current status: the stream-size CI correction is independently **CLEAR** at
+> `a3d3b540d4dcadc74ac855c6dc9c8eb73c407288`; see
+> [incremental report](ELZ-011-size-clock-review.md). Fresh pinned `mix setup`
+> and full default `mix check` on that code/test revision passed: 32 Ash + 642
+> root tests, aggregate(44), all default individual consumers, ELZOO CHECK PASSED.
+> [Review fixes](ELZ-011-review-fixes.md) records controlled before/after load
+> reproductions, preserved size assertions, commands, timestamps and log hashes.
+> The preceding full product CLEAR at `094eff1` carries forward. PR CI on the
+> pushed head, coordinator queue/merge, merge-commit acceptance and cleanup remain.
+> This is not merged acceptance.
 
 # ELZ-011 production and acceptance record
 

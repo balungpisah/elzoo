@@ -182,7 +182,8 @@ Adapter fixture supplies `:infinity` for total, receive and connect clocks, and
 the size-only server uses an infinite send timeout. A new assertion confirms
 that public `configure/1` rejects these values. Production configuration and
 transport deadlines are unchanged; the separate deadline/slow-drip tests remain
-timed. ExUnit's 120-second watchdog still bounds the test. All original strict
+timed. ExUnit's watchdog still bounds the test (120 seconds at root and in the
+standalone export; copied consumers use their configured/default watchdog). All original strict
 assertions remain: guarded traffic closes before 8 MiB of the 16 MiB response;
 removing the actual size guard reads all 16 MiB and violates that same early-close
 assertion; restoring the source passes again. The mutant still must reach schema
@@ -230,3 +231,50 @@ Evidence SHA256 (local logs and reproducible scratch inputs):
 - `/tmp/elz011-size-clock/after-controlled-concurrent.log`: `4a50aa802d460e39244c37c5e4961abc017055f9d6c0ecd6e1356ab86a57308e`.
 - `/tmp/elz011-size-clock/after-slow-source.txt`: `40af3deaa267fc2e459213ce0ce1507b103604774d4e99c83f18d60cd487484a`.
 - `/tmp/elz011-size-clock/after-slow_test.exs`: `9006e95a7f0712a046a98352ed94428f9b3907fd950f03907cf85c998b9e9961`.
+
+
+### Independent review of the clock isolation
+
+[Incremental report](ELZ-011-size-clock-review.md), reviewer session
+`0f974e4c-75e1-4daf-9a19-7720ad2b1633`, dispatch `ctx_d9bf408190cc`, reviewed
+`a3d3b540d4dcadc74ac855c6dc9c8eb73c407288`: **CLEAR, no blocking findings**.
+The reviewer independently reproduced the original mismatch with a different
+20 ms callback stall (exit 2, 4.9 seconds), then passed the fixed version with
+the same stall (exit 0, 21.6 seconds). Targeted 29 passed idle and under 16
+nice-15 burners; the size test passed 8/8 under load; standalone copied-consumer
+export passed 221 with 114 receipt hashes and both runtime markers. The reviewer
+checked each infinite clock is separately rejected by public configuration and
+all 12 author evidence hashes match. The report is copied without editing.
+
+Limits remain: the negative control detects removal, not arbitrary loosening
+below the asserted 8 MiB threshold; other short-timer tests retain their own
+load sensitivity; finite observations do not prove all schedules. Fresh full
+validation is now running; the reviewer did not run it or PR CI. No merged
+acceptance is claimed.
+
+
+### Fresh full validation after review
+
+On reviewed code/test head `a3d3b540d4dcadc74ac855c6dc9c8eb73c407288`, fresh
+`mix setup` exited 0 (2026-11-08 09:28:45Z–09:28:48Z), then full default
+`mix check` exited 0 (09:28:48Z–09:43:49Z): **32 Ash + 642 root tests,
+ELZOO CHECK PASSED**. All default individual consumers and aggregate(44)
+passed; aggregate test/runtime took 249.1 seconds and the root suite 883.0
+seconds. This is a new complete run of the corrected test, not a relabelled
+historical pass. The command environment is the UTF-8 locale, scheduler limits,
+MIX_ENV=test and own PostgreSQL URL listed above. Checked pins: dependency HEAD
+`208248063d64e621782cd26dd30698ee42850a89`, Elixir 1.20.4, OTP 29.1.2.
+Only review/evidence documents changed during validation; production/test bytes
+remain those inspected at `a3d3b54`.
+
+`python3 scripts/check-roadmap.py`, `python3 scripts/check-roadmap.py --live`,
+`python3 scripts/check-claims.py` and `git diff --check` also pass (139 local
+links, live Contracts match, no tracked claim metadata). The incremental
+reviewer's standalone export221/114 receipt hashes and runtime markers above
+supply additional copied-consumer evidence; it was not redundantly rerun here.
+
+- `/tmp/elz011-size-clock/fresh-setup.log` SHA256 `10b310b700739779d4660b6a27ba264caadea8845c1b7cb0421a45e9f46cf56b`.
+- `/tmp/elz011-size-clock/fresh-check.log` SHA256 `17f3974d255d99d9ebb915447cc9b4df42a1eda218c49842d59bc8c9fb8e2b9d`.
+- `/tmp/elz011-size-clock/fresh-results.json` SHA256 `ab5905f18ddcb54550999ebe8d0c37f9f5ce35110162fe575901d0e7ee0be0e9`.
+
+PR CI on the pushed head and the coordinator queue/merge are still required.
