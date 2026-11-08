@@ -766,6 +766,47 @@ class RunnerPolicyTest(unittest.TestCase):
                 self.tearDown()
                 self.setUp()
 
+    CHECKOUT = """      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+"""
+
+    def test_checkout_must_not_persist_the_token(self):
+        self.assertEqual(2, self.source().count(self.CHECKOUT))
+        for new in (self.CHECKOUT.replace("          persist-credentials: false\n", ""),
+                    self.CHECKOUT.replace("persist-credentials: false", "persist-credentials: true"),
+                    self.CHECKOUT.replace("fetch-depth: 0", "fetch-depth: 1"),
+                    self.CHECKOUT + "          token: ${{ secrets.X }}\n"):
+            with self.subTest(new=new.strip()[-40:]):
+                self.change_all("symbolic-check.yml", self.CHECKOUT, new)
+                self.assertTrue(self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+
+    def test_checkout_changed_in_one_job_only_rejected(self):
+        self.change("symbolic-check.yml", "          persist-credentials: false\n", "")
+        self.assertIn("the pinned checkout step (persist-credentials: false) is missing or changed (check-fast)", self.check(1).stderr)
+
+    def test_header_form_and_oddly_indented_if_keys_rejected(self):
+        for old, new in (("      - run: python3 scripts/check-claims.py\n", "      - if: ${{ github.event_name != 'push' }}\n        run: python3 scripts/check-claims.py\n"),
+                         ("      - run: python3 scripts/check-ci-runners.py\n", "      -   run: python3 scripts/check-ci-runners.py\n          if: ${{ false }}\n"),
+                         ("      - run: python3 scripts/test-ci-runners.py\n", "      - run: python3 scripts/test-ci-runners.py\n         if: ${{ false }}\n")):
+            with self.subTest(new=new.strip()[:50]):
+                self.change_all("symbolic-check.yml", old, new)
+                self.assertTrue(self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+
+    def test_decision_step_cannot_gain_working_directory_or_timeout(self):
+        for extra in ("        working-directory: /tmp\n", "        timeout-minutes: 1\n"):
+            with self.subTest(extra=extra.strip()):
+                self.change_all("symbolic-check.yml", "        run: python3 scripts/ci-skip-decision.py\n",
+                                "        run: python3 scripts/ci-skip-decision.py\n" + extra)
+                self.assertIn("the pinned decision step is missing or changed", self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+
     def test_pull_request_job_cannot_reach_the_token_or_actions_scope_through_the_decision_step(self):
         # The decision script itself refuses everything but a push to main; the workflow must not let
         # the pull request job grant more than contents: read, whatever its steps do.

@@ -33,8 +33,9 @@ pull request run is never exact-head full evidence. The queue keeps dispatching 
    that works (expected: `actions: read` on the push job `check-any` only; the pull request job and
    the top-level block keep `contents: read`). A `permissions:` change is a trust-model change and
    goes through the guard and review.
-3. Queue cancels the duplicate pull request check (coordinator addition, owner-driven; observed cost 20
-   minutes of `symbolic-elzoo` per queue update, run 42478439366 cancelled by hand). When
+3. Queue cancels the duplicate pull request check (coordinator addition, owner-driven; a full-size check
+   per queue update, estimated at 19 to 29 minutes of a fast runner; run 42478439366 waited ten minutes and was
+   cancelled by hand after 40 seconds). When
    `scripts/merge-queue.py` updates a PR branch by merging main (`gh pr update-branch`), GitHub starts a
    `pull_request` check on the new head; the queue then dispatches its exact-head run on that same head, so
    the PR check is a duplicate. Right after the update, and before or alongside its dispatch, the queue

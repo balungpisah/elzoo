@@ -35,6 +35,7 @@ class Fake:
         self.pr_runs = None            # None: default duplicate run on the updated head
         self.cancelled = []
         self.cancel_error = False
+        self.cancel_fail_ids = set()
         self.pr_run_listing_error = False
         self.other_job_changes = None
         self.merged = False
@@ -67,7 +68,8 @@ class Fake:
     def pr_run(self, run_id, **changes):
         run = dict(id=run_id, workflow_id=10, path=".github/workflows/symbolic-check.yml",
                    event="pull_request", head_branch=self.pr["headRefName"],
-                   head_sha=self.pr["headRefOid"], status="in_progress", conclusion=None, run_attempt=1)
+                   head_sha=self.pr["headRefOid"], status="in_progress", conclusion=None, run_attempt=1,
+                   head_repository={"full_name": queue.REPO})
         run.update(changes)
         return run
 
@@ -107,7 +109,7 @@ class Fake:
                 raise queue.QueueError("API unavailable")
             path = argv[-1]
             if argv[2:4] == ["-X", "POST"]:
-                if self.cancel_error:
+                if self.cancel_error or int(path.split("/")[-2]) in self.cancel_fail_ids:
                     raise queue.QueueError("cancel refused")
                 self.cancelled.append(int(path.split("/")[-2]))
             elif "/workflows/symbolic-check.yml/runs?" in path and "event=pull_request" in path:
@@ -115,6 +117,8 @@ class Fake:
                     raise queue.QueueError("listing failed")
                 runs = [self.pr_run(700)] if self.pr_runs is None else self.pr_runs
                 out = [{"workflow_runs": runs}]
+                if not isinstance(runs, list):
+                    out = [{"workflow_runs": runs}]  # malformed bodies are passed through as they are
             elif path.endswith("git/ref/heads/main"):
                 out = {"object": {"sha": self.canonical_main}}
             elif "/workflows/symbolic-gleam.yml/runs?" in path:
@@ -292,6 +296,45 @@ class QueueTest(unittest.TestCase):
         self.fake.pr_runs = others
         self.q.process(79)
         self.assertEqual([707], self.fake.cancelled)
+
+    def test_fork_run_with_the_same_branch_and_head_is_not_cancelled(self):
+        self.fake.stale = True
+        self.fake.pr_runs = [self.fake.pr_run(710, head_sha=B, head_repository={"full_name": "someone/elzoo"}),
+                             self.fake.pr_run(711, head_sha=B, head_repository=None),
+                             self.fake.pr_run(712, head_sha=B)]
+        self.q = self.fake.make_queue(timeout=300)
+        self.q.process(79)
+        self.assertEqual([712], self.fake.cancelled)
+
+    def test_malformed_run_data_never_blocks_the_queue(self):
+        for runs in ([None], ["x"], [1], [[]], [{"id": "7", "status": "queued"}]):
+            with self.subTest(runs=runs):
+                self.setUp()
+                self.fake.stale = True
+                self.fake.pr_runs = [self.fake.pr_run(700, head_sha=B)] if runs == [{"id": "7", "status": "queued"}] else runs
+                if runs == [{"id": "7", "status": "queued"}]:
+                    self.fake.pr_runs[0]["id"] = "7"
+                self.q = self.fake.make_queue(timeout=300)
+                self.q.process(79)
+                self.assertEqual([], self.fake.cancelled)
+                self.assertTrue(self.fake.merged)
+        for body in ("notalist", None, {"x": 1}):
+            with self.subTest(body=body):
+                self.setUp()
+                self.fake.stale = True
+                self.fake.pr_runs = body
+                self.q = self.fake.make_queue(timeout=300)
+                self.q.process(79)
+                self.assertTrue(self.fake.merged)
+
+    def test_a_failed_cancel_of_one_run_still_tries_the_others(self):
+        self.fake.stale = True
+        self.fake.pr_runs = [self.fake.pr_run(720, head_sha=B), self.fake.pr_run(721, head_sha=B)]
+        self.fake.cancel_fail_ids = {720}
+        self.q.process(79)
+        self.assertEqual([721], self.fake.cancelled)
+        self.assertTrue(any("not cancelled" in m for m in self.fake.messages))
+        self.assertTrue(self.fake.merged)
 
     def test_completed_duplicate_is_not_cancelled(self):
         self.fake.stale = True

@@ -128,7 +128,8 @@ class Queue:
                 run.get("head_branch") == pr["headRefName"] and
                 run.get("head_sha") == pr["headRefOid"] and
                 run.get("workflow_id") == workflow_id and
-                run.get("path") == f".github/workflows/{WORKFLOW}")
+                run.get("path") == f".github/workflows/{WORKFLOW}" and
+                (run.get("head_repository") or {}).get("full_name") == REPO)
 
     def cancel_duplicate_pr_run(self, pr, workflow_id):
         """ELZ-058: update-branch makes GitHub start a pull_request check on the new head, and the
@@ -144,21 +145,24 @@ class Queue:
                 pages = self.data("gh", "api", "--paginate", "--slurp",
                                   f"repos/{REPO}/actions/workflows/{WORKFLOW}/runs?{query}")
                 runs = [run for page in pages for run in page["workflow_runs"]
-                        if self.pr_run_matches(run, pr, workflow_id)]
+                        if isinstance(run, dict) and self.pr_run_matches(run, pr, workflow_id)]
                 if runs:
                     break
                 self.pause("pull_request run on the updated head", end)
             for run in runs:
-                if not isinstance(run.get("id"), int):
-                    raise QueueError("Invalid duplicate run ID")
-                if run.get("status") == "completed":
-                    self.emit(f"Duplicate pull_request run {run['id']} already completed; not cancelled",
+                try:
+                    if not isinstance(run.get("id"), int):
+                        raise QueueError("Invalid duplicate run ID")
+                    if run.get("status") == "completed":
+                        self.emit(f"Duplicate pull_request run {run['id']} already completed; not cancelled",
+                                  flush=True)
+                        continue
+                    self.text("gh", "api", "-X", "POST", f"repos/{REPO}/actions/runs/{run['id']}/cancel")
+                    self.emit(f"Cancelled duplicate pull_request run {run['id']} head={pr['headRefOid']}",
                               flush=True)
-                    continue
-                self.text("gh", "api", "-X", "POST", f"repos/{REPO}/actions/runs/{run['id']}/cancel")
-                self.emit(f"Cancelled duplicate pull_request run {run['id']} head={pr['headRefOid']}",
-                          flush=True)
-        except (QueueError, KeyError, TypeError) as error:
+                except (QueueError, KeyError, TypeError, AttributeError, ValueError) as error:
+                    self.emit(f"Duplicate pull_request run not cancelled: {error}", flush=True)
+        except (QueueError, KeyError, TypeError, AttributeError, ValueError) as error:
             self.emit(f"Duplicate pull_request run not cancelled: {error}", flush=True)
 
     def dispatch(self, pr, workflow_id):

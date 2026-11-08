@@ -2,8 +2,7 @@
 
 Elzoo uses only the owner's Linux machines: the user-owned `symbolic` and `macbook-ubuntu` and, from
 ELZ-056 (owner decision 2026-11-08), the user-rented Contabo VPS `ratahq-ci-contabo-01`
-(runner `contabo-elzoo-1`; trialled, routed only for `main` pushes and measurement runs, see "Runner tiers"
-and "Contabo VPS" below). GitHub provides scheduling
+(runner `contabo-elzoo-1`; trialled and currently unrouted, see "Runner tiers" and "Contabo VPS" below). GitHub provides scheduling
 and check reporting; it does not supply compute.
 Never select a GitHub-hosted image or add a hosted fallback. If a runner is
 offline, diagnose it or let work queue on the other approved runner.
@@ -20,8 +19,8 @@ offline, diagnose it or let work queue on the other approved runner.
   historical; they do not select a separate route.
 - `contabo-elzoo-1` (runner id 24): **unrouted**, never `fast`; labels `self-hosted`, `Linux`, `X64`,
   `elzoo`, `contabo`. It has no `backend` label (removed again on 2026-11-08 after its `tier` = `any`
-  observation failed; owner decision, option a). It serves measurement runs and explicit `tier` = `any`
-  dispatches only when a person steers them. See "Contabo VPS" for the two failed or slow runs.
+  observation failed; owner decision, option a). It takes no job at present; a person may add the `backend` label for a
+  measurement run or an explicit `tier` = `any` dispatch and must remove it afterwards. See "Contabo VPS" for the two failed or slow runs.
 - `symbolic-elzoo-gleam`: Gleam only; labels `self-hosted`, `linux`, `x64`,
   `symbolic`, `elzoo`, `gleam`.
 
@@ -84,7 +83,7 @@ labels, not just the check name, when verifying a machine.
 
 Owner decision 2026-11-08: pull request checks and merge-queue runs run only on the **fast** runners
 (`symbolic-elzoo`, `macbook-ubuntu-elzoo-candidate`, label `fast`). `main` pushes and measurement
-runs may use any backend runner, including `contabo-elzoo-1`, which never gets `fast`.
+runs may use any runner that has the `backend` label; `contabo-elzoo-1` never gets `fast` and has no `backend` label at present.
 `symbolic-check.yml` therefore has two jobs with identical bodies:
 
 | Job | Runs for | `runs-on` |
@@ -160,7 +159,9 @@ that receives `GITHUB_TOKEN`, in both jobs, because their bodies are identical; 
 only contents, and the script refuses everything but a push to `main` before any request. The token is never sent to
 the log storage redirect, which is accepted only for `github.com`, `*.github.com`, `*.githubusercontent.com` and
 `productionresultssa<N>.blob.core.windows.net/actions-results/...`. `scripts/check-ci-runners.py` pins the
-`permissions` lines (and rejects any `write` scope), the exact decision step and its position after
+`permissions` lines (and rejects any `write` scope), the checkout step with `persist-credentials: false` (the default
+would leave the job token in `.git/config`, readable by every later step, including dependency code, and with this change
+that token carries `actions: read` on `check-any`), the exact decision step and its position after
 `scripts/test-ci-skip.py`, the token on that line only, and the complete list of step-level `if:` conditions:
 every step after the decision, except the resource report, carries `steps.skip.outputs.skip != 'true'`
 (the cache save combines it with `cache-hit != 'true'`) and the resource report keeps `always()`. A different `if:` on
@@ -169,13 +170,16 @@ check, not proof against every YAML form.
 
 **Duplicate pull request check.** When `scripts/merge-queue.py` updates a pull request branch by merging
 `main` (`gh pr update-branch`), GitHub starts a `pull_request` run on the new head; the queue's own exact-head
-dispatch follows on that same head, so that run is a duplicate (observed cost 20 minutes of a fast runner per
-update, run 42478439366 cancelled by hand). Right after the new head is visible, the queue cancels only the
+dispatch follows on that same head, so that run is a duplicate (a full-size check, 19 to 29 minutes on a fast runner, estimated; one such run,
+42478439366, waited ten minutes for a runner and was cancelled by hand after 40 seconds). Right after the new head is visible, the queue cancels only the
 `pull_request` run of `symbolic-check.yml` on that exact head and branch, logs `Cancelled duplicate pull_request
 run <id> head=<sha>`, and carries on. It never cancels another head, another pull request, a dispatch or a push run, or
 the Gleam run (the Gleam workflow is not queried). A completed run is left alone. A failed lookup, a failed cancel or no
 run within 30 seconds is logged (`Duplicate pull_request run not cancelled: ...`) and does not block the queue.
 This is not evidence: the cancelled run was never part of the merge gate.
+
+Cache effect: a skipped push run saves no main-scoped dependency cache, so after a `mix.lock` or `mix.exs` change
+task branches restore an older entry by prefix key until a full run of `main` saves a new one (time, not correctness).
 
 Measurement over the next five merges (fast-runner minutes per merge: queue run, push run, pull request runs, with
 run IDs) is recorded in issue #96, not here. Live observations of the decision script against real merge commits
@@ -622,9 +626,9 @@ state. This record covers `symbolic` only.
 
 Status: **unrouted (owner decision 2026-11-08, option a).** The runner has no `backend` label. One
 full run passed on an older tree (trial 2, below) and one failed on the current tree (the `tier` = `any`
-observation of ELZ-057). The label was on only for those runs. It serves measurement runs and explicit
-`tier` = `any` dispatches that a person steers; GitHub gives a job to any idle matching runner, so it
-takes no `check-any` job while it has no `backend` label. No test limit was changed for it.
+observation of ELZ-057). The label was on only for those runs. It takes no job while it has no `backend`
+label (GitHub gives a job to any idle runner with matching labels); a person may add the label for a measurement run
+or an explicit `tier` = `any` dispatch and must remove it afterwards. No test limit was changed for it.
 
 **ELZ-057 observation (failed).** Run 42484236992, job 128742521023, `workflow_dispatch` with `tier` = `any`
 on `main` at `ade0e45`, runner `contabo-elzoo-1`; `check-fast` skipped. 13:17:27Z to 14:25:54Z (20:17 to

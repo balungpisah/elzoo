@@ -30,6 +30,12 @@ DECISION_STEP = """      - name: Decide whether the full check is redundant
           GITHUB_TOKEN: ${{ github.token }}
         run: python3 scripts/ci-skip-decision.py"""
 SKIP_IF = "        if: ${{ steps.skip.outputs.skip != 'true' }}"
+# The checkout must not persist the job token in .git/config, where every later step (mix setup, mix check,
+# dependency code) could read it; with ELZ-058 that token carries actions: read on check-any.
+CHECKOUT_STEP = """      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false"""
 STEP_IFS = [
     ("      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1", SKIP_IF),
     ("      - name: Report BEAM capacity", SKIP_IF),
@@ -314,6 +320,17 @@ for file in files:
                 errors.append(f'{file}: the pinned decision step is missing or changed ({name})')
             else:
                 decision_tokens.append(starts[0] + 3)
+            checkout = CHECKOUT_STEP.split('\n')
+            checkouts = [i for i in block if re.match(r'\s*(?:-\s+)?uses\s*:\s*actions/checkout@', lines[i])]
+            if (len(checkouts) != 1 or lines[checkouts[0]:checkouts[0] + len(checkout)] != checkout
+                    or checkouts[0] in skip):
+                errors.append(f'{file}: the pinned checkout step (persist-credentials: false) is missing or changed ({name})')
+            # Any if: key other than the reviewed 8-space step-level lines (a header-form `- if:`, or another
+            # indentation) is outside the convention; the job-level gate sits at h + 1.
+            for i in block:
+                if (i != h + 1 and i not in skip and re.match(r'\s*(?:-\s+)?if\s*:', lines[i])
+                        and not lines[i].startswith('        if:')):
+                    errors.append(f'{file}: unreviewed if: key ({name}): {lines[i].strip()}')
             pairs = []
             for i in block:
                 if lines[i].startswith('        if:') and i not in skip:
