@@ -1,0 +1,19 @@
+{
+  "from_revision": "36e097819e6039bb56c43eea3092c662df738c45",
+  "revision": "d70bee6e22e830019065f04b509d367bc9b446eb",
+  "inherited_main": "65601de",
+  "changed_paths": [
+    ".github/workflows/symbolic-gleam.yml",
+    "docs/development/10-symbolic-ci.md",
+    "scripts/check-ci-runners.py",
+    "scripts/test-ci-runners.py",
+    "spikes/gleam_ui/README.md",
+    "spikes/gleam_ui/scripts/check.sh",
+    "spikes/gleam_ui/scripts/setup.sh",
+    "spikes/gleam_ui/scripts/setup_gleam.py",
+    "spikes/gleam_ui/scripts/test_setup_gleam.py",
+    "tasks/ELZ-060-gleam-api-download.md"
+  ],
+  "method": "existing fresh clone checked out the pushed normal main merge; build directories retained for this explicit follow-up, not labelled a second fresh clone",
+  "git_status_short": ""
+}

@@ -1,0 +1,7 @@
+{
+  "first_revision": "36e097819e6039bb56c43eea3092c662df738c45",
+  "checked_revision": "d70bee6e22e830019065f04b509d367bc9b446eb",
+  "input_count": 307,
+  "all_named_inputs_match": true,
+  "note": "The 307 named backend inputs match after ELZ-060; the non-docs inherited delta is retained separately in main-sync.json, and a full follow-up check ran regardless"
+}

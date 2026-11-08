@@ -1,0 +1,233 @@
+{
+  "utc": "2026-11-08T13:04:40.824305+00:00",
+  "main_base": "b62c26a229fc86fa7700376d4cb6a21be536baa7",
+  "checked_runtime_revision": "907c37f02ed857b4e83d55fb3a9929f3525e8419",
+  "commands": [
+    {
+      "command": [
+        "python3",
+        "scripts/check-roadmap.py"
+      ],
+      "exit": 0,
+      "output": "ROADMAP CHECK PASSED: 97 catalogue IDs; 2 separate candidates; 76 jobs; 12 products; acyclic and release-ordered; generated views agree; 139 local links checked\n"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/check-roadmap.py",
+        "--live"
+      ],
+      "exit": 0,
+      "output": "ROADMAP CHECK PASSED: 97 catalogue IDs; 2 separate candidates; 76 jobs; 12 products; acyclic and release-ordered; generated views agree; 139 local links checked; live Contracts match\n"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/check-claims.py"
+      ],
+      "exit": 0,
+      "output": "No tracked claim metadata\n"
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check",
+        "origin/main",
+        "--",
+        ".",
+        ":!docs/work/*.patch"
+      ],
+      "exit": 0,
+      "output": ""
+    }
+  ],
+  "task_live_equal": true,
+  "task_bytes": 1723,
+  "task_sha256": "e6031ef6a8a93fefcf64ce097d49373f65e768e21540ada2b09db17165785962",
+  "local_links": [
+    {
+      "source": "docs/development/clean-check-handoff.md",
+      "target": "../work/ELZ-012-evidence/selected-grounding.json",
+      "exists": true
+    },
+    {
+      "source": "docs/development/clean-check-handoff.md",
+      "target": "../work/ELZ-012.md",
+      "exists": true
+    },
+    {
+      "source": "docs/development/clean-check-handoff.md",
+      "target": "../work/ELZ-012-early-review.md",
+      "exists": true
+    },
+    {
+      "source": "docs/development/clean-check-handoff.md",
+      "target": "07-bootstrap-validation.md",
+      "exists": true
+    },
+    {
+      "source": "docs/development/06-toolchain.md",
+      "target": "10-symbolic-ci.md",
+      "exists": true
+    },
+    {
+      "source": "docs/development/06-toolchain.md",
+      "target": "clean-check-handoff.md",
+      "exists": true
+    },
+    {
+      "source": "docs/work/ELZ-012.md",
+      "target": "ELZ-012-early-review.md",
+      "exists": true
+    },
+    {
+      "source": "docs/work/ELZ-012.md",
+      "target": "ELZ-012-early-review.md#binding-execution-gates",
+      "exists": true
+    },
+    {
+      "source": "docs/work/ELZ-012.md",
+      "target": "ELZ-012-evidence/initial.json",
+      "exists": true
+    },
+    {
+      "source": "docs/work/ELZ-012.md",
+      "target": "ELZ-012-evidence/results.json",
+      "exists": true
+    },
+    {
+      "source": "docs/work/ELZ-012.md",
+      "target": "ELZ-012-evidence/setup-extract.txt",
+      "exists": true
+    },
+    {
+      "source": "docs/work/ELZ-012.md",
+      "target": "ELZ-012-evidence/check-extract.txt",
+      "exists": true
+    },
+    {
+      "source": "docs/work/ELZ-012.md",
+      "target": "ELZ-012-evidence/cure-identity.json",
+      "exists": true
+    },
+    {
+      "source": "docs/work/ELZ-012.md",
+      "target": "ELZ-012-evidence/cure-inspection.log",
+      "exists": true
+    },
+    {
+      "source": "docs/work/ELZ-012.md",
+      "target": "ELZ-012-evidence/cure-manifest.txt",
+      "exists": true
+    },
+    {
+      "source": "docs/work/ELZ-012.md",
+      "target": "ELZ-012-evidence/first-final.json",
+      "exists": true
+    },
+    {
+      "source": "docs/work/ELZ-012.md",
+      "target": "ELZ-012-evidence/source-hashes.json",
+      "exists": true
+    },
+    {
+      "source": "docs/work/ELZ-012.md",
+      "target": "ELZ-012-evidence/main-sync.json",
+      "exists": true
+    },
+    {
+      "source": "docs/work/ELZ-012.md",
+      "target": "ELZ-012-evidence/post-merge-results.json",
+      "exists": true
+    },
+    {
+      "source": "docs/work/ELZ-012.md",
+      "target": "ELZ-012-evidence/post-merge-setup-extract.txt",
+      "exists": true
+    },
+    {
+      "source": "docs/work/ELZ-012.md",
+      "target": "ELZ-012-evidence/post-merge-check-extract.txt",
+      "exists": true
+    },
+    {
+      "source": "docs/work/ELZ-012.md",
+      "target": "ELZ-012-evidence/final.json",
+      "exists": true
+    },
+    {
+      "source": "docs/work/ELZ-012.md",
+      "target": "ELZ-012-evidence/source-consistency.json",
+      "exists": true
+    },
+    {
+      "source": "docs/work/ELZ-012.md",
+      "target": "../development/clean-check-handoff.md",
+      "exists": true
+    },
+    {
+      "source": "docs/work/ELZ-012.md",
+      "target": "ELZ-012-evidence/consumer-main-sync.json",
+      "exists": true
+    },
+    {
+      "source": "docs/work/ELZ-012.md",
+      "target": "ELZ-012-evidence/consumer-main-results.json",
+      "exists": true
+    },
+    {
+      "source": "docs/work/ELZ-012.md",
+      "target": "ELZ-012-evidence/consumer-main-setup-extract.txt",
+      "exists": true
+    },
+    {
+      "source": "docs/work/ELZ-012.md",
+      "target": "ELZ-012-evidence/consumer-main-check-extract.txt",
+      "exists": true
+    },
+    {
+      "source": "docs/work/ELZ-012.md",
+      "target": "ELZ-012-evidence/consumer-main-final.json",
+      "exists": true
+    },
+    {
+      "source": "docs/work/ELZ-012.md",
+      "target": "ELZ-012-evidence/source-hashes-current.json",
+      "exists": true
+    }
+  ],
+  "authored_paths_checked": [
+    "docs/development/06-toolchain.md",
+    "docs/development/clean-check-handoff.md",
+    "docs/work/ELZ-012-early-review.md",
+    "docs/work/ELZ-012-evidence/check-extract.txt",
+    "docs/work/ELZ-012-evidence/consumer-main-check-extract.txt",
+    "docs/work/ELZ-012-evidence/consumer-main-final.json",
+    "docs/work/ELZ-012-evidence/consumer-main-results.json",
+    "docs/work/ELZ-012-evidence/consumer-main-setup-extract.txt",
+    "docs/work/ELZ-012-evidence/consumer-main-sync.json",
+    "docs/work/ELZ-012-evidence/cure-identity.json",
+    "docs/work/ELZ-012-evidence/cure-inspection.log",
+    "docs/work/ELZ-012-evidence/cure-manifest.txt",
+    "docs/work/ELZ-012-evidence/final.json",
+    "docs/work/ELZ-012-evidence/first-final.json",
+    "docs/work/ELZ-012-evidence/initial.json",
+    "docs/work/ELZ-012-evidence/main-sync.json",
+    "docs/work/ELZ-012-evidence/open-issues.json",
+    "docs/work/ELZ-012-evidence/post-merge-check-extract.txt",
+    "docs/work/ELZ-012-evidence/post-merge-results.json",
+    "docs/work/ELZ-012-evidence/post-merge-setup-extract.txt",
+    "docs/work/ELZ-012-evidence/preflight.json",
+    "docs/work/ELZ-012-evidence/results.json",
+    "docs/work/ELZ-012-evidence/selected-grounding.json",
+    "docs/work/ELZ-012-evidence/setup-extract.txt",
+    "docs/work/ELZ-012-evidence/source-consistency.json",
+    "docs/work/ELZ-012-evidence/source-hashes-current.json",
+    "docs/work/ELZ-012-evidence/source-hashes.json",
+    "docs/work/ELZ-012.md",
+    "tasks/ELZ-012-clean-check-evidence-handoff.md"
+  ],
+  "scope_pass": true,
+  "note": "Docs checks are separate from mix check; untracked evidence paths included in scope check; final PR SHA comparison is recorded after committing"
+}

@@ -1,0 +1,59 @@
+{
+  "utc": "2026-11-08T12:09:41.955243+00:00",
+  "command": "gh issue list -R balungpisah/elzoo --state open --limit 1000 --json number,title",
+  "note": "Recheck dependencies and remote claims; not a lock",
+  "issues": [
+    {
+      "number": 100,
+      "title": "ELZ-060 \u2014 Install the pinned Gleam compiler through the release-asset API, with the job token"
+    },
+    {
+      "number": 99,
+      "title": "ELZ-059 \u2014 Light pull request checks; staggered full runs of main; freeze rule"
+    },
+    {
+      "number": 98,
+      "title": "CI main status: freeze classifications (ELZ-059 tracking)"
+    },
+    {
+      "number": 96,
+      "title": "ELZ-058 \u2014 Remove redundant full CI runs without weakening the evidence"
+    },
+    {
+      "number": 95,
+      "title": "ELZ-057 \u2014 Route backend checks by runner tier; add the runner budget rule"
+    },
+    {
+      "number": 89,
+      "title": "ELZ-049 \u2014 Run the database-free copied consumers concurrently"
+    },
+    {
+      "number": 76,
+      "title": "ELZ-044 \u2014 Make the CI guard check workflow structure, not line shapes"
+    },
+    {
+      "number": 70,
+      "title": "ELZ-041 \u2014 Trial an advisory ARM64 PR lane on the M1 Pro MacBook (Kinhin)"
+    },
+    {
+      "number": 48,
+      "title": "ELZ-031 \u2014 Specify exact money amounts and the currency registry"
+    },
+    {
+      "number": 46,
+      "title": "ELZ-029 \u2014 Specify the OS-process Adapter boundary"
+    },
+    {
+      "number": 45,
+      "title": "ELZ-028 \u2014 Specify single-owner leases fenced by record revision"
+    },
+    {
+      "number": 44,
+      "title": "ELZ-027 \u2014 Specify schedule occurrence identity and overlap policy"
+    },
+    {
+      "number": 12,
+      "title": "ELZ-012 \u2014 Reproduce the clean check and hand off evidence"
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+Cure sources unchanged (fingerprint 8e592ae4cdcd); skipping 29 modules
+CURE_LIB=/private/tmp/elz012-acceptance-i02p01gy/clone/_build/test/lib/cure
+CURE_COMPILER=/private/tmp/elz012-acceptance-i02p01gy/clone/_build/test/lib/cure/ebin/Elixir.Cure.Compiler.beam
+MIX_ENV=test

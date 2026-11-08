@@ -1,0 +1,387 @@
+{
+  "revision": "36e097819e6039bb56c43eea3092c662df738c45",
+  "note": "Manifest declarations, not independently executed results; full-check log supplies run evidence",
+  "entries": [
+    {
+      "id": "core/operator",
+      "manifest_sha256": "88551ff27503570e577083a64f2b6b289916c5e0ae2a0545da73550af9e866e3",
+      "contract": "Generic pure zero-or-one-output stateful composition; a dropped input preserves downstream state.",
+      "grounding": [
+        {
+          "kind": "proof",
+          "file": "cure/elzoo/composition.cure",
+          "symbol": "drop_has_no_output",
+          "claim": "Composing discard with any downstream operator produces no output."
+        },
+        {
+          "kind": "proof",
+          "file": "cure/elzoo/composition.cure",
+          "symbol": "drop_keeps_downstream",
+          "claim": "Composing discard with any downstream operator preserves downstream state."
+        },
+        {
+          "kind": "type",
+          "file": "cure/elzoo/composition.cure",
+          "claim": "The pinned Cure compiler checks this source before emitting its BEAM."
+        },
+        {
+          "kind": "test",
+          "file": "test/elzoo/composition_test.exs",
+          "claim": "The named scenarios in this ExUnit file are executable evidence, not universal proofs."
+        },
+        {
+          "kind": "upstream",
+          "provider": "cure",
+          "reference": "https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89",
+          "claim": "Relies on the pinned provider implementation and public contract."
+        }
+      ]
+    },
+    {
+      "id": "assembly/ingest-dedup-accumulate",
+      "manifest_sha256": "c4ea134d9de381d4187e310e6e4417d1fdda495ecb8389ef3f1b257c672e4f21",
+      "contract": "An example assembly combines duplicate suppression, accumulation and optional threshold nesting; direct and OTP traces are compared.",
+      "grounding": [
+        {
+          "kind": "type",
+          "file": "cure/elzoo/consumer.cure",
+          "claim": "The pinned Cure compiler checks this source before emitting its BEAM."
+        },
+        {
+          "kind": "type",
+          "file": "cure/elzoo/core.cure",
+          "claim": "The pinned Cure compiler checks this source before emitting its BEAM."
+        },
+        {
+          "kind": "type",
+          "file": "cure/elzoo/extension.cure",
+          "claim": "The pinned Cure compiler checks this source before emitting its BEAM."
+        },
+        {
+          "kind": "test",
+          "file": "test/elzoo/runtime_test.exs",
+          "claim": "The named scenarios in this ExUnit file are executable evidence, not universal proofs."
+        },
+        {
+          "kind": "upstream",
+          "provider": "cure",
+          "reference": "https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89",
+          "claim": "Relies on the pinned provider implementation and public contract."
+        },
+        {
+          "kind": "upstream",
+          "provider": "elixir",
+          "reference": "https://hexdocs.pm/elixir/1.20.4/",
+          "claim": "Relies on the pinned provider implementation and public contract."
+        },
+        {
+          "kind": "upstream",
+          "provider": "otp",
+          "reference": "https://www.erlang.org/doc/",
+          "claim": "Relies on the pinned provider implementation and public contract."
+        }
+      ]
+    },
+    {
+      "id": "assembly/request-route-retry",
+      "manifest_sha256": "ffedf5eddca3e5583c51e4ff5baa656118871dacb276fa63cfa673177d81dba3",
+      "contract": "Volatile request/route/retry Assembly with exact integer codecs, labelled window decisions, checked topology/selection and unchanged Runner/Adapter delivery. Fused labels the internal seam; work enters through a volatile Adapter hop.",
+      "grounding": [
+        {
+          "kind": "proof",
+          "file": "cure/elzoo/request_route_retry.cure",
+          "symbol": "labelled_duplicate_keeps_state",
+          "claim": "Supplied WindowDuplicate decision preserves state in label_step only."
+        },
+        {
+          "kind": "proof",
+          "file": "cure/elzoo/request_route_retry.cure",
+          "symbol": "labelled_duplicate_not_accepted",
+          "claim": "Supplied WindowDuplicate decision emits an explicit duplicate label with no accepted message in label_step only."
+        },
+        {
+          "kind": "proof",
+          "file": "cure/elzoo/request_route_retry.cure",
+          "symbol": "labelled_full_keeps_state",
+          "claim": "Supplied WindowFull decision preserves state in label_step only."
+        },
+        {
+          "kind": "type",
+          "file": "cure/elzoo/request_route_retry.cure",
+          "claim": "Pinned Cure checks production declarations and imported operators; Wiring/Assembly/Selection check declared connections, not opaque payload semantics."
+        },
+        {
+          "kind": "test",
+          "file": "test/elzoo/request_route_retry_test.exs",
+          "claim": "Named finite topology, codec, construction/runtime and compiler audit/negative controls; cross-Piece S1-S22 composition scenarios additionally live in root test/request_route_retry_test.exs."
+        },
+        {
+          "kind": "upstream",
+          "provider": "cure",
+          "reference": "https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89",
+          "claim": "Relies on pinned compilation/record erasure, not a local proof of the compiler."
+        },
+        {
+          "kind": "upstream",
+          "provider": "elixir",
+          "reference": "https://hexdocs.pm/elixir/1.20.4/",
+          "claim": "Relies on GenServer and Task.Supervisor semantics through unchanged dependencies."
+        },
+        {
+          "kind": "upstream",
+          "provider": "otp",
+          "reference": "https://www.erlang.org/doc/",
+          "claim": "Relies on OTP 29.1.2 process/timer semantics through unchanged dependencies."
+        },
+        {
+          "kind": "assumption",
+          "claim": "Truthful Adapter observations, sender sequence discipline, clock agreement at admission, caller supervision and external sink durability remain unverified assumptions."
+        }
+      ]
+    },
+    {
+      "id": "assembly/durable-job",
+      "manifest_sha256": "935875d544724ec4f7d8d3e624e8d0a6b55272f3373832d85c7bc591865ab8f0",
+      "contract": "Tally durable job flow: submit/5 appends a requested record and jobs outbox item to the per-queue submission stream through an ELZ-010-owned Submitter; the Relay creates the Run stream (accepted) and a unique Oban job; each worker execution classifies its start and results with Elzoo.JobRun and writes attempt and terminal records by ELZ-009 CAS; cancel/3 (also before relay) and status/2. Attempt count, absolute deadline and policy persist with the Run. Entry points refuse inside a transaction on the configured Repo.",
+      "grounding": [
+        {
+          "kind": "test",
+          "file": "test/elzoo/durable_job_test.exs",
+          "claim": "Listed scenarios DJ1\u2013DJ8, DJ10\u2013DJ17, DJ19\u2013DJ22 and DJ12b on Memory and a disposable PostgreSQL with Oban 2.24.2: success, duplicates, relay crash/lock/foreign items, retry, exhaustion, permanent failure, deadlines, cancellation incl. before relay, restart without budget reset, rescued stale attempts, duplicate jobs, lost commit reply, damaged/version refusal, unreachable store, stalled reporting, caller-transaction refusal, stale pre-start executions, relay page limits, slow Store writes past the call timeout, bound-job status, backoff indexing, cancel with a suspended or absent task supervisor, and the stop/kill/restart registration lifecycle; finite scenarios, not proofs."
+        },
+        {
+          "kind": "test",
+          "file": "test/elzoo/durable_job_restart_test.exs",
+          "claim": "DJ9: SIGKILL of a separate OS process executing attempt 1; a new Oban instance's Lifeline rescue resumes at Run attempt 2 with counts not reset."
+        },
+        {
+          "kind": "monitor",
+          "file": "test/elzoo/durable_job_restart_test.exs",
+          "claim": "Local observation of the victim exit status 137 and record sequence in the test log; not a production claim."
+        },
+        {
+          "kind": "upstream",
+          "provider": "oban",
+          "reference": "https://hexdocs.pm/oban/2.24.2/Oban.html",
+          "claim": "Oban 2.24.2 job persistence, FOR UPDATE SKIP LOCKED claim, retry staging, unique insert (advisory lock plus query, not a constraint), snooze attempt handling, cancel_all_jobs and Lifeline time-based rescue (documented to rescue live jobs) are upstream contracts."
+        },
+        {
+          "kind": "upstream",
+          "provider": "jason",
+          "reference": "https://hexdocs.pm/jason/1.4.5/Jason.html",
+          "claim": "Jason 1.4.5 encoding/decoding of record payloads is an upstream contract."
+        },
+        {
+          "kind": "upstream",
+          "provider": "ecto_sql",
+          "reference": "https://hexdocs.pm/ecto_sql/3.14.0/Ecto.Adapters.SQL.html",
+          "claim": "Ecto SQL 3.14.0 Repo, transaction and in_transaction?/0 semantics are upstream contracts."
+        },
+        {
+          "kind": "upstream",
+          "provider": "postgrex",
+          "reference": "https://www.postgresql.org/docs/17/transaction-iso.html",
+          "claim": "PostgreSQL transaction atomicity, row locking, advisory locks and READ COMMITTED behaviour reached through Postgrex 0.22.4 are upstream server contracts, not local proofs."
+        },
+        {
+          "kind": "upstream",
+          "provider": "elixir",
+          "reference": "https://hexdocs.pm/elixir/1.20.4/",
+          "claim": "Elixir validation, exceptions, exit trapping and BEAM execution are upstream contracts, not proved here."
+        },
+        {
+          "kind": "upstream",
+          "provider": "otp",
+          "reference": "https://www.erlang.org/doc/",
+          "claim": "OTP 29.1.2 GenServer, Supervisor, Task.Supervisor, links/monitors and :persistent_term semantics are upstream contracts; no exactly-once or disk durability guarantee."
+        },
+        {
+          "kind": "assumption",
+          "claim": "Handlers are pure and deterministic; node clocks have bounded skew; one Submitter and one Relay per queue per cluster by convention (CAS catches violations); production PostgreSQL uses fsync=on and synchronous_commit=on."
+        }
+      ]
+    },
+    {
+      "id": "assembly/http-job",
+      "manifest_sha256": "b02783ba761f70fc64599e52b4ad7cb050c9746c89d436b12d827edf169cb7ed",
+      "contract": "Bounded immutable JSON publication at a fixed HTTP origin through EffectIntent and Jobs; no provider replay/no-effect grounds, explicit read-only recovery and job-control-only cancellation.",
+      "grounding": [
+        {
+          "kind": "type",
+          "file": "cure/elzoo/http_job.cure",
+          "claim": "Pinned Cure compilation checks consumed pure declaration/decision types; owned-source audit and finite scenarios do not prove arbitrary consumer or external behavior."
+        },
+        {
+          "kind": "test",
+          "file": "test/elzoo/http_job_test.exs",
+          "claim": "Named executable boundary, ABI, malformed-input and failure scenarios; finite evidence, not quantified proof."
+        },
+        {
+          "kind": "upstream",
+          "provider": "cure",
+          "reference": "https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89",
+          "claim": "Relies on the pinned implementation and documented contract; not a local correctness proof."
+        },
+        {
+          "kind": "upstream",
+          "provider": "req",
+          "reference": "https://hexdocs.pm/req/0.7.5/Req.html",
+          "claim": "Relies on the pinned implementation and documented contract; not a local correctness proof."
+        },
+        {
+          "kind": "upstream",
+          "provider": "jason",
+          "reference": "https://hexdocs.pm/jason/1.4.5/Jason.html",
+          "claim": "Relies on the pinned implementation and documented contract; not a local correctness proof."
+        },
+        {
+          "kind": "upstream",
+          "provider": "oban",
+          "reference": "https://hexdocs.pm/oban/2.24.2/Oban.html",
+          "claim": "Relies on the pinned implementation and documented contract; not a local correctness proof."
+        },
+        {
+          "kind": "upstream",
+          "provider": "elixir",
+          "reference": "https://hexdocs.pm/elixir/1.20.4/",
+          "claim": "Relies on the pinned implementation and documented contract; not a local correctness proof."
+        },
+        {
+          "kind": "upstream",
+          "provider": "otp",
+          "reference": "https://www.erlang.org/doc/",
+          "claim": "Relies on the pinned implementation and documented contract; not a local correctness proof."
+        },
+        {
+          "kind": "assumption",
+          "claim": "Host keeps capability declarations, identities and external observations truthful and supplies declared runtime/durability Needs."
+        }
+      ]
+    },
+    {
+      "id": "delivery/effect-intent",
+      "manifest_sha256": "78353460631d9851abe089144242d8cb50936267eda1a02c4597a647a8428ed4",
+      "contract": "Bounded checkpoint-before-send intent owner over the existing Store with Cure rearm/history policy: three recorded grounds, narrow provider replay, monotone history, per-attempt settlement/contradiction evidence, and read-only recovery until a nonce/snapshot-bound trusted host activation.",
+      "grounding": [
+        {
+          "kind": "proof",
+          "file": "cure/elzoo/effect_intent.cure",
+          "symbol": "dispatch_action_only_after_arm",
+          "claim": "Actual step dispatch action occurs only on an allowed Arm from Intended; well-typed Cure inputs."
+        },
+        {
+          "kind": "proof",
+          "file": "cure/elzoo/effect_intent.cure",
+          "symbol": "definite_only_with_ground",
+          "claim": "Definite phase records exactly one declared ground through its named step cases."
+        },
+        {
+          "kind": "proof",
+          "file": "cure/elzoo/effect_intent.cure",
+          "symbol": "dispatch_only_after_arm",
+          "claim": "Dispatched provenance comes from Intended on Arm or an existing dispatched state."
+        },
+        {
+          "kind": "proof",
+          "file": "cure/elzoo/effect_intent.cure",
+          "symbol": "fresh_only_from_empty",
+          "claim": "Fresh intended provenance originates only at Empty admission and is otherwise preserved only by non-dispatch steps."
+        },
+        {
+          "kind": "proof",
+          "file": "cure/elzoo/effect_intent.cure",
+          "symbol": "after_only_from_definite",
+          "claim": "After(ground) intended provenance originates only from Definite(ground) rearm."
+        },
+        {
+          "kind": "proof",
+          "file": "cure/elzoo/effect_intent.cure",
+          "symbol": "empty_never_recreated",
+          "claim": "Step never recreates Empty from a nonempty phase."
+        },
+        {
+          "kind": "proof",
+          "file": "cure/elzoo/effect_intent.cure",
+          "symbol": "attempt_changes_only_on_send",
+          "claim": "Attempt count changes only on allowed Arm and increases by one."
+        },
+        {
+          "kind": "proof",
+          "file": "cure/elzoo/effect_intent.cure",
+          "symbol": "replay_history_preserved",
+          "claim": "Replay dependence is carried monotonically, including rearm from replay-safe ground."
+        },
+        {
+          "kind": "proof",
+          "file": "cure/elzoo/effect_intent.cure",
+          "symbol": "possibly_sent_history_preserved",
+          "claim": "Possibly-sent history flag is carried monotonically and set on dispatch."
+        },
+        {
+          "kind": "proof",
+          "file": "cure/elzoo/effect_intent.cure",
+          "symbol": "contradiction_and_uncertainty_freeze",
+          "claim": "Contradiction and uncertainty set quarantine, which subsequent steps preserve."
+        },
+        {
+          "kind": "proof",
+          "file": "cure/elzoo/effect_intent.cure",
+          "symbol": "revision_only_on_permitted_revision",
+          "claim": "Revision count changes only on permitted Revise; history is preserved."
+        },
+        {
+          "kind": "type",
+          "file": "cure/elzoo/effect_intent.cure",
+          "claim": "Pinned Cure checks production ADTs, decision and completion-history helpers and selected lemmas; audited without axioms, holes, opacity, unresolved, unaudited, non-total or absurd terms."
+        },
+        {
+          "kind": "test",
+          "file": "test/elzoo/effect_intent_test.exs",
+          "claim": "Owner Memory scenarios: intended/dispatched barriers, unknown timeout/task death, recovery activation, grant binding, replay horizon laundering, schema/revision, eight result pairs, completion races, delayed old send, physical resend negative and refused send-sourced poll evidence."
+        },
+        {
+          "kind": "test",
+          "file": "test/elzoo/effect_intent_policy_test.exs",
+          "claim": "Production audit, real silent-return/groundless/history proof mutations, positive and horizon controls, finite guard/history/deadline/revision and malformed-state scenarios."
+        },
+        {
+          "kind": "test",
+          "file": "test/elzoo/effect_intent_storage_test.exs",
+          "claim": "Actual codec/fold roundtrip, maximal-field layout/reservations, optional saturation and priority writes, limits plus one, canonical decoding and exhaustive build-time binding refusal scenarios."
+        },
+        {
+          "kind": "test",
+          "file": "test/elzoo/effect_intent_postgres_test.exs",
+          "claim": "Own disposable PostgreSQL database: real append/checkpoint barriers, read-only recovery and replay, indeterminate checkpoint, contradictory late evidence and competing fresh-host CAS; consumer owns durability settings."
+        },
+        {
+          "kind": "test",
+          "file": "test/elzoo/effect_intent_copy_test.exs",
+          "claim": "Byte-identical source closure runs original and renamed modules/record tags in a separate VM using only upstream artifacts, without catalogue Application."
+        },
+        {
+          "kind": "upstream",
+          "provider": "cure",
+          "reference": "https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89",
+          "claim": "Pinned compiler/conversion/audit, native Int comparisons/arithmetic and erased ADT/record runtime semantics; no compiler soundness claim."
+        },
+        {
+          "kind": "upstream",
+          "provider": "elixir",
+          "reference": "https://hexdocs.pm/elixir/1.20.4/GenServer.html",
+          "claim": "GenServer serialization and Task.Supervisor execution/monitor lifecycle, maps and binary validation."
+        },
+        {
+          "kind": "upstream",
+          "provider": "otp",
+          "reference": "https://www.erlang.org/doc/apps/erts/erl_ext_dist.html",
+          "claim": "OTP29.1.2 deterministic ETF safe decoding and crypto SHA-256; no local serialization or cryptographic soundness proof."
+        },
+        {
+          "kind": "assumption",
+          "claim": "Host authenticates observations/reconciliation, stable canonical identity/arguments and clock; controls/fences live owners and uncertain writes; provider honors declared replay/no-effect/no-send contracts; Store durability and retention are external Needs."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+Selected verbatim lines from setup.log; full log SHA256 258354688e4aa1c8ee259231528e6937c5c72c450f28f3186462167c531da3c9
+Not a complete log; line numbers refer to the full retained local log.
+
+627: ==> cure
+632: Verifying Cure.Diagnostic.Adapter (it's taking more than 10s)
+634: Compiling Cure standard library (80 modules)
+721: Compiled /private/tmp/elz012-acceptance-i02p01gy/clone/pieces/integration/cure-json/cure/elzoo/adapter.cure -> Cure.Elzoo.Adapter
+722: Compiled /private/tmp/elz012-acceptance-i02p01gy/clone/pieces/domain/authorization/cure/elzoo/authorization.cure -> Cure.Elzoo.Authorization
+723: Compiled /private/tmp/elz012-acceptance-i02p01gy/clone/pieces/workflow/approval/cure/elzoo/approval.cure -> Cure.Elzoo.Approval
+724: Compiled /private/tmp/elz012-acceptance-i02p01gy/clone/pieces/delivery/backpressure/cure/elzoo/backpressure.cure -> Cure.Elzoo.Backpressure
+725: Compiled /private/tmp/elz012-acceptance-i02p01gy/clone/pieces/workflow/budget/cure/elzoo/budget.cure -> Cure.Elzoo.Budget
+726: Compiled /private/tmp/elz012-acceptance-i02p01gy/clone/pieces/core/operator/cure/elzoo/composition.cure -> Cure.Elzoo.Composition
+727: Compiled /private/tmp/elz012-acceptance-i02p01gy/clone/pieces/workflow/context-selection/cure/elzoo/context_selection.cure -> Cure.Elzoo.ContextSelection
+728: Compiled /private/tmp/elz012-acceptance-i02p01gy/clone/pieces/delivery/dead-letter/cure/elzoo/dead_letter.cure -> Cure.Elzoo.DeadLetter
+729: Compiled /private/tmp/elz012-acceptance-i02p01gy/clone/pieces/workflow/dependency-graph/cure/elzoo/dependency_graph.cure -> Cure.Elzoo.DependencyGraph
+730: Compiled /private/tmp/elz012-acceptance-i02p01gy/clone/pieces/delivery/effect-intent/cure/elzoo/effect_intent.cure -> Cure.Elzoo.EffectIntentPolicy
+731: Compiled /private/tmp/elz012-acceptance-i02p01gy/clone/pieces/core/envelope/cure/elzoo/envelope.cure -> Cure.Elzoo.Envelope
+732: Compiled /private/tmp/elz012-acceptance-i02p01gy/clone/pieces/core/effect/cure/elzoo/effect.cure -> Cure.Elzoo.Effect
+733: Compiled /private/tmp/elz012-acceptance-i02p01gy/clone/pieces/assembly/http-job/cure/elzoo/http_job.cure -> Cure.Elzoo.HttpJobPolicy
+734: Compiled /private/tmp/elz012-acceptance-i02p01gy/clone/pieces/delivery/idempotency/cure/elzoo/idempotency.cure -> Cure.Elzoo.Idempotency
+735: Compiled /private/tmp/elz012-acceptance-i02p01gy/clone/pieces/assembly/ingest-dedup-accumulate/cure/elzoo/core.cure -> Cure.Elzoo.Core
+736: Compiled /private/tmp/elz012-acceptance-i02p01gy/clone/pieces/assembly/ingest-dedup-accumulate/cure/elzoo/extension.cure -> Cure.Elzoo.Extension
+737: Compiled /private/tmp/elz012-acceptance-i02p01gy/clone/pieces/assembly/ingest-dedup-accumulate/cure/elzoo/consumer.cure -> Cure.Elzoo.Consumer
+738: Compiled /private/tmp/elz012-acceptance-i02p01gy/clone/pieces/core/port/cure/elzoo/port.cure -> Cure.Elzoo.Port
+739: Compiled /private/tmp/elz012-acceptance-i02p01gy/clone/pieces/core/assembly/cure/elzoo/assembly.cure -> Cure.Elzoo.Assembly
+740: Compiled /private/tmp/elz012-acceptance-i02p01gy/clone/pieces/core/edge/cure/elzoo/edge.cure -> Cure.Elzoo.Edge
+741: Compiled /private/tmp/elz012-acceptance-i02p01gy/clone/pieces/state/event-log/cure/elzoo/replay.cure -> Cure.Elzoo.Replay
+742: Compiled /private/tmp/elz012-acceptance-i02p01gy/clone/pieces/delivery/request-reply/cure/elzoo/request_reply.cure -> Cure.Elzoo.RequestReply
+743: Compiled /private/tmp/elz012-acceptance-i02p01gy/clone/pieces/delivery/retry-timeout/cure/elzoo/retry_policy.cure -> Cure.Elzoo.RetryPolicy
+744: Compiled /private/tmp/elz012-acceptance-i02p01gy/clone/pieces/workflow/state-machine/cure/elzoo/job_run.cure -> Cure.Elzoo.JobRun
+745: Compiled /private/tmp/elz012-acceptance-i02p01gy/clone/pieces/delivery/routing/cure/elzoo/routing.cure -> Cure.Elzoo.Routing
+746: Compiled /private/tmp/elz012-acceptance-i02p01gy/clone/pieces/core/selection/cure/elzoo/selection.cure -> Cure.Elzoo.Selection
+747: Compiled /private/tmp/elz012-acceptance-i02p01gy/clone/pieces/delivery/windowed-idempotency/cure/elzoo/windowed_idempotency.cure -> Cure.Elzoo.WindowedIdempotency
+748: Compiled /private/tmp/elz012-acceptance-i02p01gy/clone/pieces/assembly/request-route-retry/cure/elzoo/request_route_retry.cure -> Cure.Elzoo.RequestRouteRetry
+749: Compiled /private/tmp/elz012-acceptance-i02p01gy/clone/pieces/core/wiring/cure/elzoo/wiring.cure -> Cure.Elzoo.Wiring

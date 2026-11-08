@@ -1,0 +1,4 @@
+Selected verbatim lines from post-merge-setup.log; full log SHA256 a5e08a084e2ae6fdf52e545be3ef4de8fd868c9f476f579a6a96b843f4e8c537
+Not a complete log; line numbers refer to the full retained local log.
+
+39: Cure sources unchanged (fingerprint 8e592ae4cdcd); skipping 29 modules

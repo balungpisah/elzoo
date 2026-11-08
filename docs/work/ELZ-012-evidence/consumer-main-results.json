@@ -1,0 +1,18 @@
+{
+  "setup": {
+    "command": "mix setup",
+    "revision": "907c37f02ed857b4e83d55fb3a9929f3525e8419",
+    "exit": 0,
+    "start_utc": "2026-11-08T12:44:47.967800+00:00",
+    "end_utc": "2026-11-08T12:44:51.336065+00:00",
+    "log_sha256": "99758b949d7253875b5ba732e1923d736ec737cfad0b68639e1d418993b6033b"
+  },
+  "check": {
+    "command": "mix check",
+    "revision": "907c37f02ed857b4e83d55fb3a9929f3525e8419",
+    "exit": 0,
+    "start_utc": "2026-11-08T12:44:51.336589+00:00",
+    "end_utc": "2026-11-08T13:02:54.291083+00:00",
+    "log_sha256": "89faaa3248da75e6e26493db64a52062cf8221a995a996aecfd381c6427e2e31"
+  }
+}
