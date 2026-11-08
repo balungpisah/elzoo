@@ -87,7 +87,9 @@ locally, but only the first branch-create push can succeed.
    issue number, GitHub login, a distinct per-session agent ID, UTC time and
    base SHA. Generate the session ID once before any claim:
 
-       export ELZOO_AGENT="$(hostname -s)-$(od -An -N2 -tx1 /dev/urandom | tr -d ' ')"
+       export ELZOO_AGENT="worker-$(od -An -N2 -tx1 /dev/urandom | tr -d ' ')"
+
+   The identifier is role-based and never derived from the hostname.
 
    Commit the marker as claim ELZ-001 and push:
 
