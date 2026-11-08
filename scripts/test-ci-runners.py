@@ -633,6 +633,198 @@ class RunnerPolicyTest(unittest.TestCase):
                 self.tearDown()
                 self.setUp()
 
+    # ELZ-058: the push job may skip a repeated full check; permissions, the token and the step
+    # conditions are pinned so that skipping cannot spread to pull requests or hide a failure.
+    SKIP_IF = "        if: ${{ steps.skip.outputs.skip != 'true' }}\n"
+    DECISION = """      - name: Decide whether the full check is redundant
+        id: skip
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci-skip-decision.py
+"""
+    ANY_PERMS = "    permissions:\n      actions: read\n      contents: read\n"
+
+    def source(self):
+        return (self.root / ".github" / "workflows" / "symbolic-check.yml").read_text()
+
+    def test_decision_step_and_permissions_present_and_pinned(self):
+        source = self.source()
+        self.assertEqual(2, source.count(self.DECISION))
+        self.assertEqual(1, source.count(self.ANY_PERMS))
+        self.assertEqual(2, source.count("github.token"))
+        self.assertEqual(2, source.count("permissions:"))  # top level and check-any only
+        self.check(0)
+
+    def test_actions_read_only_on_check_any(self):
+        # on check-fast (pull requests) it is rejected, as is any write scope anywhere
+        source = self.source()
+        path = self.root / ".github" / "workflows" / "symbolic-check.yml"
+        path.write_text(source.replace("    container:\n", self.ANY_PERMS + "    container:\n", 1))
+        self.assertIn("token permissions must be exactly the reviewed ones", self.check(1).stderr)
+
+    def test_write_permissions_rejected(self):
+        for old, new in ((self.ANY_PERMS, "    permissions:\n      actions: write\n      contents: read\n"),
+                         (self.ANY_PERMS, "    permissions:\n      actions: read\n      contents: write\n"),
+                         (self.ANY_PERMS, "    permissions: write-all\n"),
+                         ("permissions:\n  contents: read\n", "permissions:\n  contents: write\n"),
+                         ("permissions:\n  contents: read\n", "permissions: write-all\n"),
+                         ("permissions:\n  contents: read\n", "permissions:\n  contents: read\n  id-token: write\n")):
+            with self.subTest(new=new.strip()):
+                self.change("symbolic-check.yml", old, new)
+                self.assertTrue(self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+
+    def test_check_any_permissions_removed_or_widened_rejected(self):
+        for new in ("", "    permissions:\n      contents: read\n",
+                    "    permissions:\n      actions: read\n      contents: read\n      checks: read\n",
+                    "    permissions:\n      contents: read\n      actions: read\n"):
+            with self.subTest(new=new):
+                self.change("symbolic-check.yml", self.ANY_PERMS, new)
+                self.assertIn("job header lines below runs-on changed", self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+
+    def test_gleam_workflow_permissions_stay_contents_read(self):
+        self.change("symbolic-gleam.yml", "permissions:\n  contents: read\n", "permissions:\n  contents: read\n  actions: read\n")
+        self.assertIn("token permissions must be exactly the reviewed ones", self.check(1).stderr)
+
+    def test_decision_step_removed_from_one_job_rejected(self):
+        self.change("symbolic-check.yml", self.DECISION, "")
+        stderr = self.check(1).stderr
+        self.assertIn("the pinned decision step is missing or changed (check-fast)", stderr)
+
+    def test_decision_step_changes_rejected(self):
+        for old, new in (("        run: python3 scripts/ci-skip-decision.py\n", "        run: python3 scripts/ci-skip-decision.py --force\n"),
+                         ("        id: skip\n", "        id: skipper\n"),
+                         ("      - name: Decide whether the full check is redundant\n", "      - name: Decide\n"),
+                         ("          GITHUB_TOKEN: ${{ github.token }}\n", "          GITHUB_TOKEN: ${{ github.token }}\n          EXTRA: x\n"),
+                         ("        run: python3 scripts/ci-skip-decision.py\n",
+                          "        run: python3 scripts/ci-skip-decision.py\n        continue-on-error: true\n"),
+                         ("        run: python3 scripts/ci-skip-decision.py\n",
+                          "        run: python3 scripts/ci-skip-decision.py\n        shell: bash -c 'echo $GITHUB_TOKEN; bash {0}'\n")):
+            with self.subTest(new=new.strip()):
+                self.change_all("symbolic-check.yml", old, new)
+                self.assertTrue(self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+
+    def test_decision_step_must_follow_the_guard_tests_and_precede_setup(self):
+        source = self.source()
+        path = self.root / ".github" / "workflows" / "symbolic-check.yml"
+        moved = source.replace(self.DECISION, "")
+        marker = "      - run: python3 scripts/test-ci-skip.py\n"
+        path.write_text(moved.replace(marker, self.DECISION + marker))  # now before the skip tests, not after them
+        self.assertIn("the pinned decision step is missing or changed", self.check(1).stderr)
+        # and moved to the end of the steps, after the full check
+        end = moved.rstrip("\n") + "\n"
+        path.write_text(end.replace("\n  check-any:\n", "\n" + self.DECISION + "\n  check-any:\n", 1)
+                        + self.DECISION)
+        self.assertIn("the pinned decision step is missing or changed", self.check(1).stderr)
+
+    def test_token_on_other_backend_steps_or_env_rejected(self):
+        for old, new in (("      - run: mix setup\n", "      - run: mix setup\n        env:\n          GITHUB_TOKEN: ${{ github.token }}\n"),
+                         ("      ImageOS: ubuntu24\n", "      ImageOS: ubuntu24\n      GITHUB_TOKEN: ${{ github.token }}\n"),
+                         ("      - run: python3 scripts/check-claims.py\n", "      - run: python3 scripts/check-claims.py\n        env:\n          T: ${{ secrets.X }}\n")):
+            with self.subTest(new=new.strip()):
+                self.change("symbolic-check.yml", old, new)
+                self.assertIn("not allowed in this workflow", self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+
+    def test_run_mix_check_condition_is_pinned(self):
+        step = "      - name: Run mix check\n" + self.SKIP_IF
+        for new in ("      - name: Run mix check\n",                                     # condition removed: always runs
+                    "      - name: Run mix check\n        if: ${{ false }}\n",          # never runs: a green no-op
+                    "      - name: Run mix check\n        if: ${{ always() }}\n",
+                    "      - name: Run mix check\n        if: ${{ steps.skip.outputs.skip == 'true' }}\n",  # inverted
+                    "      - name: Run mix check\n        if: ${{ github.event_name == 'push' }}\n"):
+            with self.subTest(new=new.strip()):
+                self.change_all("symbolic-check.yml", step, new)
+                self.assertIn("step-level conditions are not the reviewed ones", self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+
+    def test_one_job_cannot_differ_in_a_step_condition(self):
+        self.change("symbolic-check.yml", "      - name: Run mix check\n" + self.SKIP_IF, "      - name: Run mix check\n")
+        stderr = self.check(1).stderr
+        self.assertIn("step-level conditions are not the reviewed ones (check-fast)", stderr)
+        self.assertIn("identical bodies", stderr)
+
+    def test_other_steps_cannot_gain_or_lose_conditions(self):
+        for old, new in (("      - name: Prepare Ubuntu job container\n", "      - name: Prepare Ubuntu job container\n" + self.SKIP_IF),
+                         ("      - run: python3 scripts/check-claims.py\n", "      - run: python3 scripts/check-claims.py\n        if: ${{ false }}\n"),
+                         ("      - run: mix setup\n" + self.SKIP_IF, "      - run: mix setup\n"),
+                         ("      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1\n" + self.SKIP_IF,
+                          "      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1\n"),
+                         ("        if: always()\n", "        if: ${{ success() }}\n"),
+                         ("        if: ${{ steps.deps-cache.outputs.cache-hit != 'true' && steps.skip.outputs.skip != 'true' }}\n",
+                          "        if: ${{ steps.deps-cache.outputs.cache-hit != 'true' }}\n")):
+            with self.subTest(new=new.strip()[:60]):
+                self.change_all("symbolic-check.yml", old, new)
+                self.assertIn("step-level conditions are not the reviewed ones", self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+
+    CHECKOUT = """      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+"""
+
+    def test_checkout_must_not_persist_the_token(self):
+        self.assertEqual(2, self.source().count(self.CHECKOUT))
+        for new in (self.CHECKOUT.replace("          persist-credentials: false\n", ""),
+                    self.CHECKOUT.replace("persist-credentials: false", "persist-credentials: true"),
+                    self.CHECKOUT.replace("fetch-depth: 0", "fetch-depth: 1"),
+                    self.CHECKOUT + "          token: ${{ secrets.X }}\n",
+                    self.CHECKOUT + "          ref: main\n",
+                    self.CHECKOUT + "          repository: someone/else\n",
+                    self.CHECKOUT + "          persist-credentials: true\n"):
+            with self.subTest(new=new.strip()[-40:]):
+                self.change_all("symbolic-check.yml", self.CHECKOUT, new)
+                self.assertTrue(self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+
+    def test_checkout_changed_in_one_job_only_rejected(self):
+        self.change("symbolic-check.yml", "          persist-credentials: false\n", "")
+        self.assertIn("the pinned checkout step (persist-credentials: false) is missing or changed (check-fast)", self.check(1).stderr)
+
+    def test_header_form_and_oddly_indented_if_keys_rejected(self):
+        for old, new in (("      - run: python3 scripts/check-claims.py\n", "      - if: ${{ github.event_name != 'push' }}\n        run: python3 scripts/check-claims.py\n"),
+                         ("      - run: python3 scripts/check-ci-runners.py\n", "      -   run: python3 scripts/check-ci-runners.py\n          if: ${{ false }}\n"),
+                         ("      - run: python3 scripts/test-ci-runners.py\n", "      - run: python3 scripts/test-ci-runners.py\n         if: ${{ false }}\n")):
+            with self.subTest(new=new.strip()[:50]):
+                self.change_all("symbolic-check.yml", old, new)
+                self.assertIn("unreviewed if: key", self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+
+    def test_decision_step_cannot_gain_working_directory_or_timeout(self):
+        for extra in ("        working-directory: /tmp\n", "        timeout-minutes: 1\n"):
+            with self.subTest(extra=extra.strip()):
+                self.change_all("symbolic-check.yml", "        run: python3 scripts/ci-skip-decision.py\n",
+                                "        run: python3 scripts/ci-skip-decision.py\n" + extra)
+                self.assertIn("the pinned decision step is missing or changed", self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+
+    def test_pull_request_job_cannot_reach_the_token_or_actions_scope_through_the_decision_step(self):
+        # The decision script itself refuses everything but a push to main; the workflow must not let
+        # the pull request job grant more than contents: read, whatever its steps do.
+        source = self.source()
+        self.assertEqual(1, source.count("actions: read"))
+        fast = source[:source.index("  check-any:\n")]
+        self.assertNotIn("actions:", fast)
+        self.assertNotIn("write", fast)
+
+    def test_skip_and_decision_scripts_exist_and_run_in_the_job(self):
+        source = self.source()
+        self.assertEqual(2, source.count("      - run: python3 scripts/test-ci-skip.py\n"))
+        for name in ("ci-skip-decision.py", "test-ci-skip.py"):
+            self.assertTrue((ROOT / "scripts" / name).is_file())
+
 
 if __name__ == "__main__":
     unittest.main()

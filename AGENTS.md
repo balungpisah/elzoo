@@ -136,8 +136,8 @@ ownership areas.
 
 CI must run only on the owner's machines: the user-owned symbolic and
 macbook-ubuntu, and the user-rented Contabo VPS runner contabo-elzoo-1 (owner
-decision 2026-11-08; any tier only), with pull request checks and queue runs on the fast
-runners only, in the roles defined in
+decision 2026-11-08; unrouted, for measurement runs a person steers), with pull request
+checks and queue runs on the fast runners only, in the roles defined in
 docs/development/10-symbolic-ci.md. Use the explicit
 self-hosted selectors and runner identity checks documented there.
 Never use or fall back to GitHub-hosted runners: the owner does not have hosted
@@ -199,7 +199,8 @@ The coordinator merges only after checks and required review:
 
 1. resolve findings and rerun relevant checks;
 2. merge through GitHub, never rewrite main;
-3. verify acceptance on the merge commit (including its CI result);
+3. verify acceptance on the merge commit (including its CI result: its own green full run, or a push run that
+   logs `ELZOO PUSH CHECK SKIPPED` with the passed exact-head run and job IDs, see docs/development/10-symbolic-ci.md);
 4. delete the merged remote and local task branch;
 5. remove the worktree and confirm git status --short is empty;
 6. close the issue with PR and merge SHA.
