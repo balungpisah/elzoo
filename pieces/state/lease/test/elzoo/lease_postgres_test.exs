@@ -129,6 +129,18 @@ defmodule Elzoo.LeasePostgresTest do
     |> Kernel.||(raise("condition not reached within #{deadline_ms} ms"))
   end
 
+  defp contender_waits_on_lock?(pid) do
+    [[waiting]] =
+      SQL.query!(
+        TestRepo,
+        "SELECT wait_event_type = 'Lock' FROM pg_stat_activity WHERE pid = $1",
+        [pid],
+        log: false
+      ).rows
+
+    waiting
+  end
+
   defp forge_rows(prefix, key, expected, specs) do
     {:ok, rows, request} =
       Record.records(
@@ -897,13 +909,15 @@ defmodule Elzoo.LeasePostgresTest do
 
     # (d) the contender has checked out its reserved connection and entered
     # the Piece's transaction before the first insert commits. It then sees
-    # that committed free head and grants exactly one lease without a timed
-    # checkout or a widened outcome assertion.
+    # its actual PostgreSQL lock wait before committing the holder. It then
+    # sees that committed free head and grants exactly one lease without a
+    # timed checkout or a widened outcome assertion.
     {:ok, contender} =
       TestHelper.pg_lease(contention_store,
         hook: fn
-          :before_lock, %{key: "x"} ->
-            send(test, {:contender_ready, self()})
+          :before_lock, %{key: "x", repo: repo} ->
+            [[backend_pid]] = SQL.query!(repo, "SELECT pg_backend_pid()", [], log: false).rows
+            send(test, {:contender_ready, self(), backend_pid})
 
             receive do
               :continue_contender -> :ok
@@ -918,14 +932,15 @@ defmodule Elzoo.LeasePostgresTest do
 
     claim = Task.async(fn -> Lease.claim(contender, "x", "bob", @minute) end)
 
-    contender_pid =
+    {contender_pid, backend_pid} =
       receive do
-        {:contender_ready, pid} -> pid
+        {:contender_ready, pid, backend_pid} -> {pid, backend_pid}
       after
         5_000 -> raise "contender did not enter its reserved connection"
       end
 
     send(contender_pid, :continue_contender)
+    wait_until(fn -> contender_waits_on_lock?(backend_pid) end, 5_000)
     send(holder.pid, :commit)
     assert {:ok, _} = Task.await(holder, 10_000)
     assert {:held, _} = Task.await(claim, 10_000)
