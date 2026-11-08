@@ -10,7 +10,8 @@ offline, diagnose it or let work queue on the other approved runner.
 
 ## Roles and routing
 
-- `symbolic-elzoo`: backend, fast tier; labels `self-hosted`, `linux`, `x64`, `elzoo`,
+- `symbolic-elzoo`: backend, fast tier (the `fast` label is assigned by the coordinator before
+  ELZ-057 merges); labels `self-hosted`, `linux`, `x64`, `elzoo`,
   `backend`, `fast`, `symbolic`.
 - `macbook-ubuntu-elzoo-candidate` (runner id 23): backend; labels
   `self-hosted`, `linux`, `x64`, `elzoo`, `backend`, `fast`, `macbook-ubuntu`,
@@ -93,10 +94,12 @@ runs may use any backend runner, including `contabo-elzoo-1`, which never gets `
 
 The `tier` input of `workflow_dispatch` is a choice with default `fast`. The merge queue always
 dispatches `fast` (`-f tier=fast`); only a person sets `any`, for a measurement run. The other
-job is skipped, so every run shows one skipped job: a skipped job is not evidence. The guard pins
+job is skipped, so every run shows one skipped job (a fork pull request skips both): a skipped
+job is not evidence. The guard pins
 both `if:` lines, both `runs-on` lines and the whole `workflow_dispatch` input block, and requires the
-two bodies below `runs-on` to be identical, so the container digest, `ERL_FLAGS`, the identity
-gate and the action pins hold for both. The queue accepts a run only when exactly one `check-fast`
+two bodies below `runs-on` to be identical, so the two jobs cannot differ from each other. It pins
+the container digest, the identity gate and the action pins; it does not pin the job-level `ERL_FLAGS`
+value (see above), so a change there applies to both jobs and relies on independent review. The queue accepts a run only when exactly one `check-fast`
 job succeeded on a fast runner and no `check-any` job executed.
 
 The `fast` label is an account-level setting, as `backend` is; the guard cannot prove it. Add
@@ -115,8 +118,10 @@ anything outside this repository that expects the old job name `check` must be u
    never more than one at a time while a merge queue is pending.
 2. A measurement job states its expected duration and stays under the 90-minute job limit.
 3. A coordinator does not dispatch by hand while a queue run is being identified: the queue finds its
-   run by workflow, event, branch and exact head SHA, and a hand dispatch on the same head makes the
-   match ambiguous (the queue then refuses).
+   run by workflow, event, branch and exact head SHA. A hand dispatch on the same head can be adopted
+   as the queue's run when it appears first (a `tier` = `fast` one passes as evidence, a `tier` = `any`
+   one is refused at the evidence step), or it makes the match ambiguous and the queue refuses.
+   Either way the queue's own run is lost, so do not dispatch by hand.
 
 ## Affected consumer checks (ELZ-038)
 
@@ -508,7 +513,7 @@ state. This record covers `symbolic` only.
 
 ### Contabo VPS `ratahq-ci-contabo-01` (ELZ-056)
 
-Status: **one full trial passed; routed for `main` pushes and measurement runs only.** The
+Status: **one full trial passed; to be routed for `main` pushes and measurement runs only.** The
 `backend` label is not part of any diff: the coordinator adds it to runner 24 after ELZ-057 merges
 and confirms it with one `tier` = `any` dispatch that lands here. The runner never has `fast`, so it
 takes only the `check-any` job. Before that (ELZ-056) it was registered without `backend`, and the

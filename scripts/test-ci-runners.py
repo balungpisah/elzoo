@@ -536,6 +536,13 @@ class RunnerPolicyTest(unittest.TestCase):
         path.write_text(source[:source.index("\n  check-any:\n")] + "\n")
         self.assertIn("exactly the jobs check-fast, check-any are required", self.check(1).stderr)
 
+    def test_if_lines_cannot_be_swapped_between_jobs(self):
+        # Swapping the two if: lines would send pull requests to check-any (any backend runner).
+        self.change("symbolic-check.yml", self.FAST_IF, "TMP_SWAP")
+        self.change("symbolic-check.yml", self.ANY_IF, self.FAST_IF)
+        self.change("symbolic-check.yml", "TMP_SWAP", self.ANY_IF)
+        self.assertIn("same-repository PR job gate is missing or changed", self.check(1).stderr)
+
     def test_pull_request_cannot_reach_any_tier_through_selector_text(self):
         # The if: lines are pinned exactly; there is no expression that routes pull requests to check-any.
         self.change("symbolic-check.yml", self.ANY_IF, self.ANY_IF + " || github.event_name == 'pull_request'")

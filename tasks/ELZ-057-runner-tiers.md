@@ -39,7 +39,8 @@ task merges does `contabo-elzoo-1` receive the routing label.
   wider. The `workflow_dispatch:` trigger lines change (the input), so the pinned trigger block
   and the job-count rule change deliberately. New negative controls: a pull request or queue
   path without `fast`, `tier: any` reachable from `pull_request`, an extra label, a missing or
-  edited identity gate on either job. Existing tests are not edited or weakened.
+  edited identity gate on either job. Existing tests change only where the two-job shape forces it; each edit is listed in the PR
+  and keeps the test's purpose, and no test is deleted or weakened otherwise.
 - Merge queue (coordinator decision): `scripts/merge-queue.py` always dispatches `fast`, accepts only
   the fast runners as queue evidence, and its job-name check follows the new job names; tests in
   `scripts/test-merge-queue.py`.
