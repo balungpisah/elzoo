@@ -4,8 +4,10 @@ Prepared by worker session `ba44606d-07d3-4747-b49a-3d8f4f770de1` after the
 independent early review ([exact report](ELZ-027-early-review.md), finding
 BLOCKING 1 and gate G1) and the focused re-review
 ([exact report](ELZ-027-early-rereview.md)). A1 was approved and applied at
-`c2c47af` (issue comment 6723353344). A1-rev2 and A2 wait for the main
-coordinator. The worker does not edit the issue body or the task
+`c2c47af` (issue comment 6723353344); A1-rev2 was approved and applied at
+`bbc0eff` (issue comment 6723459763). A2 is withdrawn: the main
+coordinator decided that the composition statement stands and is tested as
+written. The worker does not edit the issue body or the task
 copy; the main coordinator decides and names who applies the text and the
 roadmap hash. Until the pending decisions the branch holds no implementation.
 
@@ -38,7 +40,10 @@ slot is classified and the call returns an error. No grace policy is proposed.
 The inputs sentence "the current instant from a clock port" was not changed by
 A1; A2 below corrects the clock-port description in item 6.
 
-## A1-rev2 — single-boundary precondition and fail-closed refusal (re-review, REWORD)
+## A1-rev2 — single-boundary precondition and fail-closed refusal (APPLIED)
+
+Status: approved by the main coordinator and applied to issue #44 and the task
+copy (issue comment 6723459763).
 
 Location: issue body, Admission record item 2, the sentences inserted by A1.
 The exact raw text now live (three lines of the wrapped source are quoted as
@@ -61,44 +66,17 @@ that every earlier unrecorded slot was offline. The text makes that caller
 obligation and the fail-closed refusal explicit. The piece can validate the
 number, not the truth; the caller declares it.
 
-## A2 — composition record (re-review BLOCKING 2)
+## A2 — composition record (WITHDRAWN, not proposed)
 
-Location: issue body, Admission record item 6.
-
-Before (exact raw text, including line breaks):
-
-```text
-6. **Composition record.** Depends on the ready delivery/time recipe (clock port; no open task
-   owns it), core/envelope
-   result schema and delivery/idempotency on the consumer side; durable
-   occurrences compose with ELZ-009 once available (volatile until then).
-   Data classification: schedule metadata only.
-```
-
-After (proposed exact text):
-
-```text
-6. **Composition record.** The current instant and the availability boundary
-   are caller-supplied Needs of each admission call; the ready delivery/time
-   recipe is an OTP timer recipe that can drive admission ticks and is not a
-   clock port or a dependency of this slice. Depends on core/envelope for the
-   result schema that settles an occurrence (`completed` acknowledges,
-   `rejected` and `failed` release, `timed_out` and `unknown` settle nothing)
-   and on delivery/idempotency on the consumer side for suppressing repeated
-   admitted deliveries of one occurrence; both are exercised by executable
-   translation tests at those boundaries. Durable occurrences compose with
-   ELZ-009 once available (volatile until then). Data classification:
-   schedule metadata only.
-```
-
-Reason: `delivery/time` is a timer recipe (Process.send_after and
-cancellation references), not a wall-clock port; the slice takes the instant
-and the boundary as inputs. The two consumer-side compositions stay and become
-executable: the piece ships translation functions and tests against the real
-`Elzoo.Envelope.validate_result/1` result schema and the real
-`Cure.Elzoo.Idempotency.receiver/2`, and declares both Pieces as
-dependencies. The amendment removes only the unsupported clock-port and
-dependency claim and keeps the consumer-side responsibility.
+The main coordinator decided that the live composition statement of Admission
+record item 6 stands and must be tested as written: the `core/envelope` result
+schema, consumer-side `delivery/idempotency`, and the `delivery/time` recipe as
+the clock port. The recipe's own Contract keeps wall-clock reads and timer
+scheduling in the shell and passes time events into pure decisions, which is
+the clock-port usage this slice exercises. No wording change is proposed; the
+earlier draft is withdrawn and the executable composition is specified in
+`ELZ-027.md`. If a statement proves untestable as written during
+implementation, an exact before/after is sent as a separate item.
 
 ## Clarifications that need no wording change
 
