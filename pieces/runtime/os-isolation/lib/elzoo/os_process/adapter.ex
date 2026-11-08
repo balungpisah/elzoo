@@ -93,11 +93,16 @@ defmodule Elzoo.OsProcess.Adapter do
 
       Map.has_key?(state.running, ref) ->
         # Asynchronous: the owner may be inside exec:run; the Adapter never blocks on it.
-        case state.running[ref] do
-          %{cancel_requested: true} ->
+        case {state.running[ref], :ets.lookup(state.tid, ref)} do
+          {%{cancel_requested: true}, _} ->
             {:reply, {:ok, :already_requested}, state}
 
-          entry ->
+          {_, [{^ref, _owner, _submitter, _os_pid, status}]} when status in [:exited, :finished] ->
+            # The leader has exited; the provider cannot stop the group any more. The run's
+            # result reports what remains (completed or unknown{group_alive}).
+            {:reply, {:error, :already_exited}, state}
+
+          {entry, _} ->
             Owner.cancel(entry.owner)
             running = Map.put(state.running, ref, Map.put(entry, :cancel_requested, true))
             {:reply, {:ok, :requested}, %{state | running: running}}

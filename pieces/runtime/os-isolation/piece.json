@@ -26,7 +26,7 @@
     "test/elzoo/os_process_test.exs"
   ],
   "grounding": [
-    {"kind": "test", "file": "test/elzoo/os_process_test.exs", "claim": "Named real-process scenarios (transition rows T1-T23, T26-T29, controls C1-C3, review findings F1-F7 and R2, self-signal after the deadline B1, T8/T10/T30, provider protocol P1, consumer priv dir) with group emptiness observed by the test's own pgrep; finite observations on one OS per run, not proofs."},
+    {"kind": "test", "file": "test/elzoo/os_process_test.exs", "claim": "Named real-process scenarios (transition rows T1-T23, T26-T29, controls C1-C3, review findings F1-F7, R2 and R3, self-signal after the deadline B1, T8/T10/T30, provider protocol P1, consumer priv dir) with group emptiness observed by the test's own pgrep; finite observations on one OS per run, not proofs."},
     {"kind": "test", "file": "test/elzoo/os_process_provider_failure_test.exs", "claim": "Provider application stop (T24) and port-program SIGKILL (T25): the orphan is reported, not hidden; finite observations."},
     {"kind": "test", "file": "test/elzoo/os_process_mapping_test.exs", "claim": "Every Adapter result row validates through Elzoo.Envelope.validate_result/1 with correlation fallback and the unchanged sidecar; wait-status decoding."},
     {"kind": "type", "file": "lib/elzoo/os_process/result.ex", "claim": "Delivery-result maps are checked by the named checker Elzoo.Envelope.validate_result/1 at construction; Elixir typespecs are documentation."},
@@ -47,7 +47,7 @@
     },
     "control": {
       "status": "supported",
-      "contract": "cancel/2 by run ref: acceptance ({:ok, :requested}); a repeated cancel answers {:ok, :already_requested} for a running run and for one of the last 1024 queued runs settled by cancellation (it acknowledges the duplicate request); every other finished or foreign ref gets {:error, :unknown_run}; a queued run becomes rejected{cancelled}, a running run is stopped through the provider and reported unknown{provider_masked_stop}; no pause or drain; stopping the instance terminates running commands through the provider.",
+      "contract": "cancel/2 by run ref: acceptance ({:ok, :requested}); a repeated cancel answers {:ok, :already_requested} for a running run and for one of the last 1024 queued runs settled by cancellation (it acknowledges the duplicate request); {:error, :already_exited} once the leader has exited (the provider can no longer stop the group); every other finished or foreign ref gets {:error, :unknown_run}; a queued run becomes rejected{cancelled}, a running run is stopped through the provider and reported unknown{provider_masked_stop}; no pause or drain; stopping the instance terminates running commands through the provider.",
       "evidence": ["test/elzoo/os_process_test.exs"]
     }
   }

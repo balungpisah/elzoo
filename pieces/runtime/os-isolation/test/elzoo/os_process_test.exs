@@ -580,22 +580,36 @@ defmodule Elzoo.OsProcessTest do
 
   test "T8/T30 the deadline passes while the slot frees: dispatch-time expiry, and the late queue timer is ignored" do
     sup = start(max_concurrent: 1, queue_limit: 1, queue_timeout_ms: 10_000)
-    {:ok, running} = OsProcess.submit(sup, spec("exit", [0]), max_run_ms: 5_000)
+    {:ok, running} = OsProcess.submit(sup, spec("sleep", ["0.3"]), max_run_ms: 5_000)
 
     {:ok, queued} =
-      OsProcess.submit(sup, spec("exit", [0]), deadline_unix_ms: System.os_time(:millisecond) + 400)
+      OsProcess.submit(sup, spec("exit", [0]), deadline_unix_ms: System.os_time(:millisecond) + 900)
 
+    # the second request really waits in the queue behind the first
+    assert %{in_flight: 1, queued: 1} = OsProcess.snapshot(sup)
     adapter = OsProcess.adapter(sup)
     :ok = :sys.suspend(adapter)
     # the running command finishes (owner DOWN enters the mailbox) before the queued deadline;
     # the queue timer message for the deadline enters the mailbox after it
     assert %{status: :completed} = result(running)
-    Process.sleep(700)
+    Process.sleep(1_200)
     :ok = :sys.resume(adapter)
     assert %{status: :expired} = result(queued)
     refute_receive {OsProcess, ^queued, _}, 500
     assert %{in_flight: 0, queued: 0} = OsProcess.snapshot(sup)
     assert OsProcess.info(sup, queued) == nil
+  end
+
+  test "R3 a cancel after the leader has exited is refused: the provider can no longer stop the group" do
+    sup = start(observe_timeout_ms: 2_000)
+    {:ok, ref} = OsProcess.submit(sup, spec("linger-ignore", [30]), max_run_ms: 20_000)
+    assert :ok = wait_until(fn -> match?(%{status: :exited}, OsProcess.info(sup, ref)) end, 5_000)
+    %{os_pid: os_pid} = OsProcess.info(sup, ref)
+    on_exit(fn -> kill_group(os_pid) end)
+    assert {:error, :already_exited} = OsProcess.cancel(sup, ref)
+    assert %{status: :unknown, reason: :group_alive, members: [_ | _]} = result(ref)
+    kill_group(os_pid)
+    assert :ok = wait_empty(os_pid)
   end
 
   # ---- spawn failure (T9) and exec failure after validation (B5)

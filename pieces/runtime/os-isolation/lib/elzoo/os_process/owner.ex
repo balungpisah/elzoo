@@ -185,6 +185,11 @@ defmodule Elzoo.OsProcess.Owner do
         observe_until: System.monotonic_time(:millisecond) + state.config.observe_timeout_ms
     }
 
+    # The leader is gone: the provider can no longer stop the group, so a cancel must not be
+    # accepted from now on. The registry row tells the Adapter without a call into this owner.
+    if state.os_pid,
+      do: :ets.insert(state.tid, {state.ref, self(), state.submitter, state.os_pid, :exited})
+
     send(self(), :observe)
     {:noreply, state}
   end

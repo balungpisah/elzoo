@@ -53,7 +53,11 @@ arrival order, bounded by `max_output_bytes` (`truncated: true` beyond it).
 early, cancels the run (acceptance only) and returns `{:error, {:no_result,
 ref}}`; the late result message still arrives. `cancel/2` returns
 `{:ok, :requested}` once and `{:ok, :already_requested}` for a repeated cancel
-of a running run; it never waits for the owner (an owner inside `exec:run`
+of a running run; `{:error, :already_exited}` once the leader has exited (the
+provider can no longer stop the group; the result then reports what remains,
+`completed` or `unknown{group_alive}`). Acceptance is not application: if the
+leader exits before the owner handles an accepted cancel, the result reports
+what happened; it never waits for the owner (an owner inside `exec:run`
 handles the request as soon as the provider has returned the OS pid, then asks
 the provider to stop the group). A queued run is settled at once by its cancellation
 (`rejected{cancelled}`); a repeated cancel of one of the last 1024 refs so

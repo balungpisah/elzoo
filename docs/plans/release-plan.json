@@ -3483,7 +3483,7 @@
       "disposition": "implementation prepared; acceptance requires merged PR",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/runtime/os-isolation/piece.json",
-      "manifest_sha256": "89b397528135ec78d6642d5db6b65eade13cc1c4045b93ffe8ad049b6ae440e0"
+      "manifest_sha256": "165dedeb42212821bfe4018cde63ad44116f74eaf8ad69a0e88bd1feaf5d1d26"
     },
     {
       "id": "runtime/registry",
