@@ -19,43 +19,15 @@ state machine and result schema, not security isolation.
 2. **Interface and invariant.** Inputs: command spec, working directory,
    deadline, grace period, limits `{max_concurrent, queue_limit,
    queue_timeout}`. Outputs: `completed{exit_code, output}` (a non-zero exit
-   is a completed result, not an Adapter error), `rejected{queue_full |
-   queue_timeout | spawn_failed | cancelled}` (not dispatched; `spawn_failed`
-   only where no command was dispatched; `cancelled` only where a queued
-   command was not dispatched), `expired{deadline}` when the declared deadline
-   passed before dispatch (while queued or at dispatch; not dispatched),
-   `terminated{stage: none | term | kill, deadline}` (`none` only when the
-   first group observation at termination time already found no member, so no
-   signal was sent), `unknown` when the liveness check itself fails, or when
-   the group is still observed alive after the kill stage within the Adapter's
-   bounded reap wait (cleanup not established); mapped to the
+   is a completed result, not an Adapter error), `rejected{queue_full | queue_timeout | spawn_failed | cancelled}` (not dispatched; `spawn_failed` only where no command was dispatched; `cancelled` only where a queued command was not dispatched), `expired{deadline}` when the declared deadline passed before dispatch (not dispatched), `terminated{stage: term | kill, deadline}` (`stage` is the ending signal the selected provider reports for the group leader after a termination it performed: `term` for SIGTERM, `kill` for SIGKILL; it is never derived from timing or from the Adapter's own requests; when the provider reports no signal for a termination it performed, the result is `unknown`, never `terminated`), `unknown` when the liveness check itself fails, when the group is still observed alive after the provider's termination sequence or after the leader's exit and the bounded reap wait, when the provider performed a termination (explicit stop or owner death) and reports no ending signal, or when the provider's port program stopped reporting; `unknown` does not establish cleanup or relax the termination invariant or acceptance criteria; mapped to the
    core/envelope result matrix as `completed` (any exit code) →
-   `completed/dispatched`, `rejected{…}` → `rejected/not_dispatched`,
-   `expired` → `timed_out/not_dispatched`, `terminated` on deadline →
-   `timed_out/dispatched`, paired with the Adapter result carrying the
-   observed stage; the shared delivery-result map remains unchanged and has no
-   stage field; `terminated` on explicit cancellation, caller death or death
-   of the collecting BEAM process → `failed/dispatched`, paired with the
-   Adapter result carrying the observed stage; only report definitive
-   termination when it is observed, and partial external Effects remain
-   possible; liveness-check failure → `unknown/dispatched`. Invariants: the
-   spawned process is a process-group leader; termination signals the group,
-   waits the grace period and escalates only if the group is still alive; the
-   escalation stage reached is reported, never assumed; cleanup runs even if
-   the owning BEAM process dies; a process that leaves its group is a
-   declared residual. Non-goals: security isolation, shell parsing, path
-   confinement (domain/authorization). Needs: the executable path (and its
-   version, recorded by the composing task), the working directory, an
-   explicit environment allowlist (names inherited from the host plus names
-   set per call; everything else is unset for the child), and the host `kill`
-   and `pgrep` utilities used for signalling and group observation.
-   Executable versions for the Claude Code CLI and the Codex CLI are recorded
-   by the task that composes them (`integration/agent-runner`), not by this
-   Adapter.
-3. **Reuse check.** OTP `Port` and `System.cmd` spawn; no maintained library
-   owns group-scoped termination with staged escalation across BSD and procps
-   `kill` variants. Elzoo owns the state machine and result schema; signal
-   delivery is OS behaviour.
+   `completed/dispatched` (pre-dispatch validation requires an absolute path to an existing regular file with an execute bit and an existing working directory, otherwise `rejected{spawn_failed}`; an exec failure that occurs after that validation is reported by the provider as exit status 1 and therefore as `completed{exit_code: 1}`, indistinguishable from a command that exits 1: a declared residual), `rejected{…}` → `rejected/not_dispatched`, `expired` → `timed_out/not_dispatched`,
+   `terminated` on deadline → `timed_out/dispatched`, paired with the Adapter result carrying the observed stage; the shared delivery-result map remains unchanged and has no stage field; `terminated` on explicit cancellation, caller death or death of the collecting BEAM process → `failed/dispatched`, paired with the Adapter result carrying the observed stage; only report definitive termination when it is observed, and partial external Effects remain possible,
+   `unknown` → `unknown/dispatched`. Invariants: the
+   spawned process is a process-group leader; termination is performed by the selected provider's port program in its documented sequence: SIGTERM to the group, then SIGKILL to the group after the configured kill timeout if the leader is still alive, and SIGKILL at once if the SIGTERM request itself fails; the Adapter itself never sends a signal; the stage reported is the ending signal the provider reports, otherwise the result is `unknown`; when the owning BEAM process dies, the provider's port program stops the group through the link it holds to that process, and when the VM exits, the port program's own finalize stops every child it started; a process that leaves its group, a group member that ignores SIGTERM after the leader has exited, and the death of the port program itself are declared residuals reported as `unknown`, never as `terminated` or `completed`. Non-goals: security isolation, shell parsing, path
+   confinement (domain/authorization).
+   Needs: an executable path and declared executable version, a working directory, an explicit environment allowlist (names inherited from the host plus names set per call; everything else is unset for the child), the erlexec 2.6.0 port program (`exec-port`, built from the pinned Hex package with the host C++ toolchain) for spawning, group creation, deadline escalation and owner-death cleanup, and the declared host `pgrep` utility for group observation. The `integration/agent-runner` task records the exact Claude Code CLI and Codex CLI versions.
+3. **Reuse check.** erlexec 2.6.0 (BSD-2-Clause) owns spawning through its port program, process-group creation (`{group, 0}`), the staged SIGTERM→SIGKILL escalation on the group (`kill_group`, `kill_timeout`), the wall-clock deadline (`timeout`), owner-death and VM-exit cleanup, environment clearing and output capture; muontrap 2.0.1 was probed and rejected (it kills only its direct child unless a Linux cgroup is configured and reports no ending signal). Elzoo owns admission, the deadline conversion, the output bound, the group observation after the exit notification, the result schema and the delivery mapping; signal delivery and escalation timing are the provider's and the OS's behaviour.
 4. **Split test.** Admission (slot pool: the ELZ-006 bounded receiver applied
    to host processes) and termination (group kill) can be chosen
    independently, but the result schema is one interface so a caller cannot
@@ -63,14 +35,13 @@ state machine and result schema, not security isolation.
 5. **Failure and evidence.** Dangerous paths: a timed-out command keeps
    running after the Adapter returns; the collecting process is killed and
    the OS process leaks; a double-forked daemon escapes the group; `kill`
-   reports success without delivering. Tests: timeout → group dead; brutal
-   kill of the collector → group dead; escalation stage reported;
-   `queue_full` vs `queue_timeout`; non-zero exit is `completed`. Upstream:
+   reports success without delivering. Tests: timeout → group observed empty; brutal
+   kill of the collector → group observed empty through the provider's owner-death stop; escalation stage reported from the provider's ending signal (SIGTERM honoured → `term`, SIGTERM ignored → `kill`); a signal request accepted without effect (SIGTERM ignored) never yields `term`; a member that ignores SIGTERM after the leader exits → `unknown`; exec failure after validation → `completed{exit_code: 1}`; provider stopped reporting → `unknown`; `queue_full` vs `queue_timeout`; non-zero exit is `completed`. Upstream:
    POSIX signal semantics and OTP `Port` are named contracts; no proof.
 6. **Composition record.** Depends on ELZ-006 admission results and
    core/envelope result schema; consumes a deadline from
    delivery/retry-timeout. Termination requests are at-most-once within a
-   host. Command lines may carry secrets; redact in Telemetry.
+   host. Command lines may carry secrets; redact in Telemetry. Owner death and recovery: the Adapter records a registry row for a run before it asks the provider to spawn and records the provider's OS pid as the owner's first action after the spawn returns; if the owning BEAM process dies before that pid is recorded, the provider still stops the child through the link it established at spawn, but the Adapter cannot name the group and reports `unknown{owner_exit_before_registration}`; if it dies after, the provider stops the group, the Adapter observes the group with `pgrep` and reports `unknown{owner_exit, members}` with the last observed members, because the provider reports no ending signal on that path; after an Adapter restart, runs whose owner is alive continue and reply to their callers, runs whose owner is dead are reported as above, and queued requests are lost (their callers' calls exit with the Adapter's exit reason); in every `unknown` case the caller must inspect or reconcile the external outcome and must not retry blindly.
 
 ## Scope
 
@@ -81,9 +52,8 @@ state machine and result schema, not security isolation.
 
 ## Acceptance
 
-- [ ] Timeout and collector death both leave no surviving process group
-      (executable tests on the symbolic runner).
-- [ ] Escalation stage is reported from observation, not assumed.
+- [ ] Timeout and collector death both stop the group through the selected provider's port program, and the group is observed empty after the bounded reap wait; a member that ignores SIGTERM after the leader has exited is reported as `unknown`, never as `terminated` or `completed` (executable tests on the Linux CI runner).
+- [ ] The reported escalation stage is the provider-reported ending signal; when the provider reports none, the result is `unknown`, never an assumed stage.
 - [ ] Non-zero exit is `completed`; queue rejections are `not_dispatched`.
 - [ ] Operational applicability is declared per docs/operational-contracts.md.
 
