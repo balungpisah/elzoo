@@ -122,6 +122,45 @@ class Queue:
                 run.get("workflow_id") == workflow_id and
                 run.get("path") == f".github/workflows/{WORKFLOW}")
 
+    @staticmethod
+    def pr_run_matches(run, pr, workflow_id):
+        return (run.get("event") == "pull_request" and
+                run.get("head_branch") == pr["headRefName"] and
+                run.get("head_sha") == pr["headRefOid"] and
+                run.get("workflow_id") == workflow_id and
+                run.get("path") == f".github/workflows/{WORKFLOW}")
+
+    def cancel_duplicate_pr_run(self, pr, workflow_id):
+        """ELZ-058: update-branch makes GitHub start a pull_request check on the new head, and the
+        queue's own exact-head dispatch follows on that same head, so the check is a duplicate.
+        Cancel only that run (same workflow, pull_request event, branch and exact head SHA); never
+        another head, another PR, a dispatch, a push run or the Gleam workflow. A failure is
+        logged and never blocks the queue: the exact-head dispatch is the merge gate."""
+        try:
+            query = urlencode({"event": "pull_request", "branch": pr["headRefName"],
+                               "head_sha": pr["headRefOid"], "per_page": 100})
+            end = self.clock() + 30
+            while True:
+                pages = self.data("gh", "api", "--paginate", "--slurp",
+                                  f"repos/{REPO}/actions/workflows/{WORKFLOW}/runs?{query}")
+                runs = [run for page in pages for run in page["workflow_runs"]
+                        if self.pr_run_matches(run, pr, workflow_id)]
+                if runs:
+                    break
+                self.pause("pull_request run on the updated head", end)
+            for run in runs:
+                if not isinstance(run.get("id"), int):
+                    raise QueueError("Invalid duplicate run ID")
+                if run.get("status") == "completed":
+                    self.emit(f"Duplicate pull_request run {run['id']} already completed; not cancelled",
+                              flush=True)
+                    continue
+                self.text("gh", "api", "-X", "POST", f"repos/{REPO}/actions/runs/{run['id']}/cancel")
+                self.emit(f"Cancelled duplicate pull_request run {run['id']} head={pr['headRefOid']}",
+                          flush=True)
+        except (QueueError, KeyError, TypeError) as error:
+            self.emit(f"Duplicate pull_request run not cancelled: {error}", flush=True)
+
     def dispatch(self, pr, workflow_id):
         previous = {run["id"] for run in self.runs(pr["headRefName"])}
         self.text("gh", "workflow", "run", WORKFLOW, "-R", REPO,
@@ -246,8 +285,11 @@ class Queue:
                 self.emit(f"Updating PR #{number} by merging main", flush=True)
                 self.text("gh", "pr", "update-branch", str(number), "-R", REPO)
                 end = self.clock() + 60
-                while self.pr(number, ready=False)["headRefOid"] == pr["headRefOid"]:
+                updated = self.pr(number, ready=False)
+                while updated["headRefOid"] == pr["headRefOid"]:
                     self.pause("updated PR head", end)
+                    updated = self.pr(number, ready=False)
+                self.cancel_duplicate_pr_run(updated, workflow_id)
                 continue
             run_id = self.dispatch(pr, workflow_id)
             job = self.evidence(run_id, pr, workflow_id)
