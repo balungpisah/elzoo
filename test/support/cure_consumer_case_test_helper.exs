@@ -66,8 +66,8 @@ defmodule Elzoo.CureConsumerCase do
   # about 30 minutes of sustained load, `assembly/request-route-retry` rose from 35.8 s
   # (sequential) to 99.1 s in the last completed repeat, and two later repeats went over the 120 s
   # limit by an unknown amount. 240 s is 2x that 120 s lower bound. The two-VM setup that
-  # test/test_helper.exs now enforces on that runner (`max_cases`) is measured in the PR's later
-  # repeat series. Sequential consumers keep the 120 s default.
+  # test/test_helper.exs now enforces on that runner (`max_cases`) is to be measured by the PR's
+  # later repeat series. Sequential consumers keep the 120 s default.
   @concurrent_timeout 240_000
   def concurrent_timeout, do: @concurrent_timeout
 

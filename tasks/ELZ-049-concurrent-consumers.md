@@ -26,7 +26,7 @@ aggregate consumer and the OTP-only consumer stay in sequence in `test/export_te
   limit. Measured basis in the PR: 99.1 s in the last completed repeat and two later repeats over
   120 s under three concurrent VMs on the two-core runner; 240 s is 2x that lower bound.
   `test/test_helper.exs` bounds `max_cases` to `System.schedulers_online()` for every async
-  module: three concurrent consumer VMs on symbolic, two on macbook-ubuntu. The groups are explicit lists in the case module, balanced by the measured per-consumer
+  module: at most three concurrent consumer VMs on symbolic, at most two on macbook-ubuntu. The groups are explicit lists in the case module, balanced by the measured per-consumer
   times on main `0a42370`. The union of the groups plus the PostgreSQL list equals
   `Elzoo.CheckSelection.consumer_ids/0`.
 - `test/export_test.exs` keeps the five plan/write tests, the OTP-only consumer, the aggregate

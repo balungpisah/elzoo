@@ -272,7 +272,7 @@ and tests inside one module in sequence. `test/test_helper.exs` sets `max_cases`
 `System.schedulers_online()`; this caps every async module in `test/` and `pieces/`, not only the
 consumer groups. With `+S 4:4` on symbolic the cap is 4, so all three consumer group modules run
 at once (the module count is the bound there); with `+S 2:2` on macbook-ubuntu the cap is 2, so
-two consumer VMs run at once. The groups are explicit lists balanced by the
+at most two consumer VMs run at once (the cap is shared with the other async modules). The groups are explicit lists balanced by the
 measured `total` seconds on main `0a42370`. The three
 PostgreSQL consumers (`integration/sql`, `integration/jobs`, `assembly/durable-job`) and the
 aggregate consumer stay in `test/export_test.exs` with `async: false`, because the CI job prepares
@@ -287,8 +287,8 @@ sustained load, `assembly/request-route-retry` rose from 35.8 s (sequential) to 
 completed repeat, and two later repeats went over 120 s by an unknown amount (PR #90, run
 42454973591, repeats 6 and 7). 240 s is 2x that 120 s lower bound. The same series on symbolic
 stayed at 123 to 125 s per repeat with 35.7 s for that consumer, which is consistent with a
-slowdown of the two-core host under sustained load. The two-VM setup is measured by the later
-repeat series recorded in the PR. The selection test in
+slowdown of the two-core host under sustained load. The two-VM setup is to be measured by a later
+repeat series, recorded in the PR. The selection test in
 `test/export_test.exs` counts the per-ID tests over the four modules (still 26, plus one
 aggregate), checks that the groups plus the PostgreSQL list equal
 `Elzoo.CheckSelection.consumer_ids/0`, and checks that no database-free group ID copies a Piece
