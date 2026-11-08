@@ -4,8 +4,8 @@ Redacted for publication; SHA-256 of the reviewer's original report: e1d4e9c6f82
 
 Reviewer: the independent reviewer (Codex), final diff review
 
-Reviewed revision: `b08ebd9f62999390802283e4fe6e39efc22a2f9c`  
-Base revision: `e62ce1843836f7ed1fd3587ba54b0355b25dccc5`  
+Reviewed revision: `b08ebd9f62999390802283e4fe6e39efc22a2f9c`
+Base revision: `e62ce1843836f7ed1fd3587ba54b0355b25dccc5`
 Recorded checked revision: `683dfa1ae4f3142a6b6edcff6fef19e80c668499` is an ancestor, not the reviewed head.
 
 ## Commands

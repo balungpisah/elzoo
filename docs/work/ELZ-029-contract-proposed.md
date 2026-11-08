@@ -514,4 +514,3 @@ with:
 ```text
 the declared host `pgrep` and `id` utilities for group observation and for detecting a root VM, and, when the VM's effective user is root and the consumer has not configured erlexec's `root`/`user` settings, erlexec started with `root: true` and the unprivileged effective user `provider_user` (Config, default `nobody`), with `SHELL=/bin/sh` set for the VM when `SHELL` is unset, because the port program refuses to run as root without an effective user and requires `SHELL`; a consumer that already configured or started erlexec keeps its configuration; residual: the port program and every child then run as that user and need read and execute permission on the executable, the working directory and every file they use, and the VM's `SHELL` is changed when it was unset.
 ```
-
