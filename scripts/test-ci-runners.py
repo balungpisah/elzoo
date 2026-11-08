@@ -1031,6 +1031,19 @@ class RunnerPolicyTest(unittest.TestCase):
                 self.tearDown()
                 self.setUp()
 
+    # ELZ-066 second review pass: YAML escapes decode before GitHub evaluates ${{ }}.
+    def test_yaml_escapes_cannot_hide_the_token_secrets_or_lane_variable(self):
+        for filename, job, old in (("symbolic-check.yml", "check-hosted", "      - run: python3 scripts/check-claims.py\n"),
+                                   ("symbolic-check.yml", "check-fast", "      - run: python3 scripts/check-claims.py\n"),
+                                   ("symbolic-gleam.yml", "gleam-hosted", "      - run: ./scripts/check.sh\n")):
+            for value in ('"${{ github.t\\x6fken }}"', '"${{ github.t\\u006fken }}"', '"${{ s\\x65crets.X }}"',
+                          '"${{ v\\x61rs.\\x45LZOO_CI_LANE }}"'):
+                with self.subTest(job=job, value=value):
+                    self.change_in_job(filename, job, old, old + "      - name: Escaped\n        env:\n          T: " + value + "\n        run: true\n")
+                    self.assertIn("escapes in double-quoted scalars", self.check(1).stderr)
+                    self.tearDown()
+                    self.setUp()
+
 
 if __name__ == "__main__":
     unittest.main()

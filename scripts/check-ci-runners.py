@@ -220,7 +220,7 @@ def line_problem(line):
     Not a parser: it only walks node starts on one line and fails closed.
     """
     i, n, depth, start = 0, len(line), 0, True
-    flow_mapping = sequence_mapping = False
+    flow_mapping = sequence_mapping = has_escape = False
     while i < n:
         c = line[i]
         if c in ' \t':
@@ -235,6 +235,9 @@ def line_problem(line):
                     if j >= n:
                         return 'quoted scalars must close on the same line'
                     if c == '"' and line[j] == '\\':
+                        # A YAML escape (\\x6f, \\u006f) decodes before GitHub reads ${{ }}, so it could hide
+                        # github.token, secrets or vars from the raw-text checks; reported once the line scanned clean.
+                        has_escape = True
                         j += 2
                         continue
                     if line[j] == c:
@@ -290,6 +293,8 @@ def line_problem(line):
         return 'flow mappings are outside the reviewed source convention'
     if sequence_mapping:
         return 'mappings inside flow sequences are outside the reviewed source convention'
+    if has_escape:
+        return 'escapes in double-quoted scalars are outside the reviewed source convention'
     return None
 
 

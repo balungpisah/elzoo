@@ -128,7 +128,7 @@ def obtain(cache_dir, token, get=http_get, sleep=time.sleep, clock=time.monotoni
     """Return (binary bytes, source name). Order: restored cache, release-asset API, browser URL."""
     cached = pathlib.Path(cache_dir) / "minio"
     reasons = []
-    if cached.is_file():
+    if cached.is_file() and cached.stat().st_size == SIZE:
         data = cached.read_bytes()
         if verified(data):
             return data, "cache"
