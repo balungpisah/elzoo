@@ -19,7 +19,9 @@ the tree of its second parent (the pull request head that the queue merged with 
 the latest run of `symbolic-check.yml` on that second parent (branch `task/ELZ-###`, found by `head_sha`; since ELZ-059 the
 same-repository `pull_request` run, or the queue's `workflow_dispatch` fallback; a fork pull request run is never evidence;
 a `pull_request` run counts only when the second parent holds the whole first parent, because that run tests the merge of
-the head with its base and only then has the tree of the head; a `workflow_dispatch` run tests the head itself)
+the head with its base and only then has the tree of the head; a `workflow_dispatch` run tests the head itself; the run with the highest ID decides, so a run of a sibling pull request
+from the same branch that is newer than the queue's evidence run could still decide: the queue refuses to adopt a run
+when a sibling exists, and creating one is a maintainer action)
 is a completed success whose exact attempt has exactly one job, a successful `check-hosted` job on a
 GitHub-hosted runner (group `GitHub Actions`, label `ubuntu-24.04`, runner name `GitHub Actions <number>`), a successful
 runner identity step, a successful `Run mix check` step, the full `ELZOO CHECK PASSED` log line and no
@@ -169,9 +171,12 @@ head, `gh pr update-branch` creates a merge update; it never
 rebases or force-pushes. The new head must become visible before continuing.
 It then **adopts the `pull_request` run of the exact head** (ELZ-059): the latest run of `symbolic-check.yml` with
 event `pull_request`, the task branch, the exact `head_sha`, the workflow's ID and path, and a head repository equal to
-this repository. The run must also list this pull request (its number) with the base branch `main` of this repository, and
-the pull request must have no `base_ref_changed` event at or after the creation time of the run (a run that started for
-another base, or before a retarget, is not evidence; the queue then dispatches the fallback). After `update-branch` it waits (up to 300 seconds, bounded by the PR deadline) for the run that GitHub
+this repository. The run must also list this pull request (its number) with the base branch `main` of this repository.
+That list shows the pull requests that are open for the head now, not the one that triggered the run, so two more
+rules apply: this pull request must be the only pull request (any state) from the task branch, and its base must
+never have changed (timeline events `base_ref_changed`, `automatic_base_change_succeeded`, `automatic_base_change_failed`,
+or an entry that the queue cannot read). When one rule fails, the queue logs why and dispatches the fallback. A
+timeline or pull request listing that is not a list of lists refuses the merge. After `update-branch` it waits (up to 300 seconds, bounded by the PR deadline) for the run that GitHub
 starts on the new head. It logs `Adopted pull_request run <id> for PR #N head=<sha>` and **never cancels that run**.
 The pull request job runs the full check (no affected mode), so the run is the exact-head full run, and it counts as a
 pull request status for branch protection. Only when GitHub started no such run within the wait does the queue
@@ -195,8 +200,9 @@ frozen: ...` and names the run, until a comment on issue #98 by the authenticate
 run. The comment is exactly `CI main status: freeze classification run=<run id> class=<class>` with the class
 `infrastructure` (rerun), `defect` (fix-forward task) or `conflict` (two separately tested merges; fix-forward task). A
 fix-forward pull request goes through the queue after the classification. A later green push run of `main`
-unfreezes. A re-run of a run keeps its ID: while the newest run is a re-run (attempt 2 or later) that has not
-completed, it counts as red, so an older green run does not open `main`. No revert and no force push are involved. An API failure, an unreadable listing or a missing completed push
+unfreezes. A re-run of a run keeps its ID: while a run newer than the latest completed one has not completed and is a re-run (attempt 2 or later), or has an
+attempt number that is not a plain integer, it counts as red, so an older green run does not open `main`. A first
+attempt in progress does not freeze. A classification names a run ID, not an attempt, so it also covers a later failure of a re-run of that run. No revert and no force push are involved. An API failure, an unreadable listing or a missing completed push
 run fails closed.
 
 **Gleam gate only for Gleam paths (ELZ-059).** The queue asks Git for the paths of the pull request
@@ -206,10 +212,11 @@ canonical repository through the API, so a rename lists both paths). It requires
 split by content). An empty, failed or odd path list (absolute, parent, newline, backslash) requires the Gleam run. When it is
 not required the queue logs `Gleam run not required for PR #N: ...` and prints `ELZOO GLEAM GATE not required pr=N
 head=<sha> (...)` instead of the `ELZOO GLEAM EVIDENCE` line. `gleam-hosted` has no job-level `if:`: it always runs and
-reports, so branch protection can require both checks. Protection and the queue differ in two cases. When no Gleam
+reports, so branch protection can require both checks. Protection and the queue can differ. When no Gleam
 path changes, the queue does not wait for `gleam-hosted`, but protection (when it requires that check) still waits for the
-run that GitHub starts for the pull request. When the queue dispatches the fallback, that run is not a pull request status,
-so protection that requires `check-hosted` refuses the merge until the `pull_request` run is green.
+run that GitHub starts for the pull request. The fallback is a `workflow_dispatch` run; whether protection accepts its
+`check-hosted` check run for the head commit has not been tested (protection has no required check now) and is recorded
+here after protection is enabled again.
 
 When the Gleam run is required, the queue waits for a successful `symbolic-gleam.yml` **pull_request**
 run on the exact same head SHA, including after `update-branch`. That update

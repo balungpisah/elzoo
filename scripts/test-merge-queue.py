@@ -45,6 +45,9 @@ class Fake:
         # ELZ-059: the freeze rule reads the push runs of main and the classification comments on issue #98;
         # the Gleam gate reads the changed paths from Git.
         self.timeline = []             # the timeline events of the pull request (base_ref_changed)
+        self.timeline_pages = None     # None: one page that holds self.timeline; else the raw pages
+        self.head_prs = [{"number": 79}]  # every pull request (any state) from the head branch
+        self.head_prs_pages = None
         self.main_runs = None          # None: one green push run of main
         self.main_listing_error = False
         self.login = "queue-user"
@@ -168,8 +171,10 @@ class Fake:
                 raise AssertionError(f"The queue must not write through gh api: {argv}")
             elif argv[2:4] == ["user", "--jq"]:
                 out = self.login
+            elif "/pulls?head=" in path:
+                out = self.head_prs_pages if self.head_prs_pages is not None else [self.head_prs]
             elif "/issues/79/timeline" in path:
-                out = [self.timeline]
+                out = self.timeline_pages if self.timeline_pages is not None else [self.timeline]
             elif "/issues/98/comments" in path:
                 if self.comments_error:
                     raise queue.QueueError("gh api exited 1: comments failed")
@@ -821,37 +826,77 @@ class PullRequestEvidence(unittest.TestCase):
         self.assertEqual(0, self.fake.dispatches)
         self.assertIn("run=700 job=200", self.fake.messages[-1])
 
-    def test_a_pull_request_that_changed_its_base_after_the_run_started_does_not_use_that_run(self):
-        # GitHub lists the current base in the run, so a retarget after the start would hide a test of another base.
+    def test_a_pull_request_that_ever_changed_its_base_does_not_use_a_pull_request_run(self):
+        # GitHub lists the current base on the run, and the time of the event does not tell which base the run
+        # tested (a retarget just before the run still leaves the run on the old base; an automatic one is
+        # another event type). Any base change makes the queue dispatch its own run.
         for label, events in (
-                ("after", [{"event": "base_ref_changed", "created_at": "2026-11-09T01:30:00Z"}]),
-                ("same second", [{"event": "base_ref_changed", "created_at": "2026-11-09T01:00:00Z"}]),
-                ("no time", [{"event": "base_ref_changed"}]),
-                ("bad time", [{"event": "base_ref_changed", "created_at": "yesterday"}])):
+                ("by hand", [{"event": "base_ref_changed", "created_at": "2026-11-09T01:30:00Z"}]),
+                ("by hand before the run", [{"event": "base_ref_changed", "created_at": "2026-11-09T00:59:59Z"}]),
+                ("by hand just before the run", [{"event": "base_ref_changed", "created_at": "2026-11-09T01:00:00Z"}]),
+                ("without a time", [{"event": "base_ref_changed"}]),
+                ("automatic", [{"event": "automatic_base_change_succeeded", "created_at": "2026-11-09T01:30:00Z"}]),
+                ("automatic failure", [{"event": "automatic_base_change_failed"}]),
+                ("odd entry", [{"event": "labeled"}, None]),
+                ("odd string entry", ["x"])):
             with self.subTest(label=label):
                 self.setUp()
                 self.fake.pr_runs = [self.fake.pr_run(700)]
                 self.fake.timeline = events
                 self.q.process(79)
                 self.assertEqual(1, self.fake.dispatches)
-                self.assertTrue(any("base of PR #79 changed after run 700 started" in m for m in self.fake.messages))
+                self.assertTrue(any("base of PR #79 changed once" in m for m in self.fake.messages))
                 self.assertIn("run=101 job=201", self.fake.messages[-1])
 
-    def test_a_base_change_before_the_run_or_other_events_keep_the_run(self):
+    def test_other_timeline_events_keep_the_run(self):
         self.fake.pr_runs = [self.fake.pr_run(700)]
-        self.fake.timeline = [{"event": "base_ref_changed", "created_at": "2026-11-09T00:59:59Z"},
-                              {"event": "labeled", "created_at": "2026-11-09T02:00:00Z"}, None, "x"]
+        self.fake.timeline = [{"event": "labeled", "created_at": "2026-11-09T02:00:00Z"},
+                              {"event": "head_ref_force_pushed"}, {"event": "committed"}]
         self.q.process(79)
         self.assertEqual(0, self.fake.dispatches)
         self.assertIn("run=700 job=200", self.fake.messages[-1])
 
-    def test_a_run_without_a_creation_time_is_not_adopted(self):
-        for created in (None, "", "2026-11-09 01:00:00", 5):
-            with self.subTest(created=created):
+    def test_a_timeline_page_that_is_not_a_list_refuses_the_merge(self):
+        for pages in ([{"event": "base_ref_changed", "created_at": "2026-11-09T02:00:00Z"}], [[], {"x": 1}],
+                      [None], [[]] + ["x"], "x"):
+            with self.subTest(pages=pages):
                 self.setUp()
-                self.fake.pr_runs = [self.fake.pr_run(700, created_at=created)]
+                self.fake.pr_runs = [self.fake.pr_run(700)]
+                self.fake.timeline_pages = pages
+                self.refuses("Invalid timeline pages|Invalid JSON")
+
+    def test_a_run_of_a_sibling_pull_request_from_the_same_branch_is_not_adopted(self):
+        # The run lists the pull requests that are open for its head now. A run that a sibling PR with another
+        # base started can list only this PR after the sibling is closed, or both while it is open.
+        for label, others in (("closed sibling", [{"number": 79}, {"number": 200}]),
+                              ("only another number", [{"number": 200}]),
+                              ("no pull request at all", []),
+                              ("odd entries", [{"number": 79}, None]),
+                              ("string number", [{"number": "79"}])):
+            with self.subTest(label=label):
+                self.setUp()
+                self.fake.pr_runs = [self.fake.pr_run(700)]
+                self.fake.head_prs = others
                 self.q.process(79)
                 self.assertEqual(1, self.fake.dispatches)
+                self.assertTrue(any("Another pull request exists for branch task/ELZ-039" in m
+                                    for m in self.fake.messages))
+                self.assertIn("run=101 job=201", self.fake.messages[-1])
+
+    def test_the_sibling_listing_asks_for_every_state_of_the_head_branch_of_this_repository(self):
+        self.fake.pr_runs = [self.fake.pr_run(700)]
+        self.q.process(79)
+        listing = next(c[-1] for c in self.fake.calls if c[:2] == ["gh", "api"] and "/pulls?head=" in c[-1])
+        self.assertIn("head=balungpisah%3Atask%2FELZ-039", listing)
+        self.assertIn("state=all", listing)
+
+    def test_a_malformed_sibling_listing_refuses_the_merge(self):
+        for pages in ({"number": 79}, [{"number": 79}], [None], "x"):
+            with self.subTest(pages=pages):
+                self.setUp()
+                self.fake.pr_runs = [self.fake.pr_run(700)]
+                self.fake.head_prs_pages = pages
+                self.refuses("Invalid pull request pages|Invalid JSON")
 
     def test_malformed_run_entries_are_ignored(self):
         self.fake.pr_runs = [None, "x", 7, {}, {"id": "9"}, self.fake.pr_run(700)]
@@ -1012,10 +1057,10 @@ class FreezeRule(unittest.TestCase):
         self.assertTrue(self.fake.merged)
 
     def test_an_unfinished_newer_run_does_not_hide_the_red_one_or_the_green_one(self):
-        self.fake.main_runs = [self.red(9001), self.red(9002, None, status="in_progress")]
+        self.fake.main_runs = [self.red(9001), self.red(9002, None, status="in_progress", run_attempt=1)]
         self.frozen("push run 9001")
         self.setUp()
-        self.fake.main_runs = [self.red(9001, "success"), self.red(9002, None, status="in_progress")]
+        self.fake.main_runs = [self.red(9001, "success"), self.red(9002, None, status="in_progress", run_attempt=1)]
         self.q.process(79)
         self.assertTrue(self.fake.merged)
 
@@ -1034,13 +1079,27 @@ class FreezeRule(unittest.TestCase):
         self.q.process(79)
         self.assertTrue(self.fake.merged)
 
-    def test_a_first_attempt_that_is_unfinished_does_not_freeze(self):
-        for attempt in (1, None, "2", True):
+    def test_an_unfinished_first_attempt_does_not_freeze(self):
+        # The push run of the latest merge is normally in progress while the next pull request is processed.
+        for status in ("in_progress", "queued", "waiting", "requested", "pending"):
+            with self.subTest(status=status):
+                self.setUp()
+                self.fake.main_runs = [self.red(8999, "success"), self.red(9001, None, status=status, run_attempt=1)]
+                self.q.process(79)
+                self.assertTrue(self.fake.merged)
+
+    def test_an_unfinished_run_without_a_readable_attempt_keeps_the_queue_frozen(self):
+        # A listing that cannot show whether a run is a re-run fails closed.
+        for attempt in (None, "2", "1", True, False, 0, -1, 1.0, [], {}):
             with self.subTest(attempt=attempt):
                 self.setUp()
                 self.fake.main_runs = [self.red(8999, "success"), self.red(9001, None, status="in_progress", run_attempt=attempt)]
-                self.q.process(79)
-                self.assertTrue(self.fake.merged)
+                self.frozen("push run 9001")
+
+    def test_an_unfinished_run_without_an_attempt_field_keeps_the_queue_frozen(self):
+        run = self.red(9001, None, status="in_progress")
+        self.fake.main_runs = [self.red(8999, "success"), run]
+        self.frozen("push run 9001")
 
     def test_a_newer_completed_run_replaces_the_rerun(self):
         self.fake.main_runs = [self.red(9001, None, status="in_progress", run_attempt=2), self.red(9002, "success")]

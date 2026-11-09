@@ -35,7 +35,7 @@ HOSTED_LABELS = ["ubuntu-24.04"]
 HOSTED_RUNNER = re.compile(r"GitHub Actions [0-9]+")
 HOSTED_GATE_STEP = "Verify the GitHub-hosted runner"
 SHA = re.compile(r"[0-9a-f]{40}")
-TIME = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
+BASE_CHANGES = ("base_ref_changed", "automatic_base_change_succeeded", "automatic_base_change_failed")
 PR_FIELDS = ("number,state,isDraft,isCrossRepository,baseRefName,headRefName,"
              "headRefOid,headRepository,mergeable,mergeCommit")
 
@@ -233,20 +233,27 @@ class Queue:
             item["base"]["repo"].get("url") == f"https://api.github.com/repos/{REPO}"
             for item in listed)
 
-    def retargeted_since(self, pr, run):
-        """True when the base of the pull request changed at or after the creation of the run. The run may then
-        have tested another base. A missing or malformed time counts as changed."""
-        created = run.get("created_at")
-        if not isinstance(created, str) or not TIME.fullmatch(created):
-            return True
+    def sole_pull_request_of_head(self, pr):
+        """True when this pull request is the only pull request (open, closed or merged) from the head branch.
+        GitHub lists on a run the pull requests that are open for its head now, not the one that triggered it,
+        so a run of a sibling pull request with another base could be taken for this one."""
+        query = urlencode({"head": f"{REPO.split('/')[0]}:{pr['headRefName']}", "state": "all", "per_page": 100})
+        pages = self.data("gh", "api", "--paginate", "--slurp", f"repos/{REPO}/pulls?{query}")
+        require(isinstance(pages, list) and all(isinstance(page, list) for page in pages),
+                "Invalid pull request pages")
+        items = [item for page in pages for item in page]
+        return bool(items) and all(isinstance(item, dict) and item.get("number") == pr["number"] for item in items)
+
+    def ever_retargeted(self, pr):
+        """True when the base of the pull request ever changed, by hand or automatically. A run can have tested
+        the old base, and the time of the event does not tell which one. Any odd entry counts as changed."""
         pages = self.data("gh", "api", "--paginate", "--slurp",
                           f"repos/{REPO}/issues/{pr['number']}/timeline?per_page=100")
-        require(isinstance(pages, list), "Invalid timeline pages")
+        require(isinstance(pages, list) and all(isinstance(page, list) for page in pages),
+                "Invalid timeline pages")
         for event in [e for page in pages for e in page]:
-            if isinstance(event, dict) and event.get("event") == "base_ref_changed":
-                when = event.get("created_at")
-                if not isinstance(when, str) or not TIME.fullmatch(when) or when >= created:
-                    return True
+            if not isinstance(event, dict) or event.get("event") in BASE_CHANGES:
+                return True
         return False
 
     def adopt_pr_run(self, pr, workflow_id):
@@ -266,9 +273,13 @@ class Queue:
                 require(all(isinstance(run.get("id"), int) for run in runs), "Invalid run ID")
                 # The latest run decides: an older success must not hide a newer failure.
                 latest = max(runs, key=lambda run: run["id"])
-                if self.retargeted_since(pr, latest):
-                    self.emit(f"The base of PR #{pr['number']} changed after run {latest['id']} started; "
-                              "that run is not evidence", flush=True)
+                if not self.sole_pull_request_of_head(pr):
+                    self.emit(f"Another pull request exists for branch {pr['headRefName']}; run {latest['id']} "
+                              "may belong to it and is not evidence", flush=True)
+                    return None
+                if self.ever_retargeted(pr):
+                    self.emit(f"The base of PR #{pr['number']} changed once; run {latest['id']} may have tested "
+                              "the old base and is not evidence", flush=True)
                     return None
                 return latest["id"]
             if end - self.clock() <= 0:
@@ -402,8 +413,9 @@ class Queue:
         pending = [run for run in runs if isinstance(run, dict) and run.get("event") == "push"
                    and run.get("head_branch") == "main" and run.get("status") != "completed"
                    and run.get("path") == f".github/workflows/{WORKFLOW}" and isinstance(run.get("id"), int)
-                   and isinstance(run.get("run_attempt"), int) and run["run_attempt"] > 1
-                   and run["id"] > latest["id"]]
+                   and run["id"] > latest["id"]
+                   # A first attempt in progress is normal; a re-run or a run without a readable attempt is not.
+                   and not (type(run.get("run_attempt")) is int and run["run_attempt"] == 1)]
         if pending:
             latest = dict(max(pending, key=lambda run: run["id"]), conclusion="re-run in progress")
         elif latest.get("conclusion") == "success":
