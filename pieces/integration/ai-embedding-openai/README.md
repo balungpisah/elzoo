@@ -108,7 +108,8 @@ The statuses documented for `POST /embeddings` in the pinned OpenAPI document:
 `permission_denied`; 429 `throttled` (with `retry-after` seconds when present);
 500 `provider_error`; 503 `overloaded` (with `retry-after` when present). Not
 listed for this path and mapped by their HTTP meaning: 404 `not_found`, 413
-`provider_too_large`. Any other status, 3xx included, is `provider_error`;
+`provider_too_large`. 529 (the overload status of other providers, not listed
+for this path) is `overloaded` by the family rule, like 503. Any other status, 3xx included, is `provider_error`;
 transport timeout `timeout`; other transport failures `transport`. Under the
 family rule (ELZ-079 amendment 1), `throttled` and `overloaded` are
 failed/dispatched/retryable and not redispatched by default.
@@ -130,7 +131,7 @@ failed/dispatched/retryable and not redispatched by default.
   MIT notice in the file. It is test data, not a runtime provider.
 - **Tests** (`test/elzoo/ai_embedding_openai_test.exs`): the interface's
   conformance kit at a requested and the native dimension; usage; translation
-  and refusals before any request; documented error statuses and a redirect, one
+  and refusals before any request; documented error statuses, a 529 and a redirect, one
   request each; transport timeout with one request and the retry setting on its
   own; malformed 2xx; redaction in results, inspect, owner state, debug logs and
   `req_llm` telemetry; ambient keys (environment, application configuration, a

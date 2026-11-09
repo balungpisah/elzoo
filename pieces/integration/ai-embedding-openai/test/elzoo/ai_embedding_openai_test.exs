@@ -327,7 +327,7 @@ defmodule Elzoo.AiEmbedding.OpenAITest do
 
   ## E4 documented error statuses
 
-  test "E4 documented error statuses and a redirect: one request each, mapped per table, x-request-id and retry-after kept, no body or input in the outcome (halting step)",
+  test "E4 documented error statuses, a 529 and a redirect: one request each, mapped per table, x-request-id and retry-after kept, no body or input in the outcome (halting step)",
        ctx do
     cases = [
       {{400, [], OpenAIStub.error("invalid_request_error", nil)},
@@ -347,6 +347,8 @@ defmodule Elzoo.AiEmbedding.OpenAITest do
       {{503, [{"retry-after", "3"}],
         OpenAIStub.error("service_unavailable_error", "server_is_overloaded")},
        {:refused, :overloaded, %{retry_after: 3}}},
+      {{529, [], OpenAIStub.error("service_unavailable_error", "server_is_overloaded")},
+       {:refused, :overloaded, %{retry_after: nil}}},
       {{500, [], OpenAIStub.error("server_error", nil)}, {:unknown, :provider_error}},
       {{502, [], "<html>bad gateway</html>"}, {:unknown, :provider_error}},
       {{302, [{"location", "/v1/elsewhere"}], ""}, {:unknown, :provider_error}}
@@ -363,6 +365,24 @@ defmodule Elzoo.AiEmbedding.OpenAITest do
       refute inspect(delivery) =~ "stub error"
       conforms(requests, ctx.schemas)
     end
+
+    # 529 (family rule, ELZ-079 amendment 1): overloaded, failed/dispatched/retryable,
+    # one request and not redispatched by the owner or the default retry policy.
+    {:ok, policy} = Elzoo.RetryTimeout.policy(max_attempts: 3, base_backoff_ms: 10)
+
+    {delivery, requests, _, pid} =
+      run(ctx, request(), fn _ ->
+        {529, [{"retry-after", "5"}],
+         OpenAIStub.error("service_unavailable_error", "server_is_overloaded")}
+      end)
+
+    assert {:outcome, _, {:refused, :overloaded, %{retry_after: 5}}} = delivery
+    assert length(requests) == 1
+    assert {:ok, {"failed", "dispatched", "retryable"}} = AiEmbedding.Outcome.delivery(:overloaded)
+    assert OpenAI.classify_failure(%{status: 529}) == :overloaded
+    assert {:stop, :unresolved} = AiEmbedding.Retry.next(policy, 1, :overloaded)
+    assert {:error, _} = Intent.advance(pid, :rearm)
+    assert {:error, _} = Intent.advance(pid, :dispatch)
 
     # The halting step itself keeps the bounded request id and retry-after.
     {:ok, response} =

@@ -26,7 +26,7 @@
   "dependencies": [
     "integration/ai-embedding"
   ],
-  "contract": "OpenAI embeddings provider of integration/ai-embedding through req_llm 1.30's documented provider-callback API (prepare_request(:embedding) then Req.request): POST /v1/embeddings with input always an array, encoding_format float and dimensions only when requested; req_http_options max_retries 0; one HTTP exchange with every response halted by an Elzoo step (no redirect, no retry, no req_llm decode or error value); key only from the injected Need as api_key; models text-embedding-3-small (1536, reducible 1..1536) and text-embedding-3-large (3072, reducible 1..3072); input_type unspecified only; declared provider option user; items passed on as listed for the interface's checks; usage prompt_tokens as input_uncached_tokens with cache and output :unknown; provenance with the served model and x-request-id; documented error statuses mapped to the interface's failure tags (429 throttled, 503 overloaded).",
+  "contract": "OpenAI embeddings provider of integration/ai-embedding through req_llm 1.30's documented provider-callback API (prepare_request(:embedding) then Req.request): POST /v1/embeddings with input always an array, encoding_format float and dimensions only when requested; req_http_options max_retries 0; one HTTP exchange with every response halted by an Elzoo step (no redirect, no retry, no req_llm decode or error value); key only from the injected Need as api_key; models text-embedding-3-small (1536, reducible 1..1536) and text-embedding-3-large (3072, reducible 1..3072); input_type unspecified only; declared provider option user; items passed on as listed for the interface's checks; usage prompt_tokens as input_uncached_tokens with cache and output :unknown; provenance with the served model and x-request-id; documented error statuses mapped to the interface's failure tags (429 throttled; 503 and, by the family rule, 529 overloaded).",
   "limits": [
     "Stub evidence only (R5): conformance to the pinned documented format, never current live behaviour, embedding quality, cost, latency or rate limits; a periodic live check is a later owner decision.",
     "Requests and stub responses are validated against an extract of the official OpenAI OpenAPI document (openai/openai-openapi commit 59f5565459caae84f43c49a738248cf2b268a70f, fetched 2026-11-09); conformance to that pinned document only.",
@@ -50,7 +50,7 @@
     {
       "kind": "test",
       "file": "test/elzoo/ai_embedding_openai_test.exs",
-      "claim": "Listed scenarios against in-process function-plug stubs in OpenAI's documented formats: the interface conformance kit at a requested and the native dimension; usage reported, omitted, disagreeing and malformed with cache and output :unknown; dimensions and user on the wire; input type, invalid options and undeclared models refused before any request; the model table against llm_db metadata; documented error statuses and a redirect with one request each; transport timeout with one request, and max_retries 0 alone keeping one request; malformed 2xx; redaction in results, inspect, owner state, debug logs and req_llm telemetry; ambient keys never used across a req_llm restart with a .env file; source audit of this Piece's own manifest-listed files; the README's Install configuration section carries the exact config line. Finite scenarios, no live call, not proofs."
+      "claim": "Listed scenarios against in-process function-plug stubs in OpenAI's documented formats: the interface conformance kit at a requested and the native dimension; usage reported, omitted, disagreeing and malformed with cache and output :unknown; dimensions and user on the wire; input type, invalid options and undeclared models refused before any request; the model table against llm_db metadata; documented error statuses, a 529 and a redirect with one request each (529 overloaded, retryable and not redispatched); transport timeout with one request, and max_retries 0 alone keeping one request; malformed 2xx; redaction in results, inspect, owner state, debug logs and req_llm telemetry; ambient keys never used across a req_llm restart with a .env file; source audit of this Piece's own manifest-listed files; the README's Install configuration section carries the exact config line. Finite scenarios, no live call, not proofs."
     },
     {
       "kind": "upstream",
@@ -72,7 +72,7 @@
     },
     {
       "kind": "assumption",
-      "claim": "OpenAI's live API behaves as its documentation describes, including the native dimensions and unit-length embeddings of the declared models (the interface verifies the norm rather than assuming it); a 429 or 503 meaning no work was done is named only and authorizes nothing; each declared model identifier names one model whose vectors stay comparable; the host keeps the key Need truthful."
+      "claim": "OpenAI's live API behaves as its documentation describes, including the native dimensions and unit-length embeddings of the declared models (the interface verifies the norm rather than assuming it); a 429, 503 or 529 meaning no work was done is named only and authorizes nothing; each declared model identifier names one model whose vectors stay comparable; the host keeps the key Need truthful."
     }
   ],
   "operations": {

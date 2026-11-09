@@ -3581,11 +3581,11 @@
     {
       "id": "integration/ai-embedding-openai",
       "job": "ELZ-080",
-      "note": "OpenAI embeddings provider of integration/ai-embedding through req_llm 1.30's documented provider-callback API (prepare_request(:embedding) then Req.request): POST /v1/embeddings with input always an array, encoding_format float and dimensions only when requested; req_http_options max_retries 0; one HTTP exchange with every response halted by an Elzoo step (no redirect, no retry, no req_llm decode or error value); key only from the injected Need as api_key; models text-embedding-3-small (1536, reducible 1..1536) and text-embedding-3-large (3072, reducible 1..3072); input_type unspecified only; declared provider option user; items passed on as listed for the interface's checks; usage prompt_tokens as input_uncached_tokens with cache and output :unknown; provenance with the served model and x-request-id; documented error statuses mapped to the interface's failure tags (429 throttled, 503 overloaded).",
+      "note": "OpenAI embeddings provider of integration/ai-embedding through req_llm 1.30's documented provider-callback API (prepare_request(:embedding) then Req.request): POST /v1/embeddings with input always an array, encoding_format float and dimensions only when requested; req_http_options max_retries 0; one HTTP exchange with every response halted by an Elzoo step (no redirect, no retry, no req_llm decode or error value); key only from the injected Need as api_key; models text-embedding-3-small (1536, reducible 1..1536) and text-embedding-3-large (3072, reducible 1..3072); input_type unspecified only; declared provider option user; items passed on as listed for the interface's checks; usage prompt_tokens as input_uncached_tokens with cache and output :unknown; provenance with the served model and x-request-id; documented error statuses mapped to the interface's failure tags (429 throttled; 503 and, by the family rule, 529 overloaded).",
       "disposition": "implementation prepared; acceptance requires merged PR",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/ai-embedding-openai/piece.json",
-      "manifest_sha256": "eaf8e48c0b3744a112da9acaefbda422478dd5aa87fb74b6055a0de95c35df91",
+      "manifest_sha256": "9fd88d0d215619b4b525f38c0dd4863ecd1c9109b0afef8a5000dbd8be2f8ae0",
       "baseline_status": "not in baseline (new row, ELZ-080)"
     },
     {

@@ -226,7 +226,9 @@ defmodule Elzoo.AiEmbedding.OpenAI do
   defp retry_after(_), do: nil
 
   ## classify_failure: the statuses documented for POST /embeddings (400, 401,
-  ## 403, 429, 500, 503) plus 404 and 413 by their HTTP meaning.
+  ## 403, 429, 500, 503) plus 404 and 413 by their HTTP meaning, and 529 as
+  ## overloaded by the family rule (ELZ-079 amendment 1: 429 and 529 are
+  ## failed/dispatched/retryable).
 
   @impl true
   def classify_failure({:transport, :timeout}), do: :timeout
@@ -238,5 +240,6 @@ defmodule Elzoo.AiEmbedding.OpenAI do
   def classify_failure(%{status: 413}), do: :provider_too_large
   def classify_failure(%{status: 429}), do: :throttled
   def classify_failure(%{status: 503}), do: :overloaded
+  def classify_failure(%{status: 529}), do: :overloaded
   def classify_failure(_), do: :provider_error
 end
