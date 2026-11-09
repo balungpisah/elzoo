@@ -123,6 +123,11 @@ server request reaches a receiving stream (which the Adapter never opens) are
 refused (no handler, no capabilities) without disclosing any path, model or
 credential, and a `ping` acknowledged with `{}`.
 
+**No library text in outputs.** No text from ex_mcp (or any other library) is passed
+into a result, error or event: library errors are reduced to the bounded reasons above,
+and `call_tool/3`'s intent refusal is the fixed `{:error, {:intent, :refused}}`. Server
+data is the result by design and is redacted.
+
 ## Needs
 
 - **Credential Need** (bearer token): called before each request, inside ex_mcp's

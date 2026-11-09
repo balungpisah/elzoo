@@ -651,7 +651,7 @@ defmodule Elzoo.McpClientTest do
     requests()
     assert {:completed, _} = McpClient.call_tool(s, a, pid)
     settled(pid)
-    assert {:error, {:intent, _}} = McpClient.call_tool(s, a, pid)
+    assert {:error, {:intent, :refused}} = McpClient.call_tool(s, a, pid)
     {:ok, a2} = McpClient.admission(s.config, declaration(payload("echo", %{"x" => "1"})), snap)
     assert a2.key == a.key
     assert count(requests(), "tools/call") == 1
@@ -666,7 +666,7 @@ defmodule Elzoo.McpClientTest do
     assert {:unknown, {:server_error, :other}} = McpClient.call_tool(s, b, pid)
     settled(pid)
     assert {:error, _} = Intent.advance(pid, :rearm)
-    assert {:error, {:intent, _}} = McpClient.call_tool(s, b, pid)
+    assert {:error, {:intent, :refused}} = McpClient.call_tool(s, b, pid)
     assert count(requests(), "tools/call") == 1
   end
 

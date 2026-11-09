@@ -221,8 +221,7 @@ defmodule Elzoo.McpClient do
     :exit, _ -> false
   end
 
-  defp intent_reason({:error, reason}) when is_atom(reason), do: reason
-  defp intent_reason({:refused, reason}) when is_atom(reason), do: reason
+  # The owner's own refusal term is not passed through: one fixed reason.
   defp intent_reason(_), do: :refused
 
   @doc "Contract outcome of a failure tag (`{:ok, {:refused | :unknown, reason}}`)."
