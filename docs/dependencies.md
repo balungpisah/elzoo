@@ -43,7 +43,13 @@ Elzoo now adopts Req 0.7.5 for a narrow direct HTTP client recipe. Finch is its
 transitive implementation, not a separate Elzoo abstraction. ELZ-009 adopts
 Ecto SQL 3.14.0 and Postgrex 0.22.4 (Ecto 3.14.3 and DBConnection 2.10.2
 transitive) for the narrow `integration/sql` PostgreSQL Store translation.
-ELZ-010 adopts Oban 2.24.2 for `integration/jobs`. OpenTelemetry remains a
+ELZ-010 adopts Oban 2.24.2 for `integration/jobs`. ELZ-029 adopts erlexec
+2.6.0 (BSD-2-Clause; the upstream copyright and permission notice is retained
+in the package's `LICENSE` as distributed by Hex) for `runtime/os-isolation`:
+its port program spawns the command, creates its process group, enforces the
+deadline and the SIGTERM→SIGKILL escalation, and stops the group when the
+linked owner or the VM exits; Elzoo owns admission, deadline conversion, the
+observation and the result schema. OpenTelemetry remains a
 candidate. Telemetry is transitive, with no
 adopted business-event contract. Cure's transitive dependency graph remains
 in `mix.lock`; “not adopted” means Elzoo does not rely on that package's API

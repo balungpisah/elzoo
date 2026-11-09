@@ -38,8 +38,7 @@ spike; Ash is not part of the Cure compiler trust claim. ELZ-010 adds Oban
 2.24.2 to the root graph (test-only for its pre-implementation probes, then a
 normal provider of `integration/jobs`). See its README for versions and limits.
 
-Linux CI runs on symbolic through a repository-scoped self-hosted runner and
-pinned Ubuntu job containers. See [runner operations](10-symbolic-ci.md);
-GitHub-hosted compute and hosted fallback are prohibited.
+Linux CI runs on GitHub-hosted `ubuntu-24.04` runners (the repository is public);
+self-hosted runners are not used. See [CI on GitHub-hosted runners](10-symbolic-ci.md).
 
 For the current exemplar and selected P1/P2/P3 evidence, see the [clean-check handoff](clean-check-handoff.md).

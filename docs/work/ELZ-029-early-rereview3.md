@@ -1,0 +1,59 @@
+Redacted for publication; SHA-256 of the reviewer's original report: b254af2aff767b24c5c9ed3476a3914338b2ff274b0c522876ce5b677d1cef5d
+
+# ELZ-029 focused independent early re-review, round 3
+
+Reviewer: the independent reviewer (Codex). Reviewed proposal SHA `e446d2f45ecb6c3c05ed59d402ef71a543b0aeaa`, revision delta from `64acad7` and branch-only diff against fetched `origin/main` `f4e328319ec23fa7bc6d8c8f0a19c2a3122bd938`, the live issue, and the runtime/os-isolation disposition. This is a design review, not execution evidence. No Mix command was run. A pre-existing untracked local file was left untouched.
+
+## Blocking findings
+
+1. **Watchdog is not established before the work it must protect.** `ELZ-029.md` lines 79–85 start command `C` before starting watchdog `S`, and lines 309–315 conclude unconditionally that a Port closure in the open-to-registration gap causes `S` to clean up. There is no ready handshake, no accounting for shell fork/exec or watchdog startup failure, and no recovery if `W` exits or is killed after starting `C` but before `S` starts. A death of the BEAM owner/VM or startup failure in this window can leave a dispatched `C` with no cleanup owner. Two probes after a watchdog was running do not establish the missing transition. Design a startup protocol that prevents unprotected dispatch, detects failed startup, defines cleanup and result semantics when it fails, and test forced death/failure at each boundary, including before/after registration and simultaneous Adapter/collector death. Also define who closes the Port if connect fails or the collector exits normally before transferring ownership; cover Port/owner exit message ordering, not only a brutal kill after handoff.
+
+2. **The in-group watchdog bypasses the safety and accounting rules.** Lines 83–86 say `S` sends TERM, sleeps, then sends KILL on every Port EOF, including ordinary completion, without a fresh observation of a live non-anchor member. That contradicts the issue's full-grace and live-group escalation conditions and the proposed rule that KILL follows an observed live original group. For example, a TERM-ignoring command that exits naturally during Adapter grace makes the Port close; even though test 9 counts no KILL via `kill_path`, `S` still sends its own KILL after its own independent delay. If `watchdog_grace_s` is less than `grace_ms`, it may also act before the Adapter's declared grace has elapsed after an earlier TERM. The assertion that no signal is sent after Port closure applies only to the Adapter, while the unaccounted watchdog makes real group signal requests; test all signal sources and make one coordinated, invariant-preserving termination sequence, or obtain an explicit reviewed Contract decision. A shell's membership reserves identity while it remains alive, but does not establish live non-anchor work or fulfill the escalation condition.
+
+3. **`stage: none` can falsely claim the original group was empty before every termination signal.** Proposed A5 requires that reliable observation. Rules 1 and 7 (lines 255–260, 283–290) instead treat a listing containing `W` and/or `S` with no non-anchor members as enough, close the Port, and only observe emptiness after `S` signals. A group containing anchors is not empty, and the watchdog's signals precede the final observation. Collector death after `:requesting` but before its outcome is recorded may also return `stage: none` after a signal actually happened (lines 317–329; planned test 20b); the result's `requests` type omits `:unknown_outcome`. A request accepted by a utility is useful observation of request acceptance, not signal delivery or necessarily the actual highest escalation when watchdog actions are omitted. Preserve unknown request outcomes honestly and define observed stage to include every actor; do not label the original group empty before signals without that observation.
+
+4. **Identity and handoff are still conditional on a race, and post-unknown cleanup is not established in all promised paths.** The collector's `pgrep` and later `kill` utility calls are separate OS operations (lines 93–119, 317–323); Port closure or anchor death can occur between them, including while a utility is scheduled or running. An already initiated request can execute after Port closure despite rule 4. Calling the check-to-signal gap 'a few milliseconds' does not bound scheduler delay, and the proposal itself lists no-PID-wrap in that gap as unverified. The paired `pgrep` calls are also separate snapshots. A false reused-group signal is a real effect even if the result is cautiously worded. The `anchor_lost` row explicitly has no owner and an unbounded child; `group_alive` assigns reaping to OS/PID 1 without a bounded guarantee, while `S` can fail before startup or be killed independently. These are disclosed limits, not evidence of the unchanged child-lifetime/cleanup invariant. Explain and establish a mechanically safe identity and ownership mechanism and bounded handoff, or seek reviewed changes to the actual Contract; deterministic tests must force check-to-signal and handoff-before/after-request races, and prove cleanup independently of the signal utility.
+
+Additional concrete design gap: executable validation followed by launching `/bin/sh` is not an atomic command exec. An executable may disappear, be replaced, or fail to load after the check; the wrapper can return shell exit 126/127 as `completed`, indistinguishable from a command genuinely returning that code. Specify a truthful exec/dispatch handshake or an explicitly reviewed outcome for this case, and test it. The proposal also claims VM death is covered at line 335 but says VM death leaves children at lines 410–412; reconcile the claims. `completed{leftovers: :none}` may return with the watchdog alive (lines 356–367), an explicit coordinator decision still pending.
+
+## Previous observations
+
+| Prior observation | Disposition |
+| --- | --- |
+| 1. Port owner/link/monitor and failure handoff | **Not resolved.** Owner/link correction and pre/post request messages improve the design; startup-before-watchdog gap, failed transfer, concurrent death, unacknowledged in-flight effects and their outcome remain as above. Planned tests cover selected post-start events, not every transition. |
+| 2. Original PGID identity and no blind KILL | **Not resolved.** Anchor observations improve evidence while anchored, but are separate from the eventual signal; watchdog sends unconditional KILL and the proposed timing/identity assumption is not a safe handoff. |
+| 3. Observed stage rather than inference | **Not resolved.** Explicit `:sent` vs `:failed` is better, but omitted watchdog requests and ambiguous in-flight request with `stage: none` contradict A5 and a complete escalation account. Natural-exit test counts only the external utility. |
+| 4. Named cleanup owner and bounded lifetime after unknown | **Not resolved.** The table names `S` on some paths but does not establish startup, survival, or guaranteed bounded cleanup; two rows explicitly disclaim an Adapter bound. Unknown does not change the live acceptance. |
+
+## Amendments
+
+| Amendment | Verdict |
+| --- | --- |
+| A1 | **Text matches** the prior exact suggested before/after blocks. Exactly one original before match. Correct execution still depends on honest dispatch semantics, including wrapper exec failure. |
+| A2 | **Text matches** the approved revision-1 before/after blocks. Sidecar does not resolve the stage design by itself. |
+| A3 | **Text matches** the approved revision-1 addition, with the required leading punctuation for insertion. Delivery on owner death remains conditional on an available recipient. |
+| A4 | **Text matches** both prior suggested before/after replacements; each applies exactly once in the documented order. |
+| A5 | **Text matches** the prior suggested before/after. Current implementation proposal does not satisfy the approved text's original-group-empty-before-any-signal condition. |
+| A6 | **Text matches** both prior suggested replacements; each applies exactly once. Its unknown result does not relax acceptance or establish continued cleanup. |
+| A7 | **Text matches** the prior exact anchor and sentence apart from the explicitly approved substitution naming `integration/agent-runner`. The anchor matches once. `/bin/sh` in proposed A7′ is separately unapproved; a README-only fallback does not resolve the issue's required Needs without coordinator disposition. |
+
+The ordered dry-run substitutions from the original task body each matched exactly once; the resulting in-memory body SHA-256 is `a9a1daa0b8b6fcfae7abd78a7688365744089276032efbce772b8a0a0a5046dd` (inserting a newline before A7). This is a diagnostic calculation, not an instruction to edit the issue before clearance. Live issue body and e446d2f task copy are byte-identical SHA-256 `dd6d715b6eacb0a412fccee73da3fbd39058847dc23cd217425b5141bd6566d9`, matching revision 1, so the proposal correctly describes the live state. The release-plan live-body hash on main remains stale until integration, as the issue comment already explains.
+
+## Gates and scope
+
+All eight numbered G1–G8 paragraphs are byte-identical to the first report. G1 remains open for reviewed design resolution, final amendments in the live issue/task copy, and the new shell Need; G2 remains blocked by the findings above. G3's explicit authorized registry scope is separately recorded; the ordinary execution requirements G3–G8 remain in force, including finite real-process tests on the Linux CI runner, operational metadata, pinned `mix setup`, ledger regeneration, full `mix check`, independent implementation review and required CI. Do not treat the planned tests or earlier local probes as completed acceptance. Completion behavior, watchdog-after-completion, and fixture choice still need their stated coordinator decisions.
+
+The branch-only changed paths are claim metadata, ELZ-029 task copy, its plan-hash entry, and four work/review documents. No implementation is committed. The retained two review files compared byte-for-byte equal to their respective originals at review time.
+
+## Commands and exit codes
+
+- `git fetch origin --prune` — 0; `git status --short --branch`, `git rev-parse origin/main origin/task/ELZ-029`, `git diff --stat origin/main...e446d2f`, `git diff 64acad7 e446d2f` — 0.
+- `orca skills get orchestration` via the default CLI path — 1 (could not resolve the application); the executable resolved from `ORCA_CLI_COMMAND` — 0.
+- `git show` of proposal, proposed amendments, task copy and main's catalogue dispositions; targeted `nl`, `sed` and `rg`; reads of both earlier reviewers' original reports — 0.
+- `git diff --name-status origin/main...e446d2f`, `git log --oneline origin/main..e446d2f`, and both `git show ... | cmp -` comparisons against the reviewers' original reports — 0; `git diff --check origin/main...e446d2f` — 0.
+- `gh issue view 46 -R balungpisah/elzoo --json title,body,comments` — 0; Python JSON-body/task-copy byte and SHA-256 comparison — 0.
+- Python exact fenced-block and ordered-substitution comparisons against revision 1, the previous review, and the original task body, plus G1–G8 byte comparison against the first review — 0.
+- `cat CONTEXT.md GOAL.md docs/development/01-workflow.md docs/development/02-task-dag.md docs/plans/roadmap.md docs/capability-model.md docs/capability-coverage.md docs/operational-contracts.md docs/adr/0005-ash-foundation-and-upstream-first.md LEDGER.md docs/consuming.md docs/architecture.md >/dev/null` — 0.
+- `curl -fsSL --max-time 15` of OTP reference timed out with curl 28; the piped Python reader returned 0 with a partial page, so the pipeline status was 0. No new documentation conclusion depends on that incomplete fetch; port semantics were assessed against the retained prior review and proposal.
+
+**NOT CLEAR**

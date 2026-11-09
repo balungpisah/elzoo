@@ -157,7 +157,8 @@ defmodule Elzoo.Export do
       |> Enum.flat_map(fn {id, provider} ->
         case provider["source"] do
           "hex" ->
-            ["{:#{provider["package"]}, \"~> #{provider["version"]}\"}"]
+            runtime = if provider["runtime"] == false, do: ", runtime: false", else: ""
+            ["{:#{provider["package"]}, \"~> #{provider["version"]}\"#{runtime}}"]
 
           "git" ->
             [
