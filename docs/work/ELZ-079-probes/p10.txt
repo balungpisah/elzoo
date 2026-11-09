@@ -1,0 +1,73 @@
+# p10 revision 2 transcript: req_llm 1.30.0, req 0.7.5, Elixir 1.20.4, OTP 29; Req.Test stubs, no network, stub keys only; run 2026-11-09
+request: %{
+  path: "/v1/messages",
+  method: "POST",
+  anthropic_version: ["2026-10-21"],
+  key_is_injected_need: true,
+  body_keys: ["max_tokens", "messages", "model", "stream"],
+  sampling_fields: []
+}
+200: {:ok_decoded,
+ %{
+   status: 200,
+   usage: %{
+     "cache_creation_input_tokens" => 0,
+     "input_tokens" => 11,
+     "output_tokens" => 7
+   },
+   request_id: "req_ok",
+   retry_after: nil
+ }, "msg_01", :stop, %{cache_read_input_tokens: 0}}
+200 redaction: %{prompt_in_summary: false, key_in_summary: false}
+200 cumulative requests: 1
+request: %{
+  path: "/v1/messages",
+  method: "POST",
+  anthropic_version: ["2026-10-21"],
+  key_is_injected_need: true,
+  body_keys: ["max_tokens", "messages", "model", "stream"],
+  sampling_fields: []
+}
+429: {:ok_raw_halted,
+ %{status: 429, usage: :absent, request_id: "req_429", retry_after: "7"},
+ [body_type: :binary]}
+429 redaction: %{prompt_in_summary: false, key_in_summary: false}
+429 cumulative requests: 2
+request: %{
+  path: "/v1/messages",
+  method: "POST",
+  anthropic_version: ["2026-10-21"],
+  key_is_injected_need: true,
+  body_keys: ["max_tokens", "messages", "model", "stream"],
+  sampling_fields: []
+}
+529: {:ok_raw_halted,
+ %{status: 529, usage: :absent, request_id: "req_529", retry_after: nil},
+ [body_type: :binary]}
+529 redaction: %{prompt_in_summary: false, key_in_summary: false}
+529 cumulative requests: 3
+request: %{
+  path: "/v1/messages",
+  method: "POST",
+  anthropic_version: ["2026-10-21"],
+  key_is_injected_need: true,
+  body_keys: ["max_tokens", "messages", "model", "stream"],
+  sampling_fields: []
+}
+302 redirect: {:ok_raw_halted,
+ %{status: 302, usage: :absent, request_id: nil, retry_after: nil},
+ [body_type: :binary]}
+302 redirect redaction: %{prompt_in_summary: false, key_in_summary: false}
+302 redirect cumulative requests: 4
+request: %{
+  path: "/v1/messages",
+  method: "POST",
+  anthropic_version: ["2026-10-21"],
+  key_is_injected_need: true,
+  body_keys: ["max_tokens", "messages", "model", "stream"],
+  sampling_fields: []
+}
+transport timeout: {:error_raw, Req.TransportError, :timeout}
+transport timeout redaction: %{prompt_in_summary: false, key_in_summary: false}
+transport timeout cumulative requests: 5
+total requests for five calls (expect 5): 5

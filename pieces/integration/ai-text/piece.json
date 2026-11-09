@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "id": "integration/ai-text",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "adapter",
+  "providers": [
+    "cure",
+    "jason",
+    "jsv",
+    "abnf_parsec",
+    "elixir",
+    "otp"
+  ],
+  "dependencies": [
+    "integration/ai-model",
+    "core/effect",
+    "delivery/effect-intent",
+    "delivery/retry-timeout"
+  ],
+  "contract": "Provider-neutral text-model interface: request (ordered text messages, tools, tool_choice, output schema, max output tokens, stop sequences, optional sampling, reasoning level, cache hint, declared provider options, dispatch identity, deadline) admitted from a core/effect declaration with local refusals before any intent; one provider call per dispatch through the delivery/effect-intent owner; outcomes completed{content, tool_proposals, structured, finish, usage, provenance} | refused{credentials_unavailable | invalid_request | unsupported_feature | too_large | authentication_failed | permission_denied | throttled | overloaded | not_found} | unknown{timeout | transport | malformed_response | provider_error}; throttled and overloaded are failed/dispatched/retryable and not redispatched by default (Contract amendment 1); only credentials_unavailable is attested no-send and retried under delivery/retry-timeout; tool proposals are inert data, malformed ones marked; structured output validated; volatile result sink; provider behaviour and conformance kit.",
+  "limits": [
+    "No automatic retry of a provider-reported throttle or overload: a caller retries only with its own ground, for example a new logical request reference accepting that the first request may have been processed.",
+    "The result sink is volatile local delivery: no durable retention, replay, recovery delivery or exactly-once delivery; after a restart only the settled status remains.",
+    "The completion seal is process-local integrity of the Adapter's own result, not provider authentication.",
+    "Streaming, batch, vision and document input, provider-executed tools, routing, fallback, pricing, metering, conversation storage and agent loops are not supplied.",
+    "Tenants that share one provider credential share that provider's prompt cache; the cache-hint tenant rule cannot partition it.",
+    "Finite scenarios with a scripted test provider and a volatile store; no proof is claimed."
+  ],
+  "files": [
+    "cure/elzoo/ai_text_outcome.cure",
+    "lib/elzoo/ai_text.ex",
+    "lib/elzoo/ai_text/adapter.ex",
+    "lib/elzoo/ai_text/binding.ex",
+    "lib/elzoo/ai_text/config.ex",
+    "lib/elzoo/ai_text/conformance.ex",
+    "lib/elzoo/ai_text/outcome.ex",
+    "lib/elzoo/ai_text/provider.ex",
+    "lib/elzoo/ai_text/request.ex",
+    "lib/elzoo/ai_text/retry.ex",
+    "lib/elzoo/ai_text/schema.ex",
+    "lib/elzoo/ai_text/sink.ex",
+    "test/elzoo/ai_text_test.exs",
+    "test/support/ai_text_test_helper.exs"
+  ],
+  "applications": [
+    "crypto"
+  ],
+  "grounding": [
+    {
+      "kind": "type",
+      "file": "cure/elzoo/ai_text_outcome.cure",
+      "claim": "Pinned Cure compilation type-checks the finite failure-tag to Contract-outcome and delivery-result decision; the static Binding table is checked equal to it at construction. Not a proof of provider behaviour."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/ai_text_test.exs",
+      "claim": "Listed scenarios with a scripted test provider and the volatile Memory store: completed call path with content only through the sink; local refusals before intent, credential and call; provider options; retries (credentials_unavailable retried, throttled and overloaded unresolved and not redispatched, unknown never, also under a redispatch_idempotent policy); second dispatch refused and same key on re-admission; classification table against Cure; sink failures; tool proposal and structured-output checks; request codec; configuration and redaction; a source audit of this Piece's own listed files showing no reference to req_llm, llm_db, Plug, Req.Test or the Anthropic provider module (the interface loads no provider dependency). Finite scenarios, not proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "jsv",
+      "reference": "https://hexdocs.pm/jsv/0.27.0/JSV.html",
+      "claim": "jsv 0.27.0 JSON Schema draft 2020-12 build and validate without remote resolution, as exercised in the listed scenarios."
+    },
+    {
+      "kind": "upstream",
+      "provider": "cure",
+      "reference": "https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89",
+      "claim": "Relies on pinned compilation and nullary-sum erasure; not a local proof of the compiler."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/apps/crypto/crypto.html",
+      "claim": "OTP 29.1.2 crypto HMAC-SHA-256 and SHA-256."
+    },
+    {
+      "kind": "assumption",
+      "claim": "Provider Pieces implement the behaviour truthfully: one HTTP exchange per call, failure tags chosen from documented statuses, absent usage fields reported :unknown; the host keeps the credential Need truthful; a provider's documented 'rejected before generation' meaning of a throttle or overload is not relied on."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "planned",
+      "contract": "No Elzoo event; provider libraries may emit their own events to consumer-installed handlers. Own events through runtime/telemetry: future task when a consumer needs them. Not inherited: runtime/telemetry is not a dependency."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Construction-time binding (provider account entering the intent key), tenant, provider and its construction term, credential Need, model allowlist, request-byte bound, output-token cap, receive timeout and result sink; per-request deadline from the declaration; no hot reconfiguration.",
+      "evidence": [
+        "test/elzoo/ai_text_test.exs"
+      ]
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "Call-scoped: dispatch, rearm and expiry are the delivery/effect-intent owner's Control; a deadline cannot erase a dispatched call, which is reported unknown."
+    }
+  }
+}

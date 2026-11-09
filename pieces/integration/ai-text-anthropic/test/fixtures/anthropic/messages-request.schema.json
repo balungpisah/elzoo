@@ -1,0 +1,201 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "Hand-derived by ELZ-079 from Anthropic's documentation fetched 2026-11-09: Messages API reference, 'Create a Message', Headers and Body parameters, and Domain types 'Cache Control Ephemeral', 'Tool', 'Tool Choice', 'Thinking Config', 'Output Config' (https://platform.claude.com/docs/en/api/messages); 'Prompt caching' (https://platform.claude.com/docs/en/build-with-claude/prompt-caching); 'Versions' (https://platform.claude.com/docs/en/api/versioning); 'Migrating to API version 2026-10-21' (https://platform.claude.com/docs/en/api/migration-2026-10-21). Covers only the request members this provider may send for anthropic-version 2026-10-21; temperature, top_p and top_k are absent because that version rejects them. No official machine-readable specification was found; conformance beyond the documented examples is not claimed.",
+  "type": "object",
+  "required": ["model", "messages", "max_tokens"],
+  "additionalProperties": false,
+  "properties": {
+    "model": {"type": "string", "minLength": 1},
+    "max_tokens": {"type": "integer", "minimum": 0},
+    "messages": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/message"}},
+    "system": {
+      "oneOf": [
+        {"type": "string"},
+        {"type": "array", "items": {"$ref": "#/$defs/text_block"}}
+      ]
+    },
+    "stop_sequences": {"type": "array", "items": {"type": "string"}},
+    "stream": {"type": "boolean"},
+    "tools": {"type": "array", "items": {"$ref": "#/$defs/tool"}},
+    "tool_choice": {"$ref": "#/$defs/tool_choice"},
+    "thinking": {"$ref": "#/$defs/thinking"},
+    "output_config": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "effort": {"enum": ["low", "medium", "high", "xhigh", "max", null]},
+        "format": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "required": ["type", "schema"],
+              "additionalProperties": false,
+              "properties": {
+                "type": {"const": "json_schema"},
+                "schema": {"type": "object"}
+              }
+            }
+          ]
+        }
+      }
+    },
+    "cache_control": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/cache_control"}]},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {"user_id": {"type": ["string", "null"]}}
+    },
+    "service_tier": {"enum": ["auto", "standard_only"]},
+    "speed": {"enum": ["standard", "fast", null]},
+    "inference_geo": {"type": ["string", "null"]}
+  },
+  "$defs": {
+    "cache_control": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {"const": "ephemeral"},
+        "ttl": {"enum": ["5m", "1h"]}
+      }
+    },
+    "text_block": {
+      "type": "object",
+      "required": ["type", "text"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {"const": "text"},
+        "text": {"type": "string"},
+        "cache_control": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/cache_control"}]}
+      }
+    },
+    "tool_use_block": {
+      "type": "object",
+      "required": ["type", "id", "name", "input"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {"const": "tool_use"},
+        "id": {"type": "string"},
+        "name": {"type": "string", "minLength": 1, "maxLength": 200},
+        "input": {"type": "object"},
+        "cache_control": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/cache_control"}]}
+      }
+    },
+    "tool_result_block": {
+      "type": "object",
+      "required": ["type", "tool_use_id"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {"const": "tool_result"},
+        "tool_use_id": {"type": "string"},
+        "content": {
+          "oneOf": [
+            {"type": "string"},
+            {"type": "array", "items": {"$ref": "#/$defs/text_block"}}
+          ]
+        },
+        "is_error": {"type": "boolean"},
+        "cache_control": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/cache_control"}]}
+      }
+    },
+    "message": {
+      "type": "object",
+      "required": ["role", "content"],
+      "additionalProperties": false,
+      "properties": {
+        "role": {"enum": ["user", "assistant"]},
+        "content": {
+          "oneOf": [
+            {"type": "string"},
+            {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {"$ref": "#/$defs/text_block"},
+                  {"$ref": "#/$defs/tool_use_block"},
+                  {"$ref": "#/$defs/tool_result_block"}
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "tool": {
+      "type": "object",
+      "required": ["name", "input_schema"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {"enum": ["custom", null]},
+        "name": {"type": "string", "pattern": "^[a-zA-Z0-9_-]{1,128}$"},
+        "description": {"type": "string"},
+        "input_schema": {
+          "type": "object",
+          "required": ["type"],
+          "properties": {"type": {"const": "object"}}
+        },
+        "cache_control": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/cache_control"}]},
+        "strict": {"type": "boolean"}
+      }
+    },
+    "tool_choice": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["type"],
+          "additionalProperties": false,
+          "properties": {
+            "type": {"enum": ["auto", "any"]},
+            "disable_parallel_tool_use": {"type": "boolean"}
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "name"],
+          "additionalProperties": false,
+          "properties": {
+            "type": {"const": "tool"},
+            "name": {"type": "string"},
+            "disable_parallel_tool_use": {"type": "boolean"}
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type"],
+          "additionalProperties": false,
+          "properties": {"type": {"const": "none"}}
+        }
+      ]
+    },
+    "thinking": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["type", "budget_tokens"],
+          "additionalProperties": false,
+          "properties": {
+            "type": {"const": "enabled"},
+            "budget_tokens": {"type": "integer", "minimum": 1024},
+            "display": {"enum": ["summarized", "omitted", null]}
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type"],
+          "additionalProperties": false,
+          "properties": {"type": {"enum": ["disabled", "between_tools"]}}
+        },
+        {
+          "type": "object",
+          "required": ["type"],
+          "additionalProperties": false,
+          "properties": {
+            "type": {"const": "adaptive"},
+            "display": {"enum": ["summarized", "omitted", null]}
+          }
+        }
+      ]
+    }
+  }
+}
