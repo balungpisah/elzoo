@@ -71,18 +71,20 @@ phase; otherwise (within a bounded wait) `{:unknown, :settlement_unconfirmed}`. 
 recipient has exited, the content is lost and the settlement is unchanged; a consumer
 that needs durable content retains it after receipt.
 
-**Credential redaction.** The credential never appears in a result: every occurrence
-of the exact credential bytes (resolved through the Need before and after the call or
-listing) in server-supplied strings of a tool result or a tool listing is replaced by
-`[redacted]` before delivery, before the digest and before the Adapter builds its own
-descriptor shape, so adapter-owned keys (`trust`, `name`, `input_schema`, ...) are
-never touched. Map keys are redacted too, except MCP and JSON Schema vocabulary words
-(`text`, `type`, `name`, `properties`, ...), which keep the protocol shape: a credential
-identical to such a word is not redacted in key position. Limits: other encodings of
-the credential (base64, split or escaped forms) are not detected; a token the provider
-resolved that differs from both the pre- and post-call resolutions (two rotations
-within one call) is not covered; two server keys equal after redaction keep one value
-(data loss, never disclosure).
+**Credential redaction.** The credential never appears in a result. Every token the
+Elzoo auth provider hands to ex_mcp is first recorded in the session's ledger (a bounded
+in-memory record linked to the client and stopped by `close/1`; a token that cannot be
+recorded is not sent). Every occurrence of the exact bytes of those tokens, and of the
+credential as resolved before and after the operation, in server-supplied strings of a
+tool result or a tool listing is replaced by `[redacted]` before delivery, before the
+digest and before the Adapter builds its own shapes, so adapter-owned keys (`trust`,
+`name`, `input_schema`, ...) are never touched. Map keys are redacted too, except MCP and
+JSON Schema vocabulary words (`text`, `type`, `name`, `properties`, ...), which keep the
+protocol shape. **A credential whose bytes occur inside any such preserved word or the
+Adapter's own structural literals is refused before any send as
+`refused{credentials_unavailable}`**: the Need is unusable for this Adapter. Two server
+keys equal after redaction keep one value (data loss, never disclosure). Limit: other
+encodings of the credential (base64, split or escaped forms) are not detected.
 
 ## No resend (ex_mcp 1.8.1 settings, each tested)
 

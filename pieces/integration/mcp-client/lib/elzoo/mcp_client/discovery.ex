@@ -7,13 +7,13 @@ defmodule Elzoo.McpClient.Discovery do
   """
   alias Elzoo.McpClient.{Redact, Session, Transport, Wire}
 
-  def list(%Session{config: c, client: client}) do
+  def list(%Session{config: c, client: client, ledger: ledger}) do
     # The credential as resolved before and after listing; server data is
     # redacted before the Adapter builds its own descriptor shape.
     before = Redact.secrets(c.credentials)
 
     with {:ok, raw, truncated} <- pages(client, c, nil, c.max_pages, [], false) do
-      secrets = before ++ Redact.secrets(c.credentials)
+      secrets = Redact.secrets(c.credentials, ledger, before)
       {tools, truncated} = take(raw, c, secrets, truncated)
 
       {:ok,

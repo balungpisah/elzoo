@@ -780,36 +780,75 @@ defmodule Elzoo.McpClientTest do
     text = inspect(d, limit: :infinity, printable_limit: :infinity)
     refute text =~ old
     refute text =~ sent
-    assert [%{"name" => "echo", "trust" => "untrusted", "input_schema" => schema}] = d.tools
+    assert [%{"name" => "echo", "trust" => "untrusted", "input_schema" => schema} | _] = d.tools
     assert Map.keys(schema["properties"]) == ["[redacted]"]
     Server.mode(ctx.server, :pass)
   end
 
-  test "T29 a credential equal to a structural word (name, input_schema, text) keeps discovery and results usable (Adapter redaction)",
+  test "T29 a credential whose bytes occur in a preserved output word (name, input_schema, text, untrusted) is refused credentials_unavailable before any send (auth provider)",
        ctx do
-    for word <- ["name", "input_schema", "text"] do
-      s = session(ctx, credentials: fn -> {:ok, word} end)
-      snap = snapshot(s)
-      assert Enum.map(snap.tools, & &1["name"]) == ["echo", "fail", "strict", "structured"]
+    for word <- ["name", "input_schema", "text", "untrusted", "ype", "Session"] do
+      assert :error = AuthProvider.token(fn -> {:ok, word} end)
+      requests()
 
-      assert Enum.all?(
-               snap.tools,
-               &(Map.keys(&1) |> Enum.sort() ==
-                   ~w(annotations description input_schema name trust))
-             )
+      assert {:error, :credentials_unavailable} =
+               McpClient.connect(config(ctx, credentials: fn -> {:ok, word} end), ctx.sup)
 
-      {:ok, a} =
-        McpClient.admission(
-          s.config,
-          declaration(payload("strict", %{"x" => "v"}), "call-" <> word),
-          snap
-        )
-
-      pid = owner(s, a, ctx)
-      assert {:completed, %{content: [item]}} = McpClient.call_tool(s, a, pid)
-      assert Map.has_key?(item, "text") and Map.has_key?(item, "type")
-      McpClient.close(s)
+      assert Enum.all?(requests(), fn {_, auth?, _} -> not auth? end)
     end
+
+    # The same Need turning into such a word after connect: refused at the call.
+    {:ok, flag} = Agent.start_link(fn -> @token end)
+    s = session(ctx, credentials: fn -> {:ok, Agent.get(flag, & &1)} end)
+    requests()
+    Agent.update(flag, fn _ -> "input_schema" end)
+    assert {:error, :credentials_unavailable, :mcp} = send_one(s, payload("echo", %{}))
+    assert requests() == []
+    assert Enum.all?(Elzoo.McpClient.Redact.preserved(), &is_binary/1)
+  end
+
+  test "T30 two rotations within one call and a failing post-call resolution: every token ex_mcp sent is redacted (ledger)",
+       ctx do
+    {:ok, n} = Agent.start_link(fn -> 0 end)
+    {:ok, fail_after} = Agent.start_link(fn -> :infinity end)
+
+    need = fn ->
+      i = Agent.get_and_update(n, &{&1, &1 + 1})
+      if i >= Agent.get(fail_after, & &1), do: raise("gone"), else: {:ok, "tok-ROT-#{i}-zz"}
+    end
+
+    s = session(ctx, credentials: need)
+    snap = snapshot(s)
+    {:ok, a} = McpClient.admission(s.config, declaration(payload("echo", %{})), snap)
+    pid = owner(s, a, ctx)
+    # Pre-call resolution, the provider's token (sent and echoed) and the post-call
+    # resolution are three different tokens; the server also echoes an older one.
+    Server.mode(ctx.server, {:echo_auth, "tok-ROT-0-zz"})
+    assert {:completed, value} = McpClient.call_tool(s, a, pid)
+    text = inspect({value, Intent.status(pid)}, limit: :infinity, printable_limit: :infinity)
+    refute text =~ "tok-ROT-"
+    assert value.structured["token"] == "[redacted]"
+
+    # Post-call resolution fails: the token the provider sent is still redacted.
+    {:ok, b} = McpClient.admission(s.config, declaration(payload("echo", %{}), "call-2"), snap)
+    pid = owner(s, b, ctx)
+    Agent.update(fail_after, fn _ -> Agent.get(n, & &1) + 2 end)
+    assert {:completed, value} = McpClient.call_tool(s, b, pid)
+    refute inspect(value, limit: :infinity, printable_limit: :infinity) =~ "tok-ROT-"
+    Server.mode(ctx.server, :pass)
+  end
+
+  test "T31 a multi-page listing whose credential rotates on every page: every sent token is redacted from every descriptor (ledger)",
+       ctx do
+    {:ok, n} = Agent.start_link(fn -> 0 end)
+    need = fn -> {:ok, "tok-PAGE-#{Agent.get_and_update(n, &{&1, &1 + 1})}-qq"} end
+    s = session(ctx, credentials: need)
+    Server.mode(ctx.server, {:echo_list, "tok-PAGE-0-qq"})
+    assert {:ok, d} = McpClient.list_tools(s)
+    assert Enum.map(d.tools, & &1["name"]) == ["echo", "echo2", "echo3"]
+    refute inspect(d, limit: :infinity, printable_limit: :infinity) =~ "tok-PAGE-"
+    assert count(requests(), "tools/list") == 3
+    Server.mode(ctx.server, :pass)
   end
 
   test "T19 every failing, raising, throwing, exiting or malformed credential Need is credentials_unavailable with no tool request (auth provider)",

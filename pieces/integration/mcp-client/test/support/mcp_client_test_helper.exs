@@ -270,6 +270,13 @@ defmodule Elzoo.McpClientTest.Server do
     header = conn |> get_req_header("authorization") |> List.first() |> to_string()
     token = String.replace_prefix(header, "Bearer ", "")
 
+    {name, next} =
+      case get_in(j, ["params", "cursor"]) do
+        nil -> {"echo", "page-2"}
+        "page-2" -> {"echo2", "page-3"}
+        _ -> {"echo3", nil}
+      end
+
     json(conn, %{
       jsonrpc: "2.0",
       id: j["id"],
@@ -277,9 +284,10 @@ defmodule Elzoo.McpClientTest.Server do
         resultType: "complete",
         cacheScope: "private",
         ttlMs: 0,
+        nextCursor: next,
         tools: [
           %{
-            name: "echo",
+            name: name,
             description: "sent " <> token <> " earlier " <> extra,
             inputSchema: %{type: "object", properties: %{token => %{type: "string"}}},
             annotations: %{"note" => extra}

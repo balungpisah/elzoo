@@ -33,7 +33,7 @@ defmodule Elzoo.McpClient.Session do
   One connection: the Config and the `ExMCP.Client` process started under the
   caller's supervisor. Inspect shows only the binding module.
   """
-  @enforce_keys [:config, :client]
+  @enforce_keys [:config, :client, :ledger]
   defstruct @enforce_keys
 
   defimpl Inspect do

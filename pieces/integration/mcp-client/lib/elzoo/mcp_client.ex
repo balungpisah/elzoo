@@ -90,7 +90,7 @@ defmodule Elzoo.McpClient do
   """
   def connect(%Config{} = c, supervisor) do
     case Transport.start(c, supervisor) do
-      {:ok, pid} -> {:ok, %Session{config: c, client: pid}}
+      {:ok, pid, ledger} -> {:ok, %Session{config: c, client: pid, ledger: ledger}}
       {:error, reason} -> {:error, reason}
     end
   end
@@ -98,7 +98,7 @@ defmodule Elzoo.McpClient do
   def connect(_, _), do: {:error, :configuration}
 
   @doc "Ends the connection; in-flight calls end `unknown`."
-  def close(%Session{client: pid}) do
+  def close(%Session{client: pid, ledger: ledger}) do
     if is_pid(pid) and Process.alive?(pid) do
       try do
         GenServer.stop(pid, :normal, 5_000)
@@ -107,6 +107,7 @@ defmodule Elzoo.McpClient do
       end
     end
 
+    Elzoo.McpClient.Ledger.stop(ledger)
     :ok
   end
 

@@ -11,7 +11,7 @@ defmodule Elzoo.McpClient.Transport do
   # - every tools/call: the same plus max_mrtr_rounds: 0, never retry_safe, sent
   #   through ExMCP.Client.make_request/5 (@doc false at 1.8.1) because
   #   ExMCP.Client.call_tool/4 resends tools/call after a -32020 error.
-  alias Elzoo.McpClient.{AuthProvider, Config, Wire}
+  alias Elzoo.McpClient.{AuthProvider, Config, Ledger, Wire}
 
   @list_options [retry_policy: false, http_stream_retry: :safe_only, format: :map]
   @call_options [
@@ -27,14 +27,14 @@ defmodule Elzoo.McpClient.Transport do
   def call_options, do: @call_options
 
   @doc false
-  def client_options(%Config{settings: settings} = c) do
+  def client_options(%Config{settings: settings} = c, ledger \\ nil) do
     %{endpoint: endpoint, network: network} = settings
 
     [
       transport: :http,
       url: endpoint.url,
       protocol_mode: c.protocol_mode,
-      auth_provider: {AuthProvider, %{need: c.credentials}},
+      auth_provider: {AuthProvider, %{need: c.credentials, ledger: ledger}},
       reconnect: false,
       health_check_interval: nil,
       use_sse: false,
@@ -58,16 +58,26 @@ defmodule Elzoo.McpClient.Transport do
 
   @doc "Starts the client under the caller's DynamicSupervisor, never restarted."
   def start(%Config{} = c, supervisor) do
+    ledger = Ledger.start()
+
     spec = %{
       id: ExMCP.Client,
-      start: {ExMCP.Client, :start_link, [client_options(c)]},
+      start: {ExMCP.Client, :start_link, [client_options(c, ledger)]},
       restart: :temporary
     }
 
     case DynamicSupervisor.start_child(supervisor, spec) do
-      {:ok, pid} -> {:ok, pid}
-      {:error, reason} -> {:error, connect_reason(reason)}
-      _ -> {:error, :connect_failed}
+      {:ok, pid} ->
+        Ledger.link(ledger, pid)
+        {:ok, pid, ledger}
+
+      {:error, reason} ->
+        Ledger.stop(ledger)
+        {:error, connect_reason(reason)}
+
+      _ ->
+        Ledger.stop(ledger)
+        {:error, :connect_failed}
     end
   catch
     _, _ -> {:error, :connect_failed}

@@ -44,7 +44,7 @@ defmodule Elzoo.McpClient.Adapter do
             Transport.unsent_stage_for_pre(reason)
         end
 
-      value = Redact.value(value, secrets ++ Redact.secrets(c.credentials))
+      value = Redact.value(value, Redact.secrets(c.credentials, s.ledger, secrets))
       tag = Outcome.classify(stage, reply)
       deliver(ctx, key, attempt_id, tag, value)
       envelope(tag, value, c, key, attempt_id)

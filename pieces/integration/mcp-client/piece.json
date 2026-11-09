@@ -32,7 +32,7 @@
   "limits": [
     "ExMCP.Client.make_request/5 is @doc false at ex_mcp 1.8.1 (pinned exactly): an upstream risk guarded by drift tests; ExMCP.Client.call_tool/4 is not used because it resends tools/call after a -32020 header-mismatch error.",
     "A tool result's content is delivered to the recipient Need by best-effort in-memory mailbox delivery that precedes the owner's settlement commit; only call_tool/3 waits for the owner's confirmed phase (else unknown{settlement_unconfirmed}). The intent store keeps a sealed digest; a recipient that has exited loses the content and the settlement is unchanged.",
-    "Redaction of an echoed credential covers the exact credential bytes (resolved before and after the call or listing) in server-supplied strings and non-vocabulary keys, applied before the Adapter builds its own shapes; other encodings, a credential equal to an MCP/JSON Schema vocabulary key in key position, and a token rotated twice within one call are not covered.",
+    "Echoed-credential redaction covers the exact bytes of every token the auth provider handed to ex_mcp (session ledger) plus the bookend resolutions, in server-supplied strings and non-vocabulary keys, before the Adapter builds its own shapes; a credential overlapping a preserved word is refused (credentials_unavailable); other encodings (base64, split, escaped) are not detected.",
     "The discovery snapshot is a local, possibly stale admission filter; it claims nothing about the server's current tool set or schema.",
     "One transport (Streamable HTTP); no stdio, OAuth, resources, prompts, subscriptions, tasks or sampling; no claim about what a tool does on its server.",
     "ex_mcp's own [:ex_mcp, ...] telemetry and debug logs are emitted upstream and reach consumer handlers; no credential was observed in them in the tested scenarios only.",
@@ -47,6 +47,7 @@
     "lib/elzoo/mcp_client/binding.ex",
     "lib/elzoo/mcp_client/config.ex",
     "lib/elzoo/mcp_client/discovery.ex",
+    "lib/elzoo/mcp_client/ledger.ex",
     "lib/elzoo/mcp_client/outcome.ex",
     "lib/elzoo/mcp_client/redact.ex",
     "lib/elzoo/mcp_client/snapshot.ex",
