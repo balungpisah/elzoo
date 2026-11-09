@@ -1,7 +1,9 @@
 # ELZ-023 (#37): independent EARLY Contract review
 
-- Reviewer: Orca session `orca_session_id:0f974e4c-75e1-4daf-9a19-7720ad2b1633` (task `task_0e2e10dbaa38`, dispatch `ctx_91ee2fe4f81f`). I authored none of the proposal. No helpers.
-- Reviewed head: **`c90a7385baafa1eadc4da30945dcf0312c521ec9`** on `task/ELZ-023` (claim `5f62e64f63641ded4e51ab776257f974ad782d10`). Worktree `/Users/laptopdp/orca/workspaces/elzoo/elzoo-ELZ-023`: `git status --short` empty before and after. Diff from the claim: exactly three files, `docs/work/ELZ-023.md` (443 lines), `docs/work/ELZ-023-probes/policy.cure` (118), `docs/work/ELZ-023-probes/probe.exs` (133). No production code exists.
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text.
+
+- Reviewer: an independent review session. I authored none of the proposal. No helpers.
+- Reviewed head: **`c90a7385baafa1eadc4da30945dcf0312c521ec9`** on `task/ELZ-023` (claim `5f62e64f63641ded4e51ab776257f974ad782d10`). Worktree `<worktrees>/elzoo-ELZ-023`: `git status --short` empty before and after. Diff from the claim: exactly three files, `docs/work/ELZ-023.md` (443 lines), `docs/work/ELZ-023-probes/policy.cure` (118), `docs/work/ELZ-023-probes/probe.exs` (133). No production code exists.
 - Live issue #37: OPEN, labels `task`, `ready`; issue body and `tasks/ELZ-023-dispatched-effect-intent.md` are byte-equal (8021 bytes, SHA-256 `6dd2b87b…9421`). I read all five issue comments (bot publication and re-sync, decision A lifting the block, the claim, the proposal-progress comment). No amendment exists on the issue.
 - Pinned Cure checked: `git -C deps/cure rev-parse HEAD` = `208248063d64e621782cd26dd30698ee42850a89`.
 - Dependency sources read: `core/envelope` (Cure and Elixir), `delivery/retry-timeout` README, `state/event-log` (README, `durable_log.ex`, `confirmation.ex`, `checkpoint.ex` codec), `state/checkpoint`, `integration/sql` README, ELZ-009 uncertainty tables. None changed.
@@ -100,13 +102,13 @@ Yes. My CONDITIONAL verdict is: the proposal is clear to proceed **only after** 
 
 ## 7. Commands, exits and counts
 
-Required locale/scheduler flags on every Mix/Elixir command; pin `208248063d…`; database only `elzoo_pieces_test`; no existing test or pin touched.
+Required locale/scheduler flags on every Mix/Elixir command; pin `208248063d…`; database only the disposable test database; no existing test or pin touched.
 
 | # | Command (short) | Exit | Result |
 | --- | --- | --- | --- |
 | 1 | `git rev-parse HEAD`; `git status --short`; `git diff --stat 5f62e64 HEAD` | 0 | `c90a7385…`; empty; 3 files, 694 insertions |
 | 2 | `gh api …/issues/37` vs task file; comments listing | 0 | open, `task`/`ready`; 8021 bytes equal; 5 comments |
-| 3 | `MIX_ENV=test ELZOO_TEST_DATABASE_URL=…/elzoo_pieces_test mix run --no-start docs/work/ELZ-023-probes/probe.exs` | 0 | **`Result: 8 passed`** (log `/tmp/elz023-review-probe.log`); probe source hashes equal the document: `policy.cure` `b0d0a263…3a5f`, `probe.exs` `7db4a6c8…3265` |
+| 3 | `MIX_ENV=test ELZOO_TEST_DATABASE_URL=…/<test database> mix run --no-start docs/work/ELZ-023-probes/probe.exs` | 0 | **`Result: 8 passed`** (log `/tmp/elz023-review-probe.log`); probe source hashes equal the document: `policy.cure` `b0d0a263…3a5f`, `probe.exs` `7db4a6c8…3265` |
 | 4 | `/tmp/elz023-review/probes.exs` (P1 Envelope matrix, P2 `classify`, P3 mutations, P4 history) | 0 | 8 valid result pairs, `unknown/not_dispatched` invalid; result without `attempt_id` accepted; `classify` gives `:permanent` for dispatched permanent rows; mutants `PendingRearms`, `ExpiredRearms`, `ResumeRearms`, `RearmAnyGroundless` pass all laws and probe checks; `DispatchedRearmDirect` caught only by a positive assertion; first and post-rearm dispatch decisions identical |
 | 5 | `/tmp/elz023-review/label.exs` on generated `label.cure` (2,045 lines; step laws from an independent Python model) | 0 | `check_source OK`; audit lists empty, absurd 0 |
 | 6 | `/tmp/elz023-review/labelmut.exs` | 0 | 6 of 6 mutants rejected (`conversion_failure`) |

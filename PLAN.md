@@ -4,7 +4,7 @@ This is a one-time bootstrap plan, not a mandatory development lifecycle.
 
 ## Contract
 
-- The repository root is `/Users/laptopdp/Developer/sabrang/elzoo`.
+- The repository root is `<repository root>`.
 - This is a new project. Zoo's Bend toolchain, decisions and gates do not govern
   elzoo. Preserve the composable architecture, not its development bureaucracy.
 - Cure owns new pure decision logic when suitable. Elixir/OTP and maintained

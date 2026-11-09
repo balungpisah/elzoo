@@ -1,6 +1,8 @@
 # ELZ-011 owner decision packet after early review
 
-Status: ACCEPTED by coordinator decision msg_18881a0d44c3 on 2026-11-08.
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text.
+
+Status: ACCEPTED by coordinator decision <message id> on 2026-11-08.
 The exact amendment was posted on #11 before applying the body/task/hash update;
 no production implementation. The historical recommendations and D4 wording
 below are retained verbatim as the approved record.
@@ -9,7 +11,7 @@ record pinned-source retry_job state coverage on #11 before relying on it.
 The "awaiting approval" wording below describes the packet when submitted.
 The independent review at `0716e36865782847a9a786aa9d4ac28c7b1c5766` is
 **NOT CLEAR as written**, not implementation permission. Reviewer session
-`0f974e4c-75e1-4daf-9a19-7720ad2b1633`, dispatch `ctx_4a3fb5dd7ad9`.
+<session id>, dispatch <dispatch id>.
 Full findings/evidence/limits: [review](ELZ-011-early-review.md).
 
 ## Exact Contract decision
@@ -140,5 +142,5 @@ Cure proof exists for this proposal. All high/medium findings remain tracked
 until the revised proposal/probes receive explicit focused clearance. Root's
 ELZ-023 main CI retry and cleanup remain independent pending work.
 
-R1–R3 approval: coordinator msg_98ca8e655f8f, 2026-11-08;
+R1–R3 approval: coordinator <message id>, 2026-11-08;
 see [focused review](ELZ-011-focused-review.md) for binding G1–G9.

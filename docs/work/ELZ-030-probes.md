@@ -1,5 +1,7 @@
 # ELZ-030 — Executed Cure feasibility probes
 
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text.
+
 Historical stage-one evidence only (source bytes unchanged by revision two).
 The revised Contract is in [ELZ-030.md](ELZ-030.md). The original probe shares
 its access predicate with the guard and has no trusted snapshot, memoization,
@@ -14,7 +16,7 @@ source roots. No new ready source, production test or proof is claimed.
 ## Environment and exact command
 
 Working directory for every command:
-`/Users/laptopdp/orca/workspaces/elzoo/elzoo-ELZ-030`.
+`<worktrees>/elzoo-ELZ-030`.
 
 Pinned dependency checked with `git -C deps/cure rev-parse HEAD`:
 `a004c335cc4e9f2203ba6f51fc31e8540b66378d` (exit 0).

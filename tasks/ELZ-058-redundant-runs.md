@@ -12,7 +12,7 @@
 ## Outcome
 
 One merge costs several full checks on the same content. Run 42458730941 (queue exact-head run,
-success), then the push run 42461141823 on the merge commit `452caa1` (23 min 01 s on `symbolic`)
+success), then the push run 42461141823 on the merge commit `452caa1` (23 min 01 s on machine A)
 checked a tree that is identical to the exact head that already passed. Owner decision
 2026-11-08 ("go"): remove the redundant runs, keep the evidence.
 

@@ -1,8 +1,10 @@
 # ELZ-011 review of the stream-size test correction
 
-Reviewer: Orca session 0f974e4c-75e1-4daf-9a19-7720ad2b1633 (task_820cc89f153c, dispatch ctx_d9bf408190cc).
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text.
+
+Reviewer: an independent review session.
 Reviewed head: `a3d3b540d4dcadc74ac855c6dc9c8eb73c407288` on `task/ELZ-011`, one local commit on top of `e452b7fadc4c9cf7f6e24a1cf6b9380bbefa03cc` (`origin/task/ELZ-011`, not pushed).
-Worktree: `/Users/laptopdp/orca/workspaces/elzoo/elzoo-ELZ-011`. I changed no tracked file. `git status --short` was empty after every command and HEAD stayed `a3d3b54`.
+Worktree: `<worktrees>/elzoo-ELZ-011`. I changed no tracked file. `git status --short` was empty after every command and HEAD stayed `a3d3b54`.
 Earlier clearance: final narrow review at `094eff1` (CLEAR). It carries forward for the product source, which this commit does not touch.
 
 ## Verdict

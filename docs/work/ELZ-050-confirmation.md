@@ -1,6 +1,8 @@
 # ELZ-050 narrow confirmation
 
-Reviewer: `orca_session_id:0e1ac343-b55f-4201-9987-f8083645211e`
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text.
+
+Reviewer: an independent review session
 Reviewed HEAD: `c527988e6bc841f02f90f949e042f1a2ee9bf0d8`
 Previous reviewed SHA: `8e0fe422bc194259af1764bff1f1211a979ea3e0`
 Merged main: `665d3e07c58fb9a3e7818a037a6910132535fa53`
@@ -12,7 +14,7 @@ No further work remains for this narrow review; normal PR integration and accept
 
 ## Commands and exit codes
 
-Working directory: `/Users/laptopdp/orca/workspaces/elzoo/elzoo-ELZ-050`
+Working directory: `<worktrees>/elzoo-ELZ-050`
 
 | Command / check | Exit | Result |
 | --- | --- | --- |

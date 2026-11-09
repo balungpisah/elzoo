@@ -47,7 +47,7 @@ platform. The change is therefore in that script plus a workflow step that passe
 
 ## Acceptance
 
-- [ ] The Gleam job of this PR passes using the new route (run and job IDs), on `symbolic-elzoo-gleam`.
+- [ ] The Gleam job of this PR passes using the new route (run and job IDs), on the Gleam runner.
 - [ ] A wrong checksum in a test copy of the script fails closed (test, not CI).
 - [ ] Guard and tests pass; independent review of the actual diff (separate agent session, reviewed SHA).
 - [ ] The queue question `queue free for PR #N?` is asked before the merge.

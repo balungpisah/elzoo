@@ -64,7 +64,7 @@ need.
 
 ## Accepted interface and evidence conditions
 
-Authorized by root coordinator `RUN:RUN_53A86670020C` on 2026-11-08
+Authorized by root coordinator `<run id>` on 2026-11-08
 approximately 04:20 WIB, relayed through the pieces coordinator; D1-D5 accepted
 in strict form after review of `e737807d5a0c8c3b365fb91a2824ccab12f1c861`.
 This amendment changes this not-yet-ready task only, not any ready Contract.

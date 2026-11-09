@@ -1,6 +1,7 @@
 # ELZ-023 focused amendment probe evidence
 
 > Redacted before publication (ELZ-065): the password part of local test-database URLs (`ecto://user:…@localhost`) and role commands is replaced by an ellipsis; the recorded commands are otherwise exact.
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text.
 
 Status: executed feasibility evidence; [independent review](ELZ-023-focused-review.md)
 is CONDITIONAL at 82287ca; no production acceptance.
@@ -15,7 +16,7 @@ are applied in the live/task Contract and [revised proposal](ELZ-023.md).
 
 ## Environment and exact commands
 
-Worktree: `/Users/laptopdp/orca/workspaces/elzoo/elzoo-ELZ-023`.
+Worktree: `<worktrees>/elzoo-ELZ-023`.
 Cure `208248063d64e621782cd26dd30698ee42850a89`, Elixir 1.20.4, OTP 29.1.2.
 No dependency/configuration/production files changed since the recorded pinned setup
 and full baseline check (32 + 564 passed); these new docs/probes do not claim a
@@ -23,10 +24,10 @@ fresh full production check. All final probe commands below exited **0**.
 
 ```sh
 python3 docs/work/ELZ-023-probes/generate_provenance.py
-env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_ENV=test ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:…@localhost/elzoo_pieces_test elixir -pa '_build/test/lib/*/ebin' docs/work/ELZ-023-probes/provenance.exs
-env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_ENV=test ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:…@localhost/elzoo_pieces_test elixir -pa '_build/test/lib/*/ebin' docs/work/ELZ-023-probes/capacity.exs
-env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_ENV=test ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:…@localhost/elzoo_pieces_test elixir -pa '_build/test/lib/*/ebin' docs/work/ELZ-023-probes/recovery.exs
-env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_ENV=test ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:…@localhost/elzoo_pieces_test elixir -pa '_build/test/lib/*/ebin' docs/work/ELZ-023-probes/probe.exs
+env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_ENV=test ELZOO_TEST_DATABASE_URL=ecto://<test role>:…@localhost/<test database> elixir -pa '_build/test/lib/*/ebin' docs/work/ELZ-023-probes/provenance.exs
+env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_ENV=test ELZOO_TEST_DATABASE_URL=ecto://<test role>:…@localhost/<test database> elixir -pa '_build/test/lib/*/ebin' docs/work/ELZ-023-probes/capacity.exs
+env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_ENV=test ELZOO_TEST_DATABASE_URL=ecto://<test role>:…@localhost/<test database> elixir -pa '_build/test/lib/*/ebin' docs/work/ELZ-023-probes/recovery.exs
+env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_ENV=test ELZOO_TEST_DATABASE_URL=ecto://<test role>:…@localhost/<test database> elixir -pa '_build/test/lib/*/ebin' docs/work/ELZ-023-probes/probe.exs
 python3 scripts/check-roadmap.py --write
 python3 scripts/check-roadmap.py
 python3 scripts/check-roadmap.py --live

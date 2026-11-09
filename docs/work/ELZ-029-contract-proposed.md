@@ -1,5 +1,7 @@
 # ELZ-029 — proposed Contract amendments (exact before/after text, revision 2)
 
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text. This file quotes exact before-texts for replacement; the runner name inside one quoted before-text is redacted too, so that quote is no longer byte-exact.
+
 Status: **approved wording (A1–A7), not yet applied in this form; A7″ and A8 proposed in revision 4, A7′ withdrawn.** The main
 coordinator approved A2 and A3 as written in revision 1 and the **reworded**
 A1, A4, A5, A6 and A7 below (byte-exact before-texts from the focused re-review
@@ -321,7 +323,7 @@ Replace this exact substring:
 
 ```text
 - [ ] Timeout and collector death both leave no surviving process group
-      (executable tests on the symbolic runner).
+      (executable tests on the first fast runner).
 - [ ] Escalation stage is reported from observation, not assumed.
 ```
 

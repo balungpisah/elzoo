@@ -11,22 +11,22 @@
 
 ## Outcome
 
-`contabo-elzoo-1` (runner id 24) is registered and documented with no `backend` label (owner
+the slow VPS runner (runner id 24) is registered and documented with no `backend` label (owner
 decision 2026-11-08, ELZ-056). It passed one full trial but took about twice as long as the
-MacBook on the same tree (root suite 2625.6 s against 1340.4 s; `symbolic` 1116.3 s on a
+MacBook on the same tree (root suite 2625.6 s against 1340.4 s; machine A 1116.3 s on a
 different tree). The CPU is slower per thread (worker benchmark: about 1.8 times slower than
-`symbolic`); the 5-core cap, the disk and CPU steal do not explain it. GitHub gives a job to any
+machine A); the 5-core cap, the disk and CPU steal do not explain it. GitHub gives a job to any
 idle runner with matching labels and cannot prefer a faster one.
 
 Owner decision 2026-11-08 ("go"): pull request checks and merge-queue exact-head runs run only
-on the fast runners (`symbolic-elzoo`, `macbook-ubuntu-elzoo-candidate`); `main` push runs and
-measurement dispatches may use any backend runner, including `contabo-elzoo-1`. Only after this
-task merges does `contabo-elzoo-1` receive the routing label.
+on the two fast runners; `main` push runs and
+measurement dispatches may use any backend runner, including the slow VPS runner. Only after this
+task merges does the slow VPS runner receive the routing label.
 
 ## Scope
 
 - Tier label: `fast` on the two fast runners (account-level label assignment by the
-  coordinator, as for `backend`). `contabo-elzoo-1` never gets `fast`.
+  coordinator, as for `backend`). The slow VPS runner never gets `fast`.
 - Workflow (coordinator decision): two jobs, `check-fast` and `check-any`, with `if:` on the event
   and the `tier` input. The merge queue and a measurement run are both `workflow_dispatch`, so
   a `tier` input (`fast` default, `any`) separates them: the queue always dispatches `fast`, and
@@ -54,7 +54,7 @@ task merges does `contabo-elzoo-1` receive the routing label.
      same head makes it ambiguous).
 - Labels, in this order (the coordinator, account-level; not part of the diff): (1) add `fast` to the
   two fast runners before the workflow with `check-fast` merges, otherwise pull request checks queue
-  without a runner; (2) after the merge, add `backend` to `contabo-elzoo-1` and confirm it with one
+  without a runner; (2) after the merge, add `backend` to the slow VPS runner and confirm it with one
   `tier` = `any` dispatch that lands there (run and job IDs, duration, cgroup peak, sampled CPU,
   `cpu.max` reading). Remove the label if that run fails.
 
@@ -63,7 +63,7 @@ task merges does `contabo-elzoo-1` receive the routing label.
 - [ ] Tier rule and runner budget documented; chosen workflow shape and reasons recorded.
 - [ ] Guard and tests pass with new negative controls; the old guard rejects the new shape.
 - [ ] A pull request run and a queue run land only on `fast` runners (run and job IDs, runner names).
-- [ ] After the merge and the `backend` label: a `tier` = `any` dispatch lands on `contabo-elzoo-1` and passes (observed once).
+- [ ] After the merge and the `backend` label: a `tier` = `any` dispatch lands on the slow VPS runner and passes (observed once).
 - [ ] Independent review of the actual diff (separate agent session, reviewed SHA on the PR).
 - [ ] Full `mix check` on the PR head and on the merge commit, runner identity shown.
 - [ ] The coordinator asks the queue question before any merge; no hand dispatch while the queue runs.

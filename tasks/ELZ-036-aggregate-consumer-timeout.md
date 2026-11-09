@@ -26,7 +26,7 @@ Piece makes it slower. Its `@tag timeout: 360_000` is now too short:
 ## Acceptance
 
 - [ ] Only the timeout value, its comment and the task file change.
-- [ ] Full `mix check` passes; symbolic CI passes on the PR head and on the merge commit.
+- [ ] Full `mix check` passes; machine A CI passes on the PR head and on the merge commit.
 - [ ] Independent review of the actual diff.
 
 ## Evidence and limits

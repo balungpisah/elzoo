@@ -1,5 +1,7 @@
 # ELZ-023 focused review handoff
 
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text.
+
 ELZ-023: focused review **CONDITIONAL**, no production implementation permission yet.
 Branch/PR: `task/ELZ-023`; [issue #37](https://github.com/balungpisah/elzoo/issues/37); no PR; independently reviewed SHA `82287cadde03351745415a46ad6e2c190d2bb0dd`.
 Checks: all three focused commands in [exact reproduction](ELZ-023-focused-probes.md) exited 0: provenance `Result: 11 passed`, capacity `Result: 7 passed`, recovery `Result: 7 passed`; independently reproduced; roadmap write/plain/live and diff checks exit 0; recorded full unchanged-baseline setup/check exit 0, `Result: 32 passed`, `Result: 564 passed`, `ELZOO CHECK PASSED`.
@@ -7,8 +9,8 @@ Grounding: seven Cure step-label laws with clean audit; independent 13/13 policy
 Limits: reviewer found a real unsafe replay-history sequence in the reduced probe; its label laws do not establish the complete replay-horizon invariant; no production, decoder/fold, machine-crash or exactly-once claim.
 Open work: root A1 acknowledgement/choice below; binding G1–G9 implementation gates; full production validation and independent actual-diff review; no PR/merge.
 
-Reviewer `orca_session_id:0f974e4c-75e1-4daf-9a19-7720ad2b1633`,
-dispatch `ctx_d44dba661673`, task `task_add87fbffb16`.
+Reviewer an independent review session,
+dispatch <dispatch id>, task <task id>.
 The [complete independent report](ELZ-023-focused-review.md) is preserved verbatim.
 No helper remains active. Report prepared 2026-11-08 WIB.
 

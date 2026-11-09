@@ -1,6 +1,7 @@
 # ELZ-023 final review follow-up
 
 > Redacted before publication (ELZ-065): the password part of local test-database URLs (`ecto://user:…@localhost`) and role commands is replaced by an ellipsis; the recorded commands are otherwise exact.
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text.
 
 ELZ-023: F1 and approved F2 fixes applied; fresh full check passed; incremental review pending.
 Branch/PR: `task/ELZ-023`; issue #37; no PR; independent reviewed head `196d0881cd80a878029ff582e87c786732c2cbbf`.
@@ -10,8 +11,8 @@ Limits: no review clearance/PR/merge claimed; the old full check does not accept
 Open work: independent incremental review of the actual F1+F2 diff, then PR/authorized queue/main acceptance/cleanup.
 
 Prepared 2026-11-08 11:07 WIB. Independent reviewer session
-`orca_session_id:0f974e4c-75e1-4daf-9a19-7720ad2b1633`, dispatch
-`ctx_ba3927238e5e`, verdict CONDITIONAL (F1 major, F2 medium); no Contract
+an independent review session, dispatch
+<dispatch id>, verdict CONDITIONAL (F1 major, F2 medium); no Contract
 amendment needed per that review. The reviewer found no bypass of the durable
 failed_definite law, but did find liveness starvation and a source-attribution gap.
 
@@ -35,7 +36,7 @@ self-declared Store-limits assumption is now explicit in the README.
 Exact green command, exit 0:
 
 ```sh
-env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_ENV=test ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:…@localhost/elzoo_pieces_test mix test pieces/delivery/effect-intent/test/elzoo/
+env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_ENV=test ELZOO_TEST_DATABASE_URL=ecto://<test role>:…@localhost/<test database> mix test pieces/delivery/effect-intent/test/elzoo/
 ```
 
 Log: `/tmp/elz023-a1/review-f1-tests.log`. No full check is claimed for F1 yet.
@@ -74,8 +75,8 @@ Then run fresh setup/full check and independent incremental review.
 
 ### Approval and retained regression coverage
 
-The root coordinator approved question `msg_db1a9f1bb028` on 2026-11-08 about
-11:40 WIB, in dispatch `ctx_ada55dc734ce`: the two named tests were introduced
+The root coordinator approved question <message id> on 2026-11-08 about
+11:40 WIB, in dispatch <dispatch id>: the two named tests were introduced
 in this unmerged branch at `dae4acf`; no merged existing test or assertion is
 changed. The independent CONDITIONAL verdict at `196d088` required F2's
 source-attribution correction. The exact two corrections listed above preserve
@@ -112,11 +113,11 @@ exited 0 (137 links, no tracked claims); protected-file diff is empty.
 Production commit `7fcc308049703060678bf4fda7d939d15c4f4273` was pushed and the
 worktree stayed clean throughout fresh setup and the uninterrupted full check.
 Cure is `208248063d64e621782cd26dd30698ee42850a89`, Elixir 1.20.4, OTP 29.1.2.
-Only the assigned `elzoo_pieces_test` database was used. Exact commands:
+Only the assigned disposable test database was used. Exact commands:
 
 ```sh
-env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_ENV=test ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:…@localhost/elzoo_pieces_test mix setup
-env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_ENV=test ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:…@localhost/elzoo_pieces_test mix check
+env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_ENV=test ELZOO_TEST_DATABASE_URL=ecto://<test role>:…@localhost/<test database> mix setup
+env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_ENV=test ELZOO_TEST_DATABASE_URL=ecto://<test role>:…@localhost/<test database> mix check
 ```
 
 Both exited **0**. Setup fetched the locked dependencies and completed; full

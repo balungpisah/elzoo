@@ -27,7 +27,7 @@ The inner time grows with the number of ready Pieces copied together.
 ## Acceptance
 
 - [ ] Only the helper option, its comment and the task file change.
-- [ ] Full `mix check` passes; symbolic CI passes on the PR head and on the merge commit.
+- [ ] Full `mix check` passes; machine A CI passes on the PR head and on the merge commit.
 - [ ] Independent review of the actual diff.
 
 ## Evidence and limits

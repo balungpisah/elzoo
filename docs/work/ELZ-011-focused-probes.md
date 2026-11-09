@@ -1,8 +1,9 @@
 # ELZ-011 amended-proposal feasibility evidence
 
 > Redacted before publication (ELZ-065): the password part of local test-database URLs (`ecto://user:…@localhost`) and role commands is replaced by an ellipsis; the recorded commands are otherwise exact.
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text.
 
-Root decision: msg_18881a0d44c3, 2026-11-08. D1/D2/D3 option A/D4/D5
+Root decision: <message id>, 2026-11-08. D1/D2/D3 option A/D4/D5
 accepted, with real PostgreSQL composition and pinned-source retry_job state
 coverage. No production files or existing merged tests changed. This is
 feasibility evidence for focused review, not implementation acceptance.
@@ -85,7 +86,7 @@ All Mix commands use this prefix and own database:
 export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 export ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1'
 export MIX_ENV=test
-export ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:…@localhost/elzoo_pieces_test
+export ELZOO_TEST_DATABASE_URL=ecto://<test role>:…@localhost/<test database>
 mix run docs/work/ELZ-011-probes/composition.exs
 mix run docs/work/ELZ-011-probes/timing-json.exs
 python3 docs/work/ELZ-011-probes/mutate-composition.py
