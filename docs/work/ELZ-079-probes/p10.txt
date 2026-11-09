@@ -1,0 +1,38 @@
+# p10 transcript: req_llm 1.30.0, Elixir 1.20.4, OTP 29, Req.Test stubs, no network, stub key; run 2026-11-09
+response steps: [:retry, :handle_http_errors, :redirect, :http_digest, :decompress_body,
+ :verify_checksum, :decode_body, :llm_decode_response, :llm_usage,
+ :llm_telemetry_stop]
+req: {"/v1/messages", ["2023-06-01"], ["max_tokens", "messages", "model", "stream"]}
+raw: %{
+  status: 200,
+  body: {:binary,
+   %{
+     "cache_creation_input_tokens" => 0,
+     "input_tokens" => 11,
+     "output_tokens" => 7
+   }},
+  headers: %{
+    "cache-control" => ["max-age=0, private, must-revalidate"],
+    "content-type" => ["application/json; charset=utf-8"],
+    "request-id" => ["req_1"]
+  }
+}
+body struct: ReqLLM.Response
+decoded: {"msg_01", :stop, %{cache_read_input_tokens: 0, input_tokens: 11}}
+count: 1
+timeout: {:error,
+ %ReqLLM.Error.API.Request{
+   reason: "timeout",
+   status: nil,
+   response_body: nil,
+   ...
+ }}
+count after timeout (expect 2): 2
+429: {:error,
+ %ReqLLM.Error.API.Request{
+   reason: "Provider response error (429): Anthropic API error: x",
+   status: 429,
+   response_body: %{"error" => %{...}, ...},
+   ...
+ }}
+count after 429 (expect 3): 3
