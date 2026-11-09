@@ -411,7 +411,9 @@ defmodule Elzoo.CureConsumerCase do
   end
 
   defp consumer_applications(plan) do
-    providers = for {_, p} <- plan.providers, p["source"] == "hex", do: p["package"]
+    providers =
+      for {_, p} <- plan.providers, p["source"] == "hex", p["runtime"] != false, do: p["package"]
+
     applications = Enum.flat_map(plan.pieces, &Map.get(&1, "applications", []))
     [:logger | Enum.map(Enum.uniq(providers ++ applications), &String.to_existing_atom/1)]
   end
