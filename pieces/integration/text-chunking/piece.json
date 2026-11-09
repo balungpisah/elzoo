@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "id": "integration/text-chunking",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "recipe",
+  "providers": [
+    "text_chunker",
+    "elixir",
+    "otp"
+  ],
+  "dependencies": [],
+  "contract": "Pure chunking of one frozen UTF-8 source (1 MiB default and hard ceiling) bound to its caller-supplied SHA-256 through text_chunker 1.0.1: ordered chunks with dense index, exact start/end byte ranges re-checked against the source before return, and per-chunk SHA-256; graphemes only (chunk_size 16..65536, default 2000; overlap at most half, default 200; :plaintext or :markdown; max_chunks default 4096, ceiling 65536); refused whole, never truncated, with a finite error table: invalid_option{name}, source_too_large, empty_source, digest_mismatch, invalid_utf8, too_many_chunks, chunker_invariant.",
+  "limits": [
+    "No proof is claimed; finite tests over listed and seeded generated scenarios.",
+    "Chunks may overlap and are not promised to partition or cover the source; overlap itself is not guaranteed (upstream).",
+    "Sizes are graphemes only: no token count, byte measure, caller-supplied measure or custom strategy.",
+    "No semantic quality, language detection or extraction from PDF, DOCX or HTML bytes; format selects separators only.",
+    "CPU time is bounded only through the 1 MiB source bound; the no-separator path of text_chunker 1.0.1 is quadratic and its timings are observations, not a time guarantee.",
+    "The digest binds the result to the bytes supplied, not to their authenticity; source ownership and retention are state/artifact's (deferred)."
+  ],
+  "files": [
+    "examples/text_chunking.exs",
+    "lib/elzoo/text_chunking.ex",
+    "test/elzoo/text_chunking_test.exs"
+  ],
+  "applications": [
+    "crypto"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/text_chunking_test.exs",
+      "claim": "Named scenarios T1-T10: seeded generator over mixed ASCII, multi-byte, emoji, combining marks, CRLF and separators in both formats checking offsets, digests, index, first start and order for every chunk; determinism; fixed whitespace/separator/overlap/bound cases; every error reason returned without raising or bytes; digest mismatch and pre-check never reach the split; each offset re-check failure refused whole through a private seam; invalid options and inputs; import-table audit; a printed no-separator observation at the default bound. Run in the repository and, by the hosted check-consumers jobs, in the exported consumer layout without the root Application; finite evidence, not proof."
+    },
+    {
+      "kind": "upstream",
+      "provider": "text_chunker",
+      "reference": "https://hexdocs.pm/text_chunker/1.0.1/TextChunker.html",
+      "claim": "TextChunker.split/2 with the default RecursiveChunk strategy at 1.0.1: split points, byte ranges in TextChunker.Chunk, grapheme measure and the overlap behaviour it states as not guaranteed; named, not proved, and re-checked at runtime by the Recipe."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/apps/crypto/crypto.html",
+      "claim": "OTP 29.1.2 crypto SHA-256 for the source and chunk digests."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/String.html",
+      "claim": "Elixir 1.20.4 String.valid?/1 for UTF-8 validation and String.length/1 for grapheme counts."
+    },
+    {
+      "kind": "assumption",
+      "claim": "U1: every chunk text_chunker 1.0.1 returns has at most chunk_size graphemes. The chunk-count pre-check relies on it; checked over the seeded test corpus only; the post-check on the actual result stays the sole authority."
+    },
+    {
+      "kind": "assumption",
+      "claim": "U2: the chunks text_chunker 1.0.1 returns together cover every byte of the source. The chunk-count pre-check relies on it; checked over the seeded test corpus only and not promised to callers."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The caller's digest is of the bytes it means to cite; the Recipe checks consistency of source and digest, not authenticity."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "Pure function with no I/O, process or lifecycle to observe; the caller owns instrumentation."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Per-call max_source_bytes, chunk_size, chunk_overlap, format and max_chunks validated against declared defaults and hard ceilings; values apply only to the current call; unknown or repeated options refused; no hot reconfiguration.",
+      "evidence": [
+        "test/elzoo/text_chunking_test.exs"
+      ]
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "Pure call with no process, lifecycle, drain protocol or durable control state."
+    }
+  }
+}
