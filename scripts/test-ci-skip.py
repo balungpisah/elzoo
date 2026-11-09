@@ -34,8 +34,13 @@ def make_repo(root, scenario):
     if scenario == "root":
         return repo, sh(repo, "rev-parse", "HEAD"), None
     sh(repo, "switch", "-qc", "pr")
-    (repo / "b").write_text("b\n")
-    sh(repo, "add", "b")
+    # ELZ-071: scenarios whose pull request changes documentation paths (the default changes the file "b").
+    pr_files = {"docs": ["docs/b.md"], "docs-code": ["docs/b.md", "scripts/x.py"], "docs-consuming": ["docs/consuming.md"],
+                "docs-ledger": ["LEDGER.md"], "docs-rename-out": ["scripts/a.md"]}.get(scenario, ["b"])
+    for name in pr_files:
+        (repo / name).parent.mkdir(parents=True, exist_ok=True)
+        (repo / name).write_text("b\n")
+        sh(repo, "add", name)
     sh(repo, "commit", "-qm", "pr")
     pr_head = sh(repo, "rev-parse", "HEAD")
     sh(repo, "switch", "-q", "main")
@@ -482,6 +487,168 @@ class HttpTest(unittest.TestCase):
                          "http://productionresultssa9.blob.core.windows.net/actions-results/x"):
             with self.subTest(location=location):
                 self.assertFalse(skip.redirect_allowed(location))
+
+
+class DocsOnlyDecision(unittest.TestCase):
+    """ELZ-071: a documentation-only merge is skipped on the short check of its pull_request run."""
+
+    MARKER = "2026-11-09T05:00:00.0000000Z ELZOO DOCS-ONLY CHECK PASSED\n"
+
+    def scenario(self, name):
+        path = tempfile.mkdtemp(prefix="elzoo-skip-docs-")
+        self.addCleanup(shutil.rmtree, path, True)
+        repo, head, second = make_repo(path, name)
+        env = {"GITHUB_EVENT_NAME": "push", "GITHUB_REF": "refs/heads/main", "GITHUB_SHA": head,
+               "GITHUB_REPOSITORY": "balungpisah/elzoo", "GITHUB_TOKEN": "token"}
+        return env, (lambda *argv: sh(repo, *argv)), second
+
+    def api(self, second, steps=None, log=None, event="pull_request", **run):
+        api = FakeApi(second)
+        api.run.update(event=event, head_repository={"full_name": "balungpisah/elzoo"}, **run)
+        api.job["steps"] = steps if steps is not None else [
+            {"name": "Verify the GitHub-hosted runner", "conclusion": "success"},
+            {"name": "Classify the change", "conclusion": "success"},
+            {"name": "Run mix check", "conclusion": "skipped"},
+            {"name": "Docs-only check", "conclusion": "success"}]
+        api.log = log if log is not None else self.MARKER
+        return api
+
+    def decide(self, name="docs", **kwargs):
+        env, run_git, second = self.scenario(name)
+        return skip.decide(env, run_git, self.api(second, **kwargs)), second
+
+    def refuses(self, pattern, name="docs", **kwargs):
+        env, run_git, second = self.scenario(name)
+        with self.assertRaisesRegex(skip.Full, pattern):
+            skip.decide(env, run_git, self.api(second, **kwargs))
+
+    def test_a_documentation_merge_with_a_passed_short_check_skips(self):
+        (verdict, reason, details), second = self.decide()
+        self.assertTrue(verdict)
+        self.assertRegex(reason, "documentation-only change")
+        self.assertEqual(("docs-only", second, 900, 901), (details["mode"], details["second_parent"], details["run"], details["job"]))
+
+    def test_the_log_line_names_the_short_check(self):
+        env, run_git, second = self.scenario("docs")
+        lines = []
+        skip.main(env, run_git, self.api(second), out=lines.append)
+        self.assertEqual(1, len(lines))
+        self.assertTrue(lines[0].startswith("ELZOO PUSH CHECK SKIPPED (identical tree; exact-head docs-only check passed): "))
+        self.assertIn(f"second_parent={second} ", lines[0])
+        env, run_git, second = self.scenario("merge")
+        full = FakeApi(second)
+        lines = []
+        skip.main(env, run_git, full, out=lines.append)
+        self.assertTrue(lines[0].startswith("ELZOO PUSH CHECK SKIPPED (identical tree; exact-head full run passed): "))
+
+    def test_a_code_change_in_the_merge_needs_the_full_marker(self):
+        for name in ("docs-code", "docs-consuming", "docs-ledger", "docs-rename-out", "merge"):
+            with self.subTest(name=name):
+                self.refuses("not documentation only", name=name)
+
+    def test_the_short_check_is_evidence_only_on_a_pull_request_run(self):
+        for event in ("workflow_dispatch", "push", "schedule", "", None):
+            with self.subTest(event=event):
+                self.refuses("only on a pull_request run|no queue run", event=event)
+
+    def test_a_fork_pull_request_run_is_never_evidence(self):
+        for repo in ({"full_name": "someone/elzoo"}, {}, None, "balungpisah/elzoo"):
+            with self.subTest(repo=repo):
+                env, run_git, second = self.scenario("docs")
+                api = self.api(second)
+                api.run["head_repository"] = repo
+                with self.assertRaises(skip.Full):
+                    skip.decide(env, run_git, api)
+
+    def test_every_step_of_the_short_check_must_be_green_once(self):
+        gate = {"name": "Verify the GitHub-hosted runner", "conclusion": "success"}
+
+        def shape(classify="success", mix="skipped", docs="success", extra=()):
+            return [gate] + ([{"name": "Classify the change", "conclusion": classify}] if classify else []) + \
+                   ([{"name": "Run mix check", "conclusion": mix}] if mix else []) + \
+                   ([{"name": "Docs-only check", "conclusion": docs}] if docs else []) + list(extra)
+        bad = {"docs-only check failed": shape(docs="failure"), "docs-only check skipped": shape(docs="skipped"),
+               "docs-only check missing": shape(docs=None), "classify failed": shape(classify="failure"),
+               "classify skipped": shape(classify="skipped"), "classify missing": shape(classify=None),
+               "classify twice": shape(extra=[{"name": "Classify the change", "conclusion": "success"}]),
+               "docs-only check twice": shape(extra=[{"name": "Docs-only check", "conclusion": "success"}]),
+               "mix check missing": shape(mix=None), "mix check failed": shape(mix="failure"),
+               "mix check cancelled": shape(mix="cancelled")}
+        for label, steps in bad.items():
+            with self.subTest(label=label):
+                self.refuses("docs-only check steps|Run mix check step missing", steps=steps)
+
+    def test_the_marker_must_be_a_line_of_its_own_and_alone(self):
+        marker = "ELZOO DOCS-ONLY CHECK PASSED"
+        for label, log in {"timestamp": f"2026-11-09T05:00:00.0000000Z {marker}\n", "bare": f"{marker}\n",
+                           "crlf": f"{marker}\r\n"}.items():
+            with self.subTest(label=label):
+                (verdict, _reason, _details), _second = self.decide(log=log)
+                self.assertTrue(verdict)
+        for label, log in {"none": "", "other": "all done\n", "echo": f'echo "{marker}"\n', "prefix": f"x {marker}\n",
+                           "suffix": f"{marker} nope\n", "full marker only": "ELZOO CHECK PASSED\n",
+                           "both": f"{marker}\nELZOO CHECK PASSED\n",
+                           "affected": f"{marker}\nELZOO AFFECTED CHECK PASSED (not full)\n"}.items():
+            with self.subTest(label=label):
+                self.refuses("docs-only success marker missing", log=log)
+
+    def test_a_full_run_still_skips_a_documentation_merge_too(self):
+        (verdict, reason, details), _second = self.decide(
+            steps=[{"name": "Verify the GitHub-hosted runner", "conclusion": "success"},
+                   {"name": "Run mix check", "conclusion": "success"}], log="ELZOO CHECK PASSED\n")
+        self.assertTrue(verdict)
+        self.assertEqual("full", details["mode"])
+
+    def test_the_other_evidence_rules_apply_to_the_short_check(self):
+        for label, change in {"failed run": dict(conclusion="failure"), "unfinished": dict(status="in_progress", conclusion=None),
+                              "cancelled": dict(conclusion="cancelled"), "another head": dict(head_sha="e" * 40),
+                              "another path": dict(path=".github/workflows/other.yml"),
+                              "task branch": dict(head_branch="feature/x")}.items():
+            with self.subTest(label=label):
+                self.refuses(".+", **change)
+
+    def test_the_ancestor_rule_for_pull_request_runs_still_applies(self):
+        # "same-change" has an identical tree but main moved past the head; that is no documentation change here,
+        # and a pull_request run still needs a head that holds the first parent.
+        self.refuses("another tree|not documentation only", name="same-change")
+
+    def test_a_missing_classifier_means_the_full_check(self):
+        original = skip.CLASSIFIER
+        skip.CLASSIFIER = None
+        try:
+            self.refuses("not documentation only")
+        finally:
+            skip.CLASSIFIER = original
+
+    def test_a_classifier_or_git_that_raises_means_the_full_check(self):
+        env, run_git, second = self.scenario("docs")
+
+        def failing(*argv):
+            if "--raw" in argv:
+                raise subprocess.CalledProcessError(128, "git")
+            return run_git(*argv)
+        with self.assertRaisesRegex(skip.Full, "not documentation only"):
+            skip.decide(env, failing, self.api(second))
+        self.assertFalse(skip.docs_only_merge(lambda *argv: "garbage", "a" * 40, "b" * 40))
+        self.assertFalse(skip.docs_only_merge(lambda *argv: (_ for _ in ()).throw(OSError("x")), "a" * 40, "b" * 40))
+        self.assertFalse(skip.docs_only_merge(lambda *argv: "", "a" * 40, "b" * 40))
+        self.assertFalse(skip.docs_only_merge(run_git, "--output=x", "b" * 40))
+
+    def test_the_decision_loads_the_classifier_next_to_itself(self):
+        self.assertIsNotNone(skip.CLASSIFIER)
+        self.assertEqual((ROOT / "scripts/ci-change-class.py").resolve(), pathlib.Path(skip.CLASSIFIER.__file__).resolve())
+
+    def test_the_classification_asks_git_for_the_change_against_the_first_parent(self):
+        env, run_git, second = self.scenario("docs")
+        calls = []
+
+        def spy(*argv):
+            calls.append(argv)
+            return run_git(*argv)
+        skip.decide(env, spy, self.api(second))
+        first = run_git("rev-parse", "HEAD^1")
+        raw = [c for c in calls if "--raw" in c]
+        self.assertEqual([("diff", "--raw", "-z", "--no-renames", "--no-abbrev", f"{first}...{env['GITHUB_SHA']}", "--")], raw)
 
 
 if __name__ == "__main__":
