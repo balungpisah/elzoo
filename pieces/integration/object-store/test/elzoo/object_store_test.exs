@@ -330,9 +330,32 @@ defmodule Elzoo.ObjectStoreTest do
     do: send(parent, {:finch_meta, inspect(meta, limit: :infinity, printable_limit: :infinity)})
 
   test "S11 the Adapter's own source emits no log line and no telemetry event" do
+    # Only this Piece's own sources: in a copied consumer, lib/ also holds other Pieces' files
+    # (runtime/telemetry among them). The expected list is fixed, so a missing file fails.
     lib = Path.expand("../../lib", __DIR__)
 
-    for file <- Path.wildcard(Path.join(lib, "**/*.ex")) do
+    own = [
+      "elzoo/object_store.ex",
+      "elzoo/object_store/binding.ex",
+      "elzoo/object_store/config.ex",
+      "elzoo/object_store/presigned.ex",
+      "elzoo/object_store/request.ex",
+      "elzoo/object_store/result.ex"
+    ]
+
+    found =
+      [
+        Path.join(lib, "elzoo/object_store.ex")
+        | Path.wildcard(Path.join(lib, "elzoo/object_store/**/*.ex"))
+      ]
+      |> Enum.filter(&File.regular?/1)
+      |> Enum.map(&Path.relative_to(&1, lib))
+      |> Enum.sort()
+
+    assert found == own
+
+    for relative <- own do
+      file = Path.join(lib, relative)
       source = File.read!(file)
       refute source =~ ~r/\bLogger\./, file
       refute source =~ ~r/:telemetry\./, file
