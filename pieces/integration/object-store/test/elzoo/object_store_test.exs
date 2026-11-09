@@ -235,6 +235,16 @@ defmodule Elzoo.ObjectStoreTest do
              OS.put(c, "#{p}/once", "2", if_absent: true)
 
     assert %{status: :found, body: "1"} = OS.get(c, "#{p}/once")
+
+    # Devin 1: a non-boolean if_absent is refused before dispatch, never an unconditional write
+    for bad <- [1, "true", :yes, nil] do
+      assert %{status: :refused, reason: :invalid_request, origin: :local} =
+               OS.put(c, "#{p}/once", "3", if_absent: bad)
+    end
+
+    assert %{status: :found, body: "1"} = OS.get(c, "#{p}/once")
+    assert %{status: :committed} = OS.put(c, "#{p}/once", "4", if_absent: false)
+    assert %{status: :found, body: "4"} = OS.get(c, "#{p}/once")
   end
 
   test "delete is committed on 204 for an existing and for a missing key", %{config: c, p: p} do
@@ -390,6 +400,32 @@ defmodule Elzoo.ObjectStoreTest do
              OS.put(c, "#{p}/e", "e", declaration: %{})
 
     assert %{status: :absent} = OS.head(c, "#{p}/e")
+
+    # Devin 5: a supplied declaration is checked by every operation, reads and presign included
+    other = decl.("integration/http", "get")
+
+    for r <- [
+          OS.get(c, "#{p}/d", declaration: other),
+          OS.head(c, "#{p}/d", declaration: other),
+          OS.list(c, p, declaration: other),
+          OS.presign(c, "#{p}/d", declaration: other),
+          OS.delete(c, "#{p}/d", declaration: decl.("integration/object-store", "put")),
+          OS.get(c, "#{p}/d", declaration: decl.("integration/object-store", "head"))
+        ] do
+      assert %{status: :refused, reason: :invalid_request, origin: :local} = r
+    end
+
+    assert %{status: :found} =
+             OS.get(c, "#{p}/d", declaration: decl.("integration/object-store", "get"))
+
+    assert %{status: :found} =
+             OS.head(c, "#{p}/d", declaration: decl.("integration/object-store", "head"))
+
+    assert %{status: :listed} =
+             OS.list(c, p, declaration: decl.("integration/object-store", "list"))
+
+    assert {:ok, _} =
+             OS.presign(c, "#{p}/d", declaration: decl.("integration/object-store", "presign"))
   end
 
   test "S16 the test binding fails closed without the S3 variables (never skips)" do

@@ -33,11 +33,11 @@ defmodule Elzoo.ObjectStore do
          :ok <- check_declaration(opts, :put, base),
          {:ok, deadline} <- deadline(c, opts, base),
          {:ok, content_type} <- content_type(opts, base),
+         {:ok, if_absent} <- if_absent(opts, base),
          {:ok, body, sha} <- check_body(c, body, opts, base) do
       execute(
         c,
-        {:put, key, body,
-         %{sha256: sha, content_type: content_type, if_absent: opts[:if_absent] == true}},
+        {:put, key, body, %{sha256: sha, content_type: content_type, if_absent: if_absent}},
         base,
         deadline
       )
@@ -49,6 +49,7 @@ defmodule Elzoo.ObjectStore do
     base = Result.base(c, :get, %{key: key})
 
     with :ok <- check_key(key, base),
+         :ok <- check_declaration(opts, :get, base),
          {:ok, deadline} <- deadline(c, opts, base) do
       execute(c, {:get, key, c.max_object_bytes}, base, deadline)
     end
@@ -59,6 +60,7 @@ defmodule Elzoo.ObjectStore do
     base = Result.base(c, :head, %{key: key})
 
     with :ok <- check_key(key, base),
+         :ok <- check_declaration(opts, :head, base),
          {:ok, deadline} <- deadline(c, opts, base) do
       execute(c, {:head, key}, base, deadline)
     end
@@ -76,6 +78,9 @@ defmodule Elzoo.ObjectStore do
     cond do
       not prefix?(prefix) ->
         Result.refused(base, :invalid_request, :local)
+
+      check_declaration(opts, :list, base) != :ok ->
+        check_declaration(opts, :list, base)
 
       not (is_integer(page_size) and page_size >= 1 and page_size <= c.max_page_size) ->
         Result.refused(base, :invalid_request, :local)
@@ -144,6 +149,9 @@ defmodule Elzoo.ObjectStore do
     cond do
       check_key(key, base) != :ok ->
         check_key(key, base)
+
+      check_declaration(opts, :presign, base) != :ok ->
+        check_declaration(opts, :presign, base)
 
       method not in [:get, :put] or not (is_integer(expires) and expires in 1..c.presign_max_s) ->
         Result.refused(base, :invalid_request, :local)
@@ -271,6 +279,15 @@ defmodule Elzoo.ObjectStore do
     ct = Keyword.get(opts, :content_type, "application/octet-stream")
 
     if Config.text?(ct, 256), do: {:ok, ct}, else: Result.refused(base, :invalid_request, :local)
+  end
+
+  # Only a boolean enables or disables the conditional write; anything else is refused before
+  # dispatch, so a mistaken value never turns into an unconditional overwrite.
+  defp if_absent(opts, base) do
+    case Keyword.get(opts, :if_absent, false) do
+      v when is_boolean(v) -> {:ok, v}
+      _ -> Result.refused(base, :invalid_request, :local)
+    end
   end
 
   defp check_body(c, body, opts, base) do

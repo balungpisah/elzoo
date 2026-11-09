@@ -123,10 +123,15 @@ defmodule Elzoo.ObjectStore.Request do
           body = collected(resp)
           meta = metadata(resp, byte_size(body))
 
-          if meta.sha256 == nil or meta.sha256 == hex(:crypto.hash(:sha256, body)) do
-            Map.merge(base, %{status: :found, metadata: meta, body: body})
-          else
-            Result.unknown(base, :integrity)
+          cond do
+            meta.sha256 == :malformed ->
+              Result.unknown(base, :integrity)
+
+            meta.sha256 == nil or meta.sha256 == hex(:crypto.hash(:sha256, body)) ->
+              Map.merge(base, %{status: :found, metadata: meta, body: body})
+
+            true ->
+              Result.unknown(base, :integrity)
           end
         end
 
@@ -145,7 +150,10 @@ defmodule Elzoo.ObjectStore.Request do
 
     case {resp.status, header(resp, "x-minio-error-code")} do
       {200, _} ->
-        Map.merge(base, %{status: :found, metadata: metadata(resp, nil)})
+        case metadata(resp, nil) do
+          %{sha256: :malformed} -> Result.unknown(base, :integrity)
+          meta -> Map.merge(base, %{status: :found, metadata: meta})
+        end
 
       {404, nil} ->
         # The provider omitted the error code: one documented bucket HEAD decides between a
@@ -319,12 +327,18 @@ defmodule Elzoo.ObjectStore.Request do
           _ -> nil
         end
 
+    # An absent checksum header is nil; a present header that is not a base64 SHA-256 is
+    # :malformed and never treated as absent (the caller reports unknown{integrity}).
     sha256 =
-      with v when is_binary(v) <- header(resp, "x-amz-checksum-sha256"),
-           {:ok, raw} when byte_size(raw) == 32 <- Base.decode64(v) do
-        hex(raw)
-      else
-        _ -> nil
+      case header(resp, "x-amz-checksum-sha256") do
+        nil ->
+          nil
+
+        v ->
+          case Base.decode64(v) do
+            {:ok, raw} when byte_size(raw) == 32 -> hex(raw)
+            _ -> :malformed
+          end
       end
 
     %{

@@ -48,6 +48,49 @@ defmodule Elzoo.ObjectStoreStubTest do
     assert %{status: :unknown, reason: :integrity} = OS.get(c, "k")
   end
 
+  test "Devin 2: a present but malformed stored checksum is unknown{integrity}, never found" do
+    for value <- ["malformed", Base.encode64("short")] do
+      {c, _} = stub_reply(200, [{"x-amz-checksum-sha256", value}], "changed")
+      assert %{status: :unknown, reason: :integrity} = OS.get(c, "k")
+      {c, _} = stub_reply(200, [{"x-amz-checksum-sha256", value}])
+      assert %{status: :unknown, reason: :integrity} = OS.head(c, "k")
+      {c, _} = stub_reply(200, [{"x-amz-checksum-sha256", value}])
+      assert %{status: :unknown, reason: :integrity} = OS.reconcile_put(c, "k", H.sha("changed"))
+    end
+
+    {c, _} = stub_reply(200, [], "no checksum stored")
+    assert %{status: :found, metadata: %{sha256: nil}} = OS.get(c, "k")
+  end
+
+  test "Devin 3: a put poll with a matching checksum but another stored size stays pending" do
+    data = "ab"
+    sha = H.sha(data)
+
+    {c, _} =
+      stub_reply(200, [{"x-amz-checksum-sha256", Base.encode64(sha)}, {"content-length", "1"}])
+
+    req = %{
+      context: Elzoo.ObjectStore.Binding.context(c),
+      key: String.duplicate("a", 64),
+      attempt_id: "attempt-1",
+      arguments: Elzoo.ObjectStore.Binding.arguments(:put, key: "k", sha256: sha, bytes: 2)
+    }
+
+    assert {:pending, %{"observation" => "size_mismatch"} = ev} =
+             Elzoo.ObjectStore.Binding.Put.poll(req)
+
+    assert :ok = Elzoo.ObjectStore.Binding.Put.authenticate({:pending, ev}, req)
+
+    {c, _} =
+      stub_reply(200, [{"x-amz-checksum-sha256", Base.encode64(sha)}, {"content-length", "2"}])
+
+    assert %{"outcome" => "completed", "value" => %{"bytes" => 2}} =
+             Elzoo.ObjectStore.Binding.Put.poll(%{
+               req
+               | context: Elzoo.ObjectStore.Binding.context(c)
+             })
+  end
+
   test "S13 connection refused is unknown{transport}; a silent server is unknown{deadline}" do
     c = H.stub_config(H.closed_port())
     assert %{status: :unknown, reason: :transport} = OS.put(c, "k", "v", deadline_ms: 2_000)
@@ -86,6 +129,8 @@ defmodule Elzoo.ObjectStoreStubTest do
       OS.put(c, "a//b", "v"),
       OS.put(c, "k", "v", deadline_ms: 0),
       OS.put(c, "k", "v", content_type: "bad\ntype"),
+      OS.put(c, "k", "v", if_absent: 1),
+      OS.put(c, "k", "v", if_absent: "true"),
       OS.list(c, "", page_size: 1001),
       OS.list(c, "", continuation: ""),
       OS.get(c, "", []),
@@ -101,7 +146,7 @@ defmodule Elzoo.ObjectStoreStubTest do
     end
 
     assert Enum.map(results, & &1.reason) ==
-             ~w(too_large too_large checksum_mismatch invalid_request invalid_key invalid_request invalid_request invalid_request invalid_request invalid_key invalid_request credentials_unavailable credentials_unavailable credentials_unavailable)a
+             ~w(too_large too_large checksum_mismatch invalid_request invalid_key invalid_request invalid_request invalid_request invalid_request invalid_request invalid_request invalid_key invalid_request credentials_unavailable credentials_unavailable credentials_unavailable)a
 
     refute_received {:stub_connection, ^ref}
   end

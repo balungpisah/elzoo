@@ -173,12 +173,17 @@ defmodule Elzoo.ObjectStoreTestHelper do
     end
   end
 
+  @doc "A raw HTTP/1.1 response; a `content-length` given in `headers` replaces the computed one."
   def response(status, headers, body \\ "") do
     reason = %{200 => "OK", 204 => "No Content", 404 => "Not Found", 500 => "Internal Server Error"}
     head = Enum.map_join(headers, "", fn {k, v} -> "#{k}: #{v}\r\n" end)
 
     "HTTP/1.1 #{status} #{Map.get(reason, status, "Status")}\r\n" <>
-      head <> "content-length: #{byte_size(body)}\r\nconnection: close\r\n\r\n" <> body
+      head <>
+      if(List.keymember?(headers, "content-length", 0),
+        do: "",
+        else: "content-length: #{byte_size(body)}\r\n"
+      ) <> "connection: close\r\n\r\n" <> body
   end
 
   @doc "A config pointing at a loopback stub (fake credential; never the test server's)."

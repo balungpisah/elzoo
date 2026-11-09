@@ -253,6 +253,11 @@ defmodule Elzoo.ObjectStore.Binding.Put do
   def poll(%{context: ctx} = req) do
     with {:ok, %{operation: :put} = a} <- B.decode(req.arguments || "") do
       case ObjectStore.reconcile_put(ctx.config, a.key, a.sha256, deadline_ms: ctx.deadline_ms) do
+        %{status: :reconciled, observation: :match, head: %{metadata: %{size: size}}}
+        when size != a.bytes ->
+          # the checksum matches but the stored size differs from the declared one: no completion
+          {:pending, B.evidence(req, :pending, %{"observation" => "size_mismatch"})}
+
         %{status: :reconciled, observation: :match} ->
           B.completed(req, @value_schema, %{
             "key" => a.key,
