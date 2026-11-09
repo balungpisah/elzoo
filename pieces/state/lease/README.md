@@ -115,11 +115,14 @@ stamp (clock regression) refuses every operation except `seize`.
   request); only read-only calls can return `{:error, :contended}`.
 - **PostgreSQL lock deadline:** before the lease locks,
   `Elzoo.Lease.Postgres` sets transaction-local `lock_timeout` equal to
-  `timeout_ms`. Its client transaction budget is exactly `timeout_ms + 1_000`
-  ms, so PostgreSQL reports the lock deadline first. Only SQLSTATE 55P03
-  (`lock_not_available`) before the first write is `{:error, :contended}`;
-  connection, pool, query and transport-close failures are
-  `{:error, :unavailable}`.
+  `timeout_ms`. Its client transaction budget starts at transaction start and
+  is exactly `timeout_ms + 1_000` ms. When the schema probe and lock setup
+  complete within that 1,000-ms grace, PostgreSQL reports the lock deadline as
+  SQLSTATE 55P03 (`lock_not_available`) before the first write, yielding
+  `{:error, :contended}`. If the client budget expires first (for example,
+  during a slow schema probe), the result is `{:error, :unavailable}`—never
+  `{:error, :contended}` and never a false grant; connection, pool, query and
+  transport-close failures are likewise `{:error, :unavailable}`.
 - **Proof scope:** selected laws cover the classification over ordering
   outcomes and the specification of the comparison; the production comparison
   is finite-test-grounded against the law-covered structural mirror, not
