@@ -292,6 +292,75 @@ class DecisionTest(unittest.TestCase):
                 with self.assertRaises(skip.Full):
                     skip.decide(env, run_git, api)
 
+    # ELZ-059: the same-repository pull_request run is the merge evidence; the dispatch run is the fallback.
+    PR_RUN = dict(event="pull_request", head_repository={"full_name": "balungpisah/elzoo"})
+
+    def test_pull_request_run_is_accepted_as_evidence(self):
+        env, run_git, second = self.scenario("merge")
+        api = FakeApi(second)
+        api.run.update(self.PR_RUN)
+        skipped, _reason, details = skip.decide(env, run_git, api)
+        self.assertTrue(skipped)
+        self.assertEqual(900, details["run"])
+
+    def test_pull_request_run_needs_a_head_that_holds_the_first_parent(self):
+        # A pull_request run tests the merge of the head with its base. When main moved past the head, the
+        # tested tree can differ from the head tree, so only a head that holds the first parent can skip.
+        # "same-change": the merge tree equals the head tree, so only this rule refuses the skip.
+        env, run_git, second = self.scenario("same-change")
+        api = FakeApi(second)
+        api.run.update(self.PR_RUN)
+        with self.assertRaisesRegex(skip.Full, "another tree"):
+            skip.decide(env, run_git, api)
+
+    def test_dispatch_run_does_not_need_the_ancestor_of_the_first_parent(self):
+        # A dispatch run tests the head itself, so the tree of the head is the tested tree.
+        (verdict, _reason, _details), _api, _second = self.decide("same-change")
+        self.assertTrue(verdict)
+
+    def test_pull_request_run_from_a_fork_or_without_repository_is_refused(self):
+        for repo in ({"full_name": "someone/elzoo"}, {"full_name": "balungpisah/elzoo-fork"}, {}, None, "balungpisah/elzoo"):
+            with self.subTest(repo=repo):
+                env, run_git, second = self.scenario("merge")
+                api = FakeApi(second)
+                api.run.update(event="pull_request", head_repository=repo)
+                with self.assertRaises(skip.Full):
+                    skip.decide(env, run_git, api)
+
+    def test_other_events_are_not_evidence(self):
+        for event in ("push", "schedule", "workflow_run", "pull_request_target", "issue_comment", "", None):
+            with self.subTest(event=event):
+                env, run_git, second = self.scenario("merge")
+                api = FakeApi(second)
+                api.run.update(event=event, head_repository={"full_name": "balungpisah/elzoo"})
+                with self.assertRaises(skip.Full):
+                    skip.decide(env, run_git, api)
+
+    def test_the_latest_run_decides_across_events(self):
+        env, run_git, second = self.scenario("merge")
+        for newer in (dict(conclusion="failure"), dict(conclusion="cancelled"), dict(status="in_progress", conclusion=None)):
+            with self.subTest(newer=newer):
+                api = FakeApi(second)
+                older = dict(api.run)
+                api.runs = [older, dict(api.run, id=950, **self.PR_RUN, **newer)]
+                with self.assertRaises(skip.Full):
+                    skip.decide(env, run_git, api)
+        api = FakeApi(second)
+        api.runs = [dict(api.run, id=950, **self.PR_RUN, conclusion="failure"), dict(api.run, id=960)]
+        api.job["run_id"] = 960
+        api.run["id"] = 960
+        skipped, _reason, details = skip.decide(env, run_git, api)  # a newer dispatch success after a failed pull_request run
+        self.assertTrue(skipped)
+        self.assertEqual(960, details["run"])
+
+    def test_listing_is_not_filtered_by_event_on_the_server(self):
+        env, run_git, second = self.scenario("merge")
+        api = FakeApi(second)
+        skip.decide(env, run_git, api)
+        listing = next(c for c in api.calls if "workflows/" in c and "runs?" in c)
+        self.assertIn(f"head_sha={second}", listing)
+        self.assertNotIn("event=", listing)
+
     def test_log_markers(self):
         env, run_git, second = self.scenario("merge")
         for log in ("", "ELZOO AFFECTED CHECK PASSED", "echo 'ELZOO CHECK PASSED'",

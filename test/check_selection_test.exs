@@ -199,21 +199,23 @@ defmodule Elzoo.CheckSelectionTest do
     assert_all(Selection.from_git(ctx.registry, base, Path.join(root, "missing-directory")))
   end
 
-  test "CI invokes affected mode only for PRs; main, dispatch and unknown events stay full" do
+  test "CI runs the full check for every event; the workflow never invokes affected mode" do
     workflow = File.read!(".github/workflows/symbolic-check.yml")
     assert workflow =~ "fetch-depth: 0"
-    assert workflow =~ "ELZOO_CHECK_EVENT: ${{ github.event_name }}"
-    assert workflow =~ "ELZOO_CHECK_BASE: ${{ github.event.pull_request.base.sha }}"
+    refute workflow =~ "ELZOO_CHECK_EVENT"
+    refute workflow =~ "ELZOO_CHECK_BASE"
+    refute workflow =~ "--affected"
     # Execute the actual run block using a harmless stand-in for the check wrapper.
     [_, step] = Regex.run(~r/      - name: Run mix check\n(.*?)      - name:/s, workflow)
-    [_, script] = String.split(step, "        run: |\n", parts: 2)
-    script = String.replace(script, ~r/^          /m, "")
+    [_, script] = Regex.run(~r/^        run: (.+)\n/m, step)
+    assert script == "sh scripts/run-ci-check.sh"
     root = git_fixture()
     stub = Path.join(root, "sh")
     File.write!(stub, "#!/bin/sh\nprintf '%s\\n' \"$@\"\n")
     File.chmod!(stub, 0o755)
     base = "base with spaces; not shell code"
 
+    # A leftover event or base variable must not select affected mode.
     for event <- ["pull_request", "push", "workflow_dispatch", "unknown", ""] do
       {output, 0} =
         System.cmd("/bin/sh", ["-eu", "-c", script],
@@ -224,11 +226,7 @@ defmodule Elzoo.CheckSelectionTest do
           ]
         )
 
-      assert output ==
-               if(event == "pull_request",
-                 do: "scripts/run-ci-check.sh\n--affected\n#{base}\n",
-                 else: "scripts/run-ci-check.sh\n"
-               )
+      assert output == "scripts/run-ci-check.sh\n"
     end
   end
 

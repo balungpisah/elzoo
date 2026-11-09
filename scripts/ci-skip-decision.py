@@ -6,7 +6,8 @@ merge, the second is the pull request head that the merge queue merged with --ma
 If the merge commit's tree equals the second parent's tree, the merged content is exactly the
 content that the queue's exact-head full run checked. The run is skipped only when that run can be
 found again and passes the same evidence rules as the queue (scripts/merge-queue.py): the latest
-workflow_dispatch run of symbolic-check.yml on that exact head succeeded, with one successful
+run of symbolic-check.yml on that exact head (a same-repository pull_request run, or a workflow_dispatch
+run as the queue's fallback; ELZ-059) succeeded, with one successful
 `check-hosted` job on a GitHub-hosted runner of the approved label (ELZ-066, ELZ-069: the only lane),
 a successful identity step, a successful `Run mix check` step, the full success marker and no
 affected-mode marker in its log.
@@ -122,6 +123,16 @@ def git(*argv):
     return result.stdout.strip()
 
 
+def evidence_event(run, repo):
+    """ELZ-059: the pull_request run of the same repository is the merge evidence; a workflow_dispatch run
+    stays valid as the queue's fallback. A pull_request run from a fork is never evidence."""
+    event = run.get("event")
+    if event == "workflow_dispatch":
+        return True
+    source = run.get("head_repository")
+    return event == "pull_request" and isinstance(source, dict) and source.get("full_name") == repo
+
+
 def decide(env, run_git=git, api=None):
     """Return (skip, reason, details). Raises Full for every reason to run the full check."""
     need(env.get("GITHUB_EVENT_NAME") == "push" and env.get("GITHUB_REF") == "refs/heads/main",
@@ -139,12 +150,12 @@ def decide(env, run_git=git, api=None):
          "missing repository or token")
     api = api or Api(repo, env["GITHUB_TOKEN"])
 
-    query = urllib.parse.urlencode({"event": "workflow_dispatch", "head_sha": second, "per_page": 100})
+    query = urllib.parse.urlencode({"head_sha": second, "per_page": 100})
     listing = api.json(f"actions/workflows/{WORKFLOW}/runs?{query}")
     runs = listing.get("workflow_runs")
     need(isinstance(runs, list) and isinstance(listing.get("total_count"), int)
          and listing["total_count"] == len(runs) <= 100, "run listing incomplete or malformed")
-    candidates = [run for run in runs if run.get("event") == "workflow_dispatch"
+    candidates = [run for run in runs if evidence_event(run, repo)
                   and run.get("head_sha") == second
                   and run.get("path") == f".github/workflows/{WORKFLOW}"
                   and BRANCH.fullmatch(run.get("head_branch") or "")]
@@ -153,6 +164,12 @@ def decide(env, run_git=git, api=None):
     # The latest run decides: an older success must not hide a newer failure or a cancellation.
     run = max(candidates, key=lambda r: r["id"])
     run_id, attempt = run["id"], run.get("run_attempt")
+    if run.get("event") == "pull_request":
+        # A pull_request run tests the merge of the head with its base. When the head holds the whole of main
+        # (the first parent), that merge has the tree of the head. Otherwise the run tested another tree.
+        # No commit of the first parent is outside the head: rev-list lists none.
+        ancestor = run_git("rev-list", "--count", f"{second}..{parents[1]}") == "0"
+        need(ancestor, "the pull_request run may have tested another tree: the head does not hold the first parent")
     need(run.get("status") == "completed" and run.get("conclusion") == "success"
          and isinstance(attempt, int) and attempt > 0,
          f"latest run {run_id} is not a completed success")

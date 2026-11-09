@@ -15,6 +15,11 @@ references; registry/providers.json records provider pins. `owned` means handwri
 means direct upstream usage. Proof is a separate property of a particular
 claim, not an implementation category or a badge for an entire piece.
 
+Take Pieces from the latest commit of `main` whose push run of the backend
+workflow (`symbolic-check.yml`) is green; there is no separate marker branch.
+A push run that logs `ELZOO PUSH CHECK SKIPPED` counts: it names the green
+exact-head run of the merged pull request.
+
 Planned and deferred entries are inventory, not installable stubs. Ready
 means the named subset is usable. For example, the hashing recipe does not
 implement the whole crypto family, and the HTTP client recipe is not a durable
