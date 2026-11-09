@@ -2,20 +2,84 @@
 defmodule Elzoo.HttpJob.Adapter do
   @moduledoc "One fixed-origin HTTP publication Adapter; every timer expiry has unknown dispatch."
   alias Elzoo.HttpJob.{Binding, Call, Wire}
+  alias Elzoo.Telemetry
   def failure_tags, do: Map.keys(Binding.failures())
   def schema, do: "elzoo/publication-v1"
   def validate(bytes, "elzoo/publication-v1"), do: Wire.publication(bytes)
   def validate(_, _), do: {:error, :schema}
 
-  def send_effect(req), do: request(req, :put)
+  def send_effect(req), do: observed(req, :send, fn -> request(req, :put) end)
 
   def poll(req) do
-    case request(req, :get) do
-      result when is_map(result) -> result
-      {:error, :not_acknowledged, _} -> {:pending, :http_pending}
-      _ -> {:unavailable, :http_unavailable}
+    observed(req, :poll, fn ->
+      case request(req, :get) do
+        result when is_map(result) -> result
+        {:error, :not_acknowledged, _} -> {:pending, :http_pending}
+        _ -> {:unavailable, :http_unavailable}
+      end
+    end)
+  end
+
+  # ELZ-052: bounded :effect events around one send/poll, in the owner's task
+  # process and outside the transport total_ms timer (observation only; the
+  # result and any raise are unchanged). A handler's run time is elapsed time.
+  defp observed(req, operation, fun) do
+    mark = Telemetry.mark()
+    meta = effect_meta(req, operation)
+    Telemetry.emit([:elzoo, :effect, :start], Telemetry.compact(%{payload_bytes: bytes(req)}), meta)
+
+    try do
+      result = fun.()
+
+      Telemetry.emit(
+        [:elzoo, :effect, :stop],
+        %{duration: Telemetry.duration(mark)},
+        Map.put(meta, :outcome, outcome(result))
+      )
+
+      result
+    catch
+      kind, reason ->
+        Telemetry.emit(
+          [:elzoo, :effect, :exception],
+          %{duration: Telemetry.duration(mark)},
+          Map.put(meta, :reason, Telemetry.reason(kind))
+        )
+
+        :erlang.raise(kind, reason, __STACKTRACE__)
     end
   end
+
+  defp effect_meta(req, operation) do
+    {key, attempt, tenant} =
+      case req do
+        %{key: key, attempt: attempt, context: %Elzoo.HttpJob.Config{tenant: tenant}} ->
+          {key, attempt, tenant}
+
+        %{key: key, attempt: attempt} ->
+          {key, attempt, nil}
+
+        _ ->
+          {nil, nil, nil}
+      end
+
+    Telemetry.compact(%{
+      adapter: "assembly/http-job",
+      operation: operation,
+      request_ref: if(Wire.hex?(key), do: key),
+      attempt: attempt,
+      tenant: tenant
+    })
+  end
+
+  defp bytes(%{arguments: arguments}) when is_binary(arguments), do: byte_size(arguments)
+  defp bytes(_), do: nil
+
+  defp outcome(%{"outcome" => "completed"}), do: :completed
+  defp outcome({:error, tag, _}), do: tag
+  defp outcome({:pending, _}), do: :pending
+  defp outcome({:unavailable, _}), do: :unavailable
+  defp outcome(_), do: :invalid_result
 
   defp request(req, method) do
     # These checks occur before starting any transport and must also run after recovery.

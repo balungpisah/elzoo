@@ -587,11 +587,11 @@
     },
     {
       "id": "runtime/telemetry",
-      "summary": "Metrics, traces, message history, exception tracking, audit logging",
+      "summary": "One bounded, redacted telemetry event family for the ready job and effect Adapters (telemetry 1.4.2); no exporter, aggregation or audit",
       "disposition": "adapt",
       "phase": "P3",
-      "status": "planned",
-      "reason": "`M,U`; candidate `:telemetry`/OpenTelemetry, redaction task first"
+      "status": "ready",
+      "manifest": "pieces/runtime/telemetry/piece.json"
     },
     {
       "id": "runtime/unit",

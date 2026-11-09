@@ -1,0 +1,49 @@
+# ELZ-052 early Contract review
+
+Reviewer: independent reviewer (Codex, gpt-5.6-terra, high effort)  
+Reviewed SHA: `569cf6fcc440cb73943f4baed43368365dc1c08e`
+
+Inputs read: the reviewed `docs/work/ELZ-052.md` and its complete diff from
+`origin/main`; live issue #108; `docs/plans/catalogue-dispositions.md` (the
+runtime telemetry entry and disagreements); `AGENTS.md`;
+`docs/operational-contracts.md`; `docs/capability-model.md`; and
+`docs/development/12-change-class-flow.md`. I also read the ready
+`assembly/durable-job`, `assembly/http-job`, `integration/jobs`, and
+`core/effect` manifests, READMEs, relevant implementation sources, and
+relevant tests at the reviewed SHA.
+
+1. **blocking — `docs/work/ELZ-052.md`, “Proposed changed paths” and Q5; ready manifests `pieces/assembly/durable-job/piece.json` and `pieces/assembly/http-job/piece.json`.** The proposal makes `telemetry` a direct provider/dependency and changes the two ready Adapters from no/newly bounded telemetry behaviour to emitting a public observation family. That is a new required runtime Need for copied consumers as proposed, and it also changes an observable Contract. `AGENTS.md` requires a new Piece ID for a ready Piece when required Needs change; the fact that Oban currently brings the library transitively does not preserve the old Contract. **Recommended change:** stop this in-place design and have the coordinator amend the task to create successor Adapter Piece IDs, retain the old IDs unchanged, document migration in both manifests/READMEs/ledger, and move consumers explicitly. The old IDs could remain only if telemetry were genuinely optional (no direct or required provider, no changed public observation responsibility, and identical default behaviour when absent); this task's direct dependency and emission points do not meet that exception.
+
+2. **blocking — `docs/work/ELZ-052.md`, “Emission points and why they are placed there”, Q2, event table, and evidence T3; live issue #108, Admission record item 1.** The live Contract explicitly names both the ELZ-010 job worker **and Relay** as callers/emission points. The record instead proposes no Relay event, silently narrows the caller set, and does not define Relay's operation, results, or metadata omission rules. The existing Relay is in `pieces/assembly/durable-job/lib/elzoo/durable_job.ex`, so it is within the stated durable-job edit boundary. **Recommended change:** either add bounded `:job` Relay start/stop/exception events with a declared `:relay` operation, fixed Relay result tags, and tests for acknowledged/skipped/failure paths, or obtain a live-issue Contract amendment that expressly removes Relay before implementation. Do not resolve this merely in the work record.
+
+3. **blocking — `docs/work/ELZ-052.md`, “Metadata allowlist”, “Redaction function”, and evidence T2/T5.** The stated `Wire.text?`-like printable UTF-8 rule for `queue` and `tenant` admits short JSON/publication bytes and many opaque credential values. A payload such as a short valid publication JSON is printable and under 128 bytes; “credential-shaped prefixes” are only a blacklist supplement, while the record says payload-shaped checks are tests rather than the mechanism. That cannot establish the stated invariant that no payload or secret bytes leave through an event. **Recommended change:** specify and implement positive, field-specific grammars before coding (for example, retain the established queue grammar and give tenant an opaque identifier grammar that excludes JSON punctuation, whitespace, URL/credential delimiters, and controls), with byte bounds. Define required versus omitted metadata per event. Exercise a short valid payload and a non-prefixed token-like secret in T2/T5, not only a 4 KiB binary and prefixed examples.
+
+4. **should-fix — `docs/work/ELZ-052.md`, Q1 and Q3; live issue #108, Acceptance item 1 and Admission record item 6.** The proposed Q1 replacement is not exact against the current issue because it omits the explicitly named Relay. The issue also says both Adapters move from `planned` to `supported`, but `assembly/http-job` is already `supported` for its bounded observer. **Recommended change:** treat both as class-C issue amendments and post exact before/after text before the carrying work. Once Q2 is decided, a narrower honest Acceptance line is: “Each documented event fires at its documented emission point with the documented keys and units: job events at the durable-job worker, durable-job Relay, and http-job runner; effect events only at the http-job Adapter.” Update item 6 to say durable-job moves from planned to supported, while http-job remains supported and its telemetry Contract/evidence is extended.
+
+5. **should-fix — `docs/work/ELZ-052.md`, “Contract/type check at emission”, Q4, and evidence T2/T3/T4.** Strict dev/test raising can satisfy the issue's requested validation only as a deliberately test-only detection of an instrumentation defect. It must not become an untested environmental change to ordinary Adapter result behaviour, and the record currently has no explicit production-mode/drop test or adapter-path assertion for it. **Recommended change:** retain the design only with a named test showing strict rejection at the schema boundary, production-mode omission without a raise, and new Adapter tests proving their existing result assertions remain unchanged for all valid emissions. State that invalid emission data is an implementation defect outside the Adapter's normal result Contract; do not describe the strict behaviour as a universal handler-failure guarantee.
+
+6. **should-fix — `docs/work/ELZ-052.md`, “Slow-handler disposition”, T6/T7, and unverified assumptions.** The record correctly identifies synchronous dispatch, failure/detach, and the risk that a slow handler affects wall time, but it says “below the recorded bound” without defining an enforceable bound. A 200 ms fixture establishes only that listed scenario; it cannot establish the broad Acceptance wording for arbitrary slow handlers, and the record itself identifies Lifeline and owner-call timeout limits. **Recommended change:** state the exact T7 delay and the exact results/wire counts it covers; measure and report added elapsed time; preserve the explicit unverified assumption for production handlers. The final Contract and evidence must say that handler failure/detach is an upstream contract and slow-handler result preservation is only for the named finite scenario, not a timing guarantee.
+
+7. **note — `docs/work/ELZ-052.md`, Q6 and “Proposed changed paths”.** No `tasks/ELZ-052-*.md` exists at the reviewed SHA, while the live issue is the stated source of truth. Adding a purportedly byte-equal task copy is neither necessary to answer the implementation Contract nor safely byte-equal after the required issue amendments. **Recommended change:** do not add a task copy in this PR unless the coordinator first identifies a repository rule/generator requiring it and explicitly extends the Contract/scope; if one is required, make it from the approved final issue body in the designated documentation step.
+
+## Answers to Q1–Q6
+
+**Q1 — acceptance wording:** No: the proposed before text accurately quotes the live issue, but the proposed after text is not exact or honest under that live Contract because it leaves out Relay. The narrower replacement in finding 4 is suitable only after Q2's Relay decision and the live issue amendment; it also avoids implying that durable-job emits an external-effect event.
+
+**Q2 — Relay:** Include Relay in this slice, since it is named by the live Contract and its implementation belongs to durable-job. If product intent is to omit it, amend the issue first; then remove “Relay” from its callers rather than relying on the work record to contradict it.
+
+**Q3 — http-job applicability:** Confirm the record's reading: http-job must remain `supported`, because its existing bounded observer already establishes that status. Its Contract/evidence should be extended with the new event family; only durable-job changes from `planned` to `supported`, and the live issue needs a precise correction.
+
+**Q4 — strict mode:** Conditionally confirm. It is compatible with the issue's test/dev validation requirement if it is limited to invalid telemetry data, directly tested in strict and production modes, and never presented as a normal Adapter result change. The default production behaviour must be omission/redaction without a raise, and all valid Adapter paths must preserve existing results.
+
+**Q5 — ready-ID rule:** A new required Need on a ready Adapter requires a new Piece ID. An actually optional library with unchanged defaults and no new observable responsibility might remain under the same ID, but a direct `telemetry` dependency used by unconditional emission points is not optional; it therefore requires successor IDs and consumer opt-in.
+
+**Q6 — task copy:** Do not add one from this task record. The live issue is authoritative and no matching task copy exists; a copy should be added only if the coordinator establishes an explicit repository requirement after the Contract amendments are approved.
+
+## Cross-check summary
+
+The record has a useful bounded six-name event shape, integer unit table, upstream handler-failure/detach exercise, absent-handler exercise, and a separation of finite tests, upstream contracts, monitored behaviour, and assumptions. Those strengths do not cure the Relay and ready-ID conflicts. The event names, units, and allowlist can be fixed and bounded, but the current text does not yet make its no-payload/no-secret claim mechanically credible for `queue` and `tenant`.
+
+## Verdict
+
+**stop.** Resolve the ready-Piece successor-ID decision and amend the live Contract for Relay/applicability before implementation proceeds; then revise the metadata grammar and evidence plan and request a follow-up review.

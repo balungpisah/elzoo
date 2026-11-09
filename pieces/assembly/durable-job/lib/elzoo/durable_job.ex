@@ -18,9 +18,19 @@ defmodule Elzoo.DurableJob do
   alias Elzoo.DurableJob.{Run, Submitter}
   alias Elzoo.DurableLog, as: Log
   alias Elzoo.DurableLog.Writer
-  alias Elzoo.{JobRun, Jobs}
+  alias Elzoo.{JobRun, Jobs, Telemetry}
 
   @rounds 3
+
+  # ELZ-052 runtime/telemetry metadata templates (allowlisted keys only).
+  @perform_meta %{
+    adapter: "assembly/durable-job",
+    operation: :perform,
+    queue: nil,
+    request_ref: nil,
+    attempt: nil
+  }
+  @relay_meta %{adapter: "assembly/durable-job", operation: :relay, queue: nil, request_ref: nil}
 
   # Writer call timeout. It must exceed the Store's own write timeout so that
   # the Writer, not the GenServer call, reports a slow write: the ELZ-009
@@ -431,7 +441,61 @@ defmodule Elzoo.DurableJob do
   # -- relay ----------------------------------------------------------------------
 
   @doc false
+  # ELZ-052: bounded :job events around one Relay item (observation only; the
+  # result is unchanged). No Adapter timer surrounds this point.
   def relay(cfg, item) do
+    mark = Telemetry.mark()
+    meta = Telemetry.compact(%{@relay_meta | queue: cfg.queue, request_ref: relay_ref(item)})
+    Telemetry.emit([:elzoo, :job, :start], %{}, meta)
+
+    try do
+      result = relay_item(cfg, item)
+
+      Telemetry.emit(
+        [:elzoo, :job, :stop],
+        %{duration: Telemetry.duration(mark)},
+        Map.put(meta, :outcome, relay_outcome(result))
+      )
+
+      result
+    catch
+      kind, reason ->
+        Telemetry.emit(
+          [:elzoo, :job, :exception],
+          %{duration: Telemetry.duration(mark)},
+          Map.put(meta, :reason, Telemetry.reason(kind))
+        )
+
+        :erlang.raise(kind, reason, __STACKTRACE__)
+    end
+  end
+
+  defp relay_ref(item) do
+    key = Run.decode!(item.payload)["job_key"]
+    if Run.job_key?(key), do: Telemetry.ref(key)
+  rescue
+    _ -> nil
+  end
+
+  defp relay_outcome(:done), do: :done
+
+  defp relay_outcome({:skip, reason})
+       when reason in [
+              :indeterminate,
+              :contended,
+              :foreign_run,
+              :unique_lock_held,
+              :malformed,
+              :damaged,
+              :unavailable
+            ],
+       do: String.to_existing_atom("skip_" <> Atom.to_string(reason))
+
+  defp relay_outcome({:skip, {:rejected, _}}), do: :skip_rejected
+  defp relay_outcome({:skip, {:insert, _}}), do: :skip_insert
+  defp relay_outcome(_), do: :skip_other
+
+  defp relay_item(cfg, item) do
     request = Run.decode!(item.payload)
     key = request["job_key"]
     if not Run.job_key?(key), do: raise(ArgumentError, "bad key")
@@ -508,7 +572,48 @@ defmodule Elzoo.DurableJob do
   end
 
   @doc false
+  # ELZ-052: bounded :job events around one worker execution (observation
+  # only; the result and any raise are unchanged). The start event precedes
+  # the Run deadline readings: a handler's run time is elapsed time.
   def perform(cfg, %Oban.Job{args: %{"job_key" => key}} = job) do
+    mark = Telemetry.mark()
+
+    meta = %{
+      @perform_meta
+      | queue: cfg.queue,
+        request_ref: Telemetry.ref(key),
+        attempt: job.attempt
+    }
+
+    Telemetry.emit(
+      [:elzoo, :job, :start],
+      Telemetry.compact(%{queue_wait: Telemetry.queue_wait(job.attempted_at, job.scheduled_at)}),
+      meta
+    )
+
+    try do
+      result = execute(cfg, job, key)
+
+      Telemetry.emit(
+        [:elzoo, :job, :stop],
+        %{duration: Telemetry.duration(mark)},
+        Map.put(meta, :outcome, Telemetry.job_outcome(result))
+      )
+
+      result
+    catch
+      kind, reason ->
+        Telemetry.emit(
+          [:elzoo, :job, :exception],
+          %{duration: Telemetry.duration(mark)},
+          Map.put(meta, :reason, Telemetry.reason(kind))
+        )
+
+        :erlang.raise(kind, reason, __STACKTRACE__)
+    end
+  end
+
+  defp execute(cfg, job, key) do
     snooze = {:snooze, cfg.snooze}
 
     case with_writer(cfg, key, &start_loop(cfg, job, &1, @rounds)) do
