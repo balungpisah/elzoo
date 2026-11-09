@@ -3545,7 +3545,7 @@
       "disposition": "implementation prepared; acceptance requires merged PR",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/runtime/telemetry/piece.json",
-      "manifest_sha256": "419c9de31bb05325c5d43b8b494c0af11b55a05242e86c01662f819f163ed081"
+      "manifest_sha256": "897639df67f7eef2f43074d91c7195f6549f1373dbf537126eec732d0048fe6d"
     },
     {
       "id": "runtime/unit",

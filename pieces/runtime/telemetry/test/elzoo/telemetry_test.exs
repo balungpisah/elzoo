@@ -5,11 +5,32 @@ defmodule Elzoo.TelemetryTest do
   @moduletag capture_log: true
   alias Elzoo.Telemetry, as: T
 
-  @readme Path.expand("../../README.md", __DIR__)
+  # T1 reads this Piece's README. In this repository it is
+  # pieces/runtime/telemetry/README.md (this file is in the Piece's test/elzoo/);
+  # in an exported consumer Elzoo.Export copies it to
+  # .elzoo/pieces/runtime/telemetry/README.md while this file lands in the
+  # consumer's test/elzoo/. Exactly one of the two must exist; none (or both)
+  # fails T1, so a missing README is never skipped.
+  @readmes [
+    Path.expand("../../../../../pieces/runtime/telemetry/README.md", __DIR__),
+    Path.expand("../../.elzoo/pieces/runtime/telemetry/README.md", __DIR__)
+  ]
   @ref String.duplicate("ab", 32)
 
+  defp readme do
+    case Enum.filter(@readmes, &File.regular?/1) do
+      [path] ->
+        path
+
+      found ->
+        flunk(
+          "expected exactly one runtime/telemetry README among #{inspect(@readmes)}, found #{inspect(found)}"
+        )
+    end
+  end
+
   defp table(marker) do
-    File.read!(@readme)
+    File.read!(readme())
     |> String.split("<!-- elzoo-telemetry:#{marker} -->\n")
     |> Enum.at(1)
     |> String.split("\n")
@@ -118,7 +139,7 @@ defmodule Elzoo.TelemetryTest do
       "ténant",
       %{"a" => 1},
       ["a"],
-      %Oban.Job{args: %{"v" => 1}},
+      %URI{scheme: "https", host: "host", userinfo: "user:pw"},
       %RuntimeError{message: "boom"}
     ]
 
