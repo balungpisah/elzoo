@@ -1539,6 +1539,30 @@
       ]
     },
     {
+      "id": "ELZ-084",
+      "title": "ELZ-084 — Provide the pgvector extension in the CI database service and the local test database",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [],
+      "status": "published 2026-11-09; claimed task/ELZ-084; PR pending",
+      "url": "https://github.com/balungpisah/elzoo/issues/156",
+      "paths": [
+        "tasks/ELZ-084-pgvector-ci-service.md"
+      ],
+      "outputs": [],
+      "acceptance": "Unchanged live issue body; local task file is the publication copy. CI prerequisite (class S, no Piece); planning dependencies mirror the published direct dependencies (none).",
+      "issue": 156,
+      "issue_body_sha256": "8bddb0caab729fea635394db9806cb8e70b6b3cd79acbc3f969056aad5e1303b",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P06",
+        "P07"
+      ],
+      "product_role": "CI prerequisite for the integration/search-data vector slice (ELZ-082); not a Piece."
+    },
+    {
       "id": "RC-01",
       "title": "Versioned stored-state compatibility",
       "kind": "proposal",

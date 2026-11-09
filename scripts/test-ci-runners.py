@@ -718,7 +718,7 @@ class RunnerPolicyTest(unittest.TestCase):
                 ("symbolic-check.yml", "check-consumers", "      contents: read\n", "      contents: write\n"),
                 ("symbolic-check.yml", "check-root", "      contents: read\n", "      contents: read\n      actions: read\n"),
                 ("symbolic-check.yml", "check-root", "ERL_FLAGS: '+S 4:4 +SDcpu 1 +SDio 1'", "ERL_FLAGS: '+S 8:8'"),
-                ("symbolic-check.yml", "check-consumers", "postgres:16-bookworm@sha256:5264710be20f409750ac6dc4e5706dcef929c87e241605463f0f9aefa932a8d9", "postgres:16-bookworm"),
+                ("symbolic-check.yml", "check-consumers", "pgvector/pgvector:0.8.7-pg16-bookworm@sha256:0dd3149a06e4579a0d70d8fef9945636cd514005e7237deb27f9b67886f8dc4f", "pgvector/pgvector:0.8.7-pg16-bookworm"),
                 ("symbolic-check.yml", "check-root", "          - 5432:5432\n", "          - 5432:5432\n          - 22:22\n"),
                 ("symbolic-check.yml", "check-consumers-db", "    services:\n", "    outputs:\n      x: y\n    services:\n"),
                 # the plan job: the token permission (actions: read) is its own, with the output and the time limit

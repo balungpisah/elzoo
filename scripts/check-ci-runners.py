@@ -39,7 +39,7 @@ HOSTED_BACKEND_HEADER = """    permissions:
       ERL_FLAGS: '+S 4:4 +SDcpu 1 +SDio 1'
     services:
       postgres:
-        image: postgres:16-bookworm@sha256:5264710be20f409750ac6dc4e5706dcef929c87e241605463f0f9aefa932a8d9
+        image: pgvector/pgvector:0.8.7-pg16-bookworm@sha256:0dd3149a06e4579a0d70d8fef9945636cd514005e7237deb27f9b67886f8dc4f
         env:
           POSTGRES_PASSWORD: postgres
         ports:
