@@ -413,11 +413,13 @@ defmodule Elzoo.Lease.Postgres do
   defp unwrap({:error, {:refuse, result}}), do: result
   defp unwrap({:error, {:indeterminate, info}}), do: {:indeterminate, info}
   defp unwrap({:error, {:schema, detail}}), do: {:error, {:schema, detail}}
-  defp unwrap({:error, _}), do: {:error, :unavailable}
+
+  defp unwrap({:error, {:lease_lock_failure, error}}), do: lock_failure(error)
+  defp unwrap({:error, error}), do: failure(error)
 
   # A failure after the first write statement is an unknown outcome; before it
-  # nothing was written: only PostgreSQL lock contention is :contended.
-  # Connection, pool and queue failures remain :unavailable.
+  # nothing was written: only a PostgreSQL lock error is :contended. Connection,
+  # pool, checkout and unrelated-query failures remain :unavailable.
   defp failure(error) do
     case Process.get({__MODULE__, :wrote}) do
       %{} = request ->
@@ -429,10 +431,38 @@ defmodule Elzoo.Lease.Postgres do
     end
   end
 
+  # A tagged failure comes only from `insert_head/2` or `lock_head/3`, the
+  # lease statements that can wait on the unique index or head row. Their
+  # duration and statement timeouts are contention; checkout and unrelated
+  # query timeouts never acquire this tag.
+  defp lock_failure(error) do
+    if contention?(error) or timeout?(error) or timed_lock_disconnect?(error),
+      do: {:error, :contended},
+      else: {:error, :unavailable}
+  end
+
   defp contention?(%Postgrex.Error{postgres: %{code: :lock_not_available}}), do: true
   defp contention?({:shutdown, reason}), do: contention?(reason)
   defp contention?({:error, reason}), do: contention?(reason)
   defp contention?(_), do: false
+
+  defp timeout?(%DBConnection.ConnectionError{message: message}),
+    do: String.contains?(message, ["timeout", "timed out"])
+
+  defp timeout?(%Postgrex.Error{postgres: %{code: :query_canceled}}), do: true
+  defp timeout?(:timeout), do: true
+
+  defp timeout?(reason) when is_tuple(reason),
+    do: reason |> Tuple.to_list() |> Enum.any?(&timeout?/1)
+
+  defp timeout?(reason) when is_list(reason), do: Enum.any?(reason, &timeout?/1)
+  defp timeout?(_), do: false
+
+  # A transaction duration expiry can arrive from the driver as a closed socket
+  # rather than its original timeout exception. Only `lock_wait/2` tags this
+  # shape, so checkout, pool and unrelated-query disconnects remain unavailable.
+  defp timed_lock_disconnect?(%DBConnection.ConnectionError{reason: :closed}), do: true
+  defp timed_lock_disconnect?(_), do: false
 
   defp check_shape!(backend) do
     case shape(backend) do
@@ -441,19 +471,31 @@ defmodule Elzoo.Lease.Postgres do
     end
   end
 
-  defp insert_head(backend, key),
-    do:
+  defp insert_head(backend, key) do
+    lock_wait(backend, fn ->
       query(
         backend,
         "INSERT INTO #{table(backend, "elzoo_log_heads")} (stream, revision) VALUES ($1, 0) ON CONFLICT DO NOTHING",
         [key]
       )
+    end)
+  end
 
   defp lock_head(backend, key, lock) do
-    case head_rows(backend, key, lock) do
-      [row] -> head(row)
-      _ -> throw(:malformed)
-    end
+    lock_wait(backend, fn ->
+      case head_rows(backend, key, lock) do
+        [row] -> head(row)
+        _ -> throw(:malformed)
+      end
+    end)
+  end
+
+  defp lock_wait(backend, fun) do
+    fun.()
+  rescue
+    error -> backend.repo.rollback({:lease_lock_failure, error})
+  catch
+    :exit, reason -> backend.repo.rollback({:lease_lock_failure, reason})
   end
 
   defp fetch_head(backend, key) do

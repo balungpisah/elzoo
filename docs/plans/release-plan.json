@@ -3577,7 +3577,7 @@
       "disposition": "ready-contract on task branch; task acceptance separate",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/state/lease/piece.json",
-      "manifest_sha256": "76a313385710fdeb715e2f35e60cc78777f211223e18bedddefac6a0c53cf11e"
+      "manifest_sha256": "2ec6da4b04cd54e75e674c93cfa405373df284060babc7e2a336198cf24b0014"
     },
     {
       "id": "state/outbox",

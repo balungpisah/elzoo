@@ -983,6 +983,32 @@ defmodule Elzoo.LeasePostgresTest do
       )
 
     assert {:error, :contended} = Lease.claim(strict_contender, "x", "carol", @minute)
+
+    {:ok, timed_contender} =
+      TestHelper.pg_lease(contention_store,
+        timeout_ms: 500,
+        hook: fn
+          :before_lock, %{key: "x", repo: repo} ->
+            [[backend_pid]] = SQL.query!(repo, "SELECT pg_backend_pid()", [], log: false).rows
+            send(test, {:timed_contender_ready, backend_pid})
+
+          _, _ ->
+            :ok
+        end
+      )
+
+    timed_claim = Task.async(fn -> Lease.claim(timed_contender, "x", "dana", @minute) end)
+
+    timed_backend_pid =
+      receive do
+        {:timed_contender_ready, backend_pid} -> backend_pid
+      after
+        5_000 -> raise "timed contender did not enter its reserved connection"
+      end
+
+    wait_until(fn -> contender_waits_on_lock?(timed_backend_pid) end, 5_000)
+    assert {:error, :contended} = Task.await(timed_claim, 5_000)
+
     send(first_lock_pid, :release_first_claimant)
     assert {:held, _} = Task.await(first_claim, 10_000)
 
