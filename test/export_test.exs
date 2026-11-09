@@ -113,6 +113,10 @@ defmodule Elzoo.ExportTest do
   # It grows with each ready Piece: 125.2 s locally on 2026-11-06; 493.6 s locally
   # on 2026-11-07 (PR #59 head 4fdc8ad), where 360 s timed out twice on machine A CI.
   # ~2.4x local margin (ELZ-036). A split is a possible later task.
+  # ELZ-073: the aggregate consumer's inner limit, named so that the part test below can assert it.
+  @aggregate_inner_timeout 300_000
+  def aggregate_inner_timeout, do: @aggregate_inner_timeout
+
   @tag timeout: 1_200_000
   @tag :aggregate_consumer
   test "all selected sources compile and run outside Elzoo with only upstream code paths", ctx do
@@ -125,7 +129,7 @@ defmodule Elzoo.ExportTest do
     # Inner tests share one consumer with every ready Piece, so Cure reads every
     # copied source root: one inner test hit the default 60 s on machine A CI
     # (PR #59 run 42327909118). 5x default for this consumer only (ELZ-037).
-    assert_cure_consumer(ctx, ids, inner_timeout: 300_000)
+    assert_cure_consumer(ctx, ids, inner_timeout: @aggregate_inner_timeout)
   end
 
   # PostgreSQL consumers share one disposable CI database: in sequence, here. The
@@ -232,5 +236,65 @@ defmodule Elzoo.ExportTest do
     for test <- tests -- (per_id ++ aggregate) do
       assert test in remaining
     end
+  end
+
+  # ELZ-073: CI can run the full check as three parts at the same time (`mix check --part ...`). The
+  # parts must be disjoint and must together run exactly the tests of the full check, and the limits of
+  # the consumers must travel with their tests.
+  test "the three parts partition the suite and every consumer limit is kept (ELZ-073)" do
+    for module <- Elzoo.CureConsumerCase.consumer_test_modules() do
+      assert Code.ensure_loaded?(module),
+             "#{inspect(module)} is not loaded; run the whole suite or include its file"
+    end
+
+    tests =
+      Enum.flat_map(Elzoo.CureConsumerCase.consumer_test_modules(), & &1.__ex_unit__().tests)
+
+    postgres = Elzoo.CheckSelection.postgres_consumer_ids()
+    assert Enum.sort(postgres) == Enum.sort(Elzoo.CureConsumerCase.postgres_consumer_ids())
+    assert Elzoo.CheckSelection.parts() == ["root", "consumers-db", "consumers"]
+
+    # `mix test --only X` is `include: X` plus `exclude: [:test]` (an include wins over an exclude).
+    selects? = fn part, test ->
+      %{include: include, exclude: exclude} = Elzoo.CheckSelection.part_filters(part)
+      # The runner adds the test name under `:test` before it evaluates the filters.
+      tags = Map.put(test.tags, :test, test.name)
+      exclude = ExUnit.Filters.parse(exclude) ++ if(include == [], do: [], else: [:test])
+      ExUnit.Filters.eval(ExUnit.Filters.parse(include), exclude, tags, [test]) == :ok
+    end
+
+    for test <- tests do
+      expected =
+        cond do
+          Map.has_key?(test.tags, :aggregate_consumer) -> ["consumers-db"]
+          test.tags[:consumer_id] in postgres -> ["consumers-db"]
+          Map.has_key?(test.tags, :consumer_id) -> ["consumers"]
+          true -> ["root"]
+        end
+
+      actual = Enum.filter(Elzoo.CheckSelection.parts(), &selects?.(&1, test))
+
+      assert actual == expected,
+             "#{inspect(test.name)} must be in exactly #{inspect(expected)}, it is in #{inspect(actual)}"
+    end
+
+    per_part = fn part -> Enum.filter(tests, &selects?.(part, &1)) end
+    assert length(per_part.("consumers-db")) == 1 + length(postgres)
+
+    assert length(per_part.("consumers")) ==
+             length(Elzoo.CheckSelection.consumer_ids()) - length(postgres)
+
+    assert length(per_part.("root")) ==
+             length(tests) - 1 - length(Elzoo.CheckSelection.consumer_ids())
+
+    # The argument lists that CI passes are built from the same filters.
+    assert Elzoo.CheckSelection.test_args(Elzoo.CheckSelection.part("root")) ==
+             ["--warnings-as-errors", "--exclude", "consumer_id", "--exclude", "aggregate_consumer"]
+
+    # Limits that the split must not lose: the aggregate consumer (the selection test above counts it but
+    # does not assert its limits) and the per-ID limits are asserted by the test above.
+    [aggregate] = Enum.filter(tests, &Map.has_key?(&1.tags, :aggregate_consumer))
+    assert aggregate.tags.timeout == 1_200_000
+    assert Elzoo.ExportTest.aggregate_inner_timeout() == 300_000
   end
 end

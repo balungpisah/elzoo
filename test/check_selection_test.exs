@@ -293,6 +293,67 @@ defmodule Elzoo.CheckSelectionTest do
     root
   end
 
+  # ELZ-073: `mix check --part ...` runs one of three disjoint parts of the full check.
+  test "a part names its markers, filters and report" do
+    assert Selection.parts() == ["root", "consumers-db", "consumers"]
+
+    assert Enum.map(Selection.parts(), &Selection.success_marker(Selection.part(&1))) ==
+             ["ELZOO ROOT SUITE PASSED", "ELZOO CONSUMERS DB PASSED", "ELZOO CONSUMERS PASSED"]
+
+    # No part prints the marker of the full check, which only the aggregating job prints.
+    refute "ELZOO CHECK PASSED" in Enum.map(
+             Selection.parts(),
+             &Selection.success_marker(Selection.part(&1))
+           )
+
+    for part <- Selection.parts() do
+      assert Selection.report(Selection.part(part)) =~ "part #{part}"
+      args = Selection.test_args(Selection.part(part))
+      assert hd(args) == "--warnings-as-errors"
+      %{include: include, exclude: exclude} = Selection.part_filters(part)
+
+      assert Enum.drop(args, 1) ==
+               Enum.flat_map(include, &["--only", &1]) ++ Enum.flat_map(exclude, &["--exclude", &1])
+    end
+
+    assert_raise FunctionClauseError, fn -> Selection.part("everything") end
+  end
+
+  test "the PostgreSQL consumers belong to the consumers-db part and nowhere else" do
+    db = Selection.part_filters("consumers-db").include
+    rest = Selection.part_filters("consumers").include
+
+    for id <- Selection.postgres_consumer_ids() do
+      assert "consumer_id:#{id}" in db
+      refute "consumer_id:#{id}" in rest
+    end
+
+    assert length(rest) ==
+             length(Selection.consumer_ids()) - length(Selection.postgres_consumer_ids())
+
+    assert Enum.all?(
+             rest,
+             &(&1 in Enum.map(Selection.consumer_ids(), fn id -> "consumer_id:#{id}" end))
+           )
+
+    assert "aggregate_consumer" in db
+    assert Selection.part_filters("root").exclude == ["consumer_id", "aggregate_consumer"]
+  end
+
+  test "mix check refuses an unknown part and other arguments before it runs any stage" do
+    assert_raise Mix.Error, ~r/unknown part "everything"/, fn ->
+      Mix.Tasks.Check.run(["--part", "everything"])
+    end
+
+    assert_raise Mix.Error, ~r/usage: mix check/, fn -> Mix.Tasks.Check.run(["--part"]) end
+
+    assert_raise Mix.Error, ~r/usage: mix check/, fn ->
+      Mix.Tasks.Check.run(["--part", "root", "--affected", "x"])
+    end
+
+    assert_raise Mix.Error, ~r/usage: mix check/, fn -> Mix.Tasks.Check.run(["--bogus"]) end
+  end
+
   defp git!(root, args) do
     {output, status} = System.cmd("git", args, cd: root, stderr_to_stdout: true)
     assert status == 0, output
