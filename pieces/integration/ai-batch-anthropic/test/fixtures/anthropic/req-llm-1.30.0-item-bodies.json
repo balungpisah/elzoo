@@ -1,0 +1,520 @@
+{
+  "cache_1h": {
+    "headers": {
+      "anthropic-beta": [
+        "prompt-caching-2024-07-31"
+      ],
+      "anthropic-version": [
+        "2026-10-21"
+      ],
+      "content-type": [
+        "application/json"
+      ]
+    },
+    "params": {
+      "max_tokens": 256,
+      "messages": [
+        {
+          "content": [
+            {
+              "cache_control": {
+                "ttl": "1h",
+                "type": "ephemeral"
+              },
+              "text": "Corpus prompt.",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-5-20250929",
+      "system": [
+        {
+          "cache_control": {
+            "ttl": "1h",
+            "type": "ephemeral"
+          },
+          "text": "Answer briefly.",
+          "type": "text"
+        }
+      ]
+    }
+  },
+  "cache_5m": {
+    "headers": {
+      "anthropic-beta": [
+        "prompt-caching-2024-07-31"
+      ],
+      "anthropic-version": [
+        "2026-10-21"
+      ],
+      "content-type": [
+        "application/json"
+      ]
+    },
+    "params": {
+      "max_tokens": 256,
+      "messages": [
+        {
+          "content": [
+            {
+              "cache_control": {
+                "type": "ephemeral"
+              },
+              "text": "Corpus prompt.",
+              "type": "text"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-5-20250929",
+      "system": [
+        {
+          "cache_control": {
+            "type": "ephemeral"
+          },
+          "text": "Answer briefly.",
+          "type": "text"
+        }
+      ]
+    }
+  },
+  "plain": {
+    "headers": {
+      "anthropic-version": [
+        "2026-10-21"
+      ],
+      "content-type": [
+        "application/json"
+      ]
+    },
+    "params": {
+      "max_tokens": 256,
+      "messages": [
+        {
+          "content": "Corpus prompt.",
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-5-20250929"
+    }
+  },
+  "reasoning_high": {
+    "headers": {
+      "anthropic-beta": [
+        "interleaved-thinking-2025-05-14"
+      ],
+      "anthropic-version": [
+        "2026-10-21"
+      ],
+      "content-type": [
+        "application/json"
+      ]
+    },
+    "params": {
+      "max_tokens": 4297,
+      "messages": [
+        {
+          "content": "Corpus prompt.",
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-5-20250929",
+      "system": "Answer briefly.",
+      "thinking": {
+        "budget_tokens": 4096,
+        "type": "enabled"
+      }
+    }
+  },
+  "reasoning_low": {
+    "headers": {
+      "anthropic-beta": [
+        "interleaved-thinking-2025-05-14"
+      ],
+      "anthropic-version": [
+        "2026-10-21"
+      ],
+      "content-type": [
+        "application/json"
+      ]
+    },
+    "params": {
+      "max_tokens": 1225,
+      "messages": [
+        {
+          "content": "Corpus prompt.",
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-5-20250929",
+      "system": "Answer briefly.",
+      "thinking": {
+        "budget_tokens": 1024,
+        "type": "enabled"
+      }
+    }
+  },
+  "reasoning_medium": {
+    "headers": {
+      "anthropic-beta": [
+        "interleaved-thinking-2025-05-14"
+      ],
+      "anthropic-version": [
+        "2026-10-21"
+      ],
+      "content-type": [
+        "application/json"
+      ]
+    },
+    "params": {
+      "max_tokens": 2249,
+      "messages": [
+        {
+          "content": "Corpus prompt.",
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-5-20250929",
+      "system": "Answer briefly.",
+      "thinking": {
+        "budget_tokens": 2048,
+        "type": "enabled"
+      }
+    }
+  },
+  "stop_sequences": {
+    "headers": {
+      "anthropic-version": [
+        "2026-10-21"
+      ],
+      "content-type": [
+        "application/json"
+      ]
+    },
+    "params": {
+      "max_tokens": 256,
+      "messages": [
+        {
+          "content": "Corpus prompt.",
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-5-20250929",
+      "stop_sequences": [
+        "END"
+      ],
+      "system": "Answer briefly."
+    }
+  },
+  "structured": {
+    "headers": {
+      "anthropic-version": [
+        "2026-10-21"
+      ],
+      "content-type": [
+        "application/json"
+      ]
+    },
+    "params": {
+      "max_tokens": 256,
+      "messages": [
+        {
+          "content": "Corpus prompt.",
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-5-20250929",
+      "output_config": {
+        "format": {
+          "schema": {
+            "additionalProperties": false,
+            "properties": {
+              "answer": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "answer"
+            ],
+            "type": "object"
+          },
+          "type": "json_schema"
+        }
+      },
+      "system": "Answer briefly."
+    }
+  },
+  "system": {
+    "headers": {
+      "anthropic-version": [
+        "2026-10-21"
+      ],
+      "content-type": [
+        "application/json"
+      ]
+    },
+    "params": {
+      "max_tokens": 256,
+      "messages": [
+        {
+          "content": "Corpus prompt.",
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-5-20250929",
+      "system": "Answer briefly."
+    }
+  },
+  "tool_result_error": {
+    "headers": {
+      "anthropic-beta": [
+        "tools-2024-05-16"
+      ],
+      "anthropic-version": [
+        "2026-10-21"
+      ],
+      "content-type": [
+        "application/json"
+      ]
+    },
+    "params": {
+      "max_tokens": 256,
+      "messages": [
+        {
+          "content": "Look it up.",
+          "role": "user"
+        },
+        {
+          "content": [
+            {
+              "id": "toolu_01A",
+              "input": {
+                "q": "x"
+              },
+              "name": "lookup",
+              "type": "tool_use"
+            }
+          ],
+          "role": "assistant"
+        },
+        {
+          "content": [
+            {
+              "content": "failed",
+              "is_error": true,
+              "tool_use_id": "toolu_01A",
+              "type": "tool_result"
+            }
+          ],
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-5-20250929",
+      "tool_choice": {
+        "type": "auto"
+      },
+      "tools": [
+        {
+          "description": "Look up a term.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "q": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "q"
+            ],
+            "type": "object"
+          },
+          "name": "lookup"
+        }
+      ]
+    }
+  },
+  "tools_any": {
+    "headers": {
+      "anthropic-beta": [
+        "tools-2024-05-16"
+      ],
+      "anthropic-version": [
+        "2026-10-21"
+      ],
+      "content-type": [
+        "application/json"
+      ]
+    },
+    "params": {
+      "max_tokens": 256,
+      "messages": [
+        {
+          "content": "Corpus prompt.",
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-5-20250929",
+      "system": "Answer briefly.",
+      "tool_choice": {
+        "type": "any"
+      },
+      "tools": [
+        {
+          "description": "Look up a term.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "q": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "q"
+            ],
+            "type": "object"
+          },
+          "name": "lookup"
+        }
+      ]
+    }
+  },
+  "tools_auto": {
+    "headers": {
+      "anthropic-beta": [
+        "tools-2024-05-16"
+      ],
+      "anthropic-version": [
+        "2026-10-21"
+      ],
+      "content-type": [
+        "application/json"
+      ]
+    },
+    "params": {
+      "max_tokens": 256,
+      "messages": [
+        {
+          "content": "Corpus prompt.",
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-5-20250929",
+      "system": "Answer briefly.",
+      "tool_choice": {
+        "type": "auto"
+      },
+      "tools": [
+        {
+          "description": "Look up a term.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "q": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "q"
+            ],
+            "type": "object"
+          },
+          "name": "lookup"
+        }
+      ]
+    }
+  },
+  "tools_named": {
+    "headers": {
+      "anthropic-beta": [
+        "tools-2024-05-16"
+      ],
+      "anthropic-version": [
+        "2026-10-21"
+      ],
+      "content-type": [
+        "application/json"
+      ]
+    },
+    "params": {
+      "max_tokens": 256,
+      "messages": [
+        {
+          "content": "Corpus prompt.",
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-5-20250929",
+      "system": "Answer briefly.",
+      "tool_choice": {
+        "name": "lookup",
+        "type": "tool"
+      },
+      "tools": [
+        {
+          "description": "Look up a term.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "q": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "q"
+            ],
+            "type": "object"
+          },
+          "name": "lookup"
+        }
+      ]
+    }
+  },
+  "tools_none": {
+    "headers": {
+      "anthropic-beta": [
+        "tools-2024-05-16"
+      ],
+      "anthropic-version": [
+        "2026-10-21"
+      ],
+      "content-type": [
+        "application/json"
+      ]
+    },
+    "params": {
+      "max_tokens": 256,
+      "messages": [
+        {
+          "content": "Corpus prompt.",
+          "role": "user"
+        }
+      ],
+      "model": "claude-sonnet-4-5-20250929",
+      "system": "Answer briefly.",
+      "tool_choice": {
+        "type": "none"
+      },
+      "tools": [
+        {
+          "description": "Look up a term.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "q": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "q"
+            ],
+            "type": "object"
+          },
+          "name": "lookup"
+        }
+      ]
+    }
+  }
+}
