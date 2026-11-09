@@ -2903,7 +2903,7 @@
       "disposition": "implementation prepared; acceptance requires merged PR",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/assembly/http-job/piece.json",
-      "manifest_sha256": "183fb9fa2b7d97228a2372017c0ebab2cd59e80f26a2780748c171c8cf6d85c0"
+      "manifest_sha256": "f40d390395f38469b8c54c1c4441b9a736c168b9356d13ad0e89c1d90c75cc0d"
     },
     {
       "id": "assembly/ingest-dedup-accumulate",

@@ -395,53 +395,182 @@ defmodule Elzoo.HttpJobTelemetryTest do
     assert short.result == {:snooze, 2} and short.phase == {:Confirmed, 1}
   end
 
-  # T12 (iii): effect events delay the result's arrival at the owner. The
-  # comparison run advances the same clock once inside the transport (its
-  # authenticate callback, before the result reaches the owner) without a handler.
-  defp arrival(c, ref, advance, via_handler?) do
+  # T12 (iii): effect events run in the owner's task, so a handler's time
+  # delays the send/poll result's arrival at the owner. For each effect
+  # emission point (send_effect/1, poll/1) and each kind (:start, :stop), a
+  # handler that advances the injected clock is compared with a no-handler
+  # control whose clock is advanced once inside the transport (its authenticate
+  # callback, before the result reaches the owner), and with a plain run.
+  defp arrival(c, ref, operation, kind, advance, mode) do
     Agent.update(c.clock, fn _ -> 100 end)
+    Fixture.mode(c.f, if(operation == :poll, do: :pending, else: :success))
     once = :atomics.new(1, [])
+    armed = :atomics.new(1, [])
 
     bump = fn ->
-      if :atomics.compare_exchange(once, 1, 0, 1) == :ok, do: Agent.update(c.clock, &(&1 + advance))
+      if :atomics.get(armed, 1) == 1 and :atomics.compare_exchange(once, 1, 0, 1) == :ok,
+        do: Agent.update(c.clock, &(&1 + advance))
     end
 
     cfg =
-      if via_handler?,
-        do: c.cfg,
-        else: %{
+      if mode == :control,
+        do: %{
           c.cfg
           | authenticate: fn val, req ->
               bump.()
               Fixture.authenticate(val, req)
             end
-        }
+        },
+        else: c.cfg
 
     v = variant(c, ref, cfg)
 
-    if via_handler? do
-      attach("hj-t12-effect-#{ref}", fn [_, family, kind], _, d, _ ->
-        if family == :effect and kind == :stop and d[:request_ref] == v.key, do: bump.()
+    if mode == :handler do
+      attach("hj-t12-effect-#{ref}", fn [_, family, k], _, d, _ ->
+        if family == :effect and k == kind and d[:operation] == operation and
+             d[:request_ref] == v.key,
+           do: bump.()
       end)
     end
 
+    if operation == :send, do: :atomics.put(armed, 1, 1)
     assert {:ok, :dispatched} = I.advance(v.p, :dispatch)
     wait(fn -> I.status(v.p).revision >= 3 end)
+
+    poll =
+      if operation == :poll do
+        Fixture.mode(c.f, :success)
+        :atomics.put(armed, 1, 1)
+        assert {:ok, :polling} = I.advance(v.p, :poll)
+        wait(fn -> I.status(v.p).revision >= 4 end)
+        :polled
+      end
+
     s = I.status(v.p)
-    %{phase: s.phase, revision: s.revision, clock: Agent.get(c.clock, & &1), calls: calls(c, v.key)}
+
+    %{
+      phase: s.phase,
+      revision: s.revision,
+      evidence: s.evidence,
+      clock: Agent.get(c.clock, & &1),
+      wire: for({m, path, _} <- Fixture.calls(c.f), String.ends_with?(path, v.key), do: m),
+      poll: poll
+    }
   end
 
-  test "T12 (iii) a deadline-crossing effect handler equals a clock advance before arrival", c do
-    crossing = arrival(c, "ac-h", 5900, true)
-    assert crossing == arrival(c, "ac-c", 5900, false)
-    assert crossing.clock == 6000
+  test "T12 (iii) every effect emission point: a deadline-crossing handler equals a clock advance before arrival",
+       c do
+    for operation <- [:send, :poll], kind <- [:start, :stop] do
+      tag = "#{operation}-#{kind}"
+      crossing = arrival(c, "x-#{tag}-h", operation, kind, 5900, :handler)
+      assert crossing == arrival(c, "x-#{tag}-c", operation, kind, 5900, :control), tag
+      assert crossing.clock == 6000, tag
 
-    short = arrival(c, "as-h", 500, true)
-    assert short == arrival(c, "as-c", 500, false)
-    assert Map.delete(short, :clock) == Map.delete(arrival(c, "as-plain", 0, false), :clock)
+      short = arrival(c, "s-#{tag}-h", operation, kind, 500, :handler)
+      assert short == arrival(c, "s-#{tag}-c", operation, kind, 500, :control), tag
+      plain = arrival(c, "s-#{tag}-p", operation, kind, 500, :plain)
+      assert Map.delete(short, :clock) == Map.delete(plain, :clock), tag
+      assert short.clock == 600 and plain.clock == 100, tag
 
-    IO.puts(
-      "ELZ-052 T12 (iii) http-job arrival: crossing=#{inspect(crossing)} short=#{inspect(short)}"
-    )
+      IO.puts(
+        "ELZ-052 T12 (iii) http-job #{tag}: crossing=#{inspect(crossing)} short=#{inspect(short)}"
+      )
+    end
+  end
+
+  # Exception events: controlled faults at the runner and at the Adapter.
+  defmodule ThrowingBinding do
+    @moduledoc false
+    def __effect_intent_binding__, do: throw(:binding_fault)
+  end
+
+  defmodule ExitingBinding do
+    @moduledoc false
+    def __effect_intent_binding__, do: exit(:binding_fault)
+  end
+
+  # An owner stand-in that answers every call with a non-map status, so the
+  # runner's own status check raises after the owner call returned.
+  defp odd_owner do
+    pid =
+      spawn_link(fn ->
+        loop = fn loop ->
+          receive do
+            {:"$gen_call", from, _} ->
+              GenServer.reply(from, {:not_a_status})
+              loop.(loop)
+          end
+        end
+
+        loop.(loop)
+      end)
+
+    on_exit(fn -> Process.exit(pid, :kill) end)
+    pid
+  end
+
+  test "T4 a runner fault emits job :exception with reason and duration; the result is unchanged",
+       c do
+    owner = odd_owner()
+    cfg = %{c.cfg | resolve_intent: fn _ -> {:ok, owner} end}
+    key = String.duplicate("c", 64)
+    capture(key)
+    job = %Oban.Job{args: %{"v" => 1, "queue" => cfg.queue, "job_key" => key}, attempt: 1}
+    assert H.perform(cfg, job) == {:error, :owner_unavailable}
+
+    assert [{[:elzoo, :job, :start], _, _}, {[:elzoo, :job, :exception], m, d}] = collect()
+    assert d.reason == :raise and d.operation == :perform and d.request_ref == key
+    refute Map.has_key?(d, :outcome)
+    assert Map.keys(m) == [:duration] and is_integer(m.duration) and m.duration >= 0
+    assert {:ok, ^d} = Telemetry.metadata([:elzoo, :job, :exception], d)
+  end
+
+  test "T4 an Adapter fault emits effect :exception with reason and duration; the throw or exit propagates unchanged",
+       c do
+    key = String.duplicate("d", 64)
+
+    request = fn binding, operation_fun ->
+      req = %{
+        key: key,
+        attempt: 1,
+        attempt_id: key <> "/attempt/1",
+        arguments: c.body,
+        arguments_digest: :crypto.hash(:sha256, c.body),
+        schema: H.Adapter.schema(),
+        binding: <<0::256>>,
+        context: %{c.cfg | binding: binding}
+      }
+
+      fn -> operation_fun.(req) end
+    end
+
+    capture(key)
+
+    for {binding, kind, reason} <- [
+          {ThrowingBinding, :throw, :throw},
+          {ExitingBinding, :exit, :exit}
+        ],
+        {operation, fun} <- [send: &H.Adapter.send_effect/1, poll: &H.Adapter.poll/1] do
+      call = request.(binding, fun)
+
+      caught =
+        try do
+          call.()
+        catch
+          k, value -> {k, value}
+        end
+
+      assert caught == {kind, :binding_fault}
+
+      assert [{[:elzoo, :effect, :start], start, _}, {[:elzoo, :effect, :exception], m, d}] =
+               collect()
+
+      assert start == %{payload_bytes: byte_size(c.body)}
+      assert d.reason == reason and d.operation == operation and d.request_ref == key
+      assert d.attempt == 1 and d.tenant == "test-tenant"
+      refute Map.has_key?(d, :outcome)
+      assert Map.keys(m) == [:duration] and is_integer(m.duration) and m.duration >= 0
+      assert {:ok, ^d} = Telemetry.metadata([:elzoo, :effect, :exception], d)
+    end
   end
 end
