@@ -441,7 +441,8 @@ class CommandLine(unittest.TestCase):
 SCANNED_SUFFIXES = {".ex", ".exs", ".gleam", ".sh", ".erl", ".hrl", ".cure", ".eex", ".heex", ".leex", ".mjs", ".js"}
 SKIPPED_DIRS = {".git", "deps", "_build", "node_modules", "build", ".elixir_ls", ".claims", ".github"}
 ROOT_ONLY_SKIPPED = {"docs", "tasks"}   # the documentation itself; a nested lib/mix/tasks is source and is scanned
-COMMENT_PREFIXES = ("#", "//", "%")      # a comment-only line cannot read a file
+# Comments are scanned too: no language rule decides here what is a comment (in Elixir a line that starts with `%{` is
+# a map and a heredoc line that starts with `#{` is code); the six comment lines that mention a path are reviewed.
 LITERALS = [
     # docs/x, tasks/x, also after a slash or an interpolation: "../../docs/x", "#{root}/docs/x"
     re.compile(r"""(?<![A-Za-z0-9_.@-])((?:docs|tasks)/[^\s"'`)\]]*)"""),
@@ -450,8 +451,11 @@ LITERALS = [
     re.compile(r"""~w[(\[{<|/][^)\]}>|/]*\b(docs|tasks)\b"""),   # ~w(docs x.md)
     re.compile(r"""(?<![A-Za-z0-9_.-])((?:GOAL|PLAN)\.md)"""),
     re.compile(r"""(?<![A-Za-z0-9_.-])(README\.md)"""),      # also "#{dir}/README.md" and ~s(README.md)
-    re.compile(r"""(\*\.\{?[A-Za-z,]*md)"""),               # a markdown glob such as Path.wildcard("*.{md,json}")
+    re.compile(r"""(?i)(\*\.\{?[a-z,]*md)"""),              # a markdown glob such as Path.wildcard("*.{md,json}")
     re.compile(r"""Path\.wildcard\(\s*["'](\*[^"']*)"""),    # a wildcard that starts at the working directory
+    # a wildcard or a listing over the project root, the working directory or a root variable
+    re.compile(r"""(Path\.wildcard\(\s*Path\.join\(\s*\[?\s*(?:@?root\b|File\.cwd!\(\)|["']\.["']|\.\s*,))"""),
+    re.compile(r"""(File\.ls!?\()"""),
 ]
 # The README of a piece, as an explicit path of exactly two directories: not the root README.md. Removed from a line
 # before the patterns run ("pieces/../README.md" and other odd forms are not removed, so they are reported).
@@ -479,6 +483,18 @@ REVIEWED = {
     ("test/export_test.exs", 'refute Map.has_key?(plan.files, "lib/mix/tasks/compile_cure.ex")'): MIX_TASK,
     ("test/registry_test.exs", '{&put_in(&1, ["operations", "config", "evidence"], ["README.md"]),'):
         PIECE_README + " (manifest fixture)",
+    ("spikes/ash_foundation/test/elz010_job_provider_test.exs", "# docs/work/ELZ-010.md; not a shipped adapter."): "comment",
+    ("spikes/ash_foundation/test/support/elz010_job_provider.ex",
+     "# ELZ-010 job-provider comparison (exploration evidence for docs/work/ELZ-010.md)."): "comment",
+    ("test/elz010_cure_probe_test.exs", "# Exploration evidence for docs/work/ELZ-010.md; not a ready Piece."): "comment",
+    ("test/elz010_provider_probe_test.exs", "# aborted it ({:error, :rollback}, no job; recorded in docs/work/ELZ-010.md)."): "comment",
+    ("test/elz010_provider_probe_test.exs", "# docs/work/ELZ-010.md, re-run by mix check. Not acceptance evidence for a Piece."): "comment",
+    ("test/support/elz010_probe_test_helper.exs", "# Contract proposal in docs/work/ELZ-010.md). Not a Piece and not shipped."): "comment",
+    ("lib/elzoo/registry.ex", 'Path.wildcard(Path.join([root, directory, role, "**", "*"]), match_dot: true)'):
+        "files of one piece directory (pieces/<family>/<name>/<role>), not the project root",
+    ("test/support/cure_consumer_case_test_helper.exs", 'Path.wildcard(Path.join([@root, "_build", "test", "lib", "*", "ebin"]))'):
+        "compiled beams below _build, not documentation",
+    ("test/export_test.exs", 'assert File.ls!(ctx.destination) == ["mix.exs"]'): "lists the temporary export destination, not the root",
 }
 # Reviewed lines that are real reads: the literal must not be in the allowlist.
 READS = {("lib/elzoo/export.ex", '{".elzoo/docs/consuming.md", "docs/consuming.md"}'): "docs/consuming.md"}
@@ -501,8 +517,6 @@ def documentation_literals(root):
         relative = path.relative_to(root).as_posix()
         for number, line in enumerate(path.read_text(errors="replace").splitlines(), 1):
             text = line.strip()
-            if text.startswith(COMMENT_PREFIXES):
-                continue
             line = PIECE_README_PATH.sub("", line)
             for pattern in LITERALS:
                 for match in pattern.finditer(line):
@@ -579,7 +593,8 @@ class AllowlistGuard(unittest.TestCase):
             "test/t_test.exs": '@doc_dir "docs"\n',
             "test/u_test.exs": 'Path.wildcard("*.{md,json}")\n',
             "test/v_test.exs": 'Path.wildcard("**/*")\n',
-            "test/aa_test.exs": 'Path.wildcard(Path.join(root, "*.md"))\n',      # only the markdown glob sees this
+            "test/aa_test.exs": 'Path.wildcard(dir <> "/*.md")\n',      # only the markdown glob sees these two
+            "test/ab_test.exs": 'Path.wildcard(dir <> "/*.MD")\n',
             "test/w_test.exs": "Path.join(~w(tasks x.md))\n",
             "test/x_test.exs": 'File.read!("pieces/../README.md")\n',
             "test/y_test.exs": 'File.read!("pieces/a/b/c/README.md")\n',
@@ -606,17 +621,51 @@ class AllowlistGuard(unittest.TestCase):
         self.assertEqual({(reviewed_file, 'File.read!("README.md")'), (reviewed_file, 'File.read!(Path.join(root, "GOAL.md"))')},
                          unreviewed)
 
-    def test_explicit_piece_readme_paths_and_comments_are_not_reported(self):
+    def test_explicit_piece_readme_paths_are_not_reported(self):
         scratch = Path(tempfile.mkdtemp(prefix="elzoo-class-scratch-"))
         self.addCleanup(shutil.rmtree, scratch, True)
         (scratch / "test").mkdir()
-        (scratch / "test/a_test.exs").write_text(
-            'select(["pieces/core/port/README.md", "pieces/runtime/host/README.md"])\n'
-            '# File.read!("docs/x.md") is only a comment\n'
-            '    # docs/x.md\n')
-        (scratch / "scripts").mkdir()
-        (scratch / "scripts/b.sh").write_text("# cat docs/x.md\n")
+        (scratch / "test/a_test.exs").write_text('select(["pieces/core/port/README.md", "pieces/runtime/host/README.md"])\n')
         self.assertEqual({}, documentation_literals(scratch))
+
+    def test_lines_that_start_like_a_comment_but_are_code_are_scanned(self):
+        # In Elixir `%{` starts a map and `#{` inside a heredoc is interpolation; JS has `#field`; Erlang has `#record{}`.
+        scratch = Path(tempfile.mkdtemp(prefix="elzoo-class-scratch-"))
+        self.addCleanup(shutil.rmtree, scratch, True)
+        forms = {
+            "lib/a.ex": 'config =\n  %{readme: File.read!("README.md")}\n',
+            "lib/b.ex": '  %Plan{file: File.read!(Path.join(root, "docs/x.md"))}\n',
+            "lib/c.ex": 'text = """\n#{File.read!("docs/x.md")}\n"""\n',
+            "lib/d.ex": 'x = """\n#{File.read!(Path.join(root, "GOAL.md"))}\n"""\n',
+            "spikes/gleam_ui/browser/e.mjs": "class A {\n  #text = readFileSync('docs/x.md');\n}\n",
+            "lib/f.erl": '#plan{file = file:read_file("docs/x.md")}.\n',
+            "scripts/g.sh": "# cat docs/x.md\n",
+            "lib/h.ex": '# File.read!("docs/x.md")\n',
+            "lib/i.ex": '%% docs/x.md\n',
+        }
+        for relative, text in forms.items():
+            path = scratch / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+        self.assertEqual(set(forms), {file for file, _line in documentation_literals(scratch)})
+
+    def test_roots_wildcards_and_listings_are_reported(self):
+        scratch = Path(tempfile.mkdtemp(prefix="elzoo-class-scratch-"))
+        self.addCleanup(shutil.rmtree, scratch, True)
+        forms = {
+            "test/a_test.exs": 'Path.wildcard(Path.join(root, "**/*"))\n',
+            "test/b_test.exs": 'Path.wildcard(Path.join([@root, "**", "*"]))\n',
+            "test/c_test.exs": 'Path.wildcard(Path.join(File.cwd!(), "*"))\n',
+            "test/d_test.exs": 'File.ls!(root)\n',
+            "test/e_test.exs": 'File.ls(".")\n',
+            "test/f_test.exs": 'Path.wildcard("*.MD")\n',
+            "test/g_test.exs": 'Path.wildcard(Path.join(".", "*"))\n',
+        }
+        for relative, text in forms.items():
+            path = scratch / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+        self.assertEqual(set(forms), {file for file, _line in documentation_literals(scratch)})
 
     def test_a_clean_scratch_tree_and_look_alikes_are_not_reported(self):
         scratch = Path(tempfile.mkdtemp(prefix="elzoo-class-scratch-"))
