@@ -569,12 +569,19 @@ for file in files:
                 errors.append(f'{file}: the full-check marker may be printed by the pinned aggregating step only ({name})')
             # ELZ-073: the part markers are printed by `mix check --part` only; the queue accepts them as part evidence,
             # so no workflow line may print one. Review of PR #144, should-fix 2.
+            # Limit (ELZ-078): the check finds only a marker written in full on one line, as for the other markers of
+            # this guard; a marker built in a shell script (a printf of two pieces) passes it.
             part_lines = [i for i in block if any(marker in lines[i] for marker in PART_MARKERS)]
             if part_lines:
                 errors.append(f'{file}: a part marker may be printed by mix check --part only, not by the workflow ({name})')
             # Only the root job saves caches (three jobs saving one key would race, and a save step that no pinned
             # condition covers is invisible to the step-level comparison). `actions/cache@` saves in its post step too.
-            cache_saves = [i for i in block if re.search(r'uses\s*:\s*actions/cache(?:/save)?@', lines[i])]
+            # Case-insensitive (ELZ-078): the pinned-action check allows capitals in an action name, and GitHub resolves
+            # the owner and repository part without regard to case (the path inside the repository is probably case-
+            # sensitive, so a capital spelling may not even run; refusing it is the safe side). The pattern sees only
+            # `actions/cache` and `actions/cache/save` written in this form; other spellings (a `.` path part) and other
+            # actions that cache are not counted (follow-ups on #147).
+            cache_saves = [i for i in block if re.search(r'uses\s*:\s*actions/cache(?:/save)?@', lines[i], re.IGNORECASE)]
             if len(cache_saves) != (2 if name == 'check-root' else 0):
                 errors.append(f'{file}: only the root job saves caches, with exactly two save steps ({name})')
     # ELZ-069: no workflow reads `vars` (the lane variable is gone), and no self-hosted runner, label list or
