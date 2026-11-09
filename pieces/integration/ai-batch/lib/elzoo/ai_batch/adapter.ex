@@ -118,7 +118,8 @@ defmodule Elzoo.AiBatch.SubmitAdapter do
   @moduledoc """
   The `delivery/effect-intent` Adapter of one batch submission. Order inside the
   send task: binding and manifest checks (the manifest's body length within
-  `max_create_wire_bytes`); the host's submission store keyed by intent key,
+  `max_create_wire_bytes`); the host's submission store keyed by intent key
+  (one fetch in an isolated task bounded by `store_timeout_ms`),
   binding digest and manifest digest; length and SHA-256 of the returned bytes
   against the manifest; then the credential Need (a failure is the only attested
   no-send, `credentials_unavailable`); exactly one provider `submit/2` with
@@ -177,14 +178,24 @@ defmodule Elzoo.AiBatch.SubmitAdapter do
     _, _ -> Adapter.failure(:adapter_error)
   end
 
-  defp fetch(%Config{submissions: {module, server}}, key, binding_digest, manifest_digest) do
-    case module.fetch(server, key, %{
-           binding_digest: binding_digest,
-           manifest_digest: manifest_digest
-         }) do
-      {:ok, bytes} when is_binary(bytes) -> {:ok, bytes}
+  # The store fetch runs in an isolated task bounded by `store_timeout_ms`; a
+  # store that blocks, raises, exits or answers otherwise is the same local
+  # failure as a missing body (nothing sent, no credential read). A timed-out
+  # task is killed.
+  defp fetch(%Config{submissions: {module, server}} = c, key, binding_digest, manifest_digest) do
+    digests = %{binding_digest: binding_digest, manifest_digest: manifest_digest}
+    task = Task.async(fn -> safe_fetch(module, server, key, digests) end)
+
+    case Task.yield(task, c.store_timeout_ms) || Task.shutdown(task, :brutal_kill) do
+      {:ok, {:ok, bytes}} when is_binary(bytes) -> {:ok, bytes}
       _ -> :error
     end
+  catch
+    _, _ -> :error
+  end
+
+  defp safe_fetch(module, server, key, digests) do
+    module.fetch(server, key, digests)
   catch
     _, _ -> :error
   end

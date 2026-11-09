@@ -35,6 +35,7 @@ defmodule Elzoo.AiBatch do
     :max_line_bytes,
     :max_scan_bytes,
     :receive_timeout_ms,
+    :store_timeout_ms,
     :sink
   ]
   @read_reasons [
@@ -81,7 +82,9 @@ defmodule Elzoo.AiBatch do
   - `max_line_bytes`: 1..16 MiB, default 1 MiB (one result line);
   - `max_scan_bytes`: 1..1 GiB, default 64 MiB (all bytes read by one results
     call, including skipped lines);
-  - `receive_timeout_ms`: 1..600,000, default 120,000.
+  - `receive_timeout_ms`: 1..600,000, default 120,000;
+  - `store_timeout_ms`: 1..60,000, default 5,000 (one submission-store fetch,
+    run in an isolated task that is killed at the bound).
 
   Fixed for the Config's lifetime; no hot update.
   """
@@ -115,7 +118,8 @@ defmodule Elzoo.AiBatch do
          {:ok, page} <- bound(opts, :page_size, 1_000, 100),
          {:ok, line} <- bound(opts, :max_line_bytes, 16 * @mib, @mib),
          {:ok, scan} <- bound(opts, :max_scan_bytes, 1024 * @mib, 64 * @mib),
-         {:ok, timeout} <- bound(opts, :receive_timeout_ms, 600_000, 120_000) do
+         {:ok, timeout} <- bound(opts, :receive_timeout_ms, 600_000, 120_000),
+         {:ok, store_timeout} <- bound(opts, :store_timeout_ms, 60_000, 5_000) do
       {:ok,
        %Config{
          submit_binding: opts[:submit_binding],
@@ -135,6 +139,7 @@ defmodule Elzoo.AiBatch do
          max_line_bytes: line,
          max_scan_bytes: scan,
          receive_timeout_ms: timeout,
+         store_timeout_ms: store_timeout,
          sink: opts[:sink],
          seal_key: :crypto.strong_rand_bytes(32)
        }}

@@ -19,6 +19,7 @@ defmodule Elzoo.AiBatch.Config do
     :max_line_bytes,
     :max_scan_bytes,
     :receive_timeout_ms,
+    :store_timeout_ms,
     :sink,
     :seal_key
   ]

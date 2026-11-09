@@ -98,6 +98,14 @@ defmodule Elzoo.AiBatch.TamperingStore do
   def fetch(agent, _key, _digests), do: {:ok, Agent.get(agent, & &1)}
 end
 
+# A host store that never answers: used to show the store fetch is bounded.
+defmodule Elzoo.AiBatch.SilentStore do
+  @behaviour Elzoo.AiBatch.SubmissionStore
+
+  @impl true
+  def fetch(_server, _key, _digests), do: Process.sleep(:infinity)
+end
+
 defmodule Elzoo.AiBatch.TestSubmitBinding do
   use Elzoo.AiBatch.Binding,
     operation: :submit,

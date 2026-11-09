@@ -169,8 +169,10 @@ defmodule Elzoo.AiBatchTest do
 
   test "S2 local refusals return at admission before an intent, the credential or the provider: ids, models, counts, bytes, items, features, options (admission)",
        ctx do
+    parent = self()
+
     need = fn ->
-      send(self(), :credential_read)
+      send(parent, :credential_read)
       {:ok, @secret}
     end
 
@@ -310,6 +312,8 @@ defmodule Elzoo.AiBatchTest do
           [max_line_bytes: 16 * 1_048_576 + 1],
           [max_scan_bytes: 1024 * 1_048_576 + 1],
           [receive_timeout_ms: 600_001],
+          [store_timeout_ms: 0],
+          [store_timeout_ms: 60_001],
           [unknown: 1],
           [submit_binding: Elzoo.AiBatch.TestCancelBinding],
           [cancel_binding: Elzoo.AiBatch.TestSubmitBinding],
@@ -391,8 +395,10 @@ defmodule Elzoo.AiBatchTest do
 
   test "S8 a missing or mismatched staged submission sends nothing and reads no credential; the outcome is conservatively unknown (Adapter + lookup Need)",
        ctx do
+    parent = self()
+
     need = fn ->
-      send(self(), :credential_read)
+      send(parent, :credential_read)
       {:ok, @secret}
     end
 
@@ -435,6 +441,27 @@ defmodule Elzoo.AiBatchTest do
       refute_received :credential_read
       assert calls(:submit) == 0
     end
+
+    # A store that never answers is bounded by store_timeout_ms: the attempt
+    # settles as the same local failure, with no credential read and no send.
+    c =
+      config(ctx,
+        credentials: need,
+        submissions: {Elzoo.AiBatch.SilentStore, self()},
+        bounds: [store_timeout_ms: 100],
+        respond: fn _, _ -> raise "never" end
+      )
+
+    {:ok, a} = admit(c, submission(), "silent")
+    pid = owner(c.submit_binding, c, a, ctx)
+    started = System.monotonic_time(:millisecond)
+    {:ok, :dispatched} = Intent.advance(pid, :dispatch)
+    settled(pid)
+    assert System.monotonic_time(:millisecond) - started < 4_000
+    key = a.key
+    assert_receive {AiBatch, ^key, {:outcome, _, {:unknown, :provider_error, %{orphans: []}}}}, 2000
+    refute_received :credential_read
+    assert calls(:submit) == 0
 
     # A second put of other bytes under the same key is refused.
     {:ok, a} = admit(config(ctx), submission(), "twice")

@@ -26,8 +26,9 @@ capability** (`submissions: {module, server}`, see below), the model allowlist, 
 bounds: `max_output_tokens` (per item), `max_items` (1 to the provider's cap),
 `max_create_wire_bytes` (1 to the provider's cap, measured on the exact encoded
 create body), `max_submission_bytes`, `max_item_bytes` (at most 65,536),
-`page_size` (1..1,000), `max_line_bytes`, `max_scan_bytes` and
-`receive_timeout_ms`. Fixed for the Config's lifetime.
+`page_size` (1..1,000), `max_line_bytes`, `max_scan_bytes`,
+`receive_timeout_ms` and `store_timeout_ms` (1..60,000, default 5,000: one
+submission-store fetch runs in an isolated task killed at this bound). Fixed for the Config's lifetime.
 
 ### Submit
 
