@@ -14,8 +14,21 @@ defmodule Elzoo.CureConsumerCase do
   @root File.cwd!()
 
   # Consumers whose copy closure names a PostgreSQL provider (postgrex, ecto_sql, oban). They
-  # share `ELZOO_TEST_DATABASE_URL`, so they run in sequence.
-  @postgres_consumer_ids ~w(integration/sql integration/jobs assembly/durable-job)
+  # share `ELZOO_TEST_DATABASE_URL`, so they run in sequence. `integration/ai-text` (ELZ-091) copies
+  # integration/sql through delivery/effect-intent.
+  @postgres_consumer_ids ~w(integration/sql integration/jobs assembly/durable-job integration/ai-text)
+
+  # ELZ-091: the per-ID consumer of the provider-neutral AI text interface. Its closure must hold no
+  # provider Piece and no provider library: the interface works without any provider.
+  @ai_text_id "integration/ai-text"
+  @forbidden_providers ~w(req_llm plug)
+  @no_provider_check """
+  for module <- [ReqLLM, Plug, Plug.Conn, Elzoo.AiText.Anthropic] do
+    unless :code.which(module) == :non_existing,
+      do: raise("provider code is loadable in the ai-text consumer: " <> inspect(module))
+  end
+  IO.puts("ai-text consumer: no provider module, ReqLLM or Plug loadable")
+  """
 
   # Database-free consumers, in three groups balanced by the measured `total` seconds on main
   # `0a42370` (the first fast runner job 128581094645): about 65 s, 65 s and 60 s in sequence. The
@@ -124,6 +137,22 @@ defmodule Elzoo.CureConsumerCase do
       project(consumer_applications(plan), Map.has_key?(plan.providers, "cure"))
     )
 
+    # ELZ-091: the merged install configuration of the selection, written as the generated install
+    # file tells a consumer to. Without a declared line no config file is written (today's layout).
+    settings = configuration_settings(plan)
+
+    if plan.configuration != [] do
+      File.mkdir_p!(Path.join(ctx.destination, "config"))
+
+      File.write!(
+        Path.join(ctx.destination, "config/config.exs"),
+        Enum.join(["import Config" | plan.configuration], "\n") <> "\n"
+      )
+    end
+
+    ai_text_only? = ids == [@ai_text_id]
+    if ai_text_only?, do: assert_no_ai_text_provider!(plan)
+
     helper =
       case Keyword.fetch(opts, :inner_timeout) do
         {:ok, ms} -> "ExUnit.start(seed: 0, timeout: #{ms})\n"
@@ -155,6 +184,7 @@ defmodule Elzoo.CureConsumerCase do
     File.write!(bootstrap, """
     unless :code.which(Elzoo.Registry) == :non_existing and :code.which(:"Cure.Elzoo.Core") == :non_existing,
       do: raise("Elzoo leaked into the consumer code path")
+    #{if ai_text_only?, do: @no_provider_check, else: ""}
     Mix.CLI.main(["test", "--no-deps-check"])
     """)
 
@@ -173,6 +203,13 @@ defmodule Elzoo.CureConsumerCase do
     assert output =~ "passed"
     refute output =~ "0 tests"
     refute File.exists?(Path.join(ctx.destination, "lib/elzoo/application.ex"))
+
+    if ai_text_only? do
+      assert output =~ "ai-text consumer: no provider module, ReqLLM or Plug loadable"
+      assert_no_provider_behaviour!(ctx.destination)
+    end
+
+    if settings != [], do: assert_configuration_before_start!(ctx, paths, settings, label, plan)
 
     runtime_paths =
       [
@@ -389,6 +426,7 @@ defmodule Elzoo.CureConsumerCase do
     end
     if Enum.any?(Application.started_applications(), fn {app, _, _} -> app == :cure end),
       do: raise("Cure started as a runtime application")
+    #{if ai_text_only?, do: @no_provider_check, else: ""}
     """
 
     {output, status} =
@@ -408,6 +446,92 @@ defmodule Elzoo.CureConsumerCase do
 
     if "workflow/state-machine" in Enum.map(plan.pieces, & &1["id"]),
       do: assert(output =~ "compiler-free JobRun decision passed")
+
+    if ai_text_only?,
+      do: assert(output =~ "ai-text consumer: no provider module, ReqLLM or Plug loadable")
+  end
+
+  defp assert_no_ai_text_provider!(plan) do
+    ids = Enum.map(plan.pieces, & &1["id"])
+    assert @ai_text_id in ids
+
+    refute Enum.any?(ids, &String.starts_with?(&1, @ai_text_id <> "-")),
+           "a provider Piece leaked into the ai-text closure: #{inspect(ids)}"
+
+    for provider <- @forbidden_providers do
+      refute Map.has_key?(plan.providers, provider), "#{provider} is in the ai-text closure"
+    end
+  end
+
+  # Read the compiled consumer modules' attributes without loading them: none may implement the
+  # provider behaviour (the scripted test provider lives under test/ and is not compiled to ebin).
+  defp assert_no_provider_behaviour!(destination) do
+    beams = Path.wildcard(Path.join(destination, "_build/test/lib/consumer/ebin/*.beam"))
+    assert beams != []
+
+    for beam <- beams do
+      {:ok, {module, [attributes: attributes]}} =
+        :beam_lib.chunks(String.to_charlist(beam), [:attributes])
+
+      behaviours = Keyword.get_values(attributes, :behaviour) |> List.flatten()
+
+      refute Elzoo.AiText.Provider in behaviours,
+             "#{inspect(module)} implements Elzoo.AiText.Provider in the ai-text consumer"
+    end
+  end
+
+  # ELZ-091: every {app, key, value} of the written lines, read as data (parsed, never evaluated).
+  defp configuration_settings(plan) do
+    for line <- plan.configuration,
+        {app, settings} = configuration_line!(line),
+        {key, value} <- settings,
+        do: {app, key, value}
+  end
+
+  defp configuration_line!(line) do
+    {:ok, parsed} = Elzoo.Registry.configuration_settings(line)
+    parsed
+  end
+
+  # Mix loads config/config.exs before it compiles or starts applications (upstream contract, named
+  # not proved). `mix run --no-start --no-compile` in the copied consumer shows each written value in
+  # the application environment while its application is not started.
+  defp assert_configuration_before_start!(ctx, paths, settings, label, plan) do
+    apps = settings |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
+
+    check = """
+    started = Enum.map(Application.started_applications(), &elem(&1, 0))
+    for app <- #{inspect(apps)}, app in started, do: raise("configured application already started: \#{app}")
+    for {app, key, value} <- #{inspect(settings, limit: :infinity)} do
+      actual = Application.get_env(app, key)
+      unless actual === value, do: raise("install configuration not loaded: \#{inspect({app, key, actual})}")
+      IO.puts("install configuration: \#{app} \#{key}=\#{inspect(value)} before start")
+    end
+    """
+
+    bootstrap = Path.join(ctx.destination, "configuration.exs")
+
+    File.write!(bootstrap, """
+    Mix.CLI.main(["run", "--no-deps-check", "--no-compile", "--no-start", "-e", #{inspect(check)}])
+    """)
+
+    {output, status} =
+      timed("#{label} install_configuration", fn ->
+        System.cmd("elixir", Enum.flat_map(paths, &["-pa", &1]) ++ [bootstrap],
+          cd: ctx.destination,
+          stderr_to_stdout: true,
+          env: [{"MIX_ENV", "test"}, {"MIX_BUILD_PATH", nil}, {"MIX_DEPS_PATH", nil}]
+        )
+      end)
+
+    assert status == 0, output
+
+    for {app, key, value} <- settings do
+      assert output =~ "install configuration: #{app} #{key}=#{inspect(value)} before start"
+    end
+
+    if "integration/ai-text-anthropic" in Enum.map(plan.pieces, & &1["id"]),
+      do: assert(output =~ "install configuration: req_llm load_dotenv=false before start")
   end
 
   defp consumer_applications(plan) do

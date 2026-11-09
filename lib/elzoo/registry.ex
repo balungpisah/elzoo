@@ -171,6 +171,7 @@ defmodule Elzoo.Registry do
       )
     end)
 
+    validate_install_configuration!(piece, providers)
     source!(root, "#{directory}/README.md")
     files = piece["files"]
 
@@ -246,6 +247,100 @@ defmodule Elzoo.Registry do
     end)
 
     validate_operations!(piece)
+  end
+
+  @doc """
+  Validate the optional `install_configuration` field (ELZ-091): a non-empty list of
+  `%{"line" => line, "reason" => reason}` maps. Each line must parse, without evaluation, to one
+  literal-only `config :app, key: value, ...` call whose application is the package of one of the
+  Piece's own declared providers. Lines are data: nothing here or in the exporter evaluates them.
+  """
+  def validate_install_configuration!(piece, providers) do
+    id = piece["id"]
+
+    case Map.fetch(piece, "install_configuration") do
+      :error ->
+        :ok
+
+      {:ok, items} ->
+        ensure!(
+          is_list(items) and items != [],
+          "install_configuration must be a non-empty list: #{id}"
+        )
+
+        packages =
+          piece["providers"]
+          |> Enum.map(&get_in(providers, [&1, "package"]))
+          |> Enum.filter(&is_binary/1)
+
+        Enum.each(items, fn item ->
+          ensure!(
+            is_map(item) and Enum.sort(Map.keys(item)) == ["line", "reason"],
+            "install_configuration item needs exactly line and reason: #{id}"
+          )
+
+          single_line!(item["line"], "install_configuration line: #{id}")
+          single_line!(item["reason"], "install_configuration reason: #{id}")
+
+          case configuration_settings(item["line"]) do
+            {:ok, {app, _}} ->
+              ensure!(
+                Atom.to_string(app) in packages,
+                "install_configuration configures #{app}, not a declared provider: #{id}"
+              )
+
+            {:error, reason} ->
+              fail!("invalid install_configuration line (#{reason}): #{id}")
+          end
+        end)
+
+        lines = Enum.map(items, & &1["line"])
+        ensure!(lines == Enum.uniq(lines), "duplicate install_configuration line: #{id}")
+    end
+  end
+
+  @doc """
+  Read one install configuration line as data: parse it (never evaluate it) and return
+  `{:ok, {app, keyword}}` only for a single `config :app, key: literal, ...` call. Accepted literals:
+  atoms (booleans and nil included), integers, floats, plain strings and lists of these.
+  """
+  def configuration_settings(line) when is_binary(line) do
+    case Code.string_to_quoted(line) do
+      {:ok, {:config, _, [app, settings]}} when is_atom(app) and is_list(settings) ->
+        cond do
+          settings == [] ->
+            {:error, "no settings"}
+
+          not Enum.all?(settings, &match?({key, _} when is_atom(key), &1)) ->
+            {:error, "settings must be a keyword list"}
+
+          length(Keyword.keys(settings)) != length(Enum.uniq(Keyword.keys(settings))) ->
+            {:error, "duplicate setting"}
+
+          not Enum.all?(settings, fn {_, value} -> literal?(value) end) ->
+            {:error, "values must be literals"}
+
+          true ->
+            {:ok, {app, settings}}
+        end
+
+      {:ok, _} ->
+        {:error, "not a single config :app, key: value call"}
+
+      {:error, _} ->
+        {:error, "does not parse"}
+    end
+  end
+
+  def configuration_settings(_), do: {:error, "not a string"}
+
+  defp literal?(value) when is_atom(value) or is_number(value) or is_binary(value), do: true
+  defp literal?(value) when is_list(value), do: Enum.all?(value, &literal?/1)
+  defp literal?(_), do: false
+
+  defp single_line!(value, name) do
+    nonempty!(value, name)
+    ensure!(not String.contains?(value, ["\n", "\r"]), "single line required: #{name}")
   end
 
   defp validate_operations!(piece) do
