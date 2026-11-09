@@ -1649,6 +1649,37 @@
       ]
     },
     {
+      "id": "ELZ-085",
+      "title": "ELZ-085 — Specify the batch job-mode interface Piece and the Anthropic Message Batches provider Piece",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-006",
+        "ELZ-011",
+        "ELZ-023",
+        "ELZ-079"
+      ],
+      "status": "published 2026-11-09; claimed task/ELZ-085; PR pending",
+      "url": "https://github.com/balungpisah/elzoo/issues/158",
+      "paths": [
+        "tasks/ELZ-085-ai-batch-anthropic.md"
+      ],
+      "outputs": [
+        "integration/ai-batch",
+        "integration/ai-batch-anthropic"
+      ],
+      "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 158,
+      "issue_body_sha256": "793f988041cc46f487283244350e9c65aac7260a11f78d6aa1134c53328311ba",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P06"
+      ],
+      "product_role": "Batch job mode for C7 scheduled bulk research (many independent prompts within a 24-hour window)."
+    },
+    {
       "id": "ELZ-091",
       "title": "ELZ-091 — Prove the AI text interface in its own copied consumer and carry Piece install configuration into exports",
       "kind": "published",
@@ -3561,6 +3592,26 @@
       "baseline_status": "deferred",
       "disposition": "blocked-admission-proposal",
       "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "integration/ai-batch",
+      "job": "ELZ-085",
+      "note": "Provider-neutral batch job mode over integration/ai-text requests: submit 1..max_items {item_id, text_request} (item ids ^[A-Za-z0-9_-]{1,64}$, unique; one model; each item admitted exactly as the synchronous text admission; count, payload, item and exact provider create-body bytes bounded) as a core/effect declaration with local refusals before any intent; submit and cancel are writes through delivery/effect-intent bindings; the provider create body is prepared once at admission and the submit intent arguments are a manifest naming it (count, length, SHA-256, non-secret provider metadata); the host stages the body in a store capability {module, pid or registered name} (no function accepted) and the Adapter sends exactly the fetched bytes after checking them against the manifest; outcomes submitted{job_ref, item_count, orphans} | refused{reason, retry_after, orphans} | unknown{reason, orphans} and cancelled{job_state} | refused | unknown, using ELZ-079's Cure failure table (only credentials_unavailable attested no-send; a lost submit or cancel stays unknown and a second dispatch of the same identity is refused); status and bounded result pages are call-scoped reads; results are joined by item id, unknown or duplicate ids refuse the page, missing ids are reported only after the last page of an ended job; item completions get the synchronous completion checks; conformance kit.",
+      "disposition": "implementation prepared; acceptance requires merged PR",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/integration/ai-batch/piece.json",
+      "manifest_sha256": "6747c88d24afdc39a61ac34d7edf503a4f15b70a508944c51da761f15b3ded00",
+      "baseline_status": "not in baseline (new row, ELZ-085)"
+    },
+    {
+      "id": "integration/ai-batch-anthropic",
+      "job": "ELZ-085",
+      "note": "Anthropic Message Batches provider of integration/ai-batch on the pinned Req: anthropic-version 2026-10-21, one request per operation with the injected key as x-api-key, retry and redirect off, bounded response bodies; each item's params are the synchronous ai-text-anthropic body (translate, req_llm prepare_request/4 and encode_body/1 with a placeholder key) minus stream false; the outer anthropic-beta is the sorted union of allowed item values, anything else refused, carried as manifest metadata and rechecked before sending; the create request sends the staged body unchanged; create, retrieve, cancel and streamed results decoded from the documented formats (in_progress running, canceling ending, ended with counts; succeeded, errored, canceled, expired lines joined by custom_id); orphans always empty; documented statuses mapped by the synchronous provider's table; caps 100,000 requests and 256,000,000 create-body bytes.",
+      "disposition": "implementation prepared; acceptance requires merged PR",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/integration/ai-batch-anthropic/piece.json",
+      "manifest_sha256": "3d9d482008b009e430720e659258c6380d451b367543e7944bc2d180837bf23a",
+      "baseline_status": "not in baseline (new row, ELZ-085)"
     },
     {
       "id": "integration/ai-model",
