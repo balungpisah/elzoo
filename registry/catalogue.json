@@ -610,11 +610,11 @@
     },
     {
       "id": "state/audit-log",
-      "summary": "Attributable retained decision history",
-      "disposition": "defer",
+      "summary": "Session-attributed audit of ready-Store record changes through Carbonite triggers inside the Store's own transaction",
+      "disposition": "adapt",
       "phase": "demand-led",
-      "status": "deferred",
-      "reason": "Actor/action/resource/outcome records for C1/C3/C6; selected storage, redaction, retention and tamper requirements needed. Telemetry is not this contract. ELZ-025 study: the audit record commits atomically with the decision; a bounded in-state list is not the retained trail."
+      "status": "ready",
+      "manifest": "pieces/state/audit-log/piece.json"
     },
     {
       "id": "state/checkpoint",
