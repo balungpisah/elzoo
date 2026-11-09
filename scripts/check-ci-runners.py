@@ -57,25 +57,28 @@ DECISION_STEP = """      - name: Decide whether the full check is redundant
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: python3 scripts/ci-skip-decision.py"""
-SKIP_IF = "        if: ${{ steps.skip.outputs.skip != 'true' }}"
+# ELZ-071: a documentation-only pull request (classified by scripts/ci-change-class.py, step `class`) skips every
+# heavy step and runs the short `Docs-only check` instead.
+SKIP_IF = "        if: ${{ steps.skip.outputs.skip != 'true' && steps.class.outputs.docs_only != 'true' }}"
+DOCS_IF = "        if: ${{ steps.class.outputs.docs_only == 'true' }}"
 # ELZ-064: the disposable S3 test server. Its start step is the only other backend step that sees the job
 # token (to fetch the pinned release asset); the restore and save steps use the same pinned cache key.
 MINIO_KEY = "elzoo-minio-RELEASE.2025-09-07T16-13-09Z-7c5bd8512c6e966455b1d198209358b2d191c77a83ab377c4073281065fb855f"
 MINIO_START_STEP = """      - name: Start the disposable S3 test server
-        if: ${{ steps.skip.outputs.skip != 'true' }}
+        if: ${{ steps.skip.outputs.skip != 'true' && steps.class.outputs.docs_only != 'true' }}
         id: minio
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: python3 scripts/ci-minio.py"""
 MINIO_CACHE_STEPS = [
     """      - name: Restore the pinned S3 test server binary
-        if: ${{ steps.skip.outputs.skip != 'true' }}
+        if: ${{ steps.skip.outputs.skip != 'true' && steps.class.outputs.docs_only != 'true' }}
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ runner.temp }}/elzoo-minio-cache
           key: """ + MINIO_KEY,
     """      - name: Save the pinned S3 test server binary
-        if: ${{ steps.skip.outputs.skip != 'true' && steps.minio.outputs.source != 'cache' }}
+        if: ${{ steps.skip.outputs.skip != 'true' && steps.class.outputs.docs_only != 'true' && steps.minio.outputs.source != 'cache' }}
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ runner.temp }}/elzoo-minio-cache
@@ -90,17 +93,31 @@ CHECKOUT_STEP = """      - uses: actions/checkout@11d5960a326750d5838078e36cf38b
 # ELZ-059: the pull request run is the merge evidence, so it runs the full check (no affected mode), and the
 # generated roadmap views are checked, not regenerated. Both steps are pinned by their exact text.
 MIX_CHECK_STEP = """      - name: Run mix check
-        if: ${{ steps.skip.outputs.skip != 'true' }}
+        if: ${{ steps.skip.outputs.skip != 'true' && steps.class.outputs.docs_only != 'true' }}
         run: sh scripts/run-ci-check.sh"""
 ROADMAP_STEP = """      - name: Check the roadmap views
-        if: ${{ steps.skip.outputs.skip != 'true' }}
+        if: ${{ steps.skip.outputs.skip != 'true' && steps.class.outputs.docs_only != 'true' }}
         run: python3 scripts/check-roadmap.py"""
-PINNED_STEPS = [MIX_CHECK_STEP, ROADMAP_STEP]
+# ELZ-071: the classification step (right after the checkout; it has no `if:`, so it always runs and a failure
+# fails the job), the tests of the classifier, and the short check of a documentation-only run. The merge queue
+# accepts the marker line of the short check only when its own classification of the change agrees.
+CLASS_STEP = """      - name: Classify the change
+        id: class
+        run: python3 scripts/ci-change-class.py github"""
+CLASS_TEST_STEP = "      - run: python3 scripts/test-ci-change-class.py"
+DOCS_ONLY_MARKER = "ELZOO DOCS-ONLY CHECK PASSED"
+DOCS_ONLY_STEP = """      - name: Docs-only check
+        if: ${{ steps.class.outputs.docs_only == 'true' }}
+        run: |
+          python3 scripts/check-claims.py
+          python3 scripts/check-roadmap.py
+          echo "ELZOO DOCS-ONLY CHECK PASSED\""""
+PINNED_STEPS = [CLASS_STEP, CLASS_TEST_STEP, MIX_CHECK_STEP, ROADMAP_STEP, DOCS_ONLY_STEP]
 STEP_IFS = [
     ("      - name: Restore the pinned S3 test server binary", SKIP_IF),
     ("      - name: Start the disposable S3 test server", SKIP_IF),
     ("      - name: Save the pinned S3 test server binary",
-     "        if: ${{ steps.skip.outputs.skip != 'true' && steps.minio.outputs.source != 'cache' }}"),
+     "        if: ${{ steps.skip.outputs.skip != 'true' && steps.class.outputs.docs_only != 'true' && steps.minio.outputs.source != 'cache' }}"),
     ("      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1", SKIP_IF),
     ("      - name: Report BEAM capacity", SKIP_IF),
     ("      - name: Restore dependency cache", SKIP_IF),
@@ -108,9 +125,10 @@ STEP_IFS = [
     ("      - run: mix local.rebar --force", SKIP_IF),
     ("      - run: mix setup", SKIP_IF),
     ("      - name: Save dependency cache after mix setup",
-     "        if: ${{ steps.deps-cache.outputs.cache-hit != 'true' && steps.skip.outputs.skip != 'true' }}"),
+     "        if: ${{ steps.deps-cache.outputs.cache-hit != 'true' && steps.skip.outputs.skip != 'true' && steps.class.outputs.docs_only != 'true' }}"),
     ("      - name: Run mix check", SKIP_IF),
     ("      - name: Check the roadmap views", SKIP_IF),
+    ("      - name: Docs-only check", DOCS_IF),
     ("      - name: Report container resource observations", "        if: always()"),
 ]
 # Approved triggers: push to main, same-repository pull_request, workflow_dispatch (no inputs).
@@ -451,6 +469,11 @@ for file in files:
                     pairs.append((lines[header] if header is not None else '', lines[i]))
             if pairs != STEP_IFS:
                 errors.append(f'{file}: step-level conditions are not the reviewed ones ({name})')
+            # ELZ-071: the queue accepts the docs-only marker line, so the pinned Docs-only check step is the one
+            # place in the workflow that may print it (the step text itself is pinned above).
+            marker_lines = [i for i in block if DOCS_ONLY_MARKER in lines[i]]  # raw lines: script text and comments count
+            if len(marker_lines) != 1:
+                errors.append(f'{file}: the docs-only marker may be printed by the pinned Docs-only check step only ({name})')
     # ELZ-069: no workflow reads `vars` (the lane variable is gone), and no self-hosted runner, label list or
     # tier input may come back. Case-insensitive and on raw lines, script text and comments included: GitHub
     # expressions ignore case.
