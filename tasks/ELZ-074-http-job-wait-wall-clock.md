@@ -13,7 +13,7 @@ The owner delegated the choice between the investigator's weaker assertion and t
 
 ## Scope
 
-- `pieces/assembly/http-job/test/elzoo/http_job_test.exs`: the `wait/2` helper (lines 154–166) becomes a monotonic wall-clock deadline (default 60 000 ms, 10 ms sleep between polls, the same assertion on the final poll with the elapsed time added to the message). The two callers that passed an explicit `600` (twice the old default) pass `120_000` (twice the new default); every other caller keeps the default. No assertion changes; lines 582–583 are unchanged.
+- `pieces/assembly/http-job/test/elzoo/http_job_test.exs`: the `wait/2` helper (lines 154–166) becomes a monotonic wall-clock deadline (default 60 000 ms, 10 ms sleep between polls, the same assertion on the final poll with the elapsed time added to the message). The two callers that passed an explicit `600` (twice the old default) use the default too, because ExUnit's per-test timeout is 120 s (`test/test_helper.exs`) and a longer wait could not reach its final assertion; every caller keeps the default. No assertion changes; lines 582–583 are unchanged.
 - `docs/work/ELZ-074.md`: the mechanism, the investigator's report hash, why the strict assertions stay, the owner's delegation, and the evidence runs.
 - `tasks/ELZ-074-http-job-wait-wall-clock.md`: this body.
 

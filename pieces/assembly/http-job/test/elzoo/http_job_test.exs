@@ -154,7 +154,8 @@ defmodule Elzoo.HttpJobTest do
   # Wall-clock bounded wait (ELZ-074): polls every 10 ms until the condition
   # holds or the monotonic deadline passes; the final poll is asserted and the
   # elapsed time is reported. A slow but progressing runner passes; a stalled
-  # one still fails.
+  # one still fails. The deadline stays below ExUnit's 120 s per-test timeout
+  # (test/test_helper.exs) so the final assertion is reached.
   @wait_ms 60_000
   defp wait(fun, timeout_ms \\ @wait_ms) do
     started = System.monotonic_time(:millisecond)
@@ -487,7 +488,7 @@ defmodule Elzoo.HttpJobTest do
     assert {:ok, id} =
              Elzoo.Jobs.enqueue(name, Elzoo.Jobs.changeset(c.cfg.queue, c.admission.key, 3))
 
-    wait(fn -> Elzoo.Jobs.state_by_id(name, id) == {:ok, {id, "completed"}} end, 120_000)
+    wait(fn -> Elzoo.Jobs.state_by_id(name, id) == {:ok, {id, "completed"}} end)
     assert {:Confirmed, 1} = I.status(p).phase
 
     assert {:ok, %{cancelled_jobs: 0, external_outcome: :unknown}} =
@@ -519,7 +520,7 @@ defmodule Elzoo.HttpJobTest do
              Elzoo.Jobs.enqueue(name, Elzoo.Jobs.changeset(c.cfg.queue, c.admission.key, 1))
 
     assert :ok = Oban.retry_job(name, id)
-    wait(fn -> I.status(active).phase == {:Confirmed, 1} end, 120_000)
+    wait(fn -> I.status(active).phase == {:Confirmed, 1} end)
     assert Enum.count(Fixture.calls(c.f), fn {m, _, _} -> m == "PUT" end) == 1
   end
 
