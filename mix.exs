@@ -65,7 +65,15 @@ defmodule Elzoo.MixProject do
       # through Oban, Ecto and Req); a direct dependency of the Piece.
       {:telemetry, "== 1.4.2"},
       # ELZ-055 state/audit-log provider (Apache-2.0): trigger-based change capture.
-      {:carbonite, "== 0.17.0"}
+      {:carbonite, "== 0.17.0"},
+      # ELZ-079 integration/ai-text-anthropic provider (Apache-2.0), locked at 1.30.0 with
+      # llm_db 2026.11.0; used through its documented provider-callback API. Not runtime: false:
+      # its application initializes the provider registry. Its .env loading is switched off in
+      # config/config.exs (load_dotenv: false).
+      {:req_llm, "~> 1.30"},
+      # Req.Test stubs for the ELZ-079 provider tests (Apache-2.0); test-only here, an ordinary
+      # provider of the exported Anthropic Piece because the exporter has no test-only form.
+      {:plug, "== 1.20.3", only: :test}
     ]
   end
 

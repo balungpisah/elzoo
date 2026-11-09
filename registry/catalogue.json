@@ -411,11 +411,27 @@
     },
     {
       "id": "integration/ai-model",
-      "summary": "LLM function, parser, prompt/schema, agent loop/tools/budgets",
-      "disposition": "defer",
+      "summary": "AI model family core: model reference, unit-tagged usage with the provider's input-token convention and cache writes per TTL, cache hint with tenant rule, provenance, failure classes, job reference and state, stream chunk; pure values and validators",
+      "disposition": "adapt",
       "phase": "P4",
-      "status": "deferred",
-      "reason": "Provider request/stream/usage translation for C6/C7/C9. Routing policy belongs to delivery/model-routing; metering/pricing remain separate. No provider integration adopted. ELZ-025 study: the provider Adapter returns tool-call proposals as data and never resolves, loads or executes; usage carries a source tag provider_reported, estimated or unknown, never zero."
+      "status": "ready",
+      "manifest": "pieces/integration/ai-model/piece.json"
+    },
+    {
+      "id": "integration/ai-text",
+      "summary": "Provider-neutral text-model interface: request, outcomes, provider behaviour and options slot, core/effect admission, delivery/effect-intent call path with bounded retries, conformance kit",
+      "disposition": "adapt",
+      "phase": "P4",
+      "status": "ready",
+      "manifest": "pieces/integration/ai-text/piece.json"
+    },
+    {
+      "id": "integration/ai-text-anthropic",
+      "summary": "Anthropic Messages API provider of integration/ai-text through req_llm 1.30 (anthropic-version 2026-10-21): usage and cache counters, failure mapping, documented-format stubs",
+      "disposition": "adapt",
+      "phase": "P4",
+      "status": "ready",
+      "manifest": "pieces/integration/ai-text-anthropic/piece.json"
     },
     {
       "id": "integration/auth-policy",

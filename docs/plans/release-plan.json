@@ -1579,7 +1579,9 @@
         "tasks/ELZ-079-ai-model-text-anthropic.md"
       ],
       "outputs": [
-        "integration/ai-model"
+        "integration/ai-model",
+        "integration/ai-text",
+        "integration/ai-text-anthropic"
       ],
       "acceptance": "Unchanged live issue body (after the approved 2026-11-09 amendment 1); local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
       "issue": 153,
@@ -3482,10 +3484,32 @@
     {
       "id": "integration/ai-model",
       "job": "ELZ-079",
-      "note": "Provider request/stream/usage translation for C6/C7/C9. Routing policy belongs to delivery/model-routing; metering/pricing remain separate. No provider integration adopted. ELZ-025 study: the provider Adapter returns tool-call proposals as data and never resolves, loads or executes; usage carries a source tag provider_reported, estimated or unknown, never zero.",
-      "baseline_status": "deferred",
-      "disposition": "blocked-admission-proposal",
-      "catalogue_reference": "registry/catalogue.json"
+      "note": "Family core of the AI model Pieces: pure provider-neutral values and validators (model reference; unit-tagged usage with amounts as non-negative integers or :unknown, cache writes per TTL from a closed grammar, the provider's input-token convention and source; the accounting identity input_uncached = input when input excludes cached tokens, input - cache_read - sum(cache_writes) when it includes them, prompt_input = input_uncached + cache_read + sum(cache_writes) only when every component is known, otherwise :unknown; a cache hint whose tenant must equal the dispatch tenant; provenance; refused and unknown failure classes; job reference and job state; stream chunk). No I/O.",
+      "disposition": "implementation prepared; acceptance requires merged PR",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/integration/ai-model/piece.json",
+      "manifest_sha256": "f4235a8be041be0d7374311173fccffa186b4bc4aefe1a4c12efd514cf1fa845",
+      "baseline_status": "deferred"
+    },
+    {
+      "id": "integration/ai-text",
+      "job": "ELZ-079",
+      "note": "Provider-neutral text-model interface: request (ordered text messages, tools, tool_choice, output schema, max output tokens, stop sequences, optional sampling, reasoning level, cache hint, declared provider options, dispatch identity, deadline) admitted from a core/effect declaration with local refusals before any intent; one provider call per dispatch through the delivery/effect-intent owner; outcomes completed{content, tool_proposals, structured, finish, usage, provenance} | refused{credentials_unavailable | invalid_request | unsupported_feature | too_large | authentication_failed | permission_denied | throttled | overloaded | not_found} | unknown{timeout | transport | malformed_response | provider_error}; throttled and overloaded are failed/dispatched/retryable and not redispatched by default (Contract amendment 1); only credentials_unavailable is attested no-send and retried under delivery/retry-timeout; tool proposals are inert data, malformed ones marked; structured output validated; volatile result sink; provider behaviour and conformance kit.",
+      "disposition": "implementation prepared; acceptance requires merged PR",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/integration/ai-text/piece.json",
+      "manifest_sha256": "9d99618acf401106a6eaf83b657070d551ddf731428404099ff5c73ebd4dde5b",
+      "baseline_status": "not in baseline (new row, ELZ-079)"
+    },
+    {
+      "id": "integration/ai-text-anthropic",
+      "job": "ELZ-079",
+      "note": "Anthropic Messages API provider of integration/ai-text through req_llm 1.30's documented provider-callback API: anthropic-version 2026-10-21, max_retries 0, one HTTP exchange with every response halted by an Elzoo step (no redirect, no retry, no req_llm error value); key only from the injected Need as api_key; sampling not declared; structured output through output_config.format; cache hint mapped to cache_control markers (system and tools, at most one message, 5m or 1h) or refused; usage and cache counters from the raw usage map with absent fields :unknown; documented error statuses mapped to the interface's failure tags.",
+      "disposition": "implementation prepared; acceptance requires merged PR",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/integration/ai-text-anthropic/piece.json",
+      "manifest_sha256": "0a7a0e00ba80785897a79e1e612849666cfc7fae7d3d060b318e23f7fc719e99",
+      "baseline_status": "not in baseline (new row, ELZ-079)"
     },
     {
       "id": "integration/auth-policy",
