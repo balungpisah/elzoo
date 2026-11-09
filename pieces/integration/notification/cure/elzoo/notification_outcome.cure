@@ -1,0 +1,59 @@
+# SPDX-License-Identifier: Apache-2.0
+mod Elzoo.NotificationOutcome
+  # Stage at which the SMTP attempt ended. Pre: the Adapter's own checks before
+  # any connection. Session: connect, banner, EHLO, STARTTLS, AUTH (no envelope
+  # address or message byte sent). Transaction: MAIL FROM, RCPT TO, DATA.
+  type MailStage = MailPre | MailSession | MailTransaction | MailExpired | MailCrashed
+
+  type MailReply = MailAccepted | MailCode(Int) | MailLost | MailAuthRefused | MailAuthMissing | MailTlsFailed | MailCredentialFault | MailBadAddress | MailOversize | MailMalformed
+
+  type MailTag = TagAccepted | TagInvalidAddress | TagTooLarge | TagProviderTooLarge | TagRejectedRecipient | TagThrottled | TagSessionThrottled | TagAuthenticationFailed | TagCredentialsUnavailable | TagConnectFailed | TagConnectionLost | TagDeadline | TagUnclassifiedReply | TagAdapterError
+
+  fn session_code(code: Int) -> MailTag =
+    pickup
+      code >= 400 and code < 500 -> TagSessionThrottled()
+      else -> TagConnectFailed()
+
+  fn transaction_code(code: Int) -> MailTag =
+    pickup
+      code == 552 -> TagProviderTooLarge()
+      code == 550 or code == 551 or code == 553 -> TagRejectedRecipient()
+      code == 421 or code == 450 or code == 451 or code == 452 -> TagThrottled()
+      else -> TagUnclassifiedReply()
+
+  fn pre(reply: MailReply) -> MailTag =
+    match reply
+      MailBadAddress() -> TagInvalidAddress()
+      MailOversize() -> TagTooLarge()
+      MailCredentialFault() -> TagCredentialsUnavailable()
+      _ -> TagAdapterError()
+
+  fn session(reply: MailReply) -> MailTag =
+    match reply
+      MailCode(code) -> session_code(code)
+      MailAuthRefused() -> TagAuthenticationFailed()
+      MailAuthMissing() -> TagAuthenticationFailed()
+      MailLost() -> TagConnectFailed()
+      MailTlsFailed() -> TagConnectFailed()
+      MailMalformed() -> TagConnectFailed()
+      _ -> TagAdapterError()
+
+  # Never a refusal for a lost connection or an unrecognised reply: gen_smtp
+  # does not say which transaction command failed, so bytes may have been
+  # handed over.
+  fn transaction(reply: MailReply) -> MailTag =
+    match reply
+      MailAccepted() -> TagAccepted()
+      MailCode(code) -> transaction_code(code)
+      MailLost() -> TagConnectionLost()
+      MailMalformed() -> TagUnclassifiedReply()
+      _ -> TagAdapterError()
+
+  fn classify(stage: MailStage, reply: MailReply) -> MailTag =
+    match stage
+      MailExpired() -> TagDeadline()
+      MailCrashed() -> TagAdapterError()
+      MailPre() -> pre(reply)
+      MailSession() -> session(reply)
+      MailTransaction() -> transaction(reply)
+end

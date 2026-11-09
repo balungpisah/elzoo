@@ -80,6 +80,35 @@
       "version": "1.4.2",
       "reference": "https://hexdocs.pm/telemetry/1.4.2/telemetry.html",
       "license": "Apache-2.0"
+    },
+    "swoosh": {
+      "source": "hex",
+      "package": "swoosh",
+      "version": "1.29.3",
+      "runtime": false,
+      "reference": "https://hexdocs.pm/swoosh/1.29.3/Swoosh.Adapters.SMTP.html",
+      "license": "MIT"
+    },
+    "gen_smtp": {
+      "source": "hex",
+      "package": "gen_smtp",
+      "version": "1.3.0",
+      "reference": "https://hexdocs.pm/gen_smtp/1.3.0/",
+      "license": "BSD-2-Clause"
+    },
+    "ranch": {
+      "source": "hex",
+      "package": "ranch",
+      "version": "2.3.0",
+      "reference": "https://hexdocs.pm/ranch/2.3.0/",
+      "license": "ISC"
+    },
+    "idna": {
+      "source": "hex",
+      "package": "idna",
+      "version": "7.1.0",
+      "reference": "https://hexdocs.pm/idna/7.1.0/",
+      "license": "MIT"
     }
   }
 }
