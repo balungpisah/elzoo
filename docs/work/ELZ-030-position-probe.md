@@ -1,13 +1,14 @@
 # ELZ-030 — raw-order positional correspondence probe
 
 > Redacted before publication (ELZ-065): the password part of local test-database URLs (`ecto://user:…@localhost`) and role commands is replaced by an ellipsis; the recorded commands are otherwise exact.
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text.
 
 **Outcome: reduced positional feasibility passed; full production implementation
 remains open.**
 
 The pieces coordinator directed this bounded replacement probe in message
-`msg_b6ffe37f761d`, continuing author task `task_825547efe488` /
-`ctx_6171391913a6`. This is an internal representation choice within the accepted
+<message id>, continuing author task <task id> /
+<dispatch id>. This is an internal representation choice within the accepted
 Contract, not a Contract amendment, M7 fallback or permission to lower evidence.
 The [raw String-key permutation attempt](ELZ-030-raw-lookup-blocker.md) is a
 rejected strategy; the replacement performs no such permutation of raw lookups.
@@ -105,7 +106,7 @@ No raw content, ambient clock, database or external Effect enters the probe.
 ## Executed evidence and toolchain transition
 
 Working directory for every command:
-`/Users/laptopdp/orca/workspaces/elzoo/elzoo-ELZ-030`.
+`<worktrees>/elzoo-ELZ-030`.
 Initial clean local/remote head was `1b66f92b26f0c221896c46f298300690b72410de`.
 The first source checks used upstream Cure
 `a004c335cc4e9f2203ba6f51fc31e8540b66378d`: resolution, own-cache and graph
@@ -131,14 +132,14 @@ env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 \
 
 env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 \
   ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' \
-  ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:…@localhost/elzoo_pieces_test \
+  ELZOO_TEST_DATABASE_URL=ecto://<test role>:…@localhost/<test database> \
   mix setup
 ```
 
 Logs: `/tmp/elz030-position/deps-get.log` and `setup.log`. Fresh setup compiled
 Cure and 25 catalogue Cure sources; no `Result: N passed` summary is emitted by
 these setup commands. No database was created or altered by this worker.
-The supplied database URL was the required `elzoo_pieces_test` only.
+The supplied database URL pointed at the required disposable test database only.
 
 Both relevant probe commands used the same locale/scheduler prefix above:
 

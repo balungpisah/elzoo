@@ -240,13 +240,13 @@ Prerequisites: RC-33, RC-34, RC-35, RC-36.
 
 ## Agent and workspace registry
 
-**ELZ-033 documentation worker:** agent id=Sabrangs-MacBook-Pro-7bf9; identity source=claim commit 6bcff57fe7b59ec7b0414bf737127302944c5b37; workspace=/Users/laptopdp/.t3/worktrees/elzoo/t3-772a5980; base=404d159a122d18a22554c5688aa79199e4d5c124; branch=task/ELZ-033; claim sha=6bcff57fe7b59ec7b0414bf737127302944c5b37; mechanism=T3-provided isolated workspace; ordinary Git/GitHub publication; integration owner=dedicated roadmap coordinator; delegation=none; delivery boundary=checked self-contained PR; no merge, watch or cleanup
+**ELZ-033 documentation worker:** agent id=the ELZ-033 documentation worker; identity source=claim commit 6bcff57fe7b59ec7b0414bf737127302944c5b37; workspace=<worktrees>/t3-772a5980; base=404d159a122d18a22554c5688aa79199e4d5c124; branch=task/ELZ-033; claim sha=6bcff57fe7b59ec7b0414bf737127302944c5b37; mechanism=T3-provided isolated workspace; ordinary Git/GitHub publication; integration owner=dedicated roadmap coordinator; delegation=none; delivery boundary=checked self-contained PR; no merge, watch or cleanup
 
-**ELZ-010 exclusive coordinator:** thread=<t3-thread://v2/7bdd3880-94ea-4c58-a612-8b9b1253e59d/10109396-4230-4f47-a36d-173d628b81cd>; identity source=user-supplied link, read through live T3 tool; branch=task/ELZ-010; workspace=None; delivery boundary=unchanged existing ownership; workspace not accessed
+**ELZ-010 exclusive coordinator:** thread=<thread link redacted>; identity source=user-supplied link, read through live T3 tool; branch=task/ELZ-010; workspace=None; delivery boundary=unchanged existing ownership; workspace not accessed
 
 **future first-wave workers and independent reviewer:** agent id=None; workspace=None; mechanism=not dispatched by adoption worker; integration owner=dedicated roadmap coordinator; delegation=none; delivery boundary=coordinator records actual IDs, workspaces, bases and claim SHAs at dispatch
 
-**dedicated roadmap coordinator:** identity source=orchestrator_capabilities parentThreadId in this session; workspace=/Users/laptopdp/.t3/worktrees/elzoo/t3-bcef5843; mechanism=existing user-created top-level coordinator; normal Git/GitHub integration; delivery boundary=ELZ-033 and bounded ELZ-022/024/026 only; independent review before merge; delegation=bounded first wave; workers may not delegate; thread id=mcp:launch:3fe4ba3bbfbfc14387fa0398fcf0009721604c2952038e9acb176b676638bbfd
+**dedicated roadmap coordinator:** identity source=orchestrator_capabilities parentThreadId in this session; workspace=<worktrees>/t3-bcef5843; mechanism=existing user-created top-level coordinator; normal Git/GitHub integration; delivery boundary=ELZ-033 and bounded ELZ-022/024/026 only; independent review before merge; delegation=bounded first wave; workers may not delegate; thread id=<thread id redacted>
 
 ## Scoped job briefs
 
@@ -440,7 +440,7 @@ Publication copy: [tasks/ELZ-018-review-hardening.md](../../tasks/ELZ-018-review
 
 ### ELZ-019
 
-ELZ-019 — Run CI only on symbolic
+ELZ-019 — Run CI only on machine A
 
 Publication copy: [tasks/ELZ-019-symbolic-ci.md](../../tasks/ELZ-019-symbolic-ci.md).
 
@@ -450,7 +450,7 @@ Publication copy: [tasks/ELZ-019-symbolic-ci.md](../../tasks/ELZ-019-symbolic-ci
 
 ### ELZ-020
 
-ELZ-020 — Measure and tune symbolic CI parallelism
+ELZ-020 — Measure and tune machine A CI parallelism
 
 Publication copy: [tasks/ELZ-020-symbolic-parallelism.md](../../tasks/ELZ-020-symbolic-parallelism.md).
 

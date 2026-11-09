@@ -1,6 +1,7 @@
 # ELZ-023 early-review decision packet
 
 > Redacted before publication (ELZ-065): the password part of local test-database URLs (`ecto://user:…@localhost`) and role commands is replaced by an ellipsis; the recorded commands are otherwise exact.
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text.
 
 **Historical packet; superseded for decisions.** Root accepted R-A–R-F in their
 conservative form on 2026-11-08 ~08:55 WIB, explicitly choosing NARROW for R-B
@@ -26,8 +27,8 @@ and provenance-carrying probe, focused independent re-review, then production.
 
 Prepared 2026-11-08 WIB by the pieces coordinator. The complete independent
 [review](ELZ-023-early-review.md) is preserved verbatim. Reviewer:
-`orca_session_id:0f974e4c-75e1-4daf-9a19-7720ad2b1633`, dispatch
-`ctx_91ee2fe4f81f`. The review inspected the actual three-file proposal diff,
+an independent review session, dispatch
+<dispatch id>. The review inspected the actual three-file proposal diff,
 the live issue and all comments, and the accepted dependency sources.
 
 **Nothing below is adopted.** These are concrete recommendations for root
@@ -297,9 +298,9 @@ Decision packet prepared 2026-11-08 08:45:43 WIB.
 Cure `208248063d64e621782cd26dd30698ee42850a89`, Elixir 1.20.4, OTP 29.1.2.
 
 ```sh
-env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:…@localhost/elzoo_pieces_test mix setup
-env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:…@localhost/elzoo_pieces_test mix check
-env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_ENV=test ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:…@localhost/elzoo_pieces_test mix run --no-start docs/work/ELZ-023-probes/probe.exs
+env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' ELZOO_TEST_DATABASE_URL=ecto://<test role>:…@localhost/<test database> mix setup
+env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' ELZOO_TEST_DATABASE_URL=ecto://<test role>:…@localhost/<test database> mix check
+env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_ENV=test ELZOO_TEST_DATABASE_URL=ecto://<test role>:…@localhost/<test database> mix run --no-start docs/work/ELZ-023-probes/probe.exs
 python3 scripts/check-roadmap.py --live
 git diff --check
 ```

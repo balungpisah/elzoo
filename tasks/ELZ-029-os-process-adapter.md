@@ -47,7 +47,7 @@ state machine and result schema, not security isolation.
 
 - define the result schema and termination state machine;
 - implement the smallest Adapter and reaper with a test harness that spawns
-  real processes on the symbolic runner;
+  real processes on the machine A runner;
 - test the listed dangerous paths.
 
 ## Acceptance

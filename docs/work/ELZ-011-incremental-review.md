@@ -1,8 +1,10 @@
 # ELZ-011 incremental independent review
 
-Reviewer: Orca session 0f974e4c-75e1-4daf-9a19-7720ad2b1633 (task_bc5ac51c9ae2, dispatch ctx_3cbb9a60b6cb).
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text.
+
+Reviewer: an independent review session.
 Reviewed head: `877357d72abc5a347574531b633dd955001ed3d9` on `task/ELZ-011`
-(`/Users/laptopdp/orca/workspaces/elzoo/elzoo-ELZ-011`). Fix/source commit: `087c1de1618d2b4987b33058494983344a6274d9`.
+(`<worktrees>/elzoo-ELZ-011`). Fix/source commit: `087c1de1618d2b4987b33058494983344a6274d9`.
 Compared with: `694fda8a797fa2fe7535e6be1ca164f86483d281` (my CONDITIONAL review, F1-F7).
 I carry forward my earlier reports where I say so. This is a review, not merged acceptance.
 I changed no tracked file, issue, branch or pin. `git status --short` was empty after every command and HEAD stayed `877357d`.
@@ -18,7 +20,7 @@ I changed no tracked file, issue, branch or pin. `git status --short` was empty 
 ## Delta I reviewed
 
 `git diff --stat 694fda8 HEAD`: 7 paths, +520/-11. Source commit `087c1de`: `http_job.ex`, `README.md`, the owner test file and its helper. Commit `877357d` changes docs only (`ELZ-011-production.md`, `ELZ-011-review-fixes.md`; `ELZ-011-final-review.md` is the added copy of my report).
-- `cmp /tmp/elz011-final-review-report-0f974e4c.md docs/work/ELZ-011-final-review.md`: byte-equal. My report is preserved.
+- `cmp /tmp/elz011-final-review-report-<session id>.md docs/work/ELZ-011-final-review.md`: byte-equal. My report is preserved.
 - No change to `piece.json`, Cure, `pieces/core`, `tasks`, `registry`, `LEDGER.md`, `docs/plans`, `mix.exs` or `mix.lock` (`git diff` of those paths is empty).
 - The test file diff is one hunk at the end (`@@ -792,4 +792,231 @@`). All original test bytes are intact. Five tests are appended; helpers `adapter_request/2`, `with_snapshot_gate/2` and `refused_race/3` are added.
 

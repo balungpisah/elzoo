@@ -872,7 +872,7 @@
     },
     {
       "id": "ELZ-019",
-      "title": "ELZ-019 — Run CI only on symbolic",
+      "title": "ELZ-019 — Run CI only on machine A",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -887,7 +887,7 @@
       "outputs": [],
       "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
       "issue": 26,
-      "issue_body_sha256": "2558e16302c6c632351a351e101c8f171eaf67c8b2e668dc25df85424b5bbf2f",
+      "issue_body_sha256": "f2872e467d11db6ff27d6def880c5d2d58f13f5328d5cc1ae524f1bb6a4a1874",
       "observed_issue_state": "CLOSED",
       "owner_role": "one claimed task worker after admission",
       "product_aims": [
@@ -908,7 +908,7 @@
     },
     {
       "id": "ELZ-020",
-      "title": "ELZ-020 — Measure and tune symbolic CI parallelism",
+      "title": "ELZ-020 — Measure and tune machine A CI parallelism",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -923,7 +923,7 @@
       "outputs": [],
       "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
       "issue": 28,
-      "issue_body_sha256": "5e88c8f9021fdc04999d7f0dd0325829ac44a6a7178ebd8645f4cc5d4749bcba",
+      "issue_body_sha256": "aaf468daf44b511454d248085c2aca0b213c1315806d7e16040fa6e2689b4560",
       "observed_issue_state": "CLOSED",
       "owner_role": "one claimed task worker after admission",
       "product_aims": [
@@ -1242,7 +1242,7 @@
       ],
       "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
       "issue": 46,
-      "issue_body_sha256": "c2c4b26947e2763d4ff771faf9ab23c2162fa46aa94258b85358d7b105e86ce8",
+      "issue_body_sha256": "b0d9c15b3586ee2f95c00742db80629da40657fcfffbe0a3254ad2c0de07689a",
       "observed_issue_state": "OPEN",
       "owner_role": "one claimed task worker after admission",
       "product_aims": [
@@ -1351,7 +1351,7 @@
       ],
       "url": "https://github.com/balungpisah/elzoo/issues/55",
       "issue": 55,
-      "issue_body_sha256": "a7e720e00e2e35af265beb3343c1db7931c32a613e6316c21ef1191d57d2510e",
+      "issue_body_sha256": "ed11527957481c7947507f021fad7a728c09a99ccca95be872503e2acc5178a2",
       "observed_issue_state": "OPEN",
       "selection_gates": [
         "Independent exact-SHA review, checks and merge acceptance owned by roadmap coordinator"
@@ -3768,7 +3768,7 @@
     "relay_pr": "https://github.com/balungpisah/elzoo/pull/54",
     "relay_state": "merged on main; merge-commit acceptance remains with exclusive coordinator",
     "claim_sha": "6bcff57fe7b59ec7b0414bf737127302944c5b37",
-    "claim_agent": "Sabrangs-MacBook-Pro-7bf9",
+    "claim_agent": "the ELZ-033 documentation worker",
     "relay_merge_sha": "32aef4e7dba40231257e2a91095910377c5c4ab9"
   },
   "dependency_acceptance": [
@@ -3790,7 +3790,7 @@
           "url": "https://github.com/balungpisah/elzoo/actions/runs/42092041694/job/127472315486"
         }
       ],
-      "scope": "Historical independent review and merge symbolic checks inspected; merge ancestry checked. Not a fresh rerun of that historical revision."
+      "scope": "Historical independent review and merge machine A checks inspected; merge ancestry checked. Not a fresh rerun of that historical revision."
     },
     {
       "task": "ELZ-004",
@@ -3810,7 +3810,7 @@
           "url": "https://github.com/balungpisah/elzoo/actions/runs/42110661505/job/127537028186"
         }
       ],
-      "scope": "Historical independent review and merge symbolic checks inspected; merge ancestry checked. Not a fresh rerun of that historical revision."
+      "scope": "Historical independent review and merge machine A checks inspected; merge ancestry checked. Not a fresh rerun of that historical revision."
     },
     {
       "task": "ELZ-015",
@@ -3825,15 +3825,15 @@
           "url": "https://github.com/balungpisah/elzoo/actions/runs/42036106498/job/127274582416"
         }
       ],
-      "scope": "Historical merge evidence inspected, merge ancestry checked. Not a fresh rerun of that historical revision. ELZ-015 predates symbolic-only migration; its Linux evidence is historical, not symbolic."
+      "scope": "Historical merge evidence inspected, merge ancestry checked. Not a fresh rerun of that historical revision. ELZ-015 predates the owner-machine-only migration; its Linux evidence is historical, not from machine A."
     }
   ],
   "agent_registry": [
     {
       "role": "ELZ-033 documentation worker",
-      "agent_id": "Sabrangs-MacBook-Pro-7bf9",
+      "agent_id": "the ELZ-033 documentation worker",
       "identity_source": "claim commit 6bcff57fe7b59ec7b0414bf737127302944c5b37",
-      "workspace": "/Users/laptopdp/.t3/worktrees/elzoo/t3-772a5980",
+      "workspace": "<worktrees>/t3-772a5980",
       "base": "404d159a122d18a22554c5688aa79199e4d5c124",
       "branch": "task/ELZ-033",
       "claim_sha": "6bcff57fe7b59ec7b0414bf737127302944c5b37",
@@ -3844,7 +3844,7 @@
     },
     {
       "role": "ELZ-010 exclusive coordinator",
-      "thread": "<t3-thread://v2/7bdd3880-94ea-4c58-a612-8b9b1253e59d/10109396-4230-4f47-a36d-173d628b81cd>",
+      "thread": "<thread link redacted>",
       "identity_source": "user-supplied link, read through live T3 tool",
       "branch": "task/ELZ-010",
       "workspace": null,
@@ -3862,11 +3862,11 @@
     {
       "role": "dedicated roadmap coordinator",
       "identity_source": "orchestrator_capabilities parentThreadId in this session",
-      "workspace": "/Users/laptopdp/.t3/worktrees/elzoo/t3-bcef5843",
+      "workspace": "<worktrees>/t3-bcef5843",
       "mechanism": "existing user-created top-level coordinator; normal Git/GitHub integration",
       "delivery_boundary": "ELZ-033 and bounded ELZ-022/024/026 only; independent review before merge",
       "delegation": "bounded first wave; workers may not delegate",
-      "thread_id": "mcp:launch:3fe4ba3bbfbfc14387fa0398fcf0009721604c2952038e9acb176b676638bbfd"
+      "thread_id": "<thread id redacted>"
     }
   ]
 }

@@ -1,6 +1,8 @@
 # ELZ-050 independent read-only review
 
-Reviewer: `orca_session_id:0e1ac343-b55f-4201-9987-f8083645211e`
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text.
+
+Reviewer: an independent review session
 Reviewed SHA: `3604181713d800dfa3fc0e3a27c2fe02cde44610`
 Base SHA and observed origin/main: `ade0e45ca2ff961fff33812212d3b7a26f008d69`
 Branch: `task/ELZ-050`
@@ -12,7 +14,7 @@ Remaining work is to correct the audit-log assumptions, explicitly reconcile dep
 
 ## Commands and exit codes
 
-Working directory for repository commands: `/Users/laptopdp/orca/workspaces/elzoo/elzoo-ELZ-050`
+Working directory for repository commands: `<worktrees>/elzoo-ELZ-050`
 
 | Command / check | Exit | Result |
 | --- | --- | --- |

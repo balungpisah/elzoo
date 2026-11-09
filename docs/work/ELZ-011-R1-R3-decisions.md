@@ -1,11 +1,13 @@
 # ELZ-011 focused-review owner decisions R1–R3
 
-Status: APPROVED as written by coordinator msg_98ca8e655f8f, 2026-11-08.
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text.
+
+Status: APPROVED as written by coordinator <message id>, 2026-11-08.
 R1 posted before body edit; R2/R3 applied to the proposal. Historical proposed
 wording below is preserved as the decision record. Independent focused review at
 `7766446c40a88ad2be60ee51aaef59deb8e76c06` is **NOT YET CLEAR**.
-Reviewer session `0f974e4c-75e1-4daf-9a19-7720ad2b1633`, dispatch
-`ctx_4b5c11a942ed`. [Full report](ELZ-011-focused-review.md).
+Reviewer session <session id>, dispatch
+<dispatch id>. [Full report](ELZ-011-focused-review.md).
 D1/D2/D5, H1/H4 and medium findings are closed or tracked as production gates.
 The reviewer states implementation may start once root accepts R1–R3; this is
 not acceptance of unimplemented production or permission to skip G1–G9.

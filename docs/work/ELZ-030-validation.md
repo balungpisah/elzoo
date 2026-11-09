@@ -1,8 +1,9 @@
 # ELZ-030 integrated validation
 
 > Redacted before publication (ELZ-065): the password part of local test-database URLs (`ecto://user:…@localhost`) and role commands is replaced by an ellipsis; the recorded commands are otherwise exact.
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text.
 
-Coordinator: Orca `3b13aceb-03fd-42ab-81ca-a11ca986749b`.
+Coordinator: Orca <session id>.
 Runtime/metadata tree checked: `33cb576bbae6e27128c1dcccc65c58d6cd452345` on `task/ELZ-030`, including
 `origin/main` `230cc5b211ef0599fe6a1980286c952111e5e0ae` through normal merges.
 This document records the completed local check; independent final review, PR,
@@ -10,17 +11,17 @@ CI, merge acceptance and cleanup are separate outstanding gates.
 
 ## Exact commands and results
 
-From `/Users/laptopdp/orca/workspaces/elzoo/elzoo-ELZ-030`:
+From `<worktrees>/elzoo-ELZ-030`:
 
 ```sh
 env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 \
   ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' \
-  ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:…@localhost/elzoo_pieces_test \
+  ELZOO_TEST_DATABASE_URL=ecto://<test role>:…@localhost/<test database> \
   mix setup
 
 env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 \
   ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' \
-  ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:…@localhost/elzoo_pieces_test \
+  ELZOO_TEST_DATABASE_URL=ecto://<test role>:…@localhost/<test database> \
   mix check
 ```
 
@@ -52,7 +53,7 @@ planning rows; its manifest hash and generated ledger were reconciled.
 The original `.claims/ELZ-030.md` marker was removed by commit `33cb576bbae6e27128c1dcccc65c58d6cd452345`;
 the first-push claim `82e91b1d601604f29f06caec1b923b5e2873cff5` remains in history.
 No existing test/assertion or protected CI/compiler/export file was authored here.
-The dedicated `elzoo_pieces_test` database was provisioned by the root coordinator
+The dedicated disposable test database was provisioned by the root coordinator
 after the task role's `createdb` returned permission denied; no other database was
 used or changed by this task.
 
@@ -89,7 +90,7 @@ and 136 local links. Final PR/CI/queue/merge acceptance remains separate.
 
 ## Final-review regression additions (F1–F4)
 
-Author: Orca `7c1b608d-f91b-4573-b2e7-310670b76a04`, 2026-11-08.
+Author: Orca <session id>, 2026-11-08.
 Baseline `664652d4f1d134a26b223ae3042a7d3618197346` includes the ELZ-048
 merge and regenerated views above. Test commit
 `cde8d20b5f773c11024e16039a11e6619cf5759d` appends three tests (126 lines)
@@ -132,12 +133,12 @@ Both commands ran from the assigned task worktree:
 ```sh
 env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 \
   ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' \
-  ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:…@localhost/elzoo_pieces_test \
+  ELZOO_TEST_DATABASE_URL=ecto://<test role>:…@localhost/<test database> \
   mix test pieces/workflow/context-selection/test/elzoo/context_selection_test.exs
 
 env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 \
   ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' \
-  ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:…@localhost/elzoo_pieces_test \
+  ELZOO_TEST_DATABASE_URL=ecto://<test role>:…@localhost/<test database> \
   mix check
 ```
 
@@ -154,7 +155,7 @@ env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 \
 - `mix setup` was not repeated in this additive-test stage: the coordinator's
   successful setup is recorded above and dependencies/configuration are unchanged.
   Cure remains `208248063d64e621782cd26dd30698ee42850a89`, Elixir 1.20.4,
-  OTP 29.1.2; only the authorized `elzoo_pieces_test` database was used.
+  OTP 29.1.2; only the authorized disposable test database was used.
 - Logs: `/tmp/elz030-review-additions/targeted.log`,
   `/tmp/elz030-review-additions/full-check.log`; start metadata in `start.json`.
 

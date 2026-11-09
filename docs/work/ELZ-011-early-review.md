@@ -1,10 +1,11 @@
 # ELZ-011 independent early Contract review
 
 > Redacted before publication (ELZ-065): the password part of local test-database URLs (`ecto://user:…@localhost`) and role commands is replaced by an ellipsis; the recorded commands are otherwise exact.
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text.
 
-Reviewer: Orca session 0f974e4c-75e1-4daf-9a19-7720ad2b1633 (task_a659ec353b6d, dispatch ctx_4a3fb5dd7ad9).
+Reviewer: an independent review session.
 Reviewed head: `0716e36865782847a9a786aa9d4ac28c7b1c5766` on `task/ELZ-011`
-(worktree `/Users/laptopdp/orca/workspaces/elzoo/elzoo-ELZ-011`, base `a5f0e630f61e93893f1a2c706268226681ca593a`, claim `2a9efcd`).
+(worktree `<worktrees>/elzoo-ELZ-011`, base `a5f0e630f61e93893f1a2c706268226681ca593a`, claim `2a9efcd`).
 This is early review permission only. It is not production acceptance.
 No tracked file, issue, metadata, branch, pin or test was changed. The worktree stayed clean (`git status --short` empty before and after each probe).
 
@@ -22,7 +23,7 @@ No tracked file, issue, metadata, branch, pin or test was changed. The worktree 
 
 | Item | Command or source | Result |
 | --- | --- | --- |
-| Probe reproduction | `env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_ENV=test ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:…@localhost/elzoo_pieces_test mix run docs/work/ELZ-011-probes/boundary.exs` | exit 0, `Result: 14 passed`, log `/tmp/elz011-probe.log` |
+| Probe reproduction | `env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_ENV=test ELZOO_TEST_DATABASE_URL=ecto://<test role>:…@localhost/<test database> mix run docs/work/ELZ-011-probes/boundary.exs` | exit 0, `Result: 14 passed`, log `/tmp/elz011-probe.log` |
 | Probe file hashes | `shasum -a 256 docs/work/ELZ-011-probes/*` | `boundary.exs` `80d075c5…e0b4`, `hex-metadata.json` `b56b2446…5c43`. Both match the proposal. |
 | Owner seam probe (mine) | `/tmp/elz011-review-probes/intent_seams.exs`, log `intent_seams.log` | exit 0. Results in H2, H3, M1. |
 | Req timing probe (mine) | `/tmp/elz011-review-probes/slow_drip.exs` | exit 0. Results in H4 and M9. |

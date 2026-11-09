@@ -268,7 +268,7 @@ since ELZ-049; `test/export_test.exs` before) prints
 Mix compiles the project before it loads the `mix check` task, and runs each task once, so the
 `compile` stage brackets a no-op and reads about 0 s. The pre-task work (VM boot, `deps.loadpaths`
 and the compile) is the gap between the `Run mix check` step `started_at` in the jobs API and the
-`format start` stamp: 110 s on symbolic, run 42404495544. The OTP-only `runtime/unit` test prints
+`format start` stamp: 110 s on machine A, run 42404495544. The OTP-only `runtime/unit` test prints
 one `consumer_mix_test` line only. Timing lines can share a line with ExUnit progress dots, so
 match them without a `^` anchor.
 
@@ -284,8 +284,8 @@ provider (`postgrex`, `ecto_sql`, `oban`) are defined in three modules with `asy
 `test/consumer_group_a_test.exs`, `_b_` and `_c_`. ExUnit runs async modules at the same time
 and tests inside one module in sequence. `test/test_helper.exs` sets `max_cases` to
 `System.schedulers_online()`; this caps every async module in `test/` and `pieces/`, not only the
-consumer groups. With `+S 4:4` on symbolic the cap is 4, so all three consumer group modules run
-at once (the module count is the bound there); with `+S 2:2` on macbook-ubuntu the cap is 2, so
+consumer groups. With `+S 4:4` on machine A the cap is 4, so all three consumer group modules run
+at once (the module count is the bound there); with `+S 2:2` on machine B the cap is 2, so
 at most two consumer VMs run at once (the cap is shared with the other async modules). The groups are explicit lists balanced by the
 measured `total` seconds on main `0a42370`. The three
 PostgreSQL consumers (`integration/sql`, `integration/jobs`, `assembly/durable-job`) and the
@@ -296,10 +296,10 @@ were not moved.
 Each per-ID test keeps its name and its `consumer_id` tag, so the affected mode (ELZ-038)
 filters them with the same `--exclude consumer_id:<id>` arguments. The 23 concurrent tests have a
 240 s limit (`Elzoo.CureConsumerCase.concurrent_timeout/0`); the sequential consumers keep 120 s.
-Measured basis for 240 s: on macbook-ubuntu with three concurrent VMs, after about 30 minutes of
+Measured basis for 240 s: on machine B with three concurrent VMs, after about 30 minutes of
 sustained load, `assembly/request-route-retry` rose from 35.8 s (sequential) to 99.1 s in the last
 completed repeat, and two later repeats went over 120 s by an unknown amount (PR #90, run
-42454973591, repeats 6 and 7). 240 s is 2x that 120 s lower bound. The same series on symbolic
+42454973591, repeats 6 and 7). 240 s is 2x that 120 s lower bound. The same series on machine A
 stayed at 123 to 125 s per repeat with 35.7 s for that consumer, which is consistent with a
 slowdown of the two-core host under sustained load. The two-VM setup is to be measured by a later
 repeat series, recorded in the PR. The selection test in
@@ -309,7 +309,7 @@ aggregate), checks that the groups plus the PostgreSQL list equal
 with a PostgreSQL provider. That test needs the four modules loaded: run the whole suite, or name
 the four files together.
 
-Measured basis before the change, main `0a42370` on `symbolic-elzoo` (job 128581094645): the 23
+Measured basis before the change, main `0a42370` on the first fast runner (job 128581094645): the 23
 database-free consumers took 189.5 s in sequence; the root suite reported `Finished in 862.2
 seconds`. Locally on the implementation branch, the three group files ran in 100.7 s wall time
 for 205.0 s of summed consumer `total` time. Under concurrency a per-consumer `total` includes
@@ -462,7 +462,7 @@ again at 20:56 UTC (03:56 WIB) after the change described below:
 | --- | --- |
 | Repository visibility | public |
 | Self-hosted runners | 0 |
-| `ELZOO_CI_LANE` | `hosted` at the flip; no workflow reads it after ELZ-069; the coordinator deletes it after ELZ-069 is merged and its push run on `main` is green |
+| `ELZOO_CI_LANE` | `hosted` at the flip; no workflow reads it after ELZ-069; deleted by the coordinator on 2026-11-09 at 08:12 WIB, after the push run on the ELZ-069 merge commit was green (reading it now returns 404) |
 | Default workflow token | `read`; workflows cannot approve pull request reviews |
 | Fork pull request approval | `all_external_contributors` (every outside contributor needs approval before a workflow runs) |
 | Branch protection on `main` | no required status checks (removed between 03:49 and 03:56 WIB on 2026-11-09, see below); no force pushes; no deletions; not enforced for administrators; no review requirement |
@@ -488,8 +488,8 @@ repository. Do not switch that setting on.
 the self-hosted jobs. If the hosted lane fails and cannot be repaired quickly, three steps, in this order:
 1. Make the repository private (the owner's action). A self-hosted runner must never be registered while the repository is
    public: a fork pull request can change a workflow and reach an attached runner.
-2. Register the self-hosted runners with the roles that the documentation before ELZ-069 describes (git history), and set
-   the repository variable `ELZOO_CI_LANE` to `self`.
+2. Register the self-hosted runners with the roles that the documentation before ELZ-069 describes (git history), and create
+   the repository variable `ELZOO_CI_LANE` with the value `self` (it was deleted on 2026-11-09).
 3. Merge a revert PR of the ELZ-069 change (it restores the self-hosted jobs, the guard rules and the lane variable). Run the
    merge queue from the revert's own checkout, because the queue on `main` accepts hosted-job evidence only and would send
    no `tier` input; the revert's own `scripts/merge-queue.py` matches its workflow.
@@ -556,7 +556,7 @@ Limit: the step duration on a hosted runner is not measured yet.
 ## Per-test limits of two slow tests (ELZ-062)
 
 Owner approval 2026-11-08 ("1.", relayed by the coordinator): raise the per-test limit of the two tests that timed out on
-`contabo-elzoo-1` to 300 s, so that machine can take `any`-tier runs. That runner was unregistered at the flip on
+the slow VPS runner to 300 s, so that machine can take `any`-tier runs. That runner was unregistered at the flip on
 2026-11-09; the coordinator's decision rule for the changed situation was: if both tests stay under 60 percent of 120 s (72 s) on
 the hosted runner, close the task with no code change; otherwise raise only these two limits to 300 s (see "Hosted
 measurement" below). Time limits only: no assertion, scenario or proof
@@ -575,7 +575,7 @@ Measured basis. CI logs print no per-test times, so a measurement branch (`measu
 suite as `mix check` does in full mode with `--slowest 60` and every per-test limit raised to 900 s, one run per machine on
 the same tree (`main` at `f4e3283`):
 
-| Test | `symbolic-elzoo` | `macbook-ubuntu-elzoo-candidate` | `contabo-elzoo-1` (8 cores) |
+| Test | the first fast runner | the second fast runner | the slow VPS runner (8 cores) |
 |---|---|---|---|
 | approval negative control | 39.1 s | 45.3 s | 93.1 s |
 | `assembly/durable-job` consumer | 77.6 s | 91.3 s | 128.7 s |
@@ -583,13 +583,13 @@ the same tree (`main` at `f4e3283`):
 | `integration/jobs` consumer | 13.9 s | 17.0 s | 37.6 s |
 | root suite | 1266.5 s | 1492.2 s | 3136.7 s |
 
-Runs 42500718766, 42497402091 and 42497486307 (jobs 128792642738, 128782613975, 128782875563). On Contabo the approval test
+Runs 42500718766, 42497402091 and 42497486307 (jobs 128792642738, 128782613975, 128782875563). On the slow VPS the approval test
 exceeded 120 s in the two earlier full runs (42484236992 and 42492726966) and took 93.1 s here, so the spread on one
 machine is large; 300 s is 2.3 times the slowest measured time (128.7 s) and 3.2 times the approval test's 93.1 s. It is a
 margin, not a performance target. A hung test now costs up to 300 s instead of 120 s before it fails. The measurement
 runs of that branch failed two tests each, as expected there (the selection test's 120 s expectation and the test that reads
-`scripts/run-ci-check.sh`, which the branch changes). Host readings on Contabo: no throttling in 99 samples, host load
-average (1 minute) at most 2.94, cgroup memory peak 2.89 GB; peaks on the fast runners 3.45 GB (symbolic) and 2.75 GB (MacBook).
+`scripts/run-ci-check.sh`, which the branch changes). Host readings on the slow VPS: no throttling in 99 samples, host load
+average (1 minute) at most 2.94, cgroup memory peak 2.89 GB; peaks on the fast runners 3.45 GB (machine A) and 2.75 GB (machine B).
 
 Hosted measurement (2026-11-09). The same measurement branch, merged with `main` at 48462d4 (the later commits of `main`
 change only docs), ran once on the GitHub-hosted runner (run 42522317222, job 128858289534; the default per-test limits

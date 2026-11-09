@@ -111,7 +111,7 @@ defmodule Elzoo.ExportTest do
 
   # The aggregate consumer runs every ready bundle's own tests plus copy/compile.
   # It grows with each ready Piece: 125.2 s locally on 2026-11-06; 493.6 s locally
-  # on 2026-11-07 (PR #59 head 4fdc8ad), where 360 s timed out twice on symbolic CI.
+  # on 2026-11-07 (PR #59 head 4fdc8ad), where 360 s timed out twice on machine A CI.
   # ~2.4x local margin (ELZ-036). A split is a possible later task.
   @tag timeout: 1_200_000
   @tag :aggregate_consumer
@@ -123,7 +123,7 @@ defmodule Elzoo.ExportTest do
       |> Enum.map(& &1["id"])
 
     # Inner tests share one consumer with every ready Piece, so Cure reads every
-    # copied source root: one inner test hit the default 60 s on symbolic CI
+    # copied source root: one inner test hit the default 60 s on machine A CI
     # (PR #59 run 42327909118). 5x default for this consumer only (ELZ-037).
     assert_cure_consumer(ctx, ids, inner_timeout: 300_000)
   end
@@ -131,9 +131,9 @@ defmodule Elzoo.ExportTest do
   # PostgreSQL consumers share one disposable CI database: in sequence, here. The
   # database-free consumers run from test/consumer_group_{a,b,c}_test.exs (ELZ-049).
   # ELZ-062 (owner approval 2026-11-08, time limit only): `assembly/durable-job` alone gets 300 s. It exceeded
-  # the 120 s default on contabo-elzoo-1 in runs 42484236992 and 42492726966. Measured under the full suite with
-  # the limits raised (branch measure/ELZ-062): 77.6 s on symbolic-elzoo (run 42500718766), 91.3 s on
-  # macbook-ubuntu-elzoo-candidate (42497402091) and 128.7 s on contabo-elzoo-1 (42497486307); earlier
+  # the 120 s default on the slow VPS runner in runs 42484236992 and 42492726966. Measured under the full suite with
+  # the limits raised (branch measure/ELZ-062): 77.6 s on the first fast runner (run 42500718766), 91.3 s on
+  # the second fast runner (42497402091) and 128.7 s on the slow VPS runner (42497486307); earlier
   # full runs on the fast runners took 71.2 s and 83.4 s (consumer totals); on the GitHub-hosted runner (ubuntu-24.04, run
   # 42522317222, job 128858289534) it took 79.0 s, 66 percent of the 120 s default. 300 s is 2.3 times the slowest
   # measured time. The other two PostgreSQL consumers keep 120 s (integration/sql 18.8, 26.1 and 52.8 s; integration/jobs

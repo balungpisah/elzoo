@@ -12,6 +12,7 @@
 # ELZ-011 production and acceptance record
 
 > Redacted before publication (ELZ-065): the password part of local test-database URLs (`ecto://user:…@localhost`) and role commands is replaced by an ellipsis; the recorded commands are otherwise exact.
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text.
 
 Implementation source commit: `36384d4e90cf1487f17dfbb41322a06e59766ae0`.
 Historical implementation validation below refers to source `36384d4`;
@@ -30,8 +31,8 @@ targeted 29, ten repeated rescued-job executions, and export 221 pass. See the
 Two new ready subsets on the task branch: core/effect and assembly/http-job.
 Main acceptance still requires PR merge and its CI. No ready dependency source,
 merged assertion, protected path or provider/toolchain pin is changed.
-Root accepted D1–D5 (D3 A) in msg_18881a0d44c3 and R1 B/R2/R3 in
-msg_98ca8e655f8f. The exact initial amendment was posted before body edit in
+Root accepted D1–D5 (D3 A) in <message id> and R1 B/R2/R3 in
+<message id>. The exact initial amendment was posted before body edit in
 comment 6718026190, R1 before body edit in comment 6718187736 on #11.
 Live/task bytes: 4391; SHA256
 617508c89d83bdb197dd0dd77fca5b4dabf36092a5ddb950ac921824a63c8a9f.
@@ -40,7 +41,7 @@ Both approved patches and reviews remain in docs/work; no silent amendment.
 ELZ-013 PR14 9999a3cf and ELZ-023 PR91 a5f0e63 are ancestors of this branch.
 The other dependencies were checked at claim: ELZ004 PR32 81d7d21,
 ELZ006 PR42 850abca, ELZ010 PR54 32aef4e. ELZ-023 main backend retry
-42451768392/job128642319790 passed on macbook-ubuntu-elzoo-candidate with
+42451768392/job128642319790 passed on the second fast runner with
 32+613 tests, Gleam42450785134 passed; #37 is closed and its branch/worktree
 removed. Final ELZ-023 report: issuecomment-6718089138 on #37.
 
@@ -119,7 +120,7 @@ All Mix commands:
 export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 export ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1'
 export MIX_ENV=test
-export ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:…@localhost/elzoo_pieces_test
+export ELZOO_TEST_DATABASE_URL=ecto://<test role>:…@localhost/<test database>
 mix setup
 mix check
 mix run docs/work/ELZ-011-export-check.exs

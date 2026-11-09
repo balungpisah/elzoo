@@ -1,5 +1,7 @@
 # ELZ-030 — raw lookup correspondence blocker
 
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text.
+
 Status: **historical rejected String-keyed reorder strategy; replacement
 raw-order positional probe checks**. See the [replacement evidence](ELZ-030-position-probe.md).
 Production implementation remains incomplete. This does not invalidate the accepted
@@ -71,7 +73,7 @@ this report must not be read as rejecting the first alternative without trying i
 
 ## State, commands and results
 
-Assigned worktree: `/Users/laptopdp/orca/workspaces/elzoo/elzoo-ELZ-030`.
+Assigned worktree: `<worktrees>/elzoo-ELZ-030`.
 Starting local/remote head: `50bcd281c82c3f4f8e7163cf77ebb4bab07eb000` (clean).
 Normal merge of main `367c83bba62fc891caaa60d1536cdc39de3cebbb` produced
 `4d8606db023c73d4db191c1658577968a1d6f793`. Protected-file changes in that

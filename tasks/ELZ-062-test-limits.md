@@ -8,7 +8,7 @@
   measurement").
 - Review: independent review required (protected test boundary).
 - Owner approval (2026-11-08, "1.", relayed by the coordinator): raise the per-test limit of the two tests that time
-  out on `contabo-elzoo-1` to 300 s, as a small measured task, so Contabo can take the staggered full runs of
+  out on the slow VPS runner to 300 s, as a small measured task, so Contabo can take the staggered full runs of
   `main` and the `main` push runs. Approval covers exactly these two limit changes; no assertion changes.
 - Coordinator decision (2026-11-09): decision rule for the changed situation: if both tests stay under 60 percent of
   120 s (72 s) on the hosted runner, the task closes with no code change and a measurement record; otherwise the PR raises
@@ -16,7 +16,7 @@
 
 ## Outcome
 
-On `contabo-elzoo-1` two tests ran into the 120 s per-test default in both runs of the current tree:
+On the slow VPS runner two tests ran into the 120 s per-test default in both runs of the current tree:
 run 42484236992 (5-core cap) and run 42492726966 (8-core cap, warm cache): 640/642 passed each time. They pass on
 the fast runners. The re-test with all 8 cores showed that the CPU cap was not the limit; per-thread speed is
 (root suite 2243.7 s and 2228.9 s). Contabo is unrouted (no `backend` label) until this task decides otherwise.
@@ -32,7 +32,7 @@ the fast runners. The re-test with all 8 cores showed that the CPU cap was not t
 CI logs print no per-test times, so a measurement branch ran the full root suite as `mix check` does in full mode
 (`mix test --warnings-as-errors --slowest 60`) with the default per-test limits raised to 900 s. Same tree, three machines:
 
-| Test | `symbolic-elzoo` (run 42500718766, job 128792642738) | `macbook-ubuntu-elzoo-candidate` (42497402091, 128782613975) | `contabo-elzoo-1`, 8 cores (42497486307, 128782875563) |
+| Test | the first fast runner (run 42500718766, job 128792642738) | the second fast runner (42497402091, 128782613975) | the slow VPS runner, 8 cores (42497486307, 128782875563) |
 |---|---|---|---|
 | approval negative control (`approval_test.exs:177`) | 39.1 s | 45.3 s | 93.1 s |
 | `assembly/durable-job` consumer (`export_test.exs:120`) | 77.6 s | 91.3 s | 128.7 s |
@@ -43,7 +43,7 @@ CI logs print no per-test times, so a measurement branch ran the full root suite
 On Contabo the approval test exceeded 120 s in the two earlier full runs (42484236992, 42492726966) and took 93.1 s in
 this one: the spread on one machine is large. The measurement runs also failed two tests each that are expected on
 that branch (the selection assertion of 120 s, and the test that reads `scripts/run-ci-check.sh`). Throttling: 0 in 99
-host samples on Contabo; host load (1 min) peaked at 2.94; cgroup peaks 3.45 GB (symbolic), 2.75 GB (MacBook),
+host samples on Contabo; host load (1 min) peaked at 2.94; cgroup peaks 3.45 GB (machine A), 2.75 GB (machine B),
 2.89 GB (Contabo).
 
 ## Hosted measurement (2026-11-09)
@@ -68,8 +68,8 @@ the margin of the durable-job test is 41 s on a runner whose full-suite time var
 ## Scope
 
 - (1) add `@tag timeout: 300_000` to the first test, with a comment giving the measured basis: it exceeded 120 s
-  on `contabo-elzoo-1` in runs 42484236992 and 42492726966; its time on `symbolic-elzoo` and
-  `macbook-ubuntu-elzoo-candidate` is **measured by this task** (the CI logs do not print per-test times, so a
+  on the slow VPS runner in runs 42484236992 and 42492726966; its time on the first fast runner and
+  the second fast runner is **measured by this task** (the CI logs do not print per-test times, so a
   measurement branch runs the approval test file with `--trace` on both fast runners and, steered, on Contabo).
 - (2) `Elzoo.CureConsumerCase.consumer_tests/2` takes one `timeout:` for all IDs it defines, so the three PostgreSQL
   consumers are split: `integration/sql` and `integration/jobs` keep the 120 s default; `assembly/durable-job` is
@@ -83,8 +83,8 @@ the margin of the durable-job test is 41 s on a runner whose full-suite time var
 
 ## Acceptance
 
-- [x] Measured times recorded for the approval test and for `assembly/durable-job` on `symbolic-elzoo`,
-      `macbook-ubuntu-elzoo-candidate`, `contabo-elzoo-1` (run and job IDs, above) and the hosted runner (run 42522317222,
+- [x] Measured times recorded for the approval test and for `assembly/durable-job` on the first fast runner,
+      the second fast runner, the slow VPS runner (run and job IDs, above) and the hosted runner (run 42522317222,
       job 128858289534).
 - [ ] The exact-head full run on the PR head passes on the hosted lane (`ELZOO CHECK PASSED`, run and job IDs).
       (The steered Contabo run of the first draft is dropped: the runner is unregistered.)

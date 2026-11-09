@@ -1,8 +1,10 @@
 # ELZ-030 — Recursive provenance feasibility, revision two
 
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text.
+
 This is a scratch feasibility probe, not production source or acceptance of the
 full [revised Contract](ELZ-030.md). It adapts the independent reviewer's probe P
-(Orca `0f974e4c-75e1-4daf-9a19-7720ad2b1633`), adding `local fn` declarations,
+(Orca <session id>), adding `local fn` declarations,
 assertions, a guard-mutation control and an export-limit observation. The original
 review and authority are linked in the revised proposal. No external code or
 new dependency is copied into a ready Piece.
@@ -39,7 +41,7 @@ No fallback is silently selected here.
 
 ## Command and observed evidence
 
-Working directory: `/Users/laptopdp/orca/workspaces/elzoo/elzoo-ELZ-030`.
+Working directory: `<worktrees>/elzoo-ELZ-030`.
 Cure `a004c335cc4e9f2203ba6f51fc31e8540b66378d`, already built in this worktree
 by stage-one setup; Elixir 1.20.4 / OTP 29.1.2. No pin or dependency change.
 
@@ -101,7 +103,7 @@ SHA-256: `215caca8cd65f467764ffdc9ed22eeb8daa571e0ab8691c020b1a5a9951e6c92`
 
 ```cure
 # SPDX-License-Identifier: Apache-2.0
-# Reduced feasibility, adapted from reviewer 0f974e4c probe P.
+# Reduced feasibility, adapted from the independent reviewer probe P.
 # Mutual recursion terminates by structural fuel and list recursion.
 # Not production: no memoization or global expansion accounting here.
 # Production plan: pre-count nodes+edges <=4096; dependency-order node cache,
