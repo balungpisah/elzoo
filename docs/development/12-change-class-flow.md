@@ -72,9 +72,14 @@ follows the order it receives. It changes no command or check.
 
 ## Candidates for new machine checks (each needs a measured saving first)
 
-- Class T as a classifier class with a shorter CI shape: today's two test-only PRs each paid a
-  full run; the saving is about 20 minutes per such PR, the frequency is low.
 - `AGENTS.md` and other policy text in the documentation-only allowlist: no test reads them;
   the saving is 20 minutes per policy PR (ELZ-076 paid it four times for review fixes).
-- Parallel job set (ELZ-073, #136): adopted by measurement; halves the full run for classes P,
-  S, T and X.
+  Folded into ELZ-073 (#136) on 2026-11-09 because that task already changes the classifier
+  integration and the guard.
+- A test-only CI class was considered and withdrawn: tests are code and must run, so no
+  shorter CI shape exists; the class differs only in review depth, which the table states.
+- Parallel job set (ELZ-073, #136): adopted by measurement (median wall 1250 s to 642 s);
+  halves the full run for classes P, S, T and X.
+- Combine items into one lifecycle when they share files and reviewers (one review round, one
+  run, one queue step); keep them apart when they share only a calendar or carry separate
+  trust decisions, because one blocking finding then delays everything in the PR.
