@@ -617,6 +617,10 @@ class AllowlistGuard(unittest.TestCase):
             path.write_text(text)
         found = {file for file, _line in documentation_literals(scratch)}
         self.assertEqual(set(reads), found)
+        # ELZ-073 (review note): the literal itself is reported, not only the file.
+        literals = {file: [lit for _key, found_literals in documentation_literals(scratch).items() if _key[0] == file
+                           for lit, _number in found_literals] for file in ("test/ac_test.exs", "lib/ad.ex")}
+        self.assertEqual({"test/ac_test.exs": ["AGENTS.md"], "lib/ad.ex": ["AGENTS.md"]}, literals)
 
     def test_a_new_read_in_a_file_with_a_reviewed_line_is_still_new(self):
         # The reviewed list is keyed by the line itself, so a root README read added next to a piece README line

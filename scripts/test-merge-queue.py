@@ -1768,6 +1768,7 @@ class DocsOnlyFastPath(unittest.TestCase):
                              ("test", ["test/registry_test.exs"]),
                              ("pieces readme", ["pieces/core/selection/README.md"]),
                              ("ledger", ["LEDGER.md"]),
+                             ("agents next to code", ["AGENTS.md", "scripts/tool.py"]),
                              ("file read by the export", ["docs/consuming.md"]),
                              ("traversal", ["docs/../scripts/x.py"]),
                              ("look-alike", ["docs-x/a.md"]),

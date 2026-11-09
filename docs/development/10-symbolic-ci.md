@@ -340,7 +340,10 @@ check and runs in the short check. A test-only class was considered and withdraw
 **The guard test for the allowlist** (`scripts/test-ci-change-class.py`) scans every source file of the repository that
 `mix check` or the Gleam check can run (Elixir, Cure, Gleam, Erlang, templates, shell and the browser scripts of the Gleam
 spike, wherever they are: `lib/`, `test/`, `config/`, `pieces/**` including `examples/` and `test/support/`, `spikes/`,
-`mix.exs`, helpers; not the root `docs/` and `tasks/`, `deps/` and `_build/`). Comments are scanned too: no language rule
+`mix.exs`, helpers; not the root `docs/` and `tasks/`, `deps/` and `_build/`). **Python sources are not scanned**: the scripts name
+documentation paths on purpose, so a Python script that a test runs and that reads a root file is a read the scan cannot see, and the
+review of a change that adds one is the second line (today only `scripts/check-roadmap.py` reads root files, and it runs in the
+short check). Comments are scanned too: no language rule
 decides here what is a comment (in Elixir a line that starts with `%{` is a map, and a heredoc line that starts with `#{` is
 interpolation). Every line with one of these is a hit: a path literal `docs/…` or `tasks/…` (also after a slash or an
 interpolation, as in `Path.expand("../../docs/x.md", __DIR__)` and `"#{root}/docs/x.md"`), the word `docs` or `tasks` quoted
