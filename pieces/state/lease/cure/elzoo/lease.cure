@@ -1,0 +1,402 @@
+# SPDX-License-Identifier: Apache-2.0
+# state/lease (ELZ-028): the pure part of single-owner leases fenced by the
+# record revision. Four tables, all reducible and law-covered: the reading of
+# the latest self-contained lease record, the status classification over
+# ordering outcomes, the clock-regression gate and the admission decision.
+# compare/2 (the production integer comparison, the builtin `<`/`>`) is
+# routed into a StampOrder; compare_struct/2 is a law-covered structural
+# specification mirror of it over the inductive integer, used by the finite
+# agreement test. Scoped claim: selected laws cover the classification over
+# ordering outcomes and the specification of the comparison; the production
+# comparison is finite-test-grounded against that specification. No I/O here.
+mod Elzoo.Lease
+  use Std.Option
+  use Std.Proof.IntMath
+  use Std.Proof.IntOrder
+
+  type LeaseStatus = LeaseFree | LeaseActive | LeaseStale | LeaseAmbiguous
+  type LeaseActor = LeaseHolder | LeaseOther
+  type LeaseOp = OpClaim | OpClaimExpired | OpRenew | OpRelease | OpSeize | OpComplete
+  type LeaseDecision = Permit | AlreadyFree | RefuseHeld | RefuseStale | RefuseAmbiguous | RefuseNotHolder | RefuseFree
+  type StampOrder = StampBefore | StampSame | StampAfter
+  # NoHolder(last_at): free, remembering the last stamp for the regression gate.
+  # HolderStamp(at, until): held from store time at until store time until.
+  type LeaseReading = NoHolder(Int) | HolderStamp(Int, Int) | Unreadable
+  type LeaseEvent = EvClaim(Int, Int) | EvRenew(Int, Int) | EvRelease(Int) | EvSeize(Int, Int) | EvUnreadable
+
+  # ── production comparison (builtin integers) ─────────────────────────
+
+  fn compare(left: Int, right: Int) -> StampOrder =
+    pickup
+      left < right -> StampBefore()
+      left > right -> StampAfter()
+      else -> StampSame()
+
+  # ── status classification ────────────────────────────────────────────
+
+  @total true
+  @reducible
+  fn by_expiry(until_vs_now: StampOrder) -> LeaseStatus =
+    match until_vs_now
+      StampAfter() -> LeaseActive()
+      StampSame() -> LeaseStale()
+      StampBefore() -> LeaseStale()
+
+  @total true
+  @reducible
+  fn classify_order(at_vs_now: StampOrder, until_vs_now: StampOrder) -> LeaseStatus =
+    match at_vs_now
+      StampAfter() -> LeaseAmbiguous()
+      StampSame() -> by_expiry(until_vs_now)
+      StampBefore() -> by_expiry(until_vs_now)
+
+  @total true
+  @reducible
+  fn classify_reading(reading: LeaseReading, at_vs_now: StampOrder, until_vs_now: StampOrder) -> LeaseStatus =
+    match reading
+      NoHolder(_) -> LeaseFree()
+      Unreadable() -> LeaseAmbiguous()
+      HolderStamp(_, _) -> classify_order(at_vs_now, until_vs_now)
+
+  @total true
+  @reducible
+  fn stamp_of(reading: LeaseReading) -> Int =
+    match reading
+      NoHolder(last) -> last
+      HolderStamp(at, _) -> at
+      Unreadable() -> 0
+
+  @total true
+  @reducible
+  fn until_of(reading: LeaseReading) -> Int =
+    match reading
+      NoHolder(_) -> 0
+      HolderStamp(_, until) -> until
+      Unreadable() -> 0
+
+  # The production classifier consumed by the shell.
+  fn classify(reading: LeaseReading, now: Int) -> LeaseStatus =
+    classify_reading(reading, compare(stamp_of(reading), now), compare(until_of(reading), now))
+
+  # ── reading of the latest self-contained lease record ────────────────
+
+  @total true
+  @reducible
+  fn reading_of(event: LeaseEvent) -> LeaseReading =
+    match event
+      EvClaim(at, until) -> HolderStamp(at, until)
+      EvRenew(at, until) -> HolderStamp(at, until)
+      EvSeize(at, until) -> HolderStamp(at, until)
+      EvRelease(at) -> NoHolder(at)
+      EvUnreadable() -> Unreadable()
+
+  # ── clock-regression gate ────────────────────────────────────────────
+  # now_vs_last = compare(now, stamp_of(reading)): a sample earlier than the
+  # latest recorded stamp is a clock regression and fails closed.
+
+  @total true
+  @reducible
+  fn gate(decision: LeaseDecision, now_vs_last: StampOrder) -> LeaseDecision =
+    match now_vs_last
+      StampBefore() -> RefuseAmbiguous()
+      StampSame() -> decision
+      StampAfter() -> decision
+
+  # seize is the single reviewed exception: the attributable operator recovery.
+  @total true
+  @reducible
+  fn gate_for(op: LeaseOp, decision: LeaseDecision, now_vs_last: StampOrder) -> LeaseDecision =
+    match op
+      OpSeize() -> decision
+      OpClaim() -> gate(decision, now_vs_last)
+      OpClaimExpired() -> gate(decision, now_vs_last)
+      OpRenew() -> gate(decision, now_vs_last)
+      OpRelease() -> gate(decision, now_vs_last)
+      OpComplete() -> gate(decision, now_vs_last)
+
+  # ── admission decision ───────────────────────────────────────────────
+
+  @total true
+  @reducible
+  fn claim(status: LeaseStatus, caller: LeaseActor) -> LeaseDecision =
+    match status
+      LeaseFree() -> Permit()
+      LeaseStale() -> Permit()
+      LeaseAmbiguous() -> RefuseAmbiguous()
+      LeaseActive() ->
+        match caller
+          LeaseHolder() -> Permit()
+          LeaseOther() -> RefuseHeld()
+
+  @total true
+  @reducible
+  fn claim_expired(status: LeaseStatus, caller: LeaseActor) -> LeaseDecision =
+    match status
+      LeaseFree() -> RefuseFree()
+      LeaseStale() -> Permit()
+      LeaseAmbiguous() -> RefuseAmbiguous()
+      LeaseActive() -> RefuseHeld()
+
+  @total true
+  @reducible
+  fn renew(status: LeaseStatus, caller: LeaseActor) -> LeaseDecision =
+    match status
+      LeaseFree() -> RefuseFree()
+      LeaseStale() -> RefuseStale()
+      LeaseAmbiguous() -> RefuseAmbiguous()
+      LeaseActive() ->
+        match caller
+          LeaseHolder() -> Permit()
+          LeaseOther() -> RefuseNotHolder()
+
+  @total true
+  @reducible
+  fn by_holder(caller: LeaseActor) -> LeaseDecision =
+    match caller
+      LeaseHolder() -> Permit()
+      LeaseOther() -> RefuseNotHolder()
+
+  @total true
+  @reducible
+  fn release(status: LeaseStatus, caller: LeaseActor) -> LeaseDecision =
+    match status
+      LeaseFree() -> AlreadyFree()
+      LeaseStale() -> by_holder(caller)
+      LeaseAmbiguous() -> RefuseAmbiguous()
+      LeaseActive() -> by_holder(caller)
+
+  @total true
+  @reducible
+  fn decide(op: LeaseOp, status: LeaseStatus, caller: LeaseActor) -> LeaseDecision =
+    match op
+      OpClaim() -> claim(status, caller)
+      OpClaimExpired() -> claim_expired(status, caller)
+      OpRenew() -> renew(status, caller)
+      OpRelease() -> release(status, caller)
+      OpSeize() -> Permit()
+      OpComplete() -> Permit()
+
+  # ── comparison specification mirror (structural, law-covered) ────────
+
+  fn lt_nat_s(left: Nat, right: Nat) -> Bool =
+    match right
+      Z() -> False()
+      S(right_pred) ->
+        match left
+          Z() -> True()
+          S(left_pred) -> lt_nat_s(left_pred, right_pred)
+
+  fn lt_int_s(left: Int, right: Int) -> Bool =
+    match left
+      FromNat(m) ->
+        match right
+          FromNat(n) -> lt_nat_s(m, n)
+          NegativeSuccessor(_) -> False()
+      NegativeSuccessor(k) ->
+        match right
+          FromNat(_) -> True()
+          NegativeSuccessor(j) -> lt_nat_s(j, k)
+
+  fn compare_nat(m: Nat, n: Nat) -> StampOrder =
+    match lt_nat_s(m, n)
+      True() -> StampBefore()
+      False() ->
+        match lt_nat_s(n, m)
+          True() -> StampAfter()
+          False() -> StampSame()
+
+  fn compare_struct(a: Int, b: Int) -> StampOrder =
+    match a
+      FromNat(m) ->
+        match b
+          FromNat(n) -> compare_nat(m, n)
+          NegativeSuccessor(_) -> StampAfter()
+      NegativeSuccessor(k) ->
+        match b
+          FromNat(_) -> StampBefore()
+          NegativeSuccessor(j) -> compare_nat(j, k)
+
+  # ── classification laws (C1–C9) ──────────────────────────────────────
+
+  fn no_holder_is_free(last: Int, now: Int) -> Equivalent(LeaseStatus, classify(NoHolder(last), now), LeaseFree()) =
+    reflexive(LeaseFree())
+
+  fn unreadable_is_ambiguous(now: Int) -> Equivalent(LeaseStatus, classify(Unreadable(), now), LeaseAmbiguous()) =
+    reflexive(LeaseAmbiguous())
+
+  fn holder_classifies_by_orders(at: Int, until: Int, now: Int) -> Equivalent(LeaseStatus, classify(HolderStamp(at, until), now), classify_order(compare(at, now), compare(until, now))) =
+    reflexive(classify_order(compare(at, now), compare(until, now)))
+
+  fn future_stamp_is_ambiguous(until_vs_now: StampOrder) -> Equivalent(LeaseStatus, classify_order(StampAfter(), until_vs_now), LeaseAmbiguous()) =
+    reflexive(LeaseAmbiguous())
+
+  fn stamp_now_classifies_by_expiry(until_vs_now: StampOrder) -> Equivalent(LeaseStatus, classify_order(StampSame(), until_vs_now), by_expiry(until_vs_now)) =
+    reflexive(by_expiry(until_vs_now))
+
+  fn past_stamp_classifies_by_expiry(until_vs_now: StampOrder) -> Equivalent(LeaseStatus, classify_order(StampBefore(), until_vs_now), by_expiry(until_vs_now)) =
+    reflexive(by_expiry(until_vs_now))
+
+  fn expiry_passed_is_stale() -> Equivalent(LeaseStatus, by_expiry(StampBefore()), LeaseStale()) =
+    reflexive(LeaseStale())
+
+  fn expiry_now_is_stale() -> Equivalent(LeaseStatus, by_expiry(StampSame()), LeaseStale()) =
+    reflexive(LeaseStale())
+
+  fn expiry_ahead_is_active() -> Equivalent(LeaseStatus, by_expiry(StampAfter()), LeaseActive()) =
+    reflexive(LeaseActive())
+
+  # ── reading laws (R1–R5) ─────────────────────────────────────────────
+
+  fn claim_reads_holder(at: Int, until: Int) -> Equivalent(LeaseReading, reading_of(EvClaim(at, until)), HolderStamp(at, until)) =
+    reflexive(HolderStamp(at, until))
+
+  fn renew_reads_holder(at: Int, until: Int) -> Equivalent(LeaseReading, reading_of(EvRenew(at, until)), HolderStamp(at, until)) =
+    reflexive(HolderStamp(at, until))
+
+  fn seize_reads_holder(at: Int, until: Int) -> Equivalent(LeaseReading, reading_of(EvSeize(at, until)), HolderStamp(at, until)) =
+    reflexive(HolderStamp(at, until))
+
+  fn release_reads_free(at: Int) -> Equivalent(LeaseReading, reading_of(EvRelease(at)), NoHolder(at)) =
+    reflexive(NoHolder(at))
+
+  fn unreadable_reads_unreadable() -> Equivalent(LeaseReading, reading_of(EvUnreadable()), Unreadable()) =
+    reflexive(Unreadable())
+
+  # ── gate laws (G1–G4 and the gated operations) ───────────────────────
+
+  fn regression_refuses(decision: LeaseDecision) -> Equivalent(LeaseDecision, gate(decision, StampBefore()), RefuseAmbiguous()) =
+    reflexive(RefuseAmbiguous())
+
+  fn same_stamp_keeps(decision: LeaseDecision) -> Equivalent(LeaseDecision, gate(decision, StampSame()), decision) =
+    reflexive(decision)
+
+  fn later_stamp_keeps(decision: LeaseDecision) -> Equivalent(LeaseDecision, gate(decision, StampAfter()), decision) =
+    reflexive(decision)
+
+  fn seize_bypasses_gate(decision: LeaseDecision, order: StampOrder) -> Equivalent(LeaseDecision, gate_for(OpSeize(), decision, order), decision) =
+    reflexive(decision)
+
+  fn claim_is_gated(decision: LeaseDecision, order: StampOrder) -> Equivalent(LeaseDecision, gate_for(OpClaim(), decision, order), gate(decision, order)) =
+    reflexive(gate(decision, order))
+
+  fn claim_expired_is_gated(decision: LeaseDecision, order: StampOrder) -> Equivalent(LeaseDecision, gate_for(OpClaimExpired(), decision, order), gate(decision, order)) =
+    reflexive(gate(decision, order))
+
+  fn renew_is_gated(decision: LeaseDecision, order: StampOrder) -> Equivalent(LeaseDecision, gate_for(OpRenew(), decision, order), gate(decision, order)) =
+    reflexive(gate(decision, order))
+
+  fn release_is_gated(decision: LeaseDecision, order: StampOrder) -> Equivalent(LeaseDecision, gate_for(OpRelease(), decision, order), gate(decision, order)) =
+    reflexive(gate(decision, order))
+
+  fn complete_is_gated(decision: LeaseDecision, order: StampOrder) -> Equivalent(LeaseDecision, gate_for(OpComplete(), decision, order), gate(decision, order)) =
+    reflexive(gate(decision, order))
+
+  # ── decision laws (D1–D19) ───────────────────────────────────────────
+
+  fn ambiguous_refuses_claim(caller: LeaseActor) -> Equivalent(LeaseDecision, decide(OpClaim(), LeaseAmbiguous(), caller), RefuseAmbiguous()) =
+    reflexive(RefuseAmbiguous())
+
+  fn ambiguous_refuses_renew(caller: LeaseActor) -> Equivalent(LeaseDecision, decide(OpRenew(), LeaseAmbiguous(), caller), RefuseAmbiguous()) =
+    reflexive(RefuseAmbiguous())
+
+  fn ambiguous_refuses_release(caller: LeaseActor) -> Equivalent(LeaseDecision, decide(OpRelease(), LeaseAmbiguous(), caller), RefuseAmbiguous()) =
+    reflexive(RefuseAmbiguous())
+
+  fn ambiguous_refuses_claim_expired(caller: LeaseActor) -> Equivalent(LeaseDecision, decide(OpClaimExpired(), LeaseAmbiguous(), caller), RefuseAmbiguous()) =
+    reflexive(RefuseAmbiguous())
+
+  fn stale_refuses_renew(caller: LeaseActor) -> Equivalent(LeaseDecision, decide(OpRenew(), LeaseStale(), caller), RefuseStale()) =
+    reflexive(RefuseStale())
+
+  fn free_refuses_renew(caller: LeaseActor) -> Equivalent(LeaseDecision, decide(OpRenew(), LeaseFree(), caller), RefuseFree()) =
+    reflexive(RefuseFree())
+
+  fn active_other_refuses_claim() -> Equivalent(LeaseDecision, decide(OpClaim(), LeaseActive(), LeaseOther()), RefuseHeld()) =
+    reflexive(RefuseHeld())
+
+  fn active_other_refuses_renew() -> Equivalent(LeaseDecision, decide(OpRenew(), LeaseActive(), LeaseOther()), RefuseNotHolder()) =
+    reflexive(RefuseNotHolder())
+
+  fn active_other_refuses_release() -> Equivalent(LeaseDecision, decide(OpRelease(), LeaseActive(), LeaseOther()), RefuseNotHolder()) =
+    reflexive(RefuseNotHolder())
+
+  fn stale_permits_claim(caller: LeaseActor) -> Equivalent(LeaseDecision, decide(OpClaim(), LeaseStale(), caller), Permit()) =
+    reflexive(Permit())
+
+  fn free_permits_claim(caller: LeaseActor) -> Equivalent(LeaseDecision, decide(OpClaim(), LeaseFree(), caller), Permit()) =
+    reflexive(Permit())
+
+  fn active_holder_permits_renew() -> Equivalent(LeaseDecision, decide(OpRenew(), LeaseActive(), LeaseHolder()), Permit()) =
+    reflexive(Permit())
+
+  fn seize_permits(status: LeaseStatus, caller: LeaseActor) -> Equivalent(LeaseDecision, decide(OpSeize(), status, caller), Permit()) =
+    reflexive(Permit())
+
+  fn claim_expired_takes_stale(caller: LeaseActor) -> Equivalent(LeaseDecision, decide(OpClaimExpired(), LeaseStale(), caller), Permit()) =
+    reflexive(Permit())
+
+  fn claim_expired_skips_free(caller: LeaseActor) -> Equivalent(LeaseDecision, decide(OpClaimExpired(), LeaseFree(), caller), RefuseFree()) =
+    reflexive(RefuseFree())
+
+  fn claim_expired_refuses_active(caller: LeaseActor) -> Equivalent(LeaseDecision, decide(OpClaimExpired(), LeaseActive(), caller), RefuseHeld()) =
+    reflexive(RefuseHeld())
+
+  fn release_free_is_idempotent(caller: LeaseActor) -> Equivalent(LeaseDecision, decide(OpRelease(), LeaseFree(), caller), AlreadyFree()) =
+    reflexive(AlreadyFree())
+
+  fn stale_other_refuses_release() -> Equivalent(LeaseDecision, decide(OpRelease(), LeaseStale(), LeaseOther()), RefuseNotHolder()) =
+    reflexive(RefuseNotHolder())
+
+  fn complete_permits(status: LeaseStatus, caller: LeaseActor) -> Equivalent(LeaseDecision, decide(OpComplete(), status, caller), Permit()) =
+    reflexive(Permit())
+
+  # ── comparison specification laws (S1–S6) ────────────────────────────
+
+  fn compare_nat_before(m: Nat, n: Nat, below: IsTrue(lt_nat_s(m, n))) -> Equivalent(StampOrder, compare_nat(m, n), StampBefore()) =
+    match n
+      Z() -> absurd(true_is_not_false(below))
+      S(n_pred) ->
+        match m
+          Z() -> reflexive(StampBefore())
+          S(m_pred) -> compare_nat_before(m_pred, n_pred, below)
+
+  fn compare_nat_after(m: Nat, n: Nat, above: IsTrue(lt_nat_s(n, m))) -> Equivalent(StampOrder, compare_nat(m, n), StampAfter()) =
+    match m
+      Z() -> absurd(true_is_not_false(above))
+      S(m_pred) ->
+        match n
+          Z() -> reflexive(StampAfter())
+          S(n_pred) -> compare_nat_after(m_pred, n_pred, above)
+
+  fn compare_nat_same(n: Nat) -> Equivalent(StampOrder, compare_nat(n, n), StampSame()) =
+    match n
+      Z() -> reflexive(StampSame())
+      S(k) -> compare_nat_same(k)
+
+  fn compare_struct_before(a: Int, b: Int, below: IsTrue(lt_int_s(a, b))) -> Equivalent(StampOrder, compare_struct(a, b), StampBefore()) =
+    match a
+      FromNat(m) ->
+        match b
+          FromNat(n) -> compare_nat_before(m, n, below)
+          NegativeSuccessor(_) -> absurd(true_is_not_false(below))
+      NegativeSuccessor(k) ->
+        match b
+          FromNat(_) -> reflexive(StampBefore())
+          NegativeSuccessor(j) -> compare_nat_before(j, k, below)
+
+  fn compare_struct_after(a: Int, b: Int, above: IsTrue(lt_int_s(b, a))) -> Equivalent(StampOrder, compare_struct(a, b), StampAfter()) =
+    match a
+      FromNat(m) ->
+        match b
+          FromNat(n) -> compare_nat_after(m, n, above)
+          NegativeSuccessor(_) -> reflexive(StampAfter())
+      NegativeSuccessor(k) ->
+        match b
+          FromNat(_) -> absurd(true_is_not_false(above))
+          NegativeSuccessor(j) -> compare_nat_after(j, k, above)
+
+  fn compare_struct_same(i: Int) -> Equivalent(StampOrder, compare_struct(i, i), StampSame()) =
+    match i
+      FromNat(n) -> compare_nat_same(n)
+      NegativeSuccessor(k) -> compare_nat_same(k)
+end

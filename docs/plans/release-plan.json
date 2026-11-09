@@ -1206,7 +1206,7 @@
       ],
       "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
       "issue": 45,
-      "issue_body_sha256": "6c52b073debe69336bde2bc724eec166b0b7b3286251cca33820281a8ef75c15",
+      "issue_body_sha256": "d3c00d2aab3499ffd73f99a07b2899e5826e31c70a32519153b2d87ee6d17ba4",
       "observed_issue_state": "OPEN",
       "owner_role": "one claimed task worker after admission",
       "blockers": [
@@ -3574,10 +3574,12 @@
     {
       "id": "state/lease",
       "job": "ELZ-028",
-      "note": "ELZ-028 is conditional: if the provider already satisfies ownership/fencing, retain deferred status and name provider evidence; do not force a redundant Piece.",
+      "note": "Single-owner leases fenced by the record revision over the ready Store: lease records live in the guarded stream as self-contained non_state_bearing records; claim, hold, renew, release, seize, claim_expired, status, the holder's fenced write and the terminal complete, each as one atomic step on the Adapter (PostgreSQL: one transaction under the head row lock with clock_timestamp() sampled under that lock; Memory: one serialized owner section with a manual clock), with the pure Cure classification, reading, regression gate and decision tables. Sampled-time liveness; revision fencing, not identity.",
       "baseline_status": "deferred",
-      "disposition": "conditional-upstream-or-new-policy",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract on task branch; task acceptance separate",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/state/lease/piece.json",
+      "manifest_sha256": "3a454246403b435a70b381760f55759f380b833a8d901c69c14205c85071b7ff"
     },
     {
       "id": "state/outbox",
