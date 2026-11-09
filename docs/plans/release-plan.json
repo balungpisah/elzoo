@@ -1410,6 +1410,44 @@
       "product_role": "Supporting admission documentation for every product aim; not a product prerequisite or a delivered Piece."
     },
     {
+      "id": "ELZ-055",
+      "title": "ELZ-055 — Specify the attributable audit log for the effect-intent decision record",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-009",
+        "ELZ-023"
+      ],
+      "status": "published; dispatch gates required",
+      "url": "https://github.com/balungpisah/elzoo/issues/111",
+      "paths": [
+        "tasks/ELZ-055-audit-log.md"
+      ],
+      "outputs": [
+        "state/audit-log"
+      ],
+      "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 111,
+      "issue_body_sha256": "4454bb342db8a575286035e45bb9002c11f6a6dae744f3cfb888eb2b7130ede6",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P01",
+        "P02",
+        "P03",
+        "P04",
+        "P05",
+        "P06",
+        "P07",
+        "P08",
+        "P09",
+        "P10",
+        "P11",
+        "P12"
+      ]
+    },
+    {
       "id": "RC-01",
       "title": "Versioned stored-state compatibility",
       "kind": "proposal",
@@ -1716,15 +1754,13 @@
       "kind": "proposal",
       "release": "V1",
       "stage": "pieces",
-      "outputs": [
-        "state/audit-log"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "ELZ-009",
         "ELZ-024"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "superseded for state/audit-log by published ELZ-055 (output moved); no remaining output",
       "contract": "Decision and actor/resource/policy attribution commit atomically under one operation identity. Retention and access declared; telemetry is not the backing store. Select storage supporting the actual joint transaction.",
       "acceptance": "Crash between decision and audit, duplicate write, redaction and unauthorized read; if the existing Store cannot provide joint atomicity, create a reviewed adapter/contract prerequisite instead of weakening the invariant.",
       "reuse": "Existing event records or transactional Ecto/Ash storage after exact-boundary evaluation; no tamper-proof claim.",
@@ -3537,11 +3573,13 @@
     },
     {
       "id": "state/audit-log",
-      "job": "RC-10",
-      "note": "Actor/action/resource/outcome records for C1/C3/C6; selected storage, redaction, retention and tamper requirements needed. Telemetry is not this contract. ELZ-025 study: the audit record commits atomically with the decision; a bounded in-state list is not the retained trail.",
+      "job": "ELZ-055",
+      "note": "Session-attributed audit of elzoo_log_records changes made through a binding of the ready PostgreSQL Store: one Carbonite audit transaction and change per committed append/retention inside the Store's own transaction; typed refusal of missing attribution at bind, database refusal of uncovered writes once the migration is installed; exclusions; dated retention selection.",
       "baseline_status": "deferred",
-      "disposition": "blocked-admission-proposal",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "implementation prepared; acceptance requires merged PR",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/state/audit-log/piece.json",
+      "manifest_sha256": "017a326206e25ffde8827094ac2d4618c786df32e572d2f0acfdbc5ae5a17b77"
     },
     {
       "id": "state/checkpoint",
