@@ -5,7 +5,7 @@
 Reviewer: an independent review session.
 Reviewed head: `7766446c40a88ad2be60ee51aaef59deb8e76c06` on `task/ELZ-011`
 (`<worktrees>/elzoo-ELZ-011`, base `a5f0e630f61e93893f1a2c706268226681ca593a`).
-Earlier review: `/tmp/elz011-early-review-report-0f974e4c.md` (head `0716e36`, NOT CLEAR).
+Earlier review: `/tmp/elz011-early-review-report-<session id>.md` (head `0716e36`, NOT CLEAR).
 This is permission for implementation only. It is not production acceptance.
 No tracked file, issue, branch, pin or test was changed. `git status --short` was empty after every command, and HEAD stayed `7766446`.
 

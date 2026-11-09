@@ -246,7 +246,7 @@ Prerequisites: RC-33, RC-34, RC-35, RC-36.
 
 **future first-wave workers and independent reviewer:** agent id=None; workspace=None; mechanism=not dispatched by adoption worker; integration owner=dedicated roadmap coordinator; delegation=none; delivery boundary=coordinator records actual IDs, workspaces, bases and claim SHAs at dispatch
 
-**dedicated roadmap coordinator:** identity source=orchestrator_capabilities parentThreadId in this session; workspace=<worktrees>/t3-bcef5843; mechanism=existing user-created top-level coordinator; normal Git/GitHub integration; delivery boundary=ELZ-033 and bounded ELZ-022/024/026 only; independent review before merge; delegation=bounded first wave; workers may not delegate; thread id=mcp:launch:3fe4ba3bbfbfc14387fa0398fcf0009721604c2952038e9acb176b676638bbfd
+**dedicated roadmap coordinator:** identity source=orchestrator_capabilities parentThreadId in this session; workspace=<worktrees>/t3-bcef5843; mechanism=existing user-created top-level coordinator; normal Git/GitHub integration; delivery boundary=ELZ-033 and bounded ELZ-022/024/026 only; independent review before merge; delegation=bounded first wave; workers may not delegate; thread id=<thread id redacted>
 
 ## Scoped job briefs
 
@@ -440,7 +440,7 @@ Publication copy: [tasks/ELZ-018-review-hardening.md](../../tasks/ELZ-018-review
 
 ### ELZ-019
 
-ELZ-019 — Run CI only on the owner's first machine
+ELZ-019 — Run CI only on machine A
 
 Publication copy: [tasks/ELZ-019-symbolic-ci.md](../../tasks/ELZ-019-symbolic-ci.md).
 

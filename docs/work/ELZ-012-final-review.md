@@ -4,7 +4,7 @@
 
 Reviewer: an independent review session.
 Reviewed head: `8594a3b79e988a951b1716caaea3b700447d6e58` on `task/ELZ-012` (`<worktrees>/elzoo-ELZ-012`). Local HEAD equals `origin/task/ELZ-012`. Diff base `origin/main` = `b62c26a229fc86fa7700376d4cb6a21be536baa7`.
-Earlier report: `docs/work/ELZ-012-early-review.md` is byte-equal to `/tmp/elz012-early-review-report-0f974e4c.md` (`cmp` exit 0).
+Earlier report: `docs/work/ELZ-012-early-review.md` is byte-equal to `/tmp/elz012-early-review-report-<session id>.md` (`cmp` exit 0).
 I changed no tracked file, issue, branch or pin. `git status --short` was empty after every command and HEAD stayed `8594a3b`. I did not run `mix setup` or `mix check` (the author's logs are the evidence; I re-verified them, below). This is a review, not merged acceptance.
 
 ## Verdict

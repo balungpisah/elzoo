@@ -1,5 +1,7 @@
 # ELZ-033 validation record
 
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text. The quoted output of `check-ci-runners.py` in the table below names the machine as `machine A`; the original output named the machine.
+
 The documentation worker ran these checks in the supplied isolated workspace
 `<worktrees>/t3-772a5980`, based on main
 `404d159a122d18a22554c5688aa79199e4d5c124`, then normally merged main
@@ -52,7 +54,7 @@ The Mix child process received
 It never used the already installed personal PostgreSQL service. The named test
 observation was PostgreSQL 17.11 (Homebrew), `fsync=on`,
 `synchronous_commit=on`; this is a local observation, not a durability proof or
-new server pin. The dedicated cluster was stopped after checking. Symbolic
+new server pin. The dedicated cluster was stopped after checking. Machine A
 services and their queues were not touched.
 
 ## Output locations and evidence limits

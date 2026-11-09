@@ -15,7 +15,7 @@ GitHub runners remain prohibited. Do not run untrusted code on either machine.
 
 - Change the CI machine policy in AGENTS.md, docs/development/10-symbolic-ci.md,
   and directly dependent runner-policy documentation to allow only the named
-  user-owned machine A and machine B machines for their documented roles.
+  the user-owned machines A and B for their documented roles.
 - Modify the backend workflow and scripts/check-ci-runners.py together, with
   explicit reviewed role selectors, safe routing, and meaningful negative
   controls. Preserve the machine A Gleam role, exact image digest, Cure/OTP/

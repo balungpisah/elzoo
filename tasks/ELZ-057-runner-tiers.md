@@ -13,9 +13,9 @@
 
 the slow VPS runner (runner id 24) is registered and documented with no `backend` label (owner
 decision 2026-11-08, ELZ-056). It passed one full trial but took about twice as long as the
-MacBook on the same tree (root suite 2625.6 s against 1340.4 s; `symbolic` 1116.3 s on a
+MacBook on the same tree (root suite 2625.6 s against 1340.4 s; machine A 1116.3 s on a
 different tree). The CPU is slower per thread (worker benchmark: about 1.8 times slower than
-`symbolic`); the 5-core cap, the disk and CPU steal do not explain it. GitHub gives a job to any
+machine A); the 5-core cap, the disk and CPU steal do not explain it. GitHub gives a job to any
 idle runner with matching labels and cannot prefer a faster one.
 
 Owner decision 2026-11-08 ("go"): pull request checks and merge-queue exact-head runs run only

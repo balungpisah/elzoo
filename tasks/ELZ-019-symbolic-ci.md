@@ -1,4 +1,4 @@
-# ELZ-019 — Run CI only on the owner's first machine
+# ELZ-019 — Run CI only on machine A
 
 - Phase: P0 development infrastructure
 - Dependencies: ELZ-018

@@ -7,7 +7,7 @@ Reviewed head: `094eff10b05ec9a60756f73f0faf77c3bec0fe3a` on `task/ELZ-011`
 (`<worktrees>/elzoo-ELZ-011`). Local HEAD equals `origin/task/ELZ-011`.
 Compared with my reviewed head `877357d72abc5a347574531b633dd955001ed3d9`. Current `origin/main` is `452caa1f8140d6ec1cfee6cea1119a65e1c87a11`.
 Earlier reports: early (`0716e36`), focused (`7766446`), final (`694fda8`, CONDITIONAL) and incremental (`877357d`, CONDITIONAL on T1).
-`docs/work/ELZ-011-incremental-review.md` is byte-equal to `/tmp/elz011-incremental-review-report-0f974e4c.md` (`cmp` exit 0).
+`docs/work/ELZ-011-incremental-review.md` is byte-equal to `/tmp/elz011-incremental-review-report-<session id>.md` (`cmp` exit 0).
 I changed no tracked file, issue, branch or pin. `git status --short` was empty after every command and HEAD stayed `094eff1`.
 
 ## Verdict

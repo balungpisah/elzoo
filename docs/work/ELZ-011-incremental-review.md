@@ -20,7 +20,7 @@ I changed no tracked file, issue, branch or pin. `git status --short` was empty 
 ## Delta I reviewed
 
 `git diff --stat 694fda8 HEAD`: 7 paths, +520/-11. Source commit `087c1de`: `http_job.ex`, `README.md`, the owner test file and its helper. Commit `877357d` changes docs only (`ELZ-011-production.md`, `ELZ-011-review-fixes.md`; `ELZ-011-final-review.md` is the added copy of my report).
-- `cmp /tmp/elz011-final-review-report-0f974e4c.md docs/work/ELZ-011-final-review.md`: byte-equal. My report is preserved.
+- `cmp /tmp/elz011-final-review-report-<session id>.md docs/work/ELZ-011-final-review.md`: byte-equal. My report is preserved.
 - No change to `piece.json`, Cure, `pieces/core`, `tasks`, `registry`, `LEDGER.md`, `docs/plans`, `mix.exs` or `mix.lock` (`git diff` of those paths is empty).
 - The test file diff is one hunk at the end (`@@ -792,4 +792,231 @@`). All original test bytes are intact. Five tests are appended; helpers `adapter_request/2`, `with_snapshot_gate/2` and `refused_race/3` are added.
 

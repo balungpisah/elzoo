@@ -872,7 +872,7 @@
     },
     {
       "id": "ELZ-019",
-      "title": "ELZ-019 — Run CI only on the owner's first machine",
+      "title": "ELZ-019 — Run CI only on machine A",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -887,7 +887,7 @@
       "outputs": [],
       "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
       "issue": 26,
-      "issue_body_sha256": "2558e16302c6c632351a351e101c8f171eaf67c8b2e668dc25df85424b5bbf2f",
+      "issue_body_sha256": "f2872e467d11db6ff27d6def880c5d2d58f13f5328d5cc1ae524f1bb6a4a1874",
       "observed_issue_state": "CLOSED",
       "owner_role": "one claimed task worker after admission",
       "product_aims": [
@@ -923,7 +923,7 @@
       "outputs": [],
       "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
       "issue": 28,
-      "issue_body_sha256": "5e88c8f9021fdc04999d7f0dd0325829ac44a6a7178ebd8645f4cc5d4749bcba",
+      "issue_body_sha256": "aaf468daf44b511454d248085c2aca0b213c1315806d7e16040fa6e2689b4560",
       "observed_issue_state": "CLOSED",
       "owner_role": "one claimed task worker after admission",
       "product_aims": [
@@ -1351,7 +1351,7 @@
       ],
       "url": "https://github.com/balungpisah/elzoo/issues/55",
       "issue": 55,
-      "issue_body_sha256": "71c71d5c8a3863cc7fa2d4fa89803923f97da591a1a19e67a190c2312840f4ea",
+      "issue_body_sha256": "ed11527957481c7947507f021fad7a728c09a99ccca95be872503e2acc5178a2",
       "observed_issue_state": "OPEN",
       "selection_gates": [
         "Independent exact-SHA review, checks and merge acceptance owned by roadmap coordinator"
@@ -3866,7 +3866,7 @@
       "mechanism": "existing user-created top-level coordinator; normal Git/GitHub integration",
       "delivery_boundary": "ELZ-033 and bounded ELZ-022/024/026 only; independent review before merge",
       "delegation": "bounded first wave; workers may not delegate",
-      "thread_id": "mcp:launch:3fe4ba3bbfbfc14387fa0398fcf0009721604c2952038e9acb176b676638bbfd"
+      "thread_id": "<thread id redacted>"
     }
   ]
 }

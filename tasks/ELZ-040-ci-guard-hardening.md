@@ -34,7 +34,7 @@ permissions.
 
 - [ ] New negative controls fail on the old guard and pass on the new one; record both.
 - [ ] `python3 scripts/test-ci-runners.py`, `check-ci-runners.py`, full `mix check` pass.
-- [ ] Symbolic/user-owned CI passes on the PR head and the merge commit; runner identity shown.
+- [ ] Machine A/user-owned CI passes on the PR head and the merge commit; runner identity shown.
 - [ ] Independent review of the actual diff.
 
 ## Limits

@@ -24,7 +24,7 @@ Make PR CI scale with the change, not with the catalogue, without reducing what 
 - Make the selection explicit and testable: a named selector with its own tests and a
   printed list of selected IDs in the CI log. Unknown or unmapped paths select everything.
 - Keep `mix check` locally able to run the full set (default) and the PR subset (opt-in).
-- Symbolic self-hosted runners only; no hosted fallback; do not disturb ELZ-034.
+- Machine A self-hosted runners only; no hosted fallback; do not disturb ELZ-034.
 - Add this task's source body at `tasks/ELZ-038-affected-checks.md`.
 
 ## Acceptance

@@ -462,7 +462,7 @@ again at 20:56 UTC (03:56 WIB) after the change described below:
 | --- | --- |
 | Repository visibility | public |
 | Self-hosted runners | 0 |
-| `ELZOO_CI_LANE` | `hosted` at the flip; no workflow reads it after ELZ-069; the coordinator deletes it after ELZ-069 is merged and its push run on `main` is green |
+| `ELZOO_CI_LANE` | `hosted` at the flip; no workflow reads it after ELZ-069; deleted by the coordinator on 2026-11-09 at 08:12 WIB, after the push run on the ELZ-069 merge commit was green (reading it now returns 404) |
 | Default workflow token | `read`; workflows cannot approve pull request reviews |
 | Fork pull request approval | `all_external_contributors` (every outside contributor needs approval before a workflow runs) |
 | Branch protection on `main` | no required status checks (removed between 03:49 and 03:56 WIB on 2026-11-09, see below); no force pushes; no deletions; not enforced for administrators; no review requirement |
@@ -488,8 +488,8 @@ repository. Do not switch that setting on.
 the self-hosted jobs. If the hosted lane fails and cannot be repaired quickly, three steps, in this order:
 1. Make the repository private (the owner's action). A self-hosted runner must never be registered while the repository is
    public: a fork pull request can change a workflow and reach an attached runner.
-2. Register the self-hosted runners with the roles that the documentation before ELZ-069 describes (git history), and set
-   the repository variable `ELZOO_CI_LANE` to `self`.
+2. Register the self-hosted runners with the roles that the documentation before ELZ-069 describes (git history), and create
+   the repository variable `ELZOO_CI_LANE` with the value `self` (it was deleted on 2026-11-09).
 3. Merge a revert PR of the ELZ-069 change (it restores the self-hosted jobs, the guard rules and the lane variable). Run the
    merge queue from the revert's own checkout, because the queue on `main` accepts hosted-job evidence only and would send
    no `tier` input; the revert's own `scripts/merge-queue.py` matches its workflow.

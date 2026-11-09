@@ -155,7 +155,7 @@ env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 \
 - `mix setup` was not repeated in this additive-test stage: the coordinator's
   successful setup is recorded above and dependencies/configuration are unchanged.
   Cure remains `208248063d64e621782cd26dd30698ee42850a89`, Elixir 1.20.4,
-  OTP 29.1.2; only the authorized the disposable test database was used.
+  OTP 29.1.2; only the authorized disposable test database was used.
 - Logs: `/tmp/elz030-review-additions/targeted.log`,
   `/tmp/elz030-review-additions/full-check.log`; start metadata in `start.json`.
 

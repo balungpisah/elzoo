@@ -103,7 +103,7 @@ SHA-256: `215caca8cd65f467764ffdc9ed22eeb8daa571e0ab8691c020b1a5a9951e6c92`
 
 ```cure
 # SPDX-License-Identifier: Apache-2.0
-# Reduced feasibility, adapted from reviewer 0f974e4c probe P.
+# Reduced feasibility, adapted from the independent reviewer probe P.
 # Mutual recursion terminates by structural fuel and list recursion.
 # Not production: no memoization or global expansion accounting here.
 # Production plan: pre-count nodes+edges <=4096; dependency-order node cache,
