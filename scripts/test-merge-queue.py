@@ -930,6 +930,9 @@ class PullRequestEvidence(unittest.TestCase):
         fetch = max(i for i, c in enumerate(calls[:merge]) if c[:2] == ["git", "fetch"])
         # The recheck comes after everything that takes time (evidence, Gleam wait, head and ancestry rereads).
         self.assertTrue(max(evidence, gleam, last_view, fetch) < last_listing < merge)
+        newer = [i for i, c in enumerate(calls) if c[:2] == ["gh", "api"] and "head_sha=" in c[-1] and "event=" not in c[-1]]
+        self.assertEqual(1, len(newer))
+        self.assertTrue(max(evidence, gleam, last_view, fetch) < newer[0] < merge)
 
     def newer_run(self, run_id, **changes):
         run = dict(id=run_id, workflow_id=10, path=".github/workflows/symbolic-check.yml", event="pull_request",
@@ -943,9 +946,8 @@ class PullRequestEvidence(unittest.TestCase):
         # request or another dispatch that is newer than the evidence run would decide in place of it.
         for label, runs, dispatch in (
                 ("adopted run, newer pull_request run", [self.fake.pr_run(700)], self.newer_run(800)),
-                ("adopted run, newer dispatch run", [self.fake.pr_run(700)], self.newer_run(800, event="workflow_dispatch")),
                 ("dispatch fallback, newer pull_request run", None, self.newer_run(900)),
-                ("dispatch fallback, newer dispatch run", None, self.newer_run(900, event="workflow_dispatch"))):
+                ):
             with self.subTest(label=label):
                 self.setUp()
                 self.fake.pr_runs = runs
@@ -954,6 +956,10 @@ class PullRequestEvidence(unittest.TestCase):
 
     def test_runs_that_the_skip_decision_would_not_take_do_not_stop_the_merge(self):
         for label, run in (("older run", self.newer_run(600)),
+                           # A dispatch run tests the head itself; the skip decision accepts it only when it is a
+                           # completed success with the full marker. It must not block an adopted run for good.
+                           ("newer dispatch run", self.newer_run(800, event="workflow_dispatch")),
+                           ("newer failed dispatch run", self.newer_run(801, event="workflow_dispatch", conclusion="failure")),
                            ("the evidence run itself", self.newer_run(700)),
                            ("fork pull request run", self.newer_run(800, head_repository={"full_name": "someone/elzoo"})),
                            ("string head repository", self.newer_run(801, head_repository="balungpisah/elzoo")),
@@ -978,6 +984,13 @@ class PullRequestEvidence(unittest.TestCase):
                 self.fake.pr_runs = [self.fake.pr_run(700)]
                 self.fake.head_run_pages = pages
                 self.refuses("Invalid run pages|Invalid JSON")
+
+    def test_a_newer_run_on_a_later_page_is_found(self):
+        self.fake.pr_runs = [self.fake.pr_run(700)]
+        page1 = {"workflow_runs": [self.newer_run(700, head_repository={"full_name": queue.REPO})]}
+        page2 = {"workflow_runs": [self.newer_run(900)]}
+        self.fake.head_run_pages = [page1, page2]
+        self.refuses("Run 900 on head .* is newer than the evidence run 700")
 
     def test_a_newer_run_with_an_unreadable_id_refuses(self):
         self.fake.pr_runs = [self.fake.pr_run(700)]

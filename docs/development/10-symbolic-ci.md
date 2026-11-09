@@ -22,9 +22,11 @@ a `pull_request` run counts only when the second parent holds the whole first pa
 the head with its base and only then has the tree of the head; a `workflow_dispatch` run tests the head itself; the run with the highest ID decides, so a run of a sibling pull request
 from the same branch that is newer than the queue's evidence run could decide in its place. The queue closes this on
 both paths: it refuses to adopt a run when a sibling exists, and right before the merge it lists the runs of the head
-the same way (by `head_sha`, without an event filter) and refuses to merge when a `workflow_dispatch` run or a
-same-repository `pull_request` run with a higher ID than its evidence run exists. Only a run that is created in the
-few seconds between that listing and the push run could still decide)
+the same way (by `head_sha`, without an event filter) and refuses to merge when a same-repository `pull_request` run
+with a higher ID than its evidence run exists. A newer `workflow_dispatch` run is not counted: it tests the head itself,
+and this script accepts it only as a completed success with the full marker, else the full check runs. Only a
+`pull_request` run that is created after that listing, and that is green before the decision step of the push job
+(about 20 minutes of check time), could still decide)
 is a completed success whose exact attempt has exactly one job, a successful `check-hosted` job on a
 GitHub-hosted runner (group `GitHub Actions`, label `ubuntu-24.04`, runner name `GitHub Actions <number>`), a successful
 runner identity step, a successful `Run mix check` step, the full `ELZOO CHECK PASSED` log line and no
@@ -179,7 +181,7 @@ That list shows the pull requests that are open for the head now, not the one th
 rules apply: this pull request must be the only pull request (any state) from the task branch, and its base must
 never have changed (timeline events `base_ref_changed`, `automatic_base_change_succeeded`, `automatic_base_change_failed`,
 or an entry that the queue cannot read). When one rule fails, the queue logs why and dispatches the fallback. A
-timeline or pull request listing that is not a list of lists refuses the merge. Both rules are checked again right before the merge (on the adopted run only); when a sibling pull request or a base change has appeared since, the queue refuses to merge on that run. On both paths, the queue also refuses to merge when a run of the workflow on the exact head, of an event that the push-run skip accepts, has a higher ID than the evidence run (see "Push run skip"). After `update-branch` it waits (up to 300 seconds, bounded by the PR deadline) for the run that GitHub
+timeline or pull request listing that is not a list of lists refuses the merge. Both rules are checked again right before the merge (on the adopted run only); when a sibling pull request or a base change has appeared since, the queue refuses to merge on that run. On both paths, the queue also refuses to merge when a same-repository `pull_request` run of the workflow on the exact head has a higher ID than the evidence run (see "Push run skip"). After such a refusal, push a commit to the branch: the new head gets its own run, and the newer run on the old head no longer counts. The refusal repeats while that newer run is the newest on the head. After `update-branch` it waits (up to 300 seconds, bounded by the PR deadline) for the run that GitHub
 starts on the new head. It logs `Adopted pull_request run <id> for PR #N head=<sha>` and **never cancels that run**.
 The pull request job runs the full check (no affected mode), so the run is the exact-head full run, and it counts as a
 pull request status for branch protection. Only when GitHub started no such run within the wait does the queue

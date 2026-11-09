@@ -257,10 +257,12 @@ class Queue:
         return False
 
     def newer_run_of_head(self, run_id, pr):
-        """ID of a run of the backend workflow on the exact head that is newer than the evidence run and that the
-        push-run skip decision would take for evidence (workflow_dispatch, or pull_request of this repository), or
-        None. The skip decision lets the run with the highest ID on the second parent decide, so a later run of a
-        sibling pull request would decide in place of the run that the queue checked."""
+        """ID of a same-repository pull_request run of the backend workflow on the exact head that is newer than
+        the evidence run, or None. The push-run skip decision lets the run with the highest ID on the second parent
+        decide, and a pull_request run tests the merge with its base, so a later run of a sibling pull request would
+        decide in place of the run that the queue checked. A newer workflow_dispatch run is not counted: it tests
+        the head itself, and the skip decision accepts it only as a completed success with the full marker, else
+        the full check runs."""
         query = urlencode({"head_sha": pr["headRefOid"], "per_page": 100})
         pages = self.data("gh", "api", "--paginate", "--slurp",
                           f"repos/{REPO}/actions/workflows/{WORKFLOW}/runs?{query}")
@@ -272,8 +274,8 @@ class Queue:
                     run.get("path") != f".github/workflows/{WORKFLOW}":
                 continue
             source = run.get("head_repository")
-            valid = run.get("event") == "workflow_dispatch" or (
-                run.get("event") == "pull_request" and isinstance(source, dict) and source.get("full_name") == REPO)
+            valid = (run.get("event") == "pull_request" and isinstance(source, dict) and
+                     source.get("full_name") == REPO)
             if not valid:
                 continue
             require(isinstance(run.get("id"), int), "Invalid run ID")
