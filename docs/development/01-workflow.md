@@ -27,7 +27,7 @@ Claim a deterministic branch, never an agent-suffixed branch:
 
     export ELZOO_AGENT="worker-$(od -An -N2 -tx1 /dev/urandom | tr -d ' ')"
     git fetch origin --prune
-    gh api -X POST repos/<owner>/<repo>/git/refs \
+    gh api -X POST repos/{owner}/{repo}/git/refs \
       -f ref=refs/heads/task/ELZ-003 -f sha="$(git rev-parse origin/main)"
     git fetch origin --prune
     git worktree add ../elzoo-ELZ-003 origin/task/ELZ-003

@@ -64,11 +64,11 @@ claim. Labels task, ready, claimed, blocked and phase labels P0 through P3 are
 status signals, not the lock. A dependency that is merely in a PR is not
 complete.
 
-## Claim: the Git push is the lock
+## Claim: the branch creation is the lock
 
 There is one deterministic branch per task: task/ELZ-001 for ELZ-001. Never
 add an agent suffix and never force-push a task branch. Two agents may prepare
-locally, but only the first branch-create push can succeed.
+locally, but only the first creation of the remote branch (step 3) can succeed.
 
 1. Fetch the base and check the remote branch:
 
@@ -89,7 +89,7 @@ locally, but only the first branch-create push can succeed.
    push would move the branch silently. Use the create-only reference API,
    which refuses an existing branch:
 
-       gh api -X POST repos/<owner>/<repo>/git/refs \
+       gh api -X POST repos/{owner}/{repo}/git/refs \
          -f ref=refs/heads/task/ELZ-001 -f sha="$(git rev-parse origin/main)"
        git fetch origin --prune
        git branch --set-upstream-to=origin/task/ELZ-001
