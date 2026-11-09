@@ -1622,6 +1622,34 @@
       ]
     },
     {
+      "id": "ELZ-091",
+      "title": "ELZ-091 — Prove the AI text interface in its own copied consumer and carry Piece install configuration into exports",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-079"
+      ],
+      "status": "published 2026-11-09; claimed task/ELZ-091; PR pending",
+      "url": "https://github.com/balungpisah/elzoo/issues/165",
+      "paths": [
+        "tasks/ELZ-091-ai-text-consumer-install-configuration.md"
+      ],
+      "outputs": [],
+      "acceptance": "Live issue body amended once (amendment 1: three consumer-count literals in test/export_test.exs and test/check_selection_test.exs, owner decision 2026-11-10); local task file is the byte-equal publication copy. Evidence and export change (class S, no new Piece); planning dependencies mirror the published direct dependencies.",
+      "issue": 165,
+      "issue_body_sha256": "0dcc58cd2e2656c024b6bdcd48068ae500a5dd30bf2a5401c6e4419f44c83bc9",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P06",
+        "P07",
+        "P09",
+        "P11"
+      ],
+      "product_role": "Evidence for integration/ai-model and integration/ai-text (per-ID consumer without a provider) and the install_configuration field that req_llm-backed provider Pieces adopt."
+    },
+    {
       "id": "RC-01",
       "title": "Versioned stored-state compatibility",
       "kind": "proposal",
