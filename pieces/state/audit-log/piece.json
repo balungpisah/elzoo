@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "id": "state/audit-log",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "adapter",
+  "providers": [
+    "carbonite",
+    "ecto_sql",
+    "postgrex",
+    "jason",
+    "elixir",
+    "otp"
+  ],
+  "dependencies": [
+    "integration/sql",
+    "delivery/effect-intent"
+  ],
+  "applications": [],
+  "contract": "Session-attributed audit of elzoo_log_records changes made through a binding of the ready PostgreSQL Store: one Carbonite audit transaction and change per committed append/retention inside the Store's own transaction; typed refusal of missing attribution at bind, database refusal of uncovered writes once the migration is installed; exclusions; dated retention selection.",
+  "limits": [
+    "Opt-in: only where the migration is installed; bind/2 does no I/O and verify/3 reports a missing, disabled or unsecured installation.",
+    "Attribution is per binding (session): opaque shape-validated actor reference and the session's initiating business action, not per command; actor truthfulness is a host Need until domain/principal exists.",
+    "Audited surface is elzoo_log_records INSERT/DELETE only; checkpoints, heads, outbox state, denied actions and no-mutation decisions are not captured.",
+    "TRUNCATE, table-owner trigger disable, superuser session_replication_role and audit-owner edits bypass capture (disclosed, tested); no tamper-proof, completeness or non-repudiation claim.",
+    "Requires DBConnection.ConnectionPool (Sandbox/Ownership pools and dynamic repos refused or unsupported), a dedicated non-superuser audit owner and an application role without audit-schema privileges or TRUNCATE.",
+    "Retention only selects expired transaction IDs; deletion, jobs and scheduling are the consumer's; changing exclusions is a new migration."
+  ],
+  "files": [
+    "lib/elzoo/audit_log.ex",
+    "lib/elzoo/audit_log/attribution.ex",
+    "lib/elzoo/audit_log/migration.ex",
+    "lib/elzoo/audit_log/retention.ex",
+    "lib/elzoo/audit_log/store.ex",
+    "test/elzoo/audit_log_effect_intent_test.exs",
+    "test/elzoo/audit_log_postgres_test.exs",
+    "test/elzoo/audit_log_test.exs",
+    "test/support/audit_log_test_helper.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/audit_log_test.exs",
+      "claim": "Attribution shape table and typed refusal at bind without database I/O; unsupported Store and pool; migration option validation; dated retention decision at its boundaries."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/audit_log_postgres_test.exs",
+      "claim": "Own disposable PostgreSQL database behind a fail-closed target guard: commit pairing, rollback on CAS conflict and injected failure, refusal of uncovered/override/update writes, exclusions, 16 concurrent actors, six held connections clean, killed holder on commit and rollback paths, retention delete and query, TRUNCATE and trigger-disable limits, opt-in without migration, definer functions with fixed search_path owned by the named non-superuser owner after every migration path, application-role boundary and reader-role reads where roles can be created, checkout failure returning the conservative Store result."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/audit_log_effect_intent_test.exs",
+      "claim": "Real EffectIntent owner and StoreHost over bound Stores: each decision record is one insert change in its own audit transaction with the binding's attribution, checkpoints unaudited; an unbound owner over the audited schema stays read-only and records nothing."
+    },
+    {
+      "kind": "upstream",
+      "provider": "carbonite",
+      "reference": "https://hexdocs.pm/carbonite/0.17.0/Carbonite.html",
+      "claim": "Carbonite 0.17.0 capture_changes constraint trigger, excluded_columns, the xact check refusing a change without its transaction row and the override_mode setting are upstream behavior, read from source and exercised by finite tests."
+    },
+    {
+      "kind": "upstream",
+      "provider": "ecto_sql",
+      "reference": "https://hexdocs.pm/ecto_sql/3.14.0/Ecto.Repo.html#c:checkout/2",
+      "claim": "Ecto SQL 3.14.0 Repo.checkout/2 pins one connection for nested Repo.transaction and queries, and in_transaction?/0 is false inside a checkout; migrations run the DDL."
+    },
+    {
+      "kind": "upstream",
+      "provider": "postgrex",
+      "reference": "https://www.postgresql.org/docs/16/sql-createtrigger.html",
+      "claim": "PostgreSQL trigger and constraint-trigger timing, SECURITY DEFINER with a fixed search_path, session-level set_config and transaction atomicity are upstream server contracts reached through Postgrex 0.22.4."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Elixir validation and BEAM process exit semantics; the DBConnection 2.10.2 ConnectionPool disconnect of a connection whose holder process exited is upstream behavior (observed in the killed-holder tests)."
+    },
+    {
+      "kind": "assumption",
+      "claim": "Host supplies a truthful actor; consumer uses DBConnection.ConnectionPool, owns audit objects with a dedicated non-superuser role, grants the application role no audit-schema privilege and no TRUNCATE, installs the migration and checks verify/3; database clock at transaction start."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "Audit rows are durable accountability records, not observations; the Piece emits no events and leaves the consumer Repo's telemetry unchanged."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "carbonite_prefix and excluded_columns at migration time (validated identifiers and column subset); attribution per binding (1..256/0..1024 bytes); retention rule per call (keep_days 1..36500, effective_from Date); no hot reconfiguration.",
+      "evidence": [
+        "test/elzoo/audit_log_test.exs",
+        "test/elzoo/audit_log_postgres_test.exs"
+      ]
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No process, supervisor or lifecycle is shipped; the consumer owns the Repo, migrations and any deletion under the audit owner role."
+    }
+  }
+}

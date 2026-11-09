@@ -109,6 +109,13 @@
       "version": "7.1.0",
       "reference": "https://hexdocs.pm/idna/7.1.0/",
       "license": "MIT"
+    },
+    "carbonite": {
+      "source": "hex",
+      "package": "carbonite",
+      "version": "0.17.0",
+      "reference": "https://hexdocs.pm/carbonite/0.17.0/Carbonite.html",
+      "license": "Apache-2.0"
     }
   }
 }
