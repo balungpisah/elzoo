@@ -479,11 +479,11 @@
     },
     {
       "id": "integration/notification",
-      "summary": "Notification-provider translation",
-      "disposition": "defer",
+      "summary": "One email through Swoosh's SMTP adapter (swoosh 1.29.3, gen_smtp 1.3.0): accepted, refused or unknown; acceptance is not delivery",
+      "disposition": "adapt",
       "phase": "demand-led",
-      "status": "deferred",
-      "reason": "Email/push delivery and retry contract for C1/C5/C7; Swoosh is an email candidate, not a universal delivery guarantee."
+      "status": "ready",
+      "manifest": "pieces/integration/notification/piece.json"
     },
     {
       "id": "integration/object-store",
