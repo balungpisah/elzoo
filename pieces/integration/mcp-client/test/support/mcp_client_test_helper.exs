@@ -77,8 +77,7 @@ defmodule Elzoo.McpClientTest.Tools do
 
   def handle_call_tool("structured", _args, state),
     do:
-      {:ok,
-       %{content: [%{type: "text", text: "{\"n\":1}"}], structuredContent: %{"n" => 1}}, state}
+      {:ok, %{content: [%{type: "text", text: "{\"n\":1}"}], structuredContent: %{"n" => 1}}, state}
 
   def handle_call_tool(_name, _args, state),
     do: {:error, %{code: -32602, message: "Unknown tool"}, state}
@@ -229,9 +228,17 @@ defmodule Elzoo.McpClientTest.Server do
     |> send_resp(403, "")
   end
 
-  defp fault({:stall, ms}, conn, _), do: (Process.sleep(ms); send_resp(conn, 500, ""))
+  defp fault({:stall, ms}, conn, _),
+    do:
+      (
+        Process.sleep(ms)
+        send_resp(conn, 500, "")
+      )
+
   defp fault(:s503, conn, _), do: send_resp(conn, 503, "")
-  defp fault(:garbage, conn, _), do: conn |> put_resp_content_type("application/json") |> send_resp(200, "{not json")
+
+  defp fault(:garbage, conn, _),
+    do: conn |> put_resp_content_type("application/json") |> send_resp(200, "{not json")
 
   defp fault({:rpc, code}, conn, j),
     do: json(conn, %{jsonrpc: "2.0", id: j["id"], error: %{code: code, message: "scripted"}})
@@ -322,7 +329,9 @@ defmodule Elzoo.McpClientTest.RefusingHandler do
   @impl true
   def handle_list_roots(state), do: {:error, %{code: -32601, message: "refused"}, state}
   @impl true
-  def handle_create_message(_params, state), do: {:error, %{code: -32601, message: "refused"}, state}
+  def handle_create_message(_params, state),
+    do: {:error, %{code: -32601, message: "refused"}, state}
+
   @impl true
   def handle_elicitation_create(_m, _s, state),
     do: {:error, %{code: -32601, message: "refused"}, state}

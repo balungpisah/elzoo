@@ -313,6 +313,7 @@ defmodule Elzoo.McpClientTest do
              send_one(s, payload("delete_everything", %{}))
 
     assert count(requests(), "tools/call") == 1
+
     assert {:ok, {:unknown, {:server_error, :invalid_arguments}}} =
              McpClient.outcome(:server_invalid_arguments)
 
@@ -331,7 +332,8 @@ defmodule Elzoo.McpClientTest do
                McpClient.admission(s.config, declaration(payload("strict", args)), snap)
     end
 
-    not_object = Jason.encode!(%{"version" => 1, "tool" => "echo", "arguments" => [1], "release" => @release})
+    not_object =
+      Jason.encode!(%{"version" => 1, "tool" => "echo", "arguments" => [1], "release" => @release})
 
     assert {:error, {:refused, :invalid_arguments}} =
              McpClient.admission(s.config, declaration(not_object), snap)
@@ -464,7 +466,13 @@ defmodule Elzoo.McpClientTest do
     params = %{"name" => "echo", "arguments" => %{}, "_meta" => %{"progressToken" => "p1"}}
 
     safe =
-      ExMCP.Client.make_request(raw, "tools/call", params, [timeout: 4_000] ++ Transport.call_options(), 4_000)
+      ExMCP.Client.make_request(
+        raw,
+        "tools/call",
+        params,
+        [timeout: 4_000] ++ Transport.call_options(),
+        4_000
+      )
 
     assert count(requests(1_500), "tools/call") == 1
     assert {:CallLost, :ReplyBroken, nil} = Transport.classify(safe)
@@ -779,11 +787,16 @@ defmodule Elzoo.McpClientTest do
     refute inspect(status, limit: :infinity) =~ "echo:q"
     refute_received {:elzoo_mcp_result, _, _, _}
 
-    {:ok, b} = McpClient.admission(s.config, declaration(payload("echo", %{"x" => "w"}), "call-2"), snap)
+    {:ok, b} =
+      McpClient.admission(s.config, declaration(payload("echo", %{"x" => "w"}), "call-2"), snap)
+
     pid = owner(s, b, ctx)
     assert {:ok, :dispatched} = Intent.advance(pid, :dispatch)
     key = b.key
-    assert_receive {:elzoo_mcp_result, ^key, _, {:completed, %{content: [%{"text" => "echo:w"}]}}}, 5_000
+
+    assert_receive {:elzoo_mcp_result, ^key, _, {:completed, %{content: [%{"text" => "echo:w"}]}}},
+                   5_000
+
     flush_results()
   end
 
@@ -893,7 +906,11 @@ defmodule Elzoo.McpClientTest do
 
     forged = %{
       "attempt_id" => "attempt-1",
-      "value" => %{"digest" => String.duplicate("0", 64), "is_error" => false, "seal" => String.duplicate("1", 64)}
+      "value" => %{
+        "digest" => String.duplicate("0", 64),
+        "is_error" => false,
+        "seal" => String.duplicate("1", 64)
+      }
     }
 
     assert :error = Adapter.authenticate(forged, request(s, payload("echo", %{})))
