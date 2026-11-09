@@ -220,6 +220,8 @@ defmodule Elzoo.McpClientTest do
     assert {:completed, %{content: [%{"type" => "text", "text" => "echo:hi"}], is_error: false}} =
              McpClient.call_tool(s, a, pid)
 
+    # call_tool/3 returns a completion only after the owner confirmed it.
+    assert {:Confirmed, 1} = Intent.status(pid).phase
     status = settled(pid)
     assert {:Confirmed, 1} = status.phase
     r = requests()
@@ -598,7 +600,7 @@ defmodule Elzoo.McpClientTest do
     s = session(ctx, max_response_bytes: 2_048)
     requests()
 
-    for mode <- [:garbage, {:large, 10_000}] do
+    for mode <- [:garbage, {:large, 10_000}, :no_result_type] do
       Server.mode(ctx.server, mode)
       assert {:error, :malformed_response, :mcp} = send_one(s, payload("echo", %{}))
       assert count(requests(), "tools/call") == 1
@@ -710,6 +712,25 @@ defmodule Elzoo.McpClientTest do
   end
 
   ## credentials and redaction
+
+  test "T27 a server that echoes the bearer token gets it redacted from the delivered result, its digest and discovery (Adapter redaction)",
+       ctx do
+    s = session(ctx)
+    snap = snapshot(s)
+    {:ok, a} = McpClient.admission(s.config, declaration(payload("echo", %{})), snap)
+    pid = owner(s, a, ctx)
+    Server.mode(ctx.server, :echo_auth)
+    assert {:completed, value} = McpClient.call_tool(s, a, pid)
+    refute_token(value)
+    assert [%{"text" => "you sent: Bearer [redacted]"}] = value.content
+    assert value.structured == %{"token" => "[redacted]", "[redacted]" => ["x[redacted]y"]}
+    refute_token(Intent.status(pid))
+    assert count(requests(), "tools/call") == 1
+
+    result = send_one(s, payload("echo", %{}))
+    refute_token(result)
+    flush_results()
+  end
 
   test "T19 every failing, raising, throwing, exiting or malformed credential Need is credentials_unavailable with no tool request (auth provider)",
        ctx do

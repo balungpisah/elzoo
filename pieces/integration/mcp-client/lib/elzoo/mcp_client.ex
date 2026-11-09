@@ -175,15 +175,22 @@ defmodule Elzoo.McpClient do
   Dispatches an admitted call through its EffectIntent `owner`, whose Adapter
   context names the calling process as recipient, and waits for the classified
   outcome: `{:completed, %{content, is_error, structured}}`, `{:refused, reason}`
-  or `{:unknown, reason}`. A second dispatch of the same identity is refused by
-  the owner (`{:error, {:intent, reason}}`). No outcome within the call bound plus
-  a margin is `{:unknown, :timeout}`; the owner's settlement stays authoritative.
+  or `{:unknown, reason}`. A completion is returned only after the owner has
+  durably confirmed it; if that confirmation is not observed within a bounded
+  wait the result is `{:unknown, :settlement_unconfirmed}`. A second dispatch of
+  the same identity is refused by the owner (`{:error, {:intent, reason}}`). No
+  outcome within the call bound plus a margin is `{:unknown, :timeout}`; the
+  owner's settlement stays authoritative.
   """
   def call_tool(%Session{config: c}, %{key: key}, owner) do
     case Elzoo.EffectIntent.advance(owner, :dispatch) do
       {:ok, :dispatched} ->
         receive do
-          {:elzoo_mcp_result, ^key, _attempt, outcome} -> outcome
+          {:elzoo_mcp_result, ^key, _attempt, {:completed, _} = outcome} ->
+            if confirmed?(owner, 250), do: outcome, else: {:unknown, :settlement_unconfirmed}
+
+          {:elzoo_mcp_result, ^key, _attempt, outcome} ->
+            outcome
         after
           c.call_timeout_ms + 5_000 -> {:unknown, :timeout}
         end
@@ -193,6 +200,24 @@ defmodule Elzoo.McpClient do
     end
   catch
     :exit, _ -> {:error, {:intent, :owner_unavailable}}
+  end
+
+  # The Adapter's message precedes the owner's commit; wait (bounded) for the
+  # owner to report the confirmed phase.
+  defp confirmed?(owner, tries) do
+    case Elzoo.EffectIntent.status(owner) do
+      %{phase: {:Confirmed, _}} ->
+        true
+
+      _ when tries > 0 ->
+        Process.sleep(20)
+        confirmed?(owner, tries - 1)
+
+      _ ->
+        false
+    end
+  catch
+    :exit, _ -> false
   end
 
   defp intent_reason({:error, reason}) when is_atom(reason), do: reason

@@ -62,9 +62,20 @@ until host/operator reconciliation through the EffectIntent owner.
 
 **Result delivery.** The intent store keeps only a sealed digest (HMAC under a
 process-local key; integrity of our own result, not server authentication). The full
-outcome goes to the context's recipient Need by best-effort mailbox delivery. If the
+outcome goes to the context's recipient Need by best-effort mailbox delivery. That
+message is sent **before** the owner commits the settlement, so it is not a settlement:
+a recipient other than `call_tool/3` must confirm through the owner
+(`Elzoo.EffectIntent.status/1`) before treating a completion as settled.
+`call_tool/3` returns `{:completed, _}` only after observing the owner's confirmed
+phase; otherwise (within a bounded wait) `{:unknown, :settlement_unconfirmed}`. If the
 recipient has exited, the content is lost and the settlement is unchanged; a consumer
 that needs durable content retains it after receipt.
+
+**Credential redaction.** The credential never appears in a result: every occurrence
+of the exact credential bytes (resolved through the Need before and after the call) in
+any string of a tool result or a discovery descriptor, map keys included, is replaced
+by `[redacted]` before delivery and before the digest. Other encodings of the
+credential (base64, split or escaped forms) are not detected.
 
 ## No resend (ex_mcp 1.8.1 settings, each tested)
 

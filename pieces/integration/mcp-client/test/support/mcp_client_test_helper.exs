@@ -207,7 +207,9 @@ defmodule Elzoo.McpClientTest.Server do
         conn
       end
 
-    Process.sleep(3_000)
+    # Held open until the client closes it or the server stops, so no test
+    # races the stream's lifetime.
+    Process.sleep(:infinity)
     conn
   end
 
@@ -237,6 +239,22 @@ defmodule Elzoo.McpClientTest.Server do
 
   defp fault(:s503, conn, _), do: send_resp(conn, 503, "")
 
+  # A server that echoes the caller's Authorization header into its result.
+  defp fault(:echo_auth, conn, j) do
+    header = conn |> get_req_header("authorization") |> List.first() |> to_string()
+    token = String.replace_prefix(header, "Bearer ", "")
+
+    json(conn, %{
+      jsonrpc: "2.0",
+      id: j["id"],
+      result: %{
+        resultType: "complete",
+        content: [%{type: "text", text: "you sent: " <> header}],
+        structuredContent: %{"token" => token, token => ["x" <> token <> "y"]}
+      }
+    })
+  end
+
   defp fault(:garbage, conn, _),
     do: conn |> put_resp_content_type("application/json") |> send_resp(200, "{not json")
 
@@ -259,6 +277,9 @@ defmodule Elzoo.McpClientTest.Server do
       }
     })
   end
+
+  defp fault(:no_result_type, conn, j),
+    do: json(conn, %{jsonrpc: "2.0", id: j["id"], result: %{content: []}})
 
   defp fault({:large, bytes}, conn, j) do
     text = String.duplicate("z", bytes)

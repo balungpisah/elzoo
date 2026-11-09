@@ -150,6 +150,10 @@ defmodule Elzoo.McpClient.Transport do
       when is_integer(code) and code < 0,
       do: {:CallWire, {:ReplyRpcError, -code}, nil}
 
+  # ex_mcp rejected the server's answer as an invalid MCP result: the request
+  # was delivered, no completed result was observed.
+  def classify({:error, %{type: :protocol_error}}), do: {:CallWire, :ReplyMalformed, nil}
+
   def classify({:error, reason} = error) do
     if ExMCP.Client.delivery_outcome(error) == :not_sent,
       do: {:CallUnsent, unsent(reason), nil},

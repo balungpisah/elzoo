@@ -31,7 +31,8 @@
   "contract": "One MCP server over Streamable HTTP through ex_mcp 1.8.1: inert, bounded, untrusted tool discovery that never calls a tool; one tools/call per dispatch identity, admitted from a core/effect declaration carrying a caller-supplied exact-action release reference and bound to the delivery/effect-intent owner: completed{content, is_error, structured}; refused{unknown_tool | invalid_arguments | too_large | credentials_unavailable | not_connected | target_refused | invalid_request} decided locally before sending, or refused{authentication_failed} for an HTTP 401/403 (named upstream assumption, dispatched); unknown{reason} for any timeout, broken connection, input-required result or JSON-RPC error after sending. No resend: fail-closed auth provider, reconnect and health ping off, no standalone GET stream, per-operation retry_policy false, http_stream_retry :safe_only and max_mrtr_rounds 0; no client handler; injected credential Need; allowlisted endpoint under a loopback, private or public network policy.",
   "limits": [
     "ExMCP.Client.make_request/5 is @doc false at ex_mcp 1.8.1 (pinned exactly): an upstream risk guarded by drift tests; ExMCP.Client.call_tool/4 is not used because it resends tools/call after a -32020 header-mismatch error.",
-    "A tool result's content is delivered to the recipient Need by best-effort in-memory mailbox delivery only; the intent store keeps a sealed digest. A recipient that has exited loses the content; the settlement is unchanged.",
+    "A tool result's content is delivered to the recipient Need by best-effort in-memory mailbox delivery that precedes the owner's settlement commit; only call_tool/3 waits for the owner's confirmed phase (else unknown{settlement_unconfirmed}). The intent store keeps a sealed digest; a recipient that has exited loses the content and the settlement is unchanged.",
+    "Redaction of an echoed credential covers the exact credential bytes (resolved before and after the call) in result and descriptor strings; other encodings are not detected.",
     "The discovery snapshot is a local, possibly stale admission filter; it claims nothing about the server's current tool set or schema.",
     "One transport (Streamable HTTP); no stdio, OAuth, resources, prompts, subscriptions, tasks or sampling; no claim about what a tool does on its server.",
     "ex_mcp's own [:ex_mcp, ...] telemetry and debug logs are emitted upstream and reach consumer handlers; no credential was observed in them in the tested scenarios only.",
@@ -47,6 +48,7 @@
     "lib/elzoo/mcp_client/config.ex",
     "lib/elzoo/mcp_client/discovery.ex",
     "lib/elzoo/mcp_client/outcome.ex",
+    "lib/elzoo/mcp_client/redact.ex",
     "lib/elzoo/mcp_client/snapshot.ex",
     "lib/elzoo/mcp_client/transport.ex",
     "lib/elzoo/mcp_client/wire.ex",

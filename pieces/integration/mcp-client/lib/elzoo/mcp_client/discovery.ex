@@ -5,7 +5,7 @@ defmodule Elzoo.McpClient.Discovery do
   `max_tools`; each descriptor becomes untrusted data. Annotations and
   descriptions are carried, never read; discovery never sends `tools/call`.
   """
-  alias Elzoo.McpClient.{Session, Transport, Wire}
+  alias Elzoo.McpClient.{Redact, Session, Transport, Wire}
 
   def list(%Session{config: c, client: client}) do
     with {:ok, tools, truncated} <- pages(client, c, nil, c.max_pages, [], false) do
@@ -13,7 +13,7 @@ defmodule Elzoo.McpClient.Discovery do
        %{
          server: c.settings.server,
          protocol_version: version(client),
-         tools: tools,
+         tools: Redact.value(tools, Redact.secrets(c.credentials)),
          truncated: truncated
        }}
     end

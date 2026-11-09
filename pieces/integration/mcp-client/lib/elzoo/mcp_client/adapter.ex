@@ -6,7 +6,7 @@ defmodule Elzoo.McpClient.Adapter do
   recorded ground. The full classified outcome goes to the context's recipient
   Need by best-effort mailbox delivery; the owner keeps only a sealed digest.
   """
-  alias Elzoo.McpClient.{Binding, Context, Outcome, Session, Transport, Wire}
+  alias Elzoo.McpClient.{Binding, Context, Outcome, Redact, Session, Transport, Wire}
 
   @schema "elzoo/mcp-tool-call-v1"
   @value_schema "elzoo/mcp-tool-result"
@@ -29,6 +29,10 @@ defmodule Elzoo.McpClient.Adapter do
          {:ok, b, settings} <- Binding.load(c.binding),
          true <- b.digest == req.binding and settings == c.settings,
          true <- Wire.hex?(key) and is_binary(req.arguments) do
+      # The credential as resolved before and after the call: a server that
+      # echoes it never gets it into a delivered or digested result.
+      secrets = Redact.secrets(c.credentials)
+
       {stage, reply, value} =
         case Wire.request(req.arguments, c.max_request_bytes) do
           {:ok, call} ->
@@ -40,6 +44,7 @@ defmodule Elzoo.McpClient.Adapter do
             Transport.unsent_stage_for_pre(reason)
         end
 
+      value = Redact.value(value, secrets ++ Redact.secrets(c.credentials))
       tag = Outcome.classify(stage, reply)
       deliver(ctx, key, attempt_id, tag, value)
       envelope(tag, value, c, key, attempt_id)
@@ -53,7 +58,9 @@ defmodule Elzoo.McpClient.Adapter do
   end
 
   # Best-effort: a recipient that has exited loses the content; the settlement
-  # recorded by the owner is unchanged.
+  # recorded by the owner is unchanged. The message is sent before the owner
+  # commits the settlement, so it is not a settlement: call_tool/3 returns a
+  # completion only after the owner has confirmed it.
   defp deliver(%Context{recipient: pid}, key, attempt_id, tag, value) when is_pid(pid) do
     outcome =
       case tag do
