@@ -482,6 +482,7 @@ REVIEWED = {
     ("lib/elzoo/registry.ex", '"| [#{entry["id"]}](#{entry["directory"]}/README.md) | ready (subset) | #{entry["kind"]} | #{providers} | #{evidence} | #{operations} | #{cell(entry["contract"])} |"'): PIECE_README,
     ("lib/elzoo/registry.ex", "guarantees beyond the declared Contract. See docs/operational-contracts.md."): "text of a message, not a read",
     ("pieces/assembly/durable-job/lib/elzoo/durable_job.ex", "2.24.2. See docs/work/ELZ-010.md for the Contract, result tables and limits."): "text of a doc string, not a read",
+    ("pieces/runtime/telemetry/test/elzoo/telemetry_test.exs", '@readme Path.expand("../../README.md", __DIR__)'): PIECE_README,
     ("test/check_selection_test.exs", 'for relative <- ["piece.json", "README.md", "test/new_test.exs", "lib/deleted.ex"] do'):
         PIECE_README + " (selection fixture)",
     ("test/check_selection_test.exs", '"docs/unknown.md"'): FIXTURE,
