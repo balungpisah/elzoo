@@ -586,4 +586,25 @@ defmodule Elzoo.AiText.AnthropicTest do
       if source =~ "Req.request(", do: assert(source =~ "prepend_response_steps(elzoo_capture:")
     end
   end
+
+  ## Install configuration (consumer Need)
+
+  # This Piece's README: in this repository it is three levels above test/elzoo/
+  # under pieces/; in an exported consumer the copier puts it under
+  # .elzoo/pieces/integration/ai-text-anthropic/ while this file lands in test/elzoo/.
+  # Exactly one must exist, so a missing README is never skipped.
+  @readmes [
+    Path.expand("../../../../../pieces/integration/ai-text-anthropic/README.md", __DIR__),
+    Path.expand("../../.elzoo/pieces/integration/ai-text-anthropic/README.md", __DIR__)
+  ]
+
+  test "the README's Install configuration section carries the exact consumer config line (README, either layout)" do
+    assert [readme] = Enum.filter(@readmes, &File.regular?/1)
+    text = File.read!(readme)
+    [_, section] = String.split(text, "## Install configuration", parts: 2)
+    [section | _] = String.split(section, "\n## ", parts: 2)
+    assert section =~ "\nconfig :req_llm, load_dotenv: false\n"
+    assert section =~ "merges no configuration"
+    assert section =~ "does not prove a consumer's configuration"
+  end
 end

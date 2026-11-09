@@ -36,13 +36,31 @@ default is `2023-06-01`); no native support for the newer version is claimed.
   `req_llm` is called and always passed as `api_key:`. `req_llm`'s application
   configuration and OS-environment fallbacks are never reached; a failing Need
   sends nothing (`refused{credentials_unavailable}`).
-- **`config :req_llm, load_dotenv: false`** in every consumer's configuration:
-  otherwise `req_llm` loads a `.env` file from the working directory when its
-  application starts under Mix. The `req_llm` application must be started (it
+- **`config :req_llm, load_dotenv: false`** in every consumer's configuration
+  (see "Install configuration"): otherwise `req_llm` loads a `.env` file from the
+  working directory when its application starts under Mix. The `req_llm` application must be started (it
   initializes the provider registry), so it is not `runtime: false`.
 - Network egress to the Anthropic API.
 - For tests only: `plug` (Req.Test-style function plugs). The repository keeps it
   test-only; the exporter lists it as an ordinary provider of this Piece.
+
+## Install configuration
+
+Merge this line into the consuming application's configuration (for example
+`config/config.exs`) before the `req_llm` application starts:
+
+```elixir
+config :req_llm, load_dotenv: false
+```
+
+The copier (`mix elzoo.take`) merges no configuration: it copies source and writes
+dependency instructions only, so every consumer adds this line by hand. The
+copied-consumer test harness does not prove a consumer's configuration either;
+this Piece's test asserts only that this section carries the exact line. Without
+the line, `req_llm` loads a `.env` file from the working directory when it starts
+under Mix. The credential invariant holds regardless: this Piece passes only the
+injected Need's key as `api_key:` and never reads a key from configuration, the
+environment or a `.env` file.
 
 ## Capabilities and translation
 
