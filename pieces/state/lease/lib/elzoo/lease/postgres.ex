@@ -204,6 +204,7 @@ defmodule Elzoo.Lease.Postgres do
             hook(backend, :before_lock, key)
             insert_head(backend, key)
             head = lock_head(backend, key, "FOR UPDATE")
+            hook(backend, :after_lock, key)
             now = clock(backend)
             hook(backend, :after_clock, key)
             latest = latest(backend, key, head)
@@ -303,7 +304,7 @@ defmodule Elzoo.Lease.Postgres do
     rescue
       e -> failure(e)
     catch
-      :exit, _ -> failure(nil)
+      :exit, reason -> failure(reason)
     end
   end
 
@@ -415,7 +416,8 @@ defmodule Elzoo.Lease.Postgres do
   defp unwrap({:error, _}), do: {:error, :unavailable}
 
   # A failure after the first write statement is an unknown outcome; before it
-  # nothing was written: a lock or query timeout is :contended, else :unavailable.
+  # nothing was written: only PostgreSQL lock contention is :contended.
+  # Connection, pool and queue failures remain :unavailable.
   defp failure(error) do
     case Process.get({__MODULE__, :wrote}) do
       %{} = request ->
@@ -423,24 +425,14 @@ defmodule Elzoo.Lease.Postgres do
         {:indeterminate, Map.put(info, :records, request.records)}
 
       _ ->
-        if timeout?(error), do: {:error, :contended}, else: {:error, :unavailable}
+        if contention?(error), do: {:error, :contended}, else: {:error, :unavailable}
     end
   end
 
-  defp timeout?(%DBConnection.ConnectionError{message: message}),
-    do: String.contains?(message, ["timeout", "timed out"])
-
-  defp timeout?(%Postgrex.Error{postgres: %{code: code}}),
-    do: code in [:query_canceled, :lock_not_available]
-
-  defp timeout?(:timeout), do: true
-
-  defp timeout?(reason) when is_tuple(reason),
-    do: reason |> Tuple.to_list() |> Enum.any?(&timeout?/1)
-
-  defp timeout?(reason) when is_list(reason), do: Enum.any?(reason, &timeout?/1)
-
-  defp timeout?(_), do: false
+  defp contention?(%Postgrex.Error{postgres: %{code: :lock_not_available}}), do: true
+  defp contention?({:shutdown, reason}), do: contention?(reason)
+  defp contention?({:error, reason}), do: contention?(reason)
+  defp contention?(_), do: false
 
   defp check_shape!(backend) do
     case shape(backend) do

@@ -491,10 +491,11 @@ defmodule Elzoo.LeasePostgresTest do
     assert [_, %{kind: "done"}, %{kind: "lease_released"}] = TestHelper.rows(store, "t")
   end
 
-  test "LS12/LS13/LS14 caller transaction, unreachable repo, construction pairing", %{
-    lease: lease,
-    store: store
-  } do
+  test "LS12/LS13/LS14 caller transaction, unreachable repo stays unavailable, construction pairing",
+       %{
+         lease: lease,
+         store: store
+       } do
     {:held, h} = Lease.claim(lease, "k", "alice", @minute)
 
     TestRepo.transaction(fn ->
@@ -530,6 +531,7 @@ defmodule Elzoo.LeasePostgresTest do
 
     Supervisor.stop(Process.whereis(TestRepo))
     assert {:error, :unavailable} = Lease.claim(lease, "k3", "alice", @minute)
+    assert {:error, :unavailable} = Lease.claim_expired(lease, "alice", @minute, 1, ["k3"])
     assert {:error, :unavailable} = Lease.status(lease, "k")
     assert {:error, :unavailable} = Lease.write(lease, h, [{"added", 1, "x"}])
 
@@ -876,10 +878,10 @@ defmodule Elzoo.LeasePostgresTest do
     heads = "#{Postgres.identifier(prefix)}.elzoo_log_heads"
     test = self()
 
-    # Holder and contender use the two already-reserved connections of this
+    # Holder, first claimant and strict contender use three reserved connections of this
     # dedicated pool, never the shared suite pool or a short checkout timeout.
     {:ok, contention_repo} =
-      LS28Repo.start_link(url: TestHelper.url!(), pool_size: 2, log: false)
+      LS28Repo.start_link(url: TestHelper.url!(), pool_size: 3, log: false)
 
     Process.unlink(contention_repo)
 
@@ -898,31 +900,49 @@ defmodule Elzoo.LeasePostgresTest do
           )
 
           send(test, :inserted)
-          receive do: (:commit -> :ok)
+
+          receive do
+            :commit -> :ok
+          after
+            5_000 -> raise "uncommitted holder was not released"
+          end
         end)
       end)
 
-    receive do: (:inserted -> :ok)
+    receive do
+      :inserted -> :ok
+    after
+      5_000 -> raise "uncommitted holder did not insert its head"
+    end
 
     assert {:claimed, %{refused: %{"x" => %{reason: :free}}, skipped_locked: []}} =
              Lease.claim_expired(lease, "sweeper", @minute, 1, ["x"])
 
-    # (d) the contender has checked out its reserved connection and entered
-    # the Piece's transaction before the first insert commits. It then sees
-    # its actual PostgreSQL lock wait before committing the holder. It then
-    # sees that committed free head and grants exactly one lease without a
-    # timed checkout or a widened outcome assertion.
-    {:ok, contender} =
+    # (d) the first claimant has checked out a reserved connection and entered
+    # the Piece's transaction before the first insert commits. The test
+    # observes its unique-index lock wait, then commits the holder. The first
+    # claimant holds the now-present head lock while the strict second
+    # claimant receives the database's lock-not-available result.
+    {:ok, first_claimant} =
       TestHelper.pg_lease(contention_store,
         hook: fn
           :before_lock, %{key: "x", repo: repo} ->
             [[backend_pid]] = SQL.query!(repo, "SELECT pg_backend_pid()", [], log: false).rows
-            send(test, {:contender_ready, self(), backend_pid})
+            send(test, {:first_claimant_ready, self(), backend_pid})
 
             receive do
-              :continue_contender -> :ok
+              :continue_first_claimant -> :ok
             after
-              5_000 -> raise "contender was not released"
+              5_000 -> raise "first claimant was not released"
+            end
+
+          :after_lock, %{key: "x"} ->
+            send(test, {:first_claimant_holds_lock, self()})
+
+            receive do
+              :release_first_claimant -> :ok
+            after
+              5_000 -> raise "first claimant was not released after locking"
             end
 
           _, _ ->
@@ -930,20 +950,41 @@ defmodule Elzoo.LeasePostgresTest do
         end
       )
 
-    claim = Task.async(fn -> Lease.claim(contender, "x", "bob", @minute) end)
+    first_claim = Task.async(fn -> Lease.claim(first_claimant, "x", "bob", @minute) end)
 
-    {contender_pid, backend_pid} =
+    {first_claimant_pid, backend_pid} =
       receive do
-        {:contender_ready, pid, backend_pid} -> {pid, backend_pid}
+        {:first_claimant_ready, pid, backend_pid} -> {pid, backend_pid}
       after
-        5_000 -> raise "contender did not enter its reserved connection"
+        5_000 -> raise "first claimant did not enter its reserved connection"
       end
 
-    send(contender_pid, :continue_contender)
+    send(first_claimant_pid, :continue_first_claimant)
     wait_until(fn -> contender_waits_on_lock?(backend_pid) end, 5_000)
     send(holder.pid, :commit)
     assert {:ok, _} = Task.await(holder, 10_000)
-    assert {:held, _} = Task.await(claim, 10_000)
+
+    first_lock_pid =
+      receive do
+        {:first_claimant_holds_lock, pid} -> pid
+      after
+        5_000 -> raise "first claimant did not lock the committed head"
+      end
+
+    {:ok, strict_contender} =
+      TestHelper.pg_lease(contention_store,
+        hook: fn
+          :before_lock, %{key: "x", repo: repo} ->
+            SQL.query!(repo, "SET LOCAL lock_timeout = '100ms'", [], log: false)
+
+          _, _ ->
+            :ok
+        end
+      )
+
+    assert {:error, :contended} = Lease.claim(strict_contender, "x", "carol", @minute)
+    send(first_lock_pid, :release_first_claimant)
+    assert {:held, _} = Task.await(first_claim, 10_000)
 
     # (b) a committed head locked by another transaction is skipped_locked and the sweep's transaction still commits its other claims
     past = TestHelper.pg_now(TestRepo) - @hour_us
@@ -965,7 +1006,12 @@ defmodule Elzoo.LeasePostgresTest do
         hook: fn
           :after_skip_locked, %{key: "z"} ->
             send(test, :probing)
-            receive do: (:go -> :ok)
+
+            receive do
+              :go -> :ok
+            after
+              5_000 -> raise "sweep was not released after its first probe"
+            end
 
           _, _ ->
             :ok
@@ -981,15 +1027,31 @@ defmodule Elzoo.LeasePostgresTest do
           ])
 
           send(test, :first_ready)
-          receive do: (:commit -> :ok)
+
+          receive do
+            :commit -> :ok
+          after
+            5_000 -> raise "between-probes holder was not released"
+          end
         end)
       end)
 
-    receive do: (:first_ready -> :ok)
+    receive do
+      :first_ready -> :ok
+    after
+      5_000 -> raise "between-probes holder did not become ready"
+    end
+
     sweep = Task.async(fn -> Lease.claim_expired(probing, "sweeper", @minute, 1, ["z"]) end)
-    receive do: (:probing -> :ok)
+
+    receive do
+      :probing -> :ok
+    after
+      5_000 -> raise "sweep did not reach the second probe"
+    end
+
     send(first.pid, :commit)
-    Task.await(first, 10_000)
+    assert {:ok, _} = Task.await(first, 10_000)
     send(sweep.pid, :go)
 
     assert {:claimed,
