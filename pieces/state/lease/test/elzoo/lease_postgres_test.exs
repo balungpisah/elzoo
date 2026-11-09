@@ -990,7 +990,8 @@ defmodule Elzoo.LeasePostgresTest do
         hook: fn
           :before_lock, %{key: "x", repo: repo} ->
             [[backend_pid]] = SQL.query!(repo, "SELECT pg_backend_pid()", [], log: false).rows
-            send(test, {:timed_contender_ready, backend_pid})
+            [[lock_timeout]] = SQL.query!(repo, "SHOW lock_timeout", [], log: false).rows
+            send(test, {:timed_contender_ready, backend_pid, lock_timeout})
 
           _, _ ->
             :ok
@@ -1001,9 +1002,9 @@ defmodule Elzoo.LeasePostgresTest do
 
     timed_backend_pid =
       receive do
-        {:timed_contender_ready, backend_pid} -> backend_pid
+        {:timed_contender_ready, backend_pid, "500ms"} -> backend_pid
       after
-        5_000 -> raise "timed contender did not enter its reserved connection"
+        5_000 -> raise "timed contender did not enter the configured lock-timeout connection"
       end
 
     wait_until(fn -> contender_waits_on_lock?(timed_backend_pid) end, 5_000)
@@ -1011,6 +1012,29 @@ defmodule Elzoo.LeasePostgresTest do
 
     send(first_lock_pid, :release_first_claimant)
     assert {:held, _} = Task.await(first_claim, 10_000)
+
+    # A transport close at the exact pre-insert seam is not proof of lock
+    # contention and must remain unavailable.
+    {:ok, disconnected_contender} =
+      TestHelper.pg_lease(contention_store,
+        hook: fn
+          :before_insert_head, %{key: "disconnect", repo: repo} ->
+            [[backend_pid]] = SQL.query!(repo, "SELECT pg_backend_pid()", [], log: false).rows
+
+            terminator =
+              Task.async(fn ->
+                SQL.query!(TestRepo, "SELECT pg_terminate_backend($1)", [backend_pid], log: false)
+              end)
+
+            assert [[true]] = Task.await(terminator, 5_000).rows
+
+          _, _ ->
+            :ok
+        end
+      )
+
+    assert {:error, :unavailable} =
+             Lease.claim(disconnected_contender, "disconnect", "erin", @minute)
 
     # (b) a committed head locked by another transaction is skipped_locked and the sweep's transaction still commits its other claims
     past = TestHelper.pg_now(TestRepo) - @hour_us

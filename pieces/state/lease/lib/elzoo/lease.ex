@@ -42,7 +42,9 @@ defmodule Elzoo.Lease do
   `1` must be in `fold.versions`, `max_record_bytes >= 1_024`,
   `max_batch_size >= 2`), optional `fold` and `limits` (accepted only when
   equal to the Store's), `clock` (`:store` for the PostgreSQL Store;
-  `{:manual, pid}` for the Memory Store), `timeout_ms` (default 30_000),
+  `{:manual, pid}` for the Memory Store), `timeout_ms` (the PostgreSQL
+  transaction-local lock deadline, with a larger client transaction budget;
+  the Memory read-only call timeout; default 30_000),
   `test_hook` (test seams).
   """
   def new(opts) do
