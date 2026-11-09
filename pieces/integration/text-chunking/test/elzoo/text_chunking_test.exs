@@ -1,7 +1,7 @@
 defmodule Elzoo.TextChunkingTest do
   @moduledoc """
   Named scenarios for `integration/text-chunking` (ELZ-081). Finite tests over listed and
-  seeded generated inputs; no proof is claimed. Scenario names follow docs/work/ELZ-081.md.
+  seeded generated inputs; no proof is claimed. Scenario names follow the task work record.
   """
   use ExUnit.Case, async: true
 
@@ -247,6 +247,12 @@ defmodule Elzoo.TextChunkingTest do
             [c(0, 22, @source <> "!")],
             [c(-1, 5, "hello")],
             [%{start_byte: 0, end_byte: 5}],
+            [%{start_byte: 0, end_byte: 5, text: :hello}],
+            [%{start_byte: 0.0, end_byte: 5, text: "hello"}],
+            ["hello"],
+            [{0, 5, "hello"}],
+            [c(0, 5, "hello") | :improper_tail],
+            [c(0, 5, "hello"), c(6, 11, "brave") | c(12, 15, "new")],
             [],
             :not_a_list
           ] do
@@ -307,14 +313,63 @@ defmodule Elzoo.TextChunkingTest do
     end
   end
 
-  test "T9 the Recipe calls no I/O, process, environment or telemetry module" do
-    {:ok, {_, [imports: imports]}} =
-      :beam_lib.chunks(:code.which(Elzoo.TextChunking), [:imports])
+  # T9 audits exactly the lib sources the Piece manifest lists. The manifest sits next to the
+  # Piece directory in the repository and under .elzoo/pieces/<id>/ in an exported consumer;
+  # in both layouts the listed files are relative to the directory two levels above this test.
+  @piece_id "integration/text-chunking"
 
-    called = imports |> Enum.map(&elem(&1, 0)) |> Enum.uniq() |> Enum.sort()
+  defp manifest! do
+    root = Path.expand("../..", __DIR__)
+
+    [path] =
+      [
+        Path.join(root, "piece.json"),
+        Path.join([root, ".elzoo", "pieces", @piece_id, "piece.json"])
+      ]
+      |> Enum.filter(&File.regular?/1)
+
+    manifest = :json.decode(File.read!(path))
+    assert manifest["id"] == @piece_id
+    {root, manifest}
+  end
+
+  defp defined_modules(source) do
+    {:ok, ast} = Code.string_to_quoted(source)
+
+    {_, modules} =
+      Macro.prewalk(ast, [], fn
+        {:defmodule, _, [{:__aliases__, _, parts} | _]} = node, acc ->
+          {node, [Module.concat(parts) | acc]}
+
+        node, acc ->
+          {node, acc}
+      end)
+
+    modules
+  end
+
+  test "T9 the manifest's lib sources call no I/O, process, environment or telemetry module" do
+    {root, manifest} = manifest!()
+    lib_files = Enum.filter(manifest["files"], &String.starts_with?(&1, "lib/"))
+    assert lib_files == ["lib/elzoo/text_chunking.ex"]
+
     # :elixir_erl_pass is the compiler's helper for map dot access (`config.chunk_size`).
     allowed = [:crypto, :elixir_erl_pass, :erlang, Enum, Keyword, String, TextChunker]
-    assert called -- allowed == [], inspect(called)
+
+    modules =
+      for file <- lib_files,
+          path = Path.join(root, file),
+          module <- defined_modules(File.read!(path)) do
+        # The loaded module was compiled from exactly this listed file.
+        assert to_string(module.module_info(:compile)[:source]) == path
+
+        {:ok, {_, [imports: imports]}} = :beam_lib.chunks(:code.which(module), [:imports])
+        called = imports |> Enum.map(&elem(&1, 0)) |> Enum.uniq() |> Enum.sort()
+        assert called -- allowed == [], inspect({module, called})
+        module
+      end
+
+    assert modules == [Elzoo.TextChunking]
   end
 
   @tag timeout: 600_000

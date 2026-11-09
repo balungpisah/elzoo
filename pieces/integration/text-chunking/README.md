@@ -114,10 +114,13 @@ No durability or delivery claim.
 - Tests (`test/elzoo/text_chunking_test.exs`): T1 seeded generator over mixed ASCII, multi-byte,
   emoji, combining marks, CRLF and separators in both formats; T2 determinism; T3 fixed cases;
   T4 every reason without raising or bytes; T5 digest mismatch computes nothing; T6 pre- and
-  post-check; T7 each re-check failure; T8 invalid options and inputs; T9 the module's import
-  table (no I/O, process, environment or telemetry module); T10 the worst-case observation.
-- Exported consumer: the hosted `check-consumers` jobs take this Piece and run its tests in the
-  consumer layout without the root Application.
+  post-check; T7 each re-check failure; T8 invalid options and inputs; T9 an import-table audit of
+  the lib sources the manifest lists (no I/O, process, environment or telemetry module); T10 the worst-case observation.
+- Exported consumer: the aggregate consumer of the hosted `check-consumers-db` job takes every
+  ready Piece, this one included, through the exporter and runs its tests in the consumer layout
+  without the root Application. The database-free `check-consumers` job runs fixed per-ID
+  consumers only and does not select this Piece. The evidence is a green exact-head run of
+  `check-consumers-db`, cited in the PR.
 - Upstream contract: `text_chunker` 1.0.1 split points and byte ranges, overlap behaviour; OTP
   `:crypto` SHA-256; Elixir `String.valid?/1` and `String.length/1`.
 - Assumptions: U1 and U2 above; the caller's digest is of the bytes it means to cite (the Recipe

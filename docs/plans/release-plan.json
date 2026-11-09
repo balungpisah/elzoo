@@ -3636,7 +3636,7 @@
       "disposition": "implementation prepared; acceptance requires merged PR",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/text-chunking/piece.json",
-      "manifest_sha256": "07a8c01001055dfc46fb3d18cec8c2ddd425fc71ee9ba4ad2272b2d195d58a0f"
+      "manifest_sha256": "0d43e8babba00d2f17e6c8ecf26f2ffe1f7375258d3fd998f36418e09b1232e7"
     },
     {
       "id": "runtime/adapter",

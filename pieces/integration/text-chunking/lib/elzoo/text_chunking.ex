@@ -237,13 +237,9 @@ defmodule Elzoo.TextChunking do
   end
 
   defp split(source, config, split_fun) do
-    upstream = split_fun.(source, config)
-    size = byte_size(source)
-
-    if is_list(upstream) and upstream != [] do
-      build(upstream, source, size, 0, -1, [])
-    else
-      {:error, :chunker_invariant}
+    case split_fun.(source, config) do
+      [_ | _] = upstream -> build(upstream, source, byte_size(source), 0, nil, [])
+      _empty_or_not_a_list -> {:error, :chunker_invariant}
     end
   end
 
@@ -256,14 +252,19 @@ defmodule Elzoo.TextChunking do
     end
   end
 
-  # (c) 0 <= start < end <= size; (d) first start is 0 and starts never decrease;
-  # (a) the byte range reproduces the text exactly; (b) the digest is computed here.
-  defp record(%{start_byte: start, end_byte: stop, text: text}, source, size, index, previous_start)
-       when is_integer(start) and is_integer(stop) and is_binary(text) and start >= 0 and
-              start < stop and stop <= size and start >= previous_start do
-    first_ok = index > 0 or start == 0
+  # The non-list tail of an improper list.
+  defp build(_tail, _source, _size, _index, _previous_start, _acc),
+    do: {:error, :chunker_invariant}
 
-    if first_ok and binary_part(source, start, stop - start) == text do
+  # The A1 re-check, one step at a time in the Contract order; binary_part/3 runs only after
+  # the shape and bounds hold. The digest (b) is computed here, never taken from upstream.
+  defp record(upstream, source, size, index, previous_start) do
+    with {:ok, start, stop, text} <- shape(upstream),
+         :ok <- bounds(start, stop, size),
+         :ok <- non_empty(text),
+         :ok <- slice_matches(source, start, stop, text),
+         :ok <- first_start(index, start),
+         :ok <- non_descending(previous_start, start) do
       {:ok,
        %{
          index: index,
@@ -272,10 +273,30 @@ defmodule Elzoo.TextChunking do
          content: text,
          content_digest: :crypto.hash(:sha256, text)
        }}
-    else
-      :error
     end
   end
 
-  defp record(_upstream, _source, _size, _index, _previous_start), do: :error
+  defp shape(%{start_byte: start, end_byte: stop, text: text})
+       when is_integer(start) and is_integer(stop) and is_binary(text),
+       do: {:ok, start, stop, text}
+
+  defp shape(_upstream), do: :error
+
+  defp bounds(start, stop, size) when start >= 0 and start < stop and stop <= size, do: :ok
+  defp bounds(_start, _stop, _size), do: :error
+
+  defp non_empty(""), do: :error
+  defp non_empty(_text), do: :ok
+
+  defp slice_matches(source, start, stop, text) do
+    if binary_part(source, start, stop - start) == text, do: :ok, else: :error
+  end
+
+  defp first_start(0, 0), do: :ok
+  defp first_start(0, _start), do: :error
+  defp first_start(_index, _start), do: :ok
+
+  defp non_descending(nil, _start), do: :ok
+  defp non_descending(previous, start) when start >= previous, do: :ok
+  defp non_descending(_previous, _start), do: :error
 end

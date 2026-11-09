@@ -32,7 +32,7 @@
     {
       "kind": "test",
       "file": "test/elzoo/text_chunking_test.exs",
-      "claim": "Named scenarios T1-T10: seeded generator over mixed ASCII, multi-byte, emoji, combining marks, CRLF and separators in both formats checking offsets, digests, index, first start and order for every chunk; determinism; fixed whitespace/separator/overlap/bound cases; every error reason returned without raising or bytes; digest mismatch and pre-check never reach the split; each offset re-check failure refused whole through a private seam; invalid options and inputs; import-table audit; a printed no-separator observation at the default bound. Run in the repository and, by the hosted check-consumers jobs, in the exported consumer layout without the root Application; finite evidence, not proof."
+      "claim": "Named scenarios T1-T10: seeded generator over mixed ASCII, multi-byte, emoji, combining marks, CRLF and separators in both formats checking offsets, digests, index, first start and order for every chunk; determinism; fixed whitespace/separator/overlap/bound cases; every error reason returned without raising or bytes; digest mismatch and pre-check never reach the split; each offset re-check failure refused whole through a private seam; invalid options and inputs; import-table audit of the lib sources the manifest lists (manifest found in the repository or exported layout); a printed no-separator observation at the default bound. Run in the repository and, by the aggregate consumer of the hosted check-consumers-db job (not the per-ID check-consumers job), in the exported consumer layout without the root Application; finite evidence, not proof."
     },
     {
       "kind": "upstream",
