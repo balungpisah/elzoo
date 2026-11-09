@@ -50,7 +50,10 @@ defmodule Elzoo.MixProject do
       # ELZ-029 runtime/os-isolation provider: OS-process spawn, group, deadline and reaping
       # through its port program (BSD-2-Clause). runtime: false because its port program refuses
       # to start as root without an effective user; Elzoo.OsProcess.Provider starts it with one.
-      {:erlexec, "== 2.6.0", runtime: false}
+      {:erlexec, "== 2.6.0", runtime: false},
+      # ELZ-052 runtime/telemetry provider (already locked transitively at 1.4.2
+      # through Oban, Ecto and Req); a direct dependency of the Piece.
+      {:telemetry, "== 1.4.2"}
     ]
   end
 

@@ -3,6 +3,7 @@ defmodule Elzoo.HttpJob do
   @moduledoc "Bounded immutable HTTP publication over existing EffectIntent and Jobs; consumers own persistence, recovery and queue lifecycle."
   alias Elzoo.HttpJob.{Config, Binding, Wire, Call, Policy}
   alias Elzoo.EffectIntent, as: Intent
+  alias Elzoo.Telemetry
 
   @required [
     :binding,
@@ -143,16 +144,44 @@ defmodule Elzoo.HttpJob do
     end
   end
 
-  def perform(%Config{} = c, %Oban.Job{args: %{"v" => 1, "queue" => queue, "job_key" => key} = args}) do
-    started = System.monotonic_time(:millisecond)
+  def perform(
+        %Config{} = c,
+        %Oban.Job{args: %{"v" => 1, "queue" => queue, "job_key" => key} = args} = job
+      ) do
+    # ELZ-052: bounded :job events (observation only; results unchanged). No
+    # emission sits inside a call_ms or observer_ms timer; the start event
+    # precedes the owner's deadline reading: a handler's run time is elapsed time.
+    mark = Telemetry.mark()
+    meta = job_meta(c, key, job.attempt)
 
-    result =
-      if queue == c.queue and map_size(args) == 3 and Wire.hex?(key),
-        do: tick(c, key),
-        else: {:cancel, :invalid_job}
+    Telemetry.emit(
+      [:elzoo, :job, :start],
+      Telemetry.compact(%{queue_wait: Telemetry.queue_wait(job.attempted_at, job.scheduled_at)}),
+      meta
+    )
 
-    observe(c, result, System.monotonic_time(:millisecond) - started)
-    result
+    try do
+      started = System.monotonic_time(:millisecond)
+
+      result =
+        if queue == c.queue and map_size(args) == 3 and Wire.hex?(key),
+          do: tick(c, key),
+          else: {:cancel, :invalid_job}
+
+      observe(c, result, System.monotonic_time(:millisecond) - started)
+
+      Telemetry.emit(
+        [:elzoo, :job, :stop],
+        %{duration: Telemetry.duration(mark)},
+        Map.put(meta, :outcome, Telemetry.job_outcome(result))
+      )
+
+      result
+    rescue
+      _ -> job_exception(meta, mark, :error)
+    catch
+      kind, _ -> job_exception(meta, mark, kind)
+    end
   rescue
     _ -> {:error, :owner_unavailable}
   catch
@@ -160,6 +189,27 @@ defmodule Elzoo.HttpJob do
   end
 
   def perform(_, _), do: {:cancel, :invalid_job}
+
+  defp job_meta(c, key, attempt),
+    do:
+      Telemetry.compact(%{
+        adapter: "assembly/http-job",
+        operation: :perform,
+        attempt: attempt,
+        request_ref: if(Wire.hex?(key), do: key),
+        queue: c.queue,
+        tenant: c.tenant
+      })
+
+  defp job_exception(meta, mark, kind) do
+    Telemetry.emit(
+      [:elzoo, :job, :exception],
+      %{duration: Telemetry.duration(mark)},
+      Map.put(meta, :reason, Telemetry.reason(kind))
+    )
+
+    {:error, :owner_unavailable}
+  end
 
   defp tick(c, key) do
     with {:ok, {:ok, pid}} <- call(c, fn -> c.resolve_intent.(key) end),

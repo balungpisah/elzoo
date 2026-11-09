@@ -1410,6 +1410,35 @@
       "product_role": "Supporting admission documentation for every product aim; not a product prerequisite or a delivered Piece."
     },
     {
+      "id": "ELZ-052",
+      "title": "ELZ-052 — Emit one bounded, redacted telemetry event family from the ready job and effect Adapters",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-010",
+        "ELZ-011"
+      ],
+      "status": "published 2026-11-09; claimed task/ELZ-052; PR pending",
+      "url": "https://github.com/balungpisah/elzoo/issues/108",
+      "paths": [
+        "tasks/ELZ-052-runtime-telemetry.md"
+      ],
+      "outputs": [
+        "runtime/telemetry"
+      ],
+      "acceptance": "Unchanged live issue body (after the approved 2026-11-09 amendment); local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 108,
+      "issue_body_sha256": "d2b849426c144bca197cbd78d574f16602d0d4cf5b5455638347702d1aed6f36",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P01",
+        "P05",
+        "P07"
+      ]
+    },
+    {
       "id": "RC-01",
       "title": "Versioned stored-state compatibility",
       "kind": "proposal",
@@ -1479,7 +1508,6 @@
       "release": "V1",
       "stage": "pieces",
       "outputs": [
-        "runtime/telemetry",
         "integration/observability"
       ],
       "dependencies": [
@@ -2865,7 +2893,7 @@
       "disposition": "merged-ready-contract; task acceptance separate",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/assembly/durable-job/piece.json",
-      "manifest_sha256": "935875d544724ec4f7d8d3e624e8d0a6b55272f3373832d85c7bc591865ab8f0"
+      "manifest_sha256": "ffd52090da4b98e93bc59feeae6fa40cb3b045edd6dddce766774edb9364237a"
     },
     {
       "id": "assembly/http-job",
@@ -2875,7 +2903,7 @@
       "disposition": "implementation prepared; acceptance requires merged PR",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/assembly/http-job/piece.json",
-      "manifest_sha256": "b02783ba761f70fc64599e52b4ad7cb050c9746c89d436b12d827edf169cb7ed"
+      "manifest_sha256": "f40d390395f38469b8c54c1c4441b9a736c168b9356d13ad0e89c1d90c75cc0d"
     },
     {
       "id": "assembly/ingest-dedup-accumulate",
@@ -3511,11 +3539,13 @@
     },
     {
       "id": "runtime/telemetry",
-      "job": "RC-03",
-      "note": "`M,U`; candidate `:telemetry`/OpenTelemetry, redaction task first",
+      "job": "ELZ-052",
+      "note": "One fixed telemetry event family [:elzoo, :job | :effect, :start | :stop | :exception] with declared integer measurements (queue_wait and duration in microseconds, payload_bytes as a byte count) and a metadata allowlist with positive per-key grammars (adapter, operation, request_ref as 64 lowercase hex, attempt 1..1_000_000, queue, tenant, outcome and reason as declared atoms) and required/optional keys per adapter operation. Elzoo.Telemetry.metadata/2 is the pure check; emit/4 calls :telemetry.execute/3 with only the clean subset, omitting failing keys in :production and raising ArgumentError naming only key names in :strict; emit/3 uses a compile-time default (:strict under Mix :dev/:test, else :production). Observation only.",
       "baseline_status": "planned",
-      "disposition": "blocked-admission-proposal",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "implementation prepared; acceptance requires merged PR",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/runtime/telemetry/piece.json",
+      "manifest_sha256": "897639df67f7eef2f43074d91c7195f6549f1373dbf537126eec732d0048fe6d"
     },
     {
       "id": "runtime/unit",
