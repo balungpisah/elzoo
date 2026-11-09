@@ -2,7 +2,7 @@
 Code.require_file("../support/object_store_test_helper.exs", __DIR__)
 
 defmodule Elzoo.ObjectStoreTest do
-  # Scenarios S1-S12 and S16-S17 of docs/work/ELZ-053.md against the pinned disposable MinIO
+  # Scenarios S1-S12 and S16-S17 of the ELZ-053 work record against the pinned disposable MinIO
   # (scripts/ci-minio.py, ELZ-064). Finite observations on one server, not proofs.
   use ExUnit.Case, async: false
 

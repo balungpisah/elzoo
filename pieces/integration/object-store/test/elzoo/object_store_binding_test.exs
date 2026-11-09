@@ -16,7 +16,7 @@ defmodule Elzoo.ObjectStoreBindingTest.Removal do
 end
 
 defmodule Elzoo.ObjectStoreBindingTest do
-  # S18 of docs/work/ELZ-053.md: the consumer-parameterised Binding against the pinned MinIO
+  # S18 of the ELZ-053 work record: the consumer-parameterised Binding against the pinned MinIO
   # through the ready Elzoo.EffectIntent owner with its explicitly volatile Memory store.
   use ExUnit.Case, async: false
 

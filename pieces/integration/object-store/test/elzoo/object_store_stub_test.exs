@@ -2,7 +2,7 @@
 Code.require_file("../support/object_store_test_helper.exs", __DIR__)
 
 defmodule Elzoo.ObjectStoreStubTest do
-  # S13/S14 of docs/work/ELZ-053.md: rows the real server cannot produce on demand, against a
+  # S13/S14 of the ELZ-053 work record: rows the real server cannot produce on demand, against a
   # loopback stub, and the delivery mapping of every row. No S3 server is needed here.
   use ExUnit.Case, async: true
 
