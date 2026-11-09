@@ -509,6 +509,53 @@ defmodule Elzoo.McpClientTest do
     assert Transport.list_options()[:http_stream_retry] == :safe_only
   end
 
+  test "T13b drift: ex_mcp's generic retry reissues tools/call on a retryable transport error when a retry policy is configured; the Adapter's retry_policy false sends exactly one (raw ex_mcp client control)",
+       ctx do
+    # The async POST path (legacy era with a standalone GET stream, which the
+    # Adapter never opens) reports a killed connection as a retryable transport error.
+    Server.get_mode(ctx.server, :idle)
+
+    {:ok, raw} =
+      ExMCP.Client.start_link(
+        transport: :http,
+        url: ctx.server.url,
+        protocol_mode: :legacy_only,
+        reconnect: false,
+        health_check_interval: nil,
+        use_sse: true
+      )
+
+    Process.sleep(200)
+    requests()
+    Server.mode(ctx.server, :kill_connection)
+    params = %{"name" => "echo", "arguments" => %{}}
+    policy = [max_attempts: 2, initial_delay: 10, jitter: false]
+
+    retried =
+      ExMCP.Client.make_request(
+        raw,
+        "tools/call",
+        params,
+        [timeout: 8_000, retry_policy: policy] ++
+          Keyword.delete(Transport.call_options(), :retry_policy),
+        8_000
+      )
+
+    assert count(requests(2_500), "tools/call") == 2, inspect(retried)
+
+    once =
+      ExMCP.Client.make_request(
+        raw,
+        "tools/call",
+        params,
+        [timeout: 8_000] ++ Transport.call_options(),
+        8_000
+      )
+
+    assert count(requests(2_500), "tools/call") == 1, inspect(once)
+    GenServer.stop(raw)
+  end
+
   test "T14 a -32020 header mismatch is unknown{server_error} with exactly one tools/call and no refresh tools/list; ExMCP.Client.call_tool/4 would resend (drift test)",
        ctx do
     s = session(ctx)
