@@ -73,7 +73,10 @@ defmodule Elzoo.MixProject do
       {:req_llm, "~> 1.30"},
       # Req.Test stubs for the ELZ-079 provider tests (Apache-2.0); test-only here, an ordinary
       # provider of the exported Anthropic Piece because the exporter has no test-only form.
-      {:plug, "== 1.20.3", only: :test}
+      {:plug, "== 1.20.3", only: :test},
+      # ELZ-081 integration/text-chunking provider (MIT): the recursive splitter and its byte
+      # ranges; its one requirement nimble_options is already locked at 1.2.0.
+      {:text_chunker, "== 1.0.1"}
     ]
   end
 

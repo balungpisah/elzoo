@@ -124,6 +124,13 @@
       "reference": "https://hexdocs.pm/carbonite/0.17.0/Carbonite.html",
       "license": "Apache-2.0"
     },
+    "text_chunker": {
+      "source": "hex",
+      "package": "text_chunker",
+      "version": "1.0.1",
+      "reference": "https://hexdocs.pm/text_chunker/1.0.1/TextChunker.html",
+      "license": "MIT"
+    },
     "req_llm": {
       "source": "hex",
       "package": "req_llm",
