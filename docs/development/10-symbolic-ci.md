@@ -17,7 +17,9 @@ in the other direction: the pull request run is the exact-head run (see "Coordin
 the event is a push to `refs/heads/main`; the pushed commit is a two-parent merge commit; its tree equals
 the tree of its second parent (the pull request head that the queue merged with `--match-head-commit`);
 the latest run of `symbolic-check.yml` on that second parent (branch `task/ELZ-###`, found by `head_sha`; since ELZ-059 the
-same-repository `pull_request` run, or the queue's `workflow_dispatch` fallback; a fork pull request run is never evidence)
+same-repository `pull_request` run, or the queue's `workflow_dispatch` fallback; a fork pull request run is never evidence;
+a `pull_request` run counts only when the second parent holds the whole first parent, because that run tests the merge of
+the head with its base and only then has the tree of the head; a `workflow_dispatch` run tests the head itself)
 is a completed success whose exact attempt has exactly one job, a successful `check-hosted` job on a
 GitHub-hosted runner (group `GitHub Actions`, label `ubuntu-24.04`, runner name `GitHub Actions <number>`), a successful
 runner identity step, a successful `Run mix check` step, the full `ELZOO CHECK PASSED` log line and no
@@ -82,19 +84,20 @@ run predates the job name that the evidence rule of that time accepted.
 
 ## Affected consumer checks (ELZ-038)
 
-`mix check` defaults to the full check. Every push to `main` that is not skipped under ELZ-058 and every
-`workflow_dispatch` uses that default: all root tests, all 26 existing per-ID
+`mix check` defaults to the full check. Every run of the backend workflow uses that default since ELZ-059: the
+`pull_request` run, every `workflow_dispatch` run and every push to `main` that is not skipped under ELZ-058. The
+default runs all root tests, all 26 existing per-ID
 consumers, the separate OTP-only consumer, and the aggregate over every ready
 ID (40 at ELZ-038). The aggregate and per-ID consumers are tests inside the
 root suite, not additional phases to add to its reported duration. The fixed
 per-ID list does not cover every ready Piece independently.
 
-On `pull_request` only, the backend workflow invokes
-`mix check --affected BASE`, where `BASE` is the event's base commit SHA.
-Checkout fetches full history; the selector compares that commit with the
-checked-out PR merge result, including any working changes and non-ignored
+Until ELZ-059 the backend workflow invoked `mix check --affected BASE` on `pull_request`. It does not any more: the
+`pull_request` run is the merge evidence, so it runs the full check. Affected mode stays available as a local opt-in
+(the workflow does not use it, and the guard rejects an affected step). The selector compares the base commit with the
+checked-out tree, including any working changes and non-ignored
 untracked files. Renames are read as deletion plus addition. Git paths are
-NUL-delimited, so filenames are not split at spaces. A local opt-in is:
+NUL-delimited, so filenames are not split at spaces. The local opt-in is:
 
 ```sh
 mix check --affected origin/main
@@ -138,8 +141,8 @@ aggregate/OTP disposition with the aggregate selection reason.
 The success marker is `ELZOO AFFECTED CHECK PASSED (not full consumer acceptance; see selected consumer scope)`;
 only the default full run emits `ELZOO CHECK PASSED`.
 
-A PR subset does not validate unselected consumer checks or an omitted
-aggregate. Merge acceptance still needs the full run on the merge commit. A failure found there
+A local subset does not validate unselected consumer checks or an omitted
+aggregate. Merge acceptance needs the full run (the full `pull_request` run since ELZ-059). A failure found there
 is a regression to fix forward, not justification to reduce the full run.
 The ELZ-038 implementation PR itself changes the shared harness and must select
 all 26 consumers and the aggregate; a later genuine covered one-Piece PR supplies
@@ -166,7 +169,9 @@ head, `gh pr update-branch` creates a merge update; it never
 rebases or force-pushes. The new head must become visible before continuing.
 It then **adopts the `pull_request` run of the exact head** (ELZ-059): the latest run of `symbolic-check.yml` with
 event `pull_request`, the task branch, the exact `head_sha`, the workflow's ID and path, and a head repository equal to
-this repository. After `update-branch` it waits (up to 300 seconds, bounded by the PR deadline) for the run that GitHub
+this repository. The run must also list this pull request (its number) with the base branch `main` of this repository, and
+the pull request must have no `base_ref_changed` event at or after the creation time of the run (a run that started for
+another base, or before a retarget, is not evidence; the queue then dispatches the fallback). After `update-branch` it waits (up to 300 seconds, bounded by the PR deadline) for the run that GitHub
 starts on the new head. It logs `Adopted pull_request run <id> for PR #N head=<sha>` and **never cancels that run**.
 The pull request job runs the full check (no affected mode), so the run is the exact-head full run, and it counts as a
 pull request status for branch protection. Only when GitHub started no such run within the wait does the queue
@@ -190,17 +195,21 @@ frozen: ...` and names the run, until a comment on issue #98 by the authenticate
 run. The comment is exactly `CI main status: freeze classification run=<run id> class=<class>` with the class
 `infrastructure` (rerun), `defect` (fix-forward task) or `conflict` (two separately tested merges; fix-forward task). A
 fix-forward pull request goes through the queue after the classification. A later green push run of `main`
-unfreezes. No revert and no force push are involved. An API failure, an unreadable listing or a missing completed push
+unfreezes. A re-run of a run keeps its ID: while the newest run is a re-run (attempt 2 or later) that has not
+completed, it counts as red, so an older green run does not open `main`. No revert and no force push are involved. An API failure, an unreadable listing or a missing completed push
 run fails closed.
 
 **Gleam gate only for Gleam paths (ELZ-059).** The queue asks Git for the paths of the pull request
-(`git diff --name-only -z --no-renames refs/remotes/origin/main...refs/remotes/origin/<branch>`, so a rename lists both
-paths). It requires the Gleam run only when a path is under `spikes/gleam_ui/`, or is
+(`git diff --name-only -z --no-renames <main SHA>...refs/remotes/origin/<branch>`, with the main SHA read from the
+canonical repository through the API, so a rename lists both paths). It requires the Gleam run only when a path is under `spikes/gleam_ui/`, or is
 `.github/workflows/symbolic-gleam.yml`, `scripts/check-ci-runners.py` or `scripts/test-ci-runners.py` (the guard cannot be
 split by content). An empty, failed or odd path list (absolute, parent, newline, backslash) requires the Gleam run. When it is
 not required the queue logs `Gleam run not required for PR #N: ...` and prints `ELZOO GLEAM GATE not required pr=N
 head=<sha> (...)` instead of the `ELZOO GLEAM EVIDENCE` line. `gleam-hosted` has no job-level `if:`: it always runs and
-reports, so branch protection can require both checks.
+reports, so branch protection can require both checks. Protection and the queue differ in two cases. When no Gleam
+path changes, the queue does not wait for `gleam-hosted`, but protection (when it requires that check) still waits for the
+run that GitHub starts for the pull request. When the queue dispatches the fallback, that run is not a pull request status,
+so protection that requires `check-hosted` refuses the merge until the `pull_request` run is green.
 
 When the Gleam run is required, the queue waits for a successful `symbolic-gleam.yml` **pull_request**
 run on the exact same head SHA, including after `update-branch`. That update

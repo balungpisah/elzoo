@@ -303,6 +303,21 @@ class DecisionTest(unittest.TestCase):
         self.assertTrue(skipped)
         self.assertEqual(900, details["run"])
 
+    def test_pull_request_run_needs_a_head_that_holds_the_first_parent(self):
+        # A pull_request run tests the merge of the head with its base. When main moved past the head, the
+        # tested tree can differ from the head tree, so only a head that holds the first parent can skip.
+        # "same-change": the merge tree equals the head tree, so only this rule refuses the skip.
+        env, run_git, second = self.scenario("same-change")
+        api = FakeApi(second)
+        api.run.update(self.PR_RUN)
+        with self.assertRaisesRegex(skip.Full, "another tree"):
+            skip.decide(env, run_git, api)
+
+    def test_dispatch_run_does_not_need_the_ancestor_of_the_first_parent(self):
+        # A dispatch run tests the head itself, so the tree of the head is the tested tree.
+        (verdict, _reason, _details), _api, _second = self.decide("same-change")
+        self.assertTrue(verdict)
+
     def test_pull_request_run_from_a_fork_or_without_repository_is_refused(self):
         for repo in ({"full_name": "someone/elzoo"}, {"full_name": "balungpisah/elzoo-fork"}, {}, None, "balungpisah/elzoo"):
             with self.subTest(repo=repo):

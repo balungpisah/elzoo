@@ -35,6 +35,7 @@ HOSTED_LABELS = ["ubuntu-24.04"]
 HOSTED_RUNNER = re.compile(r"GitHub Actions [0-9]+")
 HOSTED_GATE_STEP = "Verify the GitHub-hosted runner"
 SHA = re.compile(r"[0-9a-f]{40}")
+TIME = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
 PR_FIELDS = ("number,state,isDraft,isCrossRepository,baseRefName,headRefName,"
              "headRefOid,headRepository,mergeable,mergeCommit")
 
@@ -218,7 +219,35 @@ class Queue:
                 run.get("workflow_id") == workflow_id and
                 run.get("path") == f".github/workflows/{WORKFLOW}" and
                 isinstance(run.get("head_repository"), dict) and
-                run["head_repository"].get("full_name") == REPO)
+                run["head_repository"].get("full_name") == REPO and
+                Queue.names_pr_on_main(run, pr))
+
+    @staticmethod
+    def names_pr_on_main(run, pr):
+        """The run belongs to this pull request and GitHub tested it against main (not another base)."""
+        listed = run.get("pull_requests")
+        return isinstance(listed, list) and any(
+            isinstance(item, dict) and item.get("number") == pr["number"] and
+            isinstance(item.get("base"), dict) and item["base"].get("ref") == "main" and
+            isinstance(item["base"].get("repo"), dict) and
+            item["base"]["repo"].get("url") == f"https://api.github.com/repos/{REPO}"
+            for item in listed)
+
+    def retargeted_since(self, pr, run):
+        """True when the base of the pull request changed at or after the creation of the run. The run may then
+        have tested another base. A missing or malformed time counts as changed."""
+        created = run.get("created_at")
+        if not isinstance(created, str) or not TIME.fullmatch(created):
+            return True
+        pages = self.data("gh", "api", "--paginate", "--slurp",
+                          f"repos/{REPO}/issues/{pr['number']}/timeline?per_page=100")
+        require(isinstance(pages, list), "Invalid timeline pages")
+        for event in [e for page in pages for e in page]:
+            if isinstance(event, dict) and event.get("event") == "base_ref_changed":
+                when = event.get("created_at")
+                if not isinstance(when, str) or not TIME.fullmatch(when) or when >= created:
+                    return True
+        return False
 
     def adopt_pr_run(self, pr, workflow_id):
         """ELZ-059: the latest same-repository pull_request run of the exact head, waited for up to
@@ -236,7 +265,12 @@ class Queue:
             if runs:
                 require(all(isinstance(run.get("id"), int) for run in runs), "Invalid run ID")
                 # The latest run decides: an older success must not hide a newer failure.
-                return max(run["id"] for run in runs)
+                latest = max(runs, key=lambda run: run["id"])
+                if self.retargeted_since(pr, latest):
+                    self.emit(f"The base of PR #{pr['number']} changed after run {latest['id']} started; "
+                              "that run is not evidence", flush=True)
+                    return None
+                return latest["id"]
             if end - self.clock() <= 0:
                 return None
             self.pause("pull_request run on the exact head", end)
@@ -364,7 +398,15 @@ class Queue:
         require(done and all(isinstance(run.get("id"), int) for run in done),
                 "No completed push run of main found; cannot tell whether main is green; refusing")
         latest = max(done, key=lambda run: run["id"])
-        if latest.get("conclusion") == "success":
+        # A re-run keeps the run ID and the listing shows it as unfinished: it must not hide a red result.
+        pending = [run for run in runs if isinstance(run, dict) and run.get("event") == "push"
+                   and run.get("head_branch") == "main" and run.get("status") != "completed"
+                   and run.get("path") == f".github/workflows/{WORKFLOW}" and isinstance(run.get("id"), int)
+                   and isinstance(run.get("run_attempt"), int) and run["run_attempt"] > 1
+                   and run["id"] > latest["id"]]
+        if pending:
+            latest = dict(max(pending, key=lambda run: run["id"]), conclusion="re-run in progress")
+        elif latest.get("conclusion") == "success":
             return
         run_id, conclusion = latest["id"], latest.get("conclusion")
         login = self.text("gh", "api", "user", "--jq", ".login")
@@ -388,9 +430,12 @@ class Queue:
         """ELZ-059: (required, reason). The path list is Git's own, from the fetched refs, rename-aware.
         An empty, failed or malformed list means the Gleam run is required."""
         branch = pr["headRefName"]
+        # The base is the main SHA of the canonical repository, as for the ancestry test, not a local ref.
+        main = self.api("git/ref/heads/main")["object"]["sha"]
+        require(valid_sha(main), "Invalid canonical main SHA")
         try:
             out = self.run(["git", "diff", "--name-only", "-z", "--no-renames",
-                            f"refs/remotes/origin/main...refs/remotes/origin/{branch}"]).stdout
+                            f"{main}...refs/remotes/origin/{branch}"]).stdout
         except QueueError as error:
             return True, f"path list failed ({error_detail(error)})"
         paths = [path for path in out.split("\x00") if path]

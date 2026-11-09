@@ -44,6 +44,7 @@ class Fake:
         self.pr_run_listing_text = "listing failed"
         # ELZ-059: the freeze rule reads the push runs of main and the classification comments on issue #98;
         # the Gleam gate reads the changed paths from Git.
+        self.timeline = []             # the timeline events of the pull request (base_ref_changed)
         self.main_runs = None          # None: one green push run of main
         self.main_listing_error = False
         self.login = "queue-user"
@@ -84,7 +85,12 @@ class Fake:
                 and run.get("event") == "pull_request" and run.get("head_sha") == self.pr["headRefOid"]
                 and run.get("head_branch") == self.pr["headRefName"] and run.get("workflow_id") == 10
                 and run.get("path") == ".github/workflows/symbolic-check.yml"
-                and isinstance(run.get("head_repository"), dict) and run["head_repository"].get("full_name") == queue.REPO}
+                and isinstance(run.get("head_repository"), dict) and run["head_repository"].get("full_name") == queue.REPO
+                and any(isinstance(item, dict) and item.get("number") == self.pr["number"]
+                        and isinstance(item.get("base"), dict) and item["base"].get("ref") == "main"
+                        and isinstance(item["base"].get("repo"), dict)
+                        and item["base"]["repo"].get("url") == f"https://api.github.com/repos/{queue.REPO}"
+                        for item in (run.get("pull_requests") if isinstance(run.get("pull_requests"), list) else []))}
 
     def adopted(self):
         ids = sorted(self.pr_run_ids())
@@ -108,7 +114,9 @@ class Fake:
         run = dict(id=run_id, workflow_id=10, path=".github/workflows/symbolic-check.yml",
                    event="pull_request", head_branch=self.pr["headRefName"],
                    head_sha=self.pr["headRefOid"], status="in_progress", conclusion=None, run_attempt=1,
-                   head_repository={"full_name": queue.REPO})
+                   head_repository={"full_name": queue.REPO}, created_at="2026-11-09T01:00:00Z",
+                   pull_requests=[{"number": self.pr["number"],
+                                   "base": {"ref": "main", "repo": {"url": f"https://api.github.com/repos/{queue.REPO}"}}}])
         run.update(changes)
         return run
 
@@ -160,6 +168,8 @@ class Fake:
                 raise AssertionError(f"The queue must not write through gh api: {argv}")
             elif argv[2:4] == ["user", "--jq"]:
                 out = self.login
+            elif "/issues/79/timeline" in path:
+                out = [self.timeline]
             elif "/issues/98/comments" in path:
                 if self.comments_error:
                     raise queue.QueueError("gh api exited 1: comments failed")
@@ -211,7 +221,7 @@ class Fake:
                         runs.append(dict(run, id=900))
                 out = [{"workflow_runs": runs}]
             elif "/attempts/" in path:
-                job = dict(id=200 + self.dispatches, run_id=self.adopted() or 100 + self.dispatches,
+                job = dict(id=200 + self.dispatches, run_id=100 + self.dispatches if self.dispatches else self.adopted(),
                            name="check-hosted", head_sha=self.pr["headRefOid"], status="completed",
                            conclusion="success", **HOSTED_FIELDS,
                            steps=[{"name": "Verify the GitHub-hosted runner", "conclusion": "success"}] + self.steps)
@@ -783,6 +793,17 @@ class PullRequestEvidence(unittest.TestCase):
             "fork repository": self.fake.pr_run(707, head_repository={"full_name": "someone/elzoo"}),
             "no head repository": self.fake.pr_run(708, head_repository=None),
             "string head repository": self.fake.pr_run(709, head_repository="balungpisah/elzoo"),
+            # ELZ-059 review B1: GitHub lists the pull requests that the run belongs to, with their base.
+            "another base branch": self.fake.pr_run(710, pull_requests=[
+                {"number": 79, "base": {"ref": "some-other-base", "repo": {"url": f"https://api.github.com/repos/{queue.REPO}"}}}]),
+            "another pull request": self.fake.pr_run(711, pull_requests=[
+                {"number": 555, "base": {"ref": "main", "repo": {"url": f"https://api.github.com/repos/{queue.REPO}"}}}]),
+            "another base repository": self.fake.pr_run(712, pull_requests=[
+                {"number": 79, "base": {"ref": "main", "repo": {"url": "https://api.github.com/repos/someone/elzoo"}}}]),
+            "no pull requests": self.fake.pr_run(713, pull_requests=[]),
+            "no pull request field": self.fake.pr_run(714, pull_requests=None),
+            "string pull requests": self.fake.pr_run(715, pull_requests="79"),
+            "malformed pull request": self.fake.pr_run(716, pull_requests=[None, "79", {"number": 79}, {"number": 79, "base": "main"}]),
         }
         for label, run in others.items():
             with self.subTest(label=label):
@@ -791,6 +812,46 @@ class PullRequestEvidence(unittest.TestCase):
                 self.q.process(79)
                 self.assertEqual(1, self.fake.dispatches)
                 self.assertTrue(any(m.startswith("No pull_request run for PR #79") for m in self.fake.messages))
+
+    def test_a_newer_run_of_another_base_is_not_adopted_but_the_right_run_is(self):
+        other = self.fake.pr_run(710, pull_requests=[
+            {"number": 555, "base": {"ref": "some-other-base", "repo": {"url": f"https://api.github.com/repos/{queue.REPO}"}}}])
+        self.fake.pr_runs = [self.fake.pr_run(700), other]
+        self.q.process(79)
+        self.assertEqual(0, self.fake.dispatches)
+        self.assertIn("run=700 job=200", self.fake.messages[-1])
+
+    def test_a_pull_request_that_changed_its_base_after_the_run_started_does_not_use_that_run(self):
+        # GitHub lists the current base in the run, so a retarget after the start would hide a test of another base.
+        for label, events in (
+                ("after", [{"event": "base_ref_changed", "created_at": "2026-11-09T01:30:00Z"}]),
+                ("same second", [{"event": "base_ref_changed", "created_at": "2026-11-09T01:00:00Z"}]),
+                ("no time", [{"event": "base_ref_changed"}]),
+                ("bad time", [{"event": "base_ref_changed", "created_at": "yesterday"}])):
+            with self.subTest(label=label):
+                self.setUp()
+                self.fake.pr_runs = [self.fake.pr_run(700)]
+                self.fake.timeline = events
+                self.q.process(79)
+                self.assertEqual(1, self.fake.dispatches)
+                self.assertTrue(any("base of PR #79 changed after run 700 started" in m for m in self.fake.messages))
+                self.assertIn("run=101 job=201", self.fake.messages[-1])
+
+    def test_a_base_change_before_the_run_or_other_events_keep_the_run(self):
+        self.fake.pr_runs = [self.fake.pr_run(700)]
+        self.fake.timeline = [{"event": "base_ref_changed", "created_at": "2026-11-09T00:59:59Z"},
+                              {"event": "labeled", "created_at": "2026-11-09T02:00:00Z"}, None, "x"]
+        self.q.process(79)
+        self.assertEqual(0, self.fake.dispatches)
+        self.assertIn("run=700 job=200", self.fake.messages[-1])
+
+    def test_a_run_without_a_creation_time_is_not_adopted(self):
+        for created in (None, "", "2026-11-09 01:00:00", 5):
+            with self.subTest(created=created):
+                self.setUp()
+                self.fake.pr_runs = [self.fake.pr_run(700, created_at=created)]
+                self.q.process(79)
+                self.assertEqual(1, self.fake.dispatches)
 
     def test_malformed_run_entries_are_ignored(self):
         self.fake.pr_runs = [None, "x", 7, {}, {"id": "9"}, self.fake.pr_run(700)]
@@ -958,6 +1019,34 @@ class FreezeRule(unittest.TestCase):
         self.q.process(79)
         self.assertTrue(self.fake.merged)
 
+    def test_a_rerun_of_a_red_run_keeps_the_queue_frozen(self):
+        # A re-run keeps the run ID; the listing shows it as unfinished with run_attempt > 1. The older green run
+        # must not open main while the re-run has no result.
+        self.fake.main_runs = [self.red(8999, "success"), self.red(9001, None, status="in_progress", run_attempt=2)]
+        self.frozen("push run 9001")
+        self.setUp()
+        self.fake.main_runs = [self.red(8999, "success"), self.red(9001, None, status="queued", run_attempt=3)]
+        self.frozen("push run 9001")
+        self.setUp()
+        # A classification of that run ID is honoured, as for a red run.
+        self.fake.main_runs = [self.red(8999, "success"), self.red(9001, None, status="in_progress", run_attempt=2)]
+        self.fake.comments = [self.classify(9001)]
+        self.q.process(79)
+        self.assertTrue(self.fake.merged)
+
+    def test_a_first_attempt_that_is_unfinished_does_not_freeze(self):
+        for attempt in (1, None, "2", True):
+            with self.subTest(attempt=attempt):
+                self.setUp()
+                self.fake.main_runs = [self.red(8999, "success"), self.red(9001, None, status="in_progress", run_attempt=attempt)]
+                self.q.process(79)
+                self.assertTrue(self.fake.merged)
+
+    def test_a_newer_completed_run_replaces_the_rerun(self):
+        self.fake.main_runs = [self.red(9001, None, status="in_progress", run_attempt=2), self.red(9002, "success")]
+        self.q.process(79)
+        self.assertTrue(self.fake.merged)
+
     def test_other_events_branches_and_workflows_do_not_count(self):
         self.fake.main_runs = [self.red(9001, "success"),
                                self.red(9002, "failure", event="pull_request"),
@@ -1078,7 +1167,12 @@ class GleamPathGate(unittest.TestCase):
     def test_the_path_list_comes_from_git_with_renames_listed_as_two_paths(self):
         self.q.process(79)
         self.assertEqual([["git", "diff", "--name-only", "-z", "--no-renames",
-                           "refs/remotes/origin/main...refs/remotes/origin/task/ELZ-039"]], self.fake.diff_calls)
+                           f"{M}...refs/remotes/origin/task/ELZ-039"]], self.fake.diff_calls)
+
+    def test_the_path_list_is_taken_against_the_main_sha_of_the_canonical_repository(self):
+        self.fake.canonical_main = "d" * 40
+        self.q.process(79)
+        self.assertEqual("d" * 40 + "...refs/remotes/origin/task/ELZ-039", self.fake.diff_calls[0][-1])
 
     def test_a_rename_out_of_a_gleam_path_still_requires_the_gleam_run(self):
         # With --no-renames git lists the old path as a deletion, so moving a file out of spikes/gleam_ui/ counts.

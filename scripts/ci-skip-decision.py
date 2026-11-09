@@ -164,6 +164,12 @@ def decide(env, run_git=git, api=None):
     # The latest run decides: an older success must not hide a newer failure or a cancellation.
     run = max(candidates, key=lambda r: r["id"])
     run_id, attempt = run["id"], run.get("run_attempt")
+    if run.get("event") == "pull_request":
+        # A pull_request run tests the merge of the head with its base. When the head holds the whole of main
+        # (the first parent), that merge has the tree of the head. Otherwise the run tested another tree.
+        # No commit of the first parent is outside the head: rev-list lists none.
+        ancestor = run_git("rev-list", "--count", f"{second}..{parents[1]}") == "0"
+        need(ancestor, "the pull_request run may have tested another tree: the head does not hold the first parent")
     need(run.get("status") == "completed" and run.get("conclusion") == "success"
          and isinstance(attempt, int) and attempt > 0,
          f"latest run {run_id} is not a completed success")
