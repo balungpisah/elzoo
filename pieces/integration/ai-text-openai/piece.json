@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "id": "integration/ai-text-openai",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "adapter",
+  "providers": [
+    "req_llm",
+    "llm_db",
+    "req",
+    "jason",
+    "jsv",
+    "abnf_parsec",
+    "texture",
+    "zoi",
+    "splode",
+    "server_sent_events",
+    "websockex",
+    "dotenvy",
+    "plug",
+    "plug_crypto",
+    "elixir",
+    "otp"
+  ],
+  "dependencies": [
+    "integration/ai-text"
+  ],
+  "contract": "OpenAI Responses API provider of integration/ai-text through req_llm 1.30's documented provider-callback API, for the evidenced model gpt-6.1-terra only (other models refused invalid_request; the req_llm route is asserted to be POST /v1/responses): max_retries 0, store false, one HTTP exchange with every response halted by an Elzoo step (no redirect, no retry, no req_llm error value); key only from the injected Need as api_key; sampling and stop sequences not declared; no caller provider option; structured output through text.format json_schema; reasoning none, low, medium, high, max sent as reasoning.effort; a tool result with is_error true refused; cache hint mapped to a prompt_cache_key derived from tenant and local key, explicit-mode prompt_cache_options with TTL 30m or 12h and prompt_cache_breakpoint markers on exactly the addressed system and user parts, or refused; usage and cache counters from named fields of the pinned ResponseUsage with absent fields :unknown; status failed unknown; error statuses mapped to the interface's failure tags.",
+  "limits": [
+    "Stub evidence only (R5): conformance to the pinned documented format, never current live behaviour, cache hits or savings, output quality, latency or rate limits; a periodic live check is a later owner decision.",
+    "Requests and documented-format stubs are validated against an extract of the official OpenAI OpenAPI document at commit 59f5565459caae84f43c49a738248cf2b268a70f (fetched 2026-11-09); conformance to other revisions or to undocumented behaviour is not claimed; the extract renames oneOf to anyOf (overlapping branches), so exclusivity between documented branches is not checked.",
+    "The pinned POST /responses declares only 200, 400, 404, 429 and 503; the handling of 401, 403, 413, 500, 502 and 504, and 503 meaning overload, are upstream assumptions and policy exercised on stubs.",
+    "One model (gpt-6.1-terra) on the Responses surface; Chat Completions, Azure OpenAI, Realtime, images, audio, Decisions, Batch, streaming, sampling, stop sequences, structured output together with tools, tool-result error flags and provider-executed tools are refused or not supplied.",
+    "Without a cache hint OpenAI's default implicit prompt caching applies, scoped by OpenAI to the organization or project, not to the Elzoo tenant: tenants sharing one OpenAI credential may share that cache; configure one credential or project per tenant where isolation matters. The derived cache key is an unambiguous length-framed SHA-256 derivation, not a proof of isolation.",
+    "Every consumer must merge config :req_llm, load_dotenv: false by hand (README, Install configuration): the copier merges no configuration and the copied-consumer harness does not prove a consumer's configuration; the Piece test asserts only that the README carries the exact line. The credential invariant holds regardless: only the injected key is used."
+  ],
+  "files": [
+    "lib/elzoo/ai_text/open_ai.ex",
+    "lib/elzoo/ai_text/open_ai/usage.ex",
+    "test/elzoo/ai_text_openai_test.exs",
+    "test/fixtures/openai/responses.schema.json",
+    "test/support/ai_text_openai_test_helper.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "type",
+      "file": "test/fixtures/openai/responses.schema.json",
+      "claim": "Every captured stub request is validated with jsv against CreateResponse, and every documented-format stub against Response or ErrorResponse, from a mechanical extract (closure of CreateResponse, Response and ErrorResponse; refs rewritten to $defs; description, example, discriminator and x-* removed; every oneOf renamed anyOf because the document's branches overlap, so branch exclusivity is not checked) of openai/openai-openapi openapi.json at commit 59f5565459caae84f43c49a738248cf2b268a70f (fetched 2026-11-09, source SHA-256 287f2cbf81b668735c56853b5e2ec40048c8912bead00ac8118190fae9716392, MIT); negative controls are asserted to be rejected by it. Plus method, path, the injected bearer key, store false and absent sampling and stop fields."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/ai_text_openai_test.exs",
+      "claim": "Listed scenarios against in-process function-plug stubs: the interface conformance kit; usage and cache counters (warm read, cold write by TTL, total-only write, below minimum, the accounting example, disagreeing totals, partial-usage negative controls); fixed cache-key vectors; cache-hint mapping on a mixed transcript and refusals before any request or credential read; reasoning levels; sampling, stop sequences, unevidenced models and tool-result errors refused; structured output and tool choice encoding; finish and status mapping, provider-executed tool items and failed responses; error statuses and a redirect with one request each; transport timeout with one request; malformed 2xx negative controls; redaction in results, inspect, owner state, debug logs and req_llm telemetry; ambient keys never used across a req_llm restart with a .env file; source audit of this Piece's own manifest-listed files; fixture provenance; the README's Install configuration line. Finite scenarios, no live call, not proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "req_llm",
+      "reference": "https://hexdocs.pm/req_llm/1.30.0/readme.html",
+      "claim": "req_llm 1.30.0 (Hex checksum 1c4b19608aa982de5ea396cc6de3d3738e72480182ba11c184e028a4af305edb) OpenAI Responses request encoding (input items, content-part prompt_cache_breakpoint metadata, prompt_cache_key, prompt_cache_options, store, reasoning, text.format), model routing through ReqLLM.RequestPlan.openai_surface/1, the authorization header and the documented provider-callback API prepare_request/4 plus Req.request/1; observations of the pinned version (probe transcript in the task work record), not guarantees."
+    },
+    {
+      "kind": "upstream",
+      "provider": "llm_db",
+      "reference": "https://hexdocs.pm/llm_db/2026.11.0/",
+      "claim": "llm_db 2026.11.0 model metadata for gpt-6.1-terra: text execution on openai_responses at /responses, reasoning effort values none, low, medium, high, xhigh, max."
+    },
+    {
+      "kind": "upstream",
+      "provider": "req",
+      "reference": "https://hexdocs.pm/req/0.7.5/Req.Request.html",
+      "claim": "Req 0.7.5 response and error steps, Req.Request.halt/2 and the :plug test transport."
+    },
+    {
+      "kind": "assumption",
+      "claim": "OpenAI's live API behaves as the pinned OpenAPI document describes; 503 means overload and a 429 or 503 is a rejection that authorizes no redispatch; the derived prompt_cache_key gives the intended cache locality (OpenAI documents only that the key influences cache routing); the host keeps the key Need truthful."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "planned",
+      "contract": "No Elzoo event. req_llm may emit its request start event (payload capture off by default) to consumer-installed handlers; response-side events are not emitted because every response is halted. Own events through runtime/telemetry: future task."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Construction-time provider term (optional HTTPS base URL; a test plug), fixed store false and max_retries 0, evidenced model table, receive timeout and model allowlist from the interface Config, key from the injected Need; no hot reconfiguration.",
+      "evidence": [
+        "test/elzoo/ai_text_openai_test.exs"
+      ]
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "Call-scoped; dispatch, rearm and expiry are the delivery/effect-intent owner's Control."
+    }
+  }
+}
