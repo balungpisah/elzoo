@@ -12,7 +12,7 @@ Remaining work is to correct the audit-log assumptions, explicitly reconcile dep
 
 ## Commands and exit codes
 
-Working directory for repository commands: `/Users/laptopdp/orca/workspaces/elzoo/elzoo-ELZ-050`
+Working directory for repository commands: `<worktrees>/elzoo-ELZ-050`
 
 | Command / check | Exit | Result |
 | --- | --- | --- |

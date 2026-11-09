@@ -53,7 +53,7 @@ normal fast-forward pushes, never force/rebase/delete.
    `test/export_test.exs` (not yet run), and the spike suite.
 4. Remove `.claims/ELZ-009.md` in a commit before the PR (keep history);
    then `python3 scripts/check-claims.py` must pass.
-5. Open PR (fetch template), wait for symbolic CI (check + gleam jobs; the new
+5. Open PR (fetch template), wait for machine A CI (check + gleam jobs; the new
    CI Postgres step has never run in the container), independent final
    exact-SHA review (incl. CI/Postgres harness change and the two
    clarifications), then integration merge, merge-commit CI, cleanup, issue

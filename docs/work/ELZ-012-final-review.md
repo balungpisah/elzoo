@@ -1,7 +1,7 @@
 # ELZ-012 final independent review
 
-Reviewer: Orca session 0f974e4c-75e1-4daf-9a19-7720ad2b1633 (task_0a1ab81c053c, dispatch ctx_7f36454673e0).
-Reviewed head: `8594a3b79e988a951b1716caaea3b700447d6e58` on `task/ELZ-012` (`/Users/laptopdp/orca/workspaces/elzoo/elzoo-ELZ-012`). Local HEAD equals `origin/task/ELZ-012`. Diff base `origin/main` = `b62c26a229fc86fa7700376d4cb6a21be536baa7`.
+Reviewer: an independent review session.
+Reviewed head: `8594a3b79e988a951b1716caaea3b700447d6e58` on `task/ELZ-012` (`<worktrees>/elzoo-ELZ-012`). Local HEAD equals `origin/task/ELZ-012`. Diff base `origin/main` = `b62c26a229fc86fa7700376d4cb6a21be536baa7`.
 Earlier report: `docs/work/ELZ-012-early-review.md` is byte-equal to `/tmp/elz012-early-review-report-0f974e4c.md` (`cmp` exit 0).
 I changed no tracked file, issue, branch or pin. `git status --short` was empty after every command and HEAD stayed `8594a3b`. I did not run `mix setup` or `mix check` (the author's logs are the evidence; I re-verified them, below). This is a review, not merged acceptance.
 
@@ -20,7 +20,7 @@ I changed no tracked file, issue, branch or pin. `git status --short` was empty 
 | Roadmap | `check-roadmap.py` plain and `--live` | both pass (139 links; live Contracts match) |
 | Whitespace | `git diff --check origin/main HEAD` | exit 0 |
 | Local links | my own script over the handoff, `06-toolchain.md`, `ELZ-012.md` | 4, 2 and 24 relative links, none missing |
-| Secrets in the docs | `grep` for database URL, credentials, token, `ORCA_` | none. Only the database name `elzoo_pieces_test` appears, as the plan allowed. |
+| Secrets in the docs | `grep` for database URL, credentials, token, `ORCA_` | none. Only the test database name appears, as the plan allowed. |
 | `06-toolchain.md` change | `git diff b62c26a HEAD` | two added lines: one sentence and a link. No pin or command change. |
 
 ## Execution evidence re-verified from the retained logs

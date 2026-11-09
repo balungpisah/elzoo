@@ -12,7 +12,7 @@ No further work remains for this narrow review; normal PR integration and accept
 
 ## Commands and exit codes
 
-Working directory: `/Users/laptopdp/orca/workspaces/elzoo/elzoo-ELZ-050`
+Working directory: `<worktrees>/elzoo-ELZ-050`
 
 | Command / check | Exit | Result |
 | --- | --- | --- |

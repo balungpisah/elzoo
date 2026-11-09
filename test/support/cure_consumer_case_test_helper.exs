@@ -18,7 +18,7 @@ defmodule Elzoo.CureConsumerCase do
   @postgres_consumer_ids ~w(integration/sql integration/jobs assembly/durable-job)
 
   # Database-free consumers, in three groups balanced by the measured `total` seconds on main
-  # `0a42370` (symbolic-elzoo job 128581094645): about 65 s, 65 s and 60 s in sequence. The
+  # `0a42370` (the first fast runner job 128581094645): about 65 s, 65 s and 60 s in sequence. The
   # group of a consumer changes only its position in the run, never its test.
   @database_free_groups %{
     a: ~w(assembly/request-route-retry delivery/routing core/selection state/checkpoint
@@ -62,7 +62,7 @@ defmodule Elzoo.CureConsumerCase do
   end
 
   # Per-test limit for the concurrent database-free groups. Measured basis (PR #90, run
-  # 42454973591): with three concurrent consumer VMs on the two-core macbook-ubuntu runner under
+  # 42454973591): with three concurrent consumer VMs on the two-core machine B runner under
   # about 30 minutes of sustained load, `assembly/request-route-retry` rose from 35.8 s
   # (sequential) to 99.1 s in the last completed repeat, and two later repeats went over the 120 s
   # limit by an unknown amount. 240 s is 2x that 120 s lower bound. The two-VM setup that

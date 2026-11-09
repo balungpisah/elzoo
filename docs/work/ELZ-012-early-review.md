@@ -1,7 +1,7 @@
 # ELZ-012 early Contract and evidence-plan review
 
-Reviewer: Orca session 0f974e4c-75e1-4daf-9a19-7720ad2b1633 (task_ef43f3b0073e, dispatch ctx_4eb442e48378).
-Reviewed head: `2f74b817d05906307e29f2876bb8d4b690499e9b` on `task/ELZ-012` (`/Users/laptopdp/orca/workspaces/elzoo/elzoo-ELZ-012`).
+Reviewer: an independent review session.
+Reviewed head: `2f74b817d05906307e29f2876bb8d4b690499e9b` on `task/ELZ-012` (`<worktrees>/elzoo-ELZ-012`).
 Base `70cb2cbbe6ab005ed61edd01d37dee1131afef5a` = current `origin/main`. Claim `8e1d50e`. Local HEAD equals `origin/task/ELZ-012`.
 This review reads documents and sources. **I executed no `mix setup`, no `mix check`, no acceptance run and no test.** I ran only read-only commands (`git`, `gh issue view`, `cmp`, `shasum`, `grep`, `python3` reading JSON). I changed no tracked file. This is permission to start the execution plan; it is not evidence that ELZ-012 passes.
 

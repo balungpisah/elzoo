@@ -1,12 +1,12 @@
 # ELZ-038 — Run only affected checks on PRs; keep the full aggregate consumer on main
 
-- Phase: P0 harness (CI time; shared `test/export_test.exs`, `mix check`, symbolic workflows)
+- Phase: P0 harness (CI time; shared `test/export_test.exs`, `mix check`, machine A workflows)
 - Catalogue IDs: none (no Piece or Contract change)
 - Dependencies: ELZ-036, ELZ-037
 
 ## Outcome
 
-PR CI time grows with every ready Piece. Measured total test time on symbolic `check`:
+PR CI time grows with every ready Piece. Measured total test time on machine A `check`:
 840 s after #58, 972 s after #57, 1230–1346 s on PR #59. Each Piece's tests run three
 times per PR: in the root suite, in its per-ID consumer, and again in the aggregate consumer
 (`test/export_test.exs:112`), where Cure reads every copied source root. ELZ-036 and ELZ-037
@@ -34,7 +34,7 @@ Make PR CI scale with the change, not with the catalogue, without reducing what 
 - [ ] Main push runs the full aggregate and all per-ID consumers; shown on the merge commit.
 - [ ] A PR touching one Piece shows a shorter `check` time; record before/after.
 - [ ] No assertion removed or weakened; every existing check still runs on main.
-- [ ] Full `mix check` passes; symbolic CI passes on the PR head and on the merge commit.
+- [ ] Full `mix check` passes; machine A CI passes on the PR head and on the merge commit.
 - [ ] Independent review of the actual diff (CI and evidence scope).
 
 ## Evidence and limits

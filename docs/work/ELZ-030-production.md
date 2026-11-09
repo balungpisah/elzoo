@@ -9,7 +9,7 @@ and `167ce4939088d5caa8f8d14d294d50966479888b` (isolated upstream dependency clo
 This report's subsequent commit adds evidence only. This is the author implementation
 stage, **not full acceptance, independent review, a PR or a merge**.
 
-All work ran in `/Users/laptopdp/orca/workspaces/elzoo/elzoo-ELZ-030`, on
+All work ran in `<worktrees>/elzoo-ELZ-030`, on
 `task/ELZ-030`. Initial local/remote head matched
 `4593b5d5a2afd6f47decd1b8aefc7165566911c4`; original coordinator claim is unchanged.
 No existing test/assertion, protected CI/compiler/export file, pin, registry,
@@ -132,7 +132,7 @@ env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 \
 
 | Command (after that environment prefix) | Exit and actual result | Log |
 | --- | --- | --- |
-| `ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:…@localhost/elzoo_pieces_test mix setup` | 0; setup emits no `Result: N passed` | `/tmp/elz030-production/setup-production.log` |
+| `ELZOO_TEST_DATABASE_URL=ecto://<test role>:…@localhost/<test database> mix setup` | 0; setup emits no `Result: N passed` | `/tmp/elz030-production/setup-production.log` |
 | `mix test pieces/workflow/context-selection/test/elzoo/context_selection_test.exs` | 0; `Result: 33 passed` | `/tmp/elz030-production/test-delivery.log` |
 | `MIX_ENV=test mix run /tmp/elz030-production/export.exs` (put `MIX_ENV=test` in `env`) | 0; `EXPORT_HASHES_OK: 21 files`, `Result: 73 passed`, `EXPORTED_CONSUMER_EXIT=0` | `/tmp/elz030-production/export3.log` |
 | `mix format --check-formatted` | 0 | tool output, no Result line |
@@ -172,7 +172,7 @@ this stage still found main at `230cc5b`; no further merge was needed.
 **Full `mix check` has not run for this final bundle.** Coordinator-owned metadata
 integration must first make its manifest/claims part of the catalogue and aggregate
 consumer. Fresh setup already passed on the required pin; the coordinator must run
-full public validation with the same environment and only `elzoo_pieces_test` before
+full public validation with the same environment and only the disposable test database before
 final review. No targeted or in-memory export pass is represented as that acceptance.
 
 ## Exact metadata handoff

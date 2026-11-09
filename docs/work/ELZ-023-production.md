@@ -14,7 +14,7 @@ Limits: no exactly-once, authentication, physical send fencing/cancellation, mac
 Open work: ELZ-023 independent final review, any findings, PR/authorized queue, main acceptance and cleanup.
 
 Updated 2026-11-08 10:42 WIB. Commands run in
-`/Users/laptopdp/orca/workspaces/elzoo/elzoo-ELZ-023` with Cure
+`<worktrees>/elzoo-ELZ-023` with Cure
 `208248063d64e621782cd26dd30698ee42850a89`, Elixir 1.20.4 and OTP 29.1.2.
 `origin/main` is `0a423705784f2c0223ed67d6f75bfdb5412845ce`, already an ancestor;
 no rebase/force push. Only ELZ-023 metadata rows were integrated; no protected
@@ -83,7 +83,7 @@ It also asserts the exact Empty initial state; all previous assertions remain.
 Each Mix command below uses this exact prefix (including the own database):
 
 ```sh
-env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_ENV=test ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:…@localhost/elzoo_pieces_test
+env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_ENV=test ELZOO_TEST_DATABASE_URL=ecto://<test role>:…@localhost/<test database>
 ```
 
 Append the command shown to that prefix; it is not a shell command by itself.
@@ -109,7 +109,7 @@ Effect-intent production cumulative checkpoint bound: 3229007872 bytes, plus SQL
 README additionally records the conservative hard-cap total 4096 × 1 MiB =
 4,294,967,296 encoded checkpoint bytes, plus append and host-log overhead.
 These are encoding measurements/bounds, not disk durability or a deployment quota.
-The SQL fixtures use random schemas in `elzoo_pieces_test`, real transactions,
+The SQL fixtures use random schemas in the disposable test database, real transactions,
 no Sandbox masquerading as committed storage. The reference Host's authority and
 provider authentication are explicit doubles in tests, never real credentials or
 local proofs of authenticity.
@@ -161,8 +161,8 @@ or a production release-assembly test.
 Exact final commands, each exit 0:
 
 ```sh
-env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_ENV=test ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:…@localhost/elzoo_pieces_test mix setup
-env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_ENV=test ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:…@localhost/elzoo_pieces_test mix check
+env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_ENV=test ELZOO_TEST_DATABASE_URL=ecto://<test role>:…@localhost/<test database> mix setup
+env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_ENV=test ELZOO_TEST_DATABASE_URL=ecto://<test role>:…@localhost/<test database> mix check
 ```
 
 Final code-only validations are complete. Subsequent handoff commits contain only

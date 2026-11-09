@@ -1,7 +1,7 @@
 # ELZ-023 (#37): focused amendment and probe re-review (implementation permission only)
 
-- Reviewer: Orca session `orca_session_id:0f974e4c-75e1-4daf-9a19-7720ad2b1633` (task `task_add87fbffb16`, dispatch `ctx_d44dba661673`). The same independent reviewer as the early review; I authored none of the changes. No helpers.
-- Reviewed head: **`82287cadde03351745415a46ad6e2c190d2bb0dd`** on `task/ELZ-023` (previous reviewed head `c90a7385baafa1eadc4da30945dcf0312c521ec9`; claim `5f62e64`). Worktree `/Users/laptopdp/orca/workspaces/elzoo/elzoo-ELZ-023`: `git status --short` empty before and after. I changed no tracked file, issue, label or pin.
+- Reviewer: an independent review session. The same independent reviewer as the early review; I authored none of the changes. No helpers.
+- Reviewed head: **`82287cadde03351745415a46ad6e2c190d2bb0dd`** on `task/ELZ-023` (previous reviewed head `c90a7385baafa1eadc4da30945dcf0312c521ec9`; claim `5f62e64`). Worktree `<worktrees>/elzoo-ELZ-023`: `git status --short` empty before and after. I changed no tracked file, issue, label or pin.
 - Diff `c90a738..82287ca`: 12 files, all under `docs/work/ELZ-023*`, `tasks/ELZ-023-dispatched-effect-intent.md` and one line of `docs/plans/release-plan.json` (the ELZ-023 `issue_body_sha256`). No production code, protected file, existing test or pin changed. Old `policy.cure` and `probe.exs` hashes equal the ones I reviewed (`b0d0a263…`, `7db4a6c8…`). `docs/work/ELZ-023-early-review.md` is my earlier report, line-for-line.
 - Cure pin: `git -C deps/cure rev-parse HEAD` = `208248063d64e621782cd26dd30698ee42850a89`. Scratch files: `/tmp/elz023-focused/`.
 
@@ -100,7 +100,7 @@ Notes (no action beyond the README): the Memory fixtures prove process-boundary 
 
 ## 5. Commands, exits and counts
 
-Required locale and scheduler flags on every Mix/Elixir command; `MIX_ENV=test`; database only `elzoo_pieces_test`; no pin, protected file or existing test touched.
+Required locale and scheduler flags on every Mix/Elixir command; `MIX_ENV=test`; database only the disposable test database; no pin, protected file or existing test touched.
 
 | # | Command | Exit | Result |
 | --- | --- | --- | --- |

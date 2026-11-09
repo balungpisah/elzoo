@@ -872,7 +872,7 @@
     },
     {
       "id": "ELZ-019",
-      "title": "ELZ-019 — Run CI only on symbolic",
+      "title": "ELZ-019 — Run CI only on the owner's first machine",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -908,7 +908,7 @@
     },
     {
       "id": "ELZ-020",
-      "title": "ELZ-020 — Measure and tune symbolic CI parallelism",
+      "title": "ELZ-020 — Measure and tune machine A CI parallelism",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -1351,7 +1351,7 @@
       ],
       "url": "https://github.com/balungpisah/elzoo/issues/55",
       "issue": 55,
-      "issue_body_sha256": "a7e720e00e2e35af265beb3343c1db7931c32a613e6316c21ef1191d57d2510e",
+      "issue_body_sha256": "a72d790fbcf0b4a229cf7a216419a754f33685293a5576fae598f6e73c6d40ad",
       "observed_issue_state": "OPEN",
       "selection_gates": [
         "Independent exact-SHA review, checks and merge acceptance owned by roadmap coordinator"
@@ -3766,7 +3766,7 @@
     "relay_pr": "https://github.com/balungpisah/elzoo/pull/54",
     "relay_state": "merged on main; merge-commit acceptance remains with exclusive coordinator",
     "claim_sha": "6bcff57fe7b59ec7b0414bf737127302944c5b37",
-    "claim_agent": "Sabrangs-MacBook-Pro-7bf9",
+    "claim_agent": "the ELZ-033 documentation worker",
     "relay_merge_sha": "32aef4e7dba40231257e2a91095910377c5c4ab9"
   },
   "dependency_acceptance": [
@@ -3788,7 +3788,7 @@
           "url": "https://github.com/balungpisah/elzoo/actions/runs/42092041694/job/127472315486"
         }
       ],
-      "scope": "Historical independent review and merge symbolic checks inspected; merge ancestry checked. Not a fresh rerun of that historical revision."
+      "scope": "Historical independent review and merge machine A checks inspected; merge ancestry checked. Not a fresh rerun of that historical revision."
     },
     {
       "task": "ELZ-004",
@@ -3808,7 +3808,7 @@
           "url": "https://github.com/balungpisah/elzoo/actions/runs/42110661505/job/127537028186"
         }
       ],
-      "scope": "Historical independent review and merge symbolic checks inspected; merge ancestry checked. Not a fresh rerun of that historical revision."
+      "scope": "Historical independent review and merge machine A checks inspected; merge ancestry checked. Not a fresh rerun of that historical revision."
     },
     {
       "task": "ELZ-015",
@@ -3829,9 +3829,9 @@
   "agent_registry": [
     {
       "role": "ELZ-033 documentation worker",
-      "agent_id": "Sabrangs-MacBook-Pro-7bf9",
+      "agent_id": "the ELZ-033 documentation worker",
       "identity_source": "claim commit 6bcff57fe7b59ec7b0414bf737127302944c5b37",
-      "workspace": "/Users/laptopdp/.t3/worktrees/elzoo/t3-772a5980",
+      "workspace": "<worktrees>/t3-772a5980",
       "base": "404d159a122d18a22554c5688aa79199e4d5c124",
       "branch": "task/ELZ-033",
       "claim_sha": "6bcff57fe7b59ec7b0414bf737127302944c5b37",
@@ -3860,7 +3860,7 @@
     {
       "role": "dedicated roadmap coordinator",
       "identity_source": "orchestrator_capabilities parentThreadId in this session",
-      "workspace": "/Users/laptopdp/.t3/worktrees/elzoo/t3-bcef5843",
+      "workspace": "<worktrees>/t3-bcef5843",
       "mechanism": "existing user-created top-level coordinator; normal Git/GitHub integration",
       "delivery_boundary": "ELZ-033 and bounded ELZ-022/024/026 only; independent review before merge",
       "delegation": "bounded first wave; workers may not delegate",

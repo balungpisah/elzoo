@@ -1,8 +1,8 @@
 # ELZ-011 focused independent re-review
 
-Reviewer: Orca session 0f974e4c-75e1-4daf-9a19-7720ad2b1633 (task_084cfc62f54f, dispatch ctx_4b5c11a942ed).
+Reviewer: an independent review session.
 Reviewed head: `7766446c40a88ad2be60ee51aaef59deb8e76c06` on `task/ELZ-011`
-(`/Users/laptopdp/orca/workspaces/elzoo/elzoo-ELZ-011`, base `a5f0e630f61e93893f1a2c706268226681ca593a`).
+(`<worktrees>/elzoo-ELZ-011`, base `a5f0e630f61e93893f1a2c706268226681ca593a`).
 Earlier review: `/tmp/elz011-early-review-report-0f974e4c.md` (head `0716e36`, NOT CLEAR).
 This is permission for implementation only. It is not production acceptance.
 No tracked file, issue, branch, pin or test was changed. `git status --short` was empty after every command, and HEAD stayed `7766446`.

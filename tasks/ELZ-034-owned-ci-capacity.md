@@ -1,4 +1,4 @@
-# ELZ-034 — Add macbook-ubuntu as an independently verified backend CI runner
+# ELZ-034 — Add machine B as an independently verified backend CI runner
 
 - Phase: development CI capacity
 - Dependencies: ELZ-019, ELZ-020, ELZ-033
@@ -6,8 +6,8 @@
 
 ## Outcome
 
-Add the user-owned macbook-ubuntu Linux/x64 machine as a second repository-scoped
-backend GitHub Actions runner while preserving symbolic and all active work.
+Add the user-owned machine B Linux/x64 machine as a second repository-scoped
+backend GitHub Actions runner while preserving machine A and all active work.
 The owner explicitly requested a trial of another user-owned machine. Hosted
 GitHub runners remain prohibited. Do not run untrusted code on either machine.
 
@@ -15,10 +15,10 @@ GitHub runners remain prohibited. Do not run untrusted code on either machine.
 
 - Change the CI machine policy in AGENTS.md, docs/development/10-symbolic-ci.md,
   and directly dependent runner-policy documentation to allow only the named
-  user-owned symbolic and macbook-ubuntu machines for their documented roles.
+  user-owned machine A and machine B machines for their documented roles.
 - Modify the backend workflow and scripts/check-ci-runners.py together, with
   explicit reviewed role selectors, safe routing, and meaningful negative
-  controls. Preserve the symbolic Gleam role, exact image digest, Cure/OTP/
+  controls. Preserve the machine A Gleam role, exact image digest, Cure/OTP/
   Elixir pins, actual full mix setup/check and isolated PostgreSQL behavior.
 - Update the existing test/ci_runner_guard_test.exs fixtures to exercise the
   current approved workflow files and retain their negative controls.
@@ -34,7 +34,7 @@ GitHub runners remain prohibited. Do not run untrusted code on either machine.
 - Once the candidate passes the full task check and independent review, let
   the existing and new repository-scoped backend runners accept backend jobs.
   Use a common explicit user-owned/backend role label; do not label the new
-  machine symbolic or register it under a misleading identity.
+  machine as machine A or register it under a misleading identity.
 - Assign conservative per-machine BEAM scheduler settings and document actual
   CPU, RAM, resource limitations, Docker version, runner identity, service,
   maintenance and rollback. Measure a full real run on the candidate; an image
@@ -47,12 +47,12 @@ GitHub runners remain prohibited. Do not run untrusted code on either machine.
 
 ## Acceptance
 
-- [ ] Actual CI job on this PR runs on macbook-ubuntu's named runner, inside the
+- [ ] Actual CI job on this PR runs on machine B's named runner, inside the
       exact pinned Ubuntu image, with the pinned toolchain; mix setup and full
       mix check pass, including selected Cure proofs, runtime tests, negative
       controls, copied-source consumers and disposable PostgreSQL scenarios.
 - [ ] GitHub API runner_name and role labels are recorded for the passing run;
-      symbolic remains online and existing unrelated work is not interrupted.
+      machine A remains online and existing unrelated work is not interrupted.
 - [ ] Runner-policy checks reject hosted, unauthorized-machine and wrong-role
       selectors, missing policies and unexpected workflows. Tests exercise both
       positive routing and explicit negative controls.

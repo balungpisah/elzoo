@@ -10,17 +10,17 @@ CI, merge acceptance and cleanup are separate outstanding gates.
 
 ## Exact commands and results
 
-From `/Users/laptopdp/orca/workspaces/elzoo/elzoo-ELZ-030`:
+From `<worktrees>/elzoo-ELZ-030`:
 
 ```sh
 env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 \
   ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' \
-  ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:…@localhost/elzoo_pieces_test \
+  ELZOO_TEST_DATABASE_URL=ecto://<test role>:…@localhost/<test database> \
   mix setup
 
 env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 \
   ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' \
-  ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:…@localhost/elzoo_pieces_test \
+  ELZOO_TEST_DATABASE_URL=ecto://<test role>:…@localhost/<test database> \
   mix check
 ```
 
@@ -52,7 +52,7 @@ planning rows; its manifest hash and generated ledger were reconciled.
 The original `.claims/ELZ-030.md` marker was removed by commit `33cb576bbae6e27128c1dcccc65c58d6cd452345`;
 the first-push claim `82e91b1d601604f29f06caec1b923b5e2873cff5` remains in history.
 No existing test/assertion or protected CI/compiler/export file was authored here.
-The dedicated `elzoo_pieces_test` database was provisioned by the root coordinator
+The dedicated disposable test database was provisioned by the root coordinator
 after the task role's `createdb` returned permission denied; no other database was
 used or changed by this task.
 
@@ -132,12 +132,12 @@ Both commands ran from the assigned task worktree:
 ```sh
 env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 \
   ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' \
-  ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:…@localhost/elzoo_pieces_test \
+  ELZOO_TEST_DATABASE_URL=ecto://<test role>:…@localhost/<test database> \
   mix test pieces/workflow/context-selection/test/elzoo/context_selection_test.exs
 
 env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 \
   ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' \
-  ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:…@localhost/elzoo_pieces_test \
+  ELZOO_TEST_DATABASE_URL=ecto://<test role>:…@localhost/<test database> \
   mix check
 ```
 
@@ -154,7 +154,7 @@ env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 \
 - `mix setup` was not repeated in this additive-test stage: the coordinator's
   successful setup is recorded above and dependencies/configuration are unchanged.
   Cure remains `208248063d64e621782cd26dd30698ee42850a89`, Elixir 1.20.4,
-  OTP 29.1.2; only the authorized `elzoo_pieces_test` database was used.
+  OTP 29.1.2; only the authorized the disposable test database was used.
 - Logs: `/tmp/elz030-review-additions/targeted.log`,
   `/tmp/elz030-review-additions/full-check.log`; start metadata in `start.json`.
 

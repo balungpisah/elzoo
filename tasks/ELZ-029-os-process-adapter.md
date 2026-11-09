@@ -56,13 +56,13 @@ state machine and result schema, not security isolation.
 
 - define the result schema and termination state machine;
 - implement the smallest Adapter and reaper with a test harness that spawns
-  real processes on the symbolic runner;
+  real processes on the machine A runner;
 - test the listed dangerous paths.
 
 ## Acceptance
 
 - [ ] Timeout and collector death both leave no surviving process group
-      (executable tests on the symbolic runner).
+      (executable tests on the machine A runner).
 - [ ] Escalation stage is reported from observation, not assumed.
 - [ ] Non-zero exit is `completed`; queue rejections are `not_dispatched`.
 - [ ] Operational applicability is declared per docs/operational-contracts.md.

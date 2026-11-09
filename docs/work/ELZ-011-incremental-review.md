@@ -1,8 +1,8 @@
 # ELZ-011 incremental independent review
 
-Reviewer: Orca session 0f974e4c-75e1-4daf-9a19-7720ad2b1633 (task_bc5ac51c9ae2, dispatch ctx_3cbb9a60b6cb).
+Reviewer: an independent review session.
 Reviewed head: `877357d72abc5a347574531b633dd955001ed3d9` on `task/ELZ-011`
-(`/Users/laptopdp/orca/workspaces/elzoo/elzoo-ELZ-011`). Fix/source commit: `087c1de1618d2b4987b33058494983344a6274d9`.
+(`<worktrees>/elzoo-ELZ-011`). Fix/source commit: `087c1de1618d2b4987b33058494983344a6274d9`.
 Compared with: `694fda8a797fa2fe7535e6be1ca164f86483d281` (my CONDITIONAL review, F1-F7).
 I carry forward my earlier reports where I say so. This is a review, not merged acceptance.
 I changed no tracked file, issue, branch or pin. `git status --short` was empty after every command and HEAD stayed `877357d`.

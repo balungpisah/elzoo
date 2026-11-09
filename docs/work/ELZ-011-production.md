@@ -40,7 +40,7 @@ Both approved patches and reviews remain in docs/work; no silent amendment.
 ELZ-013 PR14 9999a3cf and ELZ-023 PR91 a5f0e63 are ancestors of this branch.
 The other dependencies were checked at claim: ELZ004 PR32 81d7d21,
 ELZ006 PR42 850abca, ELZ010 PR54 32aef4e. ELZ-023 main backend retry
-42451768392/job128642319790 passed on macbook-ubuntu-elzoo-candidate with
+42451768392/job128642319790 passed on the second fast runner with
 32+613 tests, Gleam42450785134 passed; #37 is closed and its branch/worktree
 removed. Final ELZ-023 report: issuecomment-6718089138 on #37.
 
@@ -119,7 +119,7 @@ All Mix commands:
 export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 export ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1'
 export MIX_ENV=test
-export ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:…@localhost/elzoo_pieces_test
+export ELZOO_TEST_DATABASE_URL=ecto://<test role>:…@localhost/<test database>
 mix setup
 mix check
 mix run docs/work/ELZ-011-export-check.exs

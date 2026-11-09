@@ -103,7 +103,7 @@ only. A later correspondence failure must still be reported, never weakened.
 ## Executed evidence
 
 Working directory for every command:
-`/Users/laptopdp/orca/workspaces/elzoo/elzoo-ELZ-030`.
+`<worktrees>/elzoo-ELZ-030`.
 Initial local/remote head `3bb189fadf24ce271dfe1709e6bb14c9e3a09ce9`; fetched main
 `367c83bba62fc891caaa60d1536cdc39de3cebbb`. Main was not merged for this pure
 probe; no pin, dependency, protected file or existing test changed.

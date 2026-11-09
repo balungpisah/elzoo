@@ -38,10 +38,10 @@ ELZ-044 (#76) threat-model work out of this task.
    `head_sha` (not by "latest run").
 4. Wait for the run. Accept it only when every condition is true:
    - conclusion `success`, and `head_sha` equals the PR head;
-   - the backend job's `runner_name` is `symbolic-elzoo` or `macbook-ubuntu-elzoo-candidate`;
+   - the backend job's `runner_name` is the first fast runner or the second fast runner;
    - the job log contains `ELZOO CHECK PASSED` and not the affected-mode marker.
    Also require a successful `symbolic-gleam.yml` pull_request run on the same
-   exact head SHA, with its successful Gleam job on `symbolic-elzoo-gleam`.
+   exact head SHA, with its successful Gleam job on the Gleam runner.
    The synchronize event after update-branch supplies that run; wait for it.
    Without an update, require Gleam success on the current head too.
 5. Before merge, fetch again and re-read canonical main. If main moved and the PR head no longer contains it,

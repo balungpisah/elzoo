@@ -105,7 +105,7 @@ No raw content, ambient clock, database or external Effect enters the probe.
 ## Executed evidence and toolchain transition
 
 Working directory for every command:
-`/Users/laptopdp/orca/workspaces/elzoo/elzoo-ELZ-030`.
+`<worktrees>/elzoo-ELZ-030`.
 Initial clean local/remote head was `1b66f92b26f0c221896c46f298300690b72410de`.
 The first source checks used upstream Cure
 `a004c335cc4e9f2203ba6f51fc31e8540b66378d`: resolution, own-cache and graph
@@ -131,14 +131,14 @@ env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 \
 
 env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 \
   ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' \
-  ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:…@localhost/elzoo_pieces_test \
+  ELZOO_TEST_DATABASE_URL=ecto://<test role>:…@localhost/<test database> \
   mix setup
 ```
 
 Logs: `/tmp/elz030-position/deps-get.log` and `setup.log`. Fresh setup compiled
 Cure and 25 catalogue Cure sources; no `Result: N passed` summary is emitted by
 these setup commands. No database was created or altered by this worker.
-The supplied database URL was the required `elzoo_pieces_test` only.
+The supplied database URL pointed at the required disposable test database only.
 
 Both relevant probe commands used the same locale/scheduler prefix above:
 

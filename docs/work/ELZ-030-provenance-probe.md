@@ -39,7 +39,7 @@ No fallback is silently selected here.
 
 ## Command and observed evidence
 
-Working directory: `/Users/laptopdp/orca/workspaces/elzoo/elzoo-ELZ-030`.
+Working directory: `<worktrees>/elzoo-ELZ-030`.
 Cure `a004c335cc4e9f2203ba6f51fc31e8540b66378d`, already built in this worktree
 by stage-one setup; Elixir 1.20.4 / OTP 29.1.2. No pin or dependency change.
 

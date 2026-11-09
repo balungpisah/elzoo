@@ -124,8 +124,8 @@ mailbox a WAL.
 
 ## Historical evidence and limits
 
-The research spike that established these observations is [Zoo commit
-`ffd64a4`](https://github.com/sabrang-mdp/zoo/commit/ffd64a4). It is historical
+The research spike that established these observations is commit
+`ffd64a4` of the consumer repository. It is historical
 evidence, not a dependency or a gate for this repository. The production files
 and test listed above are the self-contained bootstrap evidence.
 

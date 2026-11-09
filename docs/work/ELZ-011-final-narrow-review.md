@@ -1,8 +1,8 @@
 # ELZ-011 final narrow review (T1 and L2)
 
-Reviewer: Orca session 0f974e4c-75e1-4daf-9a19-7720ad2b1633 (task_a610214fa2be, dispatch ctx_0cf6e61580e8).
+Reviewer: an independent review session.
 Reviewed head: `094eff10b05ec9a60756f73f0faf77c3bec0fe3a` on `task/ELZ-011`
-(`/Users/laptopdp/orca/workspaces/elzoo/elzoo-ELZ-011`). Local HEAD equals `origin/task/ELZ-011`.
+(`<worktrees>/elzoo-ELZ-011`). Local HEAD equals `origin/task/ELZ-011`.
 Compared with my reviewed head `877357d72abc5a347574531b633dd955001ed3d9`. Current `origin/main` is `452caa1f8140d6ec1cfee6cea1119a65e1c87a11`.
 Earlier reports: early (`0716e36`), focused (`7766446`), final (`694fda8`, CONDITIONAL) and incremental (`877357d`, CONDITIONAL on T1).
 `docs/work/ELZ-011-incremental-review.md` is byte-equal to `/tmp/elz011-incremental-review-report-0f974e4c.md` (`cmp` exit 0).

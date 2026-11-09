@@ -37,7 +37,7 @@ no other upstream change.
 - [ ] Full `mix setup` and `mix check` pass locally on the new pin; counts unchanged (root 526 or 528 if #83 merged first, Ash 32).
 - [ ] CI on both backend runners: one first run each after the lock change (the cache restores
       by prefix key, `mix deps.get` refetches Cure and rebuilds it; record `mix setup` and cache
-      save), then one warm run each on the same SHA. Record run and job IDs. Compare `ELZOO TIMING consumer=aggregate(40)` and the sum of per-ID consumers against the baselines on #81 (symbolic 472 s / 350 s; macbook 562 s / 428 s).
+      save), then one warm run each on the same SHA. Record run and job IDs. Compare `ELZOO TIMING consumer=aggregate(40)` and the sum of per-ID consumers against the baselines on #81 (machine A 472 s / 350 s; macbook 562 s / 428 s).
 - [ ] Independent review of the actual diff (toolchain pin + evidence claims).
 - [ ] Fork record complete; upstream PR link recorded.
 

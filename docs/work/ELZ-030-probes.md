@@ -14,7 +14,7 @@ source roots. No new ready source, production test or proof is claimed.
 ## Environment and exact command
 
 Working directory for every command:
-`/Users/laptopdp/orca/workspaces/elzoo/elzoo-ELZ-030`.
+`<worktrees>/elzoo-ELZ-030`.
 
 Pinned dependency checked with `git -C deps/cure rev-parse HEAD`:
 `a004c335cc4e9f2203ba6f51fc31e8540b66378d` (exit 0).

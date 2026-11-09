@@ -18,9 +18,9 @@ reruns at those historical revisions. Machine-readable links are in the manifest
 
 | Prerequisite / consumers | Merge and acceptance | Scoped grounding |
 | --- | --- | --- |
-| ELZ-003 / all three | [PR #30](https://github.com/balungpisah/elzoo/pull/30), `7ce6b9616289d7fba09253163d43c53a88586b90`; [acceptance](https://github.com/balungpisah/elzoo/issues/3#issuecomment-6667213363), [exact-head review](https://github.com/balungpisah/elzoo/pull/30#issuecomment-6666918033) | Cure type/ABI checks, finite Envelope/Edge/Wiring and copied-consumer checks; no new universal proof. Merge backend job 127472315549 and Gleam 127472315486 succeeded on symbolic; acceptance records 19 Ash + 82 root checks. |
+| ELZ-003 / all three | [PR #30](https://github.com/balungpisah/elzoo/pull/30), `7ce6b9616289d7fba09253163d43c53a88586b90`; [acceptance](https://github.com/balungpisah/elzoo/issues/3#issuecomment-6667213363), [exact-head review](https://github.com/balungpisah/elzoo/pull/30#issuecomment-6666918033) | Cure type/ABI checks, finite Envelope/Edge/Wiring and copied-consumer checks; no new universal proof. Merge backend job 127472315549 and Gleam 127472315486 succeeded on machine A; acceptance records 19 Ash + 82 root checks. |
 | ELZ-004 / ELZ-022 | [PR #32](https://github.com/balungpisah/elzoo/pull/32), `81d7d21d8c0a86aae8d47ce9b0e0389b15ca865d`; [acceptance](https://github.com/balungpisah/elzoo/issues/4#issuecomment-6669895410), [review](https://github.com/balungpisah/elzoo/pull/32#issuecomment-6669698776) | Finite Unit/Adapter/host/JSON and consumer scenarios, OTP contracts; merge backend job 127537028186 and Gleam 127537030094 succeeded on symbolic. Acceptance records 19 + 143 checks; volatile partial-failure limits remain. |
-| ELZ-015 / ELZ-024 | [PR #18](https://github.com/balungpisah/elzoo/pull/18), `a8b3a099397bff5e90d9a3f010797243d768edd0`; [acceptance](https://github.com/balungpisah/elzoo/issues/17#issuecomment-6659498380), [review](https://github.com/balungpisah/elzoo/pull/18#issuecomment-6658950881) | Nine isolated Ash tests plus 34 baseline checks; historical Linux merge run 42036106498 succeeded. This predates symbolic-only migration and is **not** symbolic evidence. Trusted actor maps, volatile ETS, sequential actions; no authentication, durable approvals or production concurrent-update guarantee. |
+| ELZ-015 / ELZ-024 | [PR #18](https://github.com/balungpisah/elzoo/pull/18), `a8b3a099397bff5e90d9a3f010797243d768edd0`; [acceptance](https://github.com/balungpisah/elzoo/issues/17#issuecomment-6659498380), [review](https://github.com/balungpisah/elzoo/pull/18#issuecomment-6658950881) | Nine isolated Ash tests plus 34 baseline checks; historical Linux merge run 42036106498 succeeded. This predates the owner-machine-only migration and is **not** machine A evidence. Trusted actor maps, volatile ETS, sequential actions; no authentication, durable approvals or production concurrent-update guarantee. |
 
 At initial capture, remote task claims were ELZ-010 and this ELZ-033; no
 `task/ELZ-022`, `task/ELZ-024` or `task/ELZ-026` existed. This observation never
@@ -297,7 +297,7 @@ inside the three-worker ceiling. One independent review slot and coordinator
 capacity remain reserved; no worker delegates. Each assignment records exact
 claim/workspace/base/session identity and named owned directories; none are
 invented in this preflight. The coordinator serializes metadata/ledger merges,
-provider ownership and the existing symbolic backend queue. Workers use
+provider ownership and the existing machine A backend queue. Workers use
 isolated databases/ports and their own checkout's Cure build cache.
 
 The parent receives final SHA, exact commands/results, source/Contract limits

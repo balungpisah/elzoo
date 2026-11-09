@@ -35,7 +35,7 @@ self-declared Store-limits assumption is now explicit in the README.
 Exact green command, exit 0:
 
 ```sh
-env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_ENV=test ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:…@localhost/elzoo_pieces_test mix test pieces/delivery/effect-intent/test/elzoo/
+env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_ENV=test ELZOO_TEST_DATABASE_URL=ecto://<test role>:…@localhost/<test database> mix test pieces/delivery/effect-intent/test/elzoo/
 ```
 
 Log: `/tmp/elz023-a1/review-f1-tests.log`. No full check is claimed for F1 yet.
@@ -112,11 +112,11 @@ exited 0 (137 links, no tracked claims); protected-file diff is empty.
 Production commit `7fcc308049703060678bf4fda7d939d15c4f4273` was pushed and the
 worktree stayed clean throughout fresh setup and the uninterrupted full check.
 Cure is `208248063d64e621782cd26dd30698ee42850a89`, Elixir 1.20.4, OTP 29.1.2.
-Only the assigned `elzoo_pieces_test` database was used. Exact commands:
+Only the assigned disposable test database was used. Exact commands:
 
 ```sh
-env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_ENV=test ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:…@localhost/elzoo_pieces_test mix setup
-env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_ENV=test ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:…@localhost/elzoo_pieces_test mix check
+env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_ENV=test ELZOO_TEST_DATABASE_URL=ecto://<test role>:…@localhost/<test database> mix setup
+env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_ENV=test ELZOO_TEST_DATABASE_URL=ecto://<test role>:…@localhost/<test database> mix check
 ```
 
 Both exited **0**. Setup fetched the locked dependencies and completed; full

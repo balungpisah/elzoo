@@ -11,7 +11,7 @@ Adopt a repository-owned product-led catalogue plan that lets independently usef
 
 ## Inputs and authority
 
-Read AGENTS.md and its prescribed read order. Reconcile the four proposal files under /Users/laptopdp/.codex/artifacts/elzoo-roadmap-2026-11-06/ (roadmap.md, release-plan.json, next-steps.md, baseline.json) against current main, live issue bodies, remote claims and accepted PR evidence. Import necessary content into the repository so the adopted plan does not depend on that local path. Proposals, counts, closed issues and worker reports are not runtime or merge-acceptance evidence.
+Read AGENTS.md and its prescribed read order. Reconcile the four proposal files under <artifact directory>/elzoo-roadmap-2026-11-06/ (roadmap.md, release-plan.json, next-steps.md, baseline.json) against current main, live issue bodies, remote claims and accepted PR evidence. Import necessary content into the repository so the adopted plan does not depend on that local path. Proposals, counts, closed issues and worker reports are not runtime or merge-acceptance evidence.
 
 ## Scope and ownership
 

@@ -13,7 +13,7 @@ Correct that description before clearance, then merge the advanced main branch a
 
 ## Commands and exit codes
 
-Working directory: `/Users/laptopdp/orca/workspaces/elzoo/elzoo-ELZ-050`
+Working directory: `<worktrees>/elzoo-ELZ-050`
 
 | Command / check | Exit | Result |
 | --- | --- | --- |

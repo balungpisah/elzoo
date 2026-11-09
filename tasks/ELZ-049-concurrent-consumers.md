@@ -9,7 +9,7 @@
 
 Today every copied consumer test runs in one ExUnit module with `async: false`, one after the
 other. On main `0a42370` the 23 consumers that do not use PostgreSQL took 189.5 s in
-sequence on `symbolic-elzoo` (job 128581094645); on `macbook-ubuntu-elzoo-candidate` they took
+sequence on the first fast runner (job 128581094645); on the second fast runner they took
 224.3 s on main `97456c8` (job 128568158091, one merge earlier). After this task those 23 consumers run in
 three ExUnit modules with `async: true`, so up to three consumers run at the same time. The three
 PostgreSQL consumers (`integration/sql`, `integration/jobs`, `assembly/durable-job`), the
@@ -26,7 +26,7 @@ aggregate consumer and the OTP-only consumer stay in sequence in `test/export_te
   limit. Measured basis in the PR: 99.1 s in the last completed repeat and two later repeats over
   120 s under three concurrent VMs on the two-core runner; 240 s is 2x that lower bound.
   `test/test_helper.exs` bounds `max_cases` to `System.schedulers_online()` for every async
-  module: at most three concurrent consumer VMs on symbolic, at most two on macbook-ubuntu. The groups are explicit lists in the case module, balanced by the measured per-consumer
+  module: at most three concurrent consumer VMs on machine A, at most two on machine B. The groups are explicit lists in the case module, balanced by the measured per-consumer
   times on main `0a42370`. The union of the groups plus the PostgreSQL list equals
   `Elzoo.CheckSelection.consumer_ids/0`.
 - `test/export_test.exs` keeps the five plan/write tests, the OTP-only consumer, the aggregate
@@ -41,7 +41,7 @@ aggregate consumer and the OTP-only consumer stay in sequence in `test/export_te
 ## Acceptance
 
 - [ ] Full `mix setup` and `mix check` pass locally.
-- [ ] 20 repeats of the three database-free group files on `macbook-ubuntu-elzoo-candidate`
+- [ ] 20 repeats of the three database-free group files on the second fast runner
       (a measurement branch with the same test tree) with no failure and no time limit hit; the
       largest observed per-consumer `total` recorded. The repeats run the group files alone, so
       they do not sample the overlap with other async modules inside `mix check`. Record: the

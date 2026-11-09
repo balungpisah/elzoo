@@ -1,4 +1,4 @@
-# ELZ-056 — Admit the Contabo VPS contabo-elzoo-1 as a backend runner (trial first)
+# ELZ-056 — Admit the rented Contabo VPS as a backend runner (trial first)
 
 - Phase: P0 harness (CI; `.github/workflows/symbolic-check.yml`, `scripts/check-ci-runners.py`,
   `scripts/test-ci-runners.py`, `scripts/merge-queue.py`, `docs/development/10-symbolic-ci.md`)
@@ -11,7 +11,7 @@
 
 The owner rents a mostly idle Contabo VPS (Ubuntu 24.04, 8 cores,
 23 GiB RAM) and decided on 2026-11-08 to use it for Elzoo CI. A repository-scoped runner
-`contabo-elzoo-1` (runner id 24) is installed and online with labels `self-hosted`, `Linux`,
+the slow VPS runner (runner id 24) is installed and online with labels `self-hosted`, `Linux`,
 `X64`, `elzoo`, `contabo`. It had **no** `backend` label when this task opened, so no job was routed to it. This task
 makes the repository accept the runner name, so a coordinator-run trial can add the label.
 
@@ -19,11 +19,11 @@ makes the repository accept the runner name, so a coordinator-run trial can add 
 
 ## Scope
 
-- Workflow: `Verify approved backend runner` accepts `contabo-elzoo-1` and sets
+- Workflow: `Verify approved backend runner` accepts the slow VPS runner and sets
   `ERL_FLAGS=+S 4:4 +SDcpu 1 +SDio 1` for it. No other workflow line changes. `runs-on` is unchanged.
 - Guard: `scripts/check-ci-runners.py` pins exactly the new gate text. Add negative controls
   in `scripts/test-ci-runners.py`; no existing test is edited or weakened.
-- Merge queue: `scripts/merge-queue.py` accepts `contabo-elzoo-1` as a backend runner name in
+- Merge queue: `scripts/merge-queue.py` accepts the slow VPS runner as a backend runner name in
   its evidence check, with a new test in `scripts/test-merge-queue.py`. Without this the queue
   refuses a successful run from the new machine. This is the one shared change outside the
   stated workflow and guard files; it does not change any other refusal.

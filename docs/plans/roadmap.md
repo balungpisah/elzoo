@@ -200,7 +200,7 @@ generated rows or overwrite another worker's metadata. This documentation task
 neither changes metadata nor regenerates the ledger. Isolate PostgreSQL clusters,
 ports, fixtures and build output for every validation worker; no personal DB,
 no cross-path Cure cache copies. Keep `ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1'`.
-The existing symbolic backend queue serializes backend CI; Gleam has its existing
+The existing machine A backend queue serializes backend CI; Gleam has its existing
 role queue. No hosted fallback, service disruption, additional runner or workflow
 change. The parent receives review/merge/cleanup; this worker neither watches
 PRs nor merges them.
@@ -247,7 +247,7 @@ The durable commands are the roadmap checker above, `git diff --check`,
 before that, upstream `a004c335`), Elixir 1.20.4 and OTP 29.1.2.
 Actual execution results and blockers are recorded in [validation.md](validation.md).
 Independent review must inspect the actual policy/evidence diff at its exact
-head. The coordinator owns affected rechecks, symbolic checks, merged-commit
+head. The coordinator owns affected rechecks, machine A checks, merged-commit
 acceptance, branch/workspace cleanup and closing #55; PR creation is not completion.
 
 Planning checks and review ground plan consistency only. Proof, type/contract

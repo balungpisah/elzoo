@@ -1,8 +1,8 @@
 # ELZ-011 final independent production review
 
-Reviewer: Orca session 0f974e4c-75e1-4daf-9a19-7720ad2b1633 (task_d4482e164f3f, dispatch ctx_44d327567ce3).
+Reviewer: an independent review session.
 Reviewed head: `694fda8a797fa2fe7535e6be1ca164f86483d281` on `task/ELZ-011`
-(`/Users/laptopdp/orca/workspaces/elzoo/elzoo-ELZ-011`). Source, metadata and test commit: `36384d4e90cf1487f17dfbb41322a06e59766ae0`.
+(`<worktrees>/elzoo-ELZ-011`). Source, metadata and test commit: `36384d4e90cf1487f17dfbb41322a06e59766ae0`.
 Diff base: `origin/main` = `a5f0e630f61e93893f1a2c706268226681ca593a` (43 files, +4813/-23).
 Earlier reports: `/tmp/elz011-early-review-report-0f974e4c.md`, `/tmp/elz011-focused-rereview-report-0f974e4c.md`.
 This is a review. It is not merged acceptance.

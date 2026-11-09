@@ -1,6 +1,6 @@
 # ELZ-063 independent confirmation
 
-Reviewer: Codex, Orca session `orca_session_id:37180079-1b7b-4fd1-89d4-25258d6fbe9b` (task `task_71d949c77a91`).
+Reviewer: Codex, an independent review session.
 Reviewed HEAD: `6d75396ab313f6488913b91d755d06d99abae48e`; previous reviewed HEAD `6c69aad73dad806b2fd187a0fc2aecb0b3e58096`; base `origin/main` `f4e328319ec23fa7bc6d8c8f0a19c2a3122bd938`.
 
 CLEAR: the seven previously identified table rows match the exact suggested replacements apart from retained Markdown backticks, and the requested scope and checks pass. This confirmation applies to the reviewed SHA and does not establish acceptance of a later revision.

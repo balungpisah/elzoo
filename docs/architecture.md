@@ -412,7 +412,7 @@ The following claims are the ones the bootstrap may make now:
 Each executable check links to the claim it supports in the table above. When
 a dependency is upgraded, repeat the boundary check; a new version is not
 adopted merely because its documentation exists. The historical spike that
-motivated this design is [Zoo commit `ffd64a4`](https://github.com/sabrang-mdp/zoo/commit/ffd64a4),
+motivated this design is commit `ffd64a4` of the consumer repository,
 not a dependency of this repository.
 
 ## Open design tasks
@@ -460,6 +460,6 @@ not invent an untracked `ELZ-ARCH-*` backlog.
   [Postgrex](https://hexdocs.pm/postgrex/Postgrex.html), and
   [Oban](https://hexdocs.pm/oban/Oban.html) — candidates and limits are
   recorded in `docs/dependencies.md`.
-* The earlier [Cure spike commit `ffd64a4`](https://github.com/sabrang-mdp/zoo/commit/ffd64a4)
+* The earlier Cure spike commit `ffd64a4` of the consumer repository
   (historical research; the current repository's `pieces/` sources and tests are
   the self-contained bootstrap evidence).

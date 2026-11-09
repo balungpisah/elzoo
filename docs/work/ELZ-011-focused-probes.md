@@ -85,7 +85,7 @@ All Mix commands use this prefix and own database:
 export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 export ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1'
 export MIX_ENV=test
-export ELZOO_TEST_DATABASE_URL=ecto://elzoo_elz024:…@localhost/elzoo_pieces_test
+export ELZOO_TEST_DATABASE_URL=ecto://<test role>:…@localhost/<test database>
 mix run docs/work/ELZ-011-probes/composition.exs
 mix run docs/work/ELZ-011-probes/timing-json.exs
 python3 docs/work/ELZ-011-probes/mutate-composition.py

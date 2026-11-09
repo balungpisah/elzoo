@@ -44,7 +44,7 @@ Both ran inside the copied-consumer run of `test/export_test.exs:125`.
       the exact command and counts are recorded.
 - [ ] Each existing DJ assertion is unchanged or strictly stronger; any changed assertion is
       listed with its reason.
-- [ ] Full `mix check` passes; symbolic CI passes on the PR head and on the merge commit.
+- [ ] Full `mix check` passes; machine A CI passes on the PR head and on the merge commit.
 - [ ] Independent review of the actual diff.
 
 ## Evidence and limits

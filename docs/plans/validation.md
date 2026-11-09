@@ -1,7 +1,7 @@
 # ELZ-033 validation record
 
 The documentation worker ran these checks in the supplied isolated workspace
-`/Users/laptopdp/.t3/worktrees/elzoo/t3-772a5980`, based on main
+`<worktrees>/t3-772a5980`, based on main
 `404d159a122d18a22554c5688aa79199e4d5c124`, then normally merged main
 `32aef4e7dba40231257e2a91095910377c5c4ab9` (ELZ-010 PR #54) without conflicts.
 Both baseline and combined-tree setup/check runs passed; final results below
@@ -9,7 +9,7 @@ refer to the combined tree. The implementation is documentation,
 planning data, generated planning views and their checker; runtime source and
 ready metadata are unchanged relative to the synchronized main. The ELZ-010
 runtime, metadata and Oban dependency changes entered only through that main
-merge; this adoption task did not edit them. Final review, symbolic PR checks, merge acceptance
+merge; this adoption task did not edit them. Final review, machine A PR checks, merge acceptance
 and task cleanup remain with the dedicated roadmap coordinator.
 
 ## Actual commands and results
@@ -25,7 +25,7 @@ All Mix processes used `ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1'`.
 | `python3 scripts/check-roadmap.py --write` | Exit 0; generated only `docs/plans/views.md` and `dependencies.mmd`. |
 | `python3 scripts/check-roadmap.py --live --self-test` | Exit 0; 97 baseline/current catalogue IDs, 2 separate candidates, 76 jobs, 12 products, acyclic/release-ordered references, generated views agree, 129 local link targets checked, all live published Contract hashes/dependencies match; eight invalid-plan controls rejected. |
 | `python3 scripts/check-claims.py` | Exit 0: `No tracked claim metadata`. |
-| `python3 scripts/check-ci-runners.py` | Exit 0: `All workflow runner selectors target symbolic; no hosted fallback`. |
+| `python3 scripts/check-ci-runners.py` | Exit 0: `All workflow runner selectors target machine A; no hosted fallback`. |
 | `git diff --check` | Exit 0, no output. |
 | `git diff --exit-code 32aef4e7dba40231257e2a91095910377c5c4ab9 -- pieces lib test registry LEDGER.md mix.exs mix.lock spikes .github .tool-versions .gitignore .ignore` | Exit 0, no output: runtime, metadata, ledger, pins, lockfiles, workflow and unrelated root ignore files preserved. |
 
@@ -60,7 +60,7 @@ services and their queues were not touched.
 Full local outputs are retained at:
 
 ```text
-/Users/laptopdp/.codex/artifacts/elzoo-033-validation-2026-11-07-t3-772a5980/
+<artifact directory>/elzoo-033-validation-2026-11-07-t3-772a5980/
   setup.log                  # original baseline
   check.log                  # original baseline
   check-exit.txt
@@ -79,7 +79,7 @@ Full local outputs are retained at:
 These outputs are inspection artifacts, not a checkout/runtime dependency.
 The commands above and the checked-in plan/checker are sufficient to reproduce
 the checks with a newly isolated database. The PR records the same outcomes;
-its exact final SHA still needs independent review and existing symbolic checks.
+its exact final SHA still needs independent review and existing machine A checks.
 
 Proof: no new law added. Type/contract: existing pinned Cure and boundary checks
 ran; the planning checker validates structural JSON/reference properties, not
@@ -87,7 +87,7 @@ runtime types. Test: the listed baseline and plan controls passed. Monitoring:
 the local PostgreSQL settings above. Upstream: unchanged recorded toolchain and
 library Contracts. Historical first-wave dependency merge evidence is separately
 linked in [preflight.md](preflight.md) and the manifest, with historical Linux
-versus symbolic execution distinguished.
+versus machine A execution distinguished.
 
 The retained claim commit is `6bcff57fe7b59ec7b0414bf737127302944c5b37`;
 the manifest records the session identity and workspace.
