@@ -46,7 +46,11 @@ defmodule Elzoo.MixProject do
       # ELZ-010 integration/jobs provider (also used by the test/elz010_* probes).
       {:oban, "== 2.24.2"},
       # ELZ-031 domain/money provider (already locked transitively at 3.2.0).
-      {:decimal, "== 3.2.0"}
+      {:decimal, "== 3.2.0"},
+      # ELZ-029 runtime/os-isolation provider: OS-process spawn, group, deadline and reaping
+      # through its port program (BSD-2-Clause). runtime: false because its port program refuses
+      # to start as root without an effective user; Elzoo.OsProcess.Provider starts it with one.
+      {:erlexec, "== 2.6.0", runtime: false}
     ]
   end
 
