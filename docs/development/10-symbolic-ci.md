@@ -741,7 +741,7 @@ per-ID limits.
 
 **Caches.** Every work job restores the dependency cache and the pinned S3 binary; only `check-root` saves them (otherwise
 three jobs would race to save one key). The guard counts the save steps (`actions/cache/save` and the saving form
-`actions/cache`, in any letter case): exactly two in `check-root`, none in any other job. On a cold cache every work job compiles on its own: the wall time of a cold run does
+`actions/cache`, in any letter case, written in this form): exactly two in `check-root`, none in any other job. Other spellings (a `.` path part) and other actions that cache are not counted (follow-ups on #147). On a cold cache every work job compiles on its own: the wall time of a cold run does
 not rise much, but the runner minutes triple for that run. No cold-cache AFTER run was made (the coordinator dropped it: it
 needs a cache deletion); the limit is stated here and the partly cold runs of the BEFORE table (`mix setup` 24 to 55 s) are
 the only cold-side data.

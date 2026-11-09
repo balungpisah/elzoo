@@ -859,12 +859,17 @@ class RunnerPolicyTest(unittest.TestCase):
                     self.assertIn(message, self.check(1).stderr)
                     self.tearDown()
                     self.setUp()
-        # a third save in the root job, and one save step less
-        for third in (save, save_caps, plain_caps):
-            self.change_in_job("symbolic-check.yml", "check-root", "      - name: Report BEAM capacity\n", third + "      - name: Report BEAM capacity\n")
+        # a third save in the root job
+        for label, third in (("save", save), ("save with capitals", save_caps), ("plain cache with capitals", plain_caps)):
+            with self.subTest(third=label):
+                self.change_in_job("symbolic-check.yml", "check-root", "      - name: Report BEAM capacity\n", third + "      - name: Report BEAM capacity\n")
+                self.assertIn(message, self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+        # one save step less in the root job (a save turned into a restore): the lower limit of "exactly two"
+        with self.subTest(third="one save less"):
+            self.change_in_job("symbolic-check.yml", "check-root", "        uses: actions/cache/save@", "        uses: actions/cache/restore@")
             self.assertIn(message, self.check(1).stderr)
-            self.tearDown()
-            self.setUp()
 
     def test_a_part_marker_is_never_printed_by_the_workflow(self):
         for job in self.BACKEND_JOB_NAMES:
@@ -886,6 +891,7 @@ class RunnerPolicyTest(unittest.TestCase):
                 ("check-root", "name: Run mix check", "        run: sh scripts/run-ci-check.sh --part root\n", "        env:\n          X: y\n"),
                 ("check-consumers", "name: Run mix check", "        run: sh scripts/run-ci-check.sh --part consumers\n", "        timeout-minutes: 1\n"),
                 ("check-hosted", "name: Require every job", "            test \"$CONSUMERS\" = skipped\n          fi\n", "        timeout-minutes: 1\n"),
+                # (this case also prints the message of the `continue-on-error:` check; the assertion names the pin)
                 ("check-plan", "name: Plan the work jobs",
                  "          echo \"ELZOO PLAN: run=$RUN skip=${SKIP:-unset} docs_only=${DOCS_ONLY:-unset}\"\n",
                  "        continue-on-error: true\n")):

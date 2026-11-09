@@ -577,7 +577,10 @@ for file in files:
             # Only the root job saves caches (three jobs saving one key would race, and a save step that no pinned
             # condition covers is invisible to the step-level comparison). `actions/cache@` saves in its post step too.
             # Case-insensitive (ELZ-078): the pinned-action check allows capitals in an action name, and GitHub resolves
-            # action names without regard to case.
+            # the owner and repository part without regard to case (the path inside the repository is probably case-
+            # sensitive, so a capital spelling may not even run; refusing it is the safe side). The pattern sees only
+            # `actions/cache` and `actions/cache/save` written in this form; other spellings (a `.` path part) and other
+            # actions that cache are not counted (follow-ups on #147).
             cache_saves = [i for i in block if re.search(r'uses\s*:\s*actions/cache(?:/save)?@', lines[i], re.IGNORECASE)]
             if len(cache_saves) != (2 if name == 'check-root' else 0):
                 errors.append(f'{file}: only the root job saves caches, with exactly two save steps ({name})')
