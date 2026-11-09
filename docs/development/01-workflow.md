@@ -109,7 +109,8 @@ fixed per-ID consumers; the aggregate also runs if any affected ready ID is
 outside their dependency closures. All other root checks remain. Shared or
 unknown changes, or unavailable comparison data, select all fixed consumers and
 the aggregate. This subset is not acceptance: the pull request's hosted
-`check-hosted` run is the full `mix check` on the exact head and the merge
+run of `symbolic-check.yml` (five jobs, one evidence unit; `check-hosted` is the aggregating job)
+is the full `mix check` on the exact head and the merge
 evidence; see the selection policy and limits in
 [CI on GitHub-hosted runners](10-symbolic-ci.md#affected-consumer-checks-elz-038).
 

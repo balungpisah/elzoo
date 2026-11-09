@@ -165,8 +165,9 @@ tests and negative controls. It is not a formatter or documentation badge.
 The worker gate before every push (ELZ-076): run `mix check --affected <base>`
 (the same selection code the hosted check used before ELZ-059) and the changed
 Piece's own tests (`mix test pieces/<family>/<name>/test`). CI owns the full
-run: the pull request's hosted `check-hosted` run is a full `mix check` on the
-exact head and the queue's merge evidence (a documentation-only change gets
+run: the pull request's hosted run of `symbolic-check.yml` is a full `mix check` on the
+exact head, split into three parallel parts (ELZ-073), and the queue's merge evidence;
+`check-hosted` is its aggregating job (a documentation-only change gets
 the short check of ELZ-071 instead). A local full `mix check` is still required after a dependency,
 configuration or toolchain change (`mix.exs`, `mix.lock`, `config/`, the Cure,
 Elixir or OTP pins) and when the affected selection cannot be computed; it is
