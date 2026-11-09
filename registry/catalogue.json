@@ -502,6 +502,14 @@
       "reason": "Broker delivery semantics must be translated to Elzoo envelope classes"
     },
     {
+      "id": "integration/mcp-client",
+      "summary": "One MCP server over Streamable HTTP (ex_mcp 1.8.1): inert tool discovery; one tool call per dispatch identity; completed, refused or unknown",
+      "disposition": "adapt",
+      "phase": "demand-led",
+      "status": "ready",
+      "manifest": "pieces/integration/mcp-client/piece.json"
+    },
+    {
       "id": "integration/notification",
       "summary": "One email through Swoosh's SMTP adapter (swoosh 1.29.3, gen_smtp 1.3.0): accepted, refused or unknown; acceptance is not delivery",
       "disposition": "adapt",

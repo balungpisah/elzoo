@@ -52,8 +52,8 @@ with its own evidence.
   (see "Install configuration"). The `req_llm` application must be started (it
   initializes the provider registry), so it is not `runtime: false`.
 - Network egress to the OpenAI API.
-- For tests only: `plug` (Req.Test-style function plugs). The repository keeps it
-  test-only; the exporter lists it as an ordinary provider of this Piece.
+- `plug` is used by this Piece's tests only (Req.Test-style function plugs); the
+  exporter lists it as an ordinary provider of this Piece.
 
 ## Install configuration
 
