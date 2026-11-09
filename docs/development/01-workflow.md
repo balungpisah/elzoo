@@ -95,6 +95,25 @@ their own role and database for each job.
 
 Without it, or when it is unreachable, those tests fail closed; they are never
 skipped.
+
+Since ELZ-084 the test server must also provide the PostgreSQL `vector`
+extension (pgvector), for the vector slice of `integration/search-data`
+(ELZ-082). CI uses `pgvector/pgvector:0.8.7-pg16-bookworm` pinned by digest
+(see docs/development/10-symbolic-ci.md). `vector` is not a trusted extension,
+so the throwaway role cannot create it: a superuser runs, once per disposable
+test database,
+
+    psql -d <test database> -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION vector'
+
+and checks `SELECT extversion FROM pg_extension WHERE extname = 'vector'`.
+For a local test server that runs the official `postgres:16` image on Debian
+trixie, the owner or the main coordinator (not a worker in the repository)
+recreates the container from the pgvector variant with the same Debian base,
+`pgvector/pgvector:0.8.7-pg16-trixie` (index digest
+`sha256:9cf8b511f0e9a2c209b61430fc139f1ab9c75edbb31fb1751db6617b246a897a`,
+observed 2026-11-09; re-verify before use), keeping the data volume, then
+creates the extension as above. The same Debian base keeps the C library
+collation of the existing data directory unchanged.
 mix check must compile real Cure, execute selected Cure proofs, meaningful
 runtime tests and negative controls. It is not documentation or formatting
 lint. The default retains every independent consumer, including the full
