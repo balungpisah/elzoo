@@ -46,18 +46,22 @@ default is `2023-06-01`); no native support for the newer version is claimed.
 
 ## Install configuration
 
-Merge this line into the consuming application's configuration (for example
+This Piece declares the line below in its manifest field `install_configuration`
+(`piece.json`). The exporter (`mix elzoo.take`) writes it, with its reason, into
+the generated install file `.elzoo/install/<key>.md` under "Configuration".
+Merge it into the consuming application's configuration (for example
 `config/config.exs`) before the `req_llm` application starts:
 
 ```elixir
 config :req_llm, load_dotenv: false
 ```
 
-The copier (`mix elzoo.take`) merges no configuration: it copies source and writes
-dependency instructions only, so every consumer adds this line by hand. The
-copied-consumer test harness does not prove a consumer's configuration either;
-this Piece's test asserts only that this section carries the exact line. Without
-the line, `req_llm` loads a `.env` file from the working directory when it starts
+The copier (`mix elzoo.take`) merges no configuration: every consumer merges
+this line itself. This repository's copied-consumer harness writes the line into
+the aggregate copied consumer and checks that the value is set before `req_llm`
+starts; for any other consumer it does not prove a consumer's configuration, so
+a hand-copied consumer that drops the line is not checked. Without the
+line, `req_llm` loads a `.env` file from the working directory when it starts
 under Mix. The credential invariant holds regardless: this Piece passes only the
 injected Need's key as `api_key:` and never reads a key from configuration, the
 environment or a `.env` file.

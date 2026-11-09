@@ -3562,7 +3562,7 @@
       "disposition": "implementation prepared; acceptance requires merged PR",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/ai-text-anthropic/piece.json",
-      "manifest_sha256": "e69c69676785e71794028de6bf3630b372d68e866f9134e4381b839c7363a2b9",
+      "manifest_sha256": "b8f74059fe9fa21dafb7709418d861434858c15b171aab21f49749f98333cced",
       "baseline_status": "not in baseline (new row, ELZ-079)"
     },
     {
