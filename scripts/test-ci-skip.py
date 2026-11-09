@@ -71,30 +71,60 @@ def make_repo(root, scenario):
 
 
 class FakeApi:
-    """Answers the three JSON reads, the logs read and the run re-read from dictionaries."""
+    """Answers the JSON reads, the logs reads and the run re-read from dictionaries (ELZ-073: five jobs per run)."""
+
+    NAMES = ("check-plan", "check-root", "check-consumers-db", "check-consumers", "check-hosted")
+    WORK = {"check-root": "ELZOO ROOT SUITE PASSED", "check-consumers-db": "ELZOO CONSUMERS DB PASSED",
+            "check-consumers": "ELZOO CONSUMERS PASSED"}
+    STAMP = "2026-11-08T12:00:00.0000000Z "
 
     def __init__(self, second):
         self.second = second
         self.calls = []
         self.run = dict(id=900, event="workflow_dispatch", head_sha=second, head_branch="task/ELZ-058",
                         path=".github/workflows/symbolic-check.yml", status="completed",
-                        conclusion="success", run_attempt=1)
+                        conclusion="success", run_attempt=1, run_started_at="2026-11-08T12:00:00Z")
         self.listing_changes = {}
         self.runs = None
-        self.job = dict(id=901, run_id=900, name="check-hosted", head_sha=second, status="completed",
-                        conclusion="success", runner_name="GitHub Actions 7",
-                        runner_group_name="GitHub Actions", labels=["ubuntu-24.04"],
-                        steps=[{"name": "Verify the GitHub-hosted runner", "conclusion": "success"},
-                               {"name": "Run mix check", "conclusion": "success"}])
-        # A second job in the listing (any name): ELZ-069 refuses every run that has one.
-        self.skipped = dict(self.job, id=902, name="check-any", conclusion="skipped", steps=[])
-        self.jobs = None
-        self.log = "2026-11-08T12:00:00.0000000Z ELZOO CHECK PASSED\n"
+        # The fields that every executed job of the unit shares; a test that sets "steps" here gives every job those steps.
+        self.job = dict(run_id=900, head_sha=second, status="completed", conclusion="success",
+                        runner_name="GitHub Actions 7", runner_group_name="GitHub Actions", labels=["ubuntu-24.04"],
+                        started_at="2026-11-08T12:00:10Z")
+        self.jobs_changes = {}             # job name -> changes of that one job
+        self.drop_jobs = set()
+        self.extra_jobs = []               # jobs that are added to the listing as they are
+        self.jobs = None                   # a complete listing instead of the generated one
+        self.jobs_total = None             # a total_count that differs from the listing
+        self.docs = False                  # the docs-only shape: the three work jobs are skipped
+        self.plan_steps = None             # the steps of the plan job after the identity step
+        self.log = None                    # a log text for every job instead of the default logs
+        self.logs_by_job = {}
         self.reread = {}
         self.fail = None
         self.first_parent_runs = None      # None: one completed successful push run on the first parent
         self.first_parent_error = False
         self.first_parent_body = None      # a raw body instead of the listing
+
+    def build_jobs(self):
+        gate = {"name": "Verify the GitHub-hosted runner", "conclusion": "success"}
+        plan = self.plan_steps if self.plan_steps is not None else (
+            [{"name": "Classify the change", "conclusion": "success"},
+             {"name": "Docs-only check", "conclusion": "success" if self.docs else "skipped"}])
+        jobs = []
+        for position, name in enumerate(self.NAMES):
+            if name in self.drop_jobs:
+                continue
+            skipped = self.docs and name in self.WORK
+            steps = ([] if skipped else
+                     [gate] + (plan if name == "check-plan" else
+                               [{"name": "Require every job", "conclusion": "success"}] if name == "check-hosted" else
+                               [{"name": "Run mix check", "conclusion": "success"}]))
+            job = dict(copy.deepcopy(self.job), id=901 + position, name=name, steps=steps)
+            if skipped:
+                job["conclusion"] = "skipped"
+            job.update(copy.deepcopy(self.jobs_changes.get(name, {})))
+            jobs.append(job)
+        return jobs + copy.deepcopy(self.extra_jobs)
 
     def json(self, path):
         self.calls.append(path)
@@ -114,8 +144,8 @@ class FakeApi:
             body.update(self.listing_changes)
             return body
         if "/attempts/" in path:
-            jobs = self.jobs if self.jobs is not None else [copy.deepcopy(self.job)]
-            return dict(total_count=len(jobs), jobs=jobs)
+            jobs = self.jobs if self.jobs is not None else self.build_jobs()
+            return dict(total_count=len(jobs) if self.jobs_total is None else self.jobs_total, jobs=jobs)
         out = copy.deepcopy(self.run)
         out.update(self.reread)
         return out
@@ -124,7 +154,19 @@ class FakeApi:
         self.calls.append(path)
         if self.fail and self.fail in path:
             raise skip.Full(f"API {path} answered HTTP 500")
-        return self.log
+        position = int(path.split("/jobs/")[1].split("/")[0]) - 901
+        name = self.NAMES[position]
+        if name in self.logs_by_job:
+            return self.logs_by_job[name]
+        if self.log is not None:
+            return self.log
+        if name == "check-plan":
+            if self.docs:
+                return self.STAMP + "ELZOO DOCS-ONLY CHECK PASSED\n" + self.STAMP + "ELZOO PLAN: run=false skip=false docs_only=true\n"
+            return self.STAMP + "ELZOO PLAN: run=true skip=false docs_only=false\n"
+        if name == "check-hosted":
+            return "" if self.docs else self.STAMP + "ELZOO CHECK PASSED\n"
+        return "" if self.docs else self.STAMP + self.WORK[name] + "\n"
 
 
 class DecisionTest(unittest.TestCase):
@@ -156,8 +198,8 @@ class DecisionTest(unittest.TestCase):
     def test_identical_tree_and_passed_exact_head_run_skips(self):
         (verdict, reason, details), api, second = self.decide("merge")
         self.assertTrue(verdict)
-        self.assertEqual((second, 900, 901, "GitHub Actions 7"),
-                         (details["second_parent"], details["run"], details["job"], details["runner"]))
+        self.assertEqual((second, 900, "check-plan:901,check-root:902,check-consumers-db:903,check-consumers:904,check-hosted:905"),
+                         (details["second_parent"], details["run"], details["jobs"]))
         self.assertRegex(reason, "identical tree")
 
     def test_same_change_on_main_still_has_an_identical_tree_and_skips(self):
@@ -252,8 +294,7 @@ class DecisionTest(unittest.TestCase):
             skip.decide(env, run_git, api)
 
     def test_job_evidence_rules(self):
-        gate = {"name": "Verify the GitHub-hosted runner", "conclusion": "success"}
-        mix = {"name": "Run mix check", "conclusion": "success"}
+        # ELZ-073: every executed job of the unit must pass the same rules, one job at a time.
         cases = {
             "job not success": dict(conclusion="failure"),
             "job not completed": dict(status="in_progress"),
@@ -271,43 +312,124 @@ class DecisionTest(unittest.TestCase):
             "short runner name": dict(runner_name="GitHub Actions"),
             "long runner name": dict(runner_name="GitHub Actions 7 extra"),
             "no runner name": dict(runner_name=None),
-            "no identity step": dict(steps=[mix]),
-            "identity step skipped": dict(steps=[dict(gate, conclusion="skipped"), mix]),
-            "identity step failed": dict(steps=[dict(gate, conclusion="failure"), mix]),
-            "identity step twice": dict(steps=[gate, gate, mix]),
-            "no mix check step": dict(steps=[gate]),
-            "mix check skipped": dict(steps=[gate, dict(mix, conclusion="skipped")]),
-            "mix check failed": dict(steps=[gate, dict(mix, conclusion="failure")]),
-            "mix check twice": dict(steps=[gate, mix, mix]),
         }
-        for label, changes in cases.items():
-            with self.subTest(label=label):
-                env, run_git, second = self.scenario("merge")
+        env, run_git, second = self.scenario("merge")
+        for name in FakeApi.NAMES:
+            for label, changes in cases.items():
+                with self.subTest(job=name, label=label):
+                    api = FakeApi(second)
+                    api.jobs_changes[name] = changes
+                    with self.assertRaises(skip.Full):
+                        skip.decide(env, run_git, api)
+
+    @staticmethod
+    def step_variants(steps, step_name):
+        index = next(i for i, step in enumerate(steps) if step["name"] == step_name)
+        item = steps[index]
+        return {"missing": steps[:index] + steps[index + 1:],
+                "skipped": steps[:index] + [dict(item, conclusion="skipped")] + steps[index + 1:],
+                "failed": steps[:index] + [dict(item, conclusion="failure")] + steps[index + 1:],
+                "twice": steps[:index + 1] + [item] + steps[index + 1:]}
+
+    def test_step_rules_per_job_role(self):
+        env, run_git, second = self.scenario("merge")
+        base = {job["name"]: job["steps"] for job in FakeApi(second).build_jobs()}
+        wanted = [(name, "Verify the GitHub-hosted runner") for name in FakeApi.NAMES]
+        wanted += [(name, "Run mix check") for name in FakeApi.WORK]
+        wanted += [("check-plan", "Classify the change"), ("check-hosted", "Require every job")]
+        for name, step_name in wanted:
+            for how, steps in self.step_variants(base[name], step_name).items():
+                with self.subTest(job=name, step=step_name, how=how):
+                    api = FakeApi(second)
+                    api.jobs_changes[name] = dict(steps=steps)
+                    with self.assertRaises(skip.Full):
+                        skip.decide(env, run_git, api)
+        # the docs-only step must be skipped in a full run: missing, twice, failed or executed all refuse
+        for how, steps in self.step_variants(base["check-plan"], "Docs-only check").items():
+            if how == "skipped":
+                continue            # the skipped state is the normal full-run state
+            with self.subTest(step="Docs-only check", how=how):
                 api = FakeApi(second)
-                api.job.update(changes)
+                api.jobs_changes["check-plan"] = dict(steps=steps)
                 with self.assertRaises(skip.Full):
                     skip.decide(env, run_git, api)
+        ran = [dict(step, conclusion="success") if step["name"] == "Docs-only check" else step for step in base["check-plan"]]
+        api = FakeApi(second)
+        api.jobs_changes["check-plan"] = dict(steps=ran)
+        with self.assertRaisesRegex(skip.Full, "docs-only step ran in a full run"):
+            skip.decide(env, run_git, api)
 
     def test_job_list_shapes(self):
         env, run_git, second = self.scenario("merge")
-        api0 = FakeApi(second)
-        hosted, other = api0.job, api0.skipped
-        shapes = {
-            "no job ran": [dict(hosted, conclusion="skipped")],
-            "second job skipped": [hosted, other],
-            "second job executed": [hosted, dict(other, conclusion="success")],
-            "removed check-fast executed": [dict(hosted, name="check-fast")],
-            "removed check-any executed": [dict(hosted, name="check-any")],
-            "two check-hosted": [hosted, dict(hosted, id=999)],
-            "extra job": [hosted, dict(other, id=903, name="other")],
-            "empty": [],
-        }
+        base = FakeApi(second).build_jobs()
+        by_name = {job["name"]: job for job in base}
+        shapes = {"empty": [],
+                  "only the aggregator (the earlier single-job shape)": [by_name["check-hosted"]],
+                  "extra job": base + [dict(by_name["check-root"], id=999, name="other")],
+                  "removed check-fast executed": base[:-1] + [dict(by_name["check-hosted"], name="check-fast")]}
+        for name in FakeApi.NAMES:
+            shapes[f"{name} missing"] = [job for job in base if job["name"] != name]
+            shapes[f"{name} twice"] = base + [dict(by_name[name], id=990)]
         for label, jobs in shapes.items():
             with self.subTest(label=label):
                 api = FakeApi(second)
                 api.jobs = copy.deepcopy(jobs)
                 with self.assertRaises(skip.Full):
                     skip.decide(env, run_git, api)
+
+    def test_the_job_listing_must_be_complete_and_well_formed(self):
+        env, run_git, second = self.scenario("merge")
+        for label, total in {"more jobs exist": 6, "fewer jobs exist": 4, "no count": None, "text count": "5"}.items():
+            with self.subTest(label=label):
+                api = FakeApi(second)
+                api.jobs_total = total if total is not None else -1
+                if total is None:
+                    api.jobs = api.build_jobs()
+                    api.jobs_total = 0
+                with self.assertRaisesRegex(skip.Full, "job listing incomplete"):
+                    skip.decide(env, run_git, api)
+        api = FakeApi(second)
+        api.jobs = FakeApi(second).build_jobs() + ["not a job"]
+        api.jobs_total = 6
+        with self.assertRaisesRegex(skip.Full, "job listing malformed"):
+            skip.decide(env, run_git, api)
+
+    def test_skipped_jobs_are_never_full_evidence(self):
+        env, run_git, second = self.scenario("merge")
+        work = list(FakeApi.WORK)
+        for skipped in ([work[0]], [work[1]], [work[2]], work[:2], work[1:], ["check-plan"], ["check-hosted"],
+                        ["check-plan", "check-hosted"], ["check-plan"] + work):
+            with self.subTest(skipped=skipped):
+                api = FakeApi(second)
+                for name in skipped:
+                    api.jobs_changes[name] = dict(conclusion="skipped")
+                with self.assertRaises(skip.Full):
+                    skip.decide(env, run_git, api)
+
+    def test_a_job_copied_from_an_earlier_attempt_is_not_evidence(self):
+        # A partial re-run copies the green jobs of the earlier attempt with new IDs and the old start time.
+        env, run_git, second = self.scenario("merge")
+        for started in ("2026-11-08T11:59:59Z", "2026-11-07T12:00:10Z"):
+            for name in FakeApi.NAMES:
+                with self.subTest(job=name, started=started):
+                    api = FakeApi(second)
+                    api.jobs_changes[name] = dict(started_at=started)
+                    with self.assertRaisesRegex(skip.Full, "earlier attempt"):
+                        skip.decide(env, run_git, api)
+        control = FakeApi(second)       # a job that starts at the very second of the run start is accepted
+        for name in FakeApi.NAMES:
+            control.jobs_changes[name] = dict(started_at="2026-11-08T12:00:00Z")
+        self.assertTrue(skip.decide(env, run_git, control)[0])
+        for bad in (None, "", "yesterday", 5):
+            with self.subTest(start=bad):
+                for target in ("run", "job"):
+                    api = FakeApi(second)
+                    if target == "run":
+                        api.run["run_started_at"] = bad
+                    else:
+                        api.jobs_changes["check-root"] = dict(started_at=bad)
+                    with self.assertRaises(skip.Full):
+                        skip.decide(env, run_git, api)
 
     # ELZ-059: the same-repository pull_request run is the merge evidence; the dispatch run is the fallback.
     PR_RUN = dict(event="pull_request", head_repository={"full_name": "balungpisah/elzoo"})
@@ -380,14 +502,30 @@ class DecisionTest(unittest.TestCase):
 
     def test_log_markers(self):
         env, run_git, second = self.scenario("merge")
-        for log in ("", "ELZOO AFFECTED CHECK PASSED", "echo 'ELZOO CHECK PASSED'",
-                    "ELZOO CHECK PASSED\nELZOO AFFECTED CHECK PASSED (not full consumer acceptance)",
-                    "ELZOO CHECK PASSED but not really", "ELZOO PUSH CHECK SKIPPED (identical tree)"):
-            with self.subTest(log=log):
-                api = FakeApi(second)
-                api.log = log
-                with self.assertRaisesRegex(skip.Full, "marker"):
-                    skip.decide(env, run_git, api)
+        stamp = FakeApi.STAMP
+        bad_for = {
+            "check-hosted": ["", "ELZOO AFFECTED CHECK PASSED", "echo 'ELZOO CHECK PASSED'",
+                             "ELZOO CHECK PASSED\nELZOO AFFECTED CHECK PASSED (not full consumer acceptance)",
+                             "ELZOO CHECK PASSED but not really", "ELZOO PUSH CHECK SKIPPED (identical tree)"],
+            "check-plan": ["", "ELZOO PLAN: run=false skip=false docs_only=false", "ELZOO PLAN: run=true",
+                           "echo 'ELZOO PLAN: run=true skip=false docs_only=false'"],
+        }
+        for name, marker in FakeApi.WORK.items():
+            bad_for[name] = ["", "ELZOO CHECK PASSED", f"echo '{marker}'", f"{marker} but not really",
+                             f"{marker}\nELZOO AFFECTED CHECK PASSED (not full consumer acceptance)",
+                             *[other for other in FakeApi.WORK.values() if other != marker]]
+        for name, logs in bad_for.items():
+            for log in logs:
+                with self.subTest(job=name, log=log):
+                    api = FakeApi(second)
+                    api.logs_by_job[name] = log
+                    with self.assertRaisesRegex(skip.Full, "marker|plan did not say run=true"):
+                        skip.decide(env, run_git, api)
+        # a docs-only marker in the plan log of a full run
+        api = FakeApi(second)
+        api.logs_by_job["check-plan"] = stamp + "ELZOO PLAN: run=true skip=false docs_only=false\n" + stamp + "ELZOO DOCS-ONLY CHECK PASSED\n"
+        with self.assertRaisesRegex(skip.Full, "docs-only marker present in a full run"):
+            skip.decide(env, run_git, api)
 
     def test_run_that_changes_while_reading_is_refused(self):
         env, run_git, second = self.scenario("merge")
@@ -415,7 +553,7 @@ class DecisionTest(unittest.TestCase):
         skip.main(env, run_git, FakeApi(second), out=lines.append)
         self.assertEqual("skip=true\n", output.read_text())
         self.assertTrue(lines[0].startswith("ELZOO PUSH CHECK SKIPPED (identical tree; exact-head full run passed):"))
-        self.assertIn("run=900 job=901 runner=GitHub Actions 7", lines[0])
+        self.assertIn("run=900 jobs=check-plan:901,check-root:902,check-consumers-db:903,check-consumers:904,check-hosted:905", lines[0])
         self.assertNotIn("ELZOO CHECK PASSED", lines[0])  # the success marker stays reserved for a run of mix check
 
     def test_main_never_fails_and_prints_skip_false_on_any_error(self):
@@ -504,7 +642,8 @@ class HttpTest(unittest.TestCase):
 class DocsOnlyDecision(unittest.TestCase):
     """ELZ-071: a documentation-only merge is skipped on the short check of its pull_request run."""
 
-    MARKER = "2026-11-09T05:00:00.0000000Z ELZOO DOCS-ONLY CHECK PASSED\n"
+    MARKER = ("2026-11-09T05:00:00.0000000Z ELZOO DOCS-ONLY CHECK PASSED\n"
+              "2026-11-09T05:00:00.0000000Z ELZOO PLAN: run=false skip=false docs_only=true\n")
 
     def scenario(self, name):
         path = tempfile.mkdtemp(prefix="elzoo-skip-docs-")
@@ -514,15 +653,14 @@ class DocsOnlyDecision(unittest.TestCase):
                "GITHUB_REPOSITORY": "balungpisah/elzoo", "GITHUB_TOKEN": "token"}
         return env, (lambda *argv: sh(repo, *argv)), second
 
-    def api(self, second, steps=None, log=None, event="pull_request", **run):
+    def api(self, second, steps=None, log=None, event="pull_request", docs=True, **run):
+        """`steps` are the plan job's steps after the identity step; `log` is the plan job's log."""
         api = FakeApi(second)
         api.run.update(event=event, head_repository={"full_name": "balungpisah/elzoo"}, **run)
-        api.job["steps"] = steps if steps is not None else [
-            {"name": "Verify the GitHub-hosted runner", "conclusion": "success"},
-            {"name": "Classify the change", "conclusion": "success"},
-            {"name": "Run mix check", "conclusion": "skipped"},
-            {"name": "Docs-only check", "conclusion": "success"}]
-        api.log = log if log is not None else self.MARKER
+        api.docs = docs
+        api.plan_steps = steps
+        if log is not None:
+            api.logs_by_job["check-plan"] = log
         return api
 
     def decide(self, name="docs", **kwargs):
@@ -538,7 +676,8 @@ class DocsOnlyDecision(unittest.TestCase):
         (verdict, reason, details), second = self.decide()
         self.assertTrue(verdict)
         self.assertRegex(reason, "documentation-only change")
-        self.assertEqual(("docs-only", second, 900, 901), (details["mode"], details["second_parent"], details["run"], details["job"]))
+        self.assertEqual(("docs-only", second, 900), (details["mode"], details["second_parent"], details["run"]))
+        self.assertIn("check-plan:901", details["jobs"])
 
     def test_the_log_line_names_the_short_check(self):
         env, run_git, second = self.scenario("docs")
@@ -573,36 +712,62 @@ class DocsOnlyDecision(unittest.TestCase):
                     skip.decide(env, run_git, api)
 
     def test_every_step_of_the_short_check_must_be_green_once(self):
-        gate = {"name": "Verify the GitHub-hosted runner", "conclusion": "success"}
-
-        def shape(classify="success", mix="skipped", docs="success", extra=()):
-            return [gate] + ([{"name": "Classify the change", "conclusion": classify}] if classify else []) + \
-                   ([{"name": "Run mix check", "conclusion": mix}] if mix else []) + \
+        def shape(classify="success", docs="success", extra=()):
+            return ([{"name": "Classify the change", "conclusion": classify}] if classify else []) + \
                    ([{"name": "Docs-only check", "conclusion": docs}] if docs else []) + list(extra)
         bad = {"docs-only check failed": shape(docs="failure"), "docs-only check skipped": shape(docs="skipped"),
                "docs-only check missing": shape(docs=None), "classify failed": shape(classify="failure"),
                "classify skipped": shape(classify="skipped"), "classify missing": shape(classify=None),
                "classify twice": shape(extra=[{"name": "Classify the change", "conclusion": "success"}]),
-               "docs-only check twice": shape(extra=[{"name": "Docs-only check", "conclusion": "success"}]),
-               "mix check missing": shape(mix=None), "mix check failed": shape(mix="failure"),
-               "mix check cancelled": shape(mix="cancelled")}
+               "docs-only check twice": shape(extra=[{"name": "Docs-only check", "conclusion": "success"}])}
         for label, steps in bad.items():
             with self.subTest(label=label):
-                self.refuses("docs-only check steps|Run mix check step missing", steps=steps)
+                self.refuses("classification step|docs-only check step", steps=steps)
+
+    def test_a_work_job_that_ran_is_not_a_short_check(self):
+        # In a docs-only run the three work jobs are skipped; one executed job makes the run neither shape.
+        for name in FakeApi.WORK:
+            with self.subTest(job=name):
+                env, run_git, second = self.scenario("docs")
+                api = self.api(second)
+                api.jobs_changes[name] = dict(conclusion="success", steps=[
+                    {"name": "Verify the GitHub-hosted runner", "conclusion": "success"},
+                    {"name": "Run mix check", "conclusion": "success"}])
+                with self.assertRaisesRegex(skip.Full, "partly skipped"):
+                    skip.decide(env, run_git, api)
+
+    def test_the_short_check_needs_the_plan_line_and_a_skipped_work_set(self):
+        stamp = FakeApi.STAMP
+        marker = stamp + "ELZOO DOCS-ONLY CHECK PASSED\n"
+        for label, log in {"plan says run=true": marker + stamp + "ELZOO PLAN: run=true skip=false docs_only=true\n",
+                           "plan says docs_only=false": marker + stamp + "ELZOO PLAN: run=false skip=false docs_only=false\n",
+                           "no plan line": marker}.items():
+            with self.subTest(label=label):
+                self.refuses("docs-only success marker or plan line missing", log=log)
+        for name in ("check-hosted",):
+            env, run_git, second = self.scenario("docs")
+            api = self.api(second)
+            api.logs_by_job[name] = stamp + "ELZOO CHECK PASSED\n"
+            with self.assertRaisesRegex(skip.Full, "full or affected-mode marker"):
+                skip.decide(env, run_git, api)
 
     def test_the_marker_must_be_a_line_of_its_own_and_alone(self):
         marker = "ELZOO DOCS-ONLY CHECK PASSED"
-        for label, log in {"timestamp": f"2026-11-09T05:00:00.0000000Z {marker}\n", "bare": f"{marker}\n",
-                           "crlf": f"{marker}\r\n"}.items():
+        plan = "2026-11-09T05:00:00.0000000Z ELZOO PLAN: run=false skip=false docs_only=true\n"
+        for label, log in {"timestamp": f"2026-11-09T05:00:00.0000000Z {marker}\n{plan}", "bare": f"{marker}\n{plan}",
+                           "crlf": f"{marker}\r\n{plan}"}.items():
             with self.subTest(label=label):
                 (verdict, _reason, _details), _second = self.decide(log=log)
                 self.assertTrue(verdict)
-        for label, log in {"none": "", "other": "all done\n", "echo": f'echo "{marker}"\n', "prefix": f"x {marker}\n",
-                           "suffix": f"{marker} nope\n", "full marker only": "ELZOO CHECK PASSED\n",
-                           "both": f"{marker}\nELZOO CHECK PASSED\n",
-                           "affected": f"{marker}\nELZOO AFFECTED CHECK PASSED (not full)\n"}.items():
+        for label, log in {"none": plan, "other": f"all done\n{plan}", "echo": f'echo "{marker}"\n{plan}',
+                           "prefix": f"x {marker}\n{plan}", "suffix": f"{marker} nope\n{plan}",
+                           "full marker only": f"ELZOO CHECK PASSED\n{plan}"}.items():
             with self.subTest(label=label):
-                self.refuses("docs-only success marker missing", log=log)
+                self.refuses("docs-only success marker or plan line missing", log=log)
+        for label, log in {"both": f"{marker}\n{plan}ELZOO CHECK PASSED\n",
+                           "affected": f"{marker}\n{plan}ELZOO AFFECTED CHECK PASSED (not full)\n"}.items():
+            with self.subTest(label=label):
+                self.refuses("full or affected-mode marker", log=log)
 
     # --- review of PR #135, finding 1: the short check must not hide a red or unfinished main --------------------
     def first_parent_refuses(self, runs=None, **changes):
@@ -684,9 +849,7 @@ class DocsOnlyDecision(unittest.TestCase):
         self.assertEqual([], [c for c in api.calls if "event=push" in c])
 
     def test_a_full_run_still_skips_a_documentation_merge_too(self):
-        (verdict, reason, details), _second = self.decide(
-            steps=[{"name": "Verify the GitHub-hosted runner", "conclusion": "success"},
-                   {"name": "Run mix check", "conclusion": "success"}], log="ELZOO CHECK PASSED\n")
+        (verdict, reason, details), _second = self.decide(docs=False)
         self.assertTrue(verdict)
         self.assertEqual("full", details["mode"])
 

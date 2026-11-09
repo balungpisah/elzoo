@@ -24,6 +24,7 @@ runs no tests, so it must not hide a red or unfinished push run of that main beh
 Fail closed: every other case, and every error, prints skip=false (a full run). The script never
 exits non-zero because it cannot decide. It writes skip=true|false to $GITHUB_OUTPUT.
 """
+import datetime
 import importlib.util
 import json
 import os
@@ -39,14 +40,18 @@ sys.dont_write_bytecode = True
 
 WORKFLOW = "symbolic-check.yml"
 HOSTED_JOB = "check-hosted"
+# ELZ-073: one run has five jobs and is one evidence unit (see scripts/merge-queue.py, which reads the same rules).
+PLAN_JOB = "check-plan"
+WORK_PARTS = (("check-root", "ELZOO ROOT SUITE PASSED"), ("check-consumers-db", "ELZOO CONSUMERS DB PASSED"),
+              ("check-consumers", "ELZOO CONSUMERS PASSED"))
+BACKEND_JOBS = (PLAN_JOB,) + tuple(job for job, _marker in WORK_PARTS) + (HOSTED_JOB,)
+LOG_STAMP = r"(?m)^(?:\d{4}-\d\d-\d\dT[0-9:.]+Z )?"
 HOSTED_GROUP = "GitHub Actions"
 HOSTED_LABELS = ["ubuntu-24.04"]
 HOSTED_RUNNER = re.compile(r"GitHub Actions [0-9]+")
 HOSTED_GATE_STEP = "Verify the GitHub-hosted runner"
 SHA = re.compile(r"[0-9a-f]{40}")
 BRANCH = re.compile(r"task/ELZ-[0-9]{3}")
-MARKER = re.compile(r"(?m)^(?:\d{4}-\d\d-\d\dT[0-9:.]+Z )?ELZOO CHECK PASSED\s*$")
-DOCS_MARKER = re.compile(r"(?m)^(?:\d{4}-\d\d-\d\dT[0-9:.]+Z )?ELZOO DOCS-ONLY CHECK PASSED\s*$")
 API_ROOT = "https://api.github.com"
 HOST = re.compile(r"[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+")
 # The job-log endpoint answers with a redirect to GitHub's Actions results storage (observed 2026-11-08:
@@ -133,6 +138,14 @@ def git(*argv):
     result = subprocess.run(["git", *argv], capture_output=True, text=True, timeout=60)
     need(result.returncode == 0, f"git {' '.join(argv)} failed")
     return result.stdout.strip()
+
+
+def parse_time(value, what):
+    """A GitHub UTC timestamp as a datetime; anything else is a reason to run the full check."""
+    try:
+        return datetime.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+    except (TypeError, ValueError) as error:
+        raise Full(f"invalid {what}: {value!r}") from error
 
 
 def load_classifier():
@@ -236,48 +249,78 @@ def decide(env, run_git=git, api=None):
     jobs_page = api.json(f"actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100")
     jobs = jobs_page.get("jobs")
     need(isinstance(jobs, list) and jobs_page.get("total_count") == len(jobs), "job listing incomplete")
-    names = [job.get("name") for job in jobs]
-    need(len(set(names)) == len(names) and all(name == HOSTED_JOB for name in names),
-         "unknown or duplicate backend jobs")
-    executed = [job for job in jobs if job.get("conclusion") != "skipped"]
-    need(len(executed) == 1 and executed[0].get("name") == HOSTED_JOB,
-         "jobs are not one executed check-hosted job")
-    job = executed[0]
-    need(job.get("run_id") == run_id and job.get("head_sha") == second and job.get("status") == "completed"
-         and job.get("conclusion") == "success" and isinstance(job.get("id"), int), "job evidence mismatch")
-    need(job.get("runner_group_name") == HOSTED_GROUP and job.get("labels") == HOSTED_LABELS
-         and isinstance(job.get("runner_name"), str) and HOSTED_RUNNER.fullmatch(job["runner_name"]),
-         "job did not run on an approved GitHub-hosted runner")
-    gate = [step for step in job.get("steps", []) if step.get("name") == HOSTED_GATE_STEP]
-    need(len(gate) == 1 and gate[0].get("conclusion") == "success", "hosted runner identity step not green")
-    steps = [step for step in job.get("steps", []) if step.get("name") == "Run mix check"]
-    mode = "full"
-    if len(steps) == 1 and steps[0].get("conclusion") == "skipped":
+    need(all(isinstance(job, dict) for job in jobs), "job listing malformed")
+    need(sorted(str(job.get("name")) for job in jobs) == sorted(BACKEND_JOBS), "the jobs are not the five backend jobs, once each")
+    by_name = {job["name"]: job for job in jobs}
+    began = parse_time(run.get("run_started_at"), "run start")
+    for job in jobs:
+        if job.get("conclusion") == "skipped":
+            continue
+        name = job["name"]
+        need(job.get("run_id") == run_id and job.get("head_sha") == second and job.get("status") == "completed"
+             and job.get("conclusion") == "success" and isinstance(job.get("id"), int), f"job evidence mismatch ({name})")
+        need(job.get("runner_group_name") == HOSTED_GROUP and job.get("labels") == HOSTED_LABELS
+             and isinstance(job.get("runner_name"), str) and HOSTED_RUNNER.fullmatch(job["runner_name"]),
+             f"job did not run on an approved GitHub-hosted runner ({name})")
+        gate = [step for step in job.get("steps", []) if step.get("name") == HOSTED_GATE_STEP]
+        need(len(gate) == 1 and gate[0].get("conclusion") == "success", f"hosted runner identity step not green ({name})")
+        # A partial re-run copies the green jobs of the earlier attempt into the new one (new ID, old start time).
+        need(parse_time(job.get("started_at"), f"job start ({name})") >= began, f"job {name} ran in an earlier attempt")
+    plan, aggregate = by_name[PLAN_JOB], by_name[HOSTED_JOB]
+    need(plan.get("conclusion") != "skipped" and aggregate.get("conclusion") != "skipped",
+         "the plan job and the aggregating job must have run")
+    work = [by_name[job] for job, _marker in WORK_PARTS]
+    ran = [job for job in work if job.get("conclusion") != "skipped"]
+    mode = "full" if len(ran) == len(work) else "docs-only"
+    need(mode == "full" or not ran, "the work jobs are partly skipped: not a full run")
+    logs = {}
+
+    def log(job):
+        if job["name"] not in logs:
+            logs[job["name"]] = api.text(f"actions/jobs/{job['id']}/logs")
+        return logs[job["name"]]
+
+    def step(job, name):
+        return [item for item in job.get("steps", []) if item.get("name") == name]
+
+    def has_line(job, text):
+        return re.search(LOG_STAMP + text + r"\s*$", log(job)) is not None
+
+    classify, docs_step = step(plan, "Classify the change"), step(plan, "Docs-only check")
+    need(len(classify) == 1 and classify[0].get("conclusion") == "success", "the classification step is not green")
+    need(len(step(aggregate, "Require every job")) == 1 and step(aggregate, "Require every job")[0].get("conclusion") == "success",
+         "the aggregating step is not green")
+    if mode == "full":
+        need(len(docs_step) == 1 and docs_step[0].get("conclusion") == "skipped", "the docs-only step ran in a full run")
+        need(has_line(plan, r"ELZOO PLAN: run=true skip=\S+ docs_only=\S+"), "the plan did not say run=true")
+        for job in work:
+            mix = step(job, "Run mix check")
+            need(len(mix) == 1 and mix[0].get("conclusion") == "success", f"Run mix check step not green ({job['name']})")
+        for name, marker in WORK_PARTS:
+            need(has_line(by_name[name], re.escape(marker)) and "ELZOO AFFECTED CHECK PASSED" not in log(by_name[name]),
+                 f"part marker missing or affected-mode marker present ({name})")
+        need(has_line(aggregate, "ELZOO CHECK PASSED") and "ELZOO AFFECTED CHECK PASSED" not in log(aggregate),
+             "full success marker missing or affected-mode marker present in the aggregating job")
+        need(not has_line(plan, "ELZOO DOCS-ONLY CHECK PASSED"), "docs-only marker present in a full run")
+    else:
         # ELZ-071: the short check of a documentation-only pull_request run.
-        need(run.get("event") == "pull_request", "a skipped full check is evidence only on a pull_request run")
+        need(run.get("event") == "pull_request", "a run without the work jobs is evidence only on a pull_request run")
         need(docs_only_merge(run_git, parents[1], sha), "the change of the merge is not documentation only")
         need(first_parent_verified(api, parents[1]),
              "the push run of the first parent is not a completed success; the short check would hide it")
-        named = [[step for step in job.get("steps", []) if step.get("name") == name]
-                 for name in ("Classify the change", "Docs-only check")]
-        need(all(len(found) == 1 and found[0].get("conclusion") == "success" for found in named),
-             "the docs-only check steps are not green")
-        mode = "docs-only"
-    else:
-        need(len(steps) == 1 and steps[0].get("conclusion") == "success", "Run mix check step missing or not green")
-    log = api.text(f"actions/jobs/{job['id']}/logs")
-    if mode == "full":
-        need(MARKER.search(log) and "ELZOO AFFECTED CHECK PASSED" not in log,
-             "full success marker missing or affected-mode marker present")
-    else:
-        need(DOCS_MARKER.search(log) and not MARKER.search(log) and "ELZOO AFFECTED CHECK PASSED" not in log,
-             "docs-only success marker missing, or a full or affected-mode marker present")
+        need(len(docs_step) == 1 and docs_step[0].get("conclusion") == "success", "the docs-only check step is not green")
+        need(has_line(plan, "ELZOO DOCS-ONLY CHECK PASSED") and has_line(plan, r"ELZOO PLAN: run=false skip=\S+ docs_only=true"),
+             "docs-only success marker or plan line missing")
+        need(not has_line(aggregate, "ELZOO CHECK PASSED") and not has_line(plan, "ELZOO CHECK PASSED")
+             and "ELZOO AFFECTED CHECK PASSED" not in log(plan),
+             "a full or affected-mode marker is present in a docs-only run")
 
     latest = api.json(f"actions/runs/{run_id}")
     need(latest.get("id") == run_id and latest.get("status") == "completed"
          and latest.get("conclusion") == "success" and latest.get("run_attempt") == attempt,
          "run changed while reading it")
-    details = dict(second_parent=second, tree=tree, run=run_id, job=job["id"], runner=job["runner_name"], mode=mode)
+    details = dict(second_parent=second, tree=tree, run=run_id, mode=mode,
+                   jobs=",".join(name + ":" + str(by_name[name]["id"]) for name in BACKEND_JOBS))
     if mode == "docs-only":
         return True, "identical tree, documentation-only change and a passed exact-head docs-only check", details
     return True, "identical tree and a passed exact-head full run", details
@@ -295,7 +338,7 @@ def main(env=None, run_git=git, api=None, out=print):
         kind = "docs-only check" if details.get("mode") == "docs-only" else "full run"
         out(f"ELZOO PUSH CHECK SKIPPED (identical tree; exact-head {kind} passed): "
             f"second_parent={details['second_parent']} tree={details['tree']} "
-            f"run={details['run']} job={details['job']} runner={details['runner']}")
+            f"run={details['run']} jobs={details['jobs']}")
     else:
         out(f"ELZOO PUSH CHECK DECISION: full check runs ({reason})")
     target = env.get("GITHUB_OUTPUT")
