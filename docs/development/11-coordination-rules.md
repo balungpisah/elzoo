@@ -17,9 +17,11 @@ owner's priorities and the live task bodies decide what is built.
   full check; the decision record (#119) names the 100-connection limit as the reason for the
   cap.
 - The main coordinator's decision record (#119) sets the caps per host: at most three task
-  workers running Mix at once, one bare `mix check` at a time, one disposable database per
-  worker; an idle, held worker does not count; the caps are re-measured whenever the CI lane
-  or the host changes.
+  workers running Mix at once, one disposable database per worker; an idle, held worker does
+  not count; the caps are re-measured whenever the CI lane or the host changes. Since ELZ-076
+  the worker gate is the affected run, so the one-full-check-at-a-time cap applies only to the
+  rare local full `mix check` after a dependency, configuration or toolchain change, and the
+  host full-check slot granted by a coordinator is retired.
 - Use the assigned disposable database. Before schema or data effects, verify the effective
   target with a fail-closed guard; the identification query itself precedes that verification.
   Source: the ELZ-028 and ELZ-031 task records.
@@ -82,11 +84,11 @@ owner's priorities and the live task bodies decide what is built.
 
 ## 6. Agent identifier
 
-- Do not derive the identifier from a hostname; include the other claim metadata required by
-  `AGENTS.md` (stable ID, issue number, login, time, base SHA, and branch and claim SHA in the
-  issue comment). Source: `AGENTS.md` claim procedure and the decision record (#119). Claim
-  markers and claim commits are part of Git history, so public history can expose a
-  hostname-derived identifier (an inference, not a recorded quotation).
+- Do not derive the identifier from a hostname; the claim comment on the issue names the
+  branch, the base SHA and the identifier (since ELZ-076 the pushed branch is the claim and no
+  marker file or claim commit exists). Source: `AGENTS.md` claim procedure and the decision
+  record (#119). Earlier claim commits remain in Git history, so public history can expose a
+  hostname-derived identifier from before the rule (an inference, not a recorded quotation).
 
 ## 7. Evidence packet
 
