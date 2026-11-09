@@ -137,15 +137,10 @@ jobs:
           key: ${{ steps.deps-cache.outputs.cache-primary-key }}
       - name: Run mix check
         if: ${{ steps.skip.outputs.skip != 'true' }}
-        env:
-          ELZOO_CHECK_EVENT: ${{ github.event_name }}
-          ELZOO_CHECK_BASE: ${{ github.event.pull_request.base.sha }}
-        run: |
-          if [ "${ELZOO_CHECK_EVENT:-}" = pull_request ]; then
-            sh scripts/run-ci-check.sh --affected "${ELZOO_CHECK_BASE:-}"
-          else
-            sh scripts/run-ci-check.sh
-          fi
+        run: sh scripts/run-ci-check.sh
+      - name: Check the roadmap views
+        if: ${{ steps.skip.outputs.skip != 'true' }}
+        run: python3 scripts/check-roadmap.py
       - name: Report container resource observations
         if: always()
         run: |

@@ -3,6 +3,11 @@
 
 Run from this repository. This is not branch protection or an independent review.
 No branch deletion, issue closure, or acceptance posting is performed.
+
+ELZ-059: the full pull_request run of the exact head is the merge evidence; the queue adopts it (it never
+cancels it) and dispatches a run only when GitHub started none within a bounded wait. The queue refuses to
+merge while the latest completed push run of main is red and not classified on issue #98, and it requires the
+Gleam pull_request run only when the pull request changes a Gleam path.
 """
 import argparse
 import json
@@ -14,6 +19,13 @@ from urllib.parse import urlencode
 
 REPO = "balungpisah/elzoo"
 WORKFLOW = "symbolic-check.yml"
+PR_RUN_WAIT = 300  # seconds to wait for GitHub to start the pull_request run of the exact head
+FREEZE_ISSUE = 98  # classifications of a red run of main are comments on this issue
+CLASSIFICATION = re.compile(r"CI main status: freeze classification run=([0-9]+) class=(infrastructure|defect|conflict)")
+# ELZ-059: the Gleam gate applies only to a pull request that changes one of these paths. The guard cannot be
+# split by content, so the whole of both guard files counts.
+GLEAM_PREFIX = "spikes/gleam_ui/"
+GLEAM_PATHS = {".github/workflows/symbolic-gleam.yml", "scripts/check-ci-runners.py", "scripts/test-ci-runners.py"}
 GLEAM_WORKFLOW = "symbolic-gleam.yml"
 # ELZ-069: one lane, GitHub-hosted. The only backend job is check-hosted, the only Gleam job is gleam-hosted.
 HOSTED_JOB = "check-hosted"
@@ -59,7 +71,7 @@ def command(argv, allowed=(0,)):
 
 
 # ELZ-058 item 4: read-only gh and git calls are retried on transport errors and gateway errors, with a
-# bounded backoff, before the queue stops. Writes (dispatch, update-branch, merge, cancel) are never retried
+# bounded backoff, before the queue stops. Writes (dispatch, update-branch, merge) are never retried
 # here: a repeated dispatch would create a second run.
 TRANSIENT = re.compile(
     r"TLS handshake timeout|connection reset|connection refused|i/o timeout|timeout awaiting|"
@@ -118,7 +130,8 @@ def valid_sha(value):
 
 class Queue:
     def __init__(self, run=command, sleep=time.sleep, clock=time.monotonic,
-                 timeout=10800, poll=15, emit=print):
+                 timeout=10800, poll=15, emit=print, pr_run_wait=PR_RUN_WAIT):
+        self.pr_run_wait = pr_run_wait
         self.sleep, self.clock = sleep, clock
         self.timeout, self.poll, self.emit = timeout, poll, emit
         self.raw_run = run
@@ -136,13 +149,6 @@ class Queue:
 
     def api(self, path):
         return self.data("gh", "api", f"repos/{REPO}/{path}")
-
-    def data_once(self, *argv):
-        """Like data(), without the retries: for best-effort calls that must not hold the queue."""
-        try:
-            return json.loads(self.raw_run(list(argv)).stdout.strip())
-        except (ValueError, TypeError, AttributeError) as error:
-            raise QueueError(f"Invalid JSON from {' '.join(argv)}") from error
 
     def pause(self, reason, deadline=None):
         remaining = min(self.deadline, deadline or self.deadline) - self.clock()
@@ -191,6 +197,11 @@ class Queue:
         require(isinstance(pages, list), "Invalid run pages")
         return [run for page in pages for run in page["workflow_runs"]]
 
+    def run_matches(self, run, pr, workflow_id):
+        """The evidence run is the same-repository pull_request run of the exact head, or the dispatch run
+        that the queue starts as a fallback."""
+        return self.matches(run, pr, workflow_id) or self.pr_run_matches(run, pr, workflow_id)
+
     @staticmethod
     def matches(run, pr, workflow_id):
         return (run.get("event") == "workflow_dispatch" and
@@ -206,41 +217,29 @@ class Queue:
                 run.get("head_sha") == pr["headRefOid"] and
                 run.get("workflow_id") == workflow_id and
                 run.get("path") == f".github/workflows/{WORKFLOW}" and
-                (run.get("head_repository") or {}).get("full_name") == REPO)
+                isinstance(run.get("head_repository"), dict) and
+                run["head_repository"].get("full_name") == REPO)
 
-    def cancel_duplicate_pr_run(self, pr, workflow_id):
-        """ELZ-058: update-branch makes GitHub start a pull_request check on the new head, and the
-        queue's own exact-head dispatch follows on that same head, so the check is a duplicate.
-        Cancel only that run (same workflow, pull_request event, branch and exact head SHA); never
-        another head, another PR, a dispatch, a push run or the Gleam workflow. A failure is
-        logged and never blocks the queue: the exact-head dispatch is the merge gate."""
-        try:
-            query = urlencode({"event": "pull_request", "branch": pr["headRefName"],
-                               "head_sha": pr["headRefOid"], "per_page": 100})
-            end = self.clock() + 30
-            while True:
-                pages = self.data_once("gh", "api", "--paginate", "--slurp",
-                                       f"repos/{REPO}/actions/workflows/{WORKFLOW}/runs?{query}")
-                runs = [run for page in pages for run in page["workflow_runs"]
-                        if isinstance(run, dict) and self.pr_run_matches(run, pr, workflow_id)]
-                if runs:
-                    break
-                self.pause("pull_request run on the updated head", end)
-            for run in runs:
-                try:
-                    if not isinstance(run.get("id"), int):
-                        raise QueueError("Invalid duplicate run ID")
-                    if run.get("status") == "completed":
-                        self.emit(f"Duplicate pull_request run {run['id']} already completed; not cancelled",
-                                  flush=True)
-                        continue
-                    self.text("gh", "api", "-X", "POST", f"repos/{REPO}/actions/runs/{run['id']}/cancel")
-                    self.emit(f"Cancelled duplicate pull_request run {run['id']} head={pr['headRefOid']}",
-                              flush=True)
-                except (QueueError, KeyError, TypeError, AttributeError, ValueError) as error:
-                    self.emit(f"Duplicate pull_request run not cancelled: {error}", flush=True)
-        except (QueueError, KeyError, TypeError, AttributeError, ValueError) as error:
-            self.emit(f"Duplicate pull_request run not cancelled: {error}", flush=True)
+    def adopt_pr_run(self, pr, workflow_id):
+        """ELZ-059: the latest same-repository pull_request run of the exact head, waited for up to
+        PR_RUN_WAIT seconds (after update-branch GitHub starts it a few seconds later). Returns its ID, or None
+        when GitHub started none. The queue never cancels this run."""
+        query = urlencode({"event": "pull_request", "branch": pr["headRefName"],
+                           "head_sha": pr["headRefOid"], "per_page": 100})
+        end = self.clock() + self.pr_run_wait
+        while True:
+            pages = self.data("gh", "api", "--paginate", "--slurp",
+                              f"repos/{REPO}/actions/workflows/{WORKFLOW}/runs?{query}")
+            require(isinstance(pages, list), "Invalid run pages")
+            runs = [run for page in pages for run in page["workflow_runs"]
+                    if isinstance(run, dict) and self.pr_run_matches(run, pr, workflow_id)]
+            if runs:
+                require(all(isinstance(run.get("id"), int) for run in runs), "Invalid run ID")
+                # The latest run decides: an older success must not hide a newer failure.
+                return max(run["id"] for run in runs)
+            if end - self.clock() <= 0:
+                return None
+            self.pause("pull_request run on the exact head", end)
 
     def dispatch(self, pr, workflow_id):
         previous = {run["id"] for run in self.runs(pr["headRefName"])}
@@ -261,7 +260,7 @@ class Queue:
     def evidence(self, run_id, pr, workflow_id):
         while True:
             run = self.api(f"actions/runs/{run_id}")
-            require(run.get("id") == run_id and self.matches(run, pr, workflow_id),
+            require(run.get("id") == run_id and self.run_matches(run, pr, workflow_id),
                     "Run event/branch/workflow/head SHA mismatch")
             if run.get("status") == "completed":
                 break
@@ -294,7 +293,7 @@ class Queue:
         require(full and "ELZOO AFFECTED CHECK PASSED" not in log,
                 "Missing full success marker or affected-mode marker present")
         latest = self.api(f"actions/runs/{run_id}")
-        require(self.matches(latest, pr, workflow_id) and latest.get("status") == "completed" and
+        require(self.run_matches(latest, pr, workflow_id) and latest.get("status") == "completed" and
                 latest.get("conclusion") == "success" and latest.get("run_attempt") == attempt,
                 "Run changed while collecting evidence")
         return job
@@ -350,6 +349,59 @@ class Queue:
                 latest.get("run_attempt") == attempt, "Gleam run changed while collecting evidence")
         return job
 
+    def check_main_not_frozen(self):
+        """ELZ-059 freeze rule. The latest completed push run of the backend workflow on main decides: a
+        success (including a logged skip) leaves main open; any other conclusion (failure, timed_out,
+        cancelled, ...) freezes the queue until a comment on issue #98 by this login classifies that run. A
+        later green push run of main unfreezes it. Any API failure fails closed."""
+        query = urlencode({"event": "push", "branch": "main", "per_page": 30})
+        listing = self.data("gh", "api", f"repos/{REPO}/actions/workflows/{WORKFLOW}/runs?{query}")
+        runs = listing.get("workflow_runs") if isinstance(listing, dict) else None
+        require(isinstance(runs, list), "Invalid push run listing of main; refusing")
+        done = [run for run in runs if isinstance(run, dict) and run.get("event") == "push"
+                and run.get("head_branch") == "main" and run.get("status") == "completed"
+                and run.get("path") == f".github/workflows/{WORKFLOW}"]
+        require(done and all(isinstance(run.get("id"), int) for run in done),
+                "No completed push run of main found; cannot tell whether main is green; refusing")
+        latest = max(done, key=lambda run: run["id"])
+        if latest.get("conclusion") == "success":
+            return
+        run_id, conclusion = latest["id"], latest.get("conclusion")
+        login = self.text("gh", "api", "user", "--jq", ".login")
+        require(re.fullmatch(r"[A-Za-z0-9-]{1,39}", login or ""), "Invalid authenticated login; refusing")
+        pages = self.data("gh", "api", "--paginate", "--slurp",
+                          f"repos/{REPO}/issues/{FREEZE_ISSUE}/comments?per_page=100")
+        require(isinstance(pages, list), "Invalid comment pages; refusing")
+        for comment in [c for page in pages for c in page]:
+            match = CLASSIFICATION.fullmatch((comment.get("body") or "").strip()) if isinstance(comment, dict) else None
+            author = (comment.get("user") or {}).get("login") if isinstance(comment, dict) else None
+            if match and author == login and int(match.group(1)) == run_id:
+                self.emit(f"Main push run {run_id} is {conclusion}, classified as {match.group(2)} on issue "
+                          f"#{FREEZE_ISSUE}; continuing", flush=True)
+                return
+        raise QueueError(
+            f"Main is frozen: the latest push run {run_id} of {WORKFLOW} on main is {conclusion} and not "
+            f"classified. Comment on issue #{FREEZE_ISSUE} as {login}: 'CI main status: freeze classification "
+            f"run={run_id} class=<infrastructure|defect|conflict>', or wait for a later green push run.")
+
+    def gleam_required(self, pr):
+        """ELZ-059: (required, reason). The path list is Git's own, from the fetched refs, rename-aware.
+        An empty, failed or malformed list means the Gleam run is required."""
+        branch = pr["headRefName"]
+        try:
+            out = self.run(["git", "diff", "--name-only", "-z", "--no-renames",
+                            f"refs/remotes/origin/main...refs/remotes/origin/{branch}"]).stdout
+        except QueueError as error:
+            return True, f"path list failed ({error_detail(error)})"
+        paths = [path for path in out.split("\x00") if path]
+        if not paths:
+            return True, "empty path list"
+        for path in paths:
+            if (path.startswith(("/", "../")) or "\n" in path or "\\" in path or
+                    path.startswith(GLEAM_PREFIX) or path == GLEAM_PREFIX.rstrip("/") or path in GLEAM_PATHS):
+                return True, f"changes {path}"
+        return False, f"{len(paths)} changed paths, none a Gleam path"
+
     def unchanged_pr(self, pr):
         fresh = self.pr(pr["number"])
         require(fresh["headRefOid"] == pr["headRefOid"] and
@@ -360,6 +412,7 @@ class Queue:
     def process(self, number):
         self.deadline = self.clock() + self.timeout
         workflow_id = self.api(f"actions/workflows/{WORKFLOW}")["id"]
+        self.check_main_not_frozen()
         for _ in range(10):
             require(self.clock() < self.deadline, "PR deadline exceeded")
             pr = self.pr(number)
@@ -371,23 +424,33 @@ class Queue:
                 while updated["headRefOid"] == pr["headRefOid"]:
                     self.pause("updated PR head", end)
                     updated = self.pr(number, ready=False)
-                self.cancel_duplicate_pr_run(updated, workflow_id)
                 continue
-            run_id = self.dispatch(pr, workflow_id)
+            run_id = self.adopt_pr_run(pr, workflow_id)
+            if run_id is None:
+                self.emit(f"No pull_request run for PR #{number} head={pr['headRefOid']} within {self.pr_run_wait} s; "
+                          "dispatching a run as the fallback (a dispatch run is not a pull request status)",
+                          flush=True)
+                run_id = self.dispatch(pr, workflow_id)
+            else:
+                self.emit(f"Adopted pull_request run {run_id} for PR #{number} head={pr['headRefOid']}", flush=True)
             try:
                 job = self.evidence(run_id, pr, workflow_id)
             except (QueueError, KeyError, TypeError, ValueError, AttributeError):
                 # The run goes on after the queue stops; name it so that it can be adopted by hand.
                 self.emit(f"Stopped while awaiting run {run_id} for PR #{number} head={pr['headRefOid']}: "
-                          "inspect or adopt that run before dispatching another", flush=True)
+                          "inspect that run; the queue adopts it again on the next start", flush=True)
                 raise
             self.unchanged_pr(pr)
-            gleam_job = self.gleam_evidence(pr)
+            required, why = self.gleam_required(pr)
+            gleam_job = self.gleam_evidence(pr) if required else None
+            if not required:
+                self.emit(f"Gleam run not required for PR #{number}: {why}", flush=True)
             fresh = self.unchanged_pr(pr)
             if not self.fetch(fresh):
                 self.emit("Main moved during check; updating and validating a new head", flush=True)
                 continue
             require(self.clock() < self.deadline, "PR deadline exceeded before merge")
+            self.check_main_not_frozen()
             self.text("gh", "pr", "merge", str(number), "-R", REPO,
                       "--merge", "--match-head-commit", pr["headRefOid"])
             merged = self.data("gh", "pr", "view", str(number), "-R", REPO,
@@ -395,9 +458,12 @@ class Queue:
             merge_sha = (merged.get("mergeCommit") or {}).get("oid")
             require(merged.get("state") == "MERGED" and merged.get("headRefOid") == pr["headRefOid"]
                     and valid_sha(merge_sha), "Merge not confirmed; inspect PR before retrying")
-            self.emit(f"ELZOO GLEAM EVIDENCE pr={number} run={gleam_job['run_id']} "
-                      f"job={gleam_job['id']} runner={gleam_job['runner_name']} "
-                      f"head={pr['headRefOid']}", flush=True)
+            if gleam_job:
+                self.emit(f"ELZOO GLEAM EVIDENCE pr={number} run={gleam_job['run_id']} "
+                          f"job={gleam_job['id']} runner={gleam_job['runner_name']} "
+                          f"head={pr['headRefOid']}", flush=True)
+            else:
+                self.emit(f"ELZOO GLEAM GATE not required pr={number} head={pr['headRefOid']} ({why})", flush=True)
             self.emit(f"ELZOO MERGE EVIDENCE pr={number} run={run_id} job={job['id']} "
                       f"runner={job['runner_name']} head={pr['headRefOid']} merge={merge_sha}", flush=True)
             return

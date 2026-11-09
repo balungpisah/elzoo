@@ -5,18 +5,20 @@ decision 2026-11-09), and GitHub provides the compute, the scheduling and the ch
 owner's own machines; "History" at the end summarises that period. ELZ-069 removed its jobs, its guard rules, the runner
 roles and the lane variable. "Hosted CI" below has the job shapes, the flip record, the measured figures and the fallback.
 
-## Redundant push runs and duplicate pull request checks (ELZ-058)
+## Redundant push runs and duplicate pull request checks (ELZ-058, ELZ-059)
 
 A merge cost several full checks of the same content: the queue's exact-head run, then the push run on
 the merge commit (23 to 29 minutes on a former self-hosted runner), and, after every `update-branch`, a pull request check
-that duplicated the queue run. ELZ-058 removes two of these without weakening the evidence.
+that duplicated the queue run. ELZ-058 removed two of these without weakening the evidence; ELZ-059 removed the duplicate
+in the other direction: the pull request run is the exact-head run (see "Coordinator merge queue").
 
 **Push run skip.** The `check-hosted` job on a push to `main` runs
 `scripts/ci-skip-decision.py` after the guard tests. It prints `skip=true` only when all of these hold:
 the event is a push to `refs/heads/main`; the pushed commit is a two-parent merge commit; its tree equals
 the tree of its second parent (the pull request head that the queue merged with `--match-head-commit`);
-the latest `workflow_dispatch` run of `symbolic-check.yml` on that second parent (branch `task/ELZ-###`,
-found by `head_sha`) is a completed success whose exact attempt has exactly one job, a successful `check-hosted` job on a
+the latest run of `symbolic-check.yml` on that second parent (branch `task/ELZ-###`, found by `head_sha`; since ELZ-059 the
+same-repository `pull_request` run, or the queue's `workflow_dispatch` fallback; a fork pull request run is never evidence)
+is a completed success whose exact attempt has exactly one job, a successful `check-hosted` job on a
 GitHub-hosted runner (group `GitHub Actions`, label `ubuntu-24.04`, runner name `GitHub Actions <number>`), a successful
 runner identity step, a successful `Run mix check` step, the full `ELZOO CHECK PASSED` log line and no
 `ELZOO AFFECTED CHECK PASSED` marker;
@@ -51,14 +53,11 @@ every step after the decision, except the resource report, carries `steps.skip.o
 `Run mix check`, or on any other step, fails the guard. Like the other guard rules this is a source-convention
 check, not proof against every YAML form.
 
-**Duplicate pull request check.** When `scripts/merge-queue.py` updates a pull request branch by merging
-`main` (`gh pr update-branch`), GitHub starts a `pull_request` run on the new head; the queue's own exact-head
-dispatch follows on that same head, so that run is a duplicate (a full-size check, 13 to 33 minutes on a hosted runner). Right after the new head is visible, the queue cancels only the
-`pull_request` run of `symbolic-check.yml` on that exact head and branch, logs `Cancelled duplicate pull_request
-run <id> head=<sha>`, and carries on. It never cancels another head, another pull request, a dispatch or a push run, or
-the Gleam run (the Gleam workflow is not queried). A completed run is left alone. A failed lookup, a failed cancel or no
-run within 30 seconds is logged (`Duplicate pull_request run not cancelled: ...`) and does not block the queue.
-This is not evidence: the cancelled run was never part of the merge gate.
+**Duplicate pull request check (retired by ELZ-059).** ELZ-058 had the queue cancel the `pull_request` run that GitHub
+starts after `gh pr update-branch`, because the queue dispatched its own exact-head run. The cancel and its tests are
+removed: that `pull_request` run is now the merge evidence, the queue waits for it and never cancels it (see
+"Coordinator merge queue"). A `pull_request` run that a newer push supersedes is still cancelled by the `concurrency`
+group of the workflow (see "Cancellation and overlap").
 
 Cache effect: a skipped push run saves no main-scoped dependency cache, so after a `mix.lock` or `mix.exs` change
 task branches restore an older entry by prefix key until a full run of `main` saves a new one (time, not correctness).
@@ -68,10 +67,10 @@ task branches restore an older entry by prefix key until a full run of `main` sa
 (`gh api` without `-X`/`--method`, `gh pr view`, `git fetch`) are now retried on transport and gateway errors (TLS handshake
 timeout, connection reset, connection refused, i/o timeout, unexpected EOF, HTTP 500, 502, 503, 504) in five attempts with waits of
 10, 20, 40 and 50 seconds (two minutes in all), never past the PR deadline; each retry is logged (`Transient failure of ...
-retrying in N s`). Writes are never retried by the queue (dispatch, update-branch, merge, cancel): a repeated dispatch would create
+retrying in N s`). Writes are never retried by the queue (dispatch, update-branch, merge): a repeated dispatch would create
 a second run. Other errors (404, 401, 403, 422, mergeability, evidence mismatches) stop at once. When evidence collection
-fails after the dispatch it prints `Stopped while awaiting run <id> for PR #N head=<sha>` (the `Dispatched ... run=<id>` line
-names the run too), so the run can be inspected or adopted before anything is dispatched again. Only the tool's own message is
+fails it prints `Stopped while awaiting run <id> for PR #N head=<sha>` (the `Adopted ...` or `Dispatched ... run=<id>` line
+names the run too), so the run can be inspected; the queue adopts it again on the next start. Only the tool's own message is
 matched against the transient patterns, not the arguments of the command; `gh api` with any field, input or method flag counts
 as a write and is never retried. The retry does not change what counts as evidence.
 
@@ -165,11 +164,16 @@ repository owns the base; a misconfigured origin cannot substitute a different
 main SHA. Missing commit objects fail closed. If main is not an ancestor of the
 head, `gh pr update-branch` creates a merge update; it never
 rebases or force-pushes. The new head must become visible before continuing.
-It dispatches `symbolic-check.yml` on that branch (no input) and identifies a **new** run
-by workflow, `workflow_dispatch` event, branch and exact `head_sha`. It records
-existing run IDs before dispatch, never chooses an old or merely latest green
-run, and refuses an ambiguous match. A dispatch that races a head update cannot
-supply evidence for the previous head.
+It then **adopts the `pull_request` run of the exact head** (ELZ-059): the latest run of `symbolic-check.yml` with
+event `pull_request`, the task branch, the exact `head_sha`, the workflow's ID and path, and a head repository equal to
+this repository. After `update-branch` it waits (up to 300 seconds, bounded by the PR deadline) for the run that GitHub
+starts on the new head. It logs `Adopted pull_request run <id> for PR #N head=<sha>` and **never cancels that run**.
+The pull request job runs the full check (no affected mode), so the run is the exact-head full run, and it counts as a
+pull request status for branch protection. Only when GitHub started no such run within the wait does the queue
+dispatch `symbolic-check.yml` on that branch (no input) as a fallback, logs why (`No pull_request run for PR #N
+head=<sha> within 300 s; dispatching ...`), records the existing run IDs before the dispatch, never chooses an old or
+merely latest green run, and refuses an ambiguous match. A dispatch run is valid merge evidence but not a pull request
+status. A run for another head, another branch, another workflow, a dispatch, push or fork run is never adopted.
 
 The completed run must succeed. Its exact attempt must have exactly one job, a successful
 `check-hosted` job on a GitHub-hosted runner (group `GitHub Actions`, label `ubuntu-24.04`, runner name
@@ -179,7 +183,26 @@ Missing logs, API/command failures, cancelled runs and reruns during evidence
 collection fail closed. This validates observed evidence from trusted workflow
 code, not authenticity against a hostile PR or administrator.
 
-The queue also waits for a successful `symbolic-gleam.yml` **pull_request**
+**Freeze rule (ELZ-059).** Before it starts a pull request and again right before the merge, the queue reads the
+latest completed push run of `symbolic-check.yml` on `main`. A success (a logged skip included) leaves `main` open. Any
+other conclusion (`failure`, `timed_out`, `cancelled`, and every other one) freezes the queue: it stops with `Main is
+frozen: ...` and names the run, until a comment on issue #98 by the authenticated login of the queue classifies that
+run. The comment is exactly `CI main status: freeze classification run=<run id> class=<class>` with the class
+`infrastructure` (rerun), `defect` (fix-forward task) or `conflict` (two separately tested merges; fix-forward task). A
+fix-forward pull request goes through the queue after the classification. A later green push run of `main`
+unfreezes. No revert and no force push are involved. An API failure, an unreadable listing or a missing completed push
+run fails closed.
+
+**Gleam gate only for Gleam paths (ELZ-059).** The queue asks Git for the paths of the pull request
+(`git diff --name-only -z --no-renames refs/remotes/origin/main...refs/remotes/origin/<branch>`, so a rename lists both
+paths). It requires the Gleam run only when a path is under `spikes/gleam_ui/`, or is
+`.github/workflows/symbolic-gleam.yml`, `scripts/check-ci-runners.py` or `scripts/test-ci-runners.py` (the guard cannot be
+split by content). An empty, failed or odd path list (absolute, parent, newline, backslash) requires the Gleam run. When it is
+not required the queue logs `Gleam run not required for PR #N: ...` and prints `ELZOO GLEAM GATE not required pr=N
+head=<sha> (...)` instead of the `ELZOO GLEAM EVIDENCE` line. `gleam-hosted` has no job-level `if:`: it always runs and
+reports, so branch protection can require both checks.
+
+When the Gleam run is required, the queue waits for a successful `symbolic-gleam.yml` **pull_request**
 run on the exact same head SHA, including after `update-branch`. That update
 triggers the synchronize event; no extra Gleam dispatch is added. The latest
 matching run must succeed, have one successful `gleam-hosted` job on a GitHub-hosted
@@ -189,13 +212,13 @@ this gate. It rechecks run identity and attempt after collecting the job.
 
 Before merging, it re-reads the PR and fetches again. A changed head stops the
 queue. Main advancing beyond the checked head triggers another merge update
-and full dispatch. The merge command is always:
+and another full run of the new head. The merge command is always:
 
 ```sh
 gh pr merge <PR> -R balungpisah/elzoo --merge --match-head-commit <checked-head-SHA>
 ```
 
-After confirming the merge, it prints an `ELZOO GLEAM EVIDENCE` line and an
+After confirming the merge, it prints an `ELZOO GLEAM EVIDENCE` (or `ELZOO GLEAM GATE not required`) line and an
 `ELZOO MERGE EVIDENCE` line with PR, run/job IDs, runner names, checked head SHA
 and merge SHA. Preserve those lines in the coordinator's acceptance record.
 No branch deletion, issue closure or
@@ -230,7 +253,7 @@ This corrects the original issue's request to keep the group for all events,
 with owner approval. The review correction applies it to both workflows,
 so Gleam merge-commit evidence is retained too.
 
-A's merge-commit backend check can overlap B's full pre-merge dispatch on
+A's merge-commit backend check can overlap B's full pre-merge run on
 two hosted runners. There is no speculative stack checking, or guarantee of
 immediate capacity. Preserving pending checks
 can increase queue length; this does not speed up an individual full check.
@@ -239,8 +262,8 @@ can increase queue length; this does not speed up an individual full check.
 
 The queue is a serial coordinator convenience, not enforced branch protection.
 It does not enforce independent review or replace merge-commit acceptance.
-It requires both full backend dispatch success and current-head Gleam PR
-success, without a separate Gleam dispatch. The coordinator checks any other
+It requires the exact-head full backend run (the adopted `pull_request` run, or the dispatch fallback) and, when a Gleam
+path changed, the current-head Gleam PR run, without a separate Gleam dispatch. The coordinator checks any other
 PR checks and review before invoking it. The final fetch and GitHub merge
 are separate operations: another coordinator/manual merge can advance main
 between them. `--match-head-commit` protects the head, not an atomic base SHA.
@@ -440,6 +463,8 @@ on the one label `ubuntu-24.04`, without a job container, and run for a push to 
 every other label (`ubuntu-latest`, larger runners, expressions), any `self-hosted` text, any `labels:` list on a job,
 any workflow input, any use of `vars` or of the former variable name `ELZOO_CI_LANE` (in any letter case, also in script
 text and comments), a job container, and a second job of any name, so the removed shapes cannot return silently. The
+`check-hosted` job ends with `python3 scripts/check-roadmap.py` (plain, offline), so a stale generated roadmap view fails
+the check; the guard pins that step and the `Run mix check` step by their exact text. The
 first step of each job checks `RUNNER_ENVIRONMENT`, `RUNNER_OS`, `RUNNER_ARCH` and `/etc/os-release`. The dependency
 cache key has no runner name: `elzoo-hosted-v1-<OS>-<ImageOS>-<OTP>-<Elixir>-<lock files hash>`.
 
@@ -447,8 +472,9 @@ cache key has no runner name: `elzoo-hosted-v1-<OS>-<ImageOS>-<OTP>-<Elixir>-<lo
 accept a run when its job list holds exactly one job, `check-hosted` with `runner_group_name` = `GitHub Actions`,
 `labels` = `["ubuntu-24.04"]`, a `runner_name` of the form `GitHub Actions <number>`, a green identity step and a green
 `Run mix check` step. The Gleam gate accepts exactly one `gleam-hosted` job under the same rule. A run of the former
-shape (a job named `check-fast`, `check-any` or `gleam`, or any second job) is not evidence. The queue dispatches without
-an input.
+shape (a job named `check-fast`, `check-any` or `gleam`, or any second job) is not evidence. Since ELZ-059 the evidence run is
+the `pull_request` run of the exact head, which runs the full check; the queue dispatches (without an input) only when
+GitHub started no such run.
 
 **Flip record (executed by the coordinator on 2026-11-09 WIB, after hosted run 2 was green).** Order: the
 public-surface scrub (ELZ-065) was merged first; all four self-hosted runners were unregistered, because a fork can
@@ -475,10 +501,11 @@ show whether the rule was already gone then (administrators are not enforced). T
 reason, as the coordinator reported it (the refusal is not recorded in the pull request timeline): the merge queue
 cancels the duplicate `pull_request` run and relies on a `workflow_dispatch` run on the exact head as evidence, and
 GitHub does not count a `workflow_dispatch` run as a status of the pull request, so the queue's merge of PR #122 was
-refused with "the base branch policy prohibits the merge". Until ELZ-059 (#99) makes the `pull_request` run the evidence that the queue adopts, `main`
-has no required checks: the merge queue and its evidence rules are the only gate, and a person with write access can push
-or merge without them (administrators are not enforced either way). ELZ-059 is the path back to required `check-hosted`
-and `gleam-hosted`.
+refused with "the base branch policy prohibits the merge". ELZ-059 (#99) makes the `pull_request` run the evidence that the
+queue adopts. Until the coordinator re-enables branch protection requiring `check-hosted` and `gleam-hosted` (a coordinator
+step after ELZ-059 is merged, recorded here when done), `main` has no required checks: the merge queue and its evidence
+rules are the only gate, and a person with write access can push or merge without them (administrators are not enforced
+either way).
 
 **Organisation runners.** The organisation `balungpisah` still has 2 offline self-hosted runners in its Default runner
 group. The group does not allow public repositories (`allows_public_repositories: false`), which keeps them away from this

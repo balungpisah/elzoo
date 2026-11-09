@@ -730,8 +730,8 @@ class RunnerPolicyTest(unittest.TestCase):
         self.assertIn("exactly one gleam-hosted job is required", self.check(1).stderr)
 
     def test_hosted_backend_token_is_limited_to_the_pinned_steps(self):
-        self.change_in_job("symbolic-check.yml", "check-hosted", "          ELZOO_CHECK_EVENT: ${{ github.event_name }}\n",
-                           "          ELZOO_CHECK_EVENT: ${{ github.event_name }}\n          GITHUB_TOKEN: ${{ github.token }}\n")
+        self.change_in_job("symbolic-check.yml", "check-hosted", "        run: sh scripts/run-ci-check.sh\n",
+                           "        env:\n          GITHUB_TOKEN: ${{ github.token }}\n        run: sh scripts/run-ci-check.sh\n")
         self.assertIn("github.token and secrets are not allowed", self.check(1).stderr)
 
     def test_hosted_backend_job_keeps_the_decision_step_and_skip_conditions(self):
@@ -902,6 +902,37 @@ class RunnerPolicyTest(unittest.TestCase):
                 self.setUp()
         self.change("symbolic-check.yml", "    if: ${{ github.event_name == 'push' ||", "    if: ${{ vars.ELZOO_CI_LANE == 'hosted' && github.event_name == 'push' ||")
         self.assertIn("vars and the repository variable ELZOO_CI_LANE are not allowed", self.check(1).stderr)
+
+    # ELZ-059: the pull request run is the merge evidence, so it runs the full check, and a stale
+    # generated roadmap view fails the job.
+    ROADMAP_STEP = "      - name: Check the roadmap views\n" + SKIP_IF + "        run: python3 scripts/check-roadmap.py\n"
+
+    def test_roadmap_step_is_present_and_pinned(self):
+        self.assertEqual(1, self.source().count(self.ROADMAP_STEP))
+        for new in ("",                                                              # removed
+                    self.ROADMAP_STEP.replace(self.SKIP_IF, ""),                      # always runs
+                    self.ROADMAP_STEP.replace(self.SKIP_IF, "        if: ${{ false }}\n"),
+                    self.ROADMAP_STEP.replace(self.SKIP_IF, "        if: always()\n"),
+                    self.ROADMAP_STEP.replace(self.SKIP_IF, "        if: ${{ github.event_name == 'push' }}\n"),
+                    self.ROADMAP_STEP.replace("scripts/check-roadmap.py", "scripts/check-roadmap.py --write"),
+                    self.ROADMAP_STEP + "        continue-on-error: true\n"):
+            with self.subTest(new=new.strip()[:70]):
+                self.change("symbolic-check.yml", self.ROADMAP_STEP, new)
+                self.assertTrue(self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+
+    def test_roadmap_step_must_come_after_the_full_check(self):
+        mix = "      - name: Run mix check\n" + self.SKIP_IF + "        run: sh scripts/run-ci-check.sh\n"
+        self.assertEqual(1, self.source().count(mix))
+        self.change("symbolic-check.yml", mix + self.ROADMAP_STEP, self.ROADMAP_STEP + mix)
+        self.assertIn("step-level conditions are not the reviewed ones", self.check(1).stderr)
+
+    def test_pull_request_runs_use_the_full_check_not_the_affected_mode(self):
+        source = self.source()
+        self.assertNotIn("--affected", source)
+        self.assertNotIn("ELZOO_CHECK_EVENT", source)
+        self.assertNotIn("pull_request.base.sha", source)
 
 
 if __name__ == "__main__":

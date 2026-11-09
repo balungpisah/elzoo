@@ -87,6 +87,15 @@ CHECKOUT_STEP = """      - uses: actions/checkout@11d5960a326750d5838078e36cf38b
         with:
           fetch-depth: 0
           persist-credentials: false"""
+# ELZ-059: the pull request run is the merge evidence, so it runs the full check (no affected mode), and the
+# generated roadmap views are checked, not regenerated. Both steps are pinned by their exact text.
+MIX_CHECK_STEP = """      - name: Run mix check
+        if: ${{ steps.skip.outputs.skip != 'true' }}
+        run: sh scripts/run-ci-check.sh"""
+ROADMAP_STEP = """      - name: Check the roadmap views
+        if: ${{ steps.skip.outputs.skip != 'true' }}
+        run: python3 scripts/check-roadmap.py"""
+PINNED_STEPS = [MIX_CHECK_STEP, ROADMAP_STEP]
 STEP_IFS = [
     ("      - name: Restore the pinned S3 test server binary", SKIP_IF),
     ("      - name: Start the disposable S3 test server", SKIP_IF),
@@ -101,6 +110,7 @@ STEP_IFS = [
     ("      - name: Save dependency cache after mix setup",
      "        if: ${{ steps.deps-cache.outputs.cache-hit != 'true' && steps.skip.outputs.skip != 'true' }}"),
     ("      - name: Run mix check", SKIP_IF),
+    ("      - name: Check the roadmap views", SKIP_IF),
     ("      - name: Report container resource observations", "        if: always()"),
 ]
 # Approved triggers: push to main, same-repository pull_request, workflow_dispatch (no inputs).
@@ -412,6 +422,13 @@ for file in files:
                     errors.append(f'{file}: the pinned S3 test server steps are missing or changed ({name})')
                 else:
                     pinned_tokens.append(s3_start + len(MINIO_CACHE_STEPS[0].split('\n')) + 4)
+            for pinned_step in PINNED_STEPS:
+                step_lines = pinned_step.split('\n')
+                found = [i for i in block if lines[i:i + len(step_lines)] == step_lines]
+                after_step = ([line for line in lines[found[0] + len(step_lines):e]
+                               if line.strip() and not line.lstrip().startswith('#')] if len(found) == 1 else [])
+                if len(found) != 1 or found[0] in skip or not after_step or not after_step[0].startswith('      - '):
+                    errors.append(f'{file}: the pinned step "{step_lines[0].strip()[2:]}" is missing or changed ({name})')
             checkout = CHECKOUT_STEP.split('\n')
             checkouts = [i for i in block if re.match(r'\s*(?:-\s+)?uses\s*:\s*actions/checkout@', lines[i])]
             # The step must end where the next step starts: no further input (ref:, repository:, token:) may follow.

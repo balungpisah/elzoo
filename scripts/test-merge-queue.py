@@ -34,10 +34,7 @@ class Fake:
         self.merge_race = False
         self.dispatches = 0
         self.dispatch_args = []
-        self.pr_runs = None            # None: default duplicate run on the updated head
-        self.cancelled = []
-        self.cancel_error = False
-        self.cancel_fail_ids = set()
+        self.pr_runs = None            # None: GitHub started no pull_request run for the exact head
         self.transient_calls = 0
         self.transient_left = 0          # ELZ-058 item 4: the next N read-only gh api calls fail transiently
         self.transient_text = "Get \"https://api.github.com/x\": net/http: TLS handshake timeout"
@@ -45,6 +42,19 @@ class Fake:
         self.pr_run_listing_error = False
         self.pr_run_listing_calls = 0
         self.pr_run_listing_text = "listing failed"
+        # ELZ-059: the freeze rule reads the push runs of main and the classification comments on issue #98;
+        # the Gleam gate reads the changed paths from Git.
+        self.main_runs = None          # None: one green push run of main
+        self.main_listing_error = False
+        self.login = "queue-user"
+        self.comments = []
+        self.comments_error = False
+        self.diff_paths = ["spikes/gleam_ui/src/gleam_ui.gleam"]  # default: a Gleam path, so the Gleam run is required
+        self.diff_error = False
+        self.diff_calls = []
+        self.pr_run_hidden_calls = 0   # the pull_request run is listed only after this many listings
+        self.main_calls = 0
+        self.main_red_from_call = 0    # from this call on, the latest push run of main is red
         self.other_job_changes = None  # a second backend job, as a change of the first (ELZ-069: any second job is refused)
         self.merged = False
         self.run_changes = {}
@@ -68,7 +78,27 @@ class Fake:
         self.gleam_reads = 0
         self.gleam_rerun = False
 
+    def pr_run_ids(self):
+        """IDs of the listed runs that really are the same-repository pull_request run of the exact head."""
+        return {run["id"] for run in (self.pr_runs or []) if isinstance(run, dict) and isinstance(run.get("id"), int)
+                and run.get("event") == "pull_request" and run.get("head_sha") == self.pr["headRefOid"]
+                and run.get("head_branch") == self.pr["headRefName"] and run.get("workflow_id") == 10
+                and run.get("path") == ".github/workflows/symbolic-check.yml"
+                and isinstance(run.get("head_repository"), dict) and run["head_repository"].get("full_name") == queue.REPO}
+
+    def adopted(self):
+        ids = sorted(self.pr_run_ids())
+        return ids[-1] if ids else None
+
+    def main_push_runs(self):
+        if self.main_runs is not None:
+            return self.main_runs
+        return [dict(id=9000, event="push", head_branch="main", status="completed", conclusion="success",
+                     path=".github/workflows/symbolic-check.yml")]
+
     def run_data(self, run_id):
+        if run_id in self.pr_run_ids():
+            return self.pr_run(run_id, status="completed", conclusion="success", run_attempt=1)
         return dict(id=run_id, workflow_id=10, path=".github/workflows/symbolic-check.yml",
                     event="workflow_dispatch", head_branch=self.pr["headRefName"],
                     head_sha=self.pr["headRefOid"], status="completed", conclusion="success",
@@ -107,6 +137,11 @@ class Fake:
         elif argv[:3] == ["gh", "workflow", "run"]:
             self.dispatches += 1
             self.dispatch_args.append(argv)
+        elif argv[:2] == ["git", "diff"]:
+            self.diff_calls.append(argv)
+            if self.diff_error:
+                raise queue.QueueError("git diff failed")
+            out = "".join(path + "\x00" for path in self.diff_paths)
         elif argv[:2] == ["git", "fetch"]:
             pass
         elif argv[:2] == ["git", "rev-parse"]:
@@ -122,14 +157,26 @@ class Fake:
                 raise queue.QueueError(f"gh api exited 1: {self.transient_text}")
             path = argv[-1]
             if argv[2:4] == ["-X", "POST"]:
-                if self.cancel_error or int(path.split("/")[-2]) in self.cancel_fail_ids:
-                    raise queue.QueueError("cancel refused")
-                self.cancelled.append(int(path.split("/")[-2]))
+                raise AssertionError(f"The queue must not write through gh api: {argv}")
+            elif argv[2:4] == ["user", "--jq"]:
+                out = self.login
+            elif "/issues/98/comments" in path:
+                if self.comments_error:
+                    raise queue.QueueError("gh api exited 1: comments failed")
+                out = [self.comments]
+            elif "/workflows/symbolic-check.yml/runs?" in path and "event=push" in path:
+                if self.main_listing_error:
+                    raise queue.QueueError("gh api exited 1: main listing failed")
+                self.main_calls += 1
+                runs = self.main_push_runs()
+                if self.main_red_from_call and self.main_calls >= self.main_red_from_call:
+                    runs = [dict(runs[0], id=9100, conclusion="failure")]
+                out = {"workflow_runs": runs}
             elif "/workflows/symbolic-check.yml/runs?" in path and "event=pull_request" in path:
                 self.pr_run_listing_calls += 1
                 if self.pr_run_listing_error:
                     raise queue.QueueError(f"gh api exited 1: {self.pr_run_listing_text}")
-                runs = [self.pr_run(700)] if self.pr_runs is None else self.pr_runs
+                runs = [] if self.pr_runs is None or self.pr_run_listing_calls <= self.pr_run_hidden_calls else self.pr_runs
                 out = [{"workflow_runs": runs}]  # malformed bodies are passed through as they are
             elif path.endswith("git/ref/heads/main"):
                 out = {"object": {"sha": self.canonical_main}}
@@ -164,7 +211,7 @@ class Fake:
                         runs.append(dict(run, id=900))
                 out = [{"workflow_runs": runs}]
             elif "/attempts/" in path:
-                job = dict(id=200 + self.dispatches, run_id=100 + self.dispatches,
+                job = dict(id=200 + self.dispatches, run_id=self.adopted() or 100 + self.dispatches,
                            name="check-hosted", head_sha=self.pr["headRefOid"], status="completed",
                            conclusion="success", **HOSTED_FIELDS,
                            steps=[{"name": "Verify the GitHub-hosted runner", "conclusion": "success"}] + self.steps)
@@ -198,9 +245,10 @@ class Fake:
     def sleep(self, seconds):
         self.now += seconds
 
-    def make_queue(self, timeout=30):
+    def make_queue(self, timeout=30, pr_run_wait=0):
         return queue.Queue(run=self.execute, sleep=self.sleep, clock=lambda: self.now,
-                           timeout=timeout, poll=15, emit=lambda text, **_: self.messages.append(text))
+                           timeout=timeout, poll=15, emit=lambda text, **_: self.messages.append(text),
+                           pr_run_wait=pr_run_wait)
 
     def commands(self, prefix):
         return [call for call in self.calls if call[:len(prefix)] == prefix]
@@ -258,116 +306,6 @@ class QueueTest(unittest.TestCase):
                          [["gh", "pr", "update-branch", "79", "-R", queue.REPO]])
         self.assertEqual(self.fake.commands(["gh", "pr", "merge"])[0][-1], B)
         self.assertIn(f"head={B}", self.fake.messages[-1])
-
-    # ELZ-058 item 3: the queue cancels the duplicate pull_request run after update-branch.
-    def test_update_cancels_duplicate_pr_run_of_the_exact_new_head(self):
-        self.fake.stale = True
-        self.q.process(79)
-        self.assertEqual([700], self.fake.cancelled)
-        self.assertIn(f"Cancelled duplicate pull_request run 700 head={B}", self.fake.messages)
-        self.assertTrue(self.fake.merged)
-        # the cancel call comes after update-branch and before the dispatch
-        calls = [c for c in self.fake.calls if c[:3] in (["gh", "pr", "update-branch"], ["gh", "workflow", "run"])
-                 or c[2:4] == ["-X", "POST"]]
-        self.assertEqual(["update-branch", "-X", "run"], [c[2] if c[:3] != ["gh", "api", "-X"] else "-X" for c in calls][:3])
-
-    def test_no_cancel_when_no_update_was_needed(self):
-        self.q.process(79)
-        self.assertEqual([], self.fake.cancelled)
-
-    def test_cancel_only_exact_head_pull_request_runs_of_this_workflow(self):
-        self.fake.stale = True
-        # Every run below matches the new head B except in one respect, so each is refused for its own reason.
-        others = [self.fake.pr_run(701, head_sha=A),                                  # previous head
-                  self.fake.pr_run(702, head_sha=B, head_branch="task/ELZ-040"),      # another PR branch
-                  self.fake.pr_run(703, head_sha=B, event="workflow_dispatch"),       # a dispatch run
-                  self.fake.pr_run(704, head_sha=B, event="push"),                    # a push run
-                  self.fake.pr_run(705, head_sha=B, workflow_id=20),                  # another workflow id
-                  self.fake.pr_run(706, head_sha=B, path=".github/workflows/symbolic-gleam.yml"),
-                  self.fake.pr_run(707, head_sha=B)]                                  # the duplicate
-        self.fake.pr_runs = others
-        self.q.process(79)
-        self.assertEqual([707], self.fake.cancelled)
-
-    def test_fork_run_with_the_same_branch_and_head_is_not_cancelled(self):
-        self.fake.stale = True
-        self.fake.pr_runs = [self.fake.pr_run(710, head_sha=B, head_repository={"full_name": "someone/elzoo"}),
-                             self.fake.pr_run(711, head_sha=B, head_repository=None),
-                             self.fake.pr_run(712, head_sha=B)]
-        self.q = self.fake.make_queue(timeout=300)
-        self.q.process(79)
-        self.assertEqual([712], self.fake.cancelled)
-
-    def test_malformed_run_data_never_blocks_the_queue(self):
-        for runs in ([None], ["x"], [1], [[]], [{"id": "7", "status": "queued"}]):
-            with self.subTest(runs=runs):
-                self.setUp()
-                self.fake.stale = True
-                self.fake.pr_runs = [self.fake.pr_run(700, head_sha=B)] if runs == [{"id": "7", "status": "queued"}] else runs
-                if runs == [{"id": "7", "status": "queued"}]:
-                    self.fake.pr_runs[0]["id"] = "7"
-                self.q = self.fake.make_queue(timeout=300)
-                self.q.process(79)
-                self.assertEqual([], self.fake.cancelled)
-                self.assertTrue(self.fake.merged)
-        for body in ("notalist", None, {"x": 1}):
-            with self.subTest(body=body):
-                self.setUp()
-                self.fake.stale = True
-                self.fake.pr_runs = body
-                self.q = self.fake.make_queue(timeout=300)
-                self.q.process(79)
-                self.assertTrue(self.fake.merged)
-
-    def test_a_failed_cancel_of_one_run_still_tries_the_others(self):
-        self.fake.stale = True
-        self.fake.pr_runs = [self.fake.pr_run(720, head_sha=B), self.fake.pr_run(721, head_sha=B)]
-        self.fake.cancel_fail_ids = {720}
-        self.q.process(79)
-        self.assertEqual([721], self.fake.cancelled)
-        self.assertTrue(any("not cancelled" in m for m in self.fake.messages))
-        self.assertTrue(self.fake.merged)
-
-    def test_completed_duplicate_is_not_cancelled(self):
-        self.fake.stale = True
-        self.fake.pr_runs = [self.fake.pr_run(700, head_sha=B, status="completed", conclusion="success")]
-        self.q.process(79)
-        self.assertEqual([], self.fake.cancelled)
-        self.assertTrue(any("already completed" in m for m in self.fake.messages))
-        self.assertTrue(self.fake.merged)
-
-    def test_failed_cancel_is_logged_and_does_not_block(self):
-        self.fake.stale = True
-        self.fake.cancel_error = True
-        self.q.process(79)
-        self.assertTrue(any("not cancelled" in m and "cancel refused" in m for m in self.fake.messages))
-        self.assertTrue(self.fake.merged)
-
-    def test_failed_run_listing_is_logged_and_does_not_block(self):
-        self.fake.stale = True
-        self.fake.pr_run_listing_error = True
-        self.q = self.fake.make_queue(timeout=300)
-        self.q.process(79)
-        self.assertEqual([], self.fake.cancelled)
-        self.assertTrue(any("not cancelled" in m for m in self.fake.messages))
-        self.assertTrue(self.fake.merged)
-
-    def test_missing_duplicate_run_waits_a_bounded_time_then_continues(self):
-        self.fake.stale = True
-        self.fake.pr_runs = []
-        self.q = self.fake.make_queue(timeout=300)
-        self.q.process(79)
-        self.assertLessEqual(self.fake.now, 120)  # waited about 30 s, not the whole PR deadline
-        self.assertEqual([], self.fake.cancelled)
-        self.assertTrue(any("not cancelled" in m for m in self.fake.messages))
-        self.assertTrue(self.fake.merged)
-
-    def test_cancelling_never_replaces_the_exact_head_dispatch(self):
-        self.fake.stale = True
-        self.q.process(79)
-        self.assertEqual(1, self.fake.dispatches)  # the queue still dispatches and checks its own run
-        self.assertEqual(f"ELZOO MERGE EVIDENCE pr=79 run=101 job=201 runner=GitHub Actions 7 head={B} merge={M}",
-                         self.fake.messages[-1])
 
     # ELZ-058 item 4: bounded retries of read-only calls, and the awaited run named when the queue stops.
     def test_transient_gh_api_failures_are_retried_then_succeed(self):
@@ -497,18 +435,6 @@ class QueueTest(unittest.TestCase):
         self.assertTrue(queue.is_read_only(["gh", "pr", "view", "79"]))
         self.assertFalse(queue.is_read_only(["gh", "api", "-X", "POST", "x"]))
         self.assertFalse(queue.is_read_only(["gh", "pr", "merge", "79"]))
-
-    def test_the_duplicate_run_lookup_is_not_retried(self):
-        # Devin Review finding: a best-effort lookup must not hold the queue for the whole retry window.
-        self.fake.stale = True
-        self.fake.pr_run_listing_error = True
-        self.fake.pr_run_listing_text = "net/http: TLS handshake timeout"
-        self.q = self.fake.make_queue(timeout=3600)
-        self.q.process(79)
-        self.assertEqual(1, self.fake.pr_run_listing_calls)  # one attempt, no retry waits for this call
-        self.assertFalse(any("Transient failure of gh api --paginate" in m for m in self.fake.messages))
-        self.assertTrue(any("not cancelled" in m for m in self.fake.messages))
-        self.assertTrue(self.fake.merged)
 
     def test_main_moves_during_check_requires_new_full_run(self):
         self.fake.move_main = True
@@ -785,6 +711,380 @@ class HostedLaneEvidence(unittest.TestCase):
         self.setUp()
         self.fake.gleam_other_changes = {"conclusion": "success"}
         self.refuses("Expected exactly one executed Gleam job")
+
+
+class PullRequestEvidence(unittest.TestCase):
+    """ELZ-059: the full pull_request run of the exact head is the merge evidence. The queue adopts it, waits
+    for it, never cancels it, and dispatches only when GitHub started none."""
+
+    def setUp(self):
+        self.fake = Fake()
+        self.q = self.fake.make_queue()
+
+    def refuses(self, pattern=None):
+        with self.assertRaisesRegex(queue.QueueError, pattern or ".+"):
+            self.q.process(79)
+        self.assertFalse(self.fake.merged)
+        self.assertFalse(self.fake.commands(["gh", "pr", "merge"]))
+
+    def test_the_pull_request_run_is_adopted_without_a_dispatch(self):
+        self.fake.pr_runs = [self.fake.pr_run(700)]
+        self.q.process(79)
+        self.assertEqual(0, self.fake.dispatches)
+        self.assertEqual([], self.fake.commands(["gh", "workflow", "run"]))
+        self.assertIn(f"Adopted pull_request run 700 for PR #79 head={A}", self.fake.messages)
+        self.assertTrue(self.fake.messages[-2].startswith("ELZOO GLEAM EVIDENCE"))  # the default path list is a Gleam path
+        self.assertEqual(f"ELZOO MERGE EVIDENCE pr=79 run=700 job=200 runner=GitHub Actions 7 head={A} merge={M}",
+                         self.fake.messages[-1])
+        self.assertTrue(self.fake.merged)
+
+    def test_after_update_branch_the_new_heads_run_is_adopted_and_nothing_is_cancelled(self):
+        self.fake.stale = True
+        self.fake.pr_runs = [self.fake.pr_run(700, head_sha=B)]
+        self.q.process(79)
+        self.assertEqual(0, self.fake.dispatches)
+        self.assertEqual(self.fake.commands(["gh", "pr", "update-branch"]),
+                         [["gh", "pr", "update-branch", "79", "-R", queue.REPO]])
+        self.assertEqual(B, self.fake.commands(["gh", "pr", "merge"])[0][-1])
+        # The fake refuses every write through gh api (cancel is a POST), so a cancel would have failed the test.
+        self.assertFalse([c for c in self.fake.calls if c[:2] == ["gh", "api"] and ("-X" in c or "POST" in c)])
+        self.assertIn(f"run=700 job=200 runner=GitHub Actions 7 head={B}", self.fake.messages[-1])
+
+    def test_the_queue_waits_for_the_run_of_the_new_head(self):
+        self.fake.stale = True
+        self.fake.pr_runs = [self.fake.pr_run(700, head_sha=B)]
+        self.fake.pr_run_hidden_calls = 3
+        self.q = self.fake.make_queue(timeout=3600, pr_run_wait=300)
+        self.q.process(79)
+        self.assertEqual(0, self.fake.dispatches)
+        self.assertEqual(3, len([m for m in self.fake.messages if m == "Waiting: pull_request run on the exact head"]))
+        self.assertTrue(self.fake.merged)
+
+    def test_without_a_run_the_queue_dispatches_and_says_why(self):
+        self.q = self.fake.make_queue(timeout=3600, pr_run_wait=45)
+        self.q.process(79)
+        self.assertEqual(1, self.fake.dispatches)
+        reasons = [m for m in self.fake.messages if m.startswith("No pull_request run for PR #79")]
+        self.assertEqual(1, len(reasons))
+        self.assertIn("within 45 s", reasons[0])
+        self.assertIn("a dispatch run is not a pull request status", reasons[0])
+        self.assertIn("run=101 job=201", self.fake.messages[-1])
+
+    def test_only_the_same_repository_pull_request_run_of_the_exact_head_is_adopted(self):
+        # Every run below differs from the exact-head pull_request run in one respect: none is adopted, so the
+        # queue falls back to its own dispatch.
+        others = {
+            "previous head": self.fake.pr_run(701, head_sha=B),
+            "another branch": self.fake.pr_run(702, head_branch="task/ELZ-040"),
+            "dispatch event": self.fake.pr_run(703, event="workflow_dispatch"),
+            "push event": self.fake.pr_run(704, event="push"),
+            "another workflow id": self.fake.pr_run(705, workflow_id=20),
+            "another workflow file": self.fake.pr_run(706, path=".github/workflows/symbolic-gleam.yml"),
+            "fork repository": self.fake.pr_run(707, head_repository={"full_name": "someone/elzoo"}),
+            "no head repository": self.fake.pr_run(708, head_repository=None),
+            "string head repository": self.fake.pr_run(709, head_repository="balungpisah/elzoo"),
+        }
+        for label, run in others.items():
+            with self.subTest(label=label):
+                self.setUp()
+                self.fake.pr_runs = [run]
+                self.q.process(79)
+                self.assertEqual(1, self.fake.dispatches)
+                self.assertTrue(any(m.startswith("No pull_request run for PR #79") for m in self.fake.messages))
+
+    def test_malformed_run_entries_are_ignored(self):
+        self.fake.pr_runs = [None, "x", 7, {}, {"id": "9"}, self.fake.pr_run(700)]
+        self.q.process(79)
+        self.assertEqual(0, self.fake.dispatches)
+        self.assertIn("run=700 job=200", self.fake.messages[-1])
+
+    def test_the_latest_run_decides(self):
+        # Two pull_request runs for the same head: the higher ID is adopted, so a newer failure is not hidden.
+        self.fake.pr_runs = [self.fake.pr_run(700), self.fake.pr_run(710)]
+        self.fake.run_changes = {"conclusion": "failure"}
+        self.refuses("Run 710: failure")
+        self.assertTrue(any("Stopped while awaiting run 710" in m for m in self.fake.messages))
+        self.assertEqual(0, self.fake.dispatches)
+
+    def test_a_failed_cancelled_or_unfinished_pull_request_run_never_merges(self):
+        for change, pattern in (({"conclusion": "failure"}, "failure"), ({"conclusion": "cancelled"}, "cancelled"),
+                                ({"conclusion": "timed_out"}, "timed_out"), ({"conclusion": None}, ".+"),
+                                ({"status": "in_progress", "conclusion": None}, "Timed out")):
+            with self.subTest(change=change):
+                self.setUp()
+                self.fake.pr_runs = [self.fake.pr_run(700)]
+                self.fake.run_changes = change
+                self.refuses(pattern)
+
+    def test_evidence_rules_apply_to_the_adopted_run_too(self):
+        self.fake.pr_runs = [self.fake.pr_run(700)]
+        for label, setup in (("failed job", lambda f: f.job_changes.update(conclusion="failure")),
+                             ("other runner", lambda f: f.job_changes.update(runner_name="symbolic-elzoo")),
+                             ("no identity step", lambda f: f.job_changes.update(steps=[{"name": "Run mix check", "conclusion": "success"}])),
+                             ("mix check skipped", lambda f: setattr(f, "steps", [{"name": "Run mix check", "conclusion": "skipped"}])),
+                             ("affected marker", lambda f: setattr(f, "log", "ELZOO AFFECTED CHECK PASSED\nELZOO CHECK PASSED\n")),
+                             ("only the affected marker", lambda f: setattr(f, "log", "ELZOO AFFECTED CHECK PASSED\n")),
+                             ("no marker", lambda f: setattr(f, "log", "")),
+                             ("other head", lambda f: f.job_changes.update(head_sha=B)),
+                             ("second job", lambda f: setattr(f, "duplicate_job", True))):
+            with self.subTest(label=label):
+                self.setUp()
+                self.fake.pr_runs = [self.fake.pr_run(700)]
+                setup(self.fake)
+                self.refuses()
+
+    def test_a_rerun_while_collecting_evidence_is_refused(self):
+        self.fake.pr_runs = [self.fake.pr_run(700)]
+        self.fake.rerun = True
+        self.refuses()
+
+    def test_a_listing_failure_fails_closed(self):
+        self.fake.pr_run_listing_error = True
+        self.refuses("listing failed")
+        self.assertEqual(0, self.fake.dispatches)
+
+    def test_the_head_changing_during_the_adopted_run_is_refused(self):
+        self.fake.pr_runs = [self.fake.pr_run(700)]
+        self.fake.move_head = True
+        self.refuses()
+
+    def test_the_queue_never_writes_through_the_api(self):
+        for stale in (False, True):
+            with self.subTest(stale=stale):
+                self.setUp()
+                self.fake.stale = stale
+                self.fake.pr_runs = [self.fake.pr_run(700, head_sha=B if stale else A)]
+                self.q.process(79)
+                writes = [c for c in self.fake.calls if c[:2] == ["gh", "api"] and any(queue.WRITE_FLAG.match(a) for a in c[2:])]
+                self.assertEqual([], writes)
+                self.assertFalse(hasattr(self.q, "cancel_duplicate_pr_run"))
+
+
+class FreezeRule(unittest.TestCase):
+    """ELZ-059: the queue refuses to merge while the latest completed push run of main is red and not classified."""
+
+    def setUp(self):
+        self.fake = Fake()
+        self.q = self.fake.make_queue()
+
+    def red(self, run_id=9001, conclusion="failure", **changes):
+        run = dict(id=run_id, event="push", head_branch="main", status="completed", conclusion=conclusion,
+                   path=".github/workflows/symbolic-check.yml")
+        run.update(changes)
+        return run
+
+    def classify(self, run_id=9001, text=None, login="queue-user", cls="infrastructure"):
+        body = text if text is not None else f"CI main status: freeze classification run={run_id} class={cls}"
+        return {"body": body, "user": {"login": login}}
+
+    def frozen(self, pattern="Main is frozen"):
+        with self.assertRaisesRegex(queue.QueueError, pattern):
+            self.q.process(79)
+        self.assertFalse(self.fake.merged)
+        self.assertEqual(0, self.fake.dispatches)
+        self.assertFalse(self.fake.commands(["gh", "pr", "merge"]))
+        self.assertFalse(self.fake.commands(["gh", "pr", "update-branch"]))
+
+    def test_green_main_does_not_freeze(self):
+        self.q.process(79)
+        self.assertTrue(self.fake.merged)
+
+    def test_a_logged_skip_is_a_success(self):
+        # A push run that took the ELZ-058 skip path ends with conclusion success.
+        self.fake.main_runs = [self.red(9000, "success"), self.red(9001, "success")]
+        self.q.process(79)
+        self.assertTrue(self.fake.merged)
+
+    def test_a_red_unclassified_run_freezes_the_queue(self):
+        for conclusion in ("failure", "timed_out", "cancelled", "neutral", "action_required", "startup_failure", None):
+            with self.subTest(conclusion=conclusion):
+                self.setUp()
+                self.fake.main_runs = [self.red(9001, conclusion)]
+                self.frozen(r"Main is frozen: the latest push run 9001 .* is %s and not classified" % conclusion)
+
+    def test_the_message_says_how_to_classify(self):
+        self.fake.main_runs = [self.red()]
+        self.frozen("Comment on issue #98 as queue-user: 'CI main status: freeze classification run=9001 class=")
+
+    def test_a_valid_classification_by_the_queue_login_lets_the_queue_continue(self):
+        for cls in ("infrastructure", "defect", "conflict"):
+            with self.subTest(cls=cls):
+                self.setUp()
+                self.fake.main_runs = [self.red()]
+                self.fake.comments = [self.classify(cls=cls)]
+                self.q.process(79)
+                self.assertTrue(self.fake.merged)
+                self.assertTrue(any(f"classified as {cls} on issue #98" in m for m in self.fake.messages))
+
+    def test_surrounding_whitespace_is_allowed_other_changes_are_not(self):
+        self.fake.main_runs = [self.red()]
+        self.fake.comments = [self.classify(text="  CI main status: freeze classification run=9001 class=defect \n")]
+        self.q.process(79)
+        self.assertTrue(self.fake.merged)
+
+    def test_a_wrong_classification_does_not_unfreeze(self):
+        self.fake.main_runs = [self.red()]
+        wrong = {
+            "wrong author": self.classify(login="someone-else"),
+            "no author": {"body": "CI main status: freeze classification run=9001 class=defect", "user": None},
+            "other run": self.classify(run_id=9000),
+            "next run": self.classify(run_id=9002),
+            "unknown class": self.classify(cls="flaky"),
+            "capitalized class": self.classify(cls="Defect"),
+            "extra words": self.classify(text="CI main status: freeze classification run=9001 class=defect, please"),
+            "prefix text": self.classify(text="Note: CI main status: freeze classification run=9001 class=defect"),
+            "no number": self.classify(text="CI main status: freeze classification run= class=defect"),
+            "wrong phrase": self.classify(text="freeze classification run=9001 class=defect"),
+            "no body": {"body": None, "user": {"login": "queue-user"}},
+            "not a mapping": "x",
+        }
+        for label, comment in wrong.items():
+            with self.subTest(label=label):
+                self.setUp()
+                self.fake.main_runs = [self.red()]
+                self.fake.comments = [comment]
+                self.frozen()
+
+    def test_a_later_green_push_run_unfreezes(self):
+        self.fake.main_runs = [self.red(9001), self.red(9002, "success")]
+        self.q.process(79)
+        self.assertTrue(self.fake.merged)
+
+    def test_an_unfinished_newer_run_does_not_hide_the_red_one_or_the_green_one(self):
+        self.fake.main_runs = [self.red(9001), self.red(9002, None, status="in_progress")]
+        self.frozen("push run 9001")
+        self.setUp()
+        self.fake.main_runs = [self.red(9001, "success"), self.red(9002, None, status="in_progress")]
+        self.q.process(79)
+        self.assertTrue(self.fake.merged)
+
+    def test_other_events_branches_and_workflows_do_not_count(self):
+        self.fake.main_runs = [self.red(9001, "success"),
+                               self.red(9002, "failure", event="pull_request"),
+                               self.red(9003, "failure", head_branch="task/ELZ-040"),
+                               dict(self.red(9004, "failure"), path=".github/workflows/symbolic-gleam.yml"),
+                               "x", None, {}]
+        self.q.process(79)
+        self.assertTrue(self.fake.merged)
+
+    def test_api_failures_fail_closed(self):
+        self.fake.main_listing_error = True
+        self.frozen("main listing failed")
+        self.setUp()
+        self.fake.main_runs = [self.red()]
+        self.fake.comments_error = True
+        self.frozen("comments failed")
+        self.setUp()
+        self.fake.main_runs = [self.red()]
+        self.fake.login = ""
+        self.frozen("Invalid authenticated login")
+        self.setUp()
+        self.fake.main_runs = [self.red()]
+        self.fake.login = "bad login; rm"
+        self.frozen("Invalid authenticated login")
+
+    def test_no_completed_push_run_fails_closed(self):
+        for runs in ([], [self.red(9001, None, status="in_progress")], [self.red(9001, "success", event="pull_request")]):
+            with self.subTest(runs=len(runs)):
+                self.setUp()
+                self.fake.main_runs = runs
+                self.frozen("cannot tell whether main is green")
+
+    def test_main_turning_red_during_the_check_stops_the_merge(self):
+        self.fake.main_red_from_call = 2   # the first read (at the start) is green, the read before the merge is red
+        self.fake.pr_runs = [self.fake.pr_run(700)]
+        with self.assertRaisesRegex(queue.QueueError, "Main is frozen"):
+            self.q.process(79)
+        self.assertFalse(self.fake.merged)
+        self.assertFalse(self.fake.commands(["gh", "pr", "merge"]))
+
+    def test_the_freeze_reads_the_push_runs_of_the_backend_workflow_on_main(self):
+        self.q.process(79)
+        listing = next(c[-1] for c in self.fake.calls if c[:2] == ["gh", "api"] and "event=push" in c[-1])
+        self.assertIn("/workflows/symbolic-check.yml/runs?", listing)
+        self.assertIn("branch=main", listing)
+
+
+class GleamPathGate(unittest.TestCase):
+    """ELZ-059: the Gleam pull_request run is required only when the pull request changes a Gleam path."""
+
+    def setUp(self):
+        self.fake = Fake()
+        self.q = self.fake.make_queue()
+
+    def gleam_listing_calls(self):
+        return [c for c in self.fake.calls if c[:2] == ["gh", "api"] and "symbolic-gleam.yml/runs" in c[-1]]
+
+    def test_a_change_without_a_gleam_path_needs_no_gleam_run(self):
+        self.fake.diff_paths = ["docs/development/10-symbolic-ci.md", "tasks/ELZ-059.md", "lib/mix/tasks/check.ex"]
+        self.fake.gleam_missing = True   # a missing Gleam run would stop the queue if it were required
+        self.q.process(79)
+        self.assertTrue(self.fake.merged)
+        self.assertEqual([], self.gleam_listing_calls())
+        self.assertTrue(any(m.startswith("Gleam run not required for PR #79: 3 changed paths, none a Gleam path")
+                            for m in self.fake.messages))
+        self.assertEqual(f"ELZOO GLEAM GATE not required pr=79 head={A} (3 changed paths, none a Gleam path)",
+                         self.fake.messages[-2])
+        self.assertFalse(any(m.startswith("ELZOO GLEAM EVIDENCE") for m in self.fake.messages))
+
+    def test_each_gleam_path_requires_the_gleam_run(self):
+        for path in ("spikes/gleam_ui/src/gleam_ui.gleam", "spikes/gleam_ui/package-lock.json", "spikes/gleam_ui/a/b/c.txt",
+                     "spikes/gleam_ui", ".github/workflows/symbolic-gleam.yml", "scripts/check-ci-runners.py",
+                     "scripts/test-ci-runners.py"):
+            with self.subTest(path=path):
+                self.setUp()
+                self.fake.diff_paths = ["docs/a.md", path, "tasks/b.md"]
+                self.q.process(79)
+                self.assertTrue(self.fake.merged)
+                self.assertTrue(self.gleam_listing_calls())
+                self.assertTrue(any(m.startswith("ELZOO GLEAM EVIDENCE") for m in self.fake.messages))
+
+    def test_a_required_gleam_run_that_is_missing_stops_the_queue(self):
+        self.fake.diff_paths = ["spikes/gleam_ui/src/gleam_ui.gleam"]
+        self.fake.gleam_missing = True
+        with self.assertRaisesRegex(queue.QueueError, "Timed out: Gleam pull_request run on exact head"):
+            self.q.process(79)
+        self.assertFalse(self.fake.merged)
+
+    def test_look_alike_paths_are_not_gleam_paths(self):
+        for path in ("spikes/gleam_uix/a.gleam", "spikes/gleam_ui_notes.md", "docs/spikes/gleam_ui/a", "x/spikes/gleam_ui/a",
+                     ".github/workflows/symbolic-gleam.yml.bak", ".github/workflows/symbolic-check.yml",
+                     "scripts/check-ci-runners.pyc", "scripts/check-ci-runners.py.orig", "scripts/test-ci-skip.py",
+                     "Spikes/gleam_ui/a"):
+            with self.subTest(path=path):
+                self.setUp()
+                self.fake.diff_paths = [path]
+                self.fake.gleam_missing = True
+                self.q.process(79)
+                self.assertTrue(self.fake.merged)
+                self.assertEqual([], self.gleam_listing_calls())
+
+    def test_a_bad_path_list_fails_closed_to_gleam_required(self):
+        for label, setup, reason in (
+                ("git diff failed", lambda f: setattr(f, "diff_error", True), "path list failed"),
+                ("empty list", lambda f: setattr(f, "diff_paths", []), "empty path list"),
+                ("absolute path", lambda f: setattr(f, "diff_paths", ["/etc/x"]), "changes /etc/x"),
+                ("parent path", lambda f: setattr(f, "diff_paths", ["../x"]), "changes ../x"),
+                ("newline in path", lambda f: setattr(f, "diff_paths", ["docs/a\nb"]), "changes"),
+                ("backslash in path", lambda f: setattr(f, "diff_paths", ["docs\\a"]), "changes")):
+            with self.subTest(label=label):
+                self.setUp()
+                setup(self.fake)
+                self.q.process(79)
+                self.assertTrue(self.fake.merged)
+                self.assertTrue(self.gleam_listing_calls(), label)
+                self.assertTrue(any(m.startswith("ELZOO GLEAM EVIDENCE") for m in self.fake.messages))
+
+    def test_the_path_list_comes_from_git_with_renames_listed_as_two_paths(self):
+        self.q.process(79)
+        self.assertEqual([["git", "diff", "--name-only", "-z", "--no-renames",
+                           "refs/remotes/origin/main...refs/remotes/origin/task/ELZ-039"]], self.fake.diff_calls)
+
+    def test_a_rename_out_of_a_gleam_path_still_requires_the_gleam_run(self):
+        # With --no-renames git lists the old path as a deletion, so moving a file out of spikes/gleam_ui/ counts.
+        self.fake.diff_paths = ["spikes/gleam_ui/src/old.gleam", "docs/new.gleam"]
+        self.q.process(79)
+        self.assertTrue(any(m.startswith("ELZOO GLEAM EVIDENCE") for m in self.fake.messages))
 
 
 class ReviewControls(unittest.TestCase):
