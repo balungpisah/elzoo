@@ -10,10 +10,15 @@ defmodule Elzoo.AuditLog.Store do
   exact record digests for an append; stream and `through` for a retention), call the inner
   Store and reset the setting. Replies are the inner Store's replies; nothing is added to the
   ready Store's reply set. Inside the caller's open transaction the setting is not touched and
-  the inner Store's caller-transaction refusal applies.
+  the inner Store's caller-transaction refusal applies. If the checkout itself fails (Repo not
+  running, pool queue timeout, exit), the write returns the conservative
+  `{:indeterminate, %{cause: ...}}` with the request identity the inner Store would have used,
+  never an exit.
   """
   @behaviour Elzoo.DurableLog.Store
   alias Ecto.Adapters.SQL
+  alias Elzoo.DurableLog, as: Log
+  alias Elzoo.DurableLog.Codec
 
   @setting "elzoo_audit.attribution"
   def setting, do: @setting
@@ -79,16 +84,66 @@ defmodule Elzoo.AuditLog.Store do
     else
       value = encode(Map.merge(opts.attribution, covered))
 
-      repo.checkout(fn ->
-        put(repo, value)
+      try do
+        repo.checkout(fn ->
+          put(repo, value)
 
-        try do
-          delegate(store, operation, args)
-        after
-          put(repo, "")
-        end
-      end)
+          try do
+            delegate(store, operation, args)
+          after
+            put(repo, "")
+          end
+        end)
+      rescue
+        error in [DBConnection.ConnectionError, Postgrex.Error] ->
+          _ = error
+          unknown(operation, args, :unavailable)
+
+        _ ->
+          unknown(operation, args, :exception)
+      catch
+        :exit, {:timeout, _} -> unknown(operation, args, :timeout)
+        :exit, _ -> unknown(operation, args, :exit)
+        _, _ -> unknown(operation, args, :exception)
+      end
     end
+  end
+
+  # The request identity the inner PostgreSQL Store reports for the same call.
+  defp unknown(:append, [stream, expected, records, _], cause) do
+    info = %{
+      operation: :append,
+      stream: stream,
+      expected: expected,
+      target: nil,
+      nonce: nil,
+      digest: nil
+    }
+
+    info =
+      try do
+        %{
+          info
+          | target: expected + length(records),
+            nonce: hd(records).nonce,
+            digest: Codec.hash(Enum.map(records, &Log.canonical_bytes/1))
+        }
+      rescue
+        _ -> info
+      end
+
+    Elzoo.DurableLog.Store.unknown(info, cause)
+  end
+
+  defp unknown(:retain, [stream, expected, through, nonce], cause) do
+    info =
+      try do
+        Codec.receipt(:retain, stream, expected, through, nonce)
+      rescue
+        _ -> %{operation: :retain, stream: stream, expected: expected, target: through}
+      end
+
+    Elzoo.DurableLog.Store.unknown(info, cause)
   end
 
   defp in_transaction?(repo) do

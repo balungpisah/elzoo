@@ -3579,7 +3579,7 @@
       "disposition": "implementation prepared; acceptance requires merged PR",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/state/audit-log/piece.json",
-      "manifest_sha256": "017a326206e25ffde8827094ac2d4618c786df32e572d2f0acfdbc5ae5a17b77"
+      "manifest_sha256": "69c125cb1f749fc0c9a1517698699cc8bef360996e59e9a4fc2aa5fb6645b955"
     },
     {
       "id": "state/checkpoint",

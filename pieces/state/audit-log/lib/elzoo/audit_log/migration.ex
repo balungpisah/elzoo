@@ -15,7 +15,8 @@ defmodule Elzoo.AuditLog.Migration do
   attribution trigger, both trigger functions `SECURITY DEFINER` with
   `search_path = pg_catalog, pg_temp`, and revokes every PUBLIC privilege on the audit schema.
   Grants to the application role are the consumer's (README). `down/1` removes both triggers,
-  the attribution function and Carbonite's objects but keeps the (then empty) audit schema.
+  the attribution function and Carbonite's objects; the audit schema itself is retained because
+  it can contain the Ecto migrator's own `schema_migrations` table.
   """
   use Ecto.Migration
 
@@ -83,7 +84,8 @@ defmodule Elzoo.AuditLog.Migration do
       carbonite_prefix: carbonite
     )
 
-    # The schema itself is kept: it may hold the migrator's own schema_migrations table.
+    # The audit schema is retained: it can contain the Ecto migrator's own schema_migrations
+    # table, which Carbonite's schema drop would remove under the migrator's lock.
     Carbonite.Migrations.down(12..1//-1, carbonite_prefix: carbonite, drop_schema: false)
   end
 

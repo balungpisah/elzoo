@@ -4,7 +4,7 @@ Code.require_file("../support/audit_log_test_helper.exs", __DIR__)
 defmodule Elzoo.AuditLog.PostgresTest do
   use ExUnit.Case, async: false
   alias Elzoo.AuditLog
-  alias Elzoo.AuditLog.{Harness, Retention, SingleTestRepo, TestRepo}
+  alias Elzoo.AuditLog.{Harness, Retention, SingleTestRepo, TestRepo, TransientTestRepo}
   alias Elzoo.DurableLog, as: Log
   import Harness, only: [query!: 2, query!: 3, row: 2, refused?: 1]
 
@@ -372,6 +372,58 @@ defmodule Elzoo.AuditLog.PostgresTest do
     assert transactions(c) == 4
   end
 
+  test "checkout failure returns the conservative Store result, never an exit", c do
+    :ok = Harness.start!(TransientTestRepo, 1, queue_target: 10, queue_interval: 10)
+    {:ok, bound} = AuditLog.bind(Harness.store(TransientTestRepo, c.prefix), @a)
+    r1 = row("s", 1)
+    parent = self()
+
+    # pool queue timeout: the only connection is held elsewhere
+    holder =
+      spawn(fn ->
+        TransientTestRepo.checkout(fn ->
+          send(parent, :holding)
+          receive do: (:release -> :ok)
+        end)
+      end)
+
+    assert_receive :holding, 5_000
+
+    assert {:indeterminate,
+            %{cause: :unavailable, operation: :append, stream: "s", expected: 0, target: 1} =
+              info} = write(bound, :append, ["s", 0, [r1], []])
+
+    assert info.nonce == r1.nonce
+
+    request = %{
+      operation: :append,
+      stream: "s",
+      expected: 0,
+      target: 1,
+      nonce: info.nonce,
+      digest: info.digest
+    }
+
+    assert {:indeterminate, %{cause: :unavailable}} =
+             Log.Store.write(bound, :append, ["s", 0, [r1], []], request)
+
+    assert {:indeterminate, %{cause: :unavailable, operation: :retain, target: 1}} =
+             write(bound, :retain, ["s", 0, 1, :crypto.strong_rand_bytes(16)])
+
+    ref = Process.monitor(holder)
+    send(holder, :release)
+    assert_receive {:DOWN, ^ref, _, _, :normal}, 5_000
+
+    # the Repo stopped after bind
+    :ok = TransientTestRepo.stop()
+
+    assert {:indeterminate, %{cause: :exception, operation: :append, target: 1}} =
+             write(bound, :append, ["s", 0, [r1], []])
+
+    assert Harness.records(TestRepo, c.prefix) == 0
+    assert transactions(c) == 0
+  end
+
   test "T8 TRUNCATE removes records without any audit change (disclosed limit)", c do
     assert {:committed, 1} = write(c.bound, :append, ["s", 0, [row("s", 1)], []])
     before = changes(c)
@@ -614,6 +666,62 @@ defmodule Elzoo.AuditLog.PostgresTest do
         do: assert(results[key] == :insufficient_privilege, "#{key}")
 
     assert [%{"actor" => "user:1"}, "insert", ["1", "r"], _] = List.last(changes(c))
+    reader_role!(c, role)
+  end
+
+  # Reads under the production grants: the application role cannot read the audit log; a
+  # separate reader role with USAGE and SELECT can, and cannot write it.
+  defp reader_role!(c, app) do
+    reader = "elzoo_audit_reader_" <> Base.encode16(:crypto.strong_rand_bytes(5), case: :lower)
+
+    query!(
+      TestRepo,
+      "CREATE ROLE #{reader} NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS"
+    )
+
+    on_exit(fn -> drop_role(reader) end)
+    query!(TestRepo, "GRANT USAGE ON SCHEMA #{c.carbonite} TO #{reader}")
+
+    query!(
+      TestRepo,
+      "GRANT SELECT ON #{c.carbonite}.transactions, #{c.carbonite}.changes TO #{reader}"
+    )
+
+    rule = %{keep_days: 1, effective_from: ~D[2000-01-01]}
+    now = ~U[2100-01-01 00:00:00Z]
+
+    as = fn role, fun ->
+      TestRepo.checkout(fn ->
+        query!(TestRepo, "SET ROLE #{role}")
+
+        try do
+          fun.()
+        after
+          query!(TestRepo, "RESET ROLE")
+        end
+      end)
+    end
+
+    assert {:error, :insufficient_privilege} =
+             as.(app, fn -> AuditLog.read(TestRepo, c.carbonite) end)
+
+    assert {:error, :insufficient_privilege} =
+             as.(app, fn -> Retention.expired(TestRepo, c.carbonite, rule, now, 10) end)
+
+    assert {:ok, [%{actor: "user:1", changes: [%{stream: "r", sequence: 1}]}]} =
+             as.(reader, fn -> AuditLog.read(TestRepo, c.carbonite, stream: "r") end)
+
+    assert {:ok, [_ | _]} =
+             as.(reader, fn -> Retention.expired(TestRepo, c.carbonite, rule, now, 10) end)
+
+    assert {:error, %Postgrex.Error{postgres: %{code: :insufficient_privilege}}} =
+             as.(reader, fn ->
+               Ecto.Adapters.SQL.query(
+                 TestRepo,
+                 "DELETE FROM #{c.carbonite}.transactions",
+                 []
+               )
+             end)
   end
 
   defp drop_role(role) do

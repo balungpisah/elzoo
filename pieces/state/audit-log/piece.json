@@ -47,7 +47,7 @@
     {
       "kind": "test",
       "file": "test/elzoo/audit_log_postgres_test.exs",
-      "claim": "Own disposable PostgreSQL database behind a fail-closed target guard: commit pairing, rollback on CAS conflict and injected failure, refusal of uncovered/override/update writes, exclusions, 16 concurrent actors, six held connections clean, killed holder on commit and rollback paths, retention delete and query, TRUNCATE and trigger-disable limits, opt-in without migration, definer functions with fixed search_path owned by the named non-superuser owner after every migration path, application-role boundary where roles can be created."
+      "claim": "Own disposable PostgreSQL database behind a fail-closed target guard: commit pairing, rollback on CAS conflict and injected failure, refusal of uncovered/override/update writes, exclusions, 16 concurrent actors, six held connections clean, killed holder on commit and rollback paths, retention delete and query, TRUNCATE and trigger-disable limits, opt-in without migration, definer functions with fixed search_path owned by the named non-superuser owner after every migration path, application-role boundary and reader-role reads where roles can be created, checkout failure returning the conservative Store result."
     },
     {
       "kind": "test",

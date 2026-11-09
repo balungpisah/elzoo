@@ -60,7 +60,10 @@ defmodule Elzoo.AuditLog do
   end
 
   @doc """
-  Audit transactions, newest last. Options: `stream` (only changes of that stream),
+  Audit transactions, oldest first. `repo` must connect as the audit owner or as a reader role
+  granted `USAGE` on the audit schema and `SELECT` on its `transactions` and `changes` tables;
+  the application role has no audit-schema privilege by design and gets
+  `{:error, :insufficient_privilege}`. Options: `stream` (only changes of that stream),
   `limit` (1..1000, default 100), `after` (transaction ID cursor, default 0).
   """
   def read(repo, carbonite_prefix, opts \\ []) do
@@ -114,8 +117,15 @@ defmodule Elzoo.AuditLog do
        end)}
     end
   rescue
-    _ in [Postgrex.Error, DBConnection.ConnectionError] -> {:error, :unavailable}
+    error in Postgrex.Error -> privilege_or_unavailable(error)
+    _ in DBConnection.ConnectionError -> {:error, :unavailable}
   end
+
+  @doc false
+  def privilege_or_unavailable(%Postgrex.Error{postgres: %{code: :insufficient_privilege}}),
+    do: {:error, :insufficient_privilege}
+
+  def privilege_or_unavailable(_), do: {:error, :unavailable}
 
   @doc """
   Checks that the migration is installed for `store_prefix` and `carbonite_prefix`: both

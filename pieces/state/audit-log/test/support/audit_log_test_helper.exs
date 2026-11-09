@@ -20,6 +20,10 @@ defmodule Elzoo.AuditLog.SingleTestRepo do
   use Ecto.Repo, otp_app: :elzoo, adapter: Ecto.Adapters.Postgres
 end
 
+defmodule Elzoo.AuditLog.TransientTestRepo do
+  use Ecto.Repo, otp_app: :elzoo, adapter: Ecto.Adapters.Postgres
+end
+
 defmodule Elzoo.AuditLog.TestMigration do
   @moduledoc false
   use Ecto.Migration
@@ -50,7 +54,7 @@ defmodule Elzoo.AuditLog.Harness do
   ELZOO_TEST_DATABASE_URL must be the effective current_database(); if
   ELZOO_AUDIT_EXPECTED_DB is set it must name the same database.
   """
-  def start!(repo, pool_size) do
+  def start!(repo, pool_size, extra \\ []) do
     url = PostgresHarness.database_url!()
     configured = url |> URI.parse() |> Map.get(:path, "") |> String.trim_leading("/")
     if configured == "", do: raise("ELZOO_TEST_DATABASE_URL names no database; refusing")
@@ -62,7 +66,7 @@ defmodule Elzoo.AuditLog.Harness do
     end
 
     pid =
-      case repo.start_link(url: url, pool_size: pool_size, log: false) do
+      case repo.start_link([url: url, pool_size: pool_size, log: false] ++ extra) do
         {:ok, pid} -> pid
         {:error, {:already_started, pid}} -> pid
       end

@@ -43,7 +43,10 @@ defmodule Elzoo.AuditLog.Retention do
 
   def expired?(_, _, _), do: {:error, :invalid_option}
 
-  @doc "Selects up to `limit` (1..10_000) audit transaction IDs past the rule, oldest first."
+  @doc """
+  Selects up to `limit` (1..10_000) audit transaction IDs past the rule, oldest first. Needs the
+  same reader privileges as `Elzoo.AuditLog.read/3`.
+  """
   def expired(repo, carbonite_prefix, rule, %DateTime{} = now, limit)
       when is_integer(limit) and limit in 1..10_000 do
     with :ok <- Elzoo.AuditLog.identifier(carbonite_prefix),
@@ -63,7 +66,8 @@ defmodule Elzoo.AuditLog.Retention do
       end
     end
   rescue
-    _ in [Postgrex.Error, DBConnection.ConnectionError] -> {:error, :unavailable}
+    error in Postgrex.Error -> Elzoo.AuditLog.privilege_or_unavailable(error)
+    _ in DBConnection.ConnectionError -> {:error, :unavailable}
   end
 
   def expired(_, _, _, _, _), do: {:error, :invalid_option}

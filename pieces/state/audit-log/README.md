@@ -43,13 +43,18 @@ No Cure source; nothing here needs the Cure compiler.
   consumer-owned Ecto migration, run by the audit owner role, without a migrator `prefix:` or
   with `prefix:` equal to `carbonite_prefix`. `Elzoo.AuditLog.Migration.secure(carbonite_prefix)`
   must run after any later Carbonite migration (Carbonite recreates `capture_changes()` and that
-  resets `SECURITY DEFINER` and the fixed `search_path`). `down/1` keeps the empty audit schema.
+  resets `SECURITY DEFINER` and the fixed `search_path`). `down/1` retains the audit schema,
+  because it can contain the Ecto migrator's own `schema_migrations` table; drop it yourself if
+  wanted.
 - `Elzoo.AuditLog.verify(repo, store_prefix, carbonite_prefix)` — call at startup: `:ok`, or
   `{:error, :not_installed | :trigger_disabled | :not_secured | :unavailable}`. `bind/2` does
   no I/O, so a binding over a schema without the migration records nothing; `verify/3` is how
   the consumer finds out.
 - `Elzoo.AuditLog.read(repo, carbonite_prefix, stream:, limit:, after:)` — audit transactions
-  with their changes as plain maps.
+  with their changes as plain maps. `repo` must connect as the audit owner or as an audit
+  reader role (`USAGE` on the audit schema, `SELECT` on `transactions` and `changes`); the
+  application role gets `{:error, :insufficient_privilege}` by design. The same holds for
+  `Retention.expired/5`.
 - `Elzoo.AuditLog.Retention` — rule `%{keep_days: 1..36_500, effective_from: Date}`. From the
   UTC date `effective_from` on, a transaction inserted more than `keep_days` days before `now`
   is past the rule; before that date nothing is. `expired?/3` is the pure decision; `expired/5`
@@ -73,7 +78,10 @@ owner then stays read-only.
 ## Needs (unverified assumptions, owned by the consumer)
 
 - The host supplies a truthful actor reference; Elzoo validates its shape only, until
-  `domain/principal` exists.
+  `domain/principal` exists. The attribution is not authenticated: any code that holds the
+  application role's Store-table privileges can set the session setting itself and record any
+  actor (or bind with any actor). The audit log records what the trusted host stated, not a
+  verified identity; keep untrusted code away from the application role.
 - **Production pool: `DBConnection.ConnectionPool`.** When a process dies holding a checked-out
   connection, that pool disconnects it, so a set attribution never reaches another checkout.
   Together with the operation/stream/digest binding this closes a stale setting for that pool.
@@ -86,6 +94,8 @@ owner then stays read-only.
   the Store needs (`SELECT, INSERT, UPDATE, DELETE`), **no** `TRUNCATE`, no ownership of the
   Store tables and **no privilege on the audit schema** (the migration revokes PUBLIC's).
   Capture then works through the definer functions while direct audit-table writes are refused.
+- Audit readers (`read/3`, `Retention.expired/5`) use the audit owner or a separate reader role
+  granted `USAGE` on the audit schema and `SELECT` on `transactions` and `changes`.
 - `inserted_at` is the database host's clock at transaction start, stored as UTC.
 
 ## Boundary and limits
