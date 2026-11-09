@@ -565,11 +565,11 @@
     },
     {
       "id": "runtime/os-isolation",
-      "summary": "Foreign unit/host/process boundary",
+      "summary": "OS-process Adapter: bounded admission, deadline and group-scoped termination through erlexec",
       "disposition": "adapt",
       "phase": "P4",
-      "status": "planned",
-      "reason": "OTP Port/OS process or service; BEAM process is not security isolation ELZ-029 carries the OS-process Adapter admission record (process-group leader, observed term/kill escalation, reaper, queue_full vs queue_timeout)."
+      "status": "ready",
+      "manifest": "pieces/runtime/os-isolation/piece.json"
     },
     {
       "id": "runtime/registry",

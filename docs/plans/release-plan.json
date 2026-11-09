@@ -1242,7 +1242,7 @@
       ],
       "acceptance": "Unchanged live issue body; local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
       "issue": 46,
-      "issue_body_sha256": "f844ecc1000034daac0a7b9d245c63797e4f811f5690d17fb72340cd7bf09ebb",
+      "issue_body_sha256": "c2c4b26947e2763d4ff771faf9ab23c2162fa46aa94258b85358d7b105e86ce8",
       "observed_issue_state": "OPEN",
       "owner_role": "one claimed task worker after admission",
       "product_aims": [
@@ -3482,10 +3482,12 @@
     {
       "id": "runtime/os-isolation",
       "job": "ELZ-029",
-      "note": "OTP Port/OS process or service; BEAM process is not security isolation ELZ-029 carries the OS-process Adapter admission record (process-group leader, observed term/kill escalation, reaper, queue_full vs queue_timeout).",
+      "note": "Run one OS command per request with bounded slots and queue, an absolute deadline, group-scoped termination performed by erlexec's port program, and an observed result mapped to the shared delivery result; the Adapter never signals itself.",
       "baseline_status": "planned",
-      "disposition": "published-scoped-work",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "implementation prepared; acceptance requires merged PR",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/runtime/os-isolation/piece.json",
+      "manifest_sha256": "faed881e117837c4757d8bbe28f9f0e495406e4c9ad17ea704b88a7f64a9f944"
     },
     {
       "id": "runtime/registry",

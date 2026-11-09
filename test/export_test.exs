@@ -35,6 +35,19 @@ defmodule Elzoo.ExportTest do
     assert receipt["providers"]["jason"]["version"] == "1.4.5"
   end
 
+  test "install guidance emits provider runtime policy while retaining the default", ctx do
+    erlexec = Elzoo.Export.plan!(ctx.registry, ["runtime/os-isolation"], ctx.destination)
+    erlexec_instructions = erlexec.files[erlexec.instructions]
+
+    assert erlexec_instructions =~ ~s({:erlexec, "~> 2.6.0", runtime: false})
+
+    jason = Elzoo.Export.plan!(ctx.registry, ["integration/json"], ctx.destination)
+    jason_instructions = jason.files[jason.instructions]
+
+    assert jason_instructions =~ ~s({:jason, "~> 1.4.5"})
+    refute jason_instructions =~ ~s({:jason, "~> 1.4.5", runtime: false})
+  end
+
   test "a conflict found late in the selection writes nothing", ctx do
     file = Path.join(ctx.destination, "test/elzoo/json_recipe_test.exs")
     File.mkdir_p!(Path.dirname(file))
