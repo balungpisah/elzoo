@@ -1,0 +1,39 @@
+# Install selected source pieces
+
+Selected dependency closure: integration/json, integration/cure-json.
+
+Files were copied; mix.exs, mix.lock, configuration and test_helper.exs were
+not edited. Review and merge these direct dependencies into deps/0:
+
+```elixir
+[{:cure, git: "https://github.com/balungpisah/cure-lang.git", ref: "208248063d64e621782cd26dd30698ee42850a89", depth: 1, runtime: false},
+ {:jason, "~> 1.4.5"}]
+```
+
+The Hex constraints above allow patch-level updates; they are consumer
+resolution suggestions, not evidence for untested releases. Use your own
+lockfile; the receipt records the exact versions exercised in Elzoo. To
+reproduce that evidence exactly, pin those recorded versions. If existing
+dependencies impose incompatible
+versions, resolve that deliberately and rerun the copied boundary tests.
+
+Additional OTP applications to include in extra_applications: [].
+
+Add this project option in mix.exs (the copied compiler uses cure/ by default):
+
+    compilers: (Mix.compilers() -- [:app]) ++ [:cure, :app]
+
+Keep the exact Cure SHA above and Elixir 1.20.4 / OTP 29.1.2 for the recorded
+proof results. Cure is an exact-revision build/test dependency; runtime: false
+excludes its automatic startup in the consuming application. The compiler
+task still starts Cure during compilation. No Elzoo runtime is required.
+
+Ensure test/test_helper.exs starts ExUnit, then run mix deps.get and mix test.
+Examples are under examples/elzoo/. Read the selected contracts in
+.elzoo/pieces/ before weaving these into application behavior. Package/OTP
+implementations remain upstream-owned; copied source is Apache-2.0 (see
+licenses/elzoo/LICENSE and NOTICE). This does not relicense your project.
+
+Copies belong to your application. The receipt records origins and original
+SHA-256 bytes, not a proof of your customizations. Take an updated selection
+into a separate scratch project and review the diff; never overwrite edits.

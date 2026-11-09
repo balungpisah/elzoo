@@ -68,6 +68,19 @@ original file hashes, selected claims and provider versions. Read the printed
 your existing Mix project. The copier deliberately does not rewrite mix.exs,
 mix.lock, your Application, your test helper, or existing configuration.
 
+Some pieces need a configuration line in every consumer (for example
+`integration/ai-text-anthropic` needs `config :req_llm, load_dotenv: false` so
+that `req_llm` never loads a `.env` file). A piece declares such lines in its
+manifest field `install_configuration`, each with a one-line reason; the
+registry accepts only a single literal `config :app, key: value` call for an
+application the piece itself brings. The install file lists the selection's
+lines once each under "Configuration", with every declaring piece and reason.
+Merge them into your configuration (for example `config/config.exs`) before
+those applications start. The lines are copied as data and never evaluated by
+the copier; a selection without such lines gets no Configuration section.
+Elzoo's copied-consumer harness writes these lines and checks they are set
+before the application starts; a consumer that drops a line is not checked.
+
 JSON/HTTP/library recipes do not pull in Cure. Selecting a Cure piece adds
 the small Mix compiler source and instructions to register it before `:app`.
 Cure itself is a pinned build/test dependency (`runtime: false`); its implementation is not vendored. Your

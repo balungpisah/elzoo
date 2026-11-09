@@ -24,6 +24,8 @@ defmodule Elzoo.Export do
     if has_cure and not Map.has_key?(providers, "cure"),
       do: raise(ArgumentError, "Cure sources require a declared cure provider")
 
+    configuration = configuration!(pieces)
+
     source_files =
       Enum.flat_map(pieces, fn piece ->
         Enum.map(piece["files"], &{&1, "#{piece["directory"]}/#{&1}"}) ++
@@ -70,7 +72,10 @@ defmodule Elzoo.Export do
     files =
       files
       |> put_file!(".elzoo/receipts/#{key}.json", Jason.encode!(receipt, pretty: true) <> "\n")
-      |> put_file!(".elzoo/install/#{key}.md", instructions(pieces, providers, has_cure))
+      |> put_file!(
+        ".elzoo/install/#{key}.md",
+        instructions(pieces, providers, has_cure, configuration)
+      )
 
     Enum.each(files, fn {path, bytes} -> preflight!(destination, path, bytes) end)
 
@@ -79,6 +84,8 @@ defmodule Elzoo.Export do
       files: files,
       pieces: pieces,
       providers: providers,
+      configuration: Enum.map(configuration, & &1.line),
+      configuration_provenance: configuration,
       instructions: ".elzoo/install/#{key}.md",
       receipt: ".elzoo/receipts/#{key}.json"
     }
@@ -150,7 +157,69 @@ defmodule Elzoo.Export do
     end)
   end
 
-  defp instructions(pieces, providers, has_cure) do
+  # ELZ-091: the selection's install configuration, validated once into retained provenance
+  # %{piece_id, line, reason, settings} in Piece selection order then declaration order. An exact
+  # duplicate line keeps its first declaration (and that reason). The lines are data: the Registry
+  # validated that each parses to one literal-only config call, and nothing here evaluates them.
+  # A differing value for the same {app, key} is refused before any preflight or write.
+  defp configuration!(pieces) do
+    declared =
+      for piece <- pieces,
+          %{"line" => line, "reason" => reason} <- Map.get(piece, "install_configuration", []) do
+        {:ok, {app, settings}} = Registry.configuration_settings(line)
+
+        %{
+          piece_id: piece["id"],
+          line: line,
+          reason: reason,
+          settings: Enum.map(settings, fn {key, value} -> {app, key, value} end)
+        }
+      end
+
+    Enum.reduce(declared, %{}, fn entry, seen ->
+      Enum.reduce(entry.settings, seen, fn {app, key, value}, seen ->
+        case Map.fetch(seen, {app, key}) do
+          :error ->
+            Map.put(seen, {app, key}, {entry.piece_id, value})
+
+          {:ok, {_, ^value}} ->
+            seen
+
+          {:ok, {first, other}} ->
+            raise ArgumentError,
+                  "selected pieces disagree on configuration #{inspect(app)} #{inspect(key)}: " <>
+                    "#{first} sets #{inspect(other)}, #{entry.piece_id} sets #{inspect(value)}"
+        end
+      end)
+    end)
+
+    Enum.uniq_by(declared, & &1.line)
+  end
+
+  defp configuration_section([]), do: ""
+
+  defp configuration_section(configuration) do
+    body =
+      Enum.map_join(configuration, "\n", fn entry ->
+        "# #{entry.piece_id}: #{entry.reason}\n#{entry.line}"
+      end)
+
+    """
+    ## Configuration
+
+    Merge these lines into the consuming application's configuration (for
+    example config/config.exs, after import Config) before the named
+    applications start. They are copied as data from the selected manifests;
+    the copier does not edit your configuration:
+
+    ```elixir
+    #{body}
+    ```
+
+    """
+  end
+
+  defp instructions(pieces, providers, has_cure, configuration) do
     dependencies =
       providers
       |> Enum.sort()
@@ -210,7 +279,7 @@ defmodule Elzoo.Export do
 
     Additional OTP applications to include in extra_applications: [#{Enum.map_join(applications, ", ", &(":" <> &1))}].
 
-    #{compiler}
+    #{configuration_section(configuration)}#{compiler}
     Ensure test/test_helper.exs starts ExUnit, then run mix deps.get and mix test.
     Examples are under examples/elzoo/. Read the selected contracts in
     .elzoo/pieces/ before weaving these into application behavior. Package/OTP
