@@ -113,6 +113,13 @@ stamp (clock regression) refuses every operation except `seize`.
   `retention_observed` is after-the-fact. A modifying Memory call waits for
   the owner without a timeout (a call timeout would not cancel the queued
   request); only read-only calls can return `{:error, :contended}`.
+- **PostgreSQL lock deadline:** before the lease locks,
+  `Elzoo.Lease.Postgres` sets transaction-local `lock_timeout` equal to
+  `timeout_ms`. Its client transaction budget is exactly `timeout_ms + 1_000`
+  ms, so PostgreSQL reports the lock deadline first. Only SQLSTATE 55P03
+  (`lock_not_available`) before the first write is `{:error, :contended}`;
+  connection, pool, query and transport-close failures are
+  `{:error, :unavailable}`.
 - **Proof scope:** selected laws cover the classification over ordering
   outcomes and the specification of the comparison; the production comparison
   is finite-test-grounded against the law-covered structural mirror, not
