@@ -49,6 +49,25 @@ class Fake:
         self.head_prs = [{"number": 79}]  # every pull request (any state) from the head branch
         self.head_prs_pages = None
         self.head_prs_calls = 0
+        # ELZ-071: a run can have the docs-only shape (mix check skipped, short check green, its own marker).
+        self.docs_runs = set()         # IDs of runs that have the docs-only shape; their job ID is 400
+        self.docs_steps = [{"name": "Classify the change", "conclusion": "success"},
+                           {"name": "Run mix check", "conclusion": "skipped"},
+                           {"name": "Docs-only check", "conclusion": "success"}]
+        self.docs_log = "2026-11-09T05:00:00.0000000Z ELZOO DOCS-ONLY CHECK PASSED\n"
+        # ELZ-071 (review of PR #135): the short check needs a main whose own push run completed with success.
+        self.main_head_runs = None     # None: one completed successful push run on the canonical main
+        self.main_head_runs_later = None   # from the second listing on, these runs
+        self.main_head_hidden = 0      # the listing is empty for this many calls
+        self.main_head_calls = 0
+        self.main_head_error = False
+        self.main_head_raw = None      # a raw body instead of {"workflow_runs": ...}
+        self.raw_diff_calls = []
+        self.raw_error = False
+        self.raw_output = None         # a raw string instead of the one built from raw_paths
+        self.raw_paths = None          # None: the same paths as diff_paths
+        self.raw_paths_later = None    # from the second raw diff on, these paths
+        self.raw_entries = None        # full entries (old_mode, new_mode, status, path) instead of paths
         self.extra_head_runs = []      # more runs of the backend workflow on the head, as the unfiltered listing shows them
         self.head_run_pages = None     # raw pages for that listing (malformed bodies)
         self.head_prs_later = None     # from the second listing on, the listing shows these pull requests
@@ -87,6 +106,12 @@ class Fake:
         self.canonical_main = M
         self.gleam_reads = 0
         self.gleam_rerun = False
+
+    def main_head_run(self, run_id=9000, **changes):
+        run = dict(id=run_id, event="push", head_branch="main", head_sha=self.canonical_main, status="completed",
+                   conclusion="success", path=".github/workflows/symbolic-check.yml")
+        run.update(changes)
+        return run
 
     def pr_run_ids(self):
         """IDs of the listed runs that really are the same-repository pull_request run of the exact head."""
@@ -154,6 +179,16 @@ class Fake:
         elif argv[:3] == ["gh", "workflow", "run"]:
             self.dispatches += 1
             self.dispatch_args.append(argv)
+        elif argv[:2] == ["git", "diff"] and "--raw" in argv:
+            self.raw_diff_calls.append(argv)
+            if self.raw_error:
+                raise queue.QueueError("git diff failed")
+            paths = self.raw_paths if self.raw_paths is not None else self.diff_paths
+            if self.raw_paths_later is not None and len(self.raw_diff_calls) >= 2:
+                paths = self.raw_paths_later
+            entries = self.raw_entries if self.raw_entries is not None else [("100644", "100644", "M", p) for p in paths]
+            out = self.raw_output if self.raw_output is not None else "".join(
+                f":{o} {n} {'a' * 40} {'b' * 40} {st}\x00{path}\x00" for o, n, st, path in entries)
         elif argv[:2] == ["git", "diff"]:
             self.diff_calls.append(argv)
             if self.diff_error:
@@ -200,6 +235,16 @@ class Fake:
                 if self.comments_error:
                     raise queue.QueueError("gh api exited 1: comments failed")
                 out = [self.comments]
+            elif "/workflows/symbolic-check.yml/runs?" in path and "event=push" in path and "head_sha=" in path:
+                self.main_head_calls += 1
+                if self.main_head_error:
+                    raise queue.QueueError("gh api exited 1: main head listing failed")
+                runs = self.main_head_runs if self.main_head_runs is not None else [self.main_head_run()]
+                if self.main_head_runs_later is not None and self.main_head_calls >= 2:
+                    runs = self.main_head_runs_later
+                if self.main_head_calls <= self.main_head_hidden:
+                    runs = []
+                out = self.main_head_raw if self.main_head_raw is not None else {"workflow_runs": runs}
             elif "/workflows/symbolic-check.yml/runs?" in path and "event=push" in path:
                 if self.main_listing_error:
                     raise queue.QueueError("gh api exited 1: main listing failed")
@@ -247,10 +292,14 @@ class Fake:
                         runs.append(dict(run, id=900))
                 out = [{"workflow_runs": runs}]
             elif "/attempts/" in path:
-                job = dict(id=200 + self.dispatches, run_id=100 + self.dispatches if self.dispatches else self.adopted(),
+                read_run = int(path.split("/actions/runs/")[1].split("/")[0])
+                docs = read_run in self.docs_runs
+                job = dict(id=400 if docs else 200 + self.dispatches,
+                           run_id=read_run if docs else 100 + self.dispatches if self.dispatches else self.adopted(),
                            name="check-hosted", head_sha=self.pr["headRefOid"], status="completed",
                            conclusion="success", **HOSTED_FIELDS,
-                           steps=[{"name": "Verify the GitHub-hosted runner", "conclusion": "success"}] + self.steps)
+                           steps=[{"name": "Verify the GitHub-hosted runner", "conclusion": "success"}]
+                           + (self.docs_steps if docs else self.steps))
                 job.update(self.job_changes)
                 jobs = [job]
                 if self.other_job_changes is not None:
@@ -259,7 +308,7 @@ class Fake:
                     jobs.append(dict(job, id=999))
                 out = [{"jobs": jobs}]
             elif path.endswith("/logs"):
-                out = self.log
+                out = self.docs_log if "/jobs/400/" in path else self.log
             elif "/runs/" in path:
                 self.reads += 1
                 out = self.run_data(int(path.rsplit("/", 1)[1]))
@@ -1365,6 +1414,379 @@ class GleamPathGate(unittest.TestCase):
         self.fake.diff_paths = ["spikes/gleam_ui/src/old.gleam", "docs/new.gleam"]
         self.q.process(79)
         self.assertTrue(any(m.startswith("ELZOO GLEAM EVIDENCE") for m in self.fake.messages))
+
+
+class DocsOnlyFastPath(unittest.TestCase):
+    """ELZ-071: a run that passed the short docs-only check is evidence only when the queue's own classifier agrees."""
+
+    def setUp(self):
+        self.fake = Fake()
+        self.q = self.fake.make_queue()
+
+    def docs_pr(self, run_id=700, paths=("docs/a.md", "tasks/ELZ-1.md")):
+        self.fake.pr_runs = [self.fake.pr_run(run_id)]
+        self.fake.docs_runs = {run_id}
+        self.fake.diff_paths = list(paths)
+
+    def refuses(self, pattern):
+        with self.assertRaisesRegex(queue.QueueError, pattern):
+            self.q.process(79)
+        self.assertFalse(self.fake.merged)
+        self.assertFalse(self.fake.commands(["gh", "pr", "merge"]))
+
+    def test_a_docs_only_run_with_a_documentation_change_merges_on_the_short_check(self):
+        self.docs_pr()
+        self.q.process(79)
+        self.assertTrue(self.fake.merged)
+        self.assertEqual(0, self.fake.dispatches)
+        self.assertEqual(f"ELZOO MERGE EVIDENCE pr=79 run=700 job=400 runner=GitHub Actions 7 head={A} merge={M} mode=docs-only",
+                         self.fake.messages[-1])
+        # No Gleam path in the change: the Gleam run is not required.
+        self.assertTrue(any(m.startswith("Gleam run not required for PR #79") for m in self.fake.messages))
+        self.assertTrue(any(m.startswith("ELZOO GLEAM GATE not required") for m in self.fake.messages))
+
+    def test_the_queue_classifies_the_fetched_refs_with_the_main_sha_of_the_canonical_repository(self):
+        self.docs_pr()
+        self.fake.canonical_main = "d" * 40
+        self.q.process(79)
+        expected = ["git", "diff", "--raw", "-z", "--no-renames", "--no-abbrev", "--ignore-submodules=none",
+                    "--no-relative", "d" * 40 + "...refs/remotes/origin/task/ELZ-039", "--"]
+        self.assertEqual(expected, queue.CLASSIFIER.diff_argv("d" * 40, "refs/remotes/origin/task/ELZ-039"))
+        # Once after the evidence and once right before the merge.
+        self.assertEqual([expected, expected], self.fake.raw_diff_calls)
+
+    # --- review of PR #135, finding 1: a documentation merge must not hide a main that is red or unfinished -----
+    def test_the_short_check_needs_a_main_whose_push_run_completed_with_success(self):
+        for label, runs in (
+                ("red", [self.fake.main_head_run(conclusion="failure")]),
+                ("cancelled", [self.fake.main_head_run(conclusion="cancelled")]),
+                ("timed out", [self.fake.main_head_run(conclusion="timed_out")]),
+                ("skipped", [self.fake.main_head_run(conclusion="skipped")]),
+                ("no conclusion", [self.fake.main_head_run(conclusion=None)]),
+                ("no run at all", []),
+                ("newest is red, older is green", [self.fake.main_head_run(9000), self.fake.main_head_run(9001, conclusion="failure")]),
+                ("another event only", [self.fake.main_head_run(event="workflow_dispatch")]),
+                ("another branch only", [self.fake.main_head_run(head_branch="task/ELZ-040")]),
+                ("another commit only", [self.fake.main_head_run(head_sha="e" * 40)]),
+                ("another workflow only", [self.fake.main_head_run(path=".github/workflows/symbolic-gleam.yml")]),
+                ("odd entries only", [None, "x", 7, {}])):
+            with self.subTest(label=label):
+                self.setUp()
+                self.q = self.fake.make_queue(timeout=3600)
+                self.docs_pr()
+                self.fake.main_head_runs = runs
+                self.q.process(79)
+                self.assertEqual(1, self.fake.dispatches, label)
+                self.assertTrue(any("push run of the current main is not a completed success" in m for m in self.fake.messages))
+                self.assertNotIn("mode=docs-only", self.fake.messages[-1])
+
+    def test_the_newest_push_run_of_main_decides(self):
+        self.docs_pr()
+        self.fake.main_head_runs = [self.fake.main_head_run(9000, conclusion="failure"), self.fake.main_head_run(9001)]
+        self.q.process(79)     # a red run, then the green re-run result with a higher ID
+        self.assertEqual(0, self.fake.dispatches)
+        self.assertIn("mode=docs-only", self.fake.messages[-1])
+
+    def test_a_push_run_of_main_in_progress_is_awaited_for_a_bounded_time(self):
+        self.docs_pr()
+        self.q = self.fake.make_queue(timeout=3600)
+        self.fake.main_head_runs = [self.fake.main_head_run(status="in_progress", conclusion=None)]
+        self.fake.main_head_runs_later = [self.fake.main_head_run()]
+        self.q.process(79)
+        self.assertEqual(0, self.fake.dispatches)
+        self.assertTrue(any(m == "Waiting: push run of main ccccccc to finish" or m.startswith("Waiting: push run of main")
+                            for m in self.fake.messages))
+        self.assertIn("mode=docs-only", self.fake.messages[-1])
+
+    def test_a_push_run_that_never_finishes_ends_the_wait_and_needs_a_full_run(self):
+        self.docs_pr()
+        self.q = self.fake.make_queue(timeout=36000)
+        self.fake.main_head_runs = [self.fake.main_head_run(status="in_progress", conclusion=None)]
+        self.q.process(79)
+        self.assertEqual(1, self.fake.dispatches)
+        waits = [m for m in self.fake.messages if m.startswith("Waiting: push run of main")]
+        self.assertTrue(waits)
+        self.assertLessEqual(len(waits) * 15, queue.MAIN_RUN_WAIT + 15)    # bounded by MAIN_RUN_WAIT, not by the PR deadline
+
+    def test_a_push_run_that_is_not_listed_yet_is_awaited_too(self):
+        self.docs_pr()
+        self.q = self.fake.make_queue(timeout=3600)
+        self.fake.main_head_hidden = 2
+        self.q.process(79)
+        self.assertEqual(0, self.fake.dispatches)
+        self.assertIn("mode=docs-only", self.fake.messages[-1])
+
+    def test_a_failed_or_malformed_push_run_listing_needs_a_full_run(self):
+        for label, change in (("error", dict(main_head_error=True)), ("not an object", dict(main_head_raw=["x"])),
+                              ("no list", dict(main_head_raw={"workflow_runs": "x"})),
+                              ("string", dict(main_head_raw="garbage")),
+                              ("odd id", dict(main_head_runs=[{"id": "x", "event": "push", "head_branch": "main",
+                                                               "head_sha": "c" * 40, "status": "completed",
+                                                               "conclusion": "success",
+                                                               "path": ".github/workflows/symbolic-check.yml"}]))):
+            with self.subTest(label=label):
+                self.setUp()
+                self.docs_pr()
+                for name, value in change.items():
+                    setattr(self.fake, name, value)
+                self.q.process(79)
+                self.assertEqual(1, self.fake.dispatches)
+
+    def test_main_turning_red_between_the_two_classifications_refuses_the_merge(self):
+        self.docs_pr()
+        self.fake.main_head_runs_later = [self.fake.main_head_run(conclusion="failure")]
+        self.refuses("no longer matches the queue's own classification")
+
+    def test_the_push_run_listing_asks_for_the_canonical_main_commit(self):
+        self.docs_pr()
+        self.fake.canonical_main = "d" * 40
+        self.fake.main_head_runs = [self.fake.main_head_run(head_sha="d" * 40)]
+        self.q.process(79)
+        listings = [c[-1] for c in self.fake.calls if c[:2] == ["gh", "api"] and "event=push" in c[-1] and "head_sha=" in c[-1]]
+        self.assertEqual(2, len(listings))     # once per classification
+        self.assertTrue(all("head_sha=" + "d" * 40 in listing and "per_page=100" in listing for listing in listings))
+
+    def test_a_full_run_needs_no_push_run_of_main_here(self):
+        # The freeze rule covers a full run; the extra rule is for the short check only.
+        self.fake.diff_paths = ["docs/a.md"]
+        self.fake.pr_runs = [self.fake.pr_run(700)]
+        self.fake.main_head_runs = [self.fake.main_head_run(conclusion="failure")]
+        self.q.process(79)
+        self.assertEqual(0, self.fake.main_head_calls)
+
+    def test_a_full_run_is_still_accepted_without_a_classification(self):
+        self.fake.diff_paths = ["docs/a.md"]
+        self.fake.pr_runs = [self.fake.pr_run(700)]
+        self.q.process(79)
+        self.assertEqual([], self.fake.raw_diff_calls)
+        self.assertNotIn("mode=docs-only", self.fake.messages[-1])
+        self.assertEqual(f"ELZOO MERGE EVIDENCE pr=79 run=700 job=200 runner=GitHub Actions 7 head={A} merge={M}",
+                         self.fake.messages[-1])
+
+    def test_the_dispatch_fallback_run_is_accepted_as_before(self):
+        self.q.process(79)
+        self.assertEqual(1, self.fake.dispatches)
+        self.assertEqual([], self.fake.raw_diff_calls)
+        self.assertNotIn("mode=", self.fake.messages[-1])
+
+    def test_one_code_path_makes_the_queue_dispatch_a_full_run(self):
+        # The run passed the short check (its classifier or its change differs), the queue's own list has a code path.
+        for label, paths in (("script", ["docs/a.md", "scripts/tool.py"]),
+                             ("the classifier itself", ["scripts/ci-change-class.py", "docs/a.md"]),
+                             ("workflow", [".github/workflows/symbolic-check.yml"]),
+                             ("lib", ["lib/elzoo/export.ex"]),
+                             ("test", ["test/registry_test.exs"]),
+                             ("pieces readme", ["pieces/core/selection/README.md"]),
+                             ("ledger", ["LEDGER.md"]),
+                             ("agents", ["AGENTS.md"]),
+                             ("file read by the export", ["docs/consuming.md"]),
+                             ("traversal", ["docs/../scripts/x.py"]),
+                             ("look-alike", ["docs-x/a.md"]),
+                             ("empty list", [])):
+            with self.subTest(label=label):
+                self.setUp()
+                self.docs_pr(paths=paths)
+                self.fake.raw_paths = paths
+                self.q.process(79)
+                self.assertEqual(1, self.fake.dispatches)
+                self.assertTrue(any("the queue does not accept the short check" in m and "dispatching a full run" in m
+                                    for m in self.fake.messages))
+                self.assertEqual(f"ELZOO MERGE EVIDENCE pr=79 run=101 job=201 runner=GitHub Actions 7 head={A} merge={M}",
+                                 self.fake.messages[-1])
+                self.assertTrue(any("does NOT satisfy branch protection" in m for m in self.fake.messages))
+
+    def test_a_failed_or_odd_classification_makes_the_queue_dispatch_a_full_run(self):
+        for label, changes in (("git failed", dict(raw_error=True)),
+                               ("malformed output", dict(raw_output="garbage")),
+                               ("rename entry", dict(raw_entries=[("100644", "100644", "R", "docs/a.md")])),
+                               ("symlink entry", dict(raw_entries=[("000000", "120000", "A", "docs/link")])),
+                               ("submodule entry", dict(raw_entries=[("000000", "160000", "A", "docs/sub")])),
+                               ("odd count of fields", dict(raw_output=":100644 100644 " + "a" * 40 + " " + "b" * 40 + " M\x00")),
+                               ("abbreviated names", dict(raw_output=":100644 100644 aaaaaaa bbbbbbb M\x00docs/a.md\x00"))):
+            with self.subTest(label=label):
+                self.setUp()
+                self.docs_pr()
+                for name, value in changes.items():
+                    setattr(self.fake, name, value)
+                self.q.process(79)
+                self.assertEqual(1, self.fake.dispatches)
+                self.assertNotIn("mode=docs-only", self.fake.messages[-1])
+
+    def test_a_missing_classifier_means_the_full_run(self):
+        self.docs_pr()
+        original = queue.CLASSIFIER
+        queue.CLASSIFIER = None
+        try:
+            self.q.process(79)
+        finally:
+            queue.CLASSIFIER = original
+        self.assertEqual(1, self.fake.dispatches)
+        self.assertEqual([], self.fake.raw_diff_calls)
+
+    def test_a_classifier_that_raises_means_the_full_run(self):
+        class Broken:
+            Unclear = ValueError
+
+            @staticmethod
+            def diff_argv(base, head):
+                raise ValueError("unsafe")
+
+        self.docs_pr()
+        original = queue.CLASSIFIER
+        queue.CLASSIFIER = Broken
+        try:
+            self.q.process(79)
+        finally:
+            queue.CLASSIFIER = original
+        self.assertEqual(1, self.fake.dispatches)
+
+    def test_the_answer_must_hold_again_right_before_the_merge(self):
+        self.docs_pr()
+        self.fake.raw_paths_later = ["scripts/tool.py"]    # the second classification sees a code path
+        self.refuses("no longer matches the queue's own classification")
+        self.assertEqual(2, len(self.fake.raw_diff_calls))
+
+    def test_the_short_check_needs_every_one_of_its_steps_green(self):
+        def steps(classify="success", mix="skipped", docs="success", extra=()):
+            return ([{"name": "Classify the change", "conclusion": classify}] if classify else []) + \
+                   ([{"name": "Run mix check", "conclusion": mix}] if mix else []) + \
+                   ([{"name": "Docs-only check", "conclusion": docs}] if docs else []) + list(extra)
+        bad = {
+            "docs-only check failed": steps(docs="failure"),
+            "docs-only check skipped": steps(docs="skipped"),
+            "docs-only check cancelled": steps(docs="cancelled"),
+            "docs-only check missing": steps(docs=None),
+            "docs-only check without conclusion": steps(docs=None, extra=[{"name": "Docs-only check"}]),
+            "classify failed": steps(classify="failure"),
+            "classify skipped": steps(classify="skipped"),
+            "classify missing": steps(classify=None),
+            "classify twice": steps(extra=[{"name": "Classify the change", "conclusion": "success"}]),
+            "docs-only check twice": steps(extra=[{"name": "Docs-only check", "conclusion": "success"}]),
+            "mix check missing": steps(mix=None),
+            "mix check failed": steps(mix="failure"),
+            "mix check cancelled": steps(mix="cancelled"),
+            "mix check twice": steps(extra=[{"name": "Run mix check", "conclusion": "skipped"}]),
+        }
+        for label, shape in bad.items():
+            with self.subTest(label=label):
+                self.setUp()
+                self.docs_pr()
+                self.fake.docs_steps = shape
+                self.refuses("Full check step|docs-only check steps")
+                self.assertEqual(0, self.fake.dispatches)
+
+    def test_the_marker_must_be_a_line_of_its_own(self):
+        marker = "ELZOO DOCS-ONLY CHECK PASSED"
+        good = {"with a timestamp": f"2026-11-09T05:00:00.0000000Z {marker}\n", "bare": f"{marker}\n",
+                "among other lines": f"x\n2026-11-09T05:00:00.0000000Z {marker}\ny\n",
+                "carriage return": f"2026-11-09T05:00:00.0000000Z {marker}\r\n"}
+        for label, log in good.items():
+            with self.subTest(label=label):
+                self.setUp()
+                self.docs_pr()
+                self.fake.docs_log = log
+                self.q.process(79)
+                self.assertTrue(self.fake.merged)
+        bad = {
+            "no marker": "2026-11-09T05:00:00.0000000Z all done\n",
+            "empty log": "",
+            "echoed command": f"2026-11-09T05:00:00.0000000Z echo \"{marker}\"\n",
+            "echoed with run prefix": f"2026-11-09T05:00:00.0000000Z ##[group]Run echo \"{marker}\"\n",
+            "text before": f"2026-11-09T05:00:00.0000000Z x {marker}\n",
+            "text after": f"2026-11-09T05:00:00.0000000Z {marker} but not really\n",
+            "lower case": f"2026-11-09T05:00:00.0000000Z {marker.lower()}\n",
+            "the full marker only": "2026-11-09T05:00:00.0000000Z ELZOO CHECK PASSED\n",
+            "the push skip line": "2026-11-09T05:00:00.0000000Z ELZOO PUSH CHECK SKIPPED (identical tree)\n",
+            "both markers": f"{marker}\nELZOO CHECK PASSED\n",
+            "with the affected marker": f"{marker}\nELZOO AFFECTED CHECK PASSED (not full)\n",
+        }
+        for label, log in bad.items():
+            with self.subTest(label=label):
+                self.setUp()
+                self.docs_pr()
+                self.fake.docs_log = log
+                self.refuses("Missing docs-only success marker")
+
+    def test_a_docs_only_run_is_not_accepted_by_another_event_or_head_or_runner(self):
+        for label, change in (("failed run", dict(run_changes={"conclusion": "failure"})),
+                              ("another head", dict(run_changes={"head_sha": B})),
+                              ("another runner", dict(job_changes={"runner_name": "self", "runner_group_name": "x"})),
+                              ("an unfinished run", dict(run_changes={"status": "in_progress", "conclusion": None}))):
+            with self.subTest(label=label):
+                self.setUp()
+                self.docs_pr()
+                for name, value in change.items():
+                    setattr(self.fake, name, value)
+                with self.assertRaises(queue.QueueError):
+                    self.q.process(79)
+                self.assertFalse(self.fake.merged)
+
+    def test_a_job_with_the_old_shape_is_not_a_docs_only_run(self):
+        # A second job (an old-shape run) is refused as before, whatever the steps say.
+        self.docs_pr()
+        self.fake.other_job_changes = {"name": "check-other"}
+        self.refuses("Expected exactly one executed check-hosted job")
+
+    def test_the_full_step_alone_never_substitutes_for_the_docs_only_shape_when_the_queue_forbids_it(self):
+        # After the fallback dispatch the evidence run must be a full run: a docs-only shape is refused.
+        self.docs_pr()
+        self.fake.docs_runs = {700, 101}      # the fallback run also has the docs-only shape
+        self.fake.raw_paths = ["scripts/tool.py"]
+        self.refuses("Full check step missing, skipped or failed")
+        self.assertEqual(1, self.fake.dispatches)
+
+    def test_the_newer_run_check_and_the_adoption_rules_still_apply(self):
+        self.docs_pr()
+        self.fake.extra_head_runs = [dict(self.fake.pr_run(900), status="completed", conclusion="success")]
+        self.refuses("Run 900 on head .* is newer than the evidence run 700")
+
+    def test_the_frozen_main_still_stops_a_docs_only_pull_request(self):
+        self.docs_pr()
+        self.fake.main_runs = [dict(id=9001, event="push", head_branch="main", status="completed", conclusion="failure",
+                                    path=".github/workflows/symbolic-check.yml")]
+        self.refuses("Main is frozen")
+
+    def test_the_queue_never_reads_the_classifier_of_the_pull_request(self):
+        self.docs_pr()
+        self.fake.raw_paths = ["scripts/tool.py"]
+        self.q.process(79)
+        joined = [" ".join(call) for call in self.fake.calls]
+        self.assertFalse([c for c in joined if "ci-change-class" in c])
+        self.assertFalse([c for c in joined if c.startswith(("git show", "git cat-file", "git ls-tree", "git checkout"))])
+
+    def test_the_queue_loads_the_classifier_next_to_itself(self):
+        self.assertIsNotNone(queue.CLASSIFIER)
+        self.assertEqual((ROOT / "scripts/ci-change-class.py").resolve(), Path(queue.CLASSIFIER.__file__).resolve())
+
+    def test_a_queue_copied_without_its_classifier_loads_none_and_needs_full_runs(self):
+        import shutil
+        import tempfile
+        directory = tempfile.mkdtemp(prefix="elzoo-queue-alone-")
+        self.addCleanup(shutil.rmtree, directory, True)
+        shutil.copy(ROOT / "scripts/merge-queue.py", directory)
+        alone = importlib.util.spec_from_file_location("queue_alone", Path(directory) / "merge-queue.py")
+        module = importlib.util.module_from_spec(alone)
+        alone.loader.exec_module(module)
+        self.assertIsNone(module.CLASSIFIER)
+
+    def test_every_fallback_dispatch_says_that_protection_is_not_satisfied(self):
+        for label, setup in (("no pull_request run", lambda f: None),
+                             ("a sibling pull request", lambda f: (setattr(f, "pr_runs", [f.pr_run(700)]),
+                                                                    setattr(f, "head_prs", [{"number": 79}, {"number": 200}]))),
+                             ("a retargeted pull request", lambda f: (setattr(f, "pr_runs", [f.pr_run(700)]),
+                                                                       setattr(f, "timeline", [{"event": "base_ref_changed"}])))):
+            with self.subTest(label=label):
+                self.setUp()
+                setup(self.fake)
+                self.q.process(79)
+                notes = [m for m in self.fake.messages if "does NOT satisfy branch protection" in m]
+                self.assertEqual(1, len(notes))
+                self.assertIn("check-hosted and gleam-hosted are required on the pull request", notes[0])
+
+    def test_an_adopted_run_says_nothing_about_protection(self):
+        self.fake.pr_runs = [self.fake.pr_run(700)]
+        self.q.process(79)
+        self.assertFalse([m for m in self.fake.messages if "branch protection" in m])
 
 
 class ReviewControls(unittest.TestCase):

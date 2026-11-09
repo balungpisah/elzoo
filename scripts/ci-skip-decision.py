@@ -12,11 +12,22 @@ run as the queue's fallback; ELZ-059) succeeded, with one successful
 a successful identity step, a successful `Run mix check` step, the full success marker and no
 affected-mode marker in its log.
 
+ELZ-071: the evidence of a documentation-only merge is the short check of a pull_request run instead: its
+`Run mix check` step was skipped, its `Classify the change` and `Docs-only check` steps passed, and its log has
+the line ELZOO DOCS-ONLY CHECK PASSED and no full-run or affected-mode marker. That counts only when this
+checkout's own scripts/ci-change-class.py classifies the merge commit's change against its first parent as
+documentation only (a dispatch run never has the short shape: it is not a pull_request event), and only when the
+first parent, the main before the merge, has a push run of this workflow that completed with success: a short check
+runs no tests, so it must not hide a red or unfinished push run of that main behind a green documentation merge
+(otherwise the full check runs, with the code of the first parent in the tree).
+
 Fail closed: every other case, and every error, prints skip=false (a full run). The script never
 exits non-zero because it cannot decide. It writes skip=true|false to $GITHUB_OUTPUT.
 """
+import importlib.util
 import json
 import os
+from pathlib import Path
 import re
 import subprocess
 import sys
@@ -35,6 +46,7 @@ HOSTED_GATE_STEP = "Verify the GitHub-hosted runner"
 SHA = re.compile(r"[0-9a-f]{40}")
 BRANCH = re.compile(r"task/ELZ-[0-9]{3}")
 MARKER = re.compile(r"(?m)^(?:\d{4}-\d\d-\d\dT[0-9:.]+Z )?ELZOO CHECK PASSED\s*$")
+DOCS_MARKER = re.compile(r"(?m)^(?:\d{4}-\d\d-\d\dT[0-9:.]+Z )?ELZOO DOCS-ONLY CHECK PASSED\s*$")
 API_ROOT = "https://api.github.com"
 HOST = re.compile(r"[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+")
 # The job-log endpoint answers with a redirect to GitHub's Actions results storage (observed 2026-11-08:
@@ -123,6 +135,53 @@ def git(*argv):
     return result.stdout.strip()
 
 
+def load_classifier():
+    """The documentation-only allowlist of this checkout (the merge commit of main). Any failure to load it means
+    that no change is documentation only."""
+    try:
+        path = Path(__file__).resolve().with_name("ci-change-class.py")
+        spec = importlib.util.spec_from_file_location("ci_change_class", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    except Exception:  # noqa: BLE001
+        return None
+
+
+CLASSIFIER = load_classifier()
+
+
+def docs_only_merge(run_git, first, merge):
+    """True only when the change of the merge commit against its first parent is documentation only."""
+    if CLASSIFIER is None:
+        return False
+    try:
+        output = run_git(*CLASSIFIER.diff_argv(first, merge)[1:])
+        return CLASSIFIER.docs_only(CLASSIFIER.parse_raw(output)) is True
+    except Exception:  # noqa: BLE001 - any failure means "not documentation only"
+        return False
+
+
+def first_parent_verified(api, first):
+    """True when the push run with the highest ID on the first parent (the main before the merge) completed with
+    success. A logged skip is a success of the job. No run, an unfinished run or a malformed listing is False."""
+    query = urllib.parse.urlencode({"event": "push", "head_sha": first, "per_page": 100})
+    try:
+        listing = api.json(f"actions/workflows/{WORKFLOW}/runs?{query}")
+    except Full:
+        return False
+    runs = listing.get("workflow_runs") if isinstance(listing, dict) else None
+    if not isinstance(runs, list):
+        return False
+    mine = [run for run in runs if isinstance(run, dict) and run.get("event") == "push"
+            and run.get("head_branch") == "main" and run.get("head_sha") == first
+            and run.get("path") == f".github/workflows/{WORKFLOW}"]
+    if not mine or not all(isinstance(run.get("id"), int) for run in mine):
+        return False
+    latest = max(mine, key=lambda run: run["id"])
+    return latest.get("status") == "completed" and latest.get("conclusion") == "success"
+
+
 def evidence_event(run, repo):
     """ELZ-059: the pull_request run of the same repository is the merge evidence; a workflow_dispatch run
     stays valid as the queue's fallback. A pull_request run from a fork is never evidence."""
@@ -192,16 +251,35 @@ def decide(env, run_git=git, api=None):
     gate = [step for step in job.get("steps", []) if step.get("name") == HOSTED_GATE_STEP]
     need(len(gate) == 1 and gate[0].get("conclusion") == "success", "hosted runner identity step not green")
     steps = [step for step in job.get("steps", []) if step.get("name") == "Run mix check"]
-    need(len(steps) == 1 and steps[0].get("conclusion") == "success", "Run mix check step missing or not green")
+    mode = "full"
+    if len(steps) == 1 and steps[0].get("conclusion") == "skipped":
+        # ELZ-071: the short check of a documentation-only pull_request run.
+        need(run.get("event") == "pull_request", "a skipped full check is evidence only on a pull_request run")
+        need(docs_only_merge(run_git, parents[1], sha), "the change of the merge is not documentation only")
+        need(first_parent_verified(api, parents[1]),
+             "the push run of the first parent is not a completed success; the short check would hide it")
+        named = [[step for step in job.get("steps", []) if step.get("name") == name]
+                 for name in ("Classify the change", "Docs-only check")]
+        need(all(len(found) == 1 and found[0].get("conclusion") == "success" for found in named),
+             "the docs-only check steps are not green")
+        mode = "docs-only"
+    else:
+        need(len(steps) == 1 and steps[0].get("conclusion") == "success", "Run mix check step missing or not green")
     log = api.text(f"actions/jobs/{job['id']}/logs")
-    need(MARKER.search(log) and "ELZOO AFFECTED CHECK PASSED" not in log,
-         "full success marker missing or affected-mode marker present")
+    if mode == "full":
+        need(MARKER.search(log) and "ELZOO AFFECTED CHECK PASSED" not in log,
+             "full success marker missing or affected-mode marker present")
+    else:
+        need(DOCS_MARKER.search(log) and not MARKER.search(log) and "ELZOO AFFECTED CHECK PASSED" not in log,
+             "docs-only success marker missing, or a full or affected-mode marker present")
 
     latest = api.json(f"actions/runs/{run_id}")
     need(latest.get("id") == run_id and latest.get("status") == "completed"
          and latest.get("conclusion") == "success" and latest.get("run_attempt") == attempt,
          "run changed while reading it")
-    details = dict(second_parent=second, tree=tree, run=run_id, job=job["id"], runner=job["runner_name"])
+    details = dict(second_parent=second, tree=tree, run=run_id, job=job["id"], runner=job["runner_name"], mode=mode)
+    if mode == "docs-only":
+        return True, "identical tree, documentation-only change and a passed exact-head docs-only check", details
     return True, "identical tree and a passed exact-head full run", details
 
 
@@ -214,7 +292,8 @@ def main(env=None, run_git=git, api=None, out=print):
     except Exception as error:  # noqa: BLE001 - any failure means a full run, never a failed job
         skip, reason, details = False, f"{type(error).__name__}: {error}", {}
     if skip:
-        out("ELZOO PUSH CHECK SKIPPED (identical tree; exact-head full run passed): "
+        kind = "docs-only check" if details.get("mode") == "docs-only" else "full run"
+        out(f"ELZOO PUSH CHECK SKIPPED (identical tree; exact-head {kind} passed): "
             f"second_parent={details['second_parent']} tree={details['tree']} "
             f"run={details['run']} job={details['job']} runner={details['runner']}")
     else:

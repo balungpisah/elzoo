@@ -459,7 +459,8 @@ class RunnerPolicyTest(unittest.TestCase):
 
     # ELZ-058: the push job may skip a repeated full check; permissions, the token and the step
     # conditions are pinned so that skipping cannot spread to pull requests or hide a failure.
-    SKIP_IF = "        if: ${{ steps.skip.outputs.skip != 'true' }}\n"
+    # ELZ-071: the heavy steps also wait for the classification (a documentation-only run skips them).
+    SKIP_IF = "        if: ${{ steps.skip.outputs.skip != 'true' && steps.class.outputs.docs_only != 'true' }}\n"
     DECISION = """      - name: Decide whether the full check is redundant
         id: skip
         env:
@@ -575,7 +576,7 @@ class RunnerPolicyTest(unittest.TestCase):
                          ("      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1\n" + self.SKIP_IF,
                           "      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1\n"),
                          ("        if: always()\n", "        if: ${{ success() }}\n"),
-                         ("        if: ${{ steps.deps-cache.outputs.cache-hit != 'true' && steps.skip.outputs.skip != 'true' }}\n",
+                         ("        if: ${{ steps.deps-cache.outputs.cache-hit != 'true' && steps.skip.outputs.skip != 'true' && steps.class.outputs.docs_only != 'true' }}\n",
                           "        if: ${{ steps.deps-cache.outputs.cache-hit != 'true' }}\n")):
             with self.subTest(new=new.strip()[:60]):
                 self.change_all("symbolic-check.yml", old, new)
@@ -735,7 +736,7 @@ class RunnerPolicyTest(unittest.TestCase):
         self.assertIn("github.token and secrets are not allowed", self.check(1).stderr)
 
     def test_hosted_backend_job_keeps_the_decision_step_and_skip_conditions(self):
-        self.change_in_job("symbolic-check.yml", "check-hosted", "      - run: mix setup\n        if: ${{ steps.skip.outputs.skip != 'true' }}\n",
+        self.change_in_job("symbolic-check.yml", "check-hosted", "      - run: mix setup\n" + self.SKIP_IF,
                            "      - run: mix setup\n")
         self.assertIn("step-level conditions are not the reviewed ones", self.check(1).stderr)
         self.tearDown()
@@ -753,8 +754,8 @@ class RunnerPolicyTest(unittest.TestCase):
                              ("        run: python3 scripts/ci-minio.py\n", "        run: python3 scripts/ci-minio.py\n        working-directory: /tmp\n"),
                              ("elzoo-minio-RELEASE.2025-09-07T16-13-09Z-", "elzoo-minio-RELEASE.2025-09-07T16-13-10Z-"),
                              ("      - name: Restore the pinned S3 test server binary\n", "      - name: Restore binary\n"),
-                             ("steps.skip.outputs.skip != 'true' && steps.minio.outputs.source != 'cache'", "always()"),
-                             ("      - name: Start the disposable S3 test server\n        if: ${{ steps.skip.outputs.skip != 'true' }}\n",
+                             ("steps.skip.outputs.skip != 'true' && steps.class.outputs.docs_only != 'true' && steps.minio.outputs.source != 'cache'", "always()"),
+                             ("      - name: Start the disposable S3 test server\n" + self.SKIP_IF,
                               "      - name: Start the disposable S3 test server\n")):
                 with self.subTest(job=job, new=new.strip()[:50]):
                     self.change_in_job("symbolic-check.yml", job, old, new)
@@ -927,6 +928,92 @@ class RunnerPolicyTest(unittest.TestCase):
         self.assertEqual(1, self.source().count(mix))
         self.change("symbolic-check.yml", mix + self.ROADMAP_STEP, self.ROADMAP_STEP + mix)
         self.assertIn("step-level conditions are not the reviewed ones", self.check(1).stderr)
+
+    # ELZ-071: a documentation-only pull request skips the heavy steps and runs the short check; the queue
+    # accepts the marker line only when its own classification agrees. Every new step and condition is pinned.
+    CLASS_STEP = "      - name: Classify the change\n        id: class\n        run: python3 scripts/ci-change-class.py github\n"
+    DOCS_ONLY_STEP = ('      - name: Docs-only check\n        if: ${{ steps.class.outputs.docs_only == \'true\' }}\n'
+                      "        run: |\n          python3 scripts/check-claims.py\n          python3 scripts/check-roadmap.py\n"
+                      '          echo "ELZOO DOCS-ONLY CHECK PASSED"\n')
+    HEAVY_STEPS = ("      - name: Restore the pinned S3 test server binary\n", "      - name: Start the disposable S3 test server\n",
+                   "      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1\n",
+                   "      - name: Report BEAM capacity\n", "      - name: Restore dependency cache\n",
+                   "      - run: mix local.hex --force\n", "      - run: mix local.rebar --force\n", "      - run: mix setup\n",
+                   "      - name: Run mix check\n", "      - name: Check the roadmap views\n")
+
+    def test_the_classify_step_is_present_and_pinned(self):
+        self.assertEqual(1, self.source().count(self.CLASS_STEP))
+        for new in ("",                                                                              # removed
+                    self.CLASS_STEP.replace("ci-change-class.py github", "ci-change-class.py range a b"),
+                    self.CLASS_STEP.replace("        id: class\n", "        id: other\n"),
+                    self.CLASS_STEP.replace("        id: class\n", "        id: class\n        if: ${{ false }}\n"),
+                    self.CLASS_STEP.replace("        id: class\n", "        id: class\n        continue-on-error: true\n"),
+                    self.CLASS_STEP.replace("ci-change-class.py github", "ci-change-class.py github || true"),
+                    self.CLASS_STEP.replace("run: python3 scripts/ci-change-class.py github", "run: echo docs_only=true >> $GITHUB_OUTPUT"),
+                    self.CLASS_STEP + "        env:\n          GITHUB_TOKEN: ${{ github.token }}\n"):
+            with self.subTest(new=new.strip()[:70]):
+                self.change("symbolic-check.yml", self.CLASS_STEP, new)
+                self.assertTrue(self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+
+    def test_the_classifier_tests_run_in_the_job(self):
+        step = "      - run: python3 scripts/test-ci-change-class.py\n"
+        self.assertEqual(1, self.source().count(step))
+        self.change("symbolic-check.yml", step, "")
+        self.assertIn("test-ci-change-class.py", self.check(1).stderr)
+
+    def test_the_docs_only_step_is_present_and_pinned(self):
+        self.assertEqual(1, self.source().count(self.DOCS_ONLY_STEP))
+        d = self.DOCS_ONLY_STEP
+        for new in ("",                                                                                  # removed
+                    d.replace("== \'true\'", "!= \'true\'"),                                              # inverted
+                    d.replace("        if: ${{ steps.class.outputs.docs_only == \'true\' }}\n", ""),     # always runs
+                    d.replace("        if: ${{ steps.class.outputs.docs_only == \'true\' }}\n", "        if: always()\n"),
+                    d.replace("          python3 scripts/check-roadmap.py\n", ""),                       # check dropped
+                    d.replace("          python3 scripts/check-claims.py\n", ""),
+                    d.replace("check-roadmap.py\n", "check-roadmap.py || true\n"),
+                    d.replace("          python3 scripts/check-roadmap.py\n", "          python3 scripts/check-roadmap.py --write\n"),
+                    d.replace("ELZOO DOCS-ONLY CHECK PASSED", "ELZOO CHECK PASSED"),                   # the full marker
+                    d.replace("ELZOO DOCS-ONLY CHECK PASSED", "ELZOO DOCS-ONLY CHECK PASSED forged"),
+                    d + "        continue-on-error: true\n",
+                    d.replace("          python3 scripts/check-claims.py\n", "          exit 0\n          python3 scripts/check-claims.py\n")):
+            with self.subTest(new=new.strip()[:80]):
+                self.change("symbolic-check.yml", d, new)
+                self.assertTrue(self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+
+    def test_the_docs_only_marker_comes_from_one_pinned_step_only(self):
+        # The queue reads the marker line; no other step may print it (an extra step could forge it).
+        source = self.source()
+        self.assertEqual(1, source.count("ELZOO DOCS-ONLY CHECK PASSED"))
+        self.change("symbolic-check.yml", "      - name: Report container resource observations\n",
+                    '      - run: echo "ELZOO DOCS-ONLY CHECK PASSED"\n      - name: Report container resource observations\n')
+        self.assertTrue(self.check(1).stderr)
+
+    def test_every_heavy_step_waits_for_the_classification(self):
+        # Dropping the docs_only condition from any one heavy step would run it on a documentation-only pull request
+        # (or, with the inverted condition, skip it on a code pull request).
+        for header in self.HEAVY_STEPS:
+            start = self.source().index(header)
+            end = self.source().index("\n      - ", start + 1) + 1
+            block = self.source()[start:end]
+            self.assertIn("steps.class.outputs.docs_only != \'true\'", block, header)
+            for new in (block.replace(" && steps.class.outputs.docs_only != \'true\'", ""),            # condition dropped
+                        block.replace("steps.class.outputs.docs_only != \'true\'", "steps.class.outputs.docs_only == \'true\'"),
+                        block.replace("steps.class.outputs.docs_only != \'true\'", "steps.class.outputs.docs_only")):
+                with self.subTest(header=header.strip(), new=new.strip()[-50:]):
+                    self.change("symbolic-check.yml", block, new)
+                    self.assertIn("step-level conditions are not the reviewed ones", self.check(1).stderr)
+                    self.tearDown()
+                    self.setUp()
+
+    def test_the_skip_decision_step_does_not_wait_for_the_classification(self):
+        # The decision step must keep running on every event (it prints the skip verdict of a push run).
+        decision = "      - name: Decide whether the full check is redundant\n        id: skip\n"
+        self.change("symbolic-check.yml", decision, decision + self.SKIP_IF)
+        self.assertTrue(self.check(1).stderr)
 
     def test_pull_request_runs_use_the_full_check_not_the_affected_mode(self):
         source = self.source()
