@@ -292,7 +292,8 @@ def decide(env, run_git=git, api=None):
          "the aggregating step is not green")
     if mode == "full":
         need(len(docs_step) == 1 and docs_step[0].get("conclusion") == "skipped", "the docs-only step ran in a full run")
-        need(has_line(plan, r"ELZOO PLAN: run=true skip=\S+ docs_only=\S+"), "the plan did not say run=true")
+        need(has_line(plan, r"ELZOO PLAN: run=true skip=\S+ docs_only=\S+") and "ELZOO AFFECTED CHECK PASSED" not in log(plan),
+             "the plan did not say run=true, or an affected-mode marker is present in its log")
         for job in work:
             mix = step(job, "Run mix check")
             need(len(mix) == 1 and mix[0].get("conclusion") == "success", f"Run mix check step not green ({job['name']})")

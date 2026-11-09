@@ -564,7 +564,7 @@ class RunnerPolicyTest(unittest.TestCase):
                         ""):
                 with self.subTest(job=job, new=new.strip()[:70]):
                     self.change_in_job("symbolic-check.yml", job, step, new)
-                    self.assertTrue(self.check(1).stderr)
+                    self.assertIn(f"the pinned step \"name: Run mix check\" is missing or changed ({job})", self.check(1).stderr)
                     self.tearDown()
                     self.setUp()
 
@@ -831,6 +831,57 @@ class RunnerPolicyTest(unittest.TestCase):
                     self.assertTrue(self.check(1).stderr)
                     self.tearDown()
                     self.setUp()
+
+    def test_no_cache_save_outside_the_root_job_and_exactly_two_in_it(self):
+        # Review of PR #144, should-fix 2: a save step without an `if:` is invisible to the step-level comparison.
+        message = "only the root job saves caches, with exactly two save steps"
+        save = ("      - name: Another save\n        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0\n"
+                "        with:\n          path: deps\n          key: k\n")
+        plain = ("      - name: Another cache\n        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0\n"
+                 "        with:\n          path: deps\n          key: k\n")
+        for job in self.BACKEND_JOB_NAMES:
+            for label, step in (("save", save), ("plain cache", plain)):
+                with self.subTest(job=job, label=label):
+                    if job == "check-hosted":
+                        old, new = "      - name: Require every job\n", step + "      - name: Require every job\n"
+                    else:
+                        old, new = "      - uses: actions/checkout@", step + "      - uses: actions/checkout@"
+                        if job != "check-plan":
+                            old = "      - name: Report BEAM capacity\n"
+                            new = step + old
+                    self.change_in_job("symbolic-check.yml", job, old, new)
+                    self.assertIn(message, self.check(1).stderr)
+                    self.tearDown()
+                    self.setUp()
+        # a third save in the root job, and one save step less
+        self.change_in_job("symbolic-check.yml", "check-root", "      - name: Report BEAM capacity\n", save + "      - name: Report BEAM capacity\n")
+        self.assertIn(message, self.check(1).stderr)
+
+    def test_a_part_marker_is_never_printed_by_the_workflow(self):
+        for job in self.BACKEND_JOB_NAMES:
+            for marker in ("ELZOO ROOT SUITE PASSED", "ELZOO CONSUMERS DB PASSED", "ELZOO CONSUMERS PASSED"):
+                with self.subTest(job=job, marker=marker):
+                    step = f"      - run: echo \"{marker}\"\n"
+                    anchor = "      - name: Require every job\n" if job == "check-hosted" else "      - uses: actions/checkout@"
+                    if job in self.WORK_JOB_NAMES:
+                        anchor = "      - name: Report BEAM capacity\n"
+                    self.change_in_job("symbolic-check.yml", job, anchor, step + anchor)
+                    self.assertIn(f"a part marker may be printed by mix check --part only, not by the workflow ({job})", self.check(1).stderr)
+                    self.tearDown()
+                    self.setUp()
+
+    def test_a_key_cannot_be_appended_to_a_pinned_step(self):
+        # Review of PR #144, note 2: the end of a pinned step is part of the pin.
+        for job, step, extra in (("check-root", "        run: sh scripts/run-ci-check.sh --part root\n", "        env:\n          X: y\n"),
+                                 ("check-consumers", "        run: sh scripts/run-ci-check.sh --part consumers\n", "        timeout-minutes: 1\n"),
+                                 ("check-hosted", "            test \"$CONSUMERS\" = skipped\n          fi\n", "        timeout-minutes: 1\n"),
+                                 ("check-plan", "          echo \"ELZOO PLAN: run=$RUN skip=${SKIP:-unset} docs_only=${DOCS_ONLY:-unset}\"\n",
+                                  "        continue-on-error: true\n")):
+            with self.subTest(job=job, extra=extra.strip()):
+                self.change_in_job("symbolic-check.yml", job, step, step + extra)
+                self.assertTrue(self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
 
     def test_the_s3_save_step_belongs_to_the_root_job_only(self):
         # Three jobs saving the same cache key would race; the other jobs only restore. The save step and its

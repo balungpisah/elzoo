@@ -156,6 +156,8 @@ PLAN_STEP = """      - name: Plan the work jobs
 # were planned and one is not successful, and when they were not planned and one is not skipped. Only it prints
 # the full-check marker.
 FULL_MARKER = "ELZOO CHECK PASSED"
+# The marker lines that `mix check --part` prints (Elzoo.CheckSelection.success_marker/1).
+PART_MARKERS = ("ELZOO ROOT SUITE PASSED", "ELZOO CONSUMERS DB PASSED", "ELZOO CONSUMERS PASSED")
 AGG_STEP = """      - name: Require every job
         env:
           PLAN: ${{ needs.check-plan.result }}
@@ -565,6 +567,16 @@ for file in files:
                 errors.append(f'{file}: the docs-only marker may be printed by the pinned Docs-only check step only ({name})')
             if len(full_lines) != (1 if role == 'aggregate' else 0):
                 errors.append(f'{file}: the full-check marker may be printed by the pinned aggregating step only ({name})')
+            # ELZ-073: the part markers are printed by `mix check --part` only; the queue accepts them as part evidence,
+            # so no workflow line may print one. Review of PR #144, should-fix 2.
+            part_lines = [i for i in block if any(marker in lines[i] for marker in PART_MARKERS)]
+            if part_lines:
+                errors.append(f'{file}: a part marker may be printed by mix check --part only, not by the workflow ({name})')
+            # Only the root job saves caches (three jobs saving one key would race, and a save step that no pinned
+            # condition covers is invisible to the step-level comparison). `actions/cache@` saves in its post step too.
+            cache_saves = [i for i in block if re.search(r'uses\s*:\s*actions/cache(?:/save)?@', lines[i])]
+            if len(cache_saves) != (2 if name == 'check-root' else 0):
+                errors.append(f'{file}: only the root job saves caches, with exactly two save steps ({name})')
     # ELZ-069: no workflow reads `vars` (the lane variable is gone), and no self-hosted runner, label list or
     # tier input may come back. Case-insensitive and on raw lines, script text and comments included: GitHub
     # expressions ignore case.

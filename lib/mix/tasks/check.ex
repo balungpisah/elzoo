@@ -48,9 +48,17 @@ defmodule Mix.Tasks.Check do
 
     selection =
       cond do
-        part -> Elzoo.CheckSelection.part(part)
-        is_nil(base) -> Elzoo.CheckSelection.full(registry)
-        true -> Elzoo.CheckSelection.from_git(registry, base)
+        part ->
+          # The full selection validates the consumer inventory against the registry (it raises on a
+          # mismatch); a part must not skip that check.
+          _ = Elzoo.CheckSelection.full(registry)
+          Elzoo.CheckSelection.part(part)
+
+        is_nil(base) ->
+          Elzoo.CheckSelection.full(registry)
+
+        true ->
+          Elzoo.CheckSelection.from_git(registry, base)
       end
 
     Mix.shell().info(Elzoo.CheckSelection.report(selection))

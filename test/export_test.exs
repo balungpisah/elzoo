@@ -247,8 +247,12 @@ defmodule Elzoo.ExportTest do
              "#{inspect(module)} is not loaded; run the whole suite or include its file"
     end
 
-    tests =
-      Enum.flat_map(Elzoo.CureConsumerCase.consumer_test_modules(), & &1.__ex_unit__().tests)
+    # Every test module of the loaded suite, not only the consumer modules: a test of any module that
+    # carries a consumer tag must also land in exactly one part (review of PR #144, should-fix 2).
+    suite_modules =
+      for {module, _} <- :code.all_loaded(), function_exported?(module, :__ex_unit__, 0), do: module
+
+    tests = Enum.flat_map(suite_modules, & &1.__ex_unit__().tests)
 
     postgres = Elzoo.CheckSelection.postgres_consumer_ids()
     assert Enum.sort(postgres) == Enum.sort(Elzoo.CureConsumerCase.postgres_consumer_ids())

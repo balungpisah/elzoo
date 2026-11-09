@@ -439,7 +439,9 @@ class Queue:
         if mode == "full":
             require(len(docs_step) == 1 and docs_step[0].get("conclusion") == "skipped",
                     "Docs-only step ran or is missing in a full run")
-            require(has_line(plan, r"ELZOO PLAN: run=true skip=\S+ docs_only=\S+"), "Plan did not say run=true")
+            require(has_line(plan, r"ELZOO PLAN: run=true skip=\S+ docs_only=\S+") and
+                    "ELZOO AFFECTED CHECK PASSED" not in log(plan),
+                    "Plan did not say run=true, or an affected-mode marker is present in its log")
             for job in work:
                 mix = step(job, "Run mix check")
                 require(len(mix) == 1 and mix[0].get("conclusion") == "success",

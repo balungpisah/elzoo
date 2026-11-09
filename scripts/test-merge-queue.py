@@ -890,6 +890,12 @@ class HostedLaneEvidence(unittest.TestCase):
                 self.fake.logs_by_job = {"check-plan": log}
                 self.refuses("Plan did not say run=true|Docs-only marker present")
 
+    def test_an_affected_mode_marker_in_the_plan_log_of_a_full_run_is_refused(self):
+        stamp = "2026-11-07T13:00:00.0000000Z "
+        self.fake.logs_by_job = {"check-plan": stamp + "ELZOO PLAN: run=true skip=false docs_only=false\n"
+                                 + stamp + "ELZOO AFFECTED CHECK PASSED (not full)\n"}
+        self.refuses("affected-mode marker")
+
     def test_hosted_job_is_accepted_and_recorded(self):
         self.q.process(79)
         self.assertTrue(self.fake.merged)
@@ -1875,6 +1881,25 @@ class DocsOnlyFastPath(unittest.TestCase):
                 self.docs_pr()
                 self.fake.docs_log = log
                 self.refuses("marker")
+
+    def test_a_docs_only_run_needs_the_plan_line_run_false(self):
+        # Review of PR #144, note 1: the marker alone is not the short shape; the plan line must say run=false.
+        stamp = "2026-11-09T05:00:00.0000000Z "
+        marker = stamp + "ELZOO DOCS-ONLY CHECK PASSED\n"
+        for label, log in (("no plan line", marker),
+                           ("plan says run=true", marker + stamp + "ELZOO PLAN: run=true skip=false docs_only=true\n"),
+                           ("plan says docs_only=false", marker + stamp + "ELZOO PLAN: run=false skip=false docs_only=false\n"),
+                           ("echoed plan line", marker + stamp + 'echo "ELZOO PLAN: run=false skip=false docs_only=true"\n')):
+            with self.subTest(label=label):
+                self.setUp()
+                self.docs_pr()
+                self.fake.logs_by_job = {"check-plan": log}
+                self.refuses("docs-only success marker or plan line")
+        self.setUp()
+        self.docs_pr()
+        self.fake.logs_by_job = {"check-plan": marker + stamp + "ELZOO PLAN: run=false skip=false docs_only=true\n"}
+        self.q.process(79)
+        self.assertTrue(self.fake.merged)
 
     def test_a_docs_only_run_is_not_accepted_by_another_event_or_head_or_runner(self):
         for label, change in (("failed run", dict(run_changes={"conclusion": "failure"})),

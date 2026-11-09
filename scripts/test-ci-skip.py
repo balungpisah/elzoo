@@ -521,6 +521,11 @@ class DecisionTest(unittest.TestCase):
                     api.logs_by_job[name] = log
                     with self.assertRaisesRegex(skip.Full, "marker|plan did not say run=true"):
                         skip.decide(env, run_git, api)
+        # an affected-mode marker in the plan log of a full run
+        api = FakeApi(second)
+        api.logs_by_job["check-plan"] = stamp + "ELZOO PLAN: run=true skip=false docs_only=false\n" + stamp + "ELZOO AFFECTED CHECK PASSED (not full)\n"
+        with self.assertRaisesRegex(skip.Full, "affected-mode marker is present"):
+            skip.decide(env, run_git, api)
         # a docs-only marker in the plan log of a full run
         api = FakeApi(second)
         api.logs_by_job["check-plan"] = stamp + "ELZOO PLAN: run=true skip=false docs_only=false\n" + stamp + "ELZOO DOCS-ONLY CHECK PASSED\n"

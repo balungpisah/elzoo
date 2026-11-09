@@ -721,18 +721,21 @@ three work jobs are `success`, and only then prints `ELZOO CHECK PASSED`; with `
 `skipped`. A failed, cancelled or skipped work job therefore shows `check-hosted` as failed, not skipped (observed: in AFTER
 run 1 `check-root` failed and `check-hosted` failed). The guard pins its `if`, its `needs`, its `contents: read` permission and the
 step text, and allows `ELZOO CHECK PASSED` on that step only. `mix check --part` prints the part marker
-(`Elzoo.CheckSelection.success_marker/1`) after the part passed.
+(`Elzoo.CheckSelection.success_marker/1`) after the part passed; the guard rejects a part marker on any line of the
+workflow. The guard cannot see a step that rewrites `scripts/run-ci-check.sh` before `Run mix check`: a pull request controls
+its scripts, which is the existing trust model (see "Coordinator merge queue").
 
 **The parts.** `mix check --part root|consumers-db|consumers` (`Elzoo.CheckSelection.part_filters/1`) selects exactly the tests
 of one part with `--only` and `--exclude`. ExUnit lets `--only` win over `--exclude`, and `--exclude consumer_id` drops every
-test with that tag, so the database-free part lists its 23 IDs one by one. `test/export_test.exs` proves the partition over the
-loaded suite: of 802 tests, 775 are in the root part, 4 in `consumers-db` and 23 in `consumers`; no test is in two parts or in
+test with that tag, so the database-free part lists its 23 IDs one by one. `test/export_test.exs` proves the partition over every loaded test
+module (not only the consumer modules): of 802 tests, 775 are in the root part, 4 in `consumers-db` and 23 in `consumers`; no test is in two parts or in
 none (a new consumer ID that no part selects fails the test). `mix check` with no argument is still the full check for local
 use. The same test file asserts the aggregate consumer's limits (`@tag timeout: 1_200_000`, inner limit 300 s) next to the
 per-ID limits.
 
 **Caches.** Every work job restores the dependency cache and the pinned S3 binary; only `check-root` saves them (otherwise
-three jobs would race to save one key). On a cold cache every work job compiles on its own: the wall time of a cold run does
+three jobs would race to save one key). The guard counts the save steps (`actions/cache/save` and the saving form
+`actions/cache`): exactly two in `check-root`, none in any other job. On a cold cache every work job compiles on its own: the wall time of a cold run does
 not rise much, but the runner minutes triple for that run. No cold-cache AFTER run was made (the coordinator dropped it: it
 needs a cache deletion); the limit is stated here and the partly cold runs of the BEFORE table (`mix setup` 24 to 55 s) are
 the only cold-side data.
