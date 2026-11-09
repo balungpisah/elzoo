@@ -36,7 +36,9 @@
     "The discovery snapshot is a local, possibly stale admission filter; it claims nothing about the server's current tool set or schema.",
     "One transport (Streamable HTTP); no stdio, OAuth, resources, prompts, subscriptions, tasks or sampling; no claim about what a tool does on its server.",
     "ex_mcp's own [:ex_mcp, ...] telemetry and debug logs are emitted upstream and reach consumer handlers; no credential was observed in them in the tested scenarios only.",
-    "Finite tests against an in-process loopback server (ex_mcp's own server behind a recording Plug); no TLS or public endpoint in the evidence; no proof is claimed."
+    "Finite tests against an in-process loopback server (ex_mcp's own server behind a recording Plug); no TLS or public endpoint in the evidence; no proof is claimed.",
+    "Evidence limit: T32 enumerates literals only from Piece BEAM modules that expose Elixir debug_info; a module whose debug_info is unavailable contributes no literals, so this is finite test evidence for the compiled test layout, not a guarantee for stripped artifacts.",
+    "Upstream limit: ex_mcp's own process state (for example transport request headers) may hold the bearer token; that is outside the Adapter's terms."
   ],
   "files": [
     "cure/elzoo/mcp_client_outcome.cure",

@@ -877,6 +877,10 @@ defmodule Elzoo.McpClientTest do
     refute :tokens in exported
     refute_token(inspect(s))
     refute_token(:sys.get_status(s.ledger))
+    refute_token(:sys.get_state(s.ledger))
+    refute_token(s)
+    %{table: table} = :sys.get_state(s.ledger)
+    assert_raise ArgumentError, fn -> :ets.tab2list(table) end
 
     assert {:ok, "x [redacted] y"} =
              Elzoo.McpClient.Ledger.redact(s.ledger, "x " <> @token <> " y", [])

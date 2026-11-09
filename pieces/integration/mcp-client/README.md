@@ -81,8 +81,9 @@ binding's configured strings (server identity, endpoint, provider account, bindi
 and module name); otherwise the auth provider refuses it before any send, which is
 `refused{credentials_unavailable}` (at connect or at a call). Every token the provider
 hands to ex_mcp is first recorded in the session's private ledger (a process that only
-records and redacts, never returns a token, hides its state from `:sys` status and
-crash reports, and stops when the client exits for any reason); a token that cannot be
+records and redacts, never returns a token, keeps the tokens in a `:private` ETS table
+it owns, hides its state from `:sys` status and crash reports, and stops when the
+client exits for any reason); a token that cannot be
 recorded is not sent. Every occurrence of the exact bytes of those tokens, and of the
 credential as resolved before and after the operation, in server-supplied strings of a
 tool result or a tool listing (the negotiated protocol version included) is replaced by
@@ -91,7 +92,7 @@ Adapter builds its own shapes. Map keys are redacted too, except MCP and JSON Sc
 vocabulary words (all shorter than 24 bytes). If the ledger is gone, no content leaves
 (`unknown{adapter_error}`). Two server keys equal after redaction keep one value (data
 loss, never disclosure). Limit: other encodings of the credential (base64, split or
-escaped forms) are not detected.
+escaped forms) are not detected. Evidence limit: T32 enumerates literals only from Piece BEAM modules that expose Elixir debug_info; a module whose debug_info is unavailable contributes no literals, so this is finite test evidence for the compiled test layout, not a guarantee for stripped artifacts. Upstream limit: ex_mcp's own process state (for example transport request headers) may hold the bearer token; that is outside the Adapter's terms.
 
 ## No resend (ex_mcp 1.8.1 settings, each tested)
 

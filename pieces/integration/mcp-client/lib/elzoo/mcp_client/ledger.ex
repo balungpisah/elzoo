@@ -6,8 +6,10 @@ defmodule Elzoo.McpClient.Ledger do
   # credential rotates). The tokens never leave this process: the only
   # operations are record/2 (from the provider, before a token is handed out)
   # and redact/3, which returns server data with every recorded token (and the
-  # caller's bookend resolutions) replaced. There is no read operation, and
-  # format_status/1 hides the state from :sys status and crash reports.
+  # caller's bookend resolutions) replaced. There is no read operation. The
+  # tokens live in a :private ETS table owned by this process (any other process
+  # gets badarg; :sys.get_state/1 shows only the table id), and format_status/1
+  # hides the state from :sys status and crash reports.
   # Bounded: a 65th distinct token is refused (the provider then refuses the
   # request as credentials_unavailable), never sent unrecorded. The process
   # monitors the session's client and stops when it exits for any reason,
@@ -49,7 +51,7 @@ defmodule Elzoo.McpClient.Ledger do
   def stop(_), do: :ok
 
   @impl true
-  def init(_), do: {:ok, %{tokens: [], client: nil}}
+  def init(_), do: {:ok, %{table: :ets.new(__MODULE__, [:set, :private]), client: nil}}
 
   @impl true
   def handle_cast({:watch, client}, s) do
@@ -58,15 +60,16 @@ defmodule Elzoo.McpClient.Ledger do
   end
 
   @impl true
-  def handle_call({:record, token}, _from, %{tokens: tokens} = s) do
+  def handle_call({:record, token}, _from, %{table: t} = s) do
     cond do
-      token in tokens -> {:reply, :ok, s}
-      length(tokens) < @max -> {:reply, :ok, %{s | tokens: [token | tokens]}}
+      :ets.member(t, token) -> {:reply, :ok, s}
+      :ets.info(t, :size) < @max -> {:reply, (:ets.insert(t, {token}) && :ok) || :error, s}
       true -> {:reply, :error, s}
     end
   end
 
-  def handle_call({:redact, value, bookends}, _from, %{tokens: tokens} = s) do
+  def handle_call({:redact, value, bookends}, _from, %{table: t} = s) do
+    tokens = :ets.select(t, [{{:"$1"}, [], [:"$1"]}])
     {:reply, {:ok, Redact.value(value, bookends ++ tokens)}, s}
   rescue
     _ -> {:reply, :error, s}
