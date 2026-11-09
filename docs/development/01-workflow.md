@@ -96,7 +96,7 @@ affected fixed per-ID consumers; the aggregate also runs if any affected ready
 ID is outside their dependency closures. All other root checks remain.
 Shared/unknown changes or unavailable comparison data select all fixed
 consumers and the aggregate. This subset is not full acceptance; see the selection policy and
-limits in [CI on user-owned machines](10-symbolic-ci.md#affected-consumer-checks-elz-038).
+limits in [CI on GitHub-hosted runners](10-symbolic-ci.md#affected-consumer-checks-elz-038).
 
 The task decides which proofs and scenarios are selected. No finite test set
 silently becomes a universal proof, and no external library is required to

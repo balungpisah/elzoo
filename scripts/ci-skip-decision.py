@@ -7,9 +7,9 @@ If the merge commit's tree equals the second parent's tree, the merged content i
 content that the queue's exact-head full run checked. The run is skipped only when that run can be
 found again and passes the same evidence rules as the queue (scripts/merge-queue.py): the latest
 workflow_dispatch run of symbolic-check.yml on that exact head succeeded, with one successful
-`check-fast` job on a fast runner (self lane) or one successful `check-hosted` job on a GitHub-hosted
-runner of the approved label (hosted lane, ELZ-066), every other job skipped, a successful
-`Run mix check` step, the full success marker and no affected-mode marker in its log.
+`check-hosted` job on a GitHub-hosted runner of the approved label (ELZ-066, ELZ-069: the only lane),
+a successful identity step, a successful `Run mix check` step, the full success marker and no
+affected-mode marker in its log.
 
 Fail closed: every other case, and every error, prints skip=false (a full run). The script never
 exits non-zero because it cannot decide. It writes skip=true|false to $GITHUB_OUTPUT.
@@ -26,9 +26,6 @@ import urllib.request
 sys.dont_write_bytecode = True
 
 WORKFLOW = "symbolic-check.yml"
-FAST_RUNNERS = {"symbolic-elzoo", "macbook-ubuntu-elzoo-candidate"}
-FAST_JOB = "check-fast"
-ANY_JOB = "check-any"
 HOSTED_JOB = "check-hosted"
 HOSTED_GROUP = "GitHub Actions"
 HOSTED_LABELS = ["ubuntu-24.04"]
@@ -164,22 +161,19 @@ def decide(env, run_git=git, api=None):
     jobs = jobs_page.get("jobs")
     need(isinstance(jobs, list) and jobs_page.get("total_count") == len(jobs), "job listing incomplete")
     names = [job.get("name") for job in jobs]
-    need(len(set(names)) == len(names) and all(name in (FAST_JOB, ANY_JOB, HOSTED_JOB) for name in names),
+    need(len(set(names)) == len(names) and all(name == HOSTED_JOB for name in names),
          "unknown or duplicate backend jobs")
     executed = [job for job in jobs if job.get("conclusion") != "skipped"]
-    need(len(executed) == 1 and executed[0].get("name") in (FAST_JOB, HOSTED_JOB),
-         "jobs are not one executed check-fast or check-hosted job and skipped others")
+    need(len(executed) == 1 and executed[0].get("name") == HOSTED_JOB,
+         "jobs are not one executed check-hosted job")
     job = executed[0]
     need(job.get("run_id") == run_id and job.get("head_sha") == second and job.get("status") == "completed"
          and job.get("conclusion") == "success" and isinstance(job.get("id"), int), "job evidence mismatch")
-    if job["name"] == HOSTED_JOB:
-        need(job.get("runner_group_name") == HOSTED_GROUP and job.get("labels") == HOSTED_LABELS
-             and isinstance(job.get("runner_name"), str) and HOSTED_RUNNER.fullmatch(job["runner_name"]),
-             "job did not run on an approved GitHub-hosted runner")
-        gate = [step for step in job.get("steps", []) if step.get("name") == HOSTED_GATE_STEP]
-        need(len(gate) == 1 and gate[0].get("conclusion") == "success", "hosted runner identity step not green")
-    else:
-        need(job.get("runner_name") in FAST_RUNNERS, "job did not run on a fast runner")
+    need(job.get("runner_group_name") == HOSTED_GROUP and job.get("labels") == HOSTED_LABELS
+         and isinstance(job.get("runner_name"), str) and HOSTED_RUNNER.fullmatch(job["runner_name"]),
+         "job did not run on an approved GitHub-hosted runner")
+    gate = [step for step in job.get("steps", []) if step.get("name") == HOSTED_GATE_STEP]
+    need(len(gate) == 1 and gate[0].get("conclusion") == "success", "hosted runner identity step not green")
     steps = [step for step in job.get("steps", []) if step.get("name") == "Run mix check"]
     need(len(steps) == 1 and steps[0].get("conclusion") == "success", "Run mix check step missing or not green")
     log = api.text(f"actions/jobs/{job['id']}/logs")

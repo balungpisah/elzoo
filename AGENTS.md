@@ -137,15 +137,15 @@ ownership areas.
 ## CI machine policy
 
 CI runs on GitHub-hosted runners: the repository is public (owner decision
-2026-11-09) and the repository variable ELZOO_CI_LANE is `hosted`, so the jobs
-check-hosted and gleam-hosted run on the one label ubuntu-24.04 with the runner
-identity gate described in docs/development/10-symbolic-ci.md ("Lanes"). The
-self-hosted runners are unregistered, and self-hosted runners must never be
-attached to a public repository. Never change runs-on, the lane variable or the
-required checks without the review that document describes. If the hosted lane
-fails, follow its fallback (make the repository private again and register
-runners again). Verify actual job runner identity when changing workflows.
-GitHub also provides repository/PR/check orchestration.
+2026-11-09), and the jobs check-hosted and gleam-hosted run on the one label
+ubuntu-24.04 with the runner identity gate described in
+docs/development/10-symbolic-ci.md ("Hosted CI"). There is no self-hosted lane,
+no lane variable and no workflow input; self-hosted runners must never be
+attached to a public repository. Never change runs-on or the required checks
+without the review that document describes. If the hosted lane fails, follow
+its three-step fallback (make the repository private, register runners, merge the revert PR). Verify
+actual job runner identity when changing workflows. GitHub also provides
+repository/PR/check orchestration.
 
 ## Verify the actual claim
 
