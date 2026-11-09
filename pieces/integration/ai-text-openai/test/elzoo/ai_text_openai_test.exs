@@ -718,6 +718,43 @@ defmodule Elzoo.AiText.OpenAITest do
     assert length(requests) == 1
   end
 
+  ## O12 bounds: the response body is capped while received; the pinned minimum output cap
+
+  test "O12 an oversized body is stopped at the bound while received and is unknown with one request; output caps below 16 are refused (call + translate)",
+       ctx do
+    # Chunked accumulation stops at the 4 MiB bound and never keeps the body.
+    chunk = :binary.copy("x", 1_048_576)
+    acc = {Req.new(), Req.Response.new(status: 200)}
+
+    {:cont, acc} = OpenAI.bounded({:data, chunk}, acc)
+    {:cont, acc} = OpenAI.bounded({:data, chunk}, acc)
+    {:cont, acc} = OpenAI.bounded({:data, chunk}, acc)
+    {:cont, {_, resp} = acc} = OpenAI.bounded({:data, chunk}, acc)
+    assert byte_size(resp.body) == 4_194_304
+    {:halt, {_, resp}} = OpenAI.bounded({:data, "y"}, acc)
+    assert resp.body == ""
+    assert resp.private.elzoo_oversize
+
+    # End to end: a body over the bound is unknown{malformed_response}, one request.
+    big = OpenAIStub.response([OpenAIStub.message([OpenAIStub.text(:binary.copy("z", 4_200_000))])])
+    {delivery, requests, _, _} = run(ctx, request(), fn _ -> OpenAIStub.ok(big) end)
+    assert {:outcome, _, {:unknown, :malformed_response}} = delivery
+    assert length(requests) == 1
+
+    # The pinned CreateResponse requires max_output_tokens >= 16.
+    assert {:error, {:refused, :invalid_request}} = refused(request(%{"max_output_tokens" => 15}))
+
+    ok =
+      documented!(
+        OpenAIStub.ok(OpenAIStub.response([OpenAIStub.message([OpenAIStub.text("x")])])),
+        ctx
+      )
+
+    {_, [captured], _, _} = run(ctx, request(%{"max_output_tokens" => 16}), fn _ -> ok end)
+    conforms([captured], ctx)
+    assert wire(captured)["max_output_tokens"] == 16
+  end
+
   ## O8 redaction; O9 ambient keys
 
   test "O8 key, prompt and output never in results, inspect, state, logs or telemetry (redaction)",
@@ -832,28 +869,30 @@ defmodule Elzoo.AiText.OpenAITest do
 
   ## O10 source audit; O11 fixture provenance; install configuration
 
-  # This Piece's own root: two levels above this file in the repository;
-  # .elzoo/pieces/integration/ai-text-openai/ in an exported consumer. Exactly one.
-  defp piece_root do
+  # This Piece's manifest: two levels above this file in the repository; under
+  # .elzoo/pieces/integration/ai-text-openai/ in an exported consumer, whose lib/
+  # files sit at the consumer root (two levels above this file). Exactly one manifest
+  # must exist; the listed files resolve against the same root in both layouts.
+  defp manifest do
     root = Path.expand("../..", __DIR__)
 
-    roots =
-      [root, Path.join(root, ".elzoo/pieces/integration/ai-text-openai")]
-      |> Enum.filter(&File.regular?(Path.join(&1, "piece.json")))
-      |> Enum.filter(
-        &(Jason.decode!(File.read!(Path.join(&1, "piece.json")))["id"] ==
-            "integration/ai-text-openai")
-      )
+    found =
+      [
+        Path.join(root, "piece.json"),
+        Path.join(root, ".elzoo/pieces/integration/ai-text-openai/piece.json")
+      ]
+      |> Enum.filter(&File.regular?/1)
+      |> Enum.filter(&(Jason.decode!(File.read!(&1))["id"] == "integration/ai-text-openai"))
 
-    assert [one] = roots
-    one
+    assert [one] = found
+    {one, root}
   end
 
   test "O10 source audit of this Piece's own manifest-listed files (own files)" do
-    root = piece_root()
+    {manifest, root} = manifest()
 
     files =
-      for f <- Jason.decode!(File.read!(Path.join(root, "piece.json")))["files"],
+      for f <- Jason.decode!(File.read!(manifest))["files"],
           String.starts_with?(f, "lib/"),
           do: f
 

@@ -20,7 +20,9 @@ response decoding from OpenAI's documented format, usage and cache-counter
 translation, failure mapping and the conformance stubs. One Elzoo response step
 is prepended so it runs before every Req and `req_llm` response step: it copies
 the status, the `x-request-id` and `retry-after` headers (bounded, printable) and
-the raw body, then **halts every response**. One Elzoo error step halts a
+the raw body, then **halts every response**. The body is bounded while it is
+received (a Req `into:` function stops the transfer above 4 MiB; such a response is
+`unknown{malformed_response}` and its body is never kept). One Elzoo error step halts a
 transport exception unchanged. So no redirect is followed, no retry happens and
 `req_llm`'s error value (which carries the request body) is never built.
 
@@ -83,6 +85,8 @@ environment or a `.env` file.
   `CreateResponse` has no stop member; a request that sets either is refused
   `unsupported_feature` at admission. Declared provider options: none (the cache
   key and cache options are derived from the neutral hint, never caller-supplied).
+- `max_output_tokens` below 16 is refused `invalid_request` before any request
+  (the pinned `CreateResponse` minimum).
 - Structured output uses `text.format` (`json_schema`, `strict: false`) with the
   caller's schema unchanged; the interface validates the returned text.
   Structured output together with tools is refused `unsupported_feature`.

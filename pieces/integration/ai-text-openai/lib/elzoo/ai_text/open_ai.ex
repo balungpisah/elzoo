@@ -33,6 +33,8 @@ defmodule Elzoo.AiText.OpenAI do
   @max_raw_bytes 4_194_304
   @models %{"gpt-6.1-terra" => %{reasoning: [:low, :medium, :high, :max]}}
   @key_prefix "ez1."
+  # The pinned CreateResponse requires max_output_tokens >= 16.
+  @min_output_tokens 16
 
   def models, do: Map.keys(@models)
 
@@ -67,6 +69,7 @@ defmodule Elzoo.AiText.OpenAI do
   @impl true
   def translate(request, config) do
     with {:ok, cfg} <- provider_config(config),
+         true <- request.max_output_tokens >= @min_output_tokens || {:refused, :invalid_request},
          {:ok, model} <- model(request.model),
          :ok <- combination(request),
          {:ok, targets, cache_opts} <- cache(request),
@@ -250,7 +253,8 @@ defmodule Elzoo.AiText.OpenAI do
 
     case ReqLLM.Providers.OpenAI.prepare_request(:chat, model, context, opts) do
       {:ok, request} ->
-        request
+        # The body is bounded while it is received, not after buffering.
+        %{request | into: &bounded/2}
         |> Req.Request.prepend_response_steps(elzoo_capture: &capture/1)
         |> Req.Request.prepend_error_steps(elzoo_halt: &halt_error/1)
         |> Req.request()
@@ -264,12 +268,27 @@ defmodule Elzoo.AiText.OpenAI do
   end
 
   @doc false
+  # Req `into:` function: accumulates the body up to the raw bound; a larger body
+  # stops the transfer and is marked oversize (decoded as malformed, never kept).
+  def bounded({:data, data}, {request, response}) do
+    body = if is_binary(response.body), do: response.body, else: ""
+
+    if byte_size(body) + byte_size(data) > @max_raw_bytes do
+      {:halt, {request, Req.Response.put_private(%{response | body: ""}, :elzoo_oversize, true)}}
+    else
+      {:cont, {request, %{response | body: body <> data}}}
+    end
+  end
+
+  @doc false
   def capture({request, response}) do
+    oversize = response.private[:elzoo_oversize] == true
+
     raw = %{
       status: response.status,
       request_id: header(response, "x-request-id"),
       retry_after: header(response, "retry-after"),
-      body: if(is_binary(response.body), do: response.body, else: nil)
+      body: if(is_binary(response.body) and not oversize, do: response.body, else: nil)
     }
 
     Req.Request.halt(request, Req.Response.put_private(response, :elzoo_raw, raw))
