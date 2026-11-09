@@ -49,6 +49,8 @@ class Fake:
         self.head_prs = [{"number": 79}]  # every pull request (any state) from the head branch
         self.head_prs_pages = None
         self.head_prs_calls = 0
+        self.extra_head_runs = []      # more runs of the backend workflow on the head, as the unfiltered listing shows them
+        self.head_run_pages = None     # raw pages for that listing (malformed bodies)
         self.head_prs_later = None     # from the second listing on, the listing shows these pull requests
         self.timeline_calls = 0
         self.timeline_later = None     # from the second timeline read on, the timeline shows these events
@@ -175,6 +177,15 @@ class Fake:
                 raise AssertionError(f"The queue must not write through gh api: {argv}")
             elif argv[2:4] == ["user", "--jq"]:
                 out = self.login
+            elif "/workflows/symbolic-check.yml/runs?" in path and "head_sha=" in path and "event=" not in path:
+                runs = [r for r in (self.pr_runs or []) if isinstance(r, dict)]
+                if self.dispatches:
+                    # The queue dispatches after it found no adoptable run, so GitHub gave every earlier run a lower
+                    # ID than the dispatch run (the fixtures use large IDs for readability).
+                    runs = [dict(r, id=r["id"] // 10) if isinstance(r.get("id"), int) else r for r in runs]
+                    runs.append(self.run_data(100 + self.dispatches))
+                out = self.head_run_pages if self.head_run_pages is not None else [
+                    {"workflow_runs": runs + self.extra_head_runs}]
             elif "/pulls?head=" in path:
                 self.head_prs_calls += 1
                 out = self.head_prs_pages if self.head_prs_pages is not None else [self.head_prs]
@@ -828,13 +839,15 @@ class PullRequestEvidence(unittest.TestCase):
                 self.assertEqual(1, self.fake.dispatches)
                 self.assertTrue(any(m.startswith("No pull_request run for PR #79") for m in self.fake.messages))
 
-    def test_a_newer_run_of_another_base_is_not_adopted_but_the_right_run_is(self):
+    def test_a_newer_run_of_another_base_is_not_adopted_and_stops_the_merge(self):
+        # Run 710 belongs to another PR, so the queue adopts 700. But the push run of the merge would let the
+        # higher ID (710) decide, so the queue refuses to merge until the newer run is out of the way.
         other = self.fake.pr_run(710, pull_requests=[
             {"number": 555, "base": {"ref": "some-other-base", "repo": {"url": f"https://api.github.com/repos/{queue.REPO}"}}}])
         self.fake.pr_runs = [self.fake.pr_run(700), other]
-        self.q.process(79)
+        self.refuses("Run 710 on head .* is newer than the evidence run 700")
         self.assertEqual(0, self.fake.dispatches)
-        self.assertIn("run=700 job=200", self.fake.messages[-1])
+        self.assertIn(f"Adopted pull_request run 700 for PR #79 head={A}", self.fake.messages)
 
     def test_a_pull_request_that_ever_changed_its_base_does_not_use_a_pull_request_run(self):
         # GitHub lists the current base on the run, and the time of the event does not tell which base the run
@@ -912,7 +925,73 @@ class PullRequestEvidence(unittest.TestCase):
         last_listing = max(i for i, c in enumerate(calls) if c[:2] == ["gh", "api"] and "/pulls?head=" in c[-1])
         merge = next(i for i, c in enumerate(calls) if c[:3] == ["gh", "pr", "merge"])
         evidence = max(i for i, c in enumerate(calls) if c[:2] == ["gh", "api"] and c[-1].endswith("/logs"))
-        self.assertTrue(evidence < last_listing < merge)
+        gleam = max(i for i, c in enumerate(calls) if c[:2] == ["gh", "api"] and "symbolic-gleam.yml/runs?" in c[-1])
+        last_view = max(i for i, c in enumerate(calls[:merge]) if c[:3] == ["gh", "pr", "view"])
+        fetch = max(i for i, c in enumerate(calls[:merge]) if c[:2] == ["git", "fetch"])
+        # The recheck comes after everything that takes time (evidence, Gleam wait, head and ancestry rereads).
+        self.assertTrue(max(evidence, gleam, last_view, fetch) < last_listing < merge)
+
+    def newer_run(self, run_id, **changes):
+        run = dict(id=run_id, workflow_id=10, path=".github/workflows/symbolic-check.yml", event="pull_request",
+                   head_branch="task/ELZ-039", head_sha=A, status="completed", conclusion="success", run_attempt=1,
+                   head_repository={"full_name": queue.REPO})
+        run.update(changes)
+        return run
+
+    def test_a_newer_run_on_the_head_stops_the_merge_on_both_paths(self):
+        # The push run of the merge lets the run with the highest ID on the head decide. A run of a sibling pull
+        # request or another dispatch that is newer than the evidence run would decide in place of it.
+        for label, runs, dispatch in (
+                ("adopted run, newer pull_request run", [self.fake.pr_run(700)], self.newer_run(800)),
+                ("adopted run, newer dispatch run", [self.fake.pr_run(700)], self.newer_run(800, event="workflow_dispatch")),
+                ("dispatch fallback, newer pull_request run", None, self.newer_run(900)),
+                ("dispatch fallback, newer dispatch run", None, self.newer_run(900, event="workflow_dispatch"))):
+            with self.subTest(label=label):
+                self.setUp()
+                self.fake.pr_runs = runs
+                self.fake.extra_head_runs = [dispatch]
+                self.refuses(f"Run {dispatch['id']} on head {A} is newer than the evidence run")
+
+    def test_runs_that_the_skip_decision_would_not_take_do_not_stop_the_merge(self):
+        for label, run in (("older run", self.newer_run(600)),
+                           ("the evidence run itself", self.newer_run(700)),
+                           ("fork pull request run", self.newer_run(800, head_repository={"full_name": "someone/elzoo"})),
+                           ("string head repository", self.newer_run(801, head_repository="balungpisah/elzoo")),
+                           ("no head repository", self.newer_run(802, head_repository=None)),
+                           ("push event", self.newer_run(803, event="push")),
+                           ("schedule event", self.newer_run(804, event="schedule")),
+                           ("another workflow file", self.newer_run(805, path=".github/workflows/symbolic-gleam.yml")),
+                           ("another head", self.newer_run(806, head_sha=B)),
+                           ("string id on another head", self.newer_run("x", head_sha=B)),
+                           ("not a run", None)):
+            with self.subTest(label=label):
+                self.setUp()
+                self.fake.pr_runs = [self.fake.pr_run(700)]
+                self.fake.extra_head_runs = [run]
+                self.q.process(79)
+                self.assertTrue(self.fake.merged)
+
+    def test_a_malformed_run_listing_before_the_merge_refuses(self):
+        for pages in ([None], ["x"], [{"workflow_runs": None}], [{"workflow_runs": "x"}], [{}], {"workflow_runs": []}):
+            with self.subTest(pages=pages):
+                self.setUp()
+                self.fake.pr_runs = [self.fake.pr_run(700)]
+                self.fake.head_run_pages = pages
+                self.refuses("Invalid run pages|Invalid JSON")
+
+    def test_a_newer_run_with_an_unreadable_id_refuses(self):
+        self.fake.pr_runs = [self.fake.pr_run(700)]
+        self.fake.extra_head_runs = [self.newer_run("x")]
+        self.refuses("Invalid run ID")
+
+    def test_the_run_listing_before_the_merge_has_no_event_filter(self):
+        # The skip decision lists by head_sha only; the check must see the same runs.
+        self.fake.pr_runs = [self.fake.pr_run(700)]
+        self.q.process(79)
+        listing = [c[-1] for c in self.fake.calls if c[:2] == ["gh", "api"] and "head_sha=" in c[-1]
+                   and "event=" not in c[-1]]
+        self.assertEqual(1, len(listing))
+        self.assertIn(f"head_sha={A}", listing[0])
 
     def test_the_dispatch_fallback_has_no_adopted_run_to_recheck(self):
         self.q.process(79)

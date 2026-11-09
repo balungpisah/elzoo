@@ -256,6 +256,31 @@ class Queue:
                 return True
         return False
 
+    def newer_run_of_head(self, run_id, pr):
+        """ID of a run of the backend workflow on the exact head that is newer than the evidence run and that the
+        push-run skip decision would take for evidence (workflow_dispatch, or pull_request of this repository), or
+        None. The skip decision lets the run with the highest ID on the second parent decide, so a later run of a
+        sibling pull request would decide in place of the run that the queue checked."""
+        query = urlencode({"head_sha": pr["headRefOid"], "per_page": 100})
+        pages = self.data("gh", "api", "--paginate", "--slurp",
+                          f"repos/{REPO}/actions/workflows/{WORKFLOW}/runs?{query}")
+        require(isinstance(pages, list) and all(isinstance(page, dict) for page in pages) and
+                all(isinstance(page.get("workflow_runs"), list) for page in pages), "Invalid run pages")
+        newest = None
+        for run in [run for page in pages for run in page["workflow_runs"]]:
+            if not isinstance(run, dict) or run.get("head_sha") != pr["headRefOid"] or \
+                    run.get("path") != f".github/workflows/{WORKFLOW}":
+                continue
+            source = run.get("head_repository")
+            valid = run.get("event") == "workflow_dispatch" or (
+                run.get("event") == "pull_request" and isinstance(source, dict) and source.get("full_name") == REPO)
+            if not valid:
+                continue
+            require(isinstance(run.get("id"), int), "Invalid run ID")
+            if run["id"] > run_id:
+                newest = max(newest or 0, run["id"])
+        return newest
+
     def adopt_pr_run(self, pr, workflow_id):
         """ELZ-059: the latest same-repository pull_request run of the exact head, waited for up to
         PR_RUN_WAIT seconds (after update-branch GitHub starts it a few seconds later). Returns its ID, or None
@@ -514,6 +539,9 @@ class Queue:
                 require(self.sole_pull_request_of_head(fresh) and not self.ever_retargeted(fresh),
                         f"Another pull request for branch {fresh['headRefName']} or a base change appeared after "
                         f"run {run_id} was adopted; refusing to merge on it")
+            newer = self.newer_run_of_head(run_id, fresh)
+            require(newer is None, f"Run {newer} on head {fresh['headRefOid']} is newer than the evidence run "
+                                   f"{run_id}; the push run could decide on it; refusing to merge")
             self.check_main_not_frozen()
             self.text("gh", "pr", "merge", str(number), "-R", REPO,
                       "--merge", "--match-head-commit", pr["headRefOid"])
