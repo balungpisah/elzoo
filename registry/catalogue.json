@@ -487,11 +487,11 @@
     },
     {
       "id": "integration/object-store",
-      "summary": "Claim check, S3/object storage, large payload/media",
+      "summary": "S3-only object-store Adapter: put, get, head, list, delete and presign against one endpoint and bucket through req_s3",
       "disposition": "adapt",
       "phase": "P4",
-      "status": "planned",
-      "reason": "Provider contract and retention/security review required"
+      "status": "ready",
+      "manifest": "pieces/integration/object-store/piece.json"
     },
     {
       "id": "integration/observability",

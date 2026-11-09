@@ -24,6 +24,13 @@
       "reference": "https://hexdocs.pm/req/0.7.5/Req.html",
       "license": "Apache-2.0"
     },
+    "req_s3": {
+      "source": "hex",
+      "package": "req_s3",
+      "version": "0.2.5",
+      "reference": "https://hexdocs.pm/req_s3/0.2.5/ReqS3.html",
+      "license": "Apache-2.0"
+    },
     "ecto_sql": {
       "source": "hex",
       "package": "ecto_sql",
