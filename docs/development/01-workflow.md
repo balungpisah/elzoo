@@ -37,7 +37,10 @@ Claim a deterministic branch, never an agent-suffixed branch:
 The atomic branch creation is the claim (ELZ-076); no marker file and no claim
 commit exist. The local worktree and branch are prepared first, so a local
 failure cannot strand a claimed remote branch; the claim is requested only
-when the worktree exists. HTTP 422 "Reference already exists" is a lost race; a plain
+when the worktree exists. HTTP 422 "Reference already exists" is a lost race:
+remove the losing worktree and its local branch (`git worktree remove
+../elzoo-ELZ-003` and `git branch -D task/ELZ-003`, which touches nothing on
+the remote) before choosing another issue or requesting a handoff. A plain
 `git push` is not used for the claim because a second push from the same base
 is a silent no-op and a later fast-forward push would move the winner's
 branch. Never force-push or reset the winner's branch. Comment on the issue
