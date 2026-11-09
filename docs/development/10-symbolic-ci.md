@@ -596,7 +596,8 @@ run and the variable. There is one lane.
 on the one label `ubuntu-24.04`, without a job container, and run for a push to `main`, a manual run
 (`workflow_dispatch`, no inputs) and a pull request from the same repository (a fork pull request skips them).
 `scripts/check-ci-runners.py` pins their `if:` lines and their header lines exactly: token permissions, time limit,
-`ERL_FLAGS`, and for the work jobs the Postgres service container (image pinned by digest, health check). It rejects
+`ERL_FLAGS`, and for the work jobs the Postgres service container (image pinned by digest, health check; since ELZ-084
+the pgvector image, see "PostgreSQL service with the pgvector extension (ELZ-084)"). It rejects
 every other label (`ubuntu-latest`, larger runners, expressions), any `self-hosted` text, any `labels:` list on a job,
 any workflow input, any use of `vars` or of the former variable name `ELZOO_CI_LANE` (in any letter case, also in script
 text and comments), a job container, and a job of any other name, so the removed shapes cannot return silently. The
@@ -832,6 +833,32 @@ and licensed AGPL-3.0; CI runs the binary unchanged and does not redistribute it
 backend step besides the skip decision that receives the job token; the guard pins it.
 
 Limit: the step duration on a hosted runner is not measured yet.
+
+## PostgreSQL service with the pgvector extension (ELZ-084)
+
+The three work jobs (`check-root`, `check-consumers-db`, `check-consumers`) run one service image, pinned in the
+guard header by its index digest:
+`pgvector/pgvector:0.8.7-pg16-bookworm@sha256:0dd3149a06e4579a0d70d8fef9945636cd514005e7237deb27f9b67886f8dc4f`
+(linux/amd64 manifest `sha256:c0cd736fe8b8b5d408db56b780570bac404fe518e66e39de624aa46f9aabc60a`). It is the
+official PostgreSQL 16 bookworm image plus the pgvector extension, published by the pgvector project. A read-only
+pull and run of that digest on 2026-11-09 showed `PG_VERSION=16.15-1.pgdg12+2` (the same server build as the
+former pin `postgres:16-bookworm@sha256:5264710b...`), Debian 12, server version
+`16.15 (Debian 16.15-1.pgdg12+2)` and `vector.control` `default_version = '0.8.7'` with no `trusted` line. The
+index digest is pinned, like the former pin: it fixes every platform manifest it lists (an index is content
+addressed), GitHub-hosted runners are amd64 and resolve the amd64 manifest from it, and the guard keeps one form for
+all pinned images; the amd64 manifest digest is recorded here so a reviewer can check the image the runner pulls.
+The guard test rejects the same image by tag alone.
+
+`vector` is not a trusted extension, so the job's `elzoo_test` role cannot create it. The "Prepare disposable
+PostgreSQL database" step therefore runs, as the `postgres` superuser after `createdb` and before `mix setup`,
+`psql -d elzoo_test -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION vector'`, prints `SHOW server_version` and the
+`vector` row of `pg_extension` (name and version), and fails the step unless exactly one such row exists. The
+extension is licensed under the PostgreSQL License (upstream statement); CI runs the image unchanged and does not
+redistribute it.
+
+Limits: the image facts are observations of the pinned digest on the stated date, not a supply-chain proof; the
+pgvector build and the extension behavior are upstream's work. The local test database is an operator action, see
+`docs/development/01-workflow.md`.
 
 ## Per-test limits of two slow tests (ELZ-062)
 
