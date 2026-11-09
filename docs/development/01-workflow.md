@@ -27,15 +27,17 @@ Claim a deterministic branch, never an agent-suffixed branch:
 
     export ELZOO_AGENT="worker-$(od -An -N2 -tx1 /dev/urandom | tr -d ' ')"
     git fetch origin --prune
+    git worktree add ../elzoo-ELZ-003 -b task/ELZ-003 origin/main
+    cd ../elzoo-ELZ-003
     gh api -X POST repos/{owner}/{repo}/git/refs \
       -f ref=refs/heads/task/ELZ-003 -f sha="$(git rev-parse origin/main)"
     git fetch origin --prune
-    git worktree add ../elzoo-ELZ-003 origin/task/ELZ-003
-    cd ../elzoo-ELZ-003
-    git switch -c task/ELZ-003 --track origin/task/ELZ-003
+    git branch --set-upstream-to=origin/task/ELZ-003
 
 The atomic branch creation is the claim (ELZ-076); no marker file and no claim
-commit exist. HTTP 422 "Reference already exists" is a lost race; a plain
+commit exist. The local worktree and branch are prepared first, so a local
+failure cannot strand a claimed remote branch; the claim is requested only
+when the worktree exists. HTTP 422 "Reference already exists" is a lost race; a plain
 `git push` is not used for the claim because a second push from the same base
 is a silent no-op and a later fast-forward push would move the winner's
 branch. Never force-push or reset the winner's branch. Comment on the issue
