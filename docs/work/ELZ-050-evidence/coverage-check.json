@@ -1,5 +1,5 @@
 {
-  "utc": "2026-11-08T14:10:50.163710+00:00",
+  "utc": "2026-11-08T17:46:43.987028+00:00",
   "targets": 53,
   "records": 53,
   "missing": [],
@@ -7,6 +7,6 @@
   "extra": [],
   "problems": [],
   "pass": true,
-  "hex_record_sha256": "a22725b3da614fb1ad833a05b14f690239455c90bea4849939387414eb0dda14",
+  "hex_record_sha256": "eecedc3904cb17c926f517af2bce716422b4b65c55195d1a2f9dcc49cb27f3cd",
   "note": "Documentation coverage check only; not runtime evidence. Owner-decision anchors verified against headings in the merged research file."
 }
