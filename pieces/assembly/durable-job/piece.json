@@ -7,6 +7,7 @@
   "kind": "adapter",
   "providers": [
     "oban",
+    "telemetry",
     "jason",
     "ecto_sql",
     "postgrex",
@@ -19,7 +20,8 @@
     "state/event-log",
     "state/outbox",
     "integration/sql",
-    "delivery/retry-timeout"
+    "delivery/retry-timeout",
+    "runtime/telemetry"
   ],
   "applications": [
     "crypto"
@@ -34,7 +36,9 @@
     "The caller-transaction guard checks only the configured Repo; Store behaviour inside a caller transaction is ELZ-032's (#52).",
     "A Store write blocked longer than the consumer's Lifeline rescue_after lets Oban rescue the live execution, consuming an Oban attempt; repeated blocked writes can exhaust the provider slack, discard the job and stall the Run. A Writer call that times out is reported as snooze/indeterminate; if its write still commits, the next execution begins a new Run attempt.",
     "After a cancel/3 start or result timeout, a late internal reply message can remain unread in the caller's mailbox (at most two per timed-out call); the caller should tolerate unmatched messages.",
-    "While an Assembly is stopped, Oban jobs for its queue keep snoozing without charging attempts and without recording a deadline; nothing bounds that snooze loop until the Assembly starts again."
+    "While an Assembly is stopped, Oban jobs for its queue keep snoozing without charging attempts and without recording a deadline; nothing bounds that snooze loop until the Assembly starts again.",
+    "ELZ-052 evolution note: observation added through runtime/telemetry ([:elzoo, :job | :effect, :start | :stop | :exception] events); inputs, outputs, state, delivery and failure guarantees are unchanged; no Contract change, so the Piece ID is kept. The added Need is the telemetry library (1.4.2), already in the dependency closure.",
+    "Telemetry handlers run synchronously in the emitting process: a handler's run time is elapsed time; a handler slower than the remaining deadline makes the operation expire exactly as any other delay would. Handlers must be fast and non-blocking (offload work); a handler slower than Lifeline rescue_after lets Oban rescue the live execution. Events are observations, not audit; an event may be missing."
   ],
   "files": [
     "lib/elzoo/durable_job.ex",
@@ -43,6 +47,7 @@
     "lib/elzoo/durable_job/submitter.ex",
     "lib/elzoo/durable_job/tally.ex",
     "test/elzoo/durable_job_restart_test.exs",
+    "test/elzoo/durable_job_telemetry_test.exs",
     "test/elzoo/durable_job_test.exs",
     "test/support/durable_job_test_helper.exs",
     "test/support/durable_job_victim_test_helper.exs"
@@ -57,6 +62,11 @@
       "kind": "test",
       "file": "test/elzoo/durable_job_restart_test.exs",
       "claim": "DJ9: SIGKILL of a separate OS process executing attempt 1; a new Oban instance's Lifeline rescue resumes at Run attempt 2 with counts not reset."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/durable_job_telemetry_test.exs",
+      "claim": "ELZ-052 listed scenarios on a disposable PostgreSQL with Oban 2.24.2: Relay and worker emit [:elzoo, :job, :start | :stop] with exactly the documented keys and integer units (success, retry, permanent failure, cancelled-before-relay, malformed Relay item without request_ref); a raise inside an execution emits :exception and reaches the caller unchanged; no job key or input bytes in any event; raising, throwing and exiting handlers are detached and change no Run record, Relay result or Oban state; a 200 ms handler on every event changes no result (added time reported); a Relay pass slower than the run_once caller timeout completes unchanged; a deadline-crossing start handler yields exactly the outcome of a no-handler run with the injected clock advanced by the same amount, and a non-crossing one the unchanged outcome. Finite scenarios, not proofs."
     },
     {
       "kind": "monitor",
@@ -102,12 +112,21 @@
     {
       "kind": "assumption",
       "claim": "Handlers are pure and deterministic; node clocks have bounded skew; one Submitter and one Relay per queue per cluster by convention (CAS catches violations); production PostgreSQL uses fsync=on and synchronous_commit=on."
+    },
+    {
+      "kind": "upstream",
+      "provider": "telemetry",
+      "reference": "https://hexdocs.pm/telemetry/1.4.2/telemetry.html",
+      "claim": "telemetry 1.4.2 synchronous execute/3 and detach of a failing handler are upstream contracts, exercised in the listed scenarios, not proved."
     }
   ],
   "operations": {
     "telemetry": {
-      "status": "planned",
-      "contract": "No events emitted; transitions are return values and Run records; Oban emits its own job events."
+      "status": "supported",
+      "contract": "runtime/telemetry :job events with operation :perform around each worker execution and :relay around each Relay item: fixed names, queue_wait/duration in microseconds, allowlisted metadata (adapter, operation, request_ref = SHA-256 hex of the job key, attempt, queue, outcome, reason); no emission inside a Writer or other Adapter timer; handlers synchronous, may be absent, a failing handler is detached by telemetry and changes no result. Oban also emits its own job events.",
+      "evidence": [
+        "test/elzoo/durable_job_telemetry_test.exs"
+      ]
     },
     "config": {
       "status": "supported",

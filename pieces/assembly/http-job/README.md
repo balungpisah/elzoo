@@ -169,6 +169,33 @@ The observer runs only through a bounded job-caller task with fixed event,
 outcome and elapsed_ms; no key, URL, body, credential or raw exception is emitted.
 Observer throw/hang is dropped and cannot cause a repeat. This is observation,
 not durable audit. Upstream Oban events, network/provider logging and host
-Logger policy are inherited host concerns. No direct telemetry dependency,
-hot reconfiguration or business drain is claimed. Root Elzoo.Application is
+Logger policy are inherited host concerns. No hot reconfiguration or business
+drain is claimed.
+
+## Telemetry (ELZ-052)
+
+Evolution note: observation added through `runtime/telemetry` (ELZ-052,
+[#108](https://github.com/balungpisah/elzoo/issues/108)) next to the unchanged
+observer; inputs, outputs, state, delivery and failure guarantees are
+unchanged; **no Contract change**, so the Piece ID is kept. Reason: operators
+need consistent observations of job and effect execution without reading
+code. The added Need is the `telemetry` library (1.4.2), already loaded by Oban,
+Req and Ecto.
+
+- `[:elzoo, :job, :start | :stop | :exception]` with `operation: :perform`
+  around the runner's `perform/2` (first clause), outside every `call_ms` and
+  `observer_ms` timer.
+- `[:elzoo, :effect, :start | :stop | :exception]` with `operation: :send` or
+  `:poll` around `send_effect/1` and `poll/1`, in the owner's task process and
+  outside the transport `total_ms` timer; `payload_bytes` is a byte count.
+- Keys and units: `pieces/runtime/telemetry/README.md`. `request_ref` is the
+  derived 64-hex intent key; tenant and queue appear only when they match the
+  telemetry grammar. Credentials, arguments, receipts, URLs and exceptions are
+  never emitted.
+- Limit: a handler's run time is elapsed time; a handler slower than the remaining deadline makes the operation expire exactly as any other delay would.
+  The runner `:start` event precedes the owner's expiry reading; effect events
+  delay the result's arrival at the owner.
+- Handlers must be fast and non-blocking: offload export or any slow work to
+  another process. A handler that fails is detached by `telemetry` and does
+  not change a result. Root Elzoo.Application is
 not required; the consumer supplies Repo/Oban and explicit bounded supervisors.
