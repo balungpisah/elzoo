@@ -1539,6 +1539,33 @@
       ]
     },
     {
+      "id": "ELZ-083",
+      "title": "ELZ-083 — Specify the MCP client Adapter over Streamable HTTP with inert tool discovery",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-011",
+        "ELZ-023"
+      ],
+      "status": "published 2026-11-09; claimed task/ELZ-083; PR pending",
+      "url": "https://github.com/balungpisah/elzoo/issues/155",
+      "paths": [
+        "tasks/ELZ-083-mcp-client.md"
+      ],
+      "outputs": [
+        "integration/mcp-client"
+      ],
+      "acceptance": "Unchanged live issue body (after the approved 2026-11-09 amendment); local task file is the publication copy. Planning dependencies mirror the published direct dependencies. RC-30 keeps integration/sdk and its scope unchanged.",
+      "issue": 155,
+      "issue_body_sha256": "59909fe75aa00034bf92784d0a78cc20c7460e9209ee40eee725420e416ae8c8",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P07"
+      ]
+    },
+    {
       "id": "ELZ-084",
       "title": "ELZ-084 — Provide the pgvector extension in the CI database service and the local test database",
       "kind": "published",
@@ -3530,6 +3557,14 @@
       "note": "Broker delivery semantics must be translated to Elzoo envelope classes",
       "baseline_status": "planned",
       "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "integration/mcp-client",
+      "job": "ELZ-083",
+      "note": "One MCP server over Streamable HTTP through ex_mcp 1.8.1: inert bounded tool discovery; one tools/call per dispatch identity bound to core/effect and delivery/effect-intent; completed, refused (local pre-send, or HTTP 401/403) or unknown (any timeout, broken stream or JSON-RPC error after sending); caller-supplied release reference required.",
+      "baseline_status": "planned",
+      "disposition": "published task; acceptance requires merged PR",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
