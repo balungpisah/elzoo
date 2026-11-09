@@ -191,7 +191,12 @@ defmodule Elzoo.AiBatch.Anthropic do
   defp outer_beta(_), do: {:failure, :adapter_error, %{orphans: []}}
 
   defp send_create(body, beta, call_opts) do
-    case exchange(:post, @path, cfg(call_opts), call_opts, body: body, headers: beta) do
+    with {:ok, cfg} <- cfg(call_opts),
+         do: create(cfg, body, beta, call_opts)
+  end
+
+  defp create(cfg, body, beta, call_opts) do
+    case exchange(:post, @path, cfg, call_opts, body: body, headers: beta) do
       {:ok, %{status: s} = raw} when s in 200..299 ->
         case batch(raw.body) do
           {:ok, %{"id" => id}, _state} -> {:ok, %{provider_job_id: id, orphans: []}}
@@ -206,13 +211,15 @@ defmodule Elzoo.AiBatch.Anthropic do
   @impl true
   def status(id, call_opts) do
     with {:ok, id} <- segment(id),
-         do: state(exchange(:get, @path <> "/" <> id, cfg(call_opts), call_opts, []))
+         {:ok, cfg} <- cfg(call_opts),
+         do: state(exchange(:get, @path <> "/" <> id, cfg, call_opts, []))
   end
 
   @impl true
   def cancel(id, call_opts) do
     with {:ok, id} <- segment(id),
-         do: state(exchange(:post, @path <> "/" <> id <> "/cancel", cfg(call_opts), call_opts, []))
+         {:ok, cfg} <- cfg(call_opts),
+         do: state(exchange(:post, @path <> "/" <> id <> "/cancel", cfg, call_opts, []))
   end
 
   defp state({:ok, %{status: s} = raw}) when s in 200..299 do
@@ -224,10 +231,12 @@ defmodule Elzoo.AiBatch.Anthropic do
 
   defp state(other), do: failure(other, %{})
 
+  # An invalid provider term refuses the operation before any request; it never
+  # falls back to the default endpoint.
   defp cfg(call_opts) do
     case provider_config(call_opts[:provider_config]) do
-      {:ok, c} -> c
-      _ -> %{}
+      {:ok, c} -> {:ok, c}
+      _ -> {:failure, :provider_invalid_request, %{orphans: []}}
     end
   end
 
@@ -241,10 +250,12 @@ defmodule Elzoo.AiBatch.Anthropic do
 
   @impl true
   def results(id, page, call_opts) do
-    with {:ok, id} <- segment(id), do: read_results(id, page, call_opts)
+    with {:ok, id} <- segment(id),
+         {:ok, cfg} <- cfg(call_opts),
+         do: read_results(id, page, cfg, call_opts)
   end
 
-  defp read_results(id, page, call_opts) do
+  defp read_results(id, page, cfg, call_opts) do
     path = @path <> "/" <> id <> "/results"
     init = %{buf: "", scanned: 0, ordinal: 0, lines: [], halted: nil, error: nil, body: ""}
 
@@ -260,7 +271,7 @@ defmodule Elzoo.AiBatch.Anthropic do
       {action, {req, Req.Response.put_private(resp, :elzoo_scan, st)}}
     end
 
-    case request(:get, path, cfg(call_opts), call_opts, into: into) do
+    case request(:get, path, cfg, call_opts, into: into) do
       {:ok, %Req.Response{status: s} = r} when s in 200..299 ->
         st = Req.Response.get_private(r, :elzoo_scan, init)
         finish_scan(st, page)
@@ -313,8 +324,9 @@ defmodule Elzoo.AiBatch.Anthropic do
       byte_size(text) > page.max_line_bytes ->
         {:halt, %{st | halted: :error, error: :result_line_limit}}
 
+      # A blank record is a malformed stream, never a silently skipped item.
       String.trim(text) == "" ->
-        {:cont, st}
+        {:halt, %{st | halted: :error, error: :malformed_response}}
 
       st.ordinal < page.cursor ->
         {:cont, %{st | ordinal: st.ordinal + 1}}
@@ -343,8 +355,12 @@ defmodule Elzoo.AiBatch.Anthropic do
   defp finish_scan(%{halted: :page} = st, _),
     do: {:ok, %{lines: Enum.reverse(st.lines), done: false}}
 
+  # The stream ended with its final newline: nothing is left over.
+  defp finish_scan(%{buf: ""} = st, _page),
+    do: {:ok, %{lines: Enum.reverse(st.lines), done: true}}
+
   defp finish_scan(st, page) do
-    # The stream ended: the last line may lack a newline.
+    # The stream ended: the last line lacks a newline.
     case line(st.buf, %{st | buf: ""}, page) do
       {:halt, %{halted: :error} = s} -> finish_scan(s, page)
       {_, s} -> {:ok, %{lines: Enum.reverse(s.lines), done: true}}

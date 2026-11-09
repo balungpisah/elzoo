@@ -282,6 +282,17 @@ defmodule Elzoo.AiBatch.AnthropicTest do
                Anthropic.submit(%{body: "{}", meta: meta}, opts)
     end
 
+    # An invalid provider term refuses every operation before any request; it
+    # never falls back to the default endpoint.
+    bad = %{credential: @key, receive_timeout_ms: 1000, provider_config: %{plug: plug, other: 1}}
+    page = %{cursor: 0, page_size: 1, max_line_bytes: 100, max_scan_bytes: 100}
+    assert {:failure, :provider_invalid_request, _} = Anthropic.status(@batch_id, bad)
+    assert {:failure, :provider_invalid_request, _} = Anthropic.cancel(@batch_id, bad)
+    assert {:failure, :provider_invalid_request, _} = Anthropic.results(@batch_id, page, bad)
+
+    assert {:failure, :provider_invalid_request, %{orphans: []}} =
+             Anthropic.submit(%{body: "{}", meta: %{}}, bad)
+
     assert AnthropicStub.requests(agent) == []
   end
 
@@ -571,6 +582,16 @@ defmodule Elzoo.AiBatch.AnthropicTest do
 
     {c, _} = read(ctx, fn _ -> {404, [], AnthropicStub.error("not_found_error")} end)
     assert {:error, :not_found} = AiBatch.results(c, @job, 0, join(c, ids))
+
+    # A blank record inside the stream is malformed, never a skipped item; a
+    # final line without its newline is still read.
+    [first | rest] = Enum.take(lines, 3)
+    blank = AnthropicStub.jsonl([first]) <> "  \n" <> AnthropicStub.jsonl(rest)
+    {c, _} = read(ctx, fn _ -> {:chunked, 200, [blank]} end)
+    assert {:error, :malformed_response} = AiBatch.results(c, @job, 0, join(c, ids))
+    no_newline = String.trim_trailing(AnthropicStub.jsonl(Enum.take(lines, 2)), "\n")
+    {c, _} = read(ctx, fn _ -> {:chunked, 200, [no_newline]} end)
+    assert {:ok, %{items: [_, _], next: :done}} = AiBatch.results(c, @job, 0, join(c, ids))
   end
 
   ## redaction, ambient keys, configuration and audit

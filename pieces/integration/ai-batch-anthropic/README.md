@@ -60,7 +60,9 @@ are harmless for items that do not use the feature is an unverified assumption.
   (provenance names this Piece and the `message_batches` surface); `errored` with
   `invalid_request_error` → `invalid_request`, other error types →
   `provider_error`; `canceled` → `:cancelled`; `expired` → `:expired`; any other
-  line refuses the call `malformed_response`. Usage through
+  line, and a blank line inside the stream, refuses the call `malformed_response`.
+- An invalid provider term (an unknown key or a non-HTTPS base URL) refuses every
+  operation before any request, never falling back to the default endpoint. Usage through
   `Elzoo.AiText.Anthropic.Usage.from_raw/1`; absent fields `:unknown`.
 - Statuses on every endpoint by the synchronous provider's documented table (400,
   401, 403, 404, 413, 429 with `retry-after`, 529, 504 or `timeout_error`, 500 and
