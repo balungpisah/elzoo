@@ -12,8 +12,9 @@ After 48 hours with no heartbeat:
 4. a response records a handoff and the next worker continues the existing
    branch;
 5. with no response, the coordinator first adopts the existing branch: the
-   new worker fetches its tip, updates the claim marker in a handoff commit
-   and pushes a normal fast-forward.
+   new worker fetches its tip, records the handoff in an issue comment
+   (branch, tip SHA, new agent identifier) and continues the branch with
+   normal fast-forward pushes.
 
 No worker force-pushes or silently deletes a claimed branch. Deleting an
 unmerged branch is not the default. If a branch truly cannot be adopted, the

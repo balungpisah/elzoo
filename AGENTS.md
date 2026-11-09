@@ -64,11 +64,11 @@ claim. Labels task, ready, claimed, blocked and phase labels P0 through P3 are
 status signals, not the lock. A dependency that is merely in a PR is not
 complete.
 
-## Claim: the Git push is the lock
+## Claim: the branch creation is the lock
 
 There is one deterministic branch per task: task/ELZ-001 for ELZ-001. Never
 add an agent suffix and never force-push a task branch. Two agents may prepare
-locally, but only the first branch-create push can succeed.
+locally, but only the first creation of the remote branch (step 3) can succeed.
 
 1. Fetch the base and check the remote branch:
 
@@ -83,30 +83,32 @@ locally, but only the first branch-create push can succeed.
        git worktree add ../elzoo-ELZ-001 -b task/ELZ-001 origin/main
        cd ../elzoo-ELZ-001
 
-3. Before implementation, create .claims/ELZ-001.md containing the stable ID,
-   issue number, GitHub login, a distinct per-session agent ID, UTC time and
-   base SHA. Generate the session ID once before any claim:
+3. Create the remote branch atomically; the branch creation is the claim
+   (ELZ-076). A plain `git push` is not a lock: a second worker's push from
+   the same base reports `Everything up-to-date`, and a later fast-forward
+   push would move the branch silently. Use the create-only reference API,
+   which refuses an existing branch:
+
+       gh api -X POST repos/{owner}/{repo}/git/refs \
+         -f ref=refs/heads/task/ELZ-001 -f sha="$(git rev-parse origin/main)"
+       git fetch origin --prune
+       git branch --set-upstream-to=origin/task/ELZ-001
+
+   HTTP 422 "Reference already exists" means another worker won. Do not
+   retry with force; remove the losing worktree and choose another ready
+   issue. The winner comments on the issue with the branch, the base SHA and
+   a role-based agent identifier generated once per session, never derived
+   from the hostname:
 
        export ELZOO_AGENT="worker-$(od -An -N2 -tx1 /dev/urandom | tr -d ' ')"
 
-   The identifier is role-based and never derived from the hostname.
+   Later pushes to the branch are ordinary fast-forward pushes.
 
-   Commit the marker as claim ELZ-001 and push:
+4. No claim marker exists any more (ELZ-076): do not create `.claims/` files
+   and do not add a claim commit. CI runs `python3 scripts/check-claims.py` and
+   rejects any tracked file under `.claims/`, including hidden markers.
 
-       git add .claims/ELZ-001.md
-       git commit -m "claim ELZ-001"
-       git push --set-upstream origin HEAD:refs/heads/task/ELZ-001
-
-   A rejected push means another worker won. Do not retry with force; remove
-   the losing worktree and choose another ready issue. The winner comments on
-   the issue with branch and claim SHA.
-
-4. Remove .claims/ELZ-001.md in a later commit before opening the PR, while
-   retaining the claim commit in history. Claim metadata must not merge to
-   main. CI runs `python3 scripts/check-claims.py` and rejects any tracked
-   file under `.claims/`, including hidden markers.
-
-The claim commit is not implementation evidence. If a branch already exists,
+The claim is not implementation evidence. If a branch already exists,
 request a handoff in the issue and use it only after a handoff is recorded under the stale-work protocol.
 
 ## Work, sync and progress
@@ -159,9 +161,18 @@ The project runtime/tooling path owns these public commands. mix setup must use 
 208248063d64e621782cd26dd30698ee42850a89, Elixir 1.20.4 and OTP 29.1.2.
 mix check must compile real Cure, run selected Cure proofs, meaningful runtime
 tests and negative controls. It is not a formatter or documentation badge.
-Targeted mix test commands are iteration feedback; report full mix check before
-review. Do not claim a pass if the command was not run or a moving Cure ref
-was used.
+
+The worker gate before every push (ELZ-076): run `mix check --affected <base>`
+(the same selection code the hosted check used before ELZ-059) and the changed
+Piece's own tests (`mix test pieces/<family>/<name>/test`). CI owns the full
+run: the pull request's hosted `check-hosted` run is a full `mix check` on the
+exact head and the queue's merge evidence (a documentation-only change gets
+the short check of ELZ-071 instead). A local full `mix check` is still required after a dependency,
+configuration or toolchain change (`mix.exs`, `mix.lock`, `config/`, the Cure,
+Elixir or OTP pins) and when the affected selection cannot be computed; it is
+never a substitute for the hosted run. The PR body records which local command
+ran, with its exit code, and names the hosted run. Do not claim a pass if the
+command was not run or a moving Cure ref was used.
 
 Every PR separates its grounding:
 
@@ -226,8 +237,9 @@ force-push or deletion.
 
 If the claimant responds, record a handoff and continue the existing branch.
 If there is no response, the coordinator first adopts the existing branch: the
-new worker fetches its tip, updates the claim marker in a handoff commit and
-pushes that commit as a normal fast-forward. Deleting an unmerged branch is
+new worker fetches its tip, records the handoff in an issue comment (branch,
+tip SHA, new agent identifier) and continues the branch with normal
+fast-forward pushes. Deleting an unmerged branch is
 not the default. If a branch truly cannot be adopted, the coordinator must
 first create and verify a real archive ref on the same remote from the exact
 remote tip, record that archive ref and reason in the issue, and only then
