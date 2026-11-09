@@ -90,7 +90,7 @@
   "operations": {
     "telemetry": {
       "status": "planned",
-      "contract": "No events of its own and no Swoosh Mailer events (which would carry email and config); a bounded event surface waits for runtime/telemetry (ELZ-052)."
+      "contract": "No events of its own and no Swoosh Mailer events (which would carry email and config). Own events through runtime/telemetry: future task when a consumer needs them. Not inherited: runtime/telemetry is not a dependency of this Piece."
     },
     "config": {
       "status": "supported",

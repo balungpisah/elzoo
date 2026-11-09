@@ -74,6 +74,13 @@
       "reference": "https://hexdocs.pm/erlexec/2.6.0/exec.html",
       "license": "BSD-2-Clause"
     },
+    "telemetry": {
+      "source": "hex",
+      "package": "telemetry",
+      "version": "1.4.2",
+      "reference": "https://hexdocs.pm/telemetry/1.4.2/telemetry.html",
+      "license": "Apache-2.0"
+    },
     "swoosh": {
       "source": "hex",
       "package": "swoosh",

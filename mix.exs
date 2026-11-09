@@ -57,7 +57,10 @@ defmodule Elzoo.MixProject do
       {:swoosh, "== 1.29.3", runtime: false},
       # The SMTP transport Swoosh's SMTP adapter requires (BSD-2-Clause); its server is the
       # in-process test SMTP server of the notification tests.
-      {:gen_smtp, "== 1.3.0"}
+      {:gen_smtp, "== 1.3.0"},
+      # ELZ-052 runtime/telemetry provider (already locked transitively at 1.4.2
+      # through Oban, Ecto and Req); a direct dependency of the Piece.
+      {:telemetry, "== 1.4.2"}
     ]
   end
 

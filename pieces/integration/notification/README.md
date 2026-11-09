@@ -125,8 +125,13 @@ the Adapter's own result, not provider authentication.
 
 ## Operations
 
-- **Telemetry: planned.** No events of its own; a bounded event surface waits
-  for `runtime/telemetry` (ELZ-052).
+- **Telemetry: planned.** No events of its own. Own events through
+  `runtime/telemetry`: a future task when a consumer needs them. It is not
+  `inherited`: that status means supplied through a named direct provider or
+  Piece dependency (docs/operational-contracts.md), and `runtime/telemetry` is
+  not a dependency of this Piece. The Contract's "inherited from the ELZ-052
+  family if merged first" presupposes such a path, so it does not apply (main
+  coordinator's decision, 2026-11-09).
 - **Config: supported.** Binding fields at build time; TLS mode and trust,
   `max_request_bytes` (1..65,536, default 65,536), `send_timeout_ms`
   (1..600,000, default 60,000), `hostname` (EHLO name), transport supervisor and

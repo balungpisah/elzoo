@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "id": "runtime/telemetry",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": [
+    "telemetry",
+    "elixir",
+    "otp"
+  ],
+  "dependencies": [],
+  "applications": [
+    "crypto"
+  ],
+  "contract": "One fixed telemetry event family [:elzoo, :job | :effect, :start | :stop | :exception] with declared integer measurements (queue_wait and duration in microseconds, payload_bytes as a byte count) and a metadata allowlist with positive per-key grammars (adapter, operation, request_ref as 64 lowercase hex, attempt 1..1_000_000, queue, tenant, outcome and reason as declared atoms) and required/optional keys per adapter operation. Elzoo.Telemetry.metadata/2 is the pure check; emit/4 calls :telemetry.execute/3 with only the clean subset, omitting failing keys in :production and raising ArgumentError naming only key names in :strict; emit/3 uses a compile-time default (:strict under Mix :dev/:test, else :production). Observation only.",
+  "limits": [
+    "Not an audit record, usage meter, billing input or control receipt; an event may be missing. No exporter, aggregation, tracing, log format or persistence.",
+    "An opaque identifier-shaped secret passes the tenant grammar; secrets are kept out by the emission points' sources (named identity fields only), the grammar is a second layer. A host that names a tenant or queue with a secret is outside this Contract.",
+    "Handlers run synchronously in the emitting process (telemetry): a handler's run time is elapsed time; a handler slower than the remaining deadline makes the operation expire exactly as any other delay would. Handlers must be fast and non-blocking; offload work.",
+    "The allowlist and unit table are finite data checked by tests; no proof is claimed."
+  ],
+  "files": [
+    "lib/elzoo/telemetry.ex",
+    "test/elzoo/telemetry_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/telemetry_test.exs",
+      "claim": "Listed scenarios: the README event, unit, key, operation and outcome tables equal Elzoo.Telemetry.schema/0, read from the Piece README in this repository or from its .elzoo/ copy in an exported consumer (exactly one must exist); a short valid publication JSON, a 4 KiB binary, URLs with and without credentials, Bearer/Basic header values, base64, control bytes, non-ASCII, maps, lists, a URI struct with credentials and an exception struct fail every string grammar; unknown keys (authorization, token, payload, url, error) are refused; identifier-shaped secrets pass the tenant grammar (stated limit); strict mode raises naming key names only, production mode omits and still emits; invalid measurements; unknown event names are never emitted; raising, throwing and exiting handlers are detached by telemetry after their first failure while a healthy handler keeps receiving; an absent handler is silent. Finite scenarios, not proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "telemetry",
+      "reference": "https://hexdocs.pm/telemetry/1.4.2/telemetry.html",
+      "claim": "telemetry 1.4.2 synchronous execute/3 in the calling process, attach/attach_many/detach, detach of a handler that fails and the [:telemetry, :handler, :failure] event are upstream contracts, named and exercised in the listed scenarios, not proved."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/",
+      "claim": "OTP 29.1.2 :crypto SHA-256 and erlang:monotonic_time are upstream contracts."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Elixir 1.20.4 Regex, DateTime.diff and System.convert_time_unit are upstream contracts."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "supported",
+      "contract": "This Piece is the event family: fixed names, integer measurements with declared units, positive-grammar metadata allowlist, strict/production modes; handlers synchronous, may be absent, a failing handler is detached by telemetry.",
+      "evidence": [
+        "test/elzoo/telemetry_test.exs"
+      ]
+    },
+    "config": {
+      "status": "not_applicable",
+      "contract": "The allowlist and units are fixed data; the mode is a compile-time build property, not a runtime setting."
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No lifecycle or control surface; emission is a function call."
+    }
+  }
+}
