@@ -30,7 +30,8 @@ and this script accepts it only as a completed success with the full marker, els
 is a completed success whose exact attempt has exactly one job, a successful `check-hosted` job on a
 GitHub-hosted runner (group `GitHub Actions`, label `ubuntu-24.04`, runner name `GitHub Actions <number>`), a successful
 runner identity step, a successful `Run mix check` step, the full `ELZOO CHECK PASSED` log line and no
-`ELZOO AFFECTED CHECK PASSED` marker;
+`ELZOO AFFECTED CHECK PASSED` marker (or, for a documentation-only merge, the short check of ELZ-071: see
+"Documentation-only pull requests (ELZ-071)");
 and that run is unchanged when read again. The same evidence rules as the queue apply (`scripts/merge-queue.py`).
 Then the steps after the decision (`setup-beam`, cache, `mix setup`, `mix check`) are skipped, the job ends green
 and its log shows `ELZOO PUSH CHECK SKIPPED (identical tree; exact-head full run passed): second_parent=...
@@ -181,7 +182,7 @@ That list shows the pull requests that are open for the head now, not the one th
 rules apply: this pull request must be the only pull request (any state) from the task branch, and its base must
 never have changed (timeline events `base_ref_changed`, `automatic_base_change_succeeded`, `automatic_base_change_failed`,
 or an entry that the queue cannot read). When one rule fails, the queue logs why and dispatches the fallback. A
-timeline or pull request listing that is not a list of lists refuses the merge. Both rules are checked again right before the merge (on the adopted run only); when a sibling pull request or a base change has appeared since, the queue refuses to merge on that run. On both paths, the queue also refuses to merge when a same-repository `pull_request` run of the workflow on the exact head has a higher ID than the evidence run (see "Push run skip"). After such a refusal, push a commit to the branch: the new head gets its own run, and the newer run on the old head no longer counts. The refusal repeats while that newer run is the newest on the head. After `update-branch` it waits (up to 300 seconds, bounded by the PR deadline) for the run that GitHub
+timeline or pull request listing that is not a list of lists refuses the merge. Both rules are checked again right before the merge (on the adopted run only); when a sibling pull request or a base change has appeared since, the queue refuses to merge on that run. On both paths, the queue also refuses to merge when a same-repository `pull_request` run of the workflow on the exact head has a higher ID than the evidence run (see "Push run skip"). After such a refusal, start the queue again: it adopts the newer run when that run belongs to this pull request, and it dispatches a fresh run when it belongs to a sibling pull request. The refusal repeats only when the newer run comes from another branch at the same commit; then push a commit to the branch, so that the new head gets its own run. After `update-branch` it waits (up to 300 seconds, bounded by the PR deadline) for the run that GitHub
 starts on the new head. It logs `Adopted pull_request run <id> for PR #N head=<sha>` and **never cancels that run**.
 The pull request job runs the full check (no affected mode), so the run is the exact-head full run, and it counts as a
 pull request status for branch protection. Only when GitHub started no such run within the wait does the queue
@@ -193,7 +194,8 @@ status. A run for another head, another branch, another workflow, a dispatch, pu
 The completed run must succeed. Its exact attempt must have exactly one job, a successful
 `check-hosted` job on a GitHub-hosted runner (group `GitHub Actions`, label `ubuntu-24.04`, runner name
 `GitHub Actions <number>`), on the same head, with a successful runner identity step and a successful `Run mix check` step. The job log must contain the full
-`ELZOO CHECK PASSED` output line and no `ELZOO AFFECTED CHECK PASSED` marker.
+`ELZOO CHECK PASSED` output line and no `ELZOO AFFECTED CHECK PASSED` marker. A run of the short documentation-only shape is
+accepted instead only under the rules of "Documentation-only pull requests (ELZ-071)".
 Missing logs, API/command failures, cancelled runs and reruns during evidence
 collection fail closed. This validates observed evidence from trusted workflow
 code, not authenticity against a hostile PR or administrator.
@@ -219,9 +221,10 @@ not required the queue logs `Gleam run not required for PR #N: ...` and prints `
 head=<sha> (...)` instead of the `ELZOO GLEAM EVIDENCE` line. `gleam-hosted` has no job-level `if:`: it always runs and
 reports, so branch protection can require both checks. Protection and the queue can differ. When no Gleam
 path changes, the queue does not wait for `gleam-hosted`, but protection (when it requires that check) still waits for the
-run that GitHub starts for the pull request. The fallback is a `workflow_dispatch` run; whether protection accepts its
-`check-hosted` check run for the head commit has not been tested (protection has no required check now) and is recorded
-here after protection is enabled again.
+run that GitHub starts for the pull request. The fallback is a `workflow_dispatch` run, and **a dispatch fallback run does not satisfy branch protection**: GitHub
+does not count it as a status of the pull request (reported by the coordinator for PR #122, see "Branch protection change"),
+so the merge can be refused even though the queue accepts the run. The queue says so whenever it falls back, with the log line
+`Fallback for PR #N: a workflow_dispatch run is valid evidence for this queue but does NOT satisfy branch protection ...`.
 
 When the Gleam run is required, the queue waits for a successful `symbolic-gleam.yml` **pull_request**
 run on the exact same head SHA, including after `update-branch`. That update
@@ -300,6 +303,100 @@ merge with run/runner/merge SHA, and an observed pair of overlapping main
 checks (or an explicit statement that the pair was not observed). Those live
 observations and independent review belong to the coordinator; a local fake
 run does not satisfy them.
+
+## Documentation-only pull requests (ELZ-071)
+
+A pull request that changes only documentation (many recent merges were documentation, task bodies and plan views) does
+not need the 18 to 33 minutes of `mix check`: nothing that `mix check` tests changed. ELZ-071 gives such a pull request a
+short check, and lets the queue and the push-run skip accept it only when they classify the change themselves.
+
+**The allowlist** is `scripts/ci-change-class.py`, one file for the workflow, the queue and the skip decision. A change
+is documentation only when it has at least one changed path and every changed path is a regular file under `docs/` or
+`tasks/`, or one of the root files `README.md`, `GOAL.md` and `PLAN.md`, **except `docs/consuming.md`**: `Elzoo.Export`
+copies that file into every export (`lib/elzoo/export.ex`), so the export tests and the copied consumers read it. These
+are never documentation: `.github/`, `scripts/`, `lib/`, `test/`, `pieces/` (their READMEs too), `config/`,
+`registry/`, `mix.*`, `AGENTS.md` and the generated `LEDGER.md` (`test/registry_test.exs` and the `ledger` stage read it).
+Git is asked with `diff --raw -z --no-renames --no-abbrev --ignore-submodules=none --no-relative` (one function,
+`diff_argv`, builds it for the workflow, the queue and the skip decision; the last two options keep a host setting of
+`diff.ignoreSubmodules` or `diff.relative` from hiding a gitlink or a path outside the working directory), so a rename counts both paths; a symlink or submodule entry on
+either side is never documentation; an empty list, a failed Git command, malformed output and an odd path (`..`, absolute,
+backslash, a look-alike such as `docs-x/`, a trailing space) mean "not documentation only". Git shortens object names in
+`--raw` output unless `--no-abbrev` is given; the parser reads full names only. The first draft of this task named only
+`LEDGER.md` as read by tests; a scan of `lib/` found `docs/consuming.md`.
+
+**The guard test for the allowlist** (`scripts/test-ci-change-class.py`) scans every source file of the repository that
+`mix check` or the Gleam check can run (Elixir, Cure, Gleam, Erlang, templates, shell and the browser scripts of the Gleam
+spike, wherever they are: `lib/`, `test/`, `config/`, `pieces/**` including `examples/` and `test/support/`, `spikes/`,
+`mix.exs`, helpers; not the root `docs/` and `tasks/`, `deps/` and `_build/`). Comments are scanned too: no language rule
+decides here what is a comment (in Elixir a line that starts with `%{` is a map, and a heredoc line that starts with `#{` is
+interpolation). Every line with one of these is a hit: a path literal `docs/…` or `tasks/…` (also after a slash or an
+interpolation, as in `Path.expand("../../docs/x.md", __DIR__)` and `"#{root}/docs/x.md"`), the word `docs` or `tasks` quoted
+or between slashes (`"docs"`, `'tasks'`, `"../../docs"`, so also a `Path.join` list that puts it on a line of its own, or
+`@doc_dir "docs"`), `~w(docs x.md)`, `GOAL.md`, `PLAN.md`, `README.md` (also `"#{dir}/README.md"`), a markdown glob
+(`*.md`, `*.MD`, `*.{md,json}`), a `Path.wildcard` pattern that starts at the working directory, a `Path.wildcard(Path.join(`
+over `root`, `@root`, `File.cwd!()` or `"."`, and `File.ls`. The explicit README of a piece,
+`pieces/<family>/<name>/README.md`, is not a hit. A hit passes only when the **line itself** is in the reviewed list of that
+test, with the reason (comments, messages, fixtures, piece READMEs, Mix task paths, listings that do not reach the root,
+and the one read, `docs/consuming.md`): a new read next to a reviewed line is a new line and fails the test, so a future test or module
+that reads a documentation file cannot silently become unchecked on a documentation-only pull request. Take the file out of
+the allowlist (`READ_BY_CODE`) in the same change. The scan is a net, not a proof: a path built from parts that its patterns
+cannot see (a computed name such as `Atom.to_string(:docs)`, a variable that holds the directory and is joined later, a
+directory listing that is filtered by extension, a wildcard built from other helpers) is not found, and the independent review of a change that
+adds such a read is the second line.
+
+**Workflow** (`check-hosted`): the step `Classify the change` runs `python3 scripts/ci-change-class.py github` right after
+the checkout. On a `pull_request` run the checkout is the merge of the head into the base, so `HEAD^1...HEAD^2` is the
+change of the head; any other event, or a `HEAD` that is not a two-parent merge, is not documentation only. When
+`docs_only` is `true`, every heavy step (S3 binary restore, start and save, `setup-beam`, BEAM report, dependency cache,
+hex, rebar, `mix setup`, cache save, `mix check`, the roadmap step of ELZ-059) is skipped, and the step `Docs-only check`
+runs `check-claims.py` and `check-roadmap.py` (links and generated views included) and prints `ELZOO DOCS-ONLY CHECK
+PASSED`. The claims check, the guard and the tests of the guard, the queue, the S3 test server, the classifier and the skip
+decision, which run before the heavy steps, keep running. The Postgres
+service container still starts (a job-level `services:` block cannot be conditional); only its use is skipped. The guard
+(`scripts/check-ci-runners.py`) pins the classify step, the classifier test step, the docs-only step and every
+step-level condition, and allows the marker on one line of the workflow only.
+
+**Queue.** A run whose `Run mix check` step was skipped is accepted only as the docs-only shape: `Classify the change`
+and `Docs-only check` green, the log line `ELZOO DOCS-ONLY CHECK PASSED` as a line of its own (not an echoed command), no
+`ELZOO CHECK PASSED` and no `ELZOO AFFECTED CHECK PASSED` line. It still needs the one `check-hosted` job on a
+GitHub-hosted runner, the green identity step and all other rules. Then the **queue's own classification** decides:
+`git diff --raw -z --no-renames --no-abbrev --ignore-submodules=none --no-relative <main SHA>...refs/remotes/origin/<branch>`
+with the main SHA of the canonical repository, through the queue's own copy of `scripts/ci-change-class.py`, the file next
+to `scripts/merge-queue.py`; the queue never reads a file of the pull request head for this. **It also needs a verified
+main.** A short check runs no tests, so it must not hide a red or unfinished push run of `main` behind a green
+documentation merge (the freeze rule ignores a first attempt in progress and lets the newest run decide, so the green
+skipped push run of a documentation merge would otherwise replace a red run of the main before it). The queue therefore
+accepts the short check only when the push run with the highest ID on the current `main` commit (`event=push`,
+`head_sha=<main SHA>`, branch `main`, this workflow) has completed with success; a logged skip is a success of the job. A
+run in progress, or not listed yet, is awaited for up to 600 seconds (`MAIN_RUN_WAIT`); a red, cancelled, timed-out,
+missing or malformed answer is no. The classification and this rule run once after the evidence and again right before the
+merge. When the queue does not accept the short check (a code path, an empty or failed list, a missing classifier file, or
+a main without a completed green push run), it logs `Run <id> passed the docs-only check, but the queue does not accept the
+short check ... dispatching a full run` and takes the dispatch run as evidence, which must be a full run; that full run
+tests the code of `main` that the head holds. A pull request
+that changes `scripts/` (the classifier included) or `docs/consuming.md` is therefore never documentation only. The merge line
+gets ` mode=docs-only` for a merge on the short check. **Stage the classifier with the queue**: when the coordinator copies
+`scripts/merge-queue.py` elsewhere, it copies `scripts/ci-change-class.py` next to it; without it the queue still works
+and requires the full run for every pull request.
+
+**Push run.** `scripts/ci-skip-decision.py` accepts the same short shape for a `pull_request` run (never a dispatch run:
+a dispatch run is not classified and runs the full check) when its own copy of the classifier says that the merge commit's
+change against its first parent is documentation only **and the first parent has a push run that completed with success**
+(no waiting here: a run in progress, a red run or none means that the full check runs, which tests the code of that first
+parent). This closes the second way to hide a red `main`: a documentation pull request merged by hand in the UI, which
+branch protection lets through with the short `check-hosted`, on top of a frozen or unfinished main. The log line then reads `ELZOO PUSH CHECK SKIPPED (identical tree;
+exact-head docs-only check passed): ...`. Everything else of the skip decision is unchanged.
+
+**Limits.** A documentation-only pull request is not checked by `mix test`: documentation that tests read must stay out of
+the allowlist (the guard test above enforces it). **A green short `check-hosted` is evidence for the queue only.** Branch
+protection accepts it for a hand merge, and a pull request that edits `scripts/ci-change-class.py` or the workflow can make
+its own run take the short path; only the queue's own classification (the file next to the queue, never the pull request's)
+and its verified-main rule stop that, and after a hand merge the push run loads the classifier of the merge commit. This is
+the existing trust model (a pull request controls the workflow it runs, see "Coordinator merge queue"), stated here for the
+new path. The marker proves that the docs-only steps ran on the merge of the head
+into the base; the queue's path check decides acceptance. The runtime libraries and the disposable database are still
+prepared before the checkout, and the Postgres service container still starts, so a documentation-only run costs about
+the start of the job plus the short check, not zero.
 
 ## Timing lines in CI logs (ELZ-045)
 
@@ -512,7 +609,7 @@ again at 20:56 UTC (03:56 WIB) after the change described below:
 | `ELZOO_CI_LANE` | `hosted` at the flip; no workflow reads it after ELZ-069; deleted by the coordinator on 2026-11-09 at 08:12 WIB, after the push run on the ELZ-069 merge commit was green (reading it now returns 404) |
 | Default workflow token | `read`; workflows cannot approve pull request reviews |
 | Fork pull request approval | `all_external_contributors` (every outside contributor needs approval before a workflow runs) |
-| Branch protection on `main` | no required status checks (removed between 03:49 and 03:56 WIB on 2026-11-09, see below); no force pushes; no deletions; not enforced for administrators; no review requirement |
+| Branch protection on `main` | required status checks `check-hosted` and `gleam-hosted`, strict (up-to-date) off; re-enabled by the coordinator after PR #132 (ELZ-059) merged on 2026-11-09, see below; no force pushes; no deletions; not enforced for administrators; no review requirement |
 
 **Branch protection change (2026-11-09, between 03:49 and 03:56 WIB).** At the flip, branch protection required
 `check-hosted` and `gleam-hosted` (read at 20:49 UTC). The coordinator removed that rule a short time later; the protection read at 20:56 UTC
@@ -523,10 +620,12 @@ reason, as the coordinator reported it (the refusal is not recorded in the pull 
 cancels the duplicate `pull_request` run and relies on a `workflow_dispatch` run on the exact head as evidence, and
 GitHub does not count a `workflow_dispatch` run as a status of the pull request, so the queue's merge of PR #122 was
 refused with "the base branch policy prohibits the merge". ELZ-059 (#99) makes the `pull_request` run the evidence that the
-queue adopts. Until the coordinator re-enables branch protection requiring `check-hosted` and `gleam-hosted` (a coordinator
-step after ELZ-059 is merged, recorded here when done), `main` has no required checks: the merge queue and its evidence
-rules are the only gate, and a person with write access can push or merge without them (administrators are not enforced
-either way).
+queue adopts. PR #132 (ELZ-059) was merged at 04:59:22 UTC (11:59 WIB) on 2026-11-09, and the coordinator then
+re-enabled branch protection requiring `check-hosted` and `gleam-hosted`. Read back through the API shortly after the
+merge (before 05:02 UTC): required checks `check-hosted` and `gleam-hosted`, strict (up-to-date) off, because the queue
+merges `main` into the branch itself. Between the removal (03:49 to 03:56 WIB) and the re-enabling, `main` had no
+required checks, and the merge queue with its evidence rules was the only gate. Administrators are not enforced
+either way. The API does not record the time of the re-enabling.
 
 **Organisation runners.** The organisation `balungpisah` still has 2 offline self-hosted runners in its Default runner
 group. The group does not allow public repositories (`allows_public_repositories: false`), which keeps them away from this

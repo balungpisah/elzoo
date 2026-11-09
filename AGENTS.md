@@ -203,7 +203,7 @@ The coordinator merges only after checks and required review:
 2. merge through GitHub, never rewrite main;
 3. verify acceptance on the merge commit (including its CI result: its own green full run, or a push run that
    logs `ELZOO PUSH CHECK SKIPPED` with the passed exact-head run and job IDs, see docs/development/10-symbolic-ci.md);
-   the exact-head full run is the pull request's own green `check-hosted` run (the queue adopts it; it dispatches a run only as a logged fallback), and `main` is
+   the exact-head evidence is the pull request's own green `check-hosted` run (the queue adopts it; it dispatches a run only as a logged fallback, which does not satisfy branch protection): the full run, or for a documentation-only change that the queue classifies itself, the short docs-only check (`ELZOO DOCS-ONLY CHECK PASSED`), and `main` is
    re-confirmed by its push run: a red push run that is not classified on issue #98 freezes the queue;
 4. delete the merged remote and local task branch;
 5. remove the worktree and confirm git status --short is empty;

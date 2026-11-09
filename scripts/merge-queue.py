@@ -8,9 +8,16 @@ ELZ-059: the full pull_request run of the exact head is the merge evidence; the 
 cancels it) and dispatches a run only when GitHub started none within a bounded wait. The queue refuses to
 merge while the latest completed push run of main is red and not classified on issue #98, and it requires the
 Gleam pull_request run only when the pull request changes a Gleam path.
+
+ELZ-071: a documentation-only pull request is accepted on the short `Docs-only check` of its run (marker
+ELZOO DOCS-ONLY CHECK PASSED instead of ELZOO CHECK PASSED) only when this queue's own copy of
+scripts/ci-change-class.py, next to this file and never the pull request's, classifies the change
+(`git diff main...head` on the fetched refs) as documentation only. Otherwise the queue dispatches a full run.
 """
 import argparse
+import importlib.util
 import json
+from pathlib import Path
 import re
 import subprocess
 import sys
@@ -20,6 +27,7 @@ from urllib.parse import urlencode
 REPO = "balungpisah/elzoo"
 WORKFLOW = "symbolic-check.yml"
 PR_RUN_WAIT = 300  # seconds to wait for GitHub to start the pull_request run of the exact head
+MAIN_RUN_WAIT = 600  # seconds to wait for the push run of the current main before a docs-only merge
 FREEZE_ISSUE = 98  # classifications of a red run of main are comments on this issue
 CLASSIFICATION = re.compile(r"CI main status: freeze classification run=([0-9]+) class=(infrastructure|defect|conflict)")
 # ELZ-059: the Gleam gate applies only to a pull request that changes one of these paths. The guard cannot be
@@ -42,6 +50,23 @@ PR_FIELDS = ("number,state,isDraft,isCrossRepository,baseRefName,headRefName,"
 
 class QueueError(Exception):
     """A refusal or unavailable evidence; never a reason to merge anyway."""
+
+
+def load_classifier():
+    """This queue's own copy of the documentation-only allowlist: the file next to this script, never the file of
+    the pull request (the queue does not read any file from the pull request head). A missing or broken file
+    means that no change is documentation only, so every pull request needs the full run."""
+    try:
+        path = Path(__file__).resolve().with_name("ci-change-class.py")
+        spec = importlib.util.spec_from_file_location("ci_change_class", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    except Exception:  # noqa: BLE001 - any failure to load the classifier means "full run"
+        return None
+
+
+CLASSIFIER = load_classifier()
 
 
 def hosted_runner(job):
@@ -131,8 +156,9 @@ def valid_sha(value):
 
 class Queue:
     def __init__(self, run=command, sleep=time.sleep, clock=time.monotonic,
-                 timeout=10800, poll=15, emit=print, pr_run_wait=PR_RUN_WAIT):
+                 timeout=10800, poll=15, emit=print, pr_run_wait=PR_RUN_WAIT, main_run_wait=MAIN_RUN_WAIT):
         self.pr_run_wait = pr_run_wait
+        self.main_run_wait = main_run_wait
         self.sleep, self.clock = sleep, clock
         self.timeout, self.poll, self.emit = timeout, poll, emit
         self.raw_run = run
@@ -314,6 +340,10 @@ class Queue:
             self.pause("pull_request run on the exact head", end)
 
     def dispatch(self, pr, workflow_id):
+        # Said on every fallback: branch protection requires check-hosted and gleam-hosted as pull request statuses.
+        self.emit(f"Fallback for PR #{pr['number']}: a workflow_dispatch run is valid evidence for this queue but does "
+                  "NOT satisfy branch protection (check-hosted and gleam-hosted are required on the pull request), so "
+                  "GitHub may refuse the merge; a green pull_request run of the same head is needed for that", flush=True)
         previous = {run["id"] for run in self.runs(pr["headRefName"])}
         self.text("gh", "workflow", "run", WORKFLOW, "-R", REPO,
                   "--ref", pr["headRefName"])
@@ -329,7 +359,10 @@ class Queue:
                 return run["id"]
             self.pause("new exact-head workflow_dispatch run", end)
 
-    def evidence(self, run_id, pr, workflow_id):
+    def evidence(self, run_id, pr, workflow_id, allow_docs_only=True):
+        """The successful exactly-one-job run of the exact head. Returns (job, mode): mode is "full" for a run
+        that executed `mix check`, "docs-only" for a run that skipped it and passed the short `Docs-only check`.
+        A docs-only run is only the shape of the run: the caller accepts it after the queue's own classification."""
         while True:
             run = self.api(f"actions/runs/{run_id}")
             require(run.get("id") == run_id and self.run_matches(run, pr, workflow_id),
@@ -354,21 +387,77 @@ class Queue:
         require(len(gate) == 1 and gate[0].get("conclusion") == "success",
                 "Hosted runner identity step missing, skipped or failed")
         steps = [step for step in job.get("steps", []) if step.get("name") == "Run mix check"]
-        require(len(steps) == 1 and steps[0].get("conclusion") == "success",
-                "Full check step missing, skipped or failed")
+        mode = "full"
+        if len(steps) == 1 and steps[0].get("conclusion") == "skipped" and allow_docs_only:
+            # ELZ-071: the short check of a documentation-only run. All three steps must have run green.
+            named = {name: [step for step in job.get("steps", []) if step.get("name") == name]
+                     for name in ("Classify the change", "Docs-only check")}
+            require(all(len(found) == 1 and found[0].get("conclusion") == "success" for found in named.values()),
+                    "Full check step skipped and the docs-only check steps are not green")
+            mode = "docs-only"
+        else:
+            require(len(steps) == 1 and steps[0].get("conclusion") == "success",
+                    "Full check step missing, skipped or failed")
         require(isinstance(job.get("id"), int), "Invalid job ID")
         log = self.text("gh", "api", "--allow-escape-sequences",
                         f"repos/{REPO}/actions/jobs/{job['id']}/logs")
         # Raw job logs have a UTC timestamp prefix. Do not accept an echoed command
         # containing the marker, nor any affected-mode success marker.
-        full = re.search(r"(?m)^(?:\d{4}-\d\d-\d\dT[0-9:.]+Z )?ELZOO CHECK PASSED\s*$", log)
-        require(full and "ELZOO AFFECTED CHECK PASSED" not in log,
-                "Missing full success marker or affected-mode marker present")
+        stamp = r"(?m)^(?:\d{4}-\d\d-\d\dT[0-9:.]+Z )?"
+        full = re.search(stamp + r"ELZOO CHECK PASSED\s*$", log)
+        docs = re.search(stamp + r"ELZOO DOCS-ONLY CHECK PASSED\s*$", log)
+        if mode == "full":
+            require(full and "ELZOO AFFECTED CHECK PASSED" not in log,
+                    "Missing full success marker or affected-mode marker present")
+        else:
+            require(docs and not full and "ELZOO AFFECTED CHECK PASSED" not in log,
+                    "Missing docs-only success marker, or a full or affected-mode marker is present")
         latest = self.api(f"actions/runs/{run_id}")
         require(self.run_matches(latest, pr, workflow_id) and latest.get("status") == "completed" and
                 latest.get("conclusion") == "success" and latest.get("run_attempt") == attempt,
                 "Run changed while collecting evidence")
-        return job
+        return job, mode
+
+    def latest_push_run(self, sha):
+        """The push run of the backend workflow with the highest ID on this commit of main, or None."""
+        query = urlencode({"event": "push", "head_sha": sha, "per_page": 100})
+        listing = self.data("gh", "api", f"repos/{REPO}/actions/workflows/{WORKFLOW}/runs?{query}")
+        runs = listing.get("workflow_runs") if isinstance(listing, dict) else None
+        require(isinstance(runs, list), "Invalid push run listing of main")
+        mine = [run for run in runs if isinstance(run, dict) and run.get("event") == "push"
+                and run.get("head_branch") == "main" and run.get("head_sha") == sha
+                and run.get("path") == f".github/workflows/{WORKFLOW}"]
+        require(all(isinstance(run.get("id"), int) for run in mine), "Invalid push run ID")
+        return max(mine, key=lambda run: run["id"]) if mine else None
+
+    def main_verified(self, main):
+        """True when the newest push run on this commit of main completed with success (a logged skip is a success
+        of the job). A short check runs no tests, so it adds no test of main's code: the change must start from a
+        main that was itself checked, or a red or unfinished push run of main would be hidden behind a green
+        documentation merge. A run in progress, or not listed yet, is awaited for MAIN_RUN_WAIT seconds."""
+        end = self.clock() + self.main_run_wait
+        while True:
+            latest = self.latest_push_run(main)
+            if latest is not None and latest.get("status") == "completed":
+                return latest.get("conclusion") == "success"
+            if end - self.clock() <= 0:
+                return False
+            self.pause(f"push run of main {main[:7]} to finish", end)
+
+    def docs_only_change(self, pr):
+        """True only when the queue may accept the short check for this head: this queue's own classifier says that
+        the change of the head since main is documentation only (`git diff main...head` on the fetched refs, with
+        the main SHA of the canonical repository), and the push run of that main completed with success. Any
+        failure, a missing classifier or an odd answer is False."""
+        if CLASSIFIER is None:
+            return False
+        try:
+            main = self.api("git/ref/heads/main")["object"]["sha"]
+            require(valid_sha(main), "Invalid canonical main SHA")
+            out = self.run(CLASSIFIER.diff_argv(main, f"refs/remotes/origin/{pr['headRefName']}")).stdout
+            return CLASSIFIER.docs_only(CLASSIFIER.parse_raw(out)) is True and self.main_verified(main)
+        except (QueueError, CLASSIFIER.Unclear, KeyError, TypeError, ValueError, AttributeError):
+            return False
 
     def gleam_evidence(self, pr):
         workflow_id = self.api(f"actions/workflows/{GLEAM_WORKFLOW}")["id"]
@@ -519,7 +608,16 @@ class Queue:
             else:
                 self.emit(f"Adopted pull_request run {run_id} for PR #{number} head={pr['headRefOid']}", flush=True)
             try:
-                job = self.evidence(run_id, pr, workflow_id)
+                job, mode = self.evidence(run_id, pr, workflow_id)
+                if mode == "docs-only" and not self.docs_only_change(pr):
+                    # The run passed the short check of its own classification; this queue's own classifier does
+                    # not agree (or is unavailable), so only a full run is evidence.
+                    self.emit(f"Run {run_id} passed the docs-only check, but the queue does not accept the short check "
+                              f"for PR #{number} head={pr['headRefOid']} (its own classification is not "
+                              "documentation only, or the push run of the current main is not a completed "
+                              "success); dispatching a full run", flush=True)
+                    run_id, adopted = self.dispatch(pr, workflow_id), False
+                    job, mode = self.evidence(run_id, pr, workflow_id, allow_docs_only=False)
             except (QueueError, KeyError, TypeError, ValueError, AttributeError):
                 # The run goes on after the queue stops; name it so that it can be adopted by hand.
                 self.emit(f"Stopped while awaiting run {run_id} for PR #{number} head={pr['headRefOid']}: "
@@ -535,6 +633,11 @@ class Queue:
                 self.emit("Main moved during check; updating and validating a new head", flush=True)
                 continue
             require(self.clock() < self.deadline, "PR deadline exceeded before merge")
+            if mode == "docs-only":
+                # Main and the head are unchanged since the first classification (fetch above); classify once more
+                # on the fresh refs right before the merge, so that the merge never rests on an older answer.
+                require(self.docs_only_change(fresh),
+                        f"Docs-only run {run_id} no longer matches the queue's own classification; refusing to merge")
             if adopted:
                 # The adoption rules held when the run was chosen. A sibling pull request or a retarget that came
                 # later could make the run (or the push run that follows the merge) count for another base.
@@ -559,7 +662,8 @@ class Queue:
             else:
                 self.emit(f"ELZOO GLEAM GATE not required pr={number} head={pr['headRefOid']} ({why})", flush=True)
             self.emit(f"ELZOO MERGE EVIDENCE pr={number} run={run_id} job={job['id']} "
-                      f"runner={job['runner_name']} head={pr['headRefOid']} merge={merge_sha}", flush=True)
+                      f"runner={job['runner_name']} head={pr['headRefOid']} merge={merge_sha}"
+                      + (" mode=docs-only" if mode == "docs-only" else ""), flush=True)
             return
         raise QueueError("Main/head did not stabilize after 10 passes; inspect before retrying")
 
