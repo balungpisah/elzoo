@@ -36,8 +36,12 @@ providers it uses. It does not depend on `integration/ai-text`. Apache-2.0.
 4. The typed outcome goes to the **volatile result sink** once per attempt
    (`{:outcome, attempt_id, outcome}`, or `{:sink_failed, attempt_id}`). The
    completed envelope holds only an outcome digest and a process-local seal:
-   vectors, input texts, credentials and raw provider bodies never enter
-   EffectIntent state.
+   vectors, credentials and raw provider bodies never enter EffectIntent state.
+   The input texts are part of the canonical request, which is the intent's
+   `arguments`: `delivery/effect-intent` persists those as classified durable
+   data whose access control belongs to the host's store (as for the text
+   interface's prompts). Results, errors, inspect values, Adapter logs and
+   events never carry them.
 5. `Elzoo.AiEmbedding.Retry.next/4` decides with the ready
    `Elzoo.RetryTimeout.classify/1`, `decide/3` and `backoff/2`.
 
