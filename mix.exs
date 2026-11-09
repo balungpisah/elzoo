@@ -41,6 +41,9 @@ defmodule Elzoo.MixProject do
       # Jason is deliberately an external implementation at the adapter edge.
       {:jason, "~> 1.4"},
       {:req, "== 0.7.5"},
+      # ELZ-053 integration/object-store provider: S3 URL handling and SigV4 presign on the pinned
+      # Req (Apache-2.0). Multipart is not used, so ex_aws_s3 is not added.
+      {:req_s3, "== 0.2.5"},
       {:ecto_sql, "== 3.14.0"},
       {:postgrex, "== 0.22.4"},
       # ELZ-010 integration/jobs provider (also used by the test/elz010_* probes).

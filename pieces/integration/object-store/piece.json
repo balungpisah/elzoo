@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "id": "integration/object-store",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "adapter",
+  "providers": [
+    "elixir",
+    "otp",
+    "req",
+    "req_s3"
+  ],
+  "dependencies": [
+    "core/envelope",
+    "core/effect",
+    "delivery/effect-intent"
+  ],
+  "applications": [
+    "crypto"
+  ],
+  "contract": "One S3-compatible endpoint and bucket under a named backing-store identity: put, get, head, list, delete and a local presign, each answered from a finite table (committed, found, absent, listed, refused{denied | no_such_bucket | precondition_failed | too_large | invalid_key | checksum_mismatch | invalid_request | credentials_unavailable}, unknown{reason}) with the shared delivery-result mapping. Key-addressed operations name bucket, key and store; a list names bucket, store and an explicit prefix. A put is committed only when the provider echoes the SHA-256 checksum that was sent; a delete is committed on 204, which acknowledges the request, not prior existence or persistent absence. A deadline after dispatch is unknown, never absent or committed; a missing or denied bucket is never absent; lists are bounded with an explicit continuation; the Adapter never retries. The credential is an injected Need resolved per call; the secret access key never appears in a result, error, inspect value, Adapter log or event. A consumer-parameterised delivery/effect-intent Binding reconciles unknown writes by head (absent is pending, never no-effect).",
+  "limits": [
+    "Single PUT only (no multipart): objects up to max_object_bytes, default 64 MiB, at most 5 GiB; a get is read into memory under the same bound.",
+    "One request per operation, except that head may send one bucket HEAD when a 404 carries no error code; only the pinned MinIO server (RELEASE.2025-09-07T16-13-09Z) is exercised, which always sends the code, so that fallback is tested against a loopback stub only.",
+    "No versioning, retention, lifecycle, ACL, object lock, content ownership, cross-store atomicity or provider durability claim; an unversioned bucket is assumed and a put overwrites unless if_absent is given.",
+    "The access-key ID occurs in a returned presigned URL (a bearer capability, redacted from inspect and errors, never emitted by the Adapter) and in the signed request headers that consumer-installed upstream Req/Finch telemetry handlers can observe; their collection and redaction are the consumer's responsibility.",
+    "A connection refusal is reported unknown{transport}, not a no-send attestation; only checks decided before a connection is opened are attested as not dispatched.",
+    "Telemetry is planned (no event is emitted); no TLS certification, loopback or LAN endpoints only in the evidence; other S3 implementations are an unverified assumption.",
+    "The Binding seal is process-local: after a restart nothing completes a recovered attempt through this boundary; a recovered intent needs host reconciliation as delivery/effect-intent requires."
+  ],
+  "files": [
+    "examples/object_store.exs",
+    "lib/elzoo/object_store.ex",
+    "lib/elzoo/object_store/binding.ex",
+    "lib/elzoo/object_store/config.ex",
+    "lib/elzoo/object_store/presigned.ex",
+    "lib/elzoo/object_store/request.ex",
+    "lib/elzoo/object_store/result.ex",
+    "test/elzoo/object_store_binding_test.exs",
+    "test/elzoo/object_store_stub_test.exs",
+    "test/elzoo/object_store_test.exs",
+    "test/support/object_store_test_helper.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/object_store_test.exs",
+      "claim": "Named scenarios S1-S12 and S15-S17 against the pinned disposable MinIO (round trip with checksum, denied, missing bucket, missing object, bounded list pagination, too large, interrupted upload reported unknown and reconciled, checksum mismatch, presign expiry, if_absent, delete, credential absence, environment fallbacks unused, Effect declaration, fail-closed binding, invalid keys, Config bounds); finite observations on one server, not proofs."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/object_store_stub_test.exs",
+      "claim": "Loopback stub rows (unverified 200, 5xx, unexpected status, integrity mismatch, connection refused, silent server deadline, HEAD 404 disambiguation, no connection for local refusals) and the delivery mapping of every row."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/object_store_binding_test.exs",
+      "claim": "S18: the consumer-parameterised Binding through the ready Elzoo.EffectIntent owner and its volatile Memory store against MinIO: confirmed dispatch, interrupted send pending while absent and completed on a matching poll, local no-send attested, provider denial not, forged observation refused, delete binding."
+    },
+    {
+      "kind": "type",
+      "file": "lib/elzoo/object_store/result.ex",
+      "claim": "Delivery-result maps are checked by the named checker Elzoo.Envelope.validate_result/1 at construction; Effect declarations by Elzoo.Effect.validate/1; Elixir typespecs are documentation."
+    },
+    {
+      "kind": "upstream",
+      "provider": "req_s3",
+      "reference": "https://hexdocs.pm/req_s3/0.2.5/ReqS3.html",
+      "claim": "Relies on req_s3 0.2.5: s3:// URL translation with an explicit endpoint and credentials, ListObjectsV2 XML decoding of the bucket GET, and presign_url/1 with explicit credentials, region, endpoint, method and expiry; it has no multipart upload and its environment fallbacks are never reached because every option is passed (probe P13, test S12)."
+    },
+    {
+      "kind": "upstream",
+      "provider": "req",
+      "reference": "https://hexdocs.pm/req/0.7.5/Req.html",
+      "claim": "Relies on Req 0.7.5 AWS SigV4 signing (UNSIGNED-PAYLOAD for a streamed body), receive and connect timeouts, retry: false and the into: response callback; Finch/Mint transport is upstream."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Relies on spawn_monitor, Process.exit(:kill), monitor message ordering and the 4_294_967_295 ms receive-timeout bound for the deadline."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/",
+      "claim": "Relies on crypto SHA-256 and HMAC; xmerl (started by req_s3) parses list responses."
+    },
+    {
+      "kind": "assumption",
+      "claim": "S3 API semantics as implemented by MinIO RELEASE.2025-09-07T16-13-09Z (checksum verification and echo, 412 on If-None-Match, error codes, idempotent delete, presign expiry) hold for the configured provider; provider durability after a 200 is the provider's; other S3 implementations behave alike for the rows used."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "planned",
+      "contract": "No event and no log line is emitted (S11 audits the source); own events through runtime/telemetry: future task when a consumer needs them. Not inherited: this Piece has no direct provider or Piece dependency that supplies the ELZ-052 family, so the Contract's 'inherited if merged first' condition does not hold (main coordinator decision 2026-11-09). A future event family must exclude the secret, presigned URLs and object bodies. Upstream Finch events seen by consumer-installed handlers carry signed request headers; that is the consumer's responsibility."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Construction-time store_id, endpoint, bucket, region, credentials reference, finch, max_object_bytes (default 64 MiB, at most 5 GiB), max_page_size (default 1000, at most 1000), default_page_size (100), presign_max_s (default 3600, at most 604800) and presign_default_s (900), default_deadline_ms (30000, at most 4294967295); per call deadline_ms or deadline_unix_ms, page_size, continuation, expires_s, method, if_absent, content_type; validated with bounds; a change is a new Config value, no hot update.",
+      "evidence": [
+        "test/elzoo/object_store_test.exs"
+      ]
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "A call-scoped Adapter with no running lifecycle to pause or drain; the per-call deadline is the only cancellation, and cancelling cannot erase a dispatched write (reported unknown)."
+    }
+  }
+}
