@@ -549,8 +549,24 @@ defmodule Elzoo.AiText.AnthropicTest do
   ## A10 source audit of this Piece's own files
 
   test "A10 source audit: no tool execution, ambient key reads or facade calls in this Piece's own sources (own files)" do
-    files = ~w(lib/elzoo/ai_text/anthropic.ex lib/elzoo/ai_text/anthropic/usage.ex)
+    # This Piece's own lib files as its manifest lists them: two levels above this
+    # file in the repository, .elzoo/pieces/integration/ai-text-anthropic/ in an
+    # exported consumer; exactly one must exist.
     root = Path.expand("../..", __DIR__)
+
+    manifests =
+      [
+        Path.join(root, "piece.json"),
+        Path.join(root, ".elzoo/pieces/integration/ai-text-anthropic/piece.json")
+      ]
+      |> Enum.filter(&File.regular?/1)
+
+    assert [manifest] = manifests
+
+    files =
+      for f <- Jason.decode!(File.read!(manifest))["files"], String.starts_with?(f, "lib/"), do: f
+
+    assert "lib/elzoo/ai_text/anthropic.ex" in files
 
     forbidden = [
       "Tool.execute",

@@ -581,27 +581,31 @@ defmodule Elzoo.AiTextTest do
 
   ## Source audit: the interface loads no provider dependency
 
-  # This Piece's own files exactly as listed in its manifest (a fixed list, never
-  # the consumer's whole lib/, which also holds other Pieces' files in an export).
-  @own_files ~w(
-    cure/elzoo/ai_text_outcome.cure
-    lib/elzoo/ai_text.ex
-    lib/elzoo/ai_text/adapter.ex
-    lib/elzoo/ai_text/binding.ex
-    lib/elzoo/ai_text/config.ex
-    lib/elzoo/ai_text/conformance.ex
-    lib/elzoo/ai_text/outcome.ex
-    lib/elzoo/ai_text/provider.ex
-    lib/elzoo/ai_text/request.ex
-    lib/elzoo/ai_text/retry.ex
-    lib/elzoo/ai_text/schema.ex
-    lib/elzoo/ai_text/sink.ex
-    test/elzoo/ai_text_test.exs
-    test/support/ai_text_test_helper.exs
-  )
+  # This Piece's own files exactly as its manifest lists them (never the consumer's
+  # whole lib/, which also holds other Pieces' files in an export). In this repository
+  # the manifest sits two levels above this file; in an exported consumer this file
+  # lands in test/elzoo/ and the manifest in .elzoo/pieces/integration/ai-text/. Exactly
+  # one must exist, so a missing manifest is never skipped.
+  @layouts [
+    {Path.expand("../..", __DIR__), Path.expand("../../piece.json", __DIR__)},
+    {Path.expand("../..", __DIR__),
+     Path.expand("../../.elzoo/pieces/integration/ai-text/piece.json", __DIR__)}
+  ]
+
+  defp own_files do
+    case Enum.filter(@layouts, fn {_, manifest} -> File.regular?(manifest) end) do
+      [{root, manifest}] ->
+        files = Jason.decode!(File.read!(manifest))["files"]
+        assert "lib/elzoo/ai_text.ex" in files
+        {root, files}
+
+      found ->
+        flunk("expected exactly one integration/ai-text manifest, found #{length(found)}")
+    end
+  end
 
   test "the interface's own files reference no provider library or provider Piece (source audit of the listed files)" do
-    root = Path.expand("../..", __DIR__)
+    {root, files} = own_files()
     # Built by concatenation so this file does not contain the names it forbids.
     forbidden = [
       "Req" <> "LLM",
@@ -612,7 +616,7 @@ defmodule Elzoo.AiTextTest do
       "llm" <> "_db"
     ]
 
-    for file <- @own_files do
+    for file <- files do
       source = File.read!(Path.join(root, file))
       for word <- forbidden, do: refute(source =~ word, "#{file} references #{word}")
     end
