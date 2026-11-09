@@ -48,6 +48,10 @@ class Fake:
         self.timeline_pages = None     # None: one page that holds self.timeline; else the raw pages
         self.head_prs = [{"number": 79}]  # every pull request (any state) from the head branch
         self.head_prs_pages = None
+        self.head_prs_calls = 0
+        self.head_prs_later = None     # from the second listing on, the listing shows these pull requests
+        self.timeline_calls = 0
+        self.timeline_later = None     # from the second timeline read on, the timeline shows these events
         self.main_runs = None          # None: one green push run of main
         self.main_listing_error = False
         self.login = "queue-user"
@@ -172,9 +176,15 @@ class Fake:
             elif argv[2:4] == ["user", "--jq"]:
                 out = self.login
             elif "/pulls?head=" in path:
+                self.head_prs_calls += 1
                 out = self.head_prs_pages if self.head_prs_pages is not None else [self.head_prs]
+                if self.head_prs_later is not None and self.head_prs_calls >= 2:
+                    out = [self.head_prs_later]
             elif "/issues/79/timeline" in path:
+                self.timeline_calls += 1
                 out = self.timeline_pages if self.timeline_pages is not None else [self.timeline]
+                if self.timeline_later is not None and self.timeline_calls >= 2:
+                    out = [self.timeline_later]
             elif "/issues/98/comments" in path:
                 if self.comments_error:
                     raise queue.QueueError("gh api exited 1: comments failed")
@@ -882,6 +892,31 @@ class PullRequestEvidence(unittest.TestCase):
                 self.assertTrue(any("Another pull request exists for branch task/ELZ-039" in m
                                     for m in self.fake.messages))
                 self.assertIn("run=101 job=201", self.fake.messages[-1])
+
+    def test_a_sibling_pull_request_that_appears_after_the_adoption_stops_the_merge(self):
+        self.fake.pr_runs = [self.fake.pr_run(700)]
+        self.fake.head_prs_later = [{"number": 79}, {"number": 200}]
+        self.refuses("appeared after run 700 was adopted")
+        self.assertEqual(0, self.fake.dispatches)
+
+    def test_a_base_change_that_appears_after_the_adoption_stops_the_merge(self):
+        self.fake.pr_runs = [self.fake.pr_run(700)]
+        self.fake.timeline_later = [{"event": "base_ref_changed", "created_at": "2026-11-09T02:00:00Z"}]
+        self.refuses("appeared after run 700 was adopted")
+
+    def test_the_adopted_run_is_checked_again_just_before_the_merge_and_not_earlier_than_the_evidence(self):
+        self.fake.pr_runs = [self.fake.pr_run(700)]
+        self.q.process(79)
+        self.assertEqual((2, 2), (self.fake.head_prs_calls, self.fake.timeline_calls))
+        calls = self.fake.calls
+        last_listing = max(i for i, c in enumerate(calls) if c[:2] == ["gh", "api"] and "/pulls?head=" in c[-1])
+        merge = next(i for i, c in enumerate(calls) if c[:3] == ["gh", "pr", "merge"])
+        evidence = max(i for i, c in enumerate(calls) if c[:2] == ["gh", "api"] and c[-1].endswith("/logs"))
+        self.assertTrue(evidence < last_listing < merge)
+
+    def test_the_dispatch_fallback_has_no_adopted_run_to_recheck(self):
+        self.q.process(79)
+        self.assertEqual((0, 0), (self.fake.head_prs_calls, self.fake.timeline_calls))
 
     def test_the_sibling_listing_asks_for_every_state_of_the_head_branch_of_this_repository(self):
         self.fake.pr_runs = [self.fake.pr_run(700)]

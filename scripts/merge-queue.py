@@ -483,6 +483,7 @@ class Queue:
                     updated = self.pr(number, ready=False)
                 continue
             run_id = self.adopt_pr_run(pr, workflow_id)
+            adopted = run_id is not None
             if run_id is None:
                 self.emit(f"No pull_request run for PR #{number} head={pr['headRefOid']} within {self.pr_run_wait} s; "
                           "dispatching a run as the fallback (a dispatch run is not a pull request status)",
@@ -507,6 +508,12 @@ class Queue:
                 self.emit("Main moved during check; updating and validating a new head", flush=True)
                 continue
             require(self.clock() < self.deadline, "PR deadline exceeded before merge")
+            if adopted:
+                # The adoption rules held when the run was chosen. A sibling pull request or a retarget that came
+                # later could make the run (or the push run that follows the merge) count for another base.
+                require(self.sole_pull_request_of_head(fresh) and not self.ever_retargeted(fresh),
+                        f"Another pull request for branch {fresh['headRefName']} or a base change appeared after "
+                        f"run {run_id} was adopted; refusing to merge on it")
             self.check_main_not_frozen()
             self.text("gh", "pr", "merge", str(number), "-R", REPO,
                       "--merge", "--match-head-commit", pr["headRefOid"])
