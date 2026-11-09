@@ -51,6 +51,13 @@ defmodule Elzoo.MixProject do
       # through its port program (BSD-2-Clause). runtime: false because its port program refuses
       # to start as root without an effective user; Elzoo.OsProcess.Provider starts it with one.
       {:erlexec, "== 2.6.0", runtime: false},
+      # ELZ-054 integration/notification provider (MIT). runtime: false: only Swoosh.Email and
+      # Swoosh.Adapters.SMTP.deliver/2 are called; Swoosh's application (API client, local
+      # storage) is never started, so no global :swoosh configuration is needed.
+      {:swoosh, "== 1.29.3", runtime: false},
+      # The SMTP transport Swoosh's SMTP adapter requires (BSD-2-Clause); its server is the
+      # in-process test SMTP server of the notification tests.
+      {:gen_smtp, "== 1.3.0"},
       # ELZ-052 runtime/telemetry provider (already locked transitively at 1.4.2
       # through Oban, Ecto and Req); a direct dependency of the Piece.
       {:telemetry, "== 1.4.2"},
