@@ -37,20 +37,21 @@ def file_entry(path, status="M"):
 
 class Allowlist(unittest.TestCase):
     ALLOWED = ["docs/a.md", "docs/work/ELZ-010.md", "docs/plans/release-plan.json", "docs/deep/a/b/c/d.md",
-               "tasks/ELZ-071-docs-only-fast-path.md", "tasks/x", "README.md", "GOAL.md", "PLAN.md",
+               "tasks/ELZ-071-docs-only-fast-path.md", "tasks/x", "README.md", "GOAL.md", "PLAN.md", "AGENTS.md",
                "docs/consuming.md.bak", "docs/Consuming.md"]
     DENIED = [
         # code and configuration of every kind
         ".github/workflows/symbolic-check.yml", ".github/CODEOWNERS", "scripts/ci-change-class.py",
         "scripts/x.md", "lib/elzoo/export.ex", "lib/x.md", "test/registry_test.exs", "test/x.md",
         "pieces/core/selection/README.md", "pieces/core/selection/piece.json", "pieces/x/y/docs/a.md",
-        "config/config.exs", "registry/catalogue.json", "mix.exs", "mix.lock", "AGENTS.md", "LEDGER.md",
+        "config/config.exs", "registry/catalogue.json", "mix.exs", "mix.lock", "LEDGER.md",
         "LICENSE", "NOTICE", ".gitignore", ".formatter.exs", "spikes/gleam_ui/README.md", "CLAUDE.md",
         # files that code reads
         "docs/consuming.md",
         # look-alikes
         "docs-x/a.md", "tasks-x/a.md", "docs", "tasks", "docs/", "tasks/", "doc/a.md", "Docs/a.md", "TASKS/a.md",
         "readme.md", "Readme.md", "README.md/x", "README.markdown", "GOAL.md.x", "PLAN.mdx", "xdocs/a.md",
+        "agents.md", "Agents.md", "AGENTS.md/x", "AGENTS.mdx", "AGENTS.md.x", "docs/AGENTS.md/../x", "a/AGENTS.md",
         "a/docs/b.md", "a/tasks/b.md", "scripts/docs/a.md",
         # traversal and odd forms
         "docs/../scripts/x.py", "docs/..", "../docs/a.md", "docs/./a.md", "./docs/a.md", "docs//a.md",
@@ -80,7 +81,7 @@ class Allowlist(unittest.TestCase):
         self.assertTrue(cc.docs_only([("100644", "100755", "M", "docs/x.sh")]))     # mode change of a doc file
 
     def test_one_code_path_makes_the_whole_change_code(self):
-        for code in ("scripts/x.py", "lib/x.ex", "AGENTS.md", "LEDGER.md", ".github/workflows/symbolic-check.yml",
+        for code in ("scripts/x.py", "lib/x.ex", "LEDGER.md", ".github/workflows/symbolic-check.yml",
                      "docs/consuming.md", "scripts/ci-change-class.py"):
             with self.subTest(code=code):
                 self.assertFalse(cc.docs_only([file_entry("docs/a.md"), file_entry(code), file_entry("tasks/b.md")]))
@@ -299,17 +300,24 @@ class GitRepository(unittest.TestCase):
         self.branch(lambda: self.write("docs/consuming.md", "changed\n"))
         self.assertFalse(self.github())
 
-    def test_the_generated_ledger_and_agents_are_code(self):
+    def test_the_generated_ledger_is_code(self):
         self.write("LEDGER.md", "l\n")
-        self.write("AGENTS.md", "a\n")
         self.git("add", "-A")
         self.git("commit", "-qm", "root files")
-        for name in ("LEDGER.md", "AGENTS.md"):
-            with self.subTest(name=name):
-                self.branch(lambda: self.write(name, "changed\n"))
-                self.assertFalse(self.github())
-                self.git("reset", "-q", "--hard", "HEAD~1")
-                self.git("branch", "-qD", "pr")
+        self.branch(lambda: self.write("LEDGER.md", "changed\n"))
+        self.assertFalse(self.github())
+
+    def test_agents_md_is_documentation_alone_and_code_next_to_code(self):
+        # ELZ-073 scope addition (owner, 2026-11-09). Negative control: the same change with one code path is code.
+        self.write("AGENTS.md", "a\n")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "agents")
+        self.branch(lambda: self.write("AGENTS.md", "changed\n"))
+        self.assertTrue(self.github())
+        self.git("reset", "-q", "--hard", "HEAD~1")
+        self.git("branch", "-qD", "pr")
+        self.branch(lambda: (self.write("AGENTS.md", "changed\n"), self.write("scripts/x.py", "x\n")))
+        self.assertFalse(self.github())
 
     def test_a_rename_counts_both_paths(self):
         for source, target in (("docs/a.md", "scripts/a.md"), ("scripts/tool.py", "docs/tool.py")):
@@ -449,7 +457,7 @@ LITERALS = [
     # the word as a path part: "docs", 'tasks', "../../docs", "/docs/", also on its own line of a Path.join list
     re.compile(r"""["'/]((?:docs|tasks))(?=["'/]|$)"""),
     re.compile(r"""~w[(\[{<|/][^)\]}>|/]*\b(docs|tasks)\b"""),   # ~w(docs x.md)
-    re.compile(r"""(?<![A-Za-z0-9_.-])((?:GOAL|PLAN)\.md)"""),
+    re.compile(r"""(?<![A-Za-z0-9_.-])((?:GOAL|PLAN|AGENTS)\.md)"""),
     re.compile(r"""(?<![A-Za-z0-9_.-])(README\.md)"""),      # also "#{dir}/README.md" and ~s(README.md)
     re.compile(r"""(?i)(\*\.\{?[a-z,]*md)"""),              # a markdown glob such as Path.wildcard("*.{md,json}")
     re.compile(r"""Path\.wildcard\(\s*["'](\*[^"']*)"""),    # a wildcard that starts at the working directory
@@ -572,6 +580,8 @@ class AllowlistGuard(unittest.TestCase):
             "lib/c.ex": 'File.read!(Path.join(["docs", "x.md"]))\n',
             "test/d_test.exs": 'File.read!("GOAL.md")\n',
             "config/e.exs": 'File.read!("PLAN.md")\n',
+            "test/ac_test.exs": 'File.read!("AGENTS.md")\n',            # ELZ-073: AGENTS.md joins the allowlist
+            "lib/ad.ex": 'File.read!(Path.join(root, "AGENTS.md"))\n',
             "mix.exs": 'File.read!("README.md")\n',
             # the forms of this repository's own tests (relative to __DIR__) and interpolation
             "pieces/x/y/test/f_test.exs": 'File.read!(Path.expand("../../../../docs/x.json", __DIR__))\n',

@@ -57,6 +57,9 @@ What this implies, as an estimate that the acceptance measurement must confirm o
 - ELZ-071 (#131, PR #135) and this task change the same workflow, guard, queue and skip decision. ELZ-071 goes first (decided): this task builds on its classification step and its docs-only shape (every work job skips its heavy steps when `docs_only` is true; the aggregator accepts the docs-only shape).
 
 
+## Scope addition (owner, relayed by the coordinator, 2026-11-09)
+`AGENTS.md` joins the documentation-only allowlist of `scripts/ci-change-class.py` (one lifecycle with this task). No test or source reads it: the allowlist guard scan now also reports a literal `AGENTS.md` (checked against `lib/`, `test/`, `pieces/**`, `config/`, `spikes/`, `mix.exs`), and `scripts/check-roadmap.py`, which reads it, runs in the short check. One negative control in the classifier tests (the same change with one code path is code), one in the queue tests; the docs line is in `docs/development/10-symbolic-ci.md`. Nothing else is added: a test-only CI class is withdrawn (tests are code; no shorter shape exists), and the task-copy source question stays a separate owner item.
+
 ## Result of the measurement (2026-11-09)
 
 **BEFORE** (single job `check-hosted`; the 43 successful full-mode runs of `symbolic-check.yml` on the hosted lane since 00:00 WIB; times in seconds; created time in UTC; "tree" is the head SHA of the run). Median (range): job wall 1250 (819 to 1504); `Run mix check` 1166 (766 to 1389); root suite stage 1058 (695 to 1275); ExUnit async 264 (158 to 358), sync 802 (538 to 967); aggregate consumer 356 (233 to 431). Two more sequential runs on `measure/ELZ-073-before` (= `main` b076432): run 42581604081 1020 s and run 42583484887 1348 s (not in the table; the table was fixed before run 2 ended).

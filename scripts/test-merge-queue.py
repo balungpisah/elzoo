@@ -1622,6 +1622,19 @@ class DocsOnlyFastPath(unittest.TestCase):
         self.assertTrue(any(m.startswith("Gleam run not required for PR #79") for m in self.fake.messages))
         self.assertTrue(any(m.startswith("ELZOO GLEAM GATE not required") for m in self.fake.messages))
 
+    def test_agents_md_is_documentation_for_the_queue_too(self):
+        # ELZ-073 scope addition (owner, 2026-11-09): the queue's own classifier accepts AGENTS.md (the one-code-path
+        # test above keeps a code path next to it a full run).
+        for paths in (["AGENTS.md"], ["AGENTS.md", "docs/a.md"]):
+            with self.subTest(paths=paths):
+                self.setUp()
+                self.docs_pr(paths=paths)
+                self.fake.raw_paths = paths
+                self.q.process(79)
+                self.assertTrue(self.fake.merged)
+                self.assertEqual(0, self.fake.dispatches)
+                self.assertTrue(self.fake.messages[-1].endswith(" mode=docs-only"))
+
     def test_the_queue_classifies_the_fetched_refs_with_the_main_sha_of_the_canonical_repository(self):
         self.docs_pr()
         self.fake.canonical_main = "d" * 40
@@ -1755,7 +1768,6 @@ class DocsOnlyFastPath(unittest.TestCase):
                              ("test", ["test/registry_test.exs"]),
                              ("pieces readme", ["pieces/core/selection/README.md"]),
                              ("ledger", ["LEDGER.md"]),
-                             ("agents", ["AGENTS.md"]),
                              ("file read by the export", ["docs/consuming.md"]),
                              ("traversal", ["docs/../scripts/x.py"]),
                              ("look-alike", ["docs-x/a.md"]),

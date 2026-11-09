@@ -5,10 +5,10 @@ One allowlist, used by the workflow (step `Classify the change`) and by the merg
 (scripts/merge-queue.py loads this file), so that both read the same rule.
 
 A change is documentation only when it has at least one changed path and every changed path is a
-regular file under `docs/` or `tasks/`, or one of the root files README.md, GOAL.md and PLAN.md,
+regular file under `docs/` or `tasks/`, or one of the root files README.md, GOAL.md, PLAN.md and AGENTS.md,
 except `docs/consuming.md`, which `Elzoo.Export` copies into every export (so the export tests and the
 copied consumers read it). Everything else is code or configuration for this purpose: `.github/`,
-`scripts/`, `lib/`, `test/`, `pieces/`, `config/`, `registry/`, `mix.*`, `AGENTS.md` and the generated
+`scripts/`, `lib/`, `test/`, `pieces/`, `config/`, `registry/`, `mix.*` and the generated
 `LEDGER.md` (the root test `registry_test.exs` reads it). Renames count both paths (git is asked with --no-renames), and a
 symlink or submodule entry on either side is never documentation. Any doubt (empty list, failed Git
 command, malformed output, an odd path) means "not documentation only".
@@ -25,7 +25,9 @@ import sys
 sys.dont_write_bytecode = True
 
 DOC_DIRS = ("docs/", "tasks/")
-DOC_ROOT_FILES = {"README.md", "GOAL.md", "PLAN.md"}
+# ELZ-073 scope addition (owner, 2026-11-09): AGENTS.md is documentation. No test or code reads it (the scan in
+# test-ci-change-class.py looks for it too); scripts/check-roadmap.py reads it and runs in the short check.
+DOC_ROOT_FILES = {"README.md", "GOAL.md", "PLAN.md", "AGENTS.md"}
 # Files below docs/ or tasks/ that code reads (checked by test-ci-change-class.py against lib/, test/, pieces/).
 READ_BY_CODE = {"docs/consuming.md"}
 # Git's raw format: ":<old mode> <new mode> <old sha> <new sha> <status>", then the path, NUL separated.

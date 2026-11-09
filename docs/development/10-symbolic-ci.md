@@ -322,10 +322,10 @@ short check, and lets the queue and the push-run skip accept it only when they c
 
 **The allowlist** is `scripts/ci-change-class.py`, one file for the workflow, the queue and the skip decision. A change
 is documentation only when it has at least one changed path and every changed path is a regular file under `docs/` or
-`tasks/`, or one of the root files `README.md`, `GOAL.md` and `PLAN.md`, **except `docs/consuming.md`**: `Elzoo.Export`
+`tasks/`, or one of the root files `README.md`, `GOAL.md`, `PLAN.md` and `AGENTS.md`, **except `docs/consuming.md`**: `Elzoo.Export`
 copies that file into every export (`lib/elzoo/export.ex`), so the export tests and the copied consumers read it. These
 are never documentation: `.github/`, `scripts/`, `lib/`, `test/`, `pieces/` (their READMEs too), `config/`,
-`registry/`, `mix.*`, `AGENTS.md` and the generated `LEDGER.md` (`test/registry_test.exs` and the `ledger` stage read it).
+`registry/`, `mix.*` and the generated `LEDGER.md` (`test/registry_test.exs` and the `ledger` stage read it).
 Git is asked with `diff --raw -z --no-renames --no-abbrev --ignore-submodules=none --no-relative` (one function,
 `diff_argv`, builds it for the workflow, the queue and the skip decision; the last two options keep a host setting of
 `diff.ignoreSubmodules` or `diff.relative` from hiding a gitlink or a path outside the working directory), so a rename counts both paths; a symlink or submodule entry on
@@ -333,6 +333,9 @@ either side is never documentation; an empty list, a failed Git command, malform
 backslash, a look-alike such as `docs-x/`, a trailing space) mean "not documentation only". Git shortens object names in
 `--raw` output unless `--no-abbrev` is given; the parser reads full names only. The first draft of this task named only
 `LEDGER.md` as read by tests; a scan of `lib/` found `docs/consuming.md`.
+ELZ-073 scope addition (owner, 2026-11-09): `AGENTS.md` joined the allowlist. No test or source reads it (the scan reports a
+literal `AGENTS.md` now, and a scratch source with such a read fails it); `scripts/check-roadmap.py` reads it for its link
+check and runs in the short check. A test-only class was considered and withdrawn: tests are code, and no shorter shape exists.
 
 **The guard test for the allowlist** (`scripts/test-ci-change-class.py`) scans every source file of the repository that
 `mix check` or the Gleam check can run (Elixir, Cure, Gleam, Erlang, templates, shell and the browser scripts of the Gleam
@@ -342,7 +345,7 @@ decides here what is a comment (in Elixir a line that starts with `%{` is a map,
 interpolation). Every line with one of these is a hit: a path literal `docs/…` or `tasks/…` (also after a slash or an
 interpolation, as in `Path.expand("../../docs/x.md", __DIR__)` and `"#{root}/docs/x.md"`), the word `docs` or `tasks` quoted
 or between slashes (`"docs"`, `'tasks'`, `"../../docs"`, so also a `Path.join` list that puts it on a line of its own, or
-`@doc_dir "docs"`), `~w(docs x.md)`, `GOAL.md`, `PLAN.md`, `README.md` (also `"#{dir}/README.md"`), a markdown glob
+`@doc_dir "docs"`), `~w(docs x.md)`, `GOAL.md`, `PLAN.md`, `AGENTS.md`, `README.md` (also `"#{dir}/README.md"`), a markdown glob
 (`*.md`, `*.MD`, `*.{md,json}`), a `Path.wildcard` pattern that starts at the working directory, a `Path.wildcard(Path.join(`
 over `root`, `@root`, `File.cwd!()` or `"."`, and `File.ls`. The explicit README of a piece,
 `pieces/<family>/<name>/README.md`, is not a hit. A hit passes only when the **line itself** is in the reviewed list of that
