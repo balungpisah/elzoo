@@ -146,4 +146,3 @@ workflow and that other redundant steps be found.
 | The host full-check slot granted by the pieces coordinator | Exists only because of the local full check | The hosted runs | Goes with the local full check rule |
 | The Gleam check on every push to `main` | About one minute per push | The Gleam path gate of the queue (ELZ-059) | Kept; cheap |
 | The exact-head rerun when `main` moved by a disjoint merge | The merge tree differs only by the other merge | The evidence rule (`AGENTS.md`, `docs/development/10-symbolic-ci.md`) | Kept; changing it ("merged after a green sibling") is an owner decision listed under ELZ-073's follow-ups |
-
