@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import urllib.parse
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 spec = importlib.util.spec_from_file_location("ci_skip", ROOT / "scripts" / "ci-skip-decision.py")
@@ -91,11 +92,22 @@ class FakeApi:
         self.log = "2026-11-08T12:00:00.0000000Z ELZOO CHECK PASSED\n"
         self.reread = {}
         self.fail = None
+        self.first_parent_runs = None      # None: one completed successful push run on the first parent
+        self.first_parent_error = False
+        self.first_parent_body = None      # a raw body instead of the listing
 
     def json(self, path):
         self.calls.append(path)
         if self.fail and self.fail in path:
             raise skip.Full(f"API {path} answered HTTP 500")
+        if "event=push" in path and "head_sha=" in path:     # ELZ-071: the push run of the first parent
+            if self.first_parent_error:
+                raise skip.Full(f"API {path} answered HTTP 500")
+            sha = urllib.parse.parse_qs(path.split("?", 1)[1])["head_sha"][0]
+            runs = self.first_parent_runs if self.first_parent_runs is not None else [
+                dict(id=800, event="push", head_branch="main", head_sha=sha, status="completed",
+                     conclusion="success", path=".github/workflows/symbolic-check.yml")]
+            return self.first_parent_body if self.first_parent_body is not None else dict(total_count=len(runs), workflow_runs=runs)
         if "/workflows/" in path or path.startswith("actions/workflows/"):
             runs = self.runs if self.runs is not None else [copy.deepcopy(self.run)]
             body = dict(total_count=len(runs), workflow_runs=runs)
@@ -592,6 +604,85 @@ class DocsOnlyDecision(unittest.TestCase):
             with self.subTest(label=label):
                 self.refuses("docs-only success marker missing", log=log)
 
+    # --- review of PR #135, finding 1: the short check must not hide a red or unfinished main --------------------
+    def first_parent_refuses(self, runs=None, **changes):
+        """`runs` is a list, or a function of the first parent's SHA (the SHA exists only inside the scenario's own
+        repository, so the fixtures must be built from it: a fixture with another SHA would refuse for the wrong reason)."""
+        env, run_git, second = self.scenario("docs")
+        api = self.api(second)
+        api.first_parent_runs = runs(run_git("rev-parse", "HEAD^1")) if callable(runs) else runs
+        for name, value in changes.items():
+            setattr(api, name, value)
+        with self.assertRaisesRegex(skip.Full, "push run of the first parent"):
+            skip.decide(env, run_git, api)
+
+    def push_run(self, run_id=800, **changes):
+        run = dict(id=run_id, event="push", head_branch="main", head_sha=None, status="completed", conclusion="success",
+                   path=".github/workflows/symbolic-check.yml")
+        run.update(changes)
+        return run
+
+    def test_the_short_check_needs_a_first_parent_whose_push_run_completed_with_success(self):
+        pr = self.push_run
+        env, run_git, second = self.scenario("docs")
+        self.assertTrue(skip.decide(env, run_git, self.api(second))[0])      # the control: the default run is accepted
+        control = self.api(second)
+        control.first_parent_runs = [pr(head_sha=run_git("rev-parse", "HEAD^1"))]
+        self.assertTrue(skip.decide(env, run_git, control)[0])               # ... and so is one built from the real SHA
+        for label, runs in {
+                "red": lambda f: [pr(conclusion="failure", head_sha=f)],
+                "cancelled": lambda f: [pr(conclusion="cancelled", head_sha=f)],
+                "timed out": lambda f: [pr(conclusion="timed_out", head_sha=f)],
+                "skipped": lambda f: [pr(conclusion="skipped", head_sha=f)],
+                "in progress": lambda f: [pr(status="in_progress", conclusion=None, head_sha=f)],
+                "queued": lambda f: [pr(status="queued", conclusion=None, head_sha=f)],
+                # Inconsistent data: a run that is not completed never counts, whatever its conclusion field says.
+                "in progress with a conclusion": lambda f: [pr(status="in_progress", conclusion="success", head_sha=f)],
+                "queued with a conclusion": lambda f: [pr(status="queued", conclusion="success", head_sha=f)],
+                "no status": lambda f: [pr(status=None, conclusion="success", head_sha=f)],
+                "no run": lambda f: [],
+                "newest is red": lambda f: [pr(800, head_sha=f), pr(801, conclusion="failure", head_sha=f)],
+                "newest is unfinished": lambda f: [pr(800, head_sha=f), pr(801, status="in_progress", conclusion=None, head_sha=f)],
+                "another commit only": lambda f: [pr(head_sha="e" * 40)],
+                "another branch only": lambda f: [pr(head_branch="task/ELZ-040", head_sha=f)],
+                "another event only": lambda f: [pr(event="workflow_dispatch", head_sha=f)],
+                "another workflow only": lambda f: [pr(path=".github/workflows/symbolic-gleam.yml", head_sha=f)],
+                "odd id": lambda f: [pr("x", head_sha=f)],
+                "odd entries": lambda f: [None, "x", 7, {}]}.items():
+            with self.subTest(label=label):
+                self.first_parent_refuses(runs)
+
+    def test_the_newest_push_run_of_the_first_parent_decides(self):
+        env, run_git, second = self.scenario("docs")
+        first = run_git("rev-parse", "HEAD^1")
+        api = self.api(second)
+        api.first_parent_runs = [self.push_run(800, conclusion="failure", head_sha=first), self.push_run(801, head_sha=first)]
+        self.assertTrue(skip.decide(env, run_git, api)[0])
+
+    def test_a_failed_or_malformed_listing_of_the_first_parent_needs_the_full_check(self):
+        self.first_parent_refuses(first_parent_error=True)
+        for body in ({"workflow_runs": "x"}, {"workflow_runs": None}, {}, ["x"], "x"):
+            with self.subTest(body=body):
+                self.first_parent_refuses(first_parent_body=body)
+
+    def test_the_first_parent_listing_asks_for_its_push_runs_by_commit(self):
+        env, run_git, second = self.scenario("docs")
+        api = self.api(second)
+        skip.decide(env, run_git, api)
+        first = run_git("rev-parse", "HEAD^1")
+        listing = [c for c in api.calls if "event=push" in c]
+        self.assertEqual(1, len(listing))
+        self.assertIn(f"head_sha={first}", listing[0])
+        self.assertIn("per_page=100", listing[0])
+
+    def test_a_full_run_needs_no_push_run_of_the_first_parent(self):
+        # The extra rule is for the short check only: a full run tested the code itself.
+        env, run_git, second = self.scenario("merge")
+        api = FakeApi(second)
+        api.first_parent_runs = [self.push_run(conclusion="failure")]
+        self.assertTrue(skip.decide(env, run_git, api)[0])
+        self.assertEqual([], [c for c in api.calls if "event=push" in c])
+
     def test_a_full_run_still_skips_a_documentation_merge_too(self):
         (verdict, reason, details), _second = self.decide(
             steps=[{"name": "Verify the GitHub-hosted runner", "conclusion": "success"},
@@ -648,7 +739,9 @@ class DocsOnlyDecision(unittest.TestCase):
         skip.decide(env, spy, self.api(second))
         first = run_git("rev-parse", "HEAD^1")
         raw = [c for c in calls if "--raw" in c]
-        self.assertEqual([("diff", "--raw", "-z", "--no-renames", "--no-abbrev", f"{first}...{env['GITHUB_SHA']}", "--")], raw)
+        self.assertEqual([("diff", "--raw", "-z", "--no-renames", "--no-abbrev", "--ignore-submodules=none", "--no-relative",
+                           f"{first}...{env['GITHUB_SHA']}", "--")], raw)
+        self.assertEqual(raw[0], tuple(skip.CLASSIFIER.diff_argv(first, env["GITHUB_SHA"])[1:]))
 
 
 if __name__ == "__main__":

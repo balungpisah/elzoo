@@ -27,6 +27,7 @@ from urllib.parse import urlencode
 REPO = "balungpisah/elzoo"
 WORKFLOW = "symbolic-check.yml"
 PR_RUN_WAIT = 300  # seconds to wait for GitHub to start the pull_request run of the exact head
+MAIN_RUN_WAIT = 600  # seconds to wait for the push run of the current main before a docs-only merge
 FREEZE_ISSUE = 98  # classifications of a red run of main are comments on this issue
 CLASSIFICATION = re.compile(r"CI main status: freeze classification run=([0-9]+) class=(infrastructure|defect|conflict)")
 # ELZ-059: the Gleam gate applies only to a pull request that changes one of these paths. The guard cannot be
@@ -155,8 +156,9 @@ def valid_sha(value):
 
 class Queue:
     def __init__(self, run=command, sleep=time.sleep, clock=time.monotonic,
-                 timeout=10800, poll=15, emit=print, pr_run_wait=PR_RUN_WAIT):
+                 timeout=10800, poll=15, emit=print, pr_run_wait=PR_RUN_WAIT, main_run_wait=MAIN_RUN_WAIT):
         self.pr_run_wait = pr_run_wait
+        self.main_run_wait = main_run_wait
         self.sleep, self.clock = sleep, clock
         self.timeout, self.poll, self.emit = timeout, poll, emit
         self.raw_run = run
@@ -416,9 +418,36 @@ class Queue:
                 "Run changed while collecting evidence")
         return job, mode
 
+    def latest_push_run(self, sha):
+        """The push run of the backend workflow with the highest ID on this commit of main, or None."""
+        query = urlencode({"event": "push", "head_sha": sha, "per_page": 100})
+        listing = self.data("gh", "api", f"repos/{REPO}/actions/workflows/{WORKFLOW}/runs?{query}")
+        runs = listing.get("workflow_runs") if isinstance(listing, dict) else None
+        require(isinstance(runs, list), "Invalid push run listing of main")
+        mine = [run for run in runs if isinstance(run, dict) and run.get("event") == "push"
+                and run.get("head_branch") == "main" and run.get("head_sha") == sha
+                and run.get("path") == f".github/workflows/{WORKFLOW}"]
+        require(all(isinstance(run.get("id"), int) for run in mine), "Invalid push run ID")
+        return max(mine, key=lambda run: run["id"]) if mine else None
+
+    def main_verified(self, main):
+        """True when the newest push run on this commit of main completed with success (a logged skip is a success
+        of the job). A short check runs no tests, so it adds no test of main's code: the change must start from a
+        main that was itself checked, or a red or unfinished push run of main would be hidden behind a green
+        documentation merge. A run in progress, or not listed yet, is awaited for MAIN_RUN_WAIT seconds."""
+        end = self.clock() + self.main_run_wait
+        while True:
+            latest = self.latest_push_run(main)
+            if latest is not None and latest.get("status") == "completed":
+                return latest.get("conclusion") == "success"
+            if end - self.clock() <= 0:
+                return False
+            self.pause(f"push run of main {main[:7]} to finish", end)
+
     def docs_only_change(self, pr):
-        """True only when this queue's own classifier says that the change of the head since main is documentation
-        only: `git diff main...head` on the fetched refs, with the main SHA of the canonical repository. Any
+        """True only when the queue may accept the short check for this head: this queue's own classifier says that
+        the change of the head since main is documentation only (`git diff main...head` on the fetched refs, with
+        the main SHA of the canonical repository), and the push run of that main completed with success. Any
         failure, a missing classifier or an odd answer is False."""
         if CLASSIFIER is None:
             return False
@@ -426,7 +455,7 @@ class Queue:
             main = self.api("git/ref/heads/main")["object"]["sha"]
             require(valid_sha(main), "Invalid canonical main SHA")
             out = self.run(CLASSIFIER.diff_argv(main, f"refs/remotes/origin/{pr['headRefName']}")).stdout
-            return CLASSIFIER.docs_only(CLASSIFIER.parse_raw(out)) is True
+            return CLASSIFIER.docs_only(CLASSIFIER.parse_raw(out)) is True and self.main_verified(main)
         except (QueueError, CLASSIFIER.Unclear, KeyError, TypeError, ValueError, AttributeError):
             return False
 
@@ -583,9 +612,10 @@ class Queue:
                 if mode == "docs-only" and not self.docs_only_change(pr):
                     # The run passed the short check of its own classification; this queue's own classifier does
                     # not agree (or is unavailable), so only a full run is evidence.
-                    self.emit(f"Run {run_id} passed the docs-only check, but the queue's own classification of "
-                              f"PR #{number} head={pr['headRefOid']} is not documentation only; "
-                              "dispatching a full run", flush=True)
+                    self.emit(f"Run {run_id} passed the docs-only check, but the queue does not accept the short check "
+                              f"for PR #{number} head={pr['headRefOid']} (its own classification is not "
+                              "documentation only, or the push run of the current main is not a completed "
+                              "success); dispatching a full run", flush=True)
                     run_id, adopted = self.dispatch(pr, workflow_id), False
                     job, mode = self.evidence(run_id, pr, workflow_id, allow_docs_only=False)
             except (QueueError, KeyError, TypeError, ValueError, AttributeError):

@@ -147,8 +147,8 @@ class RangeClassification(unittest.TestCase):
     def test_documentation_range(self):
         run = FakeRun(raw(file_entry("docs/a.md")))
         self.assertTrue(cc.classify_range("main", "task/ELZ-071", run))
-        self.assertEqual([["git", "diff", "--raw", "-z", "--no-renames", "--no-abbrev", "main...task/ELZ-071", "--"]],
-                         run.calls)
+        self.assertEqual([["git", "diff", "--raw", "-z", "--no-renames", "--no-abbrev", "--ignore-submodules=none",
+                           "--no-relative", "main...task/ELZ-071", "--"]], run.calls)
         self.assertEqual(run.calls[0], cc.diff_argv("main", "task/ELZ-071"))
 
     def test_code_range(self):
@@ -178,6 +178,35 @@ class RangeClassification(unittest.TestCase):
                 self.assertFalse(cc.classify_range("main", value, run))
                 self.assertEqual([], run.calls)
 
+
+    def test_the_hosts_git_configuration_cannot_hide_a_change(self):
+        # Real Git with the settings that would change the raw output: a gitlink hidden by diff.ignoreSubmodules,
+        # and paths made relative to the working directory by diff.relative.
+        self.assertIn("--ignore-submodules=none", cc.diff_argv("main", "head"))
+        self.assertIn("--no-relative", cc.diff_argv("main", "head"))
+
+    def test_the_hosts_git_configuration_cannot_hide_a_change_in_a_real_repository(self):
+        repo = GitRepository("test_a_submodule_entry_is_never_documentation")
+        repo.setUp()
+        self.addCleanup(repo.doCleanups)
+        repo.git("config", "diff.ignoreSubmodules", "all")
+        repo.git("config", "diff.relative", "true")
+        repo.branch(lambda: (repo.write("docs/b.md", "b\n"), repo.gitlink("docs/sub")))
+        # With the host setting, a plain diff does not list the gitlink; the queue's command does.
+        plain = subprocess.run(["git", "-C", repo.dir, "diff", "--raw", "HEAD^1...HEAD^2"], capture_output=True, text=True).stdout
+        self.assertNotIn("160000", plain)
+        self.assertFalse(repo.github())
+        repo.git("switch", "-q", "main")
+        repo.git("reset", "-q", "--hard", "HEAD~1")
+        repo.git("branch", "-qD", "pr")
+        repo.branch(lambda: (repo.write("scripts/outside.py", "x\n"), Path(repo.dir, "docs").mkdir(exist_ok=True),
+                             repo.write("docs/c.md", "c\n")))
+        cwd = os.getcwd()
+        os.chdir(Path(repo.dir) / "docs")   # diff.relative would limit a plain diff to this directory
+        try:
+            self.assertFalse(cc.classify_github({"GITHUB_EVENT_NAME": "pull_request"}))
+        finally:
+            os.chdir(cwd)
 
     def test_git_prints_full_object_names_so_that_the_parser_can_read_the_real_output(self):
         # Without --no-abbrev Git shortens the names to 7 characters and every real change would be "unclear".
@@ -210,6 +239,16 @@ class GitRepository(unittest.TestCase):
         path = Path(self.dir) / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text)
+
+    def gitlink(self, relative):
+        """A real gitlink (mode 160000): an embedded repository, which `git add` stores as a submodule entry.
+        (`update-index --cacheinfo` is not enough: `git add -A` drops an entry that has no directory.)"""
+        path = Path(self.dir) / relative
+        path.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["git", "-C", str(path), "init", "-q"], check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(path), "-c", "user.email=t@example.invalid", "-c", "user.name=t",
+                        "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "inner"],
+                       check=True, capture_output=True)
 
     def branch(self, change):
         """Commit `change()` on a branch, merge it into main with a merge commit and return the merge commit."""
@@ -296,8 +335,15 @@ class GitRepository(unittest.TestCase):
         self.assertFalse(self.github())
 
     def test_a_submodule_entry_is_never_documentation(self):
-        self.branch(lambda: self.git("update-index", "--add", "--cacheinfo", f"160000,{H},docs/sub"))
+        self.branch(lambda: (self.write("docs/b.md", "b\n"), self.gitlink("docs/sub")))
+        # The merge really contains a gitlink: the test must not pass on an empty change.
+        self.assertIn("160000", self.git("diff", "--raw", "HEAD^1...HEAD^2"))
         self.assertFalse(self.github())
+
+    def test_a_merge_without_the_gitlink_would_have_been_documentation(self):
+        # The control of the test above: the same merge without the gitlink is documentation only.
+        self.branch(lambda: self.write("docs/b.md", "b\n"))
+        self.assertTrue(self.github())
 
     def test_a_deleted_documentation_file_is_documentation_only(self):
         self.branch(lambda: self.git("rm", "-q", "docs/a.md"))
@@ -386,37 +432,58 @@ class CommandLine(unittest.TestCase):
 # --- the allowlist guard: no test or code may read a documentation file unseen -------------------------------
 # A documentation-only pull request is not tested by `mix test`, so code and tests must not read a file that the
 # allowlist accepts. This scan lists every path literal of `docs/`, `tasks/` and the root documentation files in
-# the Elixir sources. A literal is allowed only when it appears in the reviewed list below, with the reason; the
-# file that code does read (docs/consuming.md) is not in the allowlist, which a second test checks.
-SCANNED = ("lib/**/*.ex", "lib/**/*.exs", "test/**/*.ex", "test/**/*.exs", "config/**/*.ex", "config/**/*.exs",
-           "pieces/*/*/lib/**/*.ex", "pieces/*/*/lib/**/*.exs", "pieces/*/*/test/**/*.ex",
-           "pieces/*/*/test/**/*.exs", "mix.exs", ".formatter.exs")
+# every source file of the repository that `mix check` (or the Gleam check) can run: Elixir, Cure, Gleam, Erlang,
+# templates and shell, wherever they are (lib, test, config, pieces including examples and support files, spikes,
+# mix.exs, helpers). A literal is allowed only when it appears in the reviewed list below, with the reason; the file
+# that code does read (docs/consuming.md) is not in the allowlist, which a second test checks. The scan is a net, not
+# a proof: a path built from parts that the patterns cannot see (a computed name, a wildcard that reaches the root)
+# is not found.
+SCANNED_SUFFIXES = {".ex", ".exs", ".gleam", ".sh", ".erl", ".hrl", ".cure", ".eex", ".heex", ".leex"}
+SKIPPED_DIRS = {".git", "deps", "_build", "node_modules", "build", ".elixir_ls", ".claims", ".github"}
+ROOT_ONLY_SKIPPED = {"docs", "tasks"}   # the documentation itself; a nested lib/mix/tasks is source and is scanned
 LITERALS = [
-    re.compile(r"""(?<![A-Za-z0-9_.@/-])((?:docs|tasks)/[^\s"'`)\]]*)"""),
-    re.compile(r"""(["'](?:docs|tasks)["'])"""),
+    # docs/x, tasks/x, also after a slash or an interpolation: "../../docs/x", "#{root}/docs/x"
+    re.compile(r"""(?<![A-Za-z0-9_.@-])((?:docs|tasks)/[^\s"'`)\]]*)"""),
     re.compile(r"""(?<![A-Za-z0-9_.-])((?:GOAL|PLAN)\.md)"""),
-    re.compile(r"""(["']README\.md["'])"""),
+    re.compile(r"""(?<![A-Za-z0-9_.-])(README\.md)"""),      # also "#{dir}/README.md" and ~s(README.md)
+    re.compile(r"""(\*\.md)"""),                             # a markdown glob such as Path.wildcard("*.md")
 ]
+# A path part given as its own word ("docs" in Path.join(["docs", "x.md"]) or ~w(docs x.md)); counted only on a line
+# that builds or reads a path, because the word `tasks` is also a plain data key (job tasks) in several tests.
+BARE_WORD = re.compile(r"""(?:["'(\[,]|\s)(docs|tasks)(?=[\s"'),\]])""")
+PATH_CONTEXT = re.compile(r"Path\.|File\.|:file\.|Code\.|~w|cd:|System\.cmd")
 # (file, literal) -> why it is not a read of a documentation file that the allowlist accepts.
+PIECE_README = "README.md of a piece directory (pieces/**), not the root README.md"
+MIX_TASK = "path of a Mix task source file (lib/mix/tasks/), not a read of tasks/"
 REVIEWED = {
     ("lib/elzoo/export.ex", "docs/consuming.md"):
         "READ: the export copies it into every bundle; docs/consuming.md is not in the allowlist (READ_BY_CODE)",
+    ("lib/elzoo/export.ex", "README.md"): PIECE_README,
+    ("lib/elzoo/export.ex", "tasks/compile_cure.ex"): MIX_TASK,
+    ("lib/elzoo/registry.ex", "README.md"): PIECE_README,
     ("lib/elzoo/registry.ex", "docs/operational-contracts.md"): "text of a message, not a read",
     ("pieces/assembly/durable-job/lib/elzoo/durable_job.ex", "docs/work/ELZ-010.md"): "comment, not a read",
-    ("test/check_selection_test.exs", '"README.md"'): "name of a file in a selection fixture (piece README), not a read",
+    ("spikes/ash_foundation/test/elz010_job_provider_test.exs", "docs/work/ELZ-010.md"): "comment, not a read",
+    ("spikes/ash_foundation/test/support/elz010_job_provider.ex", "docs/work/ELZ-010.md"): "comment, not a read",
+    ("test/check_selection_test.exs", "README.md"): PIECE_README + " (selection fixture)",
     ("test/check_selection_test.exs", "docs/unknown.md"): "string in a selection fixture, not a read",
+    ("test/check_selection_test.exs", "tasks/check.ex"): MIX_TASK,
     ("test/elz010_cure_probe_test.exs", "docs/work/ELZ-010.md"): "comment, not a read",
     ("test/elz010_provider_probe_test.exs", "docs/work/ELZ-010.md"): "comment, not a read",
-    ("test/registry_test.exs", '"README.md"'): "evidence name in a piece manifest fixture, not a read",
+    ("test/export_test.exs", "README.md"): PIECE_README + " (export fixture)",
+    ("test/export_test.exs", "tasks/compile_cure.ex"): MIX_TASK,
+    ("test/registry_test.exs", "README.md"): PIECE_README + " (manifest fixture)",
     ("test/support/elz010_probe_test_helper.exs", "docs/work/ELZ-010.md"): "comment, not a read",
 }
 
 
 def source_files(root):
-    found = set()
-    for pattern in SCANNED:
-        found.update(path for path in Path(root).glob(pattern) if path.is_file())
-    return sorted(found)
+    found = []
+    for directory, subdirectories, names in os.walk(root):
+        skipped = SKIPPED_DIRS | (ROOT_ONLY_SKIPPED if Path(directory) == Path(root) else set())
+        subdirectories[:] = sorted(d for d in subdirectories if d not in skipped)
+        found.extend(Path(directory) / name for name in sorted(names) if Path(name).suffix in SCANNED_SUFFIXES)
+    return found
 
 
 def documentation_literals(root):
@@ -425,9 +492,11 @@ def documentation_literals(root):
     for path in source_files(root):
         relative = path.relative_to(root).as_posix()
         for number, line in enumerate(path.read_text(errors="replace").splitlines(), 1):
-            for pattern in LITERALS:
-                for match in pattern.finditer(line):
-                    hits.setdefault((relative, match.group(1).rstrip(".,;:")), []).append(number)
+            found = [m.group(1) for pattern in LITERALS for m in pattern.finditer(line)]
+            if PATH_CONTEXT.search(line):
+                found += [m.group(1) for m in BARE_WORD.finditer(line)]
+            for literal in found:
+                hits.setdefault((relative, literal.rstrip(".,;:")), []).append(number)
     return hits
 
 
@@ -449,38 +518,65 @@ class AllowlistGuard(unittest.TestCase):
                     self.assertFalse(cc.doc_path(literal))
                     self.assertIn(literal, cc.READ_BY_CODE)
 
-    def test_the_scan_sees_the_sources(self):
-        files = [path.relative_to(ROOT).as_posix() for path in source_files(ROOT)]
-        for expected in ("lib/elzoo/export.ex", "test/registry_test.exs", "mix.exs",
-                         "pieces/assembly/durable-job/test/elzoo/durable_job_test.exs"):
+    def test_the_scan_sees_the_sources_of_everything_that_mix_check_runs(self):
+        files = {path.relative_to(ROOT).as_posix() for path in source_files(ROOT)}
+        for expected in ("lib/elzoo/export.ex", "lib/mix/tasks/check.ex", "test/registry_test.exs",
+                         "test/support/cure_consumer_case_test_helper.exs", "mix.exs",
+                         "pieces/assembly/durable-job/test/elzoo/durable_job_test.exs",
+                         "pieces/assembly/durable-job/lib/elzoo/durable_job.ex",
+                         "pieces/delivery/effect-intent/examples/effect_intent.exs",
+                         "spikes/ash_foundation/test/elz010_job_provider_test.exs",
+                         "scripts/check.sh"):
             with self.subTest(expected=expected):
                 self.assertIn(expected, files)
-        self.assertGreater(len(files), 100)
+        self.assertTrue([f for f in files if f.endswith(".cure")])
+        self.assertTrue([f for f in files if f.endswith(".gleam")])
+        self.assertGreater(len(files), 200)
+        # The scan stays out of the documentation itself and the build output.
+        self.assertFalse([f for f in files if f.startswith(("docs/", "tasks/", "deps/", "_build/"))])
 
-    def test_a_scratch_test_that_reads_a_documentation_file_fails_the_scan(self):
+    def test_a_scratch_source_that_reads_a_documentation_file_fails_the_scan(self):
         scratch = Path(tempfile.mkdtemp(prefix="elzoo-class-scratch-"))
         self.addCleanup(shutil.rmtree, scratch, True)
         reads = {
-            "test/scratch_test.exs": 'File.read!("docs/plans/release-plan.json")\n',
-            "pieces/a/b/test/scratch_test.exs": "File.read!('tasks/ELZ-071-docs-only-fast-path.md')\n",
-            "lib/scratch.ex": 'File.read!(Path.join(["docs", "x.md"]))\n',
-            "test/scratch2_test.exs": 'File.read!("GOAL.md")\n',
-            "config/scratch.exs": 'File.read!("PLAN.md")\n',
+            "test/a_test.exs": 'File.read!("docs/plans/release-plan.json")\n',
+            "pieces/a/b/test/b_test.exs": "File.read!('tasks/ELZ-071-docs-only-fast-path.md')\n",
+            "lib/c.ex": 'File.read!(Path.join(["docs", "x.md"]))\n',
+            "test/d_test.exs": 'File.read!("GOAL.md")\n',
+            "config/e.exs": 'File.read!("PLAN.md")\n',
             "mix.exs": 'File.read!("README.md")\n',
+            # the forms of this repository's own tests (relative to __DIR__) and interpolation
+            "pieces/x/y/test/f_test.exs": 'File.read!(Path.expand("../../../../docs/x.json", __DIR__))\n',
+            "test/g_test.exs": 'File.read!("#{root}/docs/x.md")\n',
+            "test/h_test.exs": "File.read!(Path.join(~w(docs x.md)))\n",
+            "test/i_test.exs": "File.read!(~s(README.md))\n",
+            "test/j_test.exs": 'File.read!("#{root}/README.md")\n',
+            "test/k_test.exs": 'Path.wildcard("*.md")\n',
+            # sources outside lib and test that mix check runs or loads
+            "spikes/ash_foundation/test/l_test.exs": 'File.read!("docs/x.md")\n',
+            "pieces/a/b/examples/m.exs": 'File.read!("tasks/x.md")\n',
+            "pieces/test_helper.exs": 'File.read!("GOAL.md")\n',
+            "pieces/a/b/cure/n.cure": '# reads docs/x.md\n',
+            "spikes/gleam_ui/src/o.gleam": 'read("docs/x.md")\n',
+            "scripts/p.sh": "cat docs/x.md\n",
+            "lib/q.erl": '-include("docs/x.hrl").\n',
         }
         for relative, text in reads.items():
             path = scratch / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text)
-        found = {key for key in documentation_literals(scratch) if key not in REVIEWED}
-        self.assertEqual({"test/scratch_test.exs", "pieces/a/b/test/scratch_test.exs", "lib/scratch.ex",
-                          "test/scratch2_test.exs", "config/scratch.exs", "mix.exs"}, {file for file, _ in found})
+        found = {file for file, _literal in documentation_literals(scratch)}
+        self.assertEqual(set(reads), found)
 
-    def test_comments_and_look_alikes_in_a_scratch_tree_are_found_or_ignored_as_designed(self):
+    def test_a_clean_scratch_tree_and_look_alikes_are_not_reported(self):
         scratch = Path(tempfile.mkdtemp(prefix="elzoo-class-scratch-"))
         self.addCleanup(shutil.rmtree, scratch, True)
         (scratch / "lib").mkdir()
-        (scratch / "lib/a.ex").write_text('x = "lib/mix/tasks/compile_cure.ex"\ny = "scripts/docs/x.md"\nz = "mydocs/a"\n')
+        (scratch / "lib/a.ex").write_text('x = "mydocs/a"\ny = "lib/foo"\nz = %{tasks: 1, "tasks" => 2}\nw = "undocs"\n')
+        (scratch / "docs").mkdir()
+        (scratch / "docs/b.ex").write_text('File.read!("docs/x.md")\n')      # inside docs/: not scanned
+        (scratch / "deps").mkdir()
+        (scratch / "deps/c.ex").write_text('File.read!("docs/x.md")\n')      # build output and dependencies
         self.assertEqual({}, documentation_literals(scratch))
 
 

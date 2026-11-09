@@ -37,3 +37,10 @@ A documentation-only pull request is not checked by `mix test`: documentation th
 - `docs/development/10-symbolic-ci.md` records the re-enabled protection (the passage that said "recorded here when done").
 - The wording note of the last independent re-review of PR #132: after a refusal because of a newer run, restart the queue first; push a commit only when the newer run comes from another branch at the same commit.
 - The queue is staged together with `scripts/ci-change-class.py` (next to it); without that file every pull request needs the full run.
+
+## Additions of 2026-11-09 from the independent review of PR #135 (recorded by the worker)
+
+- **Verified main.** A short check runs no tests, so it must not hide a red or unfinished push run of `main`. The queue accepts the short check only when the push run with the highest ID on the current `main` commit completed with success (it waits up to 600 s for a run in progress; otherwise it dispatches a full run), checked after the evidence and again right before the merge. The push skip accepts the short check only when the first parent has such a push run (no waiting; otherwise the full check runs).
+- **Classifier command.** `git diff --raw -z --no-renames --no-abbrev --ignore-submodules=none --no-relative`: a host setting of `diff.ignoreSubmodules` or `diff.relative` must not hide a gitlink or a path.
+- **Guard test for the allowlist** scans every Elixir, Cure, Gleam, Erlang, template and shell source of the repository (not the root `docs/` and `tasks/`), and more read forms (`../../docs/x`, `"#{root}/docs/x"`, `~w(docs x)`, `README.md` anywhere, `*.md`). It is a net, not a proof.
+- A green short `check-hosted` is evidence for the queue only; branch protection accepts it for a hand merge (documented).

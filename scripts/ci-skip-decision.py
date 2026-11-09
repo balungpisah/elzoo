@@ -16,7 +16,10 @@ ELZ-071: the evidence of a documentation-only merge is the short check of a pull
 `Run mix check` step was skipped, its `Classify the change` and `Docs-only check` steps passed, and its log has
 the line ELZOO DOCS-ONLY CHECK PASSED and no full-run or affected-mode marker. That counts only when this
 checkout's own scripts/ci-change-class.py classifies the merge commit's change against its first parent as
-documentation only (a dispatch run never has the short shape: it is not a pull_request event).
+documentation only (a dispatch run never has the short shape: it is not a pull_request event), and only when the
+first parent, the main before the merge, has a push run of this workflow that completed with success: a short check
+runs no tests, so it must not hide a red or unfinished push run of that main behind a green documentation merge
+(otherwise the full check runs, with the code of the first parent in the tree).
 
 Fail closed: every other case, and every error, prints skip=false (a full run). The script never
 exits non-zero because it cannot decide. It writes skip=true|false to $GITHUB_OUTPUT.
@@ -159,6 +162,26 @@ def docs_only_merge(run_git, first, merge):
         return False
 
 
+def first_parent_verified(api, first):
+    """True when the push run with the highest ID on the first parent (the main before the merge) completed with
+    success. A logged skip is a success of the job. No run, an unfinished run or a malformed listing is False."""
+    query = urllib.parse.urlencode({"event": "push", "head_sha": first, "per_page": 100})
+    try:
+        listing = api.json(f"actions/workflows/{WORKFLOW}/runs?{query}")
+    except Full:
+        return False
+    runs = listing.get("workflow_runs") if isinstance(listing, dict) else None
+    if not isinstance(runs, list):
+        return False
+    mine = [run for run in runs if isinstance(run, dict) and run.get("event") == "push"
+            and run.get("head_branch") == "main" and run.get("head_sha") == first
+            and run.get("path") == f".github/workflows/{WORKFLOW}"]
+    if not mine or not all(isinstance(run.get("id"), int) for run in mine):
+        return False
+    latest = max(mine, key=lambda run: run["id"])
+    return latest.get("status") == "completed" and latest.get("conclusion") == "success"
+
+
 def evidence_event(run, repo):
     """ELZ-059: the pull_request run of the same repository is the merge evidence; a workflow_dispatch run
     stays valid as the queue's fallback. A pull_request run from a fork is never evidence."""
@@ -233,6 +256,8 @@ def decide(env, run_git=git, api=None):
         # ELZ-071: the short check of a documentation-only pull_request run.
         need(run.get("event") == "pull_request", "a skipped full check is evidence only on a pull_request run")
         need(docs_only_merge(run_git, parents[1], sha), "the change of the merge is not documentation only")
+        need(first_parent_verified(api, parents[1]),
+             "the push run of the first parent is not a completed success; the short check would hide it")
         named = [[step for step in job.get("steps", []) if step.get("name") == name]
                  for name in ("Classify the change", "Docs-only check")]
         need(all(len(found) == 1 and found[0].get("conclusion") == "success" for found in named),

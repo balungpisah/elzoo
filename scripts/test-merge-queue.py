@@ -55,6 +55,13 @@ class Fake:
                            {"name": "Run mix check", "conclusion": "skipped"},
                            {"name": "Docs-only check", "conclusion": "success"}]
         self.docs_log = "2026-11-09T05:00:00.0000000Z ELZOO DOCS-ONLY CHECK PASSED\n"
+        # ELZ-071 (review of PR #135): the short check needs a main whose own push run completed with success.
+        self.main_head_runs = None     # None: one completed successful push run on the canonical main
+        self.main_head_runs_later = None   # from the second listing on, these runs
+        self.main_head_hidden = 0      # the listing is empty for this many calls
+        self.main_head_calls = 0
+        self.main_head_error = False
+        self.main_head_raw = None      # a raw body instead of {"workflow_runs": ...}
         self.raw_diff_calls = []
         self.raw_error = False
         self.raw_output = None         # a raw string instead of the one built from raw_paths
@@ -99,6 +106,12 @@ class Fake:
         self.canonical_main = M
         self.gleam_reads = 0
         self.gleam_rerun = False
+
+    def main_head_run(self, run_id=9000, **changes):
+        run = dict(id=run_id, event="push", head_branch="main", head_sha=self.canonical_main, status="completed",
+                   conclusion="success", path=".github/workflows/symbolic-check.yml")
+        run.update(changes)
+        return run
 
     def pr_run_ids(self):
         """IDs of the listed runs that really are the same-repository pull_request run of the exact head."""
@@ -222,6 +235,16 @@ class Fake:
                 if self.comments_error:
                     raise queue.QueueError("gh api exited 1: comments failed")
                 out = [self.comments]
+            elif "/workflows/symbolic-check.yml/runs?" in path and "event=push" in path and "head_sha=" in path:
+                self.main_head_calls += 1
+                if self.main_head_error:
+                    raise queue.QueueError("gh api exited 1: main head listing failed")
+                runs = self.main_head_runs if self.main_head_runs is not None else [self.main_head_run()]
+                if self.main_head_runs_later is not None and self.main_head_calls >= 2:
+                    runs = self.main_head_runs_later
+                if self.main_head_calls <= self.main_head_hidden:
+                    runs = []
+                out = self.main_head_raw if self.main_head_raw is not None else {"workflow_runs": runs}
             elif "/workflows/symbolic-check.yml/runs?" in path and "event=push" in path:
                 if self.main_listing_error:
                     raise queue.QueueError("gh api exited 1: main listing failed")
@@ -1426,10 +1449,110 @@ class DocsOnlyFastPath(unittest.TestCase):
         self.docs_pr()
         self.fake.canonical_main = "d" * 40
         self.q.process(79)
-        expected = ["git", "diff", "--raw", "-z", "--no-renames", "--no-abbrev",
-                    "d" * 40 + "...refs/remotes/origin/task/ELZ-039", "--"]
+        expected = ["git", "diff", "--raw", "-z", "--no-renames", "--no-abbrev", "--ignore-submodules=none",
+                    "--no-relative", "d" * 40 + "...refs/remotes/origin/task/ELZ-039", "--"]
+        self.assertEqual(expected, queue.CLASSIFIER.diff_argv("d" * 40, "refs/remotes/origin/task/ELZ-039"))
         # Once after the evidence and once right before the merge.
         self.assertEqual([expected, expected], self.fake.raw_diff_calls)
+
+    # --- review of PR #135, finding 1: a documentation merge must not hide a main that is red or unfinished -----
+    def test_the_short_check_needs_a_main_whose_push_run_completed_with_success(self):
+        for label, runs in (
+                ("red", [self.fake.main_head_run(conclusion="failure")]),
+                ("cancelled", [self.fake.main_head_run(conclusion="cancelled")]),
+                ("timed out", [self.fake.main_head_run(conclusion="timed_out")]),
+                ("skipped", [self.fake.main_head_run(conclusion="skipped")]),
+                ("no conclusion", [self.fake.main_head_run(conclusion=None)]),
+                ("no run at all", []),
+                ("newest is red, older is green", [self.fake.main_head_run(9000), self.fake.main_head_run(9001, conclusion="failure")]),
+                ("another event only", [self.fake.main_head_run(event="workflow_dispatch")]),
+                ("another branch only", [self.fake.main_head_run(head_branch="task/ELZ-040")]),
+                ("another commit only", [self.fake.main_head_run(head_sha="e" * 40)]),
+                ("another workflow only", [self.fake.main_head_run(path=".github/workflows/symbolic-gleam.yml")]),
+                ("odd entries only", [None, "x", 7, {}])):
+            with self.subTest(label=label):
+                self.setUp()
+                self.q = self.fake.make_queue(timeout=3600)
+                self.docs_pr()
+                self.fake.main_head_runs = runs
+                self.q.process(79)
+                self.assertEqual(1, self.fake.dispatches, label)
+                self.assertTrue(any("push run of the current main is not a completed success" in m for m in self.fake.messages))
+                self.assertNotIn("mode=docs-only", self.fake.messages[-1])
+
+    def test_the_newest_push_run_of_main_decides(self):
+        self.docs_pr()
+        self.fake.main_head_runs = [self.fake.main_head_run(9000, conclusion="failure"), self.fake.main_head_run(9001)]
+        self.q.process(79)     # a red run, then the green re-run result with a higher ID
+        self.assertEqual(0, self.fake.dispatches)
+        self.assertIn("mode=docs-only", self.fake.messages[-1])
+
+    def test_a_push_run_of_main_in_progress_is_awaited_for_a_bounded_time(self):
+        self.docs_pr()
+        self.q = self.fake.make_queue(timeout=3600)
+        self.fake.main_head_runs = [self.fake.main_head_run(status="in_progress", conclusion=None)]
+        self.fake.main_head_runs_later = [self.fake.main_head_run()]
+        self.q.process(79)
+        self.assertEqual(0, self.fake.dispatches)
+        self.assertTrue(any(m == "Waiting: push run of main ccccccc to finish" or m.startswith("Waiting: push run of main")
+                            for m in self.fake.messages))
+        self.assertIn("mode=docs-only", self.fake.messages[-1])
+
+    def test_a_push_run_that_never_finishes_ends_the_wait_and_needs_a_full_run(self):
+        self.docs_pr()
+        self.q = self.fake.make_queue(timeout=36000)
+        self.fake.main_head_runs = [self.fake.main_head_run(status="in_progress", conclusion=None)]
+        self.q.process(79)
+        self.assertEqual(1, self.fake.dispatches)
+        waits = [m for m in self.fake.messages if m.startswith("Waiting: push run of main")]
+        self.assertTrue(waits)
+        self.assertLessEqual(len(waits) * 15, queue.MAIN_RUN_WAIT + 15)    # bounded by MAIN_RUN_WAIT, not by the PR deadline
+
+    def test_a_push_run_that_is_not_listed_yet_is_awaited_too(self):
+        self.docs_pr()
+        self.q = self.fake.make_queue(timeout=3600)
+        self.fake.main_head_hidden = 2
+        self.q.process(79)
+        self.assertEqual(0, self.fake.dispatches)
+        self.assertIn("mode=docs-only", self.fake.messages[-1])
+
+    def test_a_failed_or_malformed_push_run_listing_needs_a_full_run(self):
+        for label, change in (("error", dict(main_head_error=True)), ("not an object", dict(main_head_raw=["x"])),
+                              ("no list", dict(main_head_raw={"workflow_runs": "x"})),
+                              ("string", dict(main_head_raw="garbage")),
+                              ("odd id", dict(main_head_runs=[{"id": "x", "event": "push", "head_branch": "main",
+                                                               "head_sha": "c" * 40, "status": "completed",
+                                                               "conclusion": "success",
+                                                               "path": ".github/workflows/symbolic-check.yml"}]))):
+            with self.subTest(label=label):
+                self.setUp()
+                self.docs_pr()
+                for name, value in change.items():
+                    setattr(self.fake, name, value)
+                self.q.process(79)
+                self.assertEqual(1, self.fake.dispatches)
+
+    def test_main_turning_red_between_the_two_classifications_refuses_the_merge(self):
+        self.docs_pr()
+        self.fake.main_head_runs_later = [self.fake.main_head_run(conclusion="failure")]
+        self.refuses("no longer matches the queue's own classification")
+
+    def test_the_push_run_listing_asks_for_the_canonical_main_commit(self):
+        self.docs_pr()
+        self.fake.canonical_main = "d" * 40
+        self.fake.main_head_runs = [self.fake.main_head_run(head_sha="d" * 40)]
+        self.q.process(79)
+        listings = [c[-1] for c in self.fake.calls if c[:2] == ["gh", "api"] and "event=push" in c[-1] and "head_sha=" in c[-1]]
+        self.assertEqual(2, len(listings))     # once per classification
+        self.assertTrue(all("head_sha=" + "d" * 40 in listing and "per_page=100" in listing for listing in listings))
+
+    def test_a_full_run_needs_no_push_run_of_main_here(self):
+        # The freeze rule covers a full run; the extra rule is for the short check only.
+        self.fake.diff_paths = ["docs/a.md"]
+        self.fake.pr_runs = [self.fake.pr_run(700)]
+        self.fake.main_head_runs = [self.fake.main_head_run(conclusion="failure")]
+        self.q.process(79)
+        self.assertEqual(0, self.fake.main_head_calls)
 
     def test_a_full_run_is_still_accepted_without_a_classification(self):
         self.fake.diff_paths = ["docs/a.md"]
@@ -1466,7 +1589,8 @@ class DocsOnlyFastPath(unittest.TestCase):
                 self.fake.raw_paths = paths
                 self.q.process(79)
                 self.assertEqual(1, self.fake.dispatches)
-                self.assertTrue(any("not documentation only; dispatching a full run" in m for m in self.fake.messages))
+                self.assertTrue(any("the queue does not accept the short check" in m and "dispatching a full run" in m
+                                    for m in self.fake.messages))
                 self.assertEqual(f"ELZOO MERGE EVIDENCE pr=79 run=101 job=201 runner=GitHub Actions 7 head={A} merge={M}",
                                  self.fake.messages[-1])
                 self.assertTrue(any("does NOT satisfy branch protection" in m for m in self.fake.messages))

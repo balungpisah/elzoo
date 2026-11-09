@@ -85,7 +85,10 @@ def diff_argv(base, head):
     for value in (base, head):
         if not re.fullmatch(r"[0-9a-f]{40}|[A-Za-z0-9._/][A-Za-z0-9._/-]{0,199}", value or ""):
             raise Unclear("unsafe revision argument")
-    return ["git", "diff", "--raw", "-z", "--no-renames", "--no-abbrev", f"{base}...{head}", "--"]
+    # --ignore-submodules=none and --no-relative: a diff.ignoreSubmodules or diff.relative setting of the host
+    # (the queue runs on a person's machine) must not hide a gitlink or a path outside the working directory.
+    return ["git", "diff", "--raw", "-z", "--no-renames", "--no-abbrev", "--ignore-submodules=none", "--no-relative",
+            f"{base}...{head}", "--"]
 
 
 def changed(base, head, run=subprocess.run):

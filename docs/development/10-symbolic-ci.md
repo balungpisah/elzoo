@@ -316,18 +316,26 @@ is documentation only when it has at least one changed path and every changed pa
 copies that file into every export (`lib/elzoo/export.ex`), so the export tests and the copied consumers read it. These
 are never documentation: `.github/`, `scripts/`, `lib/`, `test/`, `pieces/` (their READMEs too), `config/`,
 `registry/`, `mix.*`, `AGENTS.md` and the generated `LEDGER.md` (`test/registry_test.exs` and the `ledger` stage read it).
-Git is asked with `diff --raw -z --no-renames --no-abbrev`, so a rename counts both paths; a symlink or submodule entry on
+Git is asked with `diff --raw -z --no-renames --no-abbrev --ignore-submodules=none --no-relative` (one function,
+`diff_argv`, builds it for the workflow, the queue and the skip decision; the last two options keep a host setting of
+`diff.ignoreSubmodules` or `diff.relative` from hiding a gitlink or a path outside the working directory), so a rename counts both paths; a symlink or submodule entry on
 either side is never documentation; an empty list, a failed Git command, malformed output and an odd path (`..`, absolute,
 backslash, a look-alike such as `docs-x/`, a trailing space) mean "not documentation only". Git shortens object names in
 `--raw` output unless `--no-abbrev` is given; the parser reads full names only. The first draft of this task named only
 `LEDGER.md` as read by tests; a scan of `lib/` found `docs/consuming.md`.
 
-**The guard test for the allowlist** (`scripts/test-ci-change-class.py`) scans the Elixir sources (`lib/`, `test/`,
-`config/`, `pieces/*/*/lib`, `pieces/*/*/test`, `mix.exs`, `.formatter.exs`) for path literals of `docs/`, `tasks/`,
-`GOAL.md`, `PLAN.md` and `"README.md"`. A literal that is not in the reviewed list of that test fails it, so a future test
-or module that reads a documentation file cannot silently become unchecked on a documentation-only pull request: take the
-file out of the allowlist (`READ_BY_CODE`) in the same change. The reviewed list names every present hit with the reason
-(comments, messages and fixtures, and the one read, `docs/consuming.md`).
+**The guard test for the allowlist** (`scripts/test-ci-change-class.py`) scans every source file of the repository that
+`mix check` or the Gleam check can run (Elixir, Cure, Gleam, Erlang, templates and shell, wherever they are: `lib/`,
+`test/`, `config/`, `pieces/**` including `examples/` and `test/support/`, `spikes/`, `mix.exs`, helpers; not the root
+`docs/` and `tasks/`, `deps/` and `_build/`) for path literals of `docs/` and `tasks/` (also after a slash or an
+interpolation, as in `Path.expand("../../docs/x.md", __DIR__)` and `"#{root}/docs/x.md"`), the words `docs` and `tasks` in a
+path call (`Path.join`, `~w`), `GOAL.md`, `PLAN.md`, `README.md` and the glob `*.md`. A literal that is not in the reviewed
+list of that test fails it, so a future test or module that reads a documentation file cannot silently become unchecked on a
+documentation-only pull request: take the file out of the allowlist (`READ_BY_CODE`) in the same change. The reviewed list
+names every present hit with the reason (comments, messages, fixtures, piece READMEs, Mix task paths, and the one read,
+`docs/consuming.md`). The scan is a net, not a proof: a path built from parts that its patterns cannot see (a computed
+name, a wildcard that reaches the root) is not found, and the independent review of a change that adds such a read is the
+second line.
 
 **Workflow** (`check-hosted`): the step `Classify the change` runs `python3 scripts/ci-change-class.py github` right after
 the checkout. On a `pull_request` run the checkout is the merge of the head into the base, so `HEAD^1...HEAD^2` is the
@@ -345,12 +353,20 @@ step-level condition, and allows the marker on one line of the workflow only.
 and `Docs-only check` green, the log line `ELZOO DOCS-ONLY CHECK PASSED` as a line of its own (not an echoed command), no
 `ELZOO CHECK PASSED` and no `ELZOO AFFECTED CHECK PASSED` line. It still needs the one `check-hosted` job on a
 GitHub-hosted runner, the green identity step and all other rules. Then the **queue's own classification** decides:
-`git diff --raw -z --no-renames --no-abbrev <main SHA>...refs/remotes/origin/<branch>` with the main SHA of the canonical
-repository, through the queue's own copy of `scripts/ci-change-class.py`, the file next to `scripts/merge-queue.py`; the
-queue never reads a file of the pull request head for this. The classification runs once after the evidence and again
-right before the merge. When it does not say "documentation only" (a code path, an empty or failed list, a missing
-classifier file), the queue logs `Run <id> passed the docs-only check, but the queue's own classification ... is not
-documentation only; dispatching a full run` and takes the dispatch run as evidence, which must be a full run. A pull request
+`git diff --raw -z --no-renames --no-abbrev --ignore-submodules=none --no-relative <main SHA>...refs/remotes/origin/<branch>`
+with the main SHA of the canonical repository, through the queue's own copy of `scripts/ci-change-class.py`, the file next
+to `scripts/merge-queue.py`; the queue never reads a file of the pull request head for this. **It also needs a verified
+main.** A short check runs no tests, so it must not hide a red or unfinished push run of `main` behind a green
+documentation merge (the freeze rule ignores a first attempt in progress and lets the newest run decide, so the green
+skipped push run of a documentation merge would otherwise replace a red run of the main before it). The queue therefore
+accepts the short check only when the push run with the highest ID on the current `main` commit (`event=push`,
+`head_sha=<main SHA>`, branch `main`, this workflow) has completed with success; a logged skip is a success of the job. A
+run in progress, or not listed yet, is awaited for up to 600 seconds (`MAIN_RUN_WAIT`); a red, cancelled, timed-out,
+missing or malformed answer is no. The classification and this rule run once after the evidence and again right before the
+merge. When the queue does not accept the short check (a code path, an empty or failed list, a missing classifier file, or
+a main without a completed green push run), it logs `Run <id> passed the docs-only check, but the queue does not accept the
+short check ... dispatching a full run` and takes the dispatch run as evidence, which must be a full run; that full run
+tests the code of `main` that the head holds. A pull request
 that changes `scripts/` (the classifier included) or `docs/consuming.md` is therefore never documentation only. The merge line
 gets ` mode=docs-only` for a merge on the short check. **Stage the classifier with the queue**: when the coordinator copies
 `scripts/merge-queue.py` elsewhere, it copies `scripts/ci-change-class.py` next to it; without it the queue still works
@@ -358,11 +374,19 @@ and requires the full run for every pull request.
 
 **Push run.** `scripts/ci-skip-decision.py` accepts the same short shape for a `pull_request` run (never a dispatch run:
 a dispatch run is not classified and runs the full check) when its own copy of the classifier says that the merge commit's
-change against its first parent is documentation only. The log line then reads `ELZOO PUSH CHECK SKIPPED (identical tree;
+change against its first parent is documentation only **and the first parent has a push run that completed with success**
+(no waiting here: a run in progress, a red run or none means that the full check runs, which tests the code of that first
+parent). This closes the second way to hide a red `main`: a documentation pull request merged by hand in the UI, which
+branch protection lets through with the short `check-hosted`, on top of a frozen or unfinished main. The log line then reads `ELZOO PUSH CHECK SKIPPED (identical tree;
 exact-head docs-only check passed): ...`. Everything else of the skip decision is unchanged.
 
 **Limits.** A documentation-only pull request is not checked by `mix test`: documentation that tests read must stay out of
-the allowlist (the guard test above enforces it). The marker proves that the docs-only steps ran on the merge of the head
+the allowlist (the guard test above enforces it). **A green short `check-hosted` is evidence for the queue only.** Branch
+protection accepts it for a hand merge, and a pull request that edits `scripts/ci-change-class.py` or the workflow can make
+its own run take the short path; only the queue's own classification (the file next to the queue, never the pull request's)
+and its verified-main rule stop that, and after a hand merge the push run loads the classifier of the merge commit. This is
+the existing trust model (a pull request controls the workflow it runs, see "Coordinator merge queue"), stated here for the
+new path. The marker proves that the docs-only steps ran on the merge of the head
 into the base; the queue's path check decides acceptance. The runtime libraries and the disposable database are still
 prepared before the checkout, and the Postgres service container still starts, so a documentation-only run costs about
 the start of the job plus the short check, not zero.
