@@ -610,7 +610,7 @@ defmodule Elzoo.AiTextTest do
     forbidden = [
       "Req" <> "LLM",
       "req" <> "_llm",
-      "Pl" <> "ug.",
+      "Pl" <> "ug",
       "Req" <> ".Test",
       "AiText." <> "Anthropic",
       "llm" <> "_db"
