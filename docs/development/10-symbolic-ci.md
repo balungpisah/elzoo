@@ -325,17 +325,21 @@ backslash, a look-alike such as `docs-x/`, a trailing space) mean "not documenta
 `LEDGER.md` as read by tests; a scan of `lib/` found `docs/consuming.md`.
 
 **The guard test for the allowlist** (`scripts/test-ci-change-class.py`) scans every source file of the repository that
-`mix check` or the Gleam check can run (Elixir, Cure, Gleam, Erlang, templates and shell, wherever they are: `lib/`,
-`test/`, `config/`, `pieces/**` including `examples/` and `test/support/`, `spikes/`, `mix.exs`, helpers; not the root
-`docs/` and `tasks/`, `deps/` and `_build/`) for path literals of `docs/` and `tasks/` (also after a slash or an
-interpolation, as in `Path.expand("../../docs/x.md", __DIR__)` and `"#{root}/docs/x.md"`), the words `docs` and `tasks` in a
-path call (`Path.join`, `~w`), `GOAL.md`, `PLAN.md`, `README.md` and the glob `*.md`. A literal that is not in the reviewed
-list of that test fails it, so a future test or module that reads a documentation file cannot silently become unchecked on a
-documentation-only pull request: take the file out of the allowlist (`READ_BY_CODE`) in the same change. The reviewed list
-names every present hit with the reason (comments, messages, fixtures, piece READMEs, Mix task paths, and the one read,
-`docs/consuming.md`). The scan is a net, not a proof: a path built from parts that its patterns cannot see (a computed
-name, a wildcard that reaches the root) is not found, and the independent review of a change that adds such a read is the
-second line.
+`mix check` or the Gleam check can run (Elixir, Cure, Gleam, Erlang, templates, shell and the browser scripts of the Gleam
+spike, wherever they are: `lib/`, `test/`, `config/`, `pieces/**` including `examples/` and `test/support/`, `spikes/`,
+`mix.exs`, helpers; not the root `docs/` and `tasks/`, `deps/` and `_build/`). Comment-only lines are skipped (a comment
+reads nothing). Every other line with one of these is a hit: a path literal `docs/…` or `tasks/…` (also after a slash or an
+interpolation, as in `Path.expand("../../docs/x.md", __DIR__)` and `"#{root}/docs/x.md"`), the word `docs` or `tasks` quoted
+or between slashes (`"docs"`, `'tasks'`, `"../../docs"`, so also a `Path.join` list that puts it on a line of its own, or
+`@doc_dir "docs"`), `~w(docs x.md)`, `GOAL.md`, `PLAN.md`, `README.md` (also `"#{dir}/README.md"`), a markdown glob
+(`*.md`, `*.{md,json}`) and a `Path.wildcard` pattern that starts at the working directory. The explicit README of a piece,
+`pieces/<family>/<name>/README.md`, is not a hit. A hit passes only when the **line itself** is in the reviewed list of that
+test, with the reason (comments in strings, messages, fixtures, piece READMEs, Mix task paths, and the one read,
+`docs/consuming.md`): a new read next to a reviewed line is a new line and fails the test, so a future test or module
+that reads a documentation file cannot silently become unchecked on a documentation-only pull request. Take the file out of
+the allowlist (`READ_BY_CODE`) in the same change. The scan is a net, not a proof: a path built from parts that its patterns
+cannot see (a computed name, a variable that holds the directory) is not found, and the independent review of a change that
+adds such a read is the second line.
 
 **Workflow** (`check-hosted`): the step `Classify the change` runs `python3 scripts/ci-change-class.py github` right after
 the checkout. On a `pull_request` run the checkout is the merge of the head into the base, so `HEAD^1...HEAD^2` is the

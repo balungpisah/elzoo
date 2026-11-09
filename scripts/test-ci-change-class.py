@@ -438,43 +438,50 @@ class CommandLine(unittest.TestCase):
 # that code does read (docs/consuming.md) is not in the allowlist, which a second test checks. The scan is a net, not
 # a proof: a path built from parts that the patterns cannot see (a computed name, a wildcard that reaches the root)
 # is not found.
-SCANNED_SUFFIXES = {".ex", ".exs", ".gleam", ".sh", ".erl", ".hrl", ".cure", ".eex", ".heex", ".leex"}
+SCANNED_SUFFIXES = {".ex", ".exs", ".gleam", ".sh", ".erl", ".hrl", ".cure", ".eex", ".heex", ".leex", ".mjs", ".js"}
 SKIPPED_DIRS = {".git", "deps", "_build", "node_modules", "build", ".elixir_ls", ".claims", ".github"}
 ROOT_ONLY_SKIPPED = {"docs", "tasks"}   # the documentation itself; a nested lib/mix/tasks is source and is scanned
+COMMENT_PREFIXES = ("#", "//", "%")      # a comment-only line cannot read a file
 LITERALS = [
     # docs/x, tasks/x, also after a slash or an interpolation: "../../docs/x", "#{root}/docs/x"
     re.compile(r"""(?<![A-Za-z0-9_.@-])((?:docs|tasks)/[^\s"'`)\]]*)"""),
+    # the word as a path part: "docs", 'tasks', "../../docs", "/docs/", also on its own line of a Path.join list
+    re.compile(r"""["'/]((?:docs|tasks))(?=["'/]|$)"""),
+    re.compile(r"""~w[(\[{<|/][^)\]}>|/]*\b(docs|tasks)\b"""),   # ~w(docs x.md)
     re.compile(r"""(?<![A-Za-z0-9_.-])((?:GOAL|PLAN)\.md)"""),
     re.compile(r"""(?<![A-Za-z0-9_.-])(README\.md)"""),      # also "#{dir}/README.md" and ~s(README.md)
-    re.compile(r"""(\*\.md)"""),                             # a markdown glob such as Path.wildcard("*.md")
+    re.compile(r"""(\*\.\{?[A-Za-z,]*md)"""),               # a markdown glob such as Path.wildcard("*.{md,json}")
+    re.compile(r"""Path\.wildcard\(\s*["'](\*[^"']*)"""),    # a wildcard that starts at the working directory
 ]
-# A path part given as its own word ("docs" in Path.join(["docs", "x.md"]) or ~w(docs x.md)); counted only on a line
-# that builds or reads a path, because the word `tasks` is also a plain data key (job tasks) in several tests.
-BARE_WORD = re.compile(r"""(?:["'(\[,]|\s)(docs|tasks)(?=[\s"'),\]])""")
-PATH_CONTEXT = re.compile(r"Path\.|File\.|:file\.|Code\.|~w|cd:|System\.cmd")
-# (file, literal) -> why it is not a read of a documentation file that the allowlist accepts.
+# The README of a piece, as an explicit path of exactly two directories: not the root README.md. Removed from a line
+# before the patterns run ("pieces/../README.md" and other odd forms are not removed, so they are reported).
+PIECE_README_PATH = re.compile(r"""pieces[/\\](?:[A-Za-z0-9_-]+[/\\]){2}README\.md""")
+# (file, the stripped line) -> why it is not a read of a documentation file that the allowlist accepts. The key is the
+# line itself, so a new read in a file that already has a reviewed line is still new and fails the test.
 PIECE_README = "README.md of a piece directory (pieces/**), not the root README.md"
 MIX_TASK = "path of a Mix task source file (lib/mix/tasks/), not a read of tasks/"
+FIXTURE = "string in a selection or export fixture, not a read"
 REVIEWED = {
-    ("lib/elzoo/export.ex", "docs/consuming.md"):
+    ("lib/elzoo/export.ex", '{".elzoo/docs/consuming.md", "docs/consuming.md"}'):
         "READ: the export copies it into every bundle; docs/consuming.md is not in the allowlist (READ_BY_CODE)",
-    ("lib/elzoo/export.ex", "README.md"): PIECE_README,
-    ("lib/elzoo/export.ex", "tasks/compile_cure.ex"): MIX_TASK,
-    ("lib/elzoo/registry.ex", "README.md"): PIECE_README,
-    ("lib/elzoo/registry.ex", "docs/operational-contracts.md"): "text of a message, not a read",
-    ("pieces/assembly/durable-job/lib/elzoo/durable_job.ex", "docs/work/ELZ-010.md"): "comment, not a read",
-    ("spikes/ash_foundation/test/elz010_job_provider_test.exs", "docs/work/ELZ-010.md"): "comment, not a read",
-    ("spikes/ash_foundation/test/support/elz010_job_provider.ex", "docs/work/ELZ-010.md"): "comment, not a read",
-    ("test/check_selection_test.exs", "README.md"): PIECE_README + " (selection fixture)",
-    ("test/check_selection_test.exs", "docs/unknown.md"): "string in a selection fixture, not a read",
-    ("test/check_selection_test.exs", "tasks/check.ex"): MIX_TASK,
-    ("test/elz010_cure_probe_test.exs", "docs/work/ELZ-010.md"): "comment, not a read",
-    ("test/elz010_provider_probe_test.exs", "docs/work/ELZ-010.md"): "comment, not a read",
-    ("test/export_test.exs", "README.md"): PIECE_README + " (export fixture)",
-    ("test/export_test.exs", "tasks/compile_cure.ex"): MIX_TASK,
-    ("test/registry_test.exs", "README.md"): PIECE_README + " (manifest fixture)",
-    ("test/support/elz010_probe_test_helper.exs", "docs/work/ELZ-010.md"): "comment, not a read",
+    ("lib/elzoo/export.ex", '{".elzoo/#{piece["directory"]}/README.md", "#{piece["directory"]}/README.md"},'): PIECE_README,
+    ("lib/elzoo/export.ex", 'do: [{"lib/mix/tasks/compile_cure.ex", "lib/mix/tasks/compile_cure.ex"}],'): MIX_TASK,
+    ("lib/elzoo/registry.ex", 'source!(root, "#{directory}/README.md")'): PIECE_README,
+    ("lib/elzoo/registry.ex", '"| [#{entry["id"]}](#{entry["directory"]}/README.md) | ready (subset) | #{entry["kind"]} | #{providers} | #{evidence} | #{operations} | #{cell(entry["contract"])} |"'): PIECE_README,
+    ("lib/elzoo/registry.ex", "guarantees beyond the declared Contract. See docs/operational-contracts.md."): "text of a message, not a read",
+    ("pieces/assembly/durable-job/lib/elzoo/durable_job.ex", "2.24.2. See docs/work/ELZ-010.md for the Contract, result tables and limits."): "text of a doc string, not a read",
+    ("test/check_selection_test.exs", 'for relative <- ["piece.json", "README.md", "test/new_test.exs", "lib/deleted.ex"] do'):
+        PIECE_README + " (selection fixture)",
+    ("test/check_selection_test.exs", '"docs/unknown.md"'): FIXTURE,
+    ("test/check_selection_test.exs", '["pieces/runtime/host//README.md"],'): "invalid piece path in a selection fixture",
+    ("test/check_selection_test.exs", '["pieces\\\\runtime\\\\host\\\\README.md"],'): "invalid piece path in a selection fixture",
+    ("test/check_selection_test.exs", '"lib/mix/tasks/check.ex",'): MIX_TASK,
+    ("test/export_test.exs", 'refute Map.has_key?(plan.files, "lib/mix/tasks/compile_cure.ex")'): MIX_TASK,
+    ("test/registry_test.exs", '{&put_in(&1, ["operations", "config", "evidence"], ["README.md"]),'):
+        PIECE_README + " (manifest fixture)",
 }
+# Reviewed lines that are real reads: the literal must not be in the allowlist.
+READS = {("lib/elzoo/export.ex", '{".elzoo/docs/consuming.md", "docs/consuming.md"}'): "docs/consuming.md"}
 
 
 def source_files(root):
@@ -487,16 +494,19 @@ def source_files(root):
 
 
 def documentation_literals(root):
-    """{(relative file, literal): [line numbers]} for every path literal of a documentation file."""
+    """{(relative file, stripped line): [(literal, line number)]} for every line with a path literal of a
+    documentation file, comment-only lines excepted."""
     hits = {}
     for path in source_files(root):
         relative = path.relative_to(root).as_posix()
         for number, line in enumerate(path.read_text(errors="replace").splitlines(), 1):
-            found = [m.group(1) for pattern in LITERALS for m in pattern.finditer(line)]
-            if PATH_CONTEXT.search(line):
-                found += [m.group(1) for m in BARE_WORD.finditer(line)]
-            for literal in found:
-                hits.setdefault((relative, literal.rstrip(".,;:")), []).append(number)
+            text = line.strip()
+            if text.startswith(COMMENT_PREFIXES):
+                continue
+            line = PIECE_README_PATH.sub("", line)
+            for pattern in LITERALS:
+                for match in pattern.finditer(line):
+                    hits.setdefault((relative, text), []).append((match.group(1).rstrip(".,;:"), number))
     return hits
 
 
@@ -512,11 +522,15 @@ class AllowlistGuard(unittest.TestCase):
         self.assertEqual([], sorted(key for key in REVIEWED if key not in hits))
 
     def test_a_file_that_code_reads_is_not_in_the_allowlist(self):
-        for (relative, literal), why in REVIEWED.items():
-            if why.startswith("READ:"):
-                with self.subTest(literal=literal):
-                    self.assertFalse(cc.doc_path(literal))
-                    self.assertIn(literal, cc.READ_BY_CODE)
+        hits = documentation_literals(ROOT)
+        self.assertEqual({"docs/consuming.md"}, set(READS.values()))
+        for key, literal in READS.items():
+            with self.subTest(literal=literal):
+                self.assertIn(key, REVIEWED)
+                self.assertIn(literal, [found for found, _number in hits[key]])
+                self.assertFalse(cc.doc_path(literal))
+                self.assertIn(literal, cc.READ_BY_CODE)
+        self.assertEqual(sorted(key for key, why in REVIEWED.items() if why.startswith("READ:")), sorted(READS))
 
     def test_the_scan_sees_the_sources_of_everything_that_mix_check_runs(self):
         files = {path.relative_to(ROOT).as_posix() for path in source_files(ROOT)}
@@ -556,23 +570,59 @@ class AllowlistGuard(unittest.TestCase):
             "spikes/ash_foundation/test/l_test.exs": 'File.read!("docs/x.md")\n',
             "pieces/a/b/examples/m.exs": 'File.read!("tasks/x.md")\n',
             "pieces/test_helper.exs": 'File.read!("GOAL.md")\n',
-            "pieces/a/b/cure/n.cure": '# reads docs/x.md\n',
+            "pieces/a/b/cure/n.cure": 'read_file("docs/x.md")\n',
             "spikes/gleam_ui/src/o.gleam": 'read("docs/x.md")\n',
             "scripts/p.sh": "cat docs/x.md\n",
+            # the styles that the first version of the scan missed (second independent review)
+            "pieces/x/y/test/r_test.exs": 'File.read!(Path.join(Path.expand("../../../../docs", __DIR__), "x.json"))\n',
+            "test/s_test.exs": 'Path.join([root,\n "docs",\n "x.md"])\n',
+            "test/t_test.exs": '@doc_dir "docs"\n',
+            "test/u_test.exs": 'Path.wildcard("*.{md,json}")\n',
+            "test/v_test.exs": 'Path.wildcard("**/*")\n',
+            "test/aa_test.exs": 'Path.wildcard(Path.join(root, "*.md"))\n',      # only the markdown glob sees this
+            "test/w_test.exs": "Path.join(~w(tasks x.md))\n",
+            "test/x_test.exs": 'File.read!("pieces/../README.md")\n',
+            "test/y_test.exs": 'File.read!("pieces/a/b/c/README.md")\n',
+            "spikes/gleam_ui/browser/z.mjs": "readFileSync('docs/x.md')\n",
             "lib/q.erl": '-include("docs/x.hrl").\n',
         }
         for relative, text in reads.items():
             path = scratch / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text)
-        found = {file for file, _literal in documentation_literals(scratch)}
+        found = {file for file, _line in documentation_literals(scratch)}
         self.assertEqual(set(reads), found)
+
+    def test_a_new_read_in_a_file_with_a_reviewed_line_is_still_new(self):
+        # The reviewed list is keyed by the line itself, so a root README read added next to a piece README line
+        # (the five files of the first version) fails the scan.
+        scratch = Path(tempfile.mkdtemp(prefix="elzoo-class-scratch-"))
+        self.addCleanup(shutil.rmtree, scratch, True)
+        reviewed_file, reviewed_line = next(key for key in REVIEWED if key[0] == "lib/elzoo/export.ex" and "README" in key[1])
+        path = scratch / reviewed_file
+        path.parent.mkdir(parents=True)
+        path.write_text(reviewed_line + '\nFile.read!("README.md")\nFile.read!(Path.join(root, "GOAL.md"))\n')
+        unreviewed = {key for key in documentation_literals(scratch) if key not in REVIEWED}
+        self.assertEqual({(reviewed_file, 'File.read!("README.md")'), (reviewed_file, 'File.read!(Path.join(root, "GOAL.md"))')},
+                         unreviewed)
+
+    def test_explicit_piece_readme_paths_and_comments_are_not_reported(self):
+        scratch = Path(tempfile.mkdtemp(prefix="elzoo-class-scratch-"))
+        self.addCleanup(shutil.rmtree, scratch, True)
+        (scratch / "test").mkdir()
+        (scratch / "test/a_test.exs").write_text(
+            'select(["pieces/core/port/README.md", "pieces/runtime/host/README.md"])\n'
+            '# File.read!("docs/x.md") is only a comment\n'
+            '    # docs/x.md\n')
+        (scratch / "scripts").mkdir()
+        (scratch / "scripts/b.sh").write_text("# cat docs/x.md\n")
+        self.assertEqual({}, documentation_literals(scratch))
 
     def test_a_clean_scratch_tree_and_look_alikes_are_not_reported(self):
         scratch = Path(tempfile.mkdtemp(prefix="elzoo-class-scratch-"))
         self.addCleanup(shutil.rmtree, scratch, True)
         (scratch / "lib").mkdir()
-        (scratch / "lib/a.ex").write_text('x = "mydocs/a"\ny = "lib/foo"\nz = %{tasks: 1, "tasks" => 2}\nw = "undocs"\n')
+        (scratch / "lib/a.ex").write_text('x = "mydocs/a"\ny = "lib/foo"\nz = %{tasks: 1, docs: 2}\nw = "undocs"\n')
         (scratch / "docs").mkdir()
         (scratch / "docs/b.ex").write_text('File.read!("docs/x.md")\n')      # inside docs/: not scanned
         (scratch / "deps").mkdir()
