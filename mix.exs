@@ -65,7 +65,10 @@ defmodule Elzoo.MixProject do
       # through Oban, Ecto and Req); a direct dependency of the Piece.
       {:telemetry, "== 1.4.2"},
       # ELZ-055 state/audit-log provider (Apache-2.0): trigger-based change capture.
-      {:carbonite, "== 0.17.0"}
+      {:carbonite, "== 0.17.0"},
+      # ELZ-081 integration/text-chunking provider (MIT): the recursive splitter and its byte
+      # ranges; its one requirement nimble_options is already locked at 1.2.0.
+      {:text_chunker, "== 1.0.1"}
     ]
   end
 

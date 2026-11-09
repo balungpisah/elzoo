@@ -1539,6 +1539,32 @@
       ]
     },
     {
+      "id": "ELZ-081",
+      "title": "ELZ-081 — Specify bounded text chunking with byte offsets to a frozen source",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [],
+      "status": "published 2026-11-09; claimed task/ELZ-081; PR pending",
+      "url": "https://github.com/balungpisah/elzoo/issues/154",
+      "paths": [
+        "tasks/ELZ-081-text-chunking.md"
+      ],
+      "outputs": [
+        "integration/text-chunking"
+      ],
+      "acceptance": "Live issue body amended once (A1 chunker_invariant, revised A2 1 MiB ceiling; approved by the main coordinator); local task file is the byte-equal publication copy. Planning dependencies mirror the published direct dependencies (none).",
+      "issue": 154,
+      "issue_body_sha256": "aac060eb533707b3e82a1bceae47d2537c62be5e7b489b732d3511a4dcff4b93",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P06",
+        "P07"
+      ],
+      "product_role": "First text slice of the retrieval order (C7 scoped context retrieval); split from the integration/search-data family, which stays with RC-18 and ELZ-082."
+    },
+    {
       "id": "ELZ-084",
       "title": "ELZ-084 — Provide the pgvector extension in the CI database service and the local test database",
       "kind": "published",
@@ -3601,6 +3627,16 @@
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/sql/piece.json",
       "manifest_sha256": "9760b7895757ed597db3ac22fe1efe57bb2e2b30e9ec9e774e93e1826f90430c"
+    },
+    {
+      "id": "integration/text-chunking",
+      "job": "ELZ-081",
+      "note": "Pure chunking of one frozen UTF-8 source (1 MiB default and hard ceiling) bound to its caller-supplied SHA-256 through text_chunker 1.0.1: ordered chunks with dense index, exact start/end byte ranges re-checked against the source before return, and per-chunk SHA-256; graphemes only (chunk_size 16..65536, default 2000; overlap at most half, default 200; :plaintext or :markdown; max_chunks default 4096, ceiling 65536); refused whole, never truncated, with a finite error table: invalid_option{name}, source_too_large, empty_source, digest_mismatch, invalid_utf8, too_many_chunks, chunker_invariant.",
+      "baseline_status": "new row (not in the baseline; split from integration/search-data on 2026-11-09)",
+      "disposition": "implementation prepared; acceptance requires merged PR",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/integration/text-chunking/piece.json",
+      "manifest_sha256": "0d43e8babba00d2f17e6c8ecf26f2ffe1f7375258d3fd998f36418e09b1232e7"
     },
     {
       "id": "runtime/adapter",
