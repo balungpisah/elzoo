@@ -1622,6 +1622,34 @@
       ]
     },
     {
+      "id": "ELZ-080",
+      "title": "ELZ-080 — Specify the embedding interface Piece and the OpenAI embedding provider Piece",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-006",
+        "ELZ-011",
+        "ELZ-023",
+        "ELZ-079"
+      ],
+      "status": "published 2026-11-09; claimed task/ELZ-080; PR pending",
+      "url": "https://github.com/balungpisah/elzoo/issues/159",
+      "paths": [
+        "tasks/ELZ-080-ai-embedding-openai.md"
+      ],
+      "outputs": [],
+      "acceptance": "Live issue body amended once (amendment 1: B1 served-model identity, B2 request bound, S4 fixed norm tolerance; approved by the main coordinator); local task file is the byte-equal publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 159,
+      "issue_body_sha256": "23d483c9abce814a58d198a5b0dec8613a13dae2bc80542c9ddb7ae4a93fc874",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P06",
+        "P07"
+      ]
+    },
+    {
       "id": "RC-01",
       "title": "Versioned stored-state compatibility",
       "kind": "proposal",
