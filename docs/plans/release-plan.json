@@ -1410,6 +1410,35 @@
       "product_role": "Supporting admission documentation for every product aim; not a product prerequisite or a delivered Piece."
     },
     {
+      "id": "ELZ-054",
+      "title": "ELZ-054 — Specify the email notification Adapter with one SMTP provider through Swoosh",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-011",
+        "ELZ-023"
+      ],
+      "status": "published 2026-11-09; claimed task/ELZ-054; PR pending",
+      "url": "https://github.com/balungpisah/elzoo/issues/110",
+      "paths": [
+        "tasks/ELZ-054-notification-email.md"
+      ],
+      "outputs": [
+        "integration/notification"
+      ],
+      "acceptance": "Unchanged live issue body (after the approved 2026-11-09 amendment); local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 110,
+      "issue_body_sha256": "320fb9169751b3e6c52c610570002b6c63b18b48dac1eb87a7662b01f6a36566",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P03",
+        "P04",
+        "P06"
+      ]
+    },
+    {
       "id": "RC-01",
       "title": "Versioned stored-state compatibility",
       "kind": "proposal",
@@ -2033,9 +2062,7 @@
       "kind": "proposal",
       "release": "V1",
       "stage": "pieces",
-      "outputs": [
-        "integration/notification"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "ELZ-011",
@@ -2043,7 +2070,7 @@
         "RC-05",
         "RC-43"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "superseded for integration/notification by published ELZ-054 (output moved); no remaining output",
       "contract": "Message identity, recipient and content -> provider accepted/rejected/unknown. Provider acceptance is not recipient delivery. Durable dispatch consumes explicit outbox/effect contracts.",
       "acceptance": "Timeout after acceptance, duplicate retry, invalid address, provider rejection and redaction. Unknown outcome must not trigger blind duplicate send.",
       "reuse": "Swoosh with a named SMTP backend is the initial candidate; deterministic SMTP fixture plus exact transport evidence.",
@@ -3387,11 +3414,13 @@
     },
     {
       "id": "integration/notification",
-      "job": "RC-19",
-      "note": "Email/push delivery and retry contract for C1/C5/C7; Swoosh is an email candidate, not a universal delivery guarantee.",
+      "job": "ELZ-054",
+      "note": "One email through Swoosh's SMTP adapter and gen_smtp, bound to the core/effect declaration and the delivery/effect-intent owner: accepted{provider_id} is acceptance not delivery; refused{invalid_address | rejected_recipient | too_large | throttled | authentication_failed | credentials_unavailable | connect_failed}; unknown{reason} after handover or for an unclassifiable transaction reply; no Adapter retry; injected credential and trust Needs; verified TLS for every non-loopback relay.",
       "baseline_status": "deferred",
-      "disposition": "blocked-admission-proposal",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "implementation prepared; acceptance requires merged PR",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/integration/notification/piece.json",
+      "manifest_sha256": "565c8ba4bafc3f2f1f928692c28323ed38cfe155a481ee9efc06271d043b1eed"
     },
     {
       "id": "integration/object-store",
