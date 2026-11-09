@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "id": "integration/ai-batch",
+  "files": [
+    "lib/elzoo/ai_batch.ex",
+    "lib/elzoo/ai_batch/adapter.ex",
+    "lib/elzoo/ai_batch/binding.ex",
+    "lib/elzoo/ai_batch/completion.ex",
+    "lib/elzoo/ai_batch/config.ex",
+    "lib/elzoo/ai_batch/conformance.ex",
+    "lib/elzoo/ai_batch/join.ex",
+    "lib/elzoo/ai_batch/provider.ex",
+    "lib/elzoo/ai_batch/sink.ex",
+    "lib/elzoo/ai_batch/staging.ex",
+    "lib/elzoo/ai_batch/submission.ex",
+    "test/elzoo/ai_batch_test.exs",
+    "test/support/ai_batch_test_helper.exs"
+  ]
+}
