@@ -123,6 +123,83 @@
       "version": "0.17.0",
       "reference": "https://hexdocs.pm/carbonite/0.17.0/Carbonite.html",
       "license": "Apache-2.0"
+    },
+    "castore": {
+      "source": "hex",
+      "package": "castore",
+      "version": "1.0.22",
+      "reference": "https://hexdocs.pm/castore/1.0.22/",
+      "license": "Apache-2.0"
+    },
+    "cowboy": {
+      "source": "hex",
+      "package": "cowboy",
+      "version": "2.21.0",
+      "reference": "https://hexdocs.pm/cowboy/2.21.0/",
+      "license": "ISC"
+    },
+    "cowboy_telemetry": {
+      "source": "hex",
+      "package": "cowboy_telemetry",
+      "version": "0.4.0",
+      "reference": "https://hexdocs.pm/cowboy_telemetry/0.4.0/",
+      "license": "Apache-2.0"
+    },
+    "cowlib": {
+      "source": "hex",
+      "package": "cowlib",
+      "version": "2.22.0",
+      "reference": "https://hexdocs.pm/cowlib/2.22.0/",
+      "license": "ISC"
+    },
+    "ex_json_schema": {
+      "source": "hex",
+      "package": "ex_json_schema",
+      "version": "0.11.5",
+      "reference": "https://hexdocs.pm/ex_json_schema/0.11.5/",
+      "license": "MIT"
+    },
+    "ex_mcp": {
+      "source": "hex",
+      "package": "ex_mcp",
+      "version": "1.8.1",
+      "reference": "https://hexdocs.pm/ex_mcp/1.8.1/ExMCP.Client.html",
+      "license": "MIT"
+    },
+    "jose": {
+      "source": "hex",
+      "package": "jose",
+      "version": "1.11.13",
+      "reference": "https://hexdocs.pm/jose/1.11.13/",
+      "license": "MIT"
+    },
+    "mint_web_socket": {
+      "source": "hex",
+      "package": "mint_web_socket",
+      "version": "1.0.6",
+      "reference": "https://hexdocs.pm/mint_web_socket/1.0.6/",
+      "license": "Apache-2.0"
+    },
+    "plug": {
+      "source": "hex",
+      "package": "plug",
+      "version": "1.20.3",
+      "reference": "https://hexdocs.pm/plug/1.20.3/",
+      "license": "Apache-2.0"
+    },
+    "plug_cowboy": {
+      "source": "hex",
+      "package": "plug_cowboy",
+      "version": "2.9.0",
+      "reference": "https://hexdocs.pm/plug_cowboy/2.9.0/",
+      "license": "Apache-2.0"
+    },
+    "plug_crypto": {
+      "source": "hex",
+      "package": "plug_crypto",
+      "version": "2.2.1",
+      "reference": "https://hexdocs.pm/plug_crypto/2.2.1/",
+      "license": "Apache-2.0"
     }
   }
 }

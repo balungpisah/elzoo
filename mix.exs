@@ -65,7 +65,11 @@ defmodule Elzoo.MixProject do
       # through Oban, Ecto and Req); a direct dependency of the Piece.
       {:telemetry, "== 1.4.2"},
       # ELZ-055 state/audit-log provider (Apache-2.0): trigger-based change capture.
-      {:carbonite, "== 0.17.0"}
+      {:carbonite, "== 0.17.0"},
+      # ELZ-083 integration/mcp-client provider (MIT): MCP protocol, era negotiation and the
+      # Streamable HTTP client transport. Its application starts its own supervisors, so it is
+      # not runtime: false; its server-side plug_cowboy/cowboy closure is required by the package.
+      {:ex_mcp, "== 1.8.1"}
     ]
   end
 
