@@ -121,7 +121,13 @@ defmodule Elzoo.AiTextTest do
     assert body.finish == :stop
     assert body.provenance.response_id == "resp_1"
     assert body.provenance.request_id == "req_1"
-    assert body.provenance.model_ref == %{provider: "test", model_id: "test-model", wire_surface: "scripted"}
+
+    assert body.provenance.model_ref == %{
+             provider: "test",
+             model_id: "test-model",
+             wire_surface: "scripted"
+           }
+
     assert body.provenance.provider_piece == "test/ai-text-provider"
     assert {:Confirmed, 1} = status.phase
     assert_received {:call, @secret, 120_000}
@@ -259,7 +265,10 @@ defmodule Elzoo.AiTextTest do
       settled(pid)
       key = a.key
       assert_receive {AiText, ^key, {:outcome, _, {:refused, :credentials_unavailable, _}}}
-      assert {:retry, 10 * Integer.pow(2, attempt - 1)} == Retry.next(policy, attempt, :credentials_unavailable)
+
+      assert {:retry, 10 * Integer.pow(2, attempt - 1)} ==
+               Retry.next(policy, attempt, :credentials_unavailable)
+
       assert {:ok, _} = Intent.advance(pid, :rearm)
     end
 
@@ -268,7 +277,9 @@ defmodule Elzoo.AiTextTest do
     assert calls() == 1
     assert {:stop, :settle} = Retry.next(policy, 3, :completed)
     assert {:stop, :exhausted} = Retry.next(policy, 3, :credentials_unavailable)
-    assert {:stop, :deadline} = Retry.next(policy, 1, :credentials_unavailable, now_ms: 95, deadline_ms: 100)
+
+    assert {:stop, :deadline} =
+             Retry.next(policy, 1, :credentials_unavailable, now_ms: 95, deadline_ms: 100)
 
     # Throttled (429-like) and overloaded: failed/dispatched/retryable, not redispatched.
     for tag <- [:throttled, :overloaded] do
@@ -315,10 +326,13 @@ defmodule Elzoo.AiTextTest do
     assert b.no_send_attestations == [:credentials_unavailable]
 
     expected = %{
-      credentials_unavailable: {{:refused, :credentials_unavailable}, {"timed_out", "not_dispatched", "unavailable"}},
-      provider_invalid_request: {{:refused, :invalid_request}, {"failed", "dispatched", "permanent"}},
+      credentials_unavailable:
+        {{:refused, :credentials_unavailable}, {"timed_out", "not_dispatched", "unavailable"}},
+      provider_invalid_request:
+        {{:refused, :invalid_request}, {"failed", "dispatched", "permanent"}},
       provider_too_large: {{:refused, :too_large}, {"failed", "dispatched", "permanent"}},
-      authentication_failed: {{:refused, :authentication_failed}, {"failed", "dispatched", "permanent"}},
+      authentication_failed:
+        {{:refused, :authentication_failed}, {"failed", "dispatched", "permanent"}},
       permission_denied: {{:refused, :permission_denied}, {"failed", "dispatched", "permanent"}},
       not_found: {{:refused, :not_found}, {"failed", "dispatched", "permanent"}},
       throttled: {{:refused, :throttled}, {"failed", "dispatched", "retryable"}},
@@ -327,7 +341,8 @@ defmodule Elzoo.AiTextTest do
       provider_timeout: {{:unknown, :timeout}, {"timed_out", "unknown", "unclassified"}},
       timeout: {{:unknown, :timeout}, {"timed_out", "unknown", "unclassified"}},
       transport: {{:unknown, :transport}, {"unknown", "unknown", "unclassified"}},
-      malformed_response: {{:unknown, :malformed_response}, {"unknown", "dispatched", "unclassified"}},
+      malformed_response:
+        {{:unknown, :malformed_response}, {"unknown", "dispatched", "unclassified"}},
       adapter_error: {{:unknown, :provider_error}, {"unknown", "unknown", "unclassified"}}
     }
 
@@ -351,8 +366,7 @@ defmodule Elzoo.AiTextTest do
        {:unknown, :malformed_response}},
       {fn _ -> {:ok, {:raw, %{TestHelper.raw() | finish: :weird}}} end,
        {:unknown, :malformed_response}},
-      {fn _ -> {:ok, {:raw, %{TestHelper.raw() | usage: %{}}}} end,
-       {:unknown, :malformed_response}}
+      {fn _ -> {:ok, {:raw, %{TestHelper.raw() | usage: %{}}}} end, {:unknown, :malformed_response}}
     ]
 
     for {{respond, expected}, i} <- Enum.with_index(cases) do
@@ -382,7 +396,8 @@ defmodule Elzoo.AiTextTest do
           send(parent, {AiText, key, d})
           :ok
 
-        key, d -> fail.(key, d)
+        key, d ->
+          fail.(key, d)
       end
 
       c = config(sink: sink)
@@ -406,7 +421,13 @@ defmodule Elzoo.AiTextTest do
       %{id: "t5", name: "unknown_tool", arguments_json: ~s({"q":"x"})}
     ]
 
-    c = config(respond: fn _ -> {:ok, {:raw, TestHelper.raw("", %{tool_calls: calls, finish: :tool_calls})}} end)
+    c =
+      config(
+        respond: fn _ ->
+          {:ok, {:raw, TestHelper.raw("", %{tool_calls: calls, finish: :tool_calls})}}
+        end
+      )
+
     {_, _, _, {:outcome, _, {:completed, body}}} = dispatch(c, request(%{"tools" => tools}), ctx)
 
     assert [
@@ -442,7 +463,9 @@ defmodule Elzoo.AiTextTest do
     assert r.tool_choice == :auto
     assert {:ok, ^r, ^canonical} = Request.decode(canonical)
     assert :ok = Adapter.validate(canonical, Adapter.schema())
-    assert {:error, :schema} = Adapter.validate(Jason.encode!(request(), pretty: true), Adapter.schema())
+
+    assert {:error, :schema} =
+             Adapter.validate(Jason.encode!(request(), pretty: true), Adapter.schema())
 
     assert {:error, :invalid_request} = Request.decode(~s({"version":1,"version":2}))
     assert {:error, :invalid_request} = Request.decode("not json")
@@ -454,24 +477,42 @@ defmodule Elzoo.AiTextTest do
       [%{"role" => "robot", "text" => "x"}],
       [%{"role" => "user"}],
       [%{"role" => "tool_result", "text" => "x"}],
-      [%{"role" => "assistant", "text" => "", "tool_calls" => [%{"id" => "a", "name" => "bad name", "arguments" => %{}}]}]
+      [
+        %{
+          "role" => "assistant",
+          "text" => "",
+          "tool_calls" => [%{"id" => "a", "name" => "bad name", "arguments" => %{}}]
+        }
+      ]
     ]
 
     for m <- bad_messages,
-        do: assert({:error, :invalid_request} = Request.decode(Jason.encode!(request(%{"messages" => m}))))
+        do:
+          assert(
+            {:error, :invalid_request} = Request.decode(Jason.encode!(request(%{"messages" => m})))
+          )
 
     ok =
       request(%{
         "messages" => [
           %{"role" => "system", "text" => "s"},
           %{"role" => "user", "text" => "u"},
-          %{"role" => "assistant", "text" => "", "tool_calls" => [%{"id" => "a", "name" => "lookup", "arguments" => %{"q" => "x"}}]},
+          %{
+            "role" => "assistant",
+            "text" => "",
+            "tool_calls" => [%{"id" => "a", "name" => "lookup", "arguments" => %{"q" => "x"}}]
+          },
           %{"role" => "tool_result", "tool_use_id" => "a", "text" => "result", "is_error" => false}
         ],
         "tool_choice" => %{"type" => "tool", "name" => "lookup"},
         "stop_sequences" => ["END"],
         "sampling" => %{"temperature" => 0.5, "top_p" => 0.9},
-        "cache_hint" => %{"tenant" => "t", "local_key" => "k", "ttl" => "5m", "breakpoints" => ["tools", %{"message" => 1}]}
+        "cache_hint" => %{
+          "tenant" => "t",
+          "local_key" => "k",
+          "ttl" => "5m",
+          "breakpoints" => ["tools", %{"message" => 1}]
+        }
       })
 
     assert {:ok, r, _} = Request.decode(Jason.encode!(ok))
@@ -526,7 +567,13 @@ defmodule Elzoo.AiTextTest do
       {pid, _a, status, delivery} = dispatch(c, request(), ctx, "n-#{i}")
       assert {:outcome, _, {:refused, :credentials_unavailable, %{retry_after: nil}}} = delivery
       assert calls() == 0
-      text = inspect({delivery, status, :sys.get_state(pid)}, limit: :infinity, printable_limit: :infinity)
+
+      text =
+        inspect({delivery, status, :sys.get_state(pid)},
+          limit: :infinity,
+          printable_limit: :infinity
+        )
+
       refute text =~ @secret
       refute inspect({delivery, status}) =~ @prompt
     end

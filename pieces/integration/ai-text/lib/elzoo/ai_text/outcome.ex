@@ -54,7 +54,11 @@ defmodule Elzoo.AiText.Outcome do
     OutUnknown: "unknown",
     OutTimedOut: "timed_out"
   }
-  @dispatches %{DispatchNot: "not_dispatched", DispatchDone: "dispatched", DispatchUnknown: "unknown"}
+  @dispatches %{
+    DispatchNot: "not_dispatched",
+    DispatchDone: "dispatched",
+    DispatchUnknown: "unknown"
+  }
   @classes %{
     ErrorPermanent: "permanent",
     ErrorRetryable: "retryable",

@@ -6,7 +6,7 @@ defmodule Elzoo.AiText do
   which refuses locally decided requests before any intent exists), the
   `delivery/effect-intent` Adapter (`Elzoo.AiText.Adapter`), the Contract
   outcome of a failure tag (`outcome/1`) and the bounded retry decision
-  (`Elzoo.AiText.Retry`). See the Piece README for the Contract.
+  (`Elzoo.AiText.Retry`). The Contract is in the Piece documentation.
   """
   alias Elzoo.AiModel.CacheHint
   alias Elzoo.AiText.{Binding, Config, Outcome, Provider, Request, Schema}
@@ -164,9 +164,14 @@ defmodule Elzoo.AiText do
 
       true ->
         case c.provider.translate(request, c.provider_config) do
-          {:ok, wire} -> {:ok, wire}
-          {:refused, r} when r in [:invalid_request, :unsupported_feature, :too_large] -> {:error, r}
-          _ -> {:error, :invalid_request}
+          {:ok, wire} ->
+            {:ok, wire}
+
+          {:refused, r} when r in [:invalid_request, :unsupported_feature, :too_large] ->
+            {:error, r}
+
+          _ ->
+            {:error, :invalid_request}
         end
     end
   rescue

@@ -241,7 +241,9 @@ defmodule Elzoo.AiText.Adapter do
   defp failure(tag), do: {:error, tag, :ai_text}
 
   defp digest(outcome),
-    do: :crypto.hash(:sha256, :erlang.term_to_binary(outcome, [:deterministic])) |> Base.encode16(case: :lower)
+    do:
+      :crypto.hash(:sha256, :erlang.term_to_binary(outcome, [:deterministic]))
+      |> Base.encode16(case: :lower)
 
   @doc "No provider status query in this slice: an unknown outcome stays unknown until reconciliation."
   def poll(_req), do: {:unavailable, :no_status_query}
