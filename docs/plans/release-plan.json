@@ -1539,6 +1539,33 @@
       ]
     },
     {
+      "id": "ELZ-083",
+      "title": "ELZ-083 — Specify the MCP client Adapter over Streamable HTTP with inert tool discovery",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-011",
+        "ELZ-023"
+      ],
+      "status": "published 2026-11-09; claimed task/ELZ-083; PR pending",
+      "url": "https://github.com/balungpisah/elzoo/issues/155",
+      "paths": [
+        "tasks/ELZ-083-mcp-client.md"
+      ],
+      "outputs": [
+        "integration/mcp-client"
+      ],
+      "acceptance": "Unchanged live issue body (after the three approved 2026-11-09 amendments); local task file is the publication copy. Planning dependencies mirror the published direct dependencies. RC-30 keeps integration/sdk and its scope unchanged.",
+      "issue": 155,
+      "issue_body_sha256": "fe924c0669a0625cebdce443a16b435251371a1f35aa004f971088976631dc7f",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P07"
+      ]
+    },
+    {
       "id": "ELZ-081",
       "title": "ELZ-081 — Specify bounded text chunking with byte offsets to a frozen source",
       "kind": "published",
@@ -3555,7 +3582,7 @@
       "disposition": "implementation prepared; acceptance requires merged PR",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/ai-batch-anthropic/piece.json",
-      "manifest_sha256": "72d00184ab8fa817b3e91bb4269729418af59f6ead9d5397421174b1c00cfb75",
+      "manifest_sha256": "3d9d482008b009e430720e659258c6380d451b367543e7944bc2d180837bf23a",
       "baseline_status": "not in baseline (new row, ELZ-085)"
     },
     {
@@ -3661,6 +3688,16 @@
       "baseline_status": "planned",
       "disposition": "blocked-admission-proposal",
       "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "integration/mcp-client",
+      "job": "ELZ-083",
+      "note": "One MCP server over Streamable HTTP through ex_mcp 1.8.1: inert, bounded, untrusted tool discovery that never calls a tool; one tools/call per dispatch identity, admitted from a core/effect declaration carrying a caller-supplied exact-action release reference and bound to the delivery/effect-intent owner: completed{content, is_error, structured}; refused{unknown_tool | invalid_arguments | too_large | credentials_unavailable | not_connected | target_refused | invalid_request} decided locally before sending, or refused{authentication_failed} for an HTTP 401/403 (named upstream assumption, dispatched); unknown{reason} for any timeout, broken connection, input-required result or JSON-RPC error after sending. No resend: fail-closed auth provider, reconnect and health ping off, no standalone GET stream, per-operation retry_policy false, http_stream_retry :safe_only and max_mrtr_rounds 0; no client handler; injected credential Need; allowlisted endpoint under a loopback, private or public network policy.",
+      "baseline_status": "planned",
+      "disposition": "implementation prepared; acceptance requires merged PR",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/integration/mcp-client/piece.json",
+      "manifest_sha256": "b38f6094f7f94dc7729490be0ed25c84a038b30dafacb9b6a6210299ecc2ad10"
     },
     {
       "id": "integration/notification",
