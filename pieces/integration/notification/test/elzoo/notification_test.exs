@@ -575,6 +575,21 @@ defmodule Elzoo.NotificationTest do
 
     assert {:MailCrashed, _, nil} = Elzoo.Notification.Transport.stage(:unexpected)
 
+    # An opaque error (e.g. a gen_smtp option error or any unknown shape) does not
+    # attest the stage: unknown, outside the no-send set, so no rearm ground.
+    for opaque <- [
+          {:error, :bad_option},
+          {:error, {:bad_option, :x}},
+          {:error, {:other, {:t, ~c"h", "m"}}}
+        ] do
+      {stage, reply, nil} = Elzoo.Notification.Transport.stage(opaque)
+      tag = Outcome.classify(stage, reply)
+      assert tag == :adapter_error
+      refute tag in Binding.no_send()
+      assert {:ok, {:unknown, _}} = Notification.outcome(tag)
+      assert {"unknown", "unknown", _} = Binding.failures()[tag]
+    end
+
     assert Enum.sort(Map.keys(Binding.failures())) == Enum.sort(Adapter.failure_tags())
 
     for {tag, {_, dispatch, _}} <- Binding.failures(),

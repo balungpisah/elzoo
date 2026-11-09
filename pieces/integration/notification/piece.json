@@ -9,6 +9,8 @@
     "cure",
     "swoosh",
     "gen_smtp",
+    "ranch",
+    "idna",
     "jason",
     "elixir",
     "otp"

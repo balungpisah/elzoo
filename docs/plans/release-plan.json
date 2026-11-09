@@ -3420,7 +3420,7 @@
       "disposition": "implementation prepared; acceptance requires merged PR",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/notification/piece.json",
-      "manifest_sha256": "565c8ba4bafc3f2f1f928692c28323ed38cfe155a481ee9efc06271d043b1eed"
+      "manifest_sha256": "68b54363d0da626c8282f12fe91bc20ba1583cc16e29c07796ff9596b7336cc6"
     },
     {
       "id": "integration/object-store",

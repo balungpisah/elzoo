@@ -130,7 +130,8 @@ defmodule Elzoo.Notification.Transport do
       when kind in [:retries_exceeded, :no_more_hosts],
       do: {:MailSession, reply(type, message), nil}
 
-  def stage({:error, _}), do: {:MailSession, :MailMalformed, nil}
+  # Any other shape does not establish the session/transaction split, so its
+  # stage is unattested: unknown (adapter_error), never connect_failed.
   def stage(_), do: {:MailCrashed, :MailMalformed, nil}
 
   defp reply(:network_failure, _), do: :MailLost
