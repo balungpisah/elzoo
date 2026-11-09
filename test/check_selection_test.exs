@@ -205,6 +205,7 @@ defmodule Elzoo.CheckSelectionTest do
     refute workflow =~ "ELZOO_CHECK_EVENT"
     refute workflow =~ "ELZOO_CHECK_BASE"
     refute workflow =~ "--affected"
+
     # ELZ-073: three work jobs run the three parts of the full check; together they are the full check.
     # Execute the actual run blocks using a harmless stand-in for the check wrapper.
     scripts =
@@ -214,7 +215,9 @@ defmodule Elzoo.CheckSelectionTest do
         script
       end
 
-    assert scripts == for(part <- Selection.parts(), do: "sh scripts/run-ci-check.sh --part #{part}")
+    assert scripts ==
+             for(part <- Selection.parts(), do: "sh scripts/run-ci-check.sh --part #{part}")
+
     root = git_fixture()
     stub = Path.join(root, "sh")
     File.write!(stub, "#!/bin/sh\nprintf '%s\\n' \"$@\"\n")
