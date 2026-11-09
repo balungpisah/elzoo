@@ -434,6 +434,14 @@
       "manifest": "pieces/integration/ai-text-anthropic/piece.json"
     },
     {
+      "id": "integration/ai-text-openai",
+      "summary": "OpenAI Responses API provider of integration/ai-text through req_llm 1.30 (gpt-6.1-terra): usage and cache counters from the pinned OpenAPI schema, derived cache key, failure mapping, documented-format stubs",
+      "disposition": "adapt",
+      "phase": "P4",
+      "status": "ready",
+      "manifest": "pieces/integration/ai-text-openai/piece.json"
+    },
+    {
       "id": "integration/auth-policy",
       "summary": "Cedar/RBAC/ABAC, access token, identity provider, consent",
       "disposition": "defer",
