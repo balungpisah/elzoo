@@ -33,17 +33,20 @@ follows the order it receives. It changes no command or check.
 
     diff of the PR against main
       |
-      +-- documentation only (docs/**, tasks/**, README.md, GOAL.md, PLAN.md) ---> class D
+      +-- documentation only (docs/**, tasks/**, README.md, GOAL.md, PLAN.md; not
+      |   docs/consuming.md, which the exporter reads) ------------------------------> class D
       |     machine: classifier (ELZ-071); queue accepts the docs-only marker only when its
       |     own path list agrees
       +-- tests only (test/**, pieces/*/test/**; no lib, no scripts, no workflow) -> class T
       |     coordinator-only today (the hosted run is still the full run)
       +-- one Piece (pieces/<family>/<name>/** plus its own records, shared files only in
       |   the final step) ----------------------------------------------------------> class P
-      |     machine: the affected selection; queue: full run
+      |     coordinator-only as a class: the affected selection is a safety net (any path
+      |     outside the Piece selects everything), not a classifier; queue: full run
       +-- protected surface (.github/**, scripts/**, lib/mix/tasks/check.ex,
       |   lib/elzoo/check_selection.ex, test/export_test.exs, AGENTS.md acceptance text) -> class S
-      |     machine: guard pins; queue: full run; independent review required
+      |     coordinator-only as a class: the guard pins the workflow shape but does not
+      |     classify protected paths; queue: full run; independent review required
       +-- Contract amendment (a live issue body, a Cure law, a typed boundary) --------> class C
       |     coordinator-only: exact before/after on the issue first
       +-- dependency or toolchain (mix.exs, mix.lock, config/**, the Cure, Elixir, OTP pins) -> class X
@@ -55,10 +58,10 @@ follows the order it receives. It changes no command or check.
 | --- | --- | --- | --- | --- | --- | --- |
 | D documentation | plain checkers (`check-roadmap.py`, `check-claims.py`, `git diff --check`) | short check, about 1 min (ELZ-071) | none independent; automated review dispositioned | combine small docs changes of one task into one PR; a task copy may travel with its implementation PR | `mode=docs-only` adoption | PR #139: 57 s |
 | T tests only | the changed tests plus `mix check --affected <base>` | full run (the classifier has no test-only class yet) | one narrow independent pass when a merged test changes (owner approval of the edit stays required) | one test repair per PR | full-run adoption | ELZ-072, ELZ-074: about 20 min each |
-| P single Piece | `mix check --affected <base>` plus `mix test pieces/<family>/<name>/test` (ELZ-076) | full run | early Contract review, then one batched review round per revision; transcription checked mechanically | shared files only in the final step; one PR | full-run adoption | ELZ-027 to ELZ-031: 17 to 25 min per run |
-| S protected surface | guard and script tests, actionlint, `git diff --check`; no local full check | full run | independent review required; re-review only of post-review commits that touch code | split a trust change from a mechanical change (ELZ-059 part A and ELZ-071 were split) | full-run adoption, from the branch's own queue script when the evidence rule itself changes | ELZ-059, ELZ-069, ELZ-071 |
+| P single Piece | `mix check --affected <base>` plus `mix test pieces/<family>/<name>/test` (ELZ-076); a local full `mix check` when the selection cannot be computed | full run | early Contract review, then one batched review round per revision; transcription checked mechanically | shared files only in the final step; one PR | full-run adoption | ELZ-027 to ELZ-031: 17 to 25 min per run |
+| S protected surface | `mix check --affected <base>` (the worker gate) plus guard and script tests, actionlint, `git diff --check`; no local full check unless the selection cannot be computed | full run | independent review required; re-review only of post-review commits that touch code | split a trust change from a mechanical change (ELZ-059 part A and ELZ-071 were split) | full-run adoption, from the branch's own queue script when the evidence rule itself changes | ELZ-059, ELZ-069, ELZ-071 |
 | C Contract amendment | none (text) | as the carrying PR | exact before/after posted on the issue, decided by the coordinator, then the editing worker syncs the task copy and the pin in one commit | one amendment per approved round per task | as the carrying PR | ELZ-027, ELZ-031 |
-| X dependency or toolchain | local full `mix check` (the only class that keeps it) | full run, caches cold once | independent review (toolchain pins are protected) | never combined with a Piece change | full-run adoption | ELZ-060 (Gleam download route) |
+| X dependency or toolchain | local full `mix check` (the only class that keeps it as the gate; it contains the affected gate) | full run, caches cold once | independent review (toolchain pins are protected) | never combined with a Piece change | full-run adoption | ELZ-060 (Gleam download route) |
 
 ## When the coordinator departs from the table
 
@@ -74,8 +77,8 @@ follows the order it receives. It changes no command or check.
 
 - `AGENTS.md` and other policy text in the documentation-only allowlist: no test reads them;
   the saving is 20 minutes per policy PR (ELZ-076 paid it four times for review fixes).
-  Folded into ELZ-073 (#136) on 2026-11-09 because that task already changes the classifier
-  integration and the guard.
+  Folded into ELZ-073 (#136) on 2026-11-09 as a recorded scope addition on that issue,
+  because that task already changes the classifier integration and the guard.
 - A test-only CI class was considered and withdrawn: tests are code and must run, so no
   shorter CI shape exists; the class differs only in review depth, which the table states.
 - Parallel job set (ELZ-073, #136): adopted by measurement (median wall 1250 s to 642 s);
