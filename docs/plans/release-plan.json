@@ -1710,6 +1710,34 @@
       "product_role": "Batch job mode for C7 scheduled bulk research (many independent prompts within a 24-hour window)."
     },
     {
+      "id": "ELZ-091",
+      "title": "ELZ-091 — Prove the AI text interface in its own copied consumer and carry Piece install configuration into exports",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-079"
+      ],
+      "status": "published 2026-11-09; claimed task/ELZ-091; PR pending",
+      "url": "https://github.com/balungpisah/elzoo/issues/165",
+      "paths": [
+        "tasks/ELZ-091-ai-text-consumer-install-configuration.md"
+      ],
+      "outputs": [],
+      "acceptance": "Live issue body amended once (amendment 1: three consumer-count literals in test/export_test.exs and test/check_selection_test.exs, owner decision 2026-11-10); local task file is the byte-equal publication copy. Evidence and export change (class S, no new Piece); planning dependencies mirror the published direct dependencies.",
+      "issue": 165,
+      "issue_body_sha256": "0dcc58cd2e2656c024b6bdcd48068ae500a5dd30bf2a5401c6e4419f44c83bc9",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P06",
+        "P07",
+        "P09",
+        "P11"
+      ],
+      "product_role": "Evidence for integration/ai-model and integration/ai-text (per-ID consumer without a provider) and the install_configuration field that req_llm-backed provider Pieces adopt."
+    },
+    {
       "id": "RC-01",
       "title": "Versioned stored-state compatibility",
       "kind": "proposal",
@@ -3642,7 +3670,7 @@
       "disposition": "implementation prepared; acceptance requires merged PR",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/ai-text-anthropic/piece.json",
-      "manifest_sha256": "e69c69676785e71794028de6bf3630b372d68e866f9134e4381b839c7363a2b9",
+      "manifest_sha256": "b8f74059fe9fa21dafb7709418d861434858c15b171aab21f49749f98333cced",
       "baseline_status": "not in baseline (new row, ELZ-079)"
     },
     {
@@ -3653,7 +3681,7 @@
       "disposition": "implementation prepared; acceptance requires merged PR",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/ai-text-openai/piece.json",
-      "manifest_sha256": "4c91df898caf8b75b6c71ee08005c85352372f7157446337b8e8c2a368b9e27c"
+      "manifest_sha256": "2ca8f25b2e7f113a0dd3543689c13606a471552751cc238494d7e14da0e2f123"
     },
     {
       "id": "integration/auth-policy",

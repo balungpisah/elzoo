@@ -181,7 +181,7 @@ defmodule Elzoo.ExportTest do
 
     per_id = Enum.filter(tests, &Map.has_key?(&1.tags, :consumer_id))
     aggregate = Enum.filter(tests, &Map.has_key?(&1.tags, :aggregate_consumer))
-    assert length(per_id) == 26
+    assert length(per_id) == 27
     assert length(aggregate) == 1
 
     # The per-test limits are part of the measured layout: 240 s for the concurrent groups, 120 s for the
@@ -227,7 +227,7 @@ defmodule Elzoo.ExportTest do
 
     filters = opts |> Keyword.get_values(:exclude) |> ExUnit.Filters.parse()
     remaining = Enum.filter(tests, &(ExUnit.Filters.eval([], filters, &1.tags, tests) == :ok))
-    assert length(remaining) == length(tests) - 25
+    assert length(remaining) == length(tests) - 26
 
     assert Enum.any?(remaining, fn test ->
              test.name == :"test an OTP-only piece runs in a normal independent Mix project"

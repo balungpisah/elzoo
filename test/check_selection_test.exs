@@ -17,7 +17,7 @@ defmodule Elzoo.CheckSelectionTest do
     selection = select(registry, ["pieces/delivery/transformation/lib/transform.ex"])
     assert selection.selected == ["delivery/transformation"]
     assert selection.affected == ["delivery/transformation"]
-    assert length(selection.skipped) == 25
+    assert length(selection.skipped) == 26
     refute selection.aggregate
     assert selection.uncovered == []
     assert_partition(selection)

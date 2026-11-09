@@ -26,6 +26,12 @@
   "dependencies": [
     "integration/ai-text"
   ],
+  "install_configuration": [
+    {
+      "line": "config :req_llm, load_dotenv: false",
+      "reason": "Otherwise req_llm loads a .env file from the working directory when its application starts under Mix."
+    }
+  ],
   "contract": "OpenAI Responses API provider of integration/ai-text through req_llm 1.30's documented provider-callback API, for the evidenced model gpt-6.1-terra only (other models refused invalid_request; the req_llm route is asserted to be POST /v1/responses): max_retries 0, store false, one HTTP exchange with the body bounded to 4 MiB while received and every response halted by an Elzoo step (no redirect, no retry, no req_llm error value); max_output_tokens below 16 refused; key only from the injected Need as api_key; sampling and stop sequences not declared; no caller provider option; structured output through text.format json_schema; reasoning none, low, medium, high, max sent as reasoning.effort; a tool result with is_error true refused; cache hint mapped to a prompt_cache_key derived from tenant and local key, explicit-mode prompt_cache_options with TTL 30m or 12h and prompt_cache_breakpoint markers on exactly the addressed system and user parts, or refused; usage and cache counters from named fields of the pinned ResponseUsage with absent fields :unknown; status failed unknown; error statuses mapped to the interface's failure tags.",
   "limits": [
     "Stub evidence only (R5): conformance to the pinned documented format, never current live behaviour, cache hits or savings, output quality, latency or rate limits; a periodic live check is a later owner decision.",
@@ -33,7 +39,7 @@
     "The pinned POST /responses declares only 200, 400, 404, 429 and 503; the handling of 401, 403, 413, 500, 502 and 504, and 503 meaning overload, are upstream assumptions and policy exercised on stubs.",
     "One model (gpt-6.1-terra) on the Responses surface; Chat Completions, Azure OpenAI, Realtime, images, audio, Decisions, Batch, streaming, sampling, stop sequences, structured output together with tools, tool-result error flags and provider-executed tools are refused or not supplied.",
     "Without a cache hint OpenAI's default implicit prompt caching applies, scoped by OpenAI to the organization or project, not to the Elzoo tenant: tenants sharing one OpenAI credential may share that cache; configure one credential or project per tenant where isolation matters. The derived cache key is an unambiguous length-framed SHA-256 derivation, not a proof of isolation.",
-    "Every consumer must merge config :req_llm, load_dotenv: false by hand (README, Install configuration): the copier merges no configuration and the copied-consumer harness does not prove a consumer's configuration; the Piece test asserts only that the README carries the exact line. The credential invariant holds regardless: only the injected key is used."
+    "Every consumer must merge config :req_llm, load_dotenv: false into its configuration: the line is declared in install_configuration and written into the generated install file, but the copier never edits a consumer's configuration. The repository's copied-consumer harness writes the line and checks that it is set before req_llm starts in the aggregate consumer; a hand-copied consumer that drops the line is not checked. The credential invariant holds regardless: only the injected key is used."
   ],
   "files": [
     "lib/elzoo/ai_text/open_ai.ex",
