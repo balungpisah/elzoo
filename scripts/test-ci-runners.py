@@ -839,8 +839,14 @@ class RunnerPolicyTest(unittest.TestCase):
                 "        with:\n          path: deps\n          key: k\n")
         plain = ("      - name: Another cache\n        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0\n"
                  "        with:\n          path: deps\n          key: k\n")
+        # ELZ-078: the same steps written with capitals (the pinned-action check allows them; GitHub ignores case).
+        save_caps = save.replace("uses: actions/cache/save@", "uses: Actions/Cache/Save@")
+        plain_caps = plain.replace("uses: actions/cache@", "uses: actions/Cache@")
+        self.assertNotEqual(save, save_caps)
+        self.assertNotEqual(plain, plain_caps)
         for job in self.BACKEND_JOB_NAMES:
-            for label, step in (("save", save), ("plain cache", plain)):
+            for label, step in (("save", save), ("plain cache", plain), ("save with capitals", save_caps),
+                                ("plain cache with capitals", plain_caps)):
                 with self.subTest(job=job, label=label):
                     if job == "check-hosted":
                         old, new = "      - name: Require every job\n", step + "      - name: Require every job\n"
@@ -854,8 +860,11 @@ class RunnerPolicyTest(unittest.TestCase):
                     self.tearDown()
                     self.setUp()
         # a third save in the root job, and one save step less
-        self.change_in_job("symbolic-check.yml", "check-root", "      - name: Report BEAM capacity\n", save + "      - name: Report BEAM capacity\n")
-        self.assertIn(message, self.check(1).stderr)
+        for third in (save, save_caps, plain_caps):
+            self.change_in_job("symbolic-check.yml", "check-root", "      - name: Report BEAM capacity\n", third + "      - name: Report BEAM capacity\n")
+            self.assertIn(message, self.check(1).stderr)
+            self.tearDown()
+            self.setUp()
 
     def test_a_part_marker_is_never_printed_by_the_workflow(self):
         for job in self.BACKEND_JOB_NAMES:
@@ -872,14 +881,17 @@ class RunnerPolicyTest(unittest.TestCase):
 
     def test_a_key_cannot_be_appended_to_a_pinned_step(self):
         # Review of PR #144, note 2: the end of a pinned step is part of the pin.
-        for job, step, extra in (("check-root", "        run: sh scripts/run-ci-check.sh --part root\n", "        env:\n          X: y\n"),
-                                 ("check-consumers", "        run: sh scripts/run-ci-check.sh --part consumers\n", "        timeout-minutes: 1\n"),
-                                 ("check-hosted", "            test \"$CONSUMERS\" = skipped\n          fi\n", "        timeout-minutes: 1\n"),
-                                 ("check-plan", "          echo \"ELZOO PLAN: run=$RUN skip=${SKIP:-unset} docs_only=${DOCS_ONLY:-unset}\"\n",
-                                  "        continue-on-error: true\n")):
+        # ELZ-078: each case names the pinned step it must break, with the job.
+        for job, pinned, step, extra in (
+                ("check-root", "name: Run mix check", "        run: sh scripts/run-ci-check.sh --part root\n", "        env:\n          X: y\n"),
+                ("check-consumers", "name: Run mix check", "        run: sh scripts/run-ci-check.sh --part consumers\n", "        timeout-minutes: 1\n"),
+                ("check-hosted", "name: Require every job", "            test \"$CONSUMERS\" = skipped\n          fi\n", "        timeout-minutes: 1\n"),
+                ("check-plan", "name: Plan the work jobs",
+                 "          echo \"ELZOO PLAN: run=$RUN skip=${SKIP:-unset} docs_only=${DOCS_ONLY:-unset}\"\n",
+                 "        continue-on-error: true\n")):
             with self.subTest(job=job, extra=extra.strip()):
                 self.change_in_job("symbolic-check.yml", job, step, step + extra)
-                self.assertTrue(self.check(1).stderr)
+                self.assertIn(f"the pinned step \"{pinned}\" is missing or changed ({job})", self.check(1).stderr)
                 self.tearDown()
                 self.setUp()
 
