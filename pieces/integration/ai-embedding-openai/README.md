@@ -38,8 +38,9 @@ it, with or without the halting steps. Tests check each protection on its own.
   `req_llm` is called and always passed as `api_key:`. `req_llm`'s application
   configuration and OS-environment fallbacks are never reached; a failing Need
   sends nothing (`refused{credentials_unavailable}`).
-- **`config :req_llm, load_dotenv: false`** in every consumer's configuration
-  (see "Install configuration"). The `req_llm` application must be started (it
+- **`config :req_llm, load_dotenv: false`** in every consumer's configuration,
+  declared in the manifest's `install_configuration` (see "Install
+  configuration"). The `req_llm` application must be started (it
   initializes the provider registry), so it is not `runtime: false`.
 - Network egress to the OpenAI API.
 - For tests only: `plug` (Req.Test-style function plugs) and `jsv` (schema
@@ -47,18 +48,23 @@ it, with or without the halting steps. Tests check each protection on its own.
 
 ## Install configuration
 
-Merge this line into the consuming application's configuration (for example
-`config/config.exs`) before the `req_llm` application starts:
+This Piece declares the line below in its manifest field `install_configuration`
+(`piece.json`). The exporter (`mix elzoo.take`) writes it, with its reason, into
+the generated install file `.elzoo/install/<key>.md` under "Configuration" (once,
+even when several selected Pieces declare it). Merge it into the consuming
+application's configuration (for example `config/config.exs`) before the
+`req_llm` application starts:
 
 ```elixir
 config :req_llm, load_dotenv: false
 ```
 
-The copier (`mix elzoo.take`) merges no configuration: it copies source and writes
-dependency instructions only, so every consumer adds this line by hand. The
-copied-consumer test harness does not prove a consumer's configuration either;
-this Piece's test asserts only that this section carries the exact line. Without
-the line, `req_llm` loads a `.env` file from the working directory when it starts
+The copier (`mix elzoo.take`) merges no configuration: every consumer merges
+this line itself. This repository's copied-consumer harness writes the line into
+the aggregate copied consumer and checks that the value is set before `req_llm`
+starts; for any other consumer it does not prove a consumer's configuration, so
+a hand-copied consumer that drops the line is not checked. Without the
+line, `req_llm` loads a `.env` file from the working directory when it starts
 under Mix. The credential invariant holds regardless: this Piece passes only the
 injected Need's key as `api_key:` and never reads a key from configuration, the
 environment or a `.env` file.

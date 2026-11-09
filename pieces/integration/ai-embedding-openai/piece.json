@@ -26,13 +26,19 @@
   "dependencies": [
     "integration/ai-embedding"
   ],
+  "install_configuration": [
+    {
+      "line": "config :req_llm, load_dotenv: false",
+      "reason": "Otherwise req_llm loads a .env file from the working directory when its application starts under Mix."
+    }
+  ],
   "contract": "OpenAI embeddings provider of integration/ai-embedding through req_llm 1.30's documented provider-callback API (prepare_request(:embedding) then Req.request): POST /v1/embeddings with input always an array, encoding_format float and dimensions only when requested; req_http_options max_retries 0; one HTTP exchange with every response halted by an Elzoo step (no redirect, no retry, no req_llm decode or error value); key only from the injected Need as api_key; models text-embedding-3-small (1536, reducible 1..1536) and text-embedding-3-large (3072, reducible 1..3072); input_type unspecified only; declared provider option user; items passed on as listed for the interface's checks; usage prompt_tokens as input_uncached_tokens with cache and output :unknown; provenance with the served model and x-request-id; documented error statuses mapped to the interface's failure tags (429 throttled; 503 and, by the family rule, 529 overloaded).",
   "limits": [
     "Stub evidence only (R5): conformance to the pinned documented format, never current live behaviour, embedding quality, cost, latency or rate limits; a periodic live check is a later owner decision.",
     "Requests and stub responses are validated against an extract of the official OpenAI OpenAPI document (openai/openai-openapi commit 59f5565459caae84f43c49a738248cf2b268a70f, fetched 2026-11-09); conformance to that pinned document only.",
     "404 and 413 are not listed for POST /embeddings in the pinned document; they are mapped by their HTTP meaning.",
     "text-embedding-ada-002, base64 encoding, query or document input types and batch-mode submission are not supplied.",
-    "Every consumer must merge config :req_llm, load_dotenv: false by hand (README, Install configuration): the copier merges no configuration and the copied-consumer harness does not prove a consumer's configuration; the Piece test asserts only that the README carries the exact line. The credential invariant holds regardless: only the injected key is used."
+    "Every consumer must merge config :req_llm, load_dotenv: false into its configuration: the line is declared in install_configuration and written into the generated install file, but the copier never edits a consumer's configuration. The repository's copied-consumer harness writes the line and checks that it is set before req_llm starts in the aggregate consumer; a hand-copied consumer that drops the line is not checked. The credential invariant holds regardless: only the injected key is used."
   ],
   "files": [
     "lib/elzoo/ai_embedding/openai.ex",

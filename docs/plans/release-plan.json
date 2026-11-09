@@ -3691,7 +3691,7 @@
       "disposition": "implementation prepared; acceptance requires merged PR",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/ai-embedding-openai/piece.json",
-      "manifest_sha256": "9fd88d0d215619b4b525f38c0dd4863ecd1c9109b0afef8a5000dbd8be2f8ae0",
+      "manifest_sha256": "bdece85e53bbcf8e50ab11a6cd6599c676bd9b46b12f7da306241ca46ee38c0f",
       "baseline_status": "not in baseline (new row, ELZ-080)"
     },
     {
