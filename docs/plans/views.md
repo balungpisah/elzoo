@@ -692,7 +692,7 @@ Publication copy: [tasks/ELZ-083-mcp-client.md](../../tasks/ELZ-083-mcp-client.m
 
 **Product aims:** P07.
 
-**Acceptance:** Unchanged live issue body (after the two approved 2026-11-09 amendments); local task file is the publication copy. Planning dependencies mirror the published direct dependencies. RC-30 keeps integration/sdk and its scope unchanged.
+**Acceptance:** Unchanged live issue body (after the three approved 2026-11-09 amendments); local task file is the publication copy. Planning dependencies mirror the published direct dependencies. RC-30 keeps integration/sdk and its scope unchanged.
 
 ### ELZ-081
 

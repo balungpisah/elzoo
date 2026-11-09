@@ -72,7 +72,13 @@ conformance fixture).
    custom methods are refused and disclose no path, model or credential, and a
    protocol `ping` is acknowledged with an empty result only; the credential
    never appears in a result, error, inspect value, Adapter
-   log or event; responses and discovery are bounded. Non-goals: an MCP server, stdio
+   log or event, and the injected credential is accepted only if it is at least 24
+   bytes and is not a substring of any Adapter-emitted fixed string (error texts,
+   module and struct names that can appear in inspect output, protocol version
+   strings; a finite list enumerated by a test from the Piece's compiled source) nor of
+   the binding's configured strings (server identity, endpoint), otherwise it is
+   refused before any send as `refused{credentials_unavailable}`; responses and
+   discovery are bounded. Non-goals: an MCP server, stdio
    transport, OAuth flows, resources, prompts, subscriptions, tasks, ACP, deciding
    authority or approval, sandboxing what a tool does.
 3. **Reuse check.** `ex_mcp` 1.8.1 (MIT) supports MCP 2026-07-28 and the legacy
