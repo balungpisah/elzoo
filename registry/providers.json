@@ -130,6 +130,90 @@
       "version": "1.0.1",
       "reference": "https://hexdocs.pm/text_chunker/1.0.1/TextChunker.html",
       "license": "MIT"
+    },
+    "req_llm": {
+      "source": "hex",
+      "package": "req_llm",
+      "version": "1.30.0",
+      "reference": "https://hexdocs.pm/req_llm/1.30.0/readme.html",
+      "license": "Apache-2.0"
+    },
+    "llm_db": {
+      "source": "hex",
+      "package": "llm_db",
+      "version": "2026.11.0",
+      "reference": "https://hexdocs.pm/llm_db/2026.11.0/",
+      "license": "Apache-2.0"
+    },
+    "jsv": {
+      "source": "hex",
+      "package": "jsv",
+      "version": "0.27.0",
+      "reference": "https://hexdocs.pm/jsv/0.27.0/JSV.html",
+      "license": "Apache-2.0"
+    },
+    "abnf_parsec": {
+      "source": "hex",
+      "package": "abnf_parsec",
+      "version": "2.1.0",
+      "reference": "https://hexdocs.pm/abnf_parsec/2.1.0/",
+      "license": "MIT"
+    },
+    "texture": {
+      "source": "hex",
+      "package": "texture",
+      "version": "2.0.0",
+      "reference": "https://hexdocs.pm/texture/2.0.0/",
+      "license": "Apache-2.0"
+    },
+    "zoi": {
+      "source": "hex",
+      "package": "zoi",
+      "version": "0.19.0",
+      "reference": "https://hexdocs.pm/zoi/0.19.0/",
+      "license": "Apache-2.0"
+    },
+    "splode": {
+      "source": "hex",
+      "package": "splode",
+      "version": "0.3.3",
+      "reference": "https://hexdocs.pm/splode/0.3.3/",
+      "license": "MIT"
+    },
+    "server_sent_events": {
+      "source": "hex",
+      "package": "server_sent_events",
+      "version": "1.1.0",
+      "reference": "https://hexdocs.pm/server_sent_events/1.1.0/",
+      "license": "MIT"
+    },
+    "websockex": {
+      "source": "hex",
+      "package": "websockex",
+      "version": "0.5.1",
+      "reference": "https://hexdocs.pm/websockex/0.5.1/",
+      "license": "MIT"
+    },
+    "dotenvy": {
+      "source": "hex",
+      "package": "dotenvy",
+      "version": "1.2.1",
+      "reference": "https://hexdocs.pm/dotenvy/1.2.1/",
+      "license": "Apache-2.0"
+    },
+    "plug": {
+      "source": "hex",
+      "package": "plug",
+      "version": "1.20.3",
+      "reference": "https://hexdocs.pm/plug/1.20.3/",
+      "license": "Apache-2.0"
+    },
+    "plug_crypto": {
+      "source": "hex",
+      "package": "plug_crypto",
+      "version": "2.2.1",
+      "reference": "https://hexdocs.pm/plug_crypto/2.2.1/",
+      "license": "Apache-2.0"
     }
   }
 }

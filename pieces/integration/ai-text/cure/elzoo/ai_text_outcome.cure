@@ -1,0 +1,96 @@
+# SPDX-License-Identifier: Apache-2.0
+mod Elzoo.AiTextOutcome
+  # The exact finite mapping from a text-call failure tag to its Contract
+  # outcome and its delivery result (core/envelope outcome, dispatch and
+  # error class), consumed by the delivery/effect-intent Binding descriptor.
+  # A tag is either decided by the interface (credentials, adapter fault) or
+  # chosen by a provider's classify_failure from the provider's documented
+  # status or the transport result.
+  type TextTag = TagCredentialsUnavailable | TagProviderInvalidRequest | TagProviderTooLarge | TagAuthenticationFailed | TagPermissionDenied | TagNotFound | TagThrottled | TagOverloaded | TagProviderError | TagProviderTimeout | TagTimeout | TagTransport | TagMalformedResponse | TagAdapterError
+
+  type TextClass = ClassRefused | ClassUnknown
+
+  type TextReason = ReasonCredentialsUnavailable | ReasonInvalidRequest | ReasonTooLarge | ReasonAuthenticationFailed | ReasonPermissionDenied | ReasonNotFound | ReasonThrottled | ReasonOverloaded | ReasonTimeout | ReasonTransport | ReasonMalformedResponse | ReasonProviderError
+
+  type DeliveryOutcome = OutRejected | OutFailed | OutUnknown | OutTimedOut
+
+  type DeliveryDispatch = DispatchNot | DispatchDone | DispatchUnknown
+
+  type DeliveryErrorClass = ErrorPermanent | ErrorRetryable | ErrorUnavailable | ErrorUnclassified
+
+  # Refused: attested not sent (credentials), or rejected by the provider
+  # before work by its documented status. Unknown: may have been processed.
+  fn class(tag: TextTag) -> TextClass =
+    match tag
+      TagCredentialsUnavailable() -> ClassRefused()
+      TagProviderInvalidRequest() -> ClassRefused()
+      TagProviderTooLarge() -> ClassRefused()
+      TagAuthenticationFailed() -> ClassRefused()
+      TagPermissionDenied() -> ClassRefused()
+      TagNotFound() -> ClassRefused()
+      TagThrottled() -> ClassRefused()
+      TagOverloaded() -> ClassRefused()
+      TagProviderError() -> ClassUnknown()
+      TagProviderTimeout() -> ClassUnknown()
+      TagTimeout() -> ClassUnknown()
+      TagTransport() -> ClassUnknown()
+      TagMalformedResponse() -> ClassUnknown()
+      TagAdapterError() -> ClassUnknown()
+
+  fn reason(tag: TextTag) -> TextReason =
+    match tag
+      TagCredentialsUnavailable() -> ReasonCredentialsUnavailable()
+      TagProviderInvalidRequest() -> ReasonInvalidRequest()
+      TagProviderTooLarge() -> ReasonTooLarge()
+      TagAuthenticationFailed() -> ReasonAuthenticationFailed()
+      TagPermissionDenied() -> ReasonPermissionDenied()
+      TagNotFound() -> ReasonNotFound()
+      TagThrottled() -> ReasonThrottled()
+      TagOverloaded() -> ReasonOverloaded()
+      TagProviderError() -> ReasonProviderError()
+      TagProviderTimeout() -> ReasonTimeout()
+      TagTimeout() -> ReasonTimeout()
+      TagTransport() -> ReasonTransport()
+      TagMalformedResponse() -> ReasonMalformedResponse()
+      TagAdapterError() -> ReasonProviderError()
+
+  # Contract amendment 1: throttled and overloaded reached transport, so they
+  # are failed/dispatched/retryable and carry no no-send attestation.
+  fn outcome(tag: TextTag) -> DeliveryOutcome =
+    match tag
+      TagCredentialsUnavailable() -> OutTimedOut()
+      TagProviderTimeout() -> OutTimedOut()
+      TagTimeout() -> OutTimedOut()
+      TagProviderError() -> OutUnknown()
+      TagTransport() -> OutUnknown()
+      TagMalformedResponse() -> OutUnknown()
+      TagAdapterError() -> OutUnknown()
+      _ -> OutFailed()
+
+  fn dispatch(tag: TextTag) -> DeliveryDispatch =
+    match tag
+      TagCredentialsUnavailable() -> DispatchNot()
+      TagProviderTimeout() -> DispatchUnknown()
+      TagTimeout() -> DispatchUnknown()
+      TagTransport() -> DispatchUnknown()
+      TagAdapterError() -> DispatchUnknown()
+      _ -> DispatchDone()
+
+  fn error_class(tag: TextTag) -> DeliveryErrorClass =
+    match tag
+      TagCredentialsUnavailable() -> ErrorUnavailable()
+      TagThrottled() -> ErrorRetryable()
+      TagOverloaded() -> ErrorRetryable()
+      TagProviderInvalidRequest() -> ErrorPermanent()
+      TagProviderTooLarge() -> ErrorPermanent()
+      TagAuthenticationFailed() -> ErrorPermanent()
+      TagPermissionDenied() -> ErrorPermanent()
+      TagNotFound() -> ErrorPermanent()
+      _ -> ErrorUnclassified()
+
+  # Only a failure before any request byte reached transport is attested.
+  fn no_send(tag: TextTag) -> Bool =
+    match tag
+      TagCredentialsUnavailable() -> True()
+      _ -> False()
+end
