@@ -419,8 +419,9 @@ defmodule Elzoo.McpClientTest do
       end)
 
     # ex_mcp starts its inline OAuth flow (it then stops only because this
-    # loopback metadata URL is not https).
-    assert log =~ "Attempting full OAuth flow"
+    # loopback metadata URL is not https). Matches both its [info] start line and
+    # its [warning] failure line, so the check holds at any configured log level.
+    assert log =~ "Full OAuth flow" or log =~ "full OAuth flow"
     GenServer.stop(raw)
   end
 
