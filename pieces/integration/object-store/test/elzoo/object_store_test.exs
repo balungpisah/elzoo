@@ -426,6 +426,43 @@ defmodule Elzoo.ObjectStoreTest do
 
     assert {:ok, _} =
              OS.presign(c, "#{p}/d", declaration: decl.("integration/object-store", "presign"))
+
+    # re-review: a declared reconciliation after an unknown put observes the object
+    data = :crypto.strong_rand_bytes(20_000)
+
+    stalled =
+      Stream.concat(
+        [binary_part(data, 0, 1_000)],
+        Stream.repeatedly(fn -> Process.sleep(60_000) end)
+      )
+
+    put_decl = decl.("integration/object-store", "put")
+
+    assert %{status: :unknown, reason: :deadline} =
+             OS.put(c, "#{p}/r", {:stream, stalled, 20_000},
+               content_sha256: H.sha(data),
+               deadline_ms: 500,
+               declaration: put_decl
+             )
+
+    assert %{status: :committed} = OS.put(c, "#{p}/r", data, declaration: put_decl)
+
+    for op <- ["reconcile_put", "put"] do
+      assert %{status: :reconciled, observation: :match} =
+               OS.reconcile_put(c, "#{p}/r", H.sha(data),
+                 declaration: decl.("integration/object-store", op)
+               )
+    end
+
+    assert %{status: :reconciled, observation: :absent} =
+             OS.reconcile_put(c, "#{p}/never", H.sha(data),
+               declaration: decl.("integration/object-store", "reconcile_put")
+             )
+
+    for bad <- [decl.("integration/object-store", "head"), decl.("integration/http", "put"), %{}] do
+      assert %{status: :refused, reason: :invalid_request, origin: :local} =
+               OS.reconcile_put(c, "#{p}/r", H.sha(data), declaration: bad)
+    end
   end
 
   test "S16 the test binding fails closed without the S3 variables (never skips)" do

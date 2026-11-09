@@ -46,7 +46,10 @@ operations or `prefix` for `list`.
 adapter refusals `failed/dispatched`, `unknown{deadline}` is `timed_out/unknown`,
 `unknown{transport | adapter_error}` is `unknown/unknown`, the other unknowns `unknown/dispatched`.
 An optional `declaration:` (an ELZ-011 `Elzoo.Effect` declaration) must name
-`integration/object-store` and the called operation, otherwise `refused{invalid_request}`.
+`integration/object-store` and the called operation (`put`, `get`, `head`, `list`, `delete`,
+`presign`), otherwise `refused{invalid_request}`. `reconcile_put/4` checks a supplied declaration at
+the reconciliation boundary, accepting the operation `reconcile_put` or `put` (the uncertain write it
+reconciles), and runs its inner `head` without it. A declaration is not authorization.
 
 ## Needs
 

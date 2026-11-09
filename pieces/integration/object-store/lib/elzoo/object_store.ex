@@ -114,24 +114,37 @@ defmodule Elzoo.ObjectStore do
   with `intended_sha256` (32 raw bytes). Returns the head's refused/unknown result unchanged, or
   `%{status: :reconciled, observation: :match | :mismatch | :absent, head: head_result}`.
   `:absent` is an observation at that moment, never proof that the write had no effect.
+
+  A supplied `declaration` is checked here, at the reconciliation boundary: it must name
+  `integration/object-store` and the operation `reconcile_put` or `put` (the uncertain write being
+  reconciled). The inner `head` then runs without it.
   """
   def reconcile_put(%Config{} = c, key, intended_sha256, opts \\ []) do
     base = Result.base(c, :reconcile, %{key: key})
 
-    if is_binary(intended_sha256) and byte_size(intended_sha256) == 32 do
-      case head(c, key, opts) do
-        %{status: :absent} = h ->
-          Map.merge(base, %{status: :reconciled, observation: :absent, head: h})
+    cond do
+      not (is_binary(intended_sha256) and byte_size(intended_sha256) == 32) ->
+        Result.refused(base, :invalid_request, :local)
 
-        %{status: :found, metadata: m} = h ->
-          obs = if m.sha256 == hex(intended_sha256), do: :match, else: :mismatch
-          Map.merge(base, %{status: :reconciled, observation: obs, head: h})
+      check_declaration(opts, [:reconcile_put, :put], base) != :ok ->
+        check_declaration(opts, [:reconcile_put, :put], base)
 
-        other ->
-          other
-      end
-    else
-      Result.refused(base, :invalid_request, :local)
+      true ->
+        reconcile_head(c, key, intended_sha256, Keyword.delete(opts, :declaration), base)
+    end
+  end
+
+  defp reconcile_head(c, key, intended_sha256, opts, base) do
+    case head(c, key, opts) do
+      %{status: :absent} = h ->
+        Map.merge(base, %{status: :reconciled, observation: :absent, head: h})
+
+      %{status: :found, metadata: m} = h ->
+        obs = if m.sha256 == hex(intended_sha256), do: :match, else: :mismatch
+        Map.merge(base, %{status: :reconciled, observation: obs, head: h})
+
+      other ->
+        other
     end
   end
 
@@ -323,7 +336,10 @@ defmodule Elzoo.ObjectStore do
 
   # An ELZ-011 Effect declaration, when given, must validate, name this capability and the
   # called operation; otherwise nothing is dispatched.
-  defp check_declaration(opts, operation, base) do
+  defp check_declaration(opts, operation, base) when is_atom(operation),
+    do: check_declaration(opts, [operation], base)
+
+  defp check_declaration(opts, operations, base) do
     case Keyword.fetch(opts, :declaration) do
       :error ->
         :ok
@@ -331,7 +347,7 @@ defmodule Elzoo.ObjectStore do
       {:ok, decl} ->
         case Elzoo.Effect.validate(decl) do
           {:ok, %{"capability_id" => "integration/object-store", "operation" => op}} ->
-            if op == Atom.to_string(operation),
+            if op in Enum.map(operations, &Atom.to_string/1),
               do: :ok,
               else: Result.refused(base, :invalid_request, :local)
 
