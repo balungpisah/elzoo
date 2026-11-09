@@ -19,7 +19,11 @@ digest = :crypto.hash(:sha256, source)
 
 for chunk <- result.chunks do
   # A later reader re-derives the bytes from the source and checks the digest.
-  ^chunk = %{chunk | content: binary_part(source, chunk.start_byte, chunk.end_byte - chunk.start_byte)}
+  ^chunk = %{
+    chunk
+    | content: binary_part(source, chunk.start_byte, chunk.end_byte - chunk.start_byte)
+  }
+
   true = :crypto.hash(:sha256, chunk.content) == chunk.content_digest
   IO.puts("#{chunk.index} [#{chunk.start_byte}, #{chunk.end_byte}) #{inspect(chunk.content)}")
 end

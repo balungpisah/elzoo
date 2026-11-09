@@ -66,7 +66,11 @@ defmodule Elzoo.TextChunking do
   @spec limits() :: map()
   def limits do
     %{
-      max_source_bytes: %{default: @max_source_bytes_default, min: 1, max: @max_source_bytes_ceiling},
+      max_source_bytes: %{
+        default: @max_source_bytes_default,
+        min: 1,
+        max: @max_source_bytes_ceiling
+      },
       chunk_size: %{default: @chunk_size_default, min: @chunk_size_min, max: @chunk_size_max},
       chunk_overlap: %{default: @chunk_overlap_default, min: 0, max: :half_of_chunk_size},
       format: %{default: @format_default, allowed: @formats},
@@ -92,7 +96,8 @@ defmodule Elzoo.TextChunking do
   # Test seam: the same pipeline with an injected split function, so the tests can show that
   # the split is never reached on a refusal and that a bad upstream result is refused whole.
   @doc false
-  def __chunk__(source, source_digest, source_ref, opts, split_fun) when is_function(split_fun, 2) do
+  def __chunk__(source, source_digest, source_ref, opts, split_fun)
+      when is_function(split_fun, 2) do
     with :ok <- check_inputs(source, source_digest, source_ref),
          {:ok, config} <- check_options(opts),
          :ok <- check_size(source, config),
@@ -147,12 +152,20 @@ defmodule Elzoo.TextChunking do
 
   defp build_config(opts) do
     with {:ok, max_source_bytes} <-
-           int_option(opts, :max_source_bytes, @max_source_bytes_default, 1, @max_source_bytes_ceiling),
-         {:ok, chunk_size} <- int_option(opts, :chunk_size, @chunk_size_default, @chunk_size_min, @chunk_size_max),
+           int_option(
+             opts,
+             :max_source_bytes,
+             @max_source_bytes_default,
+             1,
+             @max_source_bytes_ceiling
+           ),
+         {:ok, chunk_size} <-
+           int_option(opts, :chunk_size, @chunk_size_default, @chunk_size_min, @chunk_size_max),
          {:ok, chunk_overlap} <-
            int_option(opts, :chunk_overlap, @chunk_overlap_default, 0, div(chunk_size, 2)),
          {:ok, format} <- format_option(opts),
-         {:ok, max_chunks} <- int_option(opts, :max_chunks, @max_chunks_default, 1, @max_chunks_ceiling) do
+         {:ok, max_chunks} <-
+           int_option(opts, :max_chunks, @max_chunks_default, 1, @max_chunks_ceiling) do
       {:ok,
        %{
          max_source_bytes: max_source_bytes,

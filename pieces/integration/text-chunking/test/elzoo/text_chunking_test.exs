@@ -33,8 +33,27 @@ defmodule Elzoo.TextChunkingTest do
   # Fixed-seed generator over mixed ASCII, multi-byte UTF-8, ZWJ emoji, combining marks,
   # CRLF and the markdown and plaintext separators.
   @alphabet [
-    "a", "b", "c", "word", " ", "  ", "\n", "\n\n", "\t", "\r\n",
-    "é", "ß", "日本語", "🙂", "👩‍👩‍👧", "é", "## ", "\n## ", "\n### ", "```\n\n", "\n\n---\n\n"
+    "a",
+    "b",
+    "c",
+    "word",
+    " ",
+    "  ",
+    "\n",
+    "\n\n",
+    "\t",
+    "\r\n",
+    "é",
+    "ß",
+    "日本語",
+    "🙂",
+    "👩‍👩‍👧",
+    "é",
+    "## ",
+    "\n## ",
+    "\n### ",
+    "```\n\n",
+    "\n\n---\n\n"
   ]
 
   defp generate(state, units) do
@@ -147,7 +166,10 @@ defmodule Elzoo.TextChunkingTest do
         {TextChunking.chunk("", sha(""), "r"), :empty_source},
         {TextChunking.chunk(good, sha(good), "r", max_source_bytes: 4), :source_too_large},
         {TextChunking.chunk(String.duplicate(@secret, 10), sha(String.duplicate(@secret, 10)), "r",
-           chunk_size: 16, chunk_overlap: 0, max_chunks: 2), :too_many_chunks}
+           chunk_size: 16,
+           chunk_overlap: 0,
+           max_chunks: 2
+         ), :too_many_chunks}
       ]
 
       for {result, reason} <- cases do
@@ -176,8 +198,13 @@ defmodule Elzoo.TextChunkingTest do
       split = fn _, _ -> flunk("split reached") end
 
       assert {:error, :too_many_chunks} =
-               TextChunking.__chunk__(source, sha(source), "r",
-                 [chunk_size: 16, chunk_overlap: 0, max_chunks: 6], split)
+               TextChunking.__chunk__(
+                 source,
+                 sha(source),
+                 "r",
+                 [chunk_size: 16, chunk_overlap: 0, max_chunks: 6],
+                 split
+               )
     end
 
     test "the post-check refuses a result over the bound as a whole" do
@@ -185,7 +212,9 @@ defmodule Elzoo.TextChunkingTest do
       source = String.duplicate("x", 64)
       assert {:ok, %{chunks: chunks}} = chunk(source, chunk_size: 16, chunk_overlap: 8)
       assert length(chunks) > 4
-      assert {:error, :too_many_chunks} = chunk(source, chunk_size: 16, chunk_overlap: 8, max_chunks: 4)
+
+      assert {:error, :too_many_chunks} =
+               chunk(source, chunk_size: 16, chunk_overlap: 8, max_chunks: 4)
 
       assert {:ok, %{chunks: ^chunks}} =
                chunk(source, chunk_size: 16, chunk_overlap: 8, max_chunks: length(chunks))
@@ -202,7 +231,8 @@ defmodule Elzoo.TextChunkingTest do
     defp c(s, e, text), do: %TextChunker.Chunk{start_byte: s, end_byte: e, text: text}
 
     test "a well-formed upstream result passes through the seam" do
-      assert {:ok, %{chunks: [_, _]}} = with_upstream([c(0, 11, "hello brave"), c(6, 21, "brave new world")])
+      assert {:ok, %{chunks: [_, _]}} =
+               with_upstream([c(0, 11, "hello brave"), c(6, 21, "brave new world")])
     end
 
     test "each violation" do
@@ -261,10 +291,16 @@ defmodule Elzoo.TextChunkingTest do
     test "malformed positional inputs" do
       s = "some text"
       assert {:error, {:invalid_option, :source}} = TextChunking.chunk(~c"text", sha(s), "r")
-      assert {:error, {:invalid_option, :source_digest}} = TextChunking.chunk(s, binary_part(sha(s), 0, 31), "r")
+
+      assert {:error, {:invalid_option, :source_digest}} =
+               TextChunking.chunk(s, binary_part(sha(s), 0, 31), "r")
+
       assert {:error, {:invalid_option, :source_digest}} = TextChunking.chunk(s, nil, "r")
       assert {:error, {:invalid_option, :source_ref}} = TextChunking.chunk(s, sha(s), "")
-      assert {:error, {:invalid_option, :source_ref}} = TextChunking.chunk(s, sha(s), String.duplicate("r", 1025))
+
+      assert {:error, {:invalid_option, :source_ref}} =
+               TextChunking.chunk(s, sha(s), String.duplicate("r", 1025))
+
       assert {:error, {:invalid_option, :source_ref}} = TextChunking.chunk(s, sha(s), <<0xFF>>)
       assert {:error, {:invalid_option, :source_ref}} = TextChunking.chunk(s, sha(s), :ref)
       assert {:ok, _} = TextChunking.chunk(s, sha(s), String.duplicate("r", 1024))
