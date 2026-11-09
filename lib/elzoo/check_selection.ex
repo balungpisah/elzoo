@@ -6,7 +6,23 @@ defmodule Elzoo.CheckSelection do
   # standalone consumer is a separate evidence change, not a selector side effect.
   @consumer_ids ~w(core/operator core/port core/assembly core/envelope core/edge core/wiring core/selection delivery/idempotency delivery/windowed-idempotency delivery/request-reply delivery/routing delivery/transformation delivery/backpressure delivery/dead-letter delivery/retry-timeout runtime/adapter runtime/host assembly/ingest-json-unit assembly/request-route-retry state/event-log state/checkpoint state/outbox integration/sql workflow/state-machine integration/jobs assembly/durable-job)
 
+  # ELZ-073: the three consumers that need the disposable PostgreSQL database stay together with the
+  # aggregate consumer (one database per job); test/export_test.exs asserts that this list equals
+  # Elzoo.CureConsumerCase.postgres_consumer_ids/0.
+  @postgres_consumer_ids ~w(integration/sql integration/jobs assembly/durable-job)
+  @parts ~w(root consumers-db consumers)
+
   def consumer_ids, do: @consumer_ids
+  def postgres_consumer_ids, do: @postgres_consumer_ids
+  def parts, do: @parts
+
+  @doc """
+  One of three disjoint parts of the full check (ELZ-073): `root` (every test that is not a copied
+  consumer), `consumers-db` (the aggregate consumer and the PostgreSQL per-ID consumers) and
+  `consumers` (the database-free per-ID consumers). Together they select exactly the tests of the
+  full check; test/export_test.exs proves the partition over the loaded suite.
+  """
+  def part(part) when part in @parts, do: %{mode: :part, part: part}
 
   def full(registry) do
     plan(registry, :full, ready_ids(registry), @consumer_ids, "full check (default)")
@@ -79,6 +95,41 @@ defmodule Elzoo.CheckSelection do
       Enum.flat_map(skipped, &["--exclude", "consumer_id:#{&1}"])
   end
 
+  def test_args(%{mode: :part, part: part}) do
+    %{include: include, exclude: exclude} = part_filters(part)
+
+    ["--warnings-as-errors"] ++
+      Enum.flat_map(include, &["--only", &1]) ++ Enum.flat_map(exclude, &["--exclude", &1])
+  end
+
+  @doc """
+  The ExUnit filters of one part, as `mix test` takes them (`--only` and `--exclude`). The single source
+  of the part's test arguments and of the partition proof in test/export_test.exs.
+
+  Notes on ExUnit: `--exclude consumer_id` drops every test that has that tag, whatever its value; an
+  `--only` filter wins over an `--exclude` filter, so the database-free consumers are listed one by one
+  (every per-ID consumer except the PostgreSQL ones). The partition test proves that no consumer test
+  falls between the parts.
+  """
+  def part_filters("root"), do: %{include: [], exclude: ["consumer_id", "aggregate_consumer"]}
+
+  def part_filters("consumers-db"),
+    do: %{
+      include: ["aggregate_consumer" | Enum.map(@postgres_consumer_ids, &"consumer_id:#{&1}")],
+      exclude: []
+    }
+
+  def part_filters("consumers"),
+    do: %{
+      include: Enum.map(@consumer_ids -- @postgres_consumer_ids, &"consumer_id:#{&1}"),
+      exclude: []
+    }
+
+  def report(%{mode: :part, part: part}) do
+    "ELZOO CHECK SELECTION: part #{part}\n" <>
+      "LIMIT: one of the parts #{Enum.join(@parts, ", ")}; the full check is the three together."
+  end
+
   def report(selection) do
     [
       "ELZOO CHECK SELECTION: #{selection.mode}",
@@ -101,6 +152,9 @@ defmodule Elzoo.CheckSelection do
   end
 
   def success_marker(%{mode: :full}), do: "ELZOO CHECK PASSED"
+  def success_marker(%{mode: :part, part: "root"}), do: "ELZOO ROOT SUITE PASSED"
+  def success_marker(%{mode: :part, part: "consumers-db"}), do: "ELZOO CONSUMERS DB PASSED"
+  def success_marker(%{mode: :part, part: "consumers"}), do: "ELZOO CONSUMERS PASSED"
 
   def success_marker(%{mode: :affected}),
     do: "ELZOO AFFECTED CHECK PASSED (not full consumer acceptance; see selected consumer scope)"

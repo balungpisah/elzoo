@@ -1,5 +1,10 @@
 defmodule Mix.Tasks.Check do
-  @moduledoc "Run the full check, or opt into affected consumers with --affected BASE."
+  @moduledoc """
+  Run the full check. Two opt-in forms exist: `--affected BASE` runs only the consumers that a change
+  can affect, and `--part root|consumers-db|consumers` (ELZ-073) runs one of three disjoint parts of
+  the full check, so that CI can run them at the same time. The three parts together run exactly the
+  tests of the full check.
+  """
 
   use Mix.Task
 
@@ -7,11 +12,27 @@ defmodule Mix.Tasks.Check do
 
   @impl Mix.Task
   def run(args) do
-    base =
+    {base, part} =
       case args do
-        [] -> nil
-        ["--affected", base] -> base
-        _ -> Mix.raise("usage: mix check [--affected BASE]; use mix test for a targeted run")
+        [] ->
+          {nil, nil}
+
+        ["--affected", base] ->
+          {base, nil}
+
+        ["--part", part] ->
+          if part in Elzoo.CheckSelection.parts(),
+            do: {nil, part},
+            else:
+              Mix.raise(
+                "unknown part #{inspect(part)}; expected one of #{Enum.join(Elzoo.CheckSelection.parts(), ", ")}"
+              )
+
+        _ ->
+          Mix.raise(
+            "usage: mix check [--affected BASE | --part root|consumers-db|consumers]; " <>
+              "use mix test for a targeted run"
+          )
       end
 
     started = System.monotonic_time(:millisecond)
@@ -19,14 +40,26 @@ defmodule Mix.Tasks.Check do
     stage(started, "format", fn -> Mix.Task.run("format", ["--check-formatted"]) end)
     stage(started, "compile", fn -> Mix.Task.run("compile", ["--warnings-as-errors"]) end)
     stage(started, "ledger", fn -> Mix.Task.run("elzoo.ledger", ["--check"]) end)
-    stage(started, "ash_spike", fn -> Mix.Task.run("elzoo.ash_spike", []) end)
+    # The Ash spike belongs to the root part; the consumer parts run beside it.
+    if is_nil(part) or part == "root",
+      do: stage(started, "ash_spike", fn -> Mix.Task.run("elzoo.ash_spike", []) end)
 
     registry = stage(started, "registry_load", fn -> Elzoo.Registry.load!() end)
 
     selection =
-      if is_nil(base),
-        do: Elzoo.CheckSelection.full(registry),
-        else: Elzoo.CheckSelection.from_git(registry, base)
+      cond do
+        part ->
+          # The full selection validates the consumer inventory against the registry (it raises on a
+          # mismatch); a part must not skip that check.
+          _ = Elzoo.CheckSelection.full(registry)
+          Elzoo.CheckSelection.part(part)
+
+        is_nil(base) ->
+          Elzoo.CheckSelection.full(registry)
+
+        true ->
+          Elzoo.CheckSelection.from_git(registry, base)
+      end
 
     Mix.shell().info(Elzoo.CheckSelection.report(selection))
 

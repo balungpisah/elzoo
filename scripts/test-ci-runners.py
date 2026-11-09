@@ -136,7 +136,7 @@ class RunnerPolicyTest(unittest.TestCase):
 
     def test_extra_backend_job_header_rejected_independently(self):
         self.add_job_header_without_selector("symbolic-check.yml")
-        self.assertIn("exactly one check-hosted job is required", self.check(1).stderr)
+        self.assertIn("exactly the jobs check-plan, check-root, check-consumers-db, check-consumers, check-hosted are required, in this order", self.check(1).stderr)
 
     def test_extra_gleam_job_header_rejected_independently(self):
         self.add_job_header_without_selector("symbolic-gleam.yml")
@@ -318,12 +318,12 @@ class RunnerPolicyTest(unittest.TestCase):
 
     # ELZ-043 re-review (comment 6706080840) controls.
     GATE_START = "      - name: Verify the GitHub-hosted runner\n"
-    GATE_END = "      - name: Report host load and memory context\n"
+    GATE_END = "          free -h || true\n"
 
     def gate_text(self):
         source = (self.root / ".github" / "workflows" / "symbolic-check.yml").read_text()
         start = source.index(self.GATE_START)
-        return source[start:source.index(self.GATE_END, start)]
+        return source[start:source.index(self.GATE_END, start) + len(self.GATE_END)]
 
     def test_flow_sequence_step_mapping_rejected(self):
         self.append("symbolic-check.yml", "      - [ uses: actions/cache@main ]\n")
@@ -476,10 +476,9 @@ class RunnerPolicyTest(unittest.TestCase):
         source = self.source()
         self.assertEqual(1, source.count(self.DECISION))
         self.assertEqual(1, source.count(self.ANY_PERMS))
-        self.assertEqual(2, source.count("github.token"))  # the decision step and the S3 test server step
-        self.assertEqual(2, source.count("permissions:"))  # top level and check-hosted only
+        self.assertEqual(4, source.count("github.token"))  # the decision step and the S3 test server step of each work job
+        self.assertEqual(6, source.count("permissions:"))  # top level and the five jobs
         self.check(0)
-
 
     def test_write_permissions_rejected(self):
         for old, new in ((self.ANY_PERMS, "    permissions:\n      actions: write\n      contents: read\n"),
@@ -511,7 +510,7 @@ class RunnerPolicyTest(unittest.TestCase):
     def test_decision_step_removed_rejected(self):
         self.change("symbolic-check.yml", self.DECISION, "")
         stderr = self.check(1).stderr
-        self.assertIn("the pinned decision step is missing or changed (check-hosted)", stderr)
+        self.assertIn("the pinned decision step is missing or changed (check-plan)", stderr)
 
     def test_decision_step_changes_rejected(self):
         for old, new in (("        run: python3 scripts/ci-skip-decision.py\n", "        run: python3 scripts/ci-skip-decision.py --force\n"),
@@ -552,34 +551,67 @@ class RunnerPolicyTest(unittest.TestCase):
                 self.setUp()
 
     def test_run_mix_check_condition_is_pinned(self):
-        step = "      - name: Run mix check\n" + self.SKIP_IF
-        for new in ("      - name: Run mix check\n",                                     # condition removed: always runs
-                    "      - name: Run mix check\n        if: ${{ false }}\n",          # never runs: a green no-op
-                    "      - name: Run mix check\n        if: ${{ always() }}\n",
-                    "      - name: Run mix check\n        if: ${{ steps.skip.outputs.skip == 'true' }}\n",  # inverted
-                    "      - name: Run mix check\n        if: ${{ github.event_name == 'push' }}\n"):
-            with self.subTest(new=new.strip()):
-                self.change_all("symbolic-check.yml", step, new)
-                self.assertIn("step-level conditions are not the reviewed ones", self.check(1).stderr)
+        for job, part in (("check-root", "root"), ("check-consumers-db", "consumers-db"), ("check-consumers", "consumers")):
+            step = f"      - name: Run mix check\n        run: sh scripts/run-ci-check.sh --part {part}\n"
+            for new in (f"      - name: Run mix check\n        if: ${{{{ false }}}}\n        run: sh scripts/run-ci-check.sh --part {part}\n",
+                        f"      - name: Run mix check\n        if: ${{{{ always() }}}}\n        run: sh scripts/run-ci-check.sh --part {part}\n",
+                        f"      - name: Run mix check\n        if: ${{{{ github.event_name == 'push' }}}}\n        run: sh scripts/run-ci-check.sh --part {part}\n",
+                        f"      - name: Run mix check\n        run: sh scripts/run-ci-check.sh --part {part} || true\n",
+                        f"      - name: Run mix check\n        continue-on-error: true\n        run: sh scripts/run-ci-check.sh --part {part}\n",
+                        f"      - name: Run mix check\n        run: sh scripts/run-ci-check.sh\n",
+                        f"      - name: Run mix check\n        run: sh scripts/run-ci-check.sh --affected origin/main\n",
+                        f"      - name: Run mix check\n        run: sh scripts/run-ci-check.sh --part {part} --part root\n",
+                        ""):
+                with self.subTest(job=job, new=new.strip()[:70]):
+                    self.change_in_job("symbolic-check.yml", job, step, new)
+                    self.assertIn(f"the pinned step \"name: Run mix check\" is missing or changed ({job})", self.check(1).stderr)
+                    self.tearDown()
+                    self.setUp()
+
+    def test_each_work_job_runs_its_own_part_and_no_other(self):
+        # Swapping the parts of two jobs would run a part twice and another never: the step is pinned per job.
+        parts = {"check-root": "root", "check-consumers-db": "consumers-db", "check-consumers": "consumers"}
+        for job, part in parts.items():
+            for other in parts.values():
+                if other == part:
+                    continue
+                with self.subTest(job=job, part=other):
+                    self.change_in_job("symbolic-check.yml", job, f"--part {part}\n", f"--part {other}\n")
+                    self.assertIn("the pinned step \"name: Run mix check\" is missing or changed", self.check(1).stderr)
+                    self.tearDown()
+                    self.setUp()
+
+    def test_run_mix_check_step_cannot_be_removed_from_a_work_job(self):
+        for job, part in (("check-root", "root"), ("check-consumers-db", "consumers-db"), ("check-consumers", "consumers")):
+            with self.subTest(job=job):
+                self.change_in_job("symbolic-check.yml", job, f"      - name: Run mix check\n        run: sh scripts/run-ci-check.sh --part {part}\n", "")
+                self.assertIn(f"the pinned step \"name: Run mix check\" is missing or changed ({job})", self.check(1).stderr)
                 self.tearDown()
                 self.setUp()
 
-    def test_run_mix_check_condition_cannot_be_removed(self):
-        self.change("symbolic-check.yml", "      - name: Run mix check\n" + self.SKIP_IF, "      - name: Run mix check\n")
-        stderr = self.check(1).stderr
-        self.assertIn("step-level conditions are not the reviewed ones (check-hosted)", stderr)
+    def test_the_plan_job_and_the_aggregating_job_do_not_run_mix_check(self):
+        for job in ("check-plan", "check-hosted"):
+            with self.subTest(job=job):
+                self.change_in_job("symbolic-check.yml", job, "      - name: Verify the GitHub-hosted runner\n",
+                                   "      - name: Run mix check\n        run: sh scripts/run-ci-check.sh --part root\n      - name: Verify the GitHub-hosted runner\n")
+                self.assertTrue(self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
 
     def test_other_steps_cannot_gain_or_lose_conditions(self):
-        for old, new in (("      - name: Install runtime libraries\n", "      - name: Install runtime libraries\n" + self.SKIP_IF),
-                         ("      - run: python3 scripts/check-claims.py\n", "      - run: python3 scripts/check-claims.py\n        if: ${{ false }}\n"),
-                         ("      - run: mix setup\n" + self.SKIP_IF, "      - run: mix setup\n"),
-                         ("      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1\n" + self.SKIP_IF,
-                          "      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1\n"),
-                         ("        if: always()\n", "        if: ${{ success() }}\n"),
-                         ("        if: ${{ steps.deps-cache.outputs.cache-hit != 'true' && steps.skip.outputs.skip != 'true' && steps.class.outputs.docs_only != 'true' }}\n",
-                          "        if: ${{ steps.deps-cache.outputs.cache-hit != 'true' }}\n")):
-            with self.subTest(new=new.strip()[:60]):
-                self.change_all("symbolic-check.yml", old, new)
+        for job, old, new in (("check-root", "      - name: Install runtime libraries\n", "      - name: Install runtime libraries\n        if: ${{ false }}\n"),
+                              ("check-plan", "      - run: python3 scripts/check-claims.py\n", "      - run: python3 scripts/check-claims.py\n        if: ${{ false }}\n"),
+                              ("check-root", "      - run: mix setup\n", "      - run: mix setup\n        if: ${{ false }}\n"),
+                              ("check-consumers", "      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1\n",
+                               "      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1\n        if: ${{ needs.check-plan.outputs.run == 'true' }}\n"),
+                              ("check-root", "        if: always()\n", "        if: ${{ success() }}\n"),
+                              ("check-consumers-db", "        if: always()\n", "        if: ${{ success() }}\n"),
+                              ("check-root", "        if: ${{ steps.deps-cache.outputs.cache-hit != 'true' }}\n", ""),
+                              ("check-root", "        if: ${{ steps.deps-cache.outputs.cache-hit != 'true' }}\n",
+                               "        if: ${{ steps.deps-cache.outputs.cache-hit != 'false' }}\n"),
+                              ("check-root", "        if: ${{ steps.minio.outputs.source != 'cache' }}\n", "")):
+            with self.subTest(job=job, new=new.strip()[:60]):
+                self.change_in_job("symbolic-check.yml", job, old, new)
                 self.assertIn("step-level conditions are not the reviewed ones", self.check(1).stderr)
                 self.tearDown()
                 self.setUp()
@@ -591,23 +623,33 @@ class RunnerPolicyTest(unittest.TestCase):
 """
 
     def test_checkout_must_not_persist_the_token(self):
-        self.assertEqual(1, self.source().count(self.CHECKOUT))
-        for new in (self.CHECKOUT.replace("          persist-credentials: false\n", ""),
-                    self.CHECKOUT.replace("persist-credentials: false", "persist-credentials: true"),
-                    self.CHECKOUT.replace("fetch-depth: 0", "fetch-depth: 1"),
-                    self.CHECKOUT + "          token: ${{ secrets.X }}\n",
-                    self.CHECKOUT + "          ref: main\n",
-                    self.CHECKOUT + "          repository: someone/else\n",
-                    self.CHECKOUT + "          persist-credentials: true\n"):
-            with self.subTest(new=new.strip()[-40:]):
-                self.change_all("symbolic-check.yml", self.CHECKOUT, new)
-                self.assertTrue(self.check(1).stderr)
-                self.tearDown()
-                self.setUp()
+        self.assertEqual(4, self.source().count(self.CHECKOUT))     # check-plan and the three work jobs
+        for job in ("check-plan", "check-root", "check-consumers-db", "check-consumers"):
+            for new in (self.CHECKOUT.replace("          persist-credentials: false\n", ""),
+                        self.CHECKOUT.replace("persist-credentials: false", "persist-credentials: true"),
+                        self.CHECKOUT.replace("fetch-depth: 0", "fetch-depth: 1"),
+                        self.CHECKOUT + "          token: ${{ secrets.X }}\n",
+                        self.CHECKOUT + "          ref: main\n",
+                        self.CHECKOUT + "          repository: someone/else\n",
+                        self.CHECKOUT + "          persist-credentials: true\n"):
+                with self.subTest(job=job, new=new.strip()[-40:]):
+                    self.change_in_job("symbolic-check.yml", job, self.CHECKOUT, new)
+                    self.assertTrue(self.check(1).stderr)
+                    self.tearDown()
+                    self.setUp()
+
+    def test_the_aggregating_job_does_not_check_out_the_repository(self):
+        self.change_in_job("symbolic-check.yml", "check-hosted", "      - name: Require every job\n",
+                           self.CHECKOUT + "      - name: Require every job\n")
+        self.assertIn("must not check out the repository (check-hosted)", self.check(1).stderr)
 
     def test_checkout_without_persist_credentials_false_rejected(self):
-        self.change("symbolic-check.yml", "          persist-credentials: false\n", "")
-        self.assertIn("the pinned checkout step (persist-credentials: false) is missing or changed (check-hosted)", self.check(1).stderr)
+        for job in ("check-plan", "check-root", "check-consumers-db", "check-consumers"):
+            with self.subTest(job=job):
+                self.change_in_job("symbolic-check.yml", job, "          persist-credentials: false\n", "")
+                self.assertIn(f"the pinned checkout step (persist-credentials: false) is missing or changed ({job})", self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
 
     def test_header_form_and_oddly_indented_if_keys_rejected(self):
         for old, new in (("      - run: python3 scripts/check-claims.py\n", "      - if: ${{ github.event_name != 'push' }}\n        run: python3 scripts/check-claims.py\n"),
@@ -670,13 +712,26 @@ class RunnerPolicyTest(unittest.TestCase):
 
     def test_hosted_job_header_is_pinned(self):
         for filename, job, old, new in (
-                ("symbolic-check.yml", "check-hosted", "timeout-minutes: 120", "timeout-minutes: 360"),
-                ("symbolic-check.yml", "check-hosted", "      actions: read\n", "      actions: write\n"),
+                # work jobs: time limit, environment and the database service
+                ("symbolic-check.yml", "check-root", "timeout-minutes: 120", "timeout-minutes: 360"),
+                ("symbolic-check.yml", "check-consumers-db", "timeout-minutes: 120", "timeout-minutes: 360"),
+                ("symbolic-check.yml", "check-consumers", "      contents: read\n", "      contents: write\n"),
+                ("symbolic-check.yml", "check-root", "      contents: read\n", "      contents: read\n      actions: read\n"),
+                ("symbolic-check.yml", "check-root", "ERL_FLAGS: '+S 4:4 +SDcpu 1 +SDio 1'", "ERL_FLAGS: '+S 8:8'"),
+                ("symbolic-check.yml", "check-consumers", "postgres:16-bookworm@sha256:5264710be20f409750ac6dc4e5706dcef929c87e241605463f0f9aefa932a8d9", "postgres:16-bookworm"),
+                ("symbolic-check.yml", "check-root", "          - 5432:5432\n", "          - 5432:5432\n          - 22:22\n"),
+                ("symbolic-check.yml", "check-consumers-db", "    services:\n", "    outputs:\n      x: y\n    services:\n"),
+                # the plan job: the token permission (actions: read) is its own, with the output and the time limit
+                ("symbolic-check.yml", "check-plan", "timeout-minutes: 20", "timeout-minutes: 360"),
+                ("symbolic-check.yml", "check-plan", "      actions: read\n", "      actions: write\n"),
+                ("symbolic-check.yml", "check-plan", "      contents: read\n", "      contents: write\n"),
+                ("symbolic-check.yml", "check-plan", "      run: ${{ steps.plan.outputs.run }}\n", "      run: true\n"),
+                ("symbolic-check.yml", "check-plan", "    outputs:\n      run: ${{ steps.plan.outputs.run }}\n",
+                 "    outputs:\n      run: ${{ steps.plan.outputs.run }}\n      other: ${{ steps.plan.outputs.run }}\n"),
+                # the aggregating job
+                ("symbolic-check.yml", "check-hosted", "timeout-minutes: 10", "timeout-minutes: 360"),
                 ("symbolic-check.yml", "check-hosted", "      contents: read\n", "      contents: write\n"),
-                ("symbolic-check.yml", "check-hosted", "ERL_FLAGS: '+S 4:4 +SDcpu 1 +SDio 1'", "ERL_FLAGS: '+S 8:8'"),
-                ("symbolic-check.yml", "check-hosted", "postgres:16-bookworm@sha256:5264710be20f409750ac6dc4e5706dcef929c87e241605463f0f9aefa932a8d9", "postgres:16-bookworm"),
-                ("symbolic-check.yml", "check-hosted", "          - 5432:5432\n", "          - 5432:5432\n          - 22:22\n"),
-                ("symbolic-check.yml", "check-hosted", "    services:\n", "    outputs:\n      x: y\n    services:\n"),
+                ("symbolic-check.yml", "check-hosted", "      contents: read\n", "      contents: read\n      actions: read\n"),
                 ("symbolic-gleam.yml", "gleam-hosted", "timeout-minutes: 30", "timeout-minutes: 360"),
                 ("symbolic-gleam.yml", "gleam-hosted", "working-directory: spikes/gleam_ui", "working-directory: ."),
                 ("symbolic-gleam.yml", "gleam-hosted", "    steps:\n", "    permissions:\n      contents: write\n    steps:\n")):
@@ -722,7 +777,7 @@ class RunnerPolicyTest(unittest.TestCase):
         path = self.root / ".github" / "workflows" / "symbolic-check.yml"
         source = path.read_text()
         path.write_text(source[:source.index("\n  check-hosted:\n")] + "\n")
-        self.assertIn("exactly one check-hosted job is required", self.check(1).stderr)
+        self.assertIn("exactly the jobs check-plan, check-root, check-consumers-db, check-consumers, check-hosted are required, in this order", self.check(1).stderr)
         self.tearDown()
         self.setUp()
         path = self.root / ".github" / "workflows" / "symbolic-gleam.yml"
@@ -731,22 +786,35 @@ class RunnerPolicyTest(unittest.TestCase):
         self.assertIn("exactly one gleam-hosted job is required", self.check(1).stderr)
 
     def test_hosted_backend_token_is_limited_to_the_pinned_steps(self):
-        self.change_in_job("symbolic-check.yml", "check-hosted", "        run: sh scripts/run-ci-check.sh\n",
-                           "        env:\n          GITHUB_TOKEN: ${{ github.token }}\n        run: sh scripts/run-ci-check.sh\n")
-        self.assertIn("github.token and secrets are not allowed", self.check(1).stderr)
+        for job, part in (("check-root", "root"), ("check-consumers-db", "consumers-db"), ("check-consumers", "consumers")):
+            with self.subTest(job=job):
+                self.change_in_job("symbolic-check.yml", job, f"        run: sh scripts/run-ci-check.sh --part {part}\n",
+                                   f"        env:\n          GITHUB_TOKEN: ${{{{ github.token }}}}\n        run: sh scripts/run-ci-check.sh --part {part}\n")
+                self.assertIn("github.token and secrets are not allowed", self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
 
-    def test_hosted_backend_job_keeps_the_decision_step_and_skip_conditions(self):
-        self.change_in_job("symbolic-check.yml", "check-hosted", "      - run: mix setup\n" + self.SKIP_IF,
-                           "      - run: mix setup\n")
-        self.assertIn("step-level conditions are not the reviewed ones", self.check(1).stderr)
+    def test_the_token_is_not_given_to_the_aggregating_job_or_the_plan_steps_besides_the_decision(self):
+        self.change_in_job("symbolic-check.yml", "check-hosted", "          RUN: ${{ needs.check-plan.outputs.run }}\n",
+                           "          RUN: ${{ needs.check-plan.outputs.run }}\n          T: ${{ github.token }}\n")
+        self.assertIn("github.token and secrets are not allowed", self.check(1).stderr)
         self.tearDown()
         self.setUp()
-        self.change_in_job("symbolic-check.yml", "check-hosted", "          persist-credentials: false\n", "")
-        self.assertIn("the pinned checkout step (persist-credentials: false) is missing or changed (check-hosted)", self.check(1).stderr)
+        self.change_in_job("symbolic-check.yml", "check-plan", "        run: python3 scripts/ci-change-class.py github\n",
+                           "        env:\n          T: ${{ github.token }}\n        run: python3 scripts/ci-change-class.py github\n")
+        self.assertTrue(self.check(1).stderr)
 
-    # ELZ-064: the disposable S3 test server steps are pinned in all three backend jobs.
+    def test_hosted_backend_job_keeps_the_decision_step_and_skip_conditions(self):
+        # The plan job keeps its conditions: the roadmap step waits for both the decision and the classification.
+        self.change_in_job("symbolic-check.yml", "check-plan", self.ROADMAP_STEP, self.ROADMAP_STEP.replace(self.SKIP_IF, ""))
+        self.assertIn("step-level conditions are not the reviewed ones (check-plan)", self.check(1).stderr)
+        self.tearDown()
+        self.setUp()
+        self.change_in_job("symbolic-check.yml", "check-plan", "          persist-credentials: false\n", "")
+        self.assertIn("the pinned checkout step (persist-credentials: false) is missing or changed (check-plan)", self.check(1).stderr)
+
     def test_s3_test_server_steps_are_pinned(self):
-        for job in ("check-hosted",):
+        for job in ("check-root", "check-consumers-db", "check-consumers"):
             for old, new in (("        run: python3 scripts/ci-minio.py\n", "        run: curl -fsSL https://example.invalid/x | sh\n"),
                              ("        id: minio\n", "        id: other\n"),
                              ("          GITHUB_TOKEN: ${{ github.token }}\n        run: python3 scripts/ci-minio.py\n",
@@ -754,17 +822,85 @@ class RunnerPolicyTest(unittest.TestCase):
                              ("        run: python3 scripts/ci-minio.py\n", "        run: python3 scripts/ci-minio.py\n        working-directory: /tmp\n"),
                              ("elzoo-minio-RELEASE.2025-09-07T16-13-09Z-", "elzoo-minio-RELEASE.2025-09-07T16-13-10Z-"),
                              ("      - name: Restore the pinned S3 test server binary\n", "      - name: Restore binary\n"),
-                             ("steps.skip.outputs.skip != 'true' && steps.class.outputs.docs_only != 'true' && steps.minio.outputs.source != 'cache'", "always()"),
-                             ("      - name: Start the disposable S3 test server\n" + self.SKIP_IF,
-                              "      - name: Start the disposable S3 test server\n")):
+                             ("      - name: Start the disposable S3 test server\n",
+                              "      - name: Start the disposable S3 test server\n        if: ${{ false }}\n"),
+                             ("      - name: Start the disposable S3 test server\n",
+                              "      - name: Something else first\n        run: true\n      - name: Start the disposable S3 test server\n")):
                 with self.subTest(job=job, new=new.strip()[:50]):
                     self.change_in_job("symbolic-check.yml", job, old, new)
                     self.assertTrue(self.check(1).stderr)
                     self.tearDown()
                     self.setUp()
 
+    def test_no_cache_save_outside_the_root_job_and_exactly_two_in_it(self):
+        # Review of PR #144, should-fix 2: a save step without an `if:` is invisible to the step-level comparison.
+        message = "only the root job saves caches, with exactly two save steps"
+        save = ("      - name: Another save\n        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0\n"
+                "        with:\n          path: deps\n          key: k\n")
+        plain = ("      - name: Another cache\n        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0\n"
+                 "        with:\n          path: deps\n          key: k\n")
+        for job in self.BACKEND_JOB_NAMES:
+            for label, step in (("save", save), ("plain cache", plain)):
+                with self.subTest(job=job, label=label):
+                    if job == "check-hosted":
+                        old, new = "      - name: Require every job\n", step + "      - name: Require every job\n"
+                    else:
+                        old, new = "      - uses: actions/checkout@", step + "      - uses: actions/checkout@"
+                        if job != "check-plan":
+                            old = "      - name: Report BEAM capacity\n"
+                            new = step + old
+                    self.change_in_job("symbolic-check.yml", job, old, new)
+                    self.assertIn(message, self.check(1).stderr)
+                    self.tearDown()
+                    self.setUp()
+        # a third save in the root job, and one save step less
+        self.change_in_job("symbolic-check.yml", "check-root", "      - name: Report BEAM capacity\n", save + "      - name: Report BEAM capacity\n")
+        self.assertIn(message, self.check(1).stderr)
+
+    def test_a_part_marker_is_never_printed_by_the_workflow(self):
+        for job in self.BACKEND_JOB_NAMES:
+            for marker in ("ELZOO ROOT SUITE PASSED", "ELZOO CONSUMERS DB PASSED", "ELZOO CONSUMERS PASSED"):
+                with self.subTest(job=job, marker=marker):
+                    step = f"      - run: echo \"{marker}\"\n"
+                    anchor = "      - name: Require every job\n" if job == "check-hosted" else "      - uses: actions/checkout@"
+                    if job in self.WORK_JOB_NAMES:
+                        anchor = "      - name: Report BEAM capacity\n"
+                    self.change_in_job("symbolic-check.yml", job, anchor, step + anchor)
+                    self.assertIn(f"a part marker may be printed by mix check --part only, not by the workflow ({job})", self.check(1).stderr)
+                    self.tearDown()
+                    self.setUp()
+
+    def test_a_key_cannot_be_appended_to_a_pinned_step(self):
+        # Review of PR #144, note 2: the end of a pinned step is part of the pin.
+        for job, step, extra in (("check-root", "        run: sh scripts/run-ci-check.sh --part root\n", "        env:\n          X: y\n"),
+                                 ("check-consumers", "        run: sh scripts/run-ci-check.sh --part consumers\n", "        timeout-minutes: 1\n"),
+                                 ("check-hosted", "            test \"$CONSUMERS\" = skipped\n          fi\n", "        timeout-minutes: 1\n"),
+                                 ("check-plan", "          echo \"ELZOO PLAN: run=$RUN skip=${SKIP:-unset} docs_only=${DOCS_ONLY:-unset}\"\n",
+                                  "        continue-on-error: true\n")):
+            with self.subTest(job=job, extra=extra.strip()):
+                self.change_in_job("symbolic-check.yml", job, step, step + extra)
+                self.assertTrue(self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+
+    def test_the_s3_save_step_belongs_to_the_root_job_only(self):
+        # Three jobs saving the same cache key would race; the other jobs only restore. The save step and its
+        # condition are pinned in the root job and refused in the others.
+        root_job = self.source().split("\n  check-consumers-db:\n")[0].split("\n  check-root:\n")[1]
+        save = root_job[root_job.index("      - name: Save the pinned S3 test server binary\n"):]
+        save = save[:save.index("      - uses: erlef/setup-beam")]
+        self.assertIn("steps.minio.outputs.source != 'cache'", save)
+        for job in ("check-consumers-db", "check-consumers"):
+            with self.subTest(job=job):
+                self.change_in_job("symbolic-check.yml", job, "      - uses: erlef/setup-beam", save + "      - uses: erlef/setup-beam")
+                self.assertTrue(self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+        self.change_in_job("symbolic-check.yml", "check-root", save, "")
+        self.assertIn("the pinned S3 test server steps are missing or changed (check-root)", self.check(1).stderr)
+
     def test_s3_test_server_steps_cannot_be_removed(self):
-        for job in ("check-hosted",):
+        for job in ("check-root", "check-consumers-db", "check-consumers"):
             with self.subTest(job=job):
                 path = self.root / ".github" / "workflows" / "symbolic-check.yml"
                 source = path.read_text()
@@ -772,7 +908,7 @@ class RunnerPolicyTest(unittest.TestCase):
                 first = source.index("      - name: Restore the pinned S3 test server binary\n", start)
                 last = source.index("      - uses: erlef/setup-beam", first)
                 path.write_text(source[:first] + source[last:])
-                self.assertIn("the pinned S3 test server steps are missing or changed", self.check(1).stderr)
+                self.assertIn(f"the pinned S3 test server steps are missing or changed ({job})", self.check(1).stderr)
                 self.tearDown()
                 self.setUp()
 
@@ -786,7 +922,7 @@ class RunnerPolicyTest(unittest.TestCase):
         self.assertIn("pinned Gleam setup step is missing or changed", self.check(1).stderr)
 
     def test_vars_in_any_case_or_script_text_rejected(self):
-        for filename, job, old in (("symbolic-check.yml", "check-hosted", "      - run: python3 scripts/check-claims.py\n"),
+        for filename, job, old in (("symbolic-check.yml", "check-plan", "      - run: python3 scripts/check-claims.py\n"),
                                    ("symbolic-gleam.yml", "gleam-hosted", "      - run: ./scripts/check.sh\n")):
             for line in ("        env:\n          LANE: ${{ vars.ELZOO_CI_LANE }}\n        run: true\n",
                          "        env:\n          LANE: ${{ Vars.elzoo_ci_lane }}\n        run: true\n",
@@ -828,7 +964,7 @@ class RunnerPolicyTest(unittest.TestCase):
                 self.setUp()
 
     def test_yaml_escapes_cannot_hide_the_token_secrets_or_vars(self):
-        for filename, job, old in (("symbolic-check.yml", "check-hosted", "      - run: python3 scripts/check-claims.py\n"),
+        for filename, job, old in (("symbolic-check.yml", "check-plan", "      - run: python3 scripts/check-claims.py\n"),
                                    ("symbolic-gleam.yml", "gleam-hosted", "      - run: ./scripts/check.sh\n")):
             for value in ('"${{ github.t\\x6fken }}"', '"${{ github.t\\u006fken }}"', '"${{ s\\x65crets.X }}"',
                           '"${{ v\\x61rs.X }}"'):
@@ -841,18 +977,19 @@ class RunnerPolicyTest(unittest.TestCase):
     # ELZ-069: the self-hosted lane is gone; nothing of it may come back silently.
     def test_jobs_must_keep_their_names(self):
         self.change("symbolic-check.yml", "  check-hosted:\n", "  check-renamed:\n")
-        self.assertIn("exactly one check-hosted job is required", self.check(1).stderr)
+        self.assertIn("exactly the jobs check-plan, check-root, check-consumers-db, check-consumers, check-hosted are required, in this order", self.check(1).stderr)
         self.tearDown()
         self.setUp()
         self.change("symbolic-gleam.yml", "  gleam-hosted:\n", "  gleam:\n")
         self.assertIn("exactly one gleam-hosted job is required", self.check(1).stderr)
 
     def test_removed_jobs_cannot_come_back(self):
-        for filename, name in (("symbolic-check.yml", "check-fast"), ("symbolic-check.yml", "check-any"),
-                               ("symbolic-gleam.yml", "gleam")):
+        for filename, name, message in (("symbolic-check.yml", "check-fast", "are required, in this order"),
+                                        ("symbolic-check.yml", "check-any", "are required, in this order"),
+                                        ("symbolic-gleam.yml", "gleam", "job is required")):
             with self.subTest(job=name):
                 self.append(filename, f"\n  {name}:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: true\n")
-                self.assertIn("job is required", self.check(1).stderr)
+                self.assertIn(message, self.check(1).stderr)
                 self.tearDown()
                 self.setUp()
 
@@ -923,11 +1060,13 @@ class RunnerPolicyTest(unittest.TestCase):
                 self.tearDown()
                 self.setUp()
 
-    def test_roadmap_step_must_come_after_the_full_check(self):
-        mix = "      - name: Run mix check\n" + self.SKIP_IF + "        run: sh scripts/run-ci-check.sh\n"
-        self.assertEqual(1, self.source().count(mix))
-        self.change("symbolic-check.yml", mix + self.ROADMAP_STEP, self.ROADMAP_STEP + mix)
-        self.assertIn("step-level conditions are not the reviewed ones", self.check(1).stderr)
+    def test_the_roadmap_step_runs_in_the_plan_job_after_the_decision(self):
+        # The roadmap step waits for the decision and the classification, so it sits after both; moved before the
+        # decision step it would read outputs that do not exist yet (an empty output is not "true", so it would run).
+        self.assertEqual(1, self.source().count(self.ROADMAP_STEP))
+        self.change_in_job("symbolic-check.yml", "check-root", "      - name: Verify the GitHub-hosted runner\n",
+                           self.ROADMAP_STEP + "      - name: Verify the GitHub-hosted runner\n")
+        self.assertIn("step-level conditions are not the reviewed ones (check-root)", self.check(1).stderr)
 
     # ELZ-071: a documentation-only pull request skips the heavy steps and runs the short check; the queue
     # accepts the marker line only when its own classification agrees. Every new step and condition is pinned.
@@ -992,22 +1131,156 @@ class RunnerPolicyTest(unittest.TestCase):
                     '      - run: echo "ELZOO DOCS-ONLY CHECK PASSED"\n      - name: Report container resource observations\n')
         self.assertTrue(self.check(1).stderr)
 
-    def test_every_heavy_step_waits_for_the_classification(self):
-        # Dropping the docs_only condition from any one heavy step would run it on a documentation-only pull request
-        # (or, with the inverted condition, skip it on a code pull request).
-        for header in self.HEAVY_STEPS:
-            start = self.source().index(header)
-            end = self.source().index("\n      - ", start + 1) + 1
-            block = self.source()[start:end]
-            self.assertIn("steps.class.outputs.docs_only != \'true\'", block, header)
-            for new in (block.replace(" && steps.class.outputs.docs_only != \'true\'", ""),            # condition dropped
-                        block.replace("steps.class.outputs.docs_only != \'true\'", "steps.class.outputs.docs_only == \'true\'"),
-                        block.replace("steps.class.outputs.docs_only != \'true\'", "steps.class.outputs.docs_only")):
-                with self.subTest(header=header.strip(), new=new.strip()[-50:]):
-                    self.change("symbolic-check.yml", block, new)
-                    self.assertIn("step-level conditions are not the reviewed ones", self.check(1).stderr)
+    WORK_JOB_NAMES = ("check-root", "check-consumers-db", "check-consumers")
+    BACKEND_JOB_NAMES = ("check-plan", "check-root", "check-consumers-db", "check-consumers", "check-hosted")
+    WORK_HEAD = "    if: ${{ needs.check-plan.outputs.run == 'true' }}\n    needs: check-plan\n"
+
+    def test_every_work_job_waits_for_the_plan(self):
+        # The work jobs run only when the plan says so (not on a push that the skip decision covers, not on a
+        # documentation-only change): the job-level condition and the dependency are pinned in each job.
+        for job in self.WORK_JOB_NAMES:
+            self.assertEqual(1, self.job_text(job).count(self.WORK_HEAD))
+            for new in ("",                                                                              # no condition
+                        "    needs: check-plan\n",                                                       # no if
+                        "    if: ${{ needs.check-plan.outputs.run == 'true' }}\n",                       # no needs
+                        "    if: ${{ always() }}\n    needs: check-plan\n",
+                        "    if: ${{ true }}\n    needs: check-plan\n",
+                        "    if: ${{ needs.check-plan.outputs.run != 'false' }}\n    needs: check-plan\n",
+                        "    if: ${{ needs.check-plan.outputs.run }}\n    needs: check-plan\n",
+                        "    if: ${{ needs.check-plan.outputs.run == 'true' || always() }}\n    needs: check-plan\n",
+                        "    if: ${{ needs.check-plan.outputs.run == 'false' }}\n    needs: check-plan\n",
+                        "    needs: check-plan\n    if: ${{ needs.check-plan.outputs.run == 'true' }}\n",   # other order
+                        "    if: ${{ needs.check-plan.outputs.run == 'true' }}\n    needs: [check-plan, check-hosted]\n",
+                        "    if: ${{ needs.check-plan.outputs.run == 'true' }}\n    needs: check-root\n"):
+                with self.subTest(job=job, new=new.strip()[:70]):
+                    self.change_in_job("symbolic-check.yml", job, self.WORK_HEAD, new)
+                    self.assertIn(f"{job}: same-repository PR job gate is missing or changed", self.check(1).stderr)
                     self.tearDown()
                     self.setUp()
+
+    def job_text(self, job):
+        source = self.source()
+        start = source.index(f"\n  {job}:\n") + 1
+        following = [i for i in (source.find("\n  check-", start + 1), source.find("\n  gleam", start + 1)) if i != -1]
+        return source[start:min(following) + 1 if following else len(source)]
+
+    def test_the_five_backend_jobs_are_required_in_order(self):
+        source = self.source()
+        for job in self.BACKEND_JOB_NAMES:
+            with self.subTest(removed=job):
+                text = self.job_text(job)
+                path = self.root / ".github" / "workflows" / "symbolic-check.yml"
+                path.write_text(source.replace(text, "", 1))
+                self.assertIn("exactly the jobs check-plan, check-root, check-consumers-db, check-consumers, check-hosted are required, in this order",
+                              self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+        # Two jobs swapped: the order is part of the reviewed shape.
+        root, db = self.job_text("check-root"), self.job_text("check-consumers-db")
+        path = self.root / ".github" / "workflows" / "symbolic-check.yml"
+        path.write_text(source.replace(root + db, db + root, 1))
+        self.assertIn("in this order", self.check(1).stderr)
+
+    def test_every_backend_job_keeps_the_identity_gate_first(self):
+        gate = self.gate_text()
+        for job in self.BACKEND_JOB_NAMES:
+            with self.subTest(job=job):
+                self.change_in_job("symbolic-check.yml", job, gate, "")
+                self.assertIn(f"approved runner identity gate is missing or changed ({job})", self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+                self.change_in_job("symbolic-check.yml", job, gate, gate.replace("test \"$RUNNER_ENVIRONMENT\" = github-hosted\n", ""))
+                self.assertIn(f"approved runner identity gate is missing or changed ({job})", self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+
+    PLAN_STEP = ('      - name: Plan the work jobs\n        id: plan\n        env:\n          SKIP: ${{ steps.skip.outputs.skip }}\n'
+                 '          DOCS_ONLY: ${{ steps.class.outputs.docs_only }}\n        run: |\n'
+                 '          if [ "$SKIP" != true ] && [ "$DOCS_ONLY" != true ]; then\n            RUN=true\n          else\n            RUN=false\n          fi\n')
+
+    def test_the_plan_step_is_present_and_pinned(self):
+        self.assertEqual(1, self.source().count(self.PLAN_STEP))
+        for new in ("",                                                                                  # removed
+                    self.PLAN_STEP.replace('[ "$SKIP" != true ] && [ "$DOCS_ONLY" != true ]', '[ "$SKIP" != true ] || [ "$DOCS_ONLY" != true ]'),
+                    self.PLAN_STEP.replace('[ "$SKIP" != true ] && [ "$DOCS_ONLY" != true ]', '[ "$SKIP" != true ]'),
+                    self.PLAN_STEP.replace('[ "$SKIP" != true ] && [ "$DOCS_ONLY" != true ]', 'true'),
+                    self.PLAN_STEP.replace("RUN=true", "RUN=false"),
+                    self.PLAN_STEP.replace("        id: plan\n", "        id: other\n"),
+                    self.PLAN_STEP.replace("          SKIP: ${{ steps.skip.outputs.skip }}\n", ""),
+                    self.PLAN_STEP.replace("DOCS_ONLY: ${{ steps.class.outputs.docs_only }}", "DOCS_ONLY: false"),
+                    self.PLAN_STEP.replace("        id: plan\n", "        id: plan\n        if: ${{ false }}\n"),
+                    self.PLAN_STEP.replace("        id: plan\n", "        id: plan\n        continue-on-error: true\n")):
+            with self.subTest(new=new.strip()[:80]):
+                self.change("symbolic-check.yml", self.PLAN_STEP, new)
+                self.assertTrue(self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+
+    AGG_STEP_START = "      - name: Require every job\n"
+
+    def agg_step(self):
+        text = self.job_text("check-hosted")
+        return text[text.index(self.AGG_STEP_START):]
+
+    def test_the_aggregating_job_is_pinned(self):
+        agg = self.agg_step()
+        gate = "    if: ${{ always() && (github.event_name == 'push'"
+        for old, new in ((gate, "    if: ${{ (github.event_name == 'push'"),                                     # no always()
+                         (gate, "    if: ${{ !cancelled() && (github.event_name == 'push'"),
+                         ("    needs: [check-plan, check-root, check-consumers-db, check-consumers]\n", "    needs: [check-plan, check-root, check-consumers-db]\n"),
+                         ("    needs: [check-plan, check-root, check-consumers-db, check-consumers]\n", "    needs: [check-root, check-consumers-db, check-consumers]\n"),
+                         ("    needs: [check-plan, check-root, check-consumers-db, check-consumers]\n", "    needs: check-plan\n"),
+                         ("          test \"$PLAN\" = success\n", ""),
+                         ("            test \"$ROOT\" = success\n", ""),
+                         ("            test \"$DB\" = success\n", ""),
+                         ("            test \"$CONSUMERS\" = success\n", ""),
+                         ("            test \"$ROOT\" = skipped\n", ""),
+                         ("            test \"$DB\" = skipped\n", "            test \"$DB\" = success\n"),
+                         ("            test \"$RUN\" = false\n", ""),
+                         ("          if [ \"$RUN\" = true ]; then\n", "          if [ \"$RUN\" != false ]; then\n"),
+                         ("            echo \"ELZOO CHECK PASSED\"\n", ""),
+                         ("          CONSUMERS: ${{ needs.check-consumers.result }}\n", "          CONSUMERS: success\n"),
+                         ("          ROOT: ${{ needs.check-root.result }}\n", "          ROOT: ${{ needs.check-plan.result }}\n"),
+                         ("        run: |\n          echo \"plan=", "        continue-on-error: true\n        run: |\n          echo \"plan="),
+                         ("        run: |\n          echo \"plan=", "        run: |\n          exit 0\n          echo \"plan="),
+                         (agg, agg + "      - run: true\n"),                                                  # a third step
+                         ("      - name: Require every job\n", "      - run: true\n      - name: Require every job\n")):
+            with self.subTest(new=new.strip()[:70], old=old.strip()[:40]):
+                self.change_in_job("symbolic-check.yml", "check-hosted", old, new)
+                self.assertTrue(self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+
+    def test_the_full_check_marker_is_printed_by_the_aggregating_job_only(self):
+        self.assertEqual(1, self.source().count("ELZOO CHECK PASSED"))
+        for job in ("check-plan", "check-root", "check-consumers-db", "check-consumers"):
+            with self.subTest(job=job):
+                self.change_in_job("symbolic-check.yml", job, "      - name: Verify the GitHub-hosted runner\n",
+                                   "      - run: echo \"ELZOO CHECK PASSED\"\n      - name: Verify the GitHub-hosted runner\n")
+                self.assertTrue(self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+        self.change_in_job("symbolic-check.yml", "check-hosted", "            echo \"ELZOO CHECK PASSED\"\n",
+                           "            echo \"ELZOO CHECK PASSED\"\n            echo \"ELZOO CHECK PASSED\"\n")
+        self.assertIn("the full-check marker may be printed by the pinned aggregating step only (check-hosted)", self.check(1).stderr)
+
+    def test_the_docs_only_marker_is_printed_by_the_plan_job_only(self):
+        for job in ("check-root", "check-consumers-db", "check-consumers", "check-hosted"):
+            with self.subTest(job=job):
+                self.change_in_job("symbolic-check.yml", job, "      - name: Verify the GitHub-hosted runner\n",
+                                   "      - run: echo \"ELZOO DOCS-ONLY CHECK PASSED\"\n      - name: Verify the GitHub-hosted runner\n")
+                self.assertIn(f"the docs-only marker may be printed by the pinned Docs-only check step only ({job})", self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+
+    def test_the_aggregating_job_has_no_database_cache_or_token(self):
+        for old, new in (("    timeout-minutes: 10\n    steps:\n", "    timeout-minutes: 10\n    services:\n      postgres:\n        image: x\n    steps:\n"),
+                         ("    steps:\n", "    env:\n      T: ${{ github.token }}\n    steps:\n")):
+            with self.subTest(new=new.strip()[:40]):
+                self.change_in_job("symbolic-check.yml", "check-hosted", old, new)
+                self.assertTrue(self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
 
     def test_the_skip_decision_step_does_not_wait_for_the_classification(self):
         # The decision step must keep running on every event (it prints the skip verdict of a push run).

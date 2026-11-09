@@ -20,6 +20,16 @@ A, B, M = "a" * 40, "b" * 40, "c" * 40
 HOSTED_FIELDS = dict(runner_name="GitHub Actions 7", runner_group_name="GitHub Actions", labels=["ubuntu-24.04"])
 
 
+def jobs_text(base):
+    """The jobs part of the merge line: the five job IDs of a run whose job base is `base` (position 0 to 4)."""
+    names = ("check-plan", "check-root", "check-consumers-db", "check-consumers", "check-hosted")
+    return ",".join(f"{name}:{base * 10 + position}" for position, name in enumerate(names))
+
+
+def merge_line(run, base, head=None, merge=None):
+    return f"ELZOO MERGE EVIDENCE pr=79 run={run} jobs={jobs_text(base)} head={head or A} merge={merge or M}"
+
+
 class Fake:
     def __init__(self):
         self.calls = []
@@ -50,10 +60,13 @@ class Fake:
         self.head_prs_pages = None
         self.head_prs_calls = 0
         # ELZ-071: a run can have the docs-only shape (mix check skipped, short check green, its own marker).
-        self.docs_runs = set()         # IDs of runs that have the docs-only shape; their job ID is 400
+        self.docs_runs = set()         # IDs of runs that have the docs-only shape; their jobs have the base ID 400
+        self.jobs_changes = {}         # ELZ-073: job name -> changes of that one job (job_changes applies to every executed job)
+        self.drop_jobs = set()         # names of jobs that the listing of the attempt leaves out
+        self.logs_by_job = {}          # job name -> log text instead of the default log of that job
+        self.job_start = "2026-11-09T01:00:10Z"
         self.docs_steps = [{"name": "Classify the change", "conclusion": "success"},
-                           {"name": "Run mix check", "conclusion": "skipped"},
-                           {"name": "Docs-only check", "conclusion": "success"}]
+                           {"name": "Docs-only check", "conclusion": "success"}]       # steps of the plan job in a docs-only run
         self.docs_log = "2026-11-09T05:00:00.0000000Z ELZOO DOCS-ONLY CHECK PASSED\n"
         # ELZ-071 (review of PR #135): the short check needs a main whose own push run completed with success.
         self.main_head_runs = None     # None: one completed successful push run on the canonical main
@@ -90,7 +103,7 @@ class Fake:
         self.discovery_changes = {}
         self.job_changes = {}
         self.steps = [{"name": "Run mix check", "conclusion": "success"}]
-        self.log = "2026-11-07T13:00:00.0000000Z ELZOO CHECK PASSED\n"
+        self.log = None                # a log text for every job instead of the default logs
         self.old_run = False
         self.ambiguous = False
         self.rerun = False
@@ -142,13 +155,14 @@ class Fake:
         return dict(id=run_id, workflow_id=10, path=".github/workflows/symbolic-check.yml",
                     event="workflow_dispatch", head_branch=self.pr["headRefName"],
                     head_sha=self.pr["headRefOid"], status="completed", conclusion="success",
-                    run_attempt=1)
+                    run_attempt=1, run_started_at="2026-11-09T01:00:05Z")
 
     def pr_run(self, run_id, **changes):
         run = dict(id=run_id, workflow_id=10, path=".github/workflows/symbolic-check.yml",
                    event="pull_request", head_branch=self.pr["headRefName"],
                    head_sha=self.pr["headRefOid"], status="in_progress", conclusion=None, run_attempt=1,
                    head_repository={"full_name": queue.REPO}, created_at="2026-11-09T01:00:00Z",
+                   run_started_at="2026-11-09T01:00:05Z",
                    pull_requests=[{"number": self.pr["number"],
                                    "base": {"ref": "main", "repo": {"url": f"https://api.github.com/repos/{queue.REPO}"}}}])
         run.update(changes)
@@ -161,6 +175,66 @@ class Fake:
                       run_attempt=1)
         result.update(self.gleam_changes)
         return result
+
+    # ELZ-073: one run has five jobs. Job IDs are base * 10 + position (check-plan 0, check-root 1,
+    # check-consumers-db 2, check-consumers 3, check-hosted 4); the base is 400 for a docs-only run,
+    # else 200 + the number of dispatches (so the adopted run has base 200).
+    NAMES = ("check-plan", "check-root", "check-consumers-db", "check-consumers", "check-hosted")
+    PART_MARKERS = {"check-root": "ELZOO ROOT SUITE PASSED", "check-consumers-db": "ELZOO CONSUMERS DB PASSED",
+                    "check-consumers": "ELZOO CONSUMERS PASSED"}
+
+    def job_base(self, read_run):
+        return 400 if read_run in self.docs_runs else 200 + self.dispatches
+
+    def job_id(self, base, name):
+        return base * 10 + self.NAMES.index(name)
+
+    def backend_jobs(self, read_run):
+        docs = read_run in self.docs_runs
+        base = self.job_base(read_run)
+        run_id = read_run if docs else 100 + self.dispatches if self.dispatches else self.adopted()
+        gate = {"name": "Verify the GitHub-hosted runner", "conclusion": "success"}
+        plan_steps = (list(self.docs_steps) if docs else
+                      [{"name": "Classify the change", "conclusion": "success"},
+                       {"name": "Docs-only check", "conclusion": "skipped"}])
+        jobs = []
+        for name in self.NAMES:
+            if name in self.drop_jobs:
+                continue
+            skipped = docs and name in self.PART_MARKERS
+            steps = ([] if skipped else
+                     [gate] + (plan_steps if name == "check-plan" else
+                               [{"name": "Require every job", "conclusion": "success"}] if name == "check-hosted" else
+                               list(self.steps)))
+            job = dict(id=self.job_id(base, name), run_id=run_id, name=name, head_sha=self.pr["headRefOid"],
+                       status="completed", conclusion="skipped" if skipped else "success", **HOSTED_FIELDS,
+                       started_at=self.job_start, steps=steps)
+            if not skipped:
+                job.update(self.job_changes)
+            job.update(self.jobs_changes.get(name, {}))
+            jobs.append(job)
+        if self.other_job_changes is not None:
+            jobs.append(dict(jobs[0], id=998, **self.other_job_changes))
+        if self.duplicate_job:
+            jobs.append(dict(jobs[1], id=999))
+        return jobs
+
+    def job_log(self, job_id):
+        base, position = divmod(job_id, 10)
+        name = self.NAMES[position]
+        if name in self.logs_by_job:
+            return self.logs_by_job[name]
+        if self.log is not None:
+            return self.log
+        stamp = "2026-11-07T13:00:00.0000000Z "
+        if base == 400:   # a docs-only run
+            return (self.docs_log + stamp + "ELZOO PLAN: run=false skip=false docs_only=true\n"
+                    if name == "check-plan" else "")
+        if name == "check-plan":
+            return stamp + "ELZOO PLAN: run=true skip=false docs_only=false\n"
+        if name == "check-hosted":
+            return stamp + "ELZOO CHECK PASSED\n"
+        return stamp + self.PART_MARKERS[name] + "\n"
 
     def execute(self, argv, allowed=(0,)):
         self.calls.append(argv)
@@ -292,23 +366,9 @@ class Fake:
                         runs.append(dict(run, id=900))
                 out = [{"workflow_runs": runs}]
             elif "/attempts/" in path:
-                read_run = int(path.split("/actions/runs/")[1].split("/")[0])
-                docs = read_run in self.docs_runs
-                job = dict(id=400 if docs else 200 + self.dispatches,
-                           run_id=read_run if docs else 100 + self.dispatches if self.dispatches else self.adopted(),
-                           name="check-hosted", head_sha=self.pr["headRefOid"], status="completed",
-                           conclusion="success", **HOSTED_FIELDS,
-                           steps=[{"name": "Verify the GitHub-hosted runner", "conclusion": "success"}]
-                           + (self.docs_steps if docs else self.steps))
-                job.update(self.job_changes)
-                jobs = [job]
-                if self.other_job_changes is not None:
-                    jobs.append(dict(job, id=998, **self.other_job_changes))
-                if self.duplicate_job:
-                    jobs.append(dict(job, id=999))
-                out = [{"jobs": jobs}]
+                out = [{"jobs": self.backend_jobs(int(path.split("/actions/runs/")[1].split("/")[0]))}]
             elif path.endswith("/logs"):
-                out = self.docs_log if "/jobs/400/" in path else self.log
+                out = self.job_log(int(path.rsplit("/", 2)[1]))
             elif "/runs/" in path:
                 self.reads += 1
                 out = self.run_data(int(path.rsplit("/", 1)[1]))
@@ -355,7 +415,7 @@ class QueueTest(unittest.TestCase):
         self.assertEqual(self.fake.commands(["gh", "pr", "merge"]), [
             ["gh", "pr", "merge", "79", "-R", queue.REPO, "--merge", "--match-head-commit", A]])
         self.assertEqual(self.fake.messages[-1],
-                         f"ELZOO MERGE EVIDENCE pr=79 run=101 job=201 runner=GitHub Actions 7 head={A} merge={M}")
+                         merge_line(101, 201))
         self.assertFalse(any(flag in call for call in self.fake.calls
                              for flag in ("--rebase", "--force", "--admin", "--delete-branch", "--auto")))
         self.assertFalse(self.fake.commands(["git", "push"]))
@@ -367,22 +427,6 @@ class QueueTest(unittest.TestCase):
         args = self.fake.dispatch_args[0]
         self.assertEqual(["gh", "workflow", "run", queue.WORKFLOW, "-R", queue.REPO, "--ref", self.fake.pr["headRefName"]], args)
         self.assertNotIn("-f", args)
-
-    def test_old_job_names_cannot_supply_evidence(self):
-        # The removed self-hosted jobs and the old single job name are not evidence, whatever ran them.
-        for name in ("check", "check-fast", "check-any"):
-            with self.subTest(name=name):
-                self.setUp()
-                self.fake.job_changes["name"] = name
-                self.refuses("check-hosted job")
-
-    def test_second_backend_job_refused(self):
-        for change in ({"name": "check-extra"}, {"name": "check-any", "conclusion": "skipped"},
-                       {"conclusion": "success"}, {"conclusion": "skipped"}):
-            with self.subTest(change=change):
-                self.setUp()
-                self.fake.other_job_changes = change
-                self.refuses("check-hosted job")
 
     def test_stale_main_updates_by_merge_and_checks_new_head(self):
         self.fake.stale = True
@@ -526,7 +570,7 @@ class QueueTest(unittest.TestCase):
         self.q.process(79)
         self.assertEqual(self.fake.dispatches, 2)
         self.assertEqual(len(self.fake.commands(["gh", "pr", "update-branch"])), 1)
-        self.assertIn(f"run=102 job=202 runner=GitHub Actions 7 head={B}", self.fake.messages[-1])
+        self.assertIn(f"run=102 jobs={jobs_text(202)} head={B}", self.fake.messages[-1])
 
     def test_ineligible_prs(self):
         for change in ({"isDraft": True}, {"isCrossRepository": True},
@@ -565,10 +609,6 @@ class QueueTest(unittest.TestCase):
         self.fake.old_run = True
         self.fake.suppress_new_run = True
         self.refuses("Timed out")
-
-    def test_duplicate_backend_job_refused(self):
-        self.fake.duplicate_job = True
-        self.refuses("exactly one")
 
     def test_fetch_failure_never_merges(self):
         execute = self.fake.execute
@@ -681,11 +721,189 @@ class HostedLaneEvidence(unittest.TestCase):
         self.assertFalse(self.fake.merged)
         self.assertFalse(self.fake.commands(["gh", "pr", "merge"]))
 
+    def test_executed_check_any_is_never_evidence_in_either_lane(self):
+        self.fake.job_changes = {"name": "check-any"}
+        self.refuses("Expected exactly the five backend jobs")
+
+    def test_each_job_of_the_unit_needs_the_exact_head_run_and_success(self):
+        for name in self.fake.NAMES:
+            for change in ({"conclusion": "failure"}, {"conclusion": "cancelled"}, {"conclusion": None},
+                           {"status": "queued"}, {"status": "in_progress"}, {"head_sha": B}, {"run_id": 1},
+                           {"id": "x"}, {"id": None}):
+                with self.subTest(job=name, change=change):
+                    self.setUp()
+                    self.fake.jobs_changes = {name: change}
+                    self.refuses()
+        # job_changes applies to every executed job of the unit
+        for change in ({"conclusion": "failure"}, {"head_sha": B}, {"run_id": 1}):
+            with self.subTest(all_jobs=change):
+                self.setUp()
+                self.fake.job_changes = change
+                self.refuses()
+
+    def test_each_job_of_the_unit_needs_its_own_steps(self):
+        gate = {"name": "Verify the GitHub-hosted runner", "conclusion": "success"}
+        shapes = {
+            "check-plan": [("no classification", [gate, {"name": "Docs-only check", "conclusion": "skipped"}], "Classification step"),
+                           ("classification failed", [gate, {"name": "Classify the change", "conclusion": "failure"},
+                                                      {"name": "Docs-only check", "conclusion": "skipped"}], "Classification step"),
+                           ("docs-only check ran", [gate, {"name": "Classify the change", "conclusion": "success"},
+                                                    {"name": "Docs-only check", "conclusion": "success"}], "Docs-only step ran"),
+                           ("docs-only step missing", [gate, {"name": "Classify the change", "conclusion": "success"}], "Docs-only step ran or is missing")],
+            "check-root": [("mix check skipped", [gate, {"name": "Run mix check", "conclusion": "skipped"}], "Full check step"),
+                           ("mix check failed", [gate, {"name": "Run mix check", "conclusion": "failure"}], "Full check step"),
+                           ("mix check missing", [gate], "Full check step"),
+                           ("mix check twice", [gate, {"name": "Run mix check", "conclusion": "success"},
+                                                {"name": "Run mix check", "conclusion": "success"}], "Full check step")],
+            "check-hosted": [("no aggregating step", [gate], "Aggregating step"),
+                             ("aggregating step failed", [gate, {"name": "Require every job", "conclusion": "failure"}], "Aggregating step"),
+                             ("aggregating step twice", [gate, {"name": "Require every job", "conclusion": "success"},
+                                                         {"name": "Require every job", "conclusion": "success"}], "Aggregating step")],
+        }
+        for name in self.fake.NAMES:        # the identity step of every job
+            for label, steps in (("no identity step", []), ("identity step failed", [{"name": "Verify the GitHub-hosted runner", "conclusion": "failure"}]),
+                                 ("identity step skipped", [{"name": "Verify the GitHub-hosted runner", "conclusion": "skipped"}]),
+                                 ("identity step twice", [{"name": "Verify the GitHub-hosted runner", "conclusion": "success"}] * 2)):
+                with self.subTest(job=name, label=label):
+                    self.setUp()
+                    steps = steps + self.fake.backend_jobs(self.fake.adopted() or 101)[self.fake.NAMES.index(name)]["steps"][1:]
+                    self.fake.jobs_changes = {name: {"steps": steps}}
+                    self.refuses("identity step")
+        for name, cases in shapes.items():
+            for label, steps, pattern in cases:
+                with self.subTest(job=name, label=label):
+                    self.setUp()
+                    self.fake.jobs_changes = {name: {"steps": steps}}
+                    self.refuses(pattern)
+
+    def test_only_the_five_backend_jobs_may_be_in_the_unit(self):
+        # A sixth job, whatever its name or result, and a duplicate of any job are refused.
+        for change in ({"conclusion": "success"}, {"conclusion": "skipped"}, {"name": "check-extra"},
+                       {"name": "check-any", "conclusion": "skipped"}, {"name": "gleam-hosted"}):
+            with self.subTest(change=change):
+                self.setUp()
+                self.fake.other_job_changes = change
+                self.refuses("Expected exactly the five backend jobs")
+        for name in self.fake.NAMES:
+            with self.subTest(duplicate=name):
+                self.setUp()
+                self.fake.jobs_changes = {}
+                self.fake.duplicate_job = True
+                self.fake.drop_jobs = set()
+                self.refuses("Expected exactly the five backend jobs")
+                break
+
+    def test_a_missing_or_renamed_job_is_no_unit(self):
+        for name in self.fake.NAMES:
+            with self.subTest(missing=name):
+                self.setUp()
+                self.fake.drop_jobs = {name}
+                self.refuses("Expected exactly the five backend jobs")
+            for new in ("other", "check", "check-fast", "check-any", "check-hosted-2", "gleam-hosted", ""):
+                with self.subTest(job=name, renamed=new):
+                    self.setUp()
+                    self.fake.jobs_changes = {name: {"name": new}}
+                    self.refuses("Expected exactly the five backend jobs")
+        self.setUp()
+        self.fake.drop_jobs = set(self.fake.NAMES)
+        self.refuses("Expected exactly the five backend jobs")
+
+    def test_a_skipped_job_is_not_evidence_where_a_job_must_run(self):
+        # The plan job and the aggregating job always run; a work job may be skipped only in a docs-only run.
+        for name in ("check-plan", "check-hosted"):
+            with self.subTest(job=name):
+                self.setUp()
+                self.fake.jobs_changes = {name: {"conclusion": "skipped"}}
+                self.refuses("must have run")
+        for name in ("check-root", "check-consumers-db", "check-consumers"):
+            with self.subTest(job=name):
+                self.setUp()
+                self.fake.jobs_changes = {name: {"conclusion": "skipped"}}
+                self.refuses("not a full run")
+        for names in (("check-root", "check-consumers"), ("check-consumers-db", "check-consumers")):
+            with self.subTest(jobs=names):
+                self.setUp()
+                self.fake.jobs_changes = {name: {"conclusion": "skipped"} for name in names}
+                self.refuses("not a full run")
+        # all three skipped without the docs-only shape is not a full run either
+        self.setUp()
+        self.fake.jobs_changes = {name: {"conclusion": "skipped"} for name in ("check-root", "check-consumers-db", "check-consumers")}
+        self.refuses("Docs-only check step|Docs-only step ran")
+
+    def test_a_job_that_ran_in_an_earlier_attempt_is_no_evidence(self):
+        # GitHub copies the green jobs of an earlier attempt into the new attempt (new job ID, new run_attempt, but the
+        # old start time and runner) when only the failed jobs are re-run: the unit must have run in one attempt.
+        for name in self.fake.NAMES:
+            with self.subTest(job=name):
+                self.setUp()
+                self.fake.jobs_changes = {name: {"started_at": "2026-11-09T00:20:00Z"}}
+                self.refuses("did not run in this attempt")
+        for value in (None, "", "yesterday", 5, "2026-11-09 01:00:10"):
+            with self.subTest(started_at=value):
+                self.setUp()
+                self.fake.jobs_changes = {"check-root": {"started_at": value}}
+                self.refuses("Invalid job start")
+        self.setUp()
+        self.fake.jobs_changes = {"check-root": {"started_at": "2026-11-09T01:00:05Z"}}   # starts with the run: fine
+        self.q.process(79)
+        self.assertTrue(self.fake.merged)
+        for value in (None, "", "x", 5):
+            with self.subTest(run_started_at=value):
+                self.setUp()
+                self.fake.pr_runs = [self.fake.pr_run(700)]
+                self.fake.run_changes = {"run_started_at": value}
+                self.refuses()
+
+    def test_each_log_of_the_unit_must_carry_its_marker_as_a_line_of_its_own(self):
+        stamp = "2026-11-07T13:00:00.0000000Z "
+        markers = {"check-root": "ELZOO ROOT SUITE PASSED", "check-consumers-db": "ELZOO CONSUMERS DB PASSED",
+                   "check-consumers": "ELZOO CONSUMERS PASSED", "check-hosted": "ELZOO CHECK PASSED"}
+        for name, marker in markers.items():
+            for label, log in (("no marker", stamp + "all done\n"), ("empty", ""),
+                               ("echoed command", stamp + f'echo "{marker}"\n'), ("text before", stamp + "x " + marker + "\n"),
+                               ("text after", stamp + marker + " but not really\n"), ("lower case", stamp + marker.lower() + "\n"),
+                               ("another part's marker", stamp + ("ELZOO ROOT SUITE PASSED" if name != "check-root" else "ELZOO CONSUMERS PASSED") + "\n")):
+                with self.subTest(job=name, label=label):
+                    self.setUp()
+                    self.fake.logs_by_job = {name: log}
+                    self.refuses("marker")
+            with self.subTest(job=name, label="timestamp prefix and other lines"):
+                self.setUp()
+                self.fake.logs_by_job = {name: "x\n" + stamp + marker + "\ny\n"}
+                self.q.process(79)
+                self.assertTrue(self.fake.merged)
+        for name in markers:
+            if name == "check-hosted":
+                continue
+            with self.subTest(job=name, label="affected-mode marker"):
+                self.setUp()
+                self.fake.logs_by_job = {name: stamp + markers[name] + "\n" + stamp + "ELZOO AFFECTED CHECK PASSED (not full)\n"}
+                self.refuses("affected-mode marker")
+
+    def test_the_plan_line_must_say_run_true_in_a_full_run(self):
+        stamp = "2026-11-07T13:00:00.0000000Z "
+        for label, log in (("run=false", stamp + "ELZOO PLAN: run=false skip=false docs_only=false\n"), ("none", ""),
+                           ("echoed command", stamp + 'echo "ELZOO PLAN: run=true skip=false docs_only=false"\n'),
+                           ("the docs-only marker too", stamp + "ELZOO PLAN: run=true skip=false docs_only=false\n" + stamp + "ELZOO DOCS-ONLY CHECK PASSED\n")):
+            with self.subTest(label=label):
+                self.setUp()
+                self.fake.logs_by_job = {"check-plan": log}
+                self.refuses("Plan did not say run=true|Docs-only marker present")
+
+    def test_an_affected_mode_marker_in_the_plan_log_of_a_full_run_is_refused(self):
+        stamp = "2026-11-07T13:00:00.0000000Z "
+        self.fake.logs_by_job = {"check-plan": stamp + "ELZOO PLAN: run=true skip=false docs_only=false\n"
+                                 + stamp + "ELZOO AFFECTED CHECK PASSED (not full)\n"}
+        self.refuses("affected-mode marker")
+
     def test_hosted_job_is_accepted_and_recorded(self):
         self.q.process(79)
         self.assertTrue(self.fake.merged)
-        self.assertEqual(self.fake.messages[-1],
-                         f"ELZOO MERGE EVIDENCE pr=79 run=101 job=201 runner=GitHub Actions 7 head={A} merge={M}")
+        self.assertEqual(self.fake.messages[-1], merge_line(101, 201))
+        # every job of the unit was read and its log fetched for the markers: plan, three parts, aggregator
+        logs = [c for c in self.fake.calls if c[:2] == ["gh", "api"] and c[-1].endswith("/logs")]
+        self.assertEqual(sorted(c[-1].split("/jobs/")[1].split("/")[0] for c in logs),
+                         sorted(str(201 * 10 + n) for n in range(5)))
 
     def test_hosted_runner_identity_is_exact(self):
         for change in ({"runner_group_name": "Default"}, {"runner_group_name": None}, {"runner_group_name": "github actions"},
@@ -720,47 +938,6 @@ class HostedLaneEvidence(unittest.TestCase):
                 self.setUp()
                 self.fake.job_changes = {"steps": steps}
                 self.refuses("identity step")
-
-    def test_hosted_job_still_needs_the_exact_head_run_and_full_check(self):
-        for change in ({"conclusion": "failure"}, {"conclusion": "cancelled"}, {"status": "queued"},
-                       {"head_sha": B}, {"run_id": 1}):
-            with self.subTest(change=change):
-                self.setUp()
-                self.fake.job_changes = change
-                self.refuses()
-        for steps in ([{"name": "Verify the GitHub-hosted runner", "conclusion": "success"}],
-                      [{"name": "Verify the GitHub-hosted runner", "conclusion": "success"},
-                       {"name": "Run mix check", "conclusion": "skipped"}],
-                      [{"name": "Verify the GitHub-hosted runner", "conclusion": "success"},
-                       {"name": "Run mix check", "conclusion": "failure"}]):
-            with self.subTest(steps=steps):
-                self.setUp()
-                self.fake.job_changes = {"steps": steps}
-                self.refuses("Full check step")
-
-    def test_skipped_hosted_job_is_not_evidence(self):
-        # The run succeeded because every job was skipped: no job ran the check.
-        self.fake.job_changes = {"conclusion": "skipped"}
-        self.refuses("Expected exactly one executed")
-
-    def test_only_one_backend_job_may_have_run(self):
-        # A second backend job that executed, whatever its name, is refused: the run has no single evidence job.
-        self.fake.other_job_changes = {"conclusion": "success"}
-        self.refuses("Expected exactly one executed")
-
-    def test_executed_check_any_is_never_evidence_in_either_lane(self):
-        self.fake.job_changes = {"name": "check-any"}
-        self.refuses("Expected exactly one executed")
-
-    def test_unknown_or_duplicate_job_names_refused(self):
-        for change in ({"name": "other"}, {"name": "check"}, {"name": "gleam-hosted"}):
-            with self.subTest(change=change):
-                self.setUp()
-                self.fake.job_changes = change
-                self.refuses("Expected exactly one executed")
-        self.setUp()
-        self.fake.duplicate_job = True
-        self.refuses("Expected exactly one executed")
 
     def test_hosted_gleam_job_is_accepted_and_recorded(self):
         self.q.process(79)
@@ -819,7 +996,7 @@ class PullRequestEvidence(unittest.TestCase):
         self.assertEqual([], self.fake.commands(["gh", "workflow", "run"]))
         self.assertIn(f"Adopted pull_request run 700 for PR #79 head={A}", self.fake.messages)
         self.assertTrue(self.fake.messages[-2].startswith("ELZOO GLEAM EVIDENCE"))  # the default path list is a Gleam path
-        self.assertEqual(f"ELZOO MERGE EVIDENCE pr=79 run=700 job=200 runner=GitHub Actions 7 head={A} merge={M}",
+        self.assertEqual(merge_line(700, 200),
                          self.fake.messages[-1])
         self.assertTrue(self.fake.merged)
 
@@ -833,7 +1010,7 @@ class PullRequestEvidence(unittest.TestCase):
         self.assertEqual(B, self.fake.commands(["gh", "pr", "merge"])[0][-1])
         # The fake refuses every write through gh api (cancel is a POST), so a cancel would have failed the test.
         self.assertFalse([c for c in self.fake.calls if c[:2] == ["gh", "api"] and ("-X" in c or "POST" in c)])
-        self.assertIn(f"run=700 job=200 runner=GitHub Actions 7 head={B}", self.fake.messages[-1])
+        self.assertIn(f"run=700 jobs={jobs_text(200)} head={B}", self.fake.messages[-1])
 
     def test_the_queue_waits_for_the_run_of_the_new_head(self):
         self.fake.stale = True
@@ -853,7 +1030,7 @@ class PullRequestEvidence(unittest.TestCase):
         self.assertEqual(1, len(reasons))
         self.assertIn("within 45 s", reasons[0])
         self.assertIn("a dispatch run is not a pull request status", reasons[0])
-        self.assertIn("run=101 job=201", self.fake.messages[-1])
+        self.assertIn(f"run=101 jobs={jobs_text(201)}", self.fake.messages[-1])
 
     def test_only_the_same_repository_pull_request_run_of_the_exact_head_is_adopted(self):
         # Every run below differs from the exact-head pull_request run in one respect: none is adopted, so the
@@ -918,7 +1095,7 @@ class PullRequestEvidence(unittest.TestCase):
                 self.q.process(79)
                 self.assertEqual(1, self.fake.dispatches)
                 self.assertTrue(any("base of PR #79 changed once" in m for m in self.fake.messages))
-                self.assertIn("run=101 job=201", self.fake.messages[-1])
+                self.assertIn(f"run=101 jobs={jobs_text(201)}", self.fake.messages[-1])
 
     def test_other_timeline_events_keep_the_run(self):
         self.fake.pr_runs = [self.fake.pr_run(700)]
@@ -926,7 +1103,7 @@ class PullRequestEvidence(unittest.TestCase):
                               {"event": "head_ref_force_pushed"}, {"event": "committed"}]
         self.q.process(79)
         self.assertEqual(0, self.fake.dispatches)
-        self.assertIn("run=700 job=200", self.fake.messages[-1])
+        self.assertIn(f"run=700 jobs={jobs_text(200)}", self.fake.messages[-1])
 
     def test_a_timeline_page_that_is_not_a_list_refuses_the_merge(self):
         for pages in ([{"event": "base_ref_changed", "created_at": "2026-11-09T02:00:00Z"}], [[], {"x": 1}],
@@ -953,7 +1130,7 @@ class PullRequestEvidence(unittest.TestCase):
                 self.assertEqual(1, self.fake.dispatches)
                 self.assertTrue(any("Another pull request exists for branch task/ELZ-039" in m
                                     for m in self.fake.messages))
-                self.assertIn("run=101 job=201", self.fake.messages[-1])
+                self.assertIn(f"run=101 jobs={jobs_text(201)}", self.fake.messages[-1])
 
     def test_a_sibling_pull_request_that_appears_after_the_adoption_stops_the_merge(self):
         self.fake.pr_runs = [self.fake.pr_run(700)]
@@ -1078,7 +1255,7 @@ class PullRequestEvidence(unittest.TestCase):
         self.fake.pr_runs = [None, "x", 7, {}, {"id": "9"}, self.fake.pr_run(700)]
         self.q.process(79)
         self.assertEqual(0, self.fake.dispatches)
-        self.assertIn("run=700 job=200", self.fake.messages[-1])
+        self.assertIn(f"run=700 jobs={jobs_text(200)}", self.fake.messages[-1])
 
     def test_the_latest_run_decides(self):
         # Two pull_request runs for the same head: the higher ID is adopted, so a newer failure is not hidden.
@@ -1439,11 +1616,24 @@ class DocsOnlyFastPath(unittest.TestCase):
         self.q.process(79)
         self.assertTrue(self.fake.merged)
         self.assertEqual(0, self.fake.dispatches)
-        self.assertEqual(f"ELZOO MERGE EVIDENCE pr=79 run=700 job=400 runner=GitHub Actions 7 head={A} merge={M} mode=docs-only",
+        self.assertEqual(merge_line(700, 400) + " mode=docs-only",
                          self.fake.messages[-1])
         # No Gleam path in the change: the Gleam run is not required.
         self.assertTrue(any(m.startswith("Gleam run not required for PR #79") for m in self.fake.messages))
         self.assertTrue(any(m.startswith("ELZOO GLEAM GATE not required") for m in self.fake.messages))
+
+    def test_agents_md_is_documentation_for_the_queue_too(self):
+        # ELZ-073 scope addition (owner, 2026-11-09): the queue's own classifier accepts AGENTS.md (the one-code-path
+        # test above keeps a code path next to it a full run).
+        for paths in (["AGENTS.md"], ["AGENTS.md", "docs/a.md"]):
+            with self.subTest(paths=paths):
+                self.setUp()
+                self.docs_pr(paths=paths)
+                self.fake.raw_paths = paths
+                self.q.process(79)
+                self.assertTrue(self.fake.merged)
+                self.assertEqual(0, self.fake.dispatches)
+                self.assertTrue(self.fake.messages[-1].endswith(" mode=docs-only"))
 
     def test_the_queue_classifies_the_fetched_refs_with_the_main_sha_of_the_canonical_repository(self):
         self.docs_pr()
@@ -1560,7 +1750,7 @@ class DocsOnlyFastPath(unittest.TestCase):
         self.q.process(79)
         self.assertEqual([], self.fake.raw_diff_calls)
         self.assertNotIn("mode=docs-only", self.fake.messages[-1])
-        self.assertEqual(f"ELZOO MERGE EVIDENCE pr=79 run=700 job=200 runner=GitHub Actions 7 head={A} merge={M}",
+        self.assertEqual(merge_line(700, 200),
                          self.fake.messages[-1])
 
     def test_the_dispatch_fallback_run_is_accepted_as_before(self):
@@ -1578,7 +1768,7 @@ class DocsOnlyFastPath(unittest.TestCase):
                              ("test", ["test/registry_test.exs"]),
                              ("pieces readme", ["pieces/core/selection/README.md"]),
                              ("ledger", ["LEDGER.md"]),
-                             ("agents", ["AGENTS.md"]),
+                             ("agents next to code", ["AGENTS.md", "scripts/tool.py"]),
                              ("file read by the export", ["docs/consuming.md"]),
                              ("traversal", ["docs/../scripts/x.py"]),
                              ("look-alike", ["docs-x/a.md"]),
@@ -1591,7 +1781,7 @@ class DocsOnlyFastPath(unittest.TestCase):
                 self.assertEqual(1, self.fake.dispatches)
                 self.assertTrue(any("the queue does not accept the short check" in m and "dispatching a full run" in m
                                     for m in self.fake.messages))
-                self.assertEqual(f"ELZOO MERGE EVIDENCE pr=79 run=101 job=201 runner=GitHub Actions 7 head={A} merge={M}",
+                self.assertEqual(merge_line(101, 201),
                                  self.fake.messages[-1])
                 self.assertTrue(any("does NOT satisfy branch protection" in m for m in self.fake.messages))
 
@@ -1647,32 +1837,30 @@ class DocsOnlyFastPath(unittest.TestCase):
         self.assertEqual(2, len(self.fake.raw_diff_calls))
 
     def test_the_short_check_needs_every_one_of_its_steps_green(self):
-        def steps(classify="success", mix="skipped", docs="success", extra=()):
-            return ([{"name": "Classify the change", "conclusion": classify}] if classify else []) + \
-                   ([{"name": "Run mix check", "conclusion": mix}] if mix else []) + \
+        # The plan job of a docs-only run: the identity step, the classification and the short check, each once and green.
+        gate = {"name": "Verify the GitHub-hosted runner", "conclusion": "success"}
+
+        def shape(classify="success", docs="success", extra=()):
+            return [gate] + ([{"name": "Classify the change", "conclusion": classify}] if classify else []) + \
                    ([{"name": "Docs-only check", "conclusion": docs}] if docs else []) + list(extra)
         bad = {
-            "docs-only check failed": steps(docs="failure"),
-            "docs-only check skipped": steps(docs="skipped"),
-            "docs-only check cancelled": steps(docs="cancelled"),
-            "docs-only check missing": steps(docs=None),
-            "docs-only check without conclusion": steps(docs=None, extra=[{"name": "Docs-only check"}]),
-            "classify failed": steps(classify="failure"),
-            "classify skipped": steps(classify="skipped"),
-            "classify missing": steps(classify=None),
-            "classify twice": steps(extra=[{"name": "Classify the change", "conclusion": "success"}]),
-            "docs-only check twice": steps(extra=[{"name": "Docs-only check", "conclusion": "success"}]),
-            "mix check missing": steps(mix=None),
-            "mix check failed": steps(mix="failure"),
-            "mix check cancelled": steps(mix="cancelled"),
-            "mix check twice": steps(extra=[{"name": "Run mix check", "conclusion": "skipped"}]),
+            "docs-only check failed": shape(docs="failure"),
+            "docs-only check skipped": shape(docs="skipped"),
+            "docs-only check cancelled": shape(docs="cancelled"),
+            "docs-only check missing": shape(docs=None),
+            "docs-only check without conclusion": shape(docs=None, extra=[{"name": "Docs-only check"}]),
+            "docs-only check twice": shape(extra=[{"name": "Docs-only check", "conclusion": "success"}]),
+            "classify failed": shape(classify="failure"),
+            "classify skipped": shape(classify="skipped"),
+            "classify missing": shape(classify=None),
+            "classify twice": shape(extra=[{"name": "Classify the change", "conclusion": "success"}]),
         }
-        for label, shape in bad.items():
+        for label, steps in bad.items():
             with self.subTest(label=label):
                 self.setUp()
                 self.docs_pr()
-                self.fake.docs_steps = shape
-                self.refuses("Full check step|docs-only check steps")
+                self.fake.jobs_changes = {"check-plan": {"steps": steps}}
+                self.refuses("Classification step|Docs-only check step")
                 self.assertEqual(0, self.fake.dispatches)
 
     def test_the_marker_must_be_a_line_of_its_own(self):
@@ -1705,7 +1893,26 @@ class DocsOnlyFastPath(unittest.TestCase):
                 self.setUp()
                 self.docs_pr()
                 self.fake.docs_log = log
-                self.refuses("Missing docs-only success marker")
+                self.refuses("marker")
+
+    def test_a_docs_only_run_needs_the_plan_line_run_false(self):
+        # Review of PR #144, note 1: the marker alone is not the short shape; the plan line must say run=false.
+        stamp = "2026-11-09T05:00:00.0000000Z "
+        marker = stamp + "ELZOO DOCS-ONLY CHECK PASSED\n"
+        for label, log in (("no plan line", marker),
+                           ("plan says run=true", marker + stamp + "ELZOO PLAN: run=true skip=false docs_only=true\n"),
+                           ("plan says docs_only=false", marker + stamp + "ELZOO PLAN: run=false skip=false docs_only=false\n"),
+                           ("echoed plan line", marker + stamp + 'echo "ELZOO PLAN: run=false skip=false docs_only=true"\n')):
+            with self.subTest(label=label):
+                self.setUp()
+                self.docs_pr()
+                self.fake.logs_by_job = {"check-plan": log}
+                self.refuses("docs-only success marker or plan line")
+        self.setUp()
+        self.docs_pr()
+        self.fake.logs_by_job = {"check-plan": marker + stamp + "ELZOO PLAN: run=false skip=false docs_only=true\n"}
+        self.q.process(79)
+        self.assertTrue(self.fake.merged)
 
     def test_a_docs_only_run_is_not_accepted_by_another_event_or_head_or_runner(self):
         for label, change in (("failed run", dict(run_changes={"conclusion": "failure"})),
@@ -1722,17 +1929,17 @@ class DocsOnlyFastPath(unittest.TestCase):
                 self.assertFalse(self.fake.merged)
 
     def test_a_job_with_the_old_shape_is_not_a_docs_only_run(self):
-        # A second job (an old-shape run) is refused as before, whatever the steps say.
+        # A sixth job (an old-shape run) is refused as before, whatever the steps say.
         self.docs_pr()
         self.fake.other_job_changes = {"name": "check-other"}
-        self.refuses("Expected exactly one executed check-hosted job")
+        self.refuses("Expected exactly the five backend jobs")
 
     def test_the_full_step_alone_never_substitutes_for_the_docs_only_shape_when_the_queue_forbids_it(self):
         # After the fallback dispatch the evidence run must be a full run: a docs-only shape is refused.
         self.docs_pr()
         self.fake.docs_runs = {700, 101}      # the fallback run also has the docs-only shape
         self.fake.raw_paths = ["scripts/tool.py"]
-        self.refuses("Full check step missing, skipped or failed")
+        self.refuses("Full check jobs missing or skipped: not a full run")
         self.assertEqual(1, self.fake.dispatches)
 
     def test_the_newer_run_check_and_the_adoption_rules_still_apply(self):

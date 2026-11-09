@@ -15,6 +15,7 @@ scripts/ci-change-class.py, next to this file and never the pull request's, clas
 (`git diff main...head` on the fetched refs) as documentation only. Otherwise the queue dispatches a full run.
 """
 import argparse
+from datetime import datetime
 import importlib.util
 import json
 from pathlib import Path
@@ -38,6 +39,17 @@ GLEAM_WORKFLOW = "symbolic-gleam.yml"
 # ELZ-069: one lane, GitHub-hosted. The only backend job is check-hosted, the only Gleam job is gleam-hosted.
 HOSTED_JOB = "check-hosted"
 GLEAM_HOSTED_JOB = "gleam-hosted"
+# ELZ-073: one run of the backend workflow has five jobs, and the run is one evidence unit. `check-plan` runs the
+# guards, the classification and the push-skip decision; the three work jobs run the three parts of `mix check`
+# when the plan says so; `check-hosted` aggregates them (the name that branch protection requires).
+PLAN_JOB = "check-plan"
+WORK_PARTS = (("check-root", "root", "ELZOO ROOT SUITE PASSED"),
+              ("check-consumers-db", "consumers-db", "ELZOO CONSUMERS DB PASSED"),
+              ("check-consumers", "consumers", "ELZOO CONSUMERS PASSED"))
+BACKEND_JOBS = (PLAN_JOB,) + tuple(job for job, _part, _marker in WORK_PARTS) + (HOSTED_JOB,)
+FULL_MARKER = "ELZOO CHECK PASSED"
+DOCS_MARKER = "ELZOO DOCS-ONLY CHECK PASSED"
+LOG_STAMP = r"(?m)^(?:\d{4}-\d\d-\d\dT[0-9:.]+Z )?"
 HOSTED_GROUP = "GitHub Actions"
 HOSTED_LABELS = ["ubuntu-24.04"]
 HOSTED_RUNNER = re.compile(r"GitHub Actions [0-9]+")
@@ -148,6 +160,14 @@ def retrying(run, sleep, emit, clock=None, deadline=None):
 def require(condition, reason):
     if not condition:
         raise QueueError(reason)
+
+
+def parse_time(value, what):
+    """A GitHub UTC timestamp as a datetime; anything else refuses."""
+    try:
+        return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+    except (TypeError, ValueError) as error:
+        raise QueueError(f"Invalid {what}: {value!r}") from error
 
 
 def valid_sha(value):
@@ -360,9 +380,12 @@ class Queue:
             self.pause("new exact-head workflow_dispatch run", end)
 
     def evidence(self, run_id, pr, workflow_id, allow_docs_only=True):
-        """The successful exactly-one-job run of the exact head. Returns (job, mode): mode is "full" for a run
-        that executed `mix check`, "docs-only" for a run that skipped it and passed the short `Docs-only check`.
-        A docs-only run is only the shape of the run: the caller accepts it after the queue's own classification."""
+        """The successful run of the exact head, read as one evidence unit (ELZ-073). Returns (jobs, mode), where
+        jobs maps the five job names to their API objects. Mode "full": all five jobs ran in this attempt and
+        succeeded, the three work jobs printed their part markers and the aggregating job printed the full marker.
+        Mode "docs-only": the plan job passed the short check (marker line), the three work jobs were skipped and the
+        aggregating job succeeded; the caller accepts it after the queue's own classification. Anything else (a
+        missing, extra, duplicated, red, cancelled or mixed set, a job that ran in an earlier attempt) is no evidence."""
         while True:
             run = self.api(f"actions/runs/{run_id}")
             require(run.get("id") == run_id and self.run_matches(run, pr, workflow_id),
@@ -373,50 +396,91 @@ class Queue:
         require(run.get("conclusion") == "success", f"Run {run_id}: {run.get('conclusion')}")
         attempt = run.get("run_attempt")
         require(isinstance(attempt, int) and attempt > 0, "Missing run attempt")
+        began = parse_time(run.get("run_started_at"), "run start")
         pages = self.data("gh", "api", "--paginate", "--slurp",
                           f"repos/{REPO}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100")
         jobs = [job for page in pages for job in page["jobs"]]
-        # The workflow has one backend job. A run whose job list holds any other job (an old-shape run) or no
-        # executed check-hosted job is not evidence.
-        job = one_executed_job(jobs, {HOSTED_JOB}, {HOSTED_JOB}, "Expected exactly one executed check-hosted job")
-        require(job.get("run_id") == run_id and job.get("head_sha") == pr["headRefOid"] and
-                job.get("status") == "completed" and job.get("conclusion") == "success",
-                "Backend job is not successful on the exact head/run")
-        require(hosted_runner(job), "Unapproved hosted runner")
-        gate = [step for step in job.get("steps", []) if step.get("name") == HOSTED_GATE_STEP]
-        require(len(gate) == 1 and gate[0].get("conclusion") == "success",
-                "Hosted runner identity step missing, skipped or failed")
-        steps = [step for step in job.get("steps", []) if step.get("name") == "Run mix check"]
-        mode = "full"
-        if len(steps) == 1 and steps[0].get("conclusion") == "skipped" and allow_docs_only:
-            # ELZ-071: the short check of a documentation-only run. All three steps must have run green.
-            named = {name: [step for step in job.get("steps", []) if step.get("name") == name]
-                     for name in ("Classify the change", "Docs-only check")}
-            require(all(len(found) == 1 and found[0].get("conclusion") == "success" for found in named.values()),
-                    "Full check step skipped and the docs-only check steps are not green")
+        names = [job.get("name") for job in jobs]
+        require(sorted(names) == sorted(BACKEND_JOBS), "Expected exactly the five backend jobs, once each")
+        by_name = {job["name"]: job for job in jobs}
+        for job in jobs:
+            if job.get("conclusion") != "skipped":
+                self.check_backend_job(job, run_id, pr, began)
+        plan, aggregate = by_name[PLAN_JOB], by_name[HOSTED_JOB]
+        require(plan.get("conclusion") != "skipped" and aggregate.get("conclusion") != "skipped",
+                "The plan job and the aggregating job must have run")
+        work = [by_name[job] for job, _part, _marker in WORK_PARTS]
+        ran = [job for job in work if job.get("conclusion") != "skipped"]
+        if len(ran) == len(work):
+            mode = "full"
+        else:
+            require(not ran and allow_docs_only, "Full check jobs missing or skipped: not a full run")
             mode = "docs-only"
-        else:
-            require(len(steps) == 1 and steps[0].get("conclusion") == "success",
-                    "Full check step missing, skipped or failed")
-        require(isinstance(job.get("id"), int), "Invalid job ID")
-        log = self.text("gh", "api", "--allow-escape-sequences",
-                        f"repos/{REPO}/actions/jobs/{job['id']}/logs")
-        # Raw job logs have a UTC timestamp prefix. Do not accept an echoed command
-        # containing the marker, nor any affected-mode success marker.
-        stamp = r"(?m)^(?:\d{4}-\d\d-\d\dT[0-9:.]+Z )?"
-        full = re.search(stamp + r"ELZOO CHECK PASSED\s*$", log)
-        docs = re.search(stamp + r"ELZOO DOCS-ONLY CHECK PASSED\s*$", log)
+        logs = {}
+
+        def log(job):
+            if job["name"] not in logs:
+                logs[job["name"]] = self.text("gh", "api", "--allow-escape-sequences",
+                                              f"repos/{REPO}/actions/jobs/{job['id']}/logs")
+            return logs[job["name"]]
+
+        def step(job, name):
+            return [item for item in job.get("steps", []) if item.get("name") == name]
+
+        def has_line(job, text):
+            return re.search(LOG_STAMP + text + r"\s*$", log(job)) is not None
+
+        classify, docs_step = step(plan, "Classify the change"), step(plan, "Docs-only check")
+        require(len(classify) == 1 and classify[0].get("conclusion") == "success",
+                "Classification step missing, skipped or failed")
+        require(len(step(aggregate, "Require every job")) == 1 and
+                step(aggregate, "Require every job")[0].get("conclusion") == "success",
+                "Aggregating step missing, skipped or failed")
         if mode == "full":
-            require(full and "ELZOO AFFECTED CHECK PASSED" not in log,
-                    "Missing full success marker or affected-mode marker present")
+            require(len(docs_step) == 1 and docs_step[0].get("conclusion") == "skipped",
+                    "Docs-only step ran or is missing in a full run")
+            require(has_line(plan, r"ELZOO PLAN: run=true skip=\S+ docs_only=\S+") and
+                    "ELZOO AFFECTED CHECK PASSED" not in log(plan),
+                    "Plan did not say run=true, or an affected-mode marker is present in its log")
+            for job in work:
+                mix = step(job, "Run mix check")
+                require(len(mix) == 1 and mix[0].get("conclusion") == "success",
+                        f"Full check step missing, skipped or failed ({job['name']})")
+            for job, _part, marker in WORK_PARTS:
+                require(has_line(by_name[job], re.escape(marker)) and
+                        "ELZOO AFFECTED CHECK PASSED" not in log(by_name[job]),
+                        f"Missing part marker or affected-mode marker present ({job})")
+            require(has_line(aggregate, re.escape(FULL_MARKER)), "Missing full success marker of the aggregating job")
+            require(not has_line(plan, re.escape(DOCS_MARKER)), "Docs-only marker present in a full run")
         else:
-            require(docs and not full and "ELZOO AFFECTED CHECK PASSED" not in log,
-                    "Missing docs-only success marker, or a full or affected-mode marker is present")
+            require(len(docs_step) == 1 and docs_step[0].get("conclusion") == "success",
+                    "Docs-only check step missing, skipped or failed")
+            require(has_line(plan, re.escape(DOCS_MARKER)) and has_line(plan, r"ELZOO PLAN: run=false skip=\S+ docs_only=true"),
+                    "Missing docs-only success marker or plan line")
+            require(not has_line(aggregate, re.escape(FULL_MARKER)) and not has_line(plan, re.escape(FULL_MARKER)) and
+                    "ELZOO AFFECTED CHECK PASSED" not in log(plan),
+                    "A full-run or affected-mode marker is present in a docs-only run")
         latest = self.api(f"actions/runs/{run_id}")
         require(self.run_matches(latest, pr, workflow_id) and latest.get("status") == "completed" and
                 latest.get("conclusion") == "success" and latest.get("run_attempt") == attempt,
                 "Run changed while collecting evidence")
-        return job, mode
+        return by_name, mode
+
+    def check_backend_job(self, job, run_id, pr, began):
+        """One job of the evidence unit: successful on the exact head and run, on an approved hosted runner, with a
+        successful identity step, and executed in this attempt (a partial re-run copies the green jobs of the earlier
+        attempt into the new one with new IDs but their old start times: that is no evidence)."""
+        name = job.get("name")
+        require(isinstance(job.get("id"), int), f"Invalid job ID ({name})")
+        require(job.get("run_id") == run_id and job.get("head_sha") == pr["headRefOid"] and
+                job.get("status") == "completed" and job.get("conclusion") == "success",
+                f"Backend job is not successful on the exact head/run ({name})")
+        require(hosted_runner(job), f"Unapproved hosted runner ({name})")
+        gate = [step for step in job.get("steps", []) if step.get("name") == HOSTED_GATE_STEP]
+        require(len(gate) == 1 and gate[0].get("conclusion") == "success",
+                f"Hosted runner identity step missing, skipped or failed ({name})")
+        require(parse_time(job.get("started_at"), f"job start ({name})") >= began,
+                f"Job {name} did not run in this attempt (a partial re-run is no evidence; re-run all jobs)")
 
     def latest_push_run(self, sha):
         """The push run of the backend workflow with the highest ID on this commit of main, or None."""
@@ -608,7 +672,7 @@ class Queue:
             else:
                 self.emit(f"Adopted pull_request run {run_id} for PR #{number} head={pr['headRefOid']}", flush=True)
             try:
-                job, mode = self.evidence(run_id, pr, workflow_id)
+                jobs, mode = self.evidence(run_id, pr, workflow_id)
                 if mode == "docs-only" and not self.docs_only_change(pr):
                     # The run passed the short check of its own classification; this queue's own classifier does
                     # not agree (or is unavailable), so only a full run is evidence.
@@ -617,7 +681,7 @@ class Queue:
                               "documentation only, or the push run of the current main is not a completed "
                               "success); dispatching a full run", flush=True)
                     run_id, adopted = self.dispatch(pr, workflow_id), False
-                    job, mode = self.evidence(run_id, pr, workflow_id, allow_docs_only=False)
+                    jobs, mode = self.evidence(run_id, pr, workflow_id, allow_docs_only=False)
             except (QueueError, KeyError, TypeError, ValueError, AttributeError):
                 # The run goes on after the queue stops; name it so that it can be adopted by hand.
                 self.emit(f"Stopped while awaiting run {run_id} for PR #{number} head={pr['headRefOid']}: "
@@ -661,8 +725,9 @@ class Queue:
                           f"head={pr['headRefOid']}", flush=True)
             else:
                 self.emit(f"ELZOO GLEAM GATE not required pr={number} head={pr['headRefOid']} ({why})", flush=True)
-            self.emit(f"ELZOO MERGE EVIDENCE pr={number} run={run_id} job={job['id']} "
-                      f"runner={job['runner_name']} head={pr['headRefOid']} merge={merge_sha}"
+            job_ids = ",".join(name + ":" + str(jobs[name]["id"]) for name in BACKEND_JOBS)
+            self.emit(f"ELZOO MERGE EVIDENCE pr={number} run={run_id} jobs={job_ids} "
+                      f"head={pr['headRefOid']} merge={merge_sha}"
                       + (" mode=docs-only" if mode == "docs-only" else ""), flush=True)
             return
         raise QueueError("Main/head did not stabilize after 10 passes; inspect before retrying")

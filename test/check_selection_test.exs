@@ -205,10 +205,19 @@ defmodule Elzoo.CheckSelectionTest do
     refute workflow =~ "ELZOO_CHECK_EVENT"
     refute workflow =~ "ELZOO_CHECK_BASE"
     refute workflow =~ "--affected"
-    # Execute the actual run block using a harmless stand-in for the check wrapper.
-    [_, step] = Regex.run(~r/      - name: Run mix check\n(.*?)      - name:/s, workflow)
-    [_, script] = Regex.run(~r/^        run: (.+)\n/m, step)
-    assert script == "sh scripts/run-ci-check.sh"
+
+    # ELZ-073: three work jobs run the three parts of the full check; together they are the full check.
+    # Execute the actual run blocks using a harmless stand-in for the check wrapper.
+    scripts =
+      for [_, step] <-
+            Regex.scan(~r/      - name: Run mix check\n(.*?)      - name:/s, workflow) do
+        [_, script] = Regex.run(~r/^        run: (.+)\n/m, step)
+        script
+      end
+
+    assert scripts ==
+             for(part <- Selection.parts(), do: "sh scripts/run-ci-check.sh --part #{part}")
+
     root = git_fixture()
     stub = Path.join(root, "sh")
     File.write!(stub, "#!/bin/sh\nprintf '%s\\n' \"$@\"\n")
@@ -216,7 +225,8 @@ defmodule Elzoo.CheckSelectionTest do
     base = "base with spaces; not shell code"
 
     # A leftover event or base variable must not select affected mode.
-    for event <- ["pull_request", "push", "workflow_dispatch", "unknown", ""] do
+    for {script, part} <- Enum.zip(scripts, Selection.parts()),
+        event <- ["pull_request", "push", "workflow_dispatch", "unknown", ""] do
       {output, 0} =
         System.cmd("/bin/sh", ["-eu", "-c", script],
           env: [
@@ -226,7 +236,7 @@ defmodule Elzoo.CheckSelectionTest do
           ]
         )
 
-      assert output == "scripts/run-ci-check.sh\n"
+      assert output == "scripts/run-ci-check.sh\n--part\n#{part}\n"
     end
   end
 
@@ -291,6 +301,67 @@ defmodule Elzoo.CheckSelectionTest do
     git!(root, ["add", "."])
     git!(root, ["-c", "commit.gpgsign=false", "commit", "-qm", "base"])
     root
+  end
+
+  # ELZ-073: `mix check --part ...` runs one of three disjoint parts of the full check.
+  test "a part names its markers, filters and report" do
+    assert Selection.parts() == ["root", "consumers-db", "consumers"]
+
+    assert Enum.map(Selection.parts(), &Selection.success_marker(Selection.part(&1))) ==
+             ["ELZOO ROOT SUITE PASSED", "ELZOO CONSUMERS DB PASSED", "ELZOO CONSUMERS PASSED"]
+
+    # No part prints the marker of the full check, which only the aggregating job prints.
+    refute "ELZOO CHECK PASSED" in Enum.map(
+             Selection.parts(),
+             &Selection.success_marker(Selection.part(&1))
+           )
+
+    for part <- Selection.parts() do
+      assert Selection.report(Selection.part(part)) =~ "part #{part}"
+      args = Selection.test_args(Selection.part(part))
+      assert hd(args) == "--warnings-as-errors"
+      %{include: include, exclude: exclude} = Selection.part_filters(part)
+
+      assert Enum.drop(args, 1) ==
+               Enum.flat_map(include, &["--only", &1]) ++ Enum.flat_map(exclude, &["--exclude", &1])
+    end
+
+    assert_raise FunctionClauseError, fn -> Selection.part("everything") end
+  end
+
+  test "the PostgreSQL consumers belong to the consumers-db part and nowhere else" do
+    db = Selection.part_filters("consumers-db").include
+    rest = Selection.part_filters("consumers").include
+
+    for id <- Selection.postgres_consumer_ids() do
+      assert "consumer_id:#{id}" in db
+      refute "consumer_id:#{id}" in rest
+    end
+
+    assert length(rest) ==
+             length(Selection.consumer_ids()) - length(Selection.postgres_consumer_ids())
+
+    assert Enum.all?(
+             rest,
+             &(&1 in Enum.map(Selection.consumer_ids(), fn id -> "consumer_id:#{id}" end))
+           )
+
+    assert "aggregate_consumer" in db
+    assert Selection.part_filters("root").exclude == ["consumer_id", "aggregate_consumer"]
+  end
+
+  test "mix check refuses an unknown part and other arguments before it runs any stage" do
+    assert_raise Mix.Error, ~r/unknown part "everything"/, fn ->
+      Mix.Tasks.Check.run(["--part", "everything"])
+    end
+
+    assert_raise Mix.Error, ~r/usage: mix check/, fn -> Mix.Tasks.Check.run(["--part"]) end
+
+    assert_raise Mix.Error, ~r/usage: mix check/, fn ->
+      Mix.Tasks.Check.run(["--part", "root", "--affected", "x"])
+    end
+
+    assert_raise Mix.Error, ~r/usage: mix check/, fn -> Mix.Tasks.Check.run(["--bogus"]) end
   end
 
   defp git!(root, args) do
