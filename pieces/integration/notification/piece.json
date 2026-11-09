@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "id": "integration/notification",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "adapter",
+  "providers": [
+    "cure",
+    "swoosh",
+    "gen_smtp",
+    "jason",
+    "elixir",
+    "otp"
+  ],
+  "dependencies": [
+    "core/effect",
+    "delivery/effect-intent",
+    "integration/json"
+  ],
+  "contract": "One email through Swoosh's SMTP adapter and gen_smtp, bound to the core/effect declaration and the delivery/effect-intent owner: accepted{provider_id} is acceptance not delivery; refused{invalid_address | rejected_recipient | too_large | throttled | authentication_failed | credentials_unavailable | connect_failed}; unknown{reason} after handover or for an unclassifiable transaction reply; no Adapter retry; injected credential and trust Needs; verified TLS for every non-loopback relay.",
+  "limits": [
+    "No inbox delivery, receipt, bounce, provider authenticity, exactly-once or provider-side deduplication claim; the stable Message-ID is a correlation hint only.",
+    "SMTP has no status query: an unknown outcome stays unknown until host/operator reconciliation through the EffectIntent owner.",
+    "ASCII addresses only (no SMTPUTF8), at most 50 recipients and 65,536 request bytes; STARTTLS only, no implicit TLS (port 465); one fixed relay, no MX lookup.",
+    "Stage classification relies on gen_smtp 1.3.0's session/transaction split; a transaction-stage failure is never refused unless its reply code is one of the listed ones.",
+    "Finite tests against an in-process loopback gen_smtp_server only; no proof is claimed.",
+    "The completion seal is process-local integrity of the Adapter's own transport result, not provider authentication; after a restart nothing can complete a recovered attempt through this boundary."
+  ],
+  "files": [
+    "cure/elzoo/notification_outcome.cure",
+    "examples/notification.exs",
+    "lib/elzoo/notification.ex",
+    "lib/elzoo/notification/adapter.ex",
+    "lib/elzoo/notification/binding.ex",
+    "lib/elzoo/notification/config.ex",
+    "lib/elzoo/notification/outcome.ex",
+    "lib/elzoo/notification/transport.ex",
+    "lib/elzoo/notification/wire.ex",
+    "test/elzoo/notification_test.exs",
+    "test/support/notification_test_helper.exs"
+  ],
+  "applications": [
+    "crypto",
+    "public_key",
+    "ssl"
+  ],
+  "grounding": [
+    {
+      "kind": "type",
+      "file": "cure/elzoo/notification_outcome.cure",
+      "claim": "Pinned Cure compilation type-checks the pure stage/reply-to-outcome decision used at runtime; not a proof of transport behaviour."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/notification_test.exs",
+      "claim": "Named scenarios against an in-process loopback gen_smtp_server: accepted, invalid address, rejected recipient, too large, authentication failure, throttling, dropped connection after DATA, deadline, same identity twice, redaction in logs/errors/inspect/status/telemetry, credential Need shapes, connection refused, forged completion, classification table, configuration, verified TLS and the runtime:false smoke test; finite evidence, not proof."
+    },
+    {
+      "kind": "upstream",
+      "provider": "swoosh",
+      "reference": "https://hexdocs.pm/swoosh/1.29.3/Swoosh.Adapters.SMTP.html",
+      "claim": "Swoosh 1.29.3 email composition and SMTP adapter deliver/2 as read at the pinned version; its Mailer telemetry is deliberately not used."
+    },
+    {
+      "kind": "upstream",
+      "provider": "gen_smtp",
+      "reference": "https://hexdocs.pm/gen_smtp/1.3.0/",
+      "claim": "gen_smtp 1.3.0 client session/transaction error split, retries option and STARTTLS handling, and its server used as the test server; SMTP reply semantics (RFC 5321) are named, not proved."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/apps/ssl/ssl.html",
+      "claim": "OTP 29.1.2 ssl peer and hostname verification and crypto HMAC-SHA-256."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/logger/1.20.4/Logger.html#put_process_level/2",
+      "claim": "Elixir 1.20.4 Logger process level and Task.Supervisor semantics."
+    },
+    {
+      "kind": "assumption",
+      "claim": "A relay's 250 after DATA means it took responsibility for the message (acceptance, not delivery); the host keeps the credential and trust Needs truthful; a session-stage failure sent no envelope address or message byte (gen_smtp 1.3.0 source structure; tested scenarios only)."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "planned",
+      "contract": "No events of its own and no Swoosh Mailer events (which would carry email and config); a bounded event surface waits for runtime/telemetry (ELZ-052)."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Build-time binding (relay, port, sender, id, recovery grace) entering the intent key; construction-time TLS mode and trust, size bound, send timeout, EHLO name, transport supervisor and credential Need; per-request deadline from the declaration; no hot update.",
+      "evidence": [
+        "test/elzoo/notification_test.exs"
+      ]
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No lifecycle of its own: dispatch, rearm, poll and expiry are the delivery/effect-intent owner's Control."
+    }
+  }
+}
