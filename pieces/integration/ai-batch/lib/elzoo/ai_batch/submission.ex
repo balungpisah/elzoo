@@ -161,8 +161,7 @@ defmodule Elzoo.AiBatch.Submission do
          h when is_binary(h) <- m["submission_sha256"],
          true <- h =~ ~r/\A[0-9a-f]{64}\z/,
          true <- Request.canonical(m) == bytes do
-      {:ok,
-       %{model: m["model"], item_count: n, submission_bytes: b, submission_sha256: h}}
+      {:ok, %{model: m["model"], item_count: n, submission_bytes: b, submission_sha256: h}}
     else
       _ -> {:error, :manifest}
     end

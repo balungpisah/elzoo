@@ -127,7 +127,9 @@ defmodule Elzoo.AiBatchTest do
   end
 
   defp line(id, result), do: {id, result}
-  defp ok_line(id, text \\ Conformance.text()), do: line(id, {:succeeded, {:raw, TestHelper.raw(text)}})
+
+  defp ok_line(id, text \\ Conformance.text()),
+    do: line(id, {:succeeded, {:raw, TestHelper.raw(text)}})
 
   defp join(c, sub \\ submission()) do
     {:ok, j} = Join.new(c, Elzoo.AiText.Request.canonical(sub))
@@ -175,16 +177,25 @@ defmodule Elzoo.AiBatchTest do
        :invalid_request},
       {%{base | "items" => [put_in(hd(items), ["request", "model"], "other-model")]},
        :invalid_request},
-      {%{base | "model" => "other-model", "items" => [put_in(hd(items), ["request", "model"], "other-model")]},
-       :invalid_request},
+      {%{
+         base
+         | "model" => "other-model",
+           "items" => [put_in(hd(items), ["request", "model"], "other-model")]
+       }, :invalid_request},
       {%{base | "items" => []}, :invalid_request},
       {submission(["a", "b", "c", "d", "e"]), :too_large},
       {%{base | "items" => [put_in(hd(items), ["request", "max_output_tokens"], 5000)]},
        :invalid_request},
       {%{base | "items" => [put_in(hd(items), ["request", "sampling"], %{"top_p" => 0.5})]},
        :unsupported_feature},
-      {%{base | "items" => [put_in(hd(items), ["request", "messages"], [%{"role" => "user", "text" => "refuse-in-translate"}])]},
-       :unsupported_feature},
+      {%{
+         base
+         | "items" => [
+             put_in(hd(items), ["request", "messages"], [
+               %{"role" => "user", "text" => "refuse-in-translate"}
+             ])
+           ]
+       }, :unsupported_feature},
       {Map.put(base, "provider_options", %{"unknown" => 1}), :invalid_request},
       {Map.put(base, "provider_options", %{"priority" => "urgent"}), :invalid_request},
       {Map.put(base, "extra", 1), :invalid_request}
@@ -201,7 +212,14 @@ defmodule Elzoo.AiBatchTest do
 
     # Duplicate JSON keys and an over-long payload.
     dup = Conformance.submit_declaration(base, "d", 10_000)
-    dup = put_in(dup, ["command", "payload"], ~s({"version":1,"version":1,"model":"test-model","items":[]}))
+
+    dup =
+      put_in(
+        dup,
+        ["command", "payload"],
+        ~s({"version":1,"version":1,"model":"test-model","items":[]})
+      )
+
     assert {:error, {:refused, :invalid_request, _}} = AiBatch.admit_submit(c, dup)
 
     small = config(ctx, bounds: [max_submission_bytes: 200])
@@ -210,14 +228,26 @@ defmodule Elzoo.AiBatchTest do
     # Malformed declarations.
     decl = Conformance.submit_declaration(base, "x", 10_000)
     assert {:error, :declaration} = AiBatch.admit_submit(c, Map.put(decl, "operation", "cancel"))
-    assert {:error, :declaration} = AiBatch.admit_submit(c, Map.put(decl, "classification", "trusted"))
+
+    assert {:error, :declaration} =
+             AiBatch.admit_submit(c, Map.put(decl, "classification", "trusted"))
+
     assert {:error, :declaration} = AiBatch.admit_submit(c, %{})
   end
 
   test "S3 the create body bound is measured on the exact encoded body: bound - 1, bound, bound + 1 and wrapper overhead alone (admission)",
        ctx do
     c0 = config(ctx)
-    {:ok, wire} = AiBatch.prepare(c0, elem(Submission.decode(Elzoo.AiText.Request.canonical(submission(["a"])), AiBatch.bounds(c0)), 1))
+
+    {:ok, wire} =
+      AiBatch.prepare(
+        c0,
+        elem(
+          Submission.decode(Elzoo.AiText.Request.canonical(submission(["a"])), AiBatch.bounds(c0)),
+          1
+        )
+      )
+
     size = byte_size(wire.body)
 
     for {bound, expected} <- [{size - 1, :refused}, {size, :ok}, {size + 1, :ok}] do
@@ -300,7 +330,10 @@ defmodule Elzoo.AiBatchTest do
             %{orphans: [%{kind: "unreported", provider_ref: "invalid-orphan-list"}]}}}
         ] do
       c = config(ctx, respond: respond)
-      {_pid, _a, _status, delivery} = submit(c, ctx, submission(), "o-#{System.unique_integer([:positive])}")
+
+      {_pid, _a, _status, delivery} =
+        submit(c, ctx, submission(), "o-#{System.unique_integer([:positive])}")
+
       assert {:outcome, _, ^expected} = delivery
     end
 
@@ -329,10 +362,14 @@ defmodule Elzoo.AiBatchTest do
     assert {:retry, 10} = AiText.Retry.next(policy, 1, :credentials_unavailable)
   end
 
-  test "S7 the credential Need failing is the attested no-send; nothing is submitted (Adapter)", ctx do
+  test "S7 the credential Need failing is the attested no-send; nothing is submitted (Adapter)",
+       ctx do
     c = config(ctx, credentials: fn -> {:error, :vault} end, respond: fn _, _ -> raise "never" end)
     {pid, _a, _status, delivery} = submit(c, ctx)
-    assert {:outcome, _, {:refused, :credentials_unavailable, %{retry_after: nil, orphans: []}}} = delivery
+
+    assert {:outcome, _, {:refused, :credentials_unavailable, %{retry_after: nil, orphans: []}}} =
+             delivery
+
     assert calls(:submit) == 0
     assert {:ok, _} = Intent.advance(pid, :rearm)
   end
@@ -399,7 +436,10 @@ defmodule Elzoo.AiBatchTest do
 
     # The cancel identity names one job: same caller identity, other job, other key.
     {:ok, other} =
-      AiBatch.admit_cancel(c, Conformance.cancel_declaration(%{@job | provider_job_id: "job-2"}, "cancel-lost", 10_000))
+      AiBatch.admit_cancel(
+        c,
+        Conformance.cancel_declaration(%{@job | provider_job_id: "job-2"}, "cancel-lost", 10_000)
+      )
 
     refute other.key == a.key
 
@@ -477,13 +517,20 @@ defmodule Elzoo.AiBatchTest do
       line("item-b", {:errored, :invalid_request})
     ]
 
-    c = config(ctx, respond: fn :results, {"job-1", %{cursor: 0}} -> {:ok, %{lines: page, done: true}} end)
+    c =
+      config(ctx,
+        respond: fn :results, {"job-1", %{cursor: 0}} -> {:ok, %{lines: page, done: true}} end
+      )
+
     r = AiBatch.results(c, @job, 0, join(c))
     assert Conformance.check_results(:results_mixed, r) == :ok
     assert calls(:results) == 1
 
     # Missing: three of four ids, in two pages.
-    pages = %{0 => {[ok_line("item-b"), ok_line("item-a")], false}, 2 => {[line("item-c", :cancelled)], true}}
+    pages = %{
+      0 => {[ok_line("item-b"), ok_line("item-a")], false},
+      2 => {[line("item-c", :cancelled)], true}
+    }
 
     c =
       config(ctx,
@@ -496,7 +543,10 @@ defmodule Elzoo.AiBatchTest do
 
     j = join(c)
     assert {:ok, %{next: 2, join: j}} = AiBatch.results(c, @job, 0, j)
-    assert {:error, :not_ended} = Join.missing(j, {:ended, %{succeeded: 2, errored: 0, cancelled: 1, expired: 0}})
+
+    assert {:error, :not_ended} =
+             Join.missing(j, {:ended, %{succeeded: 2, errored: 0, cancelled: 1, expired: 0}})
+
     r = AiBatch.results(c, @job, 2, j)
     assert {:ok, %{next: :done, join: done}} = r
     assert {:error, :not_ended} = Join.missing(done, :running)
@@ -518,19 +568,30 @@ defmodule Elzoo.AiBatchTest do
     end
 
     pages = %{0 => [ok_line("item-a")], 1 => [ok_line("item-a")]}
-    c = config(ctx, respond: fn :results, {_, %{cursor: n}} -> {:ok, %{lines: pages[n], done: false}} end)
+
+    c =
+      config(ctx,
+        respond: fn :results, {_, %{cursor: n}} -> {:ok, %{lines: pages[n], done: false}} end
+      )
+
     {:ok, %{join: j}} = AiBatch.results(c, @job, 0, join(c))
     assert {:error, :malformed_page} = AiBatch.results(c, @job, 1, j)
 
     c =
       config(ctx,
         bounds: [page_size: 1],
-        respond: fn :results, _ -> {:ok, %{lines: [ok_line("item-a"), ok_line("item-b")], done: false}} end
+        respond: fn :results, _ ->
+          {:ok, %{lines: [ok_line("item-a"), ok_line("item-b")], done: false}}
+        end
       )
 
     assert {:error, :malformed_page} = AiBatch.results(c, @job, 0, join(c))
 
-    c = config(ctx, respond: fn :results, _ -> {:ok, %{lines: [line("item-a", :weird)], done: true}} end)
+    c =
+      config(ctx,
+        respond: fn :results, _ -> {:ok, %{lines: [line("item-a", :weird)], done: true}} end
+      )
+
     assert {:error, :malformed_page} = AiBatch.results(c, @job, 0, join(c))
   end
 
@@ -549,7 +610,10 @@ defmodule Elzoo.AiBatchTest do
 
     j = join(c)
     assert {:error, :result_scan_limit} = AiBatch.results(c, @job, 0, j)
-    assert_received {:page_opts, %{cursor: 0, page_size: 3, max_line_bytes: 1000, max_scan_bytes: 5000}}
+
+    assert_received {:page_opts,
+                     %{cursor: 0, page_size: 3, max_line_bytes: 1000, max_scan_bytes: 5000}}
+
     assert :result_scan_limit in AiBatch.results_reasons()
 
     c = config(ctx, respond: fn :results, _ -> {:failure, :result_line_limit, %{}} end)
@@ -611,7 +675,8 @@ defmodule Elzoo.AiBatchTest do
       {:refusal, %{}, raw.("x", %{finish: :refusal})},
       {:content_filter, %{}, raw.("x", %{finish: :content_filter})},
       {:other_finish, %{}, raw.("x", %{finish: {:other, "pause_turn"}})},
-      {:tool_ok, tools, raw.("", %{finish: :tool_calls, tool_calls: [call("lookup", ~s({"q":"x"}))]})},
+      {:tool_ok, tools,
+       raw.("", %{finish: :tool_calls, tool_calls: [call("lookup", ~s({"q":"x"}))]})},
       {:tool_invalid_json, tools, raw.("", %{tool_calls: [call("lookup", "{not json")]})},
       {:tool_not_object, tools, raw.("", %{tool_calls: [call("lookup", "[1]")]})},
       {:tool_undeclared, tools, raw.("", %{tool_calls: [call("other", ~s({"q":"x"}))]})},
@@ -620,7 +685,8 @@ defmodule Elzoo.AiBatchTest do
       {:structured_invalid, out, raw.("x", %{structured_json: ~s({"answer":"x"})})},
       {:structured_missing, out, raw.("x", %{structured_json: nil})},
       {:structured_bad_json, out, raw.("x", %{structured_json: "{"})},
-      {:usage_absent, %{}, raw.("x", %{usage: Elzoo.AiModel.Usage.unknown(%{input_includes_cached: false})})},
+      {:usage_absent, %{},
+       raw.("x", %{usage: Elzoo.AiModel.Usage.unknown(%{input_includes_cached: false})})},
       {:request_id_absent, %{}, Map.delete(raw.("x", %{}), :request_id)},
       {:malformed_no_id, %{}, raw.("x", %{response_id: nil})},
       {:malformed_finish, %{}, raw.("x", %{finish: :weird})},
@@ -694,9 +760,14 @@ defmodule Elzoo.AiBatchTest do
         c =
           config(ctx,
             respond: fn
-              :submit, _ -> {:failure, :provider_invalid_request, %{}}
-              :results, _ -> {:ok, %{lines: [ok_line("item-a", secret_text), ok_line("item-z")], done: true}}
-              :status, _ -> {:failure, :authentication_failed, %{}}
+              :submit, _ ->
+                {:failure, :provider_invalid_request, %{}}
+
+              :results, _ ->
+                {:ok, %{lines: [ok_line("item-a", secret_text), ok_line("item-z")], done: true}}
+
+              :status, _ ->
+                {:failure, :authentication_failed, %{}}
             end
           )
 

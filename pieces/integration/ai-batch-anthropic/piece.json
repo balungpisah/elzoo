@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "id": "integration/ai-batch-anthropic",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "adapter",
+  "providers": [
+    "req",
+    "req_llm",
+    "llm_db",
+    "jason",
+    "jsv",
+    "abnf_parsec",
+    "texture",
+    "zoi",
+    "splode",
+    "server_sent_events",
+    "websockex",
+    "dotenvy",
+    "plug",
+    "plug_crypto",
+    "elixir",
+    "otp"
+  ],
+  "dependencies": [
+    "integration/ai-batch",
+    "integration/ai-text-anthropic"
+  ],
+  "contract": "Anthropic Message Batches provider of integration/ai-batch on the pinned Req: anthropic-version 2026-10-21, one request per operation with the injected key as x-api-key, retry and redirect off, bounded response bodies; each item's params are the synchronous ai-text-anthropic body (translate, req_llm prepare_request/4 and encode_body/1 with a placeholder key) minus stream false; the outer anthropic-beta is the sorted union of allowed item values, anything else refused; create, retrieve, cancel and streamed results decoded from the documented formats (in_progress running, canceling ending, ended with counts; succeeded, errored, canceled, expired lines joined by custom_id); orphans always empty; documented statuses mapped by the synchronous provider's table; caps 100,000 requests and 256,000,000 create-body bytes.",
+  "limits": [
+    "Stub evidence only (R5): conformance to the pinned documented format, never current live behaviour, turnaround, the batch discount, billing of result types, retention or rate limits.",
+    "Create requests are validated against a schema hand-derived from named sections of Anthropic's documentation fetched 2026-11-09; no official machine-readable specification was found; conformance beyond the documented examples is not claimed.",
+    "Upstream risk: the encoded item body is read from the request's :json option after req_llm's documented encode_body/1 callback, an undocumented location; the root mix.exs declares req_llm ~> 1.30 locked at 1.30.0, so a lock update could move it, and the drift test over a fixed corpus is the guard.",
+    "Body equivalence with the synchronous call is shown over a finite corpus only; a beta value enabled by one item is sent for the whole batch (allowed values only).",
+    "The results endpoint has no paging: each page re-reads the stream from the start under the scan bound.",
+    "Every consumer must merge config :req_llm, load_dotenv: false by hand (README, Install configuration); the Piece test asserts only that the README carries the exact line."
+  ],
+  "files": [
+    "lib/elzoo/ai_batch/anthropic.ex",
+    "test/elzoo/ai_batch_anthropic_test.exs",
+    "test/fixtures/anthropic/message-batch-create.schema.json",
+    "test/fixtures/anthropic/req-llm-1.30.0-item-bodies.json",
+    "test/support/ai_batch_anthropic_test_helper.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "type",
+      "file": "test/fixtures/anthropic/message-batch-create.schema.json",
+      "claim": "Every captured create request is validated with jsv against this schema hand-derived from Anthropic's 'Create a Message Batch' and 'Batch processing' (fetched 2026-11-09) and the ELZ-079 Messages request members, plus method, path, outer anthropic-version and exact anthropic-beta union, the injected key, unique custom_id, max_tokens above zero and absent stream, speed, fallbacks and sampling fields. Not an official specification."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/ai_batch_anthropic_test.exs",
+      "claim": "Listed scenarios against in-process function-plug stubs in Anthropic's documented formats, run through the interface conformance kit: submit accepted, lost (unknown, second dispatch refused) and 400, 401, 413, 429 with retry-after, 529, 500 and malformed 2xx mapped with one request each and orphans empty; outer beta union and refusal of other betas; drift of item params and headers against the pinned req_llm 1.30.0 snapshot; item params equal to the synchronous body minus stream false over the fixed corpus; create-body bound at and one under its size; status sequence in_progress, canceling, ended and 401, 404, 429, 529 and malformed batches; cancel acknowledged, lost and 404; streamed results in chunks with mixed result types out of order, absent usage fields, errored types, malformed messages, unknown and duplicate custom_id, missing item, contiguous pages, deep cursor scan limit, line limit and malformed line; redaction with ambient keys set; README Install configuration line; source audit. Finite scenarios, no live call, not proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "req",
+      "reference": "https://hexdocs.pm/req/0.7.5/Req.html",
+      "claim": "Req 0.7.5 request options (retry, redirect, decode_body, compressed, into with halt) and the :plug test transport."
+    },
+    {
+      "kind": "upstream",
+      "provider": "req_llm",
+      "reference": "https://hexdocs.pm/req_llm/1.30.0/readme.html",
+      "claim": "req_llm 1.30.0 (Hex checksum 1c4b19608aa982de5ea396cc6de3d3738e72480182ba11c184e028a4af305edb) documented provider callbacks prepare_request/4 and encode_body/1 for Anthropic body encoding; the :json location of the encoded body is an observation of the pinned version guarded by the drift test."
+    },
+    {
+      "kind": "assumption",
+      "claim": "Anthropic's live Message Batches API behaves as documented; errored, canceled and expired requests are not billed (documented only); the allowed beta values are harmless for items that do not use the feature; a 429 or 529 meaning 'before generation' authorizes nothing; the host keeps the key Need truthful."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "planned",
+      "contract": "No Elzoo event; req_llm is used only to build item bodies and sends nothing, Req emits no events of its own. Own events through runtime/telemetry: future task."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Construction-time provider term (optional HTTPS base URL; a test plug), fixed API version 2026-10-21, retry and redirect off, receive timeout and bounds from the interface Config, key from the injected Need; no hot reconfiguration.",
+      "evidence": [
+        "test/elzoo/ai_batch_anthropic_test.exs"
+      ]
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "Call-scoped; dispatch, rearm and expiry of submit and cancel are the delivery/effect-intent owner's Control; cancel is a request to Anthropic, not a local drain."
+    }
+  }
+}

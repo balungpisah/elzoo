@@ -248,7 +248,13 @@ defmodule Elzoo.AiBatch.SubmitAdapter do
   # An orphan list that fails validation is reported as one opaque record so an
   # orphan is never silently dropped.
   defp valid_orphans([]), do: []
-  defp valid_orphans(list), do: if(orphans?(list), do: list, else: [%{kind: "unreported", provider_ref: "invalid-orphan-list"}])
+
+  defp valid_orphans(list),
+    do:
+      if(orphans?(list),
+        do: list,
+        else: [%{kind: "unreported", provider_ref: "invalid-orphan-list"}]
+      )
 
   @doc "No provider status query for a lost submission: an unknown outcome stays unknown."
   def poll(_req), do: {:unavailable, :no_status_query}
@@ -335,7 +341,15 @@ defmodule Elzoo.AiBatch.CancelAdapter do
   end
 
   defp finish({:ok, state}, c, key, attempt_id, job_ref),
-    do: Adapter.completed(c, key, attempt_id, job_ref.provider_job_id, {:cancelled, state}, @value_schema)
+    do:
+      Adapter.completed(
+        c,
+        key,
+        attempt_id,
+        job_ref.provider_job_id,
+        {:cancelled, state},
+        @value_schema
+      )
 
   defp finish({:failure, tag, meta}, c, key, attempt_id, _job_ref) do
     Adapter.failed(c, key, attempt_id, tag, fn

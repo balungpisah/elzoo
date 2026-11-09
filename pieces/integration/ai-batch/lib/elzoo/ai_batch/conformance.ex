@@ -168,13 +168,18 @@ defmodule Elzoo.AiBatch.Conformance do
   def check_results(:results_mixed, {:ok, %{items: items, next: :done, join: j}}, _) do
     by_id = Map.new(items)
 
-    with :ok <- is(Enum.map(items, &elem(&1, 0)) == ["item-d", "item-a", "item-c", "item-b"], :order),
+    with :ok <-
+           is(Enum.map(items, &elem(&1, 0)) == ["item-d", "item-a", "item-c", "item-b"], :order),
          :ok <- is(by_id["item-d"] == :expired and by_id["item-c"] == :cancelled, :not_attempted),
          :ok <- is(by_id["item-b"] == {:errored, :invalid_request}, :errored),
          {:succeeded, c} <- by_id["item-a"] || {:error, :succeeded},
          :ok <- is(c.content == @text and c.finish == :stop, :completed),
          :ok <- is(is_integer(Elzoo.AiModel.Usage.amount(c.usage, :output_tokens)), :usage) do
-      is(Join.missing(j, {:ended, %{succeeded: 1, errored: 1, cancelled: 1, expired: 1}}) == {:ok, []}, :missing)
+      is(
+        Join.missing(j, {:ended, %{succeeded: 1, errored: 1, cancelled: 1, expired: 1}}) ==
+          {:ok, []},
+        :missing
+      )
     else
       {:error, _} = e -> e
       _ -> {:error, :succeeded}

@@ -54,7 +54,9 @@ defmodule Elzoo.AiBatch do
 
   @doc "Reasons a `status/2` call may return; `results/4` adds `results_reasons/0`."
   def read_reasons, do: @read_reasons
-  def results_reasons, do: @read_reasons ++ [:malformed_page, :result_line_limit, :result_scan_limit]
+
+  def results_reasons,
+    do: @read_reasons ++ [:malformed_page, :result_line_limit, :result_scan_limit]
 
   @doc """
   Builds the trusted Config. Options: `submit_binding` and `cancel_binding`
@@ -100,7 +102,12 @@ defmodule Elzoo.AiBatch do
          {:ok, out} <- bound(opts, :max_output_tokens, 1_000_000, 64_000),
          {:ok, items} <- bound(opts, :max_items, caps.max_items, caps.max_items),
          {:ok, wire} <-
-           bound(opts, :max_create_wire_bytes, caps.max_create_wire_bytes, caps.max_create_wire_bytes),
+           bound(
+             opts,
+             :max_create_wire_bytes,
+             caps.max_create_wire_bytes,
+             caps.max_create_wire_bytes
+           ),
          {:ok, sub} <- bound(opts, :max_submission_bytes, 1024 * @mib, 256 * @mib),
          {:ok, item} <- bound(opts, :max_item_bytes, 65_536, 65_536),
          {:ok, page} <- bound(opts, :page_size, 1_000, 100),
@@ -238,7 +245,8 @@ defmodule Elzoo.AiBatch do
     caps = c.provider.capabilities()
     text = text_config(c)
 
-    with true <- options_valid?(submission.provider_options, caps.options) || {:error, :invalid_request},
+    with true <-
+           options_valid?(submission.provider_options, caps.options) || {:error, :invalid_request},
          {:ok, items} <- items(text, submission.items),
          {:ok, %{body: body} = wire} when is_binary(body) <-
            c.provider.prepare(%{submission | items: items}, c.provider_config) do
@@ -298,7 +306,14 @@ defmodule Elzoo.AiBatch do
       case cancel_arguments(c, payload) do
         {:ok, job_ref, canonical} ->
           id = job_ref.provider_job_id
-          identity = [c.tenant, b.provider_account, b.id, b.operation, "#{byte_size(id)}:#{id}:#{ref}"]
+
+          identity = [
+            c.tenant,
+            b.provider_account,
+            b.id,
+            b.operation,
+            "#{byte_size(id)}:#{id}:#{ref}"
+          ]
 
           {:ok,
            %{
@@ -321,7 +336,8 @@ defmodule Elzoo.AiBatch do
   def admit_cancel(_, _), do: {:error, :declaration}
 
   @doc false
-  def cancel_arguments(%Config{} = c, payload) when is_binary(payload) and byte_size(payload) <= 4096 do
+  def cancel_arguments(%Config{} = c, payload)
+      when is_binary(payload) and byte_size(payload) <= 4096 do
     with {:ok, %{"version" => 1, "job_ref" => %{} = r} = v} when map_size(v) == 2 <-
            Jason.decode(payload),
          true <- Enum.sort(Map.keys(r)) == ["provider", "provider_job_id", "submitted_at"],
@@ -410,7 +426,7 @@ defmodule Elzoo.AiBatch do
   """
   def results(%Config{} = c, job_ref, cursor, %Join{} = join)
       when is_integer(cursor) and cursor >= 0 do
-    with true <- cursor == join.next and not join.done || {:error, :invalid_request},
+    with true <- (cursor == join.next and not join.done) || {:error, :invalid_request},
          {:ok, ref} <- job_ref(c, job_ref),
          {:ok, secret} <- credential(c) do
       page_opts = %{
@@ -444,7 +460,8 @@ defmodule Elzoo.AiBatch do
 
   defp page(c, join, cursor, lines, done) do
     with true <- length(lines) <= c.page_size || {:error, :malformed_page},
-         true <- Enum.all?(lines, &match?({id, _} when is_binary(id), &1)) || {:error, :malformed_page},
+         true <-
+           Enum.all?(lines, &match?({id, _} when is_binary(id), &1)) || {:error, :malformed_page},
          {:ok, joined} <- Join.add(join, cursor, lines, done) do
       caps = c.provider.capabilities()
       item_provider = caps.item_provider
