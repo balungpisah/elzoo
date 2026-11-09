@@ -1563,6 +1563,37 @@
       "product_role": "CI prerequisite for the integration/search-data vector slice (ELZ-082); not a Piece."
     },
     {
+      "id": "ELZ-079",
+      "title": "ELZ-079 — Specify the AI model family core, the text interface Piece and the Anthropic text provider Piece",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-006",
+        "ELZ-011",
+        "ELZ-023"
+      ],
+      "status": "published 2026-11-09; claimed task/ELZ-079; PR pending",
+      "url": "https://github.com/balungpisah/elzoo/issues/153",
+      "paths": [
+        "tasks/ELZ-079-ai-model-text-anthropic.md"
+      ],
+      "outputs": [
+        "integration/ai-model"
+      ],
+      "acceptance": "Unchanged live issue body (after the approved 2026-11-09 amendment 1); local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 153,
+      "issue_body_sha256": "45eb77101f752a1b6c1d8deb8b749cb865f953559fb251340ac14071629ae7bb",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P06",
+        "P07",
+        "P09",
+        "P11"
+      ]
+    },
+    {
       "id": "RC-01",
       "title": "Versioned stored-state compatibility",
       "kind": "proposal",
@@ -2082,16 +2113,14 @@
       "kind": "proposal",
       "release": "V1",
       "stage": "pieces",
-      "outputs": [
-        "integration/ai-model"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "ELZ-011",
         "RC-05",
         "RC-14"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "superseded for integration/ai-model by published ELZ-079 (output moved); no remaining output",
       "contract": "Declared model capabilities and validated request -> result/stream/tool proposals plus source-tagged usage. Tool proposals remain inert data. Unsupported features fail explicitly; no universal provider equivalence.",
       "acceptance": "Malformed tool arguments, interrupted stream, unknown usage, rate limit, timeout and unsupported structured output. Pin one provider/SDK and exercise real boundary before claiming adoption.",
       "reuse": "req_llm and maintained SDK candidates from existing study; no new HTTP client or tokenizer.",
@@ -3452,7 +3481,7 @@
     },
     {
       "id": "integration/ai-model",
-      "job": "RC-16",
+      "job": "ELZ-079",
       "note": "Provider request/stream/usage translation for C6/C7/C9. Routing policy belongs to delivery/model-routing; metering/pricing remain separate. No provider integration adopted. ELZ-025 study: the provider Adapter returns tool-call proposals as data and never resolves, loads or executes; usage carries a source tag provider_reported, estimated or unknown, never zero.",
       "baseline_status": "deferred",
       "disposition": "blocked-admission-proposal",
