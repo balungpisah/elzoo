@@ -1,5 +1,7 @@
 # ELZ-012 early Contract and evidence-plan review
 
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text.
+
 Reviewer: an independent review session.
 Reviewed head: `2f74b817d05906307e29f2876bb8d4b690499e9b` on `task/ELZ-012` (`<worktrees>/elzoo-ELZ-012`).
 Base `70cb2cbbe6ab005ed61edd01d37dee1131afef5a` = current `origin/main`. Claim `8e1d50e`. Local HEAD equals `origin/task/ELZ-012`.

@@ -1,5 +1,7 @@
 # ELZ-030 — raw lookup correspondence blocker
 
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text.
+
 Status: **historical rejected String-keyed reorder strategy; replacement
 raw-order positional probe checks**. See the [replacement evidence](ELZ-030-position-probe.md).
 Production implementation remains incomplete. This does not invalidate the accepted

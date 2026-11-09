@@ -25,7 +25,7 @@ Pin details (observed 2026-11-06):
 - Declared dependencies (`gleam.toml`, resolved in `manifest.toml`): gleam_stdlib 1.0.5, gleam_erlang 1.3.0, gleam_otp 1.3.0, gleam_json 3.1.0, gleam_crypto 1.6.0, gleam_time 1.11.0, and four same-author packages: http_gun 0.1.1 (Apache-2.0, on Hex since 2026-10-26), llm_wire 0.1.1 (Apache-2.0, 2026-10-26), sinal 0.1.0 (Apache-2.0, 2026-10-26), json_blueprint 2.0.0 (MIT, 2024-11-29). Target `erlang`, Gleam `>= 1.18.0`.
 - Size: 34,192 lines of Gleam under `src/` (public modules 14,107; `graph.gleam` 2,732; `telemetry.gleam` 1,407; `fabric.gleam` 1,354) and 40,005 lines under `test/` (106 test files, ~850 test functions), plus a BeamWeaver-fork behavioural "oracle" pin (`docs/ORACLE.md`).
 - Provenance gap: the ADRs cite Fabric commits `ab678abe…`, `db81b79`, `dd61bca`, `c375d60`, `23ae7183…` and an "Oversight" decisions repository; none of those objects exist in the public history (checked with `git cat-file`). The public repository is therefore a re-initialised export; its ADR provenance cannot be verified from it.
-- CI runs on GitHub-hosted `ubuntu-latest` via Nix (`.github/workflows/ci.yml`); irrelevant to Elzoo's symbolic-runner rule but noted because any adoption would re-run checks on Elzoo's runner.
+- CI runs on GitHub-hosted `ubuntu-latest` via Nix (`.github/workflows/ci.yml`); irrelevant to Elzoo's runner rule but noted because any adoption would re-run checks on Elzoo's runner.
 
 ## Fabric: observations (dated 2026-11-06, links at `3a1ca2ac`)
 

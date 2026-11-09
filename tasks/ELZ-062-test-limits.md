@@ -43,7 +43,7 @@ CI logs print no per-test times, so a measurement branch ran the full root suite
 On Contabo the approval test exceeded 120 s in the two earlier full runs (42484236992, 42492726966) and took 93.1 s in
 this one: the spread on one machine is large. The measurement runs also failed two tests each that are expected on
 that branch (the selection assertion of 120 s, and the test that reads `scripts/run-ci-check.sh`). Throttling: 0 in 99
-host samples on Contabo; host load (1 min) peaked at 2.94; cgroup peaks 3.45 GB (symbolic), 2.75 GB (MacBook),
+host samples on Contabo; host load (1 min) peaked at 2.94; cgroup peaks 3.45 GB (machine A), 2.75 GB (machine B),
 2.89 GB (Contabo).
 
 ## Hosted measurement (2026-11-09)

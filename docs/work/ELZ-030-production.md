@@ -1,9 +1,10 @@
 # ELZ-030 production implementation handoff
 
 > Redacted before publication (ELZ-065): the password part of local test-database URLs (`ecto://user:…@localhost`) and role commands is replaced by an ellipsis; the recorded commands are otherwise exact.
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text.
 
-Author: Orca `7c1b608d-f91b-4573-b2e7-310670b76a04`, no helpers.
-Active dispatch: `task_fc529d2f1a82` / `ctx_e0b237d7552d`.
+Author: Orca <session id>, no helpers.
+Active dispatch: <task id> / <dispatch id>.
 Source commits: `134226178e1e25bb200d9bdd827383468d019f09` (production bundle)
 and `167ce4939088d5caa8f8d14d294d50966479888b` (isolated upstream dependency closure).
 This report's subsequent commit adds evidence only. This is the author implementation

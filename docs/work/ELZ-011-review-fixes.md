@@ -1,9 +1,10 @@
 # ELZ-011 final-review fixes
 
 > Redacted before publication (ELZ-065): the password part of local test-database URLs (`ecto://user:…@localhost`) and role commands is replaced by an ellipsis; the recorded commands are otherwise exact.
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text.
 
 Independent reviewer: an independent review session,
-head `694fda8a797fa2fe7535e6be1ca164f86483d281`, dispatch `ctx_44d327567ce3`.
+head `694fda8a797fa2fe7535e6be1ca164f86483d281`, dispatch <dispatch id>.
 [Original report](ELZ-011-final-review.md): CONDITIONAL, F1 required and F2 fix
 or document; no blocking send-authority finding. This record tracks the delta,
 not merged acceptance. No Contract amendment, dependency/pin change, protected
@@ -159,7 +160,7 @@ are stated above, and the coordinator queue owns full exact-head acceptance.
 ## Final independent clearance
 
 [Final narrow review](ELZ-011-final-narrow-review.md), reviewer session
-`0f974e4c-75e1-4daf-9a19-7720ad2b1633`, dispatch `ctx_0cf6e61580e8`, at
+<session id>, dispatch <dispatch id>, at
 `094eff10b05ec9a60756f73f0faf77c3bec0fe3a`: **CLEAR, no blocking findings**.
 T1/L2 closed; product/G1–G9/R1–R3/D1–D5 clearance carries forward. Reviewer
 reproduced targeted 29, rescued case 10/10, heavy group 10/10 idle and 10/10
@@ -238,7 +239,7 @@ Evidence SHA256 (local logs and reproducible scratch inputs):
 ### Independent review of the clock isolation
 
 [Incremental report](ELZ-011-size-clock-review.md), reviewer session
-`0f974e4c-75e1-4daf-9a19-7720ad2b1633`, dispatch `ctx_d9bf408190cc`, reviewed
+<session id>, dispatch <dispatch id>, reviewed
 `a3d3b540d4dcadc74ac855c6dc9c8eb73c407288`: **CLEAR, no blocking findings**.
 The reviewer independently reproduced the original mismatch with a different
 20 ms callback stall (exit 2, 4.9 seconds), then passed the fixed version with

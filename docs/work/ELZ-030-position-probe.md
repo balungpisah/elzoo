@@ -1,13 +1,14 @@
 # ELZ-030 — raw-order positional correspondence probe
 
 > Redacted before publication (ELZ-065): the password part of local test-database URLs (`ecto://user:…@localhost`) and role commands is replaced by an ellipsis; the recorded commands are otherwise exact.
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text.
 
 **Outcome: reduced positional feasibility passed; full production implementation
 remains open.**
 
 The pieces coordinator directed this bounded replacement probe in message
-`msg_b6ffe37f761d`, continuing author task `task_825547efe488` /
-`ctx_6171391913a6`. This is an internal representation choice within the accepted
+<message id>, continuing author task <task id> /
+<dispatch id>. This is an internal representation choice within the accepted
 Contract, not a Contract amendment, M7 fallback or permission to lower evidence.
 The [raw String-key permutation attempt](ELZ-030-raw-lookup-blocker.md) is a
 rejected strategy; the replacement performs no such permutation of raw lookups.

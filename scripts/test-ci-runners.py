@@ -373,7 +373,6 @@ class RunnerPolicyTest(unittest.TestCase):
         self.change("symbolic-check.yml", "jobs:\n", "defaults:\n  run:\n    shell: cat {0}\n\njobs:\n")
         self.assertIn("could disable the runner identity gate", self.check(1).stderr)
 
-    # ELZ-056: the Contabo VPS runner is admitted with its own ERL_FLAGS, and nothing else.
     GLEAM_STEP = """      - name: Install the pinned Gleam compiler
         env:
           GITHUB_TOKEN: ${{ github.token }}

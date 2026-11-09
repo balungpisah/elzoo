@@ -141,7 +141,7 @@ Published/readable snapshot at 2026-11-08T13:14:17.724139+00:00:
 | [#96](https://github.com/balungpisah/elzoo/issues/96) | ELZ-058 — Remove redundant full CI runs without weakening the evidence | Recheck dependencies and remote claims; not a lock |
 | [#95](https://github.com/balungpisah/elzoo/issues/95) | ELZ-057 — Route backend checks by runner tier; add the runner budget rule | Recheck dependencies and remote claims; not a lock |
 | [#76](https://github.com/balungpisah/elzoo/issues/76) | ELZ-044 — Make the CI guard check workflow structure, not line shapes | Recheck dependencies and remote claims; not a lock |
-| [#70](https://github.com/balungpisah/elzoo/issues/70) | ELZ-041 — Trial an advisory ARM64 PR lane on the M1 Pro MacBook | Recheck dependencies and remote claims; not a lock |
+| [#70](https://github.com/balungpisah/elzoo/issues/70) | ELZ-041 — Trial an advisory ARM64 PR lane on an M1 Pro MacBook | Recheck dependencies and remote claims; not a lock |
 | [#48](https://github.com/balungpisah/elzoo/issues/48) | ELZ-031 — Specify exact money amounts and the currency registry | Recheck dependencies and remote claims; not a lock |
 | [#46](https://github.com/balungpisah/elzoo/issues/46) | ELZ-029 — Specify the OS-process Adapter boundary | Recheck dependencies and remote claims; not a lock |
 | [#45](https://github.com/balungpisah/elzoo/issues/45) | ELZ-028 — Specify single-owner leases fenced by record revision | Recheck dependencies and remote claims; not a lock |

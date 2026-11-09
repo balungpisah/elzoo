@@ -1,5 +1,7 @@
 # ELZ-030 — R1 memo/spec correspondence feasibility
 
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text.
+
 **Outcome: the reduced correspondence lemma checks on pinned Cure.** This is
 an executable version of the planned dependency-order list-cache computation,
 not full context-selection acceptance. Authority is the [focused clearance and

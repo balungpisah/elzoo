@@ -1,6 +1,7 @@
 # ELZ-023 production evidence and review handoff
 
 > Redacted before publication (ELZ-065): the password part of local test-database URLs (`ecto://user:…@localhost`) and role commands is replaced by an ellipsis; the recorded commands are otherwise exact.
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text.
 
 This records the initial implementation handoff. For the subsequent independent
 F1/F2 findings, approved corrections and fresh 32 + 613-test full check, see

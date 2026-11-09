@@ -1,5 +1,7 @@
 # ELZ-011 final independent production review
 
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text.
+
 Reviewer: an independent review session.
 Reviewed head: `694fda8a797fa2fe7535e6be1ca164f86483d281` on `task/ELZ-011`
 (`<worktrees>/elzoo-ELZ-011`). Source, metadata and test commit: `36384d4e90cf1487f17dfbb41322a06e59766ae0`.

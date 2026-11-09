@@ -250,7 +250,7 @@ class DecisionTest(unittest.TestCase):
             "extra label": dict(labels=["ubuntu-24.04", "extra"]),
             "self-hosted label": dict(labels=["self-hosted", "ubuntu-24.04"]),
             "no labels": dict(labels=None),
-            "self-hosted runner name": dict(runner_name="symbolic-elzoo"),
+            "self-hosted runner name": dict(runner_name="self-hosted-1"),
             "short runner name": dict(runner_name="GitHub Actions"),
             "long runner name": dict(runner_name="GitHub Actions 7 extra"),
             "no runner name": dict(runner_name=None),

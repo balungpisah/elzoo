@@ -140,7 +140,7 @@ as `32aef4e7dba40231257e2a91095910377c5c4ab9`. This task merged that main revisi
 normally; Relay source matches the inspected final head. Task acceptance remains
 exclusively owned by the existing
 coordinator at
-<t3-thread://v2/7bdd3880-94ea-4c58-a612-8b9b1253e59d/10109396-4230-4f47-a36d-173d628b81cd>.
+<thread link redacted>.
 That thread was read before status reconciliation. No branch, issue or runtime
 source owned by that team is edited here. RC-43 requires final accepted
 merge-SHA evidence; a Git merge alone is not that evidence. The owner reported

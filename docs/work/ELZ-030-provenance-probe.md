@@ -1,8 +1,10 @@
 # ELZ-030 — Recursive provenance feasibility, revision two
 
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text.
+
 This is a scratch feasibility probe, not production source or acceptance of the
 full [revised Contract](ELZ-030.md). It adapts the independent reviewer's probe P
-(Orca `0f974e4c-75e1-4daf-9a19-7720ad2b1633`), adding `local fn` declarations,
+(Orca <session id>), adding `local fn` declarations,
 assertions, a guard-mutation control and an export-limit observation. The original
 review and authority are linked in the revised proposal. No external code or
 new dependency is copied into a ready Piece.

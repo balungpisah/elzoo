@@ -1,6 +1,7 @@
 # ELZ-011 independent early Contract review
 
 > Redacted before publication (ELZ-065): the password part of local test-database URLs (`ecto://user:…@localhost`) and role commands is replaced by an ellipsis; the recorded commands are otherwise exact.
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text.
 
 Reviewer: an independent review session.
 Reviewed head: `0716e36865782847a9a786aa9d4ac28c7b1c5766` on `task/ELZ-011`

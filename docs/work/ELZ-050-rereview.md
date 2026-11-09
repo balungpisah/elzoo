@@ -1,6 +1,8 @@
 # ELZ-050 focused independent re-review
 
-Reviewer: `orca_session_id:0e1ac343-b55f-4201-9987-f8083645211e`
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text.
+
+Reviewer: an independent review session
 Reviewed SHA: `8e0fe422bc194259af1764bff1f1211a979ea3e0`
 Prior reviewed SHA / delta base: `3604181713d800dfa3fc0e3a27c2fe02cde44610`
 Original task base: `ade0e45ca2ff961fff33812212d3b7a26f008d69`
@@ -29,7 +31,7 @@ Working directory: `<worktrees>/elzoo-ELZ-050`
 | Python comparison of coverage output and committed JSON, excluding utc | 0 | Equal |
 | `git merge-base --is-ancestor origin/main HEAD` | 1 | Main advanced; not an ancestor of reviewed HEAD, expected integration work, not a requested validation failure |
 | `git log --oneline HEAD..origin/main` | 0 | Includes merge PR #102 / ELZ-012 at 665d3e0 |
-| `sha256sum docs/work/ELZ-050-review.md /tmp/elz050-review-report-0e1ac343-b55f-4201-9987-f8083645211e.md` | 0 | Both b3235c10635e9570aa3d1b77b0d2a5117d3e954c66add89ebdf92420bf1e6220 |
+| `sha256sum docs/work/ELZ-050-review.md /tmp/elz050-review-report-<session id>.md` | 0 | Both b3235c10635e9570aa3d1b77b0d2a5117d3e954c66add89ebdf92420bf1e6220 |
 | `rg -n '"(oban|req|ecto|telemetry)": ' mix.lock` and `rg -n '"(finch|mint)":' mix.lock` | 0 each | telemetry 1.4.2; direct Oban/Ecto and transitive Req via Finch dependency evidence |
 
 ## Findings

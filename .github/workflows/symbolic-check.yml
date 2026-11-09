@@ -1,4 +1,4 @@
-name: Check on user-owned CI
+name: Check
 
 on:
   push:

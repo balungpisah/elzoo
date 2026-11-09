@@ -15,4 +15,4 @@ Move both workflows off GitHub-hosted machines to the user-owned machine A Linux
 - [ ] Keep old hosted workflows disabled until no hosted job can be triggered by re-enabling; run the proposed CI on machine A before merge.
 - [ ] Obtain independent review and verify job runner identity plus real test results; merge, verify main on machine A and clean up.
 
-No product/Piece behavior changes. GitHub remains the source/PR/check orchestration service, while execution is on symbolic. This prevents hosted compute-minute use, not a claim about all GitHub storage or account charges.
+No product/Piece behavior changes. GitHub remains the source/PR/check orchestration service, while execution is on machine A. This prevents hosted compute-minute use, not a claim about all GitHub storage or account charges.

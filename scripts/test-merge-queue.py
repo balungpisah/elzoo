@@ -591,7 +591,7 @@ class QueueTest(unittest.TestCase):
         self.refuses("Timed out")
 
     def test_job_controls(self):
-        for change in ({"runner_name": "symbolic-elzoo"}, {"runner_name": ""},
+        for change in ({"runner_name": "self-hosted-1"}, {"runner_name": ""},
                        {"conclusion": "failure"}, {"status": "queued"}, {"head_sha": B},
                        {"run_id": 1}, {"name": "other"}):
             with self.subTest(change=change):
@@ -681,7 +681,7 @@ class HostedLaneEvidence(unittest.TestCase):
                        {"labels": ["self-hosted", "ubuntu-24.04"]}, {"labels": ["ubuntu-latest"]},
                        {"labels": ["ubuntu-24.04", "extra"]}, {"labels": ["ubuntu-24.04-arm"]}, {"labels": []},
                        {"labels": "ubuntu-24.04"}, {"labels": None},
-                       {"runner_name": "symbolic-elzoo"}, {"runner_name": "GitHub Actions"},
+                       {"runner_name": "self-hosted-1"}, {"runner_name": "GitHub Actions"},
                        {"runner_name": "GitHub Actions 7 extra"}, {"runner_name": "github actions 7"},
                        {"runner_name": "GitHub Actions x"}, {"runner_name": None}, {"runner_name": ""}):
             with self.subTest(change=change):
@@ -758,7 +758,7 @@ class HostedLaneEvidence(unittest.TestCase):
 
     def test_hosted_gleam_job_identity_is_exact(self):
         for change in ({"runner_group_name": "Default"}, {"labels": ["ubuntu-latest"]}, {"labels": ["self-hosted", "ubuntu-24.04"]},
-                       {"runner_name": "symbolic-elzoo-gleam"}, {"runner_name": "GitHub Actions x"}, {"runner_name": None},
+                       {"runner_name": "self-hosted-gleam-1"}, {"runner_name": "GitHub Actions x"}, {"runner_name": None},
                        {"conclusion": "failure"}, {"head_sha": B}, {"run_id": 101}):
             with self.subTest(change=change):
                 self.setUp()
@@ -831,7 +831,7 @@ class ReviewControls(unittest.TestCase):
                 self.setUp()
                 self.fake.gleam_changes[field] = value
                 self.refuses()
-        for change in ({"runner_name": "symbolic-elzoo"}, {"head_sha": B},
+        for change in ({"runner_name": "self-hosted-1"}, {"head_sha": B},
                        {"conclusion": "failure"}, {"run_id": 101}, {"steps": []}):
             with self.subTest(change=change):
                 self.setUp()

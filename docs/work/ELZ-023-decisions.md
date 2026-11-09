@@ -1,6 +1,7 @@
 # ELZ-023 early-review decision packet
 
 > Redacted before publication (ELZ-065): the password part of local test-database URLs (`ecto://user:…@localhost`) and role commands is replaced by an ellipsis; the recorded commands are otherwise exact.
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text.
 
 **Historical packet; superseded for decisions.** Root accepted R-A–R-F in their
 conservative form on 2026-11-08 ~08:55 WIB, explicitly choosing NARROW for R-B
@@ -26,8 +27,8 @@ and provenance-carrying probe, focused independent re-review, then production.
 
 Prepared 2026-11-08 WIB by the pieces coordinator. The complete independent
 [review](ELZ-023-early-review.md) is preserved verbatim. Reviewer:
-`orca_session_id:0f974e4c-75e1-4daf-9a19-7720ad2b1633`, dispatch
-`ctx_91ee2fe4f81f`. The review inspected the actual three-file proposal diff,
+an independent review session, dispatch
+<dispatch id>. The review inspected the actual three-file proposal diff,
 the live issue and all comments, and the accepted dependency sources.
 
 **Nothing below is adopted.** These are concrete recommendations for root

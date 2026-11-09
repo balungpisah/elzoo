@@ -1,5 +1,7 @@
 # ELZ-030 — Executed Cure feasibility probes
 
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text.
+
 Historical stage-one evidence only (source bytes unchanged by revision two).
 The revised Contract is in [ELZ-030.md](ELZ-030.md). The original probe shares
 its access predicate with the guard and has no trusted snapshot, memoization,

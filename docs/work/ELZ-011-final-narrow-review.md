@@ -1,5 +1,7 @@
 # ELZ-011 final narrow review (T1 and L2)
 
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text.
+
 Reviewer: an independent review session.
 Reviewed head: `094eff10b05ec9a60756f73f0faf77c3bec0fe3a` on `task/ELZ-011`
 (`<worktrees>/elzoo-ELZ-011`). Local HEAD equals `origin/task/ELZ-011`.

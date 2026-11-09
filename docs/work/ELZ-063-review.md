@@ -1,5 +1,7 @@
 # ELZ-063 independent review
 
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text.
+
 Reviewer: Codex, an independent review session.
 Reviewed HEAD: `6c69aad73dad806b2fd187a0fc2aecb0b3e58096`; base `origin/main` `f4e328319ec23fa7bc6d8c8f0a19c2a3122bd938`.
 

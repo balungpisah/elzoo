@@ -242,7 +242,7 @@ Prerequisites: RC-33, RC-34, RC-35, RC-36.
 
 **ELZ-033 documentation worker:** agent id=the ELZ-033 documentation worker; identity source=claim commit 6bcff57fe7b59ec7b0414bf737127302944c5b37; workspace=<worktrees>/t3-772a5980; base=404d159a122d18a22554c5688aa79199e4d5c124; branch=task/ELZ-033; claim sha=6bcff57fe7b59ec7b0414bf737127302944c5b37; mechanism=T3-provided isolated workspace; ordinary Git/GitHub publication; integration owner=dedicated roadmap coordinator; delegation=none; delivery boundary=checked self-contained PR; no merge, watch or cleanup
 
-**ELZ-010 exclusive coordinator:** thread=<t3-thread://v2/7bdd3880-94ea-4c58-a612-8b9b1253e59d/10109396-4230-4f47-a36d-173d628b81cd>; identity source=user-supplied link, read through live T3 tool; branch=task/ELZ-010; workspace=None; delivery boundary=unchanged existing ownership; workspace not accessed
+**ELZ-010 exclusive coordinator:** thread=<thread link redacted>; identity source=user-supplied link, read through live T3 tool; branch=task/ELZ-010; workspace=None; delivery boundary=unchanged existing ownership; workspace not accessed
 
 **future first-wave workers and independent reviewer:** agent id=None; workspace=None; mechanism=not dispatched by adoption worker; integration owner=dedicated roadmap coordinator; delegation=none; delivery boundary=coordinator records actual IDs, workspaces, bases and claim SHAs at dispatch
 

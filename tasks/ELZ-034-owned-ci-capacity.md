@@ -27,10 +27,10 @@ GitHub runners remain prohibited. Do not run untrusted code on either machine.
   Report an unavailable metric explicitly instead of inventing a peak.
 - Add a same-repository PR gate to both backend and Gleam workflows so a fork
   cannot cause untrusted code to run on either user-owned machine. A skipped
-  fork check is not positive validation. Preserve Gleam's symbolic-only role.
+  fork check is not positive validation. Preserve Gleam's owner-machine-only role.
 - For this task's own PR, route the backend check to the new candidate and
   verify GitHub's actual runner_name and labels. Other branches continue to use
-  the established symbolic-only workflow until this task is merged.
+  the established owner-machine-only workflow until this task is merged.
 - Once the candidate passes the full task check and independent review, let
   the existing and new repository-scoped backend runners accept backend jobs.
   Use a common explicit user-owned/backend role label; do not label the new

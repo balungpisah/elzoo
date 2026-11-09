@@ -1351,7 +1351,7 @@
       ],
       "url": "https://github.com/balungpisah/elzoo/issues/55",
       "issue": 55,
-      "issue_body_sha256": "a72d790fbcf0b4a229cf7a216419a754f33685293a5576fae598f6e73c6d40ad",
+      "issue_body_sha256": "71c71d5c8a3863cc7fa2d4fa89803923f97da591a1a19e67a190c2312840f4ea",
       "observed_issue_state": "OPEN",
       "selection_gates": [
         "Independent exact-SHA review, checks and merge acceptance owned by roadmap coordinator"
@@ -3825,7 +3825,7 @@
           "url": "https://github.com/balungpisah/elzoo/actions/runs/42036106498/job/127274582416"
         }
       ],
-      "scope": "Historical merge evidence inspected, merge ancestry checked. Not a fresh rerun of that historical revision. ELZ-015 predates symbolic-only migration; its Linux evidence is historical, not symbolic."
+      "scope": "Historical merge evidence inspected, merge ancestry checked. Not a fresh rerun of that historical revision. ELZ-015 predates the owner-machine-only migration; its Linux evidence is historical, not from machine A."
     }
   ],
   "agent_registry": [
@@ -3844,7 +3844,7 @@
     },
     {
       "role": "ELZ-010 exclusive coordinator",
-      "thread": "<t3-thread://v2/7bdd3880-94ea-4c58-a612-8b9b1253e59d/10109396-4230-4f47-a36d-173d628b81cd>",
+      "thread": "<thread link redacted>",
       "identity_source": "user-supplied link, read through live T3 tool",
       "branch": "task/ELZ-010",
       "workspace": null,

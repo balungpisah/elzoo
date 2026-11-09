@@ -1,6 +1,7 @@
 # ELZ-009 — WIP checkpoint handoff (NOT ACCEPTED)
 
 > Redacted before publication (ELZ-065): the password part of local test-database URLs (`ecto://user:…@localhost`) and role commands is replaced by an ellipsis; the recorded commands are otherwise exact.
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text.
 
 Status: **work in progress, not accepted, no PR.** Stopped at a safe checkpoint
 by user scope change ("Stop at ELZ-009 at a safe checkpoint ... so other agent
@@ -72,7 +73,7 @@ With `ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1'`,
 Earlier stage evidence (from step reports): step-4 targeted 91 passed with
 PG 14.24 monitored `fsync=on synchronous_commit=on`; spike 27 passed;
 disk_log negatives 3 passed; fail-closed messages verified for missing (exit 1)
-and unreachable (exit 2) URLs; `check-ci-runners.py` symbolic-only.
+and unreachable (exit 2) URLs; `check-ci-runners.py` owner-machine-only.
 
 ## Recreating the environment
 

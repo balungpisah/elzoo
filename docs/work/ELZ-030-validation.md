@@ -1,8 +1,9 @@
 # ELZ-030 integrated validation
 
 > Redacted before publication (ELZ-065): the password part of local test-database URLs (`ecto://user:…@localhost`) and role commands is replaced by an ellipsis; the recorded commands are otherwise exact.
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text.
 
-Coordinator: Orca `3b13aceb-03fd-42ab-81ca-a11ca986749b`.
+Coordinator: Orca <session id>.
 Runtime/metadata tree checked: `33cb576bbae6e27128c1dcccc65c58d6cd452345` on `task/ELZ-030`, including
 `origin/main` `230cc5b211ef0599fe6a1980286c952111e5e0ae` through normal merges.
 This document records the completed local check; independent final review, PR,
@@ -89,7 +90,7 @@ and 136 local links. Final PR/CI/queue/merge acceptance remains separate.
 
 ## Final-review regression additions (F1–F4)
 
-Author: Orca `7c1b608d-f91b-4573-b2e7-310670b76a04`, 2026-11-08.
+Author: Orca <session id>, 2026-11-08.
 Baseline `664652d4f1d134a26b223ae3042a7d3618197346` includes the ELZ-048
 merge and regenerated views above. Test commit
 `cde8d20b5f773c11024e16039a11e6619cf5759d` appends three tests (126 lines)

@@ -321,7 +321,7 @@ Replace this exact substring:
 
 ```text
 - [ ] Timeout and collector death both leave no surviving process group
-      (executable tests on the symbolic runner).
+      (executable tests on the first fast runner).
 - [ ] Escalation stage is reported from observation, not assumed.
 ```
 

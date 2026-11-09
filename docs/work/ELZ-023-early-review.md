@@ -1,5 +1,7 @@
 # ELZ-023 (#37): independent EARLY Contract review
 
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text.
+
 - Reviewer: an independent review session. I authored none of the proposal. No helpers.
 - Reviewed head: **`c90a7385baafa1eadc4da30945dcf0312c521ec9`** on `task/ELZ-023` (claim `5f62e64f63641ded4e51ab776257f974ad782d10`). Worktree `<worktrees>/elzoo-ELZ-023`: `git status --short` empty before and after. Diff from the claim: exactly three files, `docs/work/ELZ-023.md` (443 lines), `docs/work/ELZ-023-probes/policy.cure` (118), `docs/work/ELZ-023-probes/probe.exs` (133). No production code exists.
 - Live issue #37: OPEN, labels `task`, `ready`; issue body and `tasks/ELZ-023-dispatched-effect-intent.md` are byte-equal (8021 bytes, SHA-256 `6dd2b87b…9421`). I read all five issue comments (bot publication and re-sync, decision A lifting the block, the claim, the proposal-progress comment). No amendment exists on the issue.

@@ -1,6 +1,7 @@
 # ELZ-023 (#37): final independent implementation review
 
 > Redacted before publication (ELZ-065): the password part of local test-database URLs (`ecto://user:…@localhost`) and role commands is replaced by an ellipsis; the recorded commands are otherwise exact.
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text.
 
 - Reviewer: an independent review session. The same independent reviewer as the early and focused reviews; I authored none of the code, tests or documents. No helpers. I will not claim GitHub approval.
 - Reviewed head: **`196d0881cd80a878029ff582e87c786732c2cbbf`** on `task/ELZ-023`, base `origin/main` `0a423705784f2c0223ed67d6f75bfdb5412845ce` (ancestor, no rebase). Worktree `<worktrees>/elzoo-ELZ-023`: `git status --short` empty before, during and after. I changed no tracked file, issue, label, pin, test or protected file. Only `docs/work/ELZ-023-production.md` and `docs/work/ELZ-023.md` differ from the fully checked commit `fed4026ce85c5df3dae5fbf8126f5529ee61389a`.
@@ -17,7 +18,7 @@ Safety properties I attacked and could not break: no second send without a durab
 1. Live issue #37 body and `tasks/ELZ-023-dispatched-effect-intent.md` at HEAD: both **16,468 bytes**, equal, SHA-256 `b3fae2e02e9ee8789320e76491568759f9e9f28693b8cf5561bb086ccffeee58`; open, labels `task`, `ready`. `docs/plans/release-plan.json` carries that hash.
 2. A1 comment `6716149455` (02:25:12Z) precedes the body edit (`lastEditedAt` 02:25:58Z). Its diff applied with `patch` to the task text at the focused-review head `82287ca` gives the HEAD task text exactly. The first amendment `6715823301` was verified in the earlier review.
 3. I read every issue comment through `6716849647` (the production hand-off). Comments after the focused review are consistent with the repository documents.
-4. Diff against main: 37 files. Modified (not added) files are only `LEDGER.md`, `docs/plans/release-plan.json`, `docs/plans/views.md`, `registry/catalogue.json` and the task file. No protected path (`.github/`, `scripts/`, root `lib/` or `test/`, `mix.exs`, `mix.lock`, `config/`, symbolic CI doc) is touched; no file is deleted; `.claims` has no tracked file, the original claim `5f62e64` is in history; `git diff --check origin/main HEAD` exit 0.
+4. Diff against main: 37 files. Modified (not added) files are only `LEDGER.md`, `docs/plans/release-plan.json`, `docs/plans/views.md`, `registry/catalogue.json` and the task file. No protected path (`.github/`, `scripts/`, root `lib/` or `test/`, `mix.exs`, `mix.lock`, `config/`, CI guide) is touched; no file is deleted; `.claims` has no tracked file, the original claim `5f62e64` is in history; `git diff --check origin/main HEAD` exit 0.
 5. Test preservation: between the first production commit `dae4acf` and `fed4026` the only test change is `effect_intent_test.exs`, **119 insertions, 0 deletions**.
 
 ## 3. Acceptance bullets (live Contract)

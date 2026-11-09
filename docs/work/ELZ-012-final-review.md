@@ -1,5 +1,7 @@
 # ELZ-012 final independent review
 
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text.
+
 Reviewer: an independent review session.
 Reviewed head: `8594a3b79e988a951b1716caaea3b700447d6e58` on `task/ELZ-012` (`<worktrees>/elzoo-ELZ-012`). Local HEAD equals `origin/task/ELZ-012`. Diff base `origin/main` = `b62c26a229fc86fa7700376d4cb6a21be536baa7`.
 Earlier report: `docs/work/ELZ-012-early-review.md` is byte-equal to `/tmp/elz012-early-review-report-0f974e4c.md` (`cmp` exit 0).

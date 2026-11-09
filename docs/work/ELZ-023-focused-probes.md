@@ -1,6 +1,7 @@
 # ELZ-023 focused amendment probe evidence
 
 > Redacted before publication (ELZ-065): the password part of local test-database URLs (`ecto://user:…@localhost`) and role commands is replaced by an ellipsis; the recorded commands are otherwise exact.
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text.
 
 Status: executed feasibility evidence; [independent review](ELZ-023-focused-review.md)
 is CONDITIONAL at 82287ca; no production acceptance.

@@ -1,6 +1,7 @@
 # ELZ-023 final review follow-up
 
 > Redacted before publication (ELZ-065): the password part of local test-database URLs (`ecto://user:…@localhost`) and role commands is replaced by an ellipsis; the recorded commands are otherwise exact.
+> Redacted before publication (ELZ-070): local paths, session, dispatch, task and message ids, the test database name and role, and runner and machine names are replaced by placeholders or role words; hashes and byte-equality records in this file refer to the unredacted text.
 
 ELZ-023: F1 and approved F2 fixes applied; fresh full check passed; incremental review pending.
 Branch/PR: `task/ELZ-023`; issue #37; no PR; independent reviewed head `196d0881cd80a878029ff582e87c786732c2cbbf`.
@@ -10,8 +11,8 @@ Limits: no review clearance/PR/merge claimed; the old full check does not accept
 Open work: independent incremental review of the actual F1+F2 diff, then PR/authorized queue/main acceptance/cleanup.
 
 Prepared 2026-11-08 11:07 WIB. Independent reviewer session
-`orca_session_id:0f974e4c-75e1-4daf-9a19-7720ad2b1633`, dispatch
-`ctx_ba3927238e5e`, verdict CONDITIONAL (F1 major, F2 medium); no Contract
+an independent review session, dispatch
+<dispatch id>, verdict CONDITIONAL (F1 major, F2 medium); no Contract
 amendment needed per that review. The reviewer found no bypass of the durable
 failed_definite law, but did find liveness starvation and a source-attribution gap.
 
@@ -74,8 +75,8 @@ Then run fresh setup/full check and independent incremental review.
 
 ### Approval and retained regression coverage
 
-The root coordinator approved question `msg_db1a9f1bb028` on 2026-11-08 about
-11:40 WIB, in dispatch `ctx_ada55dc734ce`: the two named tests were introduced
+The root coordinator approved question <message id> on 2026-11-08 about
+11:40 WIB, in dispatch <dispatch id>: the two named tests were introduced
 in this unmerged branch at `dae4acf`; no merged existing test or assertion is
 changed. The independent CONDITIONAL verdict at `196d088` required F2's
 source-attribution correction. The exact two corrections listed above preserve
