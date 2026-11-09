@@ -410,6 +410,22 @@
       "reason": "Provider/CLI capabilities, run/resume/cancel, tool/approval events and errors for C6/C7; compare existing Elixir agent libraries or protocol SDKs before writing a bridge. ELZ-025 study: a model-named tool resolves only through a host registry keyed by stable id and version; resolution grants no authority."
     },
     {
+      "id": "integration/ai-batch",
+      "summary": "Provider-neutral batch job mode over ai-text requests: submit and cancel through core/effect and delivery/effect-intent with manifest arguments, status and bounded result pages joined by item id, provider behaviour and conformance kit",
+      "disposition": "adapt",
+      "phase": "P4",
+      "status": "ready",
+      "manifest": "pieces/integration/ai-batch/piece.json"
+    },
+    {
+      "id": "integration/ai-batch-anthropic",
+      "summary": "Anthropic Message Batches provider of integration/ai-batch on the pinned Req (anthropic-version 2026-10-21): item bodies from the synchronous ai-text-anthropic translation, batch-global headers, streamed bounded results, documented-format stubs",
+      "disposition": "adapt",
+      "phase": "P4",
+      "status": "ready",
+      "manifest": "pieces/integration/ai-batch-anthropic/piece.json"
+    },
+    {
       "id": "integration/ai-model",
       "summary": "AI model family core: model reference, unit-tagged usage with the provider's input-token convention and cache writes per TTL, cache hint with tenant rule, provenance, failure classes, job reference and state, stream chunk; pure values and validators",
       "disposition": "adapt",
