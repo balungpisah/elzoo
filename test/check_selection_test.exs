@@ -205,10 +205,16 @@ defmodule Elzoo.CheckSelectionTest do
     refute workflow =~ "ELZOO_CHECK_EVENT"
     refute workflow =~ "ELZOO_CHECK_BASE"
     refute workflow =~ "--affected"
-    # Execute the actual run block using a harmless stand-in for the check wrapper.
-    [_, step] = Regex.run(~r/      - name: Run mix check\n(.*?)      - name:/s, workflow)
-    [_, script] = Regex.run(~r/^        run: (.+)\n/m, step)
-    assert script == "sh scripts/run-ci-check.sh"
+    # ELZ-073: three work jobs run the three parts of the full check; together they are the full check.
+    # Execute the actual run blocks using a harmless stand-in for the check wrapper.
+    scripts =
+      for [_, step] <-
+            Regex.scan(~r/      - name: Run mix check\n(.*?)      - name:/s, workflow) do
+        [_, script] = Regex.run(~r/^        run: (.+)\n/m, step)
+        script
+      end
+
+    assert scripts == for(part <- Selection.parts(), do: "sh scripts/run-ci-check.sh --part #{part}")
     root = git_fixture()
     stub = Path.join(root, "sh")
     File.write!(stub, "#!/bin/sh\nprintf '%s\\n' \"$@\"\n")
@@ -216,7 +222,8 @@ defmodule Elzoo.CheckSelectionTest do
     base = "base with spaces; not shell code"
 
     # A leftover event or base variable must not select affected mode.
-    for event <- ["pull_request", "push", "workflow_dispatch", "unknown", ""] do
+    for {script, part} <- Enum.zip(scripts, Selection.parts()),
+        event <- ["pull_request", "push", "workflow_dispatch", "unknown", ""] do
       {output, 0} =
         System.cmd("/bin/sh", ["-eu", "-c", script],
           env: [
@@ -226,7 +233,7 @@ defmodule Elzoo.CheckSelectionTest do
           ]
         )
 
-      assert output == "scripts/run-ci-check.sh\n"
+      assert output == "scripts/run-ci-check.sh\n--part\n#{part}\n"
     end
   end
 
