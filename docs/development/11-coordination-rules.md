@@ -120,6 +120,9 @@ owner's priorities and the live task bodies decide what is built.
 
 ## 9. Evidence economy
 
+The coordinator's map of change classes, with the order per class and the machine check that
+verifies it, is `12-change-class-flow.md` (ELZ-077).
+
 Source for this section: the ELZ-073 rule change of 2026-11-09 (#136) and the redundancy audit
 recorded in ELZ-075 (#140). The owner's instruction was that the lesson be stamped into the
 workflow and that other redundant steps be found.
