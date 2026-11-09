@@ -298,8 +298,10 @@ Contract.
 - [ ] Tool proposals are never executed (source audit) and malformed ones are marked.
 - [ ] No credential, prompt or output appears in results, errors, inspect values, logs or
       events, and no key is read from the environment or a `.env` file, with tests.
-- [ ] The three Pieces' tests pass in the exported consumer layout, including a consumer
-      that takes only the core and the interface.
+- [ ] The three Pieces' tests pass in the exported consumer layout; the interface's
+      tests run with a scripted test provider and load no provider dependency. A
+      per-ID consumer that copies only the core and the interface is open work in
+      ELZ-091.
 - [ ] Operational applicability is declared per docs/operational-contracts.md for each
       Piece.
 - [ ] Full `mix setup` and `mix check` pass at the PR head on the pinned toolchain.

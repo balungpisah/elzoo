@@ -578,4 +578,43 @@ defmodule Elzoo.AiTextTest do
       refute inspect({delivery, status}) =~ @prompt
     end
   end
+
+  ## Source audit: the interface loads no provider dependency
+
+  # This Piece's own files exactly as listed in its manifest (a fixed list, never
+  # the consumer's whole lib/, which also holds other Pieces' files in an export).
+  @own_files ~w(
+    cure/elzoo/ai_text_outcome.cure
+    lib/elzoo/ai_text.ex
+    lib/elzoo/ai_text/adapter.ex
+    lib/elzoo/ai_text/binding.ex
+    lib/elzoo/ai_text/config.ex
+    lib/elzoo/ai_text/conformance.ex
+    lib/elzoo/ai_text/outcome.ex
+    lib/elzoo/ai_text/provider.ex
+    lib/elzoo/ai_text/request.ex
+    lib/elzoo/ai_text/retry.ex
+    lib/elzoo/ai_text/schema.ex
+    lib/elzoo/ai_text/sink.ex
+    test/elzoo/ai_text_test.exs
+    test/support/ai_text_test_helper.exs
+  )
+
+  test "the interface's own files reference no provider library or provider Piece (source audit of the listed files)" do
+    root = Path.expand("../..", __DIR__)
+    # Built by concatenation so this file does not contain the names it forbids.
+    forbidden = [
+      "Req" <> "LLM",
+      "req" <> "_llm",
+      "Pl" <> "ug.",
+      "Req" <> ".Test",
+      "AiText." <> "Anthropic",
+      "llm" <> "_db"
+    ]
+
+    for file <- @own_files do
+      source = File.read!(Path.join(root, file))
+      for word <- forbidden, do: refute(source =~ word, "#{file} references #{word}")
+    end
+  end
 end

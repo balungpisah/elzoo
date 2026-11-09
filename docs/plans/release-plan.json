@@ -1583,9 +1583,9 @@
         "integration/ai-text",
         "integration/ai-text-anthropic"
       ],
-      "acceptance": "Unchanged live issue body (after the approved 2026-11-09 amendment 1); local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
+      "acceptance": "Unchanged live issue body (after the approved 2026-11-09 amendments 1 and 2); local task file is the publication copy. Planning dependencies mirror the published direct dependencies.",
       "issue": 153,
-      "issue_body_sha256": "45eb77101f752a1b6c1d8deb8b749cb865f953559fb251340ac14071629ae7bb",
+      "issue_body_sha256": "46baa04113ffd8a7aa6b7fd5a4a967953b618f37c1fc066e482a6bc281ed19e4",
       "observed_issue_state": "OPEN",
       "owner_role": "one claimed task worker after admission",
       "product_aims": [
@@ -3498,7 +3498,7 @@
       "disposition": "implementation prepared; acceptance requires merged PR",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/ai-text/piece.json",
-      "manifest_sha256": "9d99618acf401106a6eaf83b657070d551ddf731428404099ff5c73ebd4dde5b",
+      "manifest_sha256": "0a3448b5277ffaa0315f1e65cfa9be88381d5e74014f5a390239607b52225f07",
       "baseline_status": "not in baseline (new row, ELZ-079)"
     },
     {

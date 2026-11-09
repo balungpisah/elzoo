@@ -56,7 +56,7 @@
     {
       "kind": "test",
       "file": "test/elzoo/ai_text_test.exs",
-      "claim": "Listed scenarios with a scripted test provider and the volatile Memory store: completed call path with content only through the sink; local refusals before intent, credential and call; provider options; retries (credentials_unavailable retried, throttled and overloaded unresolved and not redispatched, unknown never); second dispatch refused and same key on re-admission; classification table against Cure; sink failures; tool proposal and structured-output checks; request codec; configuration and redaction. Finite scenarios, not proofs."
+      "claim": "Listed scenarios with a scripted test provider and the volatile Memory store: completed call path with content only through the sink; local refusals before intent, credential and call; provider options; retries (credentials_unavailable retried, throttled and overloaded unresolved and not redispatched, unknown never); second dispatch refused and same key on re-admission; classification table against Cure; sink failures; tool proposal and structured-output checks; request codec; configuration and redaction; a source audit of this Piece's own listed files showing no reference to req_llm, llm_db, Plug, Req.Test or the Anthropic provider module (the interface loads no provider dependency). Finite scenarios, not proofs."
     },
     {
       "kind": "upstream",

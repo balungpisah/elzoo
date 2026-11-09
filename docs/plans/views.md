@@ -701,7 +701,7 @@ Publication copy: [tasks/ELZ-079-ai-model-text-anthropic.md](../../tasks/ELZ-079
 
 **Product aims:** P06, P07, P09, P11.
 
-**Acceptance:** Unchanged live issue body (after the approved 2026-11-09 amendment 1); local task file is the publication copy. Planning dependencies mirror the published direct dependencies.
+**Acceptance:** Unchanged live issue body (after the approved 2026-11-09 amendments 1 and 2); local task file is the publication copy. Planning dependencies mirror the published direct dependencies.
 
 ### RC-01
 
