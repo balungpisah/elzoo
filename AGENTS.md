@@ -137,8 +137,9 @@ ownership areas.
 ## CI machine policy
 
 CI runs on GitHub-hosted runners: the repository is public (owner decision
-2026-11-09), and the jobs check-hosted and gleam-hosted run on the one label
-ubuntu-24.04 with the runner identity gate described in
+2026-11-09), and the five jobs of symbolic-check.yml (check-plan, check-root,
+check-consumers-db, check-consumers and the aggregating job check-hosted) and the job
+gleam-hosted run on the one label ubuntu-24.04 with the runner identity gate described in
 docs/development/10-symbolic-ci.md ("Hosted CI"). There is no self-hosted lane,
 no lane variable and no workflow input; self-hosted runners must never be
 attached to a public repository. Never change runs-on or the required checks
@@ -203,7 +204,7 @@ The coordinator merges only after checks and required review:
 2. merge through GitHub, never rewrite main;
 3. verify acceptance on the merge commit (including its CI result: its own green full run, or a push run that
    logs `ELZOO PUSH CHECK SKIPPED` with the passed exact-head run and job IDs, see docs/development/10-symbolic-ci.md);
-   the exact-head evidence is the pull request's own green `check-hosted` run (the queue adopts it; it dispatches a run only as a logged fallback, which does not satisfy branch protection): the full run, or for a documentation-only change that the queue classifies itself, the short docs-only check (`ELZOO DOCS-ONLY CHECK PASSED`), and `main` is
+   the exact-head evidence is the pull request's own green run of `symbolic-check.yml`, all five jobs of one attempt as one unit; `check-hosted` is the aggregating job and the required check (the queue adopts the run; it dispatches a run only as a logged fallback, which does not satisfy branch protection): the full run, or for a documentation-only change that the queue classifies itself, the short docs-only check (`ELZOO DOCS-ONLY CHECK PASSED`), and `main` is
    re-confirmed by its push run: a red push run that is not classified on issue #98 freezes the queue;
 4. delete the merged remote and local task branch;
 5. remove the worktree and confirm git status --short is empty;

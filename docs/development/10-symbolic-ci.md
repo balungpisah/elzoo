@@ -12,8 +12,9 @@ the merge commit (23 to 29 minutes on a former self-hosted runner), and, after e
 that duplicated the queue run. ELZ-058 removed two of these without weakening the evidence; ELZ-059 removed the duplicate
 in the other direction: the pull request run is the exact-head run (see "Coordinator merge queue").
 
-**Push run skip.** The `check-hosted` job on a push to `main` runs
-`scripts/ci-skip-decision.py` after the guard tests. It prints `skip=true` only when all of these hold:
+**Push run skip.** The `check-plan` job on a push to `main` runs
+`scripts/ci-skip-decision.py` after the guard tests (since ELZ-073 the plan job turns the answer into `run=true` or
+`run=false` for the three work jobs: see "Parallel jobs (ELZ-073)"). It prints `skip=true` only when all of these hold:
 the event is a push to `refs/heads/main`; the pushed commit is a two-parent merge commit; its tree equals
 the tree of its second parent (the pull request head that the queue merged with `--match-head-commit`);
 the latest run of `symbolic-check.yml` on that second parent (branch `task/ELZ-###`, found by `head_sha`; since ELZ-059 the
@@ -27,15 +28,17 @@ with a higher ID than its evidence run exists. A newer `workflow_dispatch` run i
 and this script accepts it only as a completed success with the full marker, else the full check runs. Only a
 `pull_request` run that is created after that listing, and that is green before the decision step of the push job
 (about 20 minutes of check time), could still decide)
-is a completed success whose exact attempt has exactly one job, a successful `check-hosted` job on a
-GitHub-hosted runner (group `GitHub Actions`, label `ubuntu-24.04`, runner name `GitHub Actions <number>`), a successful
-runner identity step, a successful `Run mix check` step, the full `ELZOO CHECK PASSED` log line and no
+is a completed success whose exact attempt has exactly the five jobs of the evidence unit (ELZ-073), each once:
+every executed job is successful on the exact head and run, on a GitHub-hosted runner (group `GitHub Actions`, label
+`ubuntu-24.04`, runner name `GitHub Actions <number>`), has a successful runner identity step and started in this attempt;
+the plan job printed `ELZOO PLAN: run=true`; each of the three work jobs has a successful `Run mix check` step and its
+part marker; the aggregating job `check-hosted` printed the full `ELZOO CHECK PASSED` log line; and no job log holds an
 `ELZOO AFFECTED CHECK PASSED` marker (or, for a documentation-only merge, the short check of ELZ-071: see
 "Documentation-only pull requests (ELZ-071)");
 and that run is unchanged when read again. The same evidence rules as the queue apply (`scripts/merge-queue.py`).
-Then the steps after the decision (`setup-beam`, cache, `mix setup`, `mix check`) are skipped, the job ends green
-and its log shows `ELZOO PUSH CHECK SKIPPED (identical tree; exact-head full run passed): second_parent=...
-tree=... run=<id> job=<id> runner=<name>`. That line is not `ELZOO CHECK PASSED`, which stays reserved for a run that
+Then the plan job reports `run=false`, the three work jobs are skipped, and the aggregating job ends green. The log
+of the plan job shows `ELZOO PUSH CHECK SKIPPED (identical tree; exact-head full run passed): second_parent=...
+tree=... run=<id> jobs=check-plan:<id>,check-root:<id>,check-consumers-db:<id>,check-consumers:<id>,check-hosted:<id>`. That line is not `ELZOO CHECK PASSED`, which stays reserved for a run that
 executed `mix check`. In every other case, including a fast-forward, squash or octopus push, a moved main (the
 trees differ), a missing, red, cancelled, ambiguous or newer-failed run, an API, Git or parse error and a missing
 token, the script prints `skip=false` with the reason and the full check runs. It never fails the job because it
@@ -49,19 +52,21 @@ no longer observes the merge commit itself (its path, runner, cache or toolchain
 at merge time is invisible to a skipped push run; the next full run of `main` catches it. Acceptance on the
 merge commit is therefore either its own green full run or this logged skip (see `AGENTS.md`).
 
-Trust model: `check-hosted` gets `permissions: actions: read` and `contents: read` at job level (to read the exact-head
-run, its jobs and its log); the top level keeps `contents: read`. The decision step and the S3 test server start step
-are the only steps that receive `GITHUB_TOKEN`, and the script refuses everything but a push to `main` before any request. The token is never sent to
+Trust model: `check-plan` gets `permissions: actions: read` and `contents: read` at job level (to read the exact-head
+run, its jobs and its log); the other four jobs get `contents: read` only, and the top level keeps `contents: read`. The
+decision step and the S3 test server start step of each work job are the only steps that receive `GITHUB_TOKEN`, and the
+script refuses everything but a push to `main` before any request. The token is never sent to
 the log storage redirect, which is accepted only for `github.com`, `*.github.com`, `*.githubusercontent.com` and
 `productionresultssa<N>.blob.core.windows.net/actions-results/...`. `scripts/check-ci-runners.py` pins the
-`permissions` lines (and rejects any `write` scope), the checkout step with `persist-credentials: false` (the default
-would leave the job token in `.git/config`, readable by every later step, including dependency code, and with this change
-that token carries `actions: read` on `check-hosted`), the exact decision step and its position after
-`scripts/test-ci-skip.py`, the token on that line only, and the complete list of step-level `if:` conditions:
-every step after the decision, except the resource report, carries `steps.skip.outputs.skip != 'true'`
-(the cache save combines it with `cache-hit != 'true'`) and the resource report keeps `always()`. A different `if:` on
-`Run mix check`, or on any other step, fails the guard. Like the other guard rules this is a source-convention
-check, not proof against every YAML form.
+`permissions` lines per job role (and rejects any `write` scope, and `actions: read` outside the plan job), the checkout
+step with `persist-credentials: false` (the default would leave the job token in `.git/config`, readable by every later
+step, including dependency code, and the token of the plan job carries `actions: read`), the exact decision step and its
+position after `scripts/test-ci-skip.py`, the token on that line and on the S3 start steps only, and the complete list of
+step-level `if:` conditions. The three work jobs run or are skipped as a whole (`if: needs.check-plan.outputs.run ==
+'true'`); inside them only the cache saves of the root job (`steps.minio.outputs.source != 'cache'` and `cache-hit !=
+'true'`) and the resource report (`always()`) carry a condition. In the plan job only the roadmap step and the docs-only
+step carry one. A different `if:` on `Run mix check`, or on any other step, fails the guard. Like the other guard rules
+this is a source-convention check, not proof against every YAML form.
 
 **Duplicate pull request check (retired by ELZ-059).** ELZ-058 had the queue cancel the `pull_request` run that GitHub
 starts after `gh pr update-branch`, because the queue dispatched its own exact-head run. The cancel and its tests are
@@ -191,10 +196,15 @@ head=<sha> within 300 s; dispatching ...`), records the existing run IDs before 
 merely latest green run, and refuses an ambiguous match. A dispatch run is valid merge evidence but not a pull request
 status. A run for another head, another branch, another workflow, a dispatch, push or fork run is never adopted.
 
-The completed run must succeed. Its exact attempt must have exactly one job, a successful
-`check-hosted` job on a GitHub-hosted runner (group `GitHub Actions`, label `ubuntu-24.04`, runner name
-`GitHub Actions <number>`), on the same head, with a successful runner identity step and a successful `Run mix check` step. The job log must contain the full
-`ELZOO CHECK PASSED` output line and no `ELZOO AFFECTED CHECK PASSED` marker. A run of the short documentation-only shape is
+The completed run must succeed. Its exact attempt must have exactly the five jobs `check-plan`, `check-root`,
+`check-consumers-db`, `check-consumers` and `check-hosted`, each once (ELZ-073: one evidence unit). Every executed job
+must be successful on the same head and run, on a GitHub-hosted runner (group `GitHub Actions`, label `ubuntu-24.04`,
+runner name `GitHub Actions <number>`), with a successful runner identity step, and it must have started at or after the
+start of the run (a partial re-run copies the green jobs of the earlier attempt with their old start time: that is no
+evidence, see "Parallel jobs (ELZ-073)"). The plan job log must contain `ELZOO PLAN: run=true`; each work job needs a
+successful `Run mix check` step and its part marker (`ELZOO ROOT SUITE PASSED`, `ELZOO CONSUMERS DB PASSED`,
+`ELZOO CONSUMERS PASSED`); the log of the aggregating job must contain the full `ELZOO CHECK PASSED` output line; and no
+job log may contain an `ELZOO AFFECTED CHECK PASSED` marker. A run of the short documentation-only shape is
 accepted instead only under the rules of "Documentation-only pull requests (ELZ-071)".
 Missing logs, API/command failures, cancelled runs and reruns during evidence
 collection fail closed. This validates observed evidence from trusted workflow
@@ -243,7 +253,7 @@ gh pr merge <PR> -R balungpisah/elzoo --merge --match-head-commit <checked-head-
 ```
 
 After confirming the merge, it prints an `ELZOO GLEAM EVIDENCE` (or `ELZOO GLEAM GATE not required`) line and an
-`ELZOO MERGE EVIDENCE` line with PR, run/job IDs, runner names, checked head SHA
+`ELZOO MERGE EVIDENCE` line with PR, run ID, the five job IDs (`jobs=<name>:<id>,...`), checked head SHA
 and merge SHA. Preserve those lines in the coordinator's acceptance record.
 No branch deletion, issue closure or
 acceptance posting is performed. A transport failure during a merge can leave
@@ -344,22 +354,25 @@ cannot see (a computed name such as `Atom.to_string(:docs)`, a variable that hol
 directory listing that is filtered by extension, a wildcard built from other helpers) is not found, and the independent review of a change that
 adds such a read is the second line.
 
-**Workflow** (`check-hosted`): the step `Classify the change` runs `python3 scripts/ci-change-class.py github` right after
+**Workflow** (`check-plan`): the step `Classify the change` runs `python3 scripts/ci-change-class.py github` right after
 the checkout. On a `pull_request` run the checkout is the merge of the head into the base, so `HEAD^1...HEAD^2` is the
 change of the head; any other event, or a `HEAD` that is not a two-parent merge, is not documentation only. When
-`docs_only` is `true`, every heavy step (S3 binary restore, start and save, `setup-beam`, BEAM report, dependency cache,
-hex, rebar, `mix setup`, cache save, `mix check`, the roadmap step of ELZ-059) is skipped, and the step `Docs-only check`
+`docs_only` is `true`, the step `Plan the work jobs` writes `run=false`: the three work jobs (libraries, database, S3
+binary restore and start and save, `setup-beam`, BEAM report, dependency cache, hex, rebar, `mix setup`, `mix check`)
+are skipped, the roadmap step of the plan job is skipped, and the step `Docs-only check`
 runs `check-claims.py` and `check-roadmap.py` (links and generated views included) and prints `ELZOO DOCS-ONLY CHECK
 PASSED`. The claims check, the guard and the tests of the guard, the queue, the S3 test server, the classifier and the skip
-decision, which run before the heavy steps, keep running. The Postgres
-service container still starts (a job-level `services:` block cannot be conditional); only its use is skipped. The guard
-(`scripts/check-ci-runners.py`) pins the classify step, the classifier test step, the docs-only step and every
+decision, which run before, keep running in the plan job. The aggregating job `check-hosted` succeeds only when the
+plan job succeeded and the three work jobs were skipped. Since ELZ-073 a documentation-only run starts no Postgres service
+container. The guard
+(`scripts/check-ci-runners.py`) pins the classify step, the classifier test step, the docs-only step, the plan step and every
 step-level condition, and allows the marker on one line of the workflow only.
 
-**Queue.** A run whose `Run mix check` step was skipped is accepted only as the docs-only shape: `Classify the change`
-and `Docs-only check` green, the log line `ELZOO DOCS-ONLY CHECK PASSED` as a line of its own (not an echoed command), no
-`ELZOO CHECK PASSED` and no `ELZOO AFFECTED CHECK PASSED` line. It still needs the one `check-hosted` job on a
-GitHub-hosted runner, the green identity step and all other rules. Then the **queue's own classification** decides:
+**Queue.** A run whose three work jobs were skipped is accepted only as the docs-only shape: `Classify the change`
+and `Docs-only check` green in the plan job, the log line `ELZOO DOCS-ONLY CHECK PASSED` as a line of its own (not an
+echoed command) and the plan line `ELZOO PLAN: run=false ... docs_only=true` in the plan log, no
+`ELZOO CHECK PASSED` and no `ELZOO AFFECTED CHECK PASSED` line, and the aggregating job green. It still needs the plan job
+and the aggregating job on GitHub-hosted runners with green identity steps, and all other rules. Then the **queue's own classification** decides:
 `git diff --raw -z --no-renames --no-abbrev --ignore-submodules=none --no-relative <main SHA>...refs/remotes/origin/<branch>`
 with the main SHA of the canonical repository, through the queue's own copy of `scripts/ci-change-class.py`, the file next
 to `scripts/merge-queue.py`; the queue never reads a file of the pull request head for this. **It also needs a verified
@@ -394,9 +407,8 @@ its own run take the short path; only the queue's own classification (the file n
 and its verified-main rule stop that, and after a hand merge the push run loads the classifier of the merge commit. This is
 the existing trust model (a pull request controls the workflow it runs, see "Coordinator merge queue"), stated here for the
 new path. The marker proves that the docs-only steps ran on the merge of the head
-into the base; the queue's path check decides acceptance. The runtime libraries and the disposable database are still
-prepared before the checkout, and the Postgres service container still starts, so a documentation-only run costs about
-the start of the job plus the short check, not zero.
+into the base; the queue's path check decides acceptance. A documentation-only run starts only the plan job and the
+aggregating job (no libraries, database or service container), so it costs two job starts plus the short check, not zero.
 
 ## Timing lines in CI logs (ELZ-045)
 
@@ -573,24 +585,26 @@ runners; both happened on that day (see "Flip record"). ELZ-066 added the hosted
 chosen by a repository variable; ELZ-069 removed the self-hosted jobs, the runner roles, the `tier` input of the manual
 run and the variable. There is one lane.
 
-**Jobs.** `symbolic-check.yml` has one job, `check-hosted`; `symbolic-gleam.yml` has one job, `gleam-hosted`. Both run
+**Jobs.** `symbolic-check.yml` has five jobs since ELZ-073 (`check-plan`, `check-root`, `check-consumers-db`,
+`check-consumers` and the aggregating job `check-hosted`, see "Parallel jobs (ELZ-073)"); `symbolic-gleam.yml` has one job, `gleam-hosted`. All run
 on the one label `ubuntu-24.04`, without a job container, and run for a push to `main`, a manual run
 (`workflow_dispatch`, no inputs) and a pull request from the same repository (a fork pull request skips them).
 `scripts/check-ci-runners.py` pins their `if:` lines and their header lines exactly: token permissions, time limit,
-`ERL_FLAGS`, and for `check-hosted` the Postgres service container (image pinned by digest, health check). It rejects
+`ERL_FLAGS`, and for the work jobs the Postgres service container (image pinned by digest, health check). It rejects
 every other label (`ubuntu-latest`, larger runners, expressions), any `self-hosted` text, any `labels:` list on a job,
 any workflow input, any use of `vars` or of the former variable name `ELZOO_CI_LANE` (in any letter case, also in script
-text and comments), a job container, and a second job of any name, so the removed shapes cannot return silently. The
-`check-hosted` job ends with `python3 scripts/check-roadmap.py` (plain, offline), so a stale generated roadmap view fails
-the check; the guard pins that step and the `Run mix check` step by their exact text. The
+text and comments), a job container, and a job of any other name, so the removed shapes cannot return silently. The
+plan job runs `python3 scripts/check-roadmap.py` (plain, offline), so a stale generated roadmap view fails
+the check; the guard pins that step and the `Run mix check` step of every work job by their exact text. The
 first step of each job checks `RUNNER_ENVIRONMENT`, `RUNNER_OS`, `RUNNER_ARCH` and `/etc/os-release`. The dependency
 cache key has no runner name: `elzoo-hosted-v1-<OS>-<ImageOS>-<OTP>-<Elixir>-<lock files hash>`.
 
 **Evidence.** The merge queue (`scripts/merge-queue.py`) and the push skip decision (`scripts/ci-skip-decision.py`)
-accept a run when its job list holds exactly one job, `check-hosted` with `runner_group_name` = `GitHub Actions`,
-`labels` = `["ubuntu-24.04"]`, a `runner_name` of the form `GitHub Actions <number>`, a green identity step and a green
-`Run mix check` step. The Gleam gate accepts exactly one `gleam-hosted` job under the same rule. A run of the former
-shape (a job named `check-fast`, `check-any` or `gleam`, or any second job) is not evidence. Since ELZ-059 the evidence run is
+accept a run when its job list holds exactly the five jobs of the evidence unit, each once, and every executed job has
+`runner_group_name` = `GitHub Actions`, `labels` = `["ubuntu-24.04"]`, a `runner_name` of the form `GitHub Actions
+<number>` and a green identity step (the other rules: "Coordinator merge queue"). The Gleam gate accepts exactly one
+`gleam-hosted` job under the same rule. A run of a former shape (a job named `check-fast`, `check-any` or `gleam`, the single
+`check-hosted` job of before ELZ-073, or any other job) is not evidence. Since ELZ-059 the evidence run is
 the `pull_request` run of the exact head, which runs the full check; the queue dispatches (without an input) only when
 GitHub started no such run.
 
@@ -645,9 +659,9 @@ The revert is the rare path: the hosted lane carried every merge from 2026-11-09
 
 **Required checks.** `check-hosted` and `gleam-hosted` are not required checks at present (see "Branch protection
 change"). When they are set again, a skipped job counts as passing, and a pull request from a fork skips them. The merge queue is the gate: it needs a run on the exact
-head with the one job and the identity rules above, and no fork pull request is queued.
+head with the five jobs and the identity rules above, and no fork pull request is queued.
 
-**Time limit.** `check-hosted` has `timeout-minutes: 120`. A cold-cache run on a comparable 4 to 5 vCPU machine took
+**Time limit.** The work jobs have `timeout-minutes: 120`, the plan job 20 and the aggregating job 10. A cold-cache run on a comparable 4 to 5 vCPU machine took
 72 minutes (see "History"), and the first run on `main` starts with an empty `elzoo-hosted-v1` cache.
 
 **Resource report.** On a hosted runner there is no job container, so `scripts/sample-ci-cpu.py` reads the cgroup of
@@ -680,6 +694,101 @@ commit of `main` (48462d4); a public repository may differ. `http_job_test.exs:4
 control, not provider rollback") failed once in run 1 and passed in run 2 on the same commit: it looks timing-dependent
 (one failure and two passes; not measured further) and not like a lane defect. Hosted minutes are free for public repositories. Self-hosted runners must never stay attached
 to a public repository.
+
+## Parallel jobs (ELZ-073)
+
+One run of `symbolic-check.yml` has five jobs on the same tree. The three work jobs run at the same time; the root suite no
+longer holds the copied consumers. Decision rule, set before the measurement (coordinator and owner, 2026-11-09): adopt the
+shape only if the median warm wall time falls by 25 percent or more and the runner time rises by less than 60 percent. The
+measurement passed the rule (tables below).
+
+| Job | Does | Marker |
+| --- | --- | --- |
+| `check-plan` | claims check, guard and its tests, classification (ELZ-071), push-run skip decision (ELZ-058), roadmap views or the docs-only check; writes the output `run` | `ELZOO PLAN: run=<true or false> skip=... docs_only=...` and, for a documentation change, `ELZOO DOCS-ONLY CHECK PASSED` |
+| `check-root` | `mix check --part root`: format, compile, ledger, Ash spike, registry, every test that is not a copied consumer | `ELZOO ROOT SUITE PASSED` |
+| `check-consumers-db` | `mix check --part consumers-db`: the aggregate consumer and the three PostgreSQL consumers (`integration/sql`, `integration/jobs`, `assembly/durable-job`) | `ELZOO CONSUMERS DB PASSED` |
+| `check-consumers` | `mix check --part consumers`: the 23 database-free per-ID consumers | `ELZOO CONSUMERS PASSED` |
+| `check-hosted` | the aggregating job (`needs` all four, `if: always()`); step `Require every job` | `ELZOO CHECK PASSED` |
+
+**The plan job.** A job-level `if:` can read only `needs`, so the one decision for three jobs is a job output: the step
+`Plan the work jobs` writes `run=false` when the skip decision says `skip=true` or the change is documentation only, and
+`run=true` otherwise. The work jobs have `needs: check-plan` and `if: needs.check-plan.outputs.run == 'true'`. A skipped
+work job costs no runner time and starts no service container.
+
+**The aggregating job keeps the name `check-hosted`** (shape A), so branch protection (`check-hosted` and `gleam-hosted`)
+needs no change. It runs with `if: always()` and fails when the plan job is not `success`; with `run=true` it fails unless all
+three work jobs are `success`, and only then prints `ELZOO CHECK PASSED`; with `run=false` it fails unless all three are
+`skipped`. A failed, cancelled or skipped work job therefore shows `check-hosted` as failed, not skipped (observed: in AFTER
+run 1 `check-root` failed and `check-hosted` failed). The guard pins its `if`, its `needs`, its `contents: read` permission and the
+step text, and allows `ELZOO CHECK PASSED` on that step only. `mix check --part` prints the part marker
+(`Elzoo.CheckSelection.success_marker/1`) after the part passed.
+
+**The parts.** `mix check --part root|consumers-db|consumers` (`Elzoo.CheckSelection.part_filters/1`) selects exactly the tests
+of one part with `--only` and `--exclude`. ExUnit lets `--only` win over `--exclude`, and `--exclude consumer_id` drops every
+test with that tag, so the database-free part lists its 23 IDs one by one. `test/export_test.exs` proves the partition over the
+loaded suite: of 802 tests, 775 are in the root part, 4 in `consumers-db` and 23 in `consumers`; no test is in two parts or in
+none (a new consumer ID that no part selects fails the test). `mix check` with no argument is still the full check for local
+use. The same test file asserts the aggregate consumer's limits (`@tag timeout: 1_200_000`, inner limit 300 s) next to the
+per-ID limits.
+
+**Caches.** Every work job restores the dependency cache and the pinned S3 binary; only `check-root` saves them (otherwise
+three jobs would race to save one key). On a cold cache every work job compiles on its own: the wall time of a cold run does
+not rise much, but the runner minutes triple for that run. No cold-cache AFTER run was made (the coordinator dropped it: it
+needs a cache deletion); the limit is stated here and the partly cold runs of the BEFORE table (`mix setup` 24 to 55 s) are
+the only cold-side data.
+
+**Evidence unit.** The queue (`scripts/merge-queue.py`) and the skip decision (`scripts/ci-skip-decision.py`) read one
+attempt as one unit: exactly the five jobs once each; every executed job successful on the exact head and run, on a hosted
+runner, with a green identity step, started in this attempt; the part and plan markers; and the aggregating marker (details
+in "Coordinator merge queue"). Two shapes are valid: the full shape (all five executed) and, for a documentation change, the
+short shape (plan and aggregating job executed, the three work jobs skipped, see "Documentation-only pull requests"). A mixed
+shape, such as one skipped work job, is no evidence.
+
+**Partial re-run (open question 1, answered by a measurement).** Run 42590080625 was re-run for its failed job only (attempt
+2). `actions/runs/<id>/attempts/2/jobs` lists all five jobs, as the green jobs of attempt 1 are copied into attempt 2: the copies get new
+job IDs and the new `run_attempt`, but they keep the old `started_at`. The unit rule is therefore: every executed job has
+`started_at` at or after the run's `run_started_at` (the time stamp of the attempt). A copied job fails it ("did not run in this
+attempt"), so a partial re-run is no evidence and the queue says to re-run all jobs. The tests drive this with a job that
+starts one second before the run.
+
+**Measurement.** Times in seconds. BEFORE: the single job `check-hosted`, 43 successful full-mode runs of
+`symbolic-check.yml` on the hosted lane since 2026-11-09 00:00 WIB (all warm or partly cold caches), from the jobs API and
+the `ELZOO STAGE` and `ELZOO TIMING` lines of each log. The full list of runs is in `tasks/ELZ-073-parallel-hosted-jobs.md`.
+
+| BEFORE (n = 43) | Median | Range |
+| --- | --- | --- |
+| Job wall time | 1250 | 819 to 1504 |
+| `Run mix check` | 1166 | 766 to 1389 |
+| Root suite stage | 1058 | 695 to 1275 |
+| ExUnit async / sync | 264 / 802 | 158 to 358 / 538 to 967 |
+| Aggregate consumer | 356 | 233 to 431 |
+
+The same tree takes 1020 to 1504 s on different runners (`b076432`: 1504, 1250, 1277 and, in the sequential runs, 1020 and
+1348 s). The runner time of a BEFORE run equals its job time.
+
+AFTER: prototype branch `measure/ELZ-073-after` (never merged: the tree of this change with three work jobs and one
+aggregating job, without the plan job and two guard steps of about 7 s), run one at a time, exact cache hit, sequential
+stopping rule of the coordinator.
+
+| AFTER run | Wall | `check-root` | `check-consumers-db` | `check-consumers` | `check-hosted` | Runner time (sum of jobs) |
+| --- | --- | --- | --- | --- | --- | --- |
+| 42587366903 | 586 | 579 | 543 | 201 | 4 | 1327 (25 min rounded) |
+| 42588632529 | 698 | 692 | 488 | 301 | 3 | 1484 (28 min rounded) |
+| 42590080625 (not used for the decision) | 704 | 667 | 615 | 199 | 4 | 1485 (28 min rounded) |
+
+Stopping condition that fired: both wall times under 790 s after two runs. Median AFTER wall 642 s against the BEFORE median 1250 s:
+**-48.6 percent** (rule: at least -25 percent; also -49.2 percent against the median of the recent runs and -47.3 percent
+against the median of the exact-hit runs). Median runner time 1406 s against 1250 s: **+12.4 percent** (in minutes rounded up
+per job 26.5 against 21: +26.2 percent; rule: below +60 percent). The slower decision run (698 s) is faster than the fastest of the
+43 BEFORE runs (819 s). Decision: adopt.
+
+**Findings and limits.** (1) The root suite does not stay at 15 minutes: the root part is 429 to 517 s of ExUnit plus 76 to 101
+s of Ash spike, and the longest job bounds the wall time (root, then consumers-db); a better balance of the parts is a later
+task. (2) The parts ran side by side without interference; the only failures on the prototype were two root tests that read the
+workflow file (updated in this change). (3) AFTER n = 2 for the decision, plus one more run; the BEFORE sample spans a day and
+several trees; both are warm-cache figures. (4) The prototype had no plan job; the measurement of this change's own pull request
+run is recorded below. (5) More jobs mean more chances of one infrastructure failure per run, and a re-run must be a full re-run.
+(6) GitHub's limit of concurrent jobs and overlapping runs of one pull request (after `update-branch`) were not measured.
 
 ## Disposable S3 test server (ELZ-064)
 
