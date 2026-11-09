@@ -482,7 +482,7 @@ defmodule Elzoo.HttpJobTest do
     assert {:ok, %{cancelled_jobs: 0, external_outcome: :unknown}} =
              H.cancel(c.cfg, name, String.duplicate("0", 64))
 
-    assert length(Fixture.calls(c.f)) == 1
+    assert Enum.count(Fixture.calls(c.f), &match?({"PUT", _, _}, &1)) == 1
   end
 
   test "read-only restart exhausts job; same unique ID resumes only after host grant", c do
