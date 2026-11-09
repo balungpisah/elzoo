@@ -66,6 +66,9 @@ defmodule Elzoo.MixProject do
       {:telemetry, "== 1.4.2"},
       # ELZ-055 state/audit-log provider (Apache-2.0): trigger-based change capture.
       {:carbonite, "== 0.17.0"},
+      # ELZ-081 integration/text-chunking provider (MIT): the recursive splitter and its byte
+      # ranges; its one requirement nimble_options is already locked at 1.2.0.
+      {:text_chunker, "== 1.0.1"},
       # ELZ-083 integration/mcp-client provider (MIT): MCP protocol, era negotiation and the
       # Streamable HTTP client transport. Its application starts its own supervisors, so it is
       # not runtime: false; its server-side plug_cowboy/cowboy closure is required by the package.

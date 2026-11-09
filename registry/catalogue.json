@@ -550,6 +550,14 @@
       "manifest": "pieces/integration/sql/piece.json"
     },
     {
+      "id": "integration/text-chunking",
+      "summary": "Pure chunking of one frozen UTF-8 source through text_chunker 1.0.1 with exact byte ranges and per-chunk SHA-256, bound to the source digest; split from integration/search-data",
+      "disposition": "adapt",
+      "phase": "demand-led",
+      "status": "ready",
+      "manifest": "pieces/integration/text-chunking/piece.json"
+    },
+    {
       "id": "runtime/adapter",
       "summary": "Service/channel/process adapter boundary and result translation",
       "disposition": "own",
