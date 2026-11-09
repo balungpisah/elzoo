@@ -1,0 +1,63 @@
+# SPDX-License-Identifier: Apache-2.0
+mod Elzoo.McpClientOutcome
+  # Stage at which one tools/call attempt ended. Pre: the Adapter's own checks
+  # before the request reached ex_mcp. Unsent: ex_mcp's delivery_outcome/1
+  # attests that no request byte was written. Wire: the server answered.
+  # Lost: the request may have reached the server and no answer was observed.
+  type CallStage = CallPre | CallUnsent | CallWire | CallLost | CallCrashed
+
+  type CallReply = ReplyResult | ReplyUnknownTool | ReplyBadArguments | ReplyOversize | ReplyCredentialFault | ReplyNotConnected | ReplyTargetRefused | ReplyAuthRefused | ReplyRpcError(Int) | ReplyHttpStatus | ReplyInputRequired | ReplyMalformed | ReplyTimeout | ReplyBroken
+
+  type CallTag = TagCompleted | TagUnknownTool | TagInvalidArguments | TagTooLarge | TagCredentialsUnavailable | TagNotConnected | TagTargetRefused | TagAuthenticationFailed | TagServerInvalidArguments | TagServerInvalidRequest | TagServerProtocolError | TagServerError | TagTimeout | TagConnectionLost | TagInputRequired | TagMalformedResponse | TagAdapterError
+
+  # The JSON-RPC error code arrives negated (32602 for -32602), so the
+  # decision needs no negative literal. Only the JSON-RPC protocol errors the MCP specification defines as
+  # rejections before execution are refusals; every other server error may
+  # follow partial execution and stays unknown.
+  fn rpc_error(code: Int) -> CallTag =
+    pickup
+      code == 32602 -> TagServerInvalidArguments()
+      code == 32600 or code == 32700 -> TagServerInvalidRequest()
+      code == 32601 or code == 32020 -> TagServerProtocolError()
+      else -> TagServerError()
+
+  fn pre(reply: CallReply) -> CallTag =
+    match reply
+      ReplyUnknownTool() -> TagUnknownTool()
+      ReplyBadArguments() -> TagInvalidArguments()
+      ReplyOversize() -> TagTooLarge()
+      ReplyNotConnected() -> TagNotConnected()
+      _ -> TagAdapterError()
+
+  fn unsent(reply: CallReply) -> CallTag =
+    match reply
+      ReplyOversize() -> TagTooLarge()
+      ReplyCredentialFault() -> TagCredentialsUnavailable()
+      ReplyNotConnected() -> TagNotConnected()
+      ReplyTargetRefused() -> TagTargetRefused()
+      _ -> TagAdapterError()
+
+  # A wire answer never yields a not-dispatched tag: the server received the bytes.
+  fn wire(reply: CallReply) -> CallTag =
+    match reply
+      ReplyResult() -> TagCompleted()
+      ReplyAuthRefused() -> TagAuthenticationFailed()
+      ReplyRpcError(code) -> rpc_error(code)
+      ReplyHttpStatus() -> TagServerError()
+      ReplyInputRequired() -> TagInputRequired()
+      ReplyMalformed() -> TagMalformedResponse()
+      _ -> TagMalformedResponse()
+
+  # Never a refusal after the request may have been sent.
+  fn lost(reply: CallReply) -> CallTag =
+    match reply
+      ReplyTimeout() -> TagTimeout()
+      _ -> TagConnectionLost()
+
+  fn classify(stage: CallStage, reply: CallReply) -> CallTag =
+    match stage
+      CallCrashed() -> TagAdapterError()
+      CallPre() -> pre(reply)
+      CallUnsent() -> unsent(reply)
+      CallWire() -> wire(reply)
+      CallLost() -> lost(reply)
