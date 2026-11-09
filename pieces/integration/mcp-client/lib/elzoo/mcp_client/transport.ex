@@ -11,7 +11,7 @@ defmodule Elzoo.McpClient.Transport do
   # - every tools/call: the same plus max_mrtr_rounds: 0, never retry_safe, sent
   #   through ExMCP.Client.make_request/5 (@doc false at 1.8.1) because
   #   ExMCP.Client.call_tool/4 resends tools/call after a -32020 error.
-  alias Elzoo.McpClient.{AuthProvider, Config, Ledger, Wire}
+  alias Elzoo.McpClient.{AuthProvider, Config, Credential, Ledger, Wire}
 
   @list_options [retry_policy: false, http_stream_retry: :safe_only, format: :map]
   @call_options [
@@ -34,7 +34,8 @@ defmodule Elzoo.McpClient.Transport do
       transport: :http,
       url: endpoint.url,
       protocol_mode: c.protocol_mode,
-      auth_provider: {AuthProvider, %{need: c.credentials, ledger: ledger}},
+      auth_provider:
+        {AuthProvider, %{need: c.credentials, ledger: ledger, configured: Credential.configured(c)}},
       reconnect: false,
       health_check_interval: nil,
       use_sse: false,
@@ -58,7 +59,7 @@ defmodule Elzoo.McpClient.Transport do
 
   @doc "Starts the client under the caller's DynamicSupervisor, never restarted."
   def start(%Config{} = c, supervisor) do
-    ledger = Ledger.start()
+    {:ok, ledger} = Ledger.start()
 
     spec = %{
       id: ExMCP.Client,
@@ -68,7 +69,7 @@ defmodule Elzoo.McpClient.Transport do
 
     case DynamicSupervisor.start_child(supervisor, spec) do
       {:ok, pid} ->
-        Ledger.link(ledger, pid)
+        Ledger.watch(ledger, pid)
         {:ok, pid, ledger}
 
       {:error, reason} ->

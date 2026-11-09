@@ -16,7 +16,7 @@ defmodule Elzoo.McpClientTest do
   alias Elzoo.EffectIntent.StoreHost
   alias Elzoo.DurableLog.Memory
 
-  @token "tok-SECRET-9f3a7c"
+  @token "tok-SECRET-9f3a7c-0123456789ab"
   @release "approval:run-17/step-3@v1"
 
   setup do
@@ -740,8 +740,8 @@ defmodule Elzoo.McpClientTest do
 
   test "T28 a credential that rotates between resolutions: neither the earlier nor the sent token reaches delivered data, digest, status or discovery (Adapter redaction)",
        ctx do
-    old = "tok-OLD-SECRET-11aa"
-    sent = "tok-NEW-SECRET-22bb"
+    old = "tok-OLD-SECRET-11aa-0123456789"
+    sent = "tok-NEW-SECRET-22bb-0123456789"
     {:ok, queue} = Agent.start_link(fn -> [] end)
 
     need = fn ->
@@ -785,27 +785,113 @@ defmodule Elzoo.McpClientTest do
     Server.mode(ctx.server, :pass)
   end
 
-  test "T29 a credential whose bytes occur in a preserved output word (name, input_schema, text, untrusted) is refused credentials_unavailable before any send (auth provider)",
+  test "T29 the credential rule: shorter than 24 bytes, or a substring of an Adapter-emitted fixed string or of the binding's configured strings, is refused credentials_unavailable before any send (amendment 3)",
        ctx do
-    for word <- ["name", "input_schema", "text", "untrusted", "ype", "Session"] do
-      assert :error = AuthProvider.token(fn -> {:ok, word} end)
+    long_server = "elzoo-test-server-identity-0001"
+    binding = Server.binding(ctx.server.url, :loopback, long_server)
+
+    refused = [
+      "name",
+      String.duplicate("a", 23),
+      "Elzoo.McpClient.Credential",
+      "server_invalid_arguments",
+      long_server,
+      "server-identity-0001"
+    ]
+
+    configured = Elzoo.McpClient.Credential.configured(config(ctx, binding: binding))
+
+    for t <- [
+          "Elzoo.McpClient.Credential",
+          "server_invalid_arguments",
+          long_server,
+          "x" <> String.duplicate("y", 22)
+        ] do
+      refute Elzoo.McpClient.Credential.acceptable?(t, configured), t
+    end
+
+    assert Elzoo.McpClient.Credential.acceptable?(@token, configured)
+
+    for word <- refused do
       requests()
 
       assert {:error, :credentials_unavailable} =
-               McpClient.connect(config(ctx, credentials: fn -> {:ok, word} end), ctx.sup)
+               McpClient.connect(
+                 config(ctx, binding: binding, credentials: fn -> {:ok, word} end),
+                 ctx.sup
+               )
 
       assert Enum.all?(requests(), fn {_, auth?, _} -> not auth? end)
     end
 
-    # The same Need turning into such a word after connect: refused at the call.
+    # The same Need turning into a refused value after connect: refused at the call.
     {:ok, flag} = Agent.start_link(fn -> @token end)
     s = session(ctx, credentials: fn -> {:ok, Agent.get(flag, & &1)} end)
     requests()
-    Agent.update(flag, fn _ -> "input_schema" end)
+    Agent.update(flag, fn _ -> "Elixir.Elzoo.McpClient.Adapter" end)
     assert {:error, :credentials_unavailable, :mcp} = send_one(s, payload("echo", %{}))
     assert requests() == []
-    assert Enum.all?(Elzoo.McpClient.Redact.preserved(), &is_binary/1)
   end
+
+  test "T32 the fixed-string list covers every literal of at least 24 bytes in the Piece's compiled modules (enumerated from the compiled source)" do
+    app = Application.get_application(Elzoo.McpClient)
+    {:ok, modules} = :application.get_key(app, :modules)
+    mods = Enum.filter(modules, &String.contains?(Atom.to_string(&1), "Elzoo.McpClient"))
+    assert Elzoo.McpClient.Credential in mods
+
+    literals =
+      Enum.reduce(mods, MapSet.new(), fn m, acc ->
+        acc = MapSet.put(acc, Atom.to_string(m))
+
+        with {:ok, {_, [debug_info: {:debug_info_v1, backend, data}]}} <-
+               :beam_lib.chunks(:code.which(m), [:debug_info]),
+             {:ok, %{definitions: defs}} <- backend.debug_info(:elixir_v1, m, data, []) do
+          collect(defs, acc)
+        else
+          _ -> acc
+        end
+      end)
+
+    emitted =
+      literals
+      |> Enum.filter(&(byte_size(&1) >= 24 and String.printable?(&1)))
+      # file paths that macros of upstream modules inline (never emitted)
+      |> Enum.reject(&String.starts_with?(&1, "/"))
+
+    missing = emitted -- Elzoo.McpClient.Credential.fixed()
+    assert missing == [], "add to Credential.fixed/0: #{inspect(missing)}"
+  end
+
+  defp collect(b, acc) when is_binary(b), do: MapSet.put(acc, b)
+  defp collect(a, acc) when is_atom(a), do: MapSet.put(acc, Atom.to_string(a))
+  defp collect(t, acc) when is_tuple(t), do: collect(Tuple.to_list(t), acc)
+  defp collect(l, acc) when is_list(l), do: Enum.reduce(l, acc, &collect/2)
+  defp collect(m, acc) when is_map(m), do: collect(Map.to_list(m), acc)
+  defp collect(_, acc), do: acc
+
+  test "T33 the ledger never yields a token through a public API, inspect or :sys status, and stops when the client exits normally (ledger)",
+       ctx do
+    s = session(ctx)
+    {:ok, _} = McpClient.list_tools(s)
+    exported = Elzoo.McpClient.Ledger.__info__(:functions) |> Keyword.keys()
+    refute :tokens in exported
+    refute_token(inspect(s))
+    refute_token(:sys.get_status(s.ledger))
+
+    assert {:ok, "x [redacted] y"} =
+             Elzoo.McpClient.Ledger.redact(s.ledger, "x " <> @token <> " y", [])
+
+    ledger = s.ledger
+    ref = Process.monitor(ledger)
+    GenServer.stop(s.client, :normal)
+    assert_receive {:DOWN, ^ref, :process, ^ledger, _}, 2_000
+    assert {:error, :adapter_error, :mcp} = send_one(s, payload("echo", %{})) |> then(&normalize/1)
+  end
+
+  # After the client is gone the call is refused before any byte (not_connected);
+  # either way no unredacted content can leave.
+  defp normalize({:error, :not_connected, :mcp}), do: {:error, :adapter_error, :mcp}
+  defp normalize(other), do: other
 
   test "T30 two rotations within one call and a failing post-call resolution: every token ex_mcp sent is redacted (ledger)",
        ctx do
@@ -814,7 +900,10 @@ defmodule Elzoo.McpClientTest do
 
     need = fn ->
       i = Agent.get_and_update(n, &{&1, &1 + 1})
-      if i >= Agent.get(fail_after, & &1), do: raise("gone"), else: {:ok, "tok-ROT-#{i}-zz"}
+
+      if i >= Agent.get(fail_after, & &1),
+        do: raise("gone"),
+        else: {:ok, "tok-ROT-#{i}-zz-0123456789abcdef"}
     end
 
     s = session(ctx, credentials: need)
@@ -823,7 +912,7 @@ defmodule Elzoo.McpClientTest do
     pid = owner(s, a, ctx)
     # Pre-call resolution, the provider's token (sent and echoed) and the post-call
     # resolution are three different tokens; the server also echoes an older one.
-    Server.mode(ctx.server, {:echo_auth, "tok-ROT-0-zz"})
+    Server.mode(ctx.server, {:echo_auth, "tok-ROT-0-zz-0123456789abcdef"})
     assert {:completed, value} = McpClient.call_tool(s, a, pid)
     text = inspect({value, Intent.status(pid)}, limit: :infinity, printable_limit: :infinity)
     refute text =~ "tok-ROT-"
@@ -841,9 +930,9 @@ defmodule Elzoo.McpClientTest do
   test "T31 a multi-page listing whose credential rotates on every page: every sent token is redacted from every descriptor (ledger)",
        ctx do
     {:ok, n} = Agent.start_link(fn -> 0 end)
-    need = fn -> {:ok, "tok-PAGE-#{Agent.get_and_update(n, &{&1, &1 + 1})}-qq"} end
+    need = fn -> {:ok, "tok-PAGE-#{Agent.get_and_update(n, &{&1, &1 + 1})}-qq-0123456789abcd"} end
     s = session(ctx, credentials: need)
-    Server.mode(ctx.server, {:echo_list, "tok-PAGE-0-qq"})
+    Server.mode(ctx.server, {:echo_list, "tok-PAGE-0-qq-0123456789abcd"})
     assert {:ok, d} = McpClient.list_tools(s)
     assert Enum.map(d.tools, & &1["name"]) == ["echo", "echo2", "echo3"]
     refute inspect(d, limit: :infinity, printable_limit: :infinity) =~ "tok-PAGE-"

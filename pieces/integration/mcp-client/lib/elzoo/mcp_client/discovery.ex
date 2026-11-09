@@ -5,7 +5,7 @@ defmodule Elzoo.McpClient.Discovery do
   `max_tools`; each descriptor becomes untrusted data. Annotations and
   descriptions are carried, never read; discovery never sends `tools/call`.
   """
-  alias Elzoo.McpClient.{Redact, Session, Transport, Wire}
+  alias Elzoo.McpClient.{Ledger, Redact, Session, Transport, Wire}
 
   def list(%Session{config: c, client: client, ledger: ledger}) do
     # The credential as resolved before and after listing; server data is
@@ -13,16 +13,25 @@ defmodule Elzoo.McpClient.Discovery do
     before = Redact.secrets(c.credentials)
 
     with {:ok, raw, truncated} <- pages(client, c, nil, c.max_pages, [], false) do
-      secrets = Redact.secrets(c.credentials, ledger, before)
-      {tools, truncated} = take(raw, c, secrets, truncated)
+      bookends = before ++ Redact.secrets(c.credentials)
 
-      {:ok,
-       %{
-         server: c.settings.server,
-         protocol_version: version(client),
-         tools: tools,
-         truncated: truncated
-       }}
+      # Redaction runs inside the session's ledger on the raw server data
+      # (tools and the negotiated version) before descriptors are built.
+      case Ledger.redact(ledger, [raw, version(client)], bookends) do
+        {:ok, [raw, version]} ->
+          {tools, truncated} = take(raw, c, truncated)
+
+          {:ok,
+           %{
+             server: c.settings.server,
+             protocol_version: version,
+             tools: tools,
+             truncated: truncated
+           }}
+
+        :error ->
+          {:error, :adapter_error}
+      end
     end
   end
 
@@ -63,7 +72,7 @@ defmodule Elzoo.McpClient.Discovery do
     _, _ -> {:error, :adapter_error}
   end
 
-  defp take(raw, c, secrets, truncated) do
+  defp take(raw, c, truncated) do
     {acc, truncated} =
       Enum.reduce(raw, {[], truncated}, fn tool, {acc, truncated} ->
         cond do
@@ -71,7 +80,7 @@ defmodule Elzoo.McpClient.Discovery do
             {acc, true}
 
           true ->
-            case descriptor(Redact.value(tool, secrets), c.max_descriptor_bytes) do
+            case descriptor(tool, c.max_descriptor_bytes) do
               {:ok, d} ->
                 if Enum.any?(acc, &(&1["name"] == d["name"])),
                   do: {acc, true},

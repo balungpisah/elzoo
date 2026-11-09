@@ -71,20 +71,27 @@ phase; otherwise (within a bounded wait) `{:unknown, :settlement_unconfirmed}`. 
 recipient has exited, the content is lost and the settlement is unchanged; a consumer
 that needs durable content retains it after receipt.
 
-**Credential redaction.** The credential never appears in a result. Every token the
-Elzoo auth provider hands to ex_mcp is first recorded in the session's ledger (a bounded
-in-memory record linked to the client and stopped by `close/1`; a token that cannot be
-recorded is not sent). Every occurrence of the exact bytes of those tokens, and of the
+**Credential rule and redaction.** The credential never appears in a result, error,
+inspect value, Adapter log or event. The injected credential is accepted only if it is
+at least 24 bytes and is not a substring of any Adapter-emitted fixed string
+(`Elzoo.McpClient.Credential.fixed/0`: every literal of at least 24 bytes in this
+Piece's compiled modules, error texts and module/struct names included; a test
+enumerates them from the compiled source so a new literal cannot slip past) nor of the
+binding's configured strings (server identity, endpoint, provider account, binding id
+and module name); otherwise the auth provider refuses it before any send, which is
+`refused{credentials_unavailable}` (at connect or at a call). Every token the provider
+hands to ex_mcp is first recorded in the session's private ledger (a process that only
+records and redacts, never returns a token, hides its state from `:sys` status and
+crash reports, and stops when the client exits for any reason); a token that cannot be
+recorded is not sent. Every occurrence of the exact bytes of those tokens, and of the
 credential as resolved before and after the operation, in server-supplied strings of a
-tool result or a tool listing is replaced by `[redacted]` before delivery, before the
-digest and before the Adapter builds its own shapes, so adapter-owned keys (`trust`,
-`name`, `input_schema`, ...) are never touched. Map keys are redacted too, except MCP and
-JSON Schema vocabulary words (`text`, `type`, `name`, `properties`, ...), which keep the
-protocol shape. **A credential whose bytes occur inside any such preserved word or the
-Adapter's own structural literals is refused before any send as
-`refused{credentials_unavailable}`**: the Need is unusable for this Adapter. Two server
-keys equal after redaction keep one value (data loss, never disclosure). Limit: other
-encodings of the credential (base64, split or escaped forms) are not detected.
+tool result or a tool listing (the negotiated protocol version included) is replaced by
+`[redacted]` inside the ledger, before delivery, before the digest and before the
+Adapter builds its own shapes. Map keys are redacted too, except MCP and JSON Schema
+vocabulary words (all shorter than 24 bytes). If the ledger is gone, no content leaves
+(`unknown{adapter_error}`). Two server keys equal after redaction keep one value (data
+loss, never disclosure). Limit: other encodings of the credential (base64, split or
+escaped forms) are not detected.
 
 ## No resend (ex_mcp 1.8.1 settings, each tested)
 

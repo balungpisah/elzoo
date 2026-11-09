@@ -5,27 +5,27 @@ defmodule Elzoo.McpClient.AuthProvider do
   (a zero-arity function), never a token. `get_token/1` calls the Need before
   each request and checks the value with guards and a byte scan only; anything
   but `{:ok, token}` with a 1..4096-byte RFC 6750 `b64token` is refused.
-  A token whose bytes occur inside any word the Adapter keeps unredacted in its
-  output shapes (`Elzoo.McpClient.Redact.preserved/0`) is also refused: the Need
-  is unusable for this Adapter, so the invariant "the credential never appears in
-  a result" holds unconditionally. Every token handed to ex_mcp is first recorded
+  A token outside the credential rule of `Elzoo.McpClient.Credential` (at least
+  24 bytes; not a substring of any Adapter-emitted fixed string or of the
+  binding's configured strings) is also refused: the Need is unusable for this
+  Adapter, so the invariant "the credential never appears in a result" holds. Every token handed to ex_mcp is first recorded
   in the session's ledger (redaction covers exactly what was sent); a token that
   cannot be recorded is refused. `handle_unauthorized/3` and
   `handle_forbidden/3` always refuse, so ex_mcp never resends a request after a
   401 or 403 and never starts an OAuth flow.
   """
   @behaviour ExMCP.Authorization.Provider
-  alias Elzoo.McpClient.{Ledger, Redact}
+  alias Elzoo.McpClient.{Credential, Ledger}
 
   @impl true
-  def init(%{need: need, ledger: ledger}) when is_function(need, 0),
-    do: {:ok, %{need: need, ledger: ledger}}
+  def init(%{need: need, ledger: ledger} = config) when is_function(need, 0),
+    do: {:ok, %{need: need, ledger: ledger, configured: Map.get(config, :configured, [])}}
 
   def init(_), do: {:error, :credentials_unavailable}
 
   @impl true
-  def get_token(%{need: need, ledger: ledger} = state) do
-    with {:ok, token} <- token(need),
+  def get_token(%{need: need, ledger: ledger, configured: configured} = state) do
+    with {:ok, token} <- token(need, configured),
          :ok <- record(ledger, token) do
       {:ok, token, state}
     else
@@ -44,10 +44,10 @@ defmodule Elzoo.McpClient.AuthProvider do
   def handle_forbidden(_www_authenticate, _scopes, state), do: {:error, :forbidden, state}
 
   @doc false
-  def token(need) do
+  def token(need, configured \\ []) do
     case need.() do
       {:ok, t} when is_binary(t) and byte_size(t) in 1..4096 ->
-        if b64token?(t) and not Redact.overlaps_preserved?(t), do: {:ok, t}, else: :error
+        if b64token?(t) and Credential.acceptable?(t, configured), do: {:ok, t}, else: :error
 
       _ ->
         :error

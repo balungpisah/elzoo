@@ -6,7 +6,7 @@ defmodule Elzoo.McpClient.Adapter do
   recorded ground. The full classified outcome goes to the context's recipient
   Need by best-effort mailbox delivery; the owner keeps only a sealed digest.
   """
-  alias Elzoo.McpClient.{Binding, Context, Outcome, Redact, Session, Transport, Wire}
+  alias Elzoo.McpClient.{Binding, Context, Ledger, Outcome, Redact, Session, Transport, Wire}
 
   @schema "elzoo/mcp-tool-call-v1"
   @value_schema "elzoo/mcp-tool-result"
@@ -44,8 +44,20 @@ defmodule Elzoo.McpClient.Adapter do
             Transport.unsent_stage_for_pre(reason)
         end
 
-      value = Redact.value(value, Redact.secrets(c.credentials, s.ledger, secrets))
-      tag = Outcome.classify(stage, reply)
+      # Redaction inside the session's ledger (it never returns tokens); if the
+      # ledger is gone no unredacted content leaves: the outcome is unknown.
+      {tag, value} =
+        case {Outcome.classify(stage, reply), value} do
+          {tag, nil} ->
+            {tag, nil}
+
+          {tag, v} ->
+            case Ledger.redact(s.ledger, v, secrets ++ Redact.secrets(c.credentials)) do
+              {:ok, redacted} -> {tag, redacted}
+              :error -> {:adapter_error, nil}
+            end
+        end
+
       deliver(ctx, key, attempt_id, tag, value)
       envelope(tag, value, c, key, attempt_id)
     else

@@ -3,47 +3,79 @@ defmodule Elzoo.McpClient.Ledger do
   @moduledoc false
   # Every distinct token the Elzoo auth provider has handed to ex_mcp on one
   # session, so redaction covers exactly what was sent (however often the
-  # credential rotates). Bounded: a 65th distinct token is refused by the
-  # provider (credentials_unavailable), never sent unrecorded. The process is
-  # linked to the session's client and stopped by close/1; it holds no more than
-  # ex_mcp's own client state already holds.
+  # credential rotates). The tokens never leave this process: the only
+  # operations are record/2 (from the provider, before a token is handed out)
+  # and redact/3, which returns server data with every recorded token (and the
+  # caller's bookend resolutions) replaced. There is no read operation, and
+  # format_status/1 hides the state from :sys status and crash reports.
+  # Bounded: a 65th distinct token is refused (the provider then refuses the
+  # request as credentials_unavailable), never sent unrecorded. The process
+  # monitors the session's client and stops when it exits for any reason,
+  # normal included.
+  use GenServer
+  alias Elzoo.McpClient.Redact
+
   @max 64
 
-  def start do
-    {:ok, pid} = Agent.start(fn -> [] end)
-    pid
-  end
+  def start, do: GenServer.start(__MODULE__, nil)
 
-  def link(ledger, client), do: Agent.cast(ledger, fn s -> Process.link(client) && s end)
+  @doc "Binds the ledger to the client; the ledger stops when the client exits."
+  def watch(ledger, client), do: GenServer.cast(ledger, {:watch, client})
 
   @doc "Records a token before it is handed out; `:error` means do not send it."
-  def record(ledger, token) when is_pid(ledger) do
-    Agent.get_and_update(ledger, fn tokens ->
-      cond do
-        token in tokens -> {:ok, tokens}
-        length(tokens) < @max -> {:ok, [token | tokens]}
-        true -> {:error, tokens}
-      end
-    end)
+  def record(ledger, token) when is_pid(ledger) and is_binary(token) do
+    GenServer.call(ledger, {:record, token}, 5_000)
   catch
     _, _ -> :error
   end
 
   def record(_, _), do: :error
 
-  def tokens(ledger) when is_pid(ledger) do
-    Agent.get(ledger, & &1)
+  @doc "Redacts every recorded token and the bookends from server data; `:error` if the ledger is gone."
+  def redact(ledger, value, bookends) when is_pid(ledger) and is_list(bookends) do
+    GenServer.call(ledger, {:redact, value, bookends}, 15_000)
   catch
-    _, _ -> []
+    _, _ -> :error
   end
 
-  def tokens(_), do: []
+  def redact(_, _, _), do: :error
 
   def stop(ledger) when is_pid(ledger) do
-    Agent.stop(ledger, :normal, 1_000)
+    GenServer.stop(ledger, :normal, 1_000)
   catch
     _, _ -> :ok
   end
 
   def stop(_), do: :ok
+
+  @impl true
+  def init(_), do: {:ok, %{tokens: [], client: nil}}
+
+  @impl true
+  def handle_cast({:watch, client}, s) do
+    Process.monitor(client)
+    {:noreply, %{s | client: client}}
+  end
+
+  @impl true
+  def handle_call({:record, token}, _from, %{tokens: tokens} = s) do
+    cond do
+      token in tokens -> {:reply, :ok, s}
+      length(tokens) < @max -> {:reply, :ok, %{s | tokens: [token | tokens]}}
+      true -> {:reply, :error, s}
+    end
+  end
+
+  def handle_call({:redact, value, bookends}, _from, %{tokens: tokens} = s) do
+    {:reply, {:ok, Redact.value(value, bookends ++ tokens)}, s}
+  rescue
+    _ -> {:reply, :error, s}
+  end
+
+  @impl true
+  def handle_info({:DOWN, _, :process, client, _}, %{client: client} = s), do: {:stop, :normal, s}
+  def handle_info(_, s), do: {:noreply, s}
+
+  @impl true
+  def format_status(status), do: Map.put(status, :state, :redacted)
 end
