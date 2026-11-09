@@ -27,15 +27,21 @@ Claim a deterministic branch, never an agent-suffixed branch:
 
     export ELZOO_AGENT="worker-$(od -An -N2 -tx1 /dev/urandom | tr -d ' ')"
     git fetch origin --prune
-    git worktree add ../elzoo-ELZ-003 -b task/ELZ-003 origin/main
+    gh api -X POST repos/<owner>/<repo>/git/refs \
+      -f ref=refs/heads/task/ELZ-003 -f sha="$(git rev-parse origin/main)"
+    git fetch origin --prune
+    git worktree add ../elzoo-ELZ-003 origin/task/ELZ-003
     cd ../elzoo-ELZ-003
-    git push --set-upstream origin HEAD:refs/heads/task/ELZ-003
+    git switch -c task/ELZ-003 --track origin/task/ELZ-003
 
-The first successful branch-create push wins and is the claim (ELZ-076); no
-marker file and no claim commit exist. A rejection is a lost race; never
-force-push or reset the winner's branch. Comment on the issue only after the
-push succeeds, naming the branch, the base SHA and the role-based agent
-identifier. CI still rejects any tracked file under `.claims/`.
+The atomic branch creation is the claim (ELZ-076); no marker file and no claim
+commit exist. HTTP 422 "Reference already exists" is a lost race; a plain
+`git push` is not used for the claim because a second push from the same base
+is a silent no-op and a later fast-forward push would move the winner's
+branch. Never force-push or reset the winner's branch. Comment on the issue
+only after the creation succeeds, naming the branch, the base SHA and the
+role-based agent identifier. CI still rejects any tracked file under
+`.claims/`.
 
 If a branch already exists, request a handoff or choose another issue. Stale
 work uses docs/development/05-stale-claims.md, not a silent takeover.
@@ -87,11 +93,13 @@ skipped.
 mix check must compile real Cure, execute selected Cure proofs, meaningful
 runtime tests and negative controls. It is not documentation or formatting
 lint. The default retains every independent consumer, including the full
-aggregate; it is the form CI runs on every pull request head and the form a
-worker runs after a dependency, configuration or toolchain change.
+aggregate; it is the form CI runs on every pull request head that is not
+documentation-only (ELZ-071 gives those the short check) and the form a worker
+runs after a dependency, configuration or toolchain change.
 
 The worker gate before every push (ELZ-076) is `mix check --affected origin/main`
-plus the changed Piece's own `mix test`. The affected run selects the affected
+plus the changed Piece's own tests (`mix test pieces/<family>/<name>/test`).
+The affected run selects the affected
 fixed per-ID consumers; the aggregate also runs if any affected ready ID is
 outside their dependency closures. All other root checks remain. Shared or
 unknown changes, or unavailable comparison data, select all fixed consumers and

@@ -83,17 +83,26 @@ locally, but only the first branch-create push can succeed.
        git worktree add ../elzoo-ELZ-001 -b task/ELZ-001 origin/main
        cd ../elzoo-ELZ-001
 
-3. Push the branch at once; the branch-create push is the claim (zero commits
-   ahead of origin/main is fine):
+3. Create the remote branch atomically; the branch creation is the claim
+   (ELZ-076). A plain `git push` is not a lock: a second worker's push from
+   the same base reports `Everything up-to-date`, and a later fast-forward
+   push would move the branch silently. Use the create-only reference API,
+   which refuses an existing branch:
 
-       git push --set-upstream origin HEAD:refs/heads/task/ELZ-001
+       gh api -X POST repos/<owner>/<repo>/git/refs \
+         -f ref=refs/heads/task/ELZ-001 -f sha="$(git rev-parse origin/main)"
+       git fetch origin --prune
+       git branch --set-upstream-to=origin/task/ELZ-001
 
-   A rejected push means another worker won. Do not retry with force; remove
-   the losing worktree and choose another ready issue. The winner comments on
-   the issue with the branch, the base SHA and a role-based agent identifier
-   generated once per session, never derived from the hostname:
+   HTTP 422 "Reference already exists" means another worker won. Do not
+   retry with force; remove the losing worktree and choose another ready
+   issue. The winner comments on the issue with the branch, the base SHA and
+   a role-based agent identifier generated once per session, never derived
+   from the hostname:
 
        export ELZOO_AGENT="worker-$(od -An -N2 -tx1 /dev/urandom | tr -d ' ')"
+
+   Later pushes to the branch are ordinary fast-forward pushes.
 
 4. No claim marker exists any more (ELZ-076): do not create `.claims/` files
    and do not add a claim commit. CI runs `python3 scripts/check-claims.py` and
@@ -154,9 +163,10 @@ tests and negative controls. It is not a formatter or documentation badge.
 
 The worker gate before every push (ELZ-076): run `mix check --affected <base>`
 (the same selection code the hosted check used before ELZ-059) and the changed
-Piece's own `mix test`. CI owns the full run: the pull request's hosted
-`check-hosted` run is a full `mix check` on the exact head and the queue's
-merge evidence. A local full `mix check` is still required after a dependency,
+Piece's own tests (`mix test pieces/<family>/<name>/test`). CI owns the full
+run: the pull request's hosted `check-hosted` run is a full `mix check` on the
+exact head and the queue's merge evidence (a documentation-only change gets
+the short check of ELZ-071 instead). A local full `mix check` is still required after a dependency,
 configuration or toolchain change (`mix.exs`, `mix.lock`, `config/`, the Cure,
 Elixir or OTP pins) and when the affected selection cannot be computed; it is
 never a substitute for the hosted run. The PR body records which local command

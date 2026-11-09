@@ -19,7 +19,9 @@ real Cure, run selected proof checks, meaningful ExUnit/OTP and boundary tests,
 and execute negative controls. A formatter-only check is not acceptable. The
 runtime gate records ELZOO CHECK PASSED.
 
-Use targeted mix test while iterating, but report full mix check before review.
+Use targeted mix test while iterating; before every push run the worker gate of
+`AGENTS.md` (`mix check --affected <base>` plus the Piece's tests); the hosted
+pull request run is the full check.
 If the local runtime differs from the pin, report the environment instead of
 presenting a partial result as a pass. External libraries are tested at their
 integration boundary and remain grounded by an upstream contract; they do not
