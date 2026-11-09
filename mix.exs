@@ -71,12 +71,17 @@ defmodule Elzoo.MixProject do
       # its application initializes the provider registry. Its .env loading is switched off in
       # config/config.exs (load_dotenv: false).
       {:req_llm, "~> 1.30"},
-      # Req.Test stubs for the ELZ-079 provider tests (Apache-2.0); test-only here, an ordinary
-      # provider of the exported Anthropic Piece because the exporter has no test-only form.
-      {:plug, "== 1.20.3", only: :test},
+      # Req.Test stubs for the ELZ-079 provider tests (Apache-2.0), an ordinary provider of the
+      # exported Anthropic Piece because the exporter has no test-only form. Not test-only: the
+      # ELZ-083 ex_mcp closure (plug_cowboy) needs plug at runtime, so one pin serves both.
+      {:plug, "== 1.20.3"},
       # ELZ-081 integration/text-chunking provider (MIT): the recursive splitter and its byte
       # ranges; its one requirement nimble_options is already locked at 1.2.0.
-      {:text_chunker, "== 1.0.1"}
+      {:text_chunker, "== 1.0.1"},
+      # ELZ-083 integration/mcp-client provider (MIT): MCP protocol, era negotiation and the
+      # Streamable HTTP client transport. Its application starts its own supervisors, so it is
+      # not runtime: false; its server-side plug_cowboy/cowboy closure is required by the package.
+      {:ex_mcp, "== 1.8.1"}
     ]
   end
 
