@@ -10,6 +10,7 @@
     "req",
     "jason",
     "oban",
+    "telemetry",
     "elixir",
     "otp"
   ],
@@ -20,13 +21,16 @@
     "integration/http",
     "integration/json",
     "integration/sql",
-    "delivery/retry-timeout"
+    "delivery/retry-timeout",
+    "runtime/telemetry"
   ],
   "contract": "Bounded immutable JSON publication at a fixed HTTP origin through EffectIntent and Jobs; no provider replay/no-effect grounds, explicit read-only recovery and job-control-only cancellation.",
   "limits": [
     "Host owns stable origin/identity, truthful preflight, authenticated receipts, bounded task pools, clock, Store durability, recovery grants and continuing expiry after job termination.",
     "Finite grace/poll ratio does not bound concurrent wakes or pre-deadline polling; capacity saturation fails closed.",
-    "Loopback protocol evidence, not a live vendor integration; no HTTP physical rollback, hot configuration or business drain."
+    "Loopback protocol evidence, not a live vendor integration; no HTTP physical rollback, hot configuration or business drain.",
+    "ELZ-052 evolution note: observation added through runtime/telemetry ([:elzoo, :job | :effect, :start | :stop | :exception] events); inputs, outputs, state, delivery and failure guarantees are unchanged; no Contract change, so the Piece ID is kept. The added Need is the telemetry library (1.4.2), already in the dependency closure.",
+    "Telemetry handlers run synchronously in the emitting process: a handler's run time is elapsed time; a handler slower than the remaining deadline makes the operation expire exactly as any other delay would. Handlers must be fast and non-blocking (offload work); effect events delay a result's arrival at the owner. Events are observations, not audit; an event may be missing."
   ],
   "files": [
     "cure/elzoo/http_job.cure",
@@ -38,6 +42,7 @@
     "lib/elzoo/http_job/config.ex",
     "lib/elzoo/http_job/policy.ex",
     "lib/elzoo/http_job/wire.ex",
+    "test/elzoo/http_job_telemetry_test.exs",
     "test/elzoo/http_job_test.exs",
     "test/support/http_job_test_helper.exs"
   ],
@@ -51,6 +56,11 @@
       "kind": "test",
       "file": "test/elzoo/http_job_test.exs",
       "claim": "Named executable boundary, ABI, malformed-input and failure scenarios; finite evidence, not quantified proof."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/http_job_telemetry_test.exs",
+      "claim": "ELZ-052 listed scenarios on PostgreSQL, Oban 2.24.2 and loopback Req: the runner emits [:elzoo, :job, ...] and send/poll emit [:elzoo, :effect, ...] with exactly the documented keys and integer units (payload_bytes a byte count); effect stop outcomes are the translated tags for 404, 503, redirect, duplicate, invalid, pending, dropped, drip and preflight responses and poll maps to unavailable; owner-unavailable and invalid wakes; tenant and queue outside the telemetry grammar are omitted; no payload, credential, origin URL or receipt field in any event; raising, throwing and exiting handlers are detached and change no result, phase or wire count; a 200 ms handler on every event changes no result (added time reported); deadline-crossing handlers at the runner start (before the owner's expiry reading) and at the effect events (before the result's arrival at the owner) yield exactly the outcome of a no-handler run with the injected clock advanced by the same amount, and non-crossing ones the unchanged outcome. Finite scenarios, not proofs."
     },
     {
       "kind": "upstream",
@@ -91,6 +101,12 @@
     {
       "kind": "assumption",
       "claim": "Host keeps capability declarations, identities and external observations truthful and supplies declared runtime/durability Needs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "telemetry",
+      "reference": "https://hexdocs.pm/telemetry/1.4.2/telemetry.html",
+      "claim": "telemetry 1.4.2 synchronous execute/3 and detach of a failing handler are upstream contracts, exercised in the listed scenarios, not proved."
     }
   ],
   "applications": [
@@ -99,9 +115,10 @@
   "operations": {
     "telemetry": {
       "status": "supported",
-      "contract": "Bounded job-caller observer emits fixed event/outcome/elapsed time; no sensitive values or durable audit promise.",
+      "contract": "Bounded job-caller observer emits fixed event/outcome/elapsed time; no sensitive values or durable audit promise. ELZ-052: runtime/telemetry :job events (operation :perform) around each runner wake and :effect events (operation :send or :poll) around each send/poll, outside every call_ms, observer_ms and total_ms timer; allowlisted metadata only (adapter, operation, request_ref = derived key, attempt, tenant and queue when they match the telemetry grammar, outcome, reason); handlers synchronous, may be absent, a failing handler is detached by telemetry and changes no result.",
       "evidence": [
-        "test/elzoo/http_job_test.exs"
+        "test/elzoo/http_job_test.exs",
+        "test/elzoo/http_job_telemetry_test.exs"
       ]
     },
     "config": {
