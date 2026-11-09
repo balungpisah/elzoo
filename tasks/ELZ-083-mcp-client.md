@@ -66,9 +66,12 @@ conformance fixture).
    `unknown`, never `refused`; `connect/2` sends only the protocol handshake
    (`server/discover` where the mode probes the modern era, `initialize` and
    `notifications/initialized` where it settles on a legacy revision); server-initiated
-   sampling, elicitation, roots and custom methods are refused and disclose no path,
-   model or credential, and a protocol `ping` is acknowledged with an empty result
-   only; the credential never appears in a result, error, inspect value, Adapter
+   requests embedded in the response to one of the Adapter's own requests are dropped
+   unanswered and disclose no host data (the Adapter opens no standalone stream);
+   where a server request reaches a receiving stream, sampling, elicitation, roots and
+   custom methods are refused and disclose no path, model or credential, and a
+   protocol `ping` is acknowledged with an empty result only; the credential
+   never appears in a result, error, inspect value, Adapter
    log or event; responses and discovery are bounded. Non-goals: an MCP server, stdio
    transport, OAuth flows, resources, prompts, subscriptions, tasks, ACP, deciding
    authority or approval, sandboxing what a tool does.

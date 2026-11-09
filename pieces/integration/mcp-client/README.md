@@ -72,7 +72,7 @@ that needs durable content retains it after receipt.
   so ex_mcp neither resends nor starts its inline OAuth flow, which it otherwise does
   on a `WWW-Authenticate: Bearer` challenge), `reconnect: false`,
   `health_check_interval: nil`, `use_sse: false` (no standalone GET stream; server
-  requests inside a POST response are dropped unanswered), no `:handler`, no
+  requests inside a response are dropped unanswered), no `:handler`, no
   `:capabilities`, no client `:retry_policy`, never `conformance_mode`.
 - Every `tools/list`: `retry_policy: false, http_stream_retry: :safe_only`.
 - Every `tools/call`: the same plus `max_mrtr_rounds: 0`, never `retry_safe`, sent
@@ -88,9 +88,13 @@ that needs durable content retains it after receipt.
 mode probes the modern era; `initialize` and `notifications/initialized` on a legacy
 revision. Afterwards only `tools/list` and `tools/call`; after a legacy timeout ex_mcp
 may send `notifications/cancelled`; `close/1` on a legacy session sends the session
-`DELETE`. A server `ping` is acknowledged with `{}`. Server-initiated `roots/list`,
-`sampling/createMessage`, `elicitation/create` and custom methods are refused (no
-handler, no capabilities) and disclose no path, model or credential.
+`DELETE`. **Server-initiated requests** embedded in the response to one of the
+Adapter's own requests (with `use_sse: false`, the only way one can arrive) are
+dropped unanswered by ex_mcp, `ping` included, and disclose no host data. Only where a
+server request reaches a receiving stream (which the Adapter never opens) are
+`roots/list`, `sampling/createMessage`, `elicitation/create` and custom methods
+refused (no handler, no capabilities) without disclosing any path, model or
+credential, and a `ping` acknowledged with `{}`.
 
 ## Needs
 

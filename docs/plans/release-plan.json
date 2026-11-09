@@ -1556,9 +1556,9 @@
       "outputs": [
         "integration/mcp-client"
       ],
-      "acceptance": "Unchanged live issue body (after the approved 2026-11-09 amendment); local task file is the publication copy. Planning dependencies mirror the published direct dependencies. RC-30 keeps integration/sdk and its scope unchanged.",
+      "acceptance": "Unchanged live issue body (after the two approved 2026-11-09 amendments); local task file is the publication copy. Planning dependencies mirror the published direct dependencies. RC-30 keeps integration/sdk and its scope unchanged.",
       "issue": 155,
-      "issue_body_sha256": "59909fe75aa00034bf92784d0a78cc20c7460e9209ee40eee725420e416ae8c8",
+      "issue_body_sha256": "815078e3d19a66d353623746a3c920cb5f79eabac97b7d2daef0b7ad8828014e",
       "observed_issue_state": "OPEN",
       "owner_role": "one claimed task worker after admission",
       "product_aims": [
