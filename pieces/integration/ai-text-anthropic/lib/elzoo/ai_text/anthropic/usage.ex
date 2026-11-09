@@ -10,7 +10,8 @@ defmodule Elzoo.AiText.Anthropic.Usage do
   `cache_creation.ephemeral_1h_input_tokens` as `5m` and `1h` records, or one
   `provider_default` record of `cache_creation_input_tokens` when only the total
   is present. When the total and the breakdown are both present they must agree
-  (the page states the total equals the sum); otherwise the writes are one
+  (the page states the total equals the sum); otherwise, and for a breakdown
+  that lacks one TTL field when no total is given, the writes are one
   `provider_default` record of `:unknown`; they are never counted twice.
   `output_tokens_details.thinking_tokens` is `reasoning_tokens` when present.
   An absent field is `:unknown`, never zero; no usage object at all gives
@@ -71,8 +72,10 @@ defmodule Elzoo.AiText.Anthropic.Usage do
         sum = Usage.sum(breakdown)
 
         cond do
-          total == nil -> breakdown
+          # Both TTL fields present and no total: the breakdown is complete.
+          total == nil and length(breakdown) == 2 -> breakdown
           is_integer(total) and sum == total -> breakdown
+          # A partial breakdown without a matching total leaves writes unknown.
           true -> [%{ttl: "provider_default", amount: :unknown}]
         end
 

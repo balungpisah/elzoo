@@ -300,6 +300,17 @@ defmodule Elzoo.AiTextTest do
     for tag <- [:provider_invalid_request, :authentication_failed, :not_found] do
       assert {:stop, :permanent} = Retry.next(policy, 1, tag)
     end
+
+    # A :redispatch_idempotent policy never turns a dispatched or unknown result
+    # into a retry: no provider supplies a replay-safe ground.
+    {:ok, idempotent} =
+      Elzoo.RetryTimeout.policy(max_attempts: 3, mode: :redispatch_idempotent)
+
+    for tag <- [:throttled, :overloaded, :timeout, :transport, :provider_error, :malformed_response] do
+      assert {:stop, :unresolved} = Retry.next(idempotent, 1, tag), inspect(tag)
+    end
+
+    assert {:retry, _} = Retry.next(idempotent, 1, :credentials_unavailable)
   end
 
   ## I5 one identity, one send

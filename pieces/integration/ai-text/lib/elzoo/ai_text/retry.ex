@@ -20,7 +20,10 @@ defmodule Elzoo.AiText.Retry do
   `:unresolved` and are never redispatched here. A caller that retries one
   does so explicitly with a ground of its own, for example a new logical
   request reference (a new intent), accepting that the first request may have
-  been processed. `unknown` outcomes are never retried. `opts` takes
+  been processed. `unknown` outcomes are never retried. A
+  `:redispatch_idempotent` policy does not change this: a dispatched result
+  decides `:unresolved` here because no provider supplies a replay-safe ground.
+  `opts` takes
   `now_ms` and `deadline_ms`; a delay that would end at or after the deadline
   stops with `:deadline`.
   """
@@ -31,8 +34,16 @@ defmodule Elzoo.AiText.Retry do
          {:ok, class} <- Elzoo.RetryTimeout.classify(envelope),
          {:ok, decision} <- Elzoo.RetryTimeout.decide(policy, attempts, class) do
       case decision do
-        :retry -> delay(policy, attempts, opts)
-        other -> {:stop, other}
+        # Only an attested no-send result is redispatched, whatever the policy's
+        # mode: a :redispatch_idempotent policy would permit dispatched results,
+        # but no provider here supplies an idempotency or no-effect ground.
+        :retry ->
+          if result in Outcome.no_send(),
+            do: delay(policy, attempts, opts),
+            else: {:stop, :unresolved}
+
+        other ->
+          {:stop, other}
       end
     end
   end

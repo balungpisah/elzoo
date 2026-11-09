@@ -161,8 +161,13 @@ defmodule Elzoo.AiText.Anthropic do
              tool_calls: Enum.map(calls, &%{id: &1.id, name: &1.name, arguments: &1.arguments})
            )
 
-         %{role: :tool_result, tool_use_id: id, text: t} ->
-           ReqLLM.Context.tool_result(id, t)
+         %{role: :tool_result, tool_use_id: id, text: t, is_error: error?} ->
+           # req_llm encodes the block's is_error from the message metadata.
+           message = ReqLLM.Context.tool_result(id, t)
+
+           if error?,
+             do: %{message | metadata: Map.put(message.metadata || %{}, :is_error, true)},
+             else: message
        end)
      )}
   end

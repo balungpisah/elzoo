@@ -237,6 +237,39 @@ defmodule Elzoo.AiText.AnthropicTest do
          writes: [%{ttl: "provider_default", amount: :unknown}],
          prompt: :unknown
        }},
+      # Partial breakdown without a total: the missing TTL is unreported, so unknown.
+      {%{
+         "input_tokens" => 12,
+         "cache_read_input_tokens" => 0,
+         "output_tokens" => 1,
+         "cache_creation" => %{"ephemeral_5m_input_tokens" => 5}
+       },
+       %{
+         input: 12,
+         read: 0,
+         writes: [%{ttl: "provider_default", amount: :unknown}],
+         prompt: :unknown
+       }},
+      {%{
+         "input_tokens" => 12,
+         "cache_read_input_tokens" => 0,
+         "output_tokens" => 1,
+         "cache_creation" => %{"ephemeral_1h_input_tokens" => 5}
+       },
+       %{
+         input: 12,
+         read: 0,
+         writes: [%{ttl: "provider_default", amount: :unknown}],
+         prompt: :unknown
+       }},
+      # Partial breakdown that matches the total is complete.
+      {%{
+         "input_tokens" => 12,
+         "cache_read_input_tokens" => 0,
+         "output_tokens" => 1,
+         "cache_creation_input_tokens" => 5,
+         "cache_creation" => %{"ephemeral_5m_input_tokens" => 5}
+       }, %{input: 12, read: 0, writes: [%{ttl: "5m", amount: 5}], prompt: 17}},
       # Total disagrees with the breakdown: unknown, never counted twice.
       {%{
          "input_tokens" => 1,
@@ -606,5 +639,47 @@ defmodule Elzoo.AiText.AnthropicTest do
     assert section =~ "\nconfig :req_llm, load_dotenv: false\n"
     assert section =~ "merges no configuration"
     assert section =~ "does not prove a consumer's configuration"
+  end
+
+  test "tool results keep their error flag on the wire; a successful one carries none (translate + captured request)",
+       ctx do
+    ok = AnthropicStub.ok(AnthropicStub.message([AnthropicStub.text("x")], "end_turn"))
+    tools = Conformance.request(:tool_well_formed, @model)["tools"]
+
+    for flag <- [true, false] do
+      req =
+        request(%{
+          "tools" => tools,
+          "messages" => [
+            %{"role" => "user", "text" => "look it up"},
+            %{
+              "role" => "assistant",
+              "text" => "",
+              "tool_calls" => [
+                %{"id" => "toolu_01A", "name" => "lookup", "arguments" => %{"q" => "x"}}
+              ]
+            },
+            %{
+              "role" => "tool_result",
+              "tool_use_id" => "toolu_01A",
+              "text" => "not found",
+              "is_error" => flag
+            }
+          ]
+        })
+
+      {_, [captured], _, _} = run(ctx, req, fn _ -> ok end)
+      conforms([captured], ctx.schema)
+
+      [block] =
+        for m <- wire(captured)["messages"],
+            is_list(m["content"]),
+            b <- m["content"],
+            b["type"] == "tool_result",
+            do: b
+
+      assert block["tool_use_id"] == "toolu_01A"
+      if flag, do: assert(block["is_error"] == true), else: refute(Map.has_key?(block, "is_error"))
+    end
   end
 end

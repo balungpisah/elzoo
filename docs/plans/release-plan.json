@@ -3524,7 +3524,7 @@
       "disposition": "implementation prepared; acceptance requires merged PR",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/ai-text/piece.json",
-      "manifest_sha256": "0a3448b5277ffaa0315f1e65cfa9be88381d5e74014f5a390239607b52225f07",
+      "manifest_sha256": "d62753f1fff866e7482761d94bd4624c30cf984d70034603d4efe36cfd9f856e",
       "baseline_status": "not in baseline (new row, ELZ-079)"
     },
     {
@@ -3534,7 +3534,7 @@
       "disposition": "implementation prepared; acceptance requires merged PR",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/ai-text-anthropic/piece.json",
-      "manifest_sha256": "abcb9cb88d221af286fa9d4c08ccd6c1fd2fa944e018e815c3e39ad392f1bcdc",
+      "manifest_sha256": "e69c69676785e71794028de6bf3630b372d68e866f9134e4381b839c7363a2b9",
       "baseline_status": "not in baseline (new row, ELZ-079)"
     },
     {

@@ -51,7 +51,7 @@
     {
       "kind": "test",
       "file": "test/elzoo/ai_text_anthropic_test.exs",
-      "claim": "Listed scenarios against in-process function-plug stubs in Anthropic's documented formats: the interface conformance kit; usage and cache counters (cold write, warm read, mixed TTL, below minimum, absent fields, disagreeing totals); cache-hint and reasoning translation and refusals before any request; documented error statuses and a redirect with one request each; transport timeout with one request; malformed 2xx; redaction in results, inspect, owner state, debug logs and req_llm telemetry; ambient keys never used across a req_llm restart with a .env file; source audit of this Piece's own manifest-listed files; the README's Install configuration section carries the exact config line. Finite scenarios, no live call, not proofs."
+      "claim": "Listed scenarios against in-process function-plug stubs in Anthropic's documented formats: the interface conformance kit; usage and cache counters (cold write, warm read, mixed TTL, below minimum, absent fields, partial breakdowns, disagreeing totals); tool-result error flag on the wire; cache-hint and reasoning translation and refusals before any request; documented error statuses and a redirect with one request each; transport timeout with one request; malformed 2xx; redaction in results, inspect, owner state, debug logs and req_llm telemetry; ambient keys never used across a req_llm restart with a .env file; source audit of this Piece's own manifest-listed files; the README's Install configuration section carries the exact config line. Finite scenarios, no live call, not proofs."
     },
     {
       "kind": "upstream",

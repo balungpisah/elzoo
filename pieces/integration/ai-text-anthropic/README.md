@@ -82,6 +82,8 @@ environment or a `.env` file.
   `invalid_request`, all before any request. Anthropic's cache has no
   caller-visible key; tenants sharing one key share Anthropic's prompt cache, so
   where isolation matters configure one credential per tenant.
+- A tool result's `is_error` flag is carried to the wire `tool_result` block
+  (through `req_llm`'s message metadata).
 - Tools are declared to `req_llm` with a callback that always refuses to run;
   `tool_use` blocks come back as proposals (data). `input` that is not an object
   is passed on as raw text for the interface to mark malformed.
@@ -94,7 +96,8 @@ From the raw usage map ("Prompt caching": "Tracking cache performance" and
 `cache_creation.ephemeral_5m_input_tokens` and `ephemeral_1h_input_tokens` are
 the `5m` and `1h` writes, or `cache_creation_input_tokens` is one
 `provider_default` write when no breakdown is given. When the total and the
-breakdown disagree the writes are `:unknown` (never counted twice).
+breakdown disagree, or a breakdown lacks one TTL field and no total is given, the
+writes are `:unknown` (never counted twice, never a partial sum).
 `output_tokens_details.thinking_tokens` is the reasoning counter when present. An
 absent field is `:unknown`, never zero; no usage object gives source `:unknown`.
 

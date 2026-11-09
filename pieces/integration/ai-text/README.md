@@ -78,7 +78,9 @@ provider replay-safe). No provider ground exists in this slice, so only the
 first path is available, and the interface never takes it on the caller's
 behalf. Only `credentials_unavailable` (attested: no byte reached transport) is
 retried automatically, after `:rearm`, within the policy and the deadline.
-`unknown` is never retried.
+`unknown` is never retried. This holds for every policy mode: even a
+`:redispatch_idempotent` policy gets `:unresolved` for a dispatched or unknown
+result, because no provider supplies a replay-safe ground.
 
 ## Invariants
 
