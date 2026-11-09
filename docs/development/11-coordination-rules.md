@@ -110,9 +110,46 @@ owner's priorities and the live task bodies decide what is built.
   while its run is in progress, inspect or manually adopt the identified run before dispatching
   another; the queue retries certain transient reads but does not automatically resume from
   that run. Source: `docs/development/10-symbolic-ci.md` and `scripts/merge-queue.py`.
-- Run measurement series on a slow or idle runner; while a merge queue is pending, run at most
-  one series at a time. State the expected duration and stay under the backend job's 90-minute
-  limit. Source: `docs/development/10-symbolic-ci.md` and the decision record (#119), whose
-  rule 7 was amended on 2026-11-09 to this wording after a conflict between the two was found.
+- Measurement runs on the hosted lane are free and parallel, but runs that share a cache key
+  are run one at a time per shape so they do not race on the cache save, and a measurement run
+  is never dispatched where the queue could mistake it for its evidence run. State the expected
+  duration. Source: the ELZ-073 record (#136) and the decision record (#119), whose rule 7 was
+  amended on 2026-11-09 to this wording when the self-hosted lane was removed (ELZ-069).
 - The decision record (#119) states that only the main coordinator runs
   `scripts/merge-queue.py`, one PR at a time.
+
+## 9. Evidence economy
+
+Source for this section: the ELZ-073 rule change of 2026-11-09 (#136) and the redundancy audit
+recorded in ELZ-075 (#140). The owner's instruction was that the lesson be stamped into the
+workflow and that other redundant steps be found.
+
+- Before a measurement is specified, list the evidence that already exists (run logs with the
+  `ELZOO STAGE` and `ELZOO TIMING` lines, earlier tables, the records under `docs/work/`) and
+  use it as the baseline. Produce new runs only for what has no history: a new run shape, or
+  the changed code revision under measurement; the unchanged side of a comparison takes its
+  numbers from the recorded runs. Size the sample by the observed variance against the
+  decision margin. Observed: on 2026-11-09 more than ten
+  full hosted runs already carried per-stage timings, so the planned three BEFORE runs of
+  ELZ-073 were dropped; the three AFTER runs stayed because the day's full runs spread from 17
+  to 24 minutes against a decision margin of about 4 minutes, so one run could not decide.
+- Reviewer sessions are spent on code and on new evidence claims (an interpretation of a test
+  result, a statement about what a run proves), which `AGENTS.md` keeps under independent
+  review. The transcription of claims that were already reviewed into a work record, PR body
+  or task copy (the checked SHA, exit codes, counts, markers, run IDs, hashes, the required
+  lines) is checked mechanically by the coordinator, not by a reviewer pass. Fixes are batched
+  into one review round where the task allows. Observed: ELZ-028 (#123) needed nine review
+  passes, three of which concerned only the transcription of the evidence record.
+- Where one fact lives in two places, name the source of truth; the other copy is derived from
+  it or dropped. The pairs found on 2026-11-09:
+
+| Step | Why it is redundant | Source of truth | Disposition |
+| --- | --- | --- | --- |
+| Local full `mix check` before every push, beside the hosted full pull request run and the queue's exact-head run | Three copies of one evidence; 13 to 20 minutes per push and one slot per host (ELZ-028 ran four) | The hosted runs (ELZ-059, #99) | Pending owner decision; changes `AGENTS.md`: the local gate becomes `mix check --affected <base>` plus the Piece's own tests |
+| A reviewer pass after every small fix, including record-only commits | Reviewer time on text the coordinator can check mechanically | The code diff | Replaced by the rule above |
+| PR body kept byte-identical to the work record's check section | Two copies of the same table, reconciled by hand several times per task (ELZ-028, #123: three record-only confirmation rounds before readiness) | The work record under `docs/work/` | The PR body quotes the checked SHA, exit codes, marker and the review-records link, and links the record |
+| Task copy under `tasks/` kept byte-equal to the live issue body with a pinned hash | Two copies of the task body, re-pinned on every edit | Both, today: `scripts/check-roadmap.py --live` enforces the pin and the public record needs the issue | Kept; pending owner decision whether the repository file becomes the source and the issue body a summary with a link |
+| Claim marker commit followed by a removal commit | Two commits per task; the one-file documentation PR #139 needed both | The pushed branch (the push is the lock, `AGENTS.md`) | Pending owner decision; changes `AGENTS.md`: whether the pushed branch name alone is the claim |
+| The host full-check slot granted by the pieces coordinator | Exists only because of the local full check (decision record #119, one bare `mix check` at a time per host; the ELZ-028 and ELZ-029 readiness reports on #123 and #120 record the slot waits) | The hosted runs | Goes with the local full check rule |
+| The Gleam check on every push to `main` | About one minute per push | The Gleam path gate of the queue (ELZ-059) | Kept; cheap |
+| The exact-head rerun when `main` moved by a disjoint merge | The merge tree differs only by the other merge | The evidence rule (`AGENTS.md`, `docs/development/10-symbolic-ci.md`) | Kept; changing it ("merged after a green sibling") is an owner decision listed under ELZ-073's follow-ups |
