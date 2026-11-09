@@ -29,16 +29,24 @@ Claim a deterministic branch, never an agent-suffixed branch:
     git fetch origin --prune
     git worktree add ../elzoo-ELZ-003 -b task/ELZ-003 origin/main
     cd ../elzoo-ELZ-003
-    mkdir -p .claims
-    # write .claims/ELZ-003.md with ID, issue, ELZOO_AGENT, UTC and base SHA
-    git add .claims/ELZ-003.md
-    git commit -m "claim ELZ-003"
-    git push --set-upstream origin HEAD:refs/heads/task/ELZ-003
+    gh api -X POST repos/{owner}/{repo}/git/refs \
+      -f ref=refs/heads/task/ELZ-003 -f sha="$(git rev-parse origin/main)"
+    git fetch origin --prune
+    git branch --set-upstream-to=origin/task/ELZ-003
 
-The first successful branch-create push wins. A rejection is a lost race;
-never force-push or reset the winner's branch. Comment on the issue only after
-the push succeeds, naming branch and claim SHA. Remove the marker in a later
-commit before the PR; retain its claim commit in history.
+The atomic branch creation is the claim (ELZ-076); no marker file and no claim
+commit exist. The local worktree and branch are prepared first, so a local
+failure cannot strand a claimed remote branch; the claim is requested only
+when the worktree exists. HTTP 422 "Reference already exists" is a lost race:
+remove the losing worktree and its local branch (`git worktree remove
+../elzoo-ELZ-003` and `git branch -D task/ELZ-003`, which touches nothing on
+the remote) before choosing another issue or requesting a handoff. A plain
+`git push` is not used for the claim because a second push from the same base
+is a silent no-op and a later fast-forward push would move the winner's
+branch. Never force-push or reset the winner's branch. Comment on the issue
+only after the creation succeeds, naming the branch, the base SHA and the
+role-based agent identifier. CI still rejects any tracked file under
+`.claims/`.
 
 If a branch already exists, request a handoff or choose another issue. Stale
 work uses docs/development/05-stale-claims.md, not a silent takeover.
@@ -89,14 +97,21 @@ Without it, or when it is unreachable, those tests fail closed; they are never
 skipped.
 mix check must compile real Cure, execute selected Cure proofs, meaningful
 runtime tests and negative controls. It is not documentation or formatting
-lint. Targeted tests are feedback; report the full mix check before review.
-The default retains every independent consumer, including the full aggregate.
-For explicit PR-style iteration, `mix check --affected origin/main` selects
-affected fixed per-ID consumers; the aggregate also runs if any affected ready
-ID is outside their dependency closures. All other root checks remain.
-Shared/unknown changes or unavailable comparison data select all fixed
-consumers and the aggregate. This subset is not full acceptance; see the selection policy and
-limits in [CI on GitHub-hosted runners](10-symbolic-ci.md#affected-consumer-checks-elz-038).
+lint. The default retains every independent consumer, including the full
+aggregate; it is the form CI runs on every pull request head that is not
+documentation-only (ELZ-071 gives those the short check) and the form a worker
+runs after a dependency, configuration or toolchain change.
+
+The worker gate before every push (ELZ-076) is `mix check --affected origin/main`
+plus the changed Piece's own tests (`mix test pieces/<family>/<name>/test`).
+The affected run selects the affected
+fixed per-ID consumers; the aggregate also runs if any affected ready ID is
+outside their dependency closures. All other root checks remain. Shared or
+unknown changes, or unavailable comparison data, select all fixed consumers and
+the aggregate. This subset is not acceptance: the pull request's hosted
+`check-hosted` run is the full `mix check` on the exact head and the merge
+evidence; see the selection policy and limits in
+[CI on GitHub-hosted runners](10-symbolic-ci.md#affected-consumer-checks-elz-038).
 
 The task decides which proofs and scenarios are selected. No finite test set
 silently becomes a universal proof, and no external library is required to

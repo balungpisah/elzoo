@@ -178,8 +178,10 @@ another pool. No other RC or ELZ task is dispatched by this wave authorization.
 
 Each implementation gets its own tool-provided isolated workspace, deterministic
 `task/ELZ-###` branch and first-push claim containing login, session ID, UTC and
-base SHA. Record actual worker/thread identity, workspace, base and claim SHA
-at dispatch; future IDs are deliberately not fabricated here. Workers report
+base SHA (superseded for new claims by ELZ-076: the atomic branch creation is
+the claim, see `AGENTS.md`). Record actual worker/thread identity, workspace,
+base SHA and, for claims made before ELZ-076, the claim SHA at dispatch; future
+IDs are deliberately not fabricated here. Workers report
 against the canonical plan; only the coordinator reconciles its statuses.
 No automatic cross-worktree integration is assumed. Ordinary Git pushes and
 GitHub PR integration are the authorized mechanics; no extra coordination
