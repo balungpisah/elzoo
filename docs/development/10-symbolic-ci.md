@@ -785,22 +785,27 @@ against the median of the exact-hit runs). Median runner time 1406 s against 125
 per job 26.5 against 21: +26.2 percent; rule: below +60 percent). The slower decision run (698 s) is faster than the fastest of the
 43 BEFORE runs (819 s). Decision: adopt.
 
-**Final shape (with the plan job), pull request run of this change.** Run 42596829008 (`pull_request`, head cc29fde, attempt 1):
-wall 618 s (09:53:35 to 10:03:53 UTC); `check-plan` 40 s, `check-root` 570 s, `check-consumers-db` 466 s, `check-consumers` 301 s,
-`check-hosted` 4 s; runner time 1381 s (26 min rounded up per job). Against the BEFORE median this is -50.6 percent wall time
-and +10.5 percent runner time (+23.8 percent in rounded minutes); the prototype median was 642 s. Part results: root 775 passed
-and 27 excluded (ExUnit 429.4 s: 80.2 s async, 349.2 s sync), consumers-db 4 passed (405.4 s), consumers 23 passed (235.9 s);
-775 + 4 + 23 = 802; markers `ELZOO ROOT SUITE PASSED`, `ELZOO CONSUMERS DB PASSED`, `ELZOO CONSUMERS PASSED`,
-`ELZOO PLAN: run=true skip=false docs_only=false` and `ELZOO CHECK PASSED` in the aggregating job. The first run of this
-pull request, 42596025752 (head cd76681), failed: an unformatted test file stopped the three work jobs at the format stage, and
-`check-hosted` failed explicitly (a second observation that the aggregating job is not skipped). One run only, so one
-sample of the final shape.
+**Final shape (with the plan job), the pull request runs of this change** (all `pull_request`, attempt 1, success; the
+first run of the pull request, 42596025752 on cd76681, failed on an unformatted test file of mine and is not counted; its
+`check-hosted` failed explicitly):
+
+| Run (head) | Wall | `check-plan` | `check-root` | `check-consumers-db` | `check-consumers` | `check-hosted` | Runner time |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 42596829008 (cc29fde) | 618 | 40 | 570 | 466 | 301 | 4 | 1381 |
+| 42598253522 (702fcc9) | 719 | 33 | 677 | 476 | 296 | 4 | 1486 |
+| 42600141766 (9518a78) | 688 | 40 | 494 | 638 | 294 | 3 | 1469 |
+
+Median wall 688 s against the BEFORE median 1250 s (**-45.0 percent**; the prototype median was 642 s); median runner time
+1469 s (**+17.5 percent**). The rule (at least -25 percent wall, below +60 percent runner time) is met by the final shape
+too. The longest job changes from run to run (root, then consumers-db), so the spread between runs is about 100 s. In
+run 42596829008 the parts passed 775 + 4 + 23 = 802 tests (root ExUnit 429.4 s: 80.2 s async, 349.2 s sync; consumers-db
+405.4 s; consumers 235.9 s), with the plan line, the three part markers and `ELZOO CHECK PASSED` in the logs.
 
 **Findings and limits.** (1) The root suite does not stay at 15 minutes: the root part is 429 to 517 s of ExUnit plus 76 to 101
 s of Ash spike, and the longest job bounds the wall time (root, then consumers-db); a better balance of the parts is a later
 task. (2) The parts ran side by side without interference; the only failures on the prototype were two root tests that read the
 workflow file (updated in this change). (3) AFTER n = 2 for the decision, plus one more run; the BEFORE sample spans a day and
-several trees; both are warm-cache figures. (4) The prototype had no plan job; the pull request run of this change is the one sample of the final shape (above). (5) More jobs mean more chances of one infrastructure failure per run, and a re-run must be a full re-run.
+several trees; both are warm-cache figures. (4) The prototype had no plan job; three pull request runs of this change measure the final shape (above). (5) More jobs mean more chances of one infrastructure failure per run, and a re-run must be a full re-run.
 (6) GitHub's limit of concurrent jobs and overlapping runs of one pull request (after `update-branch`) were not measured.
 
 ## Disposable S3 test server (ELZ-064)
