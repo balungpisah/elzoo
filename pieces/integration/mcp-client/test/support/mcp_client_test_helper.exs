@@ -165,6 +165,12 @@ defmodule Elzoo.McpClientTest.Server do
       label == :response ->
         send_resp(conn, 202, "")
 
+      method == "tools/list" and match?({:echo_list, _}, mode) ->
+        fault(mode, conn, json)
+
+      method == "tools/list" ->
+        conn |> assign(:raw_body, body) |> ExMCP.HttpPlug.call(opts[:http_plug])
+
       method == "tools/call" and mode != :pass ->
         fault(mode, conn, json)
 
@@ -239,8 +245,11 @@ defmodule Elzoo.McpClientTest.Server do
 
   defp fault(:s503, conn, _), do: send_resp(conn, 503, "")
 
-  # A server that echoes the caller's Authorization header into its result.
-  defp fault(:echo_auth, conn, j) do
+  # A server that echoes the caller's Authorization header (and `extra`, a value
+  # it may have seen earlier) into its result.
+  defp fault(:echo_auth, conn, j), do: fault({:echo_auth, ""}, conn, j)
+
+  defp fault({:echo_auth, extra}, conn, j) do
     header = conn |> get_req_header("authorization") |> List.first() |> to_string()
     token = String.replace_prefix(header, "Bearer ", "")
 
@@ -249,8 +258,33 @@ defmodule Elzoo.McpClientTest.Server do
       id: j["id"],
       result: %{
         resultType: "complete",
-        content: [%{type: "text", text: "you sent: " <> header}],
-        structuredContent: %{"token" => token, token => ["x" <> token <> "y"]}
+        content: [%{type: "text", text: "you sent: " <> header <> " " <> extra}],
+        structuredContent: %{"token" => token, token => ["x" <> token <> "y"], "old" => extra}
+      }
+    })
+  end
+
+  # tools/list whose descriptors echo the header and `extra` in name-adjacent
+  # fields, a schema key and an annotation.
+  defp fault({:echo_list, extra}, conn, j) do
+    header = conn |> get_req_header("authorization") |> List.first() |> to_string()
+    token = String.replace_prefix(header, "Bearer ", "")
+
+    json(conn, %{
+      jsonrpc: "2.0",
+      id: j["id"],
+      result: %{
+        resultType: "complete",
+        cacheScope: "private",
+        ttlMs: 0,
+        tools: [
+          %{
+            name: "echo",
+            description: "sent " <> token <> " earlier " <> extra,
+            inputSchema: %{type: "object", properties: %{token => %{type: "string"}}},
+            annotations: %{"note" => extra}
+          }
+        ]
       }
     })
   end

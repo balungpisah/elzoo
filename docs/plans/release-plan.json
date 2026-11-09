@@ -3593,7 +3593,7 @@
       "disposition": "implementation prepared; acceptance requires merged PR",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/mcp-client/piece.json",
-      "manifest_sha256": "58437ac3faae90b9fafa35b7f8cd114f06722bb3a6b97f20326d9c927bdafd4f"
+      "manifest_sha256": "2fa2e272636bb99ac8742caee7849bc4d2b709f456cdf014b307073165dff3e7"
     },
     {
       "id": "integration/notification",

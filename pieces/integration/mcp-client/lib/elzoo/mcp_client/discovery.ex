@@ -8,12 +8,19 @@ defmodule Elzoo.McpClient.Discovery do
   alias Elzoo.McpClient.{Redact, Session, Transport, Wire}
 
   def list(%Session{config: c, client: client}) do
-    with {:ok, tools, truncated} <- pages(client, c, nil, c.max_pages, [], false) do
+    # The credential as resolved before and after listing; server data is
+    # redacted before the Adapter builds its own descriptor shape.
+    before = Redact.secrets(c.credentials)
+
+    with {:ok, raw, truncated} <- pages(client, c, nil, c.max_pages, [], false) do
+      secrets = before ++ Redact.secrets(c.credentials)
+      {tools, truncated} = take(raw, c, secrets, truncated)
+
       {:ok,
        %{
          server: c.settings.server,
          protocol_version: version(client),
-         tools: Redact.value(tools, Redact.secrets(c.credentials)),
+         tools: tools,
          truncated: truncated
        }}
     end
@@ -24,7 +31,10 @@ defmodule Elzoo.McpClient.Discovery do
   defp pages(client, c, cursor, left, acc, truncated) do
     case Transport.list_page(client, cursor, c.call_timeout_ms) do
       {:ok, %{"tools" => tools} = page} when is_list(tools) ->
-        {acc, truncated} = take(tools, c, acc, truncated)
+        # Raw server tools, bounded; descriptors are built after redaction.
+        room = c.max_tools + 1 - length(acc)
+        truncated = truncated or length(tools) > room
+        acc = Enum.reverse(Enum.take(tools, max(room, 0))) ++ acc
         next = Map.get(page, "nextCursor")
 
         cond do
@@ -53,24 +63,27 @@ defmodule Elzoo.McpClient.Discovery do
     _, _ -> {:error, :adapter_error}
   end
 
-  defp take(tools, c, acc, truncated) do
-    Enum.reduce(tools, {acc, truncated}, fn tool, {acc, truncated} ->
-      cond do
-        length(acc) >= c.max_tools ->
-          {acc, true}
+  defp take(raw, c, secrets, truncated) do
+    {acc, truncated} =
+      Enum.reduce(raw, {[], truncated}, fn tool, {acc, truncated} ->
+        cond do
+          length(acc) >= c.max_tools ->
+            {acc, true}
 
-        true ->
-          case descriptor(tool, c.max_descriptor_bytes) do
-            {:ok, d} ->
-              if Enum.any?(acc, &(&1["name"] == d["name"])),
-                do: {acc, true},
-                else: {[d | acc], truncated}
+          true ->
+            case descriptor(Redact.value(tool, secrets), c.max_descriptor_bytes) do
+              {:ok, d} ->
+                if Enum.any?(acc, &(&1["name"] == d["name"])),
+                  do: {acc, true},
+                  else: {[d | acc], truncated}
 
-            :error ->
-              {acc, true}
-          end
-      end
-    end)
+              :error ->
+                {acc, true}
+            end
+        end
+      end)
+
+    {Enum.reverse(acc), truncated}
   end
 
   @doc false

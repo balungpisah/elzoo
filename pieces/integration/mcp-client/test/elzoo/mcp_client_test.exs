@@ -722,14 +722,94 @@ defmodule Elzoo.McpClientTest do
     Server.mode(ctx.server, :echo_auth)
     assert {:completed, value} = McpClient.call_tool(s, a, pid)
     refute_token(value)
-    assert [%{"text" => "you sent: Bearer [redacted]"}] = value.content
-    assert value.structured == %{"token" => "[redacted]", "[redacted]" => ["x[redacted]y"]}
+    assert [%{"text" => "you sent: Bearer [redacted] "}] = value.content
+
+    assert value.structured == %{
+             "token" => "[redacted]",
+             "[redacted]" => ["x[redacted]y"],
+             "old" => ""
+           }
+
     refute_token(Intent.status(pid))
     assert count(requests(), "tools/call") == 1
 
     result = send_one(s, payload("echo", %{}))
     refute_token(result)
     flush_results()
+  end
+
+  test "T28 a credential that rotates between resolutions: neither the earlier nor the sent token reaches delivered data, digest, status or discovery (Adapter redaction)",
+       ctx do
+    old = "tok-OLD-SECRET-11aa"
+    sent = "tok-NEW-SECRET-22bb"
+    {:ok, queue} = Agent.start_link(fn -> [] end)
+
+    need = fn ->
+      case Agent.get_and_update(queue, fn
+             [h | t] -> {h, t}
+             [] -> {nil, []}
+           end) do
+        nil -> {:ok, sent}
+        t -> {:ok, t}
+      end
+    end
+
+    s = session(ctx, credentials: need)
+    snap = snapshot(s)
+    {:ok, a} = McpClient.admission(s.config, declaration(payload("echo", %{})), snap)
+    pid = owner(s, a, ctx)
+    requests()
+
+    # The Adapter's pre-call resolution sees the earlier token; ex_mcp's provider
+    # and the post-call resolution see the new one, which the server echoes; the
+    # server also echoes the earlier token it saw before.
+    Server.mode(ctx.server, {:echo_auth, old})
+    Agent.update(queue, fn _ -> [old] end)
+    assert {:completed, value} = McpClient.call_tool(s, a, pid)
+    status = Intent.status(pid)
+
+    for t <- [old, sent], term <- [value, status] do
+      refute inspect(term, limit: :infinity, printable_limit: :infinity) =~ t
+    end
+
+    assert value.structured["old"] == "[redacted]" and value.structured["token"] == "[redacted]"
+
+    Server.mode(ctx.server, {:echo_list, old})
+    Agent.update(queue, fn _ -> [old] end)
+    assert {:ok, d} = McpClient.list_tools(s)
+    text = inspect(d, limit: :infinity, printable_limit: :infinity)
+    refute text =~ old
+    refute text =~ sent
+    assert [%{"name" => "echo", "trust" => "untrusted", "input_schema" => schema}] = d.tools
+    assert Map.keys(schema["properties"]) == ["[redacted]"]
+    Server.mode(ctx.server, :pass)
+  end
+
+  test "T29 a credential equal to a structural word (name, input_schema, text) keeps discovery and results usable (Adapter redaction)",
+       ctx do
+    for word <- ["name", "input_schema", "text"] do
+      s = session(ctx, credentials: fn -> {:ok, word} end)
+      snap = snapshot(s)
+      assert Enum.map(snap.tools, & &1["name"]) == ["echo", "fail", "strict", "structured"]
+
+      assert Enum.all?(
+               snap.tools,
+               &(Map.keys(&1) |> Enum.sort() ==
+                   ~w(annotations description input_schema name trust))
+             )
+
+      {:ok, a} =
+        McpClient.admission(
+          s.config,
+          declaration(payload("strict", %{"x" => "v"}), "call-" <> word),
+          snap
+        )
+
+      pid = owner(s, a, ctx)
+      assert {:completed, %{content: [item]}} = McpClient.call_tool(s, a, pid)
+      assert Map.has_key?(item, "text") and Map.has_key?(item, "type")
+      McpClient.close(s)
+    end
   end
 
   test "T19 every failing, raising, throwing, exiting or malformed credential Need is credentials_unavailable with no tool request (auth provider)",
