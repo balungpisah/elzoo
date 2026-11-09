@@ -882,6 +882,12 @@ defmodule Elzoo.McpClientTest do
     %{table: table} = :sys.get_state(s.ledger)
     assert_raise ArgumentError, fn -> :ets.tab2list(table) end
 
+    # Crash reports: the last message (e.g. {:record, token}) and the log are redacted too.
+    status = %{state: :x, message: {:record, @token}, log: [{:record, @token}], reason: :boom}
+    formatted = Elzoo.McpClient.Ledger.format_status(status)
+    assert %{state: :redacted, message: :redacted, log: :redacted} = formatted
+    refute_token(formatted)
+
     assert {:ok, "x [redacted] y"} =
              Elzoo.McpClient.Ledger.redact(s.ledger, "x " <> @token <> " y", [])
 

@@ -80,5 +80,10 @@ defmodule Elzoo.McpClient.Ledger do
   def handle_info(_, s), do: {:noreply, s}
 
   @impl true
-  def format_status(status), do: Map.put(status, :state, :redacted)
+  def format_status(status) do
+    status
+    |> Map.put(:state, :redacted)
+    |> Map.replace(:message, :redacted)
+    |> Map.replace(:log, :redacted)
+  end
 end
