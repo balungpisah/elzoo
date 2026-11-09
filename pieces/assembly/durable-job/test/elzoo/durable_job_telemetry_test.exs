@@ -202,7 +202,11 @@ defmodule Elzoo.DurableJobTelemetryTest do
         limits: Run.limits()
       )
 
+    # The Relay process traps exits (Elzoo.Jobs.Relay.init/1); a failed Writer
+    # start exits its linked caller, so this direct call traps exits as well.
+    previous = Process.flag(:trap_exit, true)
     assert DurableJob.relay(%{cfg | store: unreachable}, item) == {:skip, :unavailable}
+    Process.flag(:trap_exit, previous)
     assert [{_, _, _}, {_, _, d3}] = drain()
     assert d3.outcome == :skip_unavailable
   end
