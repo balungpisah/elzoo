@@ -95,7 +95,7 @@
   "operations": {
     "telemetry": {
       "status": "planned",
-      "contract": "No event and no log line is emitted (S11 audits the source). A future event family (runtime/telemetry, ELZ-052) must exclude the secret, presigned URLs and object bodies. Upstream Finch events seen by consumer-installed handlers carry signed request headers; that is the consumer's responsibility."
+      "contract": "No event and no log line is emitted (S11 audits the source); own events through runtime/telemetry: future task when a consumer needs them. Not inherited: this Piece has no direct provider or Piece dependency that supplies the ELZ-052 family, so the Contract's 'inherited if merged first' condition does not hold (main coordinator decision 2026-11-09). A future event family must exclude the secret, presigned URLs and object bodies. Upstream Finch events seen by consumer-installed handlers carry signed request headers; that is the consumer's responsibility."
     },
     "config": {
       "status": "supported",

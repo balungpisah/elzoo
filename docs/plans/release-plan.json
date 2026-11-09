@@ -3461,7 +3461,7 @@
       "disposition": "implementation prepared; acceptance requires merged PR",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/object-store/piece.json",
-      "manifest_sha256": "e5ed0179a1dfe54626b5cee187655c8ced540eed2d8a7b7871c5b0a33d47293c"
+      "manifest_sha256": "90e91d2f91243ab5eca47d92e7eb26c2885cc320cfa0435629c59c9b0a9385e6"
     },
     {
       "id": "integration/observability",

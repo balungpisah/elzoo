@@ -108,7 +108,11 @@ added), `default_page_size` 100, `max_page_size` 1000, `presign_default_s` 900, 
 
 ## Operations
 
-Telemetry `planned` (no event or log line is emitted); Config `supported` (construction-time and
+Telemetry `planned` (no event or log line is emitted; own events through `runtime/telemetry`: future
+task when a consumer needs them). ELZ-052 merged first, but `inherited` means supplied through a named
+direct provider or Piece dependency (docs/operational-contracts.md) and this Piece has none, so the
+Contract's "inherited from the ELZ-052 family if merged first" condition does not hold (main coordinator
+decision 2026-11-09). Config `supported` (construction-time and
 per-call settings above, no hot update); Control `not_applicable` (call-scoped; the deadline is the
 only cancellation and cannot erase a dispatched write).
 
