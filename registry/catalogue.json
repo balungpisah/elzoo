@@ -479,11 +479,11 @@
     },
     {
       "id": "integration/mcp-client",
-      "summary": "One MCP server over Streamable HTTP (ex_mcp 1.8.1): inert tool discovery and one tool call per dispatch identity",
+      "summary": "One MCP server over Streamable HTTP (ex_mcp 1.8.1): inert tool discovery; one tool call per dispatch identity; completed, refused or unknown",
       "disposition": "adapt",
       "phase": "demand-led",
-      "status": "planned",
-      "reason": "Published as ELZ-083; ready only after its PR merges"
+      "status": "ready",
+      "manifest": "pieces/integration/mcp-client/piece.json"
     },
     {
       "id": "integration/notification",

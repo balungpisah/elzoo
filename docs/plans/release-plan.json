@@ -3562,10 +3562,12 @@
     {
       "id": "integration/mcp-client",
       "job": "ELZ-083",
-      "note": "One MCP server over Streamable HTTP through ex_mcp 1.8.1: inert bounded tool discovery; one tools/call per dispatch identity bound to core/effect and delivery/effect-intent; completed, refused (local pre-send, or HTTP 401/403) or unknown (any timeout, broken stream or JSON-RPC error after sending); caller-supplied release reference required.",
+      "note": "One MCP server over Streamable HTTP through ex_mcp 1.8.1: inert, bounded, untrusted tool discovery that never calls a tool; one tools/call per dispatch identity, admitted from a core/effect declaration carrying a caller-supplied exact-action release reference and bound to the delivery/effect-intent owner: completed{content, is_error, structured}; refused{unknown_tool | invalid_arguments | too_large | credentials_unavailable | not_connected | target_refused | invalid_request} decided locally before sending, or refused{authentication_failed} for an HTTP 401/403 (named upstream assumption, dispatched); unknown{reason} for any timeout, broken connection, input-required result or JSON-RPC error after sending. No resend: fail-closed auth provider, reconnect and health ping off, no standalone GET stream, per-operation retry_policy false, http_stream_retry :safe_only and max_mrtr_rounds 0; no client handler; injected credential Need; allowlisted endpoint under a loopback, private or public network policy.",
       "baseline_status": "planned",
-      "disposition": "published task; acceptance requires merged PR",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "implementation prepared; acceptance requires merged PR",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/integration/mcp-client/piece.json",
+      "manifest_sha256": "776a32d5ad10a4c99e07487c75c299027f2814e3fa4b936284d2acb9ded0d8df"
     },
     {
       "id": "integration/notification",
