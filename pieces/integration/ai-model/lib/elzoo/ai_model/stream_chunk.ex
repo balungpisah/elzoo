@@ -35,6 +35,9 @@ defmodule Elzoo.AiModel.StreamChunk do
 
   defp payload?(:usage, p), do: match?({:ok, _}, Elzoo.AiModel.Usage.validate(p))
   defp payload?(:finish, %{reason: {:other, raw}} = p), do: map_size(p) == 1 and text?(raw, 64)
-  defp payload?(:finish, %{reason: r} = p), do: map_size(p) == 1 and is_atom(r) and r not in [nil, true, false]
+
+  defp payload?(:finish, %{reason: r} = p),
+    do: map_size(p) == 1 and is_atom(r) and r not in [nil, true, false]
+
   defp payload?(_, _), do: false
 end

@@ -74,7 +74,9 @@ defmodule Elzoo.AiModelTest do
       assert Usage.prompt_input_tokens(a) == :unknown
 
       # A missing input under Anthropic leaves the uncached input :unknown.
-      {:ok, a} = Usage.from_provider(%{@anthropic_example | input: :unknown}, @anthropic, :provider_reported)
+      {:ok, a} =
+        Usage.from_provider(%{@anthropic_example | input: :unknown}, @anthropic, :provider_reported)
+
       assert Usage.amount(a, :input_uncached_tokens) == :unknown
     end
 
@@ -94,7 +96,13 @@ defmodule Elzoo.AiModelTest do
     end
 
     test "an empty cache-write list is a reported zero" do
-      {:ok, u} = Usage.from_provider(%{input: 5, cache_read: 0, cache_writes: [], output: 1}, @anthropic, :provider_reported)
+      {:ok, u} =
+        Usage.from_provider(
+          %{input: 5, cache_read: 0, cache_writes: [], output: 1},
+          @anthropic,
+          :provider_reported
+        )
+
       assert Usage.prompt_input_tokens(u) == 5
     end
 
@@ -113,7 +121,7 @@ defmodule Elzoo.AiModelTest do
       %{u: u}
     end
 
-    test "valid value passes", %{u: u}, do: assert({:ok, ^u} = Usage.validate(u))
+    test("valid value passes", %{u: u}, do: assert({:ok, ^u} = Usage.validate(u)))
 
     test "unknown unit, duplicate unit, negative and non-integer amounts refused", %{u: u} do
       for counters <- [
@@ -126,11 +134,19 @@ defmodule Elzoo.AiModelTest do
             [%{unit: :output_tokens, amount: 0, extra: 1}],
             [{:output_tokens, 1}]
           ] do
-        assert {:error, :usage_counter} = Usage.validate(%{u | counters: counters}), inspect(counters)
+        assert {:error, :usage_counter} = Usage.validate(%{u | counters: counters}),
+               inspect(counters)
       end
 
-      assert {:error, :usage_counter} = Usage.from_provider(%{input: -1}, @anthropic, :provider_reported)
-      assert {:error, :usage_counter} = Usage.from_provider(%{input: 1, cache_read: 0, dollars: 3}, @anthropic, :provider_reported)
+      assert {:error, :usage_counter} =
+               Usage.from_provider(%{input: -1}, @anthropic, :provider_reported)
+
+      assert {:error, :usage_counter} =
+               Usage.from_provider(
+                 %{input: 1, cache_read: 0, dollars: 3},
+                 @anthropic,
+                 :provider_reported
+               )
     end
 
     test "unknown TTL, duplicate TTL, bad write amount refused", %{u: u} do
@@ -141,12 +157,15 @@ defmodule Elzoo.AiModelTest do
             [%{ttl: "1h", amount: -3}],
             :none
           ] do
-        assert {:error, :usage_cache_write} = Usage.validate(%{u | cache_writes: writes}), inspect(writes)
+        assert {:error, :usage_cache_write} = Usage.validate(%{u | cache_writes: writes}),
+               inspect(writes)
       end
     end
 
     test "convention, source and shape", %{u: u} do
-      assert {:error, :usage_convention} = Usage.validate(%{u | convention: %{input_includes_cached: nil}})
+      assert {:error, :usage_convention} =
+               Usage.validate(%{u | convention: %{input_includes_cached: nil}})
+
       assert {:error, :usage_convention} = Usage.validate(%{u | convention: %{}})
       assert {:error, :usage_source} = Usage.validate(%{u | source: :estimated})
       assert {:error, :usage_shape} = Usage.validate(Map.put(u, :cost, 1))
@@ -158,7 +177,12 @@ defmodule Elzoo.AiModelTest do
   end
 
   describe "M3 cache hint" do
-    @hint %{tenant: "tenant-a", local_key: "docs-v1", ttl: "5m", breakpoints: [:tools, :system, {:message, 3}]}
+    @hint %{
+      tenant: "tenant-a",
+      local_key: "docs-v1",
+      ttl: "5m",
+      breakpoints: [:tools, :system, {:message, 3}]
+    }
 
     test "same tenant accepted" do
       assert {:ok, @hint} = CacheHint.validate(@hint, "tenant-a")
@@ -166,7 +190,10 @@ defmodule Elzoo.AiModelTest do
 
     test "a hint naming another tenant is refused invalid_request" do
       assert {:error, :invalid_request} = CacheHint.validate(@hint, "tenant-b")
-      assert {:error, :invalid_request} = CacheHint.validate(%{@hint | tenant: "tenant-b"}, "tenant-a")
+
+      assert {:error, :invalid_request} =
+               CacheHint.validate(%{@hint | tenant: "tenant-b"}, "tenant-a")
+
       assert {:error, :invalid_request} = CacheHint.validate(@hint, nil)
     end
 
@@ -185,8 +212,19 @@ defmodule Elzoo.AiModelTest do
         Map.delete(@hint, :tenant)
       ]
 
-      for hint <- bad, do: assert({:error, :invalid_request} = CacheHint.validate(hint, hint[:tenant] || "tenant-a"), inspect(hint))
-      assert {:ok, _} = CacheHint.validate(%{@hint | breakpoints: [:tools, :system, {:message, 0}, {:message, 1}]}, "tenant-a")
+      for hint <- bad,
+          do:
+            assert(
+              {:error, :invalid_request} = CacheHint.validate(hint, hint[:tenant] || "tenant-a"),
+              inspect(hint)
+            )
+
+      assert {:ok, _} =
+               CacheHint.validate(
+                 %{@hint | breakpoints: [:tools, :system, {:message, 0}, {:message, 1}]},
+                 "tenant-a"
+               )
+
       assert CacheHint.max_breakpoints() == 4
     end
   end
@@ -202,7 +240,14 @@ defmodule Elzoo.AiModelTest do
     end
 
     test "provenance with and without ids" do
-      p = %{model_ref: @ref, provider_model: "claude-sonnet-4-5-20250929", response_id: "msg_01", request_id: "req_1", provider_piece: "integration/ai-text-anthropic"}
+      p = %{
+        model_ref: @ref,
+        provider_model: "claude-sonnet-4-5-20250929",
+        response_id: "msg_01",
+        request_id: "req_1",
+        provider_piece: "integration/ai-text-anthropic"
+      }
+
       assert {:ok, _} = Provenance.validate(p)
       assert {:ok, _} = Provenance.validate(%{p | response_id: :absent, request_id: :absent})
       assert {:error, :provenance} = Provenance.validate(%{p | response_id: nil})
@@ -223,11 +268,25 @@ defmodule Elzoo.AiModelTest do
 
   describe "M4 job and stream chunk" do
     test "job reference and every job state" do
-      assert {:ok, _} = Job.validate_ref(%{provider: "anthropic", provider_job_id: "msgbatch_1", submitted_at: 1_700_000_000_000})
-      assert {:error, :job_ref} = Job.validate_ref(%{provider: "anthropic", provider_job_id: "msgbatch_1", submitted_at: -1})
+      assert {:ok, _} =
+               Job.validate_ref(%{
+                 provider: "anthropic",
+                 provider_job_id: "msgbatch_1",
+                 submitted_at: 1_700_000_000_000
+               })
+
+      assert {:error, :job_ref} =
+               Job.validate_ref(%{
+                 provider: "anthropic",
+                 provider_job_id: "msgbatch_1",
+                 submitted_at: -1
+               })
+
       assert {:error, :job_ref} = Job.validate_ref(%{provider: "anthropic", provider_job_id: ""})
 
-      for s <- [:pending, :running, :ending, :expired, :cancelled, :failed], do: assert({:ok, ^s} = Job.validate_state(s))
+      for s <- [:pending, :running, :ending, :expired, :cancelled, :failed],
+          do: assert({:ok, ^s} = Job.validate_state(s))
+
       counts = %{succeeded: 3, errored: 1, cancelled: 0, expired: 0}
       assert {:ok, _} = Job.validate_state({:ended, counts})
       assert {:error, :job_state} = Job.validate_state({:ended, Map.delete(counts, :expired)})
@@ -247,7 +306,8 @@ defmodule Elzoo.AiModelTest do
             finish: %{reason: :stop},
             finish: %{reason: {:other, "pause_turn"}}
           ] do
-        assert {:ok, _} = StreamChunk.validate(%{seq: 0, kind: kind, payload: payload}), inspect(kind)
+        assert {:ok, _} = StreamChunk.validate(%{seq: 0, kind: kind, payload: payload}),
+               inspect(kind)
       end
 
       for chunk <- [
@@ -269,10 +329,19 @@ defmodule Elzoo.AiModelTest do
 
   test "errors carry a fixed atom and never echo input" do
     secret = "sk-ant-SECRET-#{System.unique_integer([:positive])}"
+
     results = [
-      CacheHint.validate(%{tenant: secret, local_key: secret, ttl: "9m", breakpoints: [:tools]}, "other"),
+      CacheHint.validate(
+        %{tenant: secret, local_key: secret, ttl: "9m", breakpoints: [:tools]},
+        "other"
+      ),
       ModelRef.validate(%{provider: secret}),
-      Usage.validate(%{counters: [%{unit: secret, amount: 1}], cache_writes: [], convention: %{input_includes_cached: true}, source: :unknown})
+      Usage.validate(%{
+        counters: [%{unit: secret, amount: 1}],
+        cache_writes: [],
+        convention: %{input_includes_cached: true},
+        source: :unknown
+      })
     ]
 
     for r <- results do

@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "id": "integration/ai-model",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": [
+    "elixir",
+    "otp"
+  ],
+  "dependencies": [],
+  "contract": "Family core of the AI model Pieces: pure provider-neutral values and validators (model reference; unit-tagged usage with amounts as non-negative integers or :unknown, cache writes per TTL from a closed grammar, the provider's input-token convention and source; the accounting identity input_uncached = input when input excludes cached tokens, input - cache_read - sum(cache_writes) when it includes them, prompt_input = input_uncached + cache_read + sum(cache_writes) only when every component is known, otherwise :unknown; a cache hint whose tenant must equal the dispatch tenant; provenance; refused and unknown failure classes; job reference and job state; stream chunk). No I/O.",
+  "limits": [
+    "Values and validators only: no provider call, pricing, cost, metering, streaming or job lifecycle.",
+    "The cache-hint tenant rule stops a caller from naming another tenant's hint; it cannot partition a provider's own prompt cache between tenants that share one credential.",
+    "The accounting identity is checked by finite table tests on the documented Anthropic and OpenAI usage examples and listed missing-component cases; no proof is claimed."
+  ],
+  "files": [
+    "lib/elzoo/ai_model.ex",
+    "lib/elzoo/ai_model/cache_hint.ex",
+    "lib/elzoo/ai_model/failure.ex",
+    "lib/elzoo/ai_model/job.ex",
+    "lib/elzoo/ai_model/model_ref.ex",
+    "lib/elzoo/ai_model/provenance.ex",
+    "lib/elzoo/ai_model/stream_chunk.ex",
+    "lib/elzoo/ai_model/usage.ex",
+    "test/elzoo/ai_model_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/ai_model_test.exs",
+      "claim": "Listed scenarios: the accounting identity on Anthropic's documented usage example (Prompt caching, 1-hour cache duration: input 2048, cache read 1800, writes 148 at 5m and 100 at 1h) and OpenAI's (Prompt caching, Monitor cache performance: input 12000, cached 4000, writes 3000 at 30m and 4000 at 12h, 1000 ordinary), fetched 2026-11-09; :unknown for each missing component and for an inconsistent includes-cached report; cross-tenant cache hint refused; unit, TTL, job-state and stream-chunk validators; errors never echo input. Finite scenarios, not proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Relies on Elixir 1.20.4 String.valid?/1 and Regex for text checks; not a local proof."
+    },
+    {
+      "kind": "assumption",
+      "claim": "Each provider Piece translates its documented usage fields truthfully into raw counters and reports an absent field as :unknown; the documented input-token convention of each provider is as its documentation states."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "Pure values and validators with no ambient configuration, observations or running lifecycle."
+    },
+    "config": {
+      "status": "not_applicable",
+      "contract": "Pure values and validators with no ambient configuration, observations or running lifecycle."
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "Pure values and validators with no ambient configuration, observations or running lifecycle."
+    }
+  }
+}

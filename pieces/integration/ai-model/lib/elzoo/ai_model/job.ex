@@ -21,13 +21,15 @@ defmodule Elzoo.AiModel.Job do
        else: {:error, :job_ref}
   end
 
-  def validate_state(state) when state in [:pending, :running, :ending, :expired, :cancelled, :failed],
-    do: {:ok, state}
+  def validate_state(state)
+      when state in [:pending, :running, :ending, :expired, :cancelled, :failed],
+      do: {:ok, state}
 
   def validate_state({:ended, counts} = state) do
-    if exact_keys?(counts, @count_keys) and Enum.all?(Map.values(counts), &(is_integer(&1) and &1 >= 0)),
-      do: {:ok, state},
-      else: {:error, :job_state}
+    if exact_keys?(counts, @count_keys) and
+         Enum.all?(Map.values(counts), &(is_integer(&1) and &1 >= 0)),
+       do: {:ok, state},
+       else: {:error, :job_state}
   end
 
   def validate_state(_), do: {:error, :job_state}

@@ -12,7 +12,8 @@ defmodule Elzoo.AiModel.Failure do
   """
   def classes, do: [:refused, :unknown]
 
-  def validate({class, reason} = failure, reasons) when class in [:refused, :unknown] and is_map(reasons) do
+  def validate({class, reason} = failure, reasons)
+      when class in [:refused, :unknown] and is_map(reasons) do
     if is_atom(reason) and reason in Map.get(reasons, class, []),
       do: {:ok, failure},
       else: {:error, :failure}

@@ -21,12 +21,23 @@ defmodule Elzoo.AiModel.CacheHint do
   @doc "Validates `hint` for a call whose dispatch tenant is `dispatch_tenant`."
   def validate(hint, dispatch_tenant) do
     cond do
-      not exact_keys?(hint, [:tenant, :local_key, :ttl, :breakpoints]) -> {:error, :invalid_request}
-      not (text?(hint.tenant, 256) and text?(hint.local_key, 256)) -> {:error, :invalid_request}
-      hint.ttl not in Elzoo.AiModel.Usage.ttls() -> {:error, :invalid_request}
-      not breakpoints?(hint.breakpoints) -> {:error, :invalid_request}
-      not (is_binary(dispatch_tenant) and hint.tenant == dispatch_tenant) -> {:error, :invalid_request}
-      true -> {:ok, hint}
+      not exact_keys?(hint, [:tenant, :local_key, :ttl, :breakpoints]) ->
+        {:error, :invalid_request}
+
+      not (text?(hint.tenant, 256) and text?(hint.local_key, 256)) ->
+        {:error, :invalid_request}
+
+      hint.ttl not in Elzoo.AiModel.Usage.ttls() ->
+        {:error, :invalid_request}
+
+      not breakpoints?(hint.breakpoints) ->
+        {:error, :invalid_request}
+
+      not (is_binary(dispatch_tenant) and hint.tenant == dispatch_tenant) ->
+        {:error, :invalid_request}
+
+      true ->
+        {:ok, hint}
     end
   end
 

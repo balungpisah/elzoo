@@ -11,7 +11,8 @@ defmodule Elzoo.AiModel.Provenance do
   import Elzoo.AiModel, only: [text?: 2, exact_keys?: 2]
 
   def validate(p) do
-    with true <- exact_keys?(p, [:model_ref, :provider_model, :response_id, :request_id, :provider_piece]),
+    with true <-
+           exact_keys?(p, [:model_ref, :provider_model, :response_id, :request_id, :provider_piece]),
          {:ok, _} <- Elzoo.AiModel.ModelRef.validate(p.model_ref),
          true <- text?(p.provider_model, 256) and text?(p.provider_piece, 128),
          true <- id?(p.response_id) and id?(p.request_id) do

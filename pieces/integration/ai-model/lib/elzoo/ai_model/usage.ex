@@ -159,7 +159,11 @@ defmodule Elzoo.AiModel.Usage do
   def unknown(convention) do
     {:ok, usage} =
       validate(%{
-        counters: Enum.map([:input_uncached_tokens, :cache_read_tokens, :output_tokens], &%{unit: &1, amount: :unknown}),
+        counters:
+          Enum.map(
+            [:input_uncached_tokens, :cache_read_tokens, :output_tokens],
+            &%{unit: &1, amount: :unknown}
+          ),
         cache_writes: [%{ttl: "provider_default", amount: :unknown}],
         convention: convention,
         source: :unknown
