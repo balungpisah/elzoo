@@ -38,7 +38,7 @@ defmodule Elzoo.AiBatchTest do
         provider_config:
           Map.merge(%{parent: parent, respond: respond}, Keyword.get(opts, :provider_config, %{})),
         credentials: Keyword.get(opts, :credentials, fn -> {:ok, @secret} end),
-        submissions: Keyword.get(opts, :submissions, Staging.lookup_fun(ctx.staging)),
+        submissions: Keyword.get(opts, :submissions, {Staging, ctx.staging}),
         models: [@model],
         max_output_tokens: 1000,
         sink: Sink.to_pid(parent)
@@ -146,14 +146,22 @@ defmodule Elzoo.AiBatchTest do
     assert {:outcome, _, {:submitted, %{job_ref: ref, item_count: 4, orphans: []}}} = delivery
     assert ref.provider == "test"
     assert {:Confirmed, 1} = status.phase
-    # The intent arguments are the manifest, not the submission.
+    # The intent arguments are the manifest naming the exact create body.
     assert {:ok, m} = Submission.decode_manifest(a.arguments)
-    assert m.item_count == 4 and m.submission_bytes == byte_size(a.submission)
+    assert m.item_count == 4 and m.wire_bytes == byte_size(a.staged)
+    assert m.wire_sha256 == Submission.sha256(a.staged)
     refute a.arguments =~ "Batch conformance prompt"
-    # Neither the submission bytes, a prompt nor the credential is in owner state.
-    state = inspect(:sys.get_state(pid), limit: :infinity, printable_limit: :infinity)
-    refute state =~ "Batch conformance prompt"
-    refute state =~ @secret
+    # The provider received exactly the staged bytes the admission digest names.
+    assert_received {:submitted_wire, %{body: sent, meta: %{}}}
+    assert sent == a.staged
+    assert Submission.sha256(sent) == m.wire_sha256
+    # Neither the staged bytes, a prompt nor the credential is anywhere in the
+    # owner state, including function environments (external term format, not
+    # inspect, so no custom Inspect can hide it).
+    state = :erlang.term_to_binary(:sys.get_state(pid))
+    refute :binary.match(state, "Batch conformance prompt") != :nomatch
+    refute :binary.match(state, a.staged) != :nomatch
+    refute :binary.match(state, @secret) != :nomatch
     refute inspect(status) =~ "Batch conformance prompt"
     # The staging process shows sizes, not content.
     refute inspect(:sys.get_state(ctx.staging), limit: :infinity) =~ "Batch conformance prompt"
@@ -280,7 +288,7 @@ defmodule Elzoo.AiBatchTest do
           provider: Elzoo.AiBatch.TestProvider,
           provider_config: %{},
           credentials: fn -> {:ok, @secret} end,
-          submissions: Staging.lookup_fun(ctx.staging),
+          submissions: {Staging, ctx.staging},
           models: [@model],
           sink: fn _, _ -> :ok end
         ]
@@ -304,7 +312,14 @@ defmodule Elzoo.AiBatchTest do
           [receive_timeout_ms: 600_001],
           [unknown: 1],
           [submit_binding: Elzoo.AiBatch.TestCancelBinding],
-          [cancel_binding: Elzoo.AiBatch.TestSubmitBinding]
+          [cancel_binding: Elzoo.AiBatch.TestSubmitBinding],
+          # The lookup capability must be {store module, pid or registered name}:
+          # a function (which could capture staged bytes) or a binary server is refused.
+          [submissions: fn _, _ -> {:ok, "prompt bytes"} end],
+          [submissions: {Staging, "prompt bytes"}],
+          [submissions: {Staging, nil}],
+          [submissions: {Elzoo.AiBatch.NoSuchStore, self()}],
+          [submissions: {Staging, ctx.staging, :extra}]
         ] do
       assert {:error, :configuration} = good.(bad), inspect(bad)
     end
@@ -393,21 +408,39 @@ defmodule Elzoo.AiBatchTest do
     assert calls(:submit) == 0
     assert {:error, _} = Intent.advance(pid, :dispatch)
 
-    # Staged bytes that do not match the manifest.
-    lookup = fn _key, _ -> {:ok, Elzoo.AiText.Request.canonical(submission(["a"]))} end
-    c = config(ctx, credentials: need, submissions: lookup, respond: fn _, _ -> raise "never" end)
-    {:ok, a} = admit(c, submission(), "mismatch")
-    pid = owner(c.submit_binding, c, a, ctx)
-    {:ok, :dispatched} = Intent.advance(pid, :dispatch)
-    settled(pid)
-    refute_received :credential_read
-    assert calls(:submit) == 0
+    # A substituted body (one byte changed, or another admission's body) from a
+    # host store is refused before the credential: nothing is sent.
+    {:ok, other} = admit(config(ctx), submission(["a"]), "other")
+
+    for tamper <- [fn b -> b <> " " end, fn _ -> other.staged end] do
+      tampering = start_supervised!({Agent, fn -> nil end}, id: make_ref())
+
+      c =
+        config(ctx,
+          credentials: need,
+          submissions: {Elzoo.AiBatch.TamperingStore, tampering},
+          respond: fn _, _ -> raise "never" end
+        )
+
+      {:ok, a} = admit(c, submission(), "mismatch-#{System.unique_integer([:positive])}")
+      Agent.update(tampering, fn _ -> tamper.(a.staged) end)
+      pid = owner(c.submit_binding, c, a, ctx)
+      {:ok, :dispatched} = Intent.advance(pid, :dispatch)
+      settled(pid)
+      key = a.key
+
+      assert_receive {AiBatch, ^key, {:outcome, _, {:unknown, :provider_error, %{orphans: []}}}},
+                     2000
+
+      refute_received :credential_read
+      assert calls(:submit) == 0
+    end
 
     # A second put of other bytes under the same key is refused.
     {:ok, a} = admit(config(ctx), submission(), "twice")
     :ok = Staging.put(ctx.staging, a)
     assert :ok = Staging.put(ctx.staging, a)
-    assert {:error, :conflict} = Staging.put(ctx.staging, %{a | submission: a.submission <> " "})
+    assert {:error, :conflict} = Staging.put(ctx.staging, %{a | staged: a.staged <> " "})
   end
 
   ## cancel

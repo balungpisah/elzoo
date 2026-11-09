@@ -67,6 +67,10 @@ are harmless for items that do not use the feature is an unverified assumption.
   others); 404 means an unknown or archived batch or results past retention.
   Transport timeout `timeout`, other transport failures `transport`.
 - `orphans` is always `[]` (creation is a single request).
+- The create body is prepared once at admission (`prepare/2` returns the exact
+  body and `meta`, the outer beta value); `submit/2` sends the staged body
+  unchanged and rechecks the staged beta value against the allowed set (sorted,
+  deduplicated) before sending, sending nothing otherwise.
 - Response bodies are read through a bounded collector (4 MiB; error bodies 64
   KiB); results stream under the interface's page, line and scan bounds and stop
   as soon as the page is complete. Each page re-reads from the start (no

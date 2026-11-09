@@ -69,7 +69,7 @@ defmodule Elzoo.AiBatch.AnthropicTest do
           provider: Anthropic,
           provider_config: %{plug: plug},
           credentials: Keyword.get(opts, :credentials, fn -> {:ok, @key} end),
-          submissions: Staging.lookup_fun(ctx.staging),
+          submissions: {Staging, ctx.staging},
           models: [@model],
           max_output_tokens: 4096,
           receive_timeout_ms: 5000,
@@ -122,6 +122,7 @@ defmodule Elzoo.AiBatch.AnthropicTest do
     ref = "ref-#{System.unique_integer([:positive])}"
     {:ok, a} = AiBatch.admit_submit(c, Conformance.submit_declaration(sub, ref, 10_000))
     :ok = Staging.put(ctx.staging, a)
+    send(self(), {:admitted, a})
     pid = owner(c.submit_binding, c, a, ctx)
     {:ok, :dispatched} = Intent.advance(pid, :dispatch)
     settled(pid)
@@ -191,6 +192,11 @@ defmodule Elzoo.AiBatch.AnthropicTest do
     assert {:outcome, _, {:submitted, %{job_ref: ref, item_count: 4, orphans: []}}} = delivery
     assert ref == %{ref | provider: "anthropic", provider_job_id: @batch_id}
     assert length(reqs) == 1
+    # The outbound body is byte-identical to the body the admission digest names.
+    assert_received {:admitted, a}
+    {:ok, m} = AiBatch.Submission.decode_manifest(a.arguments)
+    assert hd(reqs).body == a.staged
+    assert AiBatch.Submission.sha256(hd(reqs).body) == m.wire_sha256
     body = conforms(hd(reqs), ctx.schema, [])
     assert Enum.map(body["requests"], & &1["custom_id"]) == Conformance.ids()
     state = inspect(:sys.get_state(pid), limit: :infinity, printable_limit: :infinity)
@@ -261,6 +267,22 @@ defmodule Elzoo.AiBatch.AnthropicTest do
              Anthropic.prepare(%{items: [%{item_id: "x", request: r, wire: beta}]}, nil)
 
     assert "interleaved-thinking-2025-05-14" in Anthropic.allowed_betas()
+
+    # Staged metadata is rechecked before sending: another beta, an unsorted
+    # union or an unknown key sends nothing.
+    {agent, plug} = AnthropicStub.start(fn _ -> raise "no request expected" end)
+    opts = %{credential: @key, receive_timeout_ms: 1000, provider_config: %{plug: plug}}
+
+    for meta <- [
+          %{"anthropic-beta" => "files-api-2025-04-14"},
+          %{"anthropic-beta" => "tools-2024-05-16,prompt-caching-2024-07-31"},
+          %{"x-other" => "1"}
+        ] do
+      assert {:failure, :adapter_error, %{orphans: []}} =
+               Anthropic.submit(%{body: "{}", meta: meta}, opts)
+    end
+
+    assert AnthropicStub.requests(agent) == []
   end
 
   test "B4 drift guard: item params and headers for the fixed corpus equal the pinned req_llm 1.30.0 snapshot (upstream risk on the encoded-body location)" do
@@ -348,7 +370,7 @@ defmodule Elzoo.AiBatch.AnthropicTest do
                tenant: "t",
                provider: Anthropic,
                credentials: fn -> {:ok, @key} end,
-               submissions: fn _, _ -> :error end,
+               submissions: {Staging, self()},
                models: [@model],
                sink: fn _, _ -> :ok end,
                max_items: 100_001

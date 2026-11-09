@@ -70,7 +70,7 @@ defmodule Elzoo.AiBatch.TestProvider do
         "requests" => Enum.map(items, &%{"id" => &1.item_id, "messages" => &1.wire.messages})
       })
 
-    {:ok, %{body: body}}
+    {:ok, %{body: body, meta: Map.get(cfg, :meta, %{})}}
   end
 
   @impl true
@@ -84,8 +84,18 @@ defmodule Elzoo.AiBatch.TestProvider do
 
   defp call(op, arg, %{provider_config: cfg} = opts) do
     send(cfg.parent, {:call, op, opts.credential})
+    if op == :submit, do: send(cfg.parent, {:submitted_wire, arg})
     cfg.respond.(op, arg)
   end
+end
+
+# A host store that returns whatever bytes its Agent holds: used to show that a
+# substituted create body is refused before the credential is read.
+defmodule Elzoo.AiBatch.TamperingStore do
+  @behaviour Elzoo.AiBatch.SubmissionStore
+
+  @impl true
+  def fetch(agent, _key, _digests), do: {:ok, Agent.get(agent, & &1)}
 end
 
 defmodule Elzoo.AiBatch.TestSubmitBinding do

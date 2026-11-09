@@ -117,15 +117,16 @@ end
 defmodule Elzoo.AiBatch.SubmitAdapter do
   @moduledoc """
   The `delivery/effect-intent` Adapter of one batch submission. Order inside the
-  send task: binding and manifest checks; the host's submission lookup Need
-  keyed by intent key, binding digest and manifest digest; length and SHA-256 of
-  the bytes against the manifest; decoding and the neutral checks of
-  `Elzoo.AiBatch.prepare/2` over exactly those bytes; then the credential Need
-  (a failure is the only attested no-send, `credentials_unavailable`); exactly
-  one provider `submit/2`; the volatile sink; the envelope. A missing or
-  mismatched submission is `adapter_error` before the credential is read
-  (nothing is sent, but no further no-send tag exists, so the result is
-  conservatively unknown). The Adapter never retries.
+  send task: binding and manifest checks (the manifest's body length within
+  `max_create_wire_bytes`); the host's submission store keyed by intent key,
+  binding digest and manifest digest; length and SHA-256 of the returned bytes
+  against the manifest; then the credential Need (a failure is the only attested
+  no-send, `credentials_unavailable`); exactly one provider `submit/2` with
+  **exactly those bytes** and the manifest's provider metadata (no translation
+  or encoding happens here: the body was prepared once at admission); the
+  volatile sink; the envelope. A missing or mismatched body is `adapter_error`
+  before the credential is read (nothing is sent, but no further no-send tag
+  exists, so the result is conservatively unknown). The Adapter never retries.
 
   Delivered outcomes: `{:submitted, %{job_ref, item_count, orphans}}`,
   `{:refused, reason, %{retry_after, orphans}}`, `{:unknown, reason, %{orphans}}`.
@@ -153,21 +154,16 @@ defmodule Elzoo.AiBatch.SubmitAdapter do
          true <- b.digest == req.binding,
          true <- is_binary(req.arguments),
          {:ok, manifest} <- Submission.decode_manifest(req.arguments),
-         {:ok, bytes} <-
-           c.submissions.(key, %{
-             binding_digest: req.binding,
-             manifest_digest: Submission.sha256(req.arguments)
-           }),
-         true <- Submission.matches?(manifest, bytes),
-         {:ok, submission, ^bytes} <- Submission.decode(bytes, Elzoo.AiBatch.bounds(c)),
-         true <- submission.model == manifest.model,
-         true <- length(submission.items) == manifest.item_count,
-         {:ok, wire} <- Elzoo.AiBatch.prepare(c, submission) do
+         true <- manifest.wire_bytes <= c.max_create_wire_bytes,
+         {:ok, bytes} <- fetch(c, key, req.binding, Submission.sha256(req.arguments)),
+         true <- Submission.matches?(manifest, bytes) do
+      wire = %{body: bytes, meta: manifest.provider_meta}
+
       case Elzoo.AiBatch.credential(c) do
         {:ok, secret} ->
           c
           |> exchange(wire, secret)
-          |> finish(c, key, attempt_id, length(submission.items))
+          |> finish(c, key, attempt_id, manifest.item_count)
 
         _ ->
           finish({:failure, :credentials_unavailable, %{}}, c, key, attempt_id, 0)
@@ -179,6 +175,18 @@ defmodule Elzoo.AiBatch.SubmitAdapter do
     _ -> Adapter.failure(:adapter_error)
   catch
     _, _ -> Adapter.failure(:adapter_error)
+  end
+
+  defp fetch(%Config{submissions: {module, server}}, key, binding_digest, manifest_digest) do
+    case module.fetch(server, key, %{
+           binding_digest: binding_digest,
+           manifest_digest: manifest_digest
+         }) do
+      {:ok, bytes} when is_binary(bytes) -> {:ok, bytes}
+      _ -> :error
+    end
+  catch
+    _, _ -> :error
   end
 
   # A failure before the credential was read (binding, manifest, lookup,

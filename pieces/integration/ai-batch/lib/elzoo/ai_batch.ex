@@ -64,8 +64,10 @@ defmodule Elzoo.AiBatch do
   `tenant`, `provider` (a module implementing `Elzoo.AiBatch.Provider`),
   `provider_config` (its construction term), `credentials` (the injected
   credential Need, a zero-arity function returning `{:ok, binary}`),
-  `submissions` (the submission lookup Need, a 2-arity function, see
-  `Elzoo.AiBatch.Staging`), `models` (allowlist, 1..64), `sink` (see
+  `submissions` (the submission lookup capability `{module, server}`: `module`
+  implements `Elzoo.AiBatch.SubmissionStore` and `server` is a pid or a
+  registered name, normally `{Elzoo.AiBatch.Staging, pid}`; a function or any
+  other term is refused, so the Config cannot hold staged bytes), `models` (allowlist, 1..64), `sink` (see
   `Elzoo.AiBatch.Sink`) and the bounds, each an integer:
 
   - `max_output_tokens`: 1..1,000,000, default 64,000 (per item);
@@ -96,7 +98,7 @@ defmodule Elzoo.AiBatch do
          true <- Code.ensure_loaded?(caps.item_provider),
          true <- Elzoo.AiText.Provider.valid_capabilities?(caps.item_provider.capabilities()),
          true <- is_function(opts[:credentials], 0) and is_function(opts[:sink], 2),
-         true <- is_function(opts[:submissions], 2),
+         true <- Elzoo.AiBatch.SubmissionStore.valid?(opts[:submissions]),
          models when is_list(models) and length(models) in 1..64 <- opts[:models],
          true <- Enum.all?(models, &Elzoo.AiModel.text?(&1, 256)),
          {:ok, out} <- bound(opts, :max_output_tokens, 1_000_000, 64_000),
@@ -187,10 +189,15 @@ defmodule Elzoo.AiBatch do
   `integration/ai-batch`, operation `submit`, command schema
   `elzoo/ai-batch-submission` version 1, explicit `idempotency_key` (the dispatch
   identity) and `deadline_unix_ms`, payload the submission JSON
-  (`Elzoo.AiBatch.Submission`). Returns `{:ok, %{key, identity, arguments,
-  deadline, binding_digest, manifest_digest, submission}}` (`arguments` is the
-  manifest; the host stages `submission` for the lookup Need and starts
-  `Elzoo.EffectIntent` with `adapter_context: config`), `{:error, {:refused,
+  (`Elzoo.AiBatch.Submission`). The provider create body is prepared **once**,
+  here. Returns `{:ok, %{key, identity, arguments, deadline, binding_digest,
+  manifest_digest, staged, submission}}`: `arguments` is the manifest naming the
+  exact create body by length and SHA-256 (with the provider's non-secret
+  request metadata); `staged` is that exact body, which the host stages in its
+  submission store (`Elzoo.AiBatch.Staging.put/2`) before starting
+  `Elzoo.EffectIntent` with `adapter_context: config`; `submission` is the
+  canonical submission, from which the caller builds its result join
+  (`Elzoo.AiBatch.Join.new/2`). Or `{:error, {:refused,
   reason, %{retry_after: nil, orphans: []}}}` with `reason` in
   `:invalid_request | :unsupported_feature | :too_large`, or
   `{:error, :declaration}`. It never creates an intent, reads the credential or
@@ -202,8 +209,10 @@ defmodule Elzoo.AiBatch do
          {:ok, b} <- Binding.load(c.submit_binding, :submit),
          {:ok, _} <- Elzoo.EffectIntent.Binding.recovery_deadline(deadline, b.recovery_grace_ms) do
       with {:ok, submission, canonical} <- Submission.decode(payload, bounds(c)),
-           {:ok, _wire} <- prepare(c, submission) do
-        manifest = Submission.manifest(submission, canonical)
+           {:ok, wire} <- prepare(c, submission) do
+        manifest =
+          Submission.manifest(submission.model, length(submission.items), wire.body, wire.meta)
+
         identity = [c.tenant, b.provider_account, b.id, b.operation, ref]
 
         {:ok,
@@ -214,6 +223,7 @@ defmodule Elzoo.AiBatch do
            deadline: deadline,
            binding_digest: b.digest,
            manifest_digest: Submission.sha256(manifest),
+           staged: wire.body,
            submission: canonical
          }}
       else
@@ -235,11 +245,12 @@ defmodule Elzoo.AiBatch do
   defp refused(reason), do: {:error, {:refused, reason, %{retry_after: nil, orphans: []}}}
 
   @doc """
-  The neutral checks shared by admission and the Adapter: declared and valid
-  provider options; each item through `Elzoo.AiText.check/2` (the same checks and
-  pure translation as a synchronous call); the provider's pure `prepare/2`; and
-  the exact create body against `max_create_wire_bytes`. Returns `{:ok, wire}`
-  or `{:error, reason}`.
+  The neutral checks of admission: declared and valid provider options; each
+  item through `Elzoo.AiText.check/2` (the same checks and pure translation as
+  a synchronous call); the provider's pure `prepare/2`, which yields the exact
+  create body and its non-secret metadata; and that body against
+  `max_create_wire_bytes`. Returns `{:ok, %{body, meta}}` or `{:error, reason}`.
+  The Adapter does not call it: it sends the staged body the manifest names.
   """
   def prepare(%Config{} = c, submission) do
     caps = c.provider.capabilities()
@@ -248,10 +259,11 @@ defmodule Elzoo.AiBatch do
     with true <-
            options_valid?(submission.provider_options, caps.options) || {:error, :invalid_request},
          {:ok, items} <- items(text, submission.items),
-         {:ok, %{body: body} = wire} when is_binary(body) <-
-           c.provider.prepare(%{submission | items: items}, c.provider_config) do
+         {:ok, %{body: body, meta: meta}} when is_binary(body) <-
+           c.provider.prepare(%{submission | items: items}, c.provider_config),
+         true <- Submission.meta?(meta) || {:error, :invalid_request} do
       if byte_size(body) <= c.max_create_wire_bytes,
-        do: {:ok, wire},
+        do: {:ok, %{body: body, meta: meta}},
         else: {:error, :too_large}
     else
       {:refused, r} when r in [:invalid_request, :unsupported_feature, :too_large] -> {:error, r}

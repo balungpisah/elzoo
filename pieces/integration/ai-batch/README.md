@@ -21,8 +21,8 @@ it uses. Uses the family core's `job_ref` and `job_state`. Apache-2.0.
 `Elzoo.AiBatch.configure/1` builds the trusted Config: `submit_binding` and
 `cancel_binding` (modules using `Elzoo.AiBatch.Binding` with `operation: :submit`
 and `:cancel`; the provider account enters the intent key), `tenant`, `provider`
-and its `provider_config`, the injected credential Need, the **submission lookup
-Need** (`submissions`, see below), the model allowlist, the result sink and the
+and its `provider_config`, the injected credential Need, the **submission store
+capability** (`submissions: {module, server}`, see below), the model allowlist, the result sink and the
 bounds: `max_output_tokens` (per item), `max_items` (1 to the provider's cap),
 `max_create_wire_bytes` (1 to the provider's cap, measured on the exact encoded
 create body), `max_submission_bytes`, `max_item_bytes` (at most 65,536),
@@ -41,26 +41,32 @@ checked by the text interface (`Elzoo.AiText.Request.decode/2`,
 admitted exactly when the same synchronous request would be. Provider options
 are declared by the provider and validated; anything else is `invalid_request`.
 
-`admit_submit/2` returns `{:ok, %{key, identity, arguments, deadline,
-binding_digest, manifest_digest, submission}}` or
-`{:error, {:refused, reason, %{retry_after: nil, orphans: []}}}` (`invalid_request
-| unsupported_feature | too_large`) **before any intent, credential read or
-request**, or `{:error, :declaration}`.
+`admit_submit/2` prepares the provider's create body **once** and returns
+`{:ok, %{key, identity, arguments, deadline, binding_digest, manifest_digest,
+staged, submission}}` or `{:error, {:refused, reason, %{retry_after: nil,
+orphans: []}}}` (`invalid_request | unsupported_feature | too_large`) **before any
+intent, credential read or request**, or `{:error, :declaration}`.
 
-**Manifest arguments and the submission lookup Need.** The EffectIntent arguments
-are bounded at 65,536 bytes and its `adapter_context` lives in owner state, so the
+**Manifest arguments and the submission store.** The EffectIntent arguments are
+bounded at 65,536 bytes and its `adapter_context` lives in owner state, so the
 intent arguments are a canonical manifest `{version, model, item_count,
-submission_bytes, submission_sha256}`. The host stages the canonical submission
-bytes (the reference store is `Elzoo.AiBatch.Staging`: `Staging.put(staging,
-admission)`) and configures `submissions: Staging.lookup_fun(staging)`, a 2-arity
-lookup keyed by intent key, binding digest and manifest digest. Inside the send
-task, before the credential is read, the Adapter looks the bytes up, checks length
-and SHA-256 against the manifest, decodes and rechecks them and sends exactly the
-provider body built from them. Owner state, inspect output and logs carry neither
-the bytes nor a closure holding them. A missing or mismatched entry sends nothing
-and is reported `unknown{provider_error}`: the failure table attests no-send only
-for credentials. After a host restart the staged bytes are gone unless the host
-persisted them. SHA-256 collision resistance is an upstream assumption.
+wire_bytes, wire_sha256, provider_meta}` naming the **exact provider create
+body** (`staged`) and the provider's non-secret request metadata (for Anthropic,
+the outer beta header value). The host stages `staged` in its store
+(`Elzoo.AiBatch.Staging.put(staging, admission)`) and configures `submissions:
+{Elzoo.AiBatch.Staging, pid_or_name}`. `configure/1` accepts only `{module,
+server}` with `module` implementing `Elzoo.AiBatch.SubmissionStore` and `server` a
+pid or a registered name; a function or any other term is refused, so the Config
+(the owner's `adapter_context`) cannot hold staged bytes or a closure capturing
+them. Inside the send task, before the credential is read, the Adapter fetches
+the body for its intent key, binding digest and manifest digest, checks its length
+and SHA-256 against the manifest and hands **exactly those bytes** to the
+provider's `submit/2`; nothing is translated or encoded at dispatch. A missing or
+substituted body sends nothing and is reported `unknown{provider_error}`: the
+failure table attests no-send only for credentials. After a host restart the staged
+bytes are gone unless the host persisted them. SHA-256 collision resistance is an
+upstream assumption. `submission` (the canonical submission) is what the caller
+keeps to build its result join.
 
 Delivered outcome (volatile sink, once per attempt):
 `{:submitted, %{job_ref, item_count, orphans}}`,
@@ -111,7 +117,7 @@ or `{:error, reason}`, `reason` in `results_reasons/0` (adds `malformed_page`,
   :expired}`; `class` is `invalid_request | provider_error | malformed_response`
   (a succeeded result that fails decoding may have been billed).
 - `Elzoo.AiBatch.Join` (pure, carried by the caller, built from the submitted
-  bytes) joins by item id only: an unknown id or one already seen in this or an
+  submission) joins by item id only: an unknown id or one already seen in this or an
   earlier page refuses the whole page with the join unchanged. `Join.missing/2`
   returns the absent ids only after `:done` of an `{:ended, _}` job; a missing
   item is never succeeded.
@@ -126,7 +132,10 @@ or `{:error, reason}`, `reason` in `results_reasons/0` (adds `malformed_page`,
 - One request per submit, cancel, status and results call.
 - The credential comes only from the injected Need and never appears, with a
   prompt or output, in a result, error, inspect value, log, owner state or event;
-  the submission bytes never appear in owner state.
+  the staged bytes never appear in owner state (checked on the external term
+  format of the owner state, which includes function environments).
+- The bytes sent on submit are byte-identical to the body the admission manifest
+  names.
 - Tool proposals are inert data; structured output is validated.
 
 ## Conformance kit

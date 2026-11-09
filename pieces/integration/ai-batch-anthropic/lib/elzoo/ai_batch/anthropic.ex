@@ -63,7 +63,7 @@ defmodule Elzoo.AiBatch.Anthropic do
 
   @impl true
   def prepare(%{items: items}, config) do
-    with {:ok, cfg} <- provider_config(config),
+    with {:ok, _cfg} <- provider_config(config),
          {:ok, prepared} <- collect(items, &item/1) do
       betas = prepared |> Enum.flat_map(& &1.betas) |> Enum.uniq() |> Enum.sort()
 
@@ -72,7 +72,8 @@ defmodule Elzoo.AiBatch.Anthropic do
           "requests" => Enum.map(prepared, &%{"custom_id" => &1.item_id, "params" => &1.params})
         })
 
-      {:ok, %{body: body, betas: betas, config: cfg}}
+      meta = if betas == [], do: %{}, else: %{"anthropic-beta" => Enum.join(betas, ",")}
+      {:ok, %{body: body, meta: meta}}
     end
   rescue
     _ -> {:refused, :invalid_request}
@@ -169,10 +170,28 @@ defmodule Elzoo.AiBatch.Anthropic do
   ## operations: one HTTP request each
 
   @impl true
-  def submit(%{body: body, betas: betas, config: cfg}, call_opts) do
-    beta = if betas == [], do: [], else: [{"anthropic-beta", Enum.join(betas, ",")}]
+  def submit(%{body: body, meta: meta}, call_opts) when is_binary(body) do
+    with {:ok, beta} <- outer_beta(meta) do
+      send_create(body, beta, call_opts)
+    end
+  end
 
-    case exchange(:post, @path, cfg, call_opts, body: body, headers: beta) do
+  # The staged metadata is rechecked against the allowed set before sending.
+  defp outer_beta(meta) when meta == %{}, do: {:ok, []}
+
+  defp outer_beta(%{"anthropic-beta" => v} = meta) when map_size(meta) == 1 and is_binary(v) do
+    values = String.split(v, ",")
+
+    if values != [] and Enum.all?(values, &(&1 in @allowed_betas)) and
+         values == Enum.sort(Enum.uniq(values)),
+       do: {:ok, [{"anthropic-beta", v}]},
+       else: {:failure, :adapter_error, %{orphans: []}}
+  end
+
+  defp outer_beta(_), do: {:failure, :adapter_error, %{orphans: []}}
+
+  defp send_create(body, beta, call_opts) do
+    case exchange(:post, @path, cfg(call_opts), call_opts, body: body, headers: beta) do
       {:ok, %{status: s} = raw} when s in 200..299 ->
         case batch(raw.body) do
           {:ok, %{"id" => id}, _state} -> {:ok, %{provider_job_id: id, orphans: []}}

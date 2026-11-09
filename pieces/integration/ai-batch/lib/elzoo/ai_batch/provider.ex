@@ -12,12 +12,15 @@ defmodule Elzoo.AiBatch.Provider do
     provider-options keys (strings) with a 1-arity validator returning `:ok`.
   - `prepare(submission, provider_config)` is pure: from
     `%{model, items: [%{item_id, request, wire}], provider_options}` (each `wire`
-    is the item provider's translation) to `{:ok, %{body: binary, ...}}`, the exact
-    bytes the provider will send, or `{:refused, :invalid_request |
-    :unsupported_feature | :too_large}`. It never reads a credential.
-  - `submit(wire, call_opts)` sends the prepared submission with
-    `call_opts.credential` and returns `{:ok, %{provider_job_id, orphans}}` or
-    `{:failure, tag, %{retry_after, orphans}}`.
+    is the item provider's translation) to `{:ok, %{body: binary, meta: map}}`:
+    `body` is the exact create body the provider will send and `meta` its
+    non-secret request metadata (at most 8 text members, carried in the intent
+    manifest), or `{:refused, :invalid_request | :unsupported_feature |
+    :too_large}`. It never reads a credential. It runs once, at admission.
+  - `submit(%{body, meta}, call_opts)` sends exactly `body` (the staged bytes the
+    manifest names; it must not re-encode them) with `call_opts.credential` and
+    `call_opts.provider_config`, and returns `{:ok, %{provider_job_id, orphans}}`
+    or `{:failure, tag, %{retry_after, orphans}}`.
   - `status(provider_job_id, call_opts)` and `cancel(provider_job_id, call_opts)`
     return `{:ok, job_state}` or `{:failure, tag, meta}`.
   - `results(provider_job_id, page_opts, call_opts)` reads one bounded page:

@@ -14,15 +14,18 @@ defmodule Elzoo.AiBatch.Submission do
 
   `decode/2` refuses duplicate keys at any depth, unknown members and invalid
   UTF-8, and returns the normalized submission and the canonical encoding
-  (sorted keys, no whitespace), which the Adapter later receives through the
-  host's lookup Need. `manifest/1` is the canonical intent argument:
-  `{"version": 1, "model", "item_count", "submission_bytes",
-  "submission_sha256"}`. Errors are fixed atoms; nothing is echoed.
+  (sorted keys, no whitespace), from which the caller builds its result join.
+  `manifest/4` is the canonical intent argument naming the **exact provider
+  create body** prepared once at admission and staged by the host:
+  `{"version": 1, "model", "item_count", "wire_bytes", "wire_sha256",
+  "provider_meta"}`, where `provider_meta` is the provider's non-secret request
+  metadata (at most 8 text members, for example a beta header value). Errors
+  are fixed atoms; nothing is echoed.
   """
   alias Elzoo.AiText.Request
 
   @id ~r/\A[A-Za-z0-9_-]{1,64}\z/
-  @manifest_keys ~w(item_count model submission_bytes submission_sha256 version)
+  @manifest_keys ~w(item_count model provider_meta version wire_bytes wire_sha256)
 
   @doc """
   Decodes payload bytes under `bounds` (`max_submission_bytes`, `max_item_bytes`,
@@ -139,29 +142,44 @@ defmodule Elzoo.AiBatch.Submission do
 
   defp plain(v), do: {:ok, v}
 
-  @doc "The canonical manifest bytes of a submission and its canonical bytes."
-  def manifest(%{model: model, items: items}, canonical) do
+  @doc "The canonical manifest bytes naming the exact create body `wire_body` and its `meta`."
+  def manifest(model, item_count, wire_body, meta) do
     Request.canonical(%{
       "version" => 1,
       "model" => model,
-      "item_count" => length(items),
-      "submission_bytes" => byte_size(canonical),
-      "submission_sha256" => sha256(canonical)
+      "item_count" => item_count,
+      "wire_bytes" => byte_size(wire_body),
+      "wire_sha256" => sha256(wire_body),
+      "provider_meta" => meta
     })
   end
 
-  @doc "Decodes manifest bytes: `{:ok, %{model, item_count, submission_bytes, submission_sha256}}`."
-  def decode_manifest(bytes) when is_binary(bytes) and byte_size(bytes) <= 1024 do
+  @doc "True for provider metadata: a map of at most 8 text keys to text values (each 1..1024 bytes)."
+  def meta?(meta) do
+    is_map(meta) and not is_struct(meta) and map_size(meta) <= 8 and
+      Enum.all?(meta, fn {k, v} -> Elzoo.AiModel.text?(k, 64) and Elzoo.AiModel.text?(v, 1024) end)
+  end
+
+  @doc "Decodes manifest bytes: `{:ok, %{model, item_count, wire_bytes, wire_sha256, provider_meta}}`."
+  def decode_manifest(bytes) when is_binary(bytes) and byte_size(bytes) <= 16_384 do
     with {:ok, %{} = m} <- Jason.decode(bytes),
          true <- Enum.sort(Map.keys(m)) == @manifest_keys,
          1 <- m["version"],
          true <- Elzoo.AiModel.text?(m["model"], 256),
          n when is_integer(n) and n > 0 <- m["item_count"],
-         b when is_integer(b) and b > 0 <- m["submission_bytes"],
-         h when is_binary(h) <- m["submission_sha256"],
+         b when is_integer(b) and b > 0 <- m["wire_bytes"],
+         h when is_binary(h) <- m["wire_sha256"],
          true <- h =~ ~r/\A[0-9a-f]{64}\z/,
+         true <- meta?(m["provider_meta"]),
          true <- Request.canonical(m) == bytes do
-      {:ok, %{model: m["model"], item_count: n, submission_bytes: b, submission_sha256: h}}
+      {:ok,
+       %{
+         model: m["model"],
+         item_count: n,
+         wire_bytes: b,
+         wire_sha256: h,
+         provider_meta: m["provider_meta"]
+       }}
     else
       _ -> {:error, :manifest}
     end
@@ -171,10 +189,10 @@ defmodule Elzoo.AiBatch.Submission do
 
   def decode_manifest(_), do: {:error, :manifest}
 
-  @doc "True when `bytes` are exactly the submission the manifest names."
+  @doc "True when `bytes` are exactly the create body the manifest names."
   def matches?(manifest, bytes) when is_binary(bytes) do
-    byte_size(bytes) == manifest.submission_bytes and
-      :crypto.hash_equals(sha256(bytes), manifest.submission_sha256)
+    byte_size(bytes) == manifest.wire_bytes and
+      :crypto.hash_equals(sha256(bytes), manifest.wire_sha256)
   end
 
   def matches?(_, _), do: false
