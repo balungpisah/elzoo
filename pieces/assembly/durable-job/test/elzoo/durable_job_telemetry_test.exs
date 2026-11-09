@@ -162,6 +162,51 @@ defmodule Elzoo.DurableJobTelemetryTest do
     assert {:ok, _} = Telemetry.metadata([:elzoo, :job, :stop], d2)
   end
 
+  test "T3r relay: a foreign item and an unreachable Store map to their skip outcomes", %{
+    prefix: prefix
+  } do
+    f = flow(prefix, :postgres)
+    capture(f.queue)
+    :ok = Oban.pause_queue(f.oban, queue: f.queue)
+    {:ok, _} = submit(f, "foreign-key")
+    {:ok, [item]} = Outbox.pending(f.store, Run.submission_stream(f.queue), 10)
+    {:ok, %{acked: [_]}} = relay!(f.queue)
+    _ = drain()
+    cfg = :persistent_term.get({DurableJob, f.queue})
+
+    assert DurableJob.relay(cfg, %{item | idempotency_key: "another-submission"}) ==
+             {:skip, :foreign_run}
+
+    assert [{_, _, d1}, {_, _, d2}] = drain()
+    assert d1.request_ref == Telemetry.ref("foreign-key")
+    assert d2.outcome == :skip_foreign_run
+
+    {:ok, repo} =
+      Elzoo.DurableJob.UnreachableRepo.start_link(
+        url: "ecto://nobody:nobody@localhost:1/none",
+        pool_size: 1,
+        queue_target: 50,
+        queue_interval: 100,
+        backoff_type: :stop,
+        log: false
+      )
+
+    # backoff_type: :stop ends the pool on its first failed connect; unlinked so
+    # that shutdown cannot reach the test process.
+    Process.unlink(repo)
+    on_exit(fn -> if Process.alive?(repo), do: Supervisor.stop(repo) end)
+
+    unreachable =
+      Elzoo.DurableLog.Postgres.store(Elzoo.DurableJob.UnreachableRepo,
+        fold: Run.store_fold(),
+        limits: Run.limits()
+      )
+
+    assert DurableJob.relay(%{cfg | store: unreachable}, item) == {:skip, :unavailable}
+    assert [{_, _, _}, {_, _, d3}] = drain()
+    assert d3.outcome == :skip_unavailable
+  end
+
   test "T3 a raise inside the execution emits exception and reaches the caller unchanged", %{
     prefix: prefix
   } do
