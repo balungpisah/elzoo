@@ -33,7 +33,10 @@ the losing call changes nothing it had not already committed).
   `skipped{ambiguous}`; a gap slot (spring-forward) produces no match.
   Slot evaluation is ordered by UTC instant, so a bounded tick's
   `max_slots_per_tick` truncation and its `backlog` count never skip a due
-  instant that wall-clock order would have hidden.
+  instant that wall-clock order would have hidden. Long-outage scans stop
+  after establishing the earliest bounded batch and capped backlog, with
+  UTC-offset lookahead to preserve DST ordering; they do not materialize
+  the full overdue interval.
 
 `crontab` 1.2.1 is the pinned cron evaluator. Oban's internal
 `Oban.Cron.Expression` was evaluated and rejected: it is `@moduledoc false`
@@ -73,7 +76,13 @@ that completed before its first post-TTL reap settles `acknowledged`,
 never `expired` — then expiry: unsettled occurrences older than
 `occurrence_ttl_ms` are recorded `occurrence_expired` (the released
 settlement that frees the overlap slot) and their live Oban job is
-cancelled.
+cancelled. Each reap also retries cancellation for historical expired
+occurrences to recover a crash between the expiry commit and cancellation.
+No durable cancellation receipt is stored: even successful cancellations
+are repeated. This costs one cancellation lookup per retained expired
+occurrence per reap; the unsettled-work bound does not bound these historical
+lookups, and consumer retention bounds the retained history. Cancellation
+remains best effort and does not reopen terminal occurrences.
 
 `pause/2`, `resume/2`, `delete/2` are durable control transitions (delete
 releases unsettled occurrences through chunked fenced appends — it always

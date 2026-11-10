@@ -9,8 +9,8 @@ defmodule Elzoo.Scheduler.Slots do
   (fall-back overlap) yields the first matching UTC instant and reports its
   second match for the caller's `skipped{ambiguous}` recording; a gap slot
   (spring-forward) yields no instant. Because a fall-back makes local
-  wall-clock order differ from UTC order, candidates are collected across the
-  window and only then ordered by UTC instant: the per-tick bound, the backlog
+  wall-clock order differ from UTC order, candidates are collected with capped backlog lookahead and a safe UTC
+  lower-bound cutoff, then ordered by UTC instant: the per-tick bound, the backlog
   count and the caller's watermark may only advance over evaluated instants in
   UTC order, so no due instant is ever skipped. Evaluation reads no clock and
   performs no I/O beyond the tz database lookup.
@@ -88,16 +88,17 @@ defmodule Elzoo.Scheduler.Slots do
         Crontab.Scheduler.get_next_run_dates(parsed, first_naive)
         |> Stream.take_while(&(NaiveDateTime.compare(&1, last_naive) != :gt))
 
-      # Collect every due `{instant, tag}` candidate first: a fall-back makes a
-      # later local slot's first UTC instant earlier than an earlier slot's
-      # second match, so wall-clock order is not UTC order. `naive_unix_ms`
-      # reads the wall time as if UTC; every instant it can produce is at
-      # least `naive_unix_ms - @max_east_offset_ms`, so once that bound passes
-      # `now` no later slot can be due and the scan can stop. Groups are
-      # prepended newest-first and flattened oldest-first below.
-      step = fn naive, {:ok, groups} ->
-        if naive_unix_ms(naive) - @max_east_offset_ms > now_unix_ms do
-          {:halt, {:ok, groups}}
+      # Once the capped backlog is known, only the first `max` instants
+      # matter. A future wall-clock match cannot precede its UTC lower bound.
+      # Scan until that bound exceeds the current max-th candidate; later
+      # candidates cannot change the selected prefix, even across fall-back.
+      target = max + @backlog_cap
+
+      step = fn naive, {:ok, groups, count, cutoff} ->
+        lower_bound = naive_unix_ms(naive) - @max_east_offset_ms
+
+        if lower_bound > now_unix_ms or (cutoff != nil and lower_bound > cutoff) do
+          {:halt, {:ok, groups, count, cutoff}}
         else
           case instants(naive, zone, db) do
             :error ->
@@ -110,16 +111,30 @@ defmodule Elzoo.Scheduler.Slots do
                   {instant, if(position == 0, do: :win, else: :ambiguous)}
                 end
 
-              {:cont, {:ok, if(due == [], do: groups, else: [due | groups])}}
+              groups = if due == [], do: groups, else: [due | groups]
+              count = count + length(due)
+
+              cutoff =
+                if cutoff == nil and count >= target do
+                  groups
+                  |> List.flatten()
+                  |> Enum.sort_by(&elem(&1, 0))
+                  |> Enum.at(max - 1)
+                  |> elem(0)
+                else
+                  cutoff
+                end
+
+              {:cont, {:ok, groups, count, cutoff}}
           end
         end
       end
 
-      case Enum.reduce_while(stream, {:ok, []}, step) do
+      case Enum.reduce_while(stream, {:ok, [], 0, nil}, step) do
         :error ->
           {:error, :invalid_spec}
 
-        {:ok, groups} ->
+        {:ok, groups, _count, _cutoff} ->
           candidates = groups |> Enum.reverse() |> List.flatten() |> Enum.sort_by(&elem(&1, 0))
           {emissions, rest} = Enum.split(candidates, max)
           {:ok, emissions, min(length(rest), @backlog_cap)}

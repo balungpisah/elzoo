@@ -22,6 +22,9 @@ defmodule Elzoo.Scheduler.Ledger do
     with {:ok, head} <- Store.read(store, :head, [stream]),
          {:ok, rows} <- read_all(store, stream, head) do
       project(head, rows, fold, limits)
+    else
+      {:error, :malformed} -> {:error, :unreadable}
+      {:error, _} = error -> error
     end
   end
 
@@ -30,6 +33,9 @@ defmodule Elzoo.Scheduler.Ledger do
     with {:ok, head} <- Store.read(store, :head, [stream]),
          {:ok, rows} <- read_all(store, stream, head) do
       reduce_index(head, rows, fold, limits)
+    else
+      {:error, :malformed} -> {:error, :unreadable}
+      {:error, _} = error -> error
     end
   end
 

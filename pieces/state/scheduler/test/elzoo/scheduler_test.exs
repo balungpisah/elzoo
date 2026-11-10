@@ -632,6 +632,25 @@ defmodule Elzoo.SchedulerTest do
     assert {:error, :watermark_invalid} = Scheduler.tick(s, now: minute(1))
   end
 
+  test "S31: malformed schedule heads refuse per schedule and malformed pages are unreadable",
+       ctx do
+    s = ctx.scheduler
+    TestHelper.create!(s, "corrupt-head", spec: {:cron, "* * * * *"})
+    TestHelper.create!(s, "healthy", spec: {:cron, "* * * * *"})
+    assert :ok = Memory.corrupt(ctx.store, :heads, "scheduler/corrupt-head", %{revision: "bad"})
+
+    assert %{"corrupt-head" => %{refused: :watermark_invalid}, "healthy" => %{}} =
+             Scheduler.tick(s, now: minute(0))
+
+    assert %{"corrupt-head" => %{refused: :watermark_invalid}, "healthy" => %{}} =
+             Scheduler.reap(s, now: minute(0))
+
+    assert :ok = Memory.fault(ctx.store, :read, :malformed)
+
+    assert {:error, :unreadable} =
+             Elzoo.Scheduler.Ledger.load(ctx.store, "scheduler/healthy", s.fold, s.limits)
+  end
+
   test "S23: telemetry emits bounded tick/admission/expiry/dispatch-failure events", ctx do
     s = ctx.scheduler
     events = [:tick, :admitted, :dispatch_error, :expired]
@@ -786,6 +805,38 @@ defmodule Elzoo.SchedulerTest do
              )
   end
 
+  test "S30: long-outage scans have bounded lookahead and preserve recovery prefixes" do
+    {:ok, parsed} = Slots.parse_cron("* * * * *")
+    first = utc_ms(~D[2026-01-01], ~T[00:00:00])
+
+    for days <- [30, 300] do
+      Process.put(:scheduler_wall_lookups, 0)
+      now = first + days * 86_400_000
+
+      assert {:ok, emissions, 1_000} =
+               Slots.due({:cron, parsed}, "America/New_York", SchedulerCountingZone, first, now, 8)
+
+      assert emissions == for(n <- 1..8, do: {first + n * @minute, :win})
+      assert Process.get(:scheduler_wall_lookups) < 6_000
+
+      watermark = emissions |> List.last() |> elem(0)
+      Process.put(:scheduler_wall_lookups, 0)
+
+      assert {:ok, next, 1_000} =
+               Slots.due(
+                 {:cron, parsed},
+                 "America/New_York",
+                 SchedulerCountingZone,
+                 watermark,
+                 now,
+                 8
+               )
+
+      assert next == for(n <- 9..16, do: {first + n * @minute, :win})
+      assert Process.get(:scheduler_wall_lookups) < 6_000
+    end
+  end
+
   test "S28: construction refuses missing and malformed Oban references", ctx do
     for oban <- [nil, false, {1, 2, 3}, {:via, nil, :name}] do
       assert {:error, {:invalid, :oban}} =
@@ -829,4 +880,16 @@ defmodule ConflictStore do
   end
 
   defp inner(store), do: store |> elem(1) |> Map.fetch!(:inner)
+end
+
+# Count timezone resolutions without timing-sensitive performance assertions.
+defmodule SchedulerCountingZone do
+  @behaviour Calendar.TimeZoneDatabase
+  def time_zone_period_from_utc_iso_days(days, zone),
+    do: Tz.TimeZoneDatabase.time_zone_period_from_utc_iso_days(days, zone)
+
+  def time_zone_periods_from_wall_datetime(naive, zone) do
+    Process.put(:scheduler_wall_lookups, Process.get(:scheduler_wall_lookups, 0) + 1)
+    Tz.TimeZoneDatabase.time_zone_periods_from_wall_datetime(naive, zone)
+  end
 end
