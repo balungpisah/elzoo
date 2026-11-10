@@ -55,8 +55,14 @@ defmodule Elzoo.AiText.AnthropicBoundTest do
     {pid, "http://127.0.0.1:#{port}"}
   end
 
+  defp request do
+    bytes = Jason.encode!(Conformance.request(:text_completion, "claude-sonnet-4-5"))
+    {:ok, request, _canonical} = Elzoo.AiText.Request.decode(bytes)
+    request
+  end
+
   defp translated(url) do
-    {:ok, t} = Anthropic.translate(Conformance.request(:text_completion, "claude-sonnet-4-5"), nil)
+    {:ok, t} = Anthropic.translate(request(), nil)
     # Exercise the real provider pipeline against loopback without weakening the
     # public construction-time HTTPS validator or making a live provider call.
     %{t | config: %{base_url: url}}
@@ -109,13 +115,14 @@ defmodule Elzoo.AiText.AnthropicBoundTest do
 
   test "provider wiring returns oversized success before the server completes" do
     {server, url} = server(:binary.copy("x", @cap + 65_536))
-    task = Task.async(fn -> call(translated(url)) end)
+    translated = translated(url)
+    task = Task.async(fn -> call(translated) end)
     assert_receive {:request, ^server}, 5000
     assert_receive {:body_offered, ^server}, 5000
     assert {:ok, raw} = Task.await(task, 5000)
     assert raw.body == nil
 
-    assert Anthropic.decode(raw, Conformance.request(:text_completion, "claude-sonnet-4-5")) ==
+    assert Anthropic.decode(raw, request()) ==
              {:failure, :malformed_response}
 
     refute_receive {:request, _}, 100
@@ -123,7 +130,7 @@ defmodule Elzoo.AiText.AnthropicBoundTest do
   end
 
   test "exact cap and one byte below preserve documented decoded replies" do
-    request = Conformance.request(:text_completion, "claude-sonnet-4-5")
+    request = request()
     json = Jason.encode!(AnthropicStub.message([AnthropicStub.text("ok")], "end_turn"))
 
     for size <- [@cap - 1, @cap] do
@@ -138,7 +145,7 @@ defmodule Elzoo.AiText.AnthropicBoundTest do
   end
 
   test "oversized errors preserve status fallback and retry metadata" do
-    request = Conformance.request(:text_completion, "claude-sonnet-4-5")
+    request = request()
     json = Jason.encode!(AnthropicStub.error("timeout_error"))
     body = json <> :binary.copy(" ", @cap + 1 - byte_size(json))
 
@@ -158,7 +165,7 @@ defmodule Elzoo.AiText.AnthropicBoundTest do
   end
 
   test "content encoded bodies retain raw capture semantics" do
-    request = Conformance.request(:text_completion, "claude-sonnet-4-5")
+    request = request()
     body = :zlib.gzip(Jason.encode!(AnthropicStub.message([AnthropicStub.text("ok")], "end_turn")))
 
     for {status, outcome} <- [
