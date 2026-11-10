@@ -3112,6 +3112,34 @@
         "P06",
         "P10"
       ]
+    },
+    {
+      "id": "ELZ-093",
+      "title": "ELZ-093 — Bound the Anthropic text provider's response body while it is received",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-079"
+      ],
+      "status": "published; claimed task/ELZ-093; PR pending",
+      "url": "https://github.com/balungpisah/elzoo/issues/171",
+      "paths": [
+        "tasks/ELZ-093-anthropic-bounded-reception.md"
+      ],
+      "outputs": [],
+      "acceptance": "Live issue body owns bounded-reception hardening of the ready Anthropic provider; task copy is byte-equal. Existing outcomes and cap preserved.",
+      "issue": 171,
+      "issue_body_sha256": "2499aaf1d908a93cce4cf5e051e9c446dd0a3250e55bb15507e37a2ced9503d8",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P06",
+        "P07",
+        "P09",
+        "P11"
+      ],
+      "product_role": "Receive-time resource bound for the existing Anthropic text provider; no new Piece or behavior contract."
     }
   ],
   "entries": [
@@ -3640,7 +3668,7 @@
       "disposition": "implementation prepared; acceptance requires merged PR",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/ai-text-anthropic/piece.json",
-      "manifest_sha256": "b8f74059fe9fa21dafb7709418d861434858c15b171aab21f49749f98333cced",
+      "manifest_sha256": "56099385c4e333467b5705e139922e6442176f1efe4f25162047570b448a79a9",
       "baseline_status": "not in baseline (new row, ELZ-079)"
     },
     {
