@@ -39,14 +39,16 @@
     "req_llm accepts anthropic-version 2026-10-21 only as a header override; compatibility of its encoder with that version rests on the listed schema-validated scenarios.",
     "Sampling, structured output together with tools, provider-executed tools, image and document input, streaming and batch are refused or not supplied in this slice.",
     "Tenants sharing one Anthropic key share Anthropic's prompt cache; configure one credential per tenant where isolation matters.",
-    "Every consumer must merge config :req_llm, load_dotenv: false into its configuration: the line is declared in install_configuration and written into the generated install file, but the copier never edits a consumer's configuration. The repository's copied-consumer harness writes the line and checks that it is set before req_llm starts in the aggregate consumer; a hand-copied consumer that drops the line is not checked. The credential invariant holds regardless: only the injected key is used."
+    "Every consumer must merge config :req_llm, load_dotenv: false into its configuration: the line is declared in install_configuration and written into the generated install file, but the copier never edits a consumer's configuration. The repository's copied-consumer harness writes the line and checks that it is set before req_llm starts in the aggregate consumer; a hand-copied consumer that drops the line is not checked. The credential invariant holds regardless: only the injected key is used.",
+    "Receive-time collector retains at most 4 MiB of wire body bytes after HTTP framing; the last received chunk may coexist with the accumulator. Overflow discards the body and stops reception. This does not bound BEAM heap, TLS or kernel buffers. Compressed bodies stay encoded as before. Oversized non-2xx responses retain status fallback and retry metadata."
   ],
   "files": [
     "lib/elzoo/ai_text/anthropic.ex",
     "lib/elzoo/ai_text/anthropic/usage.ex",
     "test/elzoo/ai_text_anthropic_test.exs",
     "test/fixtures/anthropic/messages-request.schema.json",
-    "test/support/ai_text_anthropic_test_helper.exs"
+    "test/support/ai_text_anthropic_test_helper.exs",
+    "test/elzoo/ai_text_anthropic_bound_test.exs"
   ],
   "grounding": [
     {
@@ -58,6 +60,11 @@
       "kind": "test",
       "file": "test/elzoo/ai_text_anthropic_test.exs",
       "claim": "Listed scenarios against in-process function-plug stubs in Anthropic's documented formats: the interface conformance kit; usage and cache counters (cold write, warm read, mixed TTL, below minimum, absent fields, partial breakdowns, disagreeing totals); tool-result error flag on the wire; cache-hint and reasoning translation and refusals before any request; documented error statuses and a redirect with one request each; transport timeout with one request; malformed 2xx; redaction in results, inspect, owner state, debug logs and req_llm telemetry; ambient keys never used across a req_llm restart with a .env file; source audit of this Piece's own manifest-listed files; the README's Install configuration section carries the exact config line. Finite scenarios, no live call, not proofs."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/ai_text_anthropic_bound_test.exs",
+      "claim": "Finite receive-time boundary checks: actual loopback HTTP with withheld terminal marker returns early for overflow; actual callback byte counts are at most cap plus last chunk with prior accumulator at most cap; disabling the collector waits for completion; actual provider wiring returns early. Exactly-cap and cap-minus-one valid Messages JSON decode unchanged, oversized error status fallback and retry metadata persist, gzip bodies retain raw-capture semantics, and each provider scenario sends one request. No live provider call or heap-memory proof."
     },
     {
       "kind": "upstream",
