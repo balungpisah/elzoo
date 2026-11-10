@@ -1132,12 +1132,16 @@ defmodule Elzoo.Artifact do
     cond do
       not Record.segment?(tenant) -> {:error, :invalid}
       not Codec.text?(principal) -> {:error, :invalid}
-      not (is_list(scopes) and Enum.all?(scopes, &Codec.text?/1)) -> {:error, :invalid}
+      not text_list?(scopes) -> {:error, :invalid}
       true -> :ok
     end
   end
 
   defp check_caller(_), do: {:error, :invalid}
+
+  defp text_list?([]), do: true
+  defp text_list?([head | tail]), do: Codec.text?(head) and text_list?(tail)
+  defp text_list?(_), do: false
 
   defp check_segment(_field, value),
     do: if(Record.segment?(value), do: :ok, else: {:error, :invalid})

@@ -89,7 +89,8 @@ defmodule Elzoo.ArtifactTest do
           Map.delete(c, :scopes),
           %{c | principal: nil},
           %{c | scopes: nil},
-          %{c | scopes: [nil]}
+          %{c | scopes: [nil]},
+          %{c | scopes: ["read" | :malformed]}
         ] do
       assert_invalid_subject(art, bad, "a1", 1)
       assert {:error, :invalid} = Artifact.list(art, bad, 10, nil)
