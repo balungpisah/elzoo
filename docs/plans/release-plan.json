@@ -2294,16 +2294,14 @@
       "kind": "proposal",
       "release": "V1",
       "stage": "pieces",
-      "outputs": [
-        "delivery/aggregation"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "ELZ-003",
         "ELZ-006",
         "ELZ-026"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "superseded for delivery/aggregation by published ELZ-098 (output moved); no remaining output",
       "contract": "Declared branch identities plus correlated results -> bounded join state and explicit all/partial/failed/expired decision. Arrival order is not identity; retention and duplicate policy explicit.",
       "acceptance": "Duplicate result, absent/killed branch, late result, timeout and unreadable denial record. Each expected branch contributes at most once.",
       "reuse": "Use ordinary collection operations; author only missing join and timeout policy.",
@@ -3321,6 +3319,35 @@
         "P06",
         "P07"
       ]
+    },
+    {
+      "id": "ELZ-098",
+      "title": "ELZ-098 — Specify bounded correlated joins over declared branch results",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-003",
+        "ELZ-006",
+        "ELZ-026",
+        "ELZ-033"
+      ],
+      "status": "published 2026-11-10; claimed task/ELZ-098; PR pending",
+      "url": "https://github.com/balungpisah/elzoo/issues/181",
+      "paths": [
+        "tasks/ELZ-098-delivery-aggregation.md"
+      ],
+      "outputs": [
+        "delivery/aggregation"
+      ],
+      "acceptance": "Unchanged live issue body; local task file is the byte-equal publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 181,
+      "issue_body_sha256": "f1a5a39d3479f939d3ac775796751f4330479bfd88cc6555300da746421346a7",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P07"
+      ]
     }
   ],
   "entries": [
@@ -3520,7 +3547,7 @@
     },
     {
       "id": "delivery/aggregation",
-      "job": "RC-15",
+      "job": "ELZ-098",
       "note": "`T,X`; stateful and needs correlation/retention policy ELZ-025 study: one result per declared branch identity, killed or timed-out branches recorded per the Envelope result matrix, correlation by Envelope key never arrival position, and no-denials distinct from denial-record-unreadable.",
       "baseline_status": "planned",
       "disposition": "blocked-admission-proposal",
