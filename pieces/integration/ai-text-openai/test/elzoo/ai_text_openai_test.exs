@@ -9,8 +9,8 @@ defmodule Elzoo.AiText.OpenAITest.Binding do
 end
 
 defmodule Elzoo.AiText.OpenAITest do
-  # Every exchange goes to an in-process function plug through Req's :plug option
-  # (no network, stub keys only). Documented-format stubs are validated against the
+  # Provider exchanges use an in-process function plug with stub keys. One
+  # collector test uses a disposable loopback socket. Documented-format stubs use the
   # pinned OpenAPI schema; negative controls are asserted to be rejected by it.
   use ExUnit.Case, async: false
   import ExUnit.CaptureLog
@@ -753,6 +753,55 @@ defmodule Elzoo.AiText.OpenAITest do
     {_, [captured], _, _} = run(ctx, request(%{"max_output_tokens" => 16}), fn _ -> ok end)
     conforms([captured], ctx)
     assert wire(captured)["max_output_tokens"] == 16
+  end
+
+  test "O16 Req/Finch stops a chunked receive above the bound before the server finishes its body" do
+    {:ok, listener} = :gen_tcp.listen(0, [:binary, active: false, ip: {127, 0, 0, 1}])
+    {:ok, {_, port}} = :inet.sockname(listener)
+    parent = self()
+
+    server =
+      Task.async(fn ->
+        {:ok, socket} = :gen_tcp.accept(listener, 5000)
+        {:ok, _request} = :gen_tcp.recv(socket, 0, 5000)
+        :ok = :gen_tcp.send(socket, "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n")
+        chunk = :binary.copy("x", 1_048_576)
+
+        for data <- [chunk, chunk, chunk, chunk, "y"] do
+          :ok =
+            :gen_tcp.send(socket, [Integer.to_string(byte_size(data), 16), "\r\n", data, "\r\n"])
+        end
+
+        send(parent, :oversized_chunks_sent)
+        # No zero-length chunk: a collector that buffers the complete response waits
+        # for this terminator and times out instead of returning the oversize marker.
+        receive do
+          :finish -> :ok
+        after
+          10_000 -> :ok
+        end
+
+        :gen_tcp.close(socket)
+      end)
+
+    try do
+      result =
+        Req.request(
+          %{
+            Req.new(url: "http://127.0.0.1:#{port}/", retry: false, receive_timeout: 2000)
+            | into: &OpenAI.bounded/2
+          }
+          |> Req.Request.prepend_response_steps(elzoo_capture: &OpenAI.capture/1)
+        )
+
+      assert_receive :oversized_chunks_sent, 1000
+      assert {:ok, response} = result
+      assert %{status: 200, oversize: true, body: nil} = response.private.elzoo_raw
+    after
+      send(server.pid, :finish)
+      Task.yield(server, 1000) || Task.shutdown(server, :brutal_kill)
+      :gen_tcp.close(listener)
+    end
   end
 
   test "O13 an oversized non-2xx is unknown{malformed_response}, never classified by status; one request; no partial body or key in results, logs or telemetry (capture + decode)",
