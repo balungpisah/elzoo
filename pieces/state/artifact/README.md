@@ -35,24 +35,25 @@ fold = %{fold | kinds: Map.merge(fold.kinds, Elzoo.Artifact.kinds())}
     max_bytes: 16_777_216, max_metadata_bytes: 4_096, staging_ttl_ms: 3_600_000
   )
 
-caller = %{tenant: "acme", principal: "worker-1", scopes: ["read", "write"]}
+caller = %{tenant: "acme", principal: "alice", scopes: ["read", "write"]}
 
-{:ok, %{record: rec}} =
+{:ok, rec} =
   Elzoo.Artifact.put(art, caller, "report-42", %{
     bytes: pdf, media_type: "application/pdf",
     access: %{tenant: "acme", principals: ["alice"], scopes: ["read"]},
-    access_expires_at: :never, retain_until: 1_900_000_000_000
+    access_expires_at_unix_ms: :never, retain_until_unix_ms: 1_900_000_000_000
   })
 
 {:ok, %{bytes: pdf, record: rec}} = Elzoo.Artifact.get(art, caller, "report-42", :head)
-{:ok, %{record: head}} = Elzoo.Artifact.head(art, caller, "report-42")
+{:ok, head} = Elzoo.Artifact.head(art, caller, "report-42")
 {:ok, %{entries: page, cursor: next}} = Elzoo.Artifact.list(art, caller, 20, nil)
 {:ok, versions} = Elzoo.Artifact.versions(art, caller, "report-42")
-{:ok, %{record: staged}} = Elzoo.Artifact.stage(art, caller, "report-42", input)
-{:ok, %{record: committed}} = Elzoo.Artifact.commit(art, caller, "report-42", 2)
+{:ok, v2} = Elzoo.Artifact.new_version(art, caller, "report-42", %{bytes: revised_pdf})
+{:ok, staged} = Elzoo.Artifact.stage(art, caller, "report-42", %{bytes: final_pdf})
+{:ok, committed} = Elzoo.Artifact.commit(art, caller, "report-42", staged.version)
 {:ok, %{record: _, object: outcome}} = Elzoo.Artifact.delete(art, caller, "report-42", 1)
 {:ok, %{reaped: vs, object: results}} = Elzoo.Artifact.reap(art, caller, "report-42")
-{:ok, %{record: rec, object: observation}} = Elzoo.Artifact.status(art, caller, %{artifact_id: "report-42", version: 2})
+{:ok, %{record: rec, object: observation}} = Elzoo.Artifact.status(art, caller, %{artifact_id: "report-42", version: committed.version})
 ```
 
 **Contract-arity note:** the issue lists operations as `stage/3`,
@@ -74,15 +75,18 @@ caller, artifact_id)`, `status(art, caller, %{artifact_id, version})`.
 One Store stream `artifact/<tenant>/<artifact_id>` per artifact holds
 self-contained `:non_state_bearing` records under head-revision CAS:
 `artifact_staged`, `artifact_committed` and `artifact_deleted` each carry
-the *full* version record plus its resulting `state`/`state_at`, so any
-single surviving row rebuilds its version whole — Store prefix retention
-cannot orphan a marker into a lost version. A second stream
+the *full* version record plus its resulting `state`/`state_at`. These rows
+do not establish complete history after pruning: a lost highest version or
+deletion can leave contiguous surviving version numbers. Artifact streams
+require `low_water == 0` and every validated sequence `1..sampled_revision`;
+any prefix retention is refused. A generic Store checkpoint does not preserve
+the artifact history needed to recover it. A second stream
 `artifact-index/<tenant>` holds `artifact_index` entries appended
 best-effort on every `stage` and deduplicated at read.
 
 An artifact version record is
 `%{artifact_id, version, tenant, sha256, hash_format, object_sha256,
-size_bytes, media_type, object_key, access, created_at, state_at,
+size_bytes, media_type, object_key, access, created_at_unix_ms, state_at,
 access_expires_at_unix_ms | :never, retain_until_unix_ms | :never,
 metadata, upload, state}` with `state ∈ {:staging, :committed, :deleted}`;
 the artifact's head is its highest `committed` non-`deleted` version.
@@ -123,7 +127,7 @@ construction.
 Every operation presents `caller = %{tenant, principal, scopes}` —
 consumer-vouched attribution, not authentication (`state/lease` precedent).
 Read paths (`head`, `get`, `list`, `versions`, `status`) enforce the
-recorded terms and `access_expires_at` through the law-covered pure table
+recorded terms and `access_expires_at_unix_ms` through the law-covered pure table
 (deny before expiry); mutating operations (`stage`, `commit`, `abort`,
 `delete`, `reap`) require `caller.tenant == record.tenant`, which the
 tenant-scoped stream makes structural — plus the recorded terms for
@@ -159,23 +163,24 @@ field} | {:integrity_mismatch, info} | {:commit_failed, info} |
 `reconcile_put`/`commit` resolves them by verification.
 
 `{:store_damaged, info}` is the fail-closed answer to unreadable persisted
-state: `info` is `:incomplete_prefix` when Store prefix retention left a
-detectable gap in `1..max_version` coverage (versions allocate contiguously
-and the self-contained rows keep every surviving version whole, so a fully
-retained version is the only loss shape and it always leaves a gap), or
-`%{count, first}` naming the earliest fold diagnostic
+state: `info` is `:incomplete_prefix` for any nonzero Store `low_water`,
+`:incomplete_history` for a truncated read through the sampled committed
+revision, `:malformed_reply` for a malformed Store reply, or
+`%{count, first}` naming a sequence/validation or fold diagnostic
 (`{:unreadable, seq}`, `{:inconsistent_version, v}`,
 `{:illegal_transition, v}`) when an artifact or index row cannot be
 decoded, disagrees with its version's immutable fields or breaks a legal
 state edge. Reads, staging, version allocation and `list` treat damaged
 state as a typed failure — never as absent, never as a valid filtered
-page.
+page. Malformed, missing, duplicated, reordered or wrong-stream rows are
+refused before object reads, uploads or Store writes. A concurrent append
+after the sampled revision belongs to the next load; it is not a history gap.
 
 `new_version` requires at least one recorded version (any state) of the
 artifact, else `:not_found`; `put` allocates `max_version + 1` (`v1` for a
 new artifact). `delete` applies to committed versions, `abort` to staging
 — a wrong state is `{:error, {:invalid, :state}}`. `reap` is caller-driven
-only: records past `access_expires_at` or `retain_until`, and staging past
+only: records past `access_expires_at_unix_ms` or `retain_until_unix_ms`, and staging past
 `staging_ttl_ms`, move to `:deleted` and their bytes are deleted
 best-effort and reported. Every already-`:deleted` version's bytes are
 then deletion-attempted again under `cleanup` in the result — the durable
@@ -200,7 +205,7 @@ bounded opaque tag (UTF-8, no NUL, ≤ 256 bytes, default
   durable state transitions with applied/refused/failed results; no pause
   or drain claims.
 - Data classification: artifact bytes are consumer data — never logged and
-  never in results, errors, inspect values or events; metadata (ids,
+  returned only by successful `get`, never in errors, record inspect values or events; metadata (ids,
   hashes, sizes, terms) may appear.
 
 Limits: no atomic object+record commit (impossible across the two
@@ -208,31 +213,45 @@ boundaries — staging/orphan states are the honest answer and `status`
 exposes them); no presigned-URL lifecycle management, malware scanning,
 streaming upload (single-shot `put`), cross-store replication or
 cross-tenant sharing; the tenant index is best-effort; Store prefix
-retention is tolerated only through the self-contained rows — a version
-whose every row was retained is undetectable except as a `1..max_version`
-gap, which fails closed as `{:store_damaged, :incomplete_prefix}` rather
-than risking version-number reuse; `list` propagates any storage or
+retention is unsupported and fails closed as `{:store_damaged, :incomplete_prefix}`;
+no artifact-history checkpoint or recovery migration is supplied in this slice.
+`put` may leave an earlier staging version when a commit CAS loses and its
+bounded retry stages the next version; `status`, `abort` and caller-driven
+`reap` expose/reconcile that non-atomic lifecycle. `list` propagates any storage or
 damage failure as an error — a storage failure never looks like a valid
 filtered page; Memory is volatile test evidence only; PostgreSQL
 durability/fsync is the provider's contract; `list` pages re-read the
 index stream (bounded per call by index size).
 
+Before uploading, `stage` measures every encoded lifecycle state and upload
+outcome with the maximum valid `state_at` timestamp (`2^63 - 1`). The Store
+record bound therefore reserves both state-name and timestamp-width growth;
+an oversized version is refused as `:too_large` without upload or a staging row.
+Timestamps use nonnegative signed-bigint Unix milliseconds.
+
 ## Evidence and grounding
 
-- `cure/elzoo/artifact.cure`: 17 laws over the access-decision and
-  state-transition tables (access: A1–A8; transitions: T1–T9); checked by
+- `cure/elzoo/artifact.cure`: 15 laws over the access-decision and
+  state-transition tables (access: A1–A6; transitions: T1–T9); checked by
   the pinned Cure. The production integer comparison is finite-test-grounded
   (same scoped claim as `state/lease`).
-- `test/elzoo/artifact_test.exs`: scenarios A1–A3, L1–L18 on the volatile
+- `test/elzoo/artifact_test.exs`: 37 scenarios (A1–A3, L1–L34) on the volatile
   Memory Store, the disposable MinIO (`ELZOO_TEST_S3_*`, fail closed) and
   loopback stubs — construction/segment/bounds validation, roundtrip,
   cross-tenant `:not_found`, recorded-terms denial, expiry, integrity
   mismatch, absent-evidence commit refusal, unknown-put staging, staging
   expiry, abort/delete/reap, list, hash-format migration, credential-free
-  values, telemetry events, pure-table agreement.
+  values, telemetry events, pure-table agreement, append access gates,
+  per-version filtering, deletion retry, storage/damage propagation,
+  prefix/middle/fully-retained and malformed history refusal, lifecycle-size
+  admission, exact timestamp-key roundtrip, commit-time checksum mismatch,
+  a deterministic real Memory CAS conflict and paged sequence coverage.
 - `test/elzoo/artifact_postgres_test.exs`: P1–P4 on the ready PostgreSQL
   Store (`ELZOO_TEST_DATABASE_URL`, fail closed) — durable lifecycle, CAS
-  conflict mapping, ordinary Store rows, caller-transaction refusal.
+  conflict mapping with unchanged staging after a deterministic competing
+  PostgreSQL append between load and commit, ordinary Store rows and
+  caller-transaction refusal. The pre-load foreign-row success case is
+  retained as a separate positive control within P2.
 - Upstream: `Elzoo.ObjectStore` finite results and checksum contract;
   `:crypto` SHA-256; the ready Store's CAS and transaction boundary;
   Jason encoding; `telemetry` synchronous `execute/3`.

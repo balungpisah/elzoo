@@ -7,13 +7,12 @@ defmodule Elzoo.Artifact.Record do
   records and a committed head.
 
   Every `artifact_staged`, `artifact_committed` and `artifact_deleted` row
-  carries the *full* version record plus its resulting `state`/`state_at`, so
-  any single surviving row rebuilds its version whole. Store prefix
-  retention therefore preserves every version that keeps at least one row;
-  the fold is trusted only when the surviving versions are contiguous
-  `1..max_version` (a fully retained version leaves a detectable gap) and no
-  artifact row is unreadable — anything else is recorded `damage` and the
-  caller fails closed. An artifact stream is `artifact/<tenant>/<artifact_id>`;
+  carries the *full* version record plus its resulting `state`/`state_at`.
+  Self-contained rows do not establish complete lifecycle history: prefix
+  retention can erase a higher version or a deletion without leaving a gap
+  in version numbers. The caller requires `low_water == 0` and validates
+  every sequence through the sampled Store revision before trusting a fold.
+  An artifact stream is `artifact/<tenant>/<artifact_id>`;
   the tenant index is `artifact-index/<tenant>` of `artifact_index` records
   (best-effort, duplicates deduplicated at read).
   """
@@ -80,7 +79,7 @@ defmodule Elzoo.Artifact.Record do
   @doc """
   The self-contained payload of one version row: every field of the version
   record plus its resulting `state` and `state_at`. `artifact_staged` rows
-  carry `state: :staging` (`state_at == created_at`); `artifact_committed`
+  carry `state: :staging` (`state_at == created_at_unix_ms`); `artifact_committed`
   and `artifact_deleted` rows carry the same record with the transitioned
   state, so the row alone determines the version's full state.
   """
@@ -98,14 +97,22 @@ defmodule Elzoo.Artifact.Record do
         "media_type" => r.media_type,
         "object_key" => r.object_key,
         "access" => encode_access(r.access),
-        "created_at" => r.created_at,
+        "created_at_unix_ms" => r.created_at_unix_ms,
         "state_at" => r.state_at,
-        "access_expires_at" => stamp_or_null(r.access_expires_at),
-        "retain_until" => stamp_or_null(r.retain_until),
+        "access_expires_at_unix_ms" => stamp_or_null(r.access_expires_at_unix_ms),
+        "retain_until_unix_ms" => stamp_or_null(r.retain_until_unix_ms),
         "metadata" => r.metadata,
         "upload" => Atom.to_string(r.upload),
         "state" => Atom.to_string(r.state)
       })
+
+  @doc "Largest encoded lifecycle payload, reserving every valid state timestamp width before upload."
+  def max_payload_bytes(rec) do
+    for state <- @states, upload <- [:committed, :uncertain] do
+      byte_size(payload(%{rec | state: state, state_at: @max_stamp, upload: upload}))
+    end
+    |> Enum.max()
+  end
 
   def index_payload(artifact_id, at),
     do: Jason.encode!(%{"v" => @version, "artifact_id" => artifact_id, "at" => at})
@@ -168,9 +175,9 @@ defmodule Elzoo.Artifact.Record do
     :media_type,
     :object_key,
     :access,
-    :created_at,
-    :access_expires_at,
-    :retain_until,
+    :created_at_unix_ms,
+    :access_expires_at_unix_ms,
+    :retain_until_unix_ms,
     :metadata,
     :upload
   ]
@@ -178,8 +185,8 @@ defmodule Elzoo.Artifact.Record do
   defp apply_record(acc, rec) do
     case Map.fetch(acc.versions, rec.version) do
       :error ->
-        # Any state may seed a version: under prefix retention the staged
-        # row can be gone while a later committed/deleted row survives.
+        # Self-contained rows can describe a surviving version, but load
+        # must establish complete history separately before using this view.
         %{acc | versions: Map.put(acc.versions, rec.version, rec)}
 
       {:ok, old} ->
@@ -226,18 +233,17 @@ defmodule Elzoo.Artifact.Record do
   defp damage(acc, diag), do: %{acc | damage: [diag | acc.damage]}
 
   @doc """
-  Whether a fold provably covers every version the stream ever recorded:
-  the surviving version numbers are exactly `1..max_version` (versions are
-  allocated contiguously and a fully retained or fully unreadable version
-  leaves a detectable gap) and an empty fold is trusted only when no prefix
-  was retained (`low_water == 0`). Anything else means persisted state was
-  truncated and the caller must fail closed.
+  A necessary fold check, after the caller has validated complete sequence
+  coverage through the sampled Store revision. Version contiguity alone
+  cannot detect a lost highest version or a lost lifecycle transition.
+  Without an artifact-specific history checkpoint, any retained prefix is
+  refused, including an entirely retained stream.
   """
   def complete?(%{versions: versions, max_version: max}, low_water) do
     contiguous =
       versions |> Map.keys() |> Enum.sort() == Enum.to_list(1..max//1)
 
-    contiguous and (map_size(versions) > 0 or low_water == 0)
+    contiguous and low_water == 0
   end
 
   @doc "Decode an artifact row into `{:record, record}`, `:foreign` or `:unreadable`. Rows of kinds this Piece does not own (including `artifact_index` rows, which live on their own stream) are `:foreign` (skipped, never damage)."
@@ -271,7 +277,9 @@ defmodule Elzoo.Artifact.Record do
            "media_type" => media,
            "object_key" => key,
            "access" => access,
-           "created_at" => at,
+           "created_at_unix_ms" => at,
+           "access_expires_at_unix_ms" => expires,
+           "retain_until_unix_ms" => retain,
            "state_at" => sat,
            "metadata" => meta,
            "upload" => upload,
@@ -283,7 +291,7 @@ defmodule Elzoo.Artifact.Record do
              is_integer(size) and size >= 0 and media?(media) and is_binary(key) and
              stamp?(at) and stamp?(sat) and upload in ["committed", "uncertain"] and
              state == Map.fetch!(@kind_state, kind) and
-             expiry?(data["access_expires_at"]) and expiry?(data["retain_until"]) and
+             expiry?(expires) and expiry?(retain) and
              key == object_key(tenant, id, ver, sha),
          {:ok, access_terms} <- decode_access(access, tenant) do
       {:record,
@@ -298,10 +306,10 @@ defmodule Elzoo.Artifact.Record do
          media_type: media,
          object_key: key,
          access: access_terms,
-         created_at: at,
+         created_at_unix_ms: at,
          state_at: sat,
-         access_expires_at: expiry(data["access_expires_at"]),
-         retain_until: expiry(data["retain_until"]),
+         access_expires_at_unix_ms: expiry(expires),
+         retain_until_unix_ms: expiry(retain),
          metadata: meta,
          upload: String.to_atom(upload),
          state: String.to_atom(state)

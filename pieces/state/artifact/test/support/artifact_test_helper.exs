@@ -242,6 +242,18 @@ defmodule Elzoo.Artifact.TestHelper do
   def corrupt_row(store, stream, sequence, changes),
     do: Elzoo.DurableLog.Memory.corrupt(store, :records, {stream, sequence}, changes)
 
+  def append_foreign!(store, stream, kind \\ "foreign", payload \\ ~s({"v":1})) do
+    {:ok, head} = Elzoo.DurableLog.Store.read(store, :head, [stream])
+
+    {:ok, rows, request} =
+      Elzoo.Artifact.Record.rows(stream, head.revision, [{kind, 1, payload}], fold(), limits())
+
+    {:committed, _} =
+      Elzoo.DurableLog.Store.write(store, :append, [stream, head.revision, rows, []], request)
+
+    :ok
+  end
+
   @doc """
   A one-shot loopback server. `mode`: `{:reply, raw_response}` reads the
   request head (and the declared body) and answers; `:silent` reads and never
@@ -400,8 +412,8 @@ defmodule Elzoo.Artifact.TestHelper do
       media_type: Keyword.get(opts, :media_type, "application/octet-stream"),
       metadata: Keyword.get(opts, :metadata, %{}),
       access: Keyword.get(opts, :access),
-      access_expires_at: Keyword.get(opts, :access_expires_at, :never),
-      retain_until: Keyword.get(opts, :retain_until, :never)
+      access_expires_at_unix_ms: Keyword.get(opts, :access_expires_at_unix_ms, :never),
+      retain_until_unix_ms: Keyword.get(opts, :retain_until_unix_ms, :never)
     }
 end
 
@@ -637,4 +649,23 @@ defmodule Elzoo.Artifact.FakeS3 do
 
   defp dispatch(state, _method, _key, _headers, _body),
     do: {Elzoo.Artifact.TestHelper.response(400, []), state}
+end
+
+# A validation tripwire: even a Store read is an effect in these tests.
+defmodule Elzoo.Artifact.EffectGuard do
+  def head({_, observer}, _stream) do
+    send(observer, :artifact_store_effect)
+    {:error, :unavailable}
+  end
+end
+
+defmodule Elzoo.Artifact.AppendOnRead do
+  alias Elzoo.DurableLog.Store
+  def capabilities({_, %{inner: inner}}), do: Store.read(inner, :capabilities, [])
+  def head({_, %{inner: inner}}, stream), do: Store.read(inner, :head, [stream])
+
+  def read({_, %{inner: inner, stream: target}}, stream, from, limit) do
+    if stream == target, do: Elzoo.Artifact.TestHelper.append_foreign!(inner, stream)
+    Store.read(inner, :read, [stream, from, limit])
+  end
 end

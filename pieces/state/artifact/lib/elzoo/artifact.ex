@@ -18,7 +18,7 @@ defmodule Elzoo.Artifact do
 
   Every operation presents `caller = %{tenant, principal, scopes}` — a
   consumer-vouched identity (attribution, not authentication). Read paths
-  enforce the recorded access terms and `access_expires_at`; mutating
+  enforce the recorded access terms and `access_expires_at_unix_ms`; mutating
   operations require `caller.tenant` to equal the record tenant, which is
   structural (the stream is tenant-scoped). Cross-tenant `artifact_id`
   lookup reads a different stream and returns `:not_found`.
@@ -188,7 +188,7 @@ defmodule Elzoo.Artifact do
   `application/octet-stream`), `access` (default
   `%{tenant: caller.tenant, principals: :any, scopes: :any}`; a supplied
   `access.tenant` must equal `caller.tenant`), `metadata` (JSON-encodable,
-  ≤ `max_metadata_bytes` encoded), `access_expires_at` and `retain_until`
+  ≤ `max_metadata_bytes` encoded), `access_expires_at_unix_ms` and `retain_until_unix_ms`
   (`:never` or a unix-ms stamp; both default `:never` and must be declared
   explicitly by the caller or defaulted by the Piece — they are always
   recorded).
@@ -196,9 +196,9 @@ defmodule Elzoo.Artifact do
   def stage(art, caller, artifact_id, input) do
     with :ok <- check_caller(caller),
          :ok <- check_segment(:artifact_id, artifact_id),
-         {:ok, in_norm} <- input(input, art, caller) do
-      now = art.clock.()
-
+         {:ok, in_norm} <- input(input, art, caller),
+         now = art.clock.(),
+         true <- Record.stamp?(now) do
       case load(art, caller.tenant, artifact_id) do
         {:error, reason} ->
           {:error, reason}
@@ -220,16 +220,16 @@ defmodule Elzoo.Artifact do
             media_type: in_norm.media_type,
             object_key: key,
             access: in_norm.access,
-            created_at: now,
+            created_at_unix_ms: now,
             state_at: now,
-            access_expires_at: in_norm.access_expires_at,
-            retain_until: in_norm.retain_until,
+            access_expires_at_unix_ms: in_norm.access_expires_at_unix_ms,
+            retain_until_unix_ms: in_norm.retain_until_unix_ms,
             metadata: in_norm.metadata,
             upload: :committed,
             state: :staging
           }
 
-          payload_size = byte_size(Record.payload(rec))
+          payload_size = Record.max_payload_bytes(rec)
 
           if payload_size > art.limits.max_record_bytes do
             {:error, :too_large}
@@ -241,6 +241,9 @@ defmodule Elzoo.Artifact do
             end
           end
       end
+    else
+      false -> {:error, :invalid}
+      {:error, _} = failure -> failure
     end
   end
 
@@ -249,7 +252,7 @@ defmodule Elzoo.Artifact do
            {Record.staged(), Record.version(), Record.payload(rec)}
          ]) do
       {:committed, _} ->
-        index(art, rec.tenant, rec.artifact_id, rec.created_at)
+        index(art, rec.tenant, rec.artifact_id, rec.created_at_unix_ms)
         Telemetry.staged(rec)
         {:ok, rec}
 
@@ -300,7 +303,7 @@ defmodule Elzoo.Artifact do
 
   # Promoting a staging version on an artifact that already has a committed
   # head requires passing that head's recorded access terms and
-  # `access_expires_at` — the same rule as reads, so a caller denied by the
+  # `access_expires_at_unix_ms` — the same rule as reads, so a caller denied by the
   # current head cannot append a new head through any path (`put`,
   # `new_version` or a manual stage+commit). The first committed head is
   # ungated creation: there is no prior access face to enforce. `stage`
@@ -332,7 +335,11 @@ defmodule Elzoo.Artifact do
   reported (`:deleted`, `:refused`, `:unknown`, `:absent`), never hidden.
   """
   def abort(art, caller, %{artifact_id: artifact_id, version: version}) do
-    terminate(art, caller, artifact_id, version, :abort)
+    with :ok <- check_caller(caller),
+         :ok <- check_segment(:artifact_id, artifact_id),
+         :ok <- check_version(version) do
+      terminate(art, caller, artifact_id, version, :abort)
+    end
   end
 
   def abort(_, _, _), do: {:error, :invalid}
@@ -383,7 +390,7 @@ defmodule Elzoo.Artifact do
   `:not_found`.
 
   Appending to an artifact that already has a committed head enforces that
-  head's recorded access terms and `access_expires_at` — the same rule as
+  head's recorded access terms and `access_expires_at_unix_ms` — the same rule as
   reads. A caller denied by the head gets its typed failure and cannot
   append through any path: `commit` re-checks the gate before every
   `staging → committed` transition (covering manual `stage`+`commit` and
@@ -419,7 +426,7 @@ defmodule Elzoo.Artifact do
   @doc """
   `head/3` of the Contract: `head(art, caller, artifact_id, opts \\ [])`.
   The artifact's head — its highest committed non-`deleted` version — with
-  the recorded access terms and `access_expires_at` enforced.
+  the recorded access terms and `access_expires_at_unix_ms` enforced.
   """
   def head(art, caller, artifact_id, _opts \\ []) do
     with :ok <- check_caller(caller),
@@ -505,7 +512,7 @@ defmodule Elzoo.Artifact do
   `list/3` of the Contract: `list(art, caller, limit, cursor)`. One bounded
   page (≤ #{@max_list}) of the caller-tenant index: `{artifact_id, head}`
   entries for committed heads the caller may access under the recorded terms
-  and `access_expires_at` (denied or expired entries are omitted; staging or
+  and `access_expires_at_unix_ms` (denied or expired entries are omitted; staging or
   fully deleted artifacts are not listed). `cursor` is `nil` (from the
   start) or a previously returned `next_cursor`; the index is best-effort —
   its consistency with commits is documented, not guaranteed. A storage
@@ -568,7 +575,7 @@ defmodule Elzoo.Artifact do
   `versions/2` of the Contract: `versions(art, caller, artifact_id)`. The
   recorded versions of the artifact, sorted ascending, after enforcing the
   head record's (or the latest record's, when nothing is committed) access
-  terms and `access_expires_at` — then filtered again per version: each
+  terms and `access_expires_at_unix_ms` — then filtered again per version: each
   returned record must satisfy *its own* recorded terms and expiry against
   the caller. Versions the caller may not access are omitted entirely
   (their terms, keys and metadata are never disclosed), the same rule
@@ -614,7 +621,7 @@ defmodule Elzoo.Artifact do
   @doc """
   `delete/3` of the Contract: `delete(art, caller, artifact_id, version)`.
   `committed → deleted` under the recorded access terms and
-  `access_expires_at`, plus a best-effort reported object delete. A staging
+  `access_expires_at_unix_ms`, plus a best-effort reported object delete. A staging
   version is `{:error, {:invalid, :state}}` — `abort` is its transition.
   """
   def delete(art, caller, artifact_id, version) do
@@ -638,7 +645,7 @@ defmodule Elzoo.Artifact do
 
   @doc """
   `reap/2` of the Contract: `reap(art, caller, artifact_id)`. Records past
-  `access_expires_at` or `retain_until`, and staging records past
+  `access_expires_at_unix_ms` or `retain_until_unix_ms`, and staging records past
   `staging_ttl_ms`, move to `:deleted` (one CAS batch) and their bytes are
   deleted best-effort and reported. Every already-`:deleted` version's
   bytes are then deletion-attempted again (`cleanup`): a `:refused` or
@@ -711,12 +718,13 @@ defmodule Elzoo.Artifact do
 
   defp due?(%{state: :staging} = rec, now, ttl),
     do:
-      rec.state_at + ttl <= now or past?(rec.access_expires_at, now) or
-        past?(rec.retain_until, now)
+      rec.state_at + ttl <= now or past?(rec.access_expires_at_unix_ms, now) or
+        past?(rec.retain_until_unix_ms, now)
 
   defp due?(rec, now, _ttl),
     do:
-      rec.state != :deleted and (past?(rec.access_expires_at, now) or past?(rec.retain_until, now))
+      rec.state != :deleted and
+        (past?(rec.access_expires_at_unix_ms, now) or past?(rec.retain_until_unix_ms, now))
 
   defp past?(:never, _now), do: false
   defp past?(stamp, now), do: stamp <= now
@@ -842,7 +850,7 @@ defmodule Elzoo.Artifact do
     end
   end
 
-  # delete enforces the recorded terms and access_expires_at (the Contract
+  # delete enforces the recorded terms and access_expires_at_unix_ms (the Contract
   # lists it among the enforced operations) in addition to the structural
   # tenant match every mutation requires; abort and reap are tenant-match only.
   defp mutate_access(rec, caller, now) do
@@ -858,7 +866,7 @@ defmodule Elzoo.Artifact do
     else
       principal_ok = term_present?(rec.access.principals, caller.principal)
       scopes_ok = terms_covered?(rec.access.scopes, caller.scopes)
-      order = expiry_order(rec.access_expires_at, now)
+      order = expiry_order(rec.access_expires_at_unix_ms, now)
 
       case apply(@cure, :decide, [principal_ok, scopes_ok, order]) do
         :AccessPermit -> {:ok, rec}
@@ -963,7 +971,8 @@ defmodule Elzoo.Artifact do
     stream = Record.stream(tenant, artifact_id)
 
     with {:ok, head} <- store_head(art, stream),
-         {:ok, rows} <- store_rows(art, stream, head.low_water + 1, head.revision) do
+         :ok <- check_prefix(head),
+         {:ok, rows} <- store_rows(art, stream, 1, head.revision) do
       folded = Record.fold(rows, fold_with_limits(art))
 
       case check_fold(folded, head.low_water) do
@@ -973,13 +982,9 @@ defmodule Elzoo.Artifact do
     end
   end
 
-  # Fail closed on persisted damage: an unreadable/inconsistent artifact row
-  # means the fold is a partial view, and a non-contiguous `1..max_version`
-  # coverage means Store prefix retention removed whole versions (the
-  # self-contained rows keep surviving versions whole, but a fully retained
-  # version is undetectable except as a gap). Neither may be treated as
-  # absent — reads, staging and version allocation would silently reuse
-  # state. `{:store_damaged, info}` is the typed failure; `info.first` is
+  # Fail closed on persisted damage. Sequence coverage and low_water are
+  # checked before folding; contiguous version numbers cannot detect all
+  # erased lifecycle transitions or a lost highest version. `info.first` is
   # the earliest damage diagnostic `{:unreadable, seq}`,
   # `{:inconsistent_version, v}` or `{:illegal_transition, v}`.
   defp check_fold(%{damage: []} = folded, low_water) do
@@ -999,29 +1004,64 @@ defmodule Elzoo.Artifact do
     case Store.read(art.store, :head, [stream]) do
       {:ok, head} -> {:ok, head}
       {:error, :caller_transaction} -> {:error, :caller_transaction}
+      {:error, :malformed} -> {:error, {:store_damaged, :malformed_reply}}
       {:error, _} -> {:error, :store_unavailable}
     end
   end
 
+  # No artifact-specific checkpoint preserves version/lifecycle history.
+  # A generic Store checkpoint is insufficient, so pruning is fail-closed.
+  defp check_prefix(%{low_water: 0}), do: :ok
+  defp check_prefix(_), do: {:error, {:store_damaged, :incomplete_prefix}}
+
   defp store_rows(art, stream, from, revision), do: store_rows(art, stream, from, revision, [])
 
-  defp store_rows(art, stream, from, revision, acc) do
-    case Log.read(art.store, stream, from, @page) do
-      {:ok, rows, _head} ->
-        rows = Enum.filter(rows, &(is_map(&1) and is_integer(&1.sequence)))
-        acc = acc ++ rows
-        last = acc |> List.last(%{sequence: from - 1}) |> Map.get(:sequence)
+  defp store_rows(_art, _stream, from, revision, acc) when from > revision,
+    do: {:ok, Enum.reverse(acc)}
 
-        if length(rows) == @page and last < revision,
-          do: store_rows(art, stream, last + 1, revision, acc),
-          else: {:ok, acc}
+  defp store_rows(art, stream, from, revision, acc) do
+    # Bound the last page to the sampled revision. A newer head from a
+    # concurrent append is allowed, but its new rows are for the next load.
+    limit = min(@page, revision - from + 1)
+
+    case Log.read(art.store, stream, from, limit) do
+      {:ok, rows, head} ->
+        with :ok <- check_prefix(head),
+             true <- head.revision >= revision,
+             true <- rows != [] and length(rows) <= limit,
+             :ok <- check_rows(rows, art, stream, from) do
+          store_rows(art, stream, from + length(rows), revision, Enum.reverse(rows, acc))
+        else
+          false -> {:error, {:store_damaged, :incomplete_history}}
+          {:error, _} = failure -> failure
+        end
 
       {:error, :caller_transaction} ->
         {:error, :caller_transaction}
 
+      {:error, {:pruned, _}} ->
+        {:error, {:store_damaged, :incomplete_prefix}}
+
+      {:error, :malformed} ->
+        {:error, {:store_damaged, :malformed_reply}}
+
       {:error, _} ->
         {:error, :store_unavailable}
     end
+  end
+
+  defp check_rows(rows, art, stream, from) do
+    rows
+    |> Enum.with_index(from)
+    |> Enum.reduce_while(:ok, fn {row, expected}, :ok ->
+      if is_map(row) and Map.get(row, :stream) == stream and
+           Map.get(row, :sequence) == expected and
+           Log.validate_row(row, art.fold, art.limits) == :ok do
+        {:cont, :ok}
+      else
+        {:halt, {:error, {:store_damaged, %{count: 1, first: {:unreadable, expected}}}}}
+      end
+    end)
   end
 
   # Best-effort tenant index: an `artifact_index` record per staging call,
@@ -1059,7 +1099,8 @@ defmodule Elzoo.Artifact do
     fold = fold_with_limits(art)
 
     with {:ok, head} <- store_head(art, stream),
-         {:ok, rows} <- store_rows(art, stream, head.low_water + 1, head.revision) do
+         :ok <- check_prefix(head),
+         {:ok, rows} <- store_rows(art, stream, 1, head.revision) do
       result =
         Enum.reduce_while(rows, {:ok, {[], MapSet.new()}}, fn row, {:ok, {acc, seen}} ->
           case Record.index_event(row, fold) do
@@ -1118,23 +1159,23 @@ defmodule Elzoo.Artifact do
     media = Map.get(input, :media_type, "application/octet-stream")
     metadata = Map.get(input, :metadata, %{})
     access = Map.get(input, :access)
-    expires = Map.get(input, :access_expires_at, :never)
-    retain = Map.get(input, :retain_until, :never)
+    expires = Map.get(input, :access_expires_at_unix_ms, :never)
+    retain = Map.get(input, :retain_until_unix_ms, :never)
 
     with :ok <- input_bytes(bytes, art.max_bytes),
          :ok <- input_media(media),
          {:ok, meta} <- input_metadata(metadata, art.max_metadata_bytes),
          {:ok, access_terms} <- input_access(access, caller.tenant),
-         :ok <- input_stamp(:access_expires_at, expires),
-         :ok <- input_stamp(:retain_until, retain) do
+         :ok <- input_stamp(:access_expires_at_unix_ms, expires),
+         :ok <- input_stamp(:retain_until_unix_ms, retain) do
       {:ok,
        %{
          bytes: bytes,
          media_type: media,
          metadata: meta,
          access: access_terms,
-         access_expires_at: expires,
-         retain_until: retain
+         access_expires_at_unix_ms: expires,
+         retain_until_unix_ms: retain
        }}
     else
       {:error, :too_large} -> {:error, :too_large}
@@ -1178,8 +1219,7 @@ defmodule Elzoo.Artifact do
   defp input_access(_, _), do: :error
 
   defp input_stamp(field, :never),
-    do: if(field in [:access_expires_at, :retain_until], do: :ok, else: :error)
+    do: if(field in [:access_expires_at_unix_ms, :retain_until_unix_ms], do: :ok, else: :error)
 
-  defp input_stamp(_field, n) when is_integer(n) and n >= 0, do: :ok
-  defp input_stamp(_, _), do: :error
+  defp input_stamp(_field, n), do: if(Record.stamp?(n), do: :ok, else: :error)
 end

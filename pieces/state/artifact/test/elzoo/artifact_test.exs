@@ -77,17 +77,67 @@ defmodule Elzoo.ArtifactTest do
              )
   end
 
-  test "A2 unsafe tenant/artifact_id segments are refused before key construction" do
-    %{art: art} = memory()
+  test "A2 every entry point refuses malformed callers and subjects before effects" do
+    {m, fake} = fake_memory()
+    art = %{m.art | store: {Elzoo.Artifact.EffectGuard, self()}}
     c = caller("t1")
 
-    for bad <- ["a/b", "..", ".", "a b", "", "x" <> String.duplicate("y", 65)] do
-      assert {:error, :invalid} = Artifact.stage(art, c, bad, H.input("b"))
+    for bad <- [
+          nil,
+          %{},
+          Map.delete(c, :principal),
+          Map.delete(c, :scopes),
+          %{c | principal: nil},
+          %{c | scopes: nil},
+          %{c | scopes: [nil]}
+        ] do
+      assert_invalid_subject(art, bad, "a1", 1)
+      assert {:error, :invalid} = Artifact.list(art, bad, 10, nil)
     end
 
-    for bad_tenant <- ["a/b", "..", ".", " "] do
-      assert {:error, :invalid} = Artifact.stage(art, caller(bad_tenant), "a1", H.input("b"))
+    for bad <- [nil, 1, "a/b", "..", ".", "a b", "", "x" <> String.duplicate("y", 65)] do
+      assert_invalid_subject(art, c, bad, 1)
+      assert_invalid_subject(art, %{c | tenant: bad}, "a1", 1)
+      assert {:error, :invalid} = Artifact.list(art, %{c | tenant: bad}, 10, nil)
     end
+
+    for bad <- [nil, 0, -1, 1.0, "1", %{}] do
+      assert {:error, :invalid} = Artifact.commit(art, c, "a1", bad)
+      assert {:error, :invalid} = Artifact.get(art, c, "a1", bad)
+      assert {:error, :invalid} = Artifact.delete(art, c, "a1", bad)
+      assert {:error, :invalid} = Artifact.abort(art, c, %{artifact_id: "a1", version: bad})
+      assert {:error, :invalid} = Artifact.status(art, c, %{artifact_id: "a1", version: bad})
+    end
+
+    for bad <- [nil, %{}, %{artifact_id: "a1"}, %{version: 1}] do
+      assert {:error, :invalid} = Artifact.abort(art, c, bad)
+      assert {:error, :invalid} = Artifact.status(art, c, bad)
+    end
+
+    assert {:error, :invalid} = Artifact.stage(art, c, "a1", nil)
+    assert {:error, :invalid} = Artifact.put(art, c, "a1", nil)
+    assert {:error, :invalid} = Artifact.list(art, c, 0, nil)
+    assert {:error, :invalid} = Artifact.list(art, c, 10, -1)
+    refute_received :artifact_store_effect
+    assert H.fake_requests(fake) == []
+  end
+
+  defp assert_invalid_subject(art, c, aid, version) do
+    results = [
+      Artifact.stage(art, c, aid, H.input("b")),
+      Artifact.put(art, c, aid, H.input("b")),
+      Artifact.new_version(art, c, aid, H.input("b")),
+      Artifact.head(art, c, aid),
+      Artifact.versions(art, c, aid),
+      Artifact.reap(art, c, aid),
+      Artifact.commit(art, c, aid, version),
+      Artifact.get(art, c, aid, version),
+      Artifact.delete(art, c, aid, version),
+      Artifact.abort(art, c, %{artifact_id: aid, version: version}),
+      Artifact.status(art, c, %{artifact_id: aid, version: version})
+    ]
+
+    assert Enum.all?(results, &(&1 == {:error, :invalid})), inspect(results)
   end
 
   test "A3 too_large and metadata bound" do
@@ -162,6 +212,9 @@ defmodule Elzoo.ArtifactTest do
     assert {:error, :access_denied} =
              Artifact.head(art, caller(c.tenant, principal: "alice", scopes: []), aid)
 
+    assert {:error, :access_denied} =
+             Artifact.status(art, c, %{artifact_id: aid, version: 1})
+
     # Knowing the content hash does not help the denied caller.
     assert {:error, :access_denied} =
              Artifact.get(art, caller(c.tenant, principal: "bob", scopes: ["read"]), aid, 1)
@@ -177,13 +230,20 @@ defmodule Elzoo.ArtifactTest do
     aid = id("art")
 
     assert {:ok, _} =
-             Artifact.put(art, c, aid, H.input("data", access_expires_at: H.epoch() + 1_000))
+             Artifact.put(
+               art,
+               c,
+               aid,
+               H.input("data", access_expires_at_unix_ms: H.epoch() + 1_000)
+             )
 
     TestClock.advance(clock, 2_000)
     assert {:error, :expired} = Artifact.head(art, c, aid)
     assert {:error, :expired} = Artifact.get(art, c, aid, 1)
     assert {:error, :expired} = Artifact.versions(art, c, aid)
     assert {:error, :expired} = Artifact.delete(art, c, aid, 1)
+    assert {:error, :expired} = Artifact.status(art, c, %{artifact_id: aid, version: 1})
+    assert {:ok, %{entries: []}} = Artifact.list(art, c, 10, nil)
   end
 
   test "L6 tampered bytes are an integrity_mismatch, never served" do
@@ -261,7 +321,7 @@ defmodule Elzoo.ArtifactTest do
     aid = id("art")
 
     assert {:ok, rec} =
-             Artifact.put(art, c, aid, H.input("data", retain_until: H.epoch() + 1_000))
+             Artifact.put(art, c, aid, H.input("data", retain_until_unix_ms: H.epoch() + 1_000))
 
     assert {:error, {:invalid, :state}} = Artifact.abort(art, c, %{artifact_id: aid, version: 1})
     assert {:ok, %{object: :deleted}} = Artifact.delete(art, c, aid, 1)
@@ -273,7 +333,7 @@ defmodule Elzoo.ArtifactTest do
     aid2 = id("art")
 
     assert {:ok, rec2} =
-             Artifact.put(art, c, aid2, H.input("data2", retain_until: H.epoch() + 1_000))
+             Artifact.put(art, c, aid2, H.input("data2", retain_until_unix_ms: H.epoch() + 1_000))
 
     TestClock.advance(clock, 2_000)
     assert {:ok, %{reaped: [1], object: %{1 => :deleted}}} = Artifact.reap(art, c, aid2)
@@ -288,7 +348,9 @@ defmodule Elzoo.ArtifactTest do
     c = caller("t-#{id("t")}")
     aid = id("art")
 
-    assert {:ok, _} = Artifact.put(art, c, aid, H.input("data", access_expires_at: H.epoch() + 500))
+    assert {:ok, _} =
+             Artifact.put(art, c, aid, H.input("data", access_expires_at_unix_ms: H.epoch() + 500))
+
     TestClock.advance(clock, 1_000)
     assert {:error, :expired} = Artifact.head(art, c, aid)
     assert {:ok, %{reaped: [1]}} = Artifact.reap(art, c, aid)
@@ -312,6 +374,31 @@ defmodule Elzoo.ArtifactTest do
     assert length(first) == 2 and is_integer(cur)
     assert {:ok, %{entries: rest}} = Artifact.list(art, c, 2, cur)
     assert length(rest) >= 1
+
+    denied_id = id("denied")
+    expired_id = id("expired")
+
+    assert {:ok, _} =
+             Artifact.put(
+               art,
+               c,
+               denied_id,
+               H.input("private", access: %{tenant: c.tenant, principals: ["alice"], scopes: :any})
+             )
+
+    assert {:ok, _} =
+             Artifact.put(
+               art,
+               c,
+               expired_id,
+               H.input("expired", access_expires_at_unix_ms: H.epoch())
+             )
+
+    assert {:ok, %{entries: filtered, cursor: nil}} = Artifact.list(art, c, 100, nil)
+    assert MapSet.new(filtered, & &1.artifact_id) == MapSet.new(entries, & &1.artifact_id)
+    refute Enum.any?(filtered, &(&1.artifact_id in [denied_id, expired_id]))
+    assert {:error, :access_denied} = Artifact.status(art, c, %{artifact_id: denied_id, version: 1})
+    assert {:error, :expired} = Artifact.status(art, c, %{artifact_id: expired_id, version: 1})
   end
 
   test "L14 hash_format is stored and verification uses the record's format" do
@@ -354,7 +441,16 @@ defmodule Elzoo.ArtifactTest do
     refute String.contains?(text, "secret-bytes")
 
     # the Piece source never reads the environment
-    for file <- Path.wildcard("pieces/state/artifact/lib/**/*.ex") do
+    lib = Path.expand("../../lib/elzoo", __DIR__)
+
+    files =
+      Path.wildcard(Path.join(lib, "artifact.ex")) ++
+        Path.wildcard(Path.join(lib, "artifact/**/*.ex"))
+
+    assert length(files) >= 3
+    assert Enum.any?(files, &(Path.basename(&1) == "artifact.ex"))
+
+    for file <- files do
       refute File.read!(file) =~ "System.get_env"
     end
   end
@@ -515,7 +611,7 @@ defmodule Elzoo.ArtifactTest do
     aid = id("art")
 
     assert {:ok, _} =
-             Artifact.put(art, c, aid, H.input("v1", access_expires_at: H.epoch() + 500))
+             Artifact.put(art, c, aid, H.input("v1", access_expires_at_unix_ms: H.epoch() + 500))
 
     assert {:ok, staged} = Artifact.stage(art, c, aid, H.input("v2"))
     TestClock.advance(clock, 1_000)
@@ -562,8 +658,8 @@ defmodule Elzoo.ArtifactTest do
     assert {:ok, %{bytes: "v2"}} = Artifact.get(art, bob, aid, 2)
   end
 
-  test "L23 self-contained rows survive prefix retention; a retained version fails closed" do
-    {m, _pid} = fake_memory()
+  test "L23 prefix, fully retained and retained highest-version histories fail closed" do
+    {m, fake} = fake_memory()
     %{art: art, store: store} = m
     t = "t-#{id("t")}"
     c = caller(t)
@@ -577,10 +673,14 @@ defmodule Elzoo.ArtifactTest do
     H.checkpoint(store, stream)
     H.retain!(store, stream, 1)
 
-    # the staged v1 row is gone; v1 rebuilds whole from its committed row
-    assert {:ok, %{version: 2}} = Artifact.head(art, c, aid)
-    assert {:ok, [%{version: 1}, %{version: 2}]} = Artifact.versions(art, c, aid)
-    assert {:ok, %{bytes: "one"}} = Artifact.get(art, c, aid, 1)
+    # Each surviving row is still self-contained, but that does not establish
+    # that another version or a later lifecycle transition was not retained.
+    {rows, _} = H.stream_rows(store, stream)
+    folded = Record.fold(rows, Map.put(H.fold(), :limits, H.limits()))
+    assert folded.head.version == 2
+    assert Map.keys(folded.versions) |> Enum.sort() == [1, 2]
+    assert folded.versions[1].sha256 == Record.content_hash(1, "one")
+    assert_history_refused(m, fake, c, aid, :incomplete_prefix)
 
     H.retain!(store, stream, 2)
 
@@ -600,6 +700,50 @@ defmodule Elzoo.ArtifactTest do
 
     assert {:error, {:store_damaged, :incomplete_prefix}} =
              Artifact.new_version(art, c, aid, H.input("three"))
+
+    assert_history_refused(m, fake, c, aid, :incomplete_prefix)
+    H.retain!(store, stream, 4)
+    assert_history_refused(m, fake, c, aid, :incomplete_prefix)
+
+    # Out-of-order commits can retain the highest version without leaving a
+    # gap in the surviving version numbers: v1 is all that remains at seq4.
+    aid2 = id("art")
+    assert {:ok, _} = Artifact.stage(art, c, aid2, H.input("v1"))
+    assert {:ok, _} = Artifact.stage(art, c, aid2, H.input("v2"))
+    assert {:ok, _} = Artifact.commit(art, c, aid2, 2)
+    assert {:ok, _} = Artifact.commit(art, c, aid2, 1)
+    stream2 = Record.stream(t, aid2)
+    H.checkpoint(store, stream2)
+    H.retain!(store, stream2, 3)
+    assert_history_refused(m, fake, c, aid2, :incomplete_prefix)
+  end
+
+  defp assert_history_refused(m, fake, c, aid, expected) do
+    requests = H.fake_requests(fake)
+    before = :sys.get_state(m.memory) |> Map.take([:records, :heads])
+
+    results = [
+      Artifact.head(m.art, c, aid),
+      Artifact.get(m.art, c, aid, 1),
+      Artifact.versions(m.art, c, aid),
+      Artifact.status(m.art, c, %{artifact_id: aid, version: 1}),
+      Artifact.list(m.art, c, 100, nil),
+      Artifact.stage(m.art, c, aid, H.input("next")),
+      Artifact.put(m.art, c, aid, H.input("next")),
+      Artifact.new_version(m.art, c, aid, H.input("next")),
+      Artifact.commit(m.art, c, aid, 1),
+      Artifact.abort(m.art, c, %{artifact_id: aid, version: 1}),
+      Artifact.delete(m.art, c, aid, 1),
+      Artifact.reap(m.art, c, aid)
+    ]
+
+    for result <- results do
+      assert {:error, {:store_damaged, detail}} = result
+      if expected != :any, do: assert(detail == expected)
+    end
+
+    assert H.fake_requests(fake) == requests
+    assert :sys.get_state(m.memory) |> Map.take([:records, :heads]) == before
   end
 
   test "L24 an unreadable persisted row fails every operation closed" do
@@ -721,5 +865,268 @@ defmodule Elzoo.ArtifactTest do
 
     :ok = Elzoo.DurableLog.Memory.fault(store, :read, :unavailable)
     assert {:error, :store_unavailable} = Artifact.list(art, c, 10, nil)
+  end
+
+  test "L29 missing or malformed lifecycle positions fail closed before any object effect" do
+    for damage <- [
+          :missing,
+          :nil_sequence,
+          :malformed_row,
+          :duplicate,
+          :out_of_order,
+          :wrong_stream,
+          :truncated
+        ] do
+      {m, fake} = fake_memory()
+      c = caller("history")
+      aid = "damaged"
+      stream = Record.stream(c.tenant, aid)
+      assert {:ok, old} = Artifact.put(m.art, c, aid, H.input("deleted-bytes"))
+      H.fake_fail(fake, :delete, 403)
+      assert {:ok, %{object: :refused}} = Artifact.delete(m.art, c, aid, 1)
+      H.fake_heal(fake)
+      assert {:ok, _} = Artifact.put(m.art, c, aid, H.input("live"))
+      assert Map.has_key?(H.fake_objects(fake), old.object_key)
+
+      case damage do
+        :missing ->
+          :sys.replace_state(m.memory, fn state ->
+            %{state | records: Map.delete(state.records, {stream, 3})}
+          end)
+
+        :nil_sequence ->
+          :ok = H.corrupt_row(m.store, stream, 3, %{sequence: nil})
+
+        :malformed_row ->
+          :sys.replace_state(m.memory, fn state ->
+            %{state | records: Map.put(state.records, {stream, 3}, :malformed)}
+          end)
+
+        :duplicate ->
+          :ok = H.corrupt_row(m.store, stream, 3, %{sequence: 2})
+
+        :out_of_order ->
+          :ok = H.corrupt_row(m.store, stream, 3, %{sequence: 4})
+
+        :wrong_stream ->
+          :ok = H.corrupt_row(m.store, stream, 3, %{stream: "artifact/history/other"})
+
+        :truncated ->
+          :sys.replace_state(m.memory, fn state ->
+            %{state | records: Map.delete(state.records, {stream, 5})}
+          end)
+      end
+
+      assert_history_refused(m, fake, c, aid, :any)
+    end
+  end
+
+  test "L30 stage reserves the largest lifecycle payload including timestamp width" do
+    {os, fake} = H.fake_s3()
+    limits = %{H.limits() | max_record_bytes: 4_096}
+    {:ok, mem} = Elzoo.DurableLog.Memory.start_link(fold: H.fold(), limits: limits)
+    store = Elzoo.DurableLog.Memory.store(mem)
+    {:ok, clock} = TestClock.start_link(9)
+
+    {:ok, art} =
+      Artifact.new(
+        store: store,
+        object_store: os,
+        clock: {:manual, clock},
+        max_metadata_bytes: 4_096,
+        staging_ttl_ms: 100
+      )
+
+    c = caller("boundary")
+
+    assert {:ok, proto} =
+             Artifact.stage(art, c, "prototype", %{bytes: "data", metadata: %{"pad" => ""}})
+
+    probe = %{
+      proto
+      | artifact_id: "size",
+        object_key: Record.object_key(c.tenant, "size", 1, proto.sha256)
+    }
+
+    base = byte_size(Record.payload(probe))
+    requests = H.fake_requests(fake)
+
+    # The old guard admitted 4095 bytes, then refused the 4097-byte commit.
+    assert {:error, :too_large} =
+             Artifact.stage(art, c, "size", %{
+               bytes: "data",
+               metadata: %{"pad" => String.duplicate("x", 4_095 - base)}
+             })
+
+    assert H.fake_requests(fake) == requests
+    assert {[], %{revision: 0}} = H.stream_rows(store, Record.stream(c.tenant, "size"))
+
+    # A +2-only guard still misses the 9 -> 10 clock-width change. Reserve
+    # all valid signed-bigint timestamp widths, for committed and deleted rows.
+    assert {:error, :too_large} =
+             Artifact.stage(art, c, "size", %{
+               bytes: "data",
+               metadata: %{"pad" => String.duplicate("x", 4_094 - base)}
+             })
+
+    assert H.fake_requests(fake) == requests
+
+    widest =
+      byte_size(Record.payload(%{probe | state: :committed, state_at: 9_223_372_036_854_775_807}))
+
+    assert {:ok, staged} =
+             Artifact.stage(art, c, "size", %{
+               bytes: "data",
+               metadata: %{"pad" => String.duplicate("x", 4_096 - widest)}
+             })
+
+    assert byte_size(
+             Record.payload(%{staged | state: :committed, state_at: 9_223_372_036_854_775_807})
+           ) == 4_096
+
+    TestClock.set(clock, 10)
+    assert {:ok, committed} = Artifact.commit(art, c, "size", 1)
+    assert committed.state == :committed
+    assert {:ok, %{record: %{state: :deleted}}} = Artifact.delete(art, c, "size", 1)
+
+    TestClock.set(clock, 9)
+
+    assert {:ok, last} =
+             Artifact.stage(art, c, "size", %{
+               bytes: "data",
+               metadata: %{"pad" => String.duplicate("x", 4_096 - widest)}
+             })
+
+    TestClock.set(clock, 9_223_372_036_854_775_807)
+
+    assert {:ok, final} =
+             Artifact.commit(
+               %{art | staging_ttl_ms: 9_223_372_036_854_775_807},
+               c,
+               "size",
+               last.version
+             )
+
+    assert byte_size(Record.payload(final)) == 4_096
+  end
+
+  test "L31 published timestamp keys roundtrip exactly and drive expiry and retention" do
+    {m, fake} = fake_memory()
+    c = caller("timestamps")
+    expiry = H.epoch() + 100
+    retain = H.epoch() + 200
+    input = %{bytes: "data", access_expires_at_unix_ms: expiry, retain_until_unix_ms: retain}
+    assert {:ok, rec} = Artifact.put(m.art, c, "named", input)
+    assert rec.created_at_unix_ms == H.epoch()
+    assert rec.access_expires_at_unix_ms == expiry
+    assert rec.retain_until_unix_ms == retain
+    refute Map.has_key?(rec, :created_at)
+    refute Map.has_key?(rec, :access_expires_at)
+    refute Map.has_key?(rec, :retain_until)
+    {rows, _} = H.stream_rows(m.store, Record.stream(c.tenant, "named"))
+
+    for row <- rows do
+      data = Jason.decode!(row.payload)
+      assert data["created_at_unix_ms"] == H.epoch()
+      assert data["access_expires_at_unix_ms"] == expiry
+      assert data["retain_until_unix_ms"] == retain
+      refute Map.has_key?(data, "created_at")
+      refute Map.has_key?(data, "access_expires_at")
+      refute Map.has_key?(data, "retain_until")
+      assert {:record, decoded} = Record.event(row, Map.put(H.fold(), :limits, H.limits()))
+      assert decoded.access_expires_at_unix_ms == expiry
+      assert decoded.retain_until_unix_ms == retain
+
+      for key <- ["created_at_unix_ms", "access_expires_at_unix_ms", "retain_until_unix_ms"] do
+        broken = %{row | payload: data |> Map.delete(key) |> Jason.encode!()}
+        broken = %{broken | digest: Elzoo.DurableLog.digest(broken)}
+        assert :unreadable = Record.event(broken, Map.put(H.fold(), :limits, H.limits()))
+      end
+    end
+
+    assert {:ok, ^rec} = Artifact.head(m.art, c, "named")
+    assert {:ok, %{record: ^rec}} = Artifact.get(m.art, c, "named", 1)
+
+    assert {:ok, retained} =
+             Artifact.put(m.art, c, "retained", %{bytes: "retain", retain_until_unix_ms: retain})
+
+    assert retained.access_expires_at_unix_ms == :never
+    TestClock.set(m.clock, expiry)
+    assert {:error, :expired} = Artifact.head(m.art, c, "named")
+    assert {:error, :expired} = Artifact.status(m.art, c, %{artifact_id: "named", version: 1})
+    assert {:ok, %{reaped: [1]}} = Artifact.reap(m.art, c, "named")
+    assert {:ok, %{reaped: []}} = Artifact.reap(m.art, c, "retained")
+    TestClock.set(m.clock, retain)
+    assert {:ok, %{reaped: [1]}} = Artifact.reap(m.art, c, "retained")
+    refute Map.has_key?(H.fake_objects(fake), retained.object_key)
+  end
+
+  test "L32 commit rejects mismatched object checksum and leaves staging unchanged" do
+    {m, _fake} = fake_memory()
+    c = caller("mismatch")
+    assert {:ok, rec} = Artifact.stage(m.art, c, "wrong", H.input("good"))
+    assert %{status: :committed} = Elzoo.ObjectStore.put(m.object_store, rec.object_key, "evil")
+    before = H.stream_rows(m.store, Record.stream(c.tenant, "wrong"))
+
+    assert {:error, {:commit_failed, %{evidence: :object_mismatch}}} =
+             Artifact.commit(m.art, c, "wrong", 1)
+
+    assert H.stream_rows(m.store, Record.stream(c.tenant, "wrong")) == before
+
+    assert {:ok, %{record: ^rec, object: :mismatch}} =
+             Artifact.status(m.art, c, %{artifact_id: "wrong", version: 1})
+  end
+
+  test "L33 a real CAS race refuses the losing commit and preserves its staging row" do
+    {m, _fake} = fake_memory()
+    c = caller("cas")
+    aid = "race"
+    stream = Record.stream(c.tenant, aid)
+    assert {:ok, staged} = Artifact.stage(m.art, c, aid, H.input("data"))
+    {staged_rows, _} = H.stream_rows(m.store, stream)
+    # commit samples its clock after load; the competing append is real Store
+    # CAS between that load and commit's write, without sleeps or fake replies.
+    racing = %{
+      m.art
+      | clock: fn ->
+          H.append_foreign!(m.store, stream)
+          H.epoch()
+        end
+    }
+
+    assert {:error, {:commit_failed, %{expected: 1, observed: 2}}} =
+             Artifact.commit(racing, c, aid, 1)
+
+    assert {rows, %{revision: 2}} = H.stream_rows(m.store, stream)
+    assert Enum.take(rows, 1) == staged_rows
+    assert Enum.map(rows, & &1.kind) == [Record.staged(), "foreign"]
+
+    assert {:ok, %{record: ^staged, object: :verified}} =
+             Artifact.status(m.art, c, %{artifact_id: aid, version: 1})
+
+    assert {:ok, %{state: :committed}} = Artifact.commit(m.art, c, aid, 1)
+  end
+
+  test "L34 sequence coverage spans pages and stops at the sampled committed revision" do
+    {m, fake} = fake_memory()
+    c = caller("pages")
+    aid = "large"
+    stream = Record.stream(c.tenant, aid)
+    assert {:ok, rec} = Artifact.put(m.art, c, aid, H.input("data"))
+    for _ <- 1..1_001, do: H.append_foreign!(m.store, stream)
+    assert {:ok, ^rec} = Artifact.head(m.art, c, aid)
+    # A valid index kind in an artifact stream remains a benign foreign row.
+    H.append_foreign!(m.store, stream, Record.index_kind(), Record.index_payload(aid, H.epoch()))
+    assert {:ok, ^rec} = Artifact.head(m.art, c, aid)
+    # A concurrent append after the head sample is outside this snapshot; the
+    # next read sees it. Neither operation falsely diagnoses missing history.
+    wrapped = {Elzoo.Artifact.AppendOnRead, %{inner: m.store, stream: stream}}
+    assert {:ok, ^rec} = Artifact.head(%{m.art | store: wrapped}, c, aid)
+
+    :sys.replace_state(m.memory, fn state ->
+      %{state | records: Map.delete(state.records, {stream, 1_002})}
+    end)
+
+    assert_history_refused(m, fake, c, aid, :any)
   end
 end

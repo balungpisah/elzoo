@@ -56,8 +56,7 @@ defmodule Elzoo.ArtifactPostgresTest do
 
     assert {:ok, %{version: 1}} = Artifact.stage(art, c, aid, H.input("data"))
 
-    # A concurrent writer advances the stream head between the stage and this
-    # forged direct append; the next commit re-reads at the moved head.
+    # A foreign row written before load is tolerated by a fresh commit.
     stream = "artifact/#{c.tenant}/#{aid}"
 
     {:ok, rows, request} =
@@ -76,6 +75,36 @@ defmodule Elzoo.ArtifactPostgresTest do
     # no stale CAS; the foreign row is ignored by the fold.
     assert {:ok, %{version: 1, state: :committed}} = Artifact.commit(art, c, aid, 1)
     assert {:ok, %{bytes: "data"}} = Artifact.get(art, c, aid, 1)
+
+    # Produce a real conflict: commit reads revision 1, then the injected
+    # clock appends a competing row through the actual PostgreSQL Store.
+    # The losing commit must not write an artifact_committed row.
+    race_id = id("race")
+    race_stream = Elzoo.Artifact.Record.stream(c.tenant, race_id)
+    assert {:ok, staged} = Artifact.stage(art, c, race_id, H.input("race-data"))
+    {staged_rows, _} = H.stream_rows(art.store, race_stream)
+
+    racing = %{
+      art
+      | clock: fn ->
+          H.append_foreign!(art.store, race_stream)
+          H.epoch()
+        end
+    }
+
+    assert {:error, {:commit_failed, %{expected: 1, observed: 2}}} =
+             Artifact.commit(racing, c, race_id, 1)
+
+    assert {after_rows, %{revision: 2}} = H.stream_rows(art.store, race_stream)
+    assert Enum.take(after_rows, 1) == staged_rows
+    assert Enum.map(after_rows, & &1.kind) == ["artifact_staged", "foreign"]
+
+    assert {:ok, %{record: ^staged, object: :verified}} =
+             Artifact.status(art, c, %{artifact_id: race_id, version: 1})
+
+    assert {:error, :not_found} = Artifact.head(art, c, race_id)
+    assert {:ok, %{state: :committed}} = Artifact.commit(art, c, race_id, 1)
+    assert {:ok, %{bytes: "race-data"}} = Artifact.get(art, c, race_id, 1)
   end
 
   test "P3 staged and committed records are ordinary validated Store rows", %{pg: %{art: art}} do
