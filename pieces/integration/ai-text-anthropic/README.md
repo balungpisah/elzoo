@@ -18,7 +18,13 @@ response decoding from Anthropic's documented format, usage and cache-counter
 translation, failure mapping and the conformance stubs. One Elzoo response step
 is prepended so it runs before every Req and `req_llm` response step: it copies
 the status, the `request-id` and `retry-after` headers (bounded, printable) and
-the raw body, then **halts every response**. One Elzoo error step halts a
+the raw body, then **halts every response**. A Req `into:` collector retains at
+most 4 MiB of wire body bytes (after HTTP framing), stops before appending an
+overflowing receive chunk, and discards an oversized body. The accumulator and
+the current chunk may coexist; this is not a bound on BEAM heap, TLS or kernel
+buffers. Content-encoded bodies stay encoded, as with the previous raw capture.
+Oversized successes remain malformed; oversized errors retain their existing
+status fallback and retry metadata. One Elzoo error step halts a
 transport exception unchanged. So no redirect is followed, no retry happens and
 `req_llm`'s error value (which carries the request body) is never built.
 
