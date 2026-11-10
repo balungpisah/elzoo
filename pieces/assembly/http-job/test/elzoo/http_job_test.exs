@@ -199,6 +199,43 @@ defmodule Elzoo.HttpJobTest do
     H.TestOban
   end
 
+  # ELZ-092 (#170): a gate for the rescued wakes' `resolve_intent`. While the gate is
+  # closed, a wake registers, reports `{:resolve, pid}` and waits; `open` releases every
+  # registered wake with `reply` and returns their pids. A wake that arrives after `open`
+  # (an Oban retry after a wake failed closed) resolves the owner at once, so no wake can
+  # wait forever. The Agent serializes registration and opening, so no wake is lost.
+  defp rescue_gate(p) do
+    gate = start_supervised!({Agent, fn -> {:closed, []} end}, id: :rescue_gate)
+    parent = self()
+
+    resolve = fn _ ->
+      wake = self()
+
+      case Agent.get_and_update(gate, fn
+             {:closed, waiting} -> {:wait, {:closed, [wake | waiting]}}
+             {:open, _} = open -> {:open, open}
+           end) do
+        :open ->
+          {:ok, p}
+
+        :wait ->
+          send(parent, {:resolve, self()})
+
+          receive do
+            {:release, reply} -> reply
+          end
+      end
+    end
+
+    open = fn reply ->
+      waiting = Agent.get_and_update(gate, fn {_, waiting} -> {waiting, {:open, []}} end)
+      Enum.each(waiting, &send(&1, {:release, reply}))
+      waiting
+    end
+
+    {resolve, open}
+  end
+
   test "admission consumes thin declaration, exact bytes and explicit identity/deadline", c do
     assert c.admission.identity == [
              "test-tenant",
@@ -566,20 +603,8 @@ defmodule Elzoo.HttpJobTest do
 
   test "live Oban rescue and concurrent wakeups still reserve one physical send", c do
     p = owner(c)
-    parent = self()
-
-    cfg = %{
-      c.cfg
-      | call_ms: 3000,
-        resolve_intent: fn _ ->
-          send(parent, {:resolve, self()})
-
-          receive do
-            :release -> {:ok, p}
-          end
-        end
-    }
-
+    {resolve, open} = rescue_gate(p)
+    cfg = %{c.cfg | call_ms: 3000, resolve_intent: resolve}
     c = %{c | cfg: cfg}
     name = oban(c)
 
@@ -589,10 +614,72 @@ defmodule Elzoo.HttpJobTest do
     assert_receive {:resolve, first}, 2000
     assert {:ok, [_]} = Oban.Engine.rescue_jobs(Oban.config(name), Oban.Job, rescue_after: 0)
     assert_receive {:resolve, second}, 2000
-    send(first, :release)
-    send(second, :release)
+    # Both wakes are released together; a later Oban retry passes the open gate.
+    released = open.({:ok, p})
+    assert first in released and second in released
     wait(fn -> I.status(p).phase == {:Confirmed, 1} end)
     assert Enum.count(Fixture.calls(c.f), fn {m, _, _} -> m == "PUT" end) == 1
+  end
+
+  # ELZ-092 (#170) regression: the state behind the intermittent stall of the test above.
+  # There, both rescued wakes could fail closed (a transient caller-pool rejection) and
+  # the old stub then blocked Oban's retry until `call_ms`, so the job was discarded with
+  # the owner still Intended. Here both scripted wakes fail closed deterministically: the
+  # gate releases them with a reply that is not an owner, so `tick` stops before any owner
+  # command. Oban's retry must then make the one send.
+  test "rescued wakes that both fail closed leave the one send to Oban's retry", c do
+    p = owner(c)
+    {resolve, open} = rescue_gate(p)
+    parent = self()
+    id = "elz-092-#{System.unique_integer([:positive])}"
+    key = c.admission.key
+
+    # Runs in the execution process when a wake ends, before Oban acknowledges it, so the
+    # retry (scheduled only by that acknowledgement) cannot have started for attempt 2.
+    :ok =
+      :telemetry.attach(
+        id,
+        [:elzoo, :job, :stop],
+        fn _, _, meta, _ ->
+          if meta[:request_ref] == key do
+            calls = Enum.map(Fixture.calls(c.f), &elem(&1, 0))
+            send(parent, {:wake_end, meta.attempt, meta.outcome, I.status(p), calls})
+          end
+        end,
+        nil
+      )
+
+    on_exit(fn -> :telemetry.detach(id) end)
+    cfg = %{c.cfg | call_ms: 3000, resolve_intent: resolve}
+    c = %{c | cfg: cfg}
+    name = oban(c)
+
+    assert {:ok, job_id} =
+             Elzoo.Jobs.enqueue(name, Elzoo.Jobs.changeset(cfg.queue, c.admission.key, 3))
+
+    assert_receive {:resolve, first}, 2000
+    assert {:ok, [_]} = Oban.Engine.rescue_jobs(Oban.config(name), Oban.Job, rescue_after: 0)
+    assert_receive {:resolve, second}, 2000
+    released = open.(:unavailable)
+    assert first in released and second in released
+    assert_receive {:wake_end, 1, :error, _, _}, 5000
+    assert_receive {:wake_end, 2, :error, status, []}, 5000
+    assert {status.phase, status.revision, status.attempts} == {{:Intended, :Fresh, 0}, 1, 0}
+    wait(fn -> I.status(p).phase == {:Confirmed, 1} end)
+    wait(fn -> Elzoo.Jobs.state_by_id(name, job_id) == {:ok, {job_id, "completed"}} end)
+    assert Enum.count(Fixture.calls(c.f), fn {m, _, _} -> m == "PUT" end) == 1
+
+    errors =
+      TestRepo.query!("SELECT errors FROM #{c.prefix}.oban_jobs WHERE id = $1", [job_id],
+        log: false
+      ).rows
+
+    assert [[errors]] = errors
+
+    assert Enum.any?(
+             errors,
+             &(&1["attempt"] == 2 and &1["error"] =~ "{:error, :owner_unavailable}")
+           )
   end
 
   test "Lifeline recovers orphan executing row which retry_job alone ignores", c do
