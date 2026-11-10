@@ -3112,6 +3112,32 @@
         "P06",
         "P10"
       ]
+    },
+    {
+      "id": "ELZ-094",
+      "title": "ELZ-094 — Reproduce and fix mix elzoo.take \"argument error\", and make copied-consumer directories host-unique",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-091"
+      ],
+      "status": "published 2026-11-10; claimed task/ELZ-094; PR pending",
+      "url": "https://github.com/balungpisah/elzoo/issues/172",
+      "paths": [
+        "tasks/ELZ-094-export-task-and-consumer-directories.md"
+      ],
+      "outputs": [],
+      "acceptance": "Live issue body unchanged; byte-equal publication copy. Fix the Mix export command, preserve export bytes and receipts, and exclusively create host-unique consumer directories; independent review and exact-head hosted evidence required.",
+      "issue": 172,
+      "issue_body_sha256": "5f7d9b5a3657ebae0c56464fd9c8bae9b4486ef6f84262147f04026ce4a494aa",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P06",
+        "P07"
+      ],
+      "product_role": "Reliable source-copy consumer path and concurrent local validation; no new Piece."
     }
   ],
   "entries": [
