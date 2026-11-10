@@ -755,6 +755,97 @@ defmodule Elzoo.AiText.OpenAITest do
     assert wire(captured)["max_output_tokens"] == 16
   end
 
+  test "O13 an oversized non-2xx is unknown{malformed_response}, never classified by status; one request; no partial body or key in results, logs or telemetry (capture + decode)",
+       ctx do
+    parent = self()
+    marker = "PARTIAL-BODY-#{System.unique_integer([:positive])}"
+
+    :telemetry.attach_many(
+      "elz087-o13",
+      [[:req_llm, :request, :start], [:req_llm, :request, :stop], [:req_llm, :request, :exception]],
+      fn e, m, md, _ -> send(parent, {:telemetry, e, m, md}) end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach("elz087-o13") end)
+    big = OpenAIStub.error("invalid_request_error", marker <> :binary.copy("q", 4_200_000))
+    Logger.configure(level: :debug)
+    on_exit(fn -> Logger.configure(level: :warning) end)
+
+    log =
+      capture_log([level: :debug], fn ->
+        for {status, headers} <- [
+              {400, []},
+              {429, [{"retry-after", "7"}]},
+              {503, [{"retry-after", "3"}]}
+            ] do
+          {delivery, requests, _, pid} = run(ctx, request(), fn _ -> {status, headers, big} end)
+          assert {:outcome, _, {:unknown, :malformed_response}} = delivery, inspect(status)
+          assert length(requests) == 1
+
+          text =
+            inspect({delivery, :sys.get_state(pid)}, limit: :infinity, printable_limit: :infinity)
+
+          refute text =~ marker
+          refute text =~ @key
+        end
+      end)
+
+    refute log =~ marker
+    refute log =~ @key
+    telemetry = inspect(collect_telemetry([]), limit: :infinity, printable_limit: :infinity)
+    refute telemetry =~ marker
+    refute telemetry =~ @key
+  end
+
+  test "O14 the bound counts wire bytes: a content-encoded body is neither requested nor decoded and a gzip 2xx is unknown{malformed_response} (Req 0.7.5 into: path)",
+       ctx do
+    # 6 MB decoded, a few KB on the wire.
+    decoded =
+      Jason.encode!(
+        OpenAIStub.response([OpenAIStub.message([OpenAIStub.text(:binary.copy("a", 6_000_000))])])
+      )
+
+    gz = :zlib.gzip(decoded)
+    assert byte_size(gz) < 4_194_304 and byte_size(decoded) > 4_194_304
+
+    gzip_plug = fn conn ->
+      conn
+      |> Plug.Conn.put_resp_header("content-encoding", "gzip")
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.send_resp(200, gz)
+    end
+
+    # The capture step sees the wire bytes, under the bound and never decompressed.
+    {:ok, response} =
+      Req.request(
+        %{
+          Req.new(url: "http://stub.invalid/x", retry: false, plug: gzip_plug)
+          | into: &OpenAI.bounded/2
+        }
+        |> Req.Request.prepend_response_steps(elzoo_capture: &OpenAI.capture/1)
+      )
+
+    assert %{status: 200, oversize: false, body: ^gz} = response.private.elzoo_raw
+
+    # End to end: no accept-encoding is sent; the gzip body is malformed, one request.
+    {delivery, [captured], _, _} =
+      run(ctx, request(), fn _ -> {200, [{"content-encoding", "gzip"}], gz} end)
+
+    assert {:outcome, _, {:unknown, :malformed_response}} = delivery
+    assert header(captured, "accept-encoding") == []
+  end
+
+  test "O15 an absent max_output_tokens is refused before the credential Need with no request (admission)" do
+    read = :counters.new(1, [])
+    creds = fn -> :counters.add(read, 1, 1) && {:ok, @key} end
+
+    assert {:error, {:refused, :invalid_request}} =
+             refused(Map.delete(request(), "max_output_tokens"), credentials: creds)
+
+    assert :counters.get(read, 1) == 0
+  end
+
   ## O8 redaction; O9 ambient keys
 
   test "O8 key, prompt and output never in results, inspect, state, logs or telemetry (redaction)",

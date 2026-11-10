@@ -21,8 +21,13 @@ translation, failure mapping and the conformance stubs. One Elzoo response step
 is prepended so it runs before every Req and `req_llm` response step: it copies
 the status, the `x-request-id` and `retry-after` headers (bounded, printable) and
 the raw body, then **halts every response**. The body is bounded while it is
-received (a Req `into:` function stops the transfer above 4 MiB; such a response is
-`unknown{malformed_response}` and its body is never kept). One Elzoo error step halts a
+received: a Req `into:` function stops the transfer above 4 MiB of **wire bytes**
+(as received, after HTTP framing; Req 0.7.5 requests no compression and
+decompresses nothing on the `into:` path, so a content-encoded body counts with its
+encoded size and is never decoded). Any response over the bound, whatever its
+status, is `unknown{malformed_response}` and its body is never kept. A
+content-encoded 2xx body under the bound is not JSON to this Piece and is likewise
+`unknown{malformed_response}`; a non-2xx body is never parsed beyond its error type. One Elzoo error step halts a
 transport exception unchanged. So no redirect is followed, no retry happens and
 `req_llm`'s error value (which carries the request body) is never built.
 

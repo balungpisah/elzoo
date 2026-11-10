@@ -268,8 +268,12 @@ defmodule Elzoo.AiText.OpenAI do
   end
 
   @doc false
-  # Req `into:` function: accumulates the body up to the raw bound; a larger body
-  # stops the transfer and is marked oversize (decoded as malformed, never kept).
+  # Req `into:` function: accumulates the body up to 4 MiB of wire bytes; a larger
+  # body stops the transfer and is marked oversize (never kept, never classified by
+  # status). Req 0.7.5 hands `into:` the bytes as received (Req.Finch
+  # finch_stream_into_fun/5): no accept-encoding is requested (Req.Steps.compressed/1)
+  # and nothing is decompressed when `into` is set (Req.Steps.decompress_body/1), so a
+  # content-encoded body counts with its encoded size and is never decoded.
   def bounded({:data, data}, {request, response}) do
     body = if is_binary(response.body), do: response.body, else: ""
 
@@ -286,6 +290,7 @@ defmodule Elzoo.AiText.OpenAI do
 
     raw = %{
       status: response.status,
+      oversize: oversize,
       request_id: header(response, "x-request-id"),
       retry_after: header(response, "retry-after"),
       body: if(is_binary(response.body) and not oversize, do: response.body, else: nil)
@@ -321,6 +326,9 @@ defmodule Elzoo.AiText.OpenAI do
   ## decode: documented Responses format (pinned OpenAPI `Response`)
 
   @impl true
+  # A body over the bound is malformed whatever its status: never classified by status.
+  def decode(%{oversize: true}, _request), do: {:failure, :malformed_response}
+
   def decode(%{status: status} = raw, request) when status in 200..299 do
     with body when is_binary(body) and byte_size(body) <= @max_raw_bytes <- raw.body,
          {:ok, %{} = r} <- Jason.decode(body),
