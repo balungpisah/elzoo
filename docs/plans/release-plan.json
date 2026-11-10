@@ -2223,16 +2223,14 @@
       "kind": "proposal",
       "release": "V1",
       "stage": "pieces",
-      "outputs": [
-        "state/artifact"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "ELZ-009",
         "ELZ-024",
         "RC-05"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "superseded for state/artifact by published ELZ-096 (output moved); no remaining output",
       "contract": "Separate provider byte-storage translation from tenant-owned versioned artifact references. Versioned canonical content hash, size, access, retention and expiry are explicit; a hash never grants access.",
       "acceptance": "Partial upload cleanup, wrong hash, stale access URL, retention expiry, cross-tenant lookup and failed write/reference commit. Verify integrity on read under declared format.",
       "reuse": "S3-compatible client and local compatible service candidate; consumer bucket and credentials. AWS-specific guarantees require separate evidence.",
@@ -3321,6 +3319,41 @@
         "P06",
         "P07"
       ]
+    },
+    {
+      "id": "ELZ-096",
+      "title": "ELZ-096 — Specify the owned artifact reference store over object storage",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-009",
+        "ELZ-013",
+        "ELZ-033",
+        "ELZ-053"
+      ],
+      "status": "published 2026-11-10; claimed task/ELZ-096; PR pending",
+      "url": "https://github.com/balungpisah/elzoo/issues/179",
+      "paths": [
+        "tasks/ELZ-096-state-artifact.md"
+      ],
+      "outputs": [
+        "state/artifact"
+      ],
+      "acceptance": "Unchanged live issue body; local task file is the byte-equal publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 179,
+      "issue_body_sha256": "13866e6bd13f9b07a62b5f7d57d72f9a1d643dc62543e1f5e57ab594a309bbbe",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P01",
+        "P05",
+        "P06",
+        "P07",
+        "P08",
+        "P11",
+        "P12"
+      ]
     }
   ],
   "entries": [
@@ -4127,7 +4160,7 @@
     },
     {
       "id": "state/artifact",
-      "job": "RC-13",
+      "job": "ELZ-096",
       "note": "Content identity, integrity, access, version and expiry for C2/C6/C7/C8; adapt object storage; separate from streamed bytes and control envelopes. ELZ-025 study: content identity is SHA-256 over a versioned canonical encoding with a format-version prefix, verified on every read; a format change is a declared migration.",
       "baseline_status": "deferred",
       "disposition": "blocked-admission-proposal",
