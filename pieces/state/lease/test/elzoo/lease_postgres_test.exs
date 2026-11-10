@@ -133,7 +133,7 @@ defmodule Elzoo.LeasePostgresTest do
     [[waiting]] =
       SQL.query!(
         TestRepo,
-        "SELECT wait_event_type = 'Lock' FROM pg_stat_activity WHERE pid = $1",
+        "SELECT COALESCE(wait_event_type = 'Lock', FALSE) FROM pg_stat_activity WHERE pid = $1",
         [pid],
         log: false
       ).rows
@@ -168,6 +168,22 @@ defmodule Elzoo.LeasePostgresTest do
     )
 
     request
+  end
+
+  test "ELZ-095 active checked-out backend reports no lock wait as false" do
+    TestRepo.checkout(fn ->
+      [[pid]] = SQL.query!(TestRepo, "SELECT pg_backend_pid()", [], log: false).rows
+
+      assert [[nil]] =
+               SQL.query!(
+                 TestRepo,
+                 "SELECT wait_event_type FROM pg_stat_activity WHERE pid = $1",
+                 [pid],
+                 log: false
+               ).rows
+
+      assert contender_waits_on_lock?(pid) === false
+    end)
   end
 
   test "LS1/LS5 claim, hold, status by the store clock; a lease stamped in the past is stale", %{
