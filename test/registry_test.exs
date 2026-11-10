@@ -41,7 +41,7 @@ defmodule Elzoo.RegistryTest do
     refute "integration/json" in ids
 
     assert_raise ArgumentError, ~r/not consumable/, fn ->
-      Elzoo.Registry.select!(registry, ["state/scheduler"])
+      Elzoo.Registry.select!(registry, ["state/schema-evolution"])
     end
   end
 
