@@ -1649,6 +1649,37 @@
       ]
     },
     {
+      "id": "ELZ-080",
+      "title": "ELZ-080 — Specify the embedding interface Piece and the OpenAI embedding provider Piece",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-006",
+        "ELZ-011",
+        "ELZ-023",
+        "ELZ-079"
+      ],
+      "status": "published 2026-11-09; claimed task/ELZ-080; PR pending",
+      "url": "https://github.com/balungpisah/elzoo/issues/159",
+      "paths": [
+        "tasks/ELZ-080-ai-embedding-openai.md"
+      ],
+      "outputs": [
+        "integration/ai-embedding",
+        "integration/ai-embedding-openai"
+      ],
+      "acceptance": "Live issue body amended once (amendment 1: B1 served-model identity, B2 request bound, S4 fixed norm tolerance; approved by the main coordinator); local task file is the byte-equal publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 159,
+      "issue_body_sha256": "23d483c9abce814a58d198a5b0dec8613a13dae2bc80542c9ddb7ae4a93fc874",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P06",
+        "P07"
+      ]
+    },
+    {
       "id": "ELZ-085",
       "title": "ELZ-085 — Specify the batch job-mode interface Piece and the Anthropic Message Batches provider Piece",
       "kind": "published",
@@ -3642,6 +3673,26 @@
       "manifest": "pieces/integration/ai-text-anthropic/piece.json",
       "manifest_sha256": "b8f74059fe9fa21dafb7709418d861434858c15b171aab21f49749f98333cced",
       "baseline_status": "not in baseline (new row, ELZ-079)"
+    },
+    {
+      "id": "integration/ai-embedding",
+      "job": "ELZ-080",
+      "note": "Provider-neutral embedding interface: request (1..N bounded texts, optional provider-declared dimensions, input_type query | document | unspecified refused unsupported_feature where the provider lacks it, declared provider options, dispatch identity, deadline) admitted from a core/effect declaration with local refusals before any intent; the exact UTF-8 canonical JSON command payload admitted as EffectIntent arguments is bounded 1..65,536 bytes (too_large otherwise; not an HTTP-body limit); one provider call per dispatch through the delivery/effect-intent owner; outcomes completed{embeddings [%{index, vector}], descriptor{provider, model, dimensions, dtype float32, normalization unit_l2_verified | none}, usage, provenance} | refused{credentials_unavailable | invalid_request | unsupported_feature | too_large | authentication_failed | permission_denied | throttled | overloaded | not_found} | unknown{timeout | transport | malformed_response | provider_error}; exactly one vector per input with indices exactly 0..n-1 sorted by the validated index, each of the expected dimension, finite and within float32 range, and a served model equal to the requested one, otherwise unknown{malformed_response} with no vectors; unit_l2_verified only when every vector satisfies abs(norm_l2(v) - 1) <= 1.0e-3 (fixed, not configurable), otherwise normalization none; descriptors compatible only when all five fields are equal; throttled and overloaded failed/dispatched/retryable and not redispatched by default; only credentials_unavailable is attested no-send and retried; volatile result sink; provider behaviour and conformance kit.",
+      "disposition": "implementation prepared; acceptance requires merged PR",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/integration/ai-embedding/piece.json",
+      "manifest_sha256": "d93082245446c75f6f124a696777b60b1903814a64260b1c3c66524b4c51bd72",
+      "baseline_status": "not in baseline (new row, ELZ-080)"
+    },
+    {
+      "id": "integration/ai-embedding-openai",
+      "job": "ELZ-080",
+      "note": "OpenAI embeddings provider of integration/ai-embedding through req_llm 1.30's documented provider-callback API (prepare_request(:embedding) then Req.request): POST /v1/embeddings with input always an array, encoding_format float and dimensions only when requested; req_http_options max_retries 0; one HTTP exchange with every response halted by an Elzoo step (no redirect, no retry, no req_llm decode or error value); key only from the injected Need as api_key; models text-embedding-3-small (1536, reducible 1..1536) and text-embedding-3-large (3072, reducible 1..3072); input_type unspecified only; declared provider option user; items passed on as listed for the interface's checks; usage prompt_tokens as input_uncached_tokens with cache and output :unknown; provenance with the served model and x-request-id; documented error statuses mapped to the interface's failure tags (429 throttled; 503 and, by the family rule, 529 overloaded).",
+      "disposition": "implementation prepared; acceptance requires merged PR",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/integration/ai-embedding-openai/piece.json",
+      "manifest_sha256": "bdece85e53bbcf8e50ab11a6cd6599c676bd9b46b12f7da306241ca46ee38c0f",
+      "baseline_status": "not in baseline (new row, ELZ-080)"
     },
     {
       "id": "integration/auth-policy",
