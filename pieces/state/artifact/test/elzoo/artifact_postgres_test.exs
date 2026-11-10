@@ -1,11 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 Code.require_file("../support/artifact_test_helper.exs", __DIR__)
 
-Code.require_file(
-  "../../../../integration/object-store/test/support/object_store_test_helper.exs",
-  __DIR__
-)
-
 defmodule Elzoo.ArtifactPostgresTest do
   @moduledoc """
   `state/artifact` scenarios on the ready PostgreSQL Store (ELZOO_TEST_DATABASE_URL,
@@ -17,10 +12,11 @@ defmodule Elzoo.ArtifactPostgresTest do
 
   alias Elzoo.Artifact
   alias Elzoo.Artifact.TestHelper, as: H
+  alias Elzoo.Artifact.TestHelper, as: S3
   alias Elzoo.Artifact.TestRepo
-  alias Elzoo.ObjectStoreTestHelper, as: S3
+  
 
-  defp s3?, do: Enum.all?(S3.vars(), &(System.get_env(&1) not in [nil, ""]))
+  defp s3?, do: S3.s3?()
 
   setup_all do
     {:ok, _} = TestRepo.start_link(url: H.url!())

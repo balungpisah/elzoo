@@ -1,11 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 Code.require_file("../support/artifact_test_helper.exs", __DIR__)
 
-Code.require_file(
-  "../../../../integration/object-store/test/support/object_store_test_helper.exs",
-  __DIR__
-)
-
 defmodule Elzoo.ArtifactTest do
   @moduledoc """
   `state/artifact` scenarios on the volatile Memory Store double and the
@@ -18,7 +13,7 @@ defmodule Elzoo.ArtifactTest do
   alias Elzoo.Artifact
   alias Elzoo.Artifact.{Record, TestClock}
   alias Elzoo.Artifact.TestHelper, as: H
-  alias Elzoo.ObjectStoreTestHelper, as: S3
+  alias Elzoo.Artifact.TestHelper, as: S3
 
   @cure :"Cure.Elzoo.Artifact"
   @source File.read!(Path.expand("../../cure/elzoo/artifact.cure", __DIR__))
@@ -36,7 +31,7 @@ defmodule Elzoo.ArtifactTest do
     |> Kernel.+(1)
   end
 
-  defp s3?, do: Enum.all?(S3.vars(), &(System.get_env(&1) not in [nil, ""]))
+  defp s3?, do: S3.s3?()
 
   defp memory(opts \\ []) do
     object_store =

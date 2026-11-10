@@ -81,16 +81,147 @@ defmodule Elzoo.Artifact.TestHelper do
     }
   end
 
-  # ── a fake ObjectStore binding over a function ────────────────────────
+  # ── object-store bindings: disposable MinIO or loopback stubs ──────────
   #
-  # The Contract permits loopback stubs. `fake_object_store/1` builds a
-  # %Elzoo.ObjectStore.Config{} whose endpoint is a loopback stub; finer
-  # control uses `stub_object_store/1` with canned behaviour through the
-  # process dictionary is NOT used — instead the tests go through the real
-  # Adapter against an in-memory stub server or the recorded stub script.
+  # Vendored from integration/object-store's test support so the bundle is
+  # self-contained in the copied consumer layout (no cross-piece require).
 
-  def config!(port, opts \\ []),
-    do: Elzoo.ObjectStoreTestHelper.stub_config(port, opts)
+  @s3_vars ~w(ELZOO_TEST_S3_URL ELZOO_TEST_S3_BUCKET ELZOO_TEST_S3_ACCESS_KEY_ID ELZOO_TEST_S3_SECRET_ACCESS_KEY ELZOO_TEST_S3_REGION)
+
+  def s3_vars, do: @s3_vars
+
+  def s3?, do: Enum.all?(@s3_vars, &(System.get_env(&1) not in [nil, ""]))
+
+  defp s3_env, do: Map.new(@s3_vars, &{&1, System.get_env(&1)})
+
+  def secret!, do: s3_env()["ELZOO_TEST_S3_SECRET_ACCESS_KEY"]
+
+  def config!(overrides \\ []) do
+    e = s3_env()
+
+    {:ok, c} =
+      Elzoo.ObjectStore.new(
+        Keyword.merge(
+          [
+            store_id: "test-minio",
+            endpoint: e["ELZOO_TEST_S3_URL"],
+            bucket: e["ELZOO_TEST_S3_BUCKET"],
+            region: e["ELZOO_TEST_S3_REGION"],
+            credentials: fn ->
+              {:ok,
+               %{
+                 access_key_id: e["ELZOO_TEST_S3_ACCESS_KEY_ID"],
+                 secret_access_key: e["ELZOO_TEST_S3_SECRET_ACCESS_KEY"]
+               }}
+            end
+          ],
+          overrides
+        )
+      )
+
+    c
+  end
+
+  @doc "A config pointing at a loopback stub (fake credential; never the test server's)."
+  def stub_config(port, overrides \\ []) do
+    {:ok, c} =
+      Elzoo.ObjectStore.new(
+        Keyword.merge(
+          [
+            store_id: "stub",
+            endpoint: "http://127.0.0.1:#{port}",
+            bucket: "stub-bucket",
+            region: "us-east-1",
+            credentials: fn ->
+              {:ok, %{access_key_id: "STUBKEYID", secret_access_key: "stub-secret-value"}}
+            end
+          ],
+          overrides
+        )
+      )
+
+    c
+  end
+
+  @doc "A loopback port with nothing listening (bound, then closed)."
+  def closed_port do
+    {:ok, s} = :gen_tcp.listen(0, ip: {127, 0, 0, 1})
+    {:ok, port} = :inet.port(s)
+    :gen_tcp.close(s)
+    port
+  end
+
+  @doc """
+  A one-shot loopback server. `mode`: `{:reply, raw_response}` reads the
+  request head (and the declared body) and answers; `:silent` reads and never
+  answers. Returns `{port, ref}`.
+  """
+  def stub(mode) do
+    ref = make_ref()
+
+    {:ok, listen} =
+      :gen_tcp.listen(0, [:binary, active: false, reuseaddr: true, ip: {127, 0, 0, 1}])
+
+    {:ok, port} = :inet.port(listen)
+
+    spawn(fn -> stub_accept(listen, mode) end)
+    |> then(&:gen_tcp.controlling_process(listen, &1))
+
+    {port, ref}
+  end
+
+  defp stub_accept(listen, mode) do
+    case :gen_tcp.accept(listen, 30_000) do
+      {:ok, socket} ->
+        spawn(fn -> stub_serve(socket, mode) end)
+        |> then(&:gen_tcp.controlling_process(socket, &1))
+
+        stub_accept(listen, mode)
+
+      _ ->
+        :gen_tcp.close(listen)
+    end
+  end
+
+  defp stub_serve(socket, {:reply, response}) do
+    _ = stub_read(socket)
+    :gen_tcp.send(socket, response)
+    :gen_tcp.close(socket)
+  end
+
+  defp stub_serve(socket, :silent) do
+    _ = stub_read(socket)
+    Process.sleep(60_000)
+    :gen_tcp.close(socket)
+  end
+
+  defp stub_read(socket, acc \\ "") do
+    case :binary.split(acc, "\r\n\r\n") do
+      [head, body] ->
+        length =
+          case Regex.run(~r/\r\ncontent-length:\s*(\d+)/i, head) do
+            [_, n] -> String.to_integer(n)
+            _ -> 0
+          end
+
+        stub_body(socket, byte_size(body), length)
+
+      [_] ->
+        case :gen_tcp.recv(socket, 0, 10_000) do
+          {:ok, data} -> stub_read(socket, acc <> data)
+          _ -> :ok
+        end
+    end
+  end
+
+  defp stub_body(_socket, have, want) when have >= want, do: :ok
+
+  defp stub_body(socket, have, want) do
+    case :gen_tcp.recv(socket, 0, 10_000) do
+      {:ok, data} -> stub_body(socket, have + byte_size(data), want)
+      _ -> :ok
+    end
+  end
 
   # ── PostgreSQL ──────────────────────────────────────────────────────
 
