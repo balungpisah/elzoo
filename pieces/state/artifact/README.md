@@ -73,8 +73,10 @@ caller, artifact_id)`, `status(art, caller, %{artifact_id, version})`.
 
 One Store stream `artifact/<tenant>/<artifact_id>` per artifact holds
 self-contained `:non_state_bearing` records under head-revision CAS:
-`artifact_staged` (the full version record), `artifact_committed` and
-`artifact_deleted` (state markers). A second stream
+`artifact_staged`, `artifact_committed` and `artifact_deleted` each carry
+the *full* version record plus its resulting `state`/`state_at`, so any
+single surviving row rebuilds its version whole — Store prefix retention
+cannot orphan a marker into a lost version. A second stream
 `artifact-index/<tenant>` holds `artifact_index` entries appended
 best-effort on every `stage` and deduplicated at read.
 
@@ -128,14 +130,46 @@ tenant-scoped stream makes structural — plus the recorded terms for
 `delete`. A content hash never grants access. Cross-tenant `artifact_id`
 lookup returns `:not_found`, never `:access_denied`.
 
+**Appending to an artifact with a committed head enforces that head's
+recorded terms.** `new_version` checks the gate before staging anything;
+`commit` re-checks it before every `staging → committed` transition, so a
+caller denied by the current head cannot append a new head through `put`,
+`new_version` or a manual `stage`+`commit`. With no committed head there is
+no access face yet — appends follow the base tenant rule and the first
+commit establishes the face. A caller who passes the head's terms may
+declare the new version's `access` freely: narrowing or widening is the
+caller's own declaration (widening policy beyond the recorded terms is
+consumer-owned; the identity is vouched, not authenticated). `stage`
+itself stays tenant-scoped — a staging record never becomes a head without
+passing the gate, and it expires through `staging_ttl_ms`/`reap`.
+
+`versions` enforces the head's (or latest record's) terms first, then
+filters *each* returned record by its own recorded terms and expiry —
+versions the caller may not access are omitted entirely, the same rule
+`list` applies to denied heads; their terms, keys and metadata are never
+disclosed.
+
 Results: `{:ok, value}` or `{:error, reason}` with `reason ∈ :not_found |
 :access_denied | :expired | :deleted | :too_large | :invalid | {:invalid,
 field} | {:integrity_mismatch, info} | {:commit_failed, info} |
 :staging_expired | :store_unavailable | :caller_transaction |
-{:object_store_refused, reason} | :object_store_absent |
-{:object_store_unknown, reason}`. Object-store `unknown` outcomes are
-never converted to absent and never blind-retried; `reconcile_put`/`commit`
-resolves them by verification.
+{:store_damaged, info} | {:object_store_refused, reason} |
+{:object_store_absent} | {:object_store_unknown, reason}`. Object-store
+`unknown` outcomes are never converted to absent and never blind-retried;
+`reconcile_put`/`commit` resolves them by verification.
+
+`{:store_damaged, info}` is the fail-closed answer to unreadable persisted
+state: `info` is `:incomplete_prefix` when Store prefix retention left a
+detectable gap in `1..max_version` coverage (versions allocate contiguously
+and the self-contained rows keep every surviving version whole, so a fully
+retained version is the only loss shape and it always leaves a gap), or
+`%{count, first}` naming the earliest fold diagnostic
+(`{:unreadable, seq}`, `{:inconsistent_version, v}`,
+`{:illegal_transition, v}`) when an artifact or index row cannot be
+decoded, disagrees with its version's immutable fields or breaks a legal
+state edge. Reads, staging, version allocation and `list` treat damaged
+state as a typed failure — never as absent, never as a valid filtered
+page.
 
 `new_version` requires at least one recorded version (any state) of the
 artifact, else `:not_found`; `put` allocates `max_version + 1` (`v1` for a
@@ -143,8 +177,14 @@ new artifact). `delete` applies to committed versions, `abort` to staging
 — a wrong state is `{:error, {:invalid, :state}}`. `reap` is caller-driven
 only: records past `access_expires_at` or `retain_until`, and staging past
 `staging_ttl_ms`, move to `:deleted` and their bytes are deleted
-best-effort and reported. `media_type` is a bounded opaque tag (UTF-8, no
-NUL, ≤ 256 bytes, default `application/octet-stream`).
+best-effort and reported. Every already-`:deleted` version's bytes are
+then deletion-attempted again under `cleanup` in the result — the durable
+`:deleted` state is the tracked obligation, so a `:refused`/`:unknown`
+object delete on `abort`/`delete`/`reap` is retried by the next `reap`
+(`:absent`/`:deleted` confirms cleanup, `:refused`/`:unknown` stays
+honestly pending); there is no background process. `media_type` is a
+bounded opaque tag (UTF-8, no NUL, ≤ 256 bytes, default
+`application/octet-stream`).
 
 ## Operations and limits
 
@@ -167,10 +207,15 @@ Limits: no atomic object+record commit (impossible across the two
 boundaries — staging/orphan states are the honest answer and `status`
 exposes them); no presigned-URL lifecycle management, malware scanning,
 streaming upload (single-shot `put`), cross-store replication or
-cross-tenant sharing; the tenant index is best-effort; Memory is volatile
-test evidence only; PostgreSQL durability/fsync is the provider's
-contract; `list` pages re-read the index stream (bounded per call by
-index size).
+cross-tenant sharing; the tenant index is best-effort; Store prefix
+retention is tolerated only through the self-contained rows — a version
+whose every row was retained is undetectable except as a `1..max_version`
+gap, which fails closed as `{:store_damaged, :incomplete_prefix}` rather
+than risking version-number reuse; `list` propagates any storage or
+damage failure as an error — a storage failure never looks like a valid
+filtered page; Memory is volatile test evidence only; PostgreSQL
+durability/fsync is the provider's contract; `list` pages re-read the
+index stream (bounded per call by index size).
 
 ## Evidence and grounding
 

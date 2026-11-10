@@ -471,4 +471,255 @@ defmodule Elzoo.ArtifactTest do
     assert apply(cure, :step, [:VDeleted, :EvCommit]) == :RefuseDeleted
     assert apply(cure, :step, [:VCommitted, :EvCommit]) == {:GoTo, :VCommitted}
   end
+
+  # ── review fixes: append gate, per-version filtering, retention, damage,
+  #    cleanup retry and list propagation (FakeS3 + Memory Store) ────────
+
+  defp fake_memory do
+    {config, pid} = H.fake_s3()
+    {H.memory(object_store: config), pid}
+  end
+
+  test "L20 new_version and commit enforce the committed head's recorded access" do
+    {m, _pid} = fake_memory()
+    %{art: art} = m
+    t = "t-#{id("t")}"
+    owner = caller(t, principal: "alice", scopes: ["read"])
+    denied = caller(t, principal: "mallory", scopes: ["read"])
+    aid = id("art")
+
+    access = %{tenant: t, principals: ["alice"], scopes: ["read"]}
+    assert {:ok, _} = Artifact.put(art, caller(t), aid, H.input("v1", access: access))
+
+    # the early gate refuses before any byte is staged
+    assert {:error, :access_denied} = Artifact.new_version(art, denied, aid, H.input("evil"))
+    assert {:ok, %{version: 1}} = Artifact.head(art, owner, aid)
+
+    # the hard gate at commit covers the manual stage+commit bypass
+    assert {:ok, staged} = Artifact.stage(art, denied, aid, H.input("evil"))
+    assert staged.state == :staging and staged.version == 2
+    assert {:error, :access_denied} = Artifact.commit(art, denied, aid, 2)
+    assert {:ok, %{version: 1, state: :committed}} = Artifact.head(art, owner, aid)
+
+    # the head-authorized caller appends; the orphaned staging keeps v2, so
+    # the new head is v3 — version numbers are never reused
+    assert {:ok, %{version: 3}} = Artifact.new_version(art, owner, aid, H.input("v3"))
+    assert {:ok, %{version: 3}} = Artifact.head(art, owner, aid)
+  end
+
+  test "L21 an expired committed head gates appends with :expired" do
+    {m, _pid} = fake_memory()
+    %{art: art, clock: clock} = m
+    t = "t-#{id("t")}"
+    c = caller(t)
+    aid = id("art")
+
+    assert {:ok, _} =
+             Artifact.put(art, c, aid, H.input("v1", access_expires_at: H.epoch() + 500))
+
+    assert {:ok, staged} = Artifact.stage(art, c, aid, H.input("v2"))
+    TestClock.advance(clock, 1_000)
+
+    assert {:error, :expired} = Artifact.new_version(art, c, aid, H.input("v3"))
+    assert {:error, :expired} = Artifact.commit(art, c, aid, staged.version)
+    assert {:error, :expired} = Artifact.head(art, c, aid)
+  end
+
+  test "L22 versions filters each record by its own recorded terms" do
+    {m, _pid} = fake_memory()
+    %{art: art} = m
+    t = "t-#{id("t")}"
+    aid = id("art")
+    alice = caller(t, principal: "alice", scopes: ["read"])
+    bob = caller(t, principal: "bob", scopes: ["read"])
+
+    # v1 is alice-only; v2 — committed by alice, the head-authorized caller —
+    # widens to alice+bob under the documented rule
+    assert {:ok, _} =
+             Artifact.put(
+               art,
+               caller(t),
+               aid,
+               H.input("v1", access: %{tenant: t, principals: ["alice"], scopes: ["read"]})
+             )
+
+    assert {:ok, %{version: 2}} =
+             Artifact.new_version(
+               art,
+               alice,
+               aid,
+               H.input("v2", access: %{tenant: t, principals: ["alice", "bob"], scopes: ["read"]})
+             )
+
+    assert {:ok, [v1, v2]} = Artifact.versions(art, alice, aid)
+    assert v1.version == 1 and v2.version == 2
+
+    # bob passes the head gate; v1's own terms deny him and it is omitted
+    # entirely — terms, keys and metadata are never disclosed
+    assert {:ok, [only]} = Artifact.versions(art, bob, aid)
+    assert only.version == 2
+    assert {:error, :access_denied} = Artifact.get(art, bob, aid, 1)
+    assert {:ok, %{bytes: "v2"}} = Artifact.get(art, bob, aid, 2)
+  end
+
+  test "L23 self-contained rows survive prefix retention; a retained version fails closed" do
+    {m, _pid} = fake_memory()
+    %{art: art, store: store} = m
+    t = "t-#{id("t")}"
+    c = caller(t)
+    aid = id("art")
+    stream = Record.stream(t, aid)
+
+    assert {:ok, _} = Artifact.put(art, c, aid, H.input("one"))
+    assert {:ok, _} = Artifact.put(art, c, aid, H.input("two"))
+    # stream rows: 1 staged v1, 2 committed v1, 3 staged v2, 4 committed v2
+
+    H.checkpoint(store, stream)
+    H.retain!(store, stream, 1)
+
+    # the staged v1 row is gone; v1 rebuilds whole from its committed row
+    assert {:ok, %{version: 2}} = Artifact.head(art, c, aid)
+    assert {:ok, [%{version: 1}, %{version: 2}]} = Artifact.versions(art, c, aid)
+    assert {:ok, %{bytes: "one"}} = Artifact.get(art, c, aid, 1)
+
+    H.retain!(store, stream, 2)
+
+    # every v1 row is retained: the fold is a partial view and must fail
+    # closed on every path, never treated as absent or reused
+    for op <- [
+          Artifact.head(art, c, aid),
+          Artifact.get(art, c, aid, 2),
+          Artifact.versions(art, c, aid),
+          Artifact.status(art, c, %{artifact_id: aid, version: 2})
+        ] do
+      assert {:error, {:store_damaged, :incomplete_prefix}} = op
+    end
+
+    assert {:error, {:store_damaged, :incomplete_prefix}} =
+             Artifact.stage(art, c, aid, H.input("three"))
+
+    assert {:error, {:store_damaged, :incomplete_prefix}} =
+             Artifact.new_version(art, c, aid, H.input("three"))
+  end
+
+  test "L24 an unreadable persisted row fails every operation closed" do
+    {m, _pid} = fake_memory()
+    %{art: art, store: store} = m
+    t = "t-#{id("t")}"
+    c = caller(t)
+    aid = id("art")
+    stream = Record.stream(t, aid)
+
+    assert {:ok, _} = Artifact.put(art, c, aid, H.input("data"))
+
+    # corrupt the committed row's payload: its digest no longer matches
+    :ok = H.corrupt_row(store, stream, 2, %{payload: "corrupted-payload"})
+
+    for op <- [
+          Artifact.head(art, c, aid),
+          Artifact.get(art, c, aid, 1),
+          Artifact.versions(art, c, aid),
+          Artifact.status(art, c, %{artifact_id: aid, version: 1})
+        ] do
+      assert {:error, {:store_damaged, %{first: {:unreadable, 2}}}} = op
+    end
+
+    # staging and version allocation must not treat damaged state as absent
+    assert {:error, {:store_damaged, %{first: {:unreadable, 2}}}} =
+             Artifact.stage(art, c, aid, H.input("next"))
+
+    assert {:error, {:store_damaged, %{first: {:unreadable, 2}}}} =
+             Artifact.new_version(art, c, aid, H.input("next"))
+  end
+
+  test "L25 failed object deletion is retried by reap's cleanup sweep" do
+    {m, pid} = fake_memory()
+    %{art: art, object_store: os} = m
+    t = "t-#{id("t")}"
+    c = caller(t)
+
+    # :refused on delete leaves bytes behind; reap's sweep retries them
+    aid1 = id("art")
+    assert {:ok, r1} = Artifact.put(art, c, aid1, H.input("one"))
+    H.fake_fail(pid, :delete, 403)
+
+    assert {:ok, %{record: %{state: :deleted}, object: :refused}} =
+             Artifact.delete(art, c, aid1, 1)
+
+    assert %{status: :found} = Elzoo.ObjectStore.head(os, r1.object_key)
+
+    H.fake_heal(pid)
+
+    assert {:ok, %{reaped: [], object: %{}, cleanup: %{1 => :deleted}}} =
+             Artifact.reap(art, c, aid1)
+
+    assert %{status: :absent} = Elzoo.ObjectStore.head(os, r1.object_key)
+
+    # :unknown retries the same way through abort
+    aid2 = id("art")
+    assert {:ok, s2} = Artifact.stage(art, c, aid2, H.input("two"))
+    H.fake_fail(pid, :delete, 500)
+
+    assert {:ok, %{record: %{state: :deleted}, object: :unknown}} =
+             Artifact.abort(art, c, %{artifact_id: aid2, version: 1})
+
+    assert %{status: :found} = Elzoo.ObjectStore.head(os, s2.object_key)
+
+    H.fake_heal(pid)
+
+    assert {:ok, %{reaped: [], cleanup: %{1 => :deleted}}} = Artifact.reap(art, c, aid2)
+    assert %{status: :absent} = Elzoo.ObjectStore.head(os, s2.object_key)
+  end
+
+  test "L26 list propagates storage failures instead of returning a partial page" do
+    {m, _pid} = fake_memory()
+    %{art: art, store: store} = m
+    t = "t-#{id("t")}"
+    c = caller(t)
+
+    aid_ok = id("art")
+    aid_bad = id("art")
+    assert {:ok, _} = Artifact.put(art, c, aid_ok, H.input("ok"))
+    assert {:ok, _} = Artifact.put(art, c, aid_bad, H.input("bad"))
+
+    # a damaged artifact stream fails the whole page, never a skipped entry
+    :ok = H.corrupt_row(store, Record.stream(t, aid_bad), 2, %{payload: "corrupted"})
+    assert {:error, {:store_damaged, %{first: {:unreadable, 2}}}} = Artifact.list(art, c, 10, nil)
+  end
+
+  test "L27 a damaged index row or unavailable store fails list closed" do
+    {m, _pid} = fake_memory()
+    %{art: art, store: store} = m
+    t = "t-#{id("t")}"
+    c = caller(t)
+    aid = id("art")
+    assert {:ok, _} = Artifact.put(art, c, aid, H.input("data"))
+
+    # a row of an unrelated kind on the index stream is ignored
+    index_stream = Record.index_stream(t)
+    {:ok, head} = Elzoo.DurableLog.Store.read(store, :head, [index_stream])
+
+    {:ok, rows, request} =
+      Record.rows(index_stream, head.revision, [{"added", 1, ~s({"n":1})}], H.fold(), H.limits())
+
+    {:committed, _} =
+      Elzoo.DurableLog.Store.write(store, :append, [index_stream, head.revision, rows, []], request)
+
+    assert {:ok, %{entries: [%{artifact_id: ^aid}]}} = Artifact.list(art, c, 10, nil)
+
+    # corrupt the tenant index row itself
+    :ok = H.corrupt_row(store, index_stream, 1, %{payload: "corrupted"})
+    assert {:error, {:store_damaged, _}} = Artifact.list(art, c, 10, nil)
+  end
+
+  test "L28 an unavailable store fails list with :store_unavailable" do
+    {m, _pid} = fake_memory()
+    %{art: art, store: store} = m
+    t = "t-#{id("t")}"
+    c = caller(t)
+    assert {:ok, _} = Artifact.put(art, c, id("art"), H.input("data"))
+
+    :ok = Elzoo.DurableLog.Memory.fault(store, :read, :unavailable)
+    assert {:error, :store_unavailable} = Artifact.list(art, c, 10, nil)
+  end
 end

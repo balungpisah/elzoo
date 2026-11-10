@@ -229,7 +229,7 @@ defmodule Elzoo.Artifact do
             state: :staging
           }
 
-          payload_size = byte_size(Record.staged_payload(rec))
+          payload_size = byte_size(Record.payload(rec))
 
           if payload_size > art.limits.max_record_bytes do
             {:error, :too_large}
@@ -246,7 +246,7 @@ defmodule Elzoo.Artifact do
 
   defp stage_record(art, view, rec) do
     case append(art, view.stream, view.head.revision, [
-           {Record.staged(), Record.version(), Record.staged_payload(rec)}
+           {Record.staged(), Record.version(), Record.payload(rec)}
          ]) do
       {:committed, _} ->
         index(art, rec.tenant, rec.artifact_id, rec.created_at)
@@ -284,11 +284,34 @@ defmodule Elzoo.Artifact do
           {:error, :staging_expired}
 
         true ->
-          case verify(art, rec) do
-            :ok -> commit_record(art, view, rec, now)
-            {:error, _} = failure -> failure
+          case append_gate(view.folded.head, caller, now) do
+            :ok ->
+              case verify(art, rec) do
+                :ok -> commit_record(art, view, rec, now)
+                {:error, _} = failure -> failure
+              end
+
+            {:error, _} = failure ->
+              failure
           end
       end
+    end
+  end
+
+  # Promoting a staging version on an artifact that already has a committed
+  # head requires passing that head's recorded access terms and
+  # `access_expires_at` — the same rule as reads, so a caller denied by the
+  # current head cannot append a new head through any path (`put`,
+  # `new_version` or a manual stage+commit). The first committed head is
+  # ungated creation: there is no prior access face to enforce. `stage`
+  # itself stays tenant-scoped only — a staging record never becomes a head
+  # without passing this gate, and it expires through `staging_ttl_ms`/`reap`.
+  defp append_gate(nil, _caller, _now), do: :ok
+
+  defp append_gate(head, caller, now) do
+    case access(head, caller, now) do
+      {:ok, _} -> :ok
+      {:error, _} = failure -> failure
     end
   end
 
@@ -358,6 +381,19 @@ defmodule Elzoo.Artifact do
   input, opts \\ [])` — the same as `put` on an existing `artifact_id`
   (at least one recorded version, any state), `version = max + 1`; otherwise
   `:not_found`.
+
+  Appending to an artifact that already has a committed head enforces that
+  head's recorded access terms and `access_expires_at` — the same rule as
+  reads. A caller denied by the head gets its typed failure and cannot
+  append through any path: `commit` re-checks the gate before every
+  `staging → committed` transition (covering manual `stage`+`commit` and
+  `put`), so the early check here only fails faster. With no committed
+  head there is no access face yet and appends follow the base mutation
+  rule (tenant equality) — the first commit establishes the face. The new
+  version's declared `access` is the caller's own declaration: a caller
+  who passed the head's terms may narrow or widen them (widening policy
+  beyond the recorded terms is consumer-owned; the presented identity is
+  consumer-vouched attribution, not authentication).
   """
   def new_version(art, caller, artifact_id, input, opts \\ []) do
     with :ok <- check_caller(caller), :ok <- check_segment(:artifact_id, artifact_id) do
@@ -366,9 +402,14 @@ defmodule Elzoo.Artifact do
           {:error, reason}
 
         {:ok, view} ->
-          if view.folded.max_version >= 1,
-            do: put(art, caller, artifact_id, input, opts),
-            else: {:error, :not_found}
+          if view.folded.max_version >= 1 do
+            case append_gate(view.folded.head, caller, art.clock.()) do
+              :ok -> put(art, caller, artifact_id, input, opts)
+              {:error, _} = failure -> failure
+            end
+          else
+            {:error, :not_found}
+          end
       end
     end
   end
@@ -467,7 +508,10 @@ defmodule Elzoo.Artifact do
   and `access_expires_at` (denied or expired entries are omitted; staging or
   fully deleted artifacts are not listed). `cursor` is `nil` (from the
   start) or a previously returned `next_cursor`; the index is best-effort —
-  its consistency with commits is documented, not guaranteed.
+  its consistency with commits is documented, not guaranteed. A storage
+  failure while loading an indexed artifact's stream fails the whole page
+  with the typed error — a storage failure never looks like a valid
+  filtered page.
   """
   def list(art, caller, limit, cursor) do
     with :ok <- check_caller(caller),
@@ -480,17 +524,26 @@ defmodule Elzoo.Artifact do
           now = art.clock.()
           offset = cursor || 0
 
-          entries =
+          results =
             ids
             |> Enum.drop(offset)
             |> Enum.take(limit)
             |> Enum.map(&list_entry(art, caller, &1, now))
-            |> Enum.filter(&match?({:ok, _}, &1))
-            |> Enum.map(fn {:ok, entry} -> entry end)
 
-          next = if offset + limit < length(ids), do: offset + limit, else: nil
+          case Enum.find(results, &match?({:error, _}, &1)) do
+            nil ->
+              entries =
+                results
+                |> Enum.filter(&match?({:ok, _}, &1))
+                |> Enum.map(fn {:ok, entry} -> entry end)
 
-          {:ok, %{entries: entries, cursor: next}}
+              next = if offset + limit < length(ids), do: offset + limit, else: nil
+
+              {:ok, %{entries: entries, cursor: next}}
+
+            {:error, reason} ->
+              {:error, reason}
+          end
       end
     end
   end
@@ -506,16 +559,20 @@ defmodule Elzoo.Artifact do
           {:error, _} -> :skip
         end
 
-      _ ->
-        :skip
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
   @doc """
-  `versions/2` of the Contract: `versions(art, caller, artifact_id)`. Every
-  recorded version of the artifact, sorted ascending, after enforcing the
+  `versions/2` of the Contract: `versions(art, caller, artifact_id)`. The
+  recorded versions of the artifact, sorted ascending, after enforcing the
   head record's (or the latest record's, when nothing is committed) access
-  terms and `access_expires_at`.
+  terms and `access_expires_at` — then filtered again per version: each
+  returned record must satisfy *its own* recorded terms and expiry against
+  the caller. Versions the caller may not access are omitted entirely
+  (their terms, keys and metadata are never disclosed), the same rule
+  `list/4` applies to denied heads.
   """
   def versions(art, caller, artifact_id) do
     with :ok <- check_caller(caller),
@@ -527,8 +584,19 @@ defmodule Elzoo.Artifact do
 
         rec ->
           case access(rec, caller, art.clock.()) do
-            {:ok, _} -> {:ok, view.folded.versions |> Map.values() |> Enum.sort_by(& &1.version)}
-            {:error, _} = failure -> failure
+            {:ok, _} ->
+              now = art.clock.()
+
+              visible =
+                view.folded.versions
+                |> Map.values()
+                |> Enum.sort_by(& &1.version)
+                |> Enum.filter(&match?({:ok, _}, access(&1, caller, now)))
+
+              {:ok, visible}
+
+            {:error, _} = failure ->
+              failure
           end
       end
     end
@@ -572,8 +640,13 @@ defmodule Elzoo.Artifact do
   `reap/2` of the Contract: `reap(art, caller, artifact_id)`. Records past
   `access_expires_at` or `retain_until`, and staging records past
   `staging_ttl_ms`, move to `:deleted` (one CAS batch) and their bytes are
-  deleted best-effort and reported. Caller-driven only — no background
-  process. `caller.tenant` must equal the artifact's tenant.
+  deleted best-effort and reported. Every already-`:deleted` version's
+  bytes are then deletion-attempted again (`cleanup`): a `:refused` or
+  `:unknown` outcome on an earlier `abort`/`delete`/`reap` leaves a
+  retryable obligation that only this sweep revisits — `:absent`/`:deleted`
+  confirms cleanup, `:refused`/`:unknown` stays honestly pending for the
+  next `reap`. Caller-driven only — no background process.
+  `caller.tenant` must equal the artifact's tenant.
   """
   def reap(art, caller, artifact_id) do
     with :ok <- check_caller(caller),
@@ -587,43 +660,52 @@ defmodule Elzoo.Artifact do
         |> Enum.filter(&due?(&1, now, art.staging_ttl_ms))
         |> Enum.sort_by(& &1.version)
 
-      case due do
-        [] ->
-          {:ok, %{reaped: [], object: %{}}}
-
-        _ ->
-          # One CAS batch per max_batch_size chunk, chaining the expected
-          # revision through our own commits; a conflict stops the sweep and
-          # is reported honestly with what was already reaped.
-          {reaped, interruption} =
-            due
-            |> Enum.chunk_every(art.limits.max_batch_size)
-            |> Enum.reduce_while({[], view.head.revision, nil}, fn batch, {acc, expected, _} ->
-              specs =
-                Enum.map(batch, fn rec ->
-                  {Record.deleted(), Record.version(),
-                   Record.marker_payload(Record.deleted(), artifact_id, rec.version, now)}
-                end)
-
-              case append(art, view.stream, expected, specs) do
-                {:committed, target} -> {:cont, {acc ++ batch, target, nil}}
-                {:error, _} = failure -> {:halt, {acc, expected, failure}}
-              end
-            end)
-            |> then(fn {committed_recs, _expected, failure} -> {committed_recs, failure} end)
-
-          object_results =
-            Map.new(reaped, fn rec ->
-              outcome = delete_object(art, rec.object_key)
-              Telemetry.deleted(rec, :reap, outcome)
-              {rec.version, outcome}
+      # One CAS batch per max_batch_size chunk, chaining the expected
+      # revision through our own commits; a conflict stops the sweep and
+      # is reported honestly with what was already reaped.
+      {reaped, interruption} =
+        due
+        |> Enum.chunk_every(art.limits.max_batch_size)
+        |> Enum.reduce_while({[], view.head.revision, nil}, fn batch, {acc, expected, _} ->
+          specs =
+            Enum.map(batch, fn rec ->
+              deleted = %{rec | state: :deleted, state_at: now}
+              {Record.deleted(), Record.version(), Record.payload(deleted)}
             end)
 
-          result = %{reaped: Enum.map(reaped, & &1.version), object: object_results}
-          result = if interruption, do: Map.put(result, :interrupted, interruption), else: result
+          case append(art, view.stream, expected, specs) do
+            {:committed, target} -> {:cont, {acc ++ batch, target, nil}}
+            {:error, _} = failure -> {:halt, {acc, expected, failure}}
+          end
+        end)
+        |> then(fn {committed_recs, _expected, failure} -> {committed_recs, failure} end)
 
-          {:ok, result}
-      end
+      reaped_versions = MapSet.new(reaped, & &1.version)
+
+      object_results =
+        Map.new(reaped, fn rec ->
+          outcome = delete_object(art, rec.object_key)
+          Telemetry.deleted(rec, :reap, outcome)
+          {rec.version, outcome}
+        end)
+
+      cleanup_results =
+        view.folded.versions
+        |> Map.values()
+        |> Enum.reject(&(&1.state != :deleted or MapSet.member?(reaped_versions, &1.version)))
+        |> Map.new(fn rec ->
+          {rec.version, delete_object(art, rec.object_key)}
+        end)
+
+      result = %{
+        reaped: Enum.map(reaped, & &1.version),
+        object: object_results,
+        cleanup: cleanup_results
+      }
+
+      result = if interruption, do: Map.put(result, :interrupted, interruption), else: result
+
+      {:ok, result}
     end
   end
 
@@ -724,12 +806,13 @@ defmodule Elzoo.Artifact do
 
     case apply(@cure, :step, [state_tag(rec.state), cure_event]) do
       {:GoTo, next} ->
+        transitioned = %{rec | state: state_name(next), state_at: now}
+
         case append(art, view.stream, view.head.revision, [
-               {kind, Record.version(),
-                Record.marker_payload(kind, rec.artifact_id, rec.version, now)}
+               {kind, Record.version(), Record.payload(transitioned)}
              ]) do
           {:committed, _} ->
-            {:ok, %{rec | state: state_name(next), state_at: now}}
+            {:ok, transitioned}
 
           {:error, _} = failure ->
             failure
@@ -881,13 +964,32 @@ defmodule Elzoo.Artifact do
 
     with {:ok, head} <- store_head(art, stream),
          {:ok, rows} <- store_rows(art, stream, head.low_water + 1, head.revision) do
-      {:ok,
-       %{
-         stream: stream,
-         head: head,
-         folded: Record.fold(rows, fold_with_limits(art))
-       }}
+      folded = Record.fold(rows, fold_with_limits(art))
+
+      case check_fold(folded, head.low_water) do
+        :ok -> {:ok, %{stream: stream, head: head, folded: folded}}
+        {:error, _} = failure -> failure
+      end
     end
+  end
+
+  # Fail closed on persisted damage: an unreadable/inconsistent artifact row
+  # means the fold is a partial view, and a non-contiguous `1..max_version`
+  # coverage means Store prefix retention removed whole versions (the
+  # self-contained rows keep surviving versions whole, but a fully retained
+  # version is undetectable except as a gap). Neither may be treated as
+  # absent — reads, staging and version allocation would silently reuse
+  # state. `{:store_damaged, info}` is the typed failure; `info.first` is
+  # the earliest damage diagnostic `{:unreadable, seq}`,
+  # `{:inconsistent_version, v}` or `{:illegal_transition, v}`.
+  defp check_fold(%{damage: []} = folded, low_water) do
+    if Record.complete?(folded, low_water),
+      do: :ok,
+      else: {:error, {:store_damaged, :incomplete_prefix}}
+  end
+
+  defp check_fold(%{damage: damage}, _low_water) do
+    {:error, {:store_damaged, %{count: length(damage), first: List.last(damage)}}}
   end
 
   defp fold_with_limits(art),
@@ -949,30 +1051,37 @@ defmodule Elzoo.Artifact do
   end
 
   # All visible `artifact_index` rows of the tenant, deduplicated by
-  # artifact_id in stream order; unreadable rows are skipped.
+  # artifact_id in stream order. Rows of other kinds are ignored; a corrupt
+  # index row fails the read — `list` must never return a successful page
+  # built on an incomplete id set.
   defp index_rows(art, tenant) do
     stream = Record.index_stream(tenant)
     fold = fold_with_limits(art)
 
     with {:ok, head} <- store_head(art, stream),
          {:ok, rows} <- store_rows(art, stream, head.low_water + 1, head.revision) do
-      ids =
-        rows
-        |> Enum.reduce({[], MapSet.new()}, fn row, {acc, seen} ->
+      result =
+        Enum.reduce_while(rows, {:ok, {[], MapSet.new()}}, fn row, {:ok, {acc, seen}} ->
           case Record.index_event(row, fold) do
             {:index, id, _at} ->
               if MapSet.member?(seen, id),
-                do: {acc, seen},
-                else: {[id | acc], MapSet.put(seen, id)}
+                do: {:cont, {:ok, {acc, seen}}},
+                else: {:cont, {:ok, {[id | acc], MapSet.put(seen, id)}}}
+
+            :foreign ->
+              {:cont, {:ok, {acc, seen}}}
 
             :unreadable ->
-              {acc, seen}
+              {:halt,
+               {:error,
+                {:store_damaged, %{count: 1, first: {:unreadable, Map.get(row, :sequence)}}}}}
           end
         end)
-        |> elem(0)
-        |> Enum.reverse()
 
-      {:ok, ids}
+      case result do
+        {:ok, {ids, _seen}} -> {:ok, ids |> Enum.reverse()}
+        {:error, _} = failure -> failure
+      end
     end
   end
 

@@ -6,11 +6,16 @@ defmodule Elzoo.Artifact.Record do
   prescribes) and the fold of an artifact stream's rows into per-version
   records and a committed head.
 
-  Each `artifact_staged` record carries every field of its version record;
-  `artifact_committed` and `artifact_deleted` only move the version's state.
-  An artifact stream is `artifact/<tenant>/<artifact_id>`; the tenant index
-  is `artifact-index/<tenant>` of `artifact_index` records (best-effort,
-  duplicates deduplicated at read).
+  Every `artifact_staged`, `artifact_committed` and `artifact_deleted` row
+  carries the *full* version record plus its resulting `state`/`state_at`, so
+  any single surviving row rebuilds its version whole. Store prefix
+  retention therefore preserves every version that keeps at least one row;
+  the fold is trusted only when the surviving versions are contiguous
+  `1..max_version` (a fully retained version leaves a detectable gap) and no
+  artifact row is unreadable — anything else is recorded `damage` and the
+  caller fails closed. An artifact stream is `artifact/<tenant>/<artifact_id>`;
+  the tenant index is `artifact-index/<tenant>` of `artifact_index` records
+  (best-effort, duplicates deduplicated at read).
   """
   alias Elzoo.DurableLog, as: Log
   alias Elzoo.DurableLog.Codec
@@ -72,7 +77,14 @@ defmodule Elzoo.Artifact.Record do
 
   # ── payloads ─────────────────────────────────────────────────────────
 
-  def staged_payload(r),
+  @doc """
+  The self-contained payload of one version row: every field of the version
+  record plus its resulting `state` and `state_at`. `artifact_staged` rows
+  carry `state: :staging` (`state_at == created_at`); `artifact_committed`
+  and `artifact_deleted` rows carry the same record with the transitioned
+  state, so the row alone determines the version's full state.
+  """
+  def payload(r),
     do:
       Jason.encode!(%{
         "v" => @version,
@@ -87,19 +99,12 @@ defmodule Elzoo.Artifact.Record do
         "object_key" => r.object_key,
         "access" => encode_access(r.access),
         "created_at" => r.created_at,
+        "state_at" => r.state_at,
         "access_expires_at" => stamp_or_null(r.access_expires_at),
         "retain_until" => stamp_or_null(r.retain_until),
         "metadata" => r.metadata,
-        "upload" => Atom.to_string(r.upload)
-      })
-
-  def marker_payload(kind, artifact_id, version, at) when kind in [@committed, @deleted],
-    do:
-      Jason.encode!(%{
-        "v" => @version,
-        "artifact_id" => artifact_id,
-        "version" => version,
-        "at" => at
+        "upload" => Atom.to_string(r.upload),
+        "state" => Atom.to_string(r.state)
       })
 
   def index_payload(artifact_id, at),
@@ -120,36 +125,24 @@ defmodule Elzoo.Artifact.Record do
   # ── fold of an artifact stream ───────────────────────────────────────
   #
   # `fold/2` reduces the visible rows of one artifact stream into
-  # `%{versions: %{version => record}, head: record | nil, damage: [diag]}`.
-  # A `staged` row seeds the version's record; later markers move its state.
-  # Any validation, JSON, version or field failure on an artifact row is a
-  # recorded `damage` diagnostic (fail closed, never silently skipped); rows
-  # of other kinds (a consumer's own records) are ignored.
+  # `%{versions: %{version => record}, head: record | nil, damage: [diag],
+  # max_version: n}`. Every artifact row is self-contained: it seeds its
+  # version when unseen and otherwise must agree on every immutable field
+  # and follow a legal state edge (the same edges the Cure `step/2` table
+  # admits for writes). Any validation, JSON, version, field, consistency or
+  # transition failure on an artifact row is a recorded `damage` diagnostic
+  # (fail closed, never silently skipped); rows of other kinds (a consumer's
+  # own records, including `artifact_index` rows) are ignored.
 
   def fold(rows, fold_spec) do
-    Enum.reduce(rows, %{versions: %{}, order: [], damage: []}, &row(&1, &2, fold_spec))
+    Enum.reduce(rows, %{versions: %{}, damage: []}, &row(&1, &2, fold_spec))
     |> finish()
   end
 
   defp row(row, acc, fold_spec) do
     case event(row, fold_spec) do
-      {:staged, rec} ->
-        if Map.has_key?(acc.versions, rec.version),
-          do: damage(acc, {:duplicate_staged, rec.version}),
-          else:
-            Map.merge(acc, %{
-              versions: Map.put(acc.versions, rec.version, rec),
-              order: acc.order ++ [rec.version]
-            })
-
-      {:marker, state, version, at} ->
-        case Map.fetch(acc.versions, version) do
-          {:ok, rec} ->
-            %{acc | versions: Map.put(acc.versions, version, %{rec | state: state, state_at: at})}
-
-          :error ->
-            damage(acc, {:orphan_marker, version})
-        end
+      {:record, rec} ->
+        apply_record(acc, rec)
 
       :foreign ->
         acc
@@ -158,6 +151,60 @@ defmodule Elzoo.Artifact.Record do
         damage(acc, {:unreadable, Map.get(row, :sequence)})
     end
   end
+
+  # Fields that must be identical on every row of one version; only `state`
+  # and `state_at` may change between rows (the transitions the write path
+  # performs). `version` is the map key and `artifact_id`/`tenant` are
+  # stream-invariant, but they are compared anyway — a disagreement is
+  # corruption, not a new fact.
+  @immutable [
+    :artifact_id,
+    :version,
+    :tenant,
+    :sha256,
+    :hash_format,
+    :object_sha256,
+    :size_bytes,
+    :media_type,
+    :object_key,
+    :access,
+    :created_at,
+    :access_expires_at,
+    :retain_until,
+    :metadata,
+    :upload
+  ]
+
+  defp apply_record(acc, rec) do
+    case Map.fetch(acc.versions, rec.version) do
+      :error ->
+        # Any state may seed a version: under prefix retention the staged
+        # row can be gone while a later committed/deleted row survives.
+        %{acc | versions: Map.put(acc.versions, rec.version, rec)}
+
+      {:ok, old} ->
+        cond do
+          Map.take(old, @immutable) != Map.take(rec, @immutable) ->
+            damage(acc, {:inconsistent_version, rec.version})
+
+          legal_transition?(old.state, rec.state) ->
+            %{acc | versions: Map.put(acc.versions, rec.version, rec)}
+
+          true ->
+            damage(acc, {:illegal_transition, rec.version})
+        end
+    end
+  end
+
+  # The read-side mirror of the write-path edges `Cure.Elzoo.Artifact.step/2`
+  # admits: staging→committed (EvCommit), staging→deleted (EvAbort/EvReap),
+  # committed→committed (idempotent EvCommit), committed→deleted
+  # (EvDelete/EvReap). Deleted is terminal; nothing returns to staging.
+  defp legal_transition?(:staging, :committed), do: true
+  defp legal_transition?(:staging, :deleted), do: true
+  defp legal_transition?(:committed, :committed), do: true
+  defp legal_transition?(:committed, :deleted), do: true
+  defp legal_transition?(_, _), do: false
 
   defp finish(acc) do
     versions = acc.versions
@@ -178,9 +225,24 @@ defmodule Elzoo.Artifact.Record do
 
   defp damage(acc, diag), do: %{acc | damage: [diag | acc.damage]}
 
-  @doc "Decode an artifact row into `{:staged, record}`, `{:marker, state, version, at}`, `{:index, id, at}`, `:foreign` or `:unreadable`. Rows of kinds this Piece does not own are `:foreign` (skipped, never damage)."
+  @doc """
+  Whether a fold provably covers every version the stream ever recorded:
+  the surviving version numbers are exactly `1..max_version` (versions are
+  allocated contiguously and a fully retained or fully unreadable version
+  leaves a detectable gap) and an empty fold is trusted only when no prefix
+  was retained (`low_water == 0`). Anything else means persisted state was
+  truncated and the caller must fail closed.
+  """
+  def complete?(%{versions: versions, max_version: max}, low_water) do
+    contiguous =
+      versions |> Map.keys() |> Enum.sort() == Enum.to_list(1..max//1)
+
+    contiguous and (map_size(versions) > 0 or low_water == 0)
+  end
+
+  @doc "Decode an artifact row into `{:record, record}`, `:foreign` or `:unreadable`. Rows of kinds this Piece does not own (including `artifact_index` rows, which live on their own stream) are `:foreign` (skipped, never damage)."
   def event(row, fold_spec) do
-    if is_map(row) and Map.get(row, :kind) not in (kind_names() ++ [@index_kind]) do
+    if is_map(row) and Map.get(row, :kind) not in kind_names() do
       :foreign
     else
       with :ok <- Log.validate_row(row, fold_spec, Map.get(fold_spec, :limits, %{})),
@@ -195,7 +257,9 @@ defmodule Elzoo.Artifact.Record do
     _ -> :unreadable
   end
 
-  defp decode(@staged, data) do
+  @kind_state %{@staged => "staging", @committed => "committed", @deleted => "deleted"}
+
+  defp decode(kind, data) do
     with %{
            "artifact_id" => id,
            "version" => ver,
@@ -208,18 +272,21 @@ defmodule Elzoo.Artifact.Record do
            "object_key" => key,
            "access" => access,
            "created_at" => at,
+           "state_at" => sat,
            "metadata" => meta,
-           "upload" => upload
+           "upload" => upload,
+           "state" => state
          } <- data,
          true <-
            segment?(id) and is_integer(ver) and ver >= 1 and segment?(tenant) and
              hex?(sha) and is_integer(fmt) and fmt in 1..255 and hex?(osha) and
              is_integer(size) and size >= 0 and media?(media) and is_binary(key) and
-             stamp?(at) and upload in ["committed", "uncertain"] and
+             stamp?(at) and stamp?(sat) and upload in ["committed", "uncertain"] and
+             state == Map.fetch!(@kind_state, kind) and
              expiry?(data["access_expires_at"]) and expiry?(data["retain_until"]) and
              key == object_key(tenant, id, ver, sha),
          {:ok, access_terms} <- decode_access(access, tenant) do
-      {:staged,
+      {:record,
        %{
          artifact_id: id,
          version: ver,
@@ -232,30 +299,17 @@ defmodule Elzoo.Artifact.Record do
          object_key: key,
          access: access_terms,
          created_at: at,
-         state_at: at,
+         state_at: sat,
          access_expires_at: expiry(data["access_expires_at"]),
          retain_until: expiry(data["retain_until"]),
          metadata: meta,
          upload: String.to_atom(upload),
-         state: :staging
+         state: String.to_atom(state)
        }}
     else
       _ -> :unreadable
     end
   end
-
-  defp decode(kind, %{"artifact_id" => _id, "version" => ver, "at" => at})
-       when kind in [@committed, @deleted] do
-    if is_integer(ver) and ver >= 1 and stamp?(at),
-      do: {:marker, if(kind == @committed, do: :committed, else: :deleted), ver, at},
-      else: :unreadable
-  end
-
-  defp decode(@index_kind, %{"artifact_id" => id, "at" => at}) do
-    if segment?(id) and stamp?(at), do: {:index, id, at}, else: :unreadable
-  end
-
-  defp decode(_, _), do: :unreadable
 
   defp hex?(s), do: is_binary(s) and byte_size(s) == 64 and String.match?(s, ~r/\A[0-9a-f]+\z/)
   defp expiry?(nil), do: true
@@ -281,15 +335,21 @@ defmodule Elzoo.Artifact.Record do
   defp access_rule("any"), do: :any
   defp access_rule(l), do: l
 
-  @doc "Decode an `artifact_index` row into `{:index, artifact_id, at}` or `:unreadable`."
+  @doc "Decode an `artifact_index` row into `{:index, artifact_id, at}`, `:foreign` (a row of another kind) or `:unreadable` (a corrupt index row)."
   def index_event(row, fold_spec) do
-    with :ok <- Log.validate_row(row, fold_spec, Map.get(fold_spec, :limits, %{})),
-         true <- row.kind == @index_kind and row.schema_version == @version,
-         {:ok, %{"v" => @version, "artifact_id" => id, "at" => at}} <- Jason.decode(row.payload),
-         true <- segment?(id) and stamp?(at) do
-      {:index, id, at}
-    else
-      _ -> :unreadable
+    cond do
+      not (is_map(row) and Map.get(row, :kind) == @index_kind) ->
+        :foreign
+
+      true ->
+        with :ok <- Log.validate_row(row, fold_spec, Map.get(fold_spec, :limits, %{})),
+             true <- row.schema_version == @version,
+             {:ok, %{"v" => @version, "artifact_id" => id, "at" => at}} <- Jason.decode(row.payload),
+             true <- segment?(id) and stamp?(at) do
+          {:index, id, at}
+        else
+          _ -> :unreadable
+        end
     end
   rescue
     _ -> :unreadable
