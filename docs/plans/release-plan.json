@@ -1739,6 +1739,42 @@
       "product_role": "Evidence for integration/ai-model and integration/ai-text (per-ID consumer without a provider) and the install_configuration field that req_llm-backed provider Pieces adopt."
     },
     {
+      "id": "ELZ-092",
+      "title": "ELZ-092 — Find and fix the root cause of the intermittent http-job \"live Oban rescue and concurrent wakeups\" failure",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-011"
+      ],
+      "status": "published 2026-11-09; claimed task/ELZ-092; PR pending",
+      "url": "https://github.com/balungpisah/elzoo/issues/170",
+      "paths": [
+        "tasks/ELZ-092-http-job-rescue-stall.md"
+      ],
+      "outputs": [],
+      "acceptance": "Unchanged live issue body; local task file is the byte-equal publication copy. Defect investigation (class T, test only; assembly/http-job Contract unchanged); planning dependencies mirror the published direct dependencies.",
+      "issue": 170,
+      "issue_body_sha256": "3a699a826dff345fb6a4feba3946607d6df630cab285561f396e50df2a7abdb2",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P01",
+        "P02",
+        "P03",
+        "P04",
+        "P05",
+        "P06",
+        "P07",
+        "P08",
+        "P09",
+        "P10",
+        "P11",
+        "P12"
+      ],
+      "product_role": "Trustworthy evidence for the ready assembly/http-job Contract (one physical send under Oban rescue and concurrent wakeups); not a new Piece."
+    },
+    {
       "id": "RC-01",
       "title": "Versioned stored-state compatibility",
       "kind": "proposal",
