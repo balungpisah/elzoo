@@ -284,6 +284,20 @@
       "version": "0.4.2",
       "reference": "https://hexdocs.pm/pgvector/0.4.2/",
       "license": "MIT"
+    },
+    "crontab": {
+      "source": "hex",
+      "package": "crontab",
+      "version": "1.2.1",
+      "reference": "https://hexdocs.pm/crontab/1.2.1/",
+      "license": "MIT"
+    },
+    "tz": {
+      "source": "hex",
+      "package": "tz",
+      "version": "0.28.4",
+      "reference": "https://hexdocs.pm/tz/0.28.4/",
+      "license": "Apache-2.0"
     }
   }
 }

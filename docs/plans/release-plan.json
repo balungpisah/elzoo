@@ -1805,6 +1805,36 @@
       "product_role": "Trustworthy evidence for the ready assembly/http-job Contract (one physical send under Oban rescue and concurrent wakeups); not a new Piece."
     },
     {
+      "id": "ELZ-097",
+      "title": "ELZ-097 — Specify the durable schedule and occurrence driver over jobs",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-006",
+        "ELZ-009",
+        "ELZ-010",
+        "ELZ-027",
+        "ELZ-033"
+      ],
+      "status": "published 2026-11-10; claimed task/ELZ-097; PR pending",
+      "url": "https://github.com/balungpisah/elzoo/issues/180",
+      "paths": [
+        "tasks/ELZ-097-state-scheduler.md"
+      ],
+      "outputs": [
+        "state/scheduler"
+      ],
+      "acceptance": "Unchanged live issue body; local task file is the byte-equal publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 180,
+      "issue_body_sha256": "aca209ac7e865cc5adadd464e14f1698978979d26af740b6b64540e43341d479",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P06"
+      ]
+    },
+    {
       "id": "RC-01",
       "title": "Versioned stored-state compatibility",
       "kind": "proposal",
@@ -1843,15 +1873,13 @@
       "kind": "proposal",
       "release": "V1",
       "stage": "pieces",
-      "outputs": [
-        "state/scheduler"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "ELZ-010",
         "ELZ-027"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "superseded for state/scheduler by published ELZ-097 (output moved); no remaining output",
       "contract": "Schedule identity, generation and instant -> durable occurrence admission. Time zone/DST/misfire rules explicit; occurrence identity survives restart. Start with one provider and bounded recurring policy.",
       "acceptance": "Restart, duplicate occurrence, missed interval, clock boundary and declared skip/queue/replace behavior. Timer recipe alone cannot satisfy this job.",
       "reuse": "Oban/AshOban candidate; exercise provider persistence and scheduling boundary.",
@@ -4265,11 +4293,13 @@
     },
     {
       "id": "state/scheduler",
-      "job": "RC-02",
-      "note": "ELZ-010 relies on Oban 2.24.2 retry staging inside integration/jobs for delayed retries; no recurring schedule, timer or workflow-timer Contract is offered, so this stays planned.",
+      "job": "ELZ-097",
+      "note": "Durable schedule definitions and the caller-driven driver of ELZ-097: put_schedule/pause/resume/delete/get/list/status own the lifecycle; a dispatch backoff map may not carry the reserved keys v, queue or job_key. tick/2 first reconciles settlement of already-dispatched occurrences from Oban job state (completed -> acknowledged, discarded/cancelled -> released, in-flight stays unsettled, unreadable is :settlement_unknown, never guessed) through fenced chunked appends under stream-head CAS, reloads, then restores each active schedule's trigger state (delivery/trigger) from the durable watermark last_recorded_unix_ms and the post-settlement unsettled ledger, computes the availability boundary from the persisted last evaluated watermark (last_boundary of the latest committed tick, or last_tick_ok_at for records predating it, while now - last_tick_ok_at <= max_availability_gap_ms, else now — bounded evaluation never reclassifies known-available backlog as offline catch-up), evaluates at most max_slots_per_tick earliest due slots in UTC-instant order — five-field crontab expressions in the declared IANA zone (Etc/UTC default; non-UTC requires a declared Calendar.TimeZoneDatabase Need, tz 0.28.4 is the pinned provider; @reboot and seconds fields refuse; the first UTC match of an ambiguous local slot wins and its second match is recorded skipped{ambiguous}; gap slots produce no match), or the single instant of {:at, instant} — admits them through Elzoo.ScheduleOccurrence.admit_slots/3, and commits the slot decisions, the watermark (the last evaluated instant only), trigger state, last_tick_ok_at = now, the boundary and a bounded unsettled count as one atomic append batch under stream-head CAS. Terminal occurrence states are sticky: settlement, expiry, replacement and redefinition records committed first cannot be resurrected by a later stale dispatch or slot record, and every fenced effect append re-validates the occurrence under CAS before writing. A revision chain fences settlement, delete and redefine chunks from concurrent decisions; a changed head stops the operation as :contended. Dispatch rechecks the current generation and occurrence before and after enqueue, suppresses terminal work, and expires overdue dispatch-pending occurrences before enqueue. Each admitted occurrence dispatches as one Oban job through integration/jobs whose job_key is the encoded occurrence id (at-least-once, advisory uniqueness); the dispatch outcome is persisted through a fenced append after the slot batch commits. reap/2 runs the same settlement reconcile for every unsettled occurrence before the TTL split — a terminal Oban state wins over expiry — then releases occurrences older than occurrence_ttl_ms, records them expired and cancels their jobs. delete/2 releases unsettled occurrences through chunked fenced appends, then commits the deletion and retires the index. Redefinition requires a strictly greater generation and records supersession. Store {:conflict, _} is :contended and the losing call changes nothing it had not already committed.",
       "baseline_status": "planned",
-      "disposition": "blocked-admission-proposal",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract on task branch; task acceptance separate",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/state/scheduler/piece.json",
+      "manifest_sha256": "d4da7ad1fc4a9d8b4d58f3ae6b4e76035fbb10e392033b3e12479438ccdfc794"
     },
     {
       "id": "state/schema-evolution",
