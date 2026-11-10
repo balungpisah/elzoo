@@ -1616,6 +1616,36 @@
       "product_role": "CI prerequisite for the integration/search-data vector slice (ELZ-082); not a Piece."
     },
     {
+      "id": "ELZ-087",
+      "title": "ELZ-087 — Specify the OpenAI text provider Piece for the text interface",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-079"
+      ],
+      "status": "published 2026-11-09; claimed task/ELZ-087; PR pending",
+      "url": "https://github.com/balungpisah/elzoo/issues/157",
+      "paths": [
+        "tasks/ELZ-087-ai-text-openai.md"
+      ],
+      "outputs": [
+        "integration/ai-text-openai"
+      ],
+      "acceptance": "Unchanged live issue body; local task file is the byte-equal publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 157,
+      "issue_body_sha256": "8e7d2f9bae91062e191775598fc849749e12bd226fe18f4626738b689887753d",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P06",
+        "P07",
+        "P09",
+        "P11"
+      ],
+      "product_role": "Second provider of the text interface (C6 agent delegation and C7 scheduled research where an OpenAI model is chosen; C9 resale record); owner decision 2026-11-09: stub evidence only, both provider types."
+    },
+    {
       "id": "ELZ-079",
       "title": "ELZ-079 — Specify the AI model family core, the text interface Piece and the Anthropic text provider Piece",
       "kind": "published",
@@ -3735,6 +3765,16 @@
       "manifest": "pieces/integration/ai-text-anthropic/piece.json",
       "manifest_sha256": "b8f74059fe9fa21dafb7709418d861434858c15b171aab21f49749f98333cced",
       "baseline_status": "not in baseline (new row, ELZ-079)"
+    },
+    {
+      "id": "integration/ai-text-openai",
+      "job": "ELZ-087",
+      "note": "OpenAI Responses API provider of integration/ai-text through req_llm 1.30's documented provider-callback API, for the evidenced model gpt-6.1-terra only (other models refused invalid_request; the req_llm route is asserted to be POST /v1/responses): max_retries 0, store false, one HTTP exchange with the body bounded to 4 MiB of wire bytes while received (an oversized response of any status is unknown{malformed_response}) and every response halted by an Elzoo step (no redirect, no retry, no req_llm error value); max_output_tokens below 16 refused; key only from the injected Need as api_key; sampling and stop sequences not declared; no caller provider option; structured output through text.format json_schema; reasoning none, low, medium, high, max sent as reasoning.effort; a tool result with is_error true refused; cache hint mapped to a prompt_cache_key derived from tenant and local key, explicit-mode prompt_cache_options with TTL 30m or 12h and prompt_cache_breakpoint markers on exactly the addressed system and user parts, or refused; usage and cache counters from named fields of the pinned ResponseUsage with absent fields :unknown; status failed unknown; error statuses mapped to the interface's failure tags.",
+      "baseline_status": "not in baseline (new row, ELZ-087)",
+      "disposition": "implementation prepared; acceptance requires merged PR",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/integration/ai-text-openai/piece.json",
+      "manifest_sha256": "0b06972986de2a55410aed457e63a4f6e4a3d967841817a1c1ace809818cc551"
     },
     {
       "id": "integration/ai-embedding",
