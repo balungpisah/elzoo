@@ -168,3 +168,31 @@ defmodule Elzoo.Scheduler.TestHelper do
     {scheduler, clock}
   end
 end
+
+# A scoped Store facade for deterministic interleavings. The competing write
+# uses the real underlying Store; the losing append sees its actual CAS result.
+defmodule Elzoo.Scheduler.HookedStore do
+  @moduledoc false
+
+  def wrap({module, opts} = inner) do
+    {__MODULE__, Map.new(opts) |> Map.put(:inner, inner) |> Map.put(:provider, module)}
+  end
+
+  def before_append(fun), do: Process.put({__MODULE__, :before_append}, fun)
+
+  def head(store, stream), do: provider(store).head(inner(store), stream)
+  def read(store, stream, from, limit), do: provider(store).read(inner(store), stream, from, limit)
+
+  def append(store, stream, expected, records, items) do
+    case Process.get({__MODULE__, :before_append}) do
+      nil -> :ok
+      hook -> hook.(stream, records)
+    end
+
+    provider(store).append(inner(store), stream, expected, records, items)
+  end
+
+  def clear, do: Process.delete({__MODULE__, :before_append})
+  defp inner({_, opts}), do: opts.inner
+  defp provider({_, opts}), do: opts.provider
+end

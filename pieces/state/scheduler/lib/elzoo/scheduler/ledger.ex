@@ -119,7 +119,8 @@ defmodule Elzoo.Scheduler.Ledger do
            put_occurrence(acc, extra.id, %{
              status: :admitted,
              origin: extra.origin,
-             admitted_at: extra.at || slot
+             admitted_at: extra.at || slot,
+             dispatch: acc.definition.dispatch
            })}
         end
 
@@ -138,7 +139,8 @@ defmodule Elzoo.Scheduler.Ledger do
            put_occurrence(acc, extra.new, %{
              status: :admitted,
              origin: extra.origin,
-             admitted_at: extra.at || slot
+             admitted_at: extra.at || slot,
+             dispatch: acc.definition.dispatch
            })}
         end
 

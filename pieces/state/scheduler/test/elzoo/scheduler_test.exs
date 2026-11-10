@@ -243,13 +243,12 @@ defmodule Elzoo.SchedulerTest do
 
   # ── S8 contended under CAS ─────────────────────────────────────────
 
-  test "S8: a second tick at the same base revision contends and changes nothing", ctx do
+  test "S8: sequential ticks restore the advanced watermark", ctx do
     s = ctx.scheduler
     TestHelper.create!(s, "race", spec: {:cron, "* * * * *"})
     assert %{"race" => %{admitted: 2}} = Scheduler.tick(s, now: minute(2))
     assert %{"race" => %{admitted: 1}} = Scheduler.tick(s, now: minute(3))
-    # head moved between load and append is covered by the CAS; the stream
-    # holds exactly one tick batch per revision
+    # This is a sequential watermark scenario; S21 exercises a real CAS loss.
     {:ok, st} = Scheduler.status(s, "race")
     assert {st.watermark, st.unsettled} == {minute(3), 3}
   end
@@ -700,6 +699,99 @@ defmodule Elzoo.SchedulerTest do
     {:ok, st} = Scheduler.status(s, "redef")
     assert st.generation == 2 and st.unsettled == 0
   end
+
+  test "S25: a concurrent definition cannot be overwritten by a stale redefine", ctx do
+    alias Elzoo.Scheduler.HookedStore
+    s = %{ctx.scheduler | store: HookedStore.wrap(ctx.store)}
+    TestHelper.create!(s, "generation-race")
+
+    HookedStore.before_append(fn stream, rows ->
+      if stream == "scheduler/generation-race" and hd(rows).kind == "schedule_defined" do
+        HookedStore.clear()
+
+        assert {:ok, _} =
+                 Scheduler.put_schedule(
+                   ctx.scheduler,
+                   TestHelper.schedule("generation-race", generation: 3)
+                 )
+      end
+    end)
+
+    assert {:error, :contended} =
+             Scheduler.put_schedule(s, TestHelper.schedule("generation-race", generation: 2))
+
+    assert {:ok, %{generation: 3}} = Scheduler.get(s, "generation-race")
+  end
+
+  test "S26: delete never commits over a concurrent admission", ctx do
+    alias Elzoo.Scheduler.HookedStore
+    s = %{ctx.scheduler | store: HookedStore.wrap(ctx.store)}
+    TestHelper.create!(s, "delete-race")
+
+    HookedStore.before_append(fn stream, rows ->
+      if stream == "scheduler/delete-race" and hd(rows).kind == "schedule_deleted" do
+        HookedStore.clear()
+        assert %{"delete-race" => %{admitted: 1}} = Scheduler.tick(ctx.scheduler, now: minute(1))
+      end
+    end)
+
+    assert {:error, :contended} = Scheduler.delete(s, "delete-race")
+    assert {:ok, %{state: :active, unsettled: 1}} = Scheduler.status(s, "delete-race")
+    assert {:ok, %{control: :deleted, released: 1}} = Scheduler.delete(s, "delete-race")
+  end
+
+  test "S27: failed index retirement is visible and delete retries it", ctx do
+    alias Elzoo.Scheduler.HookedStore
+    s = %{ctx.scheduler | store: HookedStore.wrap(ctx.store)}
+    TestHelper.create!(s, "retire-race")
+
+    HookedStore.before_append(fn stream, _ ->
+      if stream == "scheduler" do
+        HookedStore.clear()
+        :ok = Memory.fault(ctx.store, :append, :unavailable)
+      end
+    end)
+
+    assert {:error, :store_unavailable} = Scheduler.delete(s, "retire-race")
+    assert {:ok, %{state: :deleted}} = Scheduler.status(s, "retire-race")
+    assert {:ok, %{control: :deleted}} = Scheduler.delete(s, "retire-race")
+    assert {:ok, []} = Scheduler.list(s)
+  end
+
+  test "S29: backlog caps at 1000 and a future ambiguous match never hides a due win" do
+    {:ok, every_minute} = Slots.parse_cron("* * * * *")
+
+    assert {:ok, [_], 1_000} =
+             Slots.due(
+               {:cron, every_minute},
+               "Etc/UTC",
+               Calendar.UTCOnlyTimeZoneDatabase,
+               minute(0),
+               minute(1_005),
+               1
+             )
+
+    {:ok, fall_back} = Slots.parse_cron("30-31 1 1 11 *")
+    first = utc_ms(~D[2026-11-01], ~T[05:30:00])
+    second = utc_ms(~D[2026-11-01], ~T[05:31:00])
+
+    assert {:ok, [{^first, :win}, {^second, :win}], 0} =
+             Slots.due(
+               {:cron, fall_back},
+               "America/New_York",
+               Tz.TimeZoneDatabase,
+               first - 1,
+               second,
+               2
+             )
+  end
+
+  test "S28: construction refuses missing and malformed Oban references", ctx do
+    for oban <- [nil, false, {1, 2, 3}, {:via, nil, :name}] do
+      assert {:error, {:invalid, :oban}} =
+               Scheduler.new(store: ctx.store, clock: :system, oban: oban)
+    end
+  end
 end
 
 # Store facade delegate over the Memory double: reads pass through, and the
@@ -716,7 +808,21 @@ defmodule ConflictStore do
     if :persistent_term.get({__MODULE__, :armed}, false) and
          :persistent_term.get({__MODULE__, :stream}) == stream do
       :persistent_term.erase({__MODULE__, :armed})
-      {:conflict, %{expected: expected, observed: expected + 1}}
+
+      {:ok, competing, _} =
+        Elzoo.Scheduler.Record.records(
+          stream,
+          expected,
+          [
+            {"schedule_paused",
+             Elzoo.Scheduler.Record.control_payload(Elzoo.Scheduler.TestHelper.epoch())}
+          ],
+          elem(store, 1).fold,
+          elem(store, 1).limits
+        )
+
+      {:committed, _} = Memory.append(inner(store), stream, expected, competing, [])
+      Memory.append(inner(store), stream, expected, records, items)
     else
       Memory.append(inner(store), stream, expected, records, items)
     end

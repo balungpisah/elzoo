@@ -149,7 +149,9 @@ defmodule Elzoo.Scheduler do
   # The Oban instance reference `Elzoo.Jobs` accepts: a registered name
   # (atom), a pid, or a `{:via, module, term}` tuple.
   defp valid_oban?(oban),
-    do: is_atom(oban) or is_pid(oban) or (is_tuple(oban) and tuple_size(oban) == 3)
+    do:
+      (is_atom(oban) and oban not in [nil, true, false]) or is_pid(oban) or
+        match?({:via, module, _} when is_atom(module) and not is_nil(module), oban)
 
   defp bounds(opts, max_slots) do
     fields = [
@@ -208,8 +210,8 @@ defmodule Elzoo.Scheduler do
         {:ok, _head, %{control: :deleted}} ->
           {:error, :not_found}
 
-        {:ok, _head, %{definition: current} = projection} ->
-          redefine(scheduler, projection, current, defn)
+        {:ok, head, %{definition: current} = projection} ->
+          redefine(scheduler, head, projection, current, defn)
 
         {:error, :unreadable} ->
           {:error, :watermark_invalid}
@@ -248,7 +250,7 @@ defmodule Elzoo.Scheduler do
     end
   end
 
-  defp redefine(scheduler, projection, current, defn) do
+  defp redefine(scheduler, head, projection, current, defn) do
     cond do
       defn.generation <= current.generation ->
         {:error, :generation_conflict}
@@ -259,7 +261,7 @@ defmodule Elzoo.Scheduler do
             {:ok, _next, {:redefined, old_generation, superseded}} ->
               at = now(scheduler)
               defn = Map.put(defn, :at, at)
-              redefine_commit(scheduler, defn, old_generation, superseded)
+              redefine_commit(scheduler, head, defn, old_generation, superseded)
 
             _ ->
               {:error, :watermark_invalid}
@@ -268,13 +270,10 @@ defmodule Elzoo.Scheduler do
     end
   end
 
-  # Supersession records commit first through the fenced chunked append —
-  # they always fit `max_batch_size` per chunk however large the unsettled
-  # set — and `schedule_defined` follows as its own CAS append at the
-  # post-release head. A conflict after the releases leaves them committed
-  # (harmless: the occurrences are legitimately superseded) and the retry
-  # converges with an empty superseded set.
-  defp redefine_commit(scheduler, defn, old_generation, superseded) do
+  # Carry the original stream revision through every chunk and the final
+  # definition append. Never rebase a stale generation decision onto a newer
+  # head: a competing tick/control/definition returns :contended.
+  defp redefine_commit(scheduler, head, defn, old_generation, superseded) do
     stream = stream(defn.schedule_id)
 
     entries =
@@ -285,51 +284,28 @@ defmodule Elzoo.Scheduler do
          :effect}
       end)
 
-    case append_fenced(scheduler, stream, entries) do
-      :ok ->
-        redefine_defined(scheduler, stream, defn, old_generation, superseded)
+    with {:ok, revision} <- append_fenced(scheduler, stream, entries, head.revision) do
+      case append(scheduler, stream, revision, [
+             {"schedule_defined", Record.defined_payload(defn)}
+           ]) do
+        {:committed, target} ->
+          {:ok,
+           %{
+             redefined: defn.schedule_id,
+             generation: {old_generation, defn.generation},
+             superseded: Enum.map(superseded, &encode!/1),
+             revision: target
+           }}
 
-      {:error, :contended} ->
-        {:error, :contended}
+        {:conflict, _} ->
+          {:error, :contended}
 
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
+        {:rejected, reason} ->
+          {:error, {:invalid, reason}}
 
-  defp redefine_defined(scheduler, stream, defn, old_generation, superseded) do
-    case Ledger.load(scheduler.store, stream, scheduler.fold, scheduler.limits) do
-      {:ok, _head, %{control: :deleted}} ->
-        {:error, :not_found}
-
-      {:ok, head, _} ->
-        case append(scheduler, stream, head.revision, [
-               {"schedule_defined", Record.defined_payload(defn)}
-             ]) do
-          {:committed, target} ->
-            {:ok,
-             %{
-               redefined: defn.schedule_id,
-               generation: {old_generation, defn.generation},
-               superseded: Enum.map(superseded, &encode!/1),
-               revision: target
-             }}
-
-          {:conflict, _} ->
-            {:error, :contended}
-
-          {:rejected, reason} ->
-            {:error, {:invalid, reason}}
-
-          other ->
-            store_error(other)
-        end
-
-      {:error, :unavailable} ->
-        {:error, :store_unavailable}
-
-      {:error, _} ->
-        {:error, :watermark_invalid}
+        other ->
+          store_error(other)
+      end
     end
   end
 
@@ -435,25 +411,21 @@ defmodule Elzoo.Scheduler do
       at = now(scheduler)
       unsettled = unsettled_ids(projection)
 
-      # Releases commit first through the fenced chunked append — they always
-      # fit `max_batch_size` per chunk however large the unsettled set — and
-      # the `schedule_deleted` control record follows as its own CAS append.
-      # A conflict after the releases leaves them committed (harmless: the
-      # occurrences are legitimately released) and the retry converges.
-      case release_unsettled(scheduler, schedule_id, projection, at) do
-        :ok ->
-          delete_control(scheduler, schedule_id, head, projection, unsettled, at)
-
-        {:error, :contended} ->
-          {:error, :contended}
-
-        {:error, reason} ->
-          {:error, reason}
+      # Release chunks and the control append share one revision chain. If a
+      # concurrent admission moves the head, stop rather than deleting a
+      # schedule whose new occurrences were never released.
+      with {:ok, revision} <-
+             release_unsettled(scheduler, schedule_id, projection, at, head.revision),
+           {:ok, target} <- delete_control(scheduler, schedule_id, projection, revision, at),
+           :ok <- cancel_jobs(scheduler, projection),
+           :ok <- retire_index(scheduler, schedule_id) do
+        {:ok,
+         %{schedule: schedule_id, control: :deleted, released: length(unsettled), revision: target}}
       end
     end
   end
 
-  defp release_unsettled(scheduler, schedule_id, projection, at) do
+  defp release_unsettled(scheduler, schedule_id, projection, at, revision) do
     entries =
       projection
       |> unsettled_ids()
@@ -461,93 +433,53 @@ defmodule Elzoo.Scheduler do
         {id, {"occurrence_settled", Record.settled_payload(id, :released, :deleted, at)}, :effect}
       end)
 
-    append_fenced(scheduler, stream(schedule_id), entries)
+    append_fenced(scheduler, stream(schedule_id), entries, revision)
   end
 
-  defp delete_control(scheduler, schedule_id, head, projection, unsettled, at) do
-    cond do
-      projection.control == :deleted ->
-        # Retry index retirement: an earlier delete may have committed the
-        # control record while its index append lost, leaving a phantom entry
-        # that would report `refused: :retired` on every later tick/reap.
-        retire_index(scheduler, schedule_id)
+  defp delete_control(_scheduler, _schedule_id, %{control: :deleted}, revision, _at),
+    do: {:ok, revision}
 
-        {:ok, %{schedule: schedule_id, control: :deleted, released: 0, revision: head.revision}}
-
-      true ->
-        stream = stream(schedule_id)
-
-        case Ledger.load(scheduler.store, stream, scheduler.fold, scheduler.limits) do
-          {:ok, head2, %{control: :deleted}} ->
-            {:ok,
-             %{schedule: schedule_id, control: :deleted, released: 0, revision: head2.revision}}
-
-          {:ok, head2, _} ->
-            case append(scheduler, stream, head2.revision, [
-                   {"schedule_deleted", Record.control_payload(at)}
-                 ]) do
-              {:committed, target} ->
-                cancel_jobs(scheduler, projection, unsettled)
-                retire_index(scheduler, schedule_id)
-
-                {:ok,
-                 %{
-                   schedule: schedule_id,
-                   control: :deleted,
-                   released: length(unsettled),
-                   revision: target
-                 }}
-
-              {:conflict, _} ->
-                {:error, :contended}
-
-              {:rejected, reason} ->
-                {:error, {:invalid, reason}}
-
-              other ->
-                store_error(other)
-            end
-
-          {:error, :unavailable} ->
-            {:error, :store_unavailable}
-
-          {:error, _} ->
-            {:error, :watermark_invalid}
-        end
+  defp delete_control(scheduler, schedule_id, _projection, revision, at) do
+    case append(scheduler, stream(schedule_id), revision, [
+           {"schedule_deleted", Record.control_payload(at)}
+         ]) do
+      {:committed, target} -> {:ok, target}
+      {:conflict, _} -> {:error, :contended}
+      {:rejected, reason} -> {:error, {:invalid, reason}}
+      other -> store_error(other)
     end
   end
 
-  # Cancellation is by (queue, job_key): it reaches the job whether or not a
-  # dispatch record was committed, and is a no-op when none exists.
-  defp cancel_jobs(scheduler, projection, ids) do
-    {queue, _, _} = projection.definition.dispatch
-    Enum.each(ids, fn id -> Jobs.cancel(scheduler.oban, queue, id) end)
+  # Retry cancellation even for already released occurrences: a crash or a
+  # failed cancellation after the terminal ledger commit must remain repairable
+  # by repeating delete. Keep each occurrence's original dispatch queue.
+  defp cancel_jobs(scheduler, projection) do
+    Enum.each(projection.occurrences, fn {id, occ} ->
+      {queue, _, _} = Map.get(occ, :dispatch, projection.definition.dispatch)
+      Jobs.cancel(scheduler.oban, queue, id)
+    end)
   end
 
-  # Bounded CAS retry: a conflict reloads the index and re-checks membership,
-  # so a lost race converges instead of leaving a phantom entry that would
-  # report `refused: :retired` on every later tick/reap.
-  defp retire_index(scheduler, schedule_id, attempts \\ 16)
-
-  defp retire_index(_scheduler, _schedule_id, attempts) when attempts <= 0, do: :ok
-
-  defp retire_index(scheduler, schedule_id, attempts) do
+  defp retire_index(scheduler, schedule_id) do
     case Ledger.load_index(scheduler.store, @index_stream, scheduler.fold, scheduler.limits) do
-      {:ok, head, ids} when ids != [] ->
+      {:ok, head, ids} ->
         if schedule_id in ids do
           case append(scheduler, @index_stream, head.revision, [
                  {"index_retired", Record.index_payload(schedule_id, now(scheduler))}
                ]) do
             {:committed, _} -> :ok
-            {:conflict, _} -> retire_index(scheduler, schedule_id, attempts - 1)
-            _ -> :ok
+            {:conflict, _} -> {:error, :contended}
+            other -> store_error(other)
           end
         else
           :ok
         end
 
-      _ ->
-        :ok
+      {:error, :unavailable} ->
+        {:error, :store_unavailable}
+
+      {:error, _} ->
+        {:error, :watermark_invalid}
     end
   end
 
@@ -813,7 +745,8 @@ defmodule Elzoo.Scheduler do
                 ambiguous,
                 backlog,
                 settle_counts,
-                jobs_unavailable
+                jobs_unavailable,
+                now
               )
 
             {:conflict, _} ->
@@ -844,13 +777,14 @@ defmodule Elzoo.Scheduler do
     {:ok, head, projection}
   end
 
-  defp commit_settlements(scheduler, schedule_id, _head, _projection, entries) do
+  defp commit_settlements(scheduler, schedule_id, head, _projection, entries) do
     stream = stream(schedule_id)
 
-    case append_fenced(scheduler, stream, entries) do
-      :ok ->
+    case append_fenced(scheduler, stream, entries, head.revision) do
+      {:ok, revision} ->
         case Ledger.load(scheduler.store, stream, scheduler.fold, scheduler.limits) do
-          {:ok, head, projection} -> {:ok, head, projection}
+          {:ok, %{revision: ^revision} = head, projection} -> {:ok, head, projection}
+          {:ok, _, _} -> :contended
           {:error, :unavailable} -> {:error, :store_unavailable}
           {:error, _} -> {:error, :watermark_invalid}
         end
@@ -942,17 +876,19 @@ defmodule Elzoo.Scheduler do
          ambiguous,
          backlog,
          settle_counts,
-         jobs_unavailable
+         jobs_unavailable,
+         now
        ) do
-    {queue, max_attempts, backoff} = projection.definition.dispatch
-
     dispatch_results =
       unsettled(projection)
       |> Enum.reject(fn {_id, occ} -> is_integer(Map.get(occ, :job_id)) end)
-      |> Enum.map(fn {id, _occ} -> dispatch_one(scheduler, queue, id, max_attempts, backoff) end)
+      |> Enum.map(fn {id, _occ} -> dispatch_one(scheduler, schedule_id, id, now) end)
 
     entries =
-      Enum.map(dispatch_results, fn
+      dispatch_results
+      |> Enum.reject(&match?({:suppressed, _}, &1))
+      |> Enum.reject(&match?({:expired, _}, &1))
+      |> Enum.map(fn
         {:dispatched, id, job_id} ->
           {id,
            {"occurrence_dispatch", Record.dispatch_record_payload(id, "dispatched", job_id, nil)},
@@ -976,11 +912,31 @@ defmodule Elzoo.Scheduler do
 
         _ ->
           case append_fenced(scheduler, stream(schedule_id), entries) do
-            :ok -> {false, nil}
+            {:ok, _} -> {false, nil}
             {:error, :contended} -> {true, nil}
             {:error, reason} -> {false, reason}
           end
       end
+
+    # Cover the interval between the post-enqueue check and the dispatch
+    # record append as well: if a terminal transition won there, cancellation
+    # still reaches the just-enqueued job even without a persisted job id.
+    case Ledger.load(scheduler.store, stream(schedule_id), scheduler.fold, scheduler.limits) do
+      {:ok, _, current} ->
+        Enum.each(dispatch_results, fn
+          {:dispatched, id, _} ->
+            if dispatchable(current, id) == :suppressed do
+              {queue, _, _} = projection.definition.dispatch
+              Jobs.cancel(scheduler.oban, queue, id)
+            end
+
+          _ ->
+            :ok
+        end)
+
+      _ ->
+        :ok
+    end
 
     if jobs_unavailable, do: telemetry(schedule_id, :settlement_unknown, %{})
 
@@ -1007,6 +963,7 @@ defmodule Elzoo.Scheduler do
 
     decision(
       admitted: admitted,
+      expired: Enum.count(dispatch_results, &match?({:expired, _}, &1)),
       skipped: Enum.count(trigger_decisions, &match?({:skipped, _, _}, &1)) + length(ambiguous),
       replaced: Enum.count(trigger_decisions, &match?({:replaced, _, _}, &1)),
       dispatched: Enum.count(dispatch_results, &match?({:dispatched, _, _}, &1)),
@@ -1020,70 +977,112 @@ defmodule Elzoo.Scheduler do
     )
   end
 
-  defp dispatch_one(scheduler, queue, id, max_attempts, backoff) do
-    changeset = Jobs.changeset(queue, id, max_attempts, backoff)
+  defp dispatch_one(scheduler, schedule_id, id, now) do
+    stream = stream(schedule_id)
 
-    case Jobs.enqueue(scheduler.oban, changeset) do
-      {:ok, job_id} -> {:dispatched, id, job_id}
-      {:retry, :unique_lock_held} -> {:pending, id}
-      {:error, reason} -> {:error, id, dispatch_detail(reason)}
+    with {:ok, head, projection} <-
+           Ledger.load(scheduler.store, stream, scheduler.fold, scheduler.limits),
+         {:ok, occ} <- dispatchable(projection, id) do
+      {queue, max_attempts, backoff} = Map.get(occ, :dispatch, projection.definition.dispatch)
+
+      if older_than?(occ, ttl(projection.definition), now) do
+        case append_fenced(
+               scheduler,
+               stream,
+               [
+                 {id, {"occurrence_expired", Record.expired_payload(id, now)}, :effect}
+               ],
+               head.revision
+             ) do
+          {:ok, _} ->
+            Jobs.cancel(scheduler.oban, queue, id)
+            telemetry(schedule_id, :expired, %{occurrence: id})
+            {:expired, id}
+
+          {:error, reason} ->
+            {:error, id, dispatch_detail(reason)}
+        end
+      else
+        changeset = Jobs.changeset(queue, id, max_attempts, backoff)
+
+        case Jobs.enqueue(scheduler.oban, changeset) do
+          {:ok, job_id} ->
+            # Delete/reap/redefine may win while enqueue is in progress. The
+            # post-send check cancels that job instead of recording a stale
+            # success. Cancellation is the jobs boundary's best-effort action;
+            # it cannot undo work a runner has already performed.
+            case Ledger.load(scheduler.store, stream, scheduler.fold, scheduler.limits) do
+              {:ok, _, current} ->
+                case dispatchable(current, id) do
+                  {:ok, _} ->
+                    {:dispatched, id, job_id}
+
+                  :suppressed ->
+                    Jobs.cancel(scheduler.oban, queue, id)
+                    {:suppressed, id}
+                end
+
+              _ ->
+                {:error, id, "store_unavailable"}
+            end
+
+          {:retry, :unique_lock_held} ->
+            {:pending, id}
+
+          {:error, reason} ->
+            {:error, id, dispatch_detail(reason)}
+        end
+      end
+    else
+      :suppressed -> {:suppressed, id}
+      {:error, _} -> {:error, id, "store_unavailable"}
     end
   end
 
-  # Bounded, JSON-safe detail for the durable dispatch record — never the
-  # raw reason term (a changeset or exception is neither encodable nor
-  # bounded).
-  defp dispatch_detail(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp dispatch_detail(reason) when is_binary(reason), do: String.slice(reason, 0, 200)
+  defp dispatchable(projection, id) do
+    with false <- projection.control == :deleted,
+         %{status: status} = occ <- Map.get(projection.occurrences, id),
+         true <- status in @unsettled_statuses,
+         {:ok, {:OccurrenceId, _, generation, _}} <- ScheduleOccurrence.decode_id(id),
+         true <- generation == projection.definition.generation do
+      {:ok, occ}
+    else
+      _ -> :suppressed
+    end
+  end
 
-  defp dispatch_detail(reason),
-    do: reason |> inspect() |> String.slice(0, 200)
+  # Provider errors may contain args or classified content. Persist only this
+  # finite reason vocabulary, never inspect arbitrary changesets/exceptions.
+  defp dispatch_detail(reason)
+       when reason in [:exit, :unavailable, :timeout, :contended, :store_unavailable],
+       do: Atom.to_string(reason)
 
-  # Fenced, chunked append for effects that name an occurrence (pre-tick
-  # settlements, dispatch records, reap settlements/expiries, delete
-  # releases). Each entry is `{encoded_id, {kind, payload}, check}`; before
-  # every append the stream is reloaded and entries whose effect is already
-  # reflected — or whose occurrence is no longer unsettled — are dropped, so
-  # a stale effect can never resurrect a terminal occurrence (terminal states
-  # are sticky in the projection) and a committed chunk never repeats.
-  # `check` is `:effect` for terminal records (settled/expired/released: done
-  # once the occurrence leaves the unsettled set) or
-  # `{:dispatch, phase, job_id}` for dispatch records (done once the
-  # projection shows that phase with that job id). Kept entries append in
-  # chunks of at most `max_batch_size`, each its own CAS append; conflicts
-  # retry (bounded) and committed chunks drop out of the next reload, so the
-  # call converges. An unwritten dispatch record is safe because the next
-  # tick re-derives dispatch state.
-  defp append_fenced(scheduler, stream, entries, attempts \\ 64)
+  defp dispatch_detail({:exception, _}), do: "exception"
+  defp dispatch_detail(_), do: "enqueue"
 
-  defp append_fenced(_scheduler, _stream, [], _attempts), do: :ok
-
-  defp append_fenced(_scheduler, _stream, _entries, attempts) when attempts <= 0,
-    do: {:error, :contended}
-
-  defp append_fenced(scheduler, stream, entries, attempts) do
+  # Fenced chunked appends carry a revision chain across all chunks. A changed
+  # head is contention, never permission to rebase an old effect onto new
+  # state. Only dispatch starts at a freshly read head; it also revalidates the
+  # occurrence and never downgrades a recorded job to pending/error.
+  defp append_fenced(scheduler, stream, entries, expected \\ nil) do
     case Ledger.load(scheduler.store, stream, scheduler.fold, scheduler.limits) do
       {:ok, head, projection} ->
-        kept =
-          for {id, spec, check} <- entries, keep_entry?(projection, id, check), do: spec
-
-        if kept == [] do
-          :ok
+        if not is_nil(expected) and head.revision != expected do
+          {:error, :contended}
         else
-          {chunk, _rest} = Enum.split(kept, scheduler.limits.max_batch_size)
+          kept = for {id, spec, check} <- entries, keep_entry?(projection, id, check), do: spec
 
-          case append(scheduler, stream, head.revision, chunk) do
-            {:committed, _} ->
-              append_fenced(scheduler, stream, entries, attempts - 1)
+          case Enum.split(kept, scheduler.limits.max_batch_size) do
+            {[], _} ->
+              {:ok, head.revision}
 
-            {:conflict, _} ->
-              append_fenced(scheduler, stream, entries, attempts - 1)
-
-            {:rejected, reason} ->
-              {:error, reason}
-
-            other ->
-              {:error, store_reason(other)}
+            {chunk, _} ->
+              case append(scheduler, stream, head.revision, chunk) do
+                {:committed, revision} -> append_fenced(scheduler, stream, entries, revision)
+                {:conflict, _} -> {:error, :contended}
+                {:rejected, reason} -> {:error, reason}
+                other -> {:error, store_reason(other)}
+              end
           end
         end
 
@@ -1103,7 +1102,9 @@ defmodule Elzoo.Scheduler do
           true
 
         {:dispatch, phase, job_id} ->
-          not (status == dispatch_status(phase) and Map.get(occ, :job_id) == job_id)
+          match?({:ok, _}, dispatchable(projection, id)) and
+            not is_integer(Map.get(occ, :job_id)) and
+            not (status == dispatch_status(phase) and Map.get(occ, :job_id) == job_id)
       end
     else
       _ -> false
@@ -1136,7 +1137,19 @@ defmodule Elzoo.Scheduler do
 
   defp reap_schedule(scheduler, schedule_id, now) do
     case tick_load(scheduler, schedule_id) do
-      {:ok, _head, projection} ->
+      {:ok, head, projection} ->
+        # Recover a crash after an expiry commit but before its cancel call.
+        # These are already-terminal facts, so repeating cancel is safe and
+        # never reopens or double-settles an occurrence.
+        Enum.each(projection.occurrences, fn
+          {id, %{status: :expired} = occ} ->
+            {queue, _, _} = Map.get(occ, :dispatch, projection.definition.dispatch)
+            Jobs.cancel(scheduler.oban, queue, id)
+
+          _ ->
+            :ok
+        end)
+
         {queue, _, _} = projection.definition.dispatch
         ttl = ttl(projection.definition)
 
@@ -1162,8 +1175,8 @@ defmodule Elzoo.Scheduler do
               {id, {"occurrence_settled", Record.settled_payload(id, kind, via, now)}, :effect}
             end)
 
-        case append_fenced(scheduler, stream(schedule_id), entries) do
-          :ok ->
+        case append_fenced(scheduler, stream(schedule_id), entries, head.revision) do
+          {:ok, _} ->
             if jobs_unavailable, do: telemetry(schedule_id, :settlement_unknown, %{})
 
             Enum.each(expired, fn {id, _occ} ->

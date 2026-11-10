@@ -59,7 +59,10 @@ watermark (the last evaluated instant only) + trigger state +
 `last_tick_ok_at = now` + boundary + a bounded unsettled count. It then
 enqueues admitted occurrences (`{:retry, :unique_lock_held}` records
 `pending`, errors record `dispatch_error`, both retried next tick) and
-persists the dispatch outcome through a fenced append. Every fenced effect
+persists the dispatch outcome through a fenced append. Dispatch checks the
+current generation and occurrence before and after enqueue, cancels if a
+terminal transition won, and expires overdue pending work before enqueue.
+Every fenced effect
 append re-validates the occurrence under CAS — terminal states
 (`settled`, `expired`, `replaced`, `redefined`) are sticky, so a stale
 dispatch or slot record can never resurrect an occurrence.
@@ -75,10 +78,15 @@ cancelled.
 `pause/2`, `resume/2`, `delete/2` are durable control transitions (delete
 releases unsettled occurrences through chunked fenced appends — it always
 fits `max_batch_size` per chunk — cancels their jobs by `(queue, job_key)`
-and retires the index); `get/2`, `list/2`, `status/2` report the durable
-projection.
+and retires the index). Delete/redefine carry the original revision through
+all chunks and the final control/definition append: a concurrent write stops
+the operation as `:contended`, without rebasing an old decision. Index
+retirement failures surface; repeating delete retries cancellation and
+retirement. Cancellation uses each occurrence's original queue and remains
+the jobs boundary's best-effort action. `get/2`, `list/2`, `status/2` report
+the durable projection.
 
-Both `tick/2` and `reap/2` are pure entry points — no loop, no supervisor,
+Both `tick/2` and `reap/2` are caller-driven entry points — no loop, no supervisor,
 no scheduler engine. The consumer wires its own timer (`delivery/time`) and
 supplies `now` via the bound `clock` or `opts[:now]`.
 
@@ -109,6 +117,6 @@ to 1_000. See `piece.json` for the full list.
 
 ## Evidence
 
-`test/elzoo/scheduler_test.exs` (S0–S24, Memory double + manual clock) and
-`test/elzoo/scheduler_postgres_test.exs` (P1–P6, disposable PostgreSQL
+`test/elzoo/scheduler_test.exs` (S0–S29, Memory double + manual clock) and
+`test/elzoo/scheduler_postgres_test.exs` (P1–P12, disposable PostgreSQL
 schema + real Oban) — see `piece.json` for the claims each scenario grounds.
