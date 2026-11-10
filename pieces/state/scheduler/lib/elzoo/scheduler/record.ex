@@ -24,7 +24,7 @@ defmodule Elzoo.Scheduler.Record do
   @skip_reasons ~w(offline_catch_up overlap queue_full ambiguous)
   @dispatch_phases ~w(dispatched pending error)
   @settlement_kinds ~w(acknowledged released)
-  @settlement_vias ~w(completed discarded cancelled reaped deleted)
+  @settlement_vias ~w(completed discarded cancelled deleted)
 
   def version, do: @version
   def index_kinds, do: @index_kinds
@@ -64,7 +64,10 @@ defmodule Elzoo.Scheduler.Record do
 
   def control_payload(at), do: Jason.encode!(%{"v" => @version, "at" => at})
 
-  def tick_payload(at, last_recorded, boundary, backlog, unsettled),
+  # `unsettled_count` is a count, not the id list: the ids are reconstructible
+  # from the occurrence records, and serializing them all would grow past
+  # `max_record_bytes` and refuse every later tick.
+  def tick_payload(at, last_recorded, boundary, backlog, unsettled_count),
     do:
       Jason.encode!(%{
         "v" => @version,
@@ -72,7 +75,7 @@ defmodule Elzoo.Scheduler.Record do
         "last_recorded" => last_recorded,
         "availability_boundary" => boundary,
         "backlog" => backlog,
-        "unsettled" => unsettled
+        "unsettled_count" => unsettled_count
       })
 
   def slot_payload(slot, decision),
@@ -184,12 +187,12 @@ defmodule Elzoo.Scheduler.Record do
            "last_recorded" => last,
            "availability_boundary" => boundary,
            "backlog" => backlog,
-           "unsettled" => unsettled
+           "unsettled_count" => unsettled_count
          } <- d,
          true <-
            instant?(at) and instant?(last) and instant?(boundary) and is_integer(backlog) and
-             backlog >= 0 and is_list(unsettled) and Enum.all?(unsettled, &is_binary/1) do
-      {:ok, {:tick, at, last, boundary, backlog, unsettled}}
+             backlog >= 0 and is_integer(unsettled_count) and unsettled_count >= 0 do
+      {:ok, {:tick, at, last, boundary, backlog, unsettled_count}}
     else
       _ -> :error
     end

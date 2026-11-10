@@ -49,10 +49,20 @@ defmodule Elzoo.Scheduler.TestHelper do
   def set_clock!(agent, now), do: Agent.update(agent, fn _ -> now end)
 
   def memory(opts \\ []) do
-    {:ok, pid} = Memory.start_link(fold: fold(), limits: limits(), append_visibility: :atomic)
+    {:ok, pid} =
+      Memory.start_link(
+        fold: fold(),
+        limits: Keyword.get(opts, :limits, limits()),
+        append_visibility: :atomic
+      )
+
     store = Memory.store(pid)
     clock = Keyword.get_lazy(opts, :clock, &clock!/0)
 
+    %{store: store, memory: pid, clock: clock, scheduler: scheduler(store, clock, opts)}
+  end
+
+  def scheduler(store, clock, opts \\ []) do
     {:ok, scheduler} =
       Scheduler.new(
         store: store,
@@ -65,7 +75,7 @@ defmodule Elzoo.Scheduler.TestHelper do
         max_unsettled_per_schedule: Keyword.get(opts, :max_unsettled_per_schedule, 16)
       )
 
-    %{store: store, memory: pid, clock: clock, scheduler: scheduler}
+    scheduler
   end
 
   def schedule(id, overrides \\ []) do

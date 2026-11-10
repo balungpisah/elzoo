@@ -8,13 +8,20 @@ defmodule Elzoo.Scheduler.Slots do
   Need. Occurrence identity keys on the UTC instant: an ambiguous local slot
   (fall-back overlap) yields the first matching UTC instant and reports its
   second match for the caller's `skipped{ambiguous}` recording; a gap slot
-  (spring-forward) yields no instant. Evaluation reads no clock and performs
-  no I/O beyond the tz database lookup.
+  (spring-forward) yields no instant. Because a fall-back makes local
+  wall-clock order differ from UTC order, candidates are collected across the
+  window and only then ordered by UTC instant: the per-tick bound, the backlog
+  count and the caller's watermark may only advance over evaluated instants in
+  UTC order, so no due instant is ever skipped. Evaluation reads no clock and
+  performs no I/O beyond the tz database lookup.
   """
 
-  # UTC offsets never exceed 14h; 26h of slack on each side makes the local
-  # enumeration window strictly cover the UTC window at every transition.
+  # UTC offsets range UTC-12:00 through UTC+14:00; 26h of slack on each side
+  # makes the local enumeration window strictly cover the UTC window at every
+  # transition, and the +14h bound is the earliest a local slot's UTC instant
+  # can sit relative to its wall-clock reading.
   @margin_ms 26 * 3_600_000
+  @max_east_offset_ms 14 * 3_600_000
   @backlog_cap 1_000
 
   @doc """
@@ -81,55 +88,46 @@ defmodule Elzoo.Scheduler.Slots do
         Crontab.Scheduler.get_next_run_dates(parsed, first_naive)
         |> Stream.take_while(&(NaiveDateTime.compare(&1, last_naive) != :gt))
 
-      step = fn naive, {emissions, emitted, backlog} ->
-        case instants(naive, zone, db) do
-          :error ->
-            {:halt, :error}
+      # Collect every due `{instant, tag}` candidate first: a fall-back makes a
+      # later local slot's first UTC instant earlier than an earlier slot's
+      # second match, so wall-clock order is not UTC order. `naive_unix_ms`
+      # reads the wall time as if UTC; every instant it can produce is at
+      # least `naive_unix_ms - @max_east_offset_ms`, so once that bound passes
+      # `now` no later slot can be due and the scan can stop. Groups are
+      # prepended newest-first and flattened oldest-first below.
+      step = fn naive, {:ok, groups} ->
+        if naive_unix_ms(naive) - @max_east_offset_ms > now_unix_ms do
+          {:halt, {:ok, groups}}
+        else
+          case instants(naive, zone, db) do
+            :error ->
+              {:halt, :error}
 
-          [] ->
-            {:cont, {emissions, emitted, backlog}}
+            instants ->
+              due =
+                for {instant, position} <- Enum.with_index(instants),
+                    instant > after_unix_ms and instant <= now_unix_ms do
+                  {instant, if(position == 0, do: :win, else: :ambiguous)}
+                end
 
-          instants ->
-            in_range =
-              instants
-              |> Enum.with_index()
-              |> Enum.filter(fn {u, _} -> u > after_unix_ms and u <= now_unix_ms end)
-
-            cond do
-              Enum.any?(instants, &(&1 > now_unix_ms)) ->
-                {:halt, {emissions, emitted, backlog}}
-
-              backlog >= @backlog_cap ->
-                {:halt, {emissions, emitted, backlog}}
-
-              emitted < max ->
-                {fit, rest} = Enum.split(in_range, max - emitted)
-
-                {:cont,
-                 {add_emissions(emissions, fit), emitted + length(fit), backlog + length(rest)}}
-
-              true ->
-                {:cont, {emissions, emitted, min(backlog + length(in_range), @backlog_cap)}}
-            end
+              {:cont, {:ok, if(due == [], do: groups, else: [due | groups])}}
+          end
         end
       end
 
-      case Enum.reduce_while(stream, {[], 0, 0}, step) do
-        :error -> {:error, :invalid_spec}
-        {emissions, _emitted, backlog} -> {:ok, Enum.reverse(emissions), backlog}
+      case Enum.reduce_while(stream, {:ok, []}, step) do
+        :error ->
+          {:error, :invalid_spec}
+
+        {:ok, groups} ->
+          candidates = groups |> Enum.reverse() |> List.flatten() |> Enum.sort_by(&elem(&1, 0))
+          {emissions, rest} = Enum.split(candidates, max)
+          {:ok, emissions, min(length(rest), @backlog_cap)}
       end
     else
       _ -> {:error, :invalid_spec}
     end
   end
-
-  # Position 0 of a local slot's UTC instants wins admission; each later
-  # instant of the same slot is the ambiguous match to record as skipped.
-  defp add_emissions(emissions, tagged),
-    do:
-      Enum.reduce(tagged, emissions, fn {instant, position}, acc ->
-        [{instant, if(position == 0, do: :win, else: :ambiguous)} | acc]
-      end)
 
   @doc "UTC instants (ascending) realizing the local wall time; `[]` for a gap, `:error` for an unresolvable zone."
   def instants(naive, zone, time_zone_database) do
@@ -142,6 +140,11 @@ defmodule Elzoo.Scheduler.Slots do
   rescue
     _ -> :error
   end
+
+  # Wall-clock fields read as if they were UTC — a lower-bound reference for
+  # bounding the scan, never an instant itself.
+  defp naive_unix_ms(naive),
+    do: NaiveDateTime.diff(naive, ~N[1970-01-01 00:00:00], :millisecond)
 
   defp naive_of(unix_ms, zone, db) do
     utc = DateTime.from_unix!(unix_ms, :millisecond)

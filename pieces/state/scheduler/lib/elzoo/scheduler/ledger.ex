@@ -14,7 +14,8 @@ defmodule Elzoo.Scheduler.Ledger do
   @doc """
   `{:ok, head, projection}` where `projection` holds `definition`,
   `control` (`:active | :paused | :deleted`), `last_recorded`,
-  `last_tick_ok_at` and `occurrences` (`encoded_id => %{status, job_id,
+  `last_tick_ok_at`, `last_boundary` (the persisted availability boundary of
+  the latest tick) and `occurrences` (`encoded_id => %{status, job_id,
   admitted_at}`). `{:error, :not_found | :unreadable | :unavailable}`.
   """
   def load(store, stream, fold, limits) do
@@ -62,6 +63,7 @@ defmodule Elzoo.Scheduler.Ledger do
       control: :active,
       last_recorded: nil,
       last_tick_ok_at: nil,
+      last_boundary: nil,
       occurrences: %{}
     }
 
@@ -104,49 +106,100 @@ defmodule Elzoo.Scheduler.Ledger do
     {:ok, %{acc | control: control}}
   end
 
-  defp project_row({:tick, at, last, _boundary, _backlog, _unsettled}, acc),
-    do: {:ok, %{acc | last_recorded: last, last_tick_ok_at: at}}
+  defp project_row({:tick, at, last, boundary, _backlog, _unsettled}, acc),
+    do: {:ok, %{acc | last_recorded: last, last_tick_ok_at: at, last_boundary: boundary}}
 
   defp project_row({:slot, slot, decision, extra}, acc) do
     case decision do
       :admitted ->
-        {:ok,
-         put_occurrence(acc, extra.id, %{
-           status: :admitted,
-           origin: extra.origin,
-           admitted_at: extra.at || slot
-         })}
+        if terminal?(acc, extra.id) do
+          {:ok, acc}
+        else
+          {:ok,
+           put_occurrence(acc, extra.id, %{
+             status: :admitted,
+             origin: extra.origin,
+             admitted_at: extra.at || slot
+           })}
+        end
 
       :replaced ->
         acc =
-          acc
-          |> put_occurrence(extra.old, %{status: :replaced, by: extra.new})
-          |> put_occurrence(extra.new, %{
-            status: :admitted,
-            origin: extra.origin,
-            admitted_at: extra.at || slot
-          })
+          if terminal?(acc, extra.old) do
+            acc
+          else
+            put_occurrence(acc, extra.old, %{status: :replaced, by: extra.new})
+          end
 
-        {:ok, acc}
+        if terminal?(acc, extra.new) do
+          {:ok, acc}
+        else
+          {:ok,
+           put_occurrence(acc, extra.new, %{
+             status: :admitted,
+             origin: extra.origin,
+             admitted_at: extra.at || slot
+           })}
+        end
 
       _ ->
         {:ok, acc}
     end
   end
 
-  defp project_row({:dispatch, id, phase, job_id}, acc),
-    do: {:ok, put_occurrence(acc, id, %{status: phase_status(phase), job_id: job_id})}
+  defp project_row({:dispatch, id, phase, job_id}, acc) do
+    if terminal?(acc, id) do
+      {:ok, acc}
+    else
+      # `pending`/`error` records carry no job id: never let them erase a
+      # job id an earlier `dispatched` record committed.
+      fields =
+        if is_integer(job_id),
+          do: %{status: phase_status(phase), job_id: job_id},
+          else: %{status: phase_status(phase)}
 
-  defp project_row({:settled, id, kind, via, at}, acc),
-    do: {:ok, put_occurrence(acc, id, %{status: :settled, kind: kind, via: via, at: at})}
+      {:ok, put_occurrence(acc, id, fields)}
+    end
+  end
 
-  defp project_row({:expired, id, at}, acc),
-    do: {:ok, put_occurrence(acc, id, %{status: :expired, at: at})}
+  defp project_row({:settled, id, kind, via, at}, acc) do
+    if terminal?(acc, id) do
+      {:ok, acc}
+    else
+      {:ok, put_occurrence(acc, id, %{status: :settled, kind: kind, via: via, at: at})}
+    end
+  end
 
-  defp project_row({:redefined, id, gen}, acc),
-    do: {:ok, put_occurrence(acc, id, %{status: :redefined, to_generation: gen})}
+  defp project_row({:expired, id, at}, acc) do
+    if terminal?(acc, id) do
+      {:ok, acc}
+    else
+      {:ok, put_occurrence(acc, id, %{status: :expired, at: at})}
+    end
+  end
+
+  defp project_row({:redefined, id, gen}, acc) do
+    if terminal?(acc, id) do
+      {:ok, acc}
+    else
+      {:ok, put_occurrence(acc, id, %{status: :redefined, to_generation: gen})}
+    end
+  end
 
   defp project_row(_, _acc), do: :error
+
+  # Terminal occurrence statuses are sticky: the first committed terminal
+  # record (`settled`, `expired`, `replaced`, `redefined`) stands, so a stale
+  # dispatch, settlement or slot record written after it can never resurrect
+  # the occurrence into the unsettled set.
+  @terminal_statuses [:settled, :expired, :replaced, :redefined]
+
+  defp terminal?(acc, id) do
+    case Map.get(acc.occurrences, id) do
+      %{status: status} -> status in @terminal_statuses
+      _ -> false
+    end
+  end
 
   defp phase_status(:dispatched), do: :dispatched
   defp phase_status(:pending), do: :dispatch_pending

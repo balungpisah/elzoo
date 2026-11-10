@@ -12,8 +12,8 @@ defmodule Elzoo.SchedulerTest do
   """
   use ExUnit.Case, async: false
   alias Elzoo.Scheduler
-  alias Elzoo.Scheduler.{Slots, TestHelper}
-  alias Elzoo.DurableLog.Memory
+  alias Elzoo.Scheduler.{Record, Slots, TestHelper}
+  alias Elzoo.DurableLog.{Memory, Store}
 
   @minute 60_000
 
@@ -104,11 +104,17 @@ defmodule Elzoo.SchedulerTest do
     assert {:error, :invalid_spec} =
              Scheduler.put_schedule(s, TestHelper.schedule("x", timezone: "Not/AZone"))
 
-    assert {:error, :invalid_schedule} =
+    assert {:error, :invalid_spec} =
              Scheduler.put_schedule(s, TestHelper.schedule("x", dispatch: {"", 3, %{}}))
 
-    assert {:error, :invalid_schedule} =
+    assert {:error, :invalid_spec} =
              Scheduler.put_schedule(s, TestHelper.schedule("x", overlap_policy: {:queue, 0}))
+
+    assert {:error, :invalid_spec} =
+             Scheduler.put_schedule(s, TestHelper.schedule("x", overlap_policy: {:queue, -2}))
+
+    assert {:error, :invalid_schedule} =
+             Scheduler.put_schedule(s, TestHelper.schedule("x", overlap_policy: {:queue, "two"}))
 
     assert {:error, :invalid_schedule} =
              Scheduler.put_schedule(s, TestHelper.schedule("x", occurrence_ttl_ms: 0))
@@ -130,7 +136,7 @@ defmodule Elzoo.SchedulerTest do
 
     tick_records = TestHelper.payloads(ctx.store, "scheduler/every-minute", "tick_recorded")
     assert List.last(tick_records)["last_recorded"] == minute(3)
-    assert List.last(tick_records)["unsettled"] |> length() == 3
+    assert List.last(tick_records)["unsettled_count"] == 3
 
     # a second tick at the same now is a no-op: occurrence ids are stable
     assert %{"every-minute" => %{admitted: 0}} = Scheduler.tick(s, now: minute(3))
@@ -167,15 +173,24 @@ defmodule Elzoo.SchedulerTest do
     assert st.watermark == minute(8)
   end
 
-  test "S5: continuous availability admits catch-up slots under queue(n) bound" do
+  test "S5: offline catch-up slots admit under queue(n) bound and queue-fill the rest" do
     ctx = TestHelper.memory(max_slots_per_tick: 10)
     s = ctx.scheduler
     TestHelper.create!(s, "busy", spec: {:cron, "* * * * *"}, overlap_policy: {:queue, 2})
 
-    # within max_availability_gap_ms (60s): boundary = last_tick_ok_at → all live
-    TestHelper.set_clock!(ctx.clock, TestHelper.epoch() + 30_000)
-    results = Scheduler.tick(s, now: TestHelper.epoch() + 30_000)
-    assert %{"busy" => %{admitted: 0, backlog: 0}} = results
+    # an 11-minute silence exceeds max_availability_gap_ms (60s): every
+    # pending slot classifies offline catch-up; queue(2) admits two and the
+    # evaluated rest queue-fill, one slot stays backlog
+    results = Scheduler.tick(s, now: minute(11))
+    assert %{"busy" => %{admitted: 2, skipped: 8, backlog: 1}} = results
+
+    admitted =
+      ctx.store
+      |> TestHelper.payloads("scheduler/busy", "slot_decided")
+      |> Enum.filter(&(&1["decision"] == "admitted"))
+
+    assert length(admitted) == 2
+    assert Enum.all?(admitted, &(&1["origin"] == "offline_catch_up"))
   end
 
   test "S6: overlap policies skip/replace/queue are recorded" do
@@ -359,4 +374,353 @@ defmodule Elzoo.SchedulerTest do
         10
       )
   end
+
+  # ── review regressions ────────────────────────────────────────────
+
+  # Commit raw scheduler records at the current head, simulating an effect a
+  # racing caller already committed.
+  defp inject!(store, stream, specs) do
+    {:ok, head} = Store.read(store, :head, [stream])
+
+    {:ok, rows, _req} =
+      Record.records(stream, head.revision, specs, TestHelper.fold(), TestHelper.limits())
+
+    assert {:committed, _} = Memory.append(store, stream, head.revision, rows, [])
+  end
+
+  defp admitted_ids(store, schedule_id) do
+    store
+    |> TestHelper.payloads("scheduler/" <> schedule_id, "slot_decided")
+    |> Enum.filter(&(&1["decision"] == "admitted"))
+    |> Enum.map(& &1["id"])
+  end
+
+  defp utc_ms(date, time) do
+    NaiveDateTime.new!(date, time)
+    |> NaiveDateTime.diff(~N[1970-01-01 00:00:00], :millisecond)
+  end
+
+  defp conflict_store(mem_store) do
+    opts = elem(mem_store, 1)
+
+    {ConflictStore,
+     opts
+     |> Map.take([:fold, :limits, :visibility])
+     |> Map.put(:inner, {Memory, opts})}
+  end
+
+  defp arm_conflict(stream) do
+    :persistent_term.put({ConflictStore, :armed}, true)
+    :persistent_term.put({ConflictStore, :stream}, stream)
+  end
+
+  test "S14: fall-back backlog evaluates in UTC order — no due instant skipped", _ctx do
+    ctx = TestHelper.memory(timezone_database: Tz.TimeZoneDatabase, max_slots_per_tick: 2)
+    s = ctx.scheduler
+
+    TestHelper.create!(
+      s,
+      "dst-order",
+      spec: {:cron, "30,45 1 1 11 *"},
+      timezone: "America/New_York"
+    )
+
+    now_ms = 1_793_520_000_000
+
+    # UTC order interleaves the two years' slots differently than wall-clock
+    # order: the 2026-11-01 01:45 first match (05:45Z) precedes the 01:30
+    # second match (06:30Z). Four bounded ticks must still admit every :win.
+    for _ <- 1..4, do: Scheduler.tick(s, now: now_ms)
+
+    ids = admitted_ids(ctx.store, "dst-order")
+    assert length(ids) == 4
+
+    instants =
+      for id <- ids,
+          [_gen, instant, _sid] <- [String.split(id, ":")],
+          do: String.to_integer(instant)
+
+    expected = [
+      utc_ms(~D[2025-11-01], ~T[05:30:00]),
+      utc_ms(~D[2025-11-01], ~T[05:45:00]),
+      utc_ms(~D[2026-11-01], ~T[05:30:00]),
+      utc_ms(~D[2026-11-01], ~T[05:45:00])
+    ]
+
+    assert Enum.sort(instants) == Enum.sort(expected)
+
+    ambiguous =
+      ctx.store
+      |> TestHelper.payloads("scheduler/dst-order", "slot_decided")
+      |> Enum.count(&(&1["decision"] == "skipped" and &1["reason"] == "ambiguous"))
+
+    assert ambiguous == 2
+  end
+
+  test "S15: bounded-tick backlog stays live — boundary tracks evaluation coverage", _ctx do
+    ctx = TestHelper.memory(max_slots_per_tick: 2, max_availability_gap_ms: 600_000)
+    s = ctx.scheduler
+    TestHelper.create!(s, "backlog", spec: {:cron, "* * * * *"}, overlap_policy: {:queue, 8})
+
+    assert %{"backlog" => %{admitted: 2, backlog: 2}} = Scheduler.tick(s, now: minute(4))
+    assert %{"backlog" => %{admitted: 2, backlog: 1}} = Scheduler.tick(s, now: minute(5))
+
+    admitted =
+      ctx.store
+      |> TestHelper.payloads("scheduler/backlog", "slot_decided")
+      |> Enum.filter(&(&1["decision"] == "admitted"))
+
+    assert length(admitted) == 4
+    # the truncated backlog was due during proven availability: every slot
+    # classifies live, never offline catch-up
+    assert Enum.all?(admitted, &(&1["origin"] == "live"))
+  end
+
+  test "S16: tick_recorded stays within max_record_bytes at max unsettled", _ctx do
+    ctx =
+      TestHelper.memory(
+        limits: %{max_record_bytes: 1_024, max_batch_size: 256, max_checkpoint_bytes: 10_000},
+        max_slots_per_tick: 64,
+        max_unsettled_per_schedule: 64,
+        max_availability_gap_ms: 600_000
+      )
+
+    s = ctx.scheduler
+    TestHelper.create!(s, "fat", spec: {:cron, "* * * * *"}, overlap_policy: {:queue, 64})
+
+    assert %{"fat" => %{admitted: 64}} = Scheduler.tick(s, now: minute(64))
+    assert %{"fat" => %{admitted: 0, skipped: 1}} = Scheduler.tick(s, now: minute(65))
+
+    raw =
+      ctx.store
+      |> TestHelper.rows("scheduler/fat")
+      |> Enum.filter(&(&1.kind == "tick_recorded"))
+      |> List.last()
+      |> Map.get(:payload)
+
+    assert byte_size(raw) < 512
+    decoded = Jason.decode!(raw)
+    assert decoded["unsettled_count"] == 64
+    refute Map.has_key?(decoded, "unsettled")
+  end
+
+  test "S17: delete releases an unsettled set larger than max_batch_size", _ctx do
+    ctx =
+      TestHelper.memory(
+        limits: %{max_record_bytes: 4_096, max_batch_size: 16, max_checkpoint_bytes: 10_000},
+        max_slots_per_tick: 4,
+        max_unsettled_per_schedule: 24,
+        max_availability_gap_ms: 600_000
+      )
+
+    s = ctx.scheduler
+    TestHelper.create!(s, "busy", spec: {:cron, "* * * * *"}, overlap_policy: {:queue, 24})
+
+    for n <- [4, 8, 12, 16, 20, 24] do
+      assert %{"busy" => %{admitted: 4}} = Scheduler.tick(s, now: minute(n))
+    end
+
+    assert {:ok, %{control: :deleted, released: 24}} = Scheduler.delete(s, "busy")
+
+    settled = TestHelper.payloads(ctx.store, "scheduler/busy", "occurrence_settled")
+    assert length(settled) == 24
+    assert Enum.all?(settled, &(&1["kind"] == "released" and &1["via"] == "deleted"))
+    assert "schedule_deleted" in TestHelper.kinds_in(ctx.store, "scheduler/busy")
+    assert {:ok, %{state: :deleted, unsettled: 0}} = Scheduler.status(s, "busy")
+  end
+
+  test "S18: dispatch backoff may not carry reserved identity keys", _ctx do
+    s = TestHelper.memory().scheduler
+
+    for backoff <- [
+          %{"job_key" => "x"},
+          %{"queue" => "x"},
+          %{"v" => 2},
+          %{:job_key => "x"},
+          %{"ok" => 1, "job_key" => "x"}
+        ] do
+      assert {:error, :invalid_schedule} =
+               Scheduler.put_schedule(
+                 s,
+                 TestHelper.schedule("reserved", dispatch: {"q", 3, backoff})
+               )
+    end
+
+    assert {:ok, _} =
+             Scheduler.put_schedule(
+               s,
+               TestHelper.schedule("reserved-ok", dispatch: {"q", 3, %{"backoff_ms" => 5}})
+             )
+  end
+
+  test "S19: a stale dispatch record cannot resurrect a settled occurrence", ctx do
+    s = ctx.scheduler
+    TestHelper.create!(s, "sticky", spec: {:cron, "* * * * *"})
+    assert %{"sticky" => %{admitted: 1}} = Scheduler.tick(s, now: minute(1))
+
+    [id] = admitted_ids(ctx.store, "sticky")
+    stream = "scheduler/sticky"
+
+    # the terminal record commits first; the stale dispatch lands after it
+    inject!(ctx.store, stream, [
+      {"occurrence_settled", Record.settled_payload(id, :acknowledged, :completed, minute(2))}
+    ])
+
+    inject!(ctx.store, stream, [
+      {"occurrence_dispatch", Record.dispatch_record_payload(id, "dispatched", 999, nil)}
+    ])
+
+    assert {:ok, %{unsettled: 0}} = Scheduler.status(s, "sticky")
+  end
+
+  test "S20: a fenced effect append loses to a concurrent terminal commit", ctx do
+    s = ctx.scheduler
+    TestHelper.create!(s, "fence", spec: {:cron, "* * * * *"}, occurrence_ttl_ms: 1)
+    assert %{"fence" => %{admitted: 1}} = Scheduler.tick(s, now: minute(1))
+
+    [id] = admitted_ids(ctx.store, "fence")
+    stream = "scheduler/fence"
+
+    # pause the next :append inside reap's fenced effect append
+    assert :ok = Memory.fault(ctx.store, :append, {:pause, :fence_race})
+    assert %{"fence" => %{refused: :store_unavailable}} = Scheduler.reap(s, now: minute(2))
+
+    # a competing settlement commits while the effect append is held
+    inject!(ctx.store, stream, [
+      {"occurrence_settled", Record.settled_payload(id, :acknowledged, :completed, minute(2))}
+    ])
+
+    # releasing the held append hits the moved head: conflict, nothing written
+    assert {:conflict, _} = Memory.release(ctx.store, :fence_race)
+
+    assert TestHelper.payloads(ctx.store, stream, "occurrence_expired") == []
+    assert {:ok, %{unsettled: 0}} = Scheduler.status(s, "fence")
+  end
+
+  test "S21: a real CAS conflict maps to :contended and the loser changes nothing", ctx do
+    store = conflict_store(ctx.store)
+    s = TestHelper.scheduler(store, ctx.clock)
+    TestHelper.create!(s, "cas-race", spec: {:cron, "* * * * *"})
+
+    arm_conflict("scheduler/cas-race")
+
+    on_exit(fn ->
+      :persistent_term.erase({ConflictStore, :armed})
+      :persistent_term.erase({ConflictStore, :stream})
+    end)
+
+    assert %{"cas-race" => %{contended: true, admitted: 0}} =
+             Scheduler.tick(s, now: minute(2))
+
+    # the losing tick committed nothing: no slot decisions, watermark intact
+    assert TestHelper.payloads(ctx.store, "scheduler/cas-race", "slot_decided") == []
+    {:ok, st} = Scheduler.status(s, "cas-race")
+    assert st.watermark == TestHelper.epoch()
+  end
+
+  test "S22: an unavailable or unreadable index fails closed", ctx do
+    s = ctx.scheduler
+    TestHelper.create!(s, "idx", spec: {:cron, "* * * * *"})
+
+    assert :ok = Memory.fault(ctx.store, :head, :unavailable)
+    assert {:error, :store_unavailable} = Scheduler.tick(s, now: minute(1))
+
+    # faults are one-shot: re-arm for reap
+    assert :ok = Memory.fault(ctx.store, :head, :unavailable)
+    assert {:error, :store_unavailable} = Scheduler.reap(s, now: minute(1))
+
+    assert :ok = Memory.fault(ctx.store, :head, :malformed)
+    assert {:error, :watermark_invalid} = Scheduler.tick(s, now: minute(1))
+  end
+
+  test "S23: telemetry emits bounded tick/admission/expiry/dispatch-failure events", ctx do
+    s = ctx.scheduler
+    events = [:tick, :admitted, :dispatch_error, :expired]
+
+    for event <- events do
+      :telemetry.attach(
+        {__MODULE__, event},
+        [:elzoo, :scheduler, event],
+        fn e, m, meta, _ -> send(self(), {:tlm, e, m, meta}) end,
+        nil
+      )
+    end
+
+    on_exit(fn ->
+      for event <- events, do: :telemetry.detach({__MODULE__, event})
+    end)
+
+    TestHelper.create!(s, "tlm", spec: {:cron, "* * * * *"}, occurrence_ttl_ms: 1)
+    assert %{"tlm" => %{admitted: 1, dispatch_errors: 1}} = Scheduler.tick(s, now: minute(1))
+    assert %{"tlm" => %{expired: 1}} = Scheduler.reap(s, now: minute(2))
+
+    assert_received {:tlm, [:elzoo, :scheduler, :tick], %{count: 1}, tick_meta}
+    assert tick_meta.schedule_id == "tlm" and tick_meta.admitted == 1
+
+    assert_received {:tlm, [:elzoo, :scheduler, :admitted], _, adm_meta}
+    assert is_binary(adm_meta.occurrence) and adm_meta.origin == :live
+
+    assert_received {:tlm, [:elzoo, :scheduler, :dispatch_error], _, err_meta}
+    assert is_binary(err_meta.occurrence)
+
+    assert_received {:tlm, [:elzoo, :scheduler, :expired], _, exp_meta}
+    assert is_binary(exp_meta.occurrence)
+
+    # bounded metadata only — no schedule payload, worker args or backoff
+    for meta <- [tick_meta, adm_meta, err_meta, exp_meta] do
+      refute Enum.any?(Map.keys(meta), &(&1 in [:args, :backoff, :payload, :spec, :dispatch]))
+    end
+  end
+
+  test "S24: redefine supersedes an unsettled set larger than max_batch_size", _ctx do
+    ctx =
+      TestHelper.memory(
+        limits: %{max_record_bytes: 4_096, max_batch_size: 16, max_checkpoint_bytes: 10_000},
+        max_slots_per_tick: 4,
+        max_unsettled_per_schedule: 24,
+        max_availability_gap_ms: 600_000
+      )
+
+    s = ctx.scheduler
+    TestHelper.create!(s, "redef", spec: {:cron, "* * * * *"}, overlap_policy: {:queue, 24})
+
+    for n <- [4, 8, 12, 16, 20, 24] do
+      assert %{"redef" => %{admitted: 4}} = Scheduler.tick(s, now: minute(n))
+    end
+
+    assert {:ok, %{redefined: "redef", generation: {1, 2}}} =
+             Scheduler.put_schedule(
+               s,
+               TestHelper.schedule("redef", generation: 2, spec: {:cron, "*/2 * * * *"})
+             )
+
+    assert length(TestHelper.payloads(ctx.store, "scheduler/redef", "occurrence_redefined")) ==
+             24
+
+    {:ok, st} = Scheduler.status(s, "redef")
+    assert st.generation == 2 and st.unsettled == 0
+  end
+end
+
+# Store facade delegate over the Memory double: reads pass through, and the
+# first append to the armed stream returns a real `{:conflict, _}` so the
+# `:contended` mapping is exercised end to end.
+defmodule ConflictStore do
+  @moduledoc false
+  alias Elzoo.DurableLog.Memory
+
+  def head(store, stream), do: Memory.head(inner(store), stream)
+  def read(store, stream, from, limit), do: Memory.read(inner(store), stream, from, limit)
+
+  def append(store, stream, expected, records, items) do
+    if :persistent_term.get({__MODULE__, :armed}, false) and
+         :persistent_term.get({__MODULE__, :stream}) == stream do
+      :persistent_term.erase({__MODULE__, :armed})
+      {:conflict, %{expected: expected, observed: expected + 1}}
+    else
+      Memory.append(inner(store), stream, expected, records, items)
+    end
+  end
+
+  defp inner(store), do: store |> elem(1) |> Map.fetch!(:inner)
 end
