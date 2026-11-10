@@ -6,7 +6,7 @@ defmodule Mix.Tasks.Elzoo.Take do
   def run(args) do
     {options, ids, invalid} = OptionParser.parse(args, strict: [to: :string, dry_run: :boolean])
 
-    if invalid != [] or ids == [] or not options[:to],
+    if invalid != [] or ids == [] or is_nil(options[:to]),
       do: Mix.raise("usage: mix elzoo.take ID [ID ...] --to PATH [--dry-run]")
 
     plan = Elzoo.Registry.load!() |> Elzoo.Export.plan!(ids, options[:to])
@@ -24,6 +24,6 @@ defmodule Mix.Tasks.Elzoo.Take do
       )
     end
   rescue
-    error in ArgumentError -> Mix.raise(Exception.message(error))
+    error in ArgumentError -> Mix.raise(Exception.format(:error, error, __STACKTRACE__))
   end
 end
