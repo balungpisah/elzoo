@@ -4,13 +4,13 @@ defmodule Elzoo.CheckSelection do
 
   # This is the existing export-test inventory, not every ready Piece. Adding a
   # standalone consumer is a separate evidence change, not a selector side effect.
-  @consumer_ids ~w(core/operator core/port core/assembly core/envelope core/edge core/wiring core/selection delivery/idempotency delivery/windowed-idempotency delivery/request-reply delivery/routing delivery/transformation delivery/backpressure delivery/dead-letter delivery/retry-timeout runtime/adapter runtime/host assembly/ingest-json-unit assembly/request-route-retry state/event-log state/checkpoint state/outbox integration/sql workflow/state-machine integration/jobs assembly/durable-job integration/ai-text)
+  @consumer_ids ~w(core/operator core/port core/assembly core/envelope core/edge core/wiring core/selection delivery/idempotency delivery/windowed-idempotency delivery/request-reply delivery/routing delivery/transformation delivery/backpressure delivery/dead-letter delivery/retry-timeout runtime/adapter runtime/host assembly/ingest-json-unit assembly/request-route-retry state/event-log state/checkpoint state/outbox state/scheduler integration/sql workflow/state-machine integration/jobs assembly/durable-job integration/ai-text)
 
   # ELZ-073: the consumers that need the disposable PostgreSQL database stay together with the
   # aggregate consumer (one database per job); test/export_test.exs asserts that this list equals
   # Elzoo.CureConsumerCase.postgres_consumer_ids/0. ELZ-091 added integration/ai-text: its closure
   # reaches integration/sql through delivery/effect-intent.
-  @postgres_consumer_ids ~w(integration/sql integration/jobs assembly/durable-job integration/ai-text)
+  @postgres_consumer_ids ~w(integration/sql integration/jobs assembly/durable-job integration/ai-text state/scheduler)
   @parts ~w(root consumers-db consumers)
 
   def consumer_ids, do: @consumer_ids

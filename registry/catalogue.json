@@ -739,11 +739,11 @@
     },
     {
       "id": "state/scheduler",
-      "summary": "Delayed/recurring jobs and workflow timers",
+      "summary": "Durable schedule definitions and caller-driven occurrence driver over jobs",
       "disposition": "adapt",
       "phase": "P2",
-      "status": "planned",
-      "reason": "ELZ-010 relies on Oban 2.24.2 retry staging inside integration/jobs for delayed retries; no recurring schedule, timer or workflow-timer Contract is offered, so this stays planned."
+      "status": "ready",
+      "manifest": "pieces/state/scheduler/piece.json"
     },
     {
       "id": "state/schema-evolution",

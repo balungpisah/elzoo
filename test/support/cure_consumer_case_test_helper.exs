@@ -16,7 +16,7 @@ defmodule Elzoo.CureConsumerCase do
   # Consumers whose copy closure names a PostgreSQL provider (postgrex, ecto_sql, oban). They
   # share `ELZOO_TEST_DATABASE_URL`, so they run in sequence. `integration/ai-text` (ELZ-091) copies
   # integration/sql through delivery/effect-intent.
-  @postgres_consumer_ids ~w(integration/sql integration/jobs assembly/durable-job integration/ai-text)
+  @postgres_consumer_ids ~w(integration/sql integration/jobs assembly/durable-job integration/ai-text state/scheduler)
 
   # ELZ-091: the per-ID consumer of the provider-neutral AI text interface. Its closure must hold no
   # provider Piece and no provider library: the interface works without any provider.

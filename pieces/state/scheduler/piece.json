@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "id": "state/scheduler",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "adapter",
+  "providers": [
+    "crontab",
+    "tz",
+    "jason",
+    "ecto_sql",
+    "postgrex",
+    "oban",
+    "telemetry",
+    "elixir",
+    "otp"
+  ],
+  "dependencies": [
+    "state/event-log",
+    "integration/sql",
+    "delivery/trigger",
+    "integration/jobs",
+    "delivery/time"
+  ],
+  "applications": [
+    "crypto"
+  ],
+  "contract": "Durable schedule definitions and the caller-driven driver of ELZ-097: put_schedule/pause/resume/delete/get/list/status own the lifecycle; tick/2 restores each active schedule's trigger state (delivery/trigger) from the durable watermark last_recorded_unix_ms and the unsettled ledger, computes the availability boundary from last_tick_ok_at_unix_ms (last_tick_ok_at when now - last_tick_ok_at <= max_availability_gap_ms, else now), evaluates at most max_slots_per_tick oldest due slots — five-field crontab expressions in the declared IANA zone (Etc/UTC default; non-UTC requires a declared Calendar.TimeZoneDatabase Need, tz 0.28.4 is the pinned provider; @reboot and seconds fields refuse; the first UTC match of an ambiguous local slot wins and its second match is recorded skipped{ambiguous}; gap slots produce no match), or the single instant of {:at, instant} — admits them through Elzoo.ScheduleOccurrence.admit_slots/3, and commits the slot decisions, the watermark, trigger state and last_tick_ok_at = now as one atomic append batch under stream-head CAS. Each admitted occurrence dispatches as one Oban job through integration/jobs whose job_key is the encoded occurrence id (at-least-once, advisory uniqueness); settlement is derived from Oban job state (completed -> acknowledged, discarded/cancelled -> released, in-flight stays unsettled, unreadable is :settlement_unknown); reap/2 releases occurrences older than occurrence_ttl_ms, records them expired and cancels their jobs. Redefinition requires a strictly greater generation and records supersession. Store {:conflict, _} is :contended and the losing call changes nothing it had not already committed.",
+  "limits": [
+    "At-least-once dispatch only: Oban uniqueness is an advisory lock plus query, not a constraint; a job may run twice (crash between enqueue and the batch-2 commit re-enqueues and resolves the same job where possible), and a settled occurrence's job may still execute — the worker must be idempotent on the occurrence id in job_key. No exactly-once claim, no worker callback.",
+    "Cron resolution is the evaluator's minute granularity; seconds fields and @reboot refuse :invalid_spec. One-shot {:at, instant} admits at most once. No calendar semantics beyond the crontab five-field Contract.",
+    "DST mapping: the first UTC instant of an ambiguous local slot wins and the second is recorded skipped{ambiguous}; a gap slot produces no instant at all and is covered by the misfire/catch-up recording of neighbouring slots, not recorded itself.",
+    "last_tick_ok_at > now (clock regression) refuses :watermark_invalid rather than guessing a boundary; missing/corrupt watermark, last_tick_ok_at or any durable record fails the schedule's projection :unreadable -> :watermark_invalid on tick/reap, and corrupt index/schedule streams fail closed.",
+    "Each schedule's ledger is one Store stream (scheduler/<id>) plus a small index stream (scheduler) the Piece owns; a crashed create can leave a phantom index entry until the schedule stream commit or a later delete. Streams are bounded only by consumer retention; replay scans the stream each operation (bounded reads, pages of 500).",
+    "tick/2 and reap/2 are caller-driven and start no loop or supervisor; the consumer wires its own timer (delivery/time) and supplies now through the bound clock or opts[:now]. No hot reconfiguration, no distributed leadership, no evaluation while the host is down beyond recorded catch-up decisions.",
+    "backlog counts remaining due instants exactly up to 1_000 and reports the cap as a lower bound above it; dispatch/settlement appends after the tick commit are chunked to the Store's max_batch_size and a mid-batch conflict leaves the committed chunks standing while the schedule reports :contended.",
+    "Schedule payloads (worker binding, backoff map) are opaque; they never appear in telemetry, errors or inspect output beyond the bounded detail atoms. The consumer's Oban queue, worker and runner registration remain its own — the Piece enqueues Elzoo.Jobs.Worker jobs only.",
+    "Unsettled occurrences survive delete only as released ledger records; pause freezes evaluation but never in-flight occurrences. status/2 is a point-in-time read of the stream, not a fence."
+  ],
+  "files": [
+    "lib/elzoo/scheduler.ex",
+    "lib/elzoo/scheduler/ledger.ex",
+    "lib/elzoo/scheduler/record.ex",
+    "lib/elzoo/scheduler/slots.ex",
+    "test/elzoo/scheduler_postgres_test.exs",
+    "test/elzoo/scheduler_test.exs",
+    "test/support/scheduler_test_helper.exs",
+    "examples/elzoo/scheduler_example.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/scheduler_test.exs",
+      "claim": "S0-S13 on the volatile Memory double with a manual clock: construction validation, CRUD + generation fencing, invalid spec/schedule refusals, due-slot admission + watermark advance + tick idempotence, {:at, instant} single admission, offline catch-up under the availability boundary, skip/replace/queue overlap decisions recorded, restart restore without duplicate admission, CAS contention vocabulary, boundary edges, DST ambiguous first-UTC-wins + skipped{ambiguous}, DST gap no-match, non-UTC refusal without a tz database, and Slots.due bounding/ordering."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/scheduler_postgres_test.exs",
+      "claim": "P1-P4 on disposable PostgreSQL schemas with a real Oban instance (testing: :manual): admitted occurrences enqueue exactly one job each and re-ticks dedup through the job_key; derived settlement maps completed -> acknowledged and discarded -> released while in-flight and unreadable states stay unsettled; reap expires past-TTL occurrences and cancels their jobs; duplicate ticks across two Scheduler instances leave one tick batch each with no re-admission."
+    },
+    {
+      "kind": "upstream",
+      "provider": "crontab",
+      "reference": "https://hexdocs.pm/crontab/1.2.1/",
+      "claim": "Crontab.CronExpression.Parser.parse/1 and Crontab.Scheduler.get_next_run_dates/2 (public API, five-field minute resolution) evaluate local slots; the Piece adds timezone mapping and the refusal policy — the evaluator itself is upstream's contract."
+    },
+    {
+      "kind": "upstream",
+      "provider": "tz",
+      "reference": "https://hexdocs.pm/tz/0.28.4/",
+      "claim": "Tz.TimeZoneDatabase implements Calendar.TimeZoneDatabase including :ambiguous and :gap period classification; DateTime.from_naive/3 and shift_zone/3 are the pinned Elixir contract used for local->UTC mapping. No global time_zone_database is configured."
+    },
+    {
+      "kind": "upstream",
+      "provider": "oban",
+      "reference": "https://hexdocs.pm/oban/2.24.2/",
+      "claim": "Oban unique-job advisory uniqueness, insert/state_by_id/cancel semantics and job states are upstream contracts; integration/jobs (ELZ-010) already wraps them — the scheduler relies on that boundary, not on Oban directly."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Calendar.TimeZoneDatabase callbacks, DateTime.from_naive/3, System.system_time/1 and Jason encoding are platform contracts, not proved here."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The consumer merges Elzoo.Scheduler.kinds/0 into its fold, keeps schema_version 1 in fold.versions, never writes those kinds or the scheduler/ stream prefix itself, bounds retention, registers a runner for the dispatch queue and treats the occurrence id in job_key as the idempotency key."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "supported",
+      "contract": "Emits [:elzoo, :scheduler, :expired], [:elzoo, :scheduler, :dispatch_error] and [:elzoo, :scheduler, :settlement_unknown] with bounded metadata (schedule_id, occurrence id); no schedule payloads, worker args or backoff content.",
+      "evidence": [
+        "test/elzoo/scheduler_postgres_test.exs",
+        "test/elzoo/scheduler_test.exs"
+      ]
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Construction-time Store term, fold, limits, clock binding, Oban instance reference, timezone_database and bounds (max_schedules, max_unsettled_per_schedule, max_slots_per_tick, max_availability_gap_ms, occurrence_ttl_ms); per-call now/limit opts; no hot reconfiguration, no env reads, no global timezone state.",
+      "evidence": [
+        "test/elzoo/scheduler_test.exs"
+      ]
+    },
+    "control": {
+      "status": "supported",
+      "contract": "pause/2, resume/2 and delete/2 are durable single-batch control transitions on the schedule stream (idempotent on the target state, :contended on CAS conflict, :not_found on retired/absent); delete additionally releases unsettled occurrences, cancels their Oban jobs and retires the index entry.",
+      "evidence": [
+        "test/elzoo/scheduler_test.exs",
+        "test/elzoo/scheduler_postgres_test.exs"
+      ]
+    }
+  }
+}

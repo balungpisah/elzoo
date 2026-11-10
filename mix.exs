@@ -83,7 +83,11 @@ defmodule Elzoo.MixProject do
       # not runtime: false; its server-side plug_cowboy/cowboy closure is required by the package.
       {:ex_mcp, "== 1.8.1"},
       # ELZ-082 vector encoding and consumer Postgrex/Ecto types (MIT).
-      {:pgvector, "== 0.4.2"}
+      {:pgvector, "== 0.4.2"},
+      # ELZ-097 state/scheduler providers: the public five-field cron evaluator
+      # (MIT) and the IANA timezone database Need for non-UTC schedules (MIT).
+      {:crontab, "== 1.2.1"},
+      {:tz, "== 0.28.4"}
     ]
   end
 
