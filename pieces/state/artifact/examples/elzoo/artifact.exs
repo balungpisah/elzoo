@@ -49,13 +49,18 @@ caller = %{tenant: "acme", principal: "report-worker", scopes: ["artifacts:read"
 
 # a new version keeps v1 readable
 {:ok, %{record: v2}} =
-  Elzoo.Artifact.new_version(art, caller, "report-2026-02", %{bytes: :file.read!("report-v2.pdf") |> elem(1)})
+  Elzoo.Artifact.new_version(art, caller, "report-2026-02", %{
+    bytes: :file.read!("report-v2.pdf") |> elem(1)
+  })
 
 {:ok, versions} = Elzoo.Artifact.versions(art, caller, "report-2026-02")
 
 # explicit two-phase lifecycle and reconciliation
 {:ok, %{record: staged}} = Elzoo.Artifact.stage(art, caller, "report-2026-02", %{bytes: "partial"})
-{:ok, %{record: rec, object: evidence}} = Elzoo.Artifact.status(art, caller, %{artifact_id: "report-2026-02", version: staged.version})
+
+{:ok, %{record: rec, object: evidence}} =
+  Elzoo.Artifact.status(art, caller, %{artifact_id: "report-2026-02", version: staged.version})
+
 {:ok, %{record: committed}} = Elzoo.Artifact.commit(art, caller, "report-2026-02", staged.version)
 
 # retention: caller-driven reaping

@@ -123,7 +123,7 @@ defmodule Elzoo.Artifact do
         {:error, {:invalid, :clock}}
 
       not (Codec.fold_valid?(fold) and
-               Map.take(fold.kinds, Map.keys(Record.kinds())) == Record.kinds() and
+             Map.take(fold.kinds, Map.keys(Record.kinds())) == Record.kinds() and
                Record.version() in fold.versions) ->
         {:error, {:invalid, :fold}}
 
@@ -362,7 +362,9 @@ defmodule Elzoo.Artifact do
   def new_version(art, caller, artifact_id, input, opts \\ []) do
     with :ok <- check_caller(caller), :ok <- check_segment(:artifact_id, artifact_id) do
       case load(art, caller.tenant, artifact_id) do
-        {:error, reason} -> {:error, reason}
+        {:error, reason} ->
+          {:error, reason}
+
         {:ok, view} ->
           if view.folded.max_version >= 1,
             do: put(art, caller, artifact_id, input, opts),
@@ -631,7 +633,8 @@ defmodule Elzoo.Artifact do
         past?(rec.retain_until, now)
 
   defp due?(rec, now, _ttl),
-    do: rec.state != :deleted and (past?(rec.access_expires_at, now) or past?(rec.retain_until, now))
+    do:
+      rec.state != :deleted and (past?(rec.access_expires_at, now) or past?(rec.retain_until, now))
 
   defp past?(:never, _now), do: false
   defp past?(stamp, now), do: stamp <= now
@@ -786,6 +789,7 @@ defmodule Elzoo.Artifact do
   defp term_present?(list, value) when is_list(list), do: value in list
 
   defp terms_covered?(:any, _scopes), do: true
+
   defp terms_covered?(required, scopes) when is_list(required) and is_list(scopes),
     do: Enum.all?(required, &(&1 in scopes))
 
@@ -848,12 +852,23 @@ defmodule Elzoo.Artifact do
     case Record.rows(stream, expected, specs, art.fold, art.limits) do
       {:ok, rows, request} ->
         case Store.write(art.store, :append, [stream, expected, rows, []], request) do
-          {:committed, _} = committed -> committed
-          {:conflict, %{expected: e, observed: o}} -> {:error, {:commit_failed, %{expected: e, observed: o}}}
-          {:rejected, :caller_transaction} -> {:error, :caller_transaction}
-          {:rejected, :record_too_large} -> {:error, :too_large}
-          {:rejected, reason} -> {:error, {:commit_failed, %{rejected: reason}}}
-          {:indeterminate, _info} -> {:error, {:commit_failed, :indeterminate}}
+          {:committed, _} = committed ->
+            committed
+
+          {:conflict, %{expected: e, observed: o}} ->
+            {:error, {:commit_failed, %{expected: e, observed: o}}}
+
+          {:rejected, :caller_transaction} ->
+            {:error, :caller_transaction}
+
+          {:rejected, :record_too_large} ->
+            {:error, :too_large}
+
+          {:rejected, reason} ->
+            {:error, {:commit_failed, %{rejected: reason}}}
+
+          {:indeterminate, _info} ->
+            {:error, {:commit_failed, :indeterminate}}
         end
 
       {:error, {:rejected, reason}} ->
@@ -974,7 +989,8 @@ defmodule Elzoo.Artifact do
 
   defp check_caller(_), do: {:error, :invalid}
 
-  defp check_segment(_field, value), do: if(Record.segment?(value), do: :ok, else: {:error, :invalid})
+  defp check_segment(_field, value),
+    do: if(Record.segment?(value), do: :ok, else: {:error, :invalid})
 
   defp check_version(:head), do: :ok
   defp check_version(v) when is_integer(v) and v >= 1, do: :ok
@@ -1052,7 +1068,9 @@ defmodule Elzoo.Artifact do
 
   defp input_access(_, _), do: :error
 
-  defp input_stamp(field, :never), do: if(field in [:access_expires_at, :retain_until], do: :ok, else: :error)
+  defp input_stamp(field, :never),
+    do: if(field in [:access_expires_at, :retain_until], do: :ok, else: :error)
+
   defp input_stamp(_field, n) when is_integer(n) and n >= 0, do: :ok
   defp input_stamp(_, _), do: :error
 end

@@ -1,6 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 Code.require_file("../support/artifact_test_helper.exs", __DIR__)
-Code.require_file("../../../../integration/object-store/test/support/object_store_test_helper.exs", __DIR__)
+
+Code.require_file(
+  "../../../../integration/object-store/test/support/object_store_test_helper.exs",
+  __DIR__
+)
 
 defmodule Elzoo.ArtifactPostgresTest do
   @moduledoc """
@@ -33,7 +37,9 @@ defmodule Elzoo.ArtifactPostgresTest do
 
   defp id(prefix), do: "#{prefix}-#{System.unique_integer([:positive])}"
 
-  test "P1 durable lifecycle: put, head, get, versions, delete on the real Store", %{pg: %{art: art}} do
+  test "P1 durable lifecycle: put, head, get, versions, delete on the real Store", %{
+    pg: %{art: art}
+  } do
     if not s3?(), do: raise("ELZOO_TEST_S3_* required (fail closed)")
     c = H.caller("t-#{id("t")}")
     aid = id("art")
@@ -53,23 +59,23 @@ defmodule Elzoo.ArtifactPostgresTest do
     c = H.caller("t-#{id("t")}")
     aid = id("art")
 
-    assert {:ok, rec} = Artifact.stage(art, c, aid, H.input("data"))
+    assert {:ok, %{version: 1}} = Artifact.stage(art, c, aid, H.input("data"))
 
     # A concurrent writer advances the stream head between the stage and this
-    # forged direct append; the next commit sees a changed expected revision.
-    store = (fn -> {m, o} = art.store; {m, o} end).()
+    # forged direct append; the next commit re-reads at the moved head.
+    stream = "artifact/#{c.tenant}/#{aid}"
 
     {:ok, rows, request} =
       Elzoo.Artifact.Record.rows(
-        "artifact/#{c.tenant}/#{aid}",
+        stream,
         1,
         [{"foreign", 1, Jason.encode!(%{"v" => 1})}],
         H.fold(),
         H.limits()
       )
 
-    {module, _} = store
-    assert {:committed, 2} = module.append(store, "artifact/#{c.tenant}/#{aid}", 1, rows, [])
+    assert {:committed, 2} =
+             Elzoo.DurableLog.Store.write(art.store, :append, [stream, 1, rows, []], request)
 
     # commit re-loads at revision 2, verifies and appends at the fresh head —
     # no stale CAS; the foreign row is ignored by the fold.
@@ -83,7 +89,6 @@ defmodule Elzoo.ArtifactPostgresTest do
     aid = id("art")
 
     assert {:ok, _} = Artifact.put(art, c, aid, H.input("data"))
-    {module, _} = art.store
     {:ok, head} = Elzoo.DurableLog.Store.read(art.store, :head, ["artifact/#{c.tenant}/#{aid}"])
     assert head.revision == 2
     {:ok, rows, _} = Elzoo.DurableLog.read(art.store, "artifact/#{c.tenant}/#{aid}", 1, 10)

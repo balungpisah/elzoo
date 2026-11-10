@@ -107,8 +107,11 @@ defmodule Elzoo.Artifact.TestHelper do
 
     actual =
       case SQL.query(repo, "SELECT current_database()", [], timeout: 2_000, log: false) do
-        {:ok, %{rows: [[name]]}} -> name
-        _ -> raise "ELZOO_TEST_DATABASE_URL is unreachable: PostgreSQL tests fail closed (never skipped)"
+        {:ok, %{rows: [[name]]}} ->
+          name
+
+        _ ->
+          raise "ELZOO_TEST_DATABASE_URL is unreachable: PostgreSQL tests fail closed (never skipped)"
       end
 
     if actual != parsed,
@@ -119,8 +122,11 @@ defmodule Elzoo.Artifact.TestHelper do
 
     :ok
   rescue
-    e in RuntimeError -> reraise e, __STACKTRACE__
-    _ -> raise "ELZOO_TEST_DATABASE_URL is unreachable: PostgreSQL tests fail closed (never skipped)"
+    e in RuntimeError ->
+      reraise e, __STACKTRACE__
+
+    _ ->
+      raise "ELZOO_TEST_DATABASE_URL is unreachable: PostgreSQL tests fail closed (never skipped)"
   end
 
   def url!,
@@ -134,7 +140,10 @@ defmodule Elzoo.Artifact.TestHelper do
   end
 
   def drop!(repo, prefix),
-    do: SQL.query!(repo, "DROP SCHEMA IF EXISTS #{Postgres.identifier(prefix)} CASCADE", [], log: false)
+    do:
+      SQL.query!(repo, "DROP SCHEMA IF EXISTS #{Postgres.identifier(prefix)} CASCADE", [],
+        log: false
+      )
 
   def pg_store(repo, prefix),
     do: Postgres.store(repo, prefix: prefix, fold: fold(), limits: limits())
@@ -157,7 +166,11 @@ defmodule Elzoo.Artifact.TestHelper do
   end
 
   def caller(tenant, opts \\ []),
-    do: %{tenant: tenant, principal: Keyword.get(opts, :principal, "worker-1"), scopes: Keyword.get(opts, :scopes, [])}
+    do: %{
+      tenant: tenant,
+      principal: Keyword.get(opts, :principal, "worker-1"),
+      scopes: Keyword.get(opts, :scopes, [])
+    }
 
   def input(bytes, opts \\ []),
     do: %{

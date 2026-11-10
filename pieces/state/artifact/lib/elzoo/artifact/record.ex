@@ -30,8 +30,12 @@ defmodule Elzoo.Artifact.Record do
 
   @doc "Artifact kinds for the consumer's fold: all `:non_state_bearing`."
   def kinds,
-    do: %{@staged => :non_state_bearing, @committed => :non_state_bearing,
-          @deleted => :non_state_bearing, @index_kind => :non_state_bearing}
+    do: %{
+      @staged => :non_state_bearing,
+      @committed => :non_state_bearing,
+      @deleted => :non_state_bearing,
+      @index_kind => :non_state_bearing
+    }
 
   def kind_names, do: [@staged, @committed, @deleted]
   def staged, do: @staged
@@ -90,7 +94,13 @@ defmodule Elzoo.Artifact.Record do
       })
 
   def marker_payload(kind, artifact_id, version, at) when kind in [@committed, @deleted],
-    do: Jason.encode!(%{"v" => @version, "artifact_id" => artifact_id, "version" => version, "at" => at})
+    do:
+      Jason.encode!(%{
+        "v" => @version,
+        "artifact_id" => artifact_id,
+        "version" => version,
+        "at" => at
+      })
 
   def index_payload(artifact_id, at),
     do: Jason.encode!(%{"v" => @version, "artifact_id" => artifact_id, "at" => at})
@@ -170,7 +180,7 @@ defmodule Elzoo.Artifact.Record do
 
   @doc "Decode an artifact row into `{:staged, record}`, `{:marker, state, version, at}`, `{:index, id, at}`, `:foreign` or `:unreadable`. Rows of kinds this Piece does not own are `:foreign` (skipped, never damage)."
   def event(row, fold_spec) do
-    if is_map(row) and Map.get(row, :kind) not in kind_names() ++ [@index_kind] do
+    if is_map(row) and Map.get(row, :kind) not in (kind_names() ++ [@index_kind]) do
       :foreign
     else
       with :ok <- Log.validate_row(row, fold_spec, Map.get(fold_spec, :limits, %{})),

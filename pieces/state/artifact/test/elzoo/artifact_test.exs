@@ -1,6 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 Code.require_file("../support/artifact_test_helper.exs", __DIR__)
-Code.require_file("../../../../integration/object-store/test/support/object_store_test_helper.exs", __DIR__)
+
+Code.require_file(
+  "../../../../integration/object-store/test/support/object_store_test_helper.exs",
+  __DIR__
+)
 
 defmodule Elzoo.ArtifactTest do
   @moduledoc """
@@ -50,20 +54,38 @@ defmodule Elzoo.ArtifactTest do
   # ── construction and validation ─────────────────────────────────────
 
   test "A1 construction validates bindings and bounds" do
-    assert {:error, {:invalid, :store}} = Artifact.new(store: nil, object_store: S3.stub_config(S3.closed_port()))
+    assert {:error, {:invalid, :store}} =
+             Artifact.new(store: nil, object_store: S3.stub_config(S3.closed_port()))
+
     m = H.memory(object_store: S3.stub_config(S3.closed_port()))
     assert {:error, {:invalid, :object_store}} = Artifact.new(store: m.store, object_store: nil)
+
     assert {:error, {:invalid, :max_metadata_bytes}} =
-             Artifact.new(store: m.store, object_store: S3.stub_config(S3.closed_port()), max_metadata_bytes: 0)
+             Artifact.new(
+               store: m.store,
+               object_store: S3.stub_config(S3.closed_port()),
+               max_metadata_bytes: 0
+             )
+
     assert {:error, {:invalid, :hash_format}} =
-             Artifact.new(store: m.store, object_store: S3.stub_config(S3.closed_port()), hash_format: 0)
+             Artifact.new(
+               store: m.store,
+               object_store: S3.stub_config(S3.closed_port()),
+               hash_format: 0
+             )
+
     assert {:error, {:invalid, :staging_ttl_ms}} =
-             Artifact.new(store: m.store, object_store: S3.stub_config(S3.closed_port()), staging_ttl_ms: 0)
+             Artifact.new(
+               store: m.store,
+               object_store: S3.stub_config(S3.closed_port()),
+               staging_ttl_ms: 0
+             )
   end
 
   test "A2 unsafe tenant/artifact_id segments are refused before key construction" do
     %{art: art} = memory()
     c = caller("t1")
+
     for bad <- ["a/b", "..", ".", "a b", "", "x" <> String.duplicate("y", 65)] do
       assert {:error, :invalid} = Artifact.stage(art, c, bad, H.input("b"))
     end
@@ -76,8 +98,14 @@ defmodule Elzoo.ArtifactTest do
   test "A3 too_large and metadata bound" do
     %{art: art} = memory(max_bytes: 4)
     assert {:error, :too_large} = Artifact.stage(art, caller("t1"), "a1", H.input("12345"))
+
     assert {:error, :too_large} =
-             Artifact.stage(art, caller("t1"), "a1", H.input("1234", metadata: %{"k" => String.duplicate("v", 600)}))
+             Artifact.stage(
+               art,
+               caller("t1"),
+               "a1",
+               H.input("1234", metadata: %{"k" => String.duplicate("v", 600)})
+             )
   end
 
   # ── lifecycle against MinIO ──────────────────────────────────────────
@@ -132,14 +160,19 @@ defmodule Elzoo.ArtifactTest do
     access = %{tenant: c.tenant, principals: ["alice"], scopes: ["read"]}
 
     assert {:ok, _} = Artifact.put(art, c, aid, H.input("data", access: access))
-    assert {:error, :access_denied} = Artifact.head(art, caller(c.tenant, principal: "bob", scopes: ["read"]), aid)
-    assert {:error, :access_denied} = Artifact.head(art, caller(c.tenant, principal: "alice", scopes: []), aid)
+
+    assert {:error, :access_denied} =
+             Artifact.head(art, caller(c.tenant, principal: "bob", scopes: ["read"]), aid)
+
+    assert {:error, :access_denied} =
+             Artifact.head(art, caller(c.tenant, principal: "alice", scopes: []), aid)
 
     # Knowing the content hash does not help the denied caller.
     assert {:error, :access_denied} =
              Artifact.get(art, caller(c.tenant, principal: "bob", scopes: ["read"]), aid, 1)
 
-    assert {:ok, %{version: 1}} = Artifact.head(art, caller(c.tenant, principal: "alice", scopes: ["read"]), aid)
+    assert {:ok, %{version: 1}} =
+             Artifact.head(art, caller(c.tenant, principal: "alice", scopes: ["read"]), aid)
   end
 
   test "L5 expired access is :expired on every read path" do
@@ -148,7 +181,9 @@ defmodule Elzoo.ArtifactTest do
     c = caller("t-#{id("t")}")
     aid = id("art")
 
-    assert {:ok, _} = Artifact.put(art, c, aid, H.input("data", access_expires_at: H.epoch() + 1_000))
+    assert {:ok, _} =
+             Artifact.put(art, c, aid, H.input("data", access_expires_at: H.epoch() + 1_000))
+
     TestClock.advance(clock, 2_000)
     assert {:error, :expired} = Artifact.head(art, c, aid)
     assert {:error, :expired} = Artifact.get(art, c, aid, 1)
@@ -178,7 +213,9 @@ defmodule Elzoo.ArtifactTest do
     assert {:ok, rec} = Artifact.stage(art, c, aid, H.input("data"))
     assert %{status: :committed} = Elzoo.ObjectStore.delete(os, rec.object_key)
     assert {:error, {:commit_failed, %{evidence: :absent}}} = Artifact.commit(art, c, aid, 1)
-    assert {:ok, %{record: %{state: :staging}}} = Artifact.status(art, c, %{artifact_id: aid, version: 1})
+
+    assert {:ok, %{record: %{state: :staging}}} =
+             Artifact.status(art, c, %{artifact_id: aid, version: 1})
   end
 
   test "L8 unknown put persists uncertain staging; status exposes it; no blind re-put" do
@@ -189,8 +226,10 @@ defmodule Elzoo.ArtifactTest do
 
     assert {:ok, rec} = Artifact.stage(art, c, aid, H.input("data"))
     assert rec.upload == :uncertain and rec.state == :staging
+
     assert {:ok, %{record: %{upload: :uncertain}, object: {:unknown, _}}} =
              Artifact.status(art, c, %{artifact_id: aid, version: 1})
+
     assert {:error, {:object_store_unknown, _}} = Artifact.commit(art, c, aid, 1)
   end
 
@@ -212,8 +251,10 @@ defmodule Elzoo.ArtifactTest do
     aid = id("art")
 
     assert {:ok, rec} = Artifact.stage(art, c, aid, H.input("data"))
+
     assert {:ok, %{record: %{state: :deleted}, object: :deleted}} =
              Artifact.abort(art, c, %{artifact_id: aid, version: 1})
+
     assert %{status: :absent} = Elzoo.ObjectStore.head(os, rec.object_key)
     assert {:error, :deleted} = Artifact.abort(art, c, %{artifact_id: aid, version: 1})
   end
@@ -226,6 +267,7 @@ defmodule Elzoo.ArtifactTest do
 
     assert {:ok, rec} =
              Artifact.put(art, c, aid, H.input("data", retain_until: H.epoch() + 1_000))
+
     assert {:error, {:invalid, :state}} = Artifact.abort(art, c, %{artifact_id: aid, version: 1})
     assert {:ok, %{object: :deleted}} = Artifact.delete(art, c, aid, 1)
     assert %{status: :absent} = Elzoo.ObjectStore.head(os, rec.object_key)
@@ -234,8 +276,10 @@ defmodule Elzoo.ArtifactTest do
 
     # retention expiry: committed record reaped
     aid2 = id("art")
+
     assert {:ok, rec2} =
              Artifact.put(art, c, aid2, H.input("data2", retain_until: H.epoch() + 1_000))
+
     TestClock.advance(clock, 2_000)
     assert {:ok, %{reaped: [1], object: %{1 => :deleted}}} = Artifact.reap(art, c, aid2)
     assert %{status: :absent} = Elzoo.ObjectStore.head(os, rec2.object_key)
@@ -261,7 +305,8 @@ defmodule Elzoo.ArtifactTest do
     c = caller("t-#{id("t")}")
     other = caller("t-#{id("t")}")
 
-    for i <- 1..3, do: assert({:ok, _} = Artifact.put(art, c, "art-#{i}-#{id("x")}", H.input("b#{i}")))
+    for i <- 1..3,
+        do: assert({:ok, _} = Artifact.put(art, c, "art-#{i}-#{id("x")}", H.input("b#{i}")))
 
     assert {:ok, %{entries: entries, cursor: nil}} = Artifact.list(art, c, 10, nil)
     assert length(entries) == 3
@@ -342,7 +387,10 @@ defmodule Elzoo.ArtifactTest do
     assert_received {:ev, [:elzoo, :artifact, :staged], %{size_bytes: 4, version: 1}, meta1}
     assert meta1.artifact_id == aid and meta1.upload == :committed
     assert_received {:ev, [:elzoo, :artifact, :committed], %{size_bytes: 4, version: 1}, _}
-    assert_received {:ev, [:elzoo, :artifact, :deleted], %{version: 1}, %{cause: :delete, object: :deleted}}
+
+    assert_received {:ev, [:elzoo, :artifact, :deleted], %{version: 1},
+                     %{cause: :delete, object: :deleted}}
+
     :telemetry.detach({:artifact_test, self()})
   end
 
@@ -353,8 +401,12 @@ defmodule Elzoo.ArtifactTest do
     aid = id("art")
     test_pid = self()
 
-    :telemetry.attach({:artifact_test2, self()}, [:elzoo, :artifact, :integrity_failure],
-      fn event, m, d, _ -> send(test_pid, {:ev, event, m, d}) end, nil)
+    :telemetry.attach(
+      {:artifact_test2, self()},
+      [:elzoo, :artifact, :integrity_failure],
+      fn event, m, d, _ -> send(test_pid, {:ev, event, m, d}) end,
+      nil
+    )
 
     assert {:ok, rec} = Artifact.put(art, c, aid, H.input("good"))
     assert %{status: :committed} = Elzoo.ObjectStore.put(os, rec.object_key, "evil")
@@ -377,10 +429,10 @@ defmodule Elzoo.ArtifactTest do
     IO.puts("ELZ-096 laws compiled: #{length(@laws)}")
 
     negatives = [
-      {"PermitExpired", "expired_after_refuses",
-       "StampAfter() -> AccessExpired()", "StampAfter() -> AccessPermit()"},
-      {"DeniedTermsPermit", "absent_principal_denies",
-       "not principal_present -> AccessDenied()", "not principal_present -> AccessPermit()"},
+      {"PermitExpired", "expired_after_refuses", "StampAfter() -> AccessExpired()",
+       "StampAfter() -> AccessPermit()"},
+      {"DeniedTermsPermit", "absent_principal_denies", "not principal_present -> AccessDenied()",
+       "not principal_present -> AccessPermit()"},
       {"StagingDeletePermits", "staged_delete_refuses",
        "EvReap() -> GoTo(VDeleted())\n          EvDelete() -> RefuseInvalid()",
        "EvReap() -> GoTo(VDeleted())\n          EvDelete() -> GoTo(VCommitted())"},

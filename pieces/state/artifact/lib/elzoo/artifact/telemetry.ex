@@ -38,17 +38,37 @@ defmodule Elzoo.Artifact.Telemetry do
   @doc false
   def staged(%{tenant: t, artifact_id: id, version: v, size_bytes: s, upload: u})
       when u in @uploads,
-      do: emit([:elzoo, :artifact, :staged], %{size_bytes: s, version: v}, %{tenant: t, artifact_id: id, upload: u})
+      do:
+        emit([:elzoo, :artifact, :staged], %{size_bytes: s, version: v}, %{
+          tenant: t,
+          artifact_id: id,
+          upload: u
+        })
 
   def committed(%{tenant: t, artifact_id: id, version: v, size_bytes: s}),
-      do: emit([:elzoo, :artifact, :committed], %{size_bytes: s, version: v}, %{tenant: t, artifact_id: id})
+    do:
+      emit([:elzoo, :artifact, :committed], %{size_bytes: s, version: v}, %{
+        tenant: t,
+        artifact_id: id
+      })
 
   def deleted(%{tenant: t, artifact_id: id, version: v}, cause, object)
       when cause in @causes and object in @objects,
-      do: emit([:elzoo, :artifact, :deleted], %{version: v}, %{tenant: t, artifact_id: id, cause: cause, object: object})
+      do:
+        emit([:elzoo, :artifact, :deleted], %{version: v}, %{
+          tenant: t,
+          artifact_id: id,
+          cause: cause,
+          object: object
+        })
 
   def integrity_failure(%{tenant: t, artifact_id: id, version: v}, via) when via in @vias,
-      do: emit([:elzoo, :artifact, :integrity_failure], %{version: v}, %{tenant: t, artifact_id: id, via: via})
+    do:
+      emit([:elzoo, :artifact, :integrity_failure], %{version: v}, %{
+        tenant: t,
+        artifact_id: id,
+        via: via
+      })
 
   defp emit(event, measurements, metadata) when event in @events,
     do: :telemetry.execute(event, measurements, metadata)
