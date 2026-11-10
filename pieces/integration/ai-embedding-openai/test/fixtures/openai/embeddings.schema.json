@@ -1,0 +1,319 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "x-elzoo-provenance": {
+    "source_repository": "https://github.com/openai/openai-openapi",
+    "commit": "59f5565459caae84f43c49a738248cf2b268a70f",
+    "file": "openapi.json",
+    "file_sha256": "287f2cbf81b668735c56853b5e2ec40048c8912bead00ac8118190fae9716392",
+    "fetched": "2026-11-09",
+    "extract": "components.schemas CreateEmbeddingRequest, CreateEmbeddingResponse, Embedding, ErrorResponse, Error, MisalignmentErrorDetailsResource, _MisalignmentErrorType, _MisalignmentSteer, copied unchanged except that each $ref #/components/schemas/X is rewritten to #/$defs/X; the request/response pairing is the path POST /embeddings (operationId createEmbedding) of the same file.",
+    "use": "Test fixture of integration/ai-embedding-openai: captured requests and stub responses are validated against it. Conformance to this pinned documented format only; not evidence of live behaviour."
+  },
+  "x-elzoo-license": "The MIT License\n\nCopyright (c) OpenAI (https://openai.com)\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in\nall copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\nTHE SOFTWARE.\n",
+  "$defs": {
+    "CreateEmbeddingRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "input": {
+          "description": "Input text to embed, encoded as a string or array of tokens. To embed multiple inputs in a single request, pass an array of strings or array of token arrays. The input must not exceed the max input tokens for the model (8192 tokens for all embedding models), cannot be an empty string, and any array must be 2048 dimensions or less. [Example Python code](https://cookbook.openai.com/examples/how_to_count_tokens_with_tiktoken) for counting tokens. In addition to the per-input token limit, all embedding models enforce a maximum of 300,000 tokens summed across all inputs in a single request.\n",
+          "example": "The quick brown fox jumped over the lazy dog",
+          "oneOf": [
+            {
+              "type": "string",
+              "title": "string",
+              "description": "The string that will be turned into an embedding.",
+              "default": "",
+              "example": "This is a test."
+            },
+            {
+              "type": "array",
+              "title": "array",
+              "description": "The array of strings that will be turned into an embedding.",
+              "minItems": 1,
+              "maxItems": 2048,
+              "items": {
+                "type": "string",
+                "default": "",
+                "example": "['This is a test.']"
+              }
+            },
+            {
+              "type": "array",
+              "title": "array",
+              "description": "The array of integers that will be turned into an embedding.",
+              "minItems": 1,
+              "maxItems": 2048,
+              "items": {
+                "type": "integer"
+              },
+              "example": "[1212, 318, 257, 1332, 13]"
+            },
+            {
+              "type": "array",
+              "title": "array",
+              "description": "The array of arrays containing integers that will be turned into an embedding.",
+              "minItems": 1,
+              "maxItems": 2048,
+              "items": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "integer"
+                }
+              },
+              "example": "[[1212, 318, 257, 1332, 13]]"
+            }
+          ]
+        },
+        "model": {
+          "description": "ID of the model to use. You can use the [List models](https://developers.openai.com/api/reference/resources/models/methods/list) API to see all of your available models, or see our [Model overview](https://developers.openai.com/api/docs/models) for descriptions of them.\n",
+          "example": "text-embedding-3-small",
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string",
+              "enum": [
+                "text-embedding-ada-002",
+                "text-embedding-3-small",
+                "text-embedding-3-large"
+              ]
+            }
+          ],
+          "x-oaiTypeLabel": "string"
+        },
+        "encoding_format": {
+          "description": "The format to return the embeddings in. Can be either `float` or [`base64`](https://pypi.org/project/pybase64/).",
+          "example": "float",
+          "default": "float",
+          "type": "string",
+          "enum": [
+            "float",
+            "base64"
+          ]
+        },
+        "dimensions": {
+          "description": "The number of dimensions the resulting output embeddings should have. Only supported in `text-embedding-3` and later models.\n",
+          "type": "integer",
+          "minimum": 1
+        },
+        "user": {
+          "type": "string",
+          "example": "user-1234",
+          "description": "A unique identifier representing your end-user, which can help OpenAI to monitor and detect abuse. [Learn more](https://developers.openai.com/api/docs/guides/safety-best-practices#implement-safety-identifiers).\n"
+        }
+      },
+      "required": [
+        "model",
+        "input"
+      ]
+    },
+    "CreateEmbeddingResponse": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "array",
+          "description": "The list of embeddings generated by the model.",
+          "items": {
+            "$ref": "#/$defs/Embedding"
+          }
+        },
+        "model": {
+          "type": "string",
+          "description": "The name of the model used to generate the embedding."
+        },
+        "object": {
+          "type": "string",
+          "description": "The object type, which is always \"list\".",
+          "enum": [
+            "list"
+          ],
+          "x-stainless-const": true
+        },
+        "usage": {
+          "type": "object",
+          "description": "The usage information for the request.",
+          "properties": {
+            "prompt_tokens": {
+              "type": "integer",
+              "description": "The number of tokens used by the prompt."
+            },
+            "total_tokens": {
+              "type": "integer",
+              "description": "The total number of tokens used by the request."
+            }
+          },
+          "required": [
+            "prompt_tokens",
+            "total_tokens"
+          ]
+        }
+      },
+      "required": [
+        "object",
+        "model",
+        "data",
+        "usage"
+      ]
+    },
+    "Embedding": {
+      "type": "object",
+      "description": "Represents an embedding vector returned by embedding endpoint.\n",
+      "properties": {
+        "index": {
+          "type": "integer",
+          "description": "The index of the embedding in the list of embeddings."
+        },
+        "embedding": {
+          "description": "The embedding vector, returned as a list of floats when `encoding_format` is `float` (the default), or as a base64-encoded string when `encoding_format` is `base64`. The length of the vector depends on the model as listed in the [embedding guide](https://developers.openai.com/api/docs/guides/embeddings).\n",
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "format": "float"
+              }
+            },
+            {
+              "type": "string",
+              "contentEncoding": "base64"
+            }
+          ]
+        },
+        "object": {
+          "type": "string",
+          "description": "The object type, which is always \"embedding\".",
+          "enum": [
+            "embedding"
+          ],
+          "x-stainless-const": true
+        }
+      },
+      "required": [
+        "index",
+        "object",
+        "embedding"
+      ],
+      "x-oaiMeta": {
+        "name": "The embedding object",
+        "example": "{\n  \"object\": \"embedding\",\n  \"embedding\": [\n    0.26726124,\n    0.53452248,\n    0.80178373\n  ],\n  \"index\": 0\n}\n"
+      }
+    },
+    "ErrorResponse": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/Error"
+        }
+      },
+      "required": [
+        "error"
+      ]
+    },
+    "Error": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "param": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "type": {
+          "type": "string"
+        },
+        "misalignment": {
+          "$ref": "#/$defs/MisalignmentErrorDetailsResource"
+        }
+      },
+      "required": [
+        "type",
+        "message",
+        "param",
+        "code"
+      ]
+    },
+    "MisalignmentErrorDetailsResource": {
+      "properties": {
+        "review_target": {
+          "anyOf": [
+            {
+              "not": {
+                "pattern": "[^A-Za-z0-9._~:-]"
+              },
+              "type": "string",
+              "maxLength": 96,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._~:-]+$",
+              "description": "An opaque target for explicitly continuing this review, or null when unavailable."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "error_type": {
+          "$ref": "#/$defs/_MisalignmentErrorType",
+          "description": "An optional classification; clients must accept additional values."
+        },
+        "detailed_explanation": {
+          "type": "string",
+          "description": "The public explanation for this block."
+        },
+        "steer": {
+          "$ref": "#/$defs/_MisalignmentSteer",
+          "description": "An optional public continuation instruction."
+        }
+      },
+      "type": "object",
+      "required": []
+    },
+    "_MisalignmentErrorType": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "string",
+          "enum": [
+            "potentially_unintended_data_transfer",
+            "potentially_unintended_data_access",
+            "potentially_unintended_destructive_activity",
+            "other"
+          ]
+        }
+      ]
+    },
+    "_MisalignmentSteer": {
+      "properties": {
+        "message": {
+          "type": "string",
+          "description": "The public continuation instruction."
+        }
+      },
+      "type": "object",
+      "required": [
+        "message"
+      ]
+    }
+  }
+}

@@ -426,6 +426,22 @@
       "manifest": "pieces/integration/ai-batch-anthropic/piece.json"
     },
     {
+      "id": "integration/ai-embedding",
+      "summary": "Provider-neutral embedding interface: request bounded by its 65,536-byte canonical payload, response checks (count, indices, length, float32 values, served model), descriptor with a fixed unit-norm tolerance, provider behaviour and options slot, core/effect admission, delivery/effect-intent call path with bounded retries, conformance kit",
+      "disposition": "adapt",
+      "phase": "demand-led",
+      "status": "ready",
+      "manifest": "pieces/integration/ai-embedding/piece.json"
+    },
+    {
+      "id": "integration/ai-embedding-openai",
+      "summary": "OpenAI embeddings provider of integration/ai-embedding through req_llm 1.30 (text-embedding-3-small and -large): usage and failure mapping, documented-format stubs validated against the pinned OpenAPI document",
+      "disposition": "adapt",
+      "phase": "demand-led",
+      "status": "ready",
+      "manifest": "pieces/integration/ai-embedding-openai/piece.json"
+    },
+    {
       "id": "integration/ai-model",
       "summary": "AI model family core: model reference, unit-tagged usage with the provider's input-token convention and cache writes per TTL, cache hint with tenant rule, provenance, failure classes, job reference and state, stream chunk; pure values and validators",
       "disposition": "adapt",

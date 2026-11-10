@@ -1,0 +1,39 @@
+
+model: {"text-embedding-3-small", "text-embedding-3-small",
+ %{default_dimensions: 1536, max_dimensions: 1536, min_dimensions: 1}}
+raw: %{
+  status: 200,
+  rid: ["req_abc"],
+  body: "{\"data\":[{\"embedding\":[0.6,0.8],\"index\":1,\"object\":\"embedding\"},{\"embedding\":[1.0,0.0],\"index\":0,\"object\":\"embedding\"}],\"model\":\"text-embedding-3-small\",\"object\":\"list\",\"usage\":{\"prompt_tokens\":8,\"total_tokens\":8}}"
+}
+req: {"POST", "/v1/embeddings",
+ [{"authorization", "Bearer sk-INJ"}, {"content-type", "application/json"}],
+ "{\"input\":[\"alpha\",\"beta\"],\"model\":\"text-embedding-3-small\",\"dimensions\":2,\"encoding_format\":\"float\"}"}
+timeout: {{:error, %Req.TransportError{reason: :timeout}}, 1}
+429: {%{
+   status: 429,
+   rid: [],
+   body: "{\"error\":{\"message\":\"x\",\"type\":\"requests\",\"code\":\"rate_limit_exceeded\"}}"
+ }, 1}
+302: {%{status: 302, rid: [], body: ""}, 1}
+path with base_url: "/v1/embeddings"
+single: "{\"input\":\"solo\",\"model\":\"text-embedding-3-small\",\"encoding_format\":\"float\"}"
+spo: [:access_token, :auth_mode, :oauth_file, :auth_file, :oauth_http_options,
+ :dimensions, :encoding_format, :max_completion_tokens, :max_output_tokens,
+ :include, :reasoning_summary, :reasoning_context, :multi_agent,
+ :context_management, :openai_structured_output_mode,
+ :openai_json_schema_strict, :response_format, :openai_parallel_tool_calls,
+ :previous_response_id, :store, :prompt_cache_key, :prompt_cache_options,
+ :openai_stream_transport, :openai_reuse_websocket, :openai_websocket_session,
+ :openai_compatible_backend, :tool_outputs, :service_tier,
+ :openai_max_tool_calls, :verbosity, :openai_logprobs, :openai_top_logprobs,
+ :modalities, :audio, :web_search_options, :safety_identifier]
+default retries, with halting error step, timeout: 1
+default retries, no elzoo steps, timeout: 4
+default retries, capture step, 500: 1
+user: "{\"input\":[\"a\"],\"user\":\"u-1\",\"model\":\"text-embedding-3-small\",\"encoding_format\":\"float\"}"
+model: {"text-embedding-3-large",
+ %{default_dimensions: 3072, max_dimensions: 3072, min_dimensions: 1}}
+model: {"text-embedding-ada-002",
+ %{default_dimensions: 1536, max_dimensions: 1536, min_dimensions: 1536}}
+auth with ambient env: ["Bearer sk-INJ"]
