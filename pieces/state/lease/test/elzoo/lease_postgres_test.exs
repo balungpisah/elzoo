@@ -178,7 +178,9 @@ defmodule Elzoo.LeasePostgresTest do
                SQL.query!(
                  TestRepo,
                  "SELECT wait_event_type FROM pg_stat_activity WHERE pid = $1",
-                 [pid], log: false).rows
+                 [pid],
+                 log: false
+               ).rows
 
       assert contender_waits_on_lock?(pid) === false
     end)
