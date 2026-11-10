@@ -81,7 +81,9 @@ defmodule Elzoo.MixProject do
       # ELZ-083 integration/mcp-client provider (MIT): MCP protocol, era negotiation and the
       # Streamable HTTP client transport. Its application starts its own supervisors, so it is
       # not runtime: false; its server-side plug_cowboy/cowboy closure is required by the package.
-      {:ex_mcp, "== 1.8.1"}
+      {:ex_mcp, "== 1.8.1"},
+      # ELZ-082 vector encoding and consumer Postgrex/Ecto types (MIT).
+      {:pgvector, "== 0.4.2"}
     ]
   end
 
