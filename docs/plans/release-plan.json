@@ -3269,6 +3269,31 @@
       "product_role": "Receive-time resource bound for the existing Anthropic text provider; no new Piece or behavior contract."
     },
     {
+      "id": "ELZ-095",
+      "title": "ELZ-095 — Normalize nullable lock-wait observations in the lease test probe",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-028"
+      ],
+      "status": "published; claimed task/ELZ-095; PR pending",
+      "url": "https://github.com/balungpisah/elzoo/issues/177",
+      "paths": [
+        "tasks/ELZ-095-lease-nullable-lock-wait-probe.md"
+      ],
+      "outputs": [],
+      "acceptance": "Live issue body approves exactly the nullable lock-wait SQL normalization and deterministic real-PostgreSQL regression; task publication is byte-equal. Existing LS28 assertions/timeouts and ready Contract remain unchanged.",
+      "issue": 177,
+      "issue_body_sha256": "58d70c72c179343fc0a7f5d954ce35baf756f4b13cd312b7094a83bc0fc33ace",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P01"
+      ],
+      "product_role": "Test-only repair restoring boolean observations for the accepted state/lease lock-wait probe; no new capability or runtime behavior."
+    },
+    {
       "id": "ELZ-082",
       "title": "ELZ-082 — Specify the permission-scoped pgvector chunk store behind a consumer Repo",
       "kind": "published",
