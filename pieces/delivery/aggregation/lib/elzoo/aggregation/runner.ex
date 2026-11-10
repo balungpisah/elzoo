@@ -1,0 +1,449 @@
+# SPDX-License-Identifier: Apache-2.0
+defmodule Elzoo.Aggregation.Runner do
+  @moduledoc """
+  Volatile fan-out runner for a declared join, for callers without durable
+  branches.
+
+  `start_link/1` takes a join state from `Elzoo.Aggregation.new/2`, a list of
+  declared `{branch_id, fun}` pairs and an injected `Task.Supervisor`. Each fun
+  is a 1-arity function of its branch id that must return a `core/envelope`
+  DeliveryResult map; each pair is invoked at most once per runner call with
+  `:brutal_kill` shutdown and no retries. Branch ids must be binaries present
+  in the join declaration, duplicates are refused, and the join's `branch_key`
+  must carry identity in `correlation_id` or `attempt_id` so runner-synthesized
+  failure results can be attributed — a `value`-rooted key is refused because
+  a failed branch cannot mint a value payload.
+
+  Before any launch, both synthetic failure shapes must fit the join's
+  `max_result_bytes` for every run identity; otherwise options are refused.
+  Returned result identity must equal the originating task's identity.
+
+  Runner outcomes feed the same join policy: a returned result goes through
+  `Elzoo.Aggregation.accept/2`; raised/thrown failures and other exits become
+  synthetic `failed`/`dispatched`/`unclassified` results; `:kill`, `:killed`
+  and `:shutdown` exits retain their first-class `:killed` loss mapping; a result the join refuses
+  (`:invalid_result`) becomes the same synthetic failure, while
+  `:invalid_branch_key`/`:too_large` become `mark_lost(:unavailable)` — the
+  branch was dispatched but its evidence could not be joined. At the join
+  deadline the runner records `mark_lost(:timed_out)` for every branch still
+  unsettled and kills the surviving tasks. Further inputs presented to the
+  join follow its late-input policy; messages for removed task refs are ignored.
+
+  Early deadline readings rearm the timer. Invalid or raising clock readings
+  retry after 50 ms; expiry needs a valid reading, used for all timeout losses.
+  With losses terminal, a subsequent decision is `failed`/`partial`, whereas
+  direct decision expiry applies when branches are still unsettled.
+
+  Invocation catches exceptions before OTP logs them, retaining no exception
+  contents. Normal stop and supervised shutdown clean tracked tasks in the
+  termination callback; an untrappable runner kill or VM loss cannot run it.
+  Cleanup does not reverse external Effects. A new runner call may invoke
+  functions again, even for a closed join; there is no cross-call deduplication.
+
+  This runner is volatile: it keeps no queue, no durable state and starts no
+  supervisor of its own. Durable branches remain owned by `workflow/run`.
+  `snapshot/1` is inspection, not telemetry or durable accounting.
+  """
+  use GenServer
+
+  alias Elzoo.Aggregation
+
+  @killed_reasons [:killed, :kill, :shutdown]
+  @clock_retry_ms 50
+  @max_timer_ms 4_294_967_295
+
+  def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
+
+  @doc "Run `Aggregation.decision/2` against the runner's live join state."
+  def decision(runner, now), do: GenServer.call(runner, {:decision, now})
+
+  @doc "Payload-free branch view, same shape as `Aggregation.status/1`."
+  def status(runner), do: GenServer.call(runner, :status)
+
+  @doc "The runner's current plain-map join state for caller persistence."
+  def join(runner), do: GenServer.call(runner, :join)
+
+  @doc "Volatile counters: launched, running, accepted, refused, closed, outcome."
+  def snapshot(runner), do: GenServer.call(runner, :snapshot)
+
+  @impl true
+  def init(opts) do
+    with true <- proper_list?(opts) and Keyword.keyword?(opts),
+         join when is_map(join) <- Keyword.get(opts, :join),
+         true <- Aggregation.valid_state?(join),
+         {:ok, branches} <- validate_branches(Keyword.get(opts, :branches), join),
+         :ok <- carrier_supported?(join),
+         :ok <- failure_capacity(join, branches),
+         supervisor when not is_nil(supervisor) <- Keyword.get(opts, :task_supervisor) do
+      Process.flag(:trap_exit, true)
+
+      state = %{
+        join: join,
+        supervisor: supervisor,
+        branches: %{},
+        tasks: %{},
+        timer: nil,
+        launched: 0,
+        accepted: 0,
+        refused: 0
+      }
+
+      {:ok, arm_deadline(launch_all(state, branches))}
+    else
+      _ -> {:stop, :invalid_options}
+    end
+  end
+
+  @impl true
+  def handle_call(:join, _from, state), do: {:reply, {:ok, state.join}, state}
+
+  def handle_call(:status, _from, state) do
+    {:reply, Aggregation.status(state.join), state}
+  end
+
+  def handle_call({:decision, now}, _from, state) do
+    case Aggregation.decision(state.join, now) do
+      {%{} = join, %{decision: _} = outcome} ->
+        {:reply, {join, outcome}, %{state | join: join}}
+
+      {:error, _} = error ->
+        {:reply, error, state}
+    end
+  end
+
+  def handle_call(:snapshot, _from, state) do
+    {:reply,
+     %{
+       launched: state.launched,
+       running: map_size(state.tasks),
+       accepted: state.accepted,
+       refused: state.refused,
+       closed: state.join.closed,
+       outcome: state.join.outcome
+     }, state}
+  end
+
+  @impl true
+  def handle_info({task_ref, response}, state) when is_reference(task_ref) do
+    case Map.fetch(state.tasks, task_ref) do
+      :error ->
+        {:noreply, state}
+
+      {:ok, branch_id} ->
+        Process.demonitor(task_ref, [:flush])
+        state = clear_task(state, task_ref, branch_id)
+
+        state =
+          case response do
+            {:returned, result} ->
+              feed_result(state, branch_id, result)
+
+            :branch_failed ->
+              feed_synthetic(state, branch_id, "failed", "dispatched", "unclassified")
+
+            :branch_killed ->
+              record_loss(state, branch_id, :killed)
+          end
+
+        {:noreply, state}
+    end
+  end
+
+  def handle_info({:DOWN, task_ref, :process, _pid, reason}, state) do
+    case Map.fetch(state.tasks, task_ref) do
+      :error ->
+        {:noreply, state}
+
+      {:ok, branch_id} ->
+        state = clear_task(state, task_ref, branch_id)
+
+        state =
+          if reason in @killed_reasons do
+            record_loss(state, branch_id, :killed)
+          else
+            feed_synthetic(state, branch_id, "failed", "dispatched", "unclassified")
+          end
+
+        {:noreply, state}
+    end
+  end
+
+  def handle_info(:aggregation_deadline, state) do
+    now = read_clock(state.join)
+
+    if state.join.deadline_unix_ms != :unbounded and is_integer(now) and
+         now >= state.join.deadline_unix_ms do
+      {:noreply, expire(cancel_deadline(state), now)}
+    else
+      {:noreply, arm_deadline(state, now)}
+    end
+  end
+
+  def handle_info(_, state), do: {:noreply, state}
+
+  @impl true
+  def terminate(_reason, state) do
+    cancel_deadline(state)
+
+    Enum.each(state.branches, fn {_id, task} ->
+      if task, do: remove_task(state.supervisor, task.pid)
+    end)
+  end
+
+  defp launch_all(state, branches) do
+    Enum.reduce(branches, state, fn {branch_id, fun}, acc ->
+      case start_task(acc.supervisor, fun, branch_id) do
+        {:ok, task} ->
+          %{
+            acc
+            | branches: Map.put(acc.branches, branch_id, task),
+              tasks: Map.put(acc.tasks, task.ref, branch_id),
+              launched: acc.launched + 1
+          }
+
+        :error ->
+          feed_synthetic(acc, branch_id, "rejected", "not_dispatched", "unavailable")
+      end
+    end)
+  end
+
+  defp start_task(supervisor, fun, branch_id) do
+    try do
+      {:ok,
+       Task.Supervisor.async_nolink(
+         supervisor,
+         fn -> invoke(fun, branch_id) end,
+         shutdown: :brutal_kill
+       )}
+    catch
+      _, _ -> :error
+    end
+  end
+
+  # Sanitize inside the Task, before Task.Supervised can log a failure reason
+  # or stacktrace. Neither the thrown term nor the exception is retained.
+  defp invoke(fun, branch_id) do
+    {:returned, fun.(branch_id)}
+  catch
+    :exit, reason when reason in @killed_reasons -> :branch_killed
+    _, _ -> :branch_failed
+  end
+
+  defp feed_result(state, branch_id, response) do
+    accepted =
+      with {:ok, _} <- Elzoo.Envelope.validate_result(response),
+           :ok <- originating_identity(state.join, branch_id, response) do
+        Aggregation.accept(state.join, response)
+      else
+        {:error, :invalid_branch_key} = error -> error
+        _ -> {:error, :invalid_result}
+      end
+
+    case accepted do
+      {:ok, join} ->
+        %{state | join: join, accepted: state.accepted + 1}
+
+      {:error, reason} ->
+        state = %{state | refused: state.refused + 1}
+
+        case reason do
+          :invalid_result ->
+            feed_synthetic(state, branch_id, "failed", "dispatched", "unclassified")
+
+          :invalid_branch_key ->
+            record_loss(state, branch_id, :unavailable)
+
+          :too_large ->
+            record_loss(state, branch_id, :unavailable)
+
+          _ ->
+            state
+        end
+    end
+  end
+
+  defp originating_identity(%{branch_key: {:field, [key]}}, branch_id, response) do
+    case Map.get(response, key) do
+      nil -> {:error, :invalid_branch_key}
+      ^branch_id -> :ok
+      _ -> {:error, :invalid_result}
+    end
+  end
+
+  defp feed_synthetic(state, branch_id, outcome, dispatch, error_class) do
+    result = synthetic_result(state.join, branch_id, outcome, dispatch, error_class)
+
+    case Aggregation.accept(state.join, result) do
+      {:ok, join} -> %{state | join: join, accepted: state.accepted + 1}
+      {:error, _} -> %{state | refused: state.refused + 1}
+    end
+  end
+
+  defp record_loss(state, branch_id, kind, now \\ nil) do
+    # Expiry uses the one clock reading that established the deadline. Do not
+    # re-read a clock that can fail or move backwards between loss records.
+    join = if is_integer(now), do: %{state.join | now: fn -> now end}, else: state.join
+
+    case Aggregation.mark_lost(join, branch_id, kind) do
+      {:ok, join} ->
+        %{state | join: %{join | now: state.join.now}, accepted: state.accepted + 1}
+
+      {:error, _} ->
+        %{state | refused: state.refused + 1}
+    end
+  end
+
+  defp synthetic_result(join, branch_id, outcome, dispatch, error_class) do
+    result = %{
+      "version" => 1,
+      "message_id" => "aggregation-runner/" <> branch_id,
+      "correlation_id" => branch_id,
+      "outcome" => outcome,
+      "dispatch" => dispatch,
+      "error_class" => error_class
+    }
+
+    case join.branch_key do
+      {:field, ["attempt_id"]} -> Map.put(result, "attempt_id", branch_id)
+      _ -> result
+    end
+  end
+
+  defp expire(state, now) do
+    state =
+      Enum.reduce(state.join.branches, state, fn {branch_id, record}, acc ->
+        if record.status in [:pending, :late] do
+          record_loss(acc, branch_id, :timed_out, now)
+        else
+          acc
+        end
+      end)
+
+    branches =
+      Map.new(state.branches, fn {id, task} ->
+        if task do
+          remove_task(state.supervisor, task.pid)
+          Process.demonitor(task.ref, [:flush])
+        end
+
+        {id, nil}
+      end)
+
+    %{state | branches: branches, tasks: %{}}
+  end
+
+  defp clear_task(state, task_ref, branch_id) do
+    Process.demonitor(task_ref, [:flush])
+
+    tasks = Map.delete(state.tasks, task_ref)
+    branches = Map.put(state.branches, branch_id, nil)
+
+    %{state | tasks: tasks, branches: branches}
+  end
+
+  # Tasks run with :brutal_kill, so a healthy supervisor removes the child with
+  # an untrappable kill. A dead or restarted supervisor no longer owns the task
+  # (which may survive the supervisor's exit by trapping exits), so the runner
+  # kills it directly.
+  defp remove_task(supervisor, pid) do
+    case Task.Supervisor.terminate_child(supervisor, pid) do
+      :ok -> :ok
+      {:error, :not_found} -> Process.exit(pid, :kill)
+    end
+  catch
+    :exit, _ -> Process.exit(pid, :kill)
+  end
+
+  defp arm_deadline(state), do: arm_deadline(state, read_clock(state.join))
+
+  defp arm_deadline(state, now) do
+    state = cancel_deadline(state)
+
+    case state.join.deadline_unix_ms do
+      :unbounded ->
+        state
+
+      deadline ->
+        remaining =
+          case now do
+            now when is_integer(now) -> min(max(deadline - now, 0), @max_timer_ms)
+            _ -> @clock_retry_ms
+          end
+
+        %{state | timer: Process.send_after(self(), :aggregation_deadline, remaining)}
+    end
+  end
+
+  defp cancel_deadline(state) do
+    if state.timer, do: Process.cancel_timer(state.timer)
+    %{state | timer: nil}
+  end
+
+  defp read_clock(join) do
+    case join.now.() do
+      now when is_integer(now) and now >= 0 -> now
+      _ -> :invalid_clock
+    end
+  catch
+    _, _ -> :invalid_clock
+  end
+
+  # Validate every generated failure shape for every launched identity before
+  # any task starts, so exception->failed never depends on a fallback loss.
+  defp failure_capacity(join, branches) do
+    fits? =
+      Enum.all?(branches, fn {id, _fun} ->
+        Enum.all?(
+          [{"failed", "dispatched", "unclassified"}, {"rejected", "not_dispatched", "unavailable"}],
+          fn {outcome, dispatch, error_class} ->
+            result = synthetic_result(join, id, outcome, dispatch, error_class)
+
+            byte_size(:erlang.term_to_binary(result)) <= join.max_result_bytes and
+              match?({:ok, _}, Elzoo.Envelope.validate_result(result))
+          end
+        )
+      end)
+
+    if fits?, do: :ok, else: {:error, :insufficient_failure_capacity}
+  catch
+    _, _ -> {:error, :insufficient_failure_capacity}
+  end
+
+  defp validate_branches(branches, join) do
+    with true <- proper_list?(branches) and branches != [],
+         true <- Enum.all?(branches, &valid_pair?/1),
+         :ok <- unique_ids(branches),
+         :ok <- declared_subset(branches, join) do
+      {:ok, branches}
+    else
+      _ -> {:error, :invalid_branches}
+    end
+  end
+
+  defp valid_pair?({id, fun}) when is_binary(id) and is_function(fun, 1), do: true
+  defp valid_pair?(_), do: false
+
+  defp unique_ids(branches) do
+    ids = Enum.map(branches, &elem(&1, 0))
+
+    if Enum.uniq(ids) == ids, do: :ok, else: {:error, :duplicate_branch}
+  end
+
+  defp declared_subset(branches, join) do
+    declared = MapSet.new(join.declared)
+
+    if Enum.all?(branches, fn {id, _fun} -> MapSet.member?(declared, id) end),
+      do: :ok,
+      else: {:error, :undeclared_branch}
+  end
+
+  defp carrier_supported?(%{branch_key: {:field, [root]}})
+       when root in ["correlation_id", "attempt_id"],
+       do: :ok
+
+  defp carrier_supported?(_), do: {:error, :unsupported_branch_key}
+
+  defp proper_list?([]), do: true
+  defp proper_list?([_ | tail]), do: proper_list?(tail)
+  defp proper_list?(_), do: false
+end
