@@ -3548,10 +3548,12 @@
     {
       "id": "delivery/aggregation",
       "job": "ELZ-098",
-      "note": "`T,X`; stateful and needs correlation/retention policy ELZ-025 study: one result per declared branch identity, killed or timed-out branches recorded per the Envelope result matrix, correlation by Envelope key never arrival position, and no-denials distinct from denial-record-unreadable.",
+      "note": "Bounded correlated join over a declared set of branch identities. accept/2 validates each core/envelope DeliveryResult, attributes it through a configured {:field, path} branch_key (correlation_id, attempt_id or a declared value field — never arrival position), and records first-wins branch outcomes: completed→fulfilled, rejected/failed→failed, timed_out→timed_out, unknown→unavailable. mark_lost/3 records first-class :timed_out/:killed/:unavailable losses, not synthetic results. decision/2 is a pure {join, outcome} transition over pending/all/partial/failed/expired; expiry converts pending branches to :missing and late branches to :timed_out and closes. Post-deadline and post-close input is recorded late, never merged; on-time duplicates are counted and differing outcome/value digests mark the branch conflicted. State is a plain map bounded by declared count and per-result encoded size, retained redacted (SHA-256 value_digest, never payloads) for caller persistence. Elzoo.Aggregation.Runner fans out declared {branch_id, fun} pairs once under an injected Task.Supervisor: exceptions and invalid returns become synthetic failed results, undispatchable starts become rejected/not_dispatched, join-refused results become :unavailable losses, and the deadline marks survivors :timed_out. Durable fan-out, sagas, scheduling, retries and Reactor are out of scope.",
       "baseline_status": "planned",
-      "disposition": "blocked-admission-proposal",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract on task branch; task acceptance separate",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/delivery/aggregation/piece.json",
+      "manifest_sha256": "02deee6db997e30a1fbe7c4df61bd2afb27b0587e842b5645fdbcdeed6dfcb7e"
     },
     {
       "id": "delivery/backpressure",
