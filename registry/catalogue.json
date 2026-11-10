@@ -675,11 +675,11 @@
     },
     {
       "id": "state/artifact",
-      "summary": "Owned content references and retention",
-      "disposition": "defer",
+      "summary": "Tenant-owned versioned artifact references over object storage: identity, integrity, access terms, expiry and retention",
+      "disposition": "adapt",
       "phase": "demand-led",
-      "status": "deferred",
-      "reason": "Content identity, integrity, access, version and expiry for C2/C6/C7/C8; adapt object storage; separate from streamed bytes and control envelopes. ELZ-025 study: content identity is SHA-256 over a versioned canonical encoding with a format-version prefix, verified on every read; a format change is a declared migration."
+      "status": "ready",
+      "manifest": "pieces/state/artifact/piece.json"
     },
     {
       "id": "state/audit-log",

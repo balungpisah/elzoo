@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "id": "state/artifact",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "adapter",
+  "providers": [
+    "cure",
+    "jason",
+    "ecto_sql",
+    "postgrex",
+    "req",
+    "req_s3",
+    "telemetry",
+    "elixir",
+    "otp"
+  ],
+  "dependencies": [
+    "state/event-log",
+    "integration/sql",
+    "integration/object-store",
+    "integration/crypto"
+  ],
+  "applications": [
+    "crypto",
+    "telemetry"
+  ],
+  "contract": "Tenant-owned, versioned artifact references in the ready Store whose bytes live in the ready integration/object-store Piece: stage, commit, abort, put, new_version, head, get, list, versions, delete, reap and status. One Store stream artifact/<tenant>/<artifact_id> of self-contained non_state_bearing records (artifact_staged carries the full version record; artifact_committed/artifact_deleted are state markers) under head-revision CAS, plus a best-effort tenant index stream artifact-index/<tenant>. Content hash is SHA-256 over <<hash_format::8, bytes>>, the declared positive format stamped per record and used for verification on every get; a format change is a declared migration. Object keys are artifacts/<tenant>/<artifact_id>/v<version>/<sha256>; tenant and artifact_id are validated to a safe segment before key construction. Every operation presents caller %{tenant, principal, scopes} as consumer-vouched attribution: read paths enforce the recorded access terms and access_expires_at (a hash never grants access), mutating operations require caller.tenant == record.tenant which the tenant-scoped stream makes structural (plus the recorded terms for delete), and cross-tenant lookup returns :not_found. commit verifies object presence, stored transport checksum and size through reconcile_put before the Store write; an unknown put persists an upload: :uncertain staging record resolved by verification, never blind re-put; a Store {:conflict, _} is {:commit_failed, %{expected, observed}} and an indeterminate write is {:commit_failed, :indeterminate}. Object deletes on abort/delete/reap are best-effort with reported outcomes; reap is caller-driven.",
+  "limits": [
+    "No atomic object-store plus Store commit: the two boundaries are separate and staged/orphan states are the honest answer, exposed through status (record state plus observed object evidence) and reported object outcomes on abort/delete/reap; bytes may outlive a deleted record until the best-effort delete lands.",
+    "The tenant index is a separate stream appended best-effort with no cross-stream transaction: list can miss or lag a just-committed artifact, deduplicates repeated index entries, and is an offset-paginated enumeration of committed heads the caller may access (denied, expired, staging and fully deleted artifacts are omitted).",
+    "Single-shot upload only through integration/object-store: max_bytes <= min(16 MiB, object_store.max_object_bytes) by default and bounded by construction; no multipart, resumable or streaming upload, no presigned-URL issuance or lifecycle, no malware scanning, no encryption-at-rest policy beyond the provider, no replication, no public sharing.",
+    "caller is attribution, not authentication: a richer authorization policy is the consumer's (domain/authorization is deliberately not a dependency); access terms are the durable final check on recorded records only.",
+    "hash_format is a declared positive integer 1..255 stamped per record; v1 canonical form is the raw bytes. Verification uses the record's stored format; a genuinely different canonical encoding is a new Piece revision, not a construction option, and no format may be silently reinterpreted.",
+    "media_type is a bounded opaque tag (UTF-8 without NUL, 1..256 bytes, default application/octet-stream); metadata is JSON-encodable and bounded by max_metadata_bytes (default 4_096) encoded size plus the Store record bound.",
+    "Selected laws cover the access-decision and state-transition tables over ordering outcomes; the production integer comparison (the builtin <) is finite-test-grounded, not proved, the same scoped claim as state/lease.",
+    "Access is evaluated on the target version's recorded terms (versions uses the head's, or the latest record's when nothing is committed); staging records older than staging_ttl_ms are :staging_expired on commit and due for reap.",
+    "reap is caller-driven only with no background process; expiry and retention move records to :deleted and delete bytes best-effort. Every entry point refuses inside the caller's open Ecto transaction on the Store's Repo ({:error, :caller_transaction}).",
+    "The Piece stores no credential material and reads no environment variable; the object-store credential remains its injected per-call Need. Artifact bytes never appear in results, errors, inspect values, logs or events.",
+    "No durability claim beyond the upstream contracts: PostgreSQL durability/fsync and MinIO semantics are the providers'; the Memory double is volatile test evidence only; finite named scenarios on one local PostgreSQL and MinIO, not unbounded properties."
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "supported",
+      "contract": "Declared family [:elzoo, :artifact, staged | committed | deleted | integrity_failure] through :telemetry.execute/3 with bounded measurements (size_bytes, version) and metadata (tenant, artifact_id, upload/cause/object/via atoms); no bytes, object keys, credentials or checksums in events. The ready runtime/telemetry schema is closed to the two assembly adapters, so this Piece declares its own family rather than editing a ready Piece (recorded on issue #179).",
+      "evidence": [
+        "test/elzoo/artifact_test.exs"
+      ]
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Construction-time Store term, object-store binding, clock and bounds (max_bytes, max_metadata_bytes, staging_ttl_ms, hash_format, object_opts) plus per-call caller/input/options; a change is a new construction value, no hot reconfiguration.",
+      "evidence": [
+        "test/elzoo/artifact_test.exs",
+        "test/elzoo/artifact_postgres_test.exs"
+      ]
+    },
+    "control": {
+      "status": "supported",
+      "contract": "commit, abort, delete and reap are recorded durable state transitions with applied ({:ok, record}/{:ok, result}), refused (:not_found/:access_denied/:expired/:deleted/{:invalid, _}/{:invalid, :state}), failed ({:commit_failed, _}/typed object-store outcomes) and indeterminate ({:commit_failed, :indeterminate}) results; delete is idempotent-refused on :deleted; no pause or drain claims, no background reaper.",
+      "evidence": [
+        "test/elzoo/artifact_test.exs",
+        "test/elzoo/artifact_postgres_test.exs"
+      ]
+    }
+  },
+  "files": [
+    "cure/elzoo/artifact.cure",
+    "lib/elzoo/artifact.ex",
+    "lib/elzoo/artifact/record.ex",
+    "lib/elzoo/artifact/telemetry.ex",
+    "test/elzoo/artifact_test.exs",
+    "test/elzoo/artifact_postgres_test.exs",
+    "test/support/artifact_test_helper.exs",
+    "examples/elzoo/artifact.exs"
+  ],
+  "grounding": [
+    {"kind": "proof", "file": "cure/elzoo/artifact.cure", "symbol": "absent_principal_denies", "claim": "A1: an absent principal is denied under every scope presence and expiry ordering, quantified over both; checked by the pinned Cure."},
+    {"kind": "proof", "file": "cure/elzoo/artifact.cure", "symbol": "missing_scope_denies", "claim": "A2: unsatisfied scopes are denied under every expiry ordering, quantified over the ordering; checked by the pinned Cure."},
+    {"kind": "proof", "file": "cure/elzoo/artifact.cure", "symbol": "terms_passed_then_expiry", "claim": "A3: once the recorded terms pass, the decision is the expiry table's answer, quantified over the ordering; checked by the pinned Cure."},
+    {"kind": "proof", "file": "cure/elzoo/artifact.cure", "symbol": "live_before_permits", "claim": "A4: a live expiry ordering permits; checked by the pinned Cure."},
+    {"kind": "proof", "file": "cure/elzoo/artifact.cure", "symbol": "expired_at_refuses", "claim": "A5: expiry at the stamp expires; checked by the pinned Cure."},
+    {"kind": "proof", "file": "cure/elzoo/artifact.cure", "symbol": "expired_after_refuses", "claim": "A6: expiry past the stamp expires; checked by the pinned Cure."},
+    {"kind": "proof", "file": "cure/elzoo/artifact.cure", "symbol": "staged_commit_commits", "claim": "T1: staging plus commit yields committed; checked by the pinned Cure."},
+    {"kind": "proof", "file": "cure/elzoo/artifact.cure", "symbol": "staged_abort_deletes", "claim": "T2: staging plus abort yields deleted; checked by the pinned Cure."},
+    {"kind": "proof", "file": "cure/elzoo/artifact.cure", "symbol": "staged_delete_refuses", "claim": "T3: staging plus delete refuses invalid; checked by the pinned Cure."},
+    {"kind": "proof", "file": "cure/elzoo/artifact.cure", "symbol": "staged_reap_deletes", "claim": "T4: staging plus reap yields deleted; checked by the pinned Cure."},
+    {"kind": "proof", "file": "cure/elzoo/artifact.cure", "symbol": "committed_commit_stays", "claim": "T5: committed plus commit stays committed (idempotent); checked by the pinned Cure."},
+    {"kind": "proof", "file": "cure/elzoo/artifact.cure", "symbol": "committed_delete_deletes", "claim": "T6: committed plus delete yields deleted; checked by the pinned Cure."},
+    {"kind": "proof", "file": "cure/elzoo/artifact.cure", "symbol": "committed_reap_deletes", "claim": "T7: committed plus reap yields deleted; checked by the pinned Cure."},
+    {"kind": "proof", "file": "cure/elzoo/artifact.cure", "symbol": "committed_abort_refuses", "claim": "T8: committed plus abort refuses invalid; checked by the pinned Cure."},
+    {"kind": "proof", "file": "cure/elzoo/artifact.cure", "symbol": "deleted_refuses", "claim": "T9: deleted is terminal for every event, quantified over the event; checked by the pinned Cure."},
+    {"kind": "type", "file": "cure/elzoo/artifact.cure", "claim": "The pinned Cure compiles and audits the production source (no axioms, holes, unresolved, unaudited, opaque or not-proven-total symbols; zero absurd); four negative controls (PermitExpired, DeniedTermsPermit, StagingDeletePermits, FalseTransition) are rejected at the reflexive line of the named law in the bundled test."},
+    {"kind": "test", "file": "test/elzoo/artifact_test.exs", "claim": "Memory double, disposable MinIO (ELZOO_TEST_S3_*, fail closed) and loopback stubs: A1-A3 (construction, unsafe segments refused before key construction, bounds), L1-L2 (put/head/get/versions, new_version), L3 (cross-tenant :not_found), L4 (recorded terms deny principal and scope; a hash never grants access), L5 (:expired on every read path), L6 (tampered bytes integrity_mismatch, never served), L7 (absent object evidence refuses commit), L8 (unknown put persists uncertain staging, status exposes it, no blind re-put), L9 (staging_expired), L10-L12 (abort, delete, reaped retention and expired access), L13 (tenant-scoped bounded access-filtered list), L14 (hash_format migration verifies old records under stored format), L15 (no credential or bytes in results, errors, inspect, events; no environment reads), L16-L17 (declared telemetry events), L18 (15 laws compile, audit clean, four negative controls rejected), L19 (finite agreement with the pure tables); finite scenarios."},
+    {"kind": "test", "file": "test/elzoo/artifact_postgres_test.exs", "claim": "Ready PostgreSQL Store (ELZOO_TEST_DATABASE_URL, fail closed): P1 durable lifecycle, P2 foreign-row tolerance under CAS, P3 staged/committed records are ordinary validated Store rows, P4 caller-transaction refusal; finite scenarios."},
+    {"kind": "upstream", "provider": "cure", "reference": "https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89", "claim": "Relies on the pinned Cure compiler/kernel for the selected equality laws and the reducible decision/transition tables; the builtin integer comparison is opaque to the kernel, hence ordering outcomes are the proved surface and the comparison is finite-test-grounded."},
+    {"kind": "upstream", "provider": "jason", "reference": "https://hexdocs.pm/jason/1.4.5/Jason.html", "claim": "Jason 1.4.5 encodes and decodes the record payloads (the ready integration/json recipe's direct use); decoding failures are unreadable records."},
+    {"kind": "upstream", "provider": "ecto_sql", "reference": "https://hexdocs.pm/ecto_sql/3.14.0/Ecto.Adapters.SQL.html", "claim": "Ecto SQL 3.14.0 Repo transaction visibility and in_transaction?/0 behind the ready Store's caller-transaction refusal are upstream contracts."},
+    {"kind": "upstream", "provider": "postgrex", "reference": "https://www.postgresql.org/docs/17/", "claim": "PostgreSQL durability, commit atomicity and visibility reached through the ready Store/Postgrex 0.22.4 are upstream server contracts, not local proofs."},
+    {"kind": "upstream", "provider": "req_s3", "reference": "https://hexdocs.pm/req_s3/0.2.5/", "claim": "S3 signing and checksum echo through req_s3 0.2.5 under the ready object-store Adapter are upstream contracts; the Adapter's finite result table is its own Contract."},
+    {"kind": "upstream", "provider": "req", "reference": "https://hexdocs.pm/req/0.7.5/", "claim": "HTTP transport, deadlines and retries through Req 0.7.5 under the ready object-store Adapter are upstream contracts."},
+    {"kind": "upstream", "provider": "telemetry", "reference": "https://hexdocs.pm/telemetry/1.4.2/telemetry.html#execute/3", "claim": "telemetry 1.4.2 execute/3 synchronous handler dispatch is the upstream contract; a failed or absent handler never changes an operation result."},
+    {"kind": "upstream", "provider": "elixir", "reference": "https://hexdocs.pm/elixir/1.20.4/", "claim": "Elixir validation, exceptions and BEAM execution are upstream contracts, not proved here."},
+    {"kind": "upstream", "provider": "otp", "reference": "https://www.erlang.org/doc/", "claim": "OTP 29.1.2 GenServer and :crypto SHA-256 are upstream contracts; no exactly-once or disk durability guarantee."},
+    {"kind": "assumption", "claim": "The consumer merges Elzoo.Artifact.kinds/0 into its fold, keeps schema_version 1 in fold.versions and never writes those kinds itself; artifact object keys are written only through this Piece or Elzoo.ObjectStore under its naming; the object-store credential Need stays the consumer's injected binding and is never stored by this Piece; presented callers are consumer-vouched attribution."}
+  ]
+}
