@@ -1,0 +1,116 @@
+# SPDX-License-Identifier: Apache-2.0
+# state/artifact (ELZ-096): the pure part of tenant-owned versioned artifact
+# references over object storage. Two reducible, law-covered tables:
+#
+#   decide/3 — the access decision's ordering: recorded-terms presence
+#   (computed by the shell over the principal/scope lists, which needs the
+#   non-reducible structural string comparison) and the expiry ordering.
+#   The terms' presence flags and the ordering are the table's inputs; the
+#   content hash is not an input, so a hash can never grant access.
+#   step/2   — the per-(artifact_id, version) state machine over
+#   {staging, committed, deleted}.
+#
+# compare/2 (the production integer ordering, the builtin comparisons) is
+# routed into a StampOrder; its law coverage is the same scoped claim as
+# state/lease: the tables are proved over ordering outcomes, while the
+# production comparison itself is finite-test-grounded, not proved.
+# Membership over the recorded string lists is shell code finite-tested
+# alongside. No I/O here.
+mod Elzoo.Artifact
+  type StampOrder = StampBefore | StampSame | StampAfter
+  type AccessDecision = AccessPermit | AccessDenied | AccessExpired
+  type VersionState = VStaging | VCommitted | VDeleted
+  type VersionEvent = EvCommit | EvAbort | EvDelete | EvReap
+  type Transition = GoTo(VersionState) | RefuseDeleted | RefuseInvalid
+
+  fn compare(left: Int, right: Int) -> StampOrder =
+    pickup
+      left < right -> StampBefore()
+      left > right -> StampAfter()
+      else -> StampSame()
+
+  # Expiry is evaluated only after the recorded terms pass: a denied caller
+  # learns :access_denied, not whether the artifact is expired.
+  @total true
+  @reducible
+  fn by_expiry(now_vs_expiry: StampOrder) -> AccessDecision =
+    match now_vs_expiry
+      StampBefore() -> AccessPermit()
+      StampSame() -> AccessExpired()
+      StampAfter() -> AccessExpired()
+
+  @total true
+  @reducible
+  fn decide(principal_present: Bool, scopes_satisfied: Bool, now_vs_expiry: StampOrder) -> AccessDecision =
+    pickup
+      not principal_present -> AccessDenied()
+      not scopes_satisfied -> AccessDenied()
+      else -> by_expiry(now_vs_expiry)
+
+  @total true
+  @reducible
+  fn step(state: VersionState, event: VersionEvent) -> Transition =
+    match state
+      VStaging() ->
+        match event
+          EvCommit() -> GoTo(VCommitted())
+          EvAbort() -> GoTo(VDeleted())
+          EvReap() -> GoTo(VDeleted())
+          EvDelete() -> RefuseInvalid()
+      VCommitted() ->
+        match event
+          EvCommit() -> GoTo(VCommitted())
+          EvDelete() -> GoTo(VDeleted())
+          EvReap() -> GoTo(VDeleted())
+          EvAbort() -> RefuseInvalid()
+      VDeleted() -> RefuseDeleted()
+
+  # ── access laws (A1–A6) ─────────────────────────────────────────────
+
+  fn absent_principal_denies(scopes_ok: Bool, order: StampOrder) -> Equivalent(AccessDecision, decide(False(), scopes_ok, order), AccessDenied()) =
+    reflexive(AccessDenied())
+
+  fn missing_scope_denies(order: StampOrder) -> Equivalent(AccessDecision, decide(True(), False(), order), AccessDenied()) =
+    reflexive(AccessDenied())
+
+  fn terms_passed_then_expiry(order: StampOrder) -> Equivalent(AccessDecision, decide(True(), True(), order), by_expiry(order)) =
+    reflexive(by_expiry(order))
+
+  fn live_before_permits() -> Equivalent(AccessDecision, by_expiry(StampBefore()), AccessPermit()) =
+    reflexive(AccessPermit())
+
+  fn expired_at_refuses() -> Equivalent(AccessDecision, by_expiry(StampSame()), AccessExpired()) =
+    reflexive(AccessExpired())
+
+  fn expired_after_refuses() -> Equivalent(AccessDecision, by_expiry(StampAfter()), AccessExpired()) =
+    reflexive(AccessExpired())
+
+  # ── transition laws (T1–T9) ──────────────────────────────────────────
+
+  fn staged_commit_commits() -> Equivalent(Transition, step(VStaging(), EvCommit()), GoTo(VCommitted())) =
+    reflexive(GoTo(VCommitted()))
+
+  fn staged_abort_deletes() -> Equivalent(Transition, step(VStaging(), EvAbort()), GoTo(VDeleted())) =
+    reflexive(GoTo(VDeleted()))
+
+  fn staged_delete_refuses() -> Equivalent(Transition, step(VStaging(), EvDelete()), RefuseInvalid()) =
+    reflexive(RefuseInvalid())
+
+  fn staged_reap_deletes() -> Equivalent(Transition, step(VStaging(), EvReap()), GoTo(VDeleted())) =
+    reflexive(GoTo(VDeleted()))
+
+  fn committed_commit_stays() -> Equivalent(Transition, step(VCommitted(), EvCommit()), GoTo(VCommitted())) =
+    reflexive(GoTo(VCommitted()))
+
+  fn committed_delete_deletes() -> Equivalent(Transition, step(VCommitted(), EvDelete()), GoTo(VDeleted())) =
+    reflexive(GoTo(VDeleted()))
+
+  fn committed_reap_deletes() -> Equivalent(Transition, step(VCommitted(), EvReap()), GoTo(VDeleted())) =
+    reflexive(GoTo(VDeleted()))
+
+  fn committed_abort_refuses() -> Equivalent(Transition, step(VCommitted(), EvAbort()), RefuseInvalid()) =
+    reflexive(RefuseInvalid())
+
+  fn deleted_refuses(event: VersionEvent) -> Equivalent(Transition, step(VDeleted(), event), RefuseDeleted()) =
+    reflexive(RefuseDeleted())
+end

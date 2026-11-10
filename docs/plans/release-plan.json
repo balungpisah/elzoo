@@ -2223,16 +2223,14 @@
       "kind": "proposal",
       "release": "V1",
       "stage": "pieces",
-      "outputs": [
-        "state/artifact"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "ELZ-009",
         "ELZ-024",
         "RC-05"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "superseded for state/artifact by published ELZ-096 (output moved); no remaining output",
       "contract": "Separate provider byte-storage translation from tenant-owned versioned artifact references. Versioned canonical content hash, size, access, retention and expiry are explicit; a hash never grants access.",
       "acceptance": "Partial upload cleanup, wrong hash, stale access URL, retention expiry, cross-tenant lookup and failed write/reference commit. Verify integrity on read under declared format.",
       "reuse": "S3-compatible client and local compatible service candidate; consumer bucket and credentials. AWS-specific guarantees require separate evidence.",
@@ -3321,6 +3319,41 @@
       ]
     },
     {
+      "id": "ELZ-096",
+      "title": "ELZ-096 — Specify the owned artifact reference store over object storage",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-009",
+        "ELZ-013",
+        "ELZ-033",
+        "ELZ-053"
+      ],
+      "status": "published 2026-11-10; claimed task/ELZ-096; PR pending",
+      "url": "https://github.com/balungpisah/elzoo/issues/179",
+      "paths": [
+        "tasks/ELZ-096-state-artifact.md"
+      ],
+      "outputs": [
+        "state/artifact"
+      ],
+      "acceptance": "Unchanged live issue body; local task file is the byte-equal publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 179,
+      "issue_body_sha256": "13866e6bd13f9b07a62b5f7d57d72f9a1d643dc62543e1f5e57ab594a309bbbe",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P01",
+        "P05",
+        "P06",
+        "P07",
+        "P08",
+        "P11",
+        "P12"
+      ]
+    },
+    {
       "id": "ELZ-098",
       "title": "ELZ-098 — Specify bounded correlated joins over declared branch results",
       "kind": "published",
@@ -4156,11 +4189,13 @@
     },
     {
       "id": "state/artifact",
-      "job": "RC-13",
-      "note": "Content identity, integrity, access, version and expiry for C2/C6/C7/C8; adapt object storage; separate from streamed bytes and control envelopes. ELZ-025 study: content identity is SHA-256 over a versioned canonical encoding with a format-version prefix, verified on every read; a format change is a declared migration.",
+      "job": "ELZ-096",
+      "note": "Tenant-owned, versioned artifact references in the ready Store whose bytes live in the ready integration/object-store Piece: stage, commit, abort, put, new_version, head, get, list, versions, delete, reap and status. One Store stream artifact/<tenant>/<artifact_id> of self-contained non_state_bearing records — artifact_staged, artifact_committed and artifact_deleted each carry the full version record plus resulting state/state_at, with no inference of complete history from surviving rows — under head-revision CAS, plus a best-effort tenant index stream artifact-index/<tenant>. Content hash is SHA-256 over <<hash_format::8, bytes>>, the declared positive format stamped per record and used for verification on every get; a format change is a declared migration. Object keys are artifacts/<tenant>/<artifact_id>/v<version>/<sha256>; tenant and artifact_id are validated to a safe segment before key construction. Every operation presents caller %{tenant, principal, scopes} as consumer-vouched attribution: read paths enforce the recorded access terms and access_expires_at_unix_ms (a hash never grants access), versions filters each returned record by its own terms after the head gate, mutating operations require caller.tenant == record.tenant which the tenant-scoped stream makes structural (plus the recorded terms for delete), and cross-tenant lookup returns :not_found. Appending to an artifact with a committed head enforces that head's recorded terms and access_expires_at_unix_ms: new_version checks before staging and commit re-checks before every staging-to-committed transition, so a denied caller cannot append a head through put, new_version or manual stage+commit; with no committed head appends follow the tenant rule and the first commit establishes the face, and a caller who passes the head's terms may declare the new version's access (narrowing or widening is their declaration). Artifact and index streams require low_water == 0 and validated sequence coverage through the sampled committed Store revision; any retained prefix, missing or malformed row, inconsistent version or illegal transition fails closed as {:store_damaged, info} before object reads, uploads or Store writes. Self-contained rows and contiguous version numbers do not establish complete history after retention. stage reserves the largest encoded lifecycle payload, including the maximum valid state_at timestamp width, before upload. commit verifies object presence, stored transport checksum and size through reconcile_put before the Store write; an unknown put persists an upload: :uncertain staging record resolved by verification, never blind re-put; a Store {:conflict, _} is {:commit_failed, %{expected, observed}} and an indeterminate write is {:commit_failed, :indeterminate}. Object deletes on abort/delete/reap are best-effort with reported outcomes; every already-deleted version's bytes are deletion-attempted again under reap's cleanup result, so a refused/unknown delete is retried by the next reap; list propagates storage and damage failures as errors, never a partial page; reap is caller-driven. Creation, access-expiry and retention fields use the published created_at_unix_ms, access_expires_at_unix_ms and retain_until_unix_ms names in input, public records and persisted JSON.",
       "baseline_status": "deferred",
-      "disposition": "blocked-admission-proposal",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract on task branch; task acceptance separate",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/state/artifact/piece.json",
+      "manifest_sha256": "00ec448b890797bca53606a8437f619e35f6d74ce9403b22e6d8129e1a6b62b0"
     },
     {
       "id": "state/audit-log",
