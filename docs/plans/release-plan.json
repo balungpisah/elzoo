@@ -3223,7 +3223,7 @@
       "outputs": [],
       "acceptance": "Live issue body owns bounded-reception hardening of the ready Anthropic provider; task copy is byte-equal. Existing outcomes and cap preserved.",
       "issue": 171,
-      "issue_body_sha256": "2499aaf1d908a93cce4cf5e051e9c446dd0a3250e55bb15507e37a2ced9503d8",
+      "issue_body_sha256": "95ba9d9350d170fcab3eff827bf8a8543c54ee1a56cda548d6fefa0ac35ab5f1",
       "observed_issue_state": "OPEN",
       "owner_role": "one claimed task worker after admission",
       "product_aims": [
