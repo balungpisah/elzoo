@@ -1,0 +1,66 @@
+Cure sources unchanged (fingerprint a533aca0595f); skipping 34 modules
+surface: :openai_responses
+[warning] Renamed :max_tokens to :max_completion_tokens for reasoning models
+raw body binary: true
+path: /v1/responses
+headers: [{"authorization", "Bearer sk-INJECTED"}]
+{
+  "input": [
+    {
+      "content": [
+        {
+          "prompt_cache_breakpoint": {
+            "mode": "explicit"
+          },
+          "text": "Answer briefly.",
+          "type": "input_text"
+        }
+      ],
+      "role": "system"
+    },
+    {
+      "content": [
+        {
+          "prompt_cache_breakpoint": {
+            "mode": "explicit"
+          },
+          "text": "Conformance prompt.",
+          "type": "input_text"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "max_output_tokens": 256,
+  "model": "gpt-6.1-terra",
+  "prompt_cache_key": "ez1.KEY",
+  "prompt_cache_options": {
+    "mode": "explicit",
+    "ttl": "30m"
+  },
+  "reasoning": {
+    "effort": "low"
+  },
+  "store": false,
+  "stream": false,
+  "tools": [
+    {
+      "description": "Look up a term.",
+      "name": "lookup",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "q": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "q"
+        ],
+        "type": "object"
+      },
+      "strict": false,
+      "type": "function"
+    }
+  ]
+}
