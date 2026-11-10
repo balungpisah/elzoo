@@ -212,7 +212,7 @@ defmodule Elzoo.AiText.Anthropic do
 
     case ReqLLM.Providers.Anthropic.prepare_request(op, model, context, opts) do
       {:ok, request} ->
-        request
+        %{request | into: &bounded/2}
         |> Req.Request.prepend_response_steps(elzoo_capture: &capture/1)
         |> Req.Request.prepend_error_steps(elzoo_halt: &halt_error/1)
         |> Req.request()
@@ -226,12 +226,30 @@ defmodule Elzoo.AiText.Anthropic do
   end
 
   @doc false
+  # Pinned Req forwards wire body bytes (after framing), before decompression.
+  # Keep at most the cap in the accumulator; the current chunk may coexist with
+  # it. On overflow discard both and preserve status/headers for error mapping.
+  def bounded({:data, data}, {request, response}) do
+    body = if is_binary(response.body), do: response.body, else: ""
+
+    if byte_size(body) + byte_size(data) > @max_raw_bytes do
+      {:halt, {request, Req.Response.put_private(%{response | body: ""}, :elzoo_oversize, true)}}
+    else
+      {:cont, {request, %{response | body: body <> data}}}
+    end
+  end
+
+  @doc false
   def capture({request, response}) do
     raw = %{
       status: response.status,
       request_id: header(response, "request-id"),
       retry_after: header(response, "retry-after"),
-      body: if(is_binary(response.body), do: response.body, else: nil)
+      body:
+        if(is_binary(response.body) and response.private[:elzoo_oversize] != true,
+          do: response.body,
+          else: nil
+        )
     }
 
     Req.Request.halt(request, Req.Response.put_private(response, :elzoo_raw, raw))
