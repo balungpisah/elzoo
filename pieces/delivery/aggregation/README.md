@@ -27,7 +27,11 @@ reports `pending`, `all`, `partial`, `failed` or `expired`.
 
 `new(declared, config)` requires a nonempty proper list of unique identities
 bounded by `max_branches`; duplicates, oversized or malformed declarations
-return `{:error, :invalid_declaration}`. `config` is a keyword list:
+return `{:error, :invalid_declaration}`. Every declared identity's encoded
+term (`:erlang.term_to_binary/1`) must also fit `max_result_bytes`, including
+structured value-carried identities; equality at the bound is accepted.
+This enforces the published count × per-branch bound on retained identities.
+`config` is a keyword list:
 
 - `:branch_key` — required `{:field, path}`. `path` is exactly
   `["correlation_id"]` or `["attempt_id"]`, or `["value", key, ...]`
@@ -91,9 +95,15 @@ state, `inspect` output and caller persistence never hold branch data.
   bounded by the declared set; per-branch size is bounded by
   `max_result_bytes`.
 
-The join state is a plain map (the `now` port is a function value inside
-it) the caller may persist through any term-capable store and hand to
-`status/1`, `decision/2`, `accept/2` and `mark_lost/3` after reload.
+`decision/2` is pure. `accept/2` and `mark_lost/3` are clock-reading wrappers;
+their behavior depends on the injected `now` port. The join data is a plain
+map the caller may serialize and persist. The clock is an executable Need,
+not portable persistence data: a closure over an Agent retains that process
+identity, and encoding it does not restore the Agent. Persist
+`Map.delete(join, :now)`, then bind a fresh consumer-owned clock with
+`Map.put(restored_data, :now, fresh_now)` before calling the join API. Tests
+stop the original Agent before restoring and exercise both acceptance and
+expiry with a fresh clock. The caller owns serialization and rebinding.
 
 ## Volatile runner
 
@@ -114,26 +124,59 @@ an injected `Task.Supervisor` for callers without durable branches:
 ```
 
 Each fun is a 1-arity function of its branch id returning an Envelope
-result map; pairs run once with `:brutal_kill` shutdown and no retries.
+result map; each pair is invoked at most once per runner call, with
+`:brutal_kill` shutdown and no retries. A new runner call can invoke the
+same functions again, including with a restored or closed join; callers
+own admission and deduplication across calls.
 Branch ids must be binaries present in the join declaration — duplicates,
 undeclared ids, non-binary ids, non-functions, empty declarations, missing
 supervisors and invalid join states are refused with
 `{:error, :invalid_options}`. The join's `branch_key` must carry identity in
 `correlation_id` or `attempt_id`: runner-synthesized failure results need a
 carrier a failed branch can still mint, so a `value`-rooted key is refused.
+Before launching **any** task, the runner checks that both synthetic failure
+shapes (`failed/dispatched/unclassified` and
+`rejected/not_dispatched/unavailable`) are valid Envelope results with
+usable carriers and fit `max_result_bytes` for **every** run identity.
+Insufficient capacity returns
+`{:error, :invalid_options}` without dispatch. Thus a pure join with a small
+cap (such as 64 bytes) can be valid while being unsuitable for a runner;
+long identities also require capacity for the complete failure record.
+This validation keeps exception → `failed` within the existing result bound.
 
-Runner outcomes feed the same join policy: a returned result goes through
-`accept/2`; a raising or exiting task becomes a synthetic
-`failed`/`dispatched`/`unclassified` result; a result the join refuses as
+Runner outcomes feed the same join policy: a returned result is validated
+and its configured carrier must equal the originating task's declared
+identity before it goes through `accept/2`. A mismatch (whether another
+declared identity or an unknown one) becomes invalid-result failure for the
+originating branch only. Raised/thrown failures and other exits become a
+synthetic `failed`/`dispatched`/`unclassified` result; exits with `:kill`,
+`:killed` or `:shutdown` retain their `mark_lost(:killed)` mapping. A result the join refuses as
 `:invalid_result` becomes the same synthetic failure, while
 `:invalid_branch_key` and `:too_large` become `mark_lost(:unavailable)` —
 the branch was dispatched but its evidence could not be joined. At the join
 deadline the runner records `mark_lost(:timed_out)` for every branch still
-unsettled and kills the survivors; their late messages are recorded by the
-join, never merged. `status/1`, `join/1`, `decision/2` and `snapshot/1`
+unsettled and kills the survivors. All deadline losses use the clock reading
+that established expiry. With every branch now terminal, the next
+`decision/2` yields `:failed` or `:partial` per the same decision table;
+`:expired` applies when a direct decision still finds unsettled branches.
+An early timer reading rearms for the remaining interval. An invalid,
+negative or raising clock retries after 50 ms, without inventing a time or
+discarding deadline enforcement; an indefinitely unusable clock cannot
+establish expiry. Late inputs to the join remain late, never merged.
+`status/1`, `join/1`, `decision/2` and `snapshot/1`
 expose the live join and volatile counters. The runner keeps no queue,
-starts no process of its own and holds no durable state; durable branches
+starts no supervisor of its own and holds no durable state; durable branches
 remain owned by `workflow/run`.
+
+The task invocation catches raise/throw/exit before OTP's Task failure
+logger sees them; exception contents and stacktraces are discarded, never
+included in result metadata, errors or inspection. Consumer functions own
+any logging they explicitly perform. On normal stop or supervised shutdown,
+the runner's termination callback kills its tracked tasks, including tasks
+trapping exits, while the injected supervisor may stay alive. This callback
+does not run on an untrappable kill of the runner or VM loss; no cleanup
+guarantee is made for those cases. Process cleanup does not reverse external
+Effects and is not business cancellation.
 
 ## Dependencies and standalone copying
 
@@ -149,19 +192,17 @@ caller-supplied `Task.Supervisor`. No new Hex dependency.
 - **Type/contract check:** `core/envelope`'s pinned Cure `validate_result`
   is the actual schema gate for every accepted result; branch-key paths,
   bounds and deadline values are validated at construction.
-- **No `cure/` source:** the join state is a plain-map Elixir structure
-  carrying an injected clock fun — not a Cure record — and the candidate
-  laws (identity determinism, at-most-once-per-branch) quantify over that
-  state and clock. Forcing a Cure representation would conflict with the
-  plain-map persistence Contract, so the transition evidence is the
-  exhaustive ExUnit scenario set below rather than a proof.
+- **Proof:** none required by ELZ-098 and none claimed. The decision table
+  and runtime translation are grounded by finite ExUnit scenarios.
 - **Tests:** named ExUnit scenarios cover construction refusal, every
   outcome mapping, all three identity carriers, refusal without mutation,
   oversize bounds, late/expired/closed transitions, duplicate/conflict and
-  loss records, arrival-order independence, state round-trip, payload
+  loss records, arrival-order independence, fresh-clock state restoration, payload
   non-retention, corrupt-state refusal, and runner success/exception/
   invalid-return/deadline-kill/single-run/refusal scenarios over real
-  `Task`s. These are executable scenarios, not universal proofs.
+  `Task`s, plus identity mismatches, failure-capacity boundaries, log
+  sanitization, early/invalid-clock timer rearming and shutdown cleanup.
+  These are executable scenarios, not universal proofs.
 - **Upstream:** Cure 208248063d64e621782cd26dd30698ee42850a89 compiler/kernel
   (through `core/envelope`), Elixir 1.20.4, OTP 29.1.2 `Task.Supervisor`,
   `:crypto` SHA-256. No compiler soundness proof is claimed.

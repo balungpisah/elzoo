@@ -168,6 +168,38 @@ defmodule Elzoo.AggregationTest do
                )
     end
 
+    test "declaration identity bytes are bounded, including the encoded boundary" do
+      oversized = String.duplicate("i", 1_000_000)
+
+      assert {:error, :invalid_declaration} =
+               Aggregation.new([oversized], config(max_branches: 1, max_result_bytes: 64))
+
+      # ETF encodes this binary with six overhead bytes; the full encoded
+      # identity, not just its raw byte count, must fit the per-branch cap.
+      at_boundary = String.duplicate("i", 58)
+      assert byte_size(:erlang.term_to_binary(at_boundary)) == 64
+
+      assert {:ok, join} =
+               Aggregation.new([at_boundary], config(max_branches: 1, max_result_bytes: 64))
+
+      assert Aggregation.valid_state?(join)
+
+      assert {:error, :invalid_declaration} =
+               Aggregation.new([at_boundary <> "i"], config(max_result_bytes: 64))
+
+      # Value-carried structured identities have the same encoded bound.
+      structured = %{"id" => String.duplicate("s", 64)}
+      bytes = byte_size(:erlang.term_to_binary(structured))
+      opts = config(branch_key: {:field, ["value", "branch"]}, max_result_bytes: bytes)
+      assert {:ok, _} = Aggregation.new([structured], opts)
+
+      assert {:error, :invalid_declaration} =
+               Aggregation.new([structured], Keyword.put(opts, :max_result_bytes, bytes - 1))
+
+      refute Aggregation.valid_state?(%{join | max_result_bytes: 63})
+      refute Aggregation.valid_state?(%{join | max_branches: 0})
+    end
+
     test "accepts value-field and attempt-id branch keys" do
       {:ok, join} =
         Aggregation.new(["x"],
@@ -635,6 +667,41 @@ defmodule Elzoo.AggregationTest do
       assert Aggregation.valid_state?(restored)
       assert statuses(restored) == statuses(join)
       assert {^restored, %{decision: :pending}} = Aggregation.decision(restored, 1_000)
+    end
+
+    test "restored data uses a freshly rebound clock after the old clock owner stops" do
+      {:ok, old_clock} = Agent.start_link(fn -> 1_000 end)
+      old_now = fn -> Agent.get(old_clock, & &1) end
+
+      {:ok, join} =
+        Aggregation.new(["a", "b", "c"], config(now: old_now, deadline_unix_ms: 2_000))
+
+      {:ok, join} = Aggregation.accept(join, completed("a", %{"secret" => "stored-data"}))
+      # A process-bound Need is not portable persistence data.
+      stored = join |> Map.delete(:now) |> :erlang.term_to_binary()
+      Agent.stop(old_clock)
+      refute Process.alive?(old_clock)
+
+      restored_data = :erlang.binary_to_term(stored)
+      refute Map.has_key?(restored_data, :now)
+      refute Aggregation.valid_state?(restored_data)
+      {fresh_now, set_fresh} = clock(1_500)
+      restored = Map.put(restored_data, :now, fresh_now)
+
+      assert Aggregation.valid_state?(restored)
+      assert statuses(restored) == statuses(join)
+      assert {^restored, %{decision: :pending}} = Aggregation.decision(restored, 1_500)
+      assert {:ok, restored} = Aggregation.accept(restored, completed("b"))
+      assert statuses(restored)["b"] == :fulfilled
+
+      set_fresh.(2_000)
+      assert {:ok, restored} = Aggregation.accept(restored, completed("c"))
+      assert statuses(restored)["c"] == :late
+      assert {closed, %{decision: :expired}} = Aggregation.decision(restored, 2_000)
+      assert closed.branches["a"].status == :fulfilled
+      assert closed.branches["b"].status == :fulfilled
+      assert closed.branches["c"].status == :timed_out
+      refute inspect(closed) =~ "stored-data"
     end
 
     test "state never retains payload values" do

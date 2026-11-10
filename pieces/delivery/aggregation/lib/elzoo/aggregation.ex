@@ -17,8 +17,9 @@ defmodule Elzoo.Aggregation do
   never merged. Accepted results are retained redacted — outcome, dispatch,
   error class and a SHA-256 `value_digest` for conflict comparison — so the
   join state never holds branch payloads and stays safe to inspect, log or
-  persist. The join state is a plain map the caller may persist; this module
-  performs no I/O and starts no process.
+  persist. The join state is a plain map the caller may persist. `decision/2`
+  performs no I/O. `accept/2` and `mark_lost/3` read the injected clock port;
+  this module starts no process.
   """
 
   @statuses [
@@ -41,7 +42,9 @@ defmodule Elzoo.Aggregation do
   Build a join over `declared` branch identities.
 
   `declared` is a nonempty proper list of unique identities bounded by
-  `config[:max_branches]`; duplicates are refused. `config` is a keyword list:
+  `config[:max_branches]`; duplicates are refused. Each encoded identity term
+  must also fit `max_result_bytes` (inclusive), bounding declaration bytes as
+  well as incoming results. `config` is a keyword list:
 
     * `:branch_key` — required `{:field, path}`; `path` is exactly
       `["correlation_id"]` or `["attempt_id"]`, or `["value", key, ...]`
@@ -454,6 +457,9 @@ defmodule Elzoo.Aggregation do
       length(declared) > opts.max_branches ->
         {:error, :invalid_declaration}
 
+      Enum.any?(declared, &(byte_size(:erlang.term_to_binary(&1)) > opts.max_result_bytes)) ->
+        {:error, :invalid_declaration}
+
       length(Enum.uniq(declared)) != length(declared) ->
         {:error, :invalid_declaration}
 
@@ -519,6 +525,10 @@ defmodule Elzoo.Aggregation do
         {:error, :invalid_state}
 
       not (is_integer(max_branches) and max_branches > 0) ->
+        {:error, :invalid_state}
+
+      declared_ok?(declared, %{max_branches: max_branches, max_result_bytes: max_result_bytes}) !=
+          :ok ->
         {:error, :invalid_state}
 
       not is_function(now, 0) ->

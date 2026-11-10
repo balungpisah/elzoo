@@ -39,7 +39,8 @@ IO.inspect(Map.new(status, fn {id, r} -> {id, r.status} end), label: "branches")
 IO.inspect(outcome.decision, label: "decision")
 
 # A volatile runner for callers without durable branches: each {id, fun} pair
-# runs once under the caller's Task.Supervisor and feeds the same join policy.
+# runs at most once per runner call under the caller's Task.Supervisor and
+# feeds the same join policy; a new runner call may invoke it again.
 # "notify" is still pending, so its fun supplies the missing branch result.
 {:ok, sup} = Task.Supervisor.start_link(name: DemoBranches)
 

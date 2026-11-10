@@ -7,25 +7,41 @@ defmodule Elzoo.Aggregation.Runner do
   `start_link/1` takes a join state from `Elzoo.Aggregation.new/2`, a list of
   declared `{branch_id, fun}` pairs and an injected `Task.Supervisor`. Each fun
   is a 1-arity function of its branch id that must return a `core/envelope`
-  DeliveryResult map; every pair runs once under the supervisor with
+  DeliveryResult map; each pair is invoked at most once per runner call with
   `:brutal_kill` shutdown and no retries. Branch ids must be binaries present
   in the join declaration, duplicates are refused, and the join's `branch_key`
   must carry identity in `correlation_id` or `attempt_id` so runner-synthesized
   failure results can be attributed — a `value`-rooted key is refused because
   a failed branch cannot mint a value payload.
 
+  Before any launch, both synthetic failure shapes must fit the join's
+  `max_result_bytes` for every run identity; otherwise options are refused.
+  Returned result identity must equal the originating task's identity.
+
   Runner outcomes feed the same join policy: a returned result goes through
-  `Elzoo.Aggregation.accept/2`; a raising or exiting task becomes a synthetic
-  `failed`/`dispatched`/`unclassified` result; a result the join refuses
+  `Elzoo.Aggregation.accept/2`; raised/thrown failures and other exits become
+  synthetic `failed`/`dispatched`/`unclassified` results; `:kill`, `:killed`
+  and `:shutdown` exits retain their first-class `:killed` loss mapping; a result the join refuses
   (`:invalid_result`) becomes the same synthetic failure, while
   `:invalid_branch_key`/`:too_large` become `mark_lost(:unavailable)` — the
   branch was dispatched but its evidence could not be joined. At the join
   deadline the runner records `mark_lost(:timed_out)` for every branch still
-  unsettled and kills the surviving tasks; their late messages are recorded by
-  the join, never merged.
+  unsettled and kills the surviving tasks. Further inputs presented to the
+  join follow its late-input policy; messages for removed task refs are ignored.
+
+  Early deadline readings rearm the timer. Invalid or raising clock readings
+  retry after 50 ms; expiry needs a valid reading, used for all timeout losses.
+  With losses terminal, a subsequent decision is `failed`/`partial`, whereas
+  direct decision expiry applies when branches are still unsettled.
+
+  Invocation catches exceptions before OTP logs them, retaining no exception
+  contents. Normal stop and supervised shutdown clean tracked tasks in the
+  termination callback; an untrappable runner kill or VM loss cannot run it.
+  Cleanup does not reverse external Effects. A new runner call may invoke
+  functions again, even for a closed join; there is no cross-call deduplication.
 
   This runner is volatile: it keeps no queue, no durable state and starts no
-  process of its own. Durable branches remain owned by `workflow/run`.
+  supervisor of its own. Durable branches remain owned by `workflow/run`.
   `snapshot/1` is inspection, not telemetry or durable accounting.
   """
   use GenServer
@@ -33,6 +49,8 @@ defmodule Elzoo.Aggregation.Runner do
   alias Elzoo.Aggregation
 
   @killed_reasons [:killed, :kill, :shutdown]
+  @clock_retry_ms 50
+  @max_timer_ms 4_294_967_295
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
 
@@ -55,12 +73,16 @@ defmodule Elzoo.Aggregation.Runner do
          true <- Aggregation.valid_state?(join),
          {:ok, branches} <- validate_branches(Keyword.get(opts, :branches), join),
          :ok <- carrier_supported?(join),
+         :ok <- failure_capacity(join, branches),
          supervisor when not is_nil(supervisor) <- Keyword.get(opts, :task_supervisor) do
+      Process.flag(:trap_exit, true)
+
       state = %{
         join: join,
         supervisor: supervisor,
         branches: %{},
         tasks: %{},
+        timer: nil,
         launched: 0,
         accepted: 0,
         refused: 0
@@ -110,7 +132,20 @@ defmodule Elzoo.Aggregation.Runner do
       {:ok, branch_id} ->
         Process.demonitor(task_ref, [:flush])
         state = clear_task(state, task_ref, branch_id)
-        {:noreply, feed_result(state, branch_id, response)}
+
+        state =
+          case response do
+            {:returned, result} ->
+              feed_result(state, branch_id, result)
+
+            :branch_failed ->
+              feed_synthetic(state, branch_id, "failed", "dispatched", "unclassified")
+
+            :branch_killed ->
+              record_loss(state, branch_id, :killed)
+          end
+
+        {:noreply, state}
     end
   end
 
@@ -134,17 +169,26 @@ defmodule Elzoo.Aggregation.Runner do
   end
 
   def handle_info(:aggregation_deadline, state) do
-    now = state.join.now.()
+    now = read_clock(state.join)
 
     if state.join.deadline_unix_ms != :unbounded and is_integer(now) and
          now >= state.join.deadline_unix_ms do
-      {:noreply, expire(state)}
+      {:noreply, expire(cancel_deadline(state), now)}
     else
-      {:noreply, state}
+      {:noreply, arm_deadline(state, now)}
     end
   end
 
   def handle_info(_, state), do: {:noreply, state}
+
+  @impl true
+  def terminate(_reason, state) do
+    cancel_deadline(state)
+
+    Enum.each(state.branches, fn {_id, task} ->
+      if task, do: remove_task(state.supervisor, task.pid)
+    end)
+  end
 
   defp launch_all(state, branches) do
     Enum.reduce(branches, state, fn {branch_id, fun}, acc ->
@@ -168,7 +212,7 @@ defmodule Elzoo.Aggregation.Runner do
       {:ok,
        Task.Supervisor.async_nolink(
          supervisor,
-         fn -> fun.(branch_id) end,
+         fn -> invoke(fun, branch_id) end,
          shutdown: :brutal_kill
        )}
     catch
@@ -176,8 +220,26 @@ defmodule Elzoo.Aggregation.Runner do
     end
   end
 
+  # Sanitize inside the Task, before Task.Supervised can log a failure reason
+  # or stacktrace. Neither the thrown term nor the exception is retained.
+  defp invoke(fun, branch_id) do
+    {:returned, fun.(branch_id)}
+  catch
+    :exit, reason when reason in @killed_reasons -> :branch_killed
+    _, _ -> :branch_failed
+  end
+
   defp feed_result(state, branch_id, response) do
-    case Aggregation.accept(state.join, response) do
+    accepted =
+      with {:ok, _} <- Elzoo.Envelope.validate_result(response),
+           :ok <- originating_identity(state.join, branch_id, response) do
+        Aggregation.accept(state.join, response)
+      else
+        {:error, :invalid_branch_key} = error -> error
+        _ -> {:error, :invalid_result}
+      end
+
+    case accepted do
       {:ok, join} ->
         %{state | join: join, accepted: state.accepted + 1}
 
@@ -200,6 +262,14 @@ defmodule Elzoo.Aggregation.Runner do
     end
   end
 
+  defp originating_identity(%{branch_key: {:field, [key]}}, branch_id, response) do
+    case Map.get(response, key) do
+      nil -> {:error, :invalid_branch_key}
+      ^branch_id -> :ok
+      _ -> {:error, :invalid_result}
+    end
+  end
+
   defp feed_synthetic(state, branch_id, outcome, dispatch, error_class) do
     result = synthetic_result(state.join, branch_id, outcome, dispatch, error_class)
 
@@ -209,10 +279,17 @@ defmodule Elzoo.Aggregation.Runner do
     end
   end
 
-  defp record_loss(state, branch_id, kind) do
-    case Aggregation.mark_lost(state.join, branch_id, kind) do
-      {:ok, join} -> %{state | join: join, accepted: state.accepted + 1}
-      {:error, _} -> %{state | refused: state.refused + 1}
+  defp record_loss(state, branch_id, kind, now \\ nil) do
+    # Expiry uses the one clock reading that established the deadline. Do not
+    # re-read a clock that can fail or move backwards between loss records.
+    join = if is_integer(now), do: %{state.join | now: fn -> now end}, else: state.join
+
+    case Aggregation.mark_lost(join, branch_id, kind) do
+      {:ok, join} ->
+        %{state | join: %{join | now: state.join.now}, accepted: state.accepted + 1}
+
+      {:error, _} ->
+        %{state | refused: state.refused + 1}
     end
   end
 
@@ -232,11 +309,11 @@ defmodule Elzoo.Aggregation.Runner do
     end
   end
 
-  defp expire(state) do
+  defp expire(state, now) do
     state =
       Enum.reduce(state.join.branches, state, fn {branch_id, record}, acc ->
         if record.status in [:pending, :late] do
-          record_loss(acc, branch_id, :timed_out)
+          record_loss(acc, branch_id, :timed_out, now)
         else
           acc
         end
@@ -244,7 +321,11 @@ defmodule Elzoo.Aggregation.Runner do
 
     branches =
       Map.new(state.branches, fn {id, task} ->
-        if task, do: remove_task(state.supervisor, task.pid)
+        if task do
+          remove_task(state.supervisor, task.pid)
+          Process.demonitor(task.ref, [:flush])
+        end
+
         {id, nil}
       end)
 
@@ -273,21 +354,59 @@ defmodule Elzoo.Aggregation.Runner do
     :exit, _ -> Process.exit(pid, :kill)
   end
 
-  defp arm_deadline(state) do
+  defp arm_deadline(state), do: arm_deadline(state, read_clock(state.join))
+
+  defp arm_deadline(state, now) do
+    state = cancel_deadline(state)
+
     case state.join.deadline_unix_ms do
       :unbounded ->
         state
 
       deadline ->
         remaining =
-          case state.join.now.() do
-            now when is_integer(now) -> max(deadline - now, 0)
-            _ -> 0
+          case now do
+            now when is_integer(now) -> min(max(deadline - now, 0), @max_timer_ms)
+            _ -> @clock_retry_ms
           end
 
-        Process.send_after(self(), :aggregation_deadline, remaining)
-        state
+        %{state | timer: Process.send_after(self(), :aggregation_deadline, remaining)}
     end
+  end
+
+  defp cancel_deadline(state) do
+    if state.timer, do: Process.cancel_timer(state.timer)
+    %{state | timer: nil}
+  end
+
+  defp read_clock(join) do
+    case join.now.() do
+      now when is_integer(now) and now >= 0 -> now
+      _ -> :invalid_clock
+    end
+  catch
+    _, _ -> :invalid_clock
+  end
+
+  # Validate every generated failure shape for every launched identity before
+  # any task starts, so exception->failed never depends on a fallback loss.
+  defp failure_capacity(join, branches) do
+    fits? =
+      Enum.all?(branches, fn {id, _fun} ->
+        Enum.all?(
+          [{"failed", "dispatched", "unclassified"}, {"rejected", "not_dispatched", "unavailable"}],
+          fn {outcome, dispatch, error_class} ->
+            result = synthetic_result(join, id, outcome, dispatch, error_class)
+
+            byte_size(:erlang.term_to_binary(result)) <= join.max_result_bytes and
+              match?({:ok, _}, Elzoo.Envelope.validate_result(result))
+          end
+        )
+      end)
+
+    if fits?, do: :ok, else: {:error, :insufficient_failure_capacity}
+  catch
+    _, _ -> {:error, :insufficient_failure_capacity}
   end
 
   defp validate_branches(branches, join) do
