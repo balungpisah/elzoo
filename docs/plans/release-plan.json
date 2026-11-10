@@ -2294,16 +2294,14 @@
       "kind": "proposal",
       "release": "V1",
       "stage": "pieces",
-      "outputs": [
-        "delivery/aggregation"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "ELZ-003",
         "ELZ-006",
         "ELZ-026"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "superseded for delivery/aggregation by published ELZ-098 (output moved); no remaining output",
       "contract": "Declared branch identities plus correlated results -> bounded join state and explicit all/partial/failed/expired decision. Arrival order is not identity; retention and duplicate policy explicit.",
       "acceptance": "Duplicate result, absent/killed branch, late result, timeout and unreadable denial record. Each expected branch contributes at most once.",
       "reuse": "Use ordinary collection operations; author only missing join and timeout policy.",
@@ -3321,6 +3319,35 @@
         "P06",
         "P07"
       ]
+    },
+    {
+      "id": "ELZ-098",
+      "title": "ELZ-098 — Specify bounded correlated joins over declared branch results",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-003",
+        "ELZ-006",
+        "ELZ-026",
+        "ELZ-033"
+      ],
+      "status": "published 2026-11-10; claimed task/ELZ-098; PR pending",
+      "url": "https://github.com/balungpisah/elzoo/issues/181",
+      "paths": [
+        "tasks/ELZ-098-delivery-aggregation.md"
+      ],
+      "outputs": [
+        "delivery/aggregation"
+      ],
+      "acceptance": "Unchanged live issue body; local task file is the byte-equal publication copy. Planning dependencies mirror the published direct dependencies.",
+      "issue": 181,
+      "issue_body_sha256": "f1a5a39d3479f939d3ac775796751f4330479bfd88cc6555300da746421346a7",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P07"
+      ]
     }
   ],
   "entries": [
@@ -3520,11 +3547,13 @@
     },
     {
       "id": "delivery/aggregation",
-      "job": "RC-15",
-      "note": "`T,X`; stateful and needs correlation/retention policy ELZ-025 study: one result per declared branch identity, killed or timed-out branches recorded per the Envelope result matrix, correlation by Envelope key never arrival position, and no-denials distinct from denial-record-unreadable.",
+      "job": "ELZ-098",
+      "note": "Bounded correlated join over a declared set of branch identities. accept/2 validates each core/envelope DeliveryResult, attributes it through a configured {:field, path} branch_key (correlation_id, attempt_id or a declared value field — never arrival position), and records first-wins branch outcomes: completed→fulfilled, rejected/failed→failed, timed_out→timed_out, unknown→unavailable. mark_lost/3 records first-class :timed_out/:killed/:unavailable losses, not synthetic results. decision/2 is a pure {join, outcome} transition over pending/all/partial/failed/expired; expiry converts pending branches to :missing and late branches to :timed_out and closes. Post-deadline and post-close input is recorded late, never merged; on-time duplicates are counted and differing outcome/value digests mark the branch conflicted. State is a plain map bounded by declared count and per-branch encoded identity/result size, retained redacted (SHA-256 value_digest, never payloads) for caller persistence. Elzoo.Aggregation.Runner fans out declared {branch_id, fun} pairs at most once per runner call under an injected Task.Supervisor, after validating capacity for every synthetic failure shape: exceptions and invalid returns become sanitized synthetic failed results, mismatched result identities fail only the originating branch, undispatchable starts become rejected/not_dispatched, join-refused results become :unavailable losses, and the rearmed deadline marks survivors :timed_out; normal stop/supervised shutdown clean tracked tasks without reversing Effects. Durable fan-out, sagas, scheduling, retries and Reactor are out of scope.",
       "baseline_status": "planned",
-      "disposition": "blocked-admission-proposal",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract on task branch; task acceptance separate",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/delivery/aggregation/piece.json",
+      "manifest_sha256": "ea622ec03fe96d10e73361b1e6a02061f7873be8b139c33e4670c8e09468d619"
     },
     {
       "id": "delivery/backpressure",
