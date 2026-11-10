@@ -1,0 +1,4 @@
+timeout | max_retries 0, no Elzoo step | requests=1 | {:error, ReqLLM.Error.API.Request, "timeout"}
+timeout | no max_retries, no Elzoo step | requests=4 | {:error, ReqLLM.Error.API.Request, "timeout"}
+status_500 | max_retries 0, no Elzoo step | requests=1 | {:error, ReqLLM.Error.API.Request, 500}
+status_500 | no max_retries, no Elzoo step | requests=4 | {:error, ReqLLM.Error.API.Request, 500}

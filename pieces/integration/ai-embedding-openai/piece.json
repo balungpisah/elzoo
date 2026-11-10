@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "id": "integration/ai-embedding-openai",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "adapter",
+  "providers": [
+    "req_llm",
+    "llm_db",
+    "req",
+    "jason",
+    "jsv",
+    "abnf_parsec",
+    "texture",
+    "zoi",
+    "splode",
+    "server_sent_events",
+    "websockex",
+    "dotenvy",
+    "plug",
+    "plug_crypto",
+    "elixir",
+    "otp"
+  ],
+  "dependencies": [
+    "integration/ai-embedding"
+  ],
+  "install_configuration": [
+    {
+      "line": "config :req_llm, load_dotenv: false",
+      "reason": "Otherwise req_llm loads a .env file from the working directory when its application starts under Mix."
+    }
+  ],
+  "contract": "OpenAI embeddings provider of integration/ai-embedding through req_llm 1.30's documented provider-callback API (prepare_request(:embedding) then Req.request): POST /v1/embeddings with input always an array, encoding_format float and dimensions only when requested; req_http_options max_retries 0; one HTTP exchange with every response halted by an Elzoo step (no redirect, no retry, no req_llm decode or error value); key only from the injected Need as api_key; models text-embedding-3-small (1536, reducible 1..1536) and text-embedding-3-large (3072, reducible 1..3072); input_type unspecified only; declared provider option user; items passed on as listed for the interface's checks; usage prompt_tokens as input_uncached_tokens with cache and output :unknown; provenance with the served model and x-request-id; documented error statuses mapped to the interface's failure tags (429 throttled; 503 and, by the family rule, 529 overloaded).",
+  "limits": [
+    "Stub evidence only (R5): conformance to the pinned documented format, never current live behaviour, embedding quality, cost, latency or rate limits; a periodic live check is a later owner decision.",
+    "Requests and stub responses are validated against an extract of the official OpenAI OpenAPI document (openai/openai-openapi commit 59f5565459caae84f43c49a738248cf2b268a70f, fetched 2026-11-09); conformance to that pinned document only.",
+    "404 and 413 are not listed for POST /embeddings in the pinned document; they are mapped by their HTTP meaning.",
+    "text-embedding-ada-002, base64 encoding, query or document input types and batch-mode submission are not supplied.",
+    "Every consumer must merge config :req_llm, load_dotenv: false into its configuration: the line is declared in install_configuration and written into the generated install file, but the copier never edits a consumer's configuration. The repository's copied-consumer harness writes the line and checks that it is set before req_llm starts in the aggregate consumer; a hand-copied consumer that drops the line is not checked. The credential invariant holds regardless: only the injected key is used."
+  ],
+  "files": [
+    "lib/elzoo/ai_embedding/openai.ex",
+    "lib/elzoo/ai_embedding/openai/usage.ex",
+    "test/elzoo/ai_embedding_openai_test.exs",
+    "test/fixtures/openai/embeddings.schema.json",
+    "test/support/ai_embedding_openai_test_helper.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "type",
+      "file": "test/fixtures/openai/embeddings.schema.json",
+      "claim": "Every captured stub request is validated with jsv against CreateEmbeddingRequest, and every documented-format stub response against CreateEmbeddingResponse or ErrorResponse, from an extract of the official OpenAI OpenAPI document (repository openai/openai-openapi, commit 59f5565459caae84f43c49a738248cf2b268a70f, file openapi.json SHA-256 287f2cbf81b668735c56853b5e2ec40048c8912bead00ac8118190fae9716392, fetched 2026-11-09, MIT notice carried in the file), plus method, path, the injected bearer key and float encoding. Not evidence of live behaviour."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/ai_embedding_openai_test.exs",
+      "claim": "Listed scenarios against in-process function-plug stubs in OpenAI's documented formats: the interface conformance kit at a requested and the native dimension; usage reported, omitted, disagreeing and malformed with cache and output :unknown; dimensions and user on the wire; input type, invalid options and undeclared models refused before any request; the model table against llm_db metadata; documented error statuses, a 529 and a redirect with one request each (529 overloaded, retryable and not redispatched); transport timeout with one request, and max_retries 0 alone keeping one request; malformed 2xx; redaction in results, inspect, owner state, debug logs and req_llm telemetry; ambient keys never used across a req_llm restart with a .env file; source audit of this Piece's own manifest-listed files; the README's Install configuration section carries the exact config line. Finite scenarios, no live call, not proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "req_llm",
+      "reference": "https://hexdocs.pm/req_llm/1.30.0/readme.html",
+      "claim": "req_llm 1.30.0 (Hex checksum 1c4b19608aa982de5ea396cc6de3d3738e72480182ba11c184e028a4af305edb) OpenAI embedding request encoding, model resolution, bearer authentication, the documented provider-callback API prepare_request/4 plus Req.request/1 and ReqLLM.Step.Retry reading the request's max_retries; observations of the pinned version (probe transcripts in the task work record), not guarantees."
+    },
+    {
+      "kind": "upstream",
+      "provider": "llm_db",
+      "reference": "https://hexdocs.pm/llm_db/2026.11.0/",
+      "claim": "llm_db 2026.11.0 model metadata used by req_llm for model resolution; its embedding dimensions agree with the declared model table in the listed test."
+    },
+    {
+      "kind": "upstream",
+      "provider": "req",
+      "reference": "https://hexdocs.pm/req/0.7.5/Req.Request.html",
+      "claim": "Req 0.7.5 response and error steps, Req.Request.halt/2 and the :plug test transport."
+    },
+    {
+      "kind": "assumption",
+      "claim": "OpenAI's live API behaves as its documentation describes, including the native dimensions and unit-length embeddings of the declared models (the interface verifies the norm rather than assuming it); a 429, 503 or 529 meaning no work was done is named only and authorizes nothing; each declared model identifier names one model whose vectors stay comparable; the host keeps the key Need truthful."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "planned",
+      "contract": "No Elzoo event. req_llm may emit its request start event (payload capture off by default) to consumer-installed handlers; response-side events are not emitted because every response is halted. Own events through runtime/telemetry: future task."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Construction-time provider term (optional HTTPS base URL; a test plug), max_retries 0, receive timeout from the interface Config, key from the injected Need; no hot reconfiguration.",
+      "evidence": [
+        "test/elzoo/ai_embedding_openai_test.exs"
+      ]
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "Call-scoped; dispatch, rearm and expiry are the delivery/effect-intent owner's Control."
+    }
+  }
+}
