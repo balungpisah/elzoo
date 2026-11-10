@@ -14,7 +14,6 @@ defmodule Elzoo.ArtifactPostgresTest do
   alias Elzoo.Artifact.TestHelper, as: H
   alias Elzoo.Artifact.TestHelper, as: S3
   alias Elzoo.Artifact.TestRepo
-  
 
   defp s3?, do: S3.s3?()
 
