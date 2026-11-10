@@ -18,6 +18,10 @@ A ready `piece.json` has schema_version 1 and these fields:
 - `dependencies`: other ready piece IDs; cycles or planned dependencies fail;
 - `providers`: direct entries in providers.json; dependencies add their own;
 - optional `applications`: OTP application names the consumer must enable;
+- optional `install_configuration`: a non-empty list of `{line, reason}` objects;
+  each line parses (never evaluated) to one literal-only `config :app, key: value`
+  call for the package of a declared provider; the exporter writes the selection's
+  de-duplicated lines into the install file and refuses disagreeing values;
 - `files`: every file under the bundle's lib/, cure/, test/ and examples/;
 - `grounding`: individual claims, each with `kind` and `claim`. Proof/type/test/
   monitor references name a bundled file; proof also names its equality-law
