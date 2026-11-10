@@ -277,6 +277,13 @@
       "version": "2.9.0",
       "reference": "https://hexdocs.pm/plug_cowboy/2.9.0/",
       "license": "Apache-2.0"
+    },
+    "pgvector": {
+      "source": "hex",
+      "package": "pgvector",
+      "version": "0.4.2",
+      "reference": "https://hexdocs.pm/pgvector/0.4.2/",
+      "license": "MIT"
     }
   }
 }

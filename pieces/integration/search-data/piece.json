@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "id": "integration/search-data",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "adapter",
+  "providers": [
+    "pgvector",
+    "ecto_sql",
+    "postgrex",
+    "telemetry",
+    "elixir",
+    "otp"
+  ],
+  "dependencies": [
+    "workflow/context-selection",
+    "integration/ai-embedding",
+    "integration/text-chunking"
+  ],
+  "applications": [
+    "crypto"
+  ],
+  "contract": "Consumer-Repo PostgreSQL/pgvector exact cosine chunk store: immutable per-index descriptor, atomic serialized source replacement, tenant and allowed-source SQL filtering before bounded distance ranking, non-null provenance and caller-snapshot retrieval candidates for current context-selection recheck; no provider calls or permission decision.",
+  "limits": [
+    "Finite PostgreSQL16/vector scenarios, not proofs; storage/transaction and cosine behavior remain upstream.",
+    "Consumer owns Repo/types, installed extension and usable extension-owned type/operator search path, trusted schemas, deployment, credentials and permission snapshots.",
+    "No ANN, ranking quality, source authentication, retention/deletion policy, monotonic-version policy, embedding calls or exactly-once guarantee.",
+    "Source1..65536 chunks,1MiB each/8MiB total; queryk1..256 and8MiB whole-result bound.",
+    "Source-global chunk indices are distinct from batch-local embedding indices; caller owns the association.",
+    "Explicit same-process caller transaction refused; raw-BEGIN and Sandbox limits remain as documented.",
+    "Extension namespace-unavailability is integration-tested; literal absent pg_extension catalog entry is not."
+  ],
+  "files": [
+    "lib/elzoo/search_data.ex",
+    "lib/elzoo/search_data/migration.ex",
+    "test/elzoo/search_data_test.exs",
+    "test/support/search_data_test_helper.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/search_data_test.exs",
+      "claim": "S1-S11 finite real PostgreSQL/vector scenarios: real chunker output joined with fixture batch-local embedding records and stored provenance, tenant/permitted-source SQL filtering before ranking, access revocation through context-selection, immutable declaration/descriptor/norm checks, bounds and whole-result refusal, stable ties and identity, real statement timeout and caller transaction refusal, paused replacement with concurrent readers and serialized writers, installed extension unavailable through a restricted Repo search path without shared extension changes; copied-consumer execution. S11 observes actual Repo/Postgrex result content at overflow, exact 8 MiB and one-byte-below boundaries; no universal BEAM heap bound is claimed."
+    },
+    {
+      "kind": "upstream",
+      "provider": "pgvector",
+      "reference": "https://github.com/pgvector/pgvector-elixir/tree/v0.4.2",
+      "claim": "Pgvector0.4.2 float32 encoding, Postgrex extensions and Ecto vector type; server cosine distance is upstream behavior, not locally proved."
+    },
+    {
+      "kind": "upstream",
+      "provider": "ecto_sql",
+      "reference": "https://hexdocs.pm/ecto_sql/3.14.0/Ecto.Adapters.SQL.html",
+      "claim": "Consumer Repo transactions, query connection ownership and query telemetry are upstream contracts."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The consumer supplies authentic frozen-source and embedding association/provenance, trusted database schemas/search path, truthful permission snapshots, and rechecks current access before model injection."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "inherited",
+      "from": "ecto_sql",
+      "contract": "Consumer Repo query telemetry can contain SQL parameters; consumer owns handlers/privacy. Elzoo adds no events."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Fixed Repo/prefix/index descriptor and1..60000ms statement timeout(default5000); per-call queryk1..256, permitted sources<=256 and1..8MiB content bound may narrow. No hot update.",
+      "evidence": [
+        "test/elzoo/search_data_test.exs"
+      ]
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No process or lifecycle; consumer owns Repo and schema deployment."
+    }
+  }
+}

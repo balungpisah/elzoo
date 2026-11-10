@@ -583,11 +583,12 @@
     },
     {
       "id": "integration/search-data",
-      "summary": "Search, dataframe/columnar/analytics, OCR/media/speech",
-      "disposition": "defer",
+      "summary": "Permission-scoped exact pgvector chunk retrieval behind a consumer Repo",
+      "disposition": "adapt",
       "phase": "P4",
-      "status": "deferred",
-      "reason": "Product adapters; no generic data engine in core"
+      "status": "ready",
+      "coverage": "subset",
+      "manifest": "pieces/integration/search-data/piece.json"
     },
     {
       "id": "integration/secrets",

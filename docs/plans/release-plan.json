@@ -2390,16 +2390,14 @@
       "kind": "proposal",
       "release": "V1",
       "stage": "pieces",
-      "outputs": [
-        "integration/search-data"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "ELZ-030",
         "RC-13",
         "RC-05"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "superseded: output moved to published ELZ-082",
       "contract": "One retrieval provider returns versioned source references, access evidence and bounded bytes. V1 scope is document retrieval; dataframe, OCR and speech remain separate future candidates.",
       "acceptance": "Revoked access between retrieval and selection, stale source, oversized input, missing provenance and provider timeout. Retrieval quality is not proof of truth.",
       "reuse": "Select one maintained search/document client; avoid a generic data engine.",
@@ -2407,14 +2405,20 @@
         "pieces/integration/search-data/"
       ],
       "blockers": [
-        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
-        "Choose retrieval API and current access/provenance evidence; no general data engine."
+        "Superseded by published ELZ-082; this historical proposal is not an implementation queue item."
       ],
       "owner_role": "one claimed task worker after admission",
       "product_aims": [
         "P06",
         "P07"
-      ]
+      ],
+      "contributions": [
+        {
+          "id": "integration/search-data",
+          "role": "Historical retrieval admission brief; primary implementation moved to ELZ-082."
+        }
+      ],
+      "superseded_by": "ELZ-082"
     },
     {
       "id": "RC-19",
@@ -3288,6 +3292,35 @@
         "P01"
       ],
       "product_role": "Test-only repair restoring boolean observations for the accepted state/lease lock-wait probe; no new capability or runtime behavior."
+    },
+    {
+      "id": "ELZ-082",
+      "title": "ELZ-082 — Specify the permission-scoped pgvector chunk store behind a consumer Repo",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-030",
+        "ELZ-080",
+        "ELZ-081"
+      ],
+      "status": "published; claimed task/ELZ-082; implementation prepared",
+      "url": "https://github.com/balungpisah/elzoo/issues/160",
+      "paths": [
+        "tasks/ELZ-082-search-data-pgvector.md"
+      ],
+      "outputs": [
+        "integration/search-data"
+      ],
+      "acceptance": "Unchanged live issue body; local task file is the byte-equal publication copy. Real restricted-Repo namespace capability scenario is the approved extension-unavailable evidence; catalog absence is not integration-tested.",
+      "issue": 160,
+      "issue_body_sha256": "d8cb5470b35d1007b6482d24a1b4d2abeb9bed66c2a86882afd6a0ef856c7b6b",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P06",
+        "P07"
+      ]
     }
   ],
   "entries": [
@@ -3979,11 +4012,12 @@
     },
     {
       "id": "integration/search-data",
-      "job": "RC-18",
-      "note": "Product adapters; no generic data engine in core",
+      "job": "ELZ-082",
+      "note": "Consumer-Repo PostgreSQL/pgvector exact cosine chunk store: immutable per-index descriptor, atomic serialized source replacement, tenant and allowed-source SQL filtering before bounded distance ranking, non-null provenance and caller-snapshot retrieval candidates for current context-selection recheck; no provider calls or permission decision.",
       "baseline_status": "deferred",
-      "disposition": "blocked-admission-proposal",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "admitted-subset",
+      "manifest": "pieces/integration/search-data/piece.json",
+      "manifest_sha256": "85565e83a70bee1e4e781d38de8e14e20e51f121e62c891ce8cb132b2ac5ce2d"
     },
     {
       "id": "integration/secrets",
