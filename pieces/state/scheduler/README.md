@@ -24,32 +24,59 @@ the losing call changes nothing it had not already committed).
   `delivery/trigger` declares (n ≤ `max_unsettled_per_schedule`).
 - `dispatch` is `{queue, max_attempts, backoff_map}`; the occurrence id
   (`generation:instant:schedule_id`, encoded by trigger) is the `job_key`,
-  so a re-enqueue after a crash resolves to the existing job.
+  so a re-enqueue after a crash resolves to the existing job. The backoff
+  map is overlaid onto worker args, so the reserved keys `v`, `queue` and
+  `job_key` refuse `:invalid_schedule` at definition — occurrence identity
+  is untouchable.
 - Occurrence identity keys on the UTC instant: an ambiguous local slot
   (fall-back) admits its first UTC match and records the second
   `skipped{ambiguous}`; a gap slot (spring-forward) produces no match.
+  Slot evaluation is ordered by UTC instant, so a bounded tick's
+  `max_slots_per_tick` truncation and its `backlog` count never skip a due
+  instant that wall-clock order would have hidden.
 
-`tick/2` evaluates each active indexed schedule: restore trigger from the
-durable `last_recorded_unix_ms` watermark + unsettled ids, boundary =
-`last_tick_ok_at_unix_ms` when `now - last_tick_ok_at <=
-max_availability_gap_ms` else `now` (a clock regression beyond that refuses
-`:watermark_invalid`), evaluate at most `max_slots_per_tick` oldest due
-slots (rest are `backlog`), admit through `ScheduleOccurrence.admit_slots/3`,
-and atomically commit slot decisions + watermark + trigger state +
-`last_tick_ok_at = now`. It then reconciles settlement from Oban job state
+`crontab` 1.2.1 is the pinned cron evaluator. Oban's internal
+`Oban.Cron.Expression` was evaluated and rejected: it is `@moduledoc false`
+(not public API) and carries no ambiguity/gap semantics for the DST
+contract. `tz` 0.28.4 (Apache-2.0) is the pinned
+`Calendar.TimeZoneDatabase` provider for non-UTC zones.
+
+`tick/2` evaluates each active indexed schedule: first it reconciles
+settlement of already-dispatched occurrences from Oban job state
 (`:completed → acknowledged`, `:discarded`/`:cancelled → released`,
 in-flight stays unsettled, unreadable is `:settlement_unknown`, never
-guessed) and enqueues admitted occurrences (`{:retry, :unique_lock_held}`
-records `pending`, errors record `dispatch_error`, both retried next tick).
+guessed) through fenced chunked appends, reloads, then restores trigger
+from the durable `last_recorded_unix_ms` watermark + post-settlement
+unsettled ids, boundary = the persisted last evaluated watermark
+(`last_boundary`, or `last_tick_ok_at` for records predating it) when
+`now - last_tick_ok_at <= max_availability_gap_ms` else `now` (a clock
+regression beyond that refuses `:watermark_invalid`; bounded truncation
+never reclassifies known-available backlog as offline catch-up), evaluate
+at most `max_slots_per_tick` earliest due slots in UTC-instant order (rest
+are `backlog`, capped at 1_000), admit through
+`ScheduleOccurrence.admit_slots/3`, and atomically commit slot decisions +
+watermark (the last evaluated instant only) + trigger state +
+`last_tick_ok_at = now` + boundary + a bounded unsettled count. It then
+enqueues admitted occurrences (`{:retry, :unique_lock_held}` records
+`pending`, errors record `dispatch_error`, both retried next tick) and
+persists the dispatch outcome through a fenced append. Every fenced effect
+append re-validates the occurrence under CAS — terminal states
+(`settled`, `expired`, `replaced`, `redefined`) are sticky, so a stale
+dispatch or slot record can never resurrect an occurrence.
 
-`reap/2` runs the same reconcile plus expiry: unsettled occurrences older
-than `occurrence_ttl_ms` are recorded `occurrence_expired` (the released
+`reap/2` runs the same settlement reconcile for every unsettled occurrence
+before the TTL split — a terminal Oban state wins over expiry, so a job
+that completed before its first post-TTL reap settles `acknowledged`,
+never `expired` — then expiry: unsettled occurrences older than
+`occurrence_ttl_ms` are recorded `occurrence_expired` (the released
 settlement that frees the overlap slot) and their live Oban job is
 cancelled.
 
 `pause/2`, `resume/2`, `delete/2` are durable control transitions (delete
-releases unsettled occurrences, cancels their jobs and retires the index);
-`get/2`, `list/2`, `status/2` report the durable projection.
+releases unsettled occurrences through chunked fenced appends — it always
+fits `max_batch_size` per chunk — cancels their jobs by `(queue, job_key)`
+and retires the index); `get/2`, `list/2`, `status/2` report the durable
+projection.
 
 Both `tick/2` and `reap/2` are pure entry points — no loop, no supervisor,
 no scheduler engine. The consumer wires its own timer (`delivery/time`) and
@@ -66,10 +93,11 @@ consumer fold and keep version `1` in `fold.versions`.
 ## Failure taxonomy
 
 `:not_found`, `:invalid_schedule`, `:invalid_spec`, `:generation_conflict`,
-`:contended`, `:watermark_invalid`, `:store_unavailable`,
-`:settlement_unknown`, `:dispatch_error`, `:jobs_unavailable` (via
-`settlement_unknown`/`dispatch_error` decisions), `:caller_transaction`
-(passed through the Store).
+`:contended`, `:watermark_invalid`, `:invalid_slots` (trigger refused the
+evaluated batch), `:paused` and `:retired` (per-schedule tick/reap refusals),
+`:store_unavailable`, `:settlement_unknown`, `:dispatch_error`,
+`:jobs_unavailable` (via `settlement_unknown`/`dispatch_error` decisions),
+`:caller_transaction` (passed through the Store).
 
 ## Limits
 
@@ -81,6 +109,6 @@ to 1_000. See `piece.json` for the full list.
 
 ## Evidence
 
-`test/elzoo/scheduler_test.exs` (S0–S13, Memory double + manual clock) and
-`test/elzoo/scheduler_postgres_test.exs` (P1–P4, disposable PostgreSQL
+`test/elzoo/scheduler_test.exs` (S0–S24, Memory double + manual clock) and
+`test/elzoo/scheduler_postgres_test.exs` (P1–P6, disposable PostgreSQL
 schema + real Oban) — see `piece.json` for the claims each scenario grounds.

@@ -85,7 +85,10 @@ defmodule Elzoo.MixProject do
       # ELZ-082 vector encoding and consumer Postgrex/Ecto types (MIT).
       {:pgvector, "== 0.4.2"},
       # ELZ-097 state/scheduler providers: the public five-field cron evaluator
-      # (MIT) and the IANA timezone database Need for non-UTC schedules (MIT).
+      # (MIT) and the IANA timezone database Need for non-UTC schedules
+      # (Apache-2.0). Oban's internal Oban.Cron.Expression was evaluated and
+      # rejected: it is @moduledoc false (not public API) and carries no
+      # ambiguity semantics for the DST contract.
       {:crontab, "== 1.2.1"},
       {:tz, "== 0.28.4"}
     ]
