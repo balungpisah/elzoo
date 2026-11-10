@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "id": "delivery/aggregation",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": [
+    "cure",
+    "elixir"
+  ],
+  "dependencies": [
+    "core/envelope",
+    "delivery/time"
+  ],
+  "contract": "Bounded correlated join over a declared set of branch identities. accept/2 validates each core/envelope DeliveryResult, attributes it through a configured {:field, path} branch_key (correlation_id, attempt_id or a declared value field — never arrival position), and records first-wins branch outcomes: completed→fulfilled, rejected/failed→failed, timed_out→timed_out, unknown→unavailable. mark_lost/3 records first-class :timed_out/:killed/:unavailable losses, not synthetic results. decision/2 is a pure {join, outcome} transition over pending/all/partial/failed/expired; expiry converts pending branches to :missing and late branches to :timed_out and closes. Post-deadline and post-close input is recorded late, never merged; on-time duplicates are counted and differing outcome/value digests mark the branch conflicted. State is a plain map bounded by declared count and per-branch encoded identity/result size, retained redacted (SHA-256 value_digest, never payloads) for caller persistence. Elzoo.Aggregation.Runner fans out declared {branch_id, fun} pairs at most once per runner call under an injected Task.Supervisor, after validating capacity for every synthetic failure shape: exceptions and invalid returns become sanitized synthetic failed results, mismatched result identities fail only the originating branch, undispatchable starts become rejected/not_dispatched, join-refused results become :unavailable losses, and the rearmed deadline marks survivors :timed_out; normal stop/supervised shutdown clean tracked tasks without reversing Effects. Durable fan-out, sagas, scheduling, retries and Reactor are out of scope.",
+  "limits": [
+    "Volatile only: no durable join state, cross-call branch deduplication, cross-branch ordering, workflow timers, saga semantics, branch retry policy, provider adoption, Reactor, ordered/streaming join, payload aggregation or cross-join queries.",
+    "A timeout or loss records that branch evidence is unreadable or the branch was killed; it never proves an external branch did not run.",
+    ":missing means no evidence ever arrived for the branch; it is distinct from a recorded :unavailable loss or a zero/empty outcome.",
+    "Runner branch keys must be correlation_id/attempt_id-rooted so synthetic failure results carry identity; value-rooted joins are refused by the runner.",
+    "Declared identities and incoming results must each fit max_result_bytes when encoded as ETF (inclusive); retained data is bounded by declared count times this per-branch cap with fixed record overhead. Caller-held funs/clock closures are external capabilities, not portable state: persist data without now and rebind a fresh consumer-owned clock on restoration.",
+    "Telemetry is planned: only bounded decision/outcome events without payloads could be added later; snapshot/1 is inspection, not monitoring.",
+    "Runner failure capacity is validated before any dispatch for every run identity and both failure shapes; a pure join with a small cap can be valid while runner construction refuses :invalid_options.",
+    "Normal-stop/supervised-shutdown task cleanup uses a termination callback; an untrappable kill of the runner or VM loss cannot run it. External Effects are not reversed.",
+    "An early deadline clock reading rearms the remaining interval; an invalid or raising clock retries after 50 ms. Expiry requires a usable clock. Terminal timeout losses yield failed/partial on decision; expired applies when a direct decision still finds unsettled branches.",
+    "Invocation is at most once per runner call, with no retries. Starting another runner may invoke functions again, including with a closed or restored join; admission across calls belongs to the consumer."
+  ],
+  "files": [
+    "examples/elzoo/aggregation.exs",
+    "lib/elzoo/aggregation.ex",
+    "lib/elzoo/aggregation/runner.ex",
+    "test/elzoo/aggregation_runner_test.exs",
+    "test/elzoo/aggregation_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "type",
+      "file": "lib/elzoo/aggregation.ex",
+      "claim": "Every accepted result passes Elzoo.Envelope.validate_result/1 — the pinned Cure DeliveryResult schema — before identity extraction or merge; malformed input is :invalid_result without mutation. Construction validates branch_key shape, bounds and deadline."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/aggregation_test.exs",
+      "claim": "Named scenarios: declaration/config refusal, all outcome mappings, three identity carriers, refusal without mutation, oversize bound, late/expired/closed transitions, duplicate/conflict/loss records, arrival-order independence, plain-map round-trip with fresh-clock rebinding after the original clock owner is gone, declaration identity byte-bound refusal and boundary acceptance, payload non-retention, corrupt-state and no-env-read audits. Finite evidence, not proofs."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/aggregation_runner_test.exs",
+      "claim": "Named scenarios over real Task.Supervisor tasks: success join, exception/throw/exit→failed with actual logs/output/inspection captured, kill/killed/shutdown exits retain the killed loss mapping, invalid return→failed, task/result identity mismatches for correlation_id and attempt_id, explicit failed result, deadline kill→timed_out including trap-exit tasks, early/invalid-clock rearming, one observed invocation/no retries per runner call, failure-capacity refusal before dispatch and inclusive capacity-bound acceptance with long ids, supervisor capacity refusal→rejected/not_dispatched, normal-stop/supervised-shutdown cleanup under a live supervisor, declaration and value-key refusals. Finite evidence, not proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "cure",
+      "reference": "https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89",
+      "claim": "Relies on pinned Cure compiler/kernel through the core/envelope dependency for DeliveryResult schema validation; not a local proof."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Relies on pinned Elixir/OTP Task.Supervisor async_nolink/:brutal_kill, GenServer and :crypto SHA-256 semantics; OTP stop is not business cancellation."
+    },
+    {
+      "kind": "assumption",
+      "claim": "Caller owns branch funs, the Task.Supervisor, serialization of the plain-map data, restoration/rebinding of a fresh clock Need and any instrumentation; new runner calls may invoke branches again. decision/2 is pure; accept/2 and mark_lost/3 read the supplied clock. No Cure proof is required or claimed by ELZ-098."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "planned",
+      "contract": "No telemetry events supplied; Runner.snapshot/1 is test-observed inspection, not monitoring. Any future events carry branch ids, statuses and counts only — never payloads."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Construction-time branch_key, deadline_unix_ms, max_result_bytes, max_branches and now validated by new/2 and fixed in join state; runner options, including sufficient synthetic failure capacity for every run identity, validated before any start_link dispatch; no ambient configuration or hot reconfiguration.",
+      "evidence": [
+        "test/elzoo/aggregation_test.exs",
+        "test/elzoo/aggregation_runner_test.exs"
+      ]
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No business pause, drain, recovery or durable receipts; OTP stop of the runner is not business cancellation."
+    }
+  }
+}

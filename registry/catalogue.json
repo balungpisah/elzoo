@@ -162,11 +162,11 @@
     },
     {
       "id": "delivery/aggregation",
-      "summary": "Aggregator, scatter-gather/API composition, completion/timeout",
+      "summary": "Bounded correlated join over declared branch delivery results: pending/all/partial/failed/expired decisions, declared-identity correlation, first-class loss records and a volatile Task.Supervisor runner",
       "disposition": "own",
       "phase": "P1\u2192P2",
-      "status": "planned",
-      "reason": "`T,X`; stateful and needs correlation/retention policy ELZ-025 study: one result per declared branch identity, killed or timed-out branches recorded per the Envelope result matrix, correlation by Envelope key never arrival position, and no-denials distinct from denial-record-unreadable."
+      "status": "ready",
+      "manifest": "pieces/delivery/aggregation/piece.json"
     },
     {
       "id": "delivery/backpressure",
