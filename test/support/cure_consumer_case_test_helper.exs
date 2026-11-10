@@ -64,11 +64,19 @@ defmodule Elzoo.CureConsumerCase do
     end
   end
 
-  setup do
+  def create_destination! do
     destination =
-      Path.join(System.tmp_dir!(), "elzoo-consumer-#{System.unique_integer([:positive])}")
+      Path.join(
+        System.tmp_dir!(),
+        "elzoo-consumer-" <> Base.encode16(:crypto.strong_rand_bytes(16))
+      )
 
-    File.mkdir_p!(destination)
+    File.mkdir!(destination)
+    destination
+  end
+
+  setup do
+    destination = create_destination!()
     File.write!(Path.join(destination, "mix.exs"), project([], false))
     on_exit(fn -> File.rm_rf!(destination) end)
     {:ok, destination: destination, registry: Elzoo.Registry.load!(@root)}
