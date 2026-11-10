@@ -3924,7 +3924,7 @@
       "baseline_status": "deferred",
       "disposition": "admitted-subset",
       "manifest": "pieces/integration/search-data/piece.json",
-      "manifest_sha256": "f889832a426c78895a90751b65072cf8dff951689d1bafc44113be527239f983"
+      "manifest_sha256": "85565e83a70bee1e4e781d38de8e14e20e51f121e62c891ce8cb132b2ac5ce2d"
     },
     {
       "id": "integration/secrets",

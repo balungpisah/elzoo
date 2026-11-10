@@ -107,9 +107,12 @@ The tenant and permitted-source list apply in the SQL WHERE before ordering and
 limit. Results order by cosine distance, source reference in C collation, version,
 then chunk index. An empty permitted-source list returns no rows. Exact top-k is
 relative to stored rows and pgvector's distance operator; relevance is not truth
-or ranking quality. A whole selected list over the content-byte bound returns
-`{:error,:invalid_request}` with no rows, rather than changing ranking or returning
-a smaller partial list. Other read errors are unavailable, incompatible_embedding
+or ranking quality. One SQL statement materializes the ordered top-k identities and content sizes,
+then admits content retrieval only when their entire total fits. An oversized
+list returns an overflow marker without chunk content through the Repo; the
+public reply is `{:error,:invalid_request}` with no rows. Ranking is not changed
+and no smaller partial list is returned. This bounds selected content delivered
+to the client, not all PostgreSQL work, protocol overhead or total BEAM heap. Other read errors are unavailable, incompatible_embedding
 and extension_missing. Raw SQL/exception/parameter values are never returned.
 
 Each candidate carries `item_id,version,source,content,content_hash,derived_from: [],

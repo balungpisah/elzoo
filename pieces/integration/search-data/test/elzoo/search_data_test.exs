@@ -13,7 +13,12 @@ defmodule Elzoo.SearchDataTest do
         raise "ELZOO_TEST_DATABASE_URL is required; tests fail closed"
 
     start_supervised!(
-      {TestRepo, url: url, types: Elzoo.SearchData.TestTypes, pool_size: 6, log: false}
+      {TestRepo,
+       url: url,
+       types: Elzoo.SearchData.TestTypes,
+       pool_size: 6,
+       log: false,
+       telemetry_prefix: [:elzoo, :search_data_test]}
     )
 
     assert %{rows: [[true]]} =
@@ -135,7 +140,8 @@ defmodule Elzoo.SearchDataTest do
                chunk_overlap: 0
              )
 
-    # Two provider batches both have item index0 while source chunk identity advances.
+    # Fixture records model one-item batches with index0 while source identity advances.
+    # No embedding interface or provider call is performed by this storage test.
     chunks = Enum.map(result.chunks, &Map.put(&1, :embedding, embedding()))
     count = length(chunks)
     assert count > 1
@@ -508,5 +514,70 @@ defmodule Elzoo.SearchDataTest do
              Store.put_source(b, "tenant", {"source", 0, <<0::256>>}, [chunk()])
 
     assert {:error, :invalid_request} = Migration.install(%{b | declaration: %{}})
+  end
+
+  test "S11 oversized top-k returns no content over the actual Repo boundary", %{binding: b} do
+    content = String.duplicate("x", 1_048_576)
+    sources = for i <- 1..9, do: "large-#{i}"
+    for ref <- sources, do: assert({:committed, 1} = put(b, ref, content))
+    parent = self()
+    handler = {__MODULE__, make_ref()}
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        [:elzoo, :search_data_test, :query],
+        fn _, _, meta, _ ->
+          if String.starts_with?(String.trim(meta.query), "WITH ranked AS MATERIALIZED") do
+            send(parent, {:actual_query_result, meta.result})
+          end
+        end,
+        nil
+      )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    assert {:error, :invalid_request} =
+             Store.query(b, request(%{allowed_sources: sources, k: 9, max_content_bytes: 1}))
+
+    assert_receive {:actual_query_result, {:ok, %{rows: rows}}}
+    assert transferred_content_bytes(rows) == 0
+    assert rows == [[nil, nil, nil, nil, nil, nil, nil, nil, nil, true]]
+
+    assert {:ok, selected} =
+             Store.query(
+               b,
+               request(%{
+                 allowed_sources: Enum.take(sources, 8),
+                 k: 8,
+                 max_content_bytes: 8_388_608
+               })
+             )
+
+    assert length(selected) == 8
+    assert_receive {:actual_query_result, {:ok, %{rows: fits}}}
+    assert transferred_content_bytes(fits) == 8_388_608
+
+    assert {:error, :invalid_request} =
+             Store.query(
+               b,
+               request(%{
+                 allowed_sources: Enum.take(sources, 8),
+                 k: 8,
+                 max_content_bytes: 8_388_607
+               })
+             )
+
+    assert_receive {:actual_query_result, {:ok, %{rows: over}}}
+    assert transferred_content_bytes(over) == 0
+  end
+
+  defp transferred_content_bytes(rows) do
+    Enum.reduce(rows, 0, fn row, bytes ->
+      case Enum.at(row, 3) do
+        content when is_binary(content) -> bytes + byte_size(content)
+        nil -> bytes
+      end
+    end)
   end
 end

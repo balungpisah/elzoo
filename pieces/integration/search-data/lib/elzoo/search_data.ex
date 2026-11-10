@@ -92,26 +92,47 @@ defmodule Elzoo.SearchData do
             sql!(
               binding,
               """
-              SELECT source_ref,version,chunk_index,content,content_digest,source_digest,start_byte,end_byte,
-                     embedding <=> $1::vector AS distance
-              FROM #{table(binding)}
-              WHERE tenant=$2 AND source_ref=ANY($3::text[])
-              ORDER BY distance,source_ref COLLATE "C",version,chunk_index LIMIT $4
+              WITH ranked AS MATERIALIZED (
+                SELECT source_ref,version,chunk_index,octet_length(content)::bigint AS bytes,
+                       embedding <=> $1::vector AS distance
+                FROM #{table(binding)}
+                WHERE tenant=$2 AND source_ref=ANY($3::text[])
+                ORDER BY distance,source_ref COLLATE "C",version,chunk_index LIMIT $4
+              ), sized AS MATERIALIZED (
+                SELECT COALESCE(sum(bytes),0)::bigint AS total_bytes FROM ranked
+              ), admitted AS MATERIALIZED (
+                SELECT ranked.* FROM ranked CROSS JOIN sized
+                WHERE sized.total_bytes <= $5::bigint
+              )
+              SELECT * FROM (
+                SELECT c.source_ref,c.version,c.chunk_index,c.content,c.content_digest,
+                       c.source_digest,c.start_byte,c.end_byte,r.distance,false AS overflow
+                FROM admitted r JOIN #{table(binding)} c
+                  ON c.tenant=$2 AND c.source_ref=r.source_ref AND c.version=r.version
+                     AND c.chunk_index=r.chunk_index
+                UNION ALL
+                SELECT NULL::text,NULL::bigint,NULL::integer,NULL::bytea,NULL::bytea,
+                       NULL::bytea,NULL::bigint,NULL::bigint,NULL::double precision,true
+                FROM sized WHERE total_bytes > $5::bigint
+              ) result
+              ORDER BY distance,source_ref COLLATE "C",version,chunk_index
               """,
               [
                 Pgvector.new(request.query_embedding.vector),
                 request.tenant,
                 request.allowed_sources,
-                request.k
+                request.k,
+                request.max_content_bytes
               ]
             )
 
-          if Enum.reduce(result.rows, 0, fn row, n -> n + byte_size(Enum.at(row, 3)) end) >
-               request.max_content_bytes do
-            binding.repo.rollback({:refused, :invalid_request})
-          end
+          case result.rows do
+            [[nil, nil, nil, nil, nil, nil, nil, nil, nil, true]] ->
+              binding.repo.rollback({:refused, :invalid_request})
 
-          {:ok, Enum.map(result.rows, &candidate(&1, request))}
+            rows ->
+              {:ok, Enum.map(rows, &candidate(&1, request))}
+          end
         end
       end)
     else
@@ -121,7 +142,10 @@ defmodule Elzoo.SearchData do
     _ -> {:error, :invalid_request}
   end
 
-  defp candidate([source, version, index, content, digest, source_digest, first, last, distance], r) do
+  defp candidate(
+         [source, version, index, content, digest, source_digest, first, last, distance, false],
+         r
+       ) do
     %{
       item_id:
         :crypto.hash(:sha256, encode([source, version, index])) |> Base.encode16(case: :lower),

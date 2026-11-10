@@ -9,6 +9,7 @@
     "pgvector",
     "ecto_sql",
     "postgrex",
+    "telemetry",
     "elixir",
     "otp"
   ],
@@ -40,7 +41,7 @@
     {
       "kind": "test",
       "file": "test/elzoo/search_data_test.exs",
-      "claim": "S1-S10 finite real PostgreSQL/vector scenarios: chunk/provider-batch join and stored provenance, tenant/permitted-source SQL filtering before ranking, access revocation through context-selection, immutable declaration/descriptor/norm checks, bounds and whole-result refusal, stable ties and identity, real statement timeout and caller transaction refusal, paused replacement with concurrent readers and serialized writers, installed extension unavailable through a restricted Repo search path without shared extension changes; copied-consumer execution."
+      "claim": "S1-S11 finite real PostgreSQL/vector scenarios: real chunker output joined with fixture batch-local embedding records and stored provenance, tenant/permitted-source SQL filtering before ranking, access revocation through context-selection, immutable declaration/descriptor/norm checks, bounds and whole-result refusal, stable ties and identity, real statement timeout and caller transaction refusal, paused replacement with concurrent readers and serialized writers, installed extension unavailable through a restricted Repo search path without shared extension changes; copied-consumer execution. S11 observes actual Repo/Postgrex result content at overflow, exact 8 MiB and one-byte-below boundaries; no universal BEAM heap bound is claimed."
     },
     {
       "kind": "upstream",
