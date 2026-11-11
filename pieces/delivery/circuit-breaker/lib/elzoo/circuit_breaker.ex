@@ -158,6 +158,27 @@ defmodule Elzoo.CircuitBreaker do
   defp authenticate(_, _, _), do: {:error, :invalid_permit}
 
   defp finish_checked(state, ref, observation) do
+    entry = Map.fetch!(state.permits, ref)
+
+    if entry.epoch != state.epoch do
+      # Authentication has already succeeded. An invalidated retained probe
+      # has no current health to observe: retire it without clock/provider
+      # evaluation, preserving health and the exact existing cooldown target.
+      {:Keep, _} =
+        apply(@policy, :observe, [
+          @modes[state.mode],
+          false,
+          entry.probe,
+          @observations[observation]
+        ])
+
+      {:reply, {:ok, :applied}, retire(state, ref)}
+    else
+      finish_current(state, ref, observation)
+    end
+  end
+
+  defp finish_current(state, ref, observation) do
     case advance(state) do
       {:error, reason, next} ->
         {:reply, {:error, reason}, next}

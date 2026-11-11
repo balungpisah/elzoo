@@ -180,7 +180,16 @@ defmodule Elzoo.CircuitBreakerTest do
     snapshot = status(owner)
     assert Task.async(fn -> C.abandon(owner, probe2) end) |> Task.await() == {:error, :wrong_holder}
     assert status(owner) == snapshot
+    # An already-invalidated fence needs identity, not a fresh health clock.
+    before_retirement = :sys.get_state(owner)
+    Agent.update(agent, fn _ -> :raise end)
     assert C.abandon(owner, probe2) == {:ok, :applied}
+    after_retirement = :sys.get_state(owner)
+
+    for key <- [:mode, :epoch, :open_until, :last_now],
+        do: assert(Map.fetch!(after_retirement, key) == Map.fetch!(before_retirement, key))
+
+    Agent.update(agent, fn _ -> -60 end)
     assert C.abandon(owner, probe2) == {:error, :stale_permit}
     {:ok, new_probe} = C.admit(owner)
     send(owner, {:circuit_expiry, incarnation, ref})

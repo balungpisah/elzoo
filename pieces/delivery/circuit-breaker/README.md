@@ -129,7 +129,9 @@ A trip advances epoch, removes old ordinary permits and cancels their timers
 and monitors. Stale ordinary health never reaches fuse. An expired recovery
 probe retains its exclusive fence, monitor and ledger slot until its original
 holder finishes/abandons or is observed DOWN. Its stale health is discarded;
-authenticated retirement returns applied without changing health/cooldown.
+authenticated retirement returns applied without changing health/cooldown,
+even if a subsequent clock sample would fail (already-invalidated retirement
+needs no new clock or provider interaction).
 Wrong-holder/duplicate reports and old timer/DOWN messages cannot free a new
 probe. A hung holder can stall recovery indefinitely.
 
