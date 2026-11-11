@@ -88,6 +88,20 @@
       "reference": "https://hexdocs.pm/telemetry/1.4.2/telemetry.html",
       "license": "Apache-2.0"
     },
+    "prometheus": {
+      "source": "hex",
+      "package": "prometheus",
+      "version": "6.1.3",
+      "reference": "https://hexdocs.pm/prometheus/6.1.3/",
+      "license": "MIT"
+    },
+    "ddskerl": {
+      "source": "hex",
+      "package": "ddskerl",
+      "version": "0.4.3",
+      "reference": "https://hexdocs.pm/ddskerl/0.4.3/",
+      "license": "Apache-2.0"
+    },
     "swoosh": {
       "source": "hex",
       "package": "swoosh",
