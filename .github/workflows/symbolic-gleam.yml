@@ -35,14 +35,12 @@ jobs:
           test "$ID" = ubuntu
           test "$VERSION_ID" = 24.04
           echo "Hosted runner: $RUNNER_NAME"
-      - name: Install runtime libraries
-        working-directory: /
-        run: |
-          sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libncurses6 libsctp1 libssl3
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+      - name: Install runtime libraries
+        working-directory: /
+        run: sudo python3 "$GITHUB_WORKSPACE/scripts/ci-install-runtime.py"
       - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1
         with:
           otp-version: '29.1.2'
