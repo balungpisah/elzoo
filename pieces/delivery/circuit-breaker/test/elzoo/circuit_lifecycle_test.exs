@@ -58,7 +58,13 @@ defmodule Elzoo.CircuitLifecycleTest do
                     %{role: :notification, from: :half_open, to: :half_open, cause: :startup}}
 
     {:ok, p} = C.admit(owner)
+    :erlang.trace(owner, true, [:receive])
     assert C.finish(owner, p, %{secret: "payload-secret"}) == {:error, :invalid_observation}
+    assert C.finish(owner, %{payload: "payload-secret"}, :healthy) == {:error, :invalid_permit}
+
+    refute_receive {:trace, ^owner, :receive, {:"$gen_call", _, {:finish, _, _}}}, 20
+
+    :erlang.trace(owner, false, [:receive])
     refute_receive {@event, _, _}, 10
     assert C.finish(owner, p, :healthy) == {:ok, :applied}
     assert_receive {@event, m, meta}
@@ -116,6 +122,7 @@ defmodule Elzoo.CircuitLifecycleTest do
     :ok = :sys.suspend(owner)
     parent = self()
     operations = [:admit, :status, :finish, :abandon]
+    forged_shape = {C, make_ref(), 0, make_ref()}
 
     tasks =
       for operation <- operations do
@@ -124,8 +131,8 @@ defmodule Elzoo.CircuitLifecycleTest do
             case operation do
               :admit -> C.admit(owner)
               :status -> C.status(owner)
-              :finish -> C.finish(owner, :forged, :healthy)
-              :abandon -> C.abandon(owner, :forged)
+              :finish -> C.finish(owner, forged_shape, :healthy)
+              :abandon -> C.abandon(owner, forged_shape)
             end
 
           send(parent, {:timeout_result, self(), reply})

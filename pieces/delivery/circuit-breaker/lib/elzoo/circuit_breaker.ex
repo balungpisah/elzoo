@@ -25,8 +25,21 @@ defmodule Elzoo.CircuitBreaker do
     }
 
   def admit(owner), do: call(owner, :admit)
-  def finish(owner, permit, observation), do: call(owner, {:finish, permit, observation})
-  def abandon(owner, permit), do: call(owner, {:finish, permit, :unknown})
+
+  def finish(owner, permit, observation) do
+    cond do
+      not Map.has_key?(@observations, observation) -> {:error, :invalid_observation}
+      not permit_shape?(permit) -> {:error, :invalid_permit}
+      true -> call(owner, {:finish, permit, observation})
+    end
+  end
+
+  def abandon(owner, permit), do: finish(owner, permit, :unknown)
+
+  defp permit_shape?({__MODULE__, incarnation, epoch, ref}),
+    do: is_reference(incarnation) and is_integer(epoch) and is_reference(ref)
+
+  defp permit_shape?(_), do: false
   def status(owner), do: call(owner, :status)
 
   defp call(owner, request) when is_pid(owner) do

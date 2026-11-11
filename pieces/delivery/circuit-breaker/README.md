@@ -60,7 +60,9 @@ has no network or storage Need. Wrapped Adapters retain all their Needs.
 Validation/availability errors use `{:error, reason}`: `:invalid_options`,
 `:invalid_permit`, `:wrong_holder`, `:invalid_observation`, `:stale_permit`,
 `:clock_unavailable`, `:provider_unavailable`, `:owner_unavailable`.
-Malformed/foreign-incarnation permits are invalid; consumed/untracked refs
+The public helper rejects malformed token shapes and non-observation terms
+before sending them to the owner; internal raw BEAM calls remain trusted-host
+code outside this protection. Malformed/foreign-incarnation permits are invalid; consumed/untracked refs
 are stale. Only the original holder can report. An unrecognized observation
 is rejected unchanged and must be followed by literal `:unknown` or expiry.
 
