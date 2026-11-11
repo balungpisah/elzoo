@@ -503,6 +503,8 @@ REVIEWED = {
     ("test/support/cure_consumer_case_test_helper.exs", 'Path.wildcard(Path.join([@root, "_build", "test", "lib", "*", "ebin"]))'):
         "compiled beams below _build, not documentation",
     ("test/export_test.exs", 'assert File.ls!(ctx.destination) == ["mix.exs"]'): "lists the temporary export destination, not the root",
+    ("test/elz099_streaming_provider_test.exs", 'for entry <- File.ls!(source), entry not in ["_build", "ebin", ".git"] do'):
+        "lists the two installed provider source directories from Mix.Project.deps_paths(), not repository documentation",
 }
 # Reviewed lines that are real reads: the literal must not be in the allowlist.
 READS = {("lib/elzoo/export.ex", '{".elzoo/docs/consuming.md", "docs/consuming.md"}'): "docs/consuming.md"}
