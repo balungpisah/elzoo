@@ -3579,6 +3579,31 @@
       ]
     },
     {
+      "id": "ELZ-109",
+      "title": "ELZ-109 — Align disposable PostgreSQL setup with validation requirements",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-101",
+        "ELZ-108"
+      ],
+      "status": "published setup repair; claimed task/ELZ-109; final review and acceptance pending",
+      "url": "https://github.com/balungpisah/elzoo/issues/202",
+      "paths": [
+        "tasks/ELZ-109-postgresql-setup.md"
+      ],
+      "outputs": [],
+      "acceptance": "Byte-equal published task copy; guarded disposable PostgreSQL settings, actual setup idempotence and connection verification, independent review and full exact-head evidence; no Piece or runtime Contract change.",
+      "issue": 202,
+      "issue_body_sha256": "4ec98095fabc0e11d1396591d8152d8846d5696ff982d04272b5189b7c5416bc",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one setup-repair worker; coordinator owns independent review and merge queue",
+      "product_aims": [
+        "P06"
+      ]
+    },
+    {
       "id": "ELZ-110",
       "title": "ELZ-110 — Recover hosted runtime installation through the official Ubuntu archive",
       "kind": "published",
