@@ -35,7 +35,7 @@ defmodule Elzoo.Elz099StreamingProviderTest do
 
     File.mkdir_p!(destination)
     on_exit(fn -> File.rm_rf!(destination) end)
-    fixture = Path.expand("fixtures/elz099_provider_consumer", __DIR__)
+    fixture = Path.expand("examples/elz099_provider_consumer", __DIR__)
     File.cp_r!(fixture, destination)
 
     packages = [:fuse, :server_sent_events]
