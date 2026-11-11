@@ -3557,7 +3557,7 @@
       "release": "V1",
       "stage": "pieces",
       "dependencies": ["ELZ-033", "ELZ-011", "ELZ-079"],
-      "status": "published; claimed task/ELZ-105; implementation and acceptance pending",
+      "status": "implementation prepared locally; final-tree checks, review and coordinated acceptance pending",
       "url": "https://github.com/balungpisah/elzoo/issues/197",
       "paths": ["tasks/ELZ-105-scoped-credential-references.md"],
       "outputs": ["integration/secrets"],
@@ -4382,10 +4382,12 @@
     {
       "id": "integration/secrets",
       "job": "ELZ-105",
-      "note": "Published scoped credential reference Contract; implementation and acceptance pending.",
+      "note": "Opt-in synchronous release of a binary credential snapshot for an exact bounded reference and scope under host-vouched current authority: one injected atomic resolver lookup, then one post-lookup Unix-ms expiry sample; redacted Credential with explicit reveal; malformed, unavailable, denied, missing and expired fixed failures. No store, process, cache, refresh or retry.",
       "baseline_status": "deferred",
-      "disposition": "published-implementation-pending",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract on task branch; task acceptance separate",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/integration/secrets/piece.json",
+      "manifest_sha256": "5c4ec22114a338537cf26296b83dbedf90d226c7954fd9e87aa06b5e18ab342f"
     },
     {
       "id": "integration/sql",
