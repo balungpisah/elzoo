@@ -3593,7 +3593,7 @@
       "release": "V1",
       "stage": "pieces",
       "dependencies": ["ELZ-033", "ELZ-004", "ELZ-052", "ELZ-107"],
-      "status": "published; blocked until ELZ-107 is merged and accepted; implementation and acceptance pending",
+      "status": "implementation reviewed locally; local-only catalogue adoption; remote claim/publication blocked until ELZ-107 accepted; final checks and acceptance pending",
       "url": "https://github.com/balungpisah/elzoo/issues/199",
       "paths": ["tasks/ELZ-106-prometheus-exporter.md"],
       "outputs": ["integration/observability"],
@@ -3601,7 +3601,7 @@
       "issue": 199,
       "issue_body_sha256": "384fade7ab8b5a3dbeb7ebad19fa5b264b51a84a2d03273143206f38edf7d0b4",
       "observed_issue_state": "OPEN",
-      "owner_role": "one task worker after prerequisite acceptance; coordinator owns integration",
+      "owner_role": "one authorized local worker; remote task claim after prerequisite acceptance; coordinator owns integration",
       "product_aims": ["P01", "P05", "P07"]
     },
     {
@@ -4349,10 +4349,12 @@
     {
       "id": "integration/observability",
       "job": "ELZ-106",
-      "note": "Published Prometheus pull exporter Contract; implementation and acceptance pending ELZ-107 provider prerequisite.",
+      "note": "Opt-in v1 Prometheus text-format pull observation of six fixed Elzoo job/effect events and five fixed adapter/operation/family pairs: event counts and terminal duration microsecond sums, at most 15 count plus 10 duration series, only finite adapter/operation/phase labels; fixed registry, explicit initialization and singleton attach/detach, no exporter process or queue. Exclusive serialized host registry ownership and immutable absent/empty global labels are Needs. Missing/invalid duration does not suppress valid event count; provider failures lose updates and count/duration are not transactional. Catchable handler failures are contained without raw log/failure-event disclosure.",
       "baseline_status": "planned",
-      "disposition": "published-implementation-pending",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract on local stack; prerequisite and task acceptance separate",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/integration/observability/piece.json",
+      "manifest_sha256": "5cb0b029871532c2e84435cecff523b9b586e0b0f3d436e8b5369c1bce6a963e"
     },
     {
       "id": "integration/payments",
