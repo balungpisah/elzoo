@@ -6,3 +6,6 @@ config :logger, :console, format: "$time $metadata[$level] $message\n"
 # provider Piece takes its key only from an injected Need. Every consumer of a
 # req_llm-backed provider Piece needs the same line.
 config :req_llm, load_dotenv: false
+
+# ELZ-107: the admitted closed-schema exporter excludes application-wide labels.
+config :prometheus, global_labels: []
