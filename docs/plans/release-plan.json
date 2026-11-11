@@ -178,7 +178,7 @@
   "jobs": [
     {
       "id": "ELZ-001",
-      "title": "ELZ-001 \u2014 Pin and exercise the Mix/Cure harness",
+      "title": "ELZ-001 — Pin and exercise the Mix/Cure harness",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -211,7 +211,7 @@
     },
     {
       "id": "ELZ-002",
-      "title": "ELZ-002 \u2014 Define contracts and the typed composition boundary",
+      "title": "ELZ-002 — Define contracts and the typed composition boundary",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -255,7 +255,7 @@
     },
     {
       "id": "ELZ-003",
-      "title": "ELZ-003 \u2014 Bind envelopes, edges and the first wiring shape",
+      "title": "ELZ-003 — Bind envelopes, edges and the first wiring shape",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -295,7 +295,7 @@
     },
     {
       "id": "ELZ-004",
-      "title": "ELZ-004 \u2014 Build the P0 ingest/dedup/accumulate exemplar",
+      "title": "ELZ-004 — Build the P0 ingest/dedup/accumulate exemplar",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -340,7 +340,7 @@
     },
     {
       "id": "ELZ-005",
-      "title": "ELZ-005 \u2014 Add a bounded windowed idempotency policy",
+      "title": "ELZ-005 — Add a bounded windowed idempotency policy",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -378,7 +378,7 @@
     },
     {
       "id": "ELZ-006",
-      "title": "ELZ-006 \u2014 Specify backpressure, retry and dead-letter semantics",
+      "title": "ELZ-006 — Specify backpressure, retry and dead-letter semantics",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -419,7 +419,7 @@
     },
     {
       "id": "ELZ-007",
-      "title": "ELZ-007 \u2014 Reuse ordinary stream pieces and select compatible candidates",
+      "title": "ELZ-007 — Reuse ordinary stream pieces and select compatible candidates",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -461,7 +461,7 @@
     },
     {
       "id": "ELZ-008",
-      "title": "ELZ-008 \u2014 Compose the P1 request/route/retry Assembly",
+      "title": "ELZ-008 — Compose the P1 request/route/retry Assembly",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -501,7 +501,7 @@
     },
     {
       "id": "ELZ-009",
-      "title": "ELZ-009 \u2014 Define a reuse-first durable state boundary",
+      "title": "ELZ-009 — Define a reuse-first durable state boundary",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -541,7 +541,7 @@
     },
     {
       "id": "ELZ-010",
-      "title": "ELZ-010 \u2014 Compose the P2 durable job Assembly",
+      "title": "ELZ-010 — Compose the P2 durable job Assembly",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -584,7 +584,7 @@
     },
     {
       "id": "ELZ-011",
-      "title": "ELZ-011 \u2014 Integrate one representative external Effect",
+      "title": "ELZ-011 — Integrate one representative external Effect",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -626,7 +626,7 @@
     },
     {
       "id": "ELZ-012",
-      "title": "ELZ-012 \u2014 Reproduce the clean check and hand off evidence",
+      "title": "ELZ-012 — Reproduce the clean check and hand off evidence",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -658,7 +658,7 @@
     },
     {
       "id": "ELZ-013",
-      "title": "ELZ-013 \u2014 Source pieces and a checked provenance ledger",
+      "title": "ELZ-013 — Source pieces and a checked provenance ledger",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -698,7 +698,7 @@
     },
     {
       "id": "ELZ-014",
-      "title": "ELZ-014 \u2014 Define reusable capabilities across products and agent orchestration",
+      "title": "ELZ-014 — Define reusable capabilities across products and agent orchestration",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -733,7 +733,7 @@
     },
     {
       "id": "ELZ-015",
-      "title": "ELZ-015 \u2014 Evaluate Ash foundation and define maintained-fork policy",
+      "title": "ELZ-015 — Evaluate Ash foundation and define maintained-fork policy",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -768,7 +768,7 @@
     },
     {
       "id": "ELZ-016",
-      "title": "ELZ-016 \u2014 Specify telemetry, config and control applicability",
+      "title": "ELZ-016 — Specify telemetry, config and control applicability",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -803,7 +803,7 @@
     },
     {
       "id": "ELZ-017",
-      "title": "ELZ-017 \u2014 Evaluate Gleam library reuse independently",
+      "title": "ELZ-017 — Evaluate Gleam library reuse independently",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -838,7 +838,7 @@
     },
     {
       "id": "ELZ-018",
-      "title": "ELZ-018 \u2014 Resolve pre-dispatch adversarial review findings",
+      "title": "ELZ-018 — Resolve pre-dispatch adversarial review findings",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -873,7 +873,7 @@
     },
     {
       "id": "ELZ-019",
-      "title": "ELZ-019 \u2014 Run CI only on machine A",
+      "title": "ELZ-019 — Run CI only on machine A",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -909,7 +909,7 @@
     },
     {
       "id": "ELZ-020",
-      "title": "ELZ-020 \u2014 Measure and tune machine A CI parallelism",
+      "title": "ELZ-020 — Measure and tune machine A CI parallelism",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -945,7 +945,7 @@
     },
     {
       "id": "ELZ-021",
-      "title": "ELZ-021 \u2014 Decompose the Raxol reference into admission records",
+      "title": "ELZ-021 — Decompose the Raxol reference into admission records",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -974,7 +974,7 @@
     },
     {
       "id": "ELZ-022",
-      "title": "ELZ-022 \u2014 Specify budget reservation and settlement",
+      "title": "ELZ-022 — Specify budget reservation and settlement",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -1011,7 +1011,7 @@
     },
     {
       "id": "ELZ-023",
-      "title": "ELZ-023 \u2014 Specify dispatched-effect intent with unknown-outcome recovery",
+      "title": "ELZ-023 — Specify dispatched-effect intent with unknown-outcome recovery",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -1047,7 +1047,7 @@
     },
     {
       "id": "ELZ-024",
-      "title": "ELZ-024 \u2014 Specify authorization decisions and exact-action approval",
+      "title": "ELZ-024 — Specify authorization decisions and exact-action approval",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -1091,12 +1091,12 @@
         "P12"
       ],
       "blockers": [
-        "B24.1\u2013B24.3 coordinator choices are recorded in preflight.md; independent decision review, adoption acceptance and worker acknowledgment/concrete local Contract review remain gates before implementation."
+        "B24.1–B24.3 coordinator choices are recorded in preflight.md; independent decision review, adoption acceptance and worker acknowledgment/concrete local Contract review remain gates before implementation."
       ]
     },
     {
       "id": "ELZ-025",
-      "title": "ELZ-025 \u2014 Adopt-or-distill study of sixteen Elixir/Gleam packages",
+      "title": "ELZ-025 — Adopt-or-distill study of sixteen Elixir/Gleam packages",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -1123,7 +1123,7 @@
     },
     {
       "id": "ELZ-026",
-      "title": "ELZ-026 \u2014 Specify dependency readiness and cycle admission",
+      "title": "ELZ-026 — Specify dependency readiness and cycle admission",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -1163,7 +1163,7 @@
     },
     {
       "id": "ELZ-027",
-      "title": "ELZ-027 \u2014 Specify schedule occurrence identity and overlap policy",
+      "title": "ELZ-027 — Specify schedule occurrence identity and overlap policy",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -1189,7 +1189,7 @@
     },
     {
       "id": "ELZ-028",
-      "title": "ELZ-028 \u2014 Specify single-owner leases fenced by record revision",
+      "title": "ELZ-028 — Specify single-owner leases fenced by record revision",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -1226,7 +1226,7 @@
     },
     {
       "id": "ELZ-029",
-      "title": "ELZ-029 \u2014 Specify the OS-process Adapter boundary",
+      "title": "ELZ-029 — Specify the OS-process Adapter boundary",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -1253,7 +1253,7 @@
     },
     {
       "id": "ELZ-030",
-      "title": "ELZ-030 \u2014 Specify bounded, permission-checked context selection",
+      "title": "ELZ-030 — Specify bounded, permission-checked context selection",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -1281,7 +1281,7 @@
     },
     {
       "id": "ELZ-031",
-      "title": "ELZ-031 \u2014 Specify exact money amounts and the currency registry",
+      "title": "ELZ-031 — Specify exact money amounts and the currency registry",
       "kind": "published",
       "release": "V2",
       "stage": "pieces",
@@ -1308,7 +1308,7 @@
     },
     {
       "id": "ELZ-032",
-      "title": "ELZ-032 \u2014 Refuse PostgreSQL Store calls inside a caller transaction",
+      "title": "ELZ-032 — Refuse PostgreSQL Store calls inside a caller transaction",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -1336,7 +1336,7 @@
     },
     {
       "id": "ELZ-033",
-      "title": "ELZ-033 \u2014 Adopt the product-led catalogue roadmap and gate the first wave",
+      "title": "ELZ-033 — Adopt the product-led catalogue roadmap and gate the first wave",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -1375,7 +1375,7 @@
     },
     {
       "id": "ELZ-050",
-      "title": "ELZ-050 \u2014 Record decision-ready dispositions for every planned and deferred catalogue entry",
+      "title": "ELZ-050 — Record decision-ready dispositions for every planned and deferred catalogue entry",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -1412,7 +1412,7 @@
     },
     {
       "id": "ELZ-052",
-      "title": "ELZ-052 \u2014 Emit one bounded, redacted telemetry event family from the ready job and effect Adapters",
+      "title": "ELZ-052 — Emit one bounded, redacted telemetry event family from the ready job and effect Adapters",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -1441,7 +1441,7 @@
     },
     {
       "id": "ELZ-053",
-      "title": "ELZ-053 \u2014 Specify the S3-only object-store Adapter on MinIO",
+      "title": "ELZ-053 — Specify the S3-only object-store Adapter on MinIO",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -1474,7 +1474,7 @@
     },
     {
       "id": "ELZ-054",
-      "title": "ELZ-054 \u2014 Specify the email notification Adapter with one SMTP provider through Swoosh",
+      "title": "ELZ-054 — Specify the email notification Adapter with one SMTP provider through Swoosh",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -1503,7 +1503,7 @@
     },
     {
       "id": "ELZ-055",
-      "title": "ELZ-055 \u2014 Specify the attributable audit log for the effect-intent decision record",
+      "title": "ELZ-055 — Specify the attributable audit log for the effect-intent decision record",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -1541,7 +1541,7 @@
     },
     {
       "id": "ELZ-083",
-      "title": "ELZ-083 \u2014 Specify the MCP client Adapter over Streamable HTTP with inert tool discovery",
+      "title": "ELZ-083 — Specify the MCP client Adapter over Streamable HTTP with inert tool discovery",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -1568,7 +1568,7 @@
     },
     {
       "id": "ELZ-081",
-      "title": "ELZ-081 \u2014 Specify bounded text chunking with byte offsets to a frozen source",
+      "title": "ELZ-081 — Specify bounded text chunking with byte offsets to a frozen source",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -1594,7 +1594,7 @@
     },
     {
       "id": "ELZ-084",
-      "title": "ELZ-084 \u2014 Provide the pgvector extension in the CI database service and the local test database",
+      "title": "ELZ-084 — Provide the pgvector extension in the CI database service and the local test database",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -1618,7 +1618,7 @@
     },
     {
       "id": "ELZ-087",
-      "title": "ELZ-087 \u2014 Specify the OpenAI text provider Piece for the text interface",
+      "title": "ELZ-087 — Specify the OpenAI text provider Piece for the text interface",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -1648,7 +1648,7 @@
     },
     {
       "id": "ELZ-079",
-      "title": "ELZ-079 \u2014 Specify the AI model family core, the text interface Piece and the Anthropic text provider Piece",
+      "title": "ELZ-079 — Specify the AI model family core, the text interface Piece and the Anthropic text provider Piece",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -1681,7 +1681,7 @@
     },
     {
       "id": "ELZ-080",
-      "title": "ELZ-080 \u2014 Specify the embedding interface Piece and the OpenAI embedding provider Piece",
+      "title": "ELZ-080 — Specify the embedding interface Piece and the OpenAI embedding provider Piece",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -1712,7 +1712,7 @@
     },
     {
       "id": "ELZ-085",
-      "title": "ELZ-085 \u2014 Specify the batch job-mode interface Piece and the Anthropic Message Batches provider Piece",
+      "title": "ELZ-085 — Specify the batch job-mode interface Piece and the Anthropic Message Batches provider Piece",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -1743,7 +1743,7 @@
     },
     {
       "id": "ELZ-091",
-      "title": "ELZ-091 \u2014 Prove the AI text interface in its own copied consumer and carry Piece install configuration into exports",
+      "title": "ELZ-091 — Prove the AI text interface in its own copied consumer and carry Piece install configuration into exports",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -1771,7 +1771,7 @@
     },
     {
       "id": "ELZ-092",
-      "title": "ELZ-092 \u2014 Find and fix the root cause of the intermittent http-job \"live Oban rescue and concurrent wakeups\" failure",
+      "title": "ELZ-092 — Find and fix the root cause of the intermittent http-job \"live Oban rescue and concurrent wakeups\" failure",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -1807,7 +1807,7 @@
     },
     {
       "id": "ELZ-097",
-      "title": "ELZ-097 \u2014 Specify the durable schedule and occurrence driver over jobs",
+      "title": "ELZ-097 — Specify the durable schedule and occurrence driver over jobs",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -3239,7 +3239,7 @@
     },
     {
       "id": "ELZ-094",
-      "title": "ELZ-094 \u2014 Reproduce and fix mix elzoo.take \"argument error\", and make copied-consumer directories host-unique",
+      "title": "ELZ-094 — Reproduce and fix mix elzoo.take \"argument error\", and make copied-consumer directories host-unique",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -3265,7 +3265,7 @@
     },
     {
       "id": "ELZ-093",
-      "title": "ELZ-093 \u2014 Bound the Anthropic text provider's response body while it is received",
+      "title": "ELZ-093 — Bound the Anthropic text provider's response body while it is received",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -3293,7 +3293,7 @@
     },
     {
       "id": "ELZ-095",
-      "title": "ELZ-095 \u2014 Normalize nullable lock-wait observations in the lease test probe",
+      "title": "ELZ-095 — Normalize nullable lock-wait observations in the lease test probe",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -3318,7 +3318,7 @@
     },
     {
       "id": "ELZ-082",
-      "title": "ELZ-082 \u2014 Specify the permission-scoped pgvector chunk store behind a consumer Repo",
+      "title": "ELZ-082 — Specify the permission-scoped pgvector chunk store behind a consumer Repo",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -3347,7 +3347,7 @@
     },
     {
       "id": "ELZ-096",
-      "title": "ELZ-096 \u2014 Specify the owned artifact reference store over object storage",
+      "title": "ELZ-096 — Specify the owned artifact reference store over object storage",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -3382,7 +3382,7 @@
     },
     {
       "id": "ELZ-098",
-      "title": "ELZ-098 \u2014 Specify bounded correlated joins over declared branch results",
+      "title": "ELZ-098 — Specify bounded correlated joins over declared branch results",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -3411,7 +3411,7 @@
     },
     {
       "id": "ELZ-099",
-      "title": "ELZ-099 \u2014 Pin and exercise the circuit and streaming providers",
+      "title": "ELZ-099 — Pin and exercise the circuit and streaming providers",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -3437,7 +3437,7 @@
     },
     {
       "id": "ELZ-100",
-      "title": "ELZ-100 \u2014 Bound circuit admission and recovery probes over fuse",
+      "title": "ELZ-100 — Bound circuit admission and recovery probes over fuse",
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
@@ -3662,7 +3662,7 @@
     {
       "id": "delivery/aggregation",
       "job": "ELZ-098",
-      "note": "Bounded correlated join over a declared set of branch identities. accept/2 validates each core/envelope DeliveryResult, attributes it through a configured {:field, path} branch_key (correlation_id, attempt_id or a declared value field \u2014 never arrival position), and records first-wins branch outcomes: completed\u2192fulfilled, rejected/failed\u2192failed, timed_out\u2192timed_out, unknown\u2192unavailable. mark_lost/3 records first-class :timed_out/:killed/:unavailable losses, not synthetic results. decision/2 is a pure {join, outcome} transition over pending/all/partial/failed/expired; expiry converts pending branches to :missing and late branches to :timed_out and closes. Post-deadline and post-close input is recorded late, never merged; on-time duplicates are counted and differing outcome/value digests mark the branch conflicted. State is a plain map bounded by declared count and per-branch encoded identity/result size, retained redacted (SHA-256 value_digest, never payloads) for caller persistence. Elzoo.Aggregation.Runner fans out declared {branch_id, fun} pairs at most once per runner call under an injected Task.Supervisor, after validating capacity for every synthetic failure shape: exceptions and invalid returns become sanitized synthetic failed results, mismatched result identities fail only the originating branch, undispatchable starts become rejected/not_dispatched, join-refused results become :unavailable losses, and the rearmed deadline marks survivors :timed_out; normal stop/supervised shutdown clean tracked tasks without reversing Effects. Durable fan-out, sagas, scheduling, retries and Reactor are out of scope.",
+      "note": "Bounded correlated join over a declared set of branch identities. accept/2 validates each core/envelope DeliveryResult, attributes it through a configured {:field, path} branch_key (correlation_id, attempt_id or a declared value field — never arrival position), and records first-wins branch outcomes: completed→fulfilled, rejected/failed→failed, timed_out→timed_out, unknown→unavailable. mark_lost/3 records first-class :timed_out/:killed/:unavailable losses, not synthetic results. decision/2 is a pure {join, outcome} transition over pending/all/partial/failed/expired; expiry converts pending branches to :missing and late branches to :timed_out and closes. Post-deadline and post-close input is recorded late, never merged; on-time duplicates are counted and differing outcome/value digests mark the branch conflicted. State is a plain map bounded by declared count and per-branch encoded identity/result size, retained redacted (SHA-256 value_digest, never payloads) for caller persistence. Elzoo.Aggregation.Runner fans out declared {branch_id, fun} pairs at most once per runner call under an injected Task.Supervisor, after validating capacity for every synthetic failure shape: exceptions and invalid returns become sanitized synthetic failed results, mismatched result identities fail only the originating branch, undispatchable starts become rejected/not_dispatched, join-refused results become :unavailable losses, and the rearmed deadline marks survivors :timed_out; normal stop/supervised shutdown clean tracked tasks without reversing Effects. Durable fan-out, sagas, scheduling, retries and Reactor are out of scope.",
       "baseline_status": "planned",
       "disposition": "ready-contract on task branch; task acceptance separate",
       "catalogue_reference": "registry/catalogue.json",
@@ -4273,7 +4273,7 @@
     {
       "id": "state/artifact",
       "job": "ELZ-096",
-      "note": "Tenant-owned, versioned artifact references in the ready Store whose bytes live in the ready integration/object-store Piece: stage, commit, abort, put, new_version, head, get, list, versions, delete, reap and status. One Store stream artifact/<tenant>/<artifact_id> of self-contained non_state_bearing records \u2014 artifact_staged, artifact_committed and artifact_deleted each carry the full version record plus resulting state/state_at, with no inference of complete history from surviving rows \u2014 under head-revision CAS, plus a best-effort tenant index stream artifact-index/<tenant>. Content hash is SHA-256 over <<hash_format::8, bytes>>, the declared positive format stamped per record and used for verification on every get; a format change is a declared migration. Object keys are artifacts/<tenant>/<artifact_id>/v<version>/<sha256>; tenant and artifact_id are validated to a safe segment before key construction. Every operation presents caller %{tenant, principal, scopes} as consumer-vouched attribution: read paths enforce the recorded access terms and access_expires_at_unix_ms (a hash never grants access), versions filters each returned record by its own terms after the head gate, mutating operations require caller.tenant == record.tenant which the tenant-scoped stream makes structural (plus the recorded terms for delete), and cross-tenant lookup returns :not_found. Appending to an artifact with a committed head enforces that head's recorded terms and access_expires_at_unix_ms: new_version checks before staging and commit re-checks before every staging-to-committed transition, so a denied caller cannot append a head through put, new_version or manual stage+commit; with no committed head appends follow the tenant rule and the first commit establishes the face, and a caller who passes the head's terms may declare the new version's access (narrowing or widening is their declaration). Artifact and index streams require low_water == 0 and validated sequence coverage through the sampled committed Store revision; any retained prefix, missing or malformed row, inconsistent version or illegal transition fails closed as {:store_damaged, info} before object reads, uploads or Store writes. Self-contained rows and contiguous version numbers do not establish complete history after retention. stage reserves the largest encoded lifecycle payload, including the maximum valid state_at timestamp width, before upload. commit verifies object presence, stored transport checksum and size through reconcile_put before the Store write; an unknown put persists an upload: :uncertain staging record resolved by verification, never blind re-put; a Store {:conflict, _} is {:commit_failed, %{expected, observed}} and an indeterminate write is {:commit_failed, :indeterminate}. Object deletes on abort/delete/reap are best-effort with reported outcomes; every already-deleted version's bytes are deletion-attempted again under reap's cleanup result, so a refused/unknown delete is retried by the next reap; list propagates storage and damage failures as errors, never a partial page; reap is caller-driven. Creation, access-expiry and retention fields use the published created_at_unix_ms, access_expires_at_unix_ms and retain_until_unix_ms names in input, public records and persisted JSON.",
+      "note": "Tenant-owned, versioned artifact references in the ready Store whose bytes live in the ready integration/object-store Piece: stage, commit, abort, put, new_version, head, get, list, versions, delete, reap and status. One Store stream artifact/<tenant>/<artifact_id> of self-contained non_state_bearing records — artifact_staged, artifact_committed and artifact_deleted each carry the full version record plus resulting state/state_at, with no inference of complete history from surviving rows — under head-revision CAS, plus a best-effort tenant index stream artifact-index/<tenant>. Content hash is SHA-256 over <<hash_format::8, bytes>>, the declared positive format stamped per record and used for verification on every get; a format change is a declared migration. Object keys are artifacts/<tenant>/<artifact_id>/v<version>/<sha256>; tenant and artifact_id are validated to a safe segment before key construction. Every operation presents caller %{tenant, principal, scopes} as consumer-vouched attribution: read paths enforce the recorded access terms and access_expires_at_unix_ms (a hash never grants access), versions filters each returned record by its own terms after the head gate, mutating operations require caller.tenant == record.tenant which the tenant-scoped stream makes structural (plus the recorded terms for delete), and cross-tenant lookup returns :not_found. Appending to an artifact with a committed head enforces that head's recorded terms and access_expires_at_unix_ms: new_version checks before staging and commit re-checks before every staging-to-committed transition, so a denied caller cannot append a head through put, new_version or manual stage+commit; with no committed head appends follow the tenant rule and the first commit establishes the face, and a caller who passes the head's terms may declare the new version's access (narrowing or widening is their declaration). Artifact and index streams require low_water == 0 and validated sequence coverage through the sampled committed Store revision; any retained prefix, missing or malformed row, inconsistent version or illegal transition fails closed as {:store_damaged, info} before object reads, uploads or Store writes. Self-contained rows and contiguous version numbers do not establish complete history after retention. stage reserves the largest encoded lifecycle payload, including the maximum valid state_at timestamp width, before upload. commit verifies object presence, stored transport checksum and size through reconcile_put before the Store write; an unknown put persists an upload: :uncertain staging record resolved by verification, never blind re-put; a Store {:conflict, _} is {:commit_failed, %{expected, observed}} and an indeterminate write is {:commit_failed, :indeterminate}. Object deletes on abort/delete/reap are best-effort with reported outcomes; every already-deleted version's bytes are deletion-attempted again under reap's cleanup result, so a refused/unknown delete is retried by the next reap; list propagates storage and damage failures as errors, never a partial page; reap is caller-driven. Creation, access-expiry and retention fields use the published created_at_unix_ms, access_expires_at_unix_ms and retain_until_unix_ms names in input, public records and persisted JSON.",
       "baseline_status": "deferred",
       "disposition": "ready-contract on task branch; task acceptance separate",
       "catalogue_reference": "registry/catalogue.json",
@@ -4349,7 +4349,7 @@
     {
       "id": "state/scheduler",
       "job": "ELZ-097",
-      "note": "Durable schedule definitions and the caller-driven driver of ELZ-097: put_schedule/pause/resume/delete/get/list/status own the lifecycle; a dispatch backoff map may not carry the reserved keys v, queue or job_key. tick/2 first reconciles settlement of already-dispatched occurrences from Oban job state (completed -> acknowledged, discarded/cancelled -> released, in-flight stays unsettled, unreadable is :settlement_unknown, never guessed) through fenced chunked appends under stream-head CAS, reloads, then restores each active schedule's trigger state (delivery/trigger) from the durable watermark last_recorded_unix_ms and the post-settlement unsettled ledger, computes the availability boundary from the persisted last evaluated watermark (last_boundary of the latest committed tick, or last_tick_ok_at for records predating it, while now - last_tick_ok_at <= max_availability_gap_ms, else now \u2014 bounded evaluation never reclassifies known-available backlog as offline catch-up), evaluates at most max_slots_per_tick earliest due slots in UTC-instant order \u2014 five-field crontab expressions in the declared IANA zone (Etc/UTC default; non-UTC requires a declared Calendar.TimeZoneDatabase Need, tz 0.28.4 is the pinned provider; @reboot and seconds fields refuse; the first UTC match of an ambiguous local slot wins and its second match is recorded skipped{ambiguous}; gap slots produce no match), or the single instant of {:at, instant} \u2014 admits them through Elzoo.ScheduleOccurrence.admit_slots/3, and commits the slot decisions, the watermark (the last evaluated instant only), trigger state, last_tick_ok_at = now, the boundary and a bounded unsettled count as one atomic append batch under stream-head CAS. Terminal occurrence states are sticky: settlement, expiry, replacement and redefinition records committed first cannot be resurrected by a later stale dispatch or slot record, and every fenced effect append re-validates the occurrence under CAS before writing. A revision chain fences settlement, delete and redefine chunks from concurrent decisions; a changed head stops the operation as :contended. Dispatch rechecks the current generation and occurrence before and after enqueue, suppresses terminal work, and expires overdue dispatch-pending occurrences before enqueue. Each admitted occurrence dispatches as one Oban job through integration/jobs whose job_key is the encoded occurrence id (at-least-once, advisory uniqueness); the dispatch outcome is persisted through a fenced append after the slot batch commits. reap/2 runs the same settlement reconcile for every unsettled occurrence before the TTL split \u2014 a terminal Oban state wins over expiry \u2014 then releases occurrences older than occurrence_ttl_ms, records them expired and cancels their jobs. delete/2 releases unsettled occurrences through chunked fenced appends, then commits the deletion and retires the index. Redefinition requires a strictly greater generation and records supersession. Store {:conflict, _} is :contended and the losing call changes nothing it had not already committed.",
+      "note": "Durable schedule definitions and the caller-driven driver of ELZ-097: put_schedule/pause/resume/delete/get/list/status own the lifecycle; a dispatch backoff map may not carry the reserved keys v, queue or job_key. tick/2 first reconciles settlement of already-dispatched occurrences from Oban job state (completed -> acknowledged, discarded/cancelled -> released, in-flight stays unsettled, unreadable is :settlement_unknown, never guessed) through fenced chunked appends under stream-head CAS, reloads, then restores each active schedule's trigger state (delivery/trigger) from the durable watermark last_recorded_unix_ms and the post-settlement unsettled ledger, computes the availability boundary from the persisted last evaluated watermark (last_boundary of the latest committed tick, or last_tick_ok_at for records predating it, while now - last_tick_ok_at <= max_availability_gap_ms, else now — bounded evaluation never reclassifies known-available backlog as offline catch-up), evaluates at most max_slots_per_tick earliest due slots in UTC-instant order — five-field crontab expressions in the declared IANA zone (Etc/UTC default; non-UTC requires a declared Calendar.TimeZoneDatabase Need, tz 0.28.4 is the pinned provider; @reboot and seconds fields refuse; the first UTC match of an ambiguous local slot wins and its second match is recorded skipped{ambiguous}; gap slots produce no match), or the single instant of {:at, instant} — admits them through Elzoo.ScheduleOccurrence.admit_slots/3, and commits the slot decisions, the watermark (the last evaluated instant only), trigger state, last_tick_ok_at = now, the boundary and a bounded unsettled count as one atomic append batch under stream-head CAS. Terminal occurrence states are sticky: settlement, expiry, replacement and redefinition records committed first cannot be resurrected by a later stale dispatch or slot record, and every fenced effect append re-validates the occurrence under CAS before writing. A revision chain fences settlement, delete and redefine chunks from concurrent decisions; a changed head stops the operation as :contended. Dispatch rechecks the current generation and occurrence before and after enqueue, suppresses terminal work, and expires overdue dispatch-pending occurrences before enqueue. Each admitted occurrence dispatches as one Oban job through integration/jobs whose job_key is the encoded occurrence id (at-least-once, advisory uniqueness); the dispatch outcome is persisted through a fenced append after the slot batch commits. reap/2 runs the same settlement reconcile for every unsettled occurrence before the TTL split — a terminal Oban state wins over expiry — then releases occurrences older than occurrence_ttl_ms, records them expired and cancels their jobs. delete/2 releases unsettled occurrences through chunked fenced appends, then commits the deletion and retires the index. Redefinition requires a strictly greater generation and records supersession. Store {:conflict, _} is :contended and the losing call changes nothing it had not already committed.",
       "baseline_status": "planned",
       "disposition": "ready-contract on task branch; task acceptance separate",
       "catalogue_reference": "registry/catalogue.json",
