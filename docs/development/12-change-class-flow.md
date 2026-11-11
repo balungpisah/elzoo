@@ -1,5 +1,8 @@
 # Change-class flow: the coordinator's map
 
+> **Replaced for workflow rules.** `AGENTS.md` at the repository root is the workflow. Where this page
+> differs, `AGENTS.md` wins. Do not read this page for a task. This page stays as the record of the change classes that the CI scripts compute.
+
 Source: owner decision of 2026-11-09 ("the flow is guided by the coordinator; conditions can
 alter the flow without sacrificing quality"), coordination rule 9 (evidence economy), the
 redundancy audit (ELZ-075, #140), the worker gate and claim rule (ELZ-076, #142), the

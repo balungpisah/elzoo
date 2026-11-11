@@ -1,5 +1,8 @@
 # Development workflow
 
+> **Replaced for workflow rules.** `AGENTS.md` at the repository root is the workflow. Where this page
+> differs, `AGENTS.md` wins. Do not read this page for a task. The section "Verify" stays valid for the local test services.
+
 Elzoo uses a small visible workflow made from Git, GitHub and Mix. There is no
 custom task engine, lease database or Zoo lifecycle to operate. The GitHub
 issue body is the task Contract; the remote task branch is the claim.
