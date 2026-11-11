@@ -96,7 +96,10 @@ defmodule Elzoo.DataStream.Transport do
   end
 
   def run(session, token, prepared, config, seam) do
-    result = credentials(config.credentials)
+    result =
+      if System.monotonic_time(:millisecond) < prepared.deadline,
+        do: credentials(config.credentials),
+        else: :expired
 
     cond do
       System.monotonic_time(:millisecond) >= prepared.deadline ->

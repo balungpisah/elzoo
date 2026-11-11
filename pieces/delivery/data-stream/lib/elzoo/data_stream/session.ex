@@ -168,7 +168,10 @@ defmodule Elzoo.DataStream.Session do
     if elem(from, 0) == pid and http?(s, token, pid) and s.phase == :streaming and live?(s) do
       s = %{s | terminal: %{s.terminal | raw_blocks: s.terminal.raw_blocks + 1}}
 
-      case Protocol.block(block, s.protocol) do
+      parsed = Protocol.block(block, s.protocol)
+      # Parsing spends the lifetime too; a delayed timer is not authority to
+      # commit an event after expiry.
+      case if(live?(s), do: parsed, else: {:error, :timeout, s.protocol}) do
         {:ok, p} ->
           {:reply, :ok, observed(s, p)}
 
@@ -390,7 +393,10 @@ defmodule Elzoo.DataStream.Session do
       {t, s} =
         task(s, :sink, fn ->
           try do
-            case sink.(frame) do
+            reply =
+              if System.monotonic_time(:millisecond) < deadline, do: sink.(frame), else: :expired
+
+            case reply do
               {:ack, ^ref, ^seq} -> :ack
               {:cancel, :caller_cancelled} -> :caller_cancelled
               {:error, :disconnected} -> :disconnected

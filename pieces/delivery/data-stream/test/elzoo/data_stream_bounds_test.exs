@@ -264,6 +264,28 @@ defmodule Elzoo.DataStream.BoundsTest do
     GenServer.stop(owner)
   end
 
+  test "an already expired HTTP worker never invokes even its credential Need" do
+    parent = self()
+
+    config = %{
+      credentials: fn ->
+        send(parent, :late_credentials)
+        {:ok, "test-key"}
+      end
+    }
+
+    assert :timeout =
+             Stream.Transport.run(
+               self(),
+               make_ref(),
+               %{deadline: System.monotonic_time(:millisecond) - 1},
+               config,
+               :production
+             )
+
+    refute_receive :late_credentials, 0
+  end
+
   test "inspection and OTP status contain no prompt, output, credential, usage or identifiers" do
     parent = self()
 

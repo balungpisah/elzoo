@@ -57,11 +57,11 @@ defmodule Elzoo.DataStream.Terminal do
     }
 
     t = %__MODULE__{
-      status: :partial,
-      reason: :credentials_unavailable,
-      provider_reason: :authentication_error,
-      source_complete: true,
-      delivery_complete: true,
+      status: :complete,
+      reason: :provider_invalid_request,
+      provider_reason: :invalid_request_error,
+      source_complete: false,
+      delivery_complete: false,
       offered_frames: 65_537,
       acknowledged_frames: 65_537,
       received_body_bytes: max,
@@ -83,7 +83,7 @@ defmodule Elzoo.DataStream.Terminal do
         attempt_id: local <> "/attempt/256"
       },
       intent_confirmation: :unconfirmed,
-      retry_after: 86_400
+      retry_after: :unknown
     }
 
     size(t)

@@ -163,6 +163,41 @@ defmodule Elzoo.DataStream.PostgresTest do
     GenServer.stop(owner)
   end
 
+  test "session death after the winning finish ack preserves the committed delivery fact", c do
+    Agent.update(c.mode, fn _ -> :lost_settlement end)
+    peer = Peer.start(self(), fn mod, s -> Peer.response(mod, s, Fixture.complete()) end)
+    {:ok, owner} = Stream.__start_loopback__(c.settings, peer.origin)
+    {:ok, h} = Stream.start(owner, Fixture.effect(), &Fixture.ack/1)
+    await_delivery(owner, h)
+    assert {:ok, :already_terminal} = Stream.cancel(owner, h)
+    e = :sys.get_state(owner).entries[h.ref]
+    assert Process.alive?(e.session)
+    Process.exit(e.session, :kill)
+    t = Fixture.terminal(h)
+    assert t.status == :complete and t.reason == :completed and t.delivery_complete
+    assert t.source_complete and t.intent_confirmation == :unconfirmed
+    assert {:provider_reported, u} = t.incurred_usage
+    assert Elzoo.AiModel.Usage.amount(u, :output_tokens) == 5
+    refute Process.alive?(e.sup)
+    GenServer.stop(owner)
+  end
+
+  defp await_delivery(owner, h, n \\ 100)
+  defp await_delivery(_owner, _h, 0), do: flunk("finish never committed")
+
+  defp await_delivery(owner, h, n) do
+    case Stream.status(owner, h) do
+      {:ok, %{delivery_complete: true}} ->
+        :ok
+
+      _ ->
+        receive do
+        after
+          10 -> await_delivery(owner, h, n - 1)
+        end
+    end
+  end
+
   test "blocked acknowledged-write path spends D, cleanup keeps accepted SQL writes unknown", c do
     Agent.update(c.mode, fn _ -> :block_dispatch_checkpoint end)
     peer = Peer.start(self(), fn mod, s -> Peer.response(mod, s, Fixture.complete()) end)

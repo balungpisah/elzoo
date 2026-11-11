@@ -290,23 +290,36 @@ defmodule Elzoo.DataStream do
             e = %{e | session_down: true}
 
             e =
-              if e.settled,
-                do: e,
-                else: %{
+              cond do
+                e.settled ->
                   e
-                  | phase: :stopping,
-                    terminal: %{
-                      e.terminal
-                      | status: :partial,
-                        reason: :session_lost,
-                        delivery_complete: false,
-                        intent_confirmation:
-                          if(e.terminal.intent_confirmation == :no_attempt,
-                            do: :no_attempt,
-                            else: :unconfirmed
-                          )
-                    }
-                }
+
+                e.terminal.delivery_complete ->
+                  # The owner already observed the winning final ack. Losing
+                  # later custody/settlement cannot undo that local fact.
+                  %{
+                    e
+                    | phase: :stopping,
+                      terminal: %{e.terminal | intent_confirmation: :unconfirmed}
+                  }
+
+                true ->
+                  %{
+                    e
+                    | phase: :stopping,
+                      terminal: %{
+                        e.terminal
+                        | status: :partial,
+                          reason: :session_lost,
+                          delivery_complete: false,
+                          intent_confirmation:
+                            if(e.terminal.intent_confirmation == :no_attempt,
+                              do: :no_attempt,
+                              else: :unconfirmed
+                            )
+                      }
+                  }
+              end
 
             if not e.sup_down, do: Process.send_after(self(), {:reap, key, e.sup}, 1_000)
             {:noreply, %{s | entries: Map.put(s.entries, key, e)} |> retain(key)}
