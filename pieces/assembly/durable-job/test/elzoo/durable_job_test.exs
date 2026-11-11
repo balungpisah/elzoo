@@ -682,7 +682,16 @@ defmodule Elzoo.DurableJobTest do
   @tag timeout: 120_000
   test "DJ21b writer call timeout shorter than the held lock: worker snoozes, submit and cancel are indeterminate",
        %{prefix: prefix} do
-    f = flow(prefix, :postgres, writer_timeout_ms: 1_000)
+    probe = writer_timeout_probe(prefix, "t1", :blocked)
+    token = probe.token
+
+    f =
+      flow(prefix, :postgres,
+        store: probe.store,
+        test_hook: probe.hook,
+        writer_timeout_ms: 1_000
+      )
+
     :ok = Oban.pause_queue(f.oban, queue: f.queue)
     {:ok, _} = submit(f, "t1", [3], max_attempts: 1, base_backoff_ms: 0, max_backoff_ms: 0)
     {:ok, _} = relay!(f.queue)
@@ -690,9 +699,47 @@ defmodule Elzoo.DurableJobTest do
     submitter = Process.whereis(:"Elixir.Elzoo.DurableJob.submitter.#{f.queue}")
     relay = Process.whereis(:"Elixir.Elzoo.DurableJob.relay.#{f.queue}")
 
-    lock = hold_head_lock(prefix, run_stream(f, "t1"), 3_000)
+    with_head_lock(prefix, run_stream(f, "t1"), fn lock_backend ->
+      :ok = Oban.resume_queue(f.oban, queue: f.queue)
+      assert_receive {^token, :before_begin, worker, writer}, 10_000
+
+      try do
+        monitor = Process.monitor(writer)
+        :ok = Oban.pause_queue(f.oban, queue: f.queue)
+        send(worker, {token, :begin})
+        assert_receive {^token, :append_backend, ^writer, backend}, 5_000
+
+        poll(fn ->
+          TestRepo.query!(
+            "select exists (select 1 from pg_stat_activity where pid = $1 and xact_start is not null and $2::int = any(pg_blocking_pids(pid)))",
+            [backend, lock_backend],
+            log: false
+          ).rows == [[true]]
+        end)
+
+        :ok = probe.resume.()
+        assert_receive {:DOWN, ^monitor, :process, ^writer, :killed}, 5_000
+
+        # Writer DOWN alone does not acknowledge rollback. Its actual blocked
+        # PostgreSQL backend must also exit before the head can be unlocked.
+        poll(fn ->
+          TestRepo.query!(
+            "select not exists (select 1 from pg_stat_activity where pid = $1)",
+            [backend],
+            log: false
+          ).rows == [[true]]
+        end)
+
+        assert kinds(f.store, run_stream(f, "t1")) == ~w(accepted)
+        poll(fn -> job_row(f, id) == {"scheduled", 0} end)
+        assert oban_errors(f, id) == 0
+      after
+        :ok = probe.resume.()
+        send(worker, {token, :begin})
+      end
+    end)
+
     :ok = Oban.resume_queue(f.oban, queue: f.queue)
-    Task.await(lock, 20_000)
     poll(fn -> Run.terminal?(phase(f, "t1")) end)
     records = kinds(f.store, run_stream(f, "t1"))
     assert List.last(records) == "succeeded"
@@ -748,6 +795,81 @@ defmodule Elzoo.DurableJobTest do
     assert Enum.count(kinds(f.store, run_stream(f, "t3")), &(&1 == "cancelled")) == 1
     assert Process.whereis(:"Elixir.Elzoo.DurableJob.submitter.#{f.queue}") == submitter
     assert Process.whereis(:"Elixir.Elzoo.DurableJob.relay.#{f.queue}") == relay
+  end
+
+  @tag timeout: 120_000
+  test "DJ21c a committed attempt with a timed-out reply consumes the Run budget without running its handler",
+       %{prefix: prefix} do
+    probe = writer_timeout_probe(prefix, "committed", :committed)
+    token = probe.token
+    parent = self()
+
+    f =
+      flow(prefix, :postgres,
+        store: probe.store,
+        test_hook: probe.hook,
+        writer_timeout_ms: 1_000,
+        handler: fn input ->
+          send(parent, {:unacknowledged_handler, input})
+          {:ok, Enum.sum(input)}
+        end
+      )
+
+    :ok = Oban.pause_queue(f.oban, queue: f.queue)
+    {:ok, _} = submit(f, "committed", [3], max_attempts: 1, base_backoff_ms: 0, max_backoff_ms: 0)
+    {:ok, _} = relay!(f.queue)
+    id = job_id(f, "committed")
+    :ok = Oban.resume_queue(f.oban, queue: f.queue)
+    assert_receive {^token, :before_begin, worker, writer}, 10_000
+
+    try do
+      monitor = Process.monitor(writer)
+      :ok = Oban.pause_queue(f.oban, queue: f.queue)
+      send(worker, {token, :begin})
+      assert_receive {^token, :committed, ^writer, request}, 5_000
+
+      # after_commit_reply is outside the real transaction. Inspect the exact
+      # immutable row, including its nonce, while the Writer cannot return it.
+      assert {:ok, record, _} =
+               Elzoo.DurableLog.Store.read(f.store, :read_at, [request.stream, request.target])
+
+      assert record.kind == "attempt_started"
+      assert record.nonce == request.nonce
+      assert Jason.decode!(record.payload)["attempt"] == 1
+      assert kinds(f.store, run_stream(f, "committed")) == ~w(accepted attempt_started)
+      refute_received {:unacknowledged_handler, _}
+      :ok = probe.resume.()
+      assert_receive {:DOWN, ^monitor, :process, ^writer, :killed}, 5_000
+      poll(fn -> job_row(f, id) == {"scheduled", 0} end)
+      assert oban_errors(f, id) == 0
+
+      :ok = Oban.resume_queue(f.oban, queue: f.queue)
+      poll(fn -> Run.terminal?(phase(f, "committed")) end)
+      assert phase(f, "committed") == :exhausted
+      assert kinds(f.store, run_stream(f, "committed")) == ~w(accepted attempt_started exhausted)
+      assert {:ok, %{attempts_made: 1, result: nil}} = DurableJob.status(f.queue, "committed")
+      poll(fn -> job_row(f, id) == {"cancelled", 1} end)
+
+      %{rows: [[errors]]} =
+        TestRepo.query!("select errors from #{f.prefix}.oban_jobs where id = $1", [id], log: false)
+
+      # Oban records a deliberate cancel as PerformError bookkeeping. It is
+      # the only receipt: no timeout exception or failed provider attempt.
+      assert [%{"attempt" => 1, "error" => error}] = errors
+
+      assert error ==
+               Exception.format(
+                 :error,
+                 Oban.PerformError.exception({Jobs.Worker, {:cancel, :exhausted}}),
+                 []
+               )
+
+      refute_received {:unacknowledged_handler, _}
+    after
+      :ok = probe.resume.()
+      send(worker, {token, :begin})
+      send(writer, {token, :release_reply})
+    end
   end
 
   test "cancel/3 validates requested_by and documents its result set", %{prefix: prefix} do

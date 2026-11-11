@@ -200,6 +200,146 @@ defmodule Elzoo.DurableJob.TestHelper do
     end
   end
 
+  @doc "Hold the head lock until the callback has observed the timed-out transaction end."
+  def with_head_lock(prefix, stream, fun) do
+    parent = self()
+    token = make_ref()
+
+    task =
+      Task.async(fn ->
+        TestRepo.transaction(fn ->
+          %{rows: [[backend]]} =
+            TestRepo.query!(
+              "select pg_backend_pid() from #{prefix}.elzoo_log_heads where stream = $1 for update",
+              [stream],
+              log: false
+            )
+
+          send(parent, {token, :head_locked, backend})
+          receive do: ({^token, :release} -> :ok)
+        end)
+      end)
+
+    try do
+      receive do
+        {^token, :head_locked, backend} -> fun.(backend)
+      after
+        5_000 -> raise "head lock not taken"
+      end
+    after
+      send(task.pid, {token, :release})
+      {:ok, :ok} = Task.await(task, 20_000)
+    end
+  end
+
+  @doc "One first-attempt barrier, using the real PostgreSQL Store and linked Writer."
+  def writer_timeout_probe(prefix, key, boundary) when boundary in [:blocked, :committed] do
+    parent = self()
+    token = make_ref()
+    once = :atomics.new(2, [])
+    mode = {__MODULE__, token}
+    controller = start_supervised!({Agent, fn -> nil end}, id: token)
+
+    resume = fn ->
+      Agent.update(controller, fn
+        nil ->
+          nil
+
+        worker ->
+          # The controller owns the suspension. Its own termination also
+          # releases that count if a failing test tears down the fixture.
+          try do
+            :erlang.resume_process(worker)
+          catch
+            :error, :badarg -> :ok
+          end
+
+          nil
+      end)
+    end
+
+    store =
+      Postgres.store(TestRepo,
+        prefix: prefix,
+        fold: Run.store_fold(),
+        limits: Run.limits(),
+        test_dispatch: fn operation, request, run ->
+          if operation == :append and request.expected == 1 and
+               String.ends_with?(request.stream, "/" <> key) and
+               :atomics.compare_exchange(once, 2, 0, 1) == :ok do
+            # The actual GenServer.call has begun. Hold its caller from
+            # handling the timeout until the test observes the SQL boundary;
+            # neither SQL observation must race the 1_000 ms timer.
+            {:links, [worker]} = Process.info(self(), :links)
+
+            :ok =
+              Agent.update(controller, fn nil ->
+                :erlang.suspend_process(worker)
+                worker
+              end)
+
+            Process.put(mode, request)
+
+            try do
+              if boundary == :blocked do
+                # checkout keeps this backend for run/0's real transaction;
+                # it does not start a caller transaction or change the Store.
+                TestRepo.checkout(fn ->
+                  %{rows: [[backend]]} = TestRepo.query!("select pg_backend_pid()", [], log: false)
+                  send(parent, {token, :append_backend, self(), backend})
+                  run.()
+                end)
+              else
+                run.()
+              end
+            after
+              Process.delete(mode)
+            end
+          else
+            run.()
+          end
+        end,
+        test_hook: fn
+          :append, :after_commit_reply, _repo when boundary == :committed ->
+            if request = Process.get(mode) do
+              %{rows: [["attempt_started", nonce]]} =
+                TestRepo.query!(
+                  "select kind, nonce from #{prefix}.elzoo_log_records where stream = $1 and sequence = $2",
+                  [request.stream, request.target],
+                  log: false
+                )
+
+              true = nonce == request.nonce
+              send(parent, {token, :committed, self(), request})
+              # The real Writer call times out while its committed reply is
+              # held here. No synthetic indeterminate result is returned.
+              receive do: ({^token, :release_reply} -> :ok)
+            end
+
+          _, _, _ ->
+            :ok
+        end
+      )
+
+    hook = fn :before_begin, _job ->
+      if :atomics.compare_exchange(once, 1, 0, 1) == :ok do
+        {:links, links} = Process.info(self(), :links)
+
+        [writer] =
+          Enum.filter(links, fn pid ->
+            :proc_lib.translate_initial_call(pid) == {Elzoo.DurableLog.Writer, :init, 1}
+          end)
+
+        send(parent, {token, :before_begin, self(), writer})
+        receive do: ({^token, :begin} -> :ok)
+      end
+
+      :ok
+    end
+
+    %{store: store, hook: hook, token: token, resume: resume}
+  end
+
   def far, do: System.os_time(:millisecond) + 3_600_000
   def fast, do: [max_attempts: 3, base_backoff_ms: 0, max_backoff_ms: 0]
 
