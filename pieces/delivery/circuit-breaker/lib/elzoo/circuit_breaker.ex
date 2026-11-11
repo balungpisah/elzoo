@@ -427,7 +427,7 @@ defmodule Elzoo.CircuitBreaker do
   defp invalidate(state) do
     next =
       Enum.reduce(state.permits, state, fn {ref, entry}, acc ->
-        if entry.probe do
+        if entry.probe and not entry.down do
           cancel(entry.timer)
           put_in(acc.permits[ref].timer, nil)
         else

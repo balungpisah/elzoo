@@ -35,6 +35,7 @@ defmodule Elzoo.CircuitCompositionTest do
   defp smtp_health({:error, tag, :smtp})
        when tag in [
               :throttled,
+              :session_throttled,
               :authentication_failed,
               :rejected_recipient,
               :credentials_unavailable,
@@ -207,6 +208,41 @@ defmodule Elzoo.CircuitCompositionTest do
     # Declared throttling differs from the S3 Adapter's information loss.
     assert smtp_health({:error, :throttled, :smtp}) == :neutral
     assert smtp_health({:error, :connection_lost, :smtp}) == :unknown
+
+    server = {_, busy_port} = SmtpServer.start(:busy)
+    on_exit(fn -> SmtpServer.stop(server) end)
+    busy_binding = SmtpServer.binding("127.0.0.1", busy_port)
+
+    {:ok, busy_config} =
+      Notification.configure(
+        binding: busy_binding,
+        tenant: "fixture",
+        credentials: fn -> {:ok, {"fixture", "fixture"}} end,
+        transport_supervisor: tasks,
+        tls: :plaintext_loopback
+      )
+
+    {:ok, busy_b, _} = Binding.load(busy_binding)
+    busy_owner = start_supervised!({C, name: :circuit_composition_busy}, id: :busy_circuit)
+    {:ok, initial} = C.admit(busy_owner)
+    assert C.finish(busy_owner, initial, :healthy) == {:ok, :applied}
+    {:ok, busy_permit} = C.admit(busy_owner)
+
+    busy_reply =
+      Adapter.send_effect(%{
+        context: busy_config,
+        key: String.duplicate("b", 64),
+        attempt_id: "busy",
+        binding: busy_b.digest,
+        arguments: payload,
+        arguments_digest: :crypto.hash(:sha256, payload),
+        schema: Adapter.schema()
+      })
+
+    assert busy_reply == {:error, :session_throttled, :smtp}
+    assert smtp_health(busy_reply) == :neutral
+    assert C.finish(busy_owner, busy_permit, smtp_health(busy_reply)) == {:ok, :applied}
+    assert mode(busy_owner) == :closed
 
     # Circuit permit retirement neither releases a Runner's slot nor a task
     # supervisor's physical capacity. The blocked Attempt owns both.

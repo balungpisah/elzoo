@@ -270,6 +270,39 @@ defmodule Elzoo.CircuitBreakerTest do
     refute inspect({measurements, metadata}) =~ "credential-value"
   end
 
+  test "C21 holder DOWN during clock failure retires the dead probe after recovery" do
+    {agent, clock} = clock(100)
+    owner = start(clock: clock, cooldown_ms: 1, observation_timeout_ms: 500)
+    parent = self()
+
+    holder =
+      spawn(fn ->
+        send(parent, {:held, C.admit(owner)})
+
+        receive do
+          :die -> :ok
+        end
+      end)
+
+    assert_receive {:held, {:ok, _}}
+    Agent.update(agent, fn _ -> :raise end)
+    send(holder, :die)
+
+    eventually(fn ->
+      Enum.any?(:sys.get_state(owner).permits, fn {_, entry} -> entry.down end)
+    end)
+
+    Agent.update(agent, fn _ -> 101 end)
+    assert status(owner).mode == :open
+    assert status(owner).tracked == 0
+    refute status(owner).recovery_probe_held
+    Agent.update(agent, fn _ -> 102 end)
+    eventually(fn -> :fuse.ask(@fuse, :sync) == :ok end)
+    assert {:ok, probe} = C.admit(owner)
+    assert C.finish(owner, probe, :healthy) == {:ok, :applied}
+    assert status(owner).mode == :closed
+  end
+
   test "C8 duplicate registration cannot reset another fuse; explicit replacement is cold and rejects old tokens" do
     owner = closed()
     {:ok, permit} = C.admit(owner)
