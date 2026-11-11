@@ -592,11 +592,12 @@
     },
     {
       "id": "integration/secrets",
-      "summary": "Scoped credential access boundary",
-      "disposition": "defer",
+      "summary": "Opt-in exact-scope credential snapshots through a consumer-owned resolver, host-vouched authority and redacted wrapper",
+      "disposition": "own",
       "phase": "demand-led",
-      "status": "deferred",
-      "reason": "Secret references, scope, rotation and redaction for C1/C3/C6/C7; use an established provider; secrets are not ordinary model context or log fields."
+      "status": "ready",
+      "coverage": "subset",
+      "manifest": "pieces/integration/secrets/piece.json"
     },
     {
       "id": "integration/sql",
