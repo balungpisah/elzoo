@@ -47,6 +47,40 @@ class RunnerPolicyTest(unittest.TestCase):
     def test_reviewed_routing_passes(self):
         self.check(0)
 
+    def test_runtime_helper_is_pinned_in_every_install_job(self):
+        for filename, jobs, command in (
+            ('symbolic-check.yml', ('check-root', 'check-consumers-db', 'check-consumers'),
+             'sudo python3 scripts/ci-install-runtime.py'),
+            ('symbolic-gleam.yml', ('gleam-hosted',),
+             'sudo python3 "$GITHUB_WORKSPACE/scripts/ci-install-runtime.py"'),
+        ):
+            for job in jobs:
+                for replacement in ('true', command + '\n        continue-on-error: true'):
+                    with self.subTest(job=job, replacement=replacement):
+                        self.change_in_job(filename, job, '        run: ' + command + '\n',
+                                           '        run: ' + replacement + '\n')
+                        self.assertIn('runtime', self.check(1).stderr)
+                        self.tearDown()
+                        self.setUp()
+
+    def test_runtime_must_follow_checkout_and_keep_the_s3_block_adjacent(self):
+        runtime = ('      - name: Install runtime libraries\n'
+                   '        run: sudo python3 scripts/ci-install-runtime.py\n')
+        self.change_in_job('symbolic-check.yml', 'check-root', runtime, '')
+        self.change_in_job('symbolic-check.yml', 'check-root', '      - uses: actions/checkout@',
+                           runtime + '      - uses: actions/checkout@')
+        self.assertIn('runtime step must immediately follow checkout', self.check(1).stderr)
+        self.tearDown()
+        self.setUp()
+        self.change_in_job('symbolic-check.yml', 'check-root', runtime,
+                           runtime + '      - name: Something else\n        run: true\n')
+        self.assertIn('the pinned S3 test server steps are missing or changed', self.check(1).stderr)
+        self.tearDown()
+        self.setUp()
+        self.change_in_job('symbolic-check.yml', 'check-plan',
+                           '      - run: python3 scripts/test-ci-install-runtime.py\n', '')
+        self.assertIn('test-ci-install-runtime.py', self.check(1).stderr)
+
 
     def test_unknown_machine_selector_rejected(self):
         for selector in ("[ubuntu-24.04, other-machine]", "ubuntu-latest", "[ubuntu-24.04]", "${{ vars.RUNNER }}"):
