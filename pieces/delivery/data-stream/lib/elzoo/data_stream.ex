@@ -94,9 +94,17 @@ defmodule Elzoo.DataStream do
         {:reply, {:error, :invalid_argument}, s}
 
       true ->
-        case Request.prepare(effect, s.config.models, wall, mono, s.config.total_timeout_ms) do
-          {:ok, p} -> admit(s, caller, effect, sink, p)
-          {:error, r} -> {:reply, {:refused, r}, s}
+        case known_entry(s, effect) do
+          nil ->
+            case Request.prepare(effect, s.config.models, wall, mono, s.config.total_timeout_ms) do
+              {:ok, p} -> admit(s, caller, effect, sink, p)
+              {:error, r} -> {:reply, {:refused, r}, s}
+            end
+
+          _ ->
+            # Reinspection of an exact retained declaration remains possible
+            # after its original deadline; this never authorizes new dispatch.
+            admit(s, caller, effect, sink, %{command: effect["command"]})
         end
     end
   end
@@ -155,13 +163,20 @@ defmodule Elzoo.DataStream do
 
   def handle_call(_, _, s), do: {:reply, {:error, :invalid_argument}, s}
 
+  defp known_entry(s, %{"command" => %{"message_id" => id, "idempotency_key" => logical}}) do
+    if Request.id?(id) and Request.id?(logical) do
+      Enum.find_value(s.entries, fn {_, e} ->
+        if e.message_id == id or e.logical_ref == logical, do: e
+      end)
+    end
+  end
+
+  defp known_entry(_, _), do: nil
+
   defp admit(s, caller, effect, sink, p) do
     c = p.command
 
-    existing =
-      Enum.find_value(s.entries, fn {_, e} ->
-        if e.message_id == c["message_id"] or e.logical_ref == c["idempotency_key"], do: e
-      end)
+    existing = known_entry(s, effect)
 
     cond do
       existing && existing.caller != caller ->

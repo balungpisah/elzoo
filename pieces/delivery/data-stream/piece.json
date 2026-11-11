@@ -43,7 +43,9 @@
     "lib/elzoo/data_stream/transport.ex",
     "lib/elzoo/data_stream/usage.ex",
     "lib/elzoo/data_stream/values.ex",
+    "test/elzoo/data_stream_bounds_test.exs",
     "test/elzoo/data_stream_copy_test.exs",
+    "test/elzoo/data_stream_mutation_test.exs",
     "test/elzoo/data_stream_owner_test.exs",
     "test/elzoo/data_stream_postgres_test.exs",
     "test/elzoo/data_stream_protocol_test.exs",
@@ -124,6 +126,16 @@
     {
       "kind": "assumption",
       "claim": "Host authenticates stable tenant/account/logical identity, reconciles activation/uncertain writes, retains durable intents/results/usage, supplies correct clocks, verified egress/workspace credential and trusted bounded sink. Provider semantics remain external."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/data_stream_bounds_test.exs",
+      "claim": "Real HTTP total bytes exact/+1; no finish without request DOWN; actual internal sender checks; simultaneous capacity admissions/caller death; retention, deadline-expired duplicates, unknown API timeouts and redacted inspection."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/data_stream_mutation_test.exs",
+      "claim": "Isolated actual-source raw-block guard and EOF-flush mutations are distinguished by the comment-plus-separator and undelimited-stop controls."
     }
   ],
   "operations": {

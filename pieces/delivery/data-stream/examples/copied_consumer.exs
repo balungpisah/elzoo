@@ -34,7 +34,9 @@ Mix.Project.in_project(:data_stream_consumer, ".", fn _ ->
     "test/elzoo/data_stream_schema_test.exs",
     "test/elzoo/data_stream_owner_test.exs",
     "test/elzoo/data_stream_store_test.exs",
-    "test/elzoo/data_stream_postgres_test.exs"
+    "test/elzoo/data_stream_postgres_test.exs",
+    "test/elzoo/data_stream_bounds_test.exs",
+    "test/elzoo/data_stream_mutation_test.exs"
   ])
 
   IO.puts("DATA_STREAM_COPIED_CONSUMER_PASSED")

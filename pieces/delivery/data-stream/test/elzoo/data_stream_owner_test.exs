@@ -436,6 +436,64 @@ defmodule Elzoo.DataStream.OwnerTest do
     end
   end
 
+  test "bad, spoofed and secret-bearing sink returns never acknowledge a finish" do
+    for callback <- [
+          fn f -> {:ack, make_ref(), f.seq} end,
+          fn f -> {:ack, f.callback_ref, f.seq + 1} end,
+          fn _ -> %{usage: 0} end,
+          fn _ -> raise "SINK_SECRET" end,
+          fn _ -> throw("SINK_SECRET") end,
+          fn _ -> exit("SINK_SECRET") end
+        ] do
+      peer =
+        Peer.start(self(), fn mod, s ->
+          Peer.response(mod, s, Fixture.wire([Fixture.start(), Fixture.delta(), Fixture.stop()]))
+        end)
+
+      {:ok, owner} = Stream.__start_loopback__(Fixture.settings(), peer.origin)
+      {:ok, h} = Stream.start(owner, Fixture.effect(), callback)
+      t = Fixture.terminal(h)
+      assert t.reason == :sink_failed and t.source_complete and not t.delivery_complete
+      assert t.offered_frames == 1 and t.acknowledged_frames == 0
+      assert {:provider_reported, _} = t.incurred_usage
+      refute inspect(t) =~ "SINK_SECRET"
+      GenServer.stop(owner)
+    end
+  end
+
+  test "request construction ignores global Req defaults and fixes transport policy" do
+    old = Application.get_env(:req, :default_options)
+
+    on_exit(fn ->
+      if is_nil(old),
+        do: Application.delete_env(:req, :default_options),
+        else: Application.put_env(:req, :default_options, old)
+    end)
+
+    Application.put_env(:req, :default_options,
+      retry: true,
+      redirect: true,
+      auth: "GLOBAL_SECRET",
+      params: [injected: "secret"]
+    )
+
+    request =
+      Stream.Transport.request(
+        "{}",
+        "local-test-key",
+        %{receive_timeout_ms: 100},
+        fn _, acc -> {:cont, acc} end,
+        :production
+      )
+
+    assert request.options.retry == false and request.options.redirect == false and
+             request.options.raw
+
+    assert request.options.decode_body == false and is_function(request.into, 2)
+    refute Map.has_key?(request.options, :auth) or Map.has_key?(request.options, :params)
+    assert request.options.finch[:protocols] == [:http1]
+  end
+
   test "TLS loopback offers h2 but the actual request and constructed pool use only HTTP1" do
     cert = Path.expand("../fixtures/loopback-cert.pem", __DIR__)
     key = Path.expand("../fixtures/loopback-key.pem", __DIR__)

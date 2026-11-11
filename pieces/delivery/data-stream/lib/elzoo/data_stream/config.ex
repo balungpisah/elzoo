@@ -33,6 +33,12 @@ defmodule Elzoo.DataStream.Config do
          true <- Enum.all?(@required, &Keyword.has_key?(settings, &1)),
          {:ok, b} <- Elzoo.EffectIntent.Binding.load(settings[:binding]),
          true <-
+           function_exported?(settings[:binding], :__data_stream_binding__, 0) and
+             settings[:binding].__data_stream_binding__() == true,
+         true <-
+           b.failures == Elzoo.DataStream.Binding.failures() and
+             b.no_send_attestations == [:credentials_unavailable],
+         true <-
            b.adapter == Elzoo.DataStream.Adapter and b.clock == "unix-ms" and
              b.operation == "generate_stream" and b.replay == :none and b.revision == :forbidden and
              b.recovery_grace_ms == :none,

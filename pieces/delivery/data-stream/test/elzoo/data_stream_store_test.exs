@@ -11,6 +11,27 @@ defmodule Elzoo.DataStream.BlockingHost do
   end
 end
 
+defmodule Elzoo.DataStream.WrongMappingBinding do
+  def __data_stream_binding__, do: true
+
+  use Elzoo.EffectIntent.Binding,
+    adapter: Elzoo.DataStream.Adapter,
+    id: "wrong-mapping",
+    provider_account: "workspace-test",
+    operation: "generate_stream",
+    clock: "unix-ms",
+    replay: :none,
+    revision: :forbidden,
+    recovery_grace_ms: :none,
+    failures:
+      Map.put(
+        Elzoo.DataStream.Binding.failures(),
+        :credentials_unavailable,
+        {"timed_out", "unknown", "unclassified"}
+      ),
+    no_send_attestations: []
+end
+
 defmodule Elzoo.DataStream.StoreTest do
   use ExUnit.Case, async: false
   alias Elzoo.DataStream, as: Stream
@@ -20,6 +41,11 @@ defmodule Elzoo.DataStream.StoreTest do
   setup do
     {:ok, _} = Application.ensure_all_started(:req)
     :ok
+  end
+
+  test "construction checks the helper and exact failure table beyond generic Binding exhaustiveness" do
+    settings = Fixture.settings(binding: Stream.WrongMappingBinding)
+    assert {:error, :configuration} = Stream.start_link(settings)
   end
 
   test "failed and indeterminate intended barriers never ask for credentials or HTTP" do

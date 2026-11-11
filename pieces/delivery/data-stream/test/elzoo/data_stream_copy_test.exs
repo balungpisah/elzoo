@@ -80,7 +80,7 @@ defmodule Elzoo.DataStream.CopyTest do
   defp copied_selection(destination) do
     pieces = select(["delivery/data-stream"], %{}) |> Map.values()
     sources = Enum.flat_map(pieces, & &1["files"]) |> Enum.uniq()
-    compiler = "lib/mix/" <> "tasks/compile_cure.ex"
+    compiler = "lib/mix/tasks/compile_cure.ex"
     sources = Enum.uniq([compiler | sources])
     files = Map.new(sources, fn path -> {path, File.read!(path)} end)
 

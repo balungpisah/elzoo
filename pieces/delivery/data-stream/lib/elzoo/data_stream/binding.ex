@@ -26,6 +26,7 @@ defmodule Elzoo.DataStream.Binding do
 
   defmacro __using__(opts) do
     quote do
+      def __data_stream_binding__, do: true
       options = unquote(opts)
 
       true =
