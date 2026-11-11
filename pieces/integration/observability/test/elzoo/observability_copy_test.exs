@@ -47,7 +47,7 @@ defmodule Elzoo.Observability.CopyTest do
       apps = closure([:logger, :crypto, :prometheus, :telemetry], MapSet.new())
       refute :elzoo in apps
       paths = Enum.map(apps, &Application.app_dir(&1, "ebin"))
-      args = Enum.flat_map(paths, &["-pa", &1]) ++ ["examples/copied_consumer.exs"]
+      args = Enum.flat_map(paths, &["-pa", &1]) ++ ["examples/observability_copied_consumer.exs"]
 
       port =
         Port.open({:spawn_executable, System.find_executable("elixir")}, [

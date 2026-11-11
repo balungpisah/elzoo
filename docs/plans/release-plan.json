@@ -3593,7 +3593,7 @@
       "release": "V1",
       "stage": "pieces",
       "dependencies": ["ELZ-033", "ELZ-004", "ELZ-052", "ELZ-107"],
-      "status": "implementation reviewed locally; local-only catalogue adoption; remote claim/publication blocked until ELZ-107 accepted; final checks and acceptance pending",
+      "status": "implementation reviewed; claimed task/ELZ-106 after ELZ-107 acceptance; publication held until ELZ-105 acceptance; corrected final checks and task acceptance pending",
       "url": "https://github.com/balungpisah/elzoo/issues/199",
       "paths": ["tasks/ELZ-106-prometheus-exporter.md"],
       "outputs": ["integration/observability"],
@@ -3601,7 +3601,7 @@
       "issue": 199,
       "issue_body_sha256": "384fade7ab8b5a3dbeb7ebad19fa5b264b51a84a2d03273143206f38edf7d0b4",
       "observed_issue_state": "OPEN",
-      "owner_role": "one authorized local worker; remote task claim after prerequisite acceptance; coordinator owns integration",
+      "owner_role": "one claimed task worker; coordinator owns integration",
       "product_aims": ["P01", "P05", "P07"]
     },
     {
@@ -4354,7 +4354,7 @@
       "disposition": "ready-contract on local stack; prerequisite and task acceptance separate",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/observability/piece.json",
-      "manifest_sha256": "5cb0b029871532c2e84435cecff523b9b586e0b0f3d436e8b5369c1bce6a963e"
+      "manifest_sha256": "8ae17b97ff389a1e56ca22c44257bb5be24d5e36173f75b8cf471c1830a61bd3"
     },
     {
       "id": "integration/payments",

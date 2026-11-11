@@ -105,7 +105,9 @@ type and telemetry attach_many/detach/list_handlers. Exact pins remain the
 separate ELZ-107 prerequisite; local stacked work is not its acceptance.
 
 Tests ground named finite runtime/process/wire/failure scenarios and copied
-source without the root Application. Upstream ETS/telemetry ordering and host
+source without the root Application. The copied fixture is
+`examples/observability_copied_consumer.exs`, distinct from other Pieces' examples
+when copying the whole catalogue. Upstream ETS/telemetry ordering and host
 Needs are named contracts, not Cure proofs or universal secrecy/delivery proofs.
 Operational applicability: telemetry supported through the two observation
 counters; config supported only at immutable provider/application lifetime;

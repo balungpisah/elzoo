@@ -21,7 +21,7 @@
     "lib/elzoo/observability.ex",
     "test/elzoo/observability_test.exs",
     "test/elzoo/observability_copy_test.exs",
-    "examples/copied_consumer.exs"
+    "examples/observability_copied_consumer.exs"
   ],
   "grounding": [
     {"kind": "test", "file": "test/elzoo/observability_test.exs", "claim": "Finite public API and actual telemetry/text-output scenarios: closed 25-series projection and invalid cross-products; duration boundaries; ignored secret markers; lifecycle, config/collector/definition refusal, provider restart, failed duration update and concurrent exact quiescent totals."},
