@@ -3218,14 +3218,16 @@
         "ELZ-023",
         "ELZ-011"
       ],
-      "status": "blocked: accepted Relay/effect evidence required",
+      "status": "assessed by ELZ-104; residual durable publication-to-job handoff remains open for separate admission",
       "contract": "Coverage/admission FIRST: inspect integration/jobs Relay from ELZ-010 PR #54 at the accepted merge, then ELZ-011 and ELZ-023. Single-stream pending/handle/ack already exists; no duplicate dispatcher. Determine whether tested composition covers stable operation identity, unknown outcomes and ack policy. Publish only an independently justified residual gap.",
       "acceptance": "Crash before dispatch, timeout after external acceptance, crash before ack, duplicate offers, cancellation and unknown outcome reconciliation. Reuse accepted dispatcher if it already provides the exact contract.",
       "reuse": "Job provider plus existing outbox/effect-intent; avoid duplicate queue infrastructure.",
-      "paths": [],
+      "paths": [
+        "docs/work/ELZ-104.md"
+      ],
       "blockers": [
-        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
-        "Relay source inspected at 18287d22a4b694581af6d1788a84a4868c1b47d3, merged at 32aef4e7dba40231257e2a91095910377c5c4ab9. Exact final acceptance remains with its owner; ELZ-011/023 external-effect outcomes are still not established by Relay."
+        "Accepted components cover bounded delivery and effect safety separately; no accepted Relay-to-HTTP-intent handoff/discovery composition after intent commit before enqueue. See docs/work/ELZ-104.md for caller, invariant, prerequisites and acceptance scenarios.",
+        "Separate admission required; candidate remains unimplemented, historical dependencies retained, no new dispatcher authorized."
       ],
       "owner_role": "one claimed task worker after admission",
       "product_aims": [
@@ -3493,6 +3495,38 @@
       "owner_role": "one claimed task worker; coordinator owns independent review and merge",
       "product_aims": [
         "P06"
+      ]
+    },
+    {
+      "id": "ELZ-104",
+      "title": "ELZ-104 — Assess RC-43 Relay and external-effect coverage",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-009",
+        "ELZ-010",
+        "ELZ-023",
+        "ELZ-011"
+      ],
+      "status": "published evidence assessment; independent review and integration required; residual RC-43 gap remains open",
+      "url": "https://github.com/balungpisah/elzoo/issues/194",
+      "paths": [
+        "tasks/ELZ-104-relay-evidence.md"
+      ],
+      "outputs": [],
+      "acceptance": "Scoped responsibility-to-evidence index; preserve historical dependencies and explicitly retain residual composition gap. No runtime implementation or candidate readiness promotion.",
+      "issue": 194,
+      "issue_body_sha256": "e634d04c56c84ebcf85500afcf4c4ce22007a28c92b1924a41a58df401c36fc2",
+      "observed_issue_state": "OPEN",
+      "owner_role": "coordinator owns assessment and shared metadata; independent reviewer",
+      "product_aims": [
+        "P02",
+        "P03",
+        "P04",
+        "P06",
+        "P10"
       ]
     }
   ],
@@ -4503,7 +4537,7 @@
     {
       "id": "candidate:delivery/outbox-dispatch",
       "job": "RC-43",
-      "resolution": "Assess existing Relay first; tested composition or demonstrated residual gap, never duplicate dispatch infrastructure."
+      "resolution": "ELZ-104 evidence assessment: reuse existing Relay and effect facilities; residual durable publication-intent to recoverable job handoff/discovery remains open for separate admission. No new Piece or readiness promotion. See docs/work/ELZ-104.md."
     }
   ],
   "release_gates": {
