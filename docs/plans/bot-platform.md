@@ -1,0 +1,298 @@
+# Bot platform track (P13)
+
+Owner priority, 2026-11-11: the owner selected a recipe-driven bot platform as
+a concrete product aim and asked that the catalogue serve it first. This page
+is the plan for that aim. It is planning input. It publishes no task, admits no
+Piece and promotes nothing to ready.
+
+[release-plan.json](release-plan.json) stays the one canonical planning source.
+The tables on this page restate it for a reader; the [generated views](views.md)
+and the manifest win when they differ. The [roadmap](roadmap.md) keeps the
+selection policy. The admission rules of
+[the capability model](../capability-model.md) apply to every job here.
+
+## The aim in short
+
+A consumer builds a platform where a tenant hires bots. A bot is described by
+a recipe. The platform has three levels:
+
+| Level | What it is | Who glues it |
+| --- | --- | --- |
+| Piece | One Elzoo Piece or Assembly | The consumer, in Elixir |
+| Module | One logical part made from Pieces, with a manifest face | The consumer, in Elixir |
+| Recipe | One bot or one team of bots | Lua, from modules only |
+
+The Lua file of a recipe runs one time and gives back plain data: callables,
+bindings and graphs. It is not a long-running script. Three parts run it:
+
+| Part | Job |
+| --- | --- |
+| Engine | Records each input, checks and does the actions of a request, brings each outcome back. It knows no pattern. |
+| Pattern | A pure step with the `core/operator` shape: old state and one input give new state and zero or one request. The agent loop, the graph, the typed decision and the turn policy of a room are patterns of equal rank. |
+| Recipe data | Says which patterns a recipe uses and how they connect. |
+
+This matches [the capability model](../capability-model.md): agent
+orchestration is an Assembly of capabilities, not a privileged kernel.
+
+## Rules that every Piece of this track keeps
+
+These restate existing Elzoo positions for this aim. A job that cannot keep
+one of them stops and reports; it does not weaken the rule.
+
+1. A pattern decides. The engine acts. A pattern has no clock, network or
+   storage.
+2. Each input is recorded before a pattern reads it.
+3. Model output is a proposal. An approval is a rule on one exact action, and
+   the engine applies it.
+4. Each outside action has an intent, a call and an outcome record. A timeout
+   after dispatch is an unknown outcome and never gets an automatic retry.
+5. Each Run has a budget. A Run with no budget does not start.
+6. A cancel names one Attempt. A late result of an old Attempt is ignored.
+7. A child or a nested callable has the authority of its parent or less.
+8. "Done" needs evidence, not the word of a model.
+9. A tool result, a document and a message from another member are content,
+   not orders.
+10. A secret never goes to a model or into a record.
+11. A live thing that a Run holds is closed when the Run ends and is never
+    reopened automatically.
+12. A pattern and the engine use the shapes of `workflow/pattern-step`. No
+    other Piece defines its own action, input or outcome words.
+
+## Waves 1 to 3: registered now
+
+Each wave ends with a thing that runs or with a pattern that is proven on
+recorded traces, so each Piece has a concrete caller.
+Release `V1B` holds the new proposals. Its gate does not wait for V1
+acceptance, and it changes no V1 gate. Two existing V1 proposals are
+prerequisites here and keep their release: RC-05 and RC-12.
+
+"Level" is 1 plus the longest chain of unfinished proposals before the job.
+"Jobs that wait for it" counts the track jobs that cannot start before it,
+direct or not. Each job also names ELZ-033, the roadmap adoption, as a
+prerequisite; the tables leave it out.
+
+### Wave 1
+
+A Run that survives: the engine runs one host, records each step, checks budget and authority, and continues after a crash.
+
+| Job | Outputs | Prerequisites | Level | Jobs that wait for it |
+| --- | --- | --- | --- | --- |
+| RC-68 | `workflow/pattern-step` | ELZ-002, ELZ-006, ELZ-023 | 1 | 16 |
+| RC-44 | `core/payload-schema` | ELZ-002, ELZ-079, ELZ-083 | 1 | 11 |
+| RC-45 | `runtime/durable-unit` | ELZ-004, ELZ-009, ELZ-010, ELZ-002 | 1 | 4 |
+| RC-46 | `runtime/dynamic-units` | ELZ-004, ELZ-013, RC-45 | 2 | 3 |
+| RC-47 | `runtime/async-work` | ELZ-004, ELZ-013, ELZ-006 | 1 | 3 |
+| RC-12 | `workflow/run` | ELZ-010, ELZ-023, ELZ-024, ELZ-026, ELZ-028, ELZ-055 | 1 | 6 |
+| RC-48 | `workflow/bot-run-lifecycle` | ELZ-010, RC-12, RC-68 | 2 | 4 |
+| RC-49 | `workflow/run-resource` | ELZ-023, ELZ-028, ELZ-006, ELZ-022, RC-68 | 2 | 3 |
+| RC-50 | `assembly/run-engine` | RC-68, RC-44, RC-45, RC-46, RC-47, RC-12, RC-48, RC-49, ELZ-002, ELZ-009, ELZ-022, ELZ-023, ELZ-024, ELZ-098 | 3 | 2 |
+
+### Wave 2
+
+An agent that uses tools: the agent loop and the typed decision are pure steps, proven on recorded traces with the model request shape and MCP tool lists. Their first run in the engine is RC-66 in wave 3.
+
+| Job | Outputs | Prerequisites | Level | Jobs that wait for it |
+| --- | --- | --- | --- | --- |
+| RC-05 | `integration/secrets` | ELZ-011 | 1 | 8 |
+| RC-51 | `workflow/untrusted-content` | ELZ-083, ELZ-030, ELZ-002 | 1 | 9 |
+| RC-52 | `workflow/tool-registry` | RC-44, ELZ-083, ELZ-079, RC-51 | 2 | 6 |
+| RC-69 | `workflow/tool-result-limit` | ELZ-096, RC-51, RC-68, ELZ-023, ELZ-009 | 2 | 3 |
+| RC-53 | `integration/ai-token-count` | ELZ-079, ELZ-030 | 1 | 4 |
+| RC-54 | `workflow/prompt-assembly`, `workflow/context-compaction` | ELZ-079, ELZ-030, RC-51, RC-53, RC-68 | 2 | 3 |
+| RC-55 | `workflow/output-repair`, `workflow/typed-decision` | ELZ-002, RC-44, ELZ-079, RC-68 | 2 | 2 |
+| RC-56 | `workflow/agent-loop` | ELZ-002, ELZ-079, RC-68, RC-52, RC-54, RC-69, ELZ-087 | 3 | 2 |
+| RC-57 | `delivery/provider-stream` | ELZ-101, ELZ-079 | 1 | 0 |
+| RC-58 | `workflow/wait-for-person`, `workflow/mid-run-input` | RC-12, RC-48, RC-68 | 3 | 0 |
+| RC-70 | `workflow/stall-detect` | RC-68 | 2 | 0 |
+| RC-59 | `integration/mcp-multi` | ELZ-083, RC-05 | 2 | 0 |
+
+### Wave 3
+
+A recipe in Lua: a Lua file gives callables as data, the engine runs a graph, and an author tests a recipe with scripted models.
+
+| Job | Outputs | Prerequisites | Level | Jobs that wait for it |
+| --- | --- | --- | --- | --- |
+| RC-60 | `runtime/lua-sandbox`, `runtime/lua-stdlib` | none | 1 | 3 |
+| RC-61 | `domain/recipe-graph`, `domain/recipe-package`, `domain/recipe-config` | RC-44, ELZ-026, ELZ-024, RC-05, RC-68 | 2 | 6 |
+| RC-62 | `runtime/lua-binding`, `workflow/lua-tool` | RC-60, RC-44, ELZ-002, RC-52, RC-61, RC-68, ELZ-022 | 3 | 2 |
+| RC-63 | `workflow/graph-run`, `workflow/node-outcome` | ELZ-002, RC-68, RC-61, ELZ-026, ELZ-098 | 3 | 2 |
+| RC-64 | `workflow/recipe-check`, `workflow/runtime-graph` | RC-61, RC-44, RC-52, ELZ-022, ELZ-024, RC-68 | 3 | 3 |
+| RC-65 | `state/recipe-store`, `workflow/version-pin` | ELZ-096, ELZ-009, RC-61, RC-64, RC-12 | 4 | 1 |
+| RC-66 | `runtime/recipe-test` | RC-50, RC-52, RC-55, RC-56, RC-60, RC-61, RC-62, RC-63, RC-64 | 4 | 1 |
+| RC-67 | `workflow/skill` | ELZ-096, RC-52, RC-54, RC-56, RC-65, RC-66, RC-61, RC-69 | 5 | 0 |
+
+Briefs with Contract, acceptance, reuse and blockers for each job are in the
+[scoped job briefs](views.md#scoped-job-briefs).
+
+## How the briefs were checked
+
+On 2026-11-12 each Contract, acceptance and reuse text of RC-44 to RC-70 was
+checked two times against the source of the ready Pieces at main `ecf822e`,
+each time by independent reviewers, and the findings of both rounds are in
+the texts. The reuse text names the file where a fact comes from. A worker
+whose base differs from that file stops and reports; the worker does not build
+on the old sentence. A brief is still a proposal: where a text says "not
+verified" or "not sized", the worker checks that point first.
+
+The status text of some published jobs in
+[release-plan.json](release-plan.json) is older than main: it says "PR
+pending" for merged work. Readiness is read from the registry, not from that
+text. These published prerequisites of the track have ready Pieces on main:
+
+| Job | Ready Pieces |
+| --- | --- |
+| ELZ-002 | `core/operator`, `core/port`, `core/assembly` |
+| ELZ-004 | `runtime/unit`, `runtime/supervision`, `runtime/host`, `runtime/adapter`, `integration/json`, `assembly/ingest-dedup-accumulate`, `assembly/ingest-json-unit`, `delivery/idempotency` |
+| ELZ-006 | `delivery/backpressure`, `delivery/retry-timeout`, `delivery/dead-letter`, `delivery/time` |
+| ELZ-009 | `state/event-log`, `state/outbox`, `state/checkpoint`, `integration/sql` |
+| ELZ-010 | `integration/jobs`, `workflow/state-machine`, `assembly/durable-job` |
+| ELZ-011 | `core/effect`, `assembly/http-job` |
+| ELZ-013 | `runtime/registry`, `integration/crypto`, `integration/http`, `integration/cure-json` |
+| ELZ-022 | `workflow/budget` |
+| ELZ-023 | `delivery/effect-intent` |
+| ELZ-024 | `domain/authorization`, `workflow/approval` |
+| ELZ-026 | `workflow/dependency-graph` |
+| ELZ-028 | `state/lease` |
+| ELZ-030 | `workflow/context-selection` |
+| ELZ-033 | none: the roadmap adoption, merged as PR #56. Every job names it as a prerequisite. Its row `core/grounding` stays planned and no job here uses that row |
+| ELZ-055 | `state/audit-log` |
+| ELZ-079 | `integration/ai-model`, `integration/ai-text`, `integration/ai-text-anthropic` |
+| ELZ-083 | `integration/mcp-client` |
+| ELZ-087 | `integration/ai-text-openai` |
+| ELZ-096 | `state/artifact` |
+| ELZ-098 | `delivery/aggregation` |
+| ELZ-101 | `delivery/data-stream` |
+
+RC-05 (`integration/secrets`) has a remote branch `task/ELZ-105` that held no
+commit of its own when this page was checked, and the manifest has no ELZ-105
+job yet. This track waits for that work and changes nothing in RC-05.
+
+## Parallel work
+
+The coordination rules allow at most three task workers that run Mix at one
+time on one host. The track is wider than that, so the order matters more than
+the width.
+
+| Level | Jobs that can start at this level |
+| --- | --- |
+| 1 | RC-68, RC-44, RC-45, RC-47, RC-12, RC-05, RC-51, RC-53, RC-57, RC-60 |
+| 2 | RC-46, RC-48, RC-49, RC-52, RC-69, RC-54, RC-55, RC-70, RC-59, RC-61 |
+| 3 | RC-50, RC-56, RC-58, RC-62, RC-63, RC-64 |
+| 4 | RC-65, RC-66 |
+| 5 | RC-67 |
+
+Rules for this track:
+
+1. **RC-68 first.** It holds the action, input and outcome shapes that 13 jobs
+   use directly and 16 jobs wait for. It gets the first free worker.
+2. **Order of admission.** When a worker slot is free, admit the first job in
+   this list whose prerequisites are merged:
+   RC-68, RC-44, RC-51, RC-05, RC-12, RC-52, RC-61, RC-45, RC-53, RC-48, RC-47, RC-60, RC-46, RC-49, RC-54, RC-69, RC-64, RC-55, RC-50, RC-56, RC-62, RC-63, RC-65, RC-66, RC-57, RC-59, RC-70, RC-58, RC-67.
+   The list is sorted by the number of jobs that wait, then by level.
+3. **Each job writes only its own Piece directories.** No two jobs of the
+   track share a path under `pieces/`. New Pieces are found by glob, so a job
+   does not edit `mix.exs` to add its Piece.
+4. **One provider adoption at a time.** A change of `mix.exs`, `mix.lock` and
+   `registry/providers.json` is a separate provider-prerequisite task with a
+   local full check. Candidates in this track: the Lua runtime (RC-60), a
+   tokenizer (RC-53) and stream support (RC-57). Never two of them at the same
+   time.
+5. **Pairs that agree before either starts.** RC-12 with RC-48: one Run
+   outcome set and one Attempt rule, owned by RC-12. RC-44 before RC-52 and
+   RC-55: one validator and one validation result per value. RC-50 with
+   RC-69: the largest outcome payload in the record, and where a large tool
+   result is cut. RC-45 owns the one info-message form: RC-46 delivers to it, and
+   the wrap of RC-50 gives it to RC-47.
+6. **Fit records start early.** RC-60 and RC-53 begin with a provider-fit
+   record. It is reading work, it needs no other job, and later jobs cannot be
+   sized before it exists.
+7. **Jobs that no other job waits for** fill a free slot and never go before a
+   job that blocks others: RC-57, RC-58, RC-59, RC-70 and RC-67.
+8. RC-50 is last in wave 1. RC-66 and then RC-67 are last in wave 3.
+
+A proposal is not permission to implement. The coordinator admits a job by
+publishing its task body under the usual rules.
+
+## Deferred rows
+
+The admission rule of 2026-11-08 already opens each planned and deferred row
+for development ([roadmap](roadmap.md), catalogue admission rule). `deferred`
+is a status word. It is not a lock. This track handles the deferred rows in
+this way:
+
+| Row | Job | In this track |
+| --- | --- | --- |
+| `workflow/run` | RC-12 | Needed in wave 1. This adoption changes the row to `planned`: the track is its concrete caller. |
+| `integration/secrets` | RC-05 | Needed in waves 2 and 3. A branch `task/ELZ-105` exists for it. The row is not changed here; that task makes it ready. |
+| `domain/principal`, `integration/identity` | RC-06 | Not needed in waves 1 to 3: the engine takes the acting principal as trusted text from the host, as `domain/authorization` does. The principal is needed in wave 4 and the identity provider in wave 5. The disposition record puts the principal after the identity provider; settle that order when wave 4 is registered. |
+| `domain/membership`, `domain/entitlement`, `integration/auth-policy`, `domain/policy-rules` | RC-07, RC-09, RC-20 | Wave 5. The status changes when that wave is registered. |
+| `domain/metering`, `domain/pricing`, `domain/quota`, `domain/journal`, `assembly/tenant-edge`, `ui/component` | RC-21, RC-23, RC-08, RC-22, RC-40, RC-31 | Wave 6. The same rule. |
+| `assembly/data-pipeline` | RC-39 | Wave 7. The same rule. |
+| `workflow/work-item`, `assembly/task-workflow` | RC-11, RC-37 | Wave 8. The same rule. |
+| `delivery/model-routing`, `domain/payment-lifecycle`, `integration/payments`, `assembly/ledger-checkout` | RC-25, RC-24, RC-41 | Wave 9. The same rule. |
+| `state/crdt`, `state/replication`, `assembly/device-ingest`, `assembly/consent-records`, `workflow/build-graph`, `integration/sdk`, `integration/agent-runner`, `assembly/agent-product`, `domain/saas-controls` | RC-34, RC-33, RC-35, RC-36, RC-29, RC-30, RC-17, RC-38, RC-32 | Not needed by this track. They stay as they are. |
+
+Existing proposals that a later wave needs, and that waves 1 to 3 do not:
+RC-01 (stored state across a format change, wave 4), RC-42 (durable dedup for
+events in, wave 4), RC-06 (waves 4 and 5), RC-03 and RC-04 (wave 6). They are
+unchanged here.
+
+## Waves 4 to 9: named, not registered
+
+Most of these handles are not in the catalogue and have no job. They are
+listed so that a wave-1 Contract does not close a door that a later wave
+needs. A wave is registered when the wave before it is accepted. A handle
+with a job in brackets is an existing catalogue row that the job owns; the
+one exception is `delivery/durable-idempotency` (RC-42), which is a candidate
+gap and not a catalogue row.
+
+| Wave | It runs | Piece handles |
+| --- | --- | --- |
+| 4 | Events in, answers out | `integration/http-server`, `integration/signature`, `integration/event-source`, `integration/webhook-in`, `delivery/debounce`, `delivery/event-trigger`, `domain/trigger-binding`, `workflow/bot-routing`, `workflow/event-wait`, `state/schema-evolution` (RC-01), `delivery/durable-idempotency` (RC-42), `domain/principal` (RC-06), `delivery/pubsub` (RC-27), `delivery/event-emit`, `delivery/event-subscription`, `delivery/poll-trigger`, `state/conversation`, `domain/end-user`, `integration/channel`, `domain/channel-identity`, `delivery/message-render`, `delivery/client-stream`, `delivery/file-upload` |
+| 5 | Many tenants, safely | `domain/tenant`, `domain/membership` (RC-07), `domain/entitlement` (RC-07), `integration/identity` (RC-06), `domain/role`, `integration/auth-policy` (RC-09), `domain/policy-rules` (RC-20), `state/tenant-isolation`, `integration/encryption`, `domain/api-key`, `integration/token-verify`, `domain/environment`, `domain/provider-key`, `integration/egress-policy`, `domain/kill-switch`, `domain/data-class`, `domain/provider-data-policy`, `state/decision-log`, `state/admin-audit`, `workflow/guard-input`, `workflow/guard-output`, `workflow/guard-tool`, `workflow/output-link-check`, `integration/pii-redaction`, `delivery/rate-limit`, `delivery/fair-queue`, `state/retention-erasure`, `workflow/tenant-lifecycle` |
+| 6 | Count and see | `integration/observability` (RC-03), `runtime/faces` (RC-04), `runtime/telemetry-events`, `runtime/trace`, `runtime/metrics`, `runtime/log`, `state/run-transcript`, `runtime/alert`, `delivery/dead-letter-store`, `state/projection`, `domain/metering` (RC-21), `domain/pricing` (RC-23), `domain/quota` (RC-08), `domain/journal` (RC-22), `domain/wallet`, `workflow/spend-alert`, `assembly/tenant-edge` (RC-40), `state/feedback`, `state/eval-dataset`, `workflow/eval`, `workflow/red-team`, `ui/component` (RC-31) |
+| 7 | Remember and know | `domain/memory-scope`, `state/memory-record`, `workflow/memory-write-policy`, `workflow/memory-extract`, `workflow/memory-recall`, `state/cache`, `state/bot-data`, `integration/document-parse`, `integration/search-text`, `integration/ai-rerank`, `workflow/permission-mirror`, `workflow/citation`, `integration/connector-web`, `integration/connector-database`, `assembly/data-pipeline` (RC-39), `assembly/knowledge-ingest` |
+| 8 | Bots talk | `delivery/durable-mailbox`, `workflow/loop-guard`, `workflow/delegation`, `workflow/handoff`, `workflow/human-escalation`, `workflow/turn-policy`, `delivery/room`, `state/shared-board`, `workflow/work-item` (RC-11), `assembly/task-workflow` (RC-37), `integration/a2a-server`, `integration/a2a-client` |
+| 9 | More tools, doors, models and money | `integration/oauth-client`, `integration/webhook-out`, `workflow/client-tool`, `workflow/code-mode`, `integration/openapi-tool`, `integration/mcp-server`, `workflow/package-vetting`, `integration/connector-drive`, `integration/channel-slack`, `integration/channel-whatsapp`, `integration/channel-telegram`, `integration/channel-email-in`, `integration/ai-text-compatible`, `integration/ai-text-google`, `integration/ai-multimodal`, `integration/ai-model-catalogue`, `delivery/model-routing` (RC-25), `delivery/resequence` (RC-28), `runtime/load-shed`, `domain/payment-lifecycle` (RC-24), `integration/payments` (RC-24), `assembly/ledger-checkout` (RC-41), `domain/plan`, `domain/invoice` |
+
+## What stays with the consumer
+
+The consumer writes these and Elzoo does not: the bot records (definition,
+instance and its life cycle), the public API, the screens, the developer
+tools, tenancy policy, deployment, backup and release.
+
+## Names
+
+- `workflow/pattern-step` holds the shared shapes. `workflow/agent-loop`,
+  `workflow/typed-decision` and `workflow/graph-run` are pattern steps in that
+  shape. `assembly/agent-product` (RC-38) stays the later example Assembly and
+  is not a prerequisite of this track.
+- A new ID is used wherever a ready Contract must grow: `runtime/durable-unit`,
+  `runtime/dynamic-units`, `workflow/bot-run-lifecycle`,
+  `delivery/provider-stream` and `integration/mcp-multi`. The ready Pieces
+  keep their IDs and Contracts. No job of this track edits a ready Piece.
+- Handles are provisional until publication and can be renamed then.
+
+## Owner decisions that are still open
+
+Each one is a blocker on the named job, not on the track.
+
+| Decision | Job |
+| --- | --- |
+| The first version of the action-kind set | RC-68 |
+| What time limits do while a Run is paused | RC-48 |
+| If a nested callable or a child Run can use a resource of the outer Run | RC-49 |
+| If a tenant can add its own MCP server at run time (the ready Contract fixes the server at build) | RC-59 |
+| Which Lua runtime, and if it runs inside the VM | RC-60 |
+| The final node list, and the name of the recipe data handle | RC-61 |
+| The skill pack format | RC-67 |
+| The language of model-written code | not registered (wave 9) |
+| The turn policies of a room | not registered (wave 8) |
+
+## Check
+
+```sh
+python3 scripts/check-roadmap.py
+python3 scripts/check-roadmap.py --self-test
+mix elzoo.ledger --check
+```
