@@ -3409,6 +3409,32 @@
       "product_aims": [
         "P07"
       ]
+    },
+    {
+      "id": "ELZ-099",
+      "title": "ELZ-099 — Pin and exercise the circuit and streaming providers",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-006"
+      ],
+      "status": "published; claimed task/ELZ-099; PR pending",
+      "url": "https://github.com/balungpisah/elzoo/issues/185",
+      "paths": [
+        "tasks/ELZ-099-fuse-provider.md"
+      ],
+      "outputs": [],
+      "acceptance": "Unchanged live issue body; byte-equal publication copy. Exercise unmodified fuse 2.5.0 and direct server_sent_events 1.1.0 in root smoke tests and an isolated dependency consumer without promoting a Piece; independent review and exact-head hosted checks remain required.",
+      "issue": 185,
+      "issue_body_sha256": "979763ded9e2fe0207d35c6b66102b16e049af9918cd4cace7ed7b6df32e0758",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed provider-prerequisite worker; coordinator owns review and merge",
+      "product_aims": [
+        "P09"
+      ],
+      "product_role": "Circuit/streaming provider prerequisite only; no circuit or stream policy or catalogue readiness change."
     }
   ],
   "entries": [

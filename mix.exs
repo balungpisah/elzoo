@@ -84,6 +84,12 @@ defmodule Elzoo.MixProject do
       {:ex_mcp, "== 1.8.1"},
       # ELZ-082 vector encoding and consumer Postgrex/Ecto types (MIT).
       {:pgvector, "== 0.4.2"},
+      # ELZ-099 provider prerequisite: unmodified fuse supplies trip/reset only;
+      # bounded recovery admission belongs to the later circuit Piece.
+      {:fuse, "== 2.5.0"},
+      # ELZ-099 streaming prerequisite: declare the already locked MIT parser
+      # directly; no HTTP transport or streaming policy is introduced here.
+      {:server_sent_events, "== 1.1.0"},
       # ELZ-097 state/scheduler providers: the public five-field cron evaluator
       # (MIT) and the IANA timezone database Need for non-UTC schedules
       # (Apache-2.0). Oban's internal Oban.Cron.Expression was evaluated and

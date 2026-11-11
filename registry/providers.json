@@ -292,6 +292,13 @@
       "reference": "https://hexdocs.pm/crontab/1.2.1/",
       "license": "MIT"
     },
+    "fuse": {
+      "source": "hex",
+      "package": "fuse",
+      "version": "2.5.0",
+      "reference": "https://github.com/jlouis/fuse/tree/2.5.0",
+      "license": "MIT"
+    },
     "tz": {
       "source": "hex",
       "package": "tz",
