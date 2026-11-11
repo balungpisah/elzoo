@@ -3528,6 +3528,31 @@
         "P06",
         "P10"
       ]
+    },
+    {
+      "id": "ELZ-103",
+      "title": "ELZ-103 — Diagnose and deterministically exercise durable-job Writer timeout boundaries",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-009",
+        "ELZ-010"
+      ],
+      "status": "published reliability evidence repair; independent review and integration required",
+      "url": "https://github.com/balungpisah/elzoo/issues/195",
+      "paths": [
+        "tasks/ELZ-103-writer-timeout-evidence.md"
+      ],
+      "outputs": [],
+      "acceptance": "Controlled real Store/Writer/Oban rollback and committed-lost-reply schedules; preserve accepted Contract and assertions; classify issue #193 with finite evidence and historical limits.",
+      "issue": 195,
+      "issue_body_sha256": "4e498c0e2b7794c2c9a66a3cbbdb71296858145eb3be73ccf284fb6649060f77",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one investigation worker; coordinator owns shared metadata and integration; independent reviewer",
+      "product_aims": [
+        "P02"
+      ]
     }
   ],
   "entries": [
