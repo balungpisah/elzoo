@@ -1,0 +1,150 @@
+{
+  "schema_version": 1,
+  "id": "delivery/data-stream",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "adapter",
+  "providers": [
+    "req",
+    "jason",
+    "server_sent_events",
+    "elixir",
+    "otp"
+  ],
+  "dependencies": [
+    "core/effect",
+    "delivery/backpressure",
+    "delivery/effect-intent",
+    "integration/ai-model"
+  ],
+  "applications": [
+    "crypto"
+  ],
+  "contract": "Bounded caller-scoped text-only Anthropic HTTP1.1 stream: serialized Backpressure admission, actual checkpoint-before-send EffectIntent, exact raw-block/SSE/JSON schema, one acknowledged local offer at a time, source-complete finish after request result/DOWN, finite cleanup/retention and provider-reported usage independent of delivery.",
+  "limits": [
+    "Trusted BEAM, host authority/clock/credentials/Store durability and bounded sink/API traffic are Needs. No root Application or synchronous AiText provider.",
+    "No automatic resend/rearm/reconnect, provider status/idempotency/replay certificate, remote cancellation, billing reconciliation, durable delivery or exactly-once claim.",
+    "Retained raw block at most 65536 plus current chunk and decoded overhead; total received 4194304 plus one overflowing chunk, not a total RSS law. Req/Finch/TLS/kernel buffering remains upstream.",
+    "Tests are finite documented-format loopback/SQL observations; no paid/live provider call or new Cure proof.",
+    "Memory is explicitly volatile. Local delivery completion and provider usage survive indeterminate intent settlement; a local ack is not a durable receipt."
+  ],
+  "files": [
+    "examples/copied_consumer.exs",
+    "lib/elzoo/data_stream.ex",
+    "lib/elzoo/data_stream/adapter.ex",
+    "lib/elzoo/data_stream/binding.ex",
+    "lib/elzoo/data_stream/config.ex",
+    "lib/elzoo/data_stream/framer.ex",
+    "lib/elzoo/data_stream/json.ex",
+    "lib/elzoo/data_stream/protocol.ex",
+    "lib/elzoo/data_stream/request.ex",
+    "lib/elzoo/data_stream/session.ex",
+    "lib/elzoo/data_stream/transport.ex",
+    "lib/elzoo/data_stream/usage.ex",
+    "lib/elzoo/data_stream/values.ex",
+    "test/elzoo/data_stream_copy_test.exs",
+    "test/elzoo/data_stream_owner_test.exs",
+    "test/elzoo/data_stream_postgres_test.exs",
+    "test/elzoo/data_stream_protocol_test.exs",
+    "test/elzoo/data_stream_schema_test.exs",
+    "test/elzoo/data_stream_store_test.exs",
+    "test/fixtures/loopback-ca.pem",
+    "test/fixtures/loopback-cert.pem",
+    "test/fixtures/loopback-key.pem",
+    "test/support/data_stream_test_helper.exs",
+    "test/test_helper.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/data_stream_copy_test.exs",
+      "claim": "Byte-identical exported closure compiles Cure and local source in an independent Mix consumer with only selected upstream application artifacts, repeats real callback/SQL/TLS/custody tests and rejects unrelated modules/apps."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/data_stream_owner_test.exs",
+      "claim": "Actual HTTP1 callback/peer-close, serialized caller custody/controls/capacity, source-versus-delivery races, delayed timers, abrupt kill and verified TLS with HTTP1-only pool."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/data_stream_postgres_test.exs",
+      "claim": "Disposable actual SQL barriers, lost dispatch checkpoint acknowledgement, recovered completed/dispatched work and indeterminate settlement without resend."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/data_stream_protocol_test.exs",
+      "claim": "Duplicate JSON, bounded raw blocks/separators, split BOM/CRLF, one-block halt and source-final usage regression."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/data_stream_schema_test.exs",
+      "claim": "Strict nested protocol/order/finish, cumulative/null/TTL usage, derived overflow, exact raw blocks and status/header scenarios."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/data_stream_store_test.exs",
+      "claim": "Actual volatile EffectIntent barriers/activation, credentials and recovered identity refuse redispatch; post-200 error preserves interim usage."
+    },
+    {
+      "kind": "type",
+      "file": "lib/elzoo/data_stream/binding.ex",
+      "claim": "Existing Binding compiler checks the total static closed failure table and sole credentials-unavailable no-send attestation; runtime exact schema validators check translated boundaries, not unchecked typespecs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "req",
+      "reference": "https://hexdocs.pm/req/0.7.5/Req.html",
+      "claim": "Pinned synchronous function-into, built-in steps and Finch pool/HTTP1 option translation; Finch 0.24.0/Mint 1.11.0 are its transitive transport."
+    },
+    {
+      "kind": "upstream",
+      "provider": "server_sent_events",
+      "reference": "https://hexdocs.pm/server_sent_events/1.1.0/ServerSentEvents.Parser.html",
+      "claim": "Unmodified maintained incremental parser; one complete bounded raw block per call. MIT package retains its own notice."
+    },
+    {
+      "kind": "upstream",
+      "provider": "jason",
+      "reference": "https://hexdocs.pm/jason/1.4.5/Jason.html",
+      "claim": "Ordered-object decode and fixed JSON encoding after local duplicate/numeric/depth checks."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/GenServer.html",
+      "claim": "GenServer serialization and linked Task.Supervisor lifecycle; no scheduler timing or universal cleanup proof."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/apps/erts/erl_ext_dist.html",
+      "claim": "OTP 29.1.2 monitors, clocks, crypto SHA/HMAC and deterministic uncompressed ETF size representation."
+    },
+    {
+      "kind": "assumption",
+      "claim": "Host authenticates stable tenant/account/logical identity, reconciles activation/uncertain writes, retains durable intents/results/usage, supplies correct clocks, verified egress/workspace credential and trusted bounded sink. Provider semantics remain external."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "planned",
+      "contract": "No Elzoo event. Req/Finch upstream telemetry and host-installed raw debugging/handlers are trusted; consumer redacts transport metadata. Status is inspection, not durable accounting."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Fixed construction-only tenant, EffectIntent Binding/Store/host, explicit credentials/models/callers and bounded count/time settings. Unknown/duplicate/HTTP override settings fail. No hot update.",
+      "evidence": [
+        "test/elzoo/data_stream_owner_test.exs",
+        "test/elzoo/data_stream_store_test.exs"
+      ]
+    },
+    "control": {
+      "status": "supported",
+      "contract": "Actual submitting caller only: lookup/status/result/cancel/close, fixed 1000ms reply waits with unknown mutations, cleanup before terminal/release, finite shared retained capacity. No pause, rearm or business drain.",
+      "evidence": [
+        "test/elzoo/data_stream_owner_test.exs"
+      ]
+    }
+  }
+}
