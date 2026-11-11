@@ -64,6 +64,8 @@ defmodule Elzoo.MixProject do
       # ELZ-052 runtime/telemetry provider (already locked transitively at 1.4.2
       # through Oban, Ecto and Req); a direct dependency of the Piece.
       {:telemetry, "== 1.4.2"},
+      # ELZ-107: public Prometheus counters and formatter; ddskerl is its required closure.
+      {:prometheus, "== 6.1.3"},
       # ELZ-055 state/audit-log provider (Apache-2.0): trigger-based change capture.
       {:carbonite, "== 0.17.0"},
       # ELZ-079 integration/ai-text-anthropic provider (Apache-2.0), locked at 1.30.0 with
