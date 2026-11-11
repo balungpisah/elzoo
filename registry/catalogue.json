@@ -186,11 +186,11 @@
     },
     {
       "id": "delivery/data-stream",
-      "summary": "Incremental byte/result transfer",
-      "disposition": "defer",
+      "summary": "Bounded Anthropic text stream and local delivery",
+      "disposition": "adapt",
       "phase": "demand-led",
-      "status": "deferred",
-      "reason": "Bounded buffers, cancellation, close/reconnect and backpressure for C7/C8; distinct from the ready Enum/Stream recipe. Reuse transport APIs; no transport adopted. ELZ-025 study: an in-band completeness marker distinct from payload; close-on-successor windows need end-of-stream and cancellation flush."
+      "status": "ready",
+      "manifest": "pieces/delivery/data-stream/piece.json"
     },
     {
       "id": "delivery/dead-letter",

@@ -84,7 +84,8 @@
         "RC-18",
         "RC-19",
         "RC-12",
-        "ELZ-022"
+        "ELZ-022",
+        "ELZ-101"
       ],
       "limit": "One selected provider, bounded retrieved context, explicit partial/unknown results; not research truth."
     },
@@ -2287,14 +2288,12 @@
       "kind": "proposal",
       "release": "V1",
       "stage": "pieces",
-      "outputs": [
-        "delivery/data-stream"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "ELZ-006"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "superseded for delivery/data-stream by published ELZ-101; broader transfer gaps remain deferred",
       "contract": "Stream chunks carry explicit completion, cancellation and partial-result status. Bound buffering and declare who closes/drains on consumer failure.",
       "acceptance": "Slow consumer, disconnect, cancellation, incomplete final chunk and end-of-stream flush; memory bound enforced in named scenarios.",
       "reuse": "Elixir/OTP and maintained HTTP streaming APIs; ordinary Enum/Stream remains unchanged.",
@@ -3435,6 +3434,39 @@
         "P09"
       ],
       "product_role": "Circuit/streaming provider prerequisite only; no circuit or stream policy or catalogue readiness change."
+    },
+    {
+      "id": "ELZ-101",
+      "title": "ELZ-101 — Bound one Anthropic text stream and its local delivery",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-006",
+        "ELZ-011",
+        "ELZ-023",
+        "ELZ-079",
+        "ELZ-091",
+        "ELZ-093",
+        "ELZ-099"
+      ],
+      "status": "published; claimed task/ELZ-101; acceptance pending",
+      "url": "https://github.com/balungpisah/elzoo/issues/187",
+      "paths": [
+        "tasks/ELZ-101-delivery-data-stream.md"
+      ],
+      "outputs": [
+        "delivery/data-stream"
+      ],
+      "acceptance": "Unchanged live issue body and byte-equal publication copy; bounded Anthropic text stream and local delivery under its specified evidence and limits.",
+      "issue": 187,
+      "issue_body_sha256": "5d990220e47b07ae75228db042e8ab7c895919214ffaf16d64708b03c6ebd3f5",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge",
+      "product_aims": [
+        "P06"
+      ]
     }
   ],
   "entries": [
@@ -3662,11 +3694,13 @@
     },
     {
       "id": "delivery/data-stream",
-      "job": "RC-14",
-      "note": "Bounded buffers, cancellation, close/reconnect and backpressure for C7/C8; distinct from the ready Enum/Stream recipe. Reuse transport APIs; no transport adopted. ELZ-025 study: an in-band completeness marker distinct from payload; close-on-successor windows need end-of-stream and cancellation flush.",
+      "job": "ELZ-101",
+      "note": "Bounded caller-scoped text-only Anthropic HTTP1.1 stream: serialized Backpressure admission, actual checkpoint-before-send EffectIntent, exact raw-block/SSE/JSON schema, one acknowledged local offer at a time, source-complete finish after request result/DOWN, finite cleanup/retention and provider-reported usage independent of delivery.",
       "baseline_status": "deferred",
-      "disposition": "blocked-admission-proposal",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract on task branch; task acceptance separate",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/delivery/data-stream/piece.json",
+      "manifest_sha256": "d9ad251ec531f03f4abeeec783f7e9ef1ac474ad03981d3438b3566cff96392e"
     },
     {
       "id": "delivery/dead-letter",
