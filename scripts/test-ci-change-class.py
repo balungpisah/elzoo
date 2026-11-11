@@ -474,6 +474,7 @@ PIECE_README = "README.md of a piece directory (pieces/**), not the root README.
 MIX_TASK = "path of a Mix task source file (lib/mix/tasks/), not a read of tasks/"
 FIXTURE = "string in a selection or export fixture, not a read"
 REVIEWED = {
+    ("pieces/delivery/data-stream/test/elzoo/data_stream_copy_test.exs", 'compiler = "lib/mix/tasks/compile_cure.ex"'): MIX_TASK,
     ("lib/elzoo/export.ex", '{".elzoo/docs/consuming.md", "docs/consuming.md"}'):
         "READ: the export copies it into every bundle; docs/consuming.md is not in the allowlist (READ_BY_CODE)",
     ("lib/elzoo/export.ex", '{".elzoo/#{piece["directory"]}/README.md", "#{piece["directory"]}/README.md"},'): PIECE_README,
