@@ -194,7 +194,7 @@ Four selected **production Cure decision laws**:
 mutations run with the shipped tests. These laws do not prove token identity,
 time arithmetic, concurrency, fuse or complete runtime invariants.
 
-Finite C1–C20 scenarios cover the decision table, runtime fences, concurrency,
+Finite C1–C21 scenarios cover the decision table, runtime fences, concurrency,
 expiry, provider identity/restarts/timeouts in a separate BEAM, operational
 schema, real root Adapter composition, and original/renamed independent source
 consumers. The copied-source scenario runs all other circuit tests from freshly

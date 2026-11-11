@@ -56,7 +56,7 @@ defmodule Elzoo.CircuitSourceCopyTest do
 
       assert status == 0, output
       assert output =~ "ELZ-100 SOURCE CONSUMER PASSED"
-      assert output =~ "Result: 18 passed"
+      assert output =~ "Result: 19 passed"
 
       # A fresh VM loads the compiled consumer plus runtime providers only.
       # Cure's compiler and the catalogue application are absent at runtime.

@@ -74,7 +74,7 @@
     {
       "kind": "test",
       "file": "test/elzoo/circuit_breaker_test.exs",
-      "claim": "C3-C11 cold/failed/neutral recovery, 32 concurrent requesters, stale/retained probes, exact expiry, authentication, saturation, secret holder DOWN, duplicate/replacement, old name-only reset injection and clock/config bounds."
+      "claim": "C3-C11 and C21 cold/failed/neutral recovery, holder DOWN during clock failure, 32 concurrent requesters, stale/retained probes, exact expiry, authentication, saturation, secret holder DOWN, duplicate/replacement, old name-only reset injection and clock/config bounds."
     },
     {
       "kind": "test",
