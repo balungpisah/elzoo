@@ -44,6 +44,7 @@ jobs:
       - run: python3 scripts/check-claims.py
       - run: python3 scripts/check-ci-runners.py
       - run: python3 scripts/test-ci-runners.py
+      - run: python3 scripts/test-ci-install-runtime.py
       - run: python3 scripts/test-merge-queue.py
       - run: python3 scripts/test-ci-minio.py
       - run: python3 scripts/test-ci-change-class.py
@@ -113,10 +114,6 @@ jobs:
           sed -n '1,5p' /proc/meminfo
           cat /proc/loadavg
           nproc
-      - name: Install runtime libraries
-        run: |
-          sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libncurses6 libsctp1 libssl3
       - name: Prepare disposable PostgreSQL database
         run: |
           set -eu
@@ -132,6 +129,8 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Install runtime libraries
+        run: sudo python3 scripts/ci-install-runtime.py
       - name: Restore the pinned S3 test server binary
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
@@ -235,10 +234,6 @@ jobs:
           sed -n '1,5p' /proc/meminfo
           cat /proc/loadavg
           nproc
-      - name: Install runtime libraries
-        run: |
-          sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libncurses6 libsctp1 libssl3
       - name: Prepare disposable PostgreSQL database
         run: |
           set -eu
@@ -254,6 +249,8 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Install runtime libraries
+        run: sudo python3 scripts/ci-install-runtime.py
       - name: Restore the pinned S3 test server binary
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
@@ -341,10 +338,6 @@ jobs:
           sed -n '1,5p' /proc/meminfo
           cat /proc/loadavg
           nproc
-      - name: Install runtime libraries
-        run: |
-          sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libncurses6 libsctp1 libssl3
       - name: Prepare disposable PostgreSQL database
         run: |
           set -eu
@@ -360,6 +353,8 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Install runtime libraries
+        run: sudo python3 scripts/ci-install-runtime.py
       - name: Restore the pinned S3 test server binary
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
