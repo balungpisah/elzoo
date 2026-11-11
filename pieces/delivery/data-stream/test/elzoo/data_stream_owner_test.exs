@@ -285,16 +285,29 @@ defmodule Elzoo.DataStream.OwnerTest do
     end
 
     {:ok, owner} = Stream.__start_loopback__(Fixture.settings(ack_timeout_ms: 200), peer.origin)
-    {:ok, h} = Stream.start(owner, Fixture.effect(), sink)
-    assert_receive {:held_frame, worker, %Stream.Frame{seq: 0}}, 2_000
-    assert {:ok, snap} = Stream.status(owner, h)
-    assert snap.raw_blocks == 3 and snap.offered_frames == 1 and not snap.source_complete
-    send(:sys.get_state(owner).entries[h.ref].session, {:ack, make_ref(), 0})
-    t = Fixture.terminal(h)
-    assert t.reason == :sink_timeout and t.acknowledged_frames == 0
-    refute Process.alive?(worker)
-    refute_receive {:held_frame, _, %Stream.FinishFrame{}}, 0
-    GenServer.stop(owner)
+
+    try do
+      {:ok, h} = Stream.start(owner, Fixture.effect(), sink)
+      assert_receive {:held_frame, worker, %Stream.Frame{seq: 0}}, 2_000
+      session = :sys.get_state(owner).entries[h.ref].session
+
+      # The sink can run before Session publishes its offer. Run the owner
+      # fence from Session so its earlier summaries have the same sender.
+      :sys.replace_state(session, fn s ->
+        :sys.get_state(owner)
+        s
+      end)
+
+      assert {:ok, snap} = Stream.status(owner, h)
+      assert snap.raw_blocks == 3 and snap.offered_frames == 1 and not snap.source_complete
+      send(:sys.get_state(owner).entries[h.ref].session, {:ack, make_ref(), 0})
+      t = Fixture.terminal(h)
+      assert t.reason == :sink_timeout and t.acknowledged_frames == 0
+      refute Process.alive?(worker)
+      refute_receive {:held_frame, _, %Stream.FinishFrame{}}, 0
+    after
+      if Process.alive?(owner), do: GenServer.stop(owner)
+    end
   end
 
   test "finish cancel wins before ack and committed finish wins before later cancel" do
