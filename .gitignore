@@ -5,3 +5,6 @@
 /.elixir_ls/
 /.fetch
 /erl_crash.dump
+
+# Amp orb portals
+/.amp/portals/*

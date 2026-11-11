@@ -1,0 +1,199 @@
+#!/usr/bin/env bash
+# Prepares an Amp orb (Debian 12/13) for `mix setup` / `mix check`, mirroring the hosted CI
+# (.github/workflows/symbolic-check.yml): the pinned OTP and Elixir, PostgreSQL 16 with pgvector
+# and the disposable elzoo_test database, and the pinned MinIO with the elzoo-test bucket. It also
+# prepares the Gleam UI spike (.github/workflows/symbolic-gleam.yml): Node, Gleam and Playwright Chromium.
+# Idempotent: a warm run only re-checks each step and reruns `mix setup`.
+set -euo pipefail
+
+OTP_VERSION=29.1.2
+OTP_SHA256=1df9e6285b4d14319a789176db60c273131abebdfa6b5474a084dba49b0e54a2
+ELIXIR_VERSION=1.20.4
+ELIXIR_SHA256=7863c546cda13fecc949e562e326042451dacf8fd8698a36783cb71eeb223b46
+PG_MAJOR=16
+# Must match scripts/ci-minio.py.
+MINIO_VERSION=RELEASE.2025-09-07T16-13-09Z
+MINIO_SHA256=7c5bd8512c6e966455b1d198209358b2d191c77a83ab377c4073281065fb855f
+MINIO_BUCKET=elzoo-test
+MINIO_PORT=9000
+# Must match spikes/gleam_ui/scripts/setup.sh.
+NODE_VERSION=24.16.0
+NODE_SHA256=d804845d34eddc21dc1092b519d643ef40b1f58ec5dec5c22b1f4bd8fabde6c9
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+tools="$HOME/.local/elzoo"
+otp_dir="$tools/otp-$OTP_VERSION"
+elixir_dir="$tools/elixir-$ELIXIR_VERSION"
+minio_dir="$tools/minio"
+node_dir="$tools/node-v$NODE_VERSION"
+env_file="$HOME/.config/elzoo/orb-env.sh"
+minio_env="$HOME/.config/elzoo/minio.env"
+
+step() { printf '\n==> %s\n' "$*"; step_started=$SECONDS; }
+done_step() { printf '    (%ss)\n' "$((SECONDS - step_started))"; }
+
+fetch_verified() { # url sha256 dest
+  local tmp
+  tmp="$(mktemp)"
+  curl -fsSL --retry 3 -o "$tmp" "$1"
+  echo "$2  $tmp" | sha256sum -c --quiet -
+  mv "$tmp" "$3"
+}
+
+step "System packages"
+# shellcheck disable=SC1091
+. /etc/os-release
+pg_bin="/usr/lib/postgresql/$PG_MAJOR/bin"
+apt_updated=0
+apt_update() { if [ "$apt_updated" = 0 ]; then sudo apt-get update -qq; apt_updated=1; fi; }
+if [ ! -f /etc/apt/sources.list.d/pgdg.list ]; then
+  sudo install -d /usr/share/postgresql-common/pgdg
+  sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+    https://www.postgresql.org/media/keys/ACCC4CF8.asc
+  echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" \
+    | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+fi
+packages=(build-essential libncurses6 libsctp1 libssl3 unzip xz-utils curl ca-certificates
+  "postgresql-$PG_MAJOR" "postgresql-$PG_MAJOR-pgvector")
+missing=()
+for package in "${packages[@]}"; do
+  dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q 'ok installed' || missing+=("$package")
+done
+if [ "${#missing[@]}" -gt 0 ]; then
+  apt_update
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends "${missing[@]}"
+fi
+done_step
+
+step "OTP $OTP_VERSION, Elixir $ELIXIR_VERSION and Node $NODE_VERSION"
+mkdir -p "$tools"
+if [ ! -x "$otp_dir/bin/erl" ]; then
+  # hex.pm's Ubuntu 22.04 build (glibc 2.35, libssl3) runs on Debian 12 and 13.
+  rm -rf "$otp_dir" && mkdir -p "$otp_dir"
+  fetch_verified "https://builds.hex.pm/builds/otp/amd64/ubuntu-22.04/OTP-$OTP_VERSION.tar.gz" \
+    "$OTP_SHA256" "$tools/otp.tar.gz"
+  tar -xzf "$tools/otp.tar.gz" -C "$otp_dir" --strip-components=1
+  rm -f "$tools/otp.tar.gz"
+  "$otp_dir/Install" -minimal "$otp_dir" >/dev/null
+fi
+if [ ! -x "$elixir_dir/bin/elixir" ]; then
+  rm -rf "$elixir_dir" && mkdir -p "$elixir_dir"
+  fetch_verified "https://builds.hex.pm/builds/elixir/v$ELIXIR_VERSION-otp-${OTP_VERSION%%.*}.zip" \
+    "$ELIXIR_SHA256" "$tools/elixir.zip"
+  unzip -q "$tools/elixir.zip" -d "$elixir_dir"
+  rm -f "$tools/elixir.zip"
+fi
+if [ ! -x "$node_dir/bin/node" ]; then
+  rm -rf "$node_dir" && mkdir -p "$node_dir"
+  fetch_verified "https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION-linux-x64.tar.xz" \
+    "$NODE_SHA256" "$tools/node.tar.xz"
+  tar -xJf "$tools/node.tar.xz" -C "$node_dir" --strip-components=1
+  rm -f "$tools/node.tar.xz"
+fi
+export PATH="$elixir_dir/bin:$otp_dir/bin:$node_dir/bin:$PATH"
+done_step
+
+step "MinIO $MINIO_VERSION"
+mkdir -p "$minio_dir/data/$MINIO_BUCKET" "$(dirname "$env_file")"
+if ! echo "$MINIO_SHA256  $minio_dir/minio" | sha256sum -c --quiet - >/dev/null 2>&1; then
+  fetch_verified "https://github.com/minio/minio/releases/download/$MINIO_VERSION/minio.linux-amd64.$MINIO_VERSION" \
+    "$MINIO_SHA256" "$minio_dir/minio"
+  chmod 0755 "$minio_dir/minio"
+fi
+if [ ! -f "$minio_env" ]; then
+  # Loopback-only, disposable test credentials, generated once per snapshot like CI's.
+  (umask 077 && printf 'MINIO_ROOT_USER=elzoo%s\nMINIO_ROOT_PASSWORD=%s\n' \
+    "$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')" "$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')" >"$minio_env")
+fi
+unit="[Unit]
+Description=Elzoo disposable S3 test server (MinIO)
+After=network.target
+
+[Service]
+User=$(id -un)
+EnvironmentFile=$minio_env
+Environment=MINIO_BROWSER=off MINIO_CI_CD=1 MINIO_UPDATE=off MINIO_API_REQUESTS_MAX=0
+ExecStart=$minio_dir/minio server $minio_dir/data --address 127.0.0.1:$MINIO_PORT --console-address 127.0.0.1:9001
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target"
+if [ "$(cat /etc/systemd/system/elzoo-minio.service 2>/dev/null)" != "$unit" ]; then
+  echo "$unit" | sudo tee /etc/systemd/system/elzoo-minio.service >/dev/null
+  sudo systemctl daemon-reload
+  sudo systemctl restart elzoo-minio.service
+fi
+sudo systemctl enable --now elzoo-minio.service
+done_step
+
+step "PostgreSQL $PG_MAJOR test database"
+sudo systemctl enable --now postgresql
+if ! pg_lsclusters -h | awk -v v="$PG_MAJOR" '$1 == v && $2 == "main" { found = 1 } END { exit !found }'; then
+  sudo pg_createcluster "$PG_MAJOR" main --start
+fi
+sudo pg_ctlcluster "$PG_MAJOR" main start 2>/dev/null || true
+psql_admin() { sudo -u postgres psql -p "$(pg_conftool -s "$PG_MAJOR" main show port)" -v ON_ERROR_STOP=1 -qAt "$@"; }
+# Disposable test data: speed over durability. ALTER SYSTEM is cluster-wide, so leave a cluster
+# that already holds other databases alone.
+other_dbs="$(psql_admin -c "SELECT count(*) FROM pg_database WHERE datname NOT IN ('postgres', 'template0', 'template1', 'elzoo_test')")"
+if [ "$other_dbs" = 0 ] && [ "$(psql_admin -c 'SHOW fsync')" != off ]; then
+  psql_admin -c 'ALTER SYSTEM SET fsync = off' -c 'ALTER SYSTEM SET synchronous_commit = off' \
+    -c 'ALTER SYSTEM SET full_page_writes = off'
+  sudo pg_ctlcluster "$PG_MAJOR" main restart
+fi
+pg_port="$(pg_conftool -s "$PG_MAJOR" main show port)"
+if [ "$(psql_admin -c "SELECT 1 FROM pg_roles WHERE rolname = 'elzoo_test'")" != 1 ]; then
+  psql_admin -c "CREATE ROLE elzoo_test LOGIN PASSWORD 'elzoo_test'"
+fi
+if [ "$(psql_admin -c "SELECT 1 FROM pg_database WHERE datname = 'elzoo_test'")" != 1 ]; then
+  sudo -u postgres createdb -p "$pg_port" -O elzoo_test elzoo_test
+fi
+psql_admin -d elzoo_test -c 'CREATE EXTENSION IF NOT EXISTS vector'
+done_step
+
+step "Login shell environment"
+{
+  echo "# Written by .agents/setup; do not edit."
+  echo 'export LANG="${LANG:-C.UTF-8}"'
+  echo "export PATH=\"$elixir_dir/bin:$otp_dir/bin:$node_dir/bin:\$PATH\""
+  echo "export ELZOO_TEST_DATABASE_URL=ecto://elzoo_test:elzoo_test@localhost:$pg_port/elzoo_test"
+  echo "export ELZOO_TEST_S3_URL=http://127.0.0.1:$MINIO_PORT"
+  echo "export ELZOO_TEST_S3_BUCKET=$MINIO_BUCKET"
+  echo "export ELZOO_TEST_S3_REGION=us-east-1"
+  # shellcheck disable=SC2016
+  echo 'set -a; . "'"$minio_env"'"; set +a'
+  echo 'export ELZOO_TEST_S3_ACCESS_KEY_ID="$MINIO_ROOT_USER" ELZOO_TEST_S3_SECRET_ACCESS_KEY="$MINIO_ROOT_PASSWORD"'
+  echo 'unset MINIO_ROOT_USER MINIO_ROOT_PASSWORD'
+} >"$env_file"
+marker="# elzoo orb environment"
+if ! grep -Fqx "$marker" "$HOME/.bash_profile" 2>/dev/null; then
+  if [ ! -e "$HOME/.bash_profile" ] && [ -f "$HOME/.profile" ]; then
+    # A new ~/.bash_profile would stop bash from reading ~/.profile.
+    echo '[ -f "$HOME/.profile" ] && . "$HOME/.profile"' >>"$HOME/.bash_profile"
+  fi
+  printf '\n%s\n[ -f "%s" ] && . "%s"\n' "$marker" "$env_file" "$env_file" >>"$HOME/.bash_profile"
+fi
+# shellcheck disable=SC1090
+. "$env_file"
+done_step
+
+step "Hex, rebar and mix setup"
+cd "$repo_root"
+mix local.hex --force --if-missing >/dev/null
+mix local.rebar --force --if-missing >/dev/null
+mix setup
+done_step
+
+step "Gleam UI spike (Gleam, npm and Playwright Chromium)"
+spikes/gleam_ui/scripts/setup.sh
+# install-deps always runs apt-get update, so run it once per locked Playwright version.
+playwright_version="$(node -p 'require("./spikes/gleam_ui/node_modules/playwright/package.json").version')"
+playwright_stamp="$tools/playwright-deps-$playwright_version"
+if [ ! -f "$playwright_stamp" ]; then
+  (cd spikes/gleam_ui && sudo env "PATH=$PATH" npx --no-install playwright install-deps chromium)
+  touch "$playwright_stamp"
+fi
+done_step
+
+echo
+echo "Elzoo orb setup complete in ${SECONDS}s."
