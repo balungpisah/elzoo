@@ -57,6 +57,7 @@ defmodule Elzoo.DataStream.Protocol do
              {:ok, s, action} <- event(%{s | parser: parser}, name, m) do
           {:ok, s, action}
         else
+          {:error, :invalid_json} -> {:error, :malformed_response, s}
           {:error, r} -> {:error, r, s}
           _ -> {:error, :malformed_response, s}
         end

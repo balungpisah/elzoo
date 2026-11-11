@@ -199,7 +199,10 @@ defmodule Elzoo.DataStream do
           {:ok, capacity, :admitted} ->
             h = %Handle{owner: self(), generation: s.generation, ref: make_ref()}
 
+            fence = make_ref()
+
             opts = [
+              observation_fence: fence,
               owner: self(),
               caller: caller,
               handle: h,
@@ -215,6 +218,7 @@ defmodule Elzoo.DataStream do
 
                 e = %{
                   caller: caller,
+                  observation_fence: fence,
                   handle: h,
                   session: pid,
                   session_ref: Process.monitor(pid),
@@ -257,15 +261,38 @@ defmodule Elzoo.DataStream do
 
   defp entry(_, _, _), do: {:error, :invalid_argument}
   @impl true
-  def handle_info({:summary, ref, phase, t}, s) do
-    {:noreply,
-     update(s, ref, fn e ->
-       if e.phase == :retained, do: e, else: %{e | phase: phase, terminal: t}
-     end)}
+  def handle_info({:summary, ref, fence, generation, session, phase, t}, s) do
+    case s.entries[ref] do
+      %{
+        observation_fence: ^fence,
+        session: ^session,
+        phase: phase0,
+        session_down: false,
+        settled: false
+      }
+      when generation == s.generation and phase0 != :retained ->
+        {:noreply, update(s, ref, &%{&1 | phase: phase, terminal: t})}
+
+      _ ->
+        {:noreply, s}
+    end
   end
 
-  def handle_info({:settled, ref, t}, s) do
-    {:noreply, s |> update(ref, &%{&1 | settled: true, terminal: t}) |> retain(ref)}
+  def handle_info({:settled, ref, fence, generation, session, t}, s) do
+    case s.entries[ref] do
+      %{
+        observation_fence: ^fence,
+        session: ^session,
+        phase: phase0,
+        session_down: false,
+        settled: false
+      }
+      when generation == s.generation and phase0 != :retained ->
+        {:noreply, s |> update(ref, &%{&1 | settled: true, terminal: t}) |> retain(ref)}
+
+      _ ->
+        {:noreply, s}
+    end
   end
 
   def handle_info({:DOWN, ref, :process, _, _}, s) do

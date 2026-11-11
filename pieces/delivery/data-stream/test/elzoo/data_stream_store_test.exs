@@ -143,6 +143,69 @@ defmodule Elzoo.DataStream.StoreTest do
     end
   end
 
+  test "malformed and duplicate event JSON settle as the declared malformed response" do
+    for raw <- ["{", ~s({"type":"ping","type":"ping"})] do
+      peer =
+        Peer.start(self(), fn mod, socket ->
+          Peer.response(
+            mod,
+            socket,
+            Fixture.wire([Fixture.start()]) <> "event: ping\ndata: " <> raw <> "\n\n"
+          )
+        end)
+
+      settings = Fixture.settings()
+      {:ok, owner} = Stream.__start_loopback__(settings, peer.origin)
+      {:ok, h} = Stream.start(owner, Fixture.effect(), &Fixture.ack/1)
+      t = Fixture.terminal(h)
+      assert t.reason == :malformed_response and t.status == :partial
+      assert t.intent_confirmation == :confirmed
+      stream = Elzoo.EffectIntent.Model.stream(t.correlation.intent_key)
+      {:ok, row, _} = Elzoo.DurableLog.Store.read(settings[:store], :read_at, [stream, 3])
+      {:ok, {:step, 1, event, _, _, _}} = Elzoo.EffectIntent.Model.decode_term(row.payload, 131_072)
+      assert event == :Lost
+      GenServer.stop(owner)
+    end
+  end
+
+  test "public handle and wrong observation fences cannot forge or rewrite outcomes" do
+    parent = self()
+
+    settings =
+      Fixture.settings(
+        credentials: fn ->
+          send(parent, :blocked_need)
+
+          receive do
+            :never -> :error
+          end
+        end
+      )
+
+    {:ok, owner} = Stream.start_link(settings)
+    {:ok, h} = Stream.start(owner, Fixture.effect(), &Fixture.ack/1)
+    assert_receive :blocked_need, 2_000
+    e = :sys.get_state(owner).entries[h.ref]
+
+    fake = %Stream.Terminal{
+      status: :complete,
+      reason: :completed,
+      source_complete: true,
+      delivery_complete: true
+    }
+
+    send(owner, {:summary, h.ref, :finishing, fake})
+    send(owner, {:summary, h.ref, make_ref(), h.generation, e.session, :finishing, fake})
+    send(owner, {:settled, h.ref, e.observation_fence, make_ref(), e.session, fake})
+    assert {:ok, %{delivery_complete: false, source_complete: false}} = Stream.status(owner, h)
+    assert {:ok, :pending} = Stream.cancel(owner, h)
+    t = Fixture.terminal(h)
+    assert t.reason == :caller_cancelled and not t.delivery_complete
+    send(owner, {:settled, h.ref, e.observation_fence, h.generation, e.session, fake})
+    assert {:ok, ^t} = Stream.result(owner, h)
+    GenServer.stop(owner)
+  end
+
   test "post-200 error usage stays interim and never retries a charged request" do
     error = %{
       "type" => "error",

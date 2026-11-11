@@ -7,6 +7,7 @@ defmodule Elzoo.DataStream.Session do
 
   defstruct [
     :owner,
+    :observation_fence,
     :caller,
     :handle,
     :config,
@@ -564,7 +565,12 @@ defmodule Elzoo.DataStream.Session do
     if s.cleaning and s.supervisor_down and map_size(s.workers) == 0 and is_nil(s.intent_ref) and
          is_nil(s.adapter_ref) do
       true = Terminal.size(s.terminal) <= 4096
-      send(s.owner, {:settled, s.handle.ref, s.terminal})
+
+      send(
+        s.owner,
+        {:settled, s.handle.ref, s.observation_fence, s.handle.generation, self(), s.terminal}
+      )
+
       {:stop, :normal, s}
     else
       {:noreply, s}
@@ -671,7 +677,15 @@ defmodule Elzoo.DataStream.Session do
     do: remaining(s) > 0 and Process.alive?(s.owner) and Process.alive?(s.caller) and not s.cleaning
 
   defp maybe_expire(s), do: if(remaining(s) == 0, do: fail(s, :timeout), else: s)
-  defp publish(s), do: send(s.owner, {:summary, s.handle.ref, s.phase, s.terminal})
+
+  defp publish(s),
+    do:
+      send(
+        s.owner,
+        {:summary, s.handle.ref, s.observation_fence, s.handle.generation, self(), s.phase,
+         s.terminal}
+      )
+
   @impl true
   def format_status(status),
     do: Map.new(status, fn {k, _} -> {k, if(k == :log, do: [], else: :redacted)} end)
