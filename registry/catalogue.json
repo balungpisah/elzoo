@@ -178,11 +178,11 @@
     },
     {
       "id": "delivery/circuit-breaker",
-      "summary": "Circuit breaker and bulkhead policy",
+      "summary": "Circuit admission and one fenced recovery probe; resource bulkheads remain caller/pool-owned",
       "disposition": "adapt",
       "phase": "P1\u2192P3",
-      "status": "planned",
-      "reason": "Reuse OTP state/supervision and provider pool semantics where sufficient; Elzoo owns the state/permit policy that remains and tests transitions"
+      "status": "ready",
+      "manifest": "pieces/delivery/circuit-breaker/piece.json"
     },
     {
       "id": "delivery/data-stream",

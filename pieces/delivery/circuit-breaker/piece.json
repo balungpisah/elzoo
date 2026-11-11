@@ -1,0 +1,152 @@
+{
+  "schema_version": 1,
+  "id": "delivery/circuit-breaker",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "adapter",
+  "providers": [
+    "fuse",
+    "telemetry",
+    "cure",
+    "elixir",
+    "otp"
+  ],
+  "dependencies": [
+    "delivery/backpressure",
+    "delivery/retry-timeout",
+    "delivery/time"
+  ],
+  "contract": "Volatile single-owner first-failure circuit admission over fuse 2.5.0: cold probation, one recovery probe, holder/incarnation/epoch-bound one-use observations, retained expired probe fence, monotonic minimum cooldown and permanently latched provider-incarnation failure; bounded permit bookkeeping through unchanged Backpressure, no Effect, queue, retry or physical resource bound.",
+  "limits": [
+    "Volatile local admission only; no durability, receipts, distributed recovery, exactly-once, replay safety or cross-owner physical-work guarantee. Circuit bookkeeping retirement does not release a Runner slot, cancel work or revoke an Effect.",
+    "A hung live expired recovery holder may stall recovery indefinitely. Ledger bound does not bound OTP mailboxes, total VM memory or upstream reset timers under lifecycle churn.",
+    "Trusted truthful observations/monotonic clock, finite static names, consumer supervision, exclusive fuse mutation, fuse/sasl/default ETS stats and bounded caller operations are Needs. Provider identity checks cover observed decision points, not an atomic guarantee against the next crash.",
+    "Fuse name-only reset messages are not generation-fenced; Elzoo local cooldown/probe guards supply only the declared local admission fence. Stats may retain per-name counters after removal.",
+    "Telemetry is optional synchronous observation; failed handlers detach upstream and slow handlers delay the owner. Consumer Logger/OTP/upstream observations are outside the Piece event redaction contract.",
+    "Four Cure laws cover production decision helpers only (open-before-target uses a comparison hypothesis); token identity, timer arithmetic, concurrency, provider behavior and complete runtime invariants are test/upstream grounded. Source consumers reuse upstream artifacts; no cold release build claimed. Root Adapter composition is not exported."
+  ],
+  "files": [
+    "cure/elzoo/circuit_policy.cure",
+    "lib/elzoo/circuit_breaker.ex",
+    "test/elzoo/circuit_breaker_test.exs",
+    "test/elzoo/circuit_lifecycle_test.exs",
+    "test/elzoo/circuit_policy_test.exs",
+    "test/elzoo/circuit_provider_test.exs",
+    "test/elzoo/circuit_source_copy_test.exs",
+    "test/support/circuit_provider_test_helper.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/circuit_policy.cure",
+      "symbol": "stale_observation_cannot_change_health",
+      "claim": "stale_observation_cannot_change_health: selected production decision law only; no token, arithmetic, concurrency or provider proof; open-before-target requires its explicit comparison hypothesis."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/circuit_policy.cure",
+      "symbol": "busy_probe_never_admits",
+      "claim": "busy_probe_never_admits: selected production decision law only; no token, arithmetic, concurrency or provider proof; open-before-target requires its explicit comparison hypothesis."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/circuit_policy.cure",
+      "symbol": "open_before_target_never_admits",
+      "claim": "open_before_target_never_admits: selected production decision law only; no token, arithmetic, concurrency or provider proof; open-before-target requires its explicit comparison hypothesis."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/circuit_policy.cure",
+      "symbol": "neutral_probe_never_closes",
+      "claim": "neutral_probe_never_closes: selected production decision law only; no token, arithmetic, concurrency or provider proof; open-before-target requires its explicit comparison hypothesis."
+    },
+    {
+      "kind": "type",
+      "file": "cure/elzoo/circuit_policy.cure",
+      "claim": "Pinned Cure checks the production decision declarations and selected laws. Elixir validates the external options/observations/tokens; unchecked Elixir signatures are documentation."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/circuit_policy_test.exs",
+      "claim": "C1-C2 finite independent decision table; clean Cure audit, four production mutations failing at their laws, false-law and hole controls."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/circuit_breaker_test.exs",
+      "claim": "C3-C11 cold/failed/neutral recovery, 32 concurrent requesters, stale/retained probes, exact expiry, authentication, saturation, secret holder DOWN, duplicate/replacement, old name-only reset injection and clock/config bounds."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/circuit_lifecycle_test.exs",
+      "claim": "C13-C18 event allowlist, optional/failing/slow observers, operational call timeouts and late admission expiry, stop/replacement with surviving physical work, ordinary expiry cleanup and retained-probe DOWN/stale messages."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/circuit_provider_test.exs",
+      "claim": "C12 separate-BEAM actual fuse restart, startup/grant identity races, missing-name melt confirmation, post-provider clock sampling and melt timeout; parent fuse PID unchanged."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/circuit_source_copy_test.exs",
+      "claim": "C20 original/renamed independent source compilation runs every other circuit scenario and compiler-free runtime startup with own supervisor/clock/fuse; no root Application or Adapters, no catalogue BEAM injection."
+    },
+    {
+      "kind": "upstream",
+      "provider": "fuse",
+      "reference": "https://github.com/jlouis/fuse/tree/2.5.0",
+      "claim": "Relies on pinned provider compilation/runtime/API behavior named in README, not a local proof of the external implementation."
+    },
+    {
+      "kind": "upstream",
+      "provider": "telemetry",
+      "reference": "https://hexdocs.pm/telemetry/1.4.2/telemetry.html",
+      "claim": "Relies on pinned provider compilation/runtime/API behavior named in README, not a local proof of the external implementation."
+    },
+    {
+      "kind": "upstream",
+      "provider": "cure",
+      "reference": "https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89",
+      "claim": "Relies on pinned provider compilation/runtime/API behavior named in README, not a local proof of the external implementation."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Relies on pinned provider compilation/runtime/API behavior named in README, not a local proof of the external implementation."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/",
+      "claim": "Relies on pinned provider compilation/runtime/API behavior named in README, not a local proof of the external implementation."
+    },
+    {
+      "kind": "assumption",
+      "claim": "Trusted host/clock/observers and truthful finite Adapter observations; exclusive owner mutation of a bounded set of static names, started fuse/sasl/default stats, consumer supervision and operation bounds. Effects may outlive any permit/owner."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "supported",
+      "contract": "One transition event [:elzoo, :circuit_breaker, :transition]; nonnegative tracked/epoch/cooldown_remaining_ms, finite role/from/to/cause only. Applied state precedes optional synchronous observation; no exporter, audit durability or bounded handler latency. Does not widen runtime/telemetry.",
+      "evidence": [
+        "test/elzoo/circuit_lifecycle_test.exs",
+        "test/elzoo/circuit_breaker_test.exs"
+      ]
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Construction-only name/static atom, finite role, cooldown_ms 1..60000 default1000, observation_timeout_ms 1..60000 default5000, max_tracked 1..4096 default128 and trusted zero-arity monotonic-ms clock; invalid/unknown/duplicate options rejected before install. Fixed first failure/one probe/history1000, no hot update.",
+      "evidence": [
+        "test/elzoo/circuit_breaker_test.exs",
+        "test/elzoo/circuit_provider_test.exs"
+      ]
+    },
+    "control": {
+      "status": "inherited",
+      "from": "otp",
+      "contract": "Consumer-supervised OTP stop and explicit temporary/cold replacement only; no business pause/drain/reset, cancellation or durable receipt. Abandon is attempt retirement."
+    }
+  }
+}

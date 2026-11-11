@@ -129,7 +129,8 @@
         "RC-21",
         "RC-22",
         "RC-23",
-        "RC-25"
+        "RC-25",
+        "ELZ-100"
       ],
       "limit": "Consumer owns commercial prices, tax/invoicing and settlement policy; more than one provider needs conformance evidence."
     },
@@ -2673,14 +2674,12 @@
       "kind": "proposal",
       "release": "V1",
       "stage": "pieces",
-      "outputs": [
-        "delivery/circuit-breaker"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "ELZ-006"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "superseded for delivery/circuit-breaker by published ELZ-100 (output moved); no bulkhead/pool implementation admitted",
       "contract": "Explicit failure classification and monotonic clock input drive closed/open/half-open permit decisions; pool capacity owns bulkhead enforcement.",
       "acceptance": "Concurrent probes, stale health, clock jumps, recovery and resource exhaustion; distinguish local circuit state from upstream health certainty.",
       "reuse": "OTP state and maintained pool/circuit library first; author only absent policy.",
@@ -3435,6 +3434,34 @@
         "P09"
       ],
       "product_role": "Circuit/streaming provider prerequisite only; no circuit or stream policy or catalogue readiness change."
+    },
+    {
+      "id": "ELZ-100",
+      "title": "ELZ-100 — Bound circuit admission and recovery probes over fuse",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-006",
+        "ELZ-033",
+        "ELZ-099"
+      ],
+      "status": "published; claimed task/ELZ-100; implementation prepared; independent review and acceptance pending",
+      "url": "https://github.com/balungpisah/elzoo/issues/186",
+      "paths": [
+        "tasks/ELZ-100-delivery-circuit-breaker.md"
+      ],
+      "outputs": [
+        "delivery/circuit-breaker"
+      ],
+      "acceptance": "Unchanged live issue body; byte-equal publication copy. Four production Cure laws, dangerous-path/provider/copy/composition evidence, independent review and exact-head hosted acceptance remain required.",
+      "issue": 186,
+      "issue_body_sha256": "ad9cd49e411c47165a16158a85f2b7922d491ce83a5487007e532734f8d2c3bd",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed implementation worker; main coordinator owns review and merge",
+      "product_aims": [
+        "P09"
+      ]
     }
   ],
   "entries": [
@@ -3654,11 +3681,13 @@
     },
     {
       "id": "delivery/circuit-breaker",
-      "job": "RC-26",
-      "note": "Reuse OTP state/supervision and provider pool semantics where sufficient; Elzoo owns the state/permit policy that remains and tests transitions",
+      "job": "ELZ-100",
+      "note": "Volatile single-owner first-failure circuit admission over fuse 2.5.0: cold probation, one recovery probe, holder/incarnation/epoch-bound one-use observations, retained expired probe fence, monotonic minimum cooldown and permanently latched provider-incarnation failure; bounded permit bookkeeping through unchanged Backpressure, no Effect, queue, retry or physical resource bound.",
       "baseline_status": "planned",
-      "disposition": "blocked-admission-proposal",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "prepared-ready-contract; task acceptance separate",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/delivery/circuit-breaker/piece.json",
+      "manifest_sha256": "b7a8433dac81f34315b0d6725d0011d460e498bda48755b7f6304ce35a851321"
     },
     {
       "id": "delivery/data-stream",
