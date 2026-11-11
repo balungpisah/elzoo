@@ -3555,6 +3555,30 @@
       ]
     },
     {
+      "id": "ELZ-108",
+      "title": "ELZ-108 — Synchronize data-stream backpressure observation",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-101"
+      ],
+      "status": "published test-only ordering repair; claimed task/ELZ-108; independent review and acceptance pending",
+      "url": "https://github.com/balungpisah/elzoo/issues/201",
+      "paths": [
+        "tasks/ELZ-108-data-stream-observation.md"
+      ],
+      "outputs": [],
+      "acceptance": "Preserve existing backpressure assertions with a test-only Session-to-owner observation fence; controlled stale-summary regression and suppressed-publication negative control. No ready Contract or production source change.",
+      "issue": 201,
+      "issue_body_sha256": "80bd220c8030a6c400cdb47b77d51e8cab2829f01664238dfb77698e1b76d2af",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one test-repair worker; coordinator owns independent review and merge queue",
+      "product_aims": [
+        "P06"
+      ]
+    },
+    {
       "id": "ELZ-110",
       "title": "ELZ-110 — Recover hosted runtime installation through the official Ubuntu archive",
       "kind": "published",
