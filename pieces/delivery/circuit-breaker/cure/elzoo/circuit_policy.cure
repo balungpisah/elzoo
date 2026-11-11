@@ -1,0 +1,67 @@
+# SPDX-License-Identifier: Apache-2.0
+# Production decision table only. Identity, expiry arithmetic, provider calls,
+# clocks and concurrency belong to the validating OTP shell, not these laws.
+mod Elzoo.CircuitPolicy
+  type Mode = Closed | Open | HalfOpen | Unavailable
+  type Admission = Normal | Probe | CheckReset | RefuseOpen | RefuseBusy | RefuseUnavailable
+  type Observation = Healthy | Unhealthy | Neutral | Unknown
+  type HealthDecision = Keep(Mode) | Close | Trip
+
+  @total true
+  @reducible
+  fn probe_admission(held: Bool) -> Admission =
+    match held
+      True() -> RefuseBusy()
+      False() -> Probe()
+
+  @total true
+  @reducible
+  fn open_admission(before_target: Bool) -> Admission =
+    match before_target
+      True() -> RefuseOpen()
+      False() -> CheckReset()
+
+  @total true
+  @reducible
+  fn admission(mode: Mode, held: Bool, now: Int, target: Int) -> Admission =
+    match mode
+      Closed() -> Normal()
+      Open() -> open_admission(now < target)
+      HalfOpen() -> probe_admission(held)
+      Unavailable() -> RefuseUnavailable()
+
+  @total true
+  @reducible
+  fn healthy(probe: Bool, mode: Mode) -> HealthDecision =
+    match probe
+      True() -> Close()
+      False() -> Keep(mode)
+
+  @total true
+  @reducible
+  fn current_observation(mode: Mode, probe: Bool, observation: Observation) -> HealthDecision =
+    match observation
+      Healthy() -> healthy(probe, mode)
+      Unhealthy() -> Trip()
+      Neutral() -> Keep(mode)
+      Unknown() -> Trip()
+
+  @total true
+  @reducible
+  fn observe(mode: Mode, current: Bool, probe: Bool, observation: Observation) -> HealthDecision =
+    match current
+      False() -> Keep(mode)
+      True() -> current_observation(mode, probe, observation)
+
+  fn stale_observation_cannot_change_health(mode: Mode, probe: Bool, observation: Observation) -> Equivalent(HealthDecision, observe(mode, False(), probe, observation), Keep(mode)) =
+    reflexive(Keep(mode))
+
+  fn busy_probe_never_admits(now: Int, target: Int) -> Equivalent(Admission, admission(HalfOpen(), True(), now, target), RefuseBusy()) =
+    reflexive(RefuseBusy())
+
+  fn open_before_target_never_admits(held: Bool, now: Int, target: Int, before: Equivalent(Bool, now < target, True())) -> Equivalent(Admission, admission(Open(), held, now, target), RefuseOpen()) =
+    rewrite before in reflexive(RefuseOpen())
+
+  fn neutral_probe_never_closes() -> Equivalent(HealthDecision, observe(HalfOpen(), True(), True(), Neutral()), Keep(HalfOpen())) =
+    reflexive(Keep(HalfOpen()))
+end
