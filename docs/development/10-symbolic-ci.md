@@ -584,6 +584,35 @@ browser URL works again. Without `GITHUB_TOKEN` the unauthenticated API rate lim
 address) applies. A changed pin (new Gleam version) needs new asset IDs, sizes and hashes in the script, this
 table and the README. Platforms other than the four above stay unsupported.
 
+## Runtime library fallback (ELZ-110)
+
+`scripts/ci-install-runtime.py` keeps the existing apt update/install success
+path and unchanged packages (`libncurses6 libsctp1 libssl3`). A primary apt
+failure permits one fallback to `https://archive.ubuntu.com/ubuntu/`, then
+`apt-get -o APT::Update::Error-Mode=any update` and one installation attempt.
+A failed strict refresh never reaches installation using stale indexes; failed
+fallback provisioning fails the job. This does not guarantee network availability.
+
+The supported configuration is Ubuntu 24.04's canonical
+`/etc/apt/sources.list.d/ubuntu.sources`, with single-line `URIs:` fields and no
+explicit `Enabled:` field. Recognized URI tokens are HTTP(S) Azure/archive Ubuntu
+endpoints or `mirror+file:/etc/apt/apt-mirrors.txt` whose first whitespace-delimited
+mirror field is exactly such an official URI (including the hosted `priority:N`
+form). Only recognized URI tokens change; suites, components, Signed-By, other
+fields, unrelated source files and the mirror file remain unchanged. Unknown
+layouts, explicit enable/disable fields or no recognized URI fail before writing.
+This is not a general apt source parser. Apt retains repository/package
+authentication; no insecure/trusted overrides, package pin or IP pin is added.
+
+The helper must exist before runtime installation: backend checkout keeps its
+position after database preparation, then the pinned runtime step immediately
+precedes the intact S3 block. Those three libraries are not prerequisites of
+database preparation. Gleam checks out before runtime installation and retains
+working directory `/`, using the quoted absolute `GITHUB_WORKSPACE` helper path.
+The guard pins those positions and the new simulated controls in the plan job;
+runner identity, action/toolchain/container pins and required checks are unchanged.
+Named local/hosted observations and limits are in [the work record](../work/ELZ-110.md).
+
 ## Hosted CI (ELZ-066, ELZ-069)
 
 The owner decided on 2026-11-09 that the repository becomes public and that CI moves to GitHub-hosted

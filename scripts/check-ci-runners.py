@@ -113,6 +113,9 @@ CHECKOUT_STEP = """      - uses: actions/checkout@11d5960a326750d5838078e36cf38b
         with:
           fetch-depth: 0
           persist-credentials: false"""
+RUNTIME_STEP = """      - name: Install runtime libraries
+        run: sudo python3 scripts/ci-install-runtime.py"""
+RUNTIME_TEST_STEP = "      - run: python3 scripts/test-ci-install-runtime.py"
 # ELZ-059: the pull request run is the merge evidence, so it runs the full check (no affected mode), and the
 # generated roadmap views are checked, not regenerated. ELZ-073: the full check runs as three parts, one per
 # work job (`mix check --part ...`), and the steps are pinned by their exact text.
@@ -181,7 +184,7 @@ AGG_STEP = """      - name: Require every job
           fi"""
 REPORT_STEP_IF = ("      - name: Report container resource observations", "        if: always()")
 # Pinned steps and step-level conditions per job. Pairs are (step header line, if: line), in order.
-PLAN_PINNED = [CLASS_STEP, CLASS_TEST_STEP, ROADMAP_STEP, DOCS_ONLY_STEP, PLAN_STEP]
+PLAN_PINNED = [CLASS_STEP, CLASS_TEST_STEP, RUNTIME_TEST_STEP, ROADMAP_STEP, DOCS_ONLY_STEP, PLAN_STEP]
 PLAN_STEP_IFS = [
     ("      - name: Check the roadmap views", SKIP_IF),
     ("      - name: Docs-only check", DOCS_IF),
@@ -223,6 +226,9 @@ HOSTED_BACKEND_GATE_STEP = """      - name: Verify the GitHub-hosted runner
 HOSTED_GLEAM_CHECKOUT = """      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false"""
+GLEAM_RUNTIME_STEP = """      - name: Install runtime libraries
+        working-directory: /
+        run: sudo python3 "$GITHUB_WORKSPACE/scripts/ci-install-runtime.py\""""
 HOSTED_GLEAM_GATE_STEP = """      - name: Verify the GitHub-hosted runner
         working-directory: /
         run: |
@@ -485,6 +491,10 @@ for file in files:
             if (len(found) != 1 or lines[found[0]:found[0] + len(pin)] != pin or found[0] in skip
                     or not after_pin or not after_pin[0].startswith('      - ')):
                 errors.append(f'{file}: the pinned checkout step (persist-credentials: false) is missing or changed ({name})')
+            runtime = GLEAM_RUNTIME_STEP.split('\n')
+            if (len(found) != 1 or lines[found[0] + len(pin):found[0] + len(pin) + len(runtime)] != runtime
+                    or len(after_pin) <= len(runtime) or not after_pin[len(runtime)].startswith('      - ')):
+                errors.append(f'{file}: the pinned runtime step must immediately follow checkout ({name})')
         if file.name == 'symbolic-check.yml':
             # ELZ-073: the pinned steps and conditions depend on the role of the job.
             def pin(step_text):
@@ -525,11 +535,14 @@ for file in files:
                     pin(pinned_step)
                 expected_ifs = PLAN_STEP_IFS
             elif role == 'work':
-                # ELZ-064: the S3 test server steps follow the checkout step directly, as one pinned block.
+                # ELZ-110: one pinned runtime install now separates checkout from the intact S3 block.
                 # Only the root job saves the binary (the other jobs only restore it).
                 s3_steps = [MINIO_CACHE_STEPS[0], MINIO_START_STEP] + ([MINIO_CACHE_STEPS[1]] if name == 'check-root' else [])
                 s3_block = '\n'.join(s3_steps).split('\n')
-                s3_start = checkouts[0] + len(checkout) if checkout_ok else -1
+                runtime = pin(RUNTIME_STEP)
+                if checkout_ok and runtime != checkouts[0] + len(checkout):
+                    errors.append(f'{file}: the pinned runtime step must immediately follow checkout ({name})')
+                s3_start = runtime + len(RUNTIME_STEP.split('\n')) if runtime is not None else -1
                 s3_rest = [line for line in lines[s3_start + len(s3_block):e]
                            if line.strip() and not line.lstrip().startswith('#')] if s3_start >= 0 else []
                 if (s3_start < 0 or lines[s3_start:s3_start + len(s3_block)] != s3_block or s3_start in skip
