@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Makes sure the test services from .agents/setup are running after an orb wakes. No installs here.
+set -euo pipefail
+
+sudo systemctl start postgresql elzoo-minio.service
+pg_port="$(pg_conftool -s 16 main show port)"
+# Amp waits 10 s for this script; give up after 8 s so a failure is reported inside that window.
+while [ "$SECONDS" -lt 8 ]; do
+  if pg_isready -q -t 1 -h localhost -p "$pg_port" \
+    && curl -fs --max-time 1 -o /dev/null http://127.0.0.1:9000/minio/health/ready; then
+    echo "PostgreSQL and MinIO are ready."
+    exit 0
+  fi
+  sleep 0.5
+done
+echo "PostgreSQL or MinIO did not become ready within 8 s" >&2
+exit 1
