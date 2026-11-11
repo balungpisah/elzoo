@@ -2650,7 +2650,7 @@
         "RC-21",
         "RC-23",
         "RC-08",
-        "RC-26"
+        "ELZ-100"
       ],
       "status": "blocked: unpublished admission proposal",
       "contract": "Select among explicitly authorized provider capabilities under price/region/capacity/health policy. Fallback creates separate Attempts and preserves possible cost on both.",
@@ -2679,9 +2679,9 @@
         "ELZ-033",
         "ELZ-006"
       ],
-      "status": "superseded for delivery/circuit-breaker by published ELZ-100 (output moved); no bulkhead/pool implementation admitted",
+      "status": "resolved planning index: circuit output and acceptance carried by ELZ-100; no separate bulkhead/pool task admitted",
       "contract": "Explicit failure classification and monotonic clock input drive closed/open/half-open permit decisions; pool capacity owns bulkhead enforcement.",
-      "acceptance": "Concurrent probes, stale health, clock jumps, recovery and resource exhaustion; distinguish local circuit state from upstream health certainty.",
+      "acceptance": "Historical proposal index resolution only: delivery/circuit-breaker is owned and accepted through ELZ-100. V1 selector includes this historical record, not an additional implementation obligation. Resource bulkheads remain caller/pool responsibility; no delivery of that capability is inferred.",
       "reuse": "OTP state and maintained pool/circuit library first; author only absent policy.",
       "paths": [
         "pieces/delivery/circuit-breaker/"
@@ -3687,7 +3687,7 @@
       "disposition": "prepared-ready-contract; task acceptance separate",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/delivery/circuit-breaker/piece.json",
-      "manifest_sha256": "0569e758237cdcd5b592bc8f645ff3c65acd135d6ea6f1046477e286d98fa886"
+      "manifest_sha256": "20c881bc3b1256e1a1a1d3ec92cb331d971bab10152a54289ac9778382aee7ee"
     },
     {
       "id": "delivery/data-stream",

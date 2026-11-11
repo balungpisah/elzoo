@@ -100,8 +100,10 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`; 67 current ready man
 | RC-22 | V2 / pieces | ELZ-033, ELZ-031, RC-10, ELZ-009 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-23 | V2 / pieces | ELZ-033, ELZ-031, RC-21 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-24 | V2 / pieces | ELZ-033, ELZ-023, ELZ-031, RC-05, RC-22, ELZ-024 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-26 | V1 / pieces | ELZ-033, ELZ-006 | superseded for delivery/circuit-breaker by published ELZ-100 (output moved); no bulkhead/pool implementation admitted | one claimed task worker after admission |
-| RC-25 | V2 / pieces | ELZ-033, RC-16, RC-21, RC-23, RC-08, RC-26 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| [ELZ-099](https://github.com/balungpisah/elzoo/issues/185) | V1 / pieces | ELZ-033, ELZ-006 | published; claimed task/ELZ-099; PR pending | one claimed provider-prerequisite worker; coordinator owns review and merge |
+| [ELZ-100](https://github.com/balungpisah/elzoo/issues/186) | V1 / pieces | ELZ-006, ELZ-033, ELZ-099 | published; claimed task/ELZ-100; implementation prepared; independent review and acceptance pending | one claimed implementation worker; main coordinator owns review and merge |
+| RC-25 | V2 / pieces | ELZ-033, RC-16, RC-21, RC-23, RC-08, ELZ-100 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| RC-26 | V1 / pieces | ELZ-033, ELZ-006 | resolved planning index: circuit output and acceptance carried by ELZ-100; no separate bulkhead/pool task admitted | one claimed task worker after admission |
 | RC-27 | V2 / pieces | ELZ-033, ELZ-003, ELZ-006, RC-05 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-28 | V2 / pieces | ELZ-033, ELZ-003, ELZ-006 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-29 | V2 / pieces | ELZ-033, ELZ-026, RC-13, RC-12 | blocked: unpublished admission proposal | one claimed task worker after admission |
@@ -124,8 +126,6 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`; 67 current ready man
 | [ELZ-082](https://github.com/balungpisah/elzoo/issues/160) | V1 / pieces | ELZ-030, ELZ-080, ELZ-081 | published; claimed task/ELZ-082; implementation prepared | one claimed task worker after admission |
 | [ELZ-096](https://github.com/balungpisah/elzoo/issues/179) | V1 / pieces | ELZ-009, ELZ-013, ELZ-033, ELZ-053 | published 2026-11-10; claimed task/ELZ-096; PR pending | one claimed task worker after admission |
 | [ELZ-098](https://github.com/balungpisah/elzoo/issues/181) | V1 / pieces | ELZ-003, ELZ-006, ELZ-026, ELZ-033 | published 2026-11-10; claimed task/ELZ-098; PR pending | one claimed task worker after admission |
-| [ELZ-099](https://github.com/balungpisah/elzoo/issues/185) | V1 / pieces | ELZ-033, ELZ-006 | published; claimed task/ELZ-099; PR pending | one claimed provider-prerequisite worker; coordinator owns review and merge |
-| [ELZ-100](https://github.com/balungpisah/elzoo/issues/186) | V1 / pieces | ELZ-006, ELZ-033, ELZ-099 | published; claimed task/ELZ-100; implementation prepared; independent review and acceptance pending | one claimed implementation worker; main coordinator owns review and merge |
 
 ## Catalogue accounting
 
@@ -1237,7 +1237,7 @@ Circuit admission and resource bulkheads
 
 **Contract:** Explicit failure classification and monotonic clock input drive closed/open/half-open permit decisions; pool capacity owns bulkhead enforcement.
 
-**Acceptance:** Concurrent probes, stale health, clock jumps, recovery and resource exhaustion; distinguish local circuit state from upstream health certainty.
+**Acceptance:** Historical proposal index resolution only: delivery/circuit-breaker is owned and accepted through ELZ-100. V1 selector includes this historical record, not an additional implementation obligation. Resource bulkheads remain caller/pool responsibility; no delivery of that capability is inferred.
 
 **Reuse:** OTP state and maintained pool/circuit library first; author only absent policy.
 

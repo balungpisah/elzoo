@@ -79,6 +79,60 @@ defmodule Elzoo.CircuitLifecycleTest do
     refute inspect(status(owner)) =~ "payload-secret"
   end
 
+  test "C22 clock outage disarms expiry wakeups until a later sampled operation" do
+    {:ok, clock} = Agent.start_link(fn -> 100 end)
+    owner = start(clock: fn -> Agent.get(clock, & &1) end)
+    {:ok, p} = C.admit(owner)
+    assert C.finish(owner, p, :healthy) == {:ok, :applied}
+    for _ <- 1..64, do: assert({:ok, _} = C.admit(owner))
+    Agent.update(clock, fn _ -> 10_099 end)
+    assert status(owner).tracked == 64
+    state = :sys.get_state(owner)
+    Agent.update(clock, fn _ -> :invalid end)
+
+    for {ref, _} <- state.permits do
+      send(owner, {:circuit_expiry, state.incarnation, ref})
+    end
+
+    after_outage = :sys.get_state(owner)
+    assert Enum.all?(after_outage.permits, fn {_, entry} -> entry.timer == nil end)
+    assert C.admit(owner) == {:refused, :clock_unavailable}
+    Agent.update(clock, fn _ -> 10_100 end)
+    assert status(owner).mode == :open
+    assert status(owner).tracked == 0
+  end
+
+  test "C23 applied trip emits once even when the post-melt sample fails" do
+    {:ok, clock} = Agent.start_link(fn -> :valid end)
+
+    now = fn ->
+      Agent.get_and_update(clock, fn
+        :valid -> {100, :valid}
+        :once -> {100, :invalid}
+        :invalid -> {:invalid, :invalid}
+      end)
+    end
+
+    owner = start(clock: now)
+    {:ok, p} = C.admit(owner)
+    assert C.finish(owner, p, :healthy) == {:ok, :applied}
+    {:ok, p} = C.admit(owner)
+    handler = {__MODULE__, make_ref()}
+    :ok = :telemetry.attach(handler, @event, &__MODULE__.handle/4, self())
+    on_exit(fn -> :telemetry.detach(handler) end)
+    Agent.update(clock, fn _ -> :once end)
+    assert C.finish(owner, p, :unhealthy) == {:error, :clock_unavailable}
+
+    assert_receive {@event, %{cooldown_remaining_ms: remaining},
+                    %{from: :closed, to: :open, cause: :unhealthy}}
+
+    assert remaining >= 0
+    assert :sys.get_state(owner).open_until == nil
+    Agent.update(clock, fn _ -> :valid end)
+    assert status(owner).mode == :open
+    refute_receive {@event, _, _}, 10
+  end
+
   test "C14 throwing observer is detached upstream and does not undo health; no observer is required" do
     owner = start()
     handler = {__MODULE__, make_ref()}

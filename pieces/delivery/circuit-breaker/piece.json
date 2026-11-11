@@ -79,7 +79,7 @@
     {
       "kind": "test",
       "file": "test/elzoo/circuit_lifecycle_test.exs",
-      "claim": "C13-C18 event allowlist, optional/failing/slow observers, operational call timeouts and late admission expiry, stop/replacement with surviving physical work, ordinary expiry cleanup and retained-probe DOWN/stale messages."
+      "claim": "C13-C18 and C22-C23 clock-outage timer disarming, post-melt clock-failure transition observation, event allowlist, optional/failing/slow observers, operational call timeouts and late admission expiry, stop/replacement with surviving physical work, ordinary expiry cleanup and retained-probe DOWN/stale messages."
     },
     {
       "kind": "test",

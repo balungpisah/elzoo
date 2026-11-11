@@ -194,7 +194,7 @@ Four selected **production Cure decision laws**:
 mutations run with the shipped tests. These laws do not prove token identity,
 time arithmetic, concurrency, fuse or complete runtime invariants.
 
-Finite C1–C21 scenarios cover the decision table, runtime fences, concurrency,
+Finite C1–C23 scenarios cover the decision table, runtime fences, concurrency,
 expiry, provider identity/restarts/timeouts in a separate BEAM, operational
 schema, real root Adapter composition, and original/renamed independent source
 consumers. The copied-source scenario runs all other circuit tests from freshly
@@ -209,3 +209,9 @@ observations, trusted host/clock, bounded static names and exclusive mutation.
 Copy with the [source-consumption instructions](../../../docs/consuming.md).
 Evidence applies to these source bytes/selected claims; rename modules and
 public record tags before redistributing copies and rerun checks after edits.
+
+During a clock outage, failed expiry wakeups disarm rather than retry from stale
+time. A later API or monitor operation samples time and checks expiry; no automatic
+clock-health polling is supplied. An applied trip still emits its transition when
+the post-melt sample fails; remaining time is zero until a valid cooldown target
+can be established, not permission to admit a probe.

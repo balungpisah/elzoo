@@ -414,6 +414,7 @@ defmodule Elzoo.CircuitBreaker do
             {next, nil}
 
           {:error, next} ->
+            emit(next, :open, cause, from)
             {next, :clock_unavailable}
         end
 
@@ -522,26 +523,34 @@ defmodule Elzoo.CircuitBreaker do
   def handle_info({:circuit_expiry, incarnation, ref}, state) do
     if incarnation == state.incarnation and Map.has_key?(state.permits, ref) and
          state.permits[ref].epoch == state.epoch do
-      next =
+      {next, clock_failed} =
         case advance(state) do
-          {:ok, next, _} -> next
-          {:error, _, next} -> next
+          {:ok, next, _} -> {next, false}
+          {:error, :clock_unavailable, next} -> {next, true}
+          {:error, _, next} -> {next, false}
         end
 
       next =
         case Map.fetch(next.permits, ref) do
           {:ok, entry} when entry.epoch == next.epoch ->
             cancel(entry.timer)
-            delay = if next.last_now, do: max(1, entry.expires - next.last_now), else: 10
 
-            put_in(
-              next.permits[ref].timer,
-              Process.send_after(
-                self(),
-                {:circuit_expiry, incarnation, ref},
-                min(delay, next.config.observation_timeout_ms)
+            if clock_failed do
+              # No progress can be inferred from the stale clock. Disarm rather
+              # than spin; the next sampled API/monitor operation checks expiry.
+              put_in(next.permits[ref].timer, nil)
+            else
+              delay = if next.last_now, do: max(1, entry.expires - next.last_now), else: 10
+
+              put_in(
+                next.permits[ref].timer,
+                Process.send_after(
+                  self(),
+                  {:circuit_expiry, incarnation, ref},
+                  min(delay, next.config.observation_timeout_ms)
+                )
               )
-            )
+            end
 
           _ ->
             next
