@@ -126,6 +126,13 @@ gap without an engine or new Piece. External exactly-once Effects are not inferr
 
 ## Existing Relay before any new dispatcher
 
+Current assessment: [ELZ-104](../work/ELZ-104.md) maps accepted Store, Relay,
+EffectIntent and HTTP publication evidence. Reuse these facilities; RC-43
+retains an explicit residual durable intent-to-job handoff/discovery gap for
+separate admission. No new dispatcher or ready candidate is implied. The
+inspection and pending-acceptance wording below records the historical
+ELZ-033 observation; ELZ-104 links subsequent dependency acceptance.
+
 RC-43 first assesses ELZ-010's existing `integration/jobs` Relay, then the
 ELZ-011 Effect and ELZ-023 intent boundaries. Source inspection at
 [`18287d22a4b694581af6d1788a84a4868c1b47d3`](https://github.com/balungpisah/elzoo/tree/18287d22a4b694581af6d1788a84a4868c1b47d3)
