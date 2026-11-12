@@ -545,6 +545,28 @@ defmodule Elzoo.CheckSelectionTest do
       end
     end
 
+    test "CI runs the small gate in its own step with the first parent of the merge as the base" do
+      workflow = File.read!(".github/workflows/symbolic-check.yml")
+
+      [[_, step]] =
+        Regex.scan(~r/      - name: Run the small gate\n(.*?)      - name:/s, workflow)
+
+      [_, script] = Regex.run(~r/^        run: (.+)\n/m, step)
+      assert script == "sh scripts/run-ci-check.sh --piece HEAD^1"
+
+      root = git_fixture()
+      stub = Path.join(root, "sh")
+      File.write!(stub, "#!/bin/sh\nprintf '%s\\n' \"$@\"\n")
+      File.chmod!(stub, 0o755)
+
+      {output, 0} =
+        System.cmd("/bin/sh", ["-eu", "-c", script],
+          env: [{"PATH", root <> ":" <> System.fetch_env!("PATH")}]
+        )
+
+      assert output == "scripts/run-ci-check.sh\n--piece\nHEAD^1\n"
+    end
+
     test "mix check --piece refuses a bad comparison before any stage, and odd arguments" do
       assert_raise Mix.Error, ~r/mix check --piece refuses/, fn ->
         Mix.Tasks.Check.run(["--piece", "refs/heads/elzoo-small-gate-no-such-ref"])

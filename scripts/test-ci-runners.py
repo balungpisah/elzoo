@@ -170,7 +170,7 @@ class RunnerPolicyTest(unittest.TestCase):
 
     def test_extra_backend_job_header_rejected_independently(self):
         self.add_job_header_without_selector("symbolic-check.yml")
-        self.assertIn("exactly the jobs check-plan, check-root, check-consumers-db, check-consumers, check-hosted are required, in this order", self.check(1).stderr)
+        self.assertIn("exactly the jobs check-plan, check-root, check-consumers-db, check-consumers, check-piece, check-hosted are required, in this order", self.check(1).stderr)
 
     def test_extra_gleam_job_header_rejected_independently(self):
         self.add_job_header_without_selector("symbolic-gleam.yml")
@@ -510,8 +510,8 @@ class RunnerPolicyTest(unittest.TestCase):
         source = self.source()
         self.assertEqual(1, source.count(self.DECISION))
         self.assertEqual(1, source.count(self.ANY_PERMS))
-        self.assertEqual(4, source.count("github.token"))  # the decision step and the S3 test server step of each work job
-        self.assertEqual(6, source.count("permissions:"))  # top level and the five jobs
+        self.assertEqual(5, source.count("github.token"))  # the decision step and the S3 test server step of each work job and of check-piece
+        self.assertEqual(7, source.count("permissions:"))  # top level and the six jobs
         self.check(0)
 
     def test_write_permissions_rejected(self):
@@ -657,8 +657,8 @@ class RunnerPolicyTest(unittest.TestCase):
 """
 
     def test_checkout_must_not_persist_the_token(self):
-        self.assertEqual(4, self.source().count(self.CHECKOUT))     # check-plan and the three work jobs
-        for job in ("check-plan", "check-root", "check-consumers-db", "check-consumers"):
+        self.assertEqual(5, self.source().count(self.CHECKOUT))     # check-plan, the three work jobs and check-piece
+        for job in ("check-plan", "check-root", "check-consumers-db", "check-consumers", "check-piece"):
             for new in (self.CHECKOUT.replace("          persist-credentials: false\n", ""),
                         self.CHECKOUT.replace("persist-credentials: false", "persist-credentials: true"),
                         self.CHECKOUT.replace("fetch-depth: 0", "fetch-depth: 1"),
@@ -811,7 +811,7 @@ class RunnerPolicyTest(unittest.TestCase):
         path = self.root / ".github" / "workflows" / "symbolic-check.yml"
         source = path.read_text()
         path.write_text(source[:source.index("\n  check-hosted:\n")] + "\n")
-        self.assertIn("exactly the jobs check-plan, check-root, check-consumers-db, check-consumers, check-hosted are required, in this order", self.check(1).stderr)
+        self.assertIn("exactly the jobs check-plan, check-root, check-consumers-db, check-consumers, check-piece, check-hosted are required, in this order", self.check(1).stderr)
         self.tearDown()
         self.setUp()
         path = self.root / ".github" / "workflows" / "symbolic-gleam.yml"
@@ -1029,7 +1029,7 @@ class RunnerPolicyTest(unittest.TestCase):
     # ELZ-069: the self-hosted lane is gone; nothing of it may come back silently.
     def test_jobs_must_keep_their_names(self):
         self.change("symbolic-check.yml", "  check-hosted:\n", "  check-renamed:\n")
-        self.assertIn("exactly the jobs check-plan, check-root, check-consumers-db, check-consumers, check-hosted are required, in this order", self.check(1).stderr)
+        self.assertIn("exactly the jobs check-plan, check-root, check-consumers-db, check-consumers, check-piece, check-hosted are required, in this order", self.check(1).stderr)
         self.tearDown()
         self.setUp()
         self.change("symbolic-gleam.yml", "  gleam-hosted:\n", "  gleam:\n")
@@ -1184,7 +1184,7 @@ class RunnerPolicyTest(unittest.TestCase):
         self.assertTrue(self.check(1).stderr)
 
     WORK_JOB_NAMES = ("check-root", "check-consumers-db", "check-consumers")
-    BACKEND_JOB_NAMES = ("check-plan", "check-root", "check-consumers-db", "check-consumers", "check-hosted")
+    BACKEND_JOB_NAMES = ("check-plan", "check-root", "check-consumers-db", "check-consumers", "check-piece", "check-hosted")
     WORK_HEAD = "    if: ${{ needs.check-plan.outputs.run == 'true' }}\n    needs: check-plan\n"
 
     def test_every_work_job_waits_for_the_plan(self):
@@ -1223,7 +1223,7 @@ class RunnerPolicyTest(unittest.TestCase):
                 text = self.job_text(job)
                 path = self.root / ".github" / "workflows" / "symbolic-check.yml"
                 path.write_text(source.replace(text, "", 1))
-                self.assertIn("exactly the jobs check-plan, check-root, check-consumers-db, check-consumers, check-hosted are required, in this order",
+                self.assertIn("exactly the jobs check-plan, check-root, check-consumers-db, check-consumers, check-piece, check-hosted are required, in this order",
                               self.check(1).stderr)
                 self.tearDown()
                 self.setUp()
@@ -1247,7 +1247,8 @@ class RunnerPolicyTest(unittest.TestCase):
                 self.setUp()
 
     PLAN_STEP = ('      - name: Plan the work jobs\n        id: plan\n        env:\n          SKIP: ${{ steps.skip.outputs.skip }}\n'
-                 '          DOCS_ONLY: ${{ steps.class.outputs.docs_only }}\n        run: |\n'
+                 '          DOCS_ONLY: ${{ steps.class.outputs.docs_only }}\n'
+                 '          PIECE_ONLY: ${{ steps.piece.outputs.piece_only }}\n          EVENT: ${{ github.event_name }}\n        run: |\n'
                  '          if [ "$SKIP" != true ] && [ "$DOCS_ONLY" != true ]; then\n            RUN=true\n          else\n            RUN=false\n          fi\n')
 
     def test_the_plan_step_is_present_and_pinned(self):
@@ -1279,9 +1280,9 @@ class RunnerPolicyTest(unittest.TestCase):
         gate = "    if: ${{ always() && (github.event_name == 'push'"
         for old, new in ((gate, "    if: ${{ (github.event_name == 'push'"),                                     # no always()
                          (gate, "    if: ${{ !cancelled() && (github.event_name == 'push'"),
-                         ("    needs: [check-plan, check-root, check-consumers-db, check-consumers]\n", "    needs: [check-plan, check-root, check-consumers-db]\n"),
-                         ("    needs: [check-plan, check-root, check-consumers-db, check-consumers]\n", "    needs: [check-root, check-consumers-db, check-consumers]\n"),
-                         ("    needs: [check-plan, check-root, check-consumers-db, check-consumers]\n", "    needs: check-plan\n"),
+                         ("    needs: [check-plan, check-root, check-consumers-db, check-consumers, check-piece]\n", "    needs: [check-plan, check-root, check-consumers-db]\n"),
+                         ("    needs: [check-plan, check-root, check-consumers-db, check-consumers, check-piece]\n", "    needs: [check-root, check-consumers-db, check-consumers]\n"),
+                         ("    needs: [check-plan, check-root, check-consumers-db, check-consumers, check-piece]\n", "    needs: check-plan\n"),
                          ("          test \"$PLAN\" = success\n", ""),
                          ("            test \"$ROOT\" = success\n", ""),
                          ("            test \"$DB\" = success\n", ""),
@@ -1345,6 +1346,171 @@ class RunnerPolicyTest(unittest.TestCase):
         self.assertNotIn("--affected", source)
         self.assertNotIn("ELZOO_CHECK_EVENT", source)
         self.assertNotIn("pull_request.base.sha", source)
+
+
+    # --- small gate: the piece job, its plan output and the aggregating rule --------------------------------------
+    PIECE_HEAD = "    if: ${{ needs.check-plan.outputs.piece == 'true' }}\n    needs: check-plan\n"
+    PIECE_STEP = "      - name: Run the small gate\n        run: sh scripts/run-ci-check.sh --piece HEAD^1\n"
+    PIECE_CLASS = ("      - name: Classify a Piece change\n        id: piece\n"
+                   "        run: python3 scripts/ci-change-class.py github-piece\n")
+
+    def test_the_piece_job_waits_for_the_piece_output_of_the_plan(self):
+        self.assertEqual(1, self.job_text("check-piece").count(self.PIECE_HEAD))
+        for new in ("", "    needs: check-plan\n",
+                    "    if: ${{ needs.check-plan.outputs.piece == 'true' }}\n",
+                    "    if: ${{ needs.check-plan.outputs.run == 'true' }}\n    needs: check-plan\n",
+                    "    if: ${{ needs.check-plan.outputs.piece != 'false' }}\n    needs: check-plan\n",
+                    "    if: ${{ always() }}\n    needs: check-plan\n",
+                    "    if: ${{ needs.check-plan.outputs.piece == 'true' || github.event_name == 'push' }}\n    needs: check-plan\n",
+                    "    if: ${{ needs.check-plan.outputs.piece == 'true' }}\n    needs: [check-plan, check-root]\n"):
+            with self.subTest(new=new.strip()[:70]):
+                self.change_in_job("symbolic-check.yml", "check-piece", self.PIECE_HEAD, new)
+                self.assertIn("check-piece: same-repository PR job gate is missing or changed", self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+
+    def test_the_small_gate_step_is_pinned(self):
+        self.assertEqual(1, self.source().count(self.PIECE_STEP))
+        old = self.PIECE_STEP
+        for new in ("",
+                    old.replace("--piece HEAD^1", "--piece HEAD"),
+                    old.replace("--piece HEAD^1", "--piece origin/main"),
+                    old.replace("--piece HEAD^1", "--affected HEAD^1"),
+                    old.replace("--piece HEAD^1", "--part root"),
+                    old.replace("--piece HEAD^1\n", "--piece HEAD^1 || true\n"),
+                    old.replace("        run:", "        if: ${{ always() }}\n        run:"),
+                    old.replace("        run:", "        continue-on-error: true\n        run:"),
+                    old.replace("Run the small gate", "Run mix check")):
+            with self.subTest(new=new.strip()[:80]):
+                self.change_in_job("symbolic-check.yml", "check-piece", old, new)
+                self.assertTrue(self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+
+    def test_no_other_job_runs_the_small_gate(self):
+        for job in ("check-plan", "check-root", "check-consumers-db", "check-consumers", "check-hosted"):
+            with self.subTest(job=job):
+                self.change_in_job("symbolic-check.yml", job, "      - name: Verify the GitHub-hosted runner\n",
+                                   self.PIECE_STEP + "      - name: Verify the GitHub-hosted runner\n")
+                self.assertTrue(self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+
+    def test_the_piece_job_has_the_services_and_s3_steps_of_a_work_job_and_saves_no_cache(self):
+        for old, new in (("    services:\n", "    outputs:\n      x: y\n    services:\n"),
+                         ("timeout-minutes: 120", "timeout-minutes: 360"),
+                         ("        run: python3 scripts/ci-minio.py\n", "        run: true\n"),
+                         ("        run: sudo python3 scripts/ci-install-runtime.py\n", "        run: true\n"),
+                         ("      - name: Report BEAM capacity\n",
+                          "      - name: Save\n        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0\n"
+                          "        with:\n          path: deps\n          key: k\n      - name: Report BEAM capacity\n")):
+            with self.subTest(new=new.strip()[:60]):
+                self.change_in_job("symbolic-check.yml", "check-piece", old, new)
+                self.assertTrue(self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+
+    def test_the_piece_classification_step_is_pinned_next_to_the_first_one(self):
+        self.assertEqual(1, self.source().count(self.PIECE_CLASS))
+        for new in ("", self.PIECE_CLASS.replace("id: piece", "id: other"),
+                    self.PIECE_CLASS.replace("github-piece", "github"),
+                    self.PIECE_CLASS.replace("        run:", "        if: ${{ false }}\n        run:"),
+                    "      - run: true\n" + self.PIECE_CLASS):
+            with self.subTest(new=new.strip()[:60]):
+                self.change("symbolic-check.yml", self.PIECE_CLASS, new)
+                self.assertTrue(self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+
+    def test_the_piece_marker_is_never_printed_by_the_workflow(self):
+        for job in self.BACKEND_JOB_NAMES:
+            with self.subTest(job=job):
+                anchor = "      - name: Verify the GitHub-hosted runner\n"
+                self.change_in_job("symbolic-check.yml", job, anchor,
+                                   anchor.replace("      - name: Verify", "      - run: echo \"ELZOO PIECE CHECK PASSED\"\n      - name: Verify"))
+                self.assertIn("a part marker may be printed by mix check --part only", self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+
+    def test_the_aggregating_job_needs_the_piece_job_and_checks_its_result(self):
+        needs = "    needs: [check-plan, check-root, check-consumers-db, check-consumers, check-piece]\n"
+        for old, new in ((needs, needs.replace(", check-piece]", "]")),
+                         ("          SMALL: ${{ needs.check-piece.result }}\n", "          SMALL: success\n"),
+                         ("          PIECE: ${{ needs.check-plan.outputs.piece }}\n", "          PIECE: false\n"),
+                         ("            test \"$SMALL\" = success\n", ""),
+                         ("            test \"$PIECE\" = false\n            test \"$SMALL\" = skipped\n", ""),
+                         ("          elif [ \"$PIECE\" = true ]; then\n", "          elif true; then\n")):
+            with self.subTest(new=new.strip()[:60], old=old.strip()[:40]):
+                self.change_in_job("symbolic-check.yml", "check-hosted", old, new)
+                self.assertTrue(self.check(1).stderr)
+                self.tearDown()
+                self.setUp()
+
+    def step_script(self, job, name):
+        """The shell text of a `run: |` step of the workflow, as the runner gets it."""
+        text = self.job_text(job)
+        start = text.index(f"      - name: {name}\n")
+        lines = text[start:].split("\n")
+        body = lines[lines.index("        run: |") + 1:]
+        script = []
+        for line in body:
+            if line and not line.startswith("          "):
+                break
+            script.append(line[10:])
+        return "\n".join(script) + "\n"
+
+    def run_script(self, script, env):
+        out = self.root / "github-output"
+        out.write_text("")
+        result = subprocess.run(["sh", "-eu", "-c", script], capture_output=True, text=True,
+                                env=dict(env, GITHUB_OUTPUT=str(out), PATH=os.environ["PATH"]))
+        return result, dict(line.split("=", 1) for line in out.read_text().splitlines() if line)
+
+    def test_the_plan_step_chooses_the_piece_job_only_for_a_piece_only_pull_request(self):
+        script = self.step_script("check-plan", "Plan the work jobs")
+        cases = [
+            # (SKIP, DOCS_ONLY, PIECE_ONLY, EVENT) -> (run, piece)
+            (("false", "false", "true", "pull_request"), ("false", "true")),
+            (("false", "false", "false", "pull_request"), ("true", "false")),
+            (("false", "true", "false", "pull_request"), ("false", "false")),
+            (("false", "false", "true", "push"), ("true", "false")),               # a push to main: never the small gate
+            (("false", "false", "true", "workflow_dispatch"), ("true", "false")),  # a dispatch run: never the small gate
+            (("true", "false", "true", "push"), ("false", "false")),               # a logged skip stays a skip
+            (("false", "false", "", "pull_request"), ("true", "false")),
+            (("false", "false", "TRUE", "pull_request"), ("true", "false")),
+        ]
+        for (skip, docs, piece, event), expected in cases:
+            with self.subTest(skip=skip, docs=docs, piece=piece, event=event):
+                result, outputs = self.run_script(script, {"SKIP": skip, "DOCS_ONLY": docs, "PIECE_ONLY": piece,
+                                                           "EVENT": event})
+                self.assertEqual(0, result.returncode, result.stderr)
+                self.assertEqual(expected, (outputs["run"], outputs["piece"]))
+                self.assertIn(f"ELZOO PIECE PLAN: piece={expected[1]} ", result.stdout)
+
+    def test_the_aggregating_step_accepts_exactly_three_shapes(self):
+        script = self.step_script("check-hosted", "Require every job")
+        good = [("true", "false", "success", "success", "success", "skipped"),    # full
+                ("false", "true", "skipped", "skipped", "skipped", "success"),    # small gate
+                ("false", "false", "skipped", "skipped", "skipped", "skipped")]   # docs-only or a logged skip
+        bad = [("true", "false", "success", "success", "success", "success"),
+               ("true", "true", "success", "success", "success", "skipped"),
+               ("false", "true", "success", "skipped", "skipped", "success"),
+               ("false", "true", "skipped", "skipped", "skipped", "skipped"),
+               ("false", "true", "skipped", "skipped", "skipped", "failure"),
+               ("false", "true", "skipped", "skipped", "skipped", "cancelled"),
+               ("false", "false", "skipped", "skipped", "skipped", "success"),
+               ("false", "", "skipped", "skipped", "skipped", "skipped"),
+               ("", "true", "skipped", "skipped", "skipped", "success")]
+        for shape, code in [(g, 0) for g in good] + [(b, 1) for b in bad]:
+            run, piece, root, db, consumers, small = shape
+            with self.subTest(shape=shape):
+                result, _ = self.run_script(script, {"PLAN": "success", "RUN": run, "PIECE": piece, "ROOT": root,
+                                                     "DB": db, "CONSUMERS": consumers, "SMALL": small})
+                self.assertEqual(code, 0 if result.returncode == 0 else 1, result.stdout + result.stderr)
+                self.assertEqual(shape == good[0], "ELZOO CHECK PASSED" in result.stdout)
+        result, _ = self.run_script(script, {"PLAN": "failure", "RUN": "false", "PIECE": "true", "ROOT": "skipped",
+                                             "DB": "skipped", "CONSUMERS": "skipped", "SMALL": "success"})
+        self.assertNotEqual(0, result.returncode)
 
 
 if __name__ == "__main__":
