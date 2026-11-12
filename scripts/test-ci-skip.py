@@ -83,7 +83,8 @@ class FakeApi:
     def __init__(self, second):
         self.second = second
         self.calls = []
-        self.run = dict(id=900, event="workflow_dispatch", head_sha=second, head_branch="task/ELZ-058",
+        # Exercise every evidence safeguard on a non-task branch, not only the positive reuse cases.
+        self.run = dict(id=900, event="workflow_dispatch", head_sha=second, head_branch="proposal/checked-command",
                         path=".github/workflows/symbolic-check.yml", status="completed",
                         conclusion="success", run_attempt=1, run_started_at="2026-11-08T12:00:00Z")
         self.listing_changes = {}
@@ -265,19 +266,26 @@ class DecisionTest(unittest.TestCase):
                     skip.decide(env, run_git, api)
 
     def test_run_identity_fields_must_match(self):
-        for field, value in (("event", "pull_request"), ("head_sha", "e" * 40), ("head_branch", "feature/x"),
-                             ("head_branch", "task/ELZ-58"), ("head_branch", None),
+        for field, value in (("event", "pull_request"), ("head_sha", "e" * 40),
                              ("path", ".github/workflows/symbolic-gleam.yml")):
             with self.subTest(field=field, value=value):
                 env, run_git, api = self.mutated(**{f"run__{field}": value})
                 with self.assertRaisesRegex(skip.Full, "no queue run"):
                     skip.decide(env, run_git, api)
 
+    def test_full_evidence_is_not_restricted_to_task_branches(self):
+        for branch in ("proposal/checked-command", "plan/next-wave", "feature/x", "task/ELZ-058"):
+            for event in ("pull_request", "workflow_dispatch"):
+                with self.subTest(branch=branch, event=event):
+                    env, run_git, api = self.mutated(run__head_branch=branch)
+                    api.run.update(self.PR_RUN, event=event)
+                    self.assertTrue(skip.decide(env, run_git, api)[0])
+
     def test_the_latest_run_decides_an_older_success_cannot_hide_a_newer_failure(self):
         env, run_git, second = self.scenario("merge")
         api = FakeApi(second)
-        newer = dict(api.run, id=950, conclusion="failure")
-        api.runs = [dict(api.run), newer]
+        newer = dict(api.run, id=950, head_branch="proposal/checked-command", conclusion="failure")
+        api.runs = [dict(api.run, head_branch="task/ELZ-058"), newer]
         with self.assertRaisesRegex(skip.Full, "latest run 950 is not a completed success"):
             skip.decide(env, run_git, api)
         # and a newer success after an older failure is accepted only with its own passing jobs
@@ -767,6 +775,13 @@ class DocsOnlyDecision(unittest.TestCase):
         self.assertEqual(("docs-only", second, 900), (details["mode"], details["second_parent"], details["run"]))
         self.assertIn("check-plan:901", details["jobs"])
 
+    def test_plan_and_publication_branches_use_the_same_docs_evidence_rules(self):
+        for branch in ("plan/next-wave", "proposal/checked-command", "task/ELZ-058"):
+            with self.subTest(branch=branch):
+                (verdict, _reason, details), _second = self.decide(head_branch=branch)
+                self.assertTrue(verdict)
+                self.assertEqual("docs-only", details["mode"])
+
     def test_the_log_line_names_the_short_check(self):
         env, run_git, second = self.scenario("docs")
         lines = []
@@ -944,8 +959,7 @@ class DocsOnlyDecision(unittest.TestCase):
     def test_the_other_evidence_rules_apply_to_the_short_check(self):
         for label, change in {"failed run": dict(conclusion="failure"), "unfinished": dict(status="in_progress", conclusion=None),
                               "cancelled": dict(conclusion="cancelled"), "another head": dict(head_sha="e" * 40),
-                              "another path": dict(path=".github/workflows/other.yml"),
-                              "task branch": dict(head_branch="feature/x")}.items():
+                              "another path": dict(path=".github/workflows/other.yml")}.items():
             with self.subTest(label=label):
                 self.refuses(".+", **change)
 

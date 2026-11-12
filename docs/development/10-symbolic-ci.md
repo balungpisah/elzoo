@@ -17,7 +17,7 @@ in the other direction: the pull request run is the exact-head run (see "Coordin
 `run=false` for the three work jobs: see "Parallel jobs (ELZ-073)"). It prints `skip=true` only when all of these hold:
 the event is a push to `refs/heads/main`; the pushed commit is a two-parent merge commit; its tree equals
 the tree of its second parent (the pull request head that the queue merged with `--match-head-commit`);
-the latest run of `symbolic-check.yml` on that second parent (branch `task/ELZ-###`, found by `head_sha`; since ELZ-059 the
+the latest run of `symbolic-check.yml` on that second parent (any branch, including non-task plan-only and publication branches, found by `head_sha`; since ELZ-059 the
 same-repository `pull_request` run, or the queue's `workflow_dispatch` fallback; a fork pull request run is never evidence;
 a `pull_request` run counts only when the second parent holds the whole first parent, because that run tests the merge of
 the head with its base and only then has the tree of the head; a `workflow_dispatch` run tests the head itself; the run with the highest ID decides, so a run of a sibling pull request
@@ -46,6 +46,8 @@ token, the script prints `skip=false` with the reason and the full check runs. I
 cannot decide. A later run is not hidden by an older success: the run with the highest ID decides.
 `workflow_dispatch` runs (the queue's), pull requests and anything that
 is not a push to `main` are never skipped.
+
+Branch names neither authorize reuse nor filter out a newer failed run on the same head. This changes only the push-skip branch restriction, not merge admission: the task queue still requires `task/ELZ-###`, and the coordinator's publication path and main-green guards are unchanged. A docs-only short check still requires local docs-only classification and a completed green push run on the first parent; selected Piece evidence still requires the full main check.
 
 Why it is the same evidence: an identical tree is identical content, and the full check of that content passed on
 a hosted runner at the exact head, with its run and job IDs in the push log. What it does not prove: the push run
