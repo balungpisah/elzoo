@@ -6100,9 +6100,11 @@
     {
       "id": "workflow/run-approval-release",
       "job": "ELZ-126",
-      "note": "Bot platform wave 1 (P13). A distinct Run owner retains approval release without dispatch, enabling resource-owned dispatch; ready workflow/run remains unchanged.",
+      "note": "Explicit Run source variant retaining guarded lifecycle, children, completion and Run-owned dispatch, plus release_approved committing or currently revalidating exact-action Approval without intent admission, activation, work scheduling or send; Resource retains its independent current lifetime/FIFO and reservation-before-send boundary.",
       "baseline_status": "not in baseline (new row, ELZ-126)",
-      "disposition": "planned",
+      "disposition": "ready-contract",
+      "manifest": "pieces/workflow/run-approval-release/piece.json",
+      "manifest_sha256": "dc5b0f8e51ceed9cede9c5ba87a80b62d1be5db4c0929561d9aa227f667ea19c",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
