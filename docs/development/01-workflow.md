@@ -182,7 +182,8 @@ are true: the same `mix.exs`, `mix.lock` and `.tool-versions`; `erl` and
 `elixir` on `PATH` are the versions of `.tool-versions`; `deps` holds each
 locked dependency at its locked checksum or revision, before and after the
 copy; and no file in `_build` or `deps` holds an absolute path into the
-`deps` directory of another checkout, before and after the copy. The clone
+`deps` directory of another checkout on this host, before and after the
+copy. The clone
 leaves out the compiled project itself, so that Mix compiles it. Measured on
 a developer host: each compiled dependency holds the absolute path of the
 worktree that compiled it, also after a copy and also when Git no longer

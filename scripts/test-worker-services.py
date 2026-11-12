@@ -937,7 +937,8 @@ class BuildSafety(unittest.TestCase):
     def test_a_path_into_the_own_deps_or_outside_any_deps_does_not_count(self):
         project = self.checkout("here")
         beam = project / "_build" / "test" / "lib" / "jason" / "ebin" / "x.beam"
-        beam.write_bytes(str(project).encode() + b"/deps/jason/lib/jason.ex\x00/usr/lib/elixir/lib/elixir/x.ex")
+        beam.write_bytes(str(project).encode() + b"/deps/jason/lib/jason.ex\x00/usr/lib/elixir/lib/elixir/x.ex"
+                         b"\x00/rust/deps/x/src/lib.rs\x00/../deps/heroicons/x.svg")
         self.assertIsNone(ws.holds_foreign_path(project, project))
         self.assertEqual(str(beam), ws.holds_foreign_path(project, self.tmp / "other"))
 

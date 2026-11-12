@@ -879,13 +879,15 @@ FOREIGN_DEPS_PATH = re.compile(rb"(/[^\x00-\x20\"'<>|]+?)/deps/[A-Za-z0-9_.-]+/"
 
 def holds_foreign_path(project, own):
     """The first file under `_build` or `deps` of `project` that holds an absolute path into the `deps` directory of
-    a Mix project other than `own`, or None.
+    a Mix project other than `own`, under the same top directory as `own` (a path of this host, such as /Users or
+    /home; a path where a package was built, such as /rust in a precompiled NIF, does not count), or None.
 
     Measured on a developer host: compiled dependencies (in `_build`, and in `deps`, for example the Cure standard
     library stage) hold the absolute path of the worktree that compiled them, also after a copy and also when that
     worktree is no longer listed; Mix uses such a copied build without a recompile, and Cure then resolves its
     standard library through the other worktree."""
     own = str(pathlib.Path(own).resolve()).encode()
+    top = b"/" + own.split(b"/")[1] + b"/"
     for directory in ("_build", "deps"):
         for folder, _dirs, files in os.walk(pathlib.Path(project) / directory):
             for name in files:
@@ -897,7 +899,8 @@ def holds_foreign_path(project, own):
                         data = handle.read()
                 except OSError:
                     continue
-                if any(match.group(1) != own for match in FOREIGN_DEPS_PATH.finditer(data)):
+                if any(match.group(1) != own and match.group(1).startswith(top)
+                       for match in FOREIGN_DEPS_PATH.finditer(data)):
                     return path
     return None
 
