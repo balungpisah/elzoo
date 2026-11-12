@@ -883,7 +883,8 @@
       "summary": "A live thing that a Run holds, used by one action at a time and closed with the Run",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/run-resource/piece.json",
       "reason": "Bot platform wave 1 (P13). Ownership, serialization, time limit and close policy for an OS program, a sandbox, a browser or a call. A lost resource is an input and is never reopened automatically. No real provider yet."
     },
     {
