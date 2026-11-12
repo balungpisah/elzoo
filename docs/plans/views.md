@@ -87,7 +87,7 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | RC-08 | V1 / pieces | ELZ-033, ELZ-022, RC-07, ELZ-009 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-09 | V1 / pieces | ELZ-033, ELZ-024, RC-06 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-11 | V1 / pieces | ELZ-033, ELZ-026, ELZ-028, ELZ-024, RC-10 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-12 | V1 / pieces | ELZ-033, ELZ-010, ELZ-023, ELZ-024, ELZ-026, ELZ-028, ELZ-055 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| RC-12 | V1 / pieces | ELZ-033, ELZ-010, ELZ-023, ELZ-024, ELZ-026, ELZ-028, ELZ-055, ELZ-009 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-13 | V1 / pieces | ELZ-033, ELZ-009, ELZ-024, RC-05 | superseded for state/artifact by published ELZ-096 (output moved); no remaining output | one claimed task worker after admission |
 | RC-14 | V1 / pieces | ELZ-033, ELZ-006 | superseded for delivery/data-stream by published ELZ-101; broader transfer gaps remain deferred | one claimed task worker after admission |
 | RC-15 | V1 / pieces | ELZ-033, ELZ-003, ELZ-006, ELZ-026 | superseded for delivery/aggregation by published ELZ-098 (output moved); no remaining output | one claimed task worker after admission |
@@ -142,13 +142,13 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | RC-44 | V1B / pieces | ELZ-033, ELZ-002, ELZ-079, ELZ-083 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-45 | V1B / pieces | ELZ-033, ELZ-004, ELZ-009, ELZ-010, ELZ-002 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-46 | V1B / pieces | ELZ-033, ELZ-004, ELZ-013, RC-45 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-47 | V1B / pieces | ELZ-033, ELZ-004, ELZ-013, ELZ-006 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| RC-47 | V1B / pieces | ELZ-033, ELZ-004, ELZ-013, ELZ-006, ELZ-098 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-68 | V1B / pieces | ELZ-033, ELZ-002, ELZ-006, ELZ-023 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-48 | V1B / pieces | ELZ-033, ELZ-010, RC-12, RC-68 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-49 | V1B / pieces | ELZ-033, ELZ-023, ELZ-028, ELZ-006, ELZ-022, RC-68 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-50 | V1B / pieces | ELZ-033, RC-68, RC-44, RC-45, RC-46, RC-47, RC-12, RC-48, RC-49, ELZ-002, ELZ-009, ELZ-022, ELZ-023, ELZ-024, ELZ-098 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-51 | V1B / pieces | ELZ-033, ELZ-083, ELZ-030, ELZ-002 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-52 | V1B / pieces | ELZ-033, RC-44, ELZ-083, ELZ-079, RC-51 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| RC-50 | V1B / pieces | ELZ-033, RC-68, RC-44, RC-45, RC-46, RC-47, RC-12, RC-48, RC-49, ELZ-002, ELZ-009, ELZ-022, ELZ-023, ELZ-024, ELZ-098, ELZ-003 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| RC-51 | V1B / pieces | ELZ-033, ELZ-083, ELZ-030, ELZ-002, ELZ-003 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| RC-52 | V1B / pieces | ELZ-033, RC-44, ELZ-083, ELZ-079 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-53 | V1B / pieces | ELZ-033, ELZ-079, ELZ-030 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-54 | V1B / pieces | ELZ-033, ELZ-079, ELZ-030, RC-51, RC-53, RC-68 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-55 | V1B / pieces | ELZ-033, ELZ-002, RC-44, ELZ-079, RC-68 | blocked: unpublished admission proposal | one claimed task worker after admission |
@@ -160,10 +160,10 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | RC-60 | V1B / pieces | ELZ-033 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-61 | V1B / pieces | ELZ-033, RC-44, ELZ-026, ELZ-024, ELZ-105, RC-68 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-62 | V1B / pieces | ELZ-033, RC-60, RC-44, ELZ-002, RC-52, RC-61, RC-68, ELZ-022 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-63 | V1B / pieces | ELZ-033, ELZ-002, RC-68, RC-61, ELZ-026, ELZ-098 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-64 | V1B / pieces | ELZ-033, RC-61, RC-44, RC-52, ELZ-022, ELZ-024, RC-68 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| RC-63 | V1B / pieces | ELZ-033, ELZ-002, RC-68, RC-61, ELZ-026, ELZ-098, ELZ-003, ELZ-006 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| RC-64 | V1B / pieces | ELZ-033, RC-61, RC-52, ELZ-022, ELZ-024, RC-68 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-65 | V1B / pieces | ELZ-033, ELZ-096, ELZ-009, RC-61, RC-64, RC-12 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-66 | V1B / pieces | ELZ-033, RC-50, RC-52, RC-55, RC-56, RC-60, RC-61, RC-62, RC-63, RC-64 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| RC-66 | V1B / pieces | ELZ-033, RC-50, RC-52, RC-55, RC-56, RC-60, RC-61, RC-62, RC-63, RC-64, ELZ-079, RC-68 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-67 | V1B / pieces | ELZ-033, ELZ-096, RC-52, RC-54, RC-56, RC-65, RC-66, RC-61, RC-69 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-70 | V1B / pieces | ELZ-033, RC-68 | blocked: unpublished admission proposal | one claimed task worker after admission |
 

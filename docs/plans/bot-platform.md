@@ -82,11 +82,11 @@ A Run that survives: the engine runs one host, records each step, checks budget 
 | RC-44 | `core/payload-schema` | ELZ-002, ELZ-079, ELZ-083 | 1 | 11 |
 | RC-45 | `runtime/durable-unit` | ELZ-004, ELZ-009, ELZ-010, ELZ-002 | 1 | 4 |
 | RC-46 | `runtime/dynamic-units` | ELZ-004, ELZ-013, RC-45 | 2 | 3 |
-| RC-47 | `runtime/async-work` | ELZ-004, ELZ-013, ELZ-006 | 1 | 3 |
-| RC-12 | `workflow/run` | ELZ-010, ELZ-023, ELZ-024, ELZ-026, ELZ-028, ELZ-055 | 1 | 6 |
+| RC-47 | `runtime/async-work` | ELZ-004, ELZ-013, ELZ-006, ELZ-098 | 1 | 3 |
+| RC-12 | `workflow/run` | ELZ-010, ELZ-023, ELZ-024, ELZ-026, ELZ-028, ELZ-055, ELZ-009 | 1 | 6 |
 | RC-48 | `workflow/bot-run-lifecycle` | ELZ-010, RC-12, RC-68 | 2 | 4 |
 | RC-49 | `workflow/run-resource` | ELZ-023, ELZ-028, ELZ-006, ELZ-022, RC-68 | 2 | 3 |
-| RC-50 | `assembly/run-engine` | RC-68, RC-44, RC-45, RC-46, RC-47, RC-12, RC-48, RC-49, ELZ-002, ELZ-009, ELZ-022, ELZ-023, ELZ-024, ELZ-098 | 3 | 2 |
+| RC-50 | `assembly/run-engine` | RC-68, RC-44, RC-45, RC-46, RC-47, RC-12, RC-48, RC-49, ELZ-002, ELZ-009, ELZ-022, ELZ-023, ELZ-024, ELZ-098, ELZ-003 | 3 | 2 |
 
 ### Wave 2
 
@@ -94,8 +94,8 @@ An agent that uses tools: the agent loop and the typed decision are pure steps, 
 
 | Job | Outputs | Prerequisites | Level | Jobs that wait for it |
 | --- | --- | --- | --- | --- |
-| RC-51 | `workflow/untrusted-content` | ELZ-083, ELZ-030, ELZ-002 | 1 | 9 |
-| RC-52 | `workflow/tool-registry` | RC-44, ELZ-083, ELZ-079, RC-51 | 2 | 6 |
+| RC-51 | `workflow/untrusted-content` | ELZ-083, ELZ-030, ELZ-002, ELZ-003 | 1 | 5 |
+| RC-52 | `workflow/tool-registry` | RC-44, ELZ-083, ELZ-079 | 2 | 6 |
 | RC-69 | `workflow/tool-result-limit` | ELZ-096, RC-51, RC-68, ELZ-023, ELZ-009 | 2 | 3 |
 | RC-53 | `integration/ai-token-count` | ELZ-079, ELZ-030 | 1 | 4 |
 | RC-54 | `workflow/prompt-assembly`, `workflow/context-compaction` | ELZ-079, ELZ-030, RC-51, RC-53, RC-68 | 2 | 3 |
@@ -115,10 +115,10 @@ A recipe in Lua: a Lua file gives callables as data, the engine runs a graph, an
 | RC-60 | `runtime/lua-sandbox`, `runtime/lua-stdlib` | none | 1 | 3 |
 | RC-61 | `domain/recipe-graph`, `domain/recipe-package`, `domain/recipe-config` | RC-44, ELZ-026, ELZ-024, ELZ-105, RC-68 | 2 | 6 |
 | RC-62 | `runtime/lua-binding`, `workflow/lua-tool` | RC-60, RC-44, ELZ-002, RC-52, RC-61, RC-68, ELZ-022 | 3 | 2 |
-| RC-63 | `workflow/graph-run`, `workflow/node-outcome` | ELZ-002, RC-68, RC-61, ELZ-026, ELZ-098 | 3 | 2 |
-| RC-64 | `workflow/recipe-check`, `workflow/runtime-graph` | RC-61, RC-44, RC-52, ELZ-022, ELZ-024, RC-68 | 3 | 3 |
+| RC-63 | `workflow/graph-run`, `workflow/node-outcome` | ELZ-002, RC-68, RC-61, ELZ-026, ELZ-098, ELZ-003, ELZ-006 | 3 | 2 |
+| RC-64 | `workflow/recipe-check`, `workflow/runtime-graph` | RC-61, RC-52, ELZ-022, ELZ-024, RC-68 | 3 | 3 |
 | RC-65 | `state/recipe-store`, `workflow/version-pin` | ELZ-096, ELZ-009, RC-61, RC-64, RC-12 | 4 | 1 |
-| RC-66 | `runtime/recipe-test` | RC-50, RC-52, RC-55, RC-56, RC-60, RC-61, RC-62, RC-63, RC-64 | 4 | 1 |
+| RC-66 | `runtime/recipe-test` | RC-50, RC-52, RC-55, RC-56, RC-60, RC-61, RC-62, RC-63, RC-64, ELZ-079, RC-68 | 4 | 1 |
 | RC-67 | `workflow/skill` | ELZ-096, RC-52, RC-54, RC-56, RC-65, RC-66, RC-61, RC-69 | 5 | 0 |
 
 Briefs with Contract, acceptance, reuse and blockers for each job are in the
@@ -142,6 +142,7 @@ text. These published prerequisites of the track have ready Pieces on main:
 | Job | Ready Pieces |
 | --- | --- |
 | ELZ-002 | `core/operator`, `core/port`, `core/assembly` |
+| ELZ-003 | `core/edge`, `core/envelope`, `core/wiring` |
 | ELZ-004 | `runtime/unit`, `runtime/supervision`, `runtime/host`, `runtime/adapter`, `integration/json`, `assembly/ingest-dedup-accumulate`, `assembly/ingest-json-unit`, `delivery/idempotency` |
 | ELZ-006 | `delivery/backpressure`, `delivery/retry-timeout`, `delivery/dead-letter`, `delivery/time` |
 | ELZ-009 | `state/event-log`, `state/outbox`, `state/checkpoint`, `integration/sql` |
@@ -180,12 +181,16 @@ the width.
 
 Rules for this track:
 
-1. **RC-68 first.** It holds the action, input and outcome shapes that 13 jobs
+1. **RC-68 first.** It holds the action, input and outcome shapes that 14 jobs
    use directly and 16 jobs wait for. It gets the first free worker.
 2. **Order of admission.** When a worker slot is free, admit the first job in
    this list whose prerequisites are merged:
-   RC-68, RC-44, RC-51, RC-12, RC-52, RC-61, RC-45, RC-53, RC-48, RC-47, RC-60, RC-46, RC-49, RC-54, RC-69, RC-64, RC-55, RC-50, RC-56, RC-62, RC-63, RC-65, RC-66, RC-57, RC-59, RC-70, RC-58, RC-67.
-   The list is sorted by the number of jobs that wait, then by level.
+   RC-68, RC-44, RC-12, RC-45, RC-48, RC-47, RC-46, RC-49, RC-50, RC-52, RC-51, RC-53, RC-69, RC-54, RC-55, RC-56, RC-61, RC-60, RC-64, RC-62, RC-63, RC-65, RC-66, RC-57, RC-59, RC-70, RC-58, RC-67.
+   Jobs that another job waits for come first. They are sorted by wave, then
+   by the number of jobs that wait, then by level. Thus the engine of wave 1
+   (RC-50) is not behind jobs of wave 2 or wave 3, and a free slot still
+   takes a later job when no job of the current wave can start. Jobs that
+   no other job waits for come last.
 3. **Each job writes only its own Piece directories.** No two jobs of the
    track share a path under `pieces/`. New Pieces are found by glob, so a job
    does not edit `mix.exs` to add its Piece.

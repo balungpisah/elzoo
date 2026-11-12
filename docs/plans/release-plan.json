@@ -2255,7 +2255,8 @@
         "ELZ-024",
         "ELZ-026",
         "ELZ-028",
-        "ELZ-055"
+        "ELZ-055",
+        "ELZ-009"
       ],
       "status": "blocked: unpublished admission proposal",
       "contract": "Run/Attempt identity, current owner, reciprocal parent-child links, cancellation and effect settlement remain distinct. Persist approval inputs and re-evaluate current authority before dispatch; provider sessions are external references. Boundary with the bot platform track (P13): this job owns Run and Attempt identity, the parent-child links, the Run outcome set, the rule of which Attempt is current and what a cancel names, and approval persistence. At dispatch it calls ready workflow/approval, which already runs the decision again against current context; this job does not write that check a second time. The admitted design keeps these rules. (a) The release event is durable before a dispatch is started. (b) A key is released one time: with a release record the only check is Elzoo.Approval.revalidate/3, and :already_released from release/4 is never a permission. (c) With no release record the Run restores what it has: an approval that has no evidence yet stays an open wait and is not refused; with stored evidence it calls Elzoo.Approval.release/4 with that fresh evidence, for each scope; it passes :retained only after select_retained chose an existing retained consent. (d) revalidate/3 knows nothing about dispatch: :ok is never proof that nothing was sent and never permits a send by itself. (e) When delivery/effect-intent holds a reservation for the action, the action counts as possibly sent: this job starts no new dispatch for it, its outcome comes from the reconciliation of delivery/effect-intent, and this job never makes a replacement action for it. (f) After a refusal or an error of release/4 or revalidate/3 this job starts no new dispatch; that is not a claim that no send occurs, because a task that was already scheduled can still send, and that fence is a Need of the host. (g) Each restart window ends in a defined outcome, the window with an admitted intent and no attempt included. RC-48 owns only the phase with open waits and pause and applies the Attempt rule of this job without a second definition, and RC-50 calls this job and does not repeat it.",
@@ -3926,7 +3927,8 @@
         "ELZ-033",
         "ELZ-004",
         "ELZ-013",
-        "ELZ-006"
+        "ELZ-006",
+        "ELZ-098"
       ],
       "status": "blocked: unpublished admission proposal",
       "contract": "A Unit starts slow work that is not an Effect (a local computation, for example a bounded script run) under an injected supervisor and stays free for other inputs. The result goes to the registered name of the owner as one message, so after a restart it reaches the Unit that holds the identity. The caller supplies a wrap function that builds that message from (work_ref, outcome): this Piece owns no message form. The engine (RC-50) supplies the wrap that gives the info-message form of RC-45 with an RC-68 input inside. This Piece keeps no record across a restart. A result for cancelled or unknown work is late and never applied. Killed or timed-out work gives an explicit loss message. An Effect (a model call, a tool call, any outside write) is out of scope: delivery/effect-intent already runs it in a task away from its owner. Volatile: durable work stays with integration/jobs.",
@@ -4038,7 +4040,8 @@
         "ELZ-022",
         "ELZ-023",
         "ELZ-024",
-        "ELZ-098"
+        "ELZ-098",
+        "ELZ-003"
       ],
       "status": "blocked: unpublished admission proposal",
       "contract": "Run one pattern for one host (a Run or a room); the one durable Unit of a host comes from RC-46. The cycle: append the input (RC-45); give it to the pattern, a pure step of RC-68; check each action of the request for its payload schema (RC-44), an identity that is new in the Run, budget, authority and its approval rule; perform each action by its kind (an Effect through delivery/effect-intent, local work through RC-47, a resource through RC-49); append each outcome as its own input with the action identity. The engine knows no pattern and decides nothing about the work. It does the fan-out, because core/operator gives zero or one output. Durable state: the engine keeps the pure Elzoo.Budget state as records in the durable Unit, and does not rely on Elzoo.Budget.Owner across a restart. It stores no approval state: RC-12 owns approval persistence and the release call at dispatch, and the engine calls RC-12. The engine sends the released writes of an action only through delivery/effect-intent. It records the full five-field intent identity, the canonical arguments and the binding reference of the action before it admits the intent; after a restart it uses those recorded values and never derives them again from current configuration, and it refuses an incompatible recovery. An :ok from RC-12 after a restart is not proof that nothing was sent: when the intent holds a reservation, the engine starts no new dispatch, follows the recovery of delivery/effect-intent and makes no replacement action. An intent that was admitted and has no attempt gets a defined outcome too, under the restart protocol that the admission of RC-12 fixes: the first dispatch when the approval, the host activation and the admission deadline all permit it, and a recorded not-sent outcome when the deadline passed or the schema check refused; a read-only owner stays the case named below. It appends each outcome payload that it takes from the result sink of an Adapter before it acknowledges; a crash after sink delivery and before that append is recorded as a lost-outcome input, and the action is never dispatched again. The host decides the activation of an effect-intent owner one time, when the owner starts. An owner that starts without a grant stays read-only for its whole life; the engine never grants, dispatches nothing through a read-only owner, reports it, and waits for a new owner that the host starts after reconciliation. Local work that was running at a restart gets a failed outcome from the engine at start, from its log, with a loss class in its payload (killed, timed out or unavailable, the words of delivery/aggregation), and is not started again automatically. An ask-a-person action carries a deadline: on each recorded input, a wake from the host included, the engine records the 'too old' outcome for each open ask that is past its deadline, with the recorded time of that input. The engine has no timer of its own. The engine classifies an unknown or a repeated outcome by RC-68 (late) before the join of a request and never gives a second outcome to the join. The acting principal is trusted text from the host, as domain/authorization takes it. Model output is a proposal. An unknown outcome is never retried automatically.",
@@ -4073,7 +4076,8 @@
         "ELZ-033",
         "ELZ-083",
         "ELZ-030",
-        "ELZ-002"
+        "ELZ-002",
+        "ELZ-003"
       ],
       "status": "blocked: unpublished admission proposal",
       "contract": "A tool result, a retrieved document and a message from another member are content, not instructions. The Piece wraps such a value with its source, a trust class and a size bound, and keeps the mark through transformation and storage, so that a prompt builder and a guard can treat it apart from principal instructions. The mark travels inside the payload, under its own schema_id and schema_version, the key of core/port (ELZ-002); core/envelope is unchanged. Authority comes only from the principal; a mark never grants or removes authority.",
@@ -4104,8 +4108,7 @@
         "ELZ-033",
         "RC-44",
         "ELZ-083",
-        "ELZ-079",
-        "RC-51"
+        "ELZ-079"
       ],
       "status": "blocked: unpublished admission proposal",
       "contract": "Resolve a tool name that a model proposes to one real callable, from declared tool sources whose lists can change at run time (an MCP server). Resolution is a pure function over a snapshot of listings that the caller passes in. Finding a tool grants no permission to use it. The registry owns the model-facing alias: deterministic, inside the tool-name grammar of integration/ai-text ([a-zA-Z0-9_-], 1 to 64 bytes) and its bound of 64 tools, and mapped to (source, tool, version). An alias collision is refused, never a silent first match. A source keeps its own tool names. Version is the SHA-256 of the canonical descriptor (name, input schema, description, annotations), because an MCP descriptor has no version. A callable is an Adapter call or a nested callable by name (a tool written in Lua, RC-62). Resolution returns the callable with its argument schema, or an explicit unknown, ambiguous or changed result.",
@@ -4482,7 +4485,9 @@
         "RC-68",
         "RC-61",
         "ELZ-026",
-        "ELZ-098"
+        "ELZ-098",
+        "ELZ-003",
+        "ELZ-006"
       ],
       "status": "blocked: unpublished admission proposal",
       "contract": "The graph pattern as a pure step of RC-68: from the recipe graph, the recorded results and one input, decide which nodes are ready and give one request with their actions. Needs and gives set the data order; links add order and branches; map runs one node per item with a maximum count, a concurrency bound and a part-failure rule, and map items are not graph nodes; loop is a bounded re-run of a nested callable, never a back-edge. Each node outcome class of RC-68 follows its outcome link, or the Run fails. A node with a recorded result does not run again. No automatic retry after an unknown outcome.",
@@ -4514,7 +4519,6 @@
       "dependencies": [
         "ELZ-033",
         "RC-61",
-        "RC-44",
         "RC-52",
         "ELZ-022",
         "ELZ-024",
@@ -4592,7 +4596,9 @@
         "RC-61",
         "RC-62",
         "RC-63",
-        "RC-64"
+        "RC-64",
+        "ELZ-079",
+        "RC-68"
       ],
       "status": "blocked: unpublished admission proposal",
       "contract": "Run a recipe end to end through the real engine and patterns with scripted model and tool Adapters, no network and a controlled clock. The harness takes only Adapter modules from an allow-list that the caller supplies; any other Adapter is refused at start. The result is the full record of steps. This harness is how a recipe author and a Piece worker test without a provider.",
