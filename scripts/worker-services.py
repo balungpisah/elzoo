@@ -334,7 +334,11 @@ class Services:
 
     def up(self):
         started = self.clock()
-        image = postgres_image((self.root / WORKFLOW).read_text(encoding="utf-8"))
+        try:
+            workflow = (self.root / WORKFLOW).read_text(encoding="utf-8")
+        except OSError as error:
+            raise Stop(f"cannot read {WORKFLOW} ({type(error).__name__})") from error
+        image = postgres_image(workflow)
         arch = self.docker.arch()
         minio_asset(arch)
         self.state.mkdir(mode=0o700, exist_ok=True)

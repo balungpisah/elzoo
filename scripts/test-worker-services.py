@@ -396,6 +396,13 @@ class Up(ServicesCase):
         self.assertEqual({}, self.docker.containers)
         self.assertEqual([[ "docker", "pull", "--quiet", IMAGE]], self.docker.argv_of("docker", "pull"))
 
+    def test_a_worktree_without_the_workflow_stops_before_docker(self):
+        root = self.tmp / "no-workflow"
+        root.mkdir()
+        with self.assertRaisesRegex(ws.Stop, "cannot read"):
+            self.services(root).up()
+        self.assertEqual([], self.docker.calls)
+
     def test_a_missing_vector_extension_fails_closed_without_an_env_file(self):
         self.docker.vector = ""
         root = self.worktree()
