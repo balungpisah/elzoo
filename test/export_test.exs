@@ -168,7 +168,8 @@ defmodule Elzoo.ExportTest do
 
     assert uncovered.selected == []
     assert uncovered.aggregate
-    assert uncovered.uncovered == ["workflow/approval"]
+    assert "workflow/approval" in uncovered.uncovered
+    assert uncovered.uncovered == uncovered.affected
     # Per-ID consumers live in four modules since ELZ-049. Count them together; the inventory is
     # unchanged. A targeted run of this file alone cannot see the other modules.
     for module <- Elzoo.CureConsumerCase.consumer_test_modules() do

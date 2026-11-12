@@ -832,7 +832,8 @@
       "summary": "The shared shape of a pattern step: inputs, one request with a set of actions, outcomes",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/pattern-step/piece.json",
       "reason": "Bot platform wave 1 (P13). Closed, versioned sets of action kinds, input kinds and outcome classes, as data and pure validation, so that the engine and every pattern use one vocabulary. The step shape is ready core/operator, unchanged."
     },
     {
@@ -840,7 +841,8 @@
       "summary": "One schema check for a payload at a Port",
       "disposition": "adapt",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/core/payload-schema/piece.json",
       "reason": "Bot platform wave 1 (P13). One schema value per Port direction, keyed by the schema_id and schema_version of core/port, with a bounded violation result, shared by a module function, a recipe node, a tool argument and a model output. Reuse one pinned validator; ready integration/ai-text (jsv) and integration/mcp-client (ex_json_schema) keep their own validators and results."
     },
     {
@@ -848,7 +850,8 @@
       "summary": "Durable mode of a Unit: state returns after a restart",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/runtime/durable-unit/piece.json",
       "reason": "Bot platform wave 1 (P13). Each input is appended before the pure transition reads it; state returns from ready state/event-log, state/checkpoint and state/outbox. New ID: ready runtime/unit stays volatile and unchanged."
     },
     {
@@ -864,7 +867,8 @@
       "summary": "Slow local work away from the Unit, with cancel and late results",
       "disposition": "adapt",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/runtime/async-work/piece.json",
       "reason": "Bot platform wave 1 (P13). Local work that is not an Effect (a bounded script run) must not block the Unit that owns a Run; results return by registered name as messages with the work identity. An Effect stays with delivery/effect-intent. Volatile; durable work stays with integration/jobs."
     },
     {

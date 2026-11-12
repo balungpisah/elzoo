@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "id": "workflow/pattern-step",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["cure"],
+  "dependencies": ["core/port"],
+  "contract": "Exact v1 pattern-step maps and pure per-request action settlement; no runtime or payload-schema validation.",
+  "limits": [
+    "Only v1 closed kind sets and 1..64 unique actions per request; no Run-wide identity registry.",
+    "Caller owns serialization, tracker persistence, truthful schemas, verified identity, recorded time, payload validation and secret exclusion.",
+    "No authentication, authorization, input log, timers, budget enforcement, execution, automatic retries or durability guarantee."
+  ],
+  "files": [
+    "cure/elzoo/pattern_step.cure",
+    "examples/elzoo/pattern_step.exs",
+    "lib/elzoo/pattern_step.ex",
+    "test/elzoo/pattern_step_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/pattern_step.cure",
+      "symbol": "settled_never_applied",
+      "claim": "The production correlation decision returns late for a settled action for all Boolean known/late/compatible operands; excludes map validation, lookup and persistence."
+    },
+    {
+      "kind": "type",
+      "file": "cure/elzoo/pattern_step.cure",
+      "claim": "The pinned Cure compiler checks the pure correlation decision and selected law."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/pattern_step_test.exs",
+      "claim": "Named v1 round-trip, redaction, bounds, duplicate/late/independent settlement, person-answer, source audit and checked-example scenarios pass; finite tests, not a durability proof."
+    },
+    {
+      "kind": "upstream",
+      "provider": "cure",
+      "reference": "https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89",
+      "claim": "Relies on pinned Cure compilation, Boolean decisions and equality checking; compiler soundness is not locally proved."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The host supplies truthful schemas, recorded time, verified principal, Run-wide unique identities and secret-free validated payloads; callers serialize and preserve trackers."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "Pure validation and settlement emit no observations; callers own instrumentation."
+    },
+    "config": {
+      "status": "not_applicable",
+      "contract": "Intrinsic data operands and a fixed v1 bound; no ambient settings or selectable policy."
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No independent process, lifecycle or operational commands."
+    }
+  }
+}

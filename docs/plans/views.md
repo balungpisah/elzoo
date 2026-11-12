@@ -144,13 +144,15 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | RC-44 | V1B / pieces | ELZ-033, ELZ-002, ELZ-079, ELZ-083 | superseded for core/payload-schema by published ELZ-115; output moved | one claimed task worker after admission |
 | RC-45 | V1B / pieces | ELZ-033, ELZ-004, ELZ-009, ELZ-010, ELZ-002 | superseded for runtime/durable-unit by published ELZ-117; output moved | one claimed task worker after admission |
 | [ELZ-117](https://github.com/balungpisah/elzoo/issues/228) | V1B / pieces | ELZ-033, ELZ-004, ELZ-009, ELZ-010, ELZ-002 | published 2026-11-12 | one claimed task worker; coordinator owns independent review and merge queue |
-| RC-46 | V1B / pieces | ELZ-033, ELZ-004, ELZ-013, ELZ-117 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| RC-46 | V1B / pieces | ELZ-033, ELZ-004, ELZ-013, ELZ-117 | superseded for runtime/dynamic-units by published ELZ-122; output moved | one claimed task worker after admission |
 | RC-47 | V1B / pieces | ELZ-033, ELZ-004, ELZ-013, ELZ-006, ELZ-098 | superseded for runtime/async-work by published ELZ-118; output moved | one claimed task worker after admission |
 | RC-48 | V1B / pieces | ELZ-033, ELZ-010, ELZ-116, ELZ-114 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-49 | V1B / pieces | ELZ-033, ELZ-023, ELZ-028, ELZ-006, ELZ-022, ELZ-114 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| RC-49 | V1B / pieces | ELZ-033, ELZ-023, ELZ-028, ELZ-006, ELZ-022, ELZ-114 | superseded for workflow/run-resource by published ELZ-123; output moved | one claimed task worker after admission |
 | [ELZ-115](https://github.com/balungpisah/elzoo/issues/226) | V1B / pieces | ELZ-033, ELZ-002, ELZ-079, ELZ-083 | published 2026-11-12 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-122](https://github.com/balungpisah/elzoo/issues/241) | V1B / pieces | ELZ-033, ELZ-004, ELZ-013, ELZ-117 | published 2026-11-12 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-118](https://github.com/balungpisah/elzoo/issues/229) | V1B / pieces | ELZ-033, ELZ-004, ELZ-013, ELZ-006, ELZ-098 | published 2026-11-12 | one claimed task worker; coordinator owns independent review and merge queue |
-| RC-50 | V1B / pieces | ELZ-033, ELZ-114, ELZ-115, ELZ-117, RC-46, ELZ-118, ELZ-116, RC-48, RC-49, ELZ-002, ELZ-009, ELZ-022, ELZ-023, ELZ-024, ELZ-098, ELZ-003 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| [ELZ-123](https://github.com/balungpisah/elzoo/issues/242) | V1B / pieces | ELZ-033, ELZ-023, ELZ-028, ELZ-006, ELZ-022, ELZ-114 | published 2026-11-12 | one claimed task worker; coordinator owns independent review and merge queue |
+| RC-50 | V1B / pieces | ELZ-033, ELZ-114, ELZ-115, ELZ-117, ELZ-122, ELZ-118, ELZ-116, RC-48, ELZ-123, ELZ-002, ELZ-009, ELZ-022, ELZ-023, ELZ-024, ELZ-098, ELZ-003 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-51 | V1B / pieces | ELZ-033, ELZ-083, ELZ-030, ELZ-002, ELZ-003 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-52 | V1B / pieces | ELZ-033, ELZ-115, ELZ-083, ELZ-079 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-53 | V1B / pieces | ELZ-033, ELZ-079, ELZ-030 | blocked: unpublished admission proposal | one claimed task worker after admission |
@@ -173,6 +175,7 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | RC-70 | V1B / pieces | ELZ-033, ELZ-114 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | [ELZ-119](https://github.com/balungpisah/elzoo/issues/221) | V1 / pieces | none | published 2026-11-12 | one claimed task worker; coordinator owns review and merge queue |
 | [ELZ-120](https://github.com/balungpisah/elzoo/issues/232) | V1 / pieces | none | published 2026-11-12 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-121](https://github.com/balungpisah/elzoo/issues/238) | V1 / pieces | none | published 2026-11-12 | one claimed task worker; coordinator owns review and merge queue |
 
 ## Catalogue accounting
 
@@ -286,13 +289,13 @@ Baseline status is immutable inventory history, not a current planning status. R
 | [workflow/run](../../pieces/workflow/run/piece.json) | deferred | V1 / pieces | ELZ-116 / P01, P02, P03, P05, P06, P07, P08, P11, P13 | ready-contract: Serialized guarded-Store Run/execution-Attempt lifecycle with five immutable terminal outcomes, correlated durable completion, reciprocal child settlement, targeted cancellation, persisted ready Approval transitions and release-before-intent restart barriers; reserved effects never resent and unknown settlement remains separate from Run outcome. |
 | [workflow/state-machine](../../pieces/workflow/state-machine/piece.json) | planned | V1 / pieces | ELZ-010 / P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12 | merged-ready-contract; task acceptance separate: Job-Run lifecycle decision Elzoo.JobRun: total step/4 over phase, attempt-identity input (current/stale result, start/duplicate/stale start, cancel), supplied expiry and the unchanged ELZ-006 RetryDecision; Cure identity classification start_input/4 and result_input/3; validating Elixir projection. No statecharts, gen_statem framework, saga or compensation. |
 | workflow/work-item | deferred | V1 / pieces | RC-11 / P03, P07 | blocked-admission-proposal: Assignee, acceptance criterion and policy-defined completion for C5/C6; independent of job/agent attempt success. Reuse a suitable workflow implementation before authoring policy. ELZ-015 evaluates Ash resource actions with tenant context; no ready bundle or durable execution claim. ELZ-025 study: enumerated lifecycle transitions, completion bound to the current lease or authority holder, no-op transitions write nothing. |
-| workflow/pattern-step | not in baseline (new row, RC-68) | V1B / pieces | ELZ-114 / P13 | planned: Bot platform wave 1 (P13). Closed, versioned sets of action kinds, input kinds and outcome classes, as data and pure validation, so that the engine and every pattern use one vocabulary. The step shape is ready core/operator, unchanged. |
-| core/payload-schema | not in baseline (new row, RC-44) | V1B / pieces | ELZ-115 / P13 | blocked-admission-proposal: Bot platform wave 1 (P13). One schema value per Port direction, keyed by the schema_id and schema_version of core/port, with a bounded violation result, shared by a module function, a recipe node, a tool argument and a model output. Reuse one pinned validator; ready integration/ai-text (jsv) and integration/mcp-client (ex_json_schema) keep their own validators and results. |
-| runtime/durable-unit | not in baseline (new row, RC-45) | V1B / pieces | ELZ-117 / P13 | blocked-admission-proposal: Bot platform wave 1 (P13). Each input is appended before the pure transition reads it; state returns from ready state/event-log, state/checkpoint and state/outbox. New ID: ready runtime/unit stays volatile and unchanged. |
-| runtime/dynamic-units | not in baseline (new row, RC-46) | V1B / pieces | RC-46 / P13 | blocked-admission-proposal: Bot platform wave 1 (P13). At most one live Unit per Run or room identity, a bound on live Units and an idle sleep, over OTP DynamicSupervisor and Registry. New ID: ready runtime/host starts a fixed list. |
-| runtime/async-work | not in baseline (new row, RC-47) | V1B / pieces | ELZ-118 / P13 | blocked-admission-proposal: Bot platform wave 1 (P13). Local work that is not an Effect (a bounded script run) must not block the Unit that owns a Run; results return by registered name as messages with the work identity. An Effect stays with delivery/effect-intent. Volatile; durable work stays with integration/jobs. |
+| [workflow/pattern-step](../../pieces/workflow/pattern-step/piece.json) | not in baseline (new row, RC-68) | V1B / pieces | ELZ-114 / P13 | ready-contract: Exact v1 pattern-step maps and pure per-request action settlement; no runtime or payload-schema validation. |
+| [core/payload-schema](../../pieces/core/payload-schema/piece.json) | not in baseline (new row, RC-44) | V1B / pieces | ELZ-115 / P13 | ready-contract: Caller-owned JSON Schema checking bound to exact Port direction, schema ID and version; original JSON payload retained, compact encoding at most 65,536 bytes and container depth at most 32; failures return fixed tags or at most 16 key-redacted structural violations. |
+| [runtime/durable-unit](../../pieces/runtime/durable-unit/piece.json) | not in baseline (new row, RC-45) | V1B / pieces | ELZ-117 / P13 | ready-contract: One Unit's input-before-transition recording, committed-result recovery, FIFO completed-input identity retention and zero-or-one committed outbox offers through the ready Store, Writer, Checkpoint and Outbox boundaries. |
+| runtime/dynamic-units | not in baseline (new row, RC-46) | V1B / pieces | ELZ-122 / P13 | blocked-admission-proposal: Bot platform wave 1 (P13). At most one live Unit per Run or room identity, a bound on live Units and an idle sleep, over OTP DynamicSupervisor and Registry. New ID: ready runtime/host starts a fixed list. |
+| [runtime/async-work](../../pieces/runtime/async-work/piece.json) | not in baseline (new row, RC-47) | V1B / pieces | ELZ-118 / P13 | ready-contract: Bounded volatile local computation under an injected Task.Supervisor: a per-owner controller serializes completion, DOWN, cancel and monotonic deadlines, counts tasks through actual termination and offers one caller-wrapped outcome through the owner's current Registry name. Cancel brutally kills active tasks; success processed at or after deadline is timed_out. Owner-only restart preserves controller tracking but the replacement owner rejects unknown actions as late; controller restart loses tracking. No queue, durable delivery, retry or engine policy. |
 | workflow/bot-run-lifecycle | not in baseline (new row, RC-48) | V1B / pieces | RC-48 / P13 | blocked-admission-proposal: Bot platform wave 1 (P13). A total decision for a Run that waits for a model, tools, an approval, a person, child Runs or events at the same time. Uses the Run outcome set of workflow/run. New ID: ready workflow/state-machine knows job Runs only. |
-| workflow/run-resource | not in baseline (new row, RC-49) | V1B / pieces | RC-49 / P13 | blocked-admission-proposal: Bot platform wave 1 (P13). Ownership, serialization, time limit and close policy for an OS program, a sandbox, a browser or a call. A lost resource is an input and is never reopened automatically. No real provider yet. |
+| workflow/run-resource | not in baseline (new row, RC-49) | V1B / pieces | ELZ-123 / P13 | blocked-admission-proposal: Bot platform wave 1 (P13). Ownership, serialization, time limit and close policy for an OS program, a sandbox, a browser or a call. A lost resource is an input and is never reopened automatically. No real provider yet. |
 | assembly/run-engine | not in baseline (new row, RC-50) | V1B / pieces | RC-50 / P13 | blocked-admission-proposal: Bot platform wave 1 (P13). The small explicit engine role of docs/capability-model.md as an Assembly of ready pieces. It knows no pattern, does the fan-out, and keeps budget and approval state durable. Not a privileged kernel: a non-agent caller must be able to use it. |
 | workflow/untrusted-content | not in baseline (new row, RC-51) | V1B / pieces | RC-51 / P13 | blocked-admission-proposal: Bot platform wave 2 (P13). One shared mark with source and trust class for tool results, documents and messages from other members, kept through transformation, with a tested render rule for a model request. The mark travels inside the payload; core/envelope is unchanged. |
 | workflow/tool-registry | not in baseline (new row, RC-52) | V1B / pieces | RC-52 / P13 | blocked-admission-proposal: Bot platform wave 2 (P13). Tool sources can change at run time (MCP). Owns the model-facing alias and the version, a digest of the descriptor. Finding a tool grants no permission. Unknown, ambiguous and changed tools are explicit results. |
@@ -337,13 +340,13 @@ Derived from selectors in the manifest; changing the selected scope changes the 
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; integrated pinned mix check, source-copy/namespace/schema/provider compatibility and claim-level evidence. No future release acceptance follows from ELZ-012.
 
-Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, ELZ-008, ELZ-009, ELZ-010, ELZ-011, ELZ-012, ELZ-013, ELZ-014, ELZ-015, ELZ-016, ELZ-017, ELZ-018, ELZ-019, ELZ-020, ELZ-021, ELZ-022, ELZ-023, ELZ-024, ELZ-025, ELZ-026, ELZ-027, ELZ-028, ELZ-029, ELZ-030, ELZ-032, ELZ-033, ELZ-050, ELZ-052, ELZ-053, ELZ-054, ELZ-055, ELZ-083, ELZ-081, ELZ-084, ELZ-087, ELZ-079, ELZ-080, ELZ-085, ELZ-091, ELZ-092, ELZ-097, RC-01, RC-02, RC-03, RC-04, RC-05, RC-06, RC-07, RC-08, RC-09, RC-10, RC-11, RC-12, RC-13, RC-14, RC-15, RC-16, RC-17, RC-18, RC-19, RC-26, RC-32, RC-42, RC-43, ELZ-094, ELZ-093, ELZ-095, ELZ-082, ELZ-096, ELZ-098, ELZ-099, ELZ-100, ELZ-101, ELZ-104, ELZ-103, ELZ-105, ELZ-107, ELZ-106, ELZ-108, ELZ-109, ELZ-110, ELZ-111, ELZ-112, ELZ-113, ELZ-116, ELZ-119, ELZ-120.
+Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, ELZ-008, ELZ-009, ELZ-010, ELZ-011, ELZ-012, ELZ-013, ELZ-014, ELZ-015, ELZ-016, ELZ-017, ELZ-018, ELZ-019, ELZ-020, ELZ-021, ELZ-022, ELZ-023, ELZ-024, ELZ-025, ELZ-026, ELZ-027, ELZ-028, ELZ-029, ELZ-030, ELZ-032, ELZ-033, ELZ-050, ELZ-052, ELZ-053, ELZ-054, ELZ-055, ELZ-083, ELZ-081, ELZ-084, ELZ-087, ELZ-079, ELZ-080, ELZ-085, ELZ-091, ELZ-092, ELZ-097, RC-01, RC-02, RC-03, RC-04, RC-05, RC-06, RC-07, RC-08, RC-09, RC-10, RC-11, RC-12, RC-13, RC-14, RC-15, RC-16, RC-17, RC-18, RC-19, RC-26, RC-32, RC-42, RC-43, ELZ-094, ELZ-093, ELZ-095, ELZ-082, ELZ-096, ELZ-098, ELZ-099, ELZ-100, ELZ-101, ELZ-104, ELZ-103, ELZ-105, ELZ-107, ELZ-106, ELZ-108, ELZ-109, ELZ-110, ELZ-111, ELZ-112, ELZ-113, ELZ-116, ELZ-119, ELZ-120, ELZ-121.
 
 ### V1B-ACCEPT
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123.
 
 ### V2-ACCEPT
 
@@ -2348,3 +2351,33 @@ Publication copy: [tasks/ELZ-120-small-gate-window.md](../../tasks/ELZ-120-small
 **Product aims:** P01.
 
 **Acceptance:** Before accepting and immediately before merging a Piece, count all first-parent main commits after valid covering successful main push evidence: 0–2 permit, 3 or more refuse. Tests cover the boundary, renewed coverage, second-parent exclusion, missing or failed evidence, recheck, red-main freeze and full-run adoption. Document only behavior and limits.
+
+### ELZ-121
+
+ELZ-121 — Keep affected consumer selection test aligned with ready dependencies
+
+Publication copy: [tasks/ELZ-121-affected-consumer-selection.md](../../tasks/ELZ-121-affected-consumer-selection.md).
+
+**Product aims:** P01.
+
+**Acceptance:** The existing affected-selection case keeps no selected consumers, aggregate true and approval membership, and asserts uncovered equals affected with current main and with the new ready Run dependent. Fixed per-ID inventory assertions and selection coverage remain unchanged; only test/export_test.exs changes.
+
+### ELZ-122
+
+ELZ-122 — One durable Unit per local identity, with sleep and wake
+
+Publication copy: [tasks/ELZ-122-dynamic-units.md](../../tasks/ELZ-122-dynamic-units.md).
+
+**Product aims:** P13.
+
+**Acceptance:** The seven named scenarios cover concurrent identity admission, stop/wake arbitration, capacity, abnormal crash recovery, sleep and idle, Store CAS ownership and bounded lifecycle, including the specified negative control.
+
+### ELZ-123
+
+ELZ-123 — Run resource: a live thing that a Run holds
+
+Publication copy: [tasks/ELZ-123-run-resource.md](../../tasks/ELZ-123-run-resource.md).
+
+**Product aims:** P13.
+
+**Acceptance:** The seven named acceptance groups cover serial bounded use, same-Run typed grants, unknown open, Run end and late events, orphan cleanup, pause and deadline, and retained usage with empty budget, including the specified negative control.

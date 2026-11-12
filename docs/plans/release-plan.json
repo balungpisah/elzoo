@@ -3910,16 +3910,14 @@
       "kind": "proposal",
       "release": "V1B",
       "stage": "pieces",
-      "outputs": [
-        "runtime/dynamic-units"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "ELZ-004",
         "ELZ-013",
         "ELZ-117"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "superseded for runtime/dynamic-units by published ELZ-122; output moved",
       "contract": "Start, find, stop and put to sleep one Unit for each stable identity (a Run, a room). At most one live Unit per identity on a node. A message for an identity goes to the info-message intake of its durable Unit (RC-45); a message to a sleeping identity wakes it through the durable mode. An idle Unit stops after a declared time. A declared maximum of live Units gives an explicit refusal. This Piece does not prevent a Unit for the same identity on a second node: the Store CAS of the log Writer arbitrates. On a conflict the Writer reloads and answers conflict; it stops only if that reload fails. So the durable Unit of RC-45 stops on that answer with the named error of RC-45. Shared runtime boundary: RC-45 owns exactly one business info-message form: `{:durable_unit_input, input_id, input}`. `input_id` is a caller-stable UTF-8 binary of 1..160 bytes without NUL, scoped to one durable stream; `input` is caller-owned data. A direct sender constructs that tuple; no second intake wrapper or Envelope is introduced. RC-45 applies the same intake semantics to `step(server, input_id, input)` and this tuple. Sending the tuple is not an acknowledgement or evidence of commit; mailbox delivery is volatile. Only the synchronous step's applied/duplicate reply establishes that the input's result is committed. The caller owns resubmission with the same identity after an uncertain outcome, and identity collisions are errors inside the retained window. RC-46 routes that tuple unchanged to the current local Unit for the identity. It must not report a successful send as durable acceptance, and must explicitly refuse a stop/wake race it cannot resolve; no durable mailbox or exactly-once delivery is promised. RC-47 owns no durable-unit tuple: it calls the supplied `wrap.(work_ref, outcome)` and sends that returned term to the owner's registered name, resolved when sending rather than retaining an owner PID. RC-47 tests use a receiver process, not RC-45. RC-50 supplies the wrap that builds the RC-45 tuple with an RC-68 input inside; it supplies stable input identity and engine-read time. A result for an action no longer open is late and is never applied, including after durable-unit input deduplication has expired. On engine recovery RC-50 records a failed outcome with a loss class for an open volatile local-work action before admitting subsequent results; a later result is late. Neither RC-45 nor RC-47 implements this engine policy. An append returning `{:conflict, observed}` causes RC-45 to stop with `{:shutdown, :durable_unit_conflict}`. The ready Writer normally reloads and returns conflict; RC-45, not the Writer or RC-46, owns the stop policy. No losing candidate state or outbox is installed or offered. A pure transition may already have been evaluated before a result-append conflict; “applies nothing” means no committed losing result, not that no CPU work occurred. RC-46 uses this exact stop reason for the losing Unit on another node. Local Registry uniqueness is not cluster ownership.",
       "acceptance": "Two concurrent starts for one identity give one Unit; a message during stop wakes a new Unit or is refused explicitly, never lost silently; the live-Unit bound refuses with a named error; a crashed Unit restarts from its durable state; sleep and wake keep identity and state; a second Unit for one identity that loses the log CAS stops with the named error of RC-45 and applies nothing; no unbounded atom or process growth for the listed scenarios.",
       "reuse": "OTP DynamicSupervisor and Registry, which docs/architecture.md and docs/dependencies.md already plan for bounded dynamic units. Ready runtime/host, runtime/supervision and runtime/registry (ELZ-013) stay unchanged. Author only the identity, bound and sleep policy. Ready state/lease (ELZ-028) decides which single owner may drive a durable Run; this one-node job does not use it, and the later cluster handle will.",
@@ -4006,9 +4004,7 @@
       "kind": "proposal",
       "release": "V1B",
       "stage": "pieces",
-      "outputs": [
-        "workflow/run-resource"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "ELZ-023",
@@ -4017,7 +4013,7 @@
         "ELZ-022",
         "ELZ-114"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "superseded for workflow/run-resource by published ELZ-123; output moved",
       "contract": "A Run can hold a live thing between actions: an OS program, a code sandbox, a browser, a call. Opening is an Effect with intent, call and outcome records. The resource belongs to one Run; Run identity is opaque text here. One action at a time uses it and the others wait in a bounded line. It can give events to the Run. It has a time limit and a cost per minute. The owner closes it when the Run ends with any outcome. A lost resource is reported to the Run as an input and is never reopened automatically. The resource event and 'Run ended' are input kinds of RC-68. Each resource has its own lease stream, apart from the log stream of the Run. Owner decision 2026-11-12: a nested callable of the same Run can use a resource only when the outer node gives its name in the typed input; a child Run cannot use a parent's resource. Each resource declares stay or close on pause; the default is stay until its own time limit. Its cost is recorded even when the budget is empty. Moving ownership to a different Run is a later form, not implemented or ruled out by this Contract.",
       "acceptance": "Two concurrent actions on one resource are serialized; the line bound refuses explicitly; the Run-ended input of RC-68 closes the resource, whatever outcome it carries (the outcome value is opaque here; RC-12 owns the set); an orphan found after a restart is reported lost, and its close is an Effect that needs an effect-intent owner that the host started with a grant (with a read-only owner it is reported as closing, not closed); an open with unknown outcome is not retried automatically; time-limit expiry closes and reports; a resource event for a finished Run is late; minutes are counted in a workflow/budget unit. A same-Run nested callable can use only a resource named in its typed input; a child Run is refused. Exercise stay and close on pause, default stay through its own time limit, and retained cost with an empty budget. No ownership-transfer implementation in this version.",
       "reuse": "delivery/effect-intent (ELZ-023) for the open and close records; the host decides activation one time, when the owner starts (the activate call in init, pieces/delivery/effect-intent/lib/elzoo/effect_intent.ex); an owner that starts without a grant stays read-only and answers read_only, and a fresh first start needs a grant too. state/lease (ELZ-028) for single ownership: a lease lives in the stream of the state that it guards, so a resource gets its own stream and does not contend with the log Writer of the Run. workflow/budget (ELZ-022) for the minutes. delivery/time for the limit inside one runtime. This Piece owns only ownership, serialization and close policy behind a provider behaviour, and ships with a test provider.",
@@ -4048,11 +4044,11 @@
         "ELZ-114",
         "ELZ-115",
         "ELZ-117",
-        "RC-46",
+        "ELZ-122",
         "ELZ-118",
         "ELZ-116",
         "RC-48",
-        "RC-49",
+        "ELZ-123",
         "ELZ-002",
         "ELZ-009",
         "ELZ-022",
@@ -4929,6 +4925,61 @@
       "issue": 232,
       "url": "https://github.com/balungpisah/elzoo/issues/232",
       "issue_body_sha256": "d23a8672732d589c4d6808ee839dbb257052a7421168cf4a3d40798e15f44c32"
+    },
+    {
+      "id": "ELZ-121",
+      "title": "ELZ-121 — Keep affected consumer selection test aligned with ready dependencies",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [],
+      "status": "published 2026-11-12",
+      "owner_role": "one claimed task worker; coordinator owns review and merge queue",
+      "paths": [
+        "tasks/ELZ-121-affected-consumer-selection.md"
+      ],
+      "outputs": [],
+      "acceptance": "The existing affected-selection case keeps no selected consumers, aggregate true and approval membership, and asserts uncovered equals affected with current main and with the new ready Run dependent. Fixed per-ID inventory assertions and selection coverage remain unchanged; only test/export_test.exs changes.",
+      "product_aims": [
+        "P01"
+      ],
+      "issue": 238,
+      "url": "https://github.com/balungpisah/elzoo/issues/238",
+      "issue_body_sha256": "4e277f624d86b2ddf81635fd1ffdaec4c2057671dfb6ef9d9535a94a85f2ec3e"
+    },
+    {
+      "id": "ELZ-122",
+      "title": "ELZ-122 — One durable Unit per local identity, with sleep and wake",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-004", "ELZ-013", "ELZ-117"],
+      "status": "published 2026-11-12",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-122-dynamic-units.md"],
+      "outputs": ["runtime/dynamic-units"],
+      "acceptance": "The seven named scenarios cover concurrent identity admission, stop/wake arbitration, capacity, abnormal crash recovery, sleep and idle, Store CAS ownership and bounded lifecycle, including the specified negative control.",
+      "product_aims": ["P13"],
+      "issue": 241,
+      "url": "https://github.com/balungpisah/elzoo/issues/241",
+      "issue_body_sha256": "5aaa5014c64e1da7cdaeceded0dac7619dedce1bdd66f6904f861b05b9a5cb0b"
+    },
+    {
+      "id": "ELZ-123",
+      "title": "ELZ-123 — Run resource: a live thing that a Run holds",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-023", "ELZ-028", "ELZ-006", "ELZ-022", "ELZ-114"],
+      "status": "published 2026-11-12",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-123-run-resource.md"],
+      "outputs": ["workflow/run-resource"],
+      "acceptance": "The seven named acceptance groups cover serial bounded use, same-Run typed grants, unknown open, Run end and late events, orphan cleanup, pause and deadline, and retained usage with empty budget, including the specified negative control.",
+      "product_aims": ["P13"],
+      "issue": 242,
+      "url": "https://github.com/balungpisah/elzoo/issues/242",
+      "issue_body_sha256": "79b4f86e21fd4b8b871c421c3bc6ed5d0496951efee88be817109975faf7d39f"
     }
   ],
   "entries": [
@@ -5924,30 +5975,36 @@
     {
       "id": "workflow/pattern-step",
       "job": "ELZ-114",
-      "note": "Bot platform wave 1 (P13). Closed, versioned sets of action kinds, input kinds and outcome classes, as data and pure validation, so that the engine and every pattern use one vocabulary. The step shape is ready core/operator, unchanged.",
+      "note": "Exact v1 pattern-step maps and pure per-request action settlement; no runtime or payload-schema validation.",
       "baseline_status": "not in baseline (new row, RC-68)",
-      "disposition": "planned",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/workflow/pattern-step/piece.json",
+      "manifest_sha256": "d0b92258eb5cb64c30a5be78baacd16dff0882c990ca691f3f2ea9cf5b110bd1"
     },
     {
       "id": "core/payload-schema",
       "job": "ELZ-115",
-      "note": "Bot platform wave 1 (P13). One schema value per Port direction, keyed by the schema_id and schema_version of core/port, with a bounded violation result, shared by a module function, a recipe node, a tool argument and a model output. Reuse one pinned validator; ready integration/ai-text (jsv) and integration/mcp-client (ex_json_schema) keep their own validators and results.",
+      "note": "Caller-owned JSON Schema checking bound to exact Port direction, schema ID and version; original JSON payload retained, compact encoding at most 65,536 bytes and container depth at most 32; failures return fixed tags or at most 16 key-redacted structural violations.",
       "baseline_status": "not in baseline (new row, RC-44)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/core/payload-schema/piece.json",
+      "manifest_sha256": "b7f5c1abbf1e90c7c3190127d715827731949fb1ccdf721117513fa4189b9935",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
       "id": "runtime/durable-unit",
       "job": "ELZ-117",
-      "note": "Bot platform wave 1 (P13). Each input is appended before the pure transition reads it; state returns from ready state/event-log, state/checkpoint and state/outbox. New ID: ready runtime/unit stays volatile and unchanged.",
+      "note": "One Unit's input-before-transition recording, committed-result recovery, FIFO completed-input identity retention and zero-or-one committed outbox offers through the ready Store, Writer, Checkpoint and Outbox boundaries.",
       "baseline_status": "not in baseline (new row, RC-45)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/runtime/durable-unit/piece.json",
+      "manifest_sha256": "7cef42ef2a81da3b0861f6b580ca29e39277cdf9ca85f62a5c06e1ed0f6067a4",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
       "id": "runtime/dynamic-units",
-      "job": "RC-46",
+      "job": "ELZ-122",
       "note": "Bot platform wave 1 (P13). At most one live Unit per Run or room identity, a bound on live Units and an idle sleep, over OTP DynamicSupervisor and Registry. New ID: ready runtime/host starts a fixed list.",
       "baseline_status": "not in baseline (new row, RC-46)",
       "disposition": "blocked-admission-proposal",
@@ -5956,9 +6013,11 @@
     {
       "id": "runtime/async-work",
       "job": "ELZ-118",
-      "note": "Bot platform wave 1 (P13). Local work that is not an Effect (a bounded script run) must not block the Unit that owns a Run; results return by registered name as messages with the work identity. An Effect stays with delivery/effect-intent. Volatile; durable work stays with integration/jobs.",
+      "note": "Bounded volatile local computation under an injected Task.Supervisor: a per-owner controller serializes completion, DOWN, cancel and monotonic deadlines, counts tasks through actual termination and offers one caller-wrapped outcome through the owner's current Registry name. Cancel brutally kills active tasks; success processed at or after deadline is timed_out. Owner-only restart preserves controller tracking but the replacement owner rejects unknown actions as late; controller restart loses tracking. No queue, durable delivery, retry or engine policy.",
       "baseline_status": "not in baseline (new row, RC-47)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/runtime/async-work/piece.json",
+      "manifest_sha256": "e11814bc9ba18d1797829c35f00e4e83b38a7186e9ef3bd01b3d9a45098ff7c1",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
@@ -5971,7 +6030,7 @@
     },
     {
       "id": "workflow/run-resource",
-      "job": "RC-49",
+      "job": "ELZ-123",
       "note": "Bot platform wave 1 (P13). Ownership, serialization, time limit and close policy for an OS program, a sandbox, a browser or a call. A lost resource is an input and is never reopened automatically. No real provider yet.",
       "baseline_status": "not in baseline (new row, RC-49)",
       "disposition": "blocked-admission-proposal",
