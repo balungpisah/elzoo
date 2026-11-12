@@ -181,14 +181,15 @@ clones them (copy-on-write) from another worktree only when all of these
 are true: the same `mix.exs`, `mix.lock` and `.tool-versions`; `erl` and
 `elixir` on `PATH` are the versions of `.tool-versions`; `deps` holds each
 locked dependency at its locked checksum or revision, before and after the
-copy; and no file in `_build` or `deps` of the source holds the absolute
-path of a worktree. The clone leaves out the compiled project itself, so
-that Mix compiles it. Measured on a developer host: each compiled dependency
-holds the absolute path of the worktree that compiled it; after a clone,
-Mix compiled only the project and used the copied dependency builds, and the
-first compile failed because Cure found its standard library also through
-the other worktree. So in practice `up` refuses the clone of a real build
-and runs `mix setup`. A source that runs `deps.get` or a compile during the
+copy; and no file in `_build` or `deps` holds an absolute path into the
+`deps` directory of another checkout, before and after the copy. The clone
+leaves out the compiled project itself, so that Mix compiles it. Measured on
+a developer host: each compiled dependency holds the absolute path of the
+worktree that compiled it, also after a copy and also when Git no longer
+lists that worktree; after a clone, Mix compiled only the project and used
+the copied dependency builds, and the first compile failed because Cure
+found its standard library also through the other worktree. So in practice
+`up` refuses the clone of a real build and runs `mix setup`. A source that runs `deps.get` or a compile during the
 copy can still change files that these checks do not read. `--no-build`
 skips this step.
 
