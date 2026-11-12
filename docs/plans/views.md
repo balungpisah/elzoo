@@ -176,6 +176,7 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-119](https://github.com/balungpisah/elzoo/issues/221) | V1 / pieces | none | published 2026-11-12 | one claimed task worker; coordinator owns review and merge queue |
 | [ELZ-120](https://github.com/balungpisah/elzoo/issues/232) | V1 / pieces | none | published 2026-11-12 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-121](https://github.com/balungpisah/elzoo/issues/238) | V1 / pieces | none | published 2026-11-12 | one claimed task worker; coordinator owns review and merge queue |
+| [ELZ-125](https://github.com/balungpisah/elzoo/issues/249) | V1B / pieces | ELZ-116 | published 2026-11-12 | one claimed task worker; coordinator owns merge queue |
 
 ## Catalogue accounting
 
@@ -286,7 +287,7 @@ Baseline status is immutable inventory history, not a current planning status. R
 | workflow/build-graph | deferred | V2 / pieces | RC-29 / P11 | blocked-admission-proposal: Product-specific; no catalogue build system in the runtime |
 | [workflow/context-selection](../../pieces/workflow/context-selection/piece.json) | deferred | V1 / pieces | ELZ-030 / P06, P07 | prepared-ready-contract; task acceptance separate: Pure bounded context selection over host-owned window/reservations/current access/provenance/time/configuration: retrieval veto, bound current and transitive source access, freshness, input-relative supersession, deterministic ranking/dedupe, ordered drop reasons, window then selected-count then actual-byte caps; structural positional scheduling and one memoized final verdict per node within fixed ingress and 4096 node-plus-edge bounds. |
 | [workflow/dependency-graph](../../pieces/workflow/dependency-graph/piece.json) | deferred | V1 / pieces | ELZ-026 / P01, P02, P03, P05, P06, P07, P08, P11 | merged-ready-contract; task acceptance separate: Pure readiness and cycle admission Elzoo.DependencyGraph over caller Work Item fixtures, externals, typed edges (from waits for to) and provenance-tagged facts with explicit Unix-ms now: closed is not completed, unknown/expired/model-declared-only facts never satisfy, blocking-edge admission revalidates the whole graph; the Cure step keeps the index-level blocking graph acyclic (Cure laws) while the Elixir revalidation and mapping are test-grounded; exact issues, blockers and errors. |
-| workflow/run | deferred | V1 / pieces | ELZ-116 / P01, P02, P03, P05, P06, P07, P08, P11, P13 | blocked-admission-proposal: Execution identity, outcome, parent/child settlement, cancellation and late-result handling for C2/C5/C6/C7; evaluate Oban/Jido where appropriate; no full orchestrator implemented. ELZ-025 study: Run outcome and effect settlement are distinct facts; parent/child attachment is reciprocal; cancellation names the Attempt and an indeterminate cancellation terminates the owner; child spawn is an Effect with unknown outcome under timeout; the owner observes attempt death by monitor; completed means durable evidence. |
+| [workflow/run](../../pieces/workflow/run/piece.json) | deferred | V1 / pieces | ELZ-116 / P01, P02, P03, P05, P06, P07, P08, P11, P13 | ready-contract: Serialized guarded-Store Run/execution-Attempt lifecycle with five immutable terminal outcomes, correlated durable completion, reciprocal child settlement, targeted cancellation, persisted ready Approval transitions and release-before-intent restart barriers; reserved effects never resent and unknown settlement remains separate from Run outcome. |
 | [workflow/state-machine](../../pieces/workflow/state-machine/piece.json) | planned | V1 / pieces | ELZ-010 / P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12 | merged-ready-contract; task acceptance separate: Job-Run lifecycle decision Elzoo.JobRun: total step/4 over phase, attempt-identity input (current/stale result, start/duplicate/stale start, cancel), supplied expiry and the unchanged ELZ-006 RetryDecision; Cure identity classification start_input/4 and result_input/3; validating Elixir projection. No statecharts, gen_statem framework, saga or compensation. |
 | workflow/work-item | deferred | V1 / pieces | RC-11 / P03, P07 | blocked-admission-proposal: Assignee, acceptance criterion and policy-defined completion for C5/C6; independent of job/agent attempt success. Reuse a suitable workflow implementation before authoring policy. ELZ-015 evaluates Ash resource actions with tenant context; no ready bundle or durable execution claim. ELZ-025 study: enumerated lifecycle transitions, completion bound to the current lease or authority holder, no-op transitions write nothing. |
 | [workflow/pattern-step](../../pieces/workflow/pattern-step/piece.json) | not in baseline (new row, RC-68) | V1B / pieces | ELZ-114 / P13 | ready-contract: Exact v1 pattern-step maps and pure per-request action settlement; no runtime or payload-schema validation. |
@@ -346,7 +347,7 @@ Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, EL
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125.
 
 ### V2-ACCEPT
 
@@ -2381,3 +2382,13 @@ Publication copy: [tasks/ELZ-123-run-resource.md](../../tasks/ELZ-123-run-resour
 **Product aims:** P13.
 
 **Acceptance:** The seven named acceptance groups cover serial bounded use, same-Run typed grants, unknown open, Run end and late events, orphan cleanup, pause and deadline, and retained usage with empty budget, including the specified negative control.
+
+### ELZ-125
+
+ELZ-125 — Restore Run test-helper portability in copied consumers
+
+Publication copy: [tasks/ELZ-125-run-test-portability.md](../../tasks/ELZ-125-run-test-portability.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Reproduce the copied-consumer helper failure, then pass the identical aggregate with local-first helper lookup; retain all 31 Run cases and assertions and pass the named Piece gate and hosted database lane.
