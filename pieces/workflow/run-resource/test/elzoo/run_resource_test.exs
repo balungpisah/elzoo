@@ -460,6 +460,80 @@ defmodule Elzoo.RunResourceTest do
   end
 
   test "orphan_cleanup_requires_host_grant" do
+    malformed = fixture()
+    GenServer.stop(malformed.owner)
+    key = malformed.options.held.live.key
+
+    record =
+      log_rows(malformed.store, key) |> List.last() |> Map.fetch!(:payload) |> Jason.decode!()
+
+    {:held, held} = Lease.hold(malformed.lease, key, "owner")
+
+    {:held, held} =
+      Lease.write(malformed.lease, held, [
+        {"run_resource_state", 1, Jason.encode!(Map.put(record, "entry", nil))}
+      ])
+
+    Process.flag(:trap_exit, true)
+
+    assert {:error, :incompatible_recovery} =
+             RunResource.start_link(%{malformed.options | held: held})
+
+    for mutation <- [:none, :sequence, :input, :receipt, :state, :intent, :command] do
+      retained = fixture() |> open()
+      GenServer.stop(retained.owner)
+      key = retained.options.held.live.key
+
+      record =
+        log_rows(retained.store, key) |> List.last() |> Map.fetch!(:payload) |> Jason.decode!()
+
+      {:held, held} = Lease.hold(retained.lease, key, "owner")
+      record = put_in(record, ["entry", "seq"], held.live.revision + 1)
+      receipt_key = Jason.encode!(record["entry"]["command_id"])
+      intent_key = Jason.encode!(intent("open", "resource_open").identity)
+
+      record =
+        case mutation do
+          :none ->
+            record
+
+          :sequence ->
+            put_in(record, ["entry", "seq"], held.live.revision)
+
+          :input ->
+            put_in(record, ["entry", "inputs"], [%{"type" => "input"}])
+
+          :receipt ->
+            update_in(record, ["state", "receipts", receipt_key], &Map.delete(&1, "receipt"))
+
+          :state ->
+            put_in(record, ["state", "opened"], "not-a-time")
+
+          :intent ->
+            update_in(
+              record,
+              ["state", "intents", intent_key, "descriptor"],
+              &Map.delete(&1, "arguments")
+            )
+
+          :command ->
+            put_in(record, ["state", "receipts", receipt_key, "command"], [0, ["action"]])
+        end
+
+      {:held, held} =
+        Lease.write(retained.lease, held, [{"run_resource_state", 1, Jason.encode!(record)}])
+
+      result = RunResource.start_link(%{retained.options | held: held})
+
+      if mutation == :none do
+        assert {:ok, owner} = result
+        assert {:ok, %{state: %{phase: :closing}}} = RunResource.read(owner, 0)
+        GenServer.stop(owner)
+      else
+        assert {:error, :incompatible_recovery} = result
+      end
+    end
+
     f = fixture() |> open()
     a = intent("A", "resource_use")
     assert {:ok, _} = RunResource.command(f.owner, action(f, "A", "resource_use"))
@@ -551,6 +625,36 @@ defmodule Elzoo.RunResourceTest do
   end
 
   test "pause_stay_close_and_deadline" do
+    for recovered? <- [false, true] do
+      timer = fixture(%{deadline_ms: 10_000})
+      timer = if recovered?, do: timer |> open() |> restart(), else: timer
+      at(timer, 10_000)
+      send(timer.owner, :deadline)
+      assert snapshot(timer).state.phase == if(recovered?, do: :closing, else: :closed)
+      assert Enum.count(inputs(timer), &(&1["payload"]["reason"] == "expired")) == 1
+    end
+
+    fresh_timer = fixture(%{deadline_ms: 10_000})
+    {:ok, before_timer} = Store.read(fresh_timer.store, :head, [fresh_timer.options.held.live.key])
+    :ok = Clock.advance(fresh_timer.lease_clock, 30_000_000)
+    send(fresh_timer.owner, :renew)
+    assert snapshot(fresh_timer).state.phase == :new
+    {:ok, after_timer} = Store.read(fresh_timer.store, :head, [fresh_timer.options.held.live.key])
+    assert after_timer.revision > before_timer.revision
+
+    recovered_timer = fixture(%{deadline_ms: 10_000}) |> open() |> restart()
+
+    {:ok, before_timer} =
+      Store.read(recovered_timer.store, :head, [recovered_timer.options.held.live.key])
+
+    send(recovered_timer.owner, :renew)
+    assert snapshot(recovered_timer).state.phase == :closing
+
+    {:ok, after_timer} =
+      Store.read(recovered_timer.store, :head, [recovered_timer.options.held.live.key])
+
+    assert after_timer.revision > before_timer.revision
+
     for policy <- [:default, :stay] do
       overrides = if policy == :default, do: %{}, else: %{pause_policy: policy}
       f = fixture(Map.put(overrides, :deadline_ms, 10_000)) |> open()

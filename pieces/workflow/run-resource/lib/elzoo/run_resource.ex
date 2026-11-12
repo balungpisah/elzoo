@@ -109,7 +109,7 @@ defmodule Elzoo.RunResource do
 
   @impl true
   def handle_info(message, s) when message in [:renew, :deadline] do
-    command = %{id: ["internal", s.held.live.revision], at_ms: now(s), body: :tick}
+    command = %{id: ["timer", s.held.live.revision], at_ms: now(s), body: :tick}
 
     case execute(s, command, true) do
       {_, s, :stop} ->
@@ -277,13 +277,15 @@ defmodule Elzoo.RunResource do
          {:ok, rows} <- rows(s.lease.store, s.held.live.key, 1, head.revision, []),
          replay <- DurableLog.replay(rows, head.revision, s.lease.fold),
          true <- replay.tail == :intact and elem(replay.cursor, 0) == head.revision do
-      records = for r <- rows, r.kind == "run_resource_state", do: Jason.decode!(r.payload)
-
-      Enum.each(records, fn record ->
-        true = Map.keys(record) |> Enum.sort() == ["entry", "state", "version"]
-        true = record["version"] == 1
-        validate_state!(record["state"])
-      end)
+      records =
+        for row <- rows, row.kind == "run_resource_state" do
+          record = Jason.decode!(row.payload)
+          true = Map.keys(record) |> Enum.sort() == ["entry", "state", "version"]
+          true = record["version"] == 1
+          validate_state!(record["state"])
+          validate_entry!(record["entry"], record["state"], row.sequence)
+          record
+        end
 
       model = if records == [], do: nil, else: List.last(records)["state"]
       {:ok, %{s | model: model, entries: Enum.map(records, & &1["entry"])}}
@@ -316,11 +318,69 @@ defmodule Elzoo.RunResource do
 
     true = m["phase"] in ~w(new opening open closing closed)
     for k <- ~w(paused run_ended lost expired), do: true = is_boolean(m[k])
-    true = is_map(m["receipts"]) and is_map(m["intents"]) and is_list(m["waiting"])
+    r = m["resource"]
+    b = r["budget"]
+    [inc, count] = b["generation"]
+    true = Enum.sort(Map.keys(b)) == ~w(budget_id cost_ref generation unit)
+    resource = Map.new(r, fn {k, v} -> {String.to_existing_atom(k), v} end)
+
+    {:ok, ^r} =
+      descriptor(%{
+        resource
+        | pause_policy: String.to_existing_atom(r["pause_policy"]),
+          close_intent: intent_view(r["close_intent"]),
+          budget: %{
+            budget_id: b["budget_id"],
+            unit: b["unit"],
+            cost_ref: b["cost_ref"],
+            generation: {inc, count}
+          }
+      })
+
+    for k <- ~w(opened through closed accrued actual),
+        do: true = m[k] == nil or (is_integer(m[k]) and m[k] >= 0)
+
+    true =
+      is_map(m["receipts"]) and is_map(m["intents"]) and is_map(m["actions"]) and
+        is_list(m["waiting"])
+
+    true = m["active"] == nil or m["actions"][m["active"]]["kind"] == "resource_use"
+    true = Enum.uniq(m["waiting"]) == m["waiting"]
+    for id <- m["waiting"], do: true = text?(id) and m["actions"][id]["kind"] == "resource_use"
+    validate_budget!(m["budget"], r["budget"])
+
+    for {key, receipt} <- m["receipts"] do
+      decoded_key = Jason.decode!(key)
+      validate_key!(decoded_key)
+      true = Enum.sort(Map.keys(receipt)) == ~w(command receipt)
+      validate_command!(decoded_key, receipt["command"])
+      validate_receipt!(receipt["receipt"])
+    end
+
+    for {key, record} <- m["intents"] do
+      true = Enum.sort(Map.keys(record)) == ~w(action descriptor kind status)
+      {:ok, descriptor} = intent(intent_view(record["descriptor"]))
+      true = descriptor == record["descriptor"] and key == intent_key(descriptor)
+      true = record["kind"] in ~w(resource_open resource_use resource_close)
+      true = record["status"] in ~w(ready reserved resolved)
+
+      true =
+        if record["kind"] == "resource_close",
+          do: record["action"] == nil and descriptor == r["close_intent"],
+          else: text?(record["action"]) and m["actions"][record["action"]]["intent"] == key
+    end
 
     for {id, action} <- m["actions"] do
+      true = text?(id) and Enum.sort(Map.keys(action)) == ~w(intent kind outcome request)
       {:ok, checked} = PatternStep.decode(action["request"])
-      true = hd(PatternStep.encode(checked)["actions"])["id"] == id
+      [a] = PatternStep.encode(checked)["actions"]
+      true = a["id"] == id and a["kind"] == action["kind"]
+      context = %{run_id: r["run_id"], scope: :owner, resource_names: []}
+
+      descriptor =
+        if action["intent"] != nil, do: intent_view(m["intents"][action["intent"]]["descriptor"])
+
+      {:ok, "action", _, ^id} = body({:action, a, context, descriptor}, id, 0)
       tracker = PatternStep.open(checked)
 
       if action["outcome"] do
@@ -330,6 +390,125 @@ defmodule Elzoo.RunResource do
     end
 
     :ok
+  end
+
+  defp validate_key!([tag, id]) do
+    true = tag in ~w(action event observation dispatch control)
+
+    true =
+      text?(id) or
+        (tag == "control" and
+           match?(
+             [namespace, seq]
+             when namespace in ["internal", "timer"] and is_integer(seq) and seq >= 0,
+             id
+           ))
+  end
+
+  defp validate_receipt!(["ok", seq, disposition]) do
+    true = is_integer(seq) and seq > 0 and disposition in ~w(accepted queued applied late)
+  end
+
+  defp validate_receipt!(["unknown", id]), do: true = text?(id)
+  defp validate_receipt!(["refused", "read_only"]), do: :ok
+
+  defp validate_command!(["control", ["internal", _]], [at, [reason]])
+       when reason in ~w(initialize recovery expiry) do
+    true = Binding.uint?(at)
+  end
+
+  defp validate_command!([_, id] = key, [at, durable] = command) do
+    restored =
+      case durable do
+        ["action", request, context, descriptor] ->
+          [action] = request["actions"]
+          true = Enum.sort(Map.keys(context)) == ~w(resource_names run_id scope)
+
+          {:action, action,
+           %{
+             run_id: context["run_id"],
+             scope: String.to_existing_atom(context["scope"]),
+             resource_names: context["resource_names"]
+           }, if(descriptor != nil, do: intent_view(descriptor))}
+
+        ["input", input] ->
+          {:ok, checked} = PatternStep.decode(input)
+          {:input, checked}
+
+        [control] when control in ~w(pause continue tick) ->
+          String.to_existing_atom(control)
+
+        ["dispatch", identity] ->
+          {:dispatch, identity, self()}
+
+        ["observed", identity, ["completed", data]] ->
+          {:observed, identity, {:completed, data}}
+
+        ["observed", identity, ["unknown", data]] ->
+          {:observed, identity, {:unknown, data}}
+
+        ["observed", identity, ["failed", dispatch, data]] ->
+          {:observed, identity, {:failed, String.to_existing_atom(dispatch), data}}
+
+        ["event", event_id, data] ->
+          {:event, event_id, data}
+      end
+
+    {:ok, ^key, ^command} = normalize(%{id: id, at_ms: at, body: restored}, is_list(id))
+  end
+
+  defp validate_budget!(nil, _), do: :ok
+
+  defp validate_budget!([kind, b], resource_budget) do
+    true = kind in ~w(settle release)
+
+    true =
+      Enum.sort(Map.keys(b)) ==
+        if(kind == "settle", do: ~w(actual cost_ref generation), else: ~w(cost_ref generation))
+
+    true =
+      b["cost_ref"] == resource_budget["cost_ref"] and
+        b["generation"] == resource_budget["generation"]
+
+    true = kind == "release" or (is_integer(b["actual"]) and b["actual"] > 0)
+  end
+
+  defp validate_entry!(e, m, seq) do
+    true = Enum.sort(Map.keys(e)) == ~w(budget_command command_id effects inputs receipt seq)
+    true = e["seq"] == seq
+    validate_key!(e["command_id"])
+    validate_receipt!(e["receipt"])
+    true = m["receipts"][Jason.encode!(e["command_id"])]["receipt"] == e["receipt"]
+    true = is_list(e["effects"]) and is_list(e["inputs"])
+
+    for effect <- e["effects"] do
+      {:ok, ^effect} = intent(intent_view(effect))
+      true = m["intents"][intent_key(effect)]["descriptor"] == effect
+    end
+
+    for input <- e["inputs"] do
+      {:ok, checked} = PatternStep.decode(input)
+      true = PatternStep.encode(checked) == input and input["type"] == "input"
+      true = input["kind"] in ~w(action_outcome resource_event)
+      true = input["schema_id"] == "elzoo.run-resource.result" and input["schema_version"] == 1
+      p = input["payload"]
+
+      true =
+        Enum.sort(Map.keys(p)) ==
+          if(input["kind"] == "resource_event",
+            do: ~w(data event_id reason resource_name run_id),
+            else: ~w(data reason resource_name run_id)
+          )
+
+      true =
+        p["run_id"] == m["resource"]["run_id"] and p["resource_name"] == m["resource"]["name"] and
+          text?(p["reason"])
+
+      true = input["kind"] != "resource_event" or text?(p["event_id"])
+    end
+
+    validate_budget!(e["budget_command"], m["resource"]["budget"])
+    true = e["budget_command"] == nil or e["budget_command"] == m["budget"]
   end
 
   defp transition(m, [at, ["action", request, context, intent]]) do
