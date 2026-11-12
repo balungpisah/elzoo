@@ -18,6 +18,7 @@
   ],
   "files": [
     "cure/elzoo/edge.cure",
+    "examples/elzoo/edge.exs",
     "lib/elzoo/edge.ex",
     "test/elzoo/edge_test.exs"
   ],
