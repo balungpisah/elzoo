@@ -171,6 +171,8 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | RC-67 | V1B / pieces | ELZ-033, ELZ-096, RC-52, RC-54, RC-56, RC-65, RC-66, RC-61, RC-69 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-68 | V1B / pieces | ELZ-033, ELZ-002, ELZ-006, ELZ-023 | superseded for workflow/pattern-step by published ELZ-114; output moved | one claimed task worker after admission |
 | RC-70 | V1B / pieces | ELZ-033, ELZ-114 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| [ELZ-119](https://github.com/balungpisah/elzoo/issues/221) | V1 / pieces | none | published 2026-11-12 | one claimed task worker; coordinator owns review and merge queue |
+| [ELZ-120](https://github.com/balungpisah/elzoo/issues/232) | V1 / pieces | none | published 2026-11-12 | one claimed task worker; coordinator owns independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -335,7 +337,7 @@ Derived from selectors in the manifest; changing the selected scope changes the 
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; integrated pinned mix check, source-copy/namespace/schema/provider compatibility and claim-level evidence. No future release acceptance follows from ELZ-012.
 
-Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, ELZ-008, ELZ-009, ELZ-010, ELZ-011, ELZ-012, ELZ-013, ELZ-014, ELZ-015, ELZ-016, ELZ-017, ELZ-018, ELZ-019, ELZ-020, ELZ-021, ELZ-022, ELZ-023, ELZ-024, ELZ-025, ELZ-026, ELZ-027, ELZ-028, ELZ-029, ELZ-030, ELZ-032, ELZ-033, ELZ-050, ELZ-052, ELZ-053, ELZ-054, ELZ-055, ELZ-083, ELZ-081, ELZ-084, ELZ-087, ELZ-079, ELZ-080, ELZ-085, ELZ-091, ELZ-092, ELZ-097, RC-01, RC-02, RC-03, RC-04, RC-05, RC-06, RC-07, RC-08, RC-09, RC-10, RC-11, RC-12, RC-13, RC-14, RC-15, RC-16, RC-17, RC-18, RC-19, RC-26, RC-32, RC-42, RC-43, ELZ-094, ELZ-093, ELZ-095, ELZ-082, ELZ-096, ELZ-098, ELZ-099, ELZ-100, ELZ-101, ELZ-104, ELZ-103, ELZ-105, ELZ-107, ELZ-106, ELZ-108, ELZ-109, ELZ-110, ELZ-111, ELZ-112, ELZ-113, ELZ-116.
+Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, ELZ-008, ELZ-009, ELZ-010, ELZ-011, ELZ-012, ELZ-013, ELZ-014, ELZ-015, ELZ-016, ELZ-017, ELZ-018, ELZ-019, ELZ-020, ELZ-021, ELZ-022, ELZ-023, ELZ-024, ELZ-025, ELZ-026, ELZ-027, ELZ-028, ELZ-029, ELZ-030, ELZ-032, ELZ-033, ELZ-050, ELZ-052, ELZ-053, ELZ-054, ELZ-055, ELZ-083, ELZ-081, ELZ-084, ELZ-087, ELZ-079, ELZ-080, ELZ-085, ELZ-091, ELZ-092, ELZ-097, RC-01, RC-02, RC-03, RC-04, RC-05, RC-06, RC-07, RC-08, RC-09, RC-10, RC-11, RC-12, RC-13, RC-14, RC-15, RC-16, RC-17, RC-18, RC-19, RC-26, RC-32, RC-42, RC-43, ELZ-094, ELZ-093, ELZ-095, ELZ-082, ELZ-096, ELZ-098, ELZ-099, ELZ-100, ELZ-101, ELZ-104, ELZ-103, ELZ-105, ELZ-107, ELZ-106, ELZ-108, ELZ-109, ELZ-110, ELZ-111, ELZ-112, ELZ-113, ELZ-116, ELZ-119, ELZ-120.
 
 ### V1B-ACCEPT
 
@@ -2326,3 +2328,23 @@ Publication copy: [tasks/ELZ-118-async-work.md](../../tasks/ELZ-118-async-work.m
 **Product aims:** P13.
 
 **Acceptance:** Cancel during the work; result after cancel (late); worker crash (loss message with a reason class); deadline kill; owner restart while work runs (the result reaches the new owner by name, and this Piece does not know the work_ref any more: the owner decides, and the engine of RC-50 gives the open action a failed outcome with a loss class in its payload at start, so a result after that is late); a bound on concurrent work per owner with explicit refusal; no result payload in telemetry.
+
+### ELZ-119
+
+ELZ-119 — Reject removed tracked special files in the local Piece gate
+
+Publication copy: [tasks/ELZ-119-piece-gate-modes.md](../../tasks/ELZ-119-piece-gate-modes.md).
+
+**Product aims:** P01.
+
+**Acceptance:** The local Piece gate refuses deleted tracked symlinks, symlinks replaced by regular files and removed tracked gitlinks, but accepts ordinary Piece file deletion; committed and staged/working-tree changes, untracked symlinks, invalid bases and fail-closed Git/mode errors are covered. Negative controls fail on the old admission logic.
+
+### ELZ-120
+
+ELZ-120 — Bound the outstanding small-gate merge window
+
+Publication copy: [tasks/ELZ-120-small-gate-window.md](../../tasks/ELZ-120-small-gate-window.md).
+
+**Product aims:** P01.
+
+**Acceptance:** Before accepting and immediately before merging a Piece, count all first-parent main commits after valid covering successful main push evidence: 0–2 permit, 3 or more refuse. Tests cover the boundary, renewed coverage, second-parent exclusion, missing or failed evidence, recheck, red-main freeze and full-run adoption. Document only behavior and limits.
