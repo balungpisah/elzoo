@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "id": "runtime/async-work",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["elixir", "otp"],
+  "dependencies": ["runtime/registry", "delivery/time"],
+  "contract": "Bounded volatile local computation under an injected Task.Supervisor: a per-owner controller serializes completion, DOWN, cancel and monotonic deadlines, counts tasks through actual termination and offers one caller-wrapped outcome through the owner's current Registry name. Cancel brutally kills active tasks; success processed at or after deadline is timed_out. Owner-only restart preserves controller tracking but the replacement owner rejects unknown actions as late; controller restart loses tracking. No queue, durable delivery, retry or engine policy.",
+  "limits": [
+    "Trusted bounded non-Effect computations and prompt nonblocking wraps; no OTP sandbox or bound on memory, mailboxes, descendants or orphans after untrappable controller kill.",
+    "Offers can be lost on absent owner, send race or wrap failure; no acknowledgement, retry, buffer or durable cancellation receipt. Loss does not prove work never ran or undo an Effect.",
+    "Caller supplies a unique Registry, Task.Supervisor and one independently supervised controller per owner, an owner-side late-result gate, and subtree teardown before reestablishing capacity after controller restart.",
+    "Refs and monotonic deadlines are runtime-local and volatile. Settled refs are removed without history; call/startup timeout after dispatch is uncertain. Telemetry is planned, with no events supplied."
+  ],
+  "files": [
+    "lib/elzoo/async_work.ex",
+    "test/elzoo/async_work_test.exs",
+    "examples/elzoo/async_work.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/async_work_test.exs",
+      "claim": "AW1 free owner/completion; AW2 cancel, racing result and receiver late gate; AW3 sanitized raise/throw/exit/kill losses and legitimate completed value; AW4 deadline kill including trap-exit and queued late success; AW5 owner-only replacement versus controller restart; AW6 bound, invalid/missing/full refusal, concurrent admission and shutdown; AW7 lost offers, raising wrap and settled duplicate signals. Finite scenarios, not universal proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/Task.Supervisor.html#async_nolink/3",
+      "claim": "Pinned Elixir 1.20.4 Task.Supervisor async_nolink, Task.shutdown(:brutal_kill), GenServer serialization and unique Registry name resolution."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/apps/erts/erlang.html#send_after/4",
+      "claim": "Pinned OTP 29.1.2 process monitors, kill signals, absolute monotonic timers and cancellation; scheduling is not an exact-time delivery guarantee."
+    },
+    {
+      "kind": "assumption",
+      "claim": "Caller-owned independent supervision, bounded non-Effect computation, prompt trusted wrap, unique Registry and owner-side late-result/recovery policy. Host tears down predecessor tasks before replacing a controller's capacity. No Cure proof, independent type-check or production monitoring claimed."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "planned",
+      "contract": "No events supplied; library diagnostics contain no payload, wrapped message or exception contents. Consumer functions own their logging."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Start-time owner Registry name, injected Task.Supervisor, positive integer max_concurrency and optional OTP name; per-work zero-arity computation, arity-2 wrap and timeout in 1..4_294_967_295 ms. No hot changes.",
+      "evidence": ["test/elzoo/async_work_test.exs"]
+    },
+    "control": {
+      "status": "supported",
+      "contract": "cancel/2 kills active work before releasing capacity and offers killed once; unknown/settled/previous-controller refs return late. No pause, drain or durable receipt.",
+      "evidence": ["test/elzoo/async_work_test.exs"]
+    }
+  }
+}

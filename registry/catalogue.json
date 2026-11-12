@@ -807,7 +807,8 @@
       "summary": "Execution and attempt lifecycle",
       "disposition": "adapt",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/run/piece.json",
       "reason": "Execution identity, outcome, parent/child settlement, cancellation and late-result handling for C2/C5/C6/C7; evaluate Oban/Jido where appropriate; no full orchestrator implemented. ELZ-025 study: Run outcome and effect settlement are distinct facts; parent/child attachment is reciprocal; cancellation names the Attempt and an indeterminate cancellation terminates the owner; child spawn is an Effect with unknown outcome under timeout; the owner observes attempt death by monitor; completed means durable evidence. Owner priority 2026-11-11: the bot platform track (P13) is the concrete caller, so this row is planned, not deferred; RC-12 sets the pace of its wave 1."
     },
     {
@@ -858,7 +859,8 @@
       "summary": "One supervised Unit per identity, with sleep and wake",
       "disposition": "adapt",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/runtime/dynamic-units/piece.json",
       "reason": "Bot platform wave 1 (P13). At most one live Unit per Run or room identity, a bound on live Units and an idle sleep, over OTP DynamicSupervisor and Registry. New ID: ready runtime/host starts a fixed list."
     },
     {
@@ -866,7 +868,8 @@
       "summary": "Slow local work away from the Unit, with cancel and late results",
       "disposition": "adapt",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/runtime/async-work/piece.json",
       "reason": "Bot platform wave 1 (P13). Local work that is not an Effect (a bounded script run) must not block the Unit that owns a Run; results return by registered name as messages with the work identity. An Effect stays with delivery/effect-intent. Volatile; durable work stays with integration/jobs."
     },
     {
@@ -874,7 +877,8 @@
       "summary": "Run lifecycle with several open waits, pause and continue",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/bot-run-lifecycle/piece.json",
       "reason": "Bot platform wave 1 (P13). A total decision for a Run that waits for a model, tools, an approval, a person, child Runs or events at the same time. Uses the Run outcome set of workflow/run. New ID: ready workflow/state-machine knows job Runs only."
     },
     {
@@ -882,8 +886,18 @@
       "summary": "A live thing that a Run holds, used by one action at a time and closed with the Run",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/run-resource/piece.json",
       "reason": "Bot platform wave 1 (P13). Ownership, serialization, time limit and close policy for an OS program, a sandbox, a browser or a call. A lost resource is an input and is never reopened automatically. No real provider yet."
+    },
+    {
+      "id": "workflow/run-approval-release",
+      "summary": "Run owner with durable approval release without dispatch",
+      "disposition": "own",
+      "phase": "demand-led",
+      "status": "ready",
+      "manifest": "pieces/workflow/run-approval-release/piece.json",
+      "reason": "Bot platform wave 1 (P13). A distinct Run owner retains approval release without dispatch, enabling resource-owned dispatch; ready workflow/run remains unchanged."
     },
     {
       "id": "assembly/run-engine",

@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "id": "workflow/run-resource",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["elixir", "otp", "jason"],
+  "dependencies": ["state/lease", "state/event-log", "delivery/effect-intent", "workflow/pattern-step", "workflow/budget"],
+  "contract": "One Run's serialized leased resource: one active use and bounded FIFO, immutable intent dispatch through EffectIntent, neutral PatternStep inputs, lost-on-recovery cleanup without reopen, pause/deadline policy and one total-lifetime Budget settlement; host-authorized evidence and physical fencing required.",
+  "limits": [
+    "No real provider, ownership transfer, Run engine, authentication or authorization engine; the trusted host supplies exact-action approval, typed name grants and binding/owner correspondence.",
+    "A resource lease is revision fencing, not authentication or physical-send fencing; the host reconciles and physically fences delayed old work before confirming resource closure.",
+    "Memory recovery, test-provider fencing and host consumption are finite scenarios, not production storage durability, exactly-once execution or cross-node clock guarantees.",
+    "Retained state/receipts/history grow until existing Store capacity fails closed; no pruning, checkpoint, ack, pagination, subscription or total mailbox bound.",
+    "Host retains pure Budget state/generation and durably consumes resource entries with destination updates/cursor or destination deduplication before advancing cursor; it does not reset spend through Budget.Owner restart.",
+    "Provider data is portable JSON-domain data; canonical intent arguments are at most 65,536 bytes, identity fields follow EffectIntent bounds, and caller timeouts or unknown dispatches are not cancellation or resend authority."
+  ],
+  "files": [
+    "lib/elzoo/run_resource.ex",
+    "examples/close.exs",
+    "test/elzoo/run_resource_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/run_resource_test.exs",
+      "claim": "Seven named acceptance groups: serial_use_and_bounded_wait; same_run_typed_name_grant; open_unknown_never_reopens; run_end_close_and_late_event; orphan_cleanup_requires_host_grant; pause_stay_close_and_deadline; paused_usage_survives_empty_budget. Controlled Binding/Adapter provider, Memory Store/Lease recovery, host activation and replay consumption, checked example, timeout, obsolete dispatch, late reconciliation and total-rounding boundary scenarios; finite tests, not a universal proof or production durability claim."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/GenServer.html",
+      "claim": "Relies on GenServer serialization and call exit/timeout semantics; Process.send_after delivers renewal/deadline messages without a delivery-latency guarantee."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/apps/erts/erlang.html#send_after/3",
+      "claim": "OTP 29.1.2 process mailbox and timer semantics; no physical cancellation or cross-node clock guarantee inferred."
+    },
+    {
+      "kind": "upstream",
+      "provider": "jason",
+      "reference": "https://hexdocs.pm/jason/1.4.5/Jason.html",
+      "claim": "Version-1 retained resource records use JSON objects, arrays, string tags and explicit base64 bytes through the existing JSON implementation."
+    },
+    {
+      "kind": "assumption",
+      "claim": "Host supplies authenticated context/outer grants, exact-action authorization and approval, canonical arguments, exact compiled binding/digest/EffectIntent owner resolution and startup activation, Run-wide identities, authenticated provider lifetime/results, delegated recorded time, exclusive resource-stream Lease ownership, reconciliation/physical fencing, and retained pure Budget state with durable destination consumption."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "planned",
+      "contract": "No telemetry events, metrics or traces; read exposes durable business inputs and receipts, not a monitoring guarantee."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Lifetime-static resource identity, deadline, positive rate, required nonnegative max_waiting, default stay or close pause policy, admitted budget reference/generation and immutable cleanup descriptor; exact settings required on recovery, no hot reconfiguration.",
+      "evidence": ["test/elzoo/run_resource_test.exs"]
+    },
+    "control": {
+      "status": "supported",
+      "contract": "Trusted command/2 serializes action admission, Run end, pause/continue/tick, current-intent dispatch, provider observations and events; renews ownership, commits decisions/receipts, distinguishes refusal and unknown outcomes. Host authority, activation, reconciliation and physical fencing remain Needs; no rearm, transfer or implicit cancellation.",
+      "evidence": ["test/elzoo/run_resource_test.exs"]
+    }
+  }
+}
