@@ -13,6 +13,13 @@ ELZ-071: a documentation-only pull request is accepted on the short `Docs-only c
 ELZOO DOCS-ONLY CHECK PASSED instead of ELZOO CHECK PASSED) only when this queue's own copy of
 scripts/ci-change-class.py, next to this file and never the pull request's, classifies the change
 (`git diff main...head` on the fetched refs) as documentation only. Otherwise the queue dispatches a full run.
+
+Small gate: a Piece-only pull request is accepted on the small gate of its pull_request run (job check-piece,
+`mix check --piece`, marker ELZOO PIECE CHECK PASSED ...) only when the queue's own copy of scripts/ci-change-class.py
+classifies the change as Piece-only, the run is on the exact head and on a hosted runner, and the run has the piece
+marker and no other marker. Otherwise the queue dispatches a full run. The small gate is a selected check: the full
+check of the merged content is the push run on main after the merge. The queue requires that main is not frozen, but
+it does not wait for the push run of the current main (see `piece_only_change`).
 """
 import argparse
 from datetime import datetime
@@ -41,14 +48,22 @@ HOSTED_JOB = "check-hosted"
 GLEAM_HOSTED_JOB = "gleam-hosted"
 # ELZ-073: one run of the backend workflow has five jobs, and the run is one evidence unit. `check-plan` runs the
 # guards, the classification and the push-skip decision; the three work jobs run the three parts of `mix check`
-# when the plan says so; `check-hosted` aggregates them (the name that branch protection requires).
+# when the plan says so; `check-hosted` aggregates them (the name that branch protection requires). The small gate
+# adds a sixth job, check-piece (below).
 PLAN_JOB = "check-plan"
 WORK_PARTS = (("check-root", "root", "ELZOO ROOT SUITE PASSED"),
               ("check-consumers-db", "consumers-db", "ELZOO CONSUMERS DB PASSED"),
               ("check-consumers", "consumers", "ELZOO CONSUMERS PASSED"))
-BACKEND_JOBS = (PLAN_JOB,) + tuple(job for job, _part, _marker in WORK_PARTS) + (HOSTED_JOB,)
+EVIDENCE_JOBS = (PLAN_JOB,) + tuple(job for job, _part, _marker in WORK_PARTS) + (HOSTED_JOB,)
+# Small gate: the sixth job of the unit. It runs only in the piece shape and is skipped in the full and docs-only shapes.
+PIECE_JOB = "check-piece"
+PIECE_STEP = "Run the small gate"
+BACKEND_JOBS = EVIDENCE_JOBS + (PIECE_JOB,)
 FULL_MARKER = "ELZOO CHECK PASSED"
 DOCS_MARKER = "ELZOO DOCS-ONLY CHECK PASSED"
+# Elzoo.CheckSelection.success_marker(%{mode: :piece}); scripts/test-merge-queue.py compares the two.
+PIECE_MARKER = "ELZOO PIECE CHECK PASSED (small gate; a selected check, not the full check; see LIMIT)"
+AFFECTED_MARKER = "ELZOO AFFECTED CHECK PASSED"
 LOG_STAMP = r"(?m)^(?:\d{4}-\d\d-\d\dT[0-9:.]+Z )?"
 HOSTED_GROUP = "GitHub Actions"
 HOSTED_LABELS = ["ubuntu-24.04"]
@@ -379,12 +394,14 @@ class Queue:
                 return run["id"]
             self.pause("new exact-head workflow_dispatch run", end)
 
-    def evidence(self, run_id, pr, workflow_id, allow_docs_only=True):
+    def evidence(self, run_id, pr, workflow_id, allow_docs_only=True, allow_piece=True):
         """The successful run of the exact head, read as one evidence unit (ELZ-073). Returns (jobs, mode), where
-        jobs maps the five job names to their API objects. Mode "full": all five jobs ran in this attempt and
-        succeeded, the three work jobs printed their part markers and the aggregating job printed the full marker.
-        Mode "docs-only": the plan job passed the short check (marker line), the three work jobs were skipped and the
-        aggregating job succeeded; the caller accepts it after the queue's own classification. Anything else (a
+        jobs maps the six job names to their API objects. Mode "full": the five evidence jobs ran in this attempt and
+        succeeded, check-piece was skipped, the three work jobs printed their part markers and the aggregating job
+        printed the full marker. Mode "docs-only": the plan job passed the short check (marker line), the three work
+        jobs and check-piece were skipped and the aggregating job succeeded. Mode "piece" (small gate): a pull_request
+        run in which check-piece ran and printed the piece marker, the three work jobs were skipped and no other marker
+        is present. The caller accepts docs-only and piece only after the queue's own classification. Anything else (a
         missing, extra, duplicated, red, cancelled or mixed set, a job that ran in an earlier attempt) is no evidence."""
         while True:
             run = self.api(f"actions/runs/{run_id}")
@@ -401,7 +418,8 @@ class Queue:
                           f"repos/{REPO}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100")
         jobs = [job for page in pages for job in page["jobs"]]
         names = [job.get("name") for job in jobs]
-        require(sorted(names) == sorted(BACKEND_JOBS), "Expected exactly the five backend jobs, once each")
+        require(sorted(names) == sorted(BACKEND_JOBS),
+                "Expected exactly the five backend jobs and check-piece, once each")
         by_name = {job["name"]: job for job in jobs}
         for job in jobs:
             if job.get("conclusion") != "skipped":
@@ -411,8 +429,14 @@ class Queue:
                 "The plan job and the aggregating job must have run")
         work = [by_name[job] for job, _part, _marker in WORK_PARTS]
         ran = [job for job in work if job.get("conclusion") != "skipped"]
+        piece_ran = by_name[PIECE_JOB].get("conclusion") != "skipped"
         if len(ran) == len(work):
+            require(not piece_ran, "check-piece ran in a full run: not one shape")
             mode = "full"
+        elif piece_ran:
+            require(not ran and allow_piece, "Small gate run refused here, or work jobs ran beside it: not a full run")
+            require(run.get("event") == "pull_request", "A small gate run is evidence only on a pull_request run")
+            mode = "piece"
         else:
             require(not ran and allow_docs_only, "Full check jobs missing or skipped: not a full run")
             mode = "docs-only"
@@ -452,6 +476,30 @@ class Queue:
                         f"Missing part marker or affected-mode marker present ({job})")
             require(has_line(aggregate, re.escape(FULL_MARKER)), "Missing full success marker of the aggregating job")
             require(not has_line(plan, re.escape(DOCS_MARKER)), "Docs-only marker present in a full run")
+            require(all("ELZOO PIECE CHECK PASSED" not in log(job) for job in [plan, aggregate] + work),
+                    "Small gate marker present in a full run")
+        elif mode == "piece":
+            piece = by_name[PIECE_JOB]
+            small = step(piece, PIECE_STEP)
+            require(len(small) == 1 and small[0].get("conclusion") == "success",
+                    "Small gate step missing, skipped or failed (check-piece)")
+            piece_class = step(plan, "Classify a Piece change")
+            require(len(piece_class) == 1 and piece_class[0].get("conclusion") == "success",
+                    "Piece classification step missing, skipped or failed")
+            require(len(docs_step) == 1 and docs_step[0].get("conclusion") == "skipped",
+                    "Docs-only step ran or is missing in a small gate run")
+            require(has_line(plan, r"ELZOO PLAN: run=false skip=\S+ docs_only=false") and
+                    has_line(plan, r"ELZOO PIECE PLAN: piece=true piece_only=true"),
+                    "Missing small gate plan lines")
+            require(has_line(piece, re.escape(PIECE_MARKER)), "Missing small gate marker (check-piece)")
+            # No other marker: not the full, part, docs-only or affected marker in any executed job.
+            for job in (plan, piece, aggregate):
+                require(not has_line(job, re.escape(FULL_MARKER)) and not has_line(job, re.escape(DOCS_MARKER)) and
+                        not any(has_line(job, re.escape(marker)) for _job, _part, marker in WORK_PARTS) and
+                        AFFECTED_MARKER not in log(job),
+                        f"A full, part, docs-only or affected-mode marker is present in a small gate run ({job['name']})")
+            require(not has_line(plan, "ELZOO PIECE CHECK PASSED.*") and not has_line(aggregate, "ELZOO PIECE CHECK PASSED.*"),
+                    "Small gate marker printed outside check-piece")
         else:
             require(len(docs_step) == 1 and docs_step[0].get("conclusion") == "success",
                     "Docs-only check step missing, skipped or failed")
@@ -460,6 +508,8 @@ class Queue:
             require(not has_line(aggregate, re.escape(FULL_MARKER)) and not has_line(plan, re.escape(FULL_MARKER)) and
                     "ELZOO AFFECTED CHECK PASSED" not in log(plan),
                     "A full-run or affected-mode marker is present in a docs-only run")
+            require("ELZOO PIECE CHECK PASSED" not in log(plan) and not has_line(aggregate, "ELZOO PIECE CHECK PASSED.*"),
+                    "Small gate marker present in a docs-only run")
         latest = self.api(f"actions/runs/{run_id}")
         require(self.run_matches(latest, pr, workflow_id) and latest.get("status") == "completed" and
                 latest.get("conclusion") == "success" and latest.get("run_attempt") == attempt,
@@ -520,6 +570,29 @@ class Queue:
             require(valid_sha(main), "Invalid canonical main SHA")
             out = self.run(CLASSIFIER.diff_argv(main, f"refs/remotes/origin/{pr['headRefName']}")).stdout
             return CLASSIFIER.docs_only(CLASSIFIER.parse_raw(out)) is True and self.main_verified(main)
+        except (QueueError, CLASSIFIER.Unclear, KeyError, TypeError, ValueError, AttributeError):
+            return False
+
+    def piece_only_change(self, pr):
+        """True only when the queue may accept the small gate for this head: this queue's own classifier says that the
+        change of the head since main is Piece-only (`git diff main...head` on the fetched refs, with the main SHA of
+        the canonical repository) and names at least one Piece. Any failure, a missing classifier or an odd answer is
+        False.
+
+        Unlike `docs_only_change`, this does not wait for the push run of the current main (owner decision): the
+        caller only requires that main is not frozen (`check_main_not_frozen`, before the evidence and again right
+        before the merge). Residual risk: a first-attempt push run of main in progress does not freeze the queue, so
+        several small-gate merges can land before the first full run of main after them reports. A red full run then
+        freezes the next merge; the repair reads the pull requests merged since the last green main
+        (docs/development/13-coordinator.md)."""
+        if CLASSIFIER is None:
+            return False
+        try:
+            main = self.api("git/ref/heads/main")["object"]["sha"]
+            require(valid_sha(main), "Invalid canonical main SHA")
+            out = self.run(CLASSIFIER.diff_argv(main, f"refs/remotes/origin/{pr['headRefName']}")).stdout
+            verdict, ids = CLASSIFIER.piece_only(CLASSIFIER.parse_raw(out))
+            return verdict is True and isinstance(ids, list) and len(ids) > 0
         except (QueueError, CLASSIFIER.Unclear, KeyError, TypeError, ValueError, AttributeError):
             return False
 
@@ -681,7 +754,15 @@ class Queue:
                               "documentation only, or the push run of the current main is not a completed "
                               "success); dispatching a full run", flush=True)
                     run_id, adopted = self.dispatch(pr, workflow_id), False
-                    jobs, mode = self.evidence(run_id, pr, workflow_id, allow_docs_only=False)
+                    jobs, mode = self.evidence(run_id, pr, workflow_id, allow_docs_only=False, allow_piece=False)
+                elif mode == "piece" and not self.piece_only_change(pr):
+                    # The run passed the small gate of its own classification; this queue's own classifier does not
+                    # agree (or is unavailable), so only a full run is evidence.
+                    self.emit(f"Run {run_id} passed the small gate, but the queue does not accept it for PR #{number} "
+                              f"head={pr['headRefOid']} (its own classification is not Piece-only); dispatching a "
+                              "full run", flush=True)
+                    run_id, adopted = self.dispatch(pr, workflow_id), False
+                    jobs, mode = self.evidence(run_id, pr, workflow_id, allow_docs_only=False, allow_piece=False)
             except (QueueError, KeyError, TypeError, ValueError, AttributeError):
                 # The run goes on after the queue stops; name it so that it can be adopted by hand.
                 self.emit(f"Stopped while awaiting run {run_id} for PR #{number} head={pr['headRefOid']}: "
@@ -702,6 +783,10 @@ class Queue:
                 # on the fresh refs right before the merge, so that the merge never rests on an older answer.
                 require(self.docs_only_change(fresh),
                         f"Docs-only run {run_id} no longer matches the queue's own classification; refusing to merge")
+            if mode == "piece":
+                # The same for the small gate: classify once more on the fresh refs right before the merge.
+                require(self.piece_only_change(fresh),
+                        f"Small gate run {run_id} no longer matches the queue's own classification; refusing to merge")
             if adopted:
                 # The adoption rules held when the run was chosen. A sibling pull request or a retarget that came
                 # later could make the run (or the push run that follows the merge) count for another base.
@@ -725,10 +810,13 @@ class Queue:
                           f"head={pr['headRefOid']}", flush=True)
             else:
                 self.emit(f"ELZOO GLEAM GATE not required pr={number} head={pr['headRefOid']} ({why})", flush=True)
-            job_ids = ",".join(name + ":" + str(jobs[name]["id"]) for name in BACKEND_JOBS)
+            names = EVIDENCE_JOBS + ((PIECE_JOB,) if mode == "piece" else ())
+            job_ids = ",".join(name + ":" + str(jobs[name]["id"]) for name in names)
             self.emit(f"ELZOO MERGE EVIDENCE pr={number} run={run_id} jobs={job_ids} "
                       f"head={pr['headRefOid']} merge={merge_sha}"
-                      + (" mode=docs-only" if mode == "docs-only" else ""), flush=True)
+                      + (" mode=docs-only" if mode == "docs-only" else "")
+                      + (" mode=piece (small gate; the full check is the push run on main)" if mode == "piece" else ""),
+                      flush=True)
             return
         raise QueueError("Main/head did not stabilize after 10 passes; inspect before retrying")
 

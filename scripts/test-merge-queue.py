@@ -68,6 +68,14 @@ class Fake:
         self.docs_steps = [{"name": "Classify the change", "conclusion": "success"},
                            {"name": "Docs-only check", "conclusion": "success"}]       # steps of the plan job in a docs-only run
         self.docs_log = "2026-11-09T05:00:00.0000000Z ELZOO DOCS-ONLY CHECK PASSED\n"
+        # Small gate: a run can have the piece shape (work jobs skipped, check-piece ran with its own marker).
+        self.piece_runs = set()        # IDs of runs that have the piece shape; their jobs have the base ID 500
+        self.piece_steps = [{"name": "Classify the change", "conclusion": "success"},
+                            {"name": "Classify a Piece change", "conclusion": "success"},
+                            {"name": "Docs-only check", "conclusion": "skipped"}]   # steps of the plan job in a piece run
+        self.piece_plan_log = ("2026-11-12T05:00:00.0000000Z ELZOO PLAN: run=false skip=false docs_only=false\n"
+                               "2026-11-12T05:00:00.0000000Z ELZOO PIECE PLAN: piece=true piece_only=true\n")
+        self.piece_log = "2026-11-12T05:00:00.0000000Z " + queue.PIECE_MARKER + "\n"
         # ELZ-071 (review of PR #135): the short check needs a main whose own push run completed with success.
         self.main_head_runs = None     # None: one completed successful push run on the canonical main
         self.main_head_runs_later = None   # from the second listing on, these runs
@@ -180,31 +188,37 @@ class Fake:
     # check-consumers-db 2, check-consumers 3, check-hosted 4); the base is 400 for a docs-only run,
     # else 200 + the number of dispatches (so the adopted run has base 200).
     NAMES = ("check-plan", "check-root", "check-consumers-db", "check-consumers", "check-hosted")
+    # Small gate: the sixth job (position 5) is listed in every run; it is skipped unless the run has the piece shape.
+    ALL = NAMES + ("check-piece",)
     PART_MARKERS = {"check-root": "ELZOO ROOT SUITE PASSED", "check-consumers-db": "ELZOO CONSUMERS DB PASSED",
                     "check-consumers": "ELZOO CONSUMERS PASSED"}
 
     def job_base(self, read_run):
+        if read_run in self.piece_runs:
+            return 500
         return 400 if read_run in self.docs_runs else 200 + self.dispatches
 
     def job_id(self, base, name):
-        return base * 10 + self.NAMES.index(name)
+        return base * 10 + self.ALL.index(name)
 
     def backend_jobs(self, read_run):
-        docs = read_run in self.docs_runs
+        piece = read_run in self.piece_runs
+        docs = read_run in self.docs_runs or piece
         base = self.job_base(read_run)
         run_id = read_run if docs else 100 + self.dispatches if self.dispatches else self.adopted()
         gate = {"name": "Verify the GitHub-hosted runner", "conclusion": "success"}
-        plan_steps = (list(self.docs_steps) if docs else
+        plan_steps = (list(self.piece_steps) if piece else list(self.docs_steps) if docs else
                       [{"name": "Classify the change", "conclusion": "success"},
                        {"name": "Docs-only check", "conclusion": "skipped"}])
         jobs = []
-        for name in self.NAMES:
+        for name in self.ALL:
             if name in self.drop_jobs:
                 continue
-            skipped = docs and name in self.PART_MARKERS
+            skipped = (docs and name in self.PART_MARKERS) or (name == "check-piece" and not piece)
             steps = ([] if skipped else
                      [gate] + (plan_steps if name == "check-plan" else
                                [{"name": "Require every job", "conclusion": "success"}] if name == "check-hosted" else
+                               [{"name": "Run the small gate", "conclusion": "success"}] if name == "check-piece" else
                                list(self.steps)))
             job = dict(id=self.job_id(base, name), run_id=run_id, name=name, head_sha=self.pr["headRefOid"],
                        status="completed", conclusion="skipped" if skipped else "success", **HOSTED_FIELDS,
@@ -221,12 +235,14 @@ class Fake:
 
     def job_log(self, job_id):
         base, position = divmod(job_id, 10)
-        name = self.NAMES[position]
+        name = self.ALL[position]
         if name in self.logs_by_job:
             return self.logs_by_job[name]
         if self.log is not None:
             return self.log
         stamp = "2026-11-07T13:00:00.0000000Z "
+        if base == 500:   # a small gate run
+            return {"check-plan": self.piece_plan_log, "check-piece": self.piece_log}.get(name, "")
         if base == 400:   # a docs-only run
             return (self.docs_log + stamp + "ELZOO PLAN: run=false skip=false docs_only=true\n"
                     if name == "check-plan" else "")
@@ -1591,6 +1607,253 @@ class GleamPathGate(unittest.TestCase):
         self.fake.diff_paths = ["spikes/gleam_ui/src/old.gleam", "docs/new.gleam"]
         self.q.process(79)
         self.assertTrue(any(m.startswith("ELZOO GLEAM EVIDENCE") for m in self.fake.messages))
+
+
+class PieceFastPath(unittest.TestCase):
+    """Small gate: a run that passed the small gate (check-piece) is evidence only when the queue's own classifier
+    says Piece-only, on the exact head, on a hosted runner, with the piece marker and no other marker."""
+
+    PIECE_PATHS = ("pieces/core/port/lib/port.ex", "registry/catalogue.json", "docs/plans/release-plan.json")
+
+    def setUp(self):
+        self.fake = Fake()
+        self.q = self.fake.make_queue()
+
+    def piece_pr(self, run_id=700, paths=PIECE_PATHS):
+        self.fake.pr_runs = [self.fake.pr_run(run_id)]
+        self.fake.piece_runs = {run_id}
+        self.fake.diff_paths = list(paths)
+
+    def refuses(self, pattern):
+        with self.assertRaisesRegex(queue.QueueError, pattern):
+            self.q.process(79)
+        self.assertFalse(self.fake.merged)
+        self.assertFalse(self.fake.commands(["gh", "pr", "merge"]))
+
+    def piece_line(self, run=700):
+        jobs = ",".join(f"{name}:{5000 + position}" for position, name in enumerate(Fake.ALL))
+        return (f"ELZOO MERGE EVIDENCE pr=79 run={run} jobs={jobs} head={A} merge={M} "
+                "mode=piece (small gate; the full check is the push run on main)")
+
+    def test_a_piece_run_with_a_piece_change_merges_on_the_small_gate(self):
+        self.piece_pr()
+        self.q.process(79)
+        self.assertTrue(self.fake.merged)
+        self.assertEqual(0, self.fake.dispatches)
+        self.assertEqual(self.piece_line(), self.fake.messages[-1])
+        # Once after the evidence and once right before the merge.
+        self.assertEqual(2, len(self.fake.raw_diff_calls))
+
+    def test_the_marker_of_the_queue_is_the_marker_of_mix_check(self):
+        source = (ROOT / "lib/elzoo/check_selection.ex").read_text()
+        self.assertIn(f'def success_marker(%{{mode: :piece}}),\n    do: "{queue.PIECE_MARKER}"', source)
+
+    def test_the_small_gate_does_not_wait_for_the_push_run_of_the_current_main(self):
+        # Unlike the docs-only path: no read of the push run of the current main commit, also while it runs.
+        for runs in ([self.fake.main_head_run(status="in_progress", conclusion=None)], [],
+                     [self.fake.main_head_run(conclusion="failure")]):
+            with self.subTest(runs=runs):
+                self.setUp()
+                self.piece_pr()
+                self.fake.main_head_runs = runs
+                self.q.process(79)
+                self.assertTrue(self.fake.merged)
+                self.assertEqual(0, self.fake.main_head_calls)
+                self.assertFalse(any(m.startswith("Waiting: push run of main") for m in self.fake.messages))
+
+    def test_a_frozen_main_refuses_the_small_gate_merge(self):
+        self.piece_pr()
+        self.fake.main_runs = [dict(id=9000, event="push", head_branch="main", status="completed",
+                                    conclusion="failure", path=".github/workflows/symbolic-check.yml")]
+        self.refuses("Main is frozen")
+        # Main turns red between the evidence and the merge: the second freeze check refuses.
+        self.setUp()
+        self.piece_pr()
+        self.fake.main_red_from_call = 2
+        self.refuses("Main is frozen")
+
+    def test_a_change_that_the_queue_does_not_classify_as_piece_only_needs_a_full_run(self):
+        for label, paths in (("shared path", self.PIECE_PATHS + ("lib/elzoo/export.ex",)),
+                             ("test helper", ("pieces/core/port/lib/port.ex", "pieces/test_helper.exs")),
+                             ("workflow", ("pieces/core/port/lib/port.ex", ".github/workflows/symbolic-check.yml")),
+                             ("no Piece path", ("registry/catalogue.json", "docs/a.md")),
+                             ("file directly below pieces", ("pieces/core/README.md",)),
+                             ("mix.lock", ("pieces/core/port/lib/port.ex", "mix.lock"))):
+            with self.subTest(label=label):
+                self.setUp()
+                self.q = self.fake.make_queue(timeout=3600)
+                self.piece_pr(paths=paths)
+                self.q.process(79)
+                self.assertEqual(1, self.fake.dispatches)
+                self.assertTrue(any("does not accept it" in m for m in self.fake.messages))
+                self.assertNotIn("mode=piece", self.fake.messages[-1])
+
+    def test_a_rename_symlink_or_submodule_entry_needs_a_full_run(self):
+        for label, entries in (("raw rename", [("100644", "100644", "R100", "pieces/core/port/lib/port.ex")]),
+                               ("symlink", [("000000", "120000", "A", "pieces/core/port/lib/link.ex")]),
+                               ("submodule", [("000000", "160000", "A", "pieces/core/port/vendor")]),
+                               ("rename out of a Piece", [("100644", "000000", "D", "pieces/core/port/lib/port.ex"),
+                                                          ("000000", "100644", "A", "lib/port.ex")])):
+            with self.subTest(label=label):
+                self.setUp()
+                self.q = self.fake.make_queue(timeout=3600)
+                self.piece_pr()
+                self.fake.raw_entries = entries
+                self.q.process(79)
+                self.assertEqual(1, self.fake.dispatches)
+                self.assertNotIn("mode=piece", self.fake.messages[-1])
+
+    def test_a_missing_classifier_needs_a_full_run(self):
+        self.piece_pr()
+        self.q = self.fake.make_queue(timeout=3600)
+        saved = queue.CLASSIFIER
+        queue.CLASSIFIER = None
+        try:
+            self.q.process(79)
+        finally:
+            queue.CLASSIFIER = saved
+        self.assertEqual(1, self.fake.dispatches)
+        self.assertNotIn("mode=piece", self.fake.messages[-1])
+
+    def test_a_classification_that_changes_before_the_merge_refuses(self):
+        self.piece_pr()
+        self.fake.raw_paths_later = list(self.PIECE_PATHS) + ["lib/elzoo/export.ex"]
+        self.refuses("no longer matches the queue's own classification")
+
+    def test_the_dispatched_full_run_must_not_have_the_piece_shape(self):
+        self.piece_pr(paths=self.PIECE_PATHS + ("lib/elzoo/export.ex",))
+        self.q = self.fake.make_queue(timeout=3600)
+        self.fake.piece_runs = {700, 101}
+        self.refuses("Small gate run refused here")
+
+    def test_the_small_gate_is_evidence_only_on_a_pull_request_run(self):
+        # No pull_request run: the queue dispatches; a dispatch run with the piece shape is no evidence.
+        self.fake.diff_paths = list(self.PIECE_PATHS)
+        self.fake.piece_runs = {101}
+        self.q = self.fake.make_queue(timeout=3600)
+        self.refuses("only on a pull_request run")
+
+    def test_the_piece_job_needs_the_exact_head_a_hosted_runner_and_this_attempt(self):
+        for label, change, pattern in (
+                ("other head", {"head_sha": B}, "exact head"),
+                ("other run", {"run_id": 1}, "exact head"),
+                ("failed", {"conclusion": "failure"}, "exact head"),
+                ("self-hosted", {"runner_name": "elzoo-host-1", "runner_group_name": "Default"}, "Unapproved hosted runner"),
+                ("other label", {"labels": ["self-hosted"]}, "Unapproved hosted runner"),
+                ("earlier attempt", {"started_at": "2026-11-09T00:00:00Z"}, "did not run in this attempt"),
+                ("no identity step", {"steps": [{"name": "Run the small gate", "conclusion": "success"}]}, "identity step")):
+            with self.subTest(label=label):
+                self.setUp()
+                self.piece_pr()
+                self.fake.jobs_changes = {"check-piece": change}
+                self.refuses(pattern)
+
+    def test_every_step_of_the_small_gate_must_be_green_once(self):
+        gate = {"name": "Verify the GitHub-hosted runner", "conclusion": "success"}
+        for label, steps in (("missing", [gate]), ("failed", [gate, {"name": "Run the small gate", "conclusion": "failure"}]),
+                             ("skipped", [gate, {"name": "Run the small gate", "conclusion": "skipped"}]),
+                             ("twice", [gate] + [{"name": "Run the small gate", "conclusion": "success"}] * 2)):
+            with self.subTest(job="check-piece", label=label):
+                self.setUp()
+                self.piece_pr()
+                self.fake.jobs_changes = {"check-piece": {"steps": steps}}
+                self.refuses("Small gate step")
+        classify = {"name": "Classify the change", "conclusion": "success"}
+        docs = {"name": "Docs-only check", "conclusion": "skipped"}
+        for label, steps, pattern in (
+                ("piece classification missing", [classify, docs], "Piece classification step"),
+                ("piece classification failed", [classify, {"name": "Classify a Piece change", "conclusion": "failure"}, docs],
+                 "Piece classification step"),
+                ("docs-only check ran", [classify, {"name": "Classify a Piece change", "conclusion": "success"},
+                                         {"name": "Docs-only check", "conclusion": "success"}], "Docs-only step ran"),
+                ("classification failed", [{"name": "Classify the change", "conclusion": "failure"},
+                                           {"name": "Classify a Piece change", "conclusion": "success"}, docs],
+                 "Classification step")):
+            with self.subTest(job="check-plan", label=label):
+                self.setUp()
+                self.piece_pr()
+                self.fake.piece_steps = steps
+                self.refuses(pattern)
+
+    def test_the_piece_marker_and_no_other_marker(self):
+        stamp = "2026-11-12T05:00:00.0000000Z "
+        marker = stamp + queue.PIECE_MARKER + "\n"
+        bad_piece_logs = {
+            "no marker": "",
+            "marker inside a line": stamp + "echo " + queue.PIECE_MARKER + "\n",
+            "shortened marker": stamp + "ELZOO PIECE CHECK PASSED\n",
+            "affected marker": marker + stamp + "ELZOO AFFECTED CHECK PASSED (not full consumer acceptance)\n",
+            "full marker": marker + stamp + "ELZOO CHECK PASSED\n",
+            "part marker": marker + stamp + "ELZOO ROOT SUITE PASSED\n",
+            "docs-only marker": marker + stamp + "ELZOO DOCS-ONLY CHECK PASSED\n",
+        }
+        for label, log in bad_piece_logs.items():
+            with self.subTest(job="check-piece", label=label):
+                self.setUp()
+                self.piece_pr()
+                self.fake.piece_log = log
+                self.refuses("small gate marker|marker is present in a small gate run")
+        plan = self.fake.piece_plan_log
+        bad_plan_logs = {
+            "no piece plan line": stamp + "ELZOO PLAN: run=false skip=false docs_only=false\n",
+            "plan says run=true": stamp + "ELZOO PLAN: run=true skip=false docs_only=false\n"
+                                  + stamp + "ELZOO PIECE PLAN: piece=true piece_only=true\n",
+            "plan says docs_only=true": stamp + "ELZOO PLAN: run=false skip=false docs_only=true\n"
+                                        + stamp + "ELZOO PIECE PLAN: piece=true piece_only=true\n",
+            "piece=false": stamp + "ELZOO PLAN: run=false skip=false docs_only=false\n"
+                           + stamp + "ELZOO PIECE PLAN: piece=false piece_only=true\n",
+            "full marker in the plan": plan + stamp + "ELZOO CHECK PASSED\n",
+            "docs-only marker in the plan": plan + stamp + "ELZOO DOCS-ONLY CHECK PASSED\n",
+            "piece marker in the plan": plan + marker,
+        }
+        for label, log in bad_plan_logs.items():
+            with self.subTest(job="check-plan", label=label):
+                self.setUp()
+                self.piece_pr()
+                self.fake.piece_plan_log = log
+                self.refuses("plan lines|marker is present in a small gate run|printed outside check-piece")
+        for label, log in (("full marker", stamp + "ELZOO CHECK PASSED\n"), ("piece marker", marker)):
+            with self.subTest(job="check-hosted", label=label):
+                self.setUp()
+                self.piece_pr()
+                self.fake.logs_by_job = {"check-hosted": log}
+                self.refuses("marker is present in a small gate run|printed outside check-piece")
+
+    def test_a_work_job_beside_the_small_gate_is_no_shape(self):
+        for name in ("check-root", "check-consumers-db", "check-consumers"):
+            with self.subTest(job=name):
+                self.setUp()
+                self.piece_pr()
+                self.fake.jobs_changes = {name: dict(conclusion="success", steps=[
+                    {"name": "Verify the GitHub-hosted runner", "conclusion": "success"},
+                    {"name": "Run mix check", "conclusion": "success"}])}
+                self.refuses("work jobs ran beside it")
+
+    def test_a_full_run_in_which_check_piece_also_ran_is_no_evidence(self):
+        self.fake.jobs_changes = {"check-piece": dict(conclusion="success", steps=[
+            {"name": "Verify the GitHub-hosted runner", "conclusion": "success"},
+            {"name": "Run the small gate", "conclusion": "success"}])}
+        self.refuses("check-piece ran in a full run")
+
+    def test_a_piece_marker_in_a_full_or_docs_only_run_is_refused(self):
+        stamp = "2026-11-12T05:00:00.0000000Z "
+        self.fake.logs_by_job = {"check-root": stamp + "ELZOO ROOT SUITE PASSED\n" + stamp + queue.PIECE_MARKER + "\n"}
+        self.refuses("Small gate marker present in a full run")
+        self.setUp()
+        self.fake.pr_runs = [self.fake.pr_run(700)]
+        self.fake.docs_runs = {700}
+        self.fake.diff_paths = ["docs/a.md"]
+        self.fake.docs_log = self.fake.docs_log + stamp + queue.PIECE_MARKER + "\n"
+        self.refuses("Small gate marker present in a docs-only run")
+
+    def test_the_piece_job_must_be_in_the_listing_once(self):
+        self.piece_pr()
+        self.fake.drop_jobs = {"check-piece"}
+        self.refuses("Expected exactly the five backend jobs and check-piece")
+        # A full run of the five-job workflow (before the small gate) is no evidence either.
+        self.setUp()
+        self.fake.drop_jobs = {"check-piece"}
+        self.refuses("Expected exactly the five backend jobs and check-piece")
 
 
 class DocsOnlyFastPath(unittest.TestCase):
