@@ -1,17 +1,23 @@
 #!/usr/bin/env python3
 """Controls for scripts/worker-services.py: a stateful fake Docker and Git, no Docker, no network, no Mix."""
+import base64
 import contextlib
 import hashlib
+import hmac
 import importlib.util
 import io
 import json
 import os
 import pathlib
+import re
 import shutil
+import socket
 import stat
+import struct
 import sys
 import tarfile
 import tempfile
+import threading
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -61,10 +67,26 @@ class FakeDocker:
         self.images = set()
         self.containers = {}
         self.volumes = {}
+        self.networks = {}
         self.calls = []
+        self.queries = []
         self.next_port = 41000
         self.worktree_list = worktree_list
+        self.toplevel = None
+        self.otp = "29.1.2"
+        self.elixir = "Erlang/OTP 29 [erts-16.1]\n\nElixir 1.20.4 (compiled with Erlang/OTP 29)\n"
         self.fail = {}
+
+    def pg_query(self, host, port, user, password, database, sql):
+        """The test role over TCP: refused unless the password is the one that the setup script gave the role."""
+        self.queries.append((host, port, user, database))
+        found = [c for c in self.containers.values() if c.get("running") and c.get("port") == port]
+        if not found or host != "127.0.0.1":
+            raise ConnectionRefusedError(61, "Connection refused")
+        if user != "elzoo_test" or password != found[0].get("role_password"):
+            raise ws.Stop('PostgreSQL refused the test role (28P01 password authentication failed for user '
+                          '"elzoo_test")')
+        return [["16.15", "100", self.vector or None]]
 
     def add_foreign(self, name, labels=None, running=True):
         self.containers[name] = {"labels": labels or {}, "image": "postgres:18", "running": running, "ports": {}}
@@ -76,10 +98,14 @@ class FakeDocker:
             return self.fail[key]
         if argv[0] == "git":
             if "rev-parse" in argv:
-                return 0, argv[2] + "\n", ""
+                return 0, (self.toplevel or argv[2]) + "\n", ""
             return 0, self.worktree_list, ""
         if argv[0] == "mix":
             return 0, "", ""
+        if argv[0] == "erl":
+            return (0, self.otp, "") if self.otp else (127, "", "erl: not found")
+        if argv[0] == "elixir":
+            return 0, self.elixir, ""
         if argv[0] == "cp":
             shutil.copytree(argv[-2], argv[-1])
             return 0, "", ""
@@ -100,7 +126,8 @@ class FakeDocker:
             if not c:
                 return 1, "[]", "No such container"
             return 0, json.dumps([{"Config": {"Labels": c["labels"], "Image": c["image"]},
-                                   "State": {"Running": c["running"]}, "Image": DIGEST}]), ""
+                                   "State": {"Running": c["running"]}, "Image": DIGEST,
+                                   "HostConfig": {"NetworkMode": c.get("network", "default")}}]), ""
         if command == "ps":
             k, v = argv[argv.index("--filter") + 1][len("label="):].split("=", 1)
             found = [n for n, c in self.containers.items() if c["labels"].get(k) == v]
@@ -116,13 +143,29 @@ class FakeDocker:
             if sub == "rm":
                 del self.volumes[argv[-1]]
                 return 0, "", ""
+        if command == "network":
+            sub = argv[2]
+            if sub == "ls":
+                k, v = argv[argv.index("--filter") + 1][len("label="):].split("=", 1)
+                return 0, "".join(n + "\n" for n, l in self.networks.items() if l.get(k) == v), ""
+            if sub == "create":
+                self.networks[argv[-1]] = self.labels(argv)
+                return 0, "", ""
+            if sub == "rm":
+                if any(c.get("network") == argv[-1] for c in self.containers.values()):
+                    return 1, "", "network has active endpoints"
+                del self.networks[argv[-1]]
+                return 0, "", ""
         if command == "create":
             name = argv[argv.index("--name") + 1]
             publish = argv[argv.index("--publish") + 1]
             env_file = pathlib.Path(argv[argv.index("--env-file") + 1])
             image = IMAGE if IMAGE in argv else None
+            network = argv[argv.index("--network") + 1] if "--network" in argv else "default"
+            if network != "default" and network not in self.networks:
+                return 1, "", "network not found"
             self.containers[name] = {"labels": self.labels(argv), "image": image, "running": False,
-                                     "publish": publish, "env": env_file.read_text(),
+                                     "publish": publish, "env": env_file.read_text(), "network": network,
                                      "env_mode": stat.S_IMODE(env_file.stat().st_mode), "argv": list(argv)}
             return 0, "", ""
         if command == "start":
@@ -136,7 +179,8 @@ class FakeDocker:
             del self.containers[argv[-1]]
             return 0, "", ""
         if command == "cp":
-            self.containers[argv[-1].split(":")[0]]["copied"] = input
+            name, destination = argv[-1].split(":", 1)
+            self.containers[name]["copied" if destination == "/opt" else "secrets"] = input
             return 0, "", ""
         if command == "port":
             c = self.containers[argv[2]]
@@ -148,6 +192,10 @@ class FakeDocker:
                 return 0, "", ""
             if "-c" in argv:
                 return 0, f"16.15|100|{self.vector}\n", ""
+            if input:
+                match = re.search(r"\\set pw '([^']+)'", input.decode())
+                if match:
+                    self.containers[argv[argv.index("-i") + 1]]["role_password"] = match.group(1)
             return 0, "", ""
         raise AssertionError(f"unexpected command {argv}")
 
@@ -189,7 +237,12 @@ class ServicesCase(unittest.TestCase):
         return ws.Services(root, runner=self.docker, env={"HOME": str(self.tmp)}, out=self.lines.append,
                            sleep=clock.sleep, clock=clock, wait_s3=lambda base: None,
                            check_s3=lambda base, a, s: self.s3_checks.append((base, a, s)),
-                           obtain=lambda arch: (BINARY, "cache"), reach=lambda host, port: True, **kw)
+                           obtain=lambda arch: (BINARY, "cache"), query=self.docker.pg_query, **kw)
+
+    @staticmethod
+    def secret_files(container):
+        with tarfile.open(fileobj=io.BytesIO(container["secrets"])) as archive:
+            return {m.name: archive.extractfile(m).read().decode() for m in archive.getmembers() if m.isfile()}
 
     def secrets_of(self, root):
         values = ws.read_env(root / ws.STATE_DIR / ws.ENV_FILE)
@@ -310,16 +363,20 @@ class Up(ServicesCase):
     def test_the_credentials_never_appear_in_argv_or_in_the_output(self):
         root = self.worktree()
         self.services(root).up()
-        superuser = [c["env"] for c in self.docker.containers.values() if "POSTGRES_PASSWORD" in c["env"]][0]
-        secrets = self.secrets_of(root) + [superuser.split("=", 1)[1].strip()]
+        n = ws.names(ws.identity(root)[1])
+        superuser = self.secret_files(self.docker.containers[n["pg"]])["elzoo-secrets/postgres-password"]
+        secrets = self.secrets_of(root) + [superuser]
         for secret in secrets:
             self.assertGreaterEqual(len(secret), 16)
             for call in self.docker.calls:
                 self.assertFalse(any(secret in a for a in call["argv"]), call["argv"])
             self.assertFalse(any(secret in line for line in self.lines))
-        check = [c for c in self.docker.calls if c["argv"][:2] == ["docker", "exec"] and "-c" in c["argv"]][0]
-        self.assertIn("PGPASSWORD", check["argv"])
-        self.assertEqual(secrets[0], check["env"]["PGPASSWORD"])
+            # `docker inspect` shows the container environment: no credential is in it
+            for c in self.docker.containers.values():
+                self.assertNotIn(secret, c["env"])
+        # the test role is checked from the host, through the published port
+        self.assertEqual([("127.0.0.1", self.docker.containers[n["pg"]]["port"], "elzoo_test", "elzoo_test")],
+                         self.docker.queries)
 
     def test_the_superuser_creates_the_role_the_database_and_the_vector_extension(self):
         root = self.worktree()
@@ -434,6 +491,242 @@ class Up(ServicesCase):
             ws.Docker(runner).port("x", 5432)
 
 
+class Password(ServicesCase):
+    """BLOCKER of review 1: the password must be proved as the tests use it."""
+
+    def test_the_server_has_no_tcp_rule_without_a_password(self):
+        root = self.worktree()
+        self.services(root).up()
+        pg = self.docker.containers[ws.names(ws.identity(root)[1])["pg"]]
+        self.assertIn("POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256", pg["env"].splitlines())
+        self.assertIn("POSTGRES_PASSWORD_FILE=/run/elzoo-secrets/postgres-password", pg["env"].splitlines())
+        self.assertNotIn("POSTGRES_PASSWORD=", pg["env"])
+
+    def test_a_wrong_password_in_the_env_file_makes_up_fail(self):
+        root = self.worktree()
+        self.services(root).up()
+        env_path = root / ws.STATE_DIR / ws.ENV_FILE
+        values = ws.read_env(env_path)
+        good = ws.url_password(values["ELZOO_TEST_DATABASE_URL"])
+        values["ELZOO_TEST_DATABASE_URL"] = values["ELZOO_TEST_DATABASE_URL"].replace(good, "0" * 32)
+        ws.write_private(env_path, ws.env_text(values))
+        with self.assertRaisesRegex(ws.Stop, "refused the test role .*28P01"):
+            self.services(root).up()
+        self.assertFalse(any(good in line for line in self.lines))
+
+    def test_a_role_created_with_another_password_makes_up_fail_without_an_env_file(self):
+        root = self.worktree()
+        original = self.docker.__call__
+
+        def runner(argv, input=None, **kw):
+            if input and b"\\set pw" in input:
+                input = re.sub(rb"\\set pw '[^']+'", lambda _m: b"\\set pw 'not-the-written-one'", input)
+            return original(argv, input=input, **kw)
+        services = self.services(root)
+        services.runner = services.docker.runner = runner
+        with self.assertRaisesRegex(ws.Stop, "28P01"):
+            services.up()
+        self.assertFalse((root / ws.STATE_DIR / ws.ENV_FILE).exists())
+
+
+class FakePostgres(threading.Thread):
+    """One connection of a PostgreSQL server on 127.0.0.1 with the server side of SCRAM-SHA-256, written apart
+    from ws.Scram: it checks the client proof against the stored key, as PostgreSQL does."""
+
+    def __init__(self, password, mode="scram"):
+        super().__init__(daemon=True)
+        self.password, self.mode = password.encode(), mode
+        self.server = socket.create_server(("127.0.0.1", 0))
+        self.port = self.server.getsockname()[1]
+        self.query = None
+
+    def run(self):
+        try:
+            self.serve()
+        except (OSError, struct.error):
+            pass                                # the client closed the connection
+        finally:
+            self.server.close()
+
+    def serve(self):
+        connection, _ = self.server.accept()
+        with connection, connection.makefile("rwb") as f:
+            def send(kind, payload):
+                f.write(kind + struct.pack("!I", len(payload) + 4) + payload)
+                f.flush()
+
+            def recv():
+                head = f.read(5)
+                return head[:1], f.read(struct.unpack("!I", head[1:])[0] - 4)
+            f.read(struct.unpack("!I", f.read(4))[0] - 4)
+            if self.mode == "trust":
+                send(b"R", struct.pack("!I", 0))
+            elif self.mode == "md5":
+                send(b"R", struct.pack("!I", 5) + b"salt")
+                return
+            else:
+                send(b"R", struct.pack("!I", 10) + b"SCRAM-SHA-256\0\0")
+                _, body = recv()
+                first = body[body.index(b"\0") + 5:].decode()
+                bare = first[3:]
+                nonce = dict(item.split("=", 1) for item in bare.split(","))["r"] + "srv"
+                salt, rounds = b"salt-of-the-role", 4096
+                server_first = f"r={nonce},s={base64.b64encode(salt).decode()},i={rounds}"
+                send(b"R", struct.pack("!I", 11) + server_first.encode())
+                _, final = recv()
+                without_proof, proof = final.decode().rsplit(",p=", 1)
+                salted = hashlib.pbkdf2_hmac("sha256", self.password, salt, rounds)
+                stored = hashlib.sha256(hmac.new(salted, b"Client Key", hashlib.sha256).digest()).digest()
+                auth = f"{bare},{server_first},{without_proof}".encode()
+                signature = hmac.new(stored, auth, hashlib.sha256).digest()
+                client_key = bytes(a ^ b for a, b in zip(base64.b64decode(proof), signature))
+                if hashlib.sha256(client_key).digest() != stored:
+                    send(b"E", b'SFATAL\0C28P01\0Mpassword authentication failed for user "elzoo_test"\0\0')
+                    return
+                server_key = hmac.new(salted, b"Server Key", hashlib.sha256).digest()
+                verifier = hmac.new(server_key, auth, hashlib.sha256).digest() if self.mode == "scram" else b"x" * 32
+                send(b"R", struct.pack("!I", 12) + b"v=" + base64.b64encode(verifier))
+                send(b"R", struct.pack("!I", 0))
+            send(b"S", b"server_version\x0016.15\x00")
+            send(b"Z", b"I")
+            _, self.query = recv()
+            field = lambda text: struct.pack("!i", len(text)) + text  # noqa: E731
+            send(b"D", struct.pack("!H", 3) + field(b"16.15") + field(b"100") + struct.pack("!i", -1))
+            send(b"C", b"SELECT 1\0")
+            send(b"Z", b"I")
+            recv()
+
+
+class PostgresClient(unittest.TestCase):
+    def query(self, mode, password):
+        server = FakePostgres("right-password", mode)
+        server.start()
+        try:
+            return ws.pg_query("127.0.0.1", server.port, "elzoo_test", password, "elzoo_test", "SELECT 1"), server
+        finally:
+            server.join(5)
+
+    def test_scram_matches_the_rfc_7677_example(self):
+        scram = ws.Scram("pencil", nonce="rOprNGfwEbeRWgbNEkqO", user="user")
+        self.assertEqual(b"n,,n=user,r=rOprNGfwEbeRWgbNEkqO", scram.client_first())
+        final = scram.client_final(b"r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,"
+                                   b"s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096")
+        self.assertEqual(b"c=biws,r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,"
+                         b"p=dHzbZapWIk4jUhN+Ute9ytag9zjfMHgsqmmiz7AndVQ=", final)
+        scram.check_server_final(b"v=6rriTRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G4=")
+        self.assertTrue(scram.verified)
+
+    def test_the_right_password_returns_the_rows(self):
+        rows, server = self.query("scram", "right-password")
+        self.assertEqual([["16.15", "100", None]], rows)
+        self.assertEqual(b"SELECT 1\0", server.query)
+
+    def test_a_wrong_password_is_refused(self):
+        with self.assertRaisesRegex(ws.Stop, "28P01"):
+            self.query("scram", "wrong-password")
+
+    def test_a_server_without_a_password_check_or_with_another_method_is_refused(self):
+        for mode, message in (("trust", "without SCRAM-SHA-256"), ("md5", "method 5"),
+                              ("bad-signature", "server signature")):
+            with self.subTest(mode=mode), self.assertRaisesRegex(ws.Stop, message):
+                self.query(mode, "right-password")
+
+
+class Hardening(ServicesCase):
+    def test_each_worktree_gets_its_own_labelled_network_and_down_removes_it(self):
+        a, b = self.worktree("a"), self.worktree("b")
+        self.services(a).up()
+        self.services(b).up()
+        self.docker.networks["someone-else-net"] = {}
+        na, nb = ws.names(ws.identity(a)[1]), ws.names(ws.identity(b)[1])
+        self.assertEqual({na["network"], nb["network"], "someone-else-net"}, set(self.docker.networks))
+        self.assertEqual(ws.identity(a)[0], self.docker.networks[na["network"]][ws.LABEL_ID])
+        for role in ("pg", "s3"):
+            self.assertEqual(na["network"], self.docker.containers[na[role]]["network"])
+            self.assertEqual("127.0.0.1::" + ("5432" if role == "pg" else "9000"),
+                             self.docker.containers[na[role]]["publish"])
+        self.services(a).down()
+        self.assertEqual({nb["network"], "someone-else-net"}, set(self.docker.networks))
+
+    def test_a_container_on_another_network_is_recreated(self):
+        root = self.worktree()
+        self.services(root).up()
+        n = ws.names(ws.identity(root)[1])
+        self.docker.containers[n["s3"]]["network"] = "default"
+        self.docker.calls.clear()
+        self.services(root).up()
+        self.assertEqual(2, len(self.docker.argv_of("docker", "create")))
+
+    def test_an_image_of_another_repository_with_the_pinned_digest_is_refused(self):
+        self.docker.repo_digests = [f"someone/pgvector@{DIGEST}"]
+        root = self.worktree()
+        with self.assertRaisesRegex(ws.Stop, "pinned digest"):
+            self.services(root).up()
+        self.assertEqual({}, self.docker.containers)
+        self.docker.repo_digests = [f"docker.io/pgvector/pgvector@{DIGEST}"]
+        self.assertEqual(0, self.services(root).up())
+
+    def test_status_fails_on_a_port_that_docker_no_longer_publishes_and_up_rewrites_it(self):
+        root = self.worktree()
+        self.services(root).up()
+        n = ws.names(ws.identity(root)[1])
+        self.docker.containers[n["pg"]]["running"] = False       # e.g. `docker restart` gave a new port
+        self.docker(["docker", "start", n["pg"]])
+        self.lines.clear()
+        self.assertEqual(1, self.services(root).status())
+        self.assertTrue(any("pg port" in line and "differs" in line for line in self.lines), self.lines)
+        self.assertEqual(0, self.services(root).up())
+        self.lines.clear()
+        self.assertEqual(0, self.services(root).status())
+        self.assertFalse(any("differs" in line for line in self.lines))
+
+    def racing_lock(self, rounds):
+        """ws.lock, but a parallel `down` removes the state directory while the first `rounds` callers wait."""
+        real, calls = ws.lock, []
+
+        @contextlib.contextmanager
+        def racing(path):
+            with real(path) as handle:
+                calls.append(path)
+                if len(calls) <= rounds:
+                    for child in path.parent.iterdir():
+                        child.unlink()
+                    path.parent.rmdir()
+                yield handle
+        ws.lock = racing
+        self.addCleanup(setattr, ws, "lock", real)
+        return calls
+
+    def test_up_takes_the_lock_again_when_down_removed_the_directory_meanwhile(self):
+        root = self.worktree()
+        calls = self.racing_lock(1)
+        self.assertEqual(0, self.services(root).up())
+        self.assertEqual(2, len(calls))
+        self.assertTrue(ws.read_env(root / ws.STATE_DIR / ws.ENV_FILE))
+
+    def test_up_stops_with_a_clear_message_when_the_directory_keeps_changing(self):
+        root = self.worktree()
+        self.racing_lock(99)
+        with self.assertRaisesRegex(ws.Stop, "removed or replaced while this command waited"):
+            self.services(root).up()
+
+    def test_a_state_directory_that_is_a_symbolic_link_is_refused_by_up_and_down(self):
+        root = self.worktree()
+        self.services(root).up()
+        elsewhere = self.tmp / "elsewhere"
+        elsewhere.mkdir()
+        for name in ("env.sh", "lock"):
+            (elsewhere / name).write_text("keep")
+        shutil.rmtree(root / ws.STATE_DIR)
+        (root / ws.STATE_DIR).symlink_to(elsewhere)
+        before = dict(self.docker.containers)
+        for command in ("up", "down"):
+            with self.subTest(command=command), self.assertRaisesRegex(ws.Stop, "symbolic link"):
+                getattr(self.services(root), command)()
+        self.assertEqual(before.keys(), self.docker.containers.keys())
+        self.assertEqual({"env.sh": "keep", "lock": "keep"}, {p.name: p.read_text() for p in elsewhere.iterdir()})
+
+
 class Down(ServicesCase):
     def test_down_removes_only_this_worktree_and_twice_is_harmless(self):
         a, b = self.worktree("a"), self.worktree("b")
@@ -483,18 +776,22 @@ class Build(unittest.TestCase):
         self.tmp = pathlib.Path(tempfile.mkdtemp(prefix="elzoo-ws-build-")).resolve()
         self.addCleanup(shutil.rmtree, self.tmp, True)
 
-    def checkout(self, name, lock="1.4.5", tools="elixir 1.20.4\n", built=True, spike=True, fetched=True):
+    def checkout(self, name, lock="1.4.5", tools="elixir 1.20.4-otp-29\nerlang 29.1.2\n", built=True, spike=True,
+                 fetched=True):
         """A checkout whose mix.lock has one Hex and one Git entry; `lock` is the Hex version (it changes the lock)."""
         root = self.tmp / name
         spike_dir = root / "spikes" / "ash_foundation"
         spike_dir.mkdir(parents=True)
-        for directory, version, files in ((root, lock, {"mix.exs": "exs", ".tool-versions": tools}),
-                                          (spike_dir, "3.0.0", {"mix.exs": "spike"})):
+        for directory, version, files in ((root, lock, {"mix.exs": "app: :elzoo,", ".tool-versions": tools}),
+                                          (spike_dir, "3.0.0", {"mix.exs": "app: :elzoo_ash_spike,"})):
             files["mix.lock"] = lock_text(version)
             for file, text in files.items():
                 (directory / file).write_text(text)
             if built and (spike or directory == root):
-                (directory / "_build" / "test").mkdir(parents=True)
+                app = "elzoo" if directory == root else "elzoo_ash_spike"
+                for own in ("lib/jason/ebin", f"lib/{app}/ebin", "consolidated"):
+                    (directory / "_build" / "test" / own).mkdir(parents=True)
+                    (directory / "_build" / "test" / own / "x.beam").write_bytes(b"beam")
                 fetch_deps(directory, version if fetched else "0.0.0")
         return root
 
@@ -581,6 +878,105 @@ class Build(unittest.TestCase):
         self.assertEqual(["src"], [p.name for p in self.tmp.iterdir()])
 
 
+class BuildSafety(unittest.TestCase):
+    setUp, checkout = Build.setUp, Build.checkout
+
+    def clone_into_here(self, docker=None, runner=None):
+        here = self.checkout("here", built=False)
+        main = self.checkout("main")
+        docker = docker or FakeDocker()
+        docker.worktree_list = f"worktree {main}\n"
+        lines = []
+        ws.warm_build(here, runner or docker, lines.append, system=lambda: "Darwin")
+        return here, docker, lines
+
+    def test_the_compiled_project_itself_is_not_cloned(self):
+        here, _docker, _lines = self.clone_into_here()
+        for project, app in ((here, "elzoo"), (here / "spikes" / "ash_foundation", "elzoo_ash_spike")):
+            self.assertTrue((project / "_build" / "test" / "lib" / "jason" / "ebin" / "x.beam").is_file())
+            self.assertFalse((project / "_build" / "test" / "lib" / app).exists())
+            self.assertFalse((project / "_build" / "test" / "consolidated").exists())
+
+    def test_deps_that_change_during_the_copy_discard_the_clone(self):
+        docker = FakeDocker()
+        original = docker.__call__
+
+        def runner(argv, **kw):
+            result = original(argv, **kw)
+            if argv[0] == "cp" and pathlib.Path(argv[-1]).name.startswith(".deps.clone-") \
+                    and "spikes" not in argv[-1]:
+                (pathlib.Path(argv[-1]) / "jason" / ".hex").write_bytes(b"changed by a deps.get in the source")
+            return result
+        here, _docker, lines = self.clone_into_here(docker, runner)
+        self.assertFalse((here / "_build").exists() or (here / "deps").exists())
+        self.assertTrue(ws.deps_match_lock(here / "spikes" / "ash_foundation"))
+        self.assertTrue(any("no clone of .: the cloned deps do not match" in line for line in lines), lines)
+        self.assertEqual([["mix", "setup"]], [c["argv"] for c in docker.calls if c["argv"][0] == "mix"])
+
+    def test_a_build_that_holds_the_absolute_path_of_a_worktree_is_not_cloned(self):
+        # A real Mix build holds the path of the worktree that compiled it (in beams of `_build`, and in `deps`).
+        for where in ("_build/test/lib/jason/ebin/x.beam", "deps/cure/_build/stage/.cure_manifest"):
+            with self.subTest(where=where):
+                shutil.rmtree(self.tmp)
+                self.tmp.mkdir()
+                here = self.checkout("here", built=False)
+                main = self.checkout("main")
+                target = main / where
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(b"\x00" + str(main).encode() + b"/deps/cure/lib/std/option.cure\x00")
+                docker = FakeDocker(worktree_list=f"worktree {main}\nworktree {here}\n")
+                lines = []
+                ws.warm_build(here, docker, lines.append, system=lambda: "Darwin")
+                self.assertFalse((here / "_build").exists() or (here / "deps").exists())
+                self.assertTrue(any("no clone of .: the build of the source holds" in line for line in lines), lines)
+                self.assertEqual([["mix", "setup"]], [c["argv"] for c in docker.calls if c["argv"][0] == "mix"])
+
+    def test_a_build_that_gains_a_worktree_path_during_the_copy_is_discarded(self):
+        docker = FakeDocker()
+        original = docker.__call__
+
+        def runner(argv, **kw):
+            result = original(argv, **kw)
+            if argv[0] == "cp" and pathlib.Path(argv[-1]).name.startswith("._build.clone-") \
+                    and "spikes" not in argv[-1]:
+                (pathlib.Path(argv[-1]) / "test" / "lib" / "jason" / "ebin" / "x.beam").write_bytes(
+                    str(pathlib.Path(argv[-2]).parent).encode() + b"/deps/x")
+            return result
+        here, _docker, lines = self.clone_into_here(docker, runner)
+        self.assertFalse((here / "_build").exists() or (here / "deps").exists())
+        self.assertTrue(any("no clone of .: the cloned build holds" in line for line in lines), lines)
+
+    def test_a_toolchain_on_path_other_than_tool_versions_refuses_the_clone(self):
+        for otp, elixir in (("28.0", None), (None, None),
+                            ("29.1.2", "Elixir 1.20.4 (compiled with Erlang/OTP 28)\n"),
+                            ("29.1.2", "Elixir 1.19.0 (compiled with Erlang/OTP 29)\n")):
+            with self.subTest(otp=otp, elixir=elixir):
+                shutil.rmtree(self.tmp)
+                self.tmp.mkdir()
+                docker = FakeDocker()
+                docker.otp = otp
+                docker.elixir = elixir or docker.elixir
+                here, _docker, lines = self.clone_into_here(docker)
+                self.assertEqual([], [c for c in docker.calls if c["argv"][0] == "cp"])
+                self.assertEqual([["mix", "setup"]], [c["argv"] for c in docker.calls if c["argv"][0] == "mix"])
+                self.assertTrue(any("no clone:" in line for line in lines), lines)
+
+    def test_an_interrupted_clone_leaves_no_temporary_directory_and_git_ignores_its_name(self):
+        source = self.tmp / "src"
+        (source / "a").mkdir(parents=True)
+
+        def interrupted(argv, **kw):
+            shutil.copytree(argv[-2], argv[-1])
+            raise KeyboardInterrupt
+        with self.assertRaises(KeyboardInterrupt):
+            ws.clone_dir(source, self.tmp / "_build", interrupted, system=lambda: "Darwin")
+        self.assertEqual(["src"], [p.name for p in self.tmp.iterdir()])
+        for name in ("._build.clone-123", ".deps.clone-123", "spikes/ash_foundation/._build.clone-1",
+                     "spikes/ash_foundation/.deps.clone-1"):
+            with self.subTest(name=name):
+                self.assertEqual(0, ws.run(["git", "-C", str(ROOT), "check-ignore", "-q", "--no-index", name])[0])
+
+
 class CommandLine(unittest.TestCase):
     def test_help_says_developer_host_only_and_never_merge_evidence(self):
         out = io.StringIO()
@@ -611,6 +1007,34 @@ class CommandLine(unittest.TestCase):
         lines = []
         self.assertEqual(0, ws.main(["down", "--worktree", str(gone)], runner=docker, out=lines.append, env={}))
         self.assertEqual({}, docker.containers)
+
+    def test_down_of_a_path_inside_a_worktree_never_resolves_to_the_enclosing_checkout(self):
+        tmp = pathlib.Path(tempfile.mkdtemp(prefix="elzoo-ws-cli-")).resolve()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        top, inner = tmp / "checkout", tmp / "checkout" / "pieces"
+        inner.mkdir(parents=True)
+        docker = FakeDocker()
+        docker.toplevel = str(top)
+        docker.containers["enclosing"] = {"labels": {ws.LABEL_ID: ws.identity(top)[0]}, "image": IMAGE,
+                                          "running": True}
+        lines = []
+        self.assertEqual(1, ws.main(["down", "--worktree", str(inner)], runner=docker, out=lines.append, env={}))
+        self.assertIn("enclosing", docker.containers)
+        self.assertIn("not its top level", lines[-1])
+        self.assertEqual(0, ws.main(["down", "--worktree", str(top)], runner=docker, out=lines.append, env={}))
+        self.assertEqual({}, docker.containers)
+
+    def test_an_os_error_is_reported_with_exit_1_and_no_traceback(self):
+        def runner(argv, **kw):
+            raise PermissionError(13, "Permission denied")
+        tmp = pathlib.Path(tempfile.mkdtemp(prefix="elzoo-ws-cli-")).resolve()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        (tmp / ".github" / "workflows").mkdir(parents=True)
+        shutil.copy(ROOT / ws.WORKFLOW, tmp / ws.WORKFLOW)
+        lines = []
+        self.assertEqual(1, ws.main(["up", "--worktree", str(tmp)], runner=lambda argv, **kw: (0, str(tmp), "")
+                                    if argv[0] == "git" else runner(argv), out=lines.append, env={}))
+        self.assertEqual(["ELZOO SERVICES up failed: PermissionError: Permission denied"], lines)
 
 
 if __name__ == "__main__":
