@@ -153,4 +153,32 @@ defmodule Elzoo.TransformationTest do
     assert translated["payload"] == nil
     assert Enum.map([], &Transformation.translate(&1, target, fn _ -> nil end)) == []
   end
+
+  test "the bundled example shows the public calls and its values stay exact" do
+    {result, _} = Code.eval_file(Path.expand("../../examples/elzoo/transformation.exs", __DIR__))
+
+    assert Enum.sort(Map.keys(result)) ==
+             [:extra_key, :implicit_correlation, :input_port, :translated]
+
+    assert result.translated ==
+             {:ok,
+              %{
+                "version" => 1,
+                "message_id" => "translated-1",
+                "schema_id" => "example/invoice",
+                "schema_version" => 2,
+                "kind" => "event",
+                "producer" => %{"unit_id" => "billing", "port_id" => "out"},
+                "correlation_id" => "request-1",
+                "causation_id" => "source-1",
+                "idempotency_key" => "dedup-1",
+                "payload" => {:invoice, %{"total" => 5}}
+              }}
+
+    assert {:ok, implicit} = result.implicit_correlation
+    assert implicit["correlation_id"] == "source-1"
+    assert implicit["causation_id"] == "source-1"
+    assert result.input_port == {:error, {:target, :invalid_direction}}
+    assert result.extra_key == {:error, {:target, :invalid_shape}}
+  end
 end

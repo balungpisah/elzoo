@@ -39,3 +39,5 @@ no quantified proof is claimed. Upstream Elixir Map/Enum/Stream and dependency
 Contracts are relied upon. Shared Envelope examples are reused unchanged.
 Export tests run copied sources without Elzoo.Application or a Cure compiler
 at runtime (Cure is needed only to compile the dependency checks).
+
+The example `examples/elzoo/transformation.exs` shows these calls, and one test in `test/elzoo/transformation_test.exs` evaluates it.
