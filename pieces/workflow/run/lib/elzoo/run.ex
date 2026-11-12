@@ -225,7 +225,13 @@ defmodule Elzoo.Run do
 
       c.kind == :approval_request and
           match?({:ok, _, _, nil}, Approval.request(s.model.approvals, c.run_id, c.decision)) ->
-        {:unchanged, :duplicate}
+        {:ok, _, request, nil} = Approval.request(s.model.approvals, c.run_id, c.decision)
+
+        cond do
+          run.requests[request.key] == c.attempt_id -> {:unchanged, :duplicate}
+          Map.has_key?(run.effects, elem(request.key, 1)) -> {:refused, :intent_mismatch}
+          true -> :apply
+        end
 
       c.kind == :approval_evidence and Map.has_key?(c, :evidence) and
           run.evidence[c.request_key] == c.evidence ->
@@ -315,9 +321,6 @@ defmodule Elzoo.Run do
 
   defp perform(s, _, %{kind: :approval_request} = c) do
     case Approval.request(s.model.approvals, c.run_id, c.decision) do
-      {:ok, _, _request, nil} ->
-        {{:unchanged, :duplicate, s.held.live.revision}, s}
-
       {:ok, _, request, event} ->
         persist(s, {:approval, c.run_id, c.attempt_id, request.key, event}, request.key)
 
@@ -696,6 +699,9 @@ defmodule Elzoo.Run do
       %{run_id: parent} -> put_in(s.runs[parent].children[id].pending, revision)
     end
   end
+
+  defp apply_event(s, {:approval, id, attempt, key, nil}),
+    do: put_in(s.runs[id].requests[key], attempt)
 
   defp apply_event(s, {:approval, id, attempt, key, event}) do
     {:ok, approvals} = Approval.apply_event(s.approvals, event)

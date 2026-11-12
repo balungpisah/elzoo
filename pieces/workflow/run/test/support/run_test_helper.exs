@@ -40,6 +40,17 @@ defmodule Elzoo.Run.TestBinding do
     recovery_grace_ms: 100
 end
 
+defmodule Elzoo.Run.ChangedTestBinding do
+  use Elzoo.EffectIntent.Binding,
+    adapter: Elzoo.Run.TestAdapter,
+    id: "adapter",
+    provider_account: "account",
+    operation: "send",
+    clock: "host-ms",
+    failures: %{timeout: {"timed_out", "unknown", "retryable"}},
+    recovery_grace_ms: 101
+end
+
 defmodule Elzoo.Run.TestHelper do
   import ExUnit.Assertions
   alias Ecto.Adapters.SQL

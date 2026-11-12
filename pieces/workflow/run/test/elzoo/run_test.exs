@@ -17,12 +17,76 @@ defmodule Elzoo.RunTest do
   test "Restart/identity: explicit execution retry, stale commands and durable completion", c do
     p = owner(c)
     create(p, c)
+    {key, ctx} = request(p)
+    {:ok, decision} = Elzoo.Authorization.decide(ctx.policy, ctx.proposal, ctx.authority)
     first = snapshot(p)
+
+    assert {:unchanged, :duplicate, revision} =
+             command(p, :approval_request, %{
+               attempt_id: "attempt-1",
+               decision: decision,
+               expected_revision: 0
+             })
+
+    assert revision == first.revision
+    assert {:ok, %{revision: ^revision}} = Store.read(c.store, :head, ["runs"])
     p = restart(c, p)
     assert snapshot(p) == first
     assert {:ok, _, "attempt-2"} = command(p, :begin_attempt, %{attempt_id: "attempt-2"})
     assert snapshot(p).operation_id == first.operation_id
     assert snapshot(p).provider_refs == first.provider_refs
+
+    assert {:refused, :conflict} =
+             command(p, :approval_request, %{
+               attempt_id: "attempt-2",
+               decision: decision,
+               expected_revision: 0
+             })
+
+    assert {:ok, _, ^key} =
+             command(p, :approval_request, %{attempt_id: "attempt-2", decision: decision})
+
+    p = restart(c, p)
+    assert snapshot(p).approvals == first.approvals
+    assert Approval.inspect_state(approval_state(c)).releases == []
+
+    assert {:unchanged, :duplicate, revision} =
+             command(p, :approval_request, %{
+               attempt_id: "attempt-2",
+               decision: decision,
+               expected_revision: 0
+             })
+
+    assert {:ok, %{revision: ^revision}} = Store.read(c.store, :head, ["runs"])
+
+    assert {:unchanged, :stale, ^revision} =
+             command(p, :approval_evidence, %{
+               attempt_id: "attempt-1",
+               request_key: key,
+               evidence: evidence(key)
+             })
+
+    assert {:unchanged, :stale, ^revision} = dispatch(p, key, ctx)
+
+    assert {:ok, _, ^key} =
+             command(p, :approval_evidence, %{
+               attempt_id: "attempt-2",
+               request_key: key,
+               evidence: evidence(key)
+             })
+
+    p = restart(c, p)
+
+    assert {:ok, _, %{classification: :dispatched}} =
+             command(p, :dispatch_approved, %{
+               attempt_id: "attempt-2",
+               request_key: key,
+               context: ctx,
+               intent: intent()
+             })
+
+    assert_receive {:send_started, _, _}
+    assert length(Approval.inspect_state(approval_state(c)).releases) == 1
     rev = snapshot(p).revision
 
     for kind <- [:cancel, :complete] do
@@ -249,6 +313,23 @@ defmodule Elzoo.RunTest do
       assert {:ok, _, %{classification: :waiting_approval, reason: :no_retained_consent}} =
                dispatch(p, key, ctx)
 
+      assert {:ok, _, "attempt-2"} = command(p, :begin_attempt, %{attempt_id: "attempt-2"})
+      p = restart(c, p)
+      revision = snapshot(p).revision
+      {:ok, decision} = Elzoo.Authorization.decide(ctx.policy, ctx.proposal, ctx.authority)
+
+      assert {:refused, :intent_mismatch} =
+               command(p, :approval_request, %{attempt_id: "attempt-2", decision: decision})
+
+      assert {:refused, :unknown_request} =
+               command(p, :dispatch_approved, %{
+                 attempt_id: "attempt-2",
+                 request_key: key,
+                 context: ctx,
+                 intent: intent()
+               })
+
+      assert {:ok, %{revision: ^revision}} = Store.read(c.store, :head, ["runs"])
       assert Approval.inspect_state(approval_state(c)).releases == []
       refute_receive {:send_started, _, _}, 10
     end
@@ -310,6 +391,18 @@ defmodule Elzoo.RunTest do
     refute_receive {:send_started, _, _}, 10
     assert length(Approval.inspect_state(approval_state(c)).releases) == 1
     recover(c)
+
+    bindings =
+      Map.update!(c.opts[:effect_intent], "binding", fn opts ->
+        Keyword.put(opts, :binding, Elzoo.Run.ChangedTestBinding)
+      end)
+
+    p = restart(c, p, Keyword.put(c.opts, :effect_intent, bindings))
+    before = history(c)
+    assert {:refused, :intent_mismatch} = dispatch(p, key, ctx)
+    assert history(c) == before
+    refute_receive {:send_started, _, _}, 10
+    assert {:ok, %{revision: 0}} = Store.read(c.intent_store, :head, [intent_stream()])
     p = restart(c, p)
 
     assert {:refused, :intent_mismatch} =
