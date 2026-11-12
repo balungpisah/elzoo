@@ -3901,7 +3901,7 @@
       "disposition": "retained-ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/core/edge/piece.json",
-      "manifest_sha256": "dc30fabb409aafd142b82c32383dabe8d02958d38df0472d0c371df9cc870b55"
+      "manifest_sha256": "ee75c26f1e4c9fe893354de6d51f4cb6e5ef79f0c7e7ce2dc6e25f8243035556"
     },
     {
       "id": "core/effect",
@@ -3949,7 +3949,7 @@
       "disposition": "retained-ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/core/port/piece.json",
-      "manifest_sha256": "be25cb4d82e31bc49d5a96a0b8bfac21daab518ee89296c03c5aa0e9bbb87419"
+      "manifest_sha256": "f20ebc536e00ae2dff18bc32a8ec47028e1319354ed4ae1abe1ab470b20c2645"
     },
     {
       "id": "core/selection",
