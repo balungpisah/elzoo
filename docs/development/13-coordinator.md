@@ -76,7 +76,11 @@
   two such merges. At the end of each level, wait until the third command of
   step 3 above prints `completed success` for the current `main`. Only then
   publish the next level, or add the label `task` to its issues. If the run is
-  red, do the repair below first.
+  red, do the repair below first. Wave 1 exception: a level-2 task may be
+  published after its own prerequisites merge and current `main` is green,
+  without waiting for every level-1 job. The serial merge queue, independent
+  review, maximum of three small-gate merges between covering green `main`
+  runs and red-`main` rules remain in force.
 - **Repair of a red `main`.** The full check on `main` is the evidence of the
   small-gate merges. When it is red:
   1. Classify the red run on issue #98, as the
