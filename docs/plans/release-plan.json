@@ -4980,6 +4980,23 @@
       "issue": 242,
       "url": "https://github.com/balungpisah/elzoo/issues/242",
       "issue_body_sha256": "79b4f86e21fd4b8b871c421c3bc6ed5d0496951efee88be817109975faf7d39f"
+    },
+    {
+      "id": "ELZ-125",
+      "title": "ELZ-125 — Restore Run test-helper portability in copied consumers",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-116"],
+      "status": "published 2026-11-12",
+      "owner_role": "one claimed task worker; coordinator owns merge queue",
+      "paths": ["tasks/ELZ-125-run-test-portability.md"],
+      "outputs": [],
+      "acceptance": "Reproduce the copied-consumer helper failure, then pass the identical aggregate with local-first helper lookup; retain all 31 Run cases and assertions and pass the named Piece gate and hosted database lane.",
+      "product_aims": ["P13"],
+      "issue": 249,
+      "url": "https://github.com/balungpisah/elzoo/issues/249",
+      "issue_body_sha256": "9c11b1fcdb3db3650dbff114b22f7c2cb08b884670823a7328f51799d130ae8d"
     }
   ],
   "entries": [

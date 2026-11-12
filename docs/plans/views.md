@@ -176,6 +176,7 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-119](https://github.com/balungpisah/elzoo/issues/221) | V1 / pieces | none | published 2026-11-12 | one claimed task worker; coordinator owns review and merge queue |
 | [ELZ-120](https://github.com/balungpisah/elzoo/issues/232) | V1 / pieces | none | published 2026-11-12 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-121](https://github.com/balungpisah/elzoo/issues/238) | V1 / pieces | none | published 2026-11-12 | one claimed task worker; coordinator owns review and merge queue |
+| [ELZ-125](https://github.com/balungpisah/elzoo/issues/249) | V1B / pieces | ELZ-116 | published 2026-11-12 | one claimed task worker; coordinator owns merge queue |
 
 ## Catalogue accounting
 
@@ -346,7 +347,7 @@ Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, EL
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125.
 
 ### V2-ACCEPT
 
@@ -2381,3 +2382,13 @@ Publication copy: [tasks/ELZ-123-run-resource.md](../../tasks/ELZ-123-run-resour
 **Product aims:** P13.
 
 **Acceptance:** The seven named acceptance groups cover serial bounded use, same-Run typed grants, unknown open, Run end and late events, orphan cleanup, pause and deadline, and retained usage with empty budget, including the specified negative control.
+
+### ELZ-125
+
+ELZ-125 — Restore Run test-helper portability in copied consumers
+
+Publication copy: [tasks/ELZ-125-run-test-portability.md](../../tasks/ELZ-125-run-test-portability.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Reproduce the copied-consumer helper failure, then pass the identical aggregate with local-first helper lookup; retain all 31 Run cases and assertions and pass the named Piece gate and hosted database lane.
