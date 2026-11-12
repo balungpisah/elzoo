@@ -287,9 +287,10 @@ defmodule Elzoo.DynamicUnits do
               not Enum.any?(children, fn child ->
                 pid = elem(child, 1)
 
-                # An unlearned PID may be this admission's dead replacement.
+                # Only a nonterminal admission can have an unlearned replacement.
                 pid == entry.pid or (pid == :restarting and not entry.terminal) or
-                    (is_pid(pid) and not Enum.any?(state.entries, fn {_, e} -> e.pid == pid end))
+                    (not entry.terminal and is_pid(pid) and
+                       not Enum.any?(state.entries, fn {_, e} -> e.pid == pid end))
               end) ->
             {:absent, drop(state, identity)}
 

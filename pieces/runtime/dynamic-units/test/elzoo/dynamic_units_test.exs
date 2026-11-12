@@ -489,6 +489,37 @@ defmodule Elzoo.DynamicUnitsTest do
       :sys.no_debug(d)
       :sys.no_debug(sup)
     end
+
+    # A terminal child and another identity's unadopted replacement share a snapshot.
+    p = pool(Map.put(ctx, :observer, self()), RegistryC)
+    d = p.directory
+    {:ok, a} = DynamicUnits.start(d, "A")
+    {:ok, b} = DynamicUnits.start(d, "B")
+    assert :erlang.suspend_process(d)
+
+    try do
+      a_ref = Process.monitor(a)
+      :sys.terminate(a, :normal)
+      assert_receive {:DOWN, ^a_ref, :process, ^a, :normal}
+      Process.exit(b, :kill)
+
+      eventually(fn ->
+        case Registry.lookup(p.registry, "B") do
+          [{pid, nil}] when pid != b -> true
+          _ -> false
+        end
+      end)
+
+      eventually(fn ->
+        Process.info(d, :messages) |> elem(1) |> Enum.any?(&match?({:unit_started, "B", _, _}, &1))
+      end)
+
+      assert :erlang.resume_process(d)
+      assert {:ok, _} = DynamicUnits.start(d, "C")
+      assert Enum.sort(Map.keys(:sys.get_state(d).entries)) == ["B", "C"]
+    after
+      if Process.info(d, :status) == {:status, :suspended}, do: :erlang.resume_process(d)
+    end
   end
 
   test "DY5 explicit sleep, idle expiry, refresh versus find and durable wake", ctx do
