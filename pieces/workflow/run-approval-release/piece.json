@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "id": "workflow/run-approval-release",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["elixir", "otp"],
+  "dependencies": ["workflow/approval", "state/lease", "state/event-log", "delivery/effect-intent", "integration/sql", "workflow/run-resource"],
+  "applications": ["crypto"],
+  "contract": "Explicit Run source variant retaining guarded lifecycle, children, completion and Run-owned dispatch, plus release_approved committing or currently revalidating exact-action Approval without intent admission, activation, work scheduling or send; Resource retains its independent current lifetime/FIFO and reservation-before-send boundary.",
+  "limits": [
+    "One live Run stream uses either this owner or old Run, never both; no migration, handoff, engine, descriptor registry, transferable permission or cross-stream release/dispatch transaction.",
+    "Release alone does not establish no prior send or provider completion. Retained dispatch_approved still sends; trusted callers select one dispatch owner and serialize cancellation/admission.",
+    "Host supplies fresh authenticated evidence/authority, exact descriptor correlation, durable Store, clocks, exclusive ownership, retention, outstanding-write confirmation and physical fencing before replacement/activation.",
+    "Whole guarded history retained; no aggregate history/memory bound. Individual events at most128KiB, Run identifiers at most200 UTF-8 bytes without NUL, provider refs at most64; ready Approval/EffectIntent bounds unchanged.",
+    "Finite PostgreSQL/fake-Adapter scenarios, not universal proofs or production monitoring. Memory is volatile; uncertain writes/caller timeouts require reconciliation, not resend."
+  ],
+  "files": [
+    "lib/elzoo/run_approval_release.ex",
+    "examples/run_approval_release.exs",
+    "test/elzoo/run_approval_release_test.exs",
+    "test/support/run_approval_release_test_helper.exs"
+  ],
+  "grounding": [
+    {"kind": "test", "file": "test/elzoo/run_approval_release_test.exs", "claim": "Nine copied Run groups plus Release without dispatch, Waiting and retained consent, Release restart windows, Currentness and authority change, Resource-owned send and Isolation, copy and checked example exercise renamed bytes with real ready owners/disposable PostgreSQL, call tracing and counting fake Adapter; actual production commit/revalidation mutations are negative controls."},
+    {"kind": "upstream", "provider": "elixir", "reference": "https://hexdocs.pm/elixir/1.20.4/GenServer.html", "claim": "Pinned GenServer serialization, monitoring and task semantics, not a local runtime proof. Source variant copies Run at repository baseline2b3c3fc763eb8eef0d4d4cfbe694098ea83de217; README names copied paths."},
+    {"kind": "upstream", "provider": "otp", "reference": "https://www.erlang.org/doc/apps/erts/erl_ext_dist.html", "claim": "OTP29.1.2 safe canonical ETF and crypto digests; existing ready Approval laws and Store/Lease/EffectIntent/RunResource Contracts remain unchanged, not a new shell persistence proof."},
+    {"kind": "assumption", "claim": "Host authenticates identities/evidence/current context and settlement, retains exact action-to-descriptor correlation, serializes currentness/cancellation/dispatch, supplies durable Store/clocks/supervision/full history and fences outstanding writes/old owners/providers before activation. Test host grants and observations are simulations, not production fencing evidence."}
+  ],
+  "operations": {
+    "telemetry": {"status": "inherited", "from": "otp", "contract": "OTP diagnostics only; consumer redacts. No custom payload events or exporter."},
+    "config": {"status": "supported", "contract": "Retained construction-time Store/held Lease/effect_intent bindings; map may be empty for release-only. No new option, defaults or hot configuration.", "evidence": ["test/elzoo/run_approval_release_test.exs"]},
+    "control": {"status": "supported", "contract": "Retained trusted Run commands plus release_approved; released means durable current Approval, waiting grants no work, neither activates/admit/schedules/sends. Status and old released replies grant no current dispatch authority.", "evidence": ["test/elzoo/run_approval_release_test.exs"]}
+  }
+}
