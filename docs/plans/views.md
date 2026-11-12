@@ -135,6 +135,9 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-108](https://github.com/balungpisah/elzoo/issues/201) | V1 / pieces | ELZ-101 | published test-only ordering repair; claimed task/ELZ-108; independent review and acceptance pending | one test-repair worker; coordinator owns independent review and merge queue |
 | [ELZ-109](https://github.com/balungpisah/elzoo/issues/202) | V1 / pieces | ELZ-101, ELZ-108 | published setup repair; claimed task/ELZ-109; final review and acceptance pending | one setup-repair worker; coordinator owns independent review and merge queue |
 | [ELZ-110](https://github.com/balungpisah/elzoo/issues/204) | V1 / pieces | none | published class-S CI repair; claimed task/ELZ-110; independent review and integration required | one claimed task worker; coordinator owns independent review, queue and merge |
+| [ELZ-111](https://github.com/balungpisah/elzoo/issues/211) | V1 / pieces | none | published 2026-11-12 | one claimed task worker; coordinator owns review and merge queue |
+| [ELZ-112](https://github.com/balungpisah/elzoo/issues/212) | V1 / pieces | none | published 2026-11-12 | one claimed task worker; coordinator owns review and merge queue |
+| [ELZ-113](https://github.com/balungpisah/elzoo/issues/213) | V1 / pieces | none | published 2026-11-12 | one claimed task worker; coordinator owns review and merge queue |
 
 ## Catalogue accounting
 
@@ -262,7 +265,7 @@ Derived from selectors in the manifest; changing the selected scope changes the 
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; integrated pinned mix check, source-copy/namespace/schema/provider compatibility and claim-level evidence. No future release acceptance follows from ELZ-012.
 
-Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, ELZ-008, ELZ-009, ELZ-010, ELZ-011, ELZ-012, ELZ-013, ELZ-014, ELZ-015, ELZ-016, ELZ-017, ELZ-018, ELZ-019, ELZ-020, ELZ-021, ELZ-022, ELZ-023, ELZ-024, ELZ-025, ELZ-026, ELZ-027, ELZ-028, ELZ-029, ELZ-030, ELZ-032, ELZ-033, ELZ-050, ELZ-052, ELZ-053, ELZ-054, ELZ-055, ELZ-083, ELZ-081, ELZ-084, ELZ-087, ELZ-079, ELZ-080, ELZ-085, ELZ-091, ELZ-092, ELZ-097, RC-01, RC-02, RC-03, RC-04, RC-05, RC-06, RC-07, RC-08, RC-09, RC-10, RC-11, RC-12, RC-13, RC-14, RC-15, RC-16, RC-17, RC-18, RC-19, RC-26, RC-32, RC-42, RC-43, ELZ-094, ELZ-093, ELZ-095, ELZ-082, ELZ-096, ELZ-098, ELZ-099, ELZ-100, ELZ-101, ELZ-104, ELZ-103, ELZ-105, ELZ-107, ELZ-106, ELZ-108, ELZ-109, ELZ-110.
+Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, ELZ-008, ELZ-009, ELZ-010, ELZ-011, ELZ-012, ELZ-013, ELZ-014, ELZ-015, ELZ-016, ELZ-017, ELZ-018, ELZ-019, ELZ-020, ELZ-021, ELZ-022, ELZ-023, ELZ-024, ELZ-025, ELZ-026, ELZ-027, ELZ-028, ELZ-029, ELZ-030, ELZ-032, ELZ-033, ELZ-050, ELZ-052, ELZ-053, ELZ-054, ELZ-055, ELZ-083, ELZ-081, ELZ-084, ELZ-087, ELZ-079, ELZ-080, ELZ-085, ELZ-091, ELZ-092, ELZ-097, RC-01, RC-02, RC-03, RC-04, RC-05, RC-06, RC-07, RC-08, RC-09, RC-10, RC-11, RC-12, RC-13, RC-14, RC-15, RC-16, RC-17, RC-18, RC-19, RC-26, RC-32, RC-42, RC-43, ELZ-094, ELZ-093, ELZ-095, ELZ-082, ELZ-096, ELZ-098, ELZ-099, ELZ-100, ELZ-101, ELZ-104, ELZ-103, ELZ-105, ELZ-107, ELZ-106, ELZ-108, ELZ-109, ELZ-110, ELZ-111, ELZ-112, ELZ-113.
 
 ### V2-ACCEPT
 
@@ -1708,3 +1711,33 @@ Publication copy: [tasks/ELZ-110.md](../../tasks/ELZ-110.md).
 **Product aims:** P01. Supporting hosted CI availability, not an additional product prerequisite or catalogue capability.
 
 **Acceptance:** One signed official-Ubuntu-archive runtime provisioning fallback, strict fresh metadata refresh and fail-closed controls; unchanged runner policy, packages, pins and required checks; exact-head hosted backend and Gleam evidence required.
+
+### ELZ-111
+
+ELZ-111 — Add a checked example to core/port
+
+Publication copy: [tasks/ELZ-111-core-port-example.md](../../tasks/ELZ-111-core-port-example.md).
+
+**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12. Example and evidence for the ready Piece core/port; not an additional product prerequisite or catalogue capability.
+
+**Acceptance:** One example file of core/port that one test of the Piece evaluates with exact expected values; one added files entry, one README sentence and the new manifest hash. A negative control proves that the test fails on a wrong value. No Contract, lib or cure change.
+
+### ELZ-112
+
+ELZ-112 — Add a checked example to delivery/transformation
+
+Publication copy: [tasks/ELZ-112-delivery-transformation-example.md](../../tasks/ELZ-112-delivery-transformation-example.md).
+
+**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12. Example and evidence for the ready Piece delivery/transformation; not an additional product prerequisite or catalogue capability.
+
+**Acceptance:** One example file of delivery/transformation that one test of the Piece evaluates with exact expected values; one added files entry, one README sentence and the new manifest hash. A negative control proves that the test fails on a wrong value. No Contract, lib or cure change.
+
+### ELZ-113
+
+ELZ-113 — Add a checked example to core/edge
+
+Publication copy: [tasks/ELZ-113-core-edge-example.md](../../tasks/ELZ-113-core-edge-example.md).
+
+**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12. Example and evidence for the ready Piece core/edge; not an additional product prerequisite or catalogue capability.
+
+**Acceptance:** One example file of core/edge that one test of the Piece evaluates with exact expected values; one added files entry, one README sentence and the new manifest hash. A negative control proves that the test fails on a wrong value. No Contract, lib or cure change.
