@@ -76,6 +76,8 @@ prerequisite; the tables leave it out.
 
 A Run that survives: the engine runs one host, records each step, checks budget and authority, and continues after a crash.
 
+RC-68 is admitted as [ELZ-114](../../tasks/ELZ-114-pattern-step.md). References to RC-68 below name that design; executable prerequisite rows in `release-plan.json` now name ELZ-114. No other wave-1 proposal is admitted by this publication.
+
 | Job | Outputs | Prerequisites | Level | Jobs that wait for it |
 | --- | --- | --- | --- | --- |
 | RC-68 | `workflow/pattern-step` | ELZ-002, ELZ-006, ELZ-023 | 1 | 16 |
@@ -279,11 +281,17 @@ tools, tenancy policy, deployment, backup and release.
 
 Each one is a blocker on the named job, not on the track.
 
+Resolved on 2026-11-12; these decisions are also in the corresponding job Contracts in `release-plan.json`:
+
+- **RC-68:** version 1 has nine action kinds: model call, tool call, local work, ask a person, run a nested callable, open a run resource, use a run resource, close a run resource, finish. The three resource actions stay distinct because the engine checks and performs them differently.
+- **RC-68 exclusions:** start a child Run, wait for an outside event, a part of an answer to a channel, a message to another member, make or remove a binding, give an inside event, and give a run resource to a person enter only in later versions with the wave that performs them. Ask for an approval and fill a secret are never action kinds: the engine does them. RC-48 still includes child-Run and outside-event waits in its total decision, supplied as test data; no version-1 action opens them.
+- **RC-68 versions:** new versions of all three sets only add members, never change or remove them; records written under older versions stay readable. Outcome classes remain as in the Contract. Input kinds add `wake`: no content, only engine-read time, used by the host's durable timer. RC-58 must never route wake through its mid-run-input policy.
+- **RC-68 person answers:** a person's answer remains its own input kind, names exactly one ask-a-person action and carries the verified person's identity. That action gets no other completed outcome. Text without an open ask is a new message.
+- **RC-48:** time limits continue to count during pause, and pause has its own time limit. The person continuing a Run can give it a new time limit in the same recorded action.
+- **RC-49:** a nested callable in the same Run may use a resource only when the outer node gives its name in typed input. A child Run cannot use its parent's resource. Each resource declares stay or close on pause; the default is stay until its own time limit, with cost recorded even when budget is empty. Moving ownership to a different Run is a later form; this Contract neither implements nor rules it out.
+
 | Decision | Job |
 | --- | --- |
-| The first version of the action-kind set | RC-68 |
-| What time limits do while a Run is paused | RC-48 |
-| If a nested callable or a child Run can use a resource of the outer Run | RC-49 |
 | If a tenant can add its own MCP server at run time (the ready Contract fixes the server at build) | RC-59 |
 | Which Lua runtime, and if it runs inside the VM | RC-60 |
 | The final node list, and the name of the recipe data handle | RC-61 |
