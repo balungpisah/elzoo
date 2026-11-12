@@ -28,23 +28,31 @@
      `reason`) and a row in `entries` (`id`, `job`, `note`, `baseline_status`,
      `disposition`, `catalogue_reference`). Then run step 3 of the index files.
      Use a branch that is not named `task/...`. The queue does not take it.
-     Merge one such pull request at a time. If `main` moved after the green
-     run, run `gh pr update-branch <PR number> -R balungpisah/elzoo` and wait
-     for green again. Do not merge while a queue run is active.
-
-     A pull request that changes only `tasks/` and `docs/` gets the short
-     check, and the short check runs no tests. So `main` itself must be
-     green: the newest push run of `symbolic-check.yml` on the current `main`
-     SHA must be completed with success. This shows it:
+     Merge one such pull request at a time, and not while a queue run is
+     active. Before the merge, run these three commands:
 
          main=$(gh api repos/balungpisah/elzoo/git/ref/heads/main --jq .object.sha)
+         gh api "repos/balungpisah/elzoo/compare/$main...<green head SHA>" --jq .behind_by
          gh api "repos/balungpisah/elzoo/actions/workflows/symbolic-check.yml/runs?event=push&head_sha=$main&per_page=100" \
            --jq '[.workflow_runs[] | select(.head_branch == "main")] | max_by(.id) | "\(.status) \(.conclusion)"'
 
-     Merge only when it prints `completed success`. A run in progress or no
-     run: wait. A red run: do not merge, also when the red run is classified.
-     Wait for a green `main`. Run the two commands again immediately before
-     the merge. If `main` moved, update the branch and start again. Then merge
+     - The second command must print `0`: the green head holds the current
+       `main`. If it prints another number, `main` moved: run
+       `gh pr update-branch <PR number> -R balungpisah/elzoo`, wait for green
+       on the new head and start again.
+     - The third command shows the newest push run of the check on that
+       `main`. For a pull request with the full check, the freeze rule of
+       `AGENTS.md` section 7 applies: do not merge while that run is red and
+       not classified.
+     - A pull request whose changed paths are all on the documents list of
+       `scripts/ci-change-class.py` gets the short check, and the short check
+       runs no tests. For that pull request the third command must print
+       `completed success`. A run in progress or no run: wait. A red run: do
+       not merge, also when the red run is classified. Wait for a green
+       `main`. This is stricter than the freeze rule of `AGENTS.md` section 7,
+       and it applies only to a pull request with the short check.
+
+     Run the three commands again immediately before the merge. Then merge
      with
      `gh pr merge <PR number> -R balungpisah/elzoo --merge --match-head-commit <green head SHA>`.
   4. After the merge, add the label `task` to the issues. Workers then start
