@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "id": "workflow/run",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["elixir", "otp"],
+  "dependencies": ["workflow/approval", "state/lease", "state/event-log", "delivery/effect-intent", "integration/sql"],
+  "applications": ["crypto"],
+  "contract": "Serialized guarded-Store Run/execution-Attempt lifecycle with five immutable terminal outcomes, correlated durable completion, reciprocal child settlement, targeted cancellation, persisted ready Approval transitions and release-before-intent restart barriers; reserved effects never resent and unknown settlement remains separate from Run outcome.",
+  "limits": [
+    "No engine, scheduler, wait/pause policy, exactly-once send, physical cancellation, provider authentication, audit/outbox composition or cross-stream transaction.",
+    "Host supplies authenticated evidence/current context, durable Store, clocks, supervision, retention and fencing of old owners and outstanding writes before replacement/activation.",
+    "Whole guarded stream retained; no local pruning or aggregate history/memory bound. Individual events at most128KiB; Run identifiers at most200 UTF-8 bytes without NUL, provider references at most64 entries; ready Approval/EffectIntent limits unchanged.",
+    "Finite PostgreSQL/fake-Adapter scenarios, not universal proofs; Memory remains volatile; caller timeout and indeterminate writes are unknown, not repeat permission."
+  ],
+  "files": [
+    "lib/elzoo/run.ex",
+    "examples/run.exs",
+    "test/elzoo/run_test.exs",
+    "test/support/run_test_helper.exs"
+  ],
+  "grounding": [
+    {"kind": "test", "file": "test/elzoo/run_test.exs", "claim": "Named restart/identity, children, open approval, before release commit, release before intent, zero attempts, reserved/send windows, individual bypass reasons and outcomes/example scenarios use private disposable PostgreSQL, real Approval/EffectIntent, recording Store and counting fake Adapter; release-barrier production mutation is a negative control."},
+    {"kind": "upstream", "provider": "elixir", "reference": "https://hexdocs.pm/elixir/1.20.4/GenServer.html", "claim": "Pinned GenServer serialization and OTP monitoring/task execution; no local runtime soundness proof."},
+    {"kind": "upstream", "provider": "otp", "reference": "https://www.erlang.org/doc/apps/erts/erl_ext_dist.html", "claim": "OTP29.1.2 canonical deterministic ETF safe decoding and crypto digests; ready Store/lease/approval/intent contracts remain unchanged."},
+    {"kind": "assumption", "claim": "Host authenticates identities/evidence/current context, supplies canonical arguments, durable Store, clocks, supervision and retention, reconciles pending writes and fences previous owners/providers before granting snapshot-bound activation. Test host authority is not production fencing evidence."}
+  ],
+  "operations": {
+    "telemetry": {"status": "inherited", "from": "otp", "contract": "OTP process/task diagnostics only; consumer redacts diagnostics. No custom exporter or payload telemetry."},
+    "config": {"status": "supported", "contract": "Construction-time Store, held lease and existing effect-intent startup bindings; no defaults, hot options or in-place activation.", "evidence": ["test/elzoo/run_test.exs"]},
+    "control": {"status": "supported", "contract": "Trusted named Run commands return applied/unchanged/refused/error/indeterminate; targeted execution cancellation stops new work but never asserts physical no-send; status grants no dispatch authority.", "evidence": ["test/elzoo/run_test.exs"]}
+  }
+}
