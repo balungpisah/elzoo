@@ -1,0 +1,52 @@
+# SPDX-License-Identifier: Apache-2.0
+mod Elzoo.BotRunLifecycle
+  type Phase = Active | Waiting | Paused | Terminal
+  type Event = Ended | OldAttempt | Expired | Cancel | ClosedWait | Incompatible | Accepted | Pause | Continue | Work
+  type Decision = Unchanged | Late | InstallOutcome | RequestTime | RequestCancel | RequestBudget | EnterPause | Resume | AcceptWait | PermitWork | RemainPaused | RemainWaiting
+
+  @total true
+  @reducible
+  fn decide(phase: Phase, event: Event, exhausted: Bool, pause_budget: Bool) -> Decision =
+    match phase
+      Terminal() -> Unchanged()
+      _ ->
+        match event
+          Ended() -> InstallOutcome()
+          OldAttempt() -> Unchanged()
+          Expired() -> RequestTime()
+          Cancel() -> RequestCancel()
+          ClosedWait() -> Late()
+          Incompatible() -> Unchanged()
+          _ ->
+            pickup
+              exhausted ->
+                match pause_budget
+                  True() -> EnterPause()
+                  False() -> RequestBudget()
+              else ->
+                match event
+                  Pause() -> EnterPause()
+                  Continue() ->
+                    match phase
+                      Paused() -> Resume()
+                      _ -> Unchanged()
+                  Accepted() -> AcceptWait()
+                  _ ->
+                    match phase
+                      Paused() -> RemainPaused()
+                      Waiting() -> RemainWaiting()
+                      _ -> PermitWork()
+
+  fn terminal_absorbing(event: Event, exhausted: Bool, pause_budget: Bool) -> Equivalent(Decision, decide(Terminal(), event, exhausted, pause_budget), Unchanged()) =
+    reflexive(Unchanged())
+
+  fn old_attempt_unchanged(phase: Phase, exhausted: Bool, pause_budget: Bool) -> Equivalent(Decision, decide(phase, OldAttempt(), exhausted, pause_budget), Unchanged()) =
+    match phase
+      Terminal() -> reflexive(Unchanged())
+      Active() -> reflexive(Unchanged())
+      Waiting() -> reflexive(Unchanged())
+      Paused() -> reflexive(Unchanged())
+
+  fn closed_wait_late(exhausted: Bool, pause_budget: Bool) -> Equivalent(Decision, decide(Waiting(), ClosedWait(), exhausted, pause_budget), Late()) =
+    reflexive(Late())
+end
