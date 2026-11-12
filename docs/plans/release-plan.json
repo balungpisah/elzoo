@@ -174,6 +174,43 @@
         "RC-36"
       ],
       "limit": "Separate admission decisions; these directions require additional domain contracts and are not a release promise yet."
+    },
+    {
+      "id": "P13",
+      "release": "V1B",
+      "outcome": "Recipe-driven bot platform: run engine, agent pattern and Lua recipes (waves 1 to 3)",
+      "coverage_case": "new named workload; extends C6/C7",
+      "jobs": [
+        "RC-68",
+        "RC-44",
+        "RC-45",
+        "RC-46",
+        "RC-47",
+        "RC-12",
+        "RC-48",
+        "RC-49",
+        "RC-50",
+        "RC-51",
+        "RC-52",
+        "RC-69",
+        "RC-53",
+        "RC-54",
+        "RC-55",
+        "RC-56",
+        "RC-57",
+        "RC-58",
+        "RC-70",
+        "RC-59",
+        "RC-60",
+        "RC-61",
+        "RC-62",
+        "RC-63",
+        "RC-64",
+        "RC-65",
+        "RC-66",
+        "RC-67"
+      ],
+      "limit": "Consumer owns the bot product: business records, public API, screens, channels, tenancy policy and deployment. Waves 4 and later are named in bot-platform.md and are not registered."
     }
   ],
   "jobs": [
@@ -2218,18 +2255,21 @@
         "ELZ-024",
         "ELZ-026",
         "ELZ-028",
-        "RC-10"
+        "ELZ-055",
+        "ELZ-009"
       ],
       "status": "blocked: unpublished admission proposal",
-      "contract": "Run/Attempt identity, current owner, reciprocal parent-child links, cancellation and effect settlement remain distinct. Persist approval inputs and re-evaluate current authority before dispatch; provider sessions are external references.",
-      "acceptance": "Restart, late child result, duplicate completion, unknown spawn/cancel outcome, parent wakeup loss, stale Attempt and restored approval bypass. Child death observed; completion requires durable evidence.",
-      "reuse": "Evaluate Oban/Jido/Reactor boundaries before implementing orchestration remainder; no mandatory global runtime.",
+      "contract": "Run/Attempt identity, current owner, reciprocal parent-child links, cancellation and effect settlement remain distinct. Persist approval inputs and re-evaluate current authority before dispatch; provider sessions are external references. Boundary with the bot platform track (P13): this job owns Run and Attempt identity, the parent-child links, the Run outcome set, the rule of which Attempt is current and what a cancel names, and approval persistence. At dispatch it calls ready workflow/approval, which already runs the decision again against current context; this job does not write that check a second time. The admitted design keeps these rules. (a) The release event is durable before a dispatch is started. (b) A key is released one time: with a release record the only check is Elzoo.Approval.revalidate/3, and :already_released from release/4 is never a permission. (c) With no release record the Run restores what it has: an approval that has no evidence yet stays an open wait and is not refused; with stored evidence it calls Elzoo.Approval.release/4 with that fresh evidence, for each scope; it passes :retained only after select_retained chose an existing retained consent. (d) revalidate/3 knows nothing about dispatch: :ok is never proof that nothing was sent and never permits a send by itself. (e) When delivery/effect-intent holds a reservation for the action, the action counts as possibly sent: this job starts no new dispatch for it, its outcome comes from the reconciliation of delivery/effect-intent, and this job never makes a replacement action for it. (f) After a refusal or an error of release/4 or revalidate/3 this job starts no new dispatch; that is not a claim that no send occurs, because a task that was already scheduled can still send, and that fence is a Need of the host. (g) Each restart window ends in a defined outcome, the window with an admitted intent and no attempt included. RC-48 owns only the phase with open waits and pause and applies the Attempt rule of this job without a second definition, and RC-50 calls this job and does not repeat it.",
+      "acceptance": "Restart, late child result, duplicate completion, unknown spawn/cancel outcome, parent wakeup loss, stale Attempt and restored approval bypass. Child death observed; completion requires durable evidence. Approval restart windows, as composition tests with a recording Store, a valid current context, host activation and a fake Adapter that counts sends: an approval that has no evidence yet is an open wait after a restart; a crash before the release event is durable runs release/4 again with the stored fresh evidence, for scope :once, :run and :root each, and evidence that is expired or too old by then gives a refusal; a crash after the release event is durable and before the intent is admitted runs revalidate/3 and starts a dispatch only on :ok, with one intent and one send at the end; a crash after the intent is admitted and before a dispatch ends in one dispatch or in a defined not-sent outcome, never in a stuck Run; a crash after the dispatch and before its outcome is recorded gives no second intent and no second send, also when revalidate/3 answers :ok, and the outcome is reconciled or stays unknown; in each run the Store holds the release event before the first record of the intent. With a recorded release, each of these gives a refusal and no new dispatch: the policy identity changed (:policy_changed); the current decision, action or escrow changed (:requirement_changed, :payload_changed, deny_at_release); the authority of the approver no longer covers the escrowed writes (:approver_not_authorized); the evidence is expired (:expired), too old (:evidence_too_old) or revoked (:revoked). These named reasons are the cases; 'each change of authority' is not a case. :already_released from release/4 starts no dispatch. This job makes no replacement action for an action whose outcome is unknown.",
+      "reuse": "Evaluate Oban/Jido/Reactor boundaries before implementing orchestration remainder; no mandatory global runtime. workflow/approval (ELZ-024) already has both restart calls: release/4 refuses a key that has a release record (:already_released, gate g_unreleased in approval.cure), and revalidate/3 checks a recorded release again against current context, writes nothing, answers :ok whether or not the writes were sent, and gives :not_released when no record exists (approval.ex, README section Restore). Fresh evidence of scope :run or :root makes the retained consent inside the successful release event, and :retained only selects an existing consent and gives :no_retained_consent when none exists (approval.cure new_consent; README, Retained consent and scope). workflow/approval does not claim exactly-once dispatch of the released writes (README, Not claimed). delivery/effect-intent (ELZ-023): the intent key is the SHA-256 of all five identity fields (model.ex), and the same identity with different arguments or binding refuses startup; a timeout, a task death and a recovery are unknown outcomes and never permission to send again; a recovered dispatched reservation never schedules a local send; a paused old task can still perform its reserved send; only a verified no-effect resolution permits a separately authorized new logical request, and a new key otherwise risks a duplicate (README). This job calls them and writes no check of its own.",
       "paths": [
         "pieces/workflow/run/"
       ],
       "blockers": [
         "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
-        "Durable Run/Attempt and approval persistence/current-authority interface not admitted; ELZ-010 job Run is a narrower Contract."
+        "Durable Run/Attempt and approval persistence/current-authority interface not admitted; ELZ-010 job Run is a narrower Contract.",
+        "RC-10 (decision and attribution committed atomically) has no output left, and ELZ-055 gives the audit log only. If this job needs that atomic commit, the admission names its owner.",
+        "The restart protocol between workflow/approval and delivery/effect-intent is not designed in this text. The admission fixes it together with RC-50, under rules (a) to (g) of the contract: the call order, the persisted fields, the outcome of each restart window, how an unknown outcome is shown to the pattern and to an approver, and the check against delivery/effect-intent that an intent with no attempt started no send."
       ],
       "owner_role": "one claimed task worker after admission",
       "product_aims": [
@@ -2240,7 +2280,8 @@
         "P06",
         "P07",
         "P08",
-        "P11"
+        "P11",
+        "P13"
       ]
     },
     {
@@ -3774,6 +3815,939 @@
         "P12"
       ],
       "product_role": "Example and evidence for the ready Piece core/edge; not an additional product prerequisite or catalogue capability."
+    },
+    {
+      "id": "RC-44",
+      "title": "Typed payload check at a Port",
+      "kind": "proposal",
+      "release": "V1B",
+      "stage": "pieces",
+      "outputs": [
+        "core/payload-schema"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-002",
+        "ELZ-079",
+        "ELZ-083"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "One schema value per Port direction, keyed by the (schema_id, schema_version) that core/port already carries. check(payload) gives ok or a bounded list of violations with paths. The same schema value serves a module function, a recipe node, a tool argument and a model output. An unknown schema version is refused, not guessed. check never changes the payload: an unknown field is accepted or refused as the schema declares.",
+      "acceptance": "Valid and invalid payloads per declared type; an unknown field refused or accepted as declared, never dropped; oversized payload and deep nesting refused within a declared bound; violation list bounded; version mismatch refused; no payload content in errors or telemetry; a recorded list of the schemas on which jsv and ex_json_schema give different results.",
+      "reuse": "jsv, ex_json_schema and zoi are pinned in registry/providers.json. The two ready callers already differ: integration/ai-text validates with jsv, draft 2020-12, without casting (pieces/integration/ai-text/lib/elzoo/ai_text/schema.ex); integration/mcp-client validates with ex_json_schema (pieces/integration/mcp-client/lib/elzoo/mcp_client/snapshot.ex). Each returns one opaque refusal atom and no paths. Pick one validator here (jsv, unless the fit record gives a reason against it) and record the divergence. The ready Pieces keep their IDs, validators and results. Author only the Port binding and the bounded violation result. A thin wrapper alone earns no row: show the shared Port Contract that the four callers need.",
+      "paths": [
+        "pieces/core/payload-schema/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "Callers of this track get one validation result per value: RC-52 and RC-55 say which check decides."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P13"
+      ],
+      "product_role": "Bot platform track; see docs/plans/bot-platform.md."
+    },
+    {
+      "id": "RC-45",
+      "title": "Durable mode of a Unit",
+      "kind": "proposal",
+      "release": "V1B",
+      "stage": "pieces",
+      "outputs": [
+        "runtime/durable-unit"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-004",
+        "ELZ-009",
+        "ELZ-010",
+        "ELZ-002"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "A Unit that restores its state after a restart. Inputs arrive by a step call and by one declared info-message form. Each input is appended to state/event-log first, as its own record, and the pure core/operator transition reads an input only after that append. The result (state change and pending outbox items) is appended next under the CAS of the log Writer. On start the Unit folds the log; an input record with no result record goes to the transition again. state/checkpoint only shortens replay. Pending state/outbox items are offered again to a dispatcher that the caller declares; the CAS ack is the only acknowledgement point. Input identity is kept in the folded model within a declared retention bound, so a duplicate input inside the bound is not applied twice. Past the bound the Unit cannot tell a duplicate from a new input; the Contract states that limit, and the caller keeps its own guard (the engine does: an outcome for an action that is not open is late, RC-68). An append that the Writer answers with conflict means that another Unit holds the identity: the Unit stops with a named error that this Piece owns, and applies nothing. This Piece owns the one info-message form; a sender wraps its message in that form.",
+      "acceptance": "Crash before the input append (the sender gets no acknowledgement); after the input append and before the result append (the transition runs again and gives the same result); after the result append and before the outbox offer; during a checkpoint write. Replay gives the same state as the uninterrupted run for the listed scenarios. A duplicate input inside the retention bound is not applied twice; a test shows the stated limit past the bound. A Writer conflict stops the Unit with the named error and applies nothing. A checkpoint with another fold_version is not used and recovery replays the log. Recovery fails closed when the needed log prefix was pruned. A record with an unknown schema_version is refused. A transition that fails on a recorded input gives a declared stop, not a restart loop. Ready runtime/unit keeps its Contract unchanged.",
+      "reuse": "state/event-log, state/checkpoint and state/outbox are ready (ELZ-009). Of the three state Pieces, assembly/durable-job (ELZ-010) composes state/event-log and state/outbox, not state/checkpoint: mirror its Writer use and its key-in-fold dedup (submitter.ex), and do not edit it. durable-job keeps every key (memory grows with distinct keys, its stated limit), so the retention bound is new here. On a conflict the Writer reloads and answers {:conflict, observed}; it stops only if that reload fails (pieces/state/event-log/lib/elzoo/durable_log/writer.ex). core/operator (ELZ-002) is the transition shape. The version fields exist already: the record schema_version (pieces/state/event-log/lib/elzoo/durable_log.ex) and the checkpoint fold_version (pieces/state/checkpoint/lib/elzoo/checkpoint.ex); use them and refuse other versions, as durable-job does. Checkpoint.recover skips a checkpoint of another fold_version and falls back to replay. state/outbox supplies no dispatcher, scheduler or retry loop. delivery/idempotency is volatile and is not the dedup store here. Ready runtime/unit handles only synchronous step and snapshot calls and keeps its ID: this is a new Piece ID under the ready-Contract rule. No new storage engine.",
+      "paths": [
+        "pieces/runtime/durable-unit/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "Upcasting of stored state across format versions is RC-01 and is not a prerequisite: this Piece refuses an unknown version."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P13"
+      ],
+      "product_role": "Bot platform track; see docs/plans/bot-platform.md."
+    },
+    {
+      "id": "RC-46",
+      "title": "One supervised Unit per identity, with sleep and wake",
+      "kind": "proposal",
+      "release": "V1B",
+      "stage": "pieces",
+      "outputs": [
+        "runtime/dynamic-units"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-004",
+        "ELZ-013",
+        "RC-45"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Start, find, stop and put to sleep one Unit for each stable identity (a Run, a room). At most one live Unit per identity on a node. A message for an identity goes to the info-message intake of its durable Unit (RC-45); a message to a sleeping identity wakes it through the durable mode. An idle Unit stops after a declared time. A declared maximum of live Units gives an explicit refusal. This Piece does not prevent a Unit for the same identity on a second node: the Store CAS of the log Writer arbitrates. On a conflict the Writer reloads and answers conflict; it stops only if that reload fails. So the durable Unit of RC-45 stops on that answer with the named error of RC-45.",
+      "acceptance": "Two concurrent starts for one identity give one Unit; a message during stop wakes a new Unit or is refused explicitly, never lost silently; the live-Unit bound refuses with a named error; a crashed Unit restarts from its durable state; sleep and wake keep identity and state; a second Unit for one identity that loses the log CAS stops with the named error of RC-45 and applies nothing; no unbounded atom or process growth for the listed scenarios.",
+      "reuse": "OTP DynamicSupervisor and Registry, which docs/architecture.md and docs/dependencies.md already plan for bounded dynamic units. Ready runtime/host, runtime/supervision and runtime/registry (ELZ-013) stay unchanged. Author only the identity, bound and sleep policy. Ready state/lease (ELZ-028) decides which single owner may drive a durable Run; this one-node job does not use it, and the later cluster handle will.",
+      "paths": [
+        "pieces/runtime/dynamic-units/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "One node only; a cluster-wide directory is a separate, later handle.",
+        "docs/architecture.md (OTP lifecycle and isolation) names DynamicSupervisor for assemblies that create bounded, named units. The admission either moves this handle to the assembly family or records the doc change; the worker does not decide it."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P13"
+      ],
+      "product_role": "Bot platform track; see docs/plans/bot-platform.md."
+    },
+    {
+      "id": "RC-47",
+      "title": "Slow local work away from the Unit, with cancel",
+      "kind": "proposal",
+      "release": "V1B",
+      "stage": "pieces",
+      "outputs": [
+        "runtime/async-work"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-004",
+        "ELZ-013",
+        "ELZ-006",
+        "ELZ-098"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "A Unit starts slow work that is not an Effect (a local computation, for example a bounded script run) under an injected supervisor and stays free for other inputs. The result goes to the registered name of the owner as one message, so after a restart it reaches the Unit that holds the identity. The caller supplies a wrap function that builds that message from (work_ref, outcome): this Piece owns no message form. The engine (RC-50) supplies the wrap that gives the info-message form of RC-45 with an RC-68 input inside. This Piece keeps no record across a restart. A result for cancelled or unknown work is late and never applied. Killed or timed-out work gives an explicit loss message. An Effect (a model call, a tool call, any outside write) is out of scope: delivery/effect-intent already runs it in a task away from its owner. Volatile: durable work stays with integration/jobs.",
+      "acceptance": "Cancel during the work; result after cancel (late); worker crash (loss message with a reason class); deadline kill; owner restart while work runs (the result reaches the new owner by name, and this Piece does not know the work_ref any more: the owner decides, and the engine of RC-50 gives the open action a failed outcome with a loss class in its payload at start, so a result after that is late); a bound on concurrent work per owner with explicit refusal; no result payload in telemetry.",
+      "reuse": "OTP Task.Supervisor; runtime/registry (ELZ-013) for the stable name; delivery/time for the deadline inside one runtime. The Runner of delivery/aggregation is not reusable here: it starts a fixed branch set one time, has no cancel, and is read by a decision call, not by messages (pieces/delivery/aggregation/lib/elzoo/aggregation/runner.ex). Reuse only its loss classes killed, timed out and unavailable. Ready runtime/unit takes no info message. The first real receiver is the durable Unit of RC-45, joined in RC-50; this job tests against a test receiver process and has no RC-45 prerequisite.",
+      "paths": [
+        "pieces/runtime/async-work/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "A wrapper over Task.Supervisor alone earns no row: the admission names the first caller that is not an Effect. Candidate: the local-work action of RC-50, first used for a Lua tool (RC-62).",
+        "docs/architecture.md (OTP lifecycle and isolation) names Task for bounded asynchronous adapter work. Local work that is not adapter work needs a recorded decision at admission. The work here stays bounded and tracked: a work_ref, a deadline and a bound per owner."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P13"
+      ],
+      "product_role": "Bot platform track; see docs/plans/bot-platform.md."
+    },
+    {
+      "id": "RC-48",
+      "title": "Run lifecycle with several open waits, pause and continue",
+      "kind": "proposal",
+      "release": "V1B",
+      "stage": "pieces",
+      "outputs": [
+        "workflow/bot-run-lifecycle"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-010",
+        "RC-12",
+        "RC-68"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "A total lifecycle decision for a Run that can wait for more than one thing at once: a model result, tool results, an approval, a person, child Runs, an outside event, an event from a run resource; plus paused. A pure step over the phase, the set of open waits and one input of RC-68. Boundary: RC-12 owns Run and Attempt identity, the parent-child links and the Run outcome set; this Piece uses that set and owns only the phase, the open waits and pause. An input of an older Attempt leaves the phase unchanged. A cancel names one Attempt. Which Attempt is current and what a cancel names is the rule of RC-12: this Piece takes it and does not define it again.",
+      "acceptance": "Every (phase, input) pair has a defined result; a result for a closed wait is late (the RC-68 class); a cancel for an older Attempt changes nothing; pause stops new actions while results of open actions are still accepted; an empty budget gives paused or out of budget by declared policy; continue restores the open waits. Candidate Cure law: totality and late-input classification.",
+      "reuse": "Ready workflow/state-machine (the job-Run decision, pieces/workflow/state-machine/cure/elzoo/job_run.cure) is the model for one rule only: a result of a stale Attempt leaves the phase unchanged. Do not copy two of its points: its CancelRequested carries no Attempt and wins from every non-terminal phase, and its 'late success' means a current result after expiry. It stays unchanged under its ID; this is a new Piece ID. No statechart framework.",
+      "paths": [
+        "pieces/workflow/bot-run-lifecycle/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "Product owner decision pending: what time limits do while a Run is paused (draft: they keep counting and the pause has its own limit).",
+        "One outcome vocabulary only: agree with RC-12 that its Run outcome set has out of budget and out of time before either job is admitted."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P13"
+      ],
+      "product_role": "Bot platform track; see docs/plans/bot-platform.md."
+    },
+    {
+      "id": "RC-49",
+      "title": "Run resource: a live thing that a Run holds",
+      "kind": "proposal",
+      "release": "V1B",
+      "stage": "pieces",
+      "outputs": [
+        "workflow/run-resource"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-023",
+        "ELZ-028",
+        "ELZ-006",
+        "ELZ-022",
+        "RC-68"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "A Run can hold a live thing between actions: an OS program, a code sandbox, a browser, a call. Opening is an Effect with intent, call and outcome records. The resource belongs to one Run; Run identity is opaque text here. One action at a time uses it and the others wait in a bounded line. It can give events to the Run. It has a time limit and a cost per minute. The owner closes it when the Run ends with any outcome. A lost resource is reported to the Run as an input and is never reopened automatically. The resource event and 'Run ended' are input kinds of RC-68. Each resource has its own lease stream, apart from the log stream of the Run.",
+      "acceptance": "Two concurrent actions on one resource are serialized; the line bound refuses explicitly; the Run-ended input of RC-68 closes the resource, whatever outcome it carries (the outcome value is opaque here; RC-12 owns the set); an orphan found after a restart is reported lost, and its close is an Effect that needs an effect-intent owner that the host started with a grant (with a read-only owner it is reported as closing, not closed); an open with unknown outcome is not retried automatically; time-limit expiry closes and reports; a resource event for a finished Run is late; minutes are counted in a workflow/budget unit.",
+      "reuse": "delivery/effect-intent (ELZ-023) for the open and close records; the host decides activation one time, when the owner starts (the activate call in init, pieces/delivery/effect-intent/lib/elzoo/effect_intent.ex); an owner that starts without a grant stays read-only and answers read_only, and a fresh first start needs a grant too. state/lease (ELZ-028) for single ownership: a lease lives in the stream of the state that it guards, so a resource gets its own stream and does not contend with the log Writer of the Run. workflow/budget (ELZ-022) for the minutes. delivery/time for the limit inside one runtime. This Piece owns only ownership, serialization and close policy behind a provider behaviour, and ships with a test provider.",
+      "paths": [
+        "pieces/workflow/run-resource/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "No real provider in this job; the first provider (OS session, sandbox, browser or call) is admitted separately.",
+        "Product owner decision pending: whether a nested callable or a child Run may use a resource of the outer Run (draft: the same Run yes, by name; a child Run no)."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P13"
+      ],
+      "product_role": "Bot platform track; see docs/plans/bot-platform.md."
+    },
+    {
+      "id": "RC-50",
+      "title": "Run engine Assembly",
+      "kind": "proposal",
+      "release": "V1B",
+      "stage": "pieces",
+      "outputs": [
+        "assembly/run-engine"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "RC-68",
+        "RC-44",
+        "RC-45",
+        "RC-46",
+        "RC-47",
+        "RC-12",
+        "RC-48",
+        "RC-49",
+        "ELZ-002",
+        "ELZ-009",
+        "ELZ-022",
+        "ELZ-023",
+        "ELZ-024",
+        "ELZ-098",
+        "ELZ-003"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Run one pattern for one host (a Run or a room); the one durable Unit of a host comes from RC-46. The cycle: append the input (RC-45); give it to the pattern, a pure step of RC-68; check each action of the request for its payload schema (RC-44), an identity that is new in the Run, budget, authority and its approval rule; perform each action by its kind (an Effect through delivery/effect-intent, local work through RC-47, a resource through RC-49); append each outcome as its own input with the action identity. The engine knows no pattern and decides nothing about the work. It does the fan-out, because core/operator gives zero or one output. Durable state: the engine keeps the pure Elzoo.Budget state as records in the durable Unit, and does not rely on Elzoo.Budget.Owner across a restart. It stores no approval state: RC-12 owns approval persistence and the release call at dispatch, and the engine calls RC-12. The engine sends the released writes of an action only through delivery/effect-intent. It records the full five-field intent identity, the canonical arguments and the binding reference of the action before it admits the intent; after a restart it uses those recorded values and never derives them again from current configuration, and it refuses an incompatible recovery. An :ok from RC-12 after a restart is not proof that nothing was sent: when the intent holds a reservation, the engine starts no new dispatch, follows the recovery of delivery/effect-intent and makes no replacement action. An intent that was admitted and has no attempt gets a defined outcome too, under the restart protocol that the admission of RC-12 fixes: the first dispatch when the approval, the host activation and the admission deadline all permit it, and a recorded not-sent outcome when the deadline passed or the schema check refused; a read-only owner stays the case named below. It appends each outcome payload that it takes from the result sink of an Adapter before it acknowledges; a crash after sink delivery and before that append is recorded as a lost-outcome input, and the action is never dispatched again. The host decides the activation of an effect-intent owner one time, when the owner starts. An owner that starts without a grant stays read-only for its whole life; the engine never grants, dispatches nothing through a read-only owner, reports it, and waits for a new owner that the host starts after reconciliation. Local work that was running at a restart gets a failed outcome from the engine at start, from its log, with a loss class in its payload (killed, timed out or unavailable, the words of delivery/aggregation), and is not started again automatically. An ask-a-person action carries a deadline: on each recorded input, a wake from the host included, the engine records the 'too old' outcome for each open ask that is past its deadline, with the recorded time of that input. The engine has no timer of its own. The engine classifies an unknown or a repeated outcome by RC-68 (late) before the join of a request and never gives a second outcome to the join. The acting principal is trusted text from the host, as domain/authorization takes it. Model output is a proposal. An unknown outcome is never retried automatically.",
+      "acceptance": "With a test pattern and fake Adapters: a restart at each step boundary continues without repeating a settled action; a crash between result-sink delivery and the outcome append gives the lost-outcome input and no second dispatch; the budget cap holds across a restart; an approval that waits survives a restart; after a restart with a recorded release and a dispatched intent, RC-12 permits and still no second intent and no second send exist; after a restart the recorded intent identity, arguments and binding are used, and a changed Adapter or provider account in current configuration makes no second intent; an intent admitted with no attempt ends, after a restart, in one dispatch or in a recorded not-sent outcome, never in a stuck Run; with a read-only effect-intent owner no Effect is dispatched and the engine reports it; local work that was running at a restart gets a failed outcome with a loss class and a later result is late; an open ask past its deadline gets 'too old' at the next recorded input, and an answer after that is late; an action payload that fails its schema check is refused and the refusal is an input; an action identity that the Run already used is refused; an action over budget or without authority is refused and the refusal is an input; an approval rule holds the action until a decision bound to the exact action; several actions of one request run concurrently and each outcome returns once; a late result of an old Attempt is ignored; a timeout after dispatch is recorded unknown and not retried; a Run without a budget does not start; a nested callable gets only its typed input and a budget share, where a share is a reserve on the parent budget plus a child budget identity whose cap is the share; Run end with each outcome closes every held resource (test provider); a local-work action is cancelled and its result is late. The Assembly has no model, tool or Lua dependency.",
+      "reuse": "A composition of ready pieces with the Pieces of this track. delivery/effect-intent: its API is advance, observe and status calls and it notifies nobody, so the engine observes; it keeps a digest, not the result; it has no network cancel; every recovery start is read-only unless the host callback grants activation at that start, a fresh first start needs a grant too, and a call to a read-only owner answers read_only (README; effect_intent.ex, init). workflow/budget: the owner process is volatile and a new owner starts at zero (README, restart section), so only the pure state crosses a restart; it has no share primitive. domain/authorization is a decision policy and takes a trusted proposer from the host; it is not a principal service. workflow/approval needs durable retention of its events to survive a restart: that retention is RC-12's. delivery/aggregation: use its join functions for the join of one request, not Aggregation.Runner. Only decision/2 is pure: accept/2 and mark_lost/3 read the clock function that the join map holds (aggregation.ex), and accept takes a core/envelope result (README); core/envelope (ELZ-003) comes through delivery/aggregation. So the engine reads the clock one time, records it in the input, binds a constant clock from that recorded time before each call, persists the join without its now function (the README gives the Map.delete form), and maps each RC-68 outcome class to an Envelope result or a loss kind by a declared table. A second, differing input for one branch makes the join conflicted, and an undeclared identity gives unknown_branch: the RC-68 classification comes first. It stores a digest, so result values come from the log. integration/ai-text gives content to a volatile result sink one time per attempt, with no replay. docs/capability-model.md already scopes the engine role as small and explicit, and the ELZ-025 study adopted none of the surveyed agent libraries as a host. No new runtime, broker or job engine.",
+      "paths": [
+        "pieces/assembly/run-engine/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "Every other wave-1 job of this track must be accepted first.",
+        "Agent orchestration stays an Assembly, not a privileged kernel: the admission must name one non-agent caller (for example an approval flow) and show that the engine serves it unchanged.",
+        "Not sized: the largest outcome payload (a model answer, a tool result) that the Store accepts as one record. The admission states that maximum and what the engine does above it. Agree it with RC-69 before either job is admitted.",
+        "The restart protocol between workflow/approval and delivery/effect-intent is fixed at the admission of RC-12 (its rules (a) to (g)); this job follows it and does not define a second one."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P13"
+      ],
+      "product_role": "Bot platform track; see docs/plans/bot-platform.md."
+    },
+    {
+      "id": "RC-51",
+      "title": "Mark content that must not give orders",
+      "kind": "proposal",
+      "release": "V1B",
+      "stage": "pieces",
+      "outputs": [
+        "workflow/untrusted-content"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-083",
+        "ELZ-030",
+        "ELZ-002",
+        "ELZ-003"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "A tool result, a retrieved document and a message from another member are content, not instructions. The Piece wraps such a value with its source, a trust class and a size bound, and keeps the mark through transformation and storage, so that a prompt builder and a guard can treat it apart from principal instructions. The mark travels inside the payload, under its own schema_id and schema_version, the key of core/port (ELZ-002); core/envelope is unchanged. Authority comes only from the principal; a mark never grants or removes authority.",
+      "acceptance": "The mark survives encode, decode and concatenation; unmarked input to a marked-only interface is refused; a marked value in a model request is delimited and labelled by a declared, tested format; nested marks keep the least trusted class. No claim that marking prevents prompt injection: that stays a stated assumption.",
+      "reuse": "core/envelope has no metadata extension and refuses unknown keys (pieces/core/envelope/README.md), so the mark is payload, not envelope metadata. integration/mcp-client marks discovery descriptors with trust 'untrusted' (discovery.ex) and returns tool results unmarked: this Piece applies the mark to results. workflow/context-selection keeps derived content as an untrusted proposal: use the same words. Author only the shared mark and the render rule.",
+      "paths": [
+        "pieces/workflow/untrusted-content/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P13"
+      ],
+      "product_role": "Bot platform track; see docs/plans/bot-platform.md."
+    },
+    {
+      "id": "RC-52",
+      "title": "Tool registry",
+      "kind": "proposal",
+      "release": "V1B",
+      "stage": "pieces",
+      "outputs": [
+        "workflow/tool-registry"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "RC-44",
+        "ELZ-083",
+        "ELZ-079"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Resolve a tool name that a model proposes to one real callable, from declared tool sources whose lists can change at run time (an MCP server). Resolution is a pure function over a snapshot of listings that the caller passes in. Finding a tool grants no permission to use it. The registry owns the model-facing alias: deterministic, inside the tool-name grammar of integration/ai-text ([a-zA-Z0-9_-], 1 to 64 bytes) and its bound of 64 tools, and mapped to (source, tool, version). An alias collision is refused, never a silent first match. A source keeps its own tool names. Version is the SHA-256 of the canonical descriptor (name, input schema, description, annotations), because an MCP descriptor has no version. A callable is an Adapter call or a nested callable by name (a tool written in Lua, RC-62). Resolution returns the callable with its argument schema, or an explicit unknown, ambiguous or changed result.",
+      "acceptance": "Unknown name; the same tool name on two sources (two aliases, never a silent first match); an MCP name with a dot or over 64 bytes gets a valid alias; more than 64 tools is refused or cut by a declared rule; a descriptor whose digest differs in a fresh listing (changed, with the new version named); a tool absent from a fresh listing (removed); a removal after the last listing stays a dispatched unknown and is not claimed as detected; arguments get one validation result before dispatch; a later invalid_arguments refusal of mcp-client is the tool-call outcome and is recorded as a validator disagreement; an absent description is filled and a long one is cut by a declared rule. A descriptor from discovery with its trust field is accepted, a descriptor whose trust value is not the text untrusted is refused, and the trust field does not change the digest.",
+      "reuse": "integration/mcp-client gives inert, bounded discovery: a descriptor has five fields: trust (always the text untrusted), name, description, input_schema and annotations (discovery.ex, README); names follow [A-Za-z0-9_.-] up to 128 bytes (wire.ex); its snapshot is a local filter that can be stale. The registry accepts that five-field shape and refuses a descriptor whose trust value is not the text untrusted. The version digest of this job covers only the four content fields (name, input schema, description, annotations) and leaves out the constant trust stamp. The shared content-marking contract stays with RC-51. The argument check of mcp-client (ex_json_schema) runs too and can refuse invalid_arguments as a real outcome (binding.ex, README): when it refuses after the registry check passed, that refusal is the tool-call outcome and is recorded as a validator disagreement. A description can be absent there (discovery.ex), and ai-text needs a text description of at most 4,096 bytes (request.ex). integration/ai-text checks tool proposals with jsv and returns an undeclared or invalid call with arguments nil and a malformed tag (adapter.ex): that check decides for a tool declared in the request. RC-44 is expected to choose jsv too; if it does not, this job says which check decides. A disagreement is an explicit failure. The integration/agent-runner proposal (RC-17) asks for a stable host tool registry id and version and does not depend on this job today. No tool framework.",
+      "paths": [
+        "pieces/workflow/tool-registry/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "RC-17 (integration/agent-runner) asks for its own host tool registry id and version. Before RC-17 is admitted, the coordinator makes it use this registry, so that two registries do not exist."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P13"
+      ],
+      "product_role": "Bot platform track; see docs/plans/bot-platform.md."
+    },
+    {
+      "id": "RC-53",
+      "title": "Token estimate before a model call",
+      "kind": "proposal",
+      "release": "V1B",
+      "stage": "pieces",
+      "outputs": [
+        "integration/ai-token-count"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-079",
+        "ELZ-030"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Estimate the input size of a provider-neutral text request for a named model before the call, with a declared error direction: an upper bound, or a value labelled approximate. The value carries an estimator_id and an estimator_version, the fields that a window of workflow/context-selection names for its estimates. Used to refuse or shorten a request before spending. The reported usage of the provider stays the only usage fact. First provider: Anthropic.",
+      "acceptance": "Estimate against provider-reported usage on recorded Anthropic fixtures, with the observed error stated; an estimate below the reported value on a fixture fails the upper-bound claim; unknown model refused; tools and system text counted; an approximate value never presented as exact; no network call unless a provider count endpoint is the declared method.",
+      "reuse": "llm_db (pinned) for model limits; req_llm (pinned) and provider count endpoints where they exist. In workflow/context-selection the estimator_id and estimator_version sit on the window, and the estimate of a candidate is a bare number under that window. It refuses a byte estimate that is below the content bytes and does not check a token estimate: token accuracy and provider limits are external Needs there (README; context_selection.ex). No tokenizer is pinned: adopting one is a separate provider-prerequisite task (mix.exs, mix.lock, registry/providers.json).",
+      "paths": [
+        "pieces/integration/ai-token-count/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "The first deliverable is the provider-fit record: a local tokenizer or a provider count endpoint. The choice decides if this Piece is pure or an Adapter, so it comes before the Piece is admitted.",
+        "A second provider (OpenAI) adds ELZ-087 as a prerequisite."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P13"
+      ],
+      "product_role": "Bot platform track; see docs/plans/bot-platform.md."
+    },
+    {
+      "id": "RC-54",
+      "title": "Prompt assembly and history compaction",
+      "kind": "proposal",
+      "release": "V1B",
+      "stage": "pieces",
+      "outputs": [
+        "workflow/prompt-assembly",
+        "workflow/context-compaction"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-079",
+        "ELZ-030",
+        "RC-51",
+        "RC-53",
+        "RC-68"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Build one provider-neutral integration/ai-text request from role instructions, selected memory, history and a tool list in the ai-text tool shape (name, description, input_schema), within a token limit and within the hard request bounds of ai-text, with a declared order and a declared drop order. Untrusted content stays marked. An image or binary value appears only as a marked text reference to an Artifact. Compaction is a pure step that gives one model-call action (RC-68); the engine records the intent, the outcome and the original history. Keep-rule items (the goal, open actions, decisions, failed approaches) are structured records carried verbatim outside the summary; only free text is summarized. The summary is derived content with derived_from references.",
+      "acceptance": "Over-limit input drops in the declared order and never drops the instructions or splits a tool call from its result; a tool result without its call is refused; the result respects 256 messages, 64 tools, 4096 bytes per tool description and the configured max_request_bytes of ai-text (at most 65,536 canonical bytes), and an input over them drops by the same order or is refused before admission; the request is deterministic for the same inputs; a compaction that loses a keep-rule item is found by set difference on item ids and refused; references to images keep only the last N by a declared rule; no image part is put in a request.",
+      "reuse": "Ready workflow/context-selection (versioned selection with an access check; derived content needs allow_derived) and the integration/ai-text request shape, which refuses image, document and parts content as unsupported_feature (pieces/integration/ai-text/lib/elzoo/ai_text/request.ex). The estimate of RC-53. Image input waits for a multimodal interface of a later wave. The join of the tool registry with the prompt is RC-56, not here. No prompt-template framework.",
+      "paths": [
+        "pieces/workflow/prompt-assembly/",
+        "pieces/workflow/context-compaction/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P13"
+      ],
+      "product_role": "Bot platform track; see docs/plans/bot-platform.md."
+    },
+    {
+      "id": "RC-55",
+      "title": "Typed decision with bounded output repair",
+      "kind": "proposal",
+      "release": "V1B",
+      "stage": "pieces",
+      "outputs": [
+        "workflow/output-repair",
+        "workflow/typed-decision"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-002",
+        "RC-44",
+        "ELZ-079",
+        "RC-68"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "A pattern step of RC-68 where a model gives one answer of a fixed set, or an answer that matches a schema. A non-matching output starts a bounded number of repair requests that carry a violation list. After the bound the result is an explicit failure, never a guessed value. integration/ai-text decides valid or invalid; the violation list comes from the RC-44 check of the same schema value over the returned content. If the two disagree, the result is an explicit failure.",
+      "acceptance": "Answer outside the set; valid after one repair; still invalid at the bound (explicit failure with the last violations); a refusal or empty output of the provider; an output cut by the length limit (finish length); ai-text and RC-44 disagree (explicit failure); each repair call visible to the budget of the caller; a fixed set with one element refused at construction; the step is deterministic for recorded inputs.",
+      "reuse": "integration/ai-text validates structured output with jsv and returns only {:invalid, :missing | :schema_mismatch | :invalid_json}, with no paths (adapter.ex); both ready providers also give the raw JSON text in content. Reuse it and RC-44. Author only the repair bound and the pattern step.",
+      "paths": [
+        "pieces/workflow/output-repair/",
+        "pieces/workflow/typed-decision/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P13"
+      ],
+      "product_role": "Bot platform track; see docs/plans/bot-platform.md."
+    },
+    {
+      "id": "RC-56",
+      "title": "Agent loop as a pure step",
+      "kind": "proposal",
+      "release": "V1B",
+      "stage": "pieces",
+      "outputs": [
+        "workflow/agent-loop"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-002",
+        "ELZ-079",
+        "RC-68",
+        "RC-52",
+        "RC-54",
+        "RC-69",
+        "ELZ-087"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "The agent loop as one pattern, not the base: a pure step of RC-68. Inputs: start, a model result, a tool result, a person's answer, a new message, cancel. Output: new state and zero or one request with a set of actions (call the model, call one or more tools, ask a person, run a nested callable, finish), all in the shapes of RC-68. The model proposes; the step maps each proposed tool call through the pure resolution of the tool registry (RC-52) over the snapshot in its state, and puts all calls of one model turn in one request. The snapshot changes only by a recorded input: a tool result that carries tool declarations. This job owns that result shape and the named refusal of a change that would pass the bound of 64 tools. A skill load (RC-67) fills the shape. A fresh listing of a source reaches the step the same way, as the outcome of a tool-call action to a host listing tool: the discovery of mcp-client never sends tools/call (discovery.ex), so a host tool wraps it, and this job tests with a scripted one. It builds each model request with RC-54 and applies the cut rule of RC-69 to each tool result. The step has no clock, network or storage, and checks neither budget nor authority: the engine does that for every action.",
+      "acceptance": "Recorded-trace tests with no model and no network: a final answer; several tool calls in one turn (one request, each result returns once, in any order); an unknown tool (a result for the model, not a crash); a malformed proposal (each malformed tag of ai-text) reaches the model by a declared rule that request.ex accepts: it is echoed with an empty arguments object and its tag is the tool-result text, or the call is left out and the tag is plain content, and a proposal whose name is outside the tool-name grammar is always left out; a tool result that changes the snapshot (a new tool usable in the next turn, a change over 64 tools refused); a proposal without an id cannot get a tool result and is answered by a declared rule; a tool that the engine refuses (the refusal returns as content, rendered by a declared rule that every supported provider accepts); a tool result after cancel (late); the turn limit (explicit outcome); a tool result is never treated as an instruction; the text 'done' from a model is not completion evidence.",
+      "reuse": "The ELZ-025 study surveyed agent libraries, Jido included, and adopted none because each owns the process host; they are references for the step table only. integration/ai-text returns an undeclared or invalid tool call with arguments nil and a malformed tag; a proposal id can be nil; a tool_result message needs a tool_use_id of 1 to 256 bytes (adapter.ex, request.ex). An assistant message that echoes a tool call needs an id of 1 to 256 bytes, a name in the tool-name grammar and an object for arguments, or the request is refused invalid_request (request.ex): a malformed proposal cannot be echoed as it came. integration/ai-text-openai (ELZ-087) refuses a request that holds a tool result with is_error true (open_ai.ex), so a refusal is not rendered as an error result there. Composes RC-52, RC-54, RC-69 and integration/ai-text. assembly/agent-product (RC-38) remains the later example Assembly and is not this Piece.",
+      "paths": [
+        "pieces/workflow/agent-loop/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "The pure step is testable alone; its end-to-end example waits for RC-50.",
+        "Not verified: that each provider accepts an echoed call to a tool that the request does not declare. The worker checks it on a recorded fixture before it chooses the echo rule."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P13"
+      ],
+      "product_role": "Bot platform track; see docs/plans/bot-platform.md."
+    },
+    {
+      "id": "RC-57",
+      "title": "Provider stream with tool calls (Anthropic first)",
+      "kind": "proposal",
+      "release": "V1B",
+      "stage": "pieces",
+      "outputs": [
+        "delivery/provider-stream"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-101",
+        "ELZ-079"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Partial output of one model call, partial tool-call arguments included, as a bounded stream under the lifetime rules of delivery/data-stream: one acknowledged frame at a time. The start of a tool call (id and name) is carried in a chunk shape that this Piece owns; Elzoo.AiModel.StreamChunk is unchanged. The complete result is assembled once, within its own declared byte bound. A consumer that stops reading closes the local HTTP request; provider work and charges after the close are unknown. First provider: Anthropic. A second provider is a separate Piece of the same family, as with integration/ai-text.",
+      "acceptance": "Text only; a tool call split across chunks; a stream cut in the middle of a tool call (explicit incomplete, never a partial tool call dispatched); a slow consumer (one unacknowledged frame, then backpressure or close by declared policy); an assembled result over its byte bound (explicit refusal); a provider error mid-stream; the content, the tool calls (id, name, arguments) and the finish reason of the assembled result equal those of the paired recorded non-stream fixture; response_id, usage and provenance differ between two recordings and are not compared.",
+      "reuse": "Ready delivery/data-stream bounds one Anthropic text stream, keeps no decoded backlog, claims no remote cancellation and uses no ReqLLM (README). req_llm streaming is pinned (mix.lock): assess it against those bounds before adopting it. The ready tool_delta chunk carries only index and delta (pieces/integration/ai-model/lib/elzoo/ai_model/stream_chunk.ex). A new Piece ID, because it widens the ready Contract to tool calls.",
+      "paths": [
+        "pieces/delivery/provider-stream/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "No other job of waves 1 to 3 needs this one; its first caller is the client stream of wave 4. Admit it when a worker is free, not before a job that blocks others."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P13"
+      ],
+      "product_role": "Bot platform track; see docs/plans/bot-platform.md."
+    },
+    {
+      "id": "RC-58",
+      "title": "Run inputs from people",
+      "kind": "proposal",
+      "release": "V1B",
+      "stage": "pieces",
+      "outputs": [
+        "workflow/wait-for-person",
+        "workflow/mid-run-input"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "RC-12",
+        "RC-48",
+        "RC-68"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Two small pure policies over a Run, in the input and action shapes of RC-68. Wait for a person: a Run asks a named person one question, stops, and continues with the answer or a time-out; this is not an approval, which binds one exact action. The person who answers is a host-verified principal input, never taken from message text. The time-out is the 'too old' outcome of the ask-a-person action, which the engine records with the time that it read: RC-68 has no time-out input kind and this job adds none. The policy has no timer. A durable timer belongs to the host and is not in this job: its wake reaches the Run as an input of an existing RC-68 kind (draft: a new message from the host), and the engine (RC-50) records 'too old' for each open ask that is past its deadline. Mid-run input: a new message during an active Run follows one declared rule: queue, reject, interrupt, steer or side run.",
+      "acceptance": "An answer after the time-out is late; an answer from a person other than the named one is refused; two answers (the first stands); each mid-run rule on the same recorded trace gives its declared result, and interrupt reports what was already delivered; a side run reads state and cannot change the first Run.",
+      "reuse": "Ready workflow/approval is the model for binding a person: it takes the verified identity as a Need. The open-wait, pause and continue rules are RC-48's. delivery/time is a volatile timer inside one runtime and is not used: a Run that sleeps cannot rely on it. Pure decisions; Cure where a law earns it.",
+      "paths": [
+        "pieces/workflow/wait-for-person/",
+        "pieces/workflow/mid-run-input/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P13"
+      ],
+      "product_role": "Bot platform track; see docs/plans/bot-platform.md."
+    },
+    {
+      "id": "RC-59",
+      "title": "Several MCP servers per tenant, from a build-time set",
+      "kind": "proposal",
+      "release": "V1B",
+      "stage": "pieces",
+      "outputs": [
+        "integration/mcp-multi"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-083",
+        "ELZ-105"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Several MCP servers for one tenant behind the ready one-server Contract. Each server is one compiled Elzoo.McpClient.Binding module: server identity, endpoint and network policy are fixed at build. This Piece composes a declared, build-time set of bindings per tenant, each with its own credential Need and limits, and gives per-server tool lists keyed by server identity. It does not rename tools: the model-facing alias belongs to the tool registry (RC-52). One failing server does not block the others. A credential is a bearer token from an integration/secrets reference, supplied as the zero-arity credential Need of mcp-client; no OAuth. Streamable HTTP only. A server that is added at run time needs a new one-server Piece ID and is out of scope.",
+      "acceptance": "The same tool name on two servers stays distinct by server identity; one server down (its tools are explicitly unavailable, the others work); a missing credential is refused credentials_unavailable and nothing is sent; a rejected or expired credential is refused authentication_failed after dispatch, and expiry is named only if integration/secrets reports it before the call; a tool-list change on one server is seen by listing again, with no push; per-server bounds; no credential in the results, errors or events that Elzoo emits.",
+      "reuse": "Ready integration/mcp-client over ex_mcp (pinned): the binding is compile-time (pieces/integration/mcp-client/lib/elzoo/mcp_client/binding.ex), configure takes no endpoint, there is no OAuth and no list_changed subscription, and a 401 or 403 gives authentication_failed. The consumer starts the application of ex_mcp, and its own telemetry stays the responsibility of the consumer (README). integration/secrets for credential references. A new Piece ID: the ready one-server Contract is unchanged.",
+      "paths": [
+        "pieces/integration/mcp-multi/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "The stdio transport is out of scope until a session-capable OS provider exists.",
+        "Product owner decision pending: a tenant that adds its own MCP server at run time is part of the product aim, and the ready Contract cannot do it. Draft: a new one-server Piece with a run-time endpoint under an egress policy, registered with wave 5; this job stays build-time."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P13"
+      ],
+      "product_role": "Bot platform track; see docs/plans/bot-platform.md."
+    },
+    {
+      "id": "RC-60",
+      "title": "Lua runtime fit and bounded sandbox",
+      "kind": "proposal",
+      "release": "V1B",
+      "stage": "pieces",
+      "outputs": [
+        "runtime/lua-sandbox",
+        "runtime/lua-stdlib"
+      ],
+      "dependencies": [
+        "ELZ-033"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Run Lua source with hard limits on steps and memory, and with no file, network, clock, random or process access unless a function is given explicitly. Two uses: load a recipe file one time and return plain data; run a small pure function during a Run, where the same input gives the same output. Inside a Run only the step and memory limits decide a result; a wall-time stop is a host outcome that is recorded as an input and never computed again on replay. A safe helper set (JSON, text, time values passed in) is the only library.",
+      "acceptance": "Provider-fit probe first: an infinite loop, deep recursion, a large allocation, a string bomb and each escape path of the library surface of the candidate runtime (load, require, os, io, debug, metatables on shared values) end in a named refusal within the bound, and the host process survives. The same pure function and input give the same output across runs and restarts when the step and memory limits decide. Returned data is plain: no function or reference leaks. Errors carry no host paths.",
+      "reuse": "No runtime is chosen, and mix.exs and mix.lock hold no Lua library. The probe compares at least two Lua runtimes, at least one of them outside the process boundary of the VM, and records the explicit decision and the integration test that docs/architecture.md (OTP lifecycle and isolation) requires before a runtime inside the VM is accepted for hostile input. runtime/os-isolation is not security isolation (its README) and is not a ready answer. Adopting the runtime is a separate provider-prerequisite task, as ELZ-099 was (merged as PR #188): mix.exs, mix.lock, registry/providers.json and a local full mix check. Author only the limit and capability policy. A fork follows docs/development/08-upstream-and-forks.md and is not assumed.",
+      "paths": [
+        "pieces/runtime/lua-sandbox/",
+        "pieces/runtime/lua-stdlib/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "The first deliverable is the provider-fit record, not the Piece.",
+        "A step limit must be enforceable inside the runtime; if no candidate supports it without a fork, stop and report.",
+        "Only one provider-adoption task edits mix.exs, mix.lock and registry/providers.json at a time."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P13"
+      ],
+      "product_role": "Bot platform track; see docs/plans/bot-platform.md."
+    },
+    {
+      "id": "RC-61",
+      "title": "Recipe data: callables, package and tenant settings",
+      "kind": "proposal",
+      "release": "V1B",
+      "stage": "pieces",
+      "outputs": [
+        "domain/recipe-graph",
+        "domain/recipe-package",
+        "domain/recipe-config"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "RC-44",
+        "ELZ-026",
+        "ELZ-024",
+        "ELZ-105",
+        "RC-68"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "The plain data that a recipe gives: named callables (a graph of nodes, an agent, a typed decision), each with a typed input and output; nodes that state what they need and give; links that add only order and branches; outcome links, each for one outcome class of RC-68; rules such as an approval on an action; bindings apart from the graphs. A rule can only add a requirement: it never relaxes the authorization policy of the consumer. Callables nest by name with a depth limit. A loop is a node that re-runs a nested callable (RC-63), never a back-edge, so a graph has no legal cycle. A package manifest gives name, version, needs, permissions and each skill that the recipe uses, with its version. Tenant settings are checked against the schema that the package declares; a secret setting is a reference.",
+      "acceptance": "Structural validation: unknown node kind, dangling name, a need with no giver, a decision node with a missing branch, any cycle, depth over the limit, a link to a missing outcome; encode and decode round-trip is stable; a setting against the schema (wrong type, missing, extra, a secret given as a value is refused); version identity is explicit.",
+      "reuse": "Ready workflow/dependency-graph: validate on the needs graph finds cycles and unknown dependencies within its bounds (1,000 nodes, 10,000 edges). It has no node kinds, depth limit or data types: those are written here. Readiness is a run-time question and is not in this job. Rules use the policy identity of domain/authorization and the binding of workflow/approval; a recipe defines no second rule format. RC-44 for payload types. Data and validation only; nothing executes here.",
+      "paths": [
+        "pieces/domain/recipe-graph/",
+        "pieces/domain/recipe-package/",
+        "pieces/domain/recipe-config/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "Product owner decisions pending: the final node list, and whether the handle keeps the name recipe-graph when the root callable is not a graph."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P13"
+      ],
+      "product_role": "Bot platform track; see docs/plans/bot-platform.md."
+    },
+    {
+      "id": "RC-62",
+      "title": "Module functions for Lua, and tools written in Lua",
+      "kind": "proposal",
+      "release": "V1B",
+      "stage": "pieces",
+      "outputs": [
+        "runtime/lua-binding",
+        "workflow/lua-tool"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "RC-60",
+        "RC-44",
+        "ELZ-002",
+        "RC-52",
+        "RC-61",
+        "RC-68",
+        "ELZ-022"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Expose the declared functions of a module to Lua from a function manifest that this job defines: name, version, argument and result schema (RC-44), cost in a workflow/budget unit, and permissions. Bindings resolve against a list of manifests that the caller supplies; there is no run-time discovery. Arguments are checked before the call and results before return. At load time a binding call builds data and performs no Effect. A tool written in Lua is a pure sandboxed function with a schema. The registry (RC-52) resolves its name to a nested callable, and it runs through the nested-callable action of RC-68, not as one Effect: only a pattern step gives a request. workflow/lua-tool is that step. It asks for one local-work action that runs the function in the sandbox from the start, with the recorded module results replayed in call order. That run ends in a completed outcome whose payload is the final result or the first module call that has no recorded result. Each module function of the manifest list is an entry of the tool registry (RC-52) with an Adapter binding that the caller supplies. For a module call the step asks for one tool-call action by the registry alias of that function, keeps its recorded result, and asks for the run again. Sandbox state is never persisted.",
+      "acceptance": "A wrong argument type or count is refused with the function and field named; a binding for a missing or wrong-version module is refused at load; no Effect happens at load time (a recording Adapter stays empty); a Lua tool that loops is cut by the sandbox bound and reports a tool failure; a Lua tool cannot reach a module that its recipe did not declare; a Lua tool with two module calls gives its two module-call actions one at a time, in order, each after a sandbox run, and the same final result after a restart between them; a replay whose call order differs from the record is an explicit failure.",
+      "reuse": "RC-60, RC-44, RC-52 and the package declarations of RC-61; workflow/budget (ELZ-022) for the cost unit. The engine performs the sandbox run as local work through RC-47; this job needs only the RC-68 shape of that action and tests the step on recorded traces. runtime/faces (RC-04) is the operations face (config, control, readiness) and has no function manifest: it is not a prerequisite. docs/capability-model.md keeps run-time discovery out of the kernel. No code-generation framework is assumed.",
+      "paths": [
+        "pieces/runtime/lua-binding/",
+        "pieces/workflow/lua-tool/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P13"
+      ],
+      "product_role": "Bot platform track; see docs/plans/bot-platform.md."
+    },
+    {
+      "id": "RC-63",
+      "title": "Graph pattern with node outcomes",
+      "kind": "proposal",
+      "release": "V1B",
+      "stage": "pieces",
+      "outputs": [
+        "workflow/graph-run",
+        "workflow/node-outcome"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-002",
+        "RC-68",
+        "RC-61",
+        "ELZ-026",
+        "ELZ-098",
+        "ELZ-003",
+        "ELZ-006"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "The graph pattern as a pure step of RC-68: from the recipe graph, the recorded results and one input, decide which nodes are ready and give one request with their actions. Needs and gives set the data order; links add order and branches; map runs one node per item with a maximum count, a concurrency bound and a part-failure rule, and map items are not graph nodes; loop is a bounded re-run of a nested callable, never a back-edge. Each node outcome class of RC-68 follows its outcome link, or the Run fails. A node with a recorded result does not run again. No automatic retry after an unknown outcome.",
+      "acceptance": "Recorded-trace tests: a graph with needs and gives only; a decision in the middle selects a branch; a join after a decision becomes ready when the taken branch completes, and the branch that was not taken is skipped, not waited for; map over N items with a bound and one failed item under each part-failure rule; loop at its maximum; each outcome link; a missing outcome link fails the Run explicitly; replay after restart does not run a settled node again; results in any arrival order give the same decision; a nested graph gets only its typed input.",
+      "reuse": "Ready workflow/dependency-graph: validate and readiness give the AND-join of acyclic needs only. Map a completed node to its completed lifecycle, never to a fact (a model-declared fact never satisfies). A cancelled or closed target never satisfies, there is no join policy beyond 'every blocking prerequisite satisfied', and every blocking cycle is an issue: thus either-of joins after a decision, skipped branches and loops are written here. Its bounds are 1,000 nodes and 10,000 edges. readiness takes a now value: the step passes the recorded time of its input. Ready delivery/aggregation: decision/2 is pure and gives the completion status of a map (all, partial, failed). accept/2 and mark_lost/3 read the clock function that the join map holds (aggregation.ex), and accept takes a core/envelope result (README); core/envelope (ELZ-003) comes through delivery/aggregation. So the step keeps the join without its now function, binds a constant clock from the recorded time of its input before each call, and maps each RC-68 outcome class to an Envelope result or a loss kind by a declared table. It stores a digest, not the payload, so map result values come from the recorded results. delivery/retry-timeout gives the retry words. Candidate Cure laws: no node runs twice, and every declared item appears in the map result.",
+      "paths": [
+        "pieces/workflow/graph-run/",
+        "pieces/workflow/node-outcome/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P13"
+      ],
+      "product_role": "Bot platform track; see docs/plans/bot-platform.md."
+    },
+    {
+      "id": "RC-64",
+      "title": "Recipe check before a run, and for a graph that a model gives",
+      "kind": "proposal",
+      "release": "V1B",
+      "stage": "pieces",
+      "outputs": [
+        "workflow/recipe-check",
+        "workflow/runtime-graph"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "RC-61",
+        "RC-52",
+        "ELZ-022",
+        "ELZ-024",
+        "RC-68"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Check a recipe before it can run: structure, the needs of each node, permissions, budgets, an upper cost limit from node budgets and map and loop maxima, and tool sources that exist. A pure checker. The same check accepts a graph that a model gives at run time as plain data, carried by the nested-callable action of RC-68, with added limits: only the callables and tool sources of its agent node, no new authority, a budget share, a node and depth maximum, data only. A refused graph returns its reasons as content for the model.",
+      "acceptance": "Each structural fault of RC-61 refused with a located reason; a permission that the recipe does not declare; a budget over a tenant cap that the caller supplies; an unbounded map; a model graph that names a callable outside the sources of its agent, asks for more budget, exceeds the node or depth maximum, or carries code; the same input gives the same verdict.",
+      "reuse": "The validation of RC-61; the registry snapshot of RC-52 for tool sources; ready workflow/budget for the units, with one cap per budget identity, which is not a tenant quota (a quota is RC-08); its critical_path_waves is a pure worst-case time check that assumes wave barriers and has no identity and no cap; domain/authorization for permissions. One checker for load time and run time. That a recorded model graph is read again after a restart, and the model is not asked again, belongs to the engine and is tested in RC-66.",
+      "paths": [
+        "pieces/workflow/recipe-check/",
+        "pieces/workflow/runtime-graph/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P13"
+      ],
+      "product_role": "Bot platform track; see docs/plans/bot-platform.md."
+    },
+    {
+      "id": "RC-65",
+      "title": "Recipe versions and the pin of a running Run",
+      "kind": "proposal",
+      "release": "V1B",
+      "stage": "pieces",
+      "outputs": [
+        "state/recipe-store",
+        "workflow/version-pin"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-096",
+        "ELZ-009",
+        "RC-61",
+        "RC-64",
+        "RC-12"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Keep immutable recipe versions per tenant with publish and go-back; only a checked version can be published. state/recipe-store holds the versions, the published pointer, the check gate and the pin records, and owns the one rule that needs them together: a version that a live Run pins is not deleted. state/artifact has no cross-stream transaction, so the pin records, the published pointer and a delete mark live in one stream per tenant that recipe-store owns, under head-revision CAS: a pin and a delete are put in one order there, and the Artifact delete happens only after its delete mark is committed. Recipe versions are written with access expiry and retention set to never, and only recipe-store calls delete or reap on them. workflow/version-pin is the pure rule of which version a Run uses: the version at its start, changed only by an explicit input. Publishing a new version changes no running Run.",
+      "acceptance": "Publish of an unchecked version refused; go-back selects an older immutable version; two concurrent publishes give a defined order; a Run started before a publish finishes on its own version; deleting a version that a live Run pins is refused; a pin and a delete of one version at the same time give one defined winner; reap does not remove a recipe version; tenant A cannot read the versions of tenant B.",
+      "reuse": "Ready state/artifact (ELZ-096) is already tenant-owned and versioned, with tenant-scoped streams and head-revision checks on concurrent appends: keep the recipe bytes and immutable versions there. Its head is the highest committed non-deleted version, so go-back needs the separate published pointer that this job writes. Artifact says 'No cross-stream transaction', its delete is a public call, and reap deletes a version past access_expires_at_unix_ms or retain_until_unix_ms; both fields accept :never (README). state/event-log (ELZ-009) gives the CAS stream of recipe-store. A consumer that deletes in the Artifact scope of recipes directly breaks the pin rule, and the Contract says so. integration/sql is Store-only and gives no general SQL API. The check of RC-64.",
+      "paths": [
+        "pieces/state/recipe-store/",
+        "pieces/workflow/version-pin/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "A platform release that changes pattern state is not covered here; that belongs to RC-01."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P13"
+      ],
+      "product_role": "Bot platform track; see docs/plans/bot-platform.md."
+    },
+    {
+      "id": "RC-66",
+      "title": "Run a recipe against scripted models and tools",
+      "kind": "proposal",
+      "release": "V1B",
+      "stage": "pieces",
+      "outputs": [
+        "runtime/recipe-test"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "RC-50",
+        "RC-52",
+        "RC-55",
+        "RC-56",
+        "RC-60",
+        "RC-61",
+        "RC-62",
+        "RC-63",
+        "RC-64",
+        "ELZ-079",
+        "RC-68"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Run a recipe end to end through the real engine and patterns with scripted model and tool Adapters, no network and a controlled clock. The harness takes only Adapter modules from an allow-list that the caller supplies; any other Adapter is refused at start. The result is the full record of steps. This harness is how a recipe author and a Piece worker test without a provider.",
+      "acceptance": "A scripted model that gives tool calls, a wrong-schema answer and a final answer; a tool that fails, times out (unknown) and is refused; a Lua tool with a module call; a graph that the scripted model gives is recorded, and after a restart it is read again and the model is not asked again; the run is deterministic and repeatable; an unscripted call fails the test explicitly; an Adapter outside the allow-list is refused at start.",
+      "reuse": "The engine (RC-50), the patterns (RC-55, RC-56, RC-63), the registry (RC-52), the check (RC-64) and the Lua layer (RC-60, RC-62); ExUnit. The fakes of the ready Pieces are .exs test helpers (for example test/support/ai_text_test_helper.exs, which the piece.json of integration/ai-text lists); mix elzoo.take copies them as tests and they are not compiled modules. integration/ai-text also ships the scenario kit Elzoo.AiText.Conformance in lib. This harness ships compiled scripted Adapters, modelled on both.",
+      "paths": [
+        "pieces/runtime/recipe-test/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P13"
+      ],
+      "product_role": "Bot platform track; see docs/plans/bot-platform.md."
+    },
+    {
+      "id": "RC-67",
+      "title": "Skill: instructions and files loaded on demand",
+      "kind": "proposal",
+      "release": "V1B",
+      "stage": "pieces",
+      "outputs": [
+        "workflow/skill"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-096",
+        "RC-52",
+        "RC-54",
+        "RC-56",
+        "RC-65",
+        "RC-66",
+        "RC-61",
+        "RC-69"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "A skill is a versioned pack of instructions and files with a short description. A model sees only the descriptions until it asks for one. A skill is a tool source of the registry (RC-52): asking for one is a tool call, so it needs no new action kind, and the engine records it like any action. Loading is that tool call: its result holds the instructions and the declared tools. The result uses the tool-declaration shape that RC-56 owns. The agent loop (RC-56) holds the snapshot: it adds those tools when it reads the recorded result, and it gives the named refusal when a load would pass the bound of 64 tools. The instructions stand in both cases. A skill grants no authority: its tools still pass the checks of the engine. The package manifest of a recipe version names each skill with its version (RC-61), so the recipe version that a Run pins (RC-65) fixes its skill versions.",
+      "acceptance": "Unknown skill; a skill whose declared tool is not permitted for the principal (the instructions load, the tool is refused at use); a skill file over the bound of RC-69 is cut to a reference by RC-69; a load that would pass 64 tools gives the instructions and the named refusal of RC-56; a changed skill version does not change a running Run; with the harness of RC-66, a load survives a restart and is not done again.",
+      "reuse": "state/artifact for files; RC-52, RC-54 and RC-56; the package manifest of RC-61; the cut rule of RC-69; the pin of RC-65; the harness of RC-66.",
+      "paths": [
+        "pieces/workflow/skill/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "Product owner decision pending: the skill pack format. Two workers must not pick two formats. Draft: follow one named public skill-folder convention and record its version."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P13"
+      ],
+      "product_role": "Bot platform track; see docs/plans/bot-platform.md."
+    },
+    {
+      "id": "RC-68",
+      "title": "Pattern step protocol: inputs, one request with actions, outcomes",
+      "kind": "proposal",
+      "release": "V1B",
+      "stage": "pieces",
+      "outputs": [
+        "workflow/pattern-step"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-002",
+        "ELZ-006",
+        "ELZ-023"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "The one shared shape between a pattern and the engine, as data and pure validation. A pattern step takes state and one input and gives new state and zero or one request: the core/operator shape. A request holds a bounded set of actions. Each action has an identity, a kind, and a payload keyed by the (schema_id, schema_version) of core/port. Validation here checks that an identity is unique in its request; the engine checks that it is unique in the Run, against its log (RC-50). Each outcome is an input that names exactly one action identity. Each input carries the time that the engine read when it recorded the input: a pattern gets time only from there. This Piece owns three closed, versioned sets. Action kinds: model call, tool call, local work, ask a person, run a nested callable (by name, or as data that passed the recipe check), open, use or close a run resource, finish. Input kinds: start, action outcome, a person's answer, a new message, a run-resource event, cancel of one Attempt, Run ended. Outcome classes of an action: completed, failed, refused, late, unknown, out of budget, tries used up, too old, resource lost. A kind of a later wave (a part of an answer to a channel, a message to another member) enters as a new version. This Piece performs nothing and knows no pattern.",
+      "acceptance": "Construction and validation of each kind; a request with two actions of one identity refused; a request over the declared action bound refused; an outcome that names an unknown action is classified late and not applied; a second outcome for one action is classified late; an unknown kind or version refused, not guessed; encode and decode round-trip stable; no payload content in errors. The Run outcome set is not defined here: RC-12 owns it. Candidate Cure law: each action of a request gets at most one applied outcome.",
+      "reuse": "Ready core/operator (state and one input give new state and at most one output) is the step shape and stays unchanged: the request is its one output. core/port gives the payload key. delivery/effect-intent (ELZ-023) and delivery/retry-timeout (ELZ-006) already have words for dispatched, unknown and exhausted retries (the :exhausted decision and the retries_exhausted dead-letter reason of retry-timeout). The job records a table that maps each outcome class to the existing term where one exists; 'tries used up' and 'too old' are draft names for that table, not a second vocabulary. No engine code and no pattern code here.",
+      "paths": [
+        "pieces/workflow/pattern-step/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "Admit this job first. RC-48, RC-49, RC-50, RC-54, RC-55, RC-56, RC-58, RC-61, RC-62, RC-63, RC-64, RC-69 and RC-70 use these shapes and must not define their own.",
+        "Product owner decision pending: the first version of the action-kind set (draft: the list in the Contract)."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P13"
+      ],
+      "product_role": "Bot platform track; see docs/plans/bot-platform.md."
+    },
+    {
+      "id": "RC-69",
+      "title": "Bounded tool results",
+      "kind": "proposal",
+      "release": "V1B",
+      "stage": "pieces",
+      "outputs": [
+        "workflow/tool-result-limit"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-096",
+        "RC-51",
+        "RC-68",
+        "ELZ-023",
+        "ELZ-009"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "A large tool result is cut to a declared bound, or kept whole as an Artifact with a reference and a bounded preview. The cut decision is pure. Storing is an outside write, so it is not local work (RC-47): it is a tool-call action of RC-68 to a host tool that wraps the put of state/artifact behind an effect-intent Adapter. The arguments of an intent hold at most 65,536 bytes, so they name the recorded outcome (its record reference and its digest) and never hold the result: the Adapter reads the bytes from the record and checks the digest before the put. The model never sees that tool. The engine performs it, with the tenant, principal, scopes, access terms and retention of the caller. The result stays marked as untrusted content (RC-51).",
+      "acceptance": "A result under the bound passes unchanged; a result over the bound becomes a reference plus a bounded preview, and the cut is visible in the value; a binary result is handled by reference only; a store that is refused or unknown, or a result over max_bytes of the Artifact store, leaves the bounded preview and a named note, never the full result; the mark survives the cut.",
+      "reuse": "state/artifact (ELZ-096): put is a direct call of the Piece and no effect-intent Adapter exists for it, so this job writes that Adapter. delivery/effect-intent (ELZ-023) refuses arguments over 65,536 bytes (effect_intent.ex), far below the max_bytes of an Artifact, so the Adapter takes a reference and reads the bytes from state/event-log (ELZ-009); a put with an unknown outcome leaves uncertain staging. put needs the tenant, principal, scopes, access terms and retention of the caller, and one Artifact holds at most the configured max_bytes (pieces/state/artifact/README.md). RC-51 for the mark. Author only the bound and the cut rule.",
+      "paths": [
+        "pieces/workflow/tool-result-limit/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "The full result is in the record before the cut, because each input is recorded first. If the admission of RC-50 sets a largest outcome payload below a tool result, the cut moves to the engine side as a rule that the caller declares. Agree it with RC-50 before either job is admitted."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P13"
+      ],
+      "product_role": "Bot platform track; see docs/plans/bot-platform.md."
+    },
+    {
+      "id": "RC-70",
+      "title": "Stall verdict from the record",
+      "kind": "proposal",
+      "release": "V1B",
+      "stage": "pieces",
+      "outputs": [
+        "workflow/stall-detect"
+      ],
+      "dependencies": [
+        "ELZ-033",
+        "RC-68"
+      ],
+      "status": "blocked: unpublished admission proposal",
+      "contract": "Decide from the recorded inputs and requests of a Run (RC-68 shapes) that it makes no progress, apart from retry policy. A pure function over a bounded window of the record. It gives a verdict with a reason class and stops nothing: the caller decides.",
+      "acceptance": "On recorded traces: repeated identical actions over a declared count; no new input within a declared bound, with the time of each input read from the record and the current time given as a function argument, not as a new input kind; a healthy long wait for a person or an approval that is not a stall; a window over the bound is refused; the verdict is deterministic for the same record.",
+      "reuse": "The orchestration reference study names the stall idea. delivery/retry-timeout owns retry exhaustion, which is a different fact. No timer and no process here.",
+      "paths": [
+        "pieces/workflow/stall-detect/"
+      ],
+      "blockers": [
+        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID."
+      ],
+      "owner_role": "one claimed task worker after admission",
+      "product_aims": [
+        "P13"
+      ],
+      "product_role": "Bot platform track; see docs/plans/bot-platform.md."
     }
   ],
   "entries": [
@@ -3901,7 +4875,7 @@
       "disposition": "retained-ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/core/edge/piece.json",
-      "manifest_sha256": "dc30fabb409aafd142b82c32383dabe8d02958d38df0472d0c371df9cc870b55"
+      "manifest_sha256": "ee75c26f1e4c9fe893354de6d51f4cb6e5ef79f0c7e7ce2dc6e25f8243035556"
     },
     {
       "id": "core/effect",
@@ -3949,7 +4923,7 @@
       "disposition": "retained-ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/core/port/piece.json",
-      "manifest_sha256": "be25cb4d82e31bc49d5a96a0b8bfac21daab518ee89296c03c5aa0e9bbb87419"
+      "manifest_sha256": "f20ebc536e00ae2dff18bc32a8ec47028e1319354ed4ae1abe1ab470b20c2645"
     },
     {
       "id": "core/selection",
@@ -4123,7 +5097,7 @@
       "disposition": "retained-ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/delivery/transformation/piece.json",
-      "manifest_sha256": "95b791b6c61e3824f5b278d0f719ae5ea2f914c1250630771bb38576db17e4f5"
+      "manifest_sha256": "d4413383e9aec94c0dd329434e580b121b45f43175eaa515b0e2523b4103bce9"
     },
     {
       "id": "delivery/trigger",
@@ -4763,6 +5737,302 @@
       "baseline_status": "deferred",
       "disposition": "blocked-admission-proposal",
       "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "workflow/pattern-step",
+      "job": "RC-68",
+      "note": "Bot platform wave 1 (P13). Closed, versioned sets of action kinds, input kinds and outcome classes, as data and pure validation, so that the engine and every pattern use one vocabulary. The step shape is ready core/operator, unchanged.",
+      "baseline_status": "not in baseline (new row, RC-68)",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "core/payload-schema",
+      "job": "RC-44",
+      "note": "Bot platform wave 1 (P13). One schema value per Port direction, keyed by the schema_id and schema_version of core/port, with a bounded violation result, shared by a module function, a recipe node, a tool argument and a model output. Reuse one pinned validator; ready integration/ai-text (jsv) and integration/mcp-client (ex_json_schema) keep their own validators and results.",
+      "baseline_status": "not in baseline (new row, RC-44)",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "runtime/durable-unit",
+      "job": "RC-45",
+      "note": "Bot platform wave 1 (P13). Each input is appended before the pure transition reads it; state returns from ready state/event-log, state/checkpoint and state/outbox. New ID: ready runtime/unit stays volatile and unchanged.",
+      "baseline_status": "not in baseline (new row, RC-45)",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "runtime/dynamic-units",
+      "job": "RC-46",
+      "note": "Bot platform wave 1 (P13). At most one live Unit per Run or room identity, a bound on live Units and an idle sleep, over OTP DynamicSupervisor and Registry. New ID: ready runtime/host starts a fixed list.",
+      "baseline_status": "not in baseline (new row, RC-46)",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "runtime/async-work",
+      "job": "RC-47",
+      "note": "Bot platform wave 1 (P13). Local work that is not an Effect (a bounded script run) must not block the Unit that owns a Run; results return by registered name as messages with the work identity. An Effect stays with delivery/effect-intent. Volatile; durable work stays with integration/jobs.",
+      "baseline_status": "not in baseline (new row, RC-47)",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "workflow/bot-run-lifecycle",
+      "job": "RC-48",
+      "note": "Bot platform wave 1 (P13). A total decision for a Run that waits for a model, tools, an approval, a person, child Runs or events at the same time. Uses the Run outcome set of workflow/run. New ID: ready workflow/state-machine knows job Runs only.",
+      "baseline_status": "not in baseline (new row, RC-48)",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "workflow/run-resource",
+      "job": "RC-49",
+      "note": "Bot platform wave 1 (P13). Ownership, serialization, time limit and close policy for an OS program, a sandbox, a browser or a call. A lost resource is an input and is never reopened automatically. No real provider yet.",
+      "baseline_status": "not in baseline (new row, RC-49)",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "assembly/run-engine",
+      "job": "RC-50",
+      "note": "Bot platform wave 1 (P13). The small explicit engine role of docs/capability-model.md as an Assembly of ready pieces. It knows no pattern, does the fan-out, and keeps budget and approval state durable. Not a privileged kernel: a non-agent caller must be able to use it.",
+      "baseline_status": "not in baseline (new row, RC-50)",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "workflow/untrusted-content",
+      "job": "RC-51",
+      "note": "Bot platform wave 2 (P13). One shared mark with source and trust class for tool results, documents and messages from other members, kept through transformation, with a tested render rule for a model request. The mark travels inside the payload; core/envelope is unchanged.",
+      "baseline_status": "not in baseline (new row, RC-51)",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "workflow/tool-registry",
+      "job": "RC-52",
+      "note": "Bot platform wave 2 (P13). Tool sources can change at run time (MCP). Owns the model-facing alias and the version, a digest of the descriptor. Finding a tool grants no permission. Unknown, ambiguous and changed tools are explicit results.",
+      "baseline_status": "not in baseline (new row, RC-52)",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "workflow/tool-result-limit",
+      "job": "RC-69",
+      "note": "Bot platform wave 2 (P13). A result over the bound becomes an Artifact reference with a bounded preview; the cut is visible and the content stays marked untrusted.",
+      "baseline_status": "not in baseline (new row, RC-69)",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "integration/ai-token-count",
+      "job": "RC-53",
+      "note": "Bot platform wave 2 (P13). An upper bound or a labelled approximation for a named model, used to refuse or shorten a request. Not a usage fact and not for billing.",
+      "baseline_status": "not in baseline (new row, RC-53)",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "workflow/prompt-assembly",
+      "job": "RC-54",
+      "note": "Bot platform wave 2 (P13). Declared order and drop order inside the hard request bounds of integration/ai-text; never drops instructions or splits a tool call from its result; untrusted content stays marked. Uses ready workflow/context-selection.",
+      "baseline_status": "not in baseline (new row, RC-54)",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "workflow/context-compaction",
+      "job": "RC-54",
+      "note": "Bot platform wave 2 (P13). A pure step that gives one model-call action; the engine records it. Keep-rule items (the goal, open actions, decisions, failed approaches) are structured records kept verbatim; only free text is summarized.",
+      "baseline_status": "not in baseline (new row, RC-54)",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "workflow/output-repair",
+      "job": "RC-55",
+      "note": "Bot platform wave 2 (P13). integration/ai-text decides valid or invalid and core/payload-schema gives the violation list; this owns only the repair bound and the explicit failure after it. Never a guessed value.",
+      "baseline_status": "not in baseline (new row, RC-55)",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "workflow/typed-decision",
+      "job": "RC-55",
+      "note": "Bot platform wave 2 (P13). A pure step in the shape of workflow/pattern-step, used to pick a branch, check a result or pick a speaker.",
+      "baseline_status": "not in baseline (new row, RC-55)",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "workflow/agent-loop",
+      "job": "RC-56",
+      "note": "Bot platform wave 2 (P13). The agent loop as one pure step in the shape of workflow/pattern-step, not the base and not a host. All tool calls of one model turn go in one request. assembly/agent-product stays the later example Assembly.",
+      "baseline_status": "not in baseline (new row, RC-56)",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "delivery/provider-stream",
+      "job": "RC-57",
+      "note": "Bot platform wave 2 (P13). Widens ready delivery/data-stream (one Anthropic text stream) to tool calls, so it is a new ID. The assembled result equals the completed value of the synchronous provider for a paired fixture. A second provider is a separate Piece.",
+      "baseline_status": "not in baseline (new row, RC-57)",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "workflow/wait-for-person",
+      "job": "RC-58",
+      "note": "Bot platform wave 2 (P13). Not an approval: an approval binds one exact action. Late and wrong-person answers are explicit.",
+      "baseline_status": "not in baseline (new row, RC-58)",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "workflow/mid-run-input",
+      "job": "RC-58",
+      "note": "Bot platform wave 2 (P13). Queue, reject, interrupt, steer or side run. An interrupt reports what was already delivered.",
+      "baseline_status": "not in baseline (new row, RC-58)",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "workflow/stall-detect",
+      "job": "RC-70",
+      "note": "Bot platform wave 2 (P13). A verdict apart from retry policy; a healthy long wait is not a stall. Named by the orchestration reference study.",
+      "baseline_status": "not in baseline (new row, RC-70)",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "integration/mcp-multi",
+      "job": "RC-59",
+      "note": "Bot platform wave 2 (P13). Each server is one compiled binding of ready integration/mcp-client, with its own credential Need and limits; tool lists are keyed by server; one failing server does not block the others. Streamable HTTP and bearer token only. A server added at run time is out of scope. New ID: ready integration/mcp-client is unchanged.",
+      "baseline_status": "not in baseline (new row, RC-59)",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "runtime/lua-sandbox",
+      "job": "RC-60",
+      "note": "Bot platform wave 3 (P13). Limits on steps and memory; no file, network, clock or random access unless given; a wall-time stop is a host outcome. Starts with a provider-fit probe of at least two Lua runtimes, one of them outside the process boundary of the VM; no runtime is chosen yet.",
+      "baseline_status": "not in baseline (new row, RC-60)",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "runtime/lua-stdlib",
+      "job": "RC-60",
+      "note": "Bot platform wave 3 (P13). JSON and text helpers and time values passed in. Nothing else is reachable from the sandbox.",
+      "baseline_status": "not in baseline (new row, RC-60)",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "domain/recipe-graph",
+      "job": "RC-61",
+      "note": "Bot platform wave 3 (P13). Graphs, agents and typed decisions with typed input and output, needs and gives, links, outcome links, rules and bindings; callables nest by name with a depth limit. A rule can only add a requirement. Data and validation only.",
+      "baseline_status": "not in baseline (new row, RC-61)",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "domain/recipe-package",
+      "job": "RC-61",
+      "note": "Bot platform wave 3 (P13). What a recipe declares before it can be checked, stored or shared.",
+      "baseline_status": "not in baseline (new row, RC-61)",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "domain/recipe-config",
+      "job": "RC-61",
+      "note": "Bot platform wave 3 (P13). A secret setting is a credential reference, never a value.",
+      "baseline_status": "not in baseline (new row, RC-61)",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "runtime/lua-binding",
+      "job": "RC-62",
+      "note": "Bot platform wave 3 (P13). Built from a function manifest that this Piece defines and the caller supplies; no run-time discovery. A binding call at load time builds data and performs no Effect.",
+      "baseline_status": "not in baseline (new row, RC-62)",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "workflow/lua-tool",
+      "job": "RC-62",
+      "note": "Bot platform wave 3 (P13). Registered like any other tool. Each module call becomes a request for the engine, and the tool runs again from the start with the recorded results; sandbox state is never persisted.",
+      "baseline_status": "not in baseline (new row, RC-62)",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "workflow/graph-run",
+      "job": "RC-63",
+      "note": "Bot platform wave 3 (P13). Needs and gives set the order; branch, map and loop are bounded; a settled node never runs again. Ready workflow/dependency-graph gives the AND-join of acyclic needs and delivery/aggregation the status of a map; either-of joins, skipped branches and loops are written here.",
+      "baseline_status": "not in baseline (new row, RC-63)",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "workflow/node-outcome",
+      "job": "RC-63",
+      "note": "Bot platform wave 3 (P13). Each outcome follows its link or the Run fails explicitly. No automatic retry after an unknown outcome.",
+      "baseline_status": "not in baseline (new row, RC-63)",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "workflow/recipe-check",
+      "job": "RC-64",
+      "note": "Bot platform wave 3 (P13). Structure, needs, permissions, budgets and an upper cost limit, with located reasons.",
+      "baseline_status": "not in baseline (new row, RC-64)",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "workflow/runtime-graph",
+      "job": "RC-64",
+      "note": "Bot platform wave 3 (P13). The same check as at load time plus limits: only the callables and tool sources of its agent node, no new authority, a budget share, a node and depth maximum, data only.",
+      "baseline_status": "not in baseline (new row, RC-64)",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "state/recipe-store",
+      "job": "RC-65",
+      "note": "Bot platform wave 3 (P13). Recipe bytes and versions in ready state/artifact; this adds the published pointer, the check gate and the pin records. Only a checked version can be published, and a version that a live Run pins is not deleted.",
+      "baseline_status": "not in baseline (new row, RC-65)",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "workflow/version-pin",
+      "job": "RC-65",
+      "note": "Bot platform wave 3 (P13). The pure rule of which version a Run uses: the one at its start. Publishing changes no running Run. The delete refusal belongs to state/recipe-store.",
+      "baseline_status": "not in baseline (new row, RC-65)",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "runtime/recipe-test",
+      "job": "RC-66",
+      "note": "Bot platform wave 3 (P13). No network and a controlled clock; an unscripted call fails the test. The way an author and a Piece worker test without a provider.",
+      "baseline_status": "not in baseline (new row, RC-66)",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "workflow/skill",
+      "job": "RC-67",
+      "note": "Bot platform wave 3 (P13). A skill is a tool source of the registry: loading is a recorded tool call and grants no authority; the tools of the skill still pass the checks of the engine.",
+      "baseline_status": "not in baseline (new row, RC-67)",
+      "disposition": "blocked-admission-proposal",
+      "catalogue_reference": "registry/catalogue.json"
     }
   ],
   "schema_version": 1,
@@ -4803,6 +6073,19 @@
       "prior_release_gate": null,
       "status": "not published; frozen selected set and independent integrated acceptance required",
       "acceptance": "All selected jobs accepted or exact tested upstream/index resolution reviewed; integrated pinned mix check, source-copy/namespace/schema/provider compatibility and claim-level evidence. No future release acceptance follows from ELZ-012."
+    },
+    "V1B": {
+      "id": "V1B-ACCEPT",
+      "job_selector": {
+        "release": "V1B",
+        "exclude_stages": [
+          "examples-later",
+          "research"
+        ]
+      },
+      "prior_release_gate": null,
+      "status": "not published; frozen selected set and independent integrated acceptance required",
+      "acceptance": "All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release."
     },
     "V2": {
       "id": "V2-ACCEPT",

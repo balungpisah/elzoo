@@ -108,4 +108,16 @@ defmodule Elzoo.PortTest do
     assert audit.not_proven_total == []
     assert audit.absurd == 0
   end
+
+  test "the checked example returns the documented result of each case" do
+    {result, _binding} = Code.eval_file(Path.expand("../../examples/elzoo/port.exs", __DIR__))
+
+    assert result == %{
+             compatible: {:ok, true},
+             direction_mismatch: {:error, :direction_mismatch},
+             schema_mismatch: {:error, :schema_mismatch},
+             version_mismatch: {:error, :version_mismatch},
+             invalid_source_shape: {:error, {:source, :invalid_shape}}
+           }
+  end
 end

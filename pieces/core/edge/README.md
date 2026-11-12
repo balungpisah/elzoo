@@ -39,6 +39,8 @@ execution placement or certify the operator implementation. An OTP mailbox
 can lose queued work on process failure. Cross-sender ordering, crash gaps,
 delivery, payload validation and Effect outcomes remain runtime assumptions.
 
+`examples/elzoo/edge.exs` shows the public `connect/3` calls; the test "the example file evaluates to the documented results" in `test/elzoo/edge_test.exs` evaluates it.
+
 ## Grounding and operations
 
 Pinned Cure checks records and pure placement/compatibility decisions. Named

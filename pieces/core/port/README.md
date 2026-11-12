@@ -65,7 +65,9 @@ intrinsic operands, with no process, ambient settings or lifecycle to control.
 
 The pinned Cure compiler checks the source types. `test/elzoo/port_test.exs`
 tests matching and rejected declarations, map/record translation and the
-owned-source audit. These are finite tests and type checks; **no new universal
+owned-source audit. `examples/elzoo/port.exs` shows the public calls, and the
+test "the checked example returns the documented result of each case"
+evaluates it. These are finite tests and type checks; **no new universal
 compatibility proof** is claimed. Cure/compiler/String implementation behavior
 is upstream grounding. There is no monitored runtime claim.
 
