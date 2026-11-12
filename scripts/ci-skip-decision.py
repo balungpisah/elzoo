@@ -59,7 +59,6 @@ HOSTED_LABELS = ["ubuntu-24.04"]
 HOSTED_RUNNER = re.compile(r"GitHub Actions [0-9]+")
 HOSTED_GATE_STEP = "Verify the GitHub-hosted runner"
 SHA = re.compile(r"[0-9a-f]{40}")
-BRANCH = re.compile(r"task/ELZ-[0-9]{3}")
 API_ROOT = "https://api.github.com"
 HOST = re.compile(r"[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+")
 # The job-log endpoint answers with a redirect to GitHub's Actions results storage (observed 2026-11-08:
@@ -237,8 +236,7 @@ def decide(env, run_git=git, api=None):
          and listing["total_count"] == len(runs) <= 100, "run listing incomplete or malformed")
     candidates = [run for run in runs if evidence_event(run, repo)
                   and run.get("head_sha") == second
-                  and run.get("path") == f".github/workflows/{WORKFLOW}"
-                  and BRANCH.fullmatch(run.get("head_branch") or "")]
+                  and run.get("path") == f".github/workflows/{WORKFLOW}"]
     need(candidates and all(isinstance(run.get("id"), int) for run in candidates),
          "no queue run on the second parent")
     # The latest run decides: an older success must not hide a newer failure or a cancellation.

@@ -273,6 +273,8 @@ The queue takes only a pull request that is not a draft, from a branch named
 hosted check on the exact head and then merges with a merge commit. The
 required checks on `main` are `check-hosted` and `gleam-hosted`. A red push run on `main` freezes all merges except the classified repair path in the coordinator guide.
 
+- Push-check evidence reuse is independent of the PR branch name, including non-task plan-only and publication merges. Require the exact head and tree, the current base for PR evidence, the latest successful complete attempt and GitHub-hosted identity. A docs-only short check also requires local docs-only classification and a completed green push run on the first parent; selected Piece evidence never skips the full main check. Keep the coordinator's main-green guards and merge paths unchanged (see [CI guide](docs/development/10-symbolic-ci.md)).
+
 For a Piece-only pull request, the queue accepts the small gate only when its
 own classification also says Piece-only. It does not wait for the push run of
 `main`. The push run on `main` after the merge is the full check. Until the queue enforces a count limit, the coordinator allows at most three small-gate merges after the newest green push run of `main`, then waits for a green push run covering them before another. The coordinator also waits for a green `main` at the end of each level of tasks
