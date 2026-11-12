@@ -256,7 +256,7 @@ A local command can be impossible on your host, for example when a service is
 missing. Then record the command and the reason in `Local gate:`. The hosted
 check is the evidence for that command.
 
-When the local gate, the hosted check and the review are green, mark the pull
+When the required local checks (or recorded hosted substitution), the hosted check and the review are green, mark the pull
 request ready for review. That is the request to merge. From then the
 coordinator owns the branch: do not push to it unless the coordinator gives it
 back. You can claim the next task.
@@ -271,14 +271,11 @@ worker with no coordinator takes the coordinator role for its own pull request.
 The queue takes only a pull request that is not a draft, from a branch named
 `task/ELZ-###`. It updates the branch from `main` if necessary, waits for the
 hosted check on the exact head and then merges with a merge commit. The
-required checks on `main` are `check-hosted` and `gleam-hosted`. A red push run
-on `main` stops all merges until it is classified; see the CI guide.
+required checks on `main` are `check-hosted` and `gleam-hosted`. A red push run on `main` freezes all merges except the classified repair path in the coordinator guide.
 
 For a Piece-only pull request, the queue accepts the small gate only when its
 own classification also says Piece-only. It does not wait for the push run of
-`main`. The push run on `main` after the merge is the full check. Thus several
-small-gate merges can land before the first full run reports. The coordinator
-waits for a green `main` at the end of each level of tasks
+`main`. The push run on `main` after the merge is the full check. Until the queue enforces a count limit, the coordinator allows at most three small-gate merges after the newest green push run of `main`, then waits for a green push run covering them before another. The coordinator also waits for a green `main` at the end of each level of tasks
 ([coordinator](docs/development/13-coordinator.md)).
 
 If the queue stops on a conflict, or on a red check of the index files after

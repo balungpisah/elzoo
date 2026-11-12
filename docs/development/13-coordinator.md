@@ -58,13 +58,11 @@
 
      One exception. When the red run of `main` is classified as `defect` or
      `conflict` (see the [CI guide](10-symbolic-ci.md)), the repair needs a
-     new task, and the rule above would block it. Then ask the owner. With
-     the approval of the owner, publish only the repair task, and merge its
+     new task, and the rule above would block it. Ask the owner unless the wave-1 advance approval below applies. With approval, publish only the repair task, and merge its
      pull request when the second command prints `0` and its own check is
      green. The queue does not accept a short check on a red `main`, so this
      merge is a known exception. The repair task adds no new Piece ID. If its
-     check cannot be green (for example the red is in the index files), ask
-     the owner.
+     check cannot be green (for example the red is in the index files), stop, write the state on the issue and ask the owner.
   4. After the merge, wait until the push run of the merge commit is green.
      Then add the label `task` to the issues. Workers then start
      from a `main` that holds their task and their rows. If that run is red,
@@ -96,6 +94,7 @@
   4. The repair agent repairs forward in a new task: a new commit on top of
      `main`, not a revert and not a history rewrite. Publish the repair task as
      the exception in step 3 above says.
+  5. **Wave-1 advance approval (2026-11-12).** For one red push run classified as `defect` or `conflict`, the owner approves publication and merge of the one repair task through the exception above, for at most two repair attempts. Repair forward only: no revert, history rewrite or new Piece ID. Record each attempted fix and its check result on the issue. After a second failed attempt, or when red index files prevent a green check, stop and write the state on the issue for the owner. Keep unrelated merges frozen until the current `main` push run is green. This approval changes no other Git or branch-protection rule.
 - `python3 scripts/check-roadmap.py --live` compares each issue body with
   `issue_body_sha256`. After you edit an issue body, update the task file and
   the hash in one commit. This prints the hash:
