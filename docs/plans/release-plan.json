@@ -3973,16 +3973,14 @@
       "kind": "proposal",
       "release": "V1B",
       "stage": "pieces",
-      "outputs": [
-        "workflow/bot-run-lifecycle"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "ELZ-010",
         "ELZ-116",
         "ELZ-114"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "superseded for workflow/bot-run-lifecycle by published ELZ-124; output moved",
       "contract": "A total lifecycle decision for a Run that can wait for more than one thing at once: a model result, tool results, an approval, a person, child Runs, an outside event, an event from a run resource; plus paused. A pure step over the phase, the set of open waits and one input of RC-68. Boundary: RC-12 owns Run and Attempt identity, the parent-child links and the Run outcome set; this Piece uses that set and owns only the phase, the open waits and pause. An input of an older Attempt leaves the phase unchanged. A cancel names one Attempt. Which Attempt is current and what a cancel names is the rule of RC-12: this Piece takes it and does not define it again. Owner decision 2026-11-12: time limits continue to count during a pause, and the pause has its own time limit. The person who continues a Run can give it a new time limit in the same recorded action. The total decision still names waits for child Runs and an outside event; no RC-68 version-1 action opens them, and tests supply those waits as data. Shared RC-12 / RC-48 boundary: `workflow/run` owns Run identity, Attempt identity/currentness, reciprocal parent-child links, approval persistence and the sole terminal Run outcome set: `completed`, `failed`, `cancelled`, `out_of_budget`, `out_of_time`. A missing outcome means nonterminal; waiting and paused are phases, not outcomes. `completed` requires a committed completion record referencing durable evidence. `failed` may carry a reason such as retries exhausted or a refused required action; those reasons do not add Run outcomes. Action `unknown`, `late`, `expired`, `refused`, `resource_lost` and `retries_exhausted` remain action classifications, not alternate Run outcomes. In particular, an unknown external effect remains separately visible even if the Run later ends cancelled, failed or out of time; Run termination never asserts no effect occurred. A Run keeps one current execution Attempt for its execution operation. A retry keeps the Run and operation identity and records a distinct Attempt ID before execution. Concurrent actions belong to that execution Attempt; an effect-intent's numbered transport attempt is a different identity and must not be used as the Run's Attempt. Only the serialized durable Run owner can replace the current execution Attempt. Restoration alone neither creates a new Attempt nor retries an action. A result names its originating Attempt; an older or unknown Attempt does not change the Run phase or settle a current wait. A cancel names exactly one execution Attempt; a stale or unknown target is unchanged, not a Run-wide cancel. An accepted current cancel suppresses new work and records cancellation without claiming that an already reserved external send was prevented. An indeterminate cancellation write stops the owner; recovery reconciles that write before further work. Terminal outcomes are immutable; duplicate completion and late evidence cannot reopen the Run. Independent effect reconciliation may retain late evidence without rewriting the Run outcome. `workflow/bot-run-lifecycle` owns only phase, open waits, pause and continue. It uses `workflow/run`'s currentness classification and outcome validation rather than implementing either again. RC-50 invokes these boundaries and owns action dispatch/routing; it stores no second approval state or second restart protocol. RC-68/ELZ-114 owns action/input/outcome shapes, not Run outcomes. Approval requests and secret filling are engine work, never new pattern action kinds. Child-Run and outside-event waits remain accepted lifecycle data, but no v1 pattern action opens them. Wake has only recorded engine-read time and bypasses mid-run-message policy. A person's answer names one ask-person action and a host-verified person; no generic completed action outcome settles that ask, and text without an open ask is a new message.",
       "acceptance": "Every (phase, input) pair has a defined result; a result for a closed wait is late (the RC-68 class); a cancel for an older Attempt changes nothing; pause stops new actions while results of open actions are still accepted; an empty budget gives paused or out of budget by declared policy; continue restores the open waits. Time limits expire during pause, including the pause's own limit; a continuation can record a replacement time limit in the same action. Child-Run and outside-event waits are supplied as data, not opened by v1 actions. Candidate Cure law: totality and late-input classification.",
       "reuse": "Ready workflow/state-machine (the job-Run decision, pieces/workflow/state-machine/cure/elzoo/job_run.cure) is the model for one rule only: a result of a stale Attempt leaves the phase unchanged. Do not copy two of its points: its CancelRequested carries no Attempt and wins from every non-terminal phase, and its 'late success' means a current result after expiry. It stays unchanged under its ID; this is a new Piece ID. No statechart framework.",
@@ -4047,7 +4045,7 @@
         "ELZ-122",
         "ELZ-118",
         "ELZ-116",
-        "RC-48",
+        "ELZ-124",
         "ELZ-123",
         "ELZ-002",
         "ELZ-009",
@@ -4323,7 +4321,7 @@
       "dependencies": [
         "ELZ-033",
         "ELZ-116",
-        "RC-48",
+        "ELZ-124",
         "ELZ-114"
       ],
       "status": "blocked: unpublished admission proposal",
@@ -4997,6 +4995,23 @@
       "issue": 249,
       "url": "https://github.com/balungpisah/elzoo/issues/249",
       "issue_body_sha256": "9c11b1fcdb3db3650dbff114b22f7c2cb08b884670823a7328f51799d130ae8d"
+    },
+    {
+      "id": "ELZ-124",
+      "title": "ELZ-124 — Run lifecycle with several open waits, pause and continue",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-010", "ELZ-116", "ELZ-114"],
+      "status": "published 2026-11-12",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-124-bot-run-lifecycle.md"],
+      "outputs": ["workflow/bot-run-lifecycle"],
+      "acceptance": "The seven named scenarios cover total lifecycle decisions, several waits, Attempt and cancel, pause and continue, budget and time boundaries, protocol distinctions, and selected Cure laws and example, including the specified negative control.",
+      "product_aims": ["P13"],
+      "issue": 252,
+      "url": "https://github.com/balungpisah/elzoo/issues/252",
+      "issue_body_sha256": "dc3bb86b2dc07daa766c15c92e0145af56602a993dfdc17d9a57234021ebd9af"
     }
   ],
   "entries": [
@@ -6039,7 +6054,7 @@
     },
     {
       "id": "workflow/bot-run-lifecycle",
-      "job": "RC-48",
+      "job": "ELZ-124",
       "note": "Bot platform wave 1 (P13). A total decision for a Run that waits for a model, tools, an approval, a person, child Runs or events at the same time. Uses the Run outcome set of workflow/run. New ID: ready workflow/state-machine knows job Runs only.",
       "baseline_status": "not in baseline (new row, RC-48)",
       "disposition": "blocked-admission-proposal",
