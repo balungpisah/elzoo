@@ -46,9 +46,9 @@
        run): do not merge. Wait for a green `main`.
 
      This is stricter than the freeze rule of `AGENTS.md` section 7, for each
-     publication pull request. A publication with only documents (the
-     allowlist in `scripts/ci-change-class.py`) gets the short check, and the
-     short check runs no tests. A publication is never urgent.
+     publication pull request except the one below. A publication with only
+     documents (the allowlist in `scripts/ci-change-class.py`) gets the short
+     check, and the short check runs no tests.
 
      Run the three commands again immediately before the merge. Then merge
      with
@@ -61,13 +61,17 @@
      new task, and the rule above would block it. Then ask the owner. With
      the approval of the owner, publish only the repair task, and merge its
      pull request when the second command prints `0` and its own check is
-     green.
+     green. The queue does not accept a short check on a red `main`, so this
+     merge is a known exception. The repair task adds no new Piece ID. If its
+     check cannot be green (for example the red is in the index files), ask
+     the owner.
   4. After the merge, wait until the push run of the merge commit is green.
      Then add the label `task` to the issues. Workers then start
      from a `main` that holds their task and their rows. If that run is red,
      classify it as the CI guide says and add no label until `main` is green.
      For the repair task of the exception, add the label immediately after
-     the merge.
+     the merge. Then classify the red push run of that merge also, so that
+     the queue takes the repair.
 - `python3 scripts/check-roadmap.py --live` compares each issue body with
   `issue_body_sha256`. After you edit an issue body, update the task file and
   the hash in one commit. This prints the hash:
