@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "id": "runtime/dynamic-units",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "adapter",
+  "providers": ["elixir", "otp"],
+  "dependencies": ["runtime/durable-unit", "runtime/registry", "runtime/supervision"],
+  "contract": "Bounded local durable-Unit identity admission, serialized route processing barriers and idle sleep/wake over caller-owned OTP Registry and DynamicSupervisor, preserving the Unit's transient restart and shutdown policy.",
+  "limits": [
+    "Finite DY1–DY7 lifecycle/race scenarios using volatile Memory, not universal recovery, disk durability or exactly-once delivery proofs.",
+    "Registry uniqueness is local; distinct registries do not exclude each other. Store CAS, not this directory, arbitrates uncoordinated contenders.",
+    "Mailbox delivery is volatile; routed means a normally completed processing barrier, not application acceptance. Barrier exit is indeterminate with no resend. Caller timeout is uncertain.",
+    "Idle counts directory start/route operations, not direct Unit intake, outbox work or external async activity. Slow operations block the directory; no exact wall-clock or throughput guarantee.",
+    "Caller owns one fresh jointly supervised infrastructure subtree after loss, a dedicated positive finite supervisor cap and matching deterministic per-stream Unit options; no orphan adoption.",
+    "Bookkeeping excludes mailbox backlog, durable Store history and application state. Sleep does not cancel actions, checkpoint, delete data or prove an external Effect did not run.",
+    "No durable mailbox/directory, cluster lease, arbitrary child framework, retry scheduler, hot configuration or new business-state policy. Inherited OTP diagnostics remain caller Logger policy."
+  ],
+  "files": [
+    "lib/elzoo/dynamic_units.ex",
+    "test/elzoo/dynamic_units_test.exs",
+    "examples/sleep_wake.exs"
+  ],
+  "grounding": [
+    {"kind": "test", "file": "test/elzoo/dynamic_units_test.exs", "claim": "Named DY1–DY7 finite scenarios cover identity/validation, routing/death/stop/expiry barriers, supervisor capacity, abnormal recovery/named shutdown/intensity, sleep and idle refresh, Store CAS contention and bounded binary lifecycle/infrastructure reset; no universal or distributed correctness proof."},
+    {"kind": "upstream", "provider": "elixir", "reference": "https://hexdocs.pm/elixir/1.20.4/", "claim": "Pinned GenServer, unique-key Registry, DynamicSupervisor capacity/termination and ordinary Supervisor lifecycle contracts."},
+    {"kind": "upstream", "provider": "otp", "reference": "https://www.erlang.org/doc/", "claim": "OTP 29.1.2 same-sender ordering, monitors, monotonic timers and transient restart/intensity contracts are relied on, not locally proved."},
+    {"kind": "assumption", "claim": "Caller supplies and jointly resets a dedicated bounded local infrastructure subtree, one identity-domain namespace, matching deterministic Unit options, and all ready DurableUnit Store/transition/dispatcher Needs. Assembly owns business orchestration and late-outcome policy."}
+  ],
+  "operations": {
+    "telemetry": {"status": "planned", "contract": "No new telemetry events or payload logs. Inherited OTP diagnostics remain caller Logger policy."},
+    "config": {"status": "supported", "contract": "Required caller-owned named unique Registry, dedicated local DynamicSupervisor, arity-1 unit_options and idle_ms integer 1..4_294_967_295 milliseconds; optional ordinary OTP name. Supervisor owns the positive finite max_children cap; fixed at construction, no hot changes.", "evidence": ["test/elzoo/dynamic_units_test.exs"]},
+    "control": {"status": "supported", "contract": "start admits or finds an owned child; stop confirms termination/spec removal or absence; route validates and sends the unchanged durable_unit_input tuple followed by a same-controller snapshot barrier. Explicit pre-send errors, routed on normal barrier return, indeterminate delivery on exit; find inspects without idle refresh. No drain or external-action cancellation.", "evidence": ["test/elzoo/dynamic_units_test.exs"]}
+  }
+}
