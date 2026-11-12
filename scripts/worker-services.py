@@ -597,17 +597,26 @@ class Services:
             found[role] = info
         return found
 
-    def _remove_own(self):
+    def _remove_own(self, errors=None):
+        """Remove the containers, the network and the volumes of this worktree. With a list `errors`, a failed step
+        is recorded there and the next steps still run; without it, the first failure stops."""
         removed = []
-        for name in self.docker.containers(self.ident):
-            must(self.runner, ["docker", "rm", "-f", "-v", name], f"docker rm {name}")
-            removed.append(name)
-        for network in self.docker.networks(self.ident):
-            must(self.runner, ["docker", "network", "rm", network], f"docker network rm {network}")
-            removed.append(network)
-        for volume in self.docker.volumes(self.ident):
-            must(self.runner, ["docker", "volume", "rm", volume], f"docker volume rm {volume}")
-            removed.append(volume)
+        for listing, argv, what in ((self.docker.containers, ["docker", "rm", "-f", "-v"], "docker rm"),
+                                    (self.docker.networks, ["docker", "network", "rm"], "docker network rm"),
+                                    (self.docker.volumes, ["docker", "volume", "rm"], "docker volume rm")):
+            try:
+                for name in listing(self.ident):
+                    try:
+                        must(self.runner, [*argv, name], f"{what} {name}")
+                        removed.append(name)
+                    except Stop as error:
+                        if errors is None:
+                            raise
+                        errors.append(str(error))
+            except Stop as error:
+                if errors is None:
+                    raise
+                errors.append(str(error))
         return removed
 
     def _create(self, image, arch):
@@ -689,6 +698,12 @@ class Services:
             try:
                 rows = self.query("127.0.0.1", pg_port, PG_ROLE, password, PG_DATABASE, query)
                 break
+            except Stop as error:
+                if "(28P01" not in str(error):
+                    raise
+                raise Stop(f"{error}; the password in {STATE_DIR}/{ENV_FILE} is not the one of this server. To "
+                           f"recover, remove {STATE_DIR}/{ENV_FILE} and run up again (it recreates the services "
+                           "of this worktree)") from error
             except OSError as error:
                 if self.clock() >= end:
                     raise Stop(f"PostgreSQL is not reachable on 127.0.0.1:{pg_port} "
@@ -735,13 +750,17 @@ class Services:
         return 0 if healthy and values else 1
 
     def down(self):
+        """Remove what `up` made. A failed step does not stop the others; each failure is reported, then exit 1."""
+        errors = []
         with self._locked(create=False) as present:
-            removed = self._down(present)
+            removed = self._down(present, errors)
         self.out(f"ELZOO SERVICES down: id={self.ident} removed={' '.join(removed) or 'nothing'}")
-        return 0
+        for error in errors:
+            self.out(f"ELZOO SERVICES down failed: {error}")
+        return 1 if errors else 0
 
-    def _down(self, present):
-        removed = self._remove_own()
+    def _down(self, present, errors):
+        removed = self._remove_own(errors)
         if present:
             for child in self.state.iterdir():
                 if child.name in (ENV_FILE, "lock") or child.name.startswith((".docker-env.", f".{ENV_FILE}.")):

@@ -363,6 +363,36 @@ class Up(ServicesCase):
         self.assertIn("mkdir -p /data/elzoo-test && exec /opt/elzoo-minio server /data", s3["argv"][-1])
         self.assertIn("type=tmpfs,destination=/var/lib/postgresql/data", s3["argv"])
 
+    def test_the_secret_files_are_read_only(self):
+        root = self.worktree()
+        self.services(root).up()
+        n = ws.names(ws.identity(root)[1])
+        for role in ("pg", "s3"):
+            with tarfile.open(fileobj=io.BytesIO(self.docker.containers[n[role]]["secrets"])) as archive:
+                modes = {m.name: (m.isdir(), stat.S_IMODE(m.mode)) for m in archive.getmembers()}
+            self.assertEqual((True, 0o755), modes.pop("elzoo-secrets"))
+            self.assertTrue(modes)
+            self.assertEqual({(False, 0o444)}, set(modes.values()), role)
+
+    def test_the_s3_secret_files_hold_the_credentials_of_the_env_file(self):
+        root = self.worktree()
+        self.services(root).up()
+        values = ws.read_env(root / ws.STATE_DIR / ws.ENV_FILE)
+        n = ws.names(ws.identity(root)[1])
+        self.assertEqual({"elzoo-secrets/s3-user": values["ELZOO_TEST_S3_ACCESS_KEY_ID"],
+                          "elzoo-secrets/s3-password": values["ELZOO_TEST_S3_SECRET_ACCESS_KEY"]},
+                         self.secret_files(self.docker.containers[n["s3"]]))
+        self.assertEqual(["elzoo-secrets/postgres-password"],
+                         list(self.secret_files(self.docker.containers[n["pg"]])))
+
+    def test_minio_reads_its_user_and_its_password_from_the_matching_files(self):
+        root = self.worktree()
+        self.services(root).up()
+        command = self.docker.containers[ws.names(ws.identity(root)[1])["s3"]]["argv"][-1]
+        self.assertIn("MINIO_ROOT_USER=$(cat /run/elzoo-secrets/s3-user) && ", command)
+        self.assertIn("MINIO_ROOT_PASSWORD=$(cat /run/elzoo-secrets/s3-password) && ", command)
+        self.assertIn("export MINIO_ROOT_USER MINIO_ROOT_PASSWORD && ", command)
+
     def test_a_second_up_reuses_everything_and_follows_a_new_port(self):
         root = self.worktree()
         self.services(root).up()
@@ -473,6 +503,24 @@ class Password(ServicesCase):
         with self.assertRaisesRegex(ws.Stop, "refused the test role .*28P01"):
             self.services(root).up()
         self.assertFalse(any(good in line for line in self.lines))
+
+    def test_the_wrong_password_error_says_how_to_recover_without_a_secret(self):
+        root = self.worktree()
+        self.services(root).up()
+        env_path = root / ws.STATE_DIR / ws.ENV_FILE
+        values = ws.read_env(env_path)
+        good = ws.url_password(values["ELZOO_TEST_DATABASE_URL"])
+        values["ELZOO_TEST_DATABASE_URL"] = values["ELZOO_TEST_DATABASE_URL"].replace(good, "1" * 32)
+        ws.write_private(env_path, ws.env_text(values))
+        with self.assertRaises(ws.Stop) as raised:
+            self.services(root).up()
+        message = str(raised.exception)
+        self.assertIn("remove .elzoo-services/env.sh and run up again", message)
+        for secret in (good, "1" * 32, values["ELZOO_TEST_S3_SECRET_ACCESS_KEY"]):
+            self.assertNotIn(secret, message)
+        # the advice works: without the file, up recreates the services with a new password
+        env_path.unlink()
+        self.assertEqual(0, self.services(root).up())
 
     def test_a_role_created_with_another_password_makes_up_fail_without_an_env_file(self):
         root = self.worktree()
@@ -704,6 +752,51 @@ class Hardening(ServicesCase):
         self.assertEqual(0, self.services(root).status())
         self.assertFalse(any("differs" in line for line in self.lines))
 
+    def test_status_fails_when_a_url_in_the_env_file_has_no_port(self):
+        for key, url in (("ELZOO_TEST_DATABASE_URL", "ecto://elzoo_test:{pw}@127.0.0.1/elzoo_test"),
+                         ("ELZOO_TEST_S3_URL", "http://127.0.0.1")):
+            with self.subTest(key=key):
+                root = self.worktree(key.lower())
+                self.services(root).up()
+                env_path = root / ws.STATE_DIR / ws.ENV_FILE
+                values = ws.read_env(env_path)
+                values[key] = url.format(pw=ws.url_password(values["ELZOO_TEST_DATABASE_URL"]))
+                ws.write_private(env_path, ws.env_text(values))
+                self.lines.clear()
+                self.assertEqual(1, self.services(root).status())
+                self.assertTrue(any("port None differs" in line for line in self.lines), self.lines)
+
+    def test_up_takes_the_lock_again_when_the_directory_was_replaced_with_the_same_lock_file(self):
+        root = self.worktree()
+        real, calls = ws.lock, []
+
+        @contextlib.contextmanager
+        def replacing(path):
+            with real(path) as handle:
+                calls.append(path)
+                if len(calls) == 1:
+                    # A new directory (new inode) that holds the same lock file (same inode, moved).
+                    old = path.parent.with_name("old-state")
+                    path.parent.rename(old)
+                    path.parent.mkdir()
+                    (old / "lock").rename(path)
+                    old.rmdir()
+                yield handle
+        ws.lock = replacing
+        self.addCleanup(setattr, ws, "lock", real)
+        self.assertEqual(0, self.services(root).up())
+        self.assertEqual(2, len(calls))
+
+    def test_a_lock_file_that_is_a_symbolic_link_is_not_followed(self):
+        root = self.worktree()
+        (root / ws.STATE_DIR).mkdir(mode=0o700)
+        target = self.tmp / "elsewhere-lock"
+        (root / ws.STATE_DIR / "lock").symlink_to(target)
+        with self.assertRaises(OSError):
+            self.services(root).up()
+        self.assertFalse(os.path.lexists(target))
+        self.assertEqual({}, self.docker.containers)
+
     def racing_lock(self, rounds):
         """ws.lock, but a parallel `down` removes the state directory while the first `rounds` callers wait."""
         real, calls = ws.lock, []
@@ -769,6 +862,37 @@ class Down(ServicesCase):
         self.assertTrue((b / ws.STATE_DIR / ws.ENV_FILE).exists())
         self.assertEqual(0, self.services(a).down())
         self.assertTrue(any("removed=nothing" in line for line in self.lines))
+
+    def test_down_removes_the_volumes_and_the_state_when_the_network_removal_fails(self):
+        root = self.worktree()
+        self.services(root).up()
+        n = ws.names(ws.identity(root)[1])
+        # A container of someone else on the network of this worktree: `docker network rm` fails.
+        self.docker.add_foreign("someone-else-on-the-net")
+        self.docker.containers["someone-else-on-the-net"]["network"] = n["network"]
+        self.assertEqual(1, self.services(root).down())
+        self.assertEqual({}, {k: v for k, v in self.docker.volumes.items() if v.get(ws.LABEL_ID)})
+        self.assertNotIn(n["pg"], self.docker.containers)
+        self.assertIn("someone-else-on-the-net", self.docker.containers)
+        self.assertIn(n["network"], self.docker.networks)
+        self.assertFalse((root / ws.STATE_DIR).exists())
+        failed = [line for line in self.lines if "down failed" in line]
+        self.assertEqual(1, len(failed), self.lines)
+        self.assertIn(f"docker network rm {n['network']} failed", failed[0])
+
+    def test_down_reports_each_failed_step(self):
+        root = self.worktree()
+        self.services(root).up()
+        n = ws.names(ws.identity(root)[1])
+        self.docker.add_foreign("someone-else-on-the-net")
+        self.docker.containers["someone-else-on-the-net"]["network"] = n["network"]
+        self.docker.fail[("docker", "volume")] = (1, "", "volume listing refused")
+        self.assertEqual(1, self.services(root).down())
+        failed = [line for line in self.lines if "down failed" in line]
+        self.assertEqual(2, len(failed), self.lines)
+        self.assertIn("docker network rm", failed[0])
+        self.assertIn("docker volume ls failed", failed[1])
+        self.assertFalse((root / ws.STATE_DIR).exists())
 
     def test_down_keeps_files_it_did_not_write(self):
         root = self.worktree()
