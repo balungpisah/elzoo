@@ -849,7 +849,8 @@
       "summary": "Durable mode of a Unit: state returns after a restart",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/runtime/durable-unit/piece.json",
       "reason": "Bot platform wave 1 (P13). Each input is appended before the pure transition reads it; state returns from ready state/event-log, state/checkpoint and state/outbox. New ID: ready runtime/unit stays volatile and unchanged."
     },
     {

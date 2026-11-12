@@ -5963,9 +5963,11 @@
     {
       "id": "runtime/durable-unit",
       "job": "ELZ-117",
-      "note": "Bot platform wave 1 (P13). Each input is appended before the pure transition reads it; state returns from ready state/event-log, state/checkpoint and state/outbox. New ID: ready runtime/unit stays volatile and unchanged.",
+      "note": "One Unit's input-before-transition recording, committed-result recovery, FIFO completed-input identity retention and zero-or-one committed outbox offers through the ready Store, Writer, Checkpoint and Outbox boundaries.",
       "baseline_status": "not in baseline (new row, RC-45)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/runtime/durable-unit/piece.json",
+      "manifest_sha256": "7cef42ef2a81da3b0861f6b580ca29e39277cdf9ca85f62a5c06e1ed0f6067a4",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
