@@ -3675,6 +3675,105 @@
         "P01"
       ],
       "product_role": "Supporting hosted CI availability, not an additional product prerequisite or catalogue capability."
+    },
+    {
+      "id": "ELZ-111",
+      "title": "ELZ-111 — Add a checked example to core/port",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [],
+      "status": "published 2026-11-12",
+      "url": "https://github.com/balungpisah/elzoo/issues/211",
+      "paths": [
+        "tasks/ELZ-111-core-port-example.md"
+      ],
+      "outputs": [],
+      "acceptance": "One example file of core/port that one test of the Piece evaluates with exact expected values; one added files entry, one README sentence and the new manifest hash. A negative control proves that the test fails on a wrong value. No Contract, lib or cure change.",
+      "issue": 211,
+      "issue_body_sha256": "9b072af622b1bc20ea244648895f253d535328a3d4a430d578c9216057cfa2bc",
+      "owner_role": "one claimed task worker; coordinator owns review and merge queue",
+      "product_aims": [
+        "P01",
+        "P02",
+        "P03",
+        "P04",
+        "P05",
+        "P06",
+        "P07",
+        "P08",
+        "P09",
+        "P10",
+        "P11",
+        "P12"
+      ],
+      "product_role": "Example and evidence for the ready Piece core/port; not an additional product prerequisite or catalogue capability."
+    },
+    {
+      "id": "ELZ-112",
+      "title": "ELZ-112 — Add a checked example to delivery/transformation",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [],
+      "status": "published 2026-11-12",
+      "url": "https://github.com/balungpisah/elzoo/issues/212",
+      "paths": [
+        "tasks/ELZ-112-delivery-transformation-example.md"
+      ],
+      "outputs": [],
+      "acceptance": "One example file of delivery/transformation that one test of the Piece evaluates with exact expected values; one added files entry, one README sentence and the new manifest hash. A negative control proves that the test fails on a wrong value. No Contract, lib or cure change.",
+      "issue": 212,
+      "issue_body_sha256": "c18c64d91e2ab5dcef36aabbbcd1ed2619554bb6f4091f1f6c6a5af6df2bf05d",
+      "owner_role": "one claimed task worker; coordinator owns review and merge queue",
+      "product_aims": [
+        "P01",
+        "P02",
+        "P03",
+        "P04",
+        "P05",
+        "P06",
+        "P07",
+        "P08",
+        "P09",
+        "P10",
+        "P11",
+        "P12"
+      ],
+      "product_role": "Example and evidence for the ready Piece delivery/transformation; not an additional product prerequisite or catalogue capability."
+    },
+    {
+      "id": "ELZ-113",
+      "title": "ELZ-113 — Add a checked example to core/edge",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [],
+      "status": "published 2026-11-12",
+      "url": "https://github.com/balungpisah/elzoo/issues/213",
+      "paths": [
+        "tasks/ELZ-113-core-edge-example.md"
+      ],
+      "outputs": [],
+      "acceptance": "One example file of core/edge that one test of the Piece evaluates with exact expected values; one added files entry, one README sentence and the new manifest hash. A negative control proves that the test fails on a wrong value. No Contract, lib or cure change.",
+      "issue": 213,
+      "issue_body_sha256": "c9170f11f11ac30e8c330a8c60e3b0b255ad3b7c5bbda6e71a01be22f2e52c25",
+      "owner_role": "one claimed task worker; coordinator owns review and merge queue",
+      "product_aims": [
+        "P01",
+        "P02",
+        "P03",
+        "P04",
+        "P05",
+        "P06",
+        "P07",
+        "P08",
+        "P09",
+        "P10",
+        "P11",
+        "P12"
+      ],
+      "product_role": "Example and evidence for the ready Piece core/edge; not an additional product prerequisite or catalogue capability."
     }
   ],
   "entries": [
