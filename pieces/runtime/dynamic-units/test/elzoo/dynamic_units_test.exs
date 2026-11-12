@@ -376,6 +376,119 @@ defmodule Elzoo.DynamicUnitsTest do
     Process.exit(last, :kill)
     assert_receive {:DOWN, ^sup_ref, :process, _, :shutdown}
     eventually(fn -> DynamicUnits.find(d, "intensity") == {:error, :unavailable} end)
+
+    # Hold a real which_children reply containing an unadopted P2, then kill
+    # P2 before the directory can check Registry. OTP still retains its spec.
+    p = pool(Map.put(ctx, :observer, self()), RegistryB)
+    d = p.directory
+    sup = p.supervisor
+    observer = self()
+
+    for {id, reason} <- [{"unadopted", :killed}, {"terminal", :normal}] do
+      {:ok, first} = DynamicUnits.start(d, id)
+      assert {:ok, :applied} = DurableUnit.step(first, "committed", 5)
+
+      :ok =
+        :sys.install(
+          sup,
+          {fn
+             :armed, {:out, children, {^d, _}, _}, _ when is_list(children) ->
+               if Enum.any?(children, &(is_pid(elem(&1, 1)) and elem(&1, 1) != first)) do
+                 send(observer, {:snapshot_held, children})
+                 receive do: (:continue -> :released)
+               else
+                 :armed
+               end
+
+             state, _, _ ->
+               state
+           end, :armed}
+        )
+
+      :ok =
+        :sys.install(
+          d,
+          {fn
+             :armed, {:noreply, _}, _ ->
+               send(observer, :snapshot_processed)
+               :released
+
+             state, _, _ ->
+               state
+           end, :armed}
+        )
+
+      assert :erlang.suspend_process(d)
+      probe(%{block_offer: true})
+      Process.exit(first, :kill)
+      assert_receive {:offered, second, %Outbox.Item{stream: ^id}} when second != first
+      assert :erlang.suspend_process(sup)
+      :erlang.trace(d, true, [:send, {:tracer, self()}])
+
+      try do
+        assert :erlang.resume_process(d)
+        assert_receive {:trace, ^d, :send, {:"$gen_call", _, :which_children}, ^sup}
+        assert :erlang.suspend_process(d)
+        :erlang.trace(d, false, [:send])
+        send(second, :continue)
+        assert :erlang.resume_process(sup)
+        assert_receive {:snapshot_held, [{:undefined, ^second, :worker, _}]}
+        second_ref = Process.monitor(second)
+        if reason == :normal, do: :sys.terminate(second, :normal), else: Process.exit(second, :kill)
+        assert_receive {:DOWN, ^second_ref, :process, ^second, ^reason}
+        eventually(fn -> Registry.lookup(p.registry, id) == [] end)
+        assert :erlang.resume_process(d)
+        assert_receive :snapshot_processed
+
+        if reason == :killed do
+          async_call(:unadopted_find, fn -> DynamicUnits.find(d, id) end)
+          refute_receive {:unadopted_find, :not_found}, 30
+        end
+      after
+        :erlang.trace(d, false, [:send])
+
+        for pid <- [d, sup] do
+          if Process.info(pid, :status) == {:status, :suspended},
+            do: :erlang.resume_process(pid)
+        end
+
+        probe(%{block_offer: false})
+        send(sup, :continue)
+      end
+
+      if reason == :killed do
+        assert_receive {:offered, third, %Outbox.Item{stream: ^id}}
+                       when third != first and third != second
+
+        assert_receive {:unadopted_find, reply}
+        assert reply in [{:ok, third}, {:error, :busy}]
+        eventually(fn -> DynamicUnits.find(d, id) == {:ok, third} end)
+        assert DurableUnit.snapshot(third) == 11
+        assert {:ok, :routed} = DynamicUnits.route(d, id, {:durable_unit_input, "next", -1})
+        assert DurableUnit.snapshot(third) == 32
+        assert :ok = DynamicUnits.stop(d, id)
+        refute Process.alive?(third)
+      else
+        assert [] = DynamicSupervisor.which_children(sup)
+        :sys.get_status(d)
+
+        for fresh <- ["fresh-one", "fresh-two"] do
+          assert {:ok, pid} = DynamicUnits.start(d, fresh)
+          assert {:ok, ^pid} = DynamicUnits.find(d, fresh)
+        end
+
+        assert {:error, :capacity} = DynamicUnits.start(d, "overflow")
+        assert DynamicSupervisor.count_children(sup).specs == 2
+        assert Enum.sort(Map.keys(:sys.get_state(d).entries)) == ["fresh-one", "fresh-two"]
+        assert :not_found = DynamicUnits.find(d, id)
+        for fresh <- ["fresh-one", "fresh-two"], do: assert(:ok = DynamicUnits.stop(d, fresh))
+      end
+
+      assert DynamicSupervisor.count_children(sup).specs == 0
+      assert :sys.get_state(d).entries == %{}
+      :sys.no_debug(d)
+      :sys.no_debug(sup)
+    end
   end
 
   test "DY5 explicit sleep, idle expiry, refresh versus find and durable wake", ctx do

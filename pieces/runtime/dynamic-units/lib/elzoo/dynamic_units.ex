@@ -93,7 +93,11 @@ defmodule Elzoo.DynamicUnits do
   def handle_info({:unit_started, identity, generation, pid}, state) do
     case state.entries[identity] do
       %{generation: ^generation, pid: previous} when previous != pid ->
-        if available?(state) and registered?(state, identity, pid) and owned?(state, pid) do
+        # A notification may outlive its PID. Its monitor still prompts
+        # supervisor-confirmed removal after an unobserved terminal exit.
+        if available?(state) and
+             (not Process.alive?(pid) or
+                (registered?(state, identity, pid) and owned?(state, pid))) do
           state = clear_incarnation(state, identity)
           {:noreply, install(state, identity, generation, pid)}
         else
@@ -260,6 +264,20 @@ defmodule Elzoo.DynamicUnits do
       entry ->
         children = DynamicSupervisor.which_children(state.supervisor)
 
+        # The supervisor sends startup notifications before its snapshot reply.
+        # Reconcile this admission before deciding that its spec disappeared.
+        state =
+          receive do
+            {:unit_started, ^identity, generation, _} = notification
+            when generation == entry.generation ->
+              {:noreply, state} = handle_info(notification, state)
+              state
+          after
+            0 -> state
+          end
+
+        entry = state.entries[identity]
+
         cond do
           Process.alive?(entry.pid) and registered?(state, identity, entry.pid) and
               Enum.any?(children, &(elem(&1, 1) == entry.pid)) ->
@@ -267,8 +285,11 @@ defmodule Elzoo.DynamicUnits do
 
           Registry.whereis_name({state.registry, identity}) == :undefined and
               not Enum.any?(children, fn child ->
-                elem(child, 1) == entry.pid or
-                    (elem(child, 1) == :restarting and not entry.terminal)
+                pid = elem(child, 1)
+
+                # An unlearned PID may be this admission's dead replacement.
+                pid == entry.pid or (pid == :restarting and not entry.terminal) or
+                    (is_pid(pid) and not Enum.any?(state.entries, fn {_, e} -> e.pid == pid end))
               end) ->
             {:absent, drop(state, identity)}
 
