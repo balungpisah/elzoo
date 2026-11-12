@@ -890,6 +890,14 @@
       "reason": "Bot platform wave 1 (P13). Ownership, serialization, time limit and close policy for an OS program, a sandbox, a browser or a call. A lost resource is an input and is never reopened automatically. No real provider yet."
     },
     {
+      "id": "workflow/run-approval-release",
+      "summary": "Run owner with durable approval release without dispatch",
+      "disposition": "own",
+      "phase": "demand-led",
+      "status": "planned",
+      "reason": "Bot platform wave 1 (P13). A distinct Run owner retains approval release without dispatch, enabling resource-owned dispatch; ready workflow/run remains unchanged."
+    },
+    {
       "id": "assembly/run-engine",
       "summary": "Run one pattern for one host: record, check, act, bring outcomes back",
       "disposition": "own",

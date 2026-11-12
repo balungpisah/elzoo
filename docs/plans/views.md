@@ -153,7 +153,8 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-118](https://github.com/balungpisah/elzoo/issues/229) | V1B / pieces | ELZ-033, ELZ-004, ELZ-013, ELZ-006, ELZ-098 | published 2026-11-12 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-124](https://github.com/balungpisah/elzoo/issues/252) | V1B / pieces | ELZ-033, ELZ-010, ELZ-116, ELZ-114 | published 2026-11-12 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-123](https://github.com/balungpisah/elzoo/issues/242) | V1B / pieces | ELZ-033, ELZ-023, ELZ-028, ELZ-006, ELZ-022, ELZ-114 | published 2026-11-12 | one claimed task worker; coordinator owns independent review and merge queue |
-| RC-50 | V1B / pieces | ELZ-033, ELZ-114, ELZ-115, ELZ-117, ELZ-122, ELZ-118, ELZ-116, ELZ-124, ELZ-123, ELZ-002, ELZ-009, ELZ-022, ELZ-023, ELZ-024, ELZ-098, ELZ-003 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| [ELZ-126](https://github.com/balungpisah/elzoo/issues/256) | V1B / pieces | ELZ-009, ELZ-023, ELZ-024, ELZ-028, ELZ-116, ELZ-123 | published 2026-11-12 | one claimed task worker; coordinator owns independent review and merge queue |
+| RC-50 | V1B / pieces | ELZ-033, ELZ-114, ELZ-115, ELZ-117, ELZ-122, ELZ-118, ELZ-116, ELZ-124, ELZ-123, ELZ-126, ELZ-002, ELZ-009, ELZ-022, ELZ-023, ELZ-024, ELZ-098, ELZ-003 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-51 | V1B / pieces | ELZ-033, ELZ-083, ELZ-030, ELZ-002, ELZ-003 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-52 | V1B / pieces | ELZ-033, ELZ-115, ELZ-083, ELZ-079 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-53 | V1B / pieces | ELZ-033, ELZ-079, ELZ-030 | blocked: unpublished admission proposal | one claimed task worker after admission |
@@ -298,6 +299,7 @@ Baseline status is immutable inventory history, not a current planning status. R
 | [runtime/async-work](../../pieces/runtime/async-work/piece.json) | not in baseline (new row, RC-47) | V1B / pieces | ELZ-118 / P13 | ready-contract: Bounded volatile local computation under an injected Task.Supervisor: a per-owner controller serializes completion, DOWN, cancel and monotonic deadlines, counts tasks through actual termination and offers one caller-wrapped outcome through the owner's current Registry name. Cancel brutally kills active tasks; success processed at or after deadline is timed_out. Owner-only restart preserves controller tracking but the replacement owner rejects unknown actions as late; controller restart loses tracking. No queue, durable delivery, retry or engine policy. |
 | workflow/bot-run-lifecycle | not in baseline (new row, RC-48) | V1B / pieces | ELZ-124 / P13 | blocked-admission-proposal: Bot platform wave 1 (P13). A total decision for a Run that waits for a model, tools, an approval, a person, child Runs or events at the same time. Uses the Run outcome set of workflow/run. New ID: ready workflow/state-machine knows job Runs only. |
 | [workflow/run-resource](../../pieces/workflow/run-resource/piece.json) | not in baseline (new row, RC-49) | V1B / pieces | ELZ-123 / P13 | ready-contract: One Run's serialized leased resource: one active use and bounded FIFO, immutable intent dispatch through EffectIntent, neutral PatternStep inputs, lost-on-recovery cleanup without reopen, pause/deadline policy and one total-lifetime Budget settlement; host-authorized evidence and physical fencing required. |
+| workflow/run-approval-release | not in baseline (new row, ELZ-126) | V1B / pieces | ELZ-126 / P13 | planned: Bot platform wave 1 (P13). A distinct Run owner retains approval release without dispatch, enabling resource-owned dispatch; ready workflow/run remains unchanged. |
 | assembly/run-engine | not in baseline (new row, RC-50) | V1B / pieces | RC-50 / P13 | blocked-admission-proposal: Bot platform wave 1 (P13). The small explicit engine role of docs/capability-model.md as an Assembly of ready pieces. It knows no pattern, does the fan-out, and keeps budget and approval state durable. Not a privileged kernel: a non-agent caller must be able to use it. |
 | workflow/untrusted-content | not in baseline (new row, RC-51) | V1B / pieces | RC-51 / P13 | blocked-admission-proposal: Bot platform wave 2 (P13). One shared mark with source and trust class for tool results, documents and messages from other members, kept through transformation, with a tested render rule for a model request. The mark travels inside the payload; core/envelope is unchanged. |
 | workflow/tool-registry | not in baseline (new row, RC-52) | V1B / pieces | RC-52 / P13 | blocked-admission-proposal: Bot platform wave 2 (P13). Tool sources can change at run time (MCP). Owns the model-facing alias and the version, a digest of the descriptor. Finding a tool grants no permission. Unknown, ambiguous and changed tools are explicit results. |
@@ -348,7 +350,7 @@ Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, EL
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126.
 
 ### V2-ACCEPT
 
@@ -2405,3 +2407,13 @@ Publication copy: [tasks/ELZ-124-bot-run-lifecycle.md](../../tasks/ELZ-124-bot-r
 **Product aims:** P13.
 
 **Acceptance:** The seven named scenarios cover total lifecycle decisions, several waits, Attempt and cancel, pause and continue, budget and time boundaries, protocol distinctions, and selected Cure laws and example, including the specified negative control.
+
+### ELZ-126
+
+ELZ-126 — Run with durable approval release, without dispatch
+
+Publication copy: [tasks/ELZ-126-run-approval-release.md](../../tasks/ELZ-126-run-approval-release.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Retain the renamed Run baseline and exercise six groups covering release without dispatch, waiting and retained consent, restart windows, currentness and authority, resource-owned send, and isolation and copy, with two negative controls.
