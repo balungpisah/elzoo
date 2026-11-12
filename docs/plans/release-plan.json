@@ -3949,7 +3949,7 @@
       "disposition": "retained-ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/core/port/piece.json",
-      "manifest_sha256": "be25cb4d82e31bc49d5a96a0b8bfac21daab518ee89296c03c5aa0e9bbb87419"
+      "manifest_sha256": "f20ebc536e00ae2dff18bc32a8ec47028e1319354ed4ae1abe1ab470b20c2645"
     },
     {
       "id": "core/selection",
