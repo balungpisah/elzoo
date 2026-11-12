@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "id": "assembly/run-engine",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["elixir", "otp", "jason"],
+  "dependencies": [
+    "core/operator", "core/envelope", "core/payload-schema",
+    "workflow/pattern-step", "workflow/bot-run-lifecycle", "domain/authorization",
+    "workflow/budget", "runtime/durable-unit", "runtime/dynamic-units", "runtime/async-work",
+    "workflow/run-approval-release", "workflow/run-resource", "delivery/effect-intent",
+    "delivery/aggregation", "state/event-log", "state/checkpoint", "state/outbox",
+    "state/lease", "integration/sql", "integration/json"
+  ],
+  "applications": ["crypto"],
+  "contract": "One recorded pure pattern cycle and ordinary dispatcher per host Unit/Run: shared sealed request charge, schema/identity/committed host gate/Budget/authority/Approval checks, occurrence-first settlement, durable owner composition and explicit fail-stop recovery; charge exhaustion stops generation while retaining prior within-cap obligations, without new work or resend permission.",
+  "limits": [
+    "Host provides authenticated correlation/current authority, checked pure prompt patterns/bindings/schemas, exclusive matching Store/Lease construction, ordinary supervision, clocks/wakes, capacity, outcome sink and physical fencing/outstanding-write confirmation before recovery. Byte caps are not a sandbox.",
+    "No model/tool/Lua dependency, recipe loader, child Run, outside-event action, cluster ownership, scheduler, hot configuration, implicit reopen, retry/rearm/reset or later-wave capability. One Run stream belongs exclusively to RunApprovalRelease; old Run remains unchanged.",
+    "Payload JSON <=65536 bytes/depth32; ingress <=262144; complete record/output <=16777216; control <=2097152 with future settlement/receipt reservations; slot <=131072, 64 active/256 lifetime occurrences; request map <=4456448; checkpoint <=33554432 including model, retained IDs, full replay witnesses and framing. Complete encoded bounds are authoritative; no truncation or borrowed future settlement capacity.",
+    "Request cap 1..256 is sealed per Run, shared with nested callables and never replenished by Attempt, pause/continue or restart. First excess creates only charge/stop bookkeeping, not actions/verdicts/outcomes/joins or a pattern input. Room rollover is explicit after prior terminal obligations settle; lifetime-action capacity is not reset.",
+    "FIFO DU input retention does not bound retained log/witness memory or recovery time. Full retained history is required for audit; pruned/damaged/incompatible history errors. Oversize checkpoint refuses nonfatally; no perpetual checkpoint guarantee.",
+    "Finite disposable-PostgreSQL/counting-fake-provider evidence, not production monitoring, universal proof, exactly-once external effects or physical no-send/cancellation. Unknown cost is not zero; Budget estimates do not enforce provider charges. Reserved intents/lost raw sink values never authorize resend."
+  ],
+  "files": [
+    "lib/elzoo/run_engine.ex",
+    "examples/document_publication.exs",
+    "examples/schemas/gate-verdict-v1.json",
+    "examples/schemas/refusal-v1.json",
+    "test/elzoo/run_engine_test.exs",
+    "test/support/run_engine_test_helper.exs"
+  ],
+  "grounding": [
+    {"kind": "test", "file": "test/elzoo/run_engine_test.exs", "claim": "The 13 published named groups exercise recorded non-agent publication, charge/retained obligations, gate order/first verdict/restart, append rejection/uncertainty, reused occurrences/read-only audit, ASK/resource release, intent recovery, persistent Budget/nesting, Attempt routing, local recovery/cancel, lifecycle, resource consumption/cleanup and encoded bounds with real ready APIs and disposable PostgreSQL. Temporary actual production gate/first-settlement bypasses are negative controls; listed finite scenarios, not quantified proofs."},
+    {"kind": "upstream", "provider": "elixir", "reference": "https://hexdocs.pm/elixir/1.20.4/GenServer.html", "claim": "Pinned GenServer serialization, Registry/DynamicSupervisor and Task semantics compose ready owner Contracts; no local OTP runtime proof."},
+    {"kind": "upstream", "provider": "otp", "reference": "https://www.erlang.org/doc/apps/erts/erl_ext_dist.html", "claim": "OTP29.1.2 deterministic minor-version-2 ETF/safe decoding and SHA-256 identities; full encoded bounds are checked, not inferred from JSON length."},
+    {"kind": "upstream", "provider": "jason", "reference": "https://hexdocs.pm/jason/1.4.5/Jason.html", "claim": "Pinned compact JSON encoding/decoding retains admitted requests and originals; ready PayloadSchema owns JSON representation/depth/schema checks."},
+    {"kind": "assumption", "claim": "Host callbacks are prompt pure checked decisions where required, retain stable compatible identity/binding/schema bytes, authenticate people/results/current authority, serialize Run mutation with admission, preserve full durable history and fence old tasks/owners/providers. Fake observations and local PostgreSQL tests do not establish production fencing or vendor behavior. Reused Cure laws retain only their dependency-local scopes; no new engine proof or monitor is claimed."}
+  ],
+  "operations": {
+    "telemetry": {"status": "inherited", "from": "otp", "contract": "OTP diagnostics only with redacted engine format_status; no custom telemetry, payload exporter or durable audit through observations."},
+    "config": {"status": "supported", "contract": "Fixed required host infrastructure, checked pattern/schema/gate/action bindings, explicit Run/period, request cap, monetary Budget, lifecycle rule/deadline and evidence Writer; compatible restart only, no defaults or hot replacement.", "evidence": ["test/elzoo/run_engine_test.exs"]},
+    "control": {"status": "supported", "contract": "Trusted stable-ID input and begin-Attempt/Approval evidence-revocation/pause/verified continue/targeted cancel through existing owners; committed status and explicit host recovery, no generic router/reset/rearm or physical cancellation promise.", "evidence": ["test/elzoo/run_engine_test.exs"]}
+  }
+}
