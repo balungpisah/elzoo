@@ -102,7 +102,7 @@ def doc_path_shape(path):
     """The shape rules of doc_path without the allowlist: a plain relative path with no odd part."""
     if not isinstance(path, str) or not path or path != path.strip():
         return False
-    if path.startswith("/") or "\\" in path or "\x00" in path or "\n" in path or "\r" in path:
+    if path.startswith("/") or "\\" in path or any(ord(char) < 0x20 or ord(char) == 0x7F for char in path):
         return False
     return not any(part in ("", ".", "..") for part in path.split("/"))
 

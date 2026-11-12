@@ -255,8 +255,8 @@ gh pr merge <PR> -R balungpisah/elzoo --merge --match-head-commit <checked-head-
 ```
 
 After confirming the merge, it prints an `ELZOO GLEAM EVIDENCE` (or `ELZOO GLEAM GATE not required`) line and an
-`ELZOO MERGE EVIDENCE` line with PR, run ID, the five job IDs (`jobs=<name>:<id>,...`), checked head SHA
-and merge SHA. Preserve those lines in the coordinator's acceptance record.
+`ELZOO MERGE EVIDENCE` line with PR, run ID, the job IDs (`jobs=<name>:<id>,...`; six in mode `piece`, where
+the work jobs are skipped), checked head SHA and merge SHA. Preserve those lines in the coordinator's acceptance record.
 No branch deletion, issue closure or
 acceptance posting is performed. A transport failure during a merge can leave
 an unknown result: inspect the PR before retrying; an already merged PR is
@@ -484,7 +484,8 @@ check on `main`.
 **Limits.** The small gate is a selected check, not the full check. The aggregate consumer, the root tests that are
 not in the list (for example a root test that loads a Piece example or module directly) and the Ash spike run only
 in the full check on `main`. **Residual risk:** the freeze rule ignores a first attempt of a push run in progress, so
-several small-gate merges can land before the first full run of `main` after them reports. A red full run then
+small-gate merges can land before the first full run of `main` after them reports. No count limits them; only the
+time of one full run does. A red full run then
 freezes the next merge, and the coordinator repairs forward from the pull request bodies
 ([coordinator](13-coordinator.md)); the coordinator also waits for a green `main` at the end of each level of a
 wave. The hosted time of `check-piece` is not measured yet. Locally the mode took 253 seconds for a one-file change

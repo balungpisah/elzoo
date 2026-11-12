@@ -778,6 +778,13 @@ class PieceOnly(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertEqual((False, [], path), cc.piece_paths(["pieces/core/port/lib/x.ex", path]))
 
+    def test_a_path_with_a_control_character_is_never_piece_only(self):
+        for char in ("\t", "\r", "\n", "\x00", "\x1b", "\x7f"):
+            path = f"pieces/core/port/lib/x{char}ex"
+            with self.subTest(char=repr(char)):
+                self.assertIsNone(cc.piece_id(path))
+                self.assertEqual((False, [], path), cc.piece_paths(["pieces/core/port/lib/x.ex", path]))
+
     def test_the_documentation_class_is_unchanged_by_the_piece_class(self):
         # docs_only keeps its answer for a Piece path (code) and for an index file (LEDGER.md is code).
         self.assertFalse(cc.docs_only([file_entry("pieces/core/port/README.md")]))
