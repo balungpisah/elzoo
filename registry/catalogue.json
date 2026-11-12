@@ -907,6 +907,14 @@
       "reason": "Bot platform wave 1 (P13). The small explicit engine role of docs/capability-model.md as an Assembly of ready pieces. It knows no pattern, does the fan-out, and keeps budget and approval state durable. Not a privileged kernel: a non-agent caller must be able to use it."
     },
     {
+      "id": "assembly/checked-command",
+      "summary": "Check, record and apply one command for a caller with no pattern",
+      "disposition": "own",
+      "phase": "demand-led",
+      "status": "planned",
+      "reason": "Named by the bot platform track for wave 4. The checks of the run engine for one action, without a budget, for a caller with no pattern, such as an administration command: schema, identity, host gate, authority and approval. A change commits with its outcome record, and a denied command has a record. Closed as covered if the engine serves this caller unchanged."
+    },
+    {
       "id": "workflow/untrusted-content",
       "summary": "Mark content so that it cannot give orders",
       "disposition": "own",

@@ -246,6 +246,16 @@ RC-01 (stored state across a format change, wave 4), RC-42 (durable dedup for
 events in, wave 4), RC-06 (waves 4 and 5), RC-03 and RC-04 (wave 6). They are
 unchanged here.
 
+One proposal for a later wave is new: RC-71, `assembly/checked-command`
+(wave 4). The engine of RC-50 checks each action of a Run: schema, identity,
+host gate, budget, authority and approval. An administration command needs the
+same checks and has no Run of the engine, no pattern and no budget. Examples:
+invite a member, change an allocation, publish a version. RC-71 gives those
+checks to one command, commits a change with its outcome record, and gives a
+denied command a record. Its admission first tests if the engine serves this
+caller unchanged. RC-71 is in release V2. It changes no job of waves 1 to 3
+and does not change the V1B gate.
+
 ## Waves 4 to 9: named, not registered
 
 Most of these handles are not in the catalogue and have no job. They are
@@ -257,7 +267,7 @@ gap and not a catalogue row.
 
 | Wave | It runs | Piece handles |
 | --- | --- | --- |
-| 4 | Events in, answers out | `integration/http-server`, `integration/signature`, `integration/event-source`, `integration/webhook-in`, `delivery/debounce`, `delivery/event-trigger`, `domain/trigger-binding`, `workflow/bot-routing`, `workflow/event-wait`, `state/schema-evolution` (RC-01), `delivery/durable-idempotency` (RC-42), `domain/principal` (RC-06), `delivery/pubsub` (RC-27), `delivery/event-emit`, `delivery/event-subscription`, `delivery/poll-trigger`, `state/conversation`, `domain/end-user`, `integration/channel`, `domain/channel-identity`, `delivery/message-render`, `delivery/client-stream`, `delivery/file-upload` |
+| 4 | Events in, answers out | `integration/http-server`, `integration/signature`, `integration/event-source`, `integration/webhook-in`, `delivery/debounce`, `delivery/event-trigger`, `domain/trigger-binding`, `workflow/bot-routing`, `workflow/event-wait`, `state/schema-evolution` (RC-01), `delivery/durable-idempotency` (RC-42), `domain/principal` (RC-06), `assembly/checked-command` (RC-71), `delivery/pubsub` (RC-27), `delivery/event-emit`, `delivery/event-subscription`, `delivery/poll-trigger`, `state/conversation`, `domain/end-user`, `integration/channel`, `domain/channel-identity`, `delivery/message-render`, `delivery/client-stream`, `delivery/file-upload` |
 | 5 | Many tenants, safely | `domain/tenant`, `domain/membership` (RC-07), `domain/entitlement` (RC-07), `integration/identity` (RC-06), `domain/role`, `integration/auth-policy` (RC-09), `domain/policy-rules` (RC-20), `state/tenant-isolation`, `integration/encryption`, `domain/api-key`, `integration/token-verify`, `domain/environment`, `domain/provider-key`, `integration/egress-policy`, `domain/kill-switch`, `domain/data-class`, `domain/provider-data-policy`, `state/decision-log`, `state/admin-audit`, `workflow/guard-input`, `workflow/guard-output`, `workflow/guard-tool`, `workflow/output-link-check`, `integration/pii-redaction`, `delivery/rate-limit`, `delivery/fair-queue`, `state/retention-erasure`, `workflow/tenant-lifecycle` |
 | 6 | Count and see | `integration/observability` (RC-03), `runtime/faces` (RC-04), `runtime/telemetry-events`, `runtime/trace`, `runtime/metrics`, `runtime/log`, `state/run-transcript`, `runtime/alert`, `delivery/dead-letter-store`, `state/projection`, `domain/metering` (RC-21), `domain/pricing` (RC-23), `domain/quota` (RC-08), `domain/journal` (RC-22), `domain/wallet`, `workflow/spend-alert`, `assembly/tenant-edge` (RC-40), `state/feedback`, `state/eval-dataset`, `workflow/eval`, `workflow/red-team`, `ui/component` (RC-31) |
 | 7 | Remember and know | `domain/memory-scope`, `state/memory-record`, `workflow/memory-write-policy`, `workflow/memory-extract`, `workflow/memory-recall`, `state/cache`, `state/bot-data`, `integration/document-parse`, `integration/search-text`, `integration/ai-rerank`, `workflow/permission-mirror`, `workflow/citation`, `integration/connector-web`, `integration/connector-database`, `assembly/data-pipeline` (RC-39), `assembly/knowledge-ingest` |

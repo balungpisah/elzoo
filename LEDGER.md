@@ -18,6 +18,7 @@ guarantees beyond the declared Contract. See docs/operational-contracts.md.
 | Piece | Status | Implementation | Direct providers | Grounding kinds | Operational applicability | Contract / remaining gap |
 | --- | --- | --- | --- | --- | --- | --- |
 | `assembly/agent-product` | deferred | defer (planned) | — | none claimed | unassessed | C6/C7 compose work/run/dependencies, approval, budget, context and provider adapters. Not a privileged runtime; library/provider evaluation precedes new orchestration. |
+| `assembly/checked-command` | planned | own (planned) | — | none claimed | unassessed | Named by the bot platform track for wave 4. The checks of the run engine for one action, without a budget, for a caller with no pattern, such as an administration command: schema, identity, host gate, authority and approval. A change commits with its outcome record, and a denied command has a record. Closed as covered if the engine serves this caller unchanged. |
 | `assembly/consent-records` | deferred | defer (planned) | — | none claimed | unassessed | Requires policy, redaction, retention and healthcare adapter review |
 | `assembly/data-pipeline` | deferred | defer (planned) | — | none claimed | unassessed | Deferred until a real data workload justifies it |
 | `assembly/device-ingest` | deferred | defer (planned) | — | none claimed | unassessed | Requires device identity, protocol and rollout contracts |
