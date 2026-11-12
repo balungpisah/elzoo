@@ -1,5 +1,8 @@
 # Coordination rules for long-running parallel work
 
+> **Replaced for workflow rules.** `AGENTS.md` at the repository root is the workflow. Where this page
+> differs, `AGENTS.md` wins. Do not read this page for a task. This page stays as the record of why the rules changed.
+
 These rules come from running four implementation tasks in parallel on 2026-11-08 and
 2026-11-09 under one main coordinator and one pieces coordinator. Each rule names its source:
 a repository record (a task record under `docs/work/`, a PR body, `AGENTS.md`,

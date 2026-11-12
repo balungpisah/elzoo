@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "id": "integration/observability",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["prometheus", "ddskerl", "telemetry", "elixir", "otp"],
+  "dependencies": ["runtime/telemetry"],
+  "install_configuration": [
+    {"line": "config :prometheus, global_labels: []", "reason": "The fixed v1 export requires absent or empty immutable application-wide global labels."}
+  ],
+  "contract": "Opt-in v1 Prometheus text-format pull observation of six fixed Elzoo job/effect events and five fixed adapter/operation/family pairs: event counts and terminal duration microsecond sums, at most 15 count plus 10 duration series, only finite adapter/operation/phase labels; fixed registry, explicit initialization and singleton attach/detach, no exporter process or queue. Exclusive serialized host registry ownership and immutable absent/empty global labels are Needs. Missing/invalid duration does not suppress valid event count; provider failures lose updates and count/duration are not transactional. Catchable handler failures are contained without raw log/failure-event disclosure.",
+  "limits": [
+    "No server, network transport, audit/accounting, tracing, durable observation, retry, sampling or automatic provider recovery.",
+    "Synchronous CPU/ETS contention affects callers; no hard deadline isolation. Scrape is not an atomic snapshot and selected callbacks may finish after detach.",
+    "Public definition probes establish existence/arity only; initialization plus exclusive immutable host ownership establishes identity, not hostile same-VM isolation.",
+    "Fixed row cardinality does not bound whole-VM memory, numeric magnitude or formatted decimal length. Finite tests and named upstream contracts, not a universal proof."
+  ],
+  "files": [
+    "lib/elzoo/observability.ex",
+    "test/elzoo/observability_test.exs",
+    "test/elzoo/observability_copy_test.exs",
+    "examples/observability_copied_consumer.exs"
+  ],
+  "grounding": [
+    {"kind": "test", "file": "test/elzoo/observability_test.exs", "claim": "Finite public API and actual telemetry/text-output scenarios: closed 25-series projection and invalid cross-products; duration boundaries; ignored secret markers; lifecycle, config/collector/definition refusal, provider restart, failed duration update and concurrent exact quiescent totals."},
+    {"kind": "test", "file": "test/elzoo/observability_copy_test.exs", "claim": "Actual source exporter with in-memory registration before serialized metadata adoption; selected closure runs tests in a clean independent consumer with declared provider application paths and no root Application."},
+    {"kind": "upstream", "provider": "prometheus", "reference": "https://hexdocs.pm/prometheus/6.1.3/", "claim": "Public counters, exclusive registry operations and standard text formatter; fixed 16 counter stripes at the pinned source, not a whole-VM memory bound."},
+    {"kind": "upstream", "provider": "telemetry", "reference": "https://hexdocs.pm/telemetry/1.4.2/telemetry.html", "claim": "Synchronous callback dispatch, registration independent of attacher lifetime, and already-selected callbacks can outlive detach."},
+    {"kind": "assumption", "claim": "Host serializes administrative lifecycle calls, exclusively reserves the fixed registry and keeps absent/empty global labels immutable; no concurrent external mutation or hostile same-VM isolation."}
+  ],
+  "operations": {
+    "telemetry": {"status": "supported", "contract": "Two fixed optional observation counters, no durable or accounting claim.", "evidence": ["test/elzoo/observability_test.exs"]},
+    "config": {"status": "supported", "contract": "Fixed schema/registry and immutable provider global-label exclusion at application lifetime; no hot configuration.", "evidence": ["test/elzoo/observability_test.exs"]},
+    "control": {"status": "supported", "contract": "Explicit initialization and manual singleton attach/detach, no automatic owner cleanup, drain or restart recovery.", "evidence": ["test/elzoo/observability_test.exs"]}
+  }
+}

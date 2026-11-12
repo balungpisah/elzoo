@@ -1,316 +1,299 @@
 # AGENTS.md
 
-Elzoo is a fresh Cure/Elixir catalogue. It is not a port of the old Zoo
-command set or task lifecycle. Use ordinary Git, GitHub issues, Git worktrees,
-Pull Requests and Mix.
+Elzoo is a catalogue of reusable Cure/Elixir Pieces. A developer copies a Piece
+into an application and owns the copy. This file is the whole workflow for an
+agent. If a file under `docs/development/` disagrees with it, this file wins.
 
-## Read order
+The tools are Git, Git worktrees, GitHub issues, pull requests and Mix.
 
-For ongoing task work, read from the repository root:
+    pick -> claim -> build -> local gate -> pull request -> one review -> merge
 
-1. CONTEXT.md for the locked vocabulary.
-2. GOAL.md and docs/development/01-workflow.md.
-3. docs/development/02-task-dag.md, docs/plans/roadmap.md and its canonical
-   manifest, then the selected tasks/ELZ-*.md body and live issue Contract.
-4. docs/capability-model.md, docs/capability-coverage.md and docs/operational-contracts.md,
-   docs/adr/0005-ash-foundation-and-upstream-first.md, then LEDGER.md,
-   docs/consuming.md, docs/architecture.md and relevant ADRs.
-5. The selected piece.json and README; mix.exs and the relevant pieces/, lib/
-   and test/ sources only as needed.
+One task is one branch, one worktree, one worker and one pull request.
 
-PLAN.md, GATES.md and gates/*.md describe the one-time bootstrap and are
-required when integrating or checking bootstrap work. They are not a
-permanent lifecycle or a prerequisite for every later task; the selected task
-body defines ongoing scope, ownership and acceptance.
+## 1. Read this, and no more
 
-## Mission and boundaries
+1. This file.
+2. [CONTEXT.md](CONTEXT.md): the vocabulary.
+3. Your task: the GitHub issue body. It is the Contract of the task.
+4. `piece.json` and `README.md` of each Piece that the task names.
 
-Build only the next reusable Piece or Assembly admitted by a published issue
-for a concrete product aim. A useful Piece need not wait for a new Assembly
-example; selection follows docs/plans/roadmap.md and its canonical manifest.
-Cure owns new pure decisions when suitable. Elixir/OTP and maintained
-libraries own runtime and integration work. Effects happen in explicit
-Adapters; pure Operators do not perform I/O. Keep Needs, delivery and storage
-assumptions, and unspecified behavior visible in the Contract.
+Open one of these only when the task touches its subject:
 
-The bootstrap established one honest exemplar and its supporting pieces. The
-product-led roadmap selects further independently useful Pieces with explicit
-callers, invariants and failure evidence; new integration examples may follow
-later. It does not promise all of the old Zoo catalogue or all 402 historical
-patterns. Open new batches for admitted product needs, not to fill a quota.
-Use Enum/Stream for ordinary transformations and reuse maintained storage or
-job providers before considering a new implementation. Stay on upstream releases
-unless a concrete modification is needed. Maintained MIT-library forks belong
-under balungpisah, preserve upstream notices/provenance and carry tests for our
-changes; follow docs/development/08-upstream-and-forks.md. Do not fork merely
-because a library is MIT-licensed.
+| Subject | Document |
+| --- | --- |
+| Proof, test and evidence wording | [claims and evidence](docs/development/03-claims-and-evidence.md) |
+| Ports, Envelopes, delivery semantics | [architecture](docs/architecture.md) |
+| Telemetry, Config and Control declarations | [operational contracts](docs/operational-contracts.md) |
+| Copied source, namespaces, receipts | [consuming](docs/consuming.md) |
+| A new capability, or a split of one | [capability model](docs/capability-model.md) |
+| Cure language traps | [Cure notes](docs/cure-notes.md) |
+| A fork of a library | [upstream and forks](docs/development/08-upstream-and-forks.md) |
+| Local test services | "Verify" in [workflow](docs/development/01-workflow.md), and `.agents/setup` |
+| CI, workflows, the merge queue | [CI guide](docs/development/10-symbolic-ci.md) |
 
-Each published task body defines its scope and reviewer/merge responsibility.
-Keep edits within that scope; include a necessary shared change explicitly in
-the issue and coordinate overlapping work before editing the same boundary.
+Do not read `PLAN.md`, `GATES.md` or `gates/` (the one-time bootstrap) or
+`docs/work/` (old task logs). Do not read `LEDGER.md` or
+`docs/plans/release-plan.json` from top to bottom: search them for your Piece ID.
 
-## Pick a task
+## 2. Pick and claim
 
-The coordinator publishes each tasks/ELZ-*.md file as a GitHub issue whose
-title starts with its stable ID. The issue body is the task contract and source
-of truth for dependencies and acceptance. Use the configured private remote,
-normally balungpisah/elzoo:
+    gh issue list -R balungpisah/elzoo --state open --label task --limit 100 --json number,title,body
+    git ls-remote --heads origin 'task/ELZ-*'
+    gh pr list -R balungpisah/elzoo --state merged --head task/ELZ-098 --json number
 
-    gh issue list -R balungpisah/elzoo --state open --label task \
-      --json number,title,labels,body
-
-Choose an issue only when every dependency is merged and there is no active
-claim. Labels task, ready, claimed, blocked and phase labels P0 through P3 are
-status signals, not the lock. A dependency that is merely in a PR is not
-complete.
-
-## Claim: the branch creation is the lock
-
-There is one deterministic branch per task: task/ELZ-001 for ELZ-001. Never
-add an agent suffix and never force-push a task branch. Two agents may prepare
-locally, but only the first creation of the remote branch (step 3) can succeed.
-
-1. Fetch the base and check the remote branch:
-
-       git fetch origin --prune
-       if git show-ref --verify --quiet refs/remotes/origin/task/ELZ-001; then
-         echo "claimed"
-         exit 1
-       fi
-
-2. Make an isolated worktree and deterministic branch from origin/main:
-
-       git worktree add ../elzoo-ELZ-001 -b task/ELZ-001 origin/main
-       cd ../elzoo-ELZ-001
-
-3. Create the remote branch atomically; the branch creation is the claim
-   (ELZ-076). A plain `git push` is not a lock: a second worker's push from
-   the same base reports `Everything up-to-date`, and a later fast-forward
-   push would move the branch silently. Use the create-only reference API,
-   which refuses an existing branch:
-
-       gh api -X POST repos/{owner}/{repo}/git/refs \
-         -f ref=refs/heads/task/ELZ-001 -f sha="$(git rev-parse origin/main)"
-       git fetch origin --prune
-       git branch --set-upstream-to=origin/task/ELZ-001
-
-   HTTP 422 "Reference already exists" means another worker won. Do not
-   retry with force; remove the losing worktree and choose another ready
-   issue. The winner comments on the issue with the branch, the base SHA and
-   a role-based agent identifier generated once per session, never derived
-   from the hostname:
-
-       export ELZOO_AGENT="worker-$(od -An -N2 -tx1 /dev/urandom | tr -d ' ')"
-
-   Later pushes to the branch are ordinary fast-forward pushes.
-
-4. No claim marker exists any more (ELZ-076): do not create `.claims/` files
-   and do not add a claim commit. CI runs `python3 scripts/check-claims.py` and
-   rejects any tracked file under `.claims/`, including hidden markers.
-
-The claim is not implementation evidence. If a branch already exists,
-request a handoff in the issue and use it only after a handoff is recorded under the stale-work protocol.
-
-## Work, sync and progress
-
-Read the whole task and dependencies. Preserve existing behavior and claims.
-Clearer wording is not stronger evidence: do not upgrade a finite test into a
-universal proof or an upstream contract into a local proof. If the Contract is
-wrong or incomplete, stop and record the finding; change the Contract and
-acceptance deliberately with review rather than weakening a law.
-
-Keep changes scoped and use small explanatory commits. When main advances,
-fetch and merge origin/main into the task branch without rewriting history:
+A task is ready when no remote branch `task/ELZ-###` exists for it, and each
+ID on the `- Dependencies:` line of its body is merged on `main`. The third
+command shows that: it must return a pull request for the dependency, or the
+issue of the dependency is closed as completed. An open pull request is not
+merged. Labels other than `task` are hints only. A task that asks for
+something that this file forbids is not ready: comment on the issue and pick
+another.
 
     git fetch origin --prune
-    git merge --no-ff origin/main
-    git push
+    git worktree add ../elzoo-ELZ-123 -b task/ELZ-123 origin/main
+    cd ../elzoo-ELZ-123
+    gh api -X POST repos/balungpisah/elzoo/git/refs \
+      -f ref=refs/heads/task/ELZ-123 -f sha="$(git rev-parse origin/main)"
+    git fetch origin --prune
+    git branch --set-upstream-to=origin/task/ELZ-123 task/ELZ-123
 
-Push implementation commits and leave an issue comment with the latest SHA,
-last green command and next action at least every 24 hours. A draft PR is a
-useful resume note; it is not acceptance on main. The task branch publishes
-work for coordination, while only a merged PR changes main and satisfies the
-task.
+The `gh api` call is the lock: it refuses a branch that exists. HTTP 422 means
+that another worker won. Then remove your worktree and local branch and pick
+another task. Do not claim with `git push`: it is not a lock. Write no claim
+file (CI rejects `.claims/`), no claim commit and no claim comment.
 
-For unsafe effects, storage, delivery, backpressure and typed boundaries,
-request independent review early. Do not edit generated files or unrelated
-ownership areas.
+A claim must show work. Until your pull request is marked ready, push at
+least every three hours, unfinished work included. A push starts CI only when
+a pull request is open.
 
-## CI machine policy
+## 3. Lanes: how many workers stay safe
 
-CI runs on GitHub-hosted runners: the repository is public (owner decision
-2026-11-09), and the five jobs of symbolic-check.yml (check-plan, check-root,
-check-consumers-db, check-consumers and the aggregating job check-hosted) and the job
-gleam-hosted run on the one label ubuntu-24.04 with the runner identity gate described in
-docs/development/10-symbolic-ci.md ("Hosted CI"). There is no self-hosted lane,
-no lane variable and no workflow input; self-hosted runners must never be
-attached to a public repository. Never change runs-on or the required checks
-without the review that document describes. If the hosted lane fails, follow
-its three-step fallback (make the repository private, register runners, merge the revert PR). Verify
-actual job runner identity when changing workflows. GitHub also provides
-repository/PR/check orchestration.
+**Your lane.** `pieces/<family>/<name>/**` of your Piece, and each path that
+the task body lists.
 
-## Verify the actual claim
+**Shared paths.** `mix.exs`, `mix.lock`, `config/`, `lib/`, the root `test/`,
+`pieces/test_helper.exs`, `scripts/`, `.github/`, the directory of another
+Piece, and this file. Do not edit a shared path that the task body does not
+list. If you need one, stop that part and comment on the issue with the path
+and the reason. The coordinator then makes a prerequisite task. A new
+dependency or a changed pin is always its own task, and it merges first.
+Never add a self-hosted runner and never change `runs-on`: the repository is
+public.
 
-On a clean checkout or after dependency/configuration changes, run:
+**Index files.** Change them in one last commit, immediately before you ask
+for the merge. This keeps the conflict window short.
 
-    mix setup
-    mix check
+1. `registry/catalogue.json`, your row: `"status": "ready"` and
+   `"manifest": "pieces/<family>/<name>/piece.json"`.
+2. `docs/plans/release-plan.json`, your row in `entries`: the same `manifest`,
+   `manifest_sha256` (the SHA-256 of the bytes of `piece.json`), `note` (equal
+   to `contract` in `piece.json`) and `"disposition": "ready-contract"`. Each
+   later edit of `piece.json` needs a new hash.
+3. Generate, then check:
 
-The project runtime/tooling path owns these public commands. mix setup must use Cure commit
-208248063d64e621782cd26dd30698ee42850a89, Elixir 1.20.4 and OTP 29.1.2.
-mix check must compile real Cure, run selected Cure proofs, meaningful runtime
-tests and negative controls. It is not a formatter or documentation badge.
+       mix elzoo.ledger
+       python3 scripts/check-roadmap.py --write
+       python3 scripts/check-roadmap.py
 
-The worker gate before every push (ELZ-076): run `mix check --affected <base>`
-(the same selection code the hosted check used before ELZ-059) and the changed
-Piece's own tests (`mix test pieces/<family>/<name>/test`). CI owns the full
-run: the pull request's hosted run of `symbolic-check.yml` is a full `mix check` on the
-exact head, split into three parallel parts (ELZ-073), and the queue's merge evidence;
-`check-hosted` is its aggregating job (a documentation-only change gets
-the short check of ELZ-071 instead). A local full `mix check` is still required after a dependency,
-configuration or toolchain change (`mix.exs`, `mix.lock`, `config/`, the Cure,
-Elixir or OTP pins) and when the affected selection cannot be computed; it is
-never a substitute for the hosted run. The PR body records which local command
-ran, with its exit code, and names the hosted run. Do not claim a pass if the
-command was not run or a moving Cure ref was used.
+If your Piece ID has no row in the two files, stop. The coordinator adds the
+rows first (section 9).
 
-Every PR separates its grounding:
+`LEDGER.md`, `docs/plans/views.md` and `docs/plans/dependencies.mmd` are
+generated. Do not edit or hand-merge them. On a conflict, take the version of
+`main`. After each merge of `main` into your branch, run step 3 again, also
+when Git reports no conflict.
 
-- Proof: a selected quantified or exhaustive Cure law checked by Cure's
-  machinery. Only laws named by the task are required.
-- Type/contract check: the actual Cure type or schema validation performed by
-  a named checker. An unchecked Elixir typespec is documentation.
-- Test: an executable ExUnit/OTP or boundary check over named scenarios.
-  Tests are not automatically proofs.
-- Monitored behavior: telemetry, logs or an observation in a named environment.
-  A monitor is not a proof of all executions.
-- Upstream contract: pinned Cure, Elixir, OTP or library behavior relied upon.
-  External implementation remains upstream's work; test our translation.
+**Live state.** GitHub holds it. Do not write "claimed", "PR pending" or a
+pull request number into `release-plan.json`.
 
-Record unverified assumptions separately; naming one does not prove it.
+**Local services.** Each worker uses its own disposable PostgreSQL database
+through `ELZOO_TEST_DATABASE_URL`. Never share it between two runs. Never use
+a personal or production database. At most three workers run Mix on one host
+at the same time, and only one full check runs on one database server at a
+time (the limit is database connections).
 
-Use scoped wording such as selected law passes, listed scenarios pass, or
-relies on OTP's documented contract. Unqualified verified is not evidence.
+**Git.** Do not force-push. Do not rewrite history. Do not commit on `main`.
+When `main` moves and you have a conflict, merge it:
+`git fetch origin && git merge --no-ff origin/main`.
 
-## Review, merge and cleanup
+**Subagents.** A worker can use subagents to read and to review. Only one
+agent writes in a worktree at a time.
 
-Open a PR from task/ELZ-001 only after the branch is self-contained. Include
-the issue ID, dependency state, changed Contract, proof/test/upstream evidence,
-exact commands and outputs, and limits. The author cannot be the sole
-reviewer. GitHub may reject self-approval when workers share an account; use a
-separate agent/session to inspect the diff and record its agent ID, reviewed
-SHA and findings in a PR comment instead of trying to self-approve.
+## 4. Build
 
-Independent review is required for Cure Contracts/proofs, typed composition,
-Effects/Adapters, durability/storage, delivery/backpressure, toolchain pins or
-evidence claims. It is optional for straightforward prose or mechanical test
-changes. Reviews must inspect the actual diff and claim scope; a ceremonial
-looks-good is not grounding. When no dedicated coordinator is active, the
-worker coordinates an independent agent review and the integration handoff
-instead of waiting idle for an owner.
+- The issue body decides scope and acceptance. If it is wrong or incomplete,
+  stop and comment on the issue. Do not weaken a Contract or a test to get a
+  green result.
+- Cure owns new pure decisions when it fits. Elixir/OTP and maintained
+  libraries own runtime and integration work. A pure Operator does no I/O.
+  Effects go through Adapters with declared Needs.
+- Use upstream releases and ordinary `Enum`/`Stream` first. Write only the
+  policy that is missing. Make no wrapper around an ordinary upstream API and
+  no placeholder for a planned entry.
+- Layout: `pieces/<family>/<name>/` with `lib/`, `cure/`, `test/`, `examples/`,
+  `README.md` and `piece.json`. `piece.json` owns the source list, the
+  dependencies, the grounding of each claim and the Telemetry, Config and
+  Control declarations.
+- A ready Piece ID is a stable Contract. A change of accepted inputs, outputs,
+  state, delivery, failure guarantees or Needs gets a **new Piece ID**. The old
+  ID stays usable. A bug fix that restores the Contract keeps the ID.
+- The toolchain pins are in `.tool-versions` and `mix.exs`. Do not change them
+  in a Piece task.
+- The repository is public. Write no hostname, address, local path, database
+  name, credential, session identifier or person's name in a file, a commit,
+  an issue or a pull request. Use roles.
+- Write a file under `docs/work/` only when the task body names that file as a
+  deliverable. The pull request body is the record of the task.
 
-The coordinator merges only after checks and required review:
+## 5. Local gate, then pull request
 
-1. resolve findings and rerun relevant checks;
-2. merge through GitHub, never rewrite main;
-3. verify acceptance on the merge commit (including its CI result: its own green full run, or a push run that
-   logs `ELZOO PUSH CHECK SKIPPED` with the passed exact-head run and job IDs, see docs/development/10-symbolic-ci.md);
-   the exact-head evidence is the pull request's own green run of `symbolic-check.yml`, all five jobs of one attempt as one unit; `check-hosted` is the aggregating job and the required check (the queue adopts the run; it dispatches a run only as a logged fallback, which does not satisfy branch protection): the full run, or for a documentation-only change that the queue classifies itself, the short docs-only check (`ELZOO DOCS-ONLY CHECK PASSED`), and `main` is
-   re-confirmed by its push run: a red push run that is not classified on issue #98 freezes the queue;
-4. delete the merged remote and local task branch;
-5. remove the worktree and confirm git status --short is empty;
-6. close the issue with PR and merge SHA.
+While you build, run the tests of your Piece:
 
-Do not delete an unmerged branch merely to make the list clean. Leave a
-precise issue note with last green command and next action.
+    mix test pieces/<family>/<name>/test
 
-## Blocked and stale work
+Before you open the pull request, and before each later push to it:
 
-For a technical blocker, comment the exact command, output, environment,
-last green commit and decision needed. Do not weaken the Contract. An
-unmerged dependency is not an implementation failure; the task is not ready.
+    mix check --affected origin/main
+    git diff --check
 
-The branch is the claim. Post a progress heartbeat every 24 hours. After 48
-hours without one, the coordinator comments STALE-CHECK, mentions the claimant
-and waits at least another 24 hours. A stale notice alone does not authorize
-force-push or deletion.
+For a Piece that is not ready yet, and for a change of index files or shared
+paths, `--affected` selects everything. Then it runs each test of the full
+check, but its marker still says `AFFECTED`: take the one slot of the database
+server (section 3). After a change of `mix.exs`,
+`mix.lock`, `config/` or a toolchain pin, run `mix check` with no flag. On a
+new checkout, run `mix setup` first.
 
-If the claimant responds, record a handoff and continue the existing branch.
-If there is no response, the coordinator first adopts the existing branch: the
-new worker fetches its tip, records the handoff in an issue comment (branch,
-tip SHA, new agent identifier) and continues the branch with normal
-fast-forward pushes. Deleting an unmerged branch is
-not the default. If a branch truly cannot be adopted, the coordinator must
-first create and verify a real archive ref on the same remote from the exact
-remote tip, record that archive ref and reason in the issue, and only then
-delete the task branch. If the remote tip changes while archiving, abort and
-reconcile rather than deleting concurrent work. A new worker chooses another
-issue while handoff is unresolved.
+Each push to a pull request starts the hosted check on the new head: about 20
+minutes, or about 1 minute when each changed path is on the documents list in
+`scripts/ci-change-class.py`. That run is the merge evidence. So push finished
+batches, not each small commit.
 
-## Report format
+Open the pull request as a draft when the branch is complete in itself. Use
+this body, and leave out a line that does not apply:
 
-    ELZ-###: <short outcome>
-    Branch/PR: <name and link>
-    Checks: <exact commands and pass/fail>
-    Grounding: <proofs; tests; monitored behavior; upstream contracts>
-    Limits: <claims deliberately not made>
-    Open work: <issue IDs or none>
+    ELZ-###: <outcome in one sentence>
+    Closes #<issue number>
+    Contract: <unchanged | what changed>
+    Local gate: <each command and its exit code>
+    Proof: <named Cure laws that Cure checked>
+    Type check: <the checker and what it checked>
+    Test: <named scenarios and negative controls>
+    Monitored: <the observation and its environment>
+    Upstream: <pinned library behavior that the claim relies on>
+    Assumptions: <what is not verified>
+    Limits: <claims that this task does not make>
+    Shared paths: <each path outside the Piece directory, or none>
+    Friction: <a step that cost time and gave nothing, or none>
 
-Do not report complete until merged commit and cleanup are visible.
+Keep the five kinds of grounding apart. A test is not a proof. A monitor is
+not a proof. An upstream contract is not our proof. Write "selected law
+passes" or "listed scenarios pass", not "verified".
 
-“Coordinator” is a role for the active task, not a required permanent service
-or person. If no separate coordinator is assigned, the worker performs the
-integration steps after obtaining the required independent review.
+## 6. Review: one round
 
-## Source catalogue rules
+An independent review is necessary for a new Piece, a changed Contract or Cure
+law, an Effect or Adapter, storage or delivery behavior, a change of grounding
+or evidence wording in `piece.json` or a README, a toolchain pin, and a change
+in `scripts/` or `.github/`. It is not necessary for other documents, the
+index files, or a test repair that changes no assertion.
 
-Use pieces/<family>/<name>/ with conventional lib/, cure/, test/ and examples/
-paths. Per-piece JSON owns ready source lists, dependencies and claim-level
-grounding; registry/catalogue.json also records planned/deferred gaps. Do not
-create placeholder implementations for planned entries or wrappers around
-ordinary upstream APIs just to fill directories.
+- The reviewer is a different agent session, and a different model where one
+  is available. Give it the issue body and the diff, not your summary.
+- The reviewer reports all findings in one pass. Each finding is a `BLOCKER`
+  (wrong behavior, a broken Contract, a claim with no evidence) or a `NOTE`.
+- Correct all blockers in one batch. The second pass reads only the commits
+  made after the first pass. A third pass occurs only if a blocker stays open.
+- For a `NOTE`: correct it if that is quick. If not, open a follow-up issue or
+  decline it in one line.
+- The record is one pull request comment: the reviewer role, the reviewed SHA,
+  the findings and the verdict. Write no review file.
+- Answer each finding of the automated reviewer in its thread, and resolve
+  the thread.
 
-After changing metadata, run mix elzoo.ledger; mix check rejects stale output,
-missing evidence/source, provider-pin drift and invalid dependencies. Keep the
-copying contract tested: the root Application must never be required by a
-consumer. A renamed/moved source needs corresponding import, export-manifest,
-proof/test and documentation changes. Apache-2.0 covers Elzoo-owned source;
-record upstream licenses separately. Evidence applies to the recorded source
-and named claims, not arbitrary downstream edits.
+When the local gate, the hosted check and the review are green, mark the pull
+request ready for review. That is the request to merge. From then the
+coordinator owns the branch: do not push to it unless the coordinator gives it
+back. You can claim the next task.
 
-## Evolving a ready Contract
+## 7. Merge and cleanup
 
-A ready Piece ID identifies a stable behavioral Contract. A change to accepted
-inputs, outputs/data shape, state/lifecycle, delivery or failure guarantees, or
-required Needs must use a **new Piece ID** with its own Contract and evidence.
-Keep the old ID usable, document the difference/migration in both README and
-ledger metadata, and make consumers opt in by changing dependency IDs. An
-implementation bug fix that restores the existing Contract, or a correction to
-evidence wording without changing behavior, keeps the ID and records the reason.
-Do not silently broaden or weaken a ready Contract under an existing ID.
-`schema_version` versions the metadata format, not a Piece Contract. Receipts
-already retain the Piece IDs, Contracts, origin revision and file hashes.
+The coordinator merges, one queue run at a time. A worker does not merge. A
+worker with no coordinator takes the coordinator role for its own pull request.
 
-Pure source copies use an application-owned namespace; follow docs/consuming.md.
-Libraries redistributing copies must rename modules/MFAs and resolve public
-record-tag collisions before shipping. Distinct IDs do not automatically make
-conflicting BEAM modules or erased records safe to load together.
+    python3 scripts/merge-queue.py <PR number> [<PR number> ...]
 
-## Before expanding the catalogue
+The queue takes only a pull request that is not a draft, from a branch named
+`task/ELZ-###`. It updates the branch from `main` if necessary, waits for the
+hosted check on the exact head and then merges with a merge commit. The
+required checks on `main` are `check-hosted` and `gleam-hosted`. A red push run
+on `main` stops all merges until it is classified; see the CI guide.
 
-Declare Telemetry, Config and Control applicability for every ready Piece in
-piece.json; follow docs/operational-contracts.md. Supported, inherited,
-not_applicable and planned are distinct. A static or per-call setting does not
-establish hot reconfiguration; an OTP stop does not establish business drain.
-Keep observations separate from durable control receipts and accounting data.
-No UI language or Gleam dependency is implied by these contracts.
+If the queue stops on a conflict, or on a red check of the index files after
+it updated the branch, the coordinator repairs the branch or gives it back to
+its worker: merge `origin/main`, take the generated files of `main`, run step
+3 of the index files again, push, wait for the hosted check and start the
+queue again. A coordinator that repairs a branch comments the repair SHA on
+the issue.
 
-Use the admission/split rules in docs/capability-model.md. Choose a concrete
-coverage case or equally explicit new workflow, state its invariant and failure
-paths, and check upstream reuse before authoring new policy. Inventory coverage
-is not a build queue: deferred domain handles have no implicit implementation
-order. Do not promote a library candidate to ready without exercising its exact
-boundary. Work Items, Runs and Attempts are distinct; shared schemas do not
-establish matching authority, durability or delivery semantics. Agent orchestration
-is an Assembly of capabilities, not a privileged execution kernel.
+After the merge, GitHub deletes the remote branch and closes the issue
+(`Closes #...`). Clean up from the main checkout. Remove the branch only when
+the second command succeeds:
+
+    git fetch origin --prune
+    git merge-base --is-ancestor task/ELZ-123 origin/main
+    git worktree remove ../elzoo-ELZ-123
+    git branch -D task/ELZ-123
+
+A task is done when its pull request is merged. Do not delete a branch that
+holds work that is not merged.
+
+## 8. Blocked, refused or stale
+
+- **Blocked.** Comment on the issue: the exact command, its output, the last
+  green commit and the decision that you need. Keep the branch. A dependency
+  that is not merged is not a blocker: the task is not ready.
+- **Push refused.** Fetch, then list the commits that another agent made on
+  your branch:
+
+      git fetch origin
+      git log --first-parent --no-merges --oneline HEAD..origin/task/ELZ-123
+
+  No output means that only the queue merged `main` into the branch: merge
+  `origin/task/ELZ-123` and push again. Do the same when a coordinator comment
+  on the issue names the listed commits as a repair. If not, another worker
+  holds the claim. Do not discard your work and do not merge. Push your commits
+  to a salvage branch, comment on the issue with its name, and pick another
+  task:
+
+      git push origin "HEAD:refs/heads/salvage/ELZ-123-$(git rev-parse --short HEAD)"
+
+- **Stale.** A claim is stale when no pull request is marked ready and the
+  last push to its branch is more than six hours old. This shows the last push
+  (or the creation of the branch):
+
+      gh api 'repos/balungpisah/elzoo/activity?ref=refs/heads/task/ELZ-123&per_page=1' --jq '.[0].timestamp'
+
+  Read the issue comments first. If one reports work that is not pushed, the
+  claim is not stale until 24 hours after that comment: ask on the issue for a
+  push, and pick another task. If not, adopt the claim with an empty commit. The random token makes the
+  commit unique, so only the first push succeeds. That push is the lock:
+
+      git fetch origin
+      git worktree add ../elzoo-ELZ-123 -b task/ELZ-123 origin/task/ELZ-123
+      git -C ../elzoo-ELZ-123 commit --allow-empty \
+        -m "ELZ-123: adopt $(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')"
+      git -C ../elzoo-ELZ-123 push origin task/ELZ-123
+
+  If that push is refused, another worker holds the claim: remove your
+  worktree, run `git branch -D task/ELZ-123` (it holds only your empty commit)
+  and pick another task. If it succeeds, comment "adopt" with the new
+  tip SHA on the issue and continue the branch.
+- Only the coordinator deletes a branch that is not merged, and only after it
+  pushes an archive ref of the exact tip
+  ([stale claims](docs/development/05-stale-claims.md)).
+
+## 9. Coordinator
+
+"Coordinator" is a role, not a person or a service. It sizes and publishes
+tasks, adds the rows of a new Piece ID, and merges. Its steps are in
+[coordinator](docs/development/13-coordinator.md). A worker does not need them.

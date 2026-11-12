@@ -1941,14 +1941,12 @@
       "kind": "proposal",
       "release": "V1",
       "stage": "pieces",
-      "outputs": [
-        "integration/observability"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "ELZ-004"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "superseded for integration/observability by published ELZ-106; provider prerequisite ELZ-107; output moved, readiness pending",
       "contract": "Versioned event schema, allowed fields and cardinality -> observations through one named exporter. Observations are not durable audit or accounting records.",
       "acceptance": "Secret-bearing payload redaction, bounded labels, exporter failure/drop behavior and attach/detach lifecycle. No payloads or credentials in emitted records.",
       "reuse": ":telemetry and OpenTelemetry; direct recipes wherever sufficient.",
@@ -2007,14 +2005,12 @@
       "kind": "proposal",
       "release": "V1",
       "stage": "pieces",
-      "outputs": [
-        "integration/secrets"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "ELZ-011"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "superseded for integration/secrets by published ELZ-105; output moved, readiness pending",
       "contract": "Opaque secret reference plus caller scope -> ephemeral credential or explicit denial/unavailable. Select injected credentials as initial backend; document refresh and rotation semantics without promising a vault.",
       "acceptance": "Wrong scope, missing secret, rotation boundary and error/log redaction; secret material never enters receipts or model context.",
       "reuse": "Consumer-owned environment/mounted-secret backend first; vault plugins later, separately tested.",
@@ -3595,6 +3591,231 @@
       "product_aims": [
         "P02"
       ]
+    },
+    {
+      "id": "ELZ-105",
+      "title": "ELZ-105 — Scoped credential references",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-011", "ELZ-079"],
+      "status": "implementation prepared locally; final-tree checks, review and coordinated acceptance pending",
+      "url": "https://github.com/balungpisah/elzoo/issues/197",
+      "paths": ["tasks/ELZ-105-scoped-credential-references.md"],
+      "outputs": ["integration/secrets"],
+      "acceptance": "Unchanged live issue body and byte-equal publication copy; scoped credential boundary and finite evidence as specified in the Contract.",
+      "issue": 197,
+      "issue_body_sha256": "0b29576da366bf5901f9f1bb745d6a80495f62e58b77830299a68c157b4f5a0f",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed task worker; coordinator owns integration",
+      "product_aims": ["P01", "P03", "P04", "P05", "P06", "P07", "P08", "P09", "P10", "P11", "P12"]
+    },
+    {
+      "id": "ELZ-107",
+      "title": "ELZ-107 — Prometheus provider prerequisite",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-052"],
+      "status": "published; claimed task/ELZ-107; provider verification and acceptance pending",
+      "url": "https://github.com/balungpisah/elzoo/issues/198",
+      "paths": ["tasks/ELZ-107-prometheus-provider-prerequisite.md"],
+      "outputs": [],
+      "acceptance": "Unchanged live issue body and byte-equal publication copy; exact provider closure/configuration and finite boundary evidence; no Piece readiness promotion.",
+      "issue": 198,
+      "issue_body_sha256": "fd83a22a11685527bc03b0df3690c10984f69b07d96976fa5291f09b05f8401a",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed provider worker; coordinator owns integration",
+      "product_aims": ["P01", "P05", "P07"]
+    },
+    {
+      "id": "ELZ-106",
+      "title": "ELZ-106 — Prometheus exporter",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-004", "ELZ-052", "ELZ-107"],
+      "status": "implementation reviewed; claimed task/ELZ-106 after ELZ-107 acceptance; publication held until ELZ-105 acceptance; corrected final checks and task acceptance pending",
+      "url": "https://github.com/balungpisah/elzoo/issues/199",
+      "paths": ["tasks/ELZ-106-prometheus-exporter.md"],
+      "outputs": ["integration/observability"],
+      "acceptance": "Unchanged live issue body and byte-equal publication copy; finite Prometheus exporter boundary evidence as specified in the Contract.",
+      "issue": 199,
+      "issue_body_sha256": "384fade7ab8b5a3dbeb7ebad19fa5b264b51a84a2d03273143206f38edf7d0b4",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed task worker; coordinator owns integration",
+      "product_aims": ["P01", "P05", "P07"]
+    },
+    {
+      "id": "ELZ-108",
+      "title": "ELZ-108 — Synchronize data-stream backpressure observation",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-101"
+      ],
+      "status": "published test-only ordering repair; claimed task/ELZ-108; independent review and acceptance pending",
+      "url": "https://github.com/balungpisah/elzoo/issues/201",
+      "paths": [
+        "tasks/ELZ-108-data-stream-observation.md"
+      ],
+      "outputs": [],
+      "acceptance": "Preserve existing backpressure assertions with a test-only Session-to-owner observation fence; controlled stale-summary regression and suppressed-publication negative control. No ready Contract or production source change.",
+      "issue": 201,
+      "issue_body_sha256": "80bd220c8030a6c400cdb47b77d51e8cab2829f01664238dfb77698e1b76d2af",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one test-repair worker; coordinator owns independent review and merge queue",
+      "product_aims": [
+        "P06"
+      ]
+    },
+    {
+      "id": "ELZ-109",
+      "title": "ELZ-109 — Align disposable PostgreSQL setup with validation requirements",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-101",
+        "ELZ-108"
+      ],
+      "status": "published setup repair; claimed task/ELZ-109; final review and acceptance pending",
+      "url": "https://github.com/balungpisah/elzoo/issues/202",
+      "paths": [
+        "tasks/ELZ-109-postgresql-setup.md"
+      ],
+      "outputs": [],
+      "acceptance": "Byte-equal published task copy; guarded disposable PostgreSQL settings, actual setup idempotence and connection verification, independent review and full exact-head evidence; no Piece or runtime Contract change.",
+      "issue": 202,
+      "issue_body_sha256": "4ec98095fabc0e11d1396591d8152d8846d5696ff982d04272b5189b7c5416bc",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one setup-repair worker; coordinator owns independent review and merge queue",
+      "product_aims": [
+        "P06"
+      ]
+    },
+    {
+      "id": "ELZ-110",
+      "title": "ELZ-110 — Recover hosted runtime installation through the official Ubuntu archive",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [],
+      "status": "published class-S CI repair; claimed task/ELZ-110; independent review and integration required",
+      "url": "https://github.com/balungpisah/elzoo/issues/204",
+      "paths": [
+        "tasks/ELZ-110.md"
+      ],
+      "outputs": [],
+      "acceptance": "One signed official-Ubuntu-archive runtime provisioning fallback, strict fresh metadata refresh and fail-closed controls; unchanged runner policy, packages, pins and required checks; exact-head hosted backend and Gleam evidence required.",
+      "issue": 204,
+      "issue_body_sha256": "4545f9e1644d906191622cd044d598b7856baa08573543e1c5e07cdda56a1f2e",
+      "observed_issue_state": "OPEN",
+      "owner_role": "one claimed task worker; coordinator owns independent review, queue and merge",
+      "product_aims": [
+        "P01"
+      ],
+      "product_role": "Supporting hosted CI availability, not an additional product prerequisite or catalogue capability."
+    },
+    {
+      "id": "ELZ-111",
+      "title": "ELZ-111 — Add a checked example to core/port",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [],
+      "status": "published 2026-11-12",
+      "url": "https://github.com/balungpisah/elzoo/issues/211",
+      "paths": [
+        "tasks/ELZ-111-core-port-example.md"
+      ],
+      "outputs": [],
+      "acceptance": "One example file of core/port that one test of the Piece evaluates with exact expected values; one added files entry, one README sentence and the new manifest hash. A negative control proves that the test fails on a wrong value. No Contract, lib or cure change.",
+      "issue": 211,
+      "issue_body_sha256": "9b072af622b1bc20ea244648895f253d535328a3d4a430d578c9216057cfa2bc",
+      "owner_role": "one claimed task worker; coordinator owns review and merge queue",
+      "product_aims": [
+        "P01",
+        "P02",
+        "P03",
+        "P04",
+        "P05",
+        "P06",
+        "P07",
+        "P08",
+        "P09",
+        "P10",
+        "P11",
+        "P12"
+      ],
+      "product_role": "Example and evidence for the ready Piece core/port; not an additional product prerequisite or catalogue capability."
+    },
+    {
+      "id": "ELZ-112",
+      "title": "ELZ-112 — Add a checked example to delivery/transformation",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [],
+      "status": "published 2026-11-12",
+      "url": "https://github.com/balungpisah/elzoo/issues/212",
+      "paths": [
+        "tasks/ELZ-112-delivery-transformation-example.md"
+      ],
+      "outputs": [],
+      "acceptance": "One example file of delivery/transformation that one test of the Piece evaluates with exact expected values; one added files entry, one README sentence and the new manifest hash. A negative control proves that the test fails on a wrong value. No Contract, lib or cure change.",
+      "issue": 212,
+      "issue_body_sha256": "c18c64d91e2ab5dcef36aabbbcd1ed2619554bb6f4091f1f6c6a5af6df2bf05d",
+      "owner_role": "one claimed task worker; coordinator owns review and merge queue",
+      "product_aims": [
+        "P01",
+        "P02",
+        "P03",
+        "P04",
+        "P05",
+        "P06",
+        "P07",
+        "P08",
+        "P09",
+        "P10",
+        "P11",
+        "P12"
+      ],
+      "product_role": "Example and evidence for the ready Piece delivery/transformation; not an additional product prerequisite or catalogue capability."
+    },
+    {
+      "id": "ELZ-113",
+      "title": "ELZ-113 — Add a checked example to core/edge",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [],
+      "status": "published 2026-11-12",
+      "url": "https://github.com/balungpisah/elzoo/issues/213",
+      "paths": [
+        "tasks/ELZ-113-core-edge-example.md"
+      ],
+      "outputs": [],
+      "acceptance": "One example file of core/edge that one test of the Piece evaluates with exact expected values; one added files entry, one README sentence and the new manifest hash. A negative control proves that the test fails on a wrong value. No Contract, lib or cure change.",
+      "issue": 213,
+      "issue_body_sha256": "c9170f11f11ac30e8c330a8c60e3b0b255ad3b7c5bbda6e71a01be22f2e52c25",
+      "owner_role": "one claimed task worker; coordinator owns review and merge queue",
+      "product_aims": [
+        "P01",
+        "P02",
+        "P03",
+        "P04",
+        "P05",
+        "P06",
+        "P07",
+        "P08",
+        "P09",
+        "P10",
+        "P11",
+        "P12"
+      ],
+      "product_role": "Example and evidence for the ready Piece core/edge; not an additional product prerequisite or catalogue capability."
     },
     {
       "id": "RC-44",
@@ -5196,11 +5417,13 @@
     },
     {
       "id": "integration/observability",
-      "job": "RC-03",
-      "note": "`:telemetry`/OpenTelemetry candidates; redaction and sampling are Elzoo contracts",
+      "job": "ELZ-106",
+      "note": "Opt-in v1 Prometheus text-format pull observation of six fixed Elzoo job/effect events and five fixed adapter/operation/family pairs: event counts and terminal duration microsecond sums, at most 15 count plus 10 duration series, only finite adapter/operation/phase labels; fixed registry, explicit initialization and singleton attach/detach, no exporter process or queue. Exclusive serialized host registry ownership and immutable absent/empty global labels are Needs. Missing/invalid duration does not suppress valid event count; provider failures lose updates and count/duration are not transactional. Catchable handler failures are contained without raw log/failure-event disclosure.",
       "baseline_status": "planned",
-      "disposition": "blocked-admission-proposal",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract on local stack; prerequisite and task acceptance separate",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/integration/observability/piece.json",
+      "manifest_sha256": "8ae17b97ff389a1e56ca22c44257bb5be24d5e36173f75b8cf471c1830a61bd3"
     },
     {
       "id": "integration/payments",
@@ -5229,11 +5452,13 @@
     },
     {
       "id": "integration/secrets",
-      "job": "RC-05",
-      "note": "Secret references, scope, rotation and redaction for C1/C3/C6/C7; use an established provider; secrets are not ordinary model context or log fields.",
+      "job": "ELZ-105",
+      "note": "Opt-in synchronous release of a binary credential snapshot for an exact bounded reference and scope under host-vouched current authority: one injected atomic resolver lookup, then one post-lookup Unix-ms expiry sample; redacted Credential with explicit reveal; malformed, unavailable, denied, missing and expired fixed failures. No store, process, cache, refresh or retry.",
       "baseline_status": "deferred",
-      "disposition": "blocked-admission-proposal",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract on task branch; task acceptance separate",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/integration/secrets/piece.json",
+      "manifest_sha256": "5c4ec22114a338537cf26296b83dbedf90d226c7954fd9e87aa06b5e18ab342f"
     },
     {
       "id": "integration/sql",

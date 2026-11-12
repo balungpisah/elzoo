@@ -133,13 +133,31 @@ if ! pg_lsclusters -h | awk -v v="$PG_MAJOR" '$1 == v && $2 == "main" { found = 
 fi
 sudo pg_ctlcluster "$PG_MAJOR" main start 2>/dev/null || true
 psql_admin() { sudo -u postgres psql -p "$(pg_conftool -s "$PG_MAJOR" main show port)" -v ON_ERROR_STOP=1 -qAt "$@"; }
-# Disposable test data: speed over durability. ALTER SYSTEM is cluster-wide, so leave a cluster
-# that already holds other databases alone.
+# ALTER SYSTEM is cluster-wide, so leave a cluster that already holds other databases alone.
 other_dbs="$(psql_admin -c "SELECT count(*) FROM pg_database WHERE datname NOT IN ('postgres', 'template0', 'template1', 'elzoo_test')")"
-if [ "$other_dbs" = 0 ] && [ "$(psql_admin -c 'SHOW fsync')" != off ]; then
-  psql_admin -c 'ALTER SYSTEM SET fsync = off' -c 'ALTER SYSTEM SET synchronous_commit = off' \
-    -c 'ALTER SYSTEM SET full_page_writes = off'
-  sudo pg_ctlcluster "$PG_MAJOR" main restart
+if [ "$other_dbs" = 0 ]; then
+  restart_needed=0
+  # Read the last configured value, including changes not yet reloaded, rather
+  # than the administrator session's possibly overridden effective value.
+  configured_setting() {
+    psql_admin -c "SELECT COALESCE((SELECT setting FROM pg_file_settings WHERE name = '$1' ORDER BY seqno DESC LIMIT 1), (SELECT boot_val FROM pg_settings WHERE name = '$1'))"
+  }
+  for setting in fsync synchronous_commit full_page_writes; do
+    if [ "$(configured_setting "$setting")" != on ]; then
+      psql_admin -c "ALTER SYSTEM SET $setting = 'on'"
+    fi
+  done
+  if [ "$(configured_setting max_connections)" != 300 ]; then
+    psql_admin -c "ALTER SYSTEM SET max_connections = '300'"
+  fi
+  if [ "$(psql_admin -c 'SHOW max_connections')" != 300 ]; then
+    restart_needed=1
+  fi
+  if [ "$restart_needed" = 1 ]; then
+    sudo pg_ctlcluster "$PG_MAJOR" main restart
+  else
+    psql_admin -c 'SELECT pg_reload_conf()' >/dev/null
+  fi
 fi
 pg_port="$(pg_conftool -s "$PG_MAJOR" main show port)"
 if [ "$(psql_admin -c "SELECT 1 FROM pg_roles WHERE rolname = 'elzoo_test'")" != 1 ]; then
@@ -149,6 +167,12 @@ if [ "$(psql_admin -c "SELECT 1 FROM pg_database WHERE datname = 'elzoo_test'")"
   sudo -u postgres createdb -p "$pg_port" -O elzoo_test elzoo_test
 fi
 psql_admin -d elzoo_test -c 'CREATE EXTENSION IF NOT EXISTS vector'
+# Check the actual test connection, including database and role overrides; do not overwrite them.
+test_settings="$(PGPASSWORD=elzoo_test psql -h localhost -p "$pg_port" -U elzoo_test -d elzoo_test -v ON_ERROR_STOP=1 -qAt -c "SELECT current_setting('fsync'), current_setting('synchronous_commit'), current_setting('full_page_writes'), current_setting('max_connections')")"
+if [ "$test_settings" != 'on|on|on|300' ]; then
+  echo "PostgreSQL test connection settings differ from on|on|on|300: $test_settings" >&2
+  exit 1
+fi
 done_step
 
 step "Login shell environment"

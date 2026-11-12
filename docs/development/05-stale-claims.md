@@ -1,5 +1,8 @@
 # Stale claims and handoff
 
+> **Replaced for workflow rules.** `AGENTS.md` at the repository root is the workflow. Where this page
+> differs, `AGENTS.md` wins. Do not read this page for a task. The time limits here are replaced. The archive-then-delete commands stay valid for the coordinator.
+
 The deterministic task branch is the claim. GitHub labels/comments do not
 replace it. A claimant posts a heartbeat at least every 24 hours with the
 latest commit and next action.
