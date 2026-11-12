@@ -117,6 +117,49 @@ recreates the container from the pgvector variant with the same Debian base,
 observed 2026-11-09; re-verify before use), keeping the data volume, then
 creates the extension as above. The same Debian base keeps the C library
 collation of the existing data directory unchanged.
+
+### Services for one worktree (developer host with Docker)
+
+On a developer host with Docker, one command gives a worktree its own test
+services, so that workers on one host share no database server:
+
+    python3 scripts/worker-services.py up      # once, after the claim
+    . .elzoo-services/env.sh                   # in each shell that runs Mix
+    python3 scripts/worker-services.py status
+    python3 scripts/worker-services.py down    # before `git worktree remove`
+
+`up` starts two containers for the worktree and checks each one as the tests
+use it:
+
+- its own PostgreSQL server from the image and digest of the job `check-root`
+  (read from the workflow), with the role and database `elzoo_test` and the
+  `vector` extension that the superuser creates, as in that job;
+- its own S3 test server: the MinIO release of `scripts/ci-minio.py`, the
+  asset for the architecture of the Docker server, checked against a pinned
+  size and SHA-256 (a mismatch stops `up`), with the same bucket and region.
+  It runs in a container of the same pinned image; no official container
+  image of that release exists.
+
+Both publish their port on `127.0.0.1` only, on a port that Docker chooses.
+The credentials are random for each worktree, are written only to the
+Git-ignored file `.elzoo-services/env.sh` (mode 0600) and are never printed.
+`up` is idempotent: it reuses running containers, starts stopped ones and
+follows a changed port. It recreates the services of the worktree when the
+environment file is missing or the pinned image changed. When the worktree
+has no `_build` and `deps`, `up` clones them (copy-on-write) from another
+worktree with the same `mix.exs`, `mix.lock` and `.tool-versions`, and runs
+`mix setup` when no such worktree exists. After a clone, the first Mix command
+compiles the modules of the project again, not the dependencies. `--no-build`
+skips this step.
+
+Names derive from the worktree path, and each container and volume carries
+the label of its worktree. `down` removes only those, and the two files of
+`.elzoo-services/`; `down --worktree PATH` also works for a path that is
+already removed. The verified binary stays in a cache under
+`~/.cache/elzoo-worker-services/` for the next worktree.
+
+This command is for a developer host only. Its results are never merge
+evidence: the hosted check on the exact pull request head is.
 mix check must compile real Cure, execute selected Cure proofs, meaningful
 runtime tests and negative controls. It is not documentation or formatting
 lint. The default retains every independent consumer, including the full
