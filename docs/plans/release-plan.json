@@ -3901,7 +3901,7 @@
       "disposition": "retained-ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/core/edge/piece.json",
-      "manifest_sha256": "dc30fabb409aafd142b82c32383dabe8d02958d38df0472d0c371df9cc870b55"
+      "manifest_sha256": "ee75c26f1e4c9fe893354de6d51f4cb6e5ef79f0c7e7ce2dc6e25f8243035556"
     },
     {
       "id": "core/effect",
