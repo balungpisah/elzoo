@@ -537,8 +537,37 @@ def same_files(a, b, files):
     return True
 
 
+LOCK_ENTRY = re.compile(r'^\s*"([^"]+)": \{', re.M)
+LOCK_HEX = re.compile(r'^\s*"([^"]+)": \{:hex, :\w+, "[^"]+", "([0-9a-f]{64})", .*"([0-9a-f]{64})"\},?$', re.M)
+LOCK_GIT = re.compile(r'^\s*"([^"]+)": \{:git, "[^"]+", "([0-9a-f]{40})", ', re.M)
+
+
+def deps_match_lock(project):
+    """True when `deps` holds every entry of mix.lock as locked: a Hex package with both locked checksums in its
+    `.hex` file, a Git dependency checked out at the locked revision. An equal mix.lock file alone does not prove
+    this: a checkout can hold an older `deps`."""
+    project = pathlib.Path(project)
+    try:
+        lock_text = (project / "mix.lock").read_text(encoding="utf-8")
+        entries = LOCK_ENTRY.findall(lock_text)
+        hex_entries, git_entries = LOCK_HEX.findall(lock_text), LOCK_GIT.findall(lock_text)
+        if not entries or len(entries) != len(hex_entries) + len(git_entries):
+            return False
+        for name, inner, outer in hex_entries:
+            recorded = (project / "deps" / name / ".hex").read_bytes()
+            if inner.encode() not in recorded or outer.encode() not in recorded:
+                return False
+        for name, revision in git_entries:
+            if (project / "deps" / name / ".git" / "HEAD").read_text().strip() != revision:
+                return False
+    except (OSError, UnicodeDecodeError):
+        return False
+    return True
+
+
 def build_plan(root, candidates):
-    """For each build pair with neither `_build` nor `deps`: the first candidate with equal pins, or None.
+    """For each build pair with neither `_build` nor `deps`: the first candidate with equal pins and a `deps` that
+    matches its lock.
 
     Returns (pairs to clone as (subdir, source), pairs that are partly present or have no safe source).
     """
@@ -556,7 +585,8 @@ def build_plan(root, candidates):
             if candidate.resolve() == root:
                 continue
             there = candidate / subdir
-            if (there / "_build").is_dir() and (there / "deps").is_dir() and same_files(here, there, files):
+            if ((there / "_build").is_dir() and (there / "deps").is_dir() and same_files(here, there, files)
+                    and deps_match_lock(there)):
                 clone.append((subdir, candidate))
                 break
         else:
