@@ -895,7 +895,8 @@
       "summary": "Run owner with durable approval release without dispatch",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/run-approval-release/piece.json",
       "reason": "Bot platform wave 1 (P13). A distinct Run owner retains approval release without dispatch, enabling resource-owned dispatch; ready workflow/run remains unchanged."
     },
     {
