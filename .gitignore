@@ -11,7 +11,3 @@
 
 # Disposable test services of scripts/worker-services.py (credentials)
 /.elzoo-services/
-
-# Temporary names of a build clone of scripts/worker-services.py (removed on failure or interrupt)
-._build.clone-*
-.deps.clone-*

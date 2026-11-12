@@ -32,35 +32,10 @@ DIGEST = IMAGE.rsplit("@", 1)[1]
 BINARY = b"\x7fELF fake minio\n" * 64
 
 
-REVISION = "208248063d64e621782cd26dd30698ee42850a89"
-
-
-def checksums(version):
-    return hashlib.sha256(b"inner" + version.encode()).hexdigest(), hashlib.sha256(b"outer" + version.encode()).hexdigest()
-
-
-def lock_text(version):
-    inner, outer = checksums(version)
-    return ("%{\n"
-            f'  "cure": {{:git, "https://example.invalid/cure.git", "{REVISION}", [ref: "{REVISION}", depth: 1]}},\n'
-            f'  "jason": {{:hex, :jason, "{version}", "{inner}", [:mix], [], "hexpm", "{outer}"}},\n'
-            "}\n")
-
-
-def fetch_deps(project, version):
-    """What `mix deps.get` leaves on disk for lock_text(version)."""
-    inner, outer = checksums(version)
-    (project / "deps" / "jason").mkdir(parents=True)
-    (project / "deps" / "jason" / ".hex").write_bytes(b"\x83h\x02inner_checksumm\x00@" + inner.encode()
-                                                      + b"outer_checksumm\x00@" + outer.encode())
-    (project / "deps" / "cure" / ".git").mkdir(parents=True)
-    (project / "deps" / "cure" / ".git" / "HEAD").write_text(REVISION + "\n")
-
-
 class FakeDocker:
     """Interprets the docker and git command lines that the script runs, and keeps their state."""
 
-    def __init__(self, arch="arm64", vector="0.8.7", repo_digests=None, worktree_list=""):
+    def __init__(self, arch="arm64", vector="0.8.7", repo_digests=None):
         self.arch = arch
         self.vector = vector
         self.repo_digests = repo_digests if repo_digests is not None else [f"pgvector/pgvector@{DIGEST}"]
@@ -71,10 +46,7 @@ class FakeDocker:
         self.calls = []
         self.queries = []
         self.next_port = 41000
-        self.worktree_list = worktree_list
         self.toplevel = None
-        self.otp = "29.1.2"
-        self.elixir = "Erlang/OTP 29 [erts-16.1]\n\nElixir 1.20.4 (compiled with Erlang/OTP 29)\n"
         self.fail = {}
 
     def pg_query(self, host, port, user, password, database, sql):
@@ -91,24 +63,14 @@ class FakeDocker:
     def add_foreign(self, name, labels=None, running=True):
         self.containers[name] = {"labels": labels or {}, "image": "postgres:18", "running": running, "ports": {}}
 
-    def __call__(self, argv, input=None, env=None, cwd=None, stream=False):
-        self.calls.append({"argv": list(argv), "input": input, "env": dict(env) if env else None, "cwd": cwd})
+    def __call__(self, argv, input=None, env=None):
+        self.calls.append({"argv": list(argv), "input": input, "env": dict(env) if env else None})
         key = tuple(argv[:2])
         if key in self.fail:
             return self.fail[key]
         if argv[0] == "git":
             if "rev-parse" in argv:
                 return 0, (self.toplevel or argv[2]) + "\n", ""
-            return 0, self.worktree_list, ""
-        if argv[0] == "mix":
-            return 0, "", ""
-        if argv[0] == "erl":
-            return (0, self.otp, "") if self.otp else (127, "", "erl: not found")
-        if argv[0] == "elixir":
-            return 0, self.elixir, ""
-        if argv[0] == "cp":
-            shutil.copytree(argv[-2], argv[-1])
-            return 0, "", ""
         command = argv[1]
         if command == "version":
             return 0, self.arch + "\n", ""
@@ -190,8 +152,6 @@ class FakeDocker:
         if command == "exec":
             if "pg_isready" in argv:
                 return 0, "", ""
-            if "-c" in argv:
-                return 0, f"16.15|100|{self.vector}\n", ""
             if input:
                 match = re.search(r"\\set pw '([^']+)'", input.decode())
                 if match:
@@ -769,223 +729,6 @@ class Down(ServicesCase):
         self.assertEqual(0, self.services(root).status())
         for secret in self.secrets_of(root):
             self.assertFalse(any(secret in line for line in self.lines))
-
-
-class Build(unittest.TestCase):
-    def setUp(self):
-        self.tmp = pathlib.Path(tempfile.mkdtemp(prefix="elzoo-ws-build-")).resolve()
-        self.addCleanup(shutil.rmtree, self.tmp, True)
-
-    def checkout(self, name, lock="1.4.5", tools="elixir 1.20.4-otp-29\nerlang 29.1.2\n", built=True, spike=True,
-                 fetched=True):
-        """A checkout whose mix.lock has one Hex and one Git entry; `lock` is the Hex version (it changes the lock)."""
-        root = self.tmp / name
-        spike_dir = root / "spikes" / "ash_foundation"
-        spike_dir.mkdir(parents=True)
-        for directory, version, files in ((root, lock, {"mix.exs": "app: :elzoo,", ".tool-versions": tools}),
-                                          (spike_dir, "3.0.0", {"mix.exs": "app: :elzoo_ash_spike,"})):
-            files["mix.lock"] = lock_text(version)
-            for file, text in files.items():
-                (directory / file).write_text(text)
-            if built and (spike or directory == root):
-                app = "elzoo" if directory == root else "elzoo_ash_spike"
-                for own in ("lib/jason/ebin", f"lib/{app}/ebin", "consolidated"):
-                    (directory / "_build" / "test" / own).mkdir(parents=True)
-                    (directory / "_build" / "test" / own / "x.beam").write_bytes(b"beam")
-                fetch_deps(directory, version if fetched else "0.0.0")
-        return root
-
-    def test_deps_match_lock_needs_each_locked_checksum_and_revision(self):
-        good = self.checkout("good")
-        self.assertTrue(ws.deps_match_lock(good))
-        self.assertTrue(ws.deps_match_lock(good / "spikes" / "ash_foundation"))
-        self.assertFalse(ws.deps_match_lock(self.checkout("stale", fetched=False)))
-        for damage in ("hex", "git", "missing", "unknown-entry"):
-            with self.subTest(damage=damage):
-                root = self.checkout(damage)
-                if damage == "hex":
-                    (root / "deps" / "jason" / ".hex").write_bytes(b"other")
-                elif damage == "git":
-                    (root / "deps" / "cure" / ".git" / "HEAD").write_text("f" * 40 + "\n")
-                elif damage == "missing":
-                    shutil.rmtree(root / "deps" / "jason")
-                else:
-                    text = (root / "mix.lock").read_text().replace("%{\n", '%{\n  "odd": {:path, "x"},\n')
-                    (root / "mix.lock").write_text(text)
-                self.assertFalse(ws.deps_match_lock(root))
-
-    def test_a_candidate_with_stale_deps_is_skipped(self):
-        here = self.checkout("here", built=False)
-        stale = self.checkout("stale", fetched=False)
-        good = self.checkout("good")
-        clone, missing = ws.build_plan(here, [stale, good])
-        self.assertEqual([(".", good), ("spikes/ash_foundation", good)], clone)
-        self.assertEqual(([], [".", "spikes/ash_foundation"]), ws.build_plan(here, [stale]))
-
-    def test_a_worktree_with_both_directories_is_left_alone(self):
-        here = self.checkout("here")
-        self.assertEqual(([], []), ws.build_plan(here, [self.checkout("main")]))
-
-    def test_the_first_candidate_with_equal_pins_is_chosen(self):
-        here = self.checkout("here", built=False)
-        other_lock = self.checkout("a", lock="1.4.6")
-        other_tools = self.checkout("b", tools="elixir 1.19.0\n")
-        unbuilt = self.checkout("c", built=False)
-        good = self.checkout("d")
-        clone, missing = ws.build_plan(here, [here, other_tools, unbuilt, other_lock, good])
-        # The spike is its own Mix project: its pins are its mix files and the toolchain, not the root lock.
-        self.assertEqual([(".", good), ("spikes/ash_foundation", other_lock)], clone)
-        self.assertEqual([], missing)
-
-    def test_no_safe_source_or_a_partial_build_falls_back(self):
-        here = self.checkout("here", built=False)
-        self.assertEqual(([], [".", "spikes/ash_foundation"]),
-                         ws.build_plan(here, [self.checkout("a", lock="9.9.9", tools="elixir 1.19.0\n")]))
-        partial = self.checkout("partial")
-        shutil.rmtree(partial / "deps")
-        clone, missing = ws.build_plan(partial, [self.checkout("main")])
-        self.assertEqual(["."], missing)
-        self.assertEqual([], clone)
-
-    def test_warm_build_clones_then_mix_runs_only_when_needed(self):
-        here = self.checkout("here", built=False)
-        main = self.checkout("main")
-        docker = FakeDocker(worktree_list=f"worktree {main}\nHEAD x\n\nworktree {here}\n")
-        lines = []
-        ws.warm_build(here, docker, lines.append, system=lambda: "Darwin")
-        cps = [c["argv"] for c in docker.calls if c["argv"][0] == "cp"]
-        self.assertEqual(4, len(cps))
-        self.assertTrue(all(argv[:2] == ["cp", "-Rc"] for argv in cps))
-        self.assertTrue((here / "_build" / "test").is_dir() and ws.deps_match_lock(here / "spikes/ash_foundation"))
-        self.assertFalse([c for c in docker.calls if c["argv"][0] == "mix"])
-        other = self.checkout("other", built=False, lock="2.0.0")
-        docker = FakeDocker(worktree_list=f"worktree {main}\n")
-        ws.warm_build(other, docker, lines.append, system=lambda: "Linux")
-        self.assertEqual([["mix", "setup"]], [c["argv"] for c in docker.calls if c["argv"][0] == "mix"])
-
-    def test_clone_uses_reflink_on_linux_and_leaves_no_partial_target_on_failure(self):
-        source = self.tmp / "src"
-        (source / "a").mkdir(parents=True)
-        seen = []
-
-        def failing(argv, **kw):
-            seen.append(argv)
-            pathlib.Path(argv[-1]).mkdir()
-            return 1, "", "no space"
-        with self.assertRaisesRegex(ws.Stop, "clone of _build failed"):
-            ws.clone_dir(source, self.tmp / "_build", failing, system=lambda: "Linux")
-        self.assertEqual(["cp", "-a", "--reflink=auto"], seen[0][:3])
-        self.assertEqual(["src"], [p.name for p in self.tmp.iterdir()])
-
-
-class BuildSafety(unittest.TestCase):
-    setUp, checkout = Build.setUp, Build.checkout
-
-    def clone_into_here(self, docker=None, runner=None):
-        here = self.checkout("here", built=False)
-        main = self.checkout("main")
-        docker = docker or FakeDocker()
-        docker.worktree_list = f"worktree {main}\n"
-        lines = []
-        ws.warm_build(here, runner or docker, lines.append, system=lambda: "Darwin")
-        return here, docker, lines
-
-    def test_the_compiled_project_itself_is_not_cloned(self):
-        here, _docker, _lines = self.clone_into_here()
-        for project, app in ((here, "elzoo"), (here / "spikes" / "ash_foundation", "elzoo_ash_spike")):
-            self.assertTrue((project / "_build" / "test" / "lib" / "jason" / "ebin" / "x.beam").is_file())
-            self.assertFalse((project / "_build" / "test" / "lib" / app).exists())
-            self.assertFalse((project / "_build" / "test" / "consolidated").exists())
-
-    def test_deps_that_change_during_the_copy_discard_the_clone(self):
-        docker = FakeDocker()
-        original = docker.__call__
-
-        def runner(argv, **kw):
-            result = original(argv, **kw)
-            if argv[0] == "cp" and pathlib.Path(argv[-1]).name.startswith(".deps.clone-") \
-                    and "spikes" not in argv[-1]:
-                (pathlib.Path(argv[-1]) / "jason" / ".hex").write_bytes(b"changed by a deps.get in the source")
-            return result
-        here, _docker, lines = self.clone_into_here(docker, runner)
-        self.assertFalse((here / "_build").exists() or (here / "deps").exists())
-        self.assertTrue(ws.deps_match_lock(here / "spikes" / "ash_foundation"))
-        self.assertTrue(any("no clone of .: the cloned deps do not match" in line for line in lines), lines)
-        self.assertEqual([["mix", "setup"]], [c["argv"] for c in docker.calls if c["argv"][0] == "mix"])
-
-    def test_a_build_that_holds_an_absolute_path_of_another_checkout_is_not_cloned(self):
-        # A real Mix build holds the path of the worktree that compiled it (in beams of `_build`, and in `deps`),
-        # also when that worktree is no longer listed by Git.
-        for where, owner in (("_build/test/lib/jason/ebin/x.beam", "main"),
-                             ("deps/cure/_build/stage/.cure_manifest", "main"),
-                             ("_build/test/lib/cure/ebin/x.beam", "removed-worktree")):
-            with self.subTest(where=where, owner=owner):
-                shutil.rmtree(self.tmp)
-                self.tmp.mkdir()
-                here = self.checkout("here", built=False)
-                main = self.checkout("main")
-                target = main / where
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(b"\x00" + str(self.tmp / owner).encode() + b"/deps/cure/lib/std/option.cure\x00")
-                docker = FakeDocker(worktree_list=f"worktree {main}\nworktree {here}\n")
-                lines = []
-                ws.warm_build(here, docker, lines.append, system=lambda: "Darwin")
-                self.assertFalse((here / "_build").exists() or (here / "deps").exists())
-                self.assertTrue(any("no clone of .: the build of the source holds" in line for line in lines), lines)
-                self.assertEqual([["mix", "setup"]], [c["argv"] for c in docker.calls if c["argv"][0] == "mix"])
-
-    def test_a_path_into_the_own_deps_or_outside_any_deps_does_not_count(self):
-        project = self.checkout("here")
-        beam = project / "_build" / "test" / "lib" / "jason" / "ebin" / "x.beam"
-        beam.write_bytes(str(project).encode() + b"/deps/jason/lib/jason.ex\x00/usr/lib/elixir/lib/elixir/x.ex"
-                         b"\x00/rust/deps/x/src/lib.rs\x00/../deps/heroicons/x.svg")
-        self.assertIsNone(ws.holds_foreign_path(project, project))
-        self.assertEqual(str(beam), ws.holds_foreign_path(project, self.tmp / "other"))
-
-    def test_a_build_that_gains_a_worktree_path_during_the_copy_is_discarded(self):
-        docker = FakeDocker()
-        original = docker.__call__
-
-        def runner(argv, **kw):
-            result = original(argv, **kw)
-            if argv[0] == "cp" and pathlib.Path(argv[-1]).name.startswith("._build.clone-") \
-                    and "spikes" not in argv[-1]:
-                (pathlib.Path(argv[-1]) / "test" / "lib" / "jason" / "ebin" / "x.beam").write_bytes(
-                    str(pathlib.Path(argv[-2]).parent).encode() + b"/deps/jason/lib/jason.ex")
-            return result
-        here, _docker, lines = self.clone_into_here(docker, runner)
-        self.assertFalse((here / "_build").exists() or (here / "deps").exists())
-        self.assertTrue(any("no clone of .: the cloned build holds" in line for line in lines), lines)
-
-    def test_a_toolchain_on_path_other_than_tool_versions_refuses_the_clone(self):
-        for otp, elixir in (("28.0", None), (None, None),
-                            ("29.1.2", "Elixir 1.20.4 (compiled with Erlang/OTP 28)\n"),
-                            ("29.1.2", "Elixir 1.19.0 (compiled with Erlang/OTP 29)\n")):
-            with self.subTest(otp=otp, elixir=elixir):
-                shutil.rmtree(self.tmp)
-                self.tmp.mkdir()
-                docker = FakeDocker()
-                docker.otp = otp
-                docker.elixir = elixir or docker.elixir
-                here, _docker, lines = self.clone_into_here(docker)
-                self.assertEqual([], [c for c in docker.calls if c["argv"][0] == "cp"])
-                self.assertEqual([["mix", "setup"]], [c["argv"] for c in docker.calls if c["argv"][0] == "mix"])
-                self.assertTrue(any("no clone:" in line for line in lines), lines)
-
-    def test_an_interrupted_clone_leaves_no_temporary_directory_and_git_ignores_its_name(self):
-        source = self.tmp / "src"
-        (source / "a").mkdir(parents=True)
-
-        def interrupted(argv, **kw):
-            shutil.copytree(argv[-2], argv[-1])
-            raise KeyboardInterrupt
-        with self.assertRaises(KeyboardInterrupt):
-            ws.clone_dir(source, self.tmp / "_build", interrupted, system=lambda: "Darwin")
-        self.assertEqual(["src"], [p.name for p in self.tmp.iterdir()])
-        for name in ("._build.clone-123", ".deps.clone-123", "spikes/ash_foundation/._build.clone-1",
-                     "spikes/ash_foundation/.deps.clone-1"):
-            with self.subTest(name=name):
-                self.assertEqual(0, ws.run(["git", "-C", str(ROOT), "check-ignore", "-q", "--no-index", name])[0])
 
 
 class CommandLine(unittest.TestCase):

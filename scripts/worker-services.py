@@ -12,9 +12,6 @@ database server, and it matches the services of the hosted job `check-root`:
 - S3 test server: the MinIO release that scripts/ci-minio.py pins, the asset for the architecture of the Docker
   server, checked against a pinned size and SHA-256 (fail closed), run in a container of the same pinned image,
   with the bucket and the region of scripts/ci-minio.py.
-- Warm build: when `_build` and `deps` are missing, a copy-on-write clone from another worktree of the same
-  repository with the same mix.exs, mix.lock and .tool-versions, without the compiled project itself, and only
-  when `erl` and `elixir` on PATH match .tool-versions; else `mix setup`.
 
 Both containers sit on one Docker network of their own and publish their port on 127.0.0.1 only, on a free port
 that Docker chooses. Names derive from the worktree path; each container, volume and network carries the label of
@@ -34,10 +31,8 @@ import io
 import json
 import os
 import pathlib
-import platform
 import re
 import secrets
-import shutil
 import socket
 import stat
 import struct
@@ -84,25 +79,13 @@ MINIO_ASSETS = {
 }
 MINIO_SERVER_ENV = {"MINIO_BROWSER": "off", "MINIO_CI_CD": "1", "MINIO_UPDATE": "off", "MINIO_API_REQUESTS_MAX": "0"}
 
-# Files that must be equal before a build is cloned from another worktree (the root project and the Ash spike).
-# The `.tool-versions` line names the file that also pins the `erl` and `elixir` on PATH.
-TOOL_VERSIONS = ".tool-versions"
-BUILD_PAIRS = (
-    (".", ("mix.exs", "mix.lock", ".tool-versions")),
-    ("spikes/ash_foundation", ("mix.exs", "mix.lock", "../../.tool-versions")),
-)
-
 
 # --- process runner -----------------------------------------------------------------------------------------------
 
-def run(argv, input=None, env=None, cwd=None, stream=False):
-    """Run one command: (exit code, stdout text, stderr text). Never raises for a non-zero exit.
-
-    With stream=True the output goes to the terminal and is not captured (used for `mix setup`)."""
+def run(argv, input=None, env=None):
+    """Run one command: (exit code, stdout text, stderr text). Never raises for a non-zero exit."""
     try:
-        if stream:
-            return subprocess.run(argv, env=env, cwd=cwd).returncode, "", ""
-        done = subprocess.run(argv, input=input, capture_output=True, env=env, cwd=cwd)
+        done = subprocess.run(argv, input=input, capture_output=True, env=env)
     except FileNotFoundError:
         return 127, "", f"{argv[0]}: not found"
     return done.returncode, done.stdout.decode(errors="replace"), done.stderr.decode(errors="replace")
@@ -736,226 +719,6 @@ def lock(path):
             fcntl.flock(handle, fcntl.LOCK_UN)
 
 
-# --- warm build --------------------------------------------------------------------------------------------------
-
-def worktrees(root, runner=run):
-    out = must(runner, ["git", "-C", str(root), "worktree", "list", "--porcelain"], "git worktree list")
-    return [pathlib.Path(line[len("worktree "):]) for line in out.splitlines() if line.startswith("worktree ")]
-
-
-def same_files(a, b, files):
-    for name in files:
-        try:
-            if (a / name).read_bytes() != (b / name).read_bytes():
-                return False
-        except OSError:
-            return False
-    return True
-
-
-LOCK_ENTRY = re.compile(r'^\s*"([^"]+)": \{', re.M)
-LOCK_HEX = re.compile(r'^\s*"([^"]+)": \{:hex, :\w+, "[^"]+", "([0-9a-f]{64})", .*"([0-9a-f]{64})"\},?$', re.M)
-LOCK_GIT = re.compile(r'^\s*"([^"]+)": \{:git, "[^"]+", "([0-9a-f]{40})", ', re.M)
-
-
-def deps_match_lock(project):
-    """True when `deps` holds every entry of mix.lock as locked: a Hex package with both locked checksums in its
-    `.hex` file, a Git dependency checked out at the locked revision. An equal mix.lock file alone does not prove
-    this: a checkout can hold an older `deps`."""
-    project = pathlib.Path(project)
-    try:
-        lock_text = (project / "mix.lock").read_text(encoding="utf-8")
-        entries = LOCK_ENTRY.findall(lock_text)
-        hex_entries, git_entries = LOCK_HEX.findall(lock_text), LOCK_GIT.findall(lock_text)
-        if not entries or len(entries) != len(hex_entries) + len(git_entries):
-            return False
-        for name, inner, outer in hex_entries:
-            recorded = (project / "deps" / name / ".hex").read_bytes()
-            if inner.encode() not in recorded or outer.encode() not in recorded:
-                return False
-        for name, revision in git_entries:
-            if (project / "deps" / name / ".git" / "HEAD").read_text().strip() != revision:
-                return False
-    except (OSError, UnicodeDecodeError):
-        return False
-    return True
-
-
-def project_app(project):
-    """The OTP application name of a Mix project (`app: :name` in mix.exs), or None."""
-    try:
-        match = re.search(r"\bapp:\s*:([a-z_][a-z0-9_]*)", (pathlib.Path(project) / "mix.exs").read_text("utf-8"))
-    except OSError:
-        return None
-    return match.group(1) if match else None
-
-
-ERL_VERSION = ("erl", "-noshell", "-eval",
-               'io:put_chars(element(2, file:read_file(filename:join([code:root_dir(), "releases", '
-               'erlang:system_info(otp_release), "OTP_VERSION"])))), halt().')
-
-
-def toolchain_mismatch(root, runner=run):
-    """None when `erl` and `elixir` on PATH are the versions of .tool-versions, else the reason in one line."""
-    try:
-        pins = dict(line.split()[:2] for line in (pathlib.Path(root) / TOOL_VERSIONS).read_text("utf-8").splitlines()
-                    if len(line.split()) >= 2 and not line.startswith("#"))
-    except OSError:
-        return f"{TOOL_VERSIONS} is not readable"
-    if "erlang" not in pins or "elixir" not in pins:
-        return f"{TOOL_VERSIONS} does not pin both erlang and elixir"
-    code, out, _err = runner(list(ERL_VERSION))
-    if code != 0 or out.strip() != pins["erlang"]:
-        return f"erl on PATH is OTP {out.strip() or 'unknown'}, {TOOL_VERSIONS} pins {pins['erlang']}"
-    code, out, _err = runner(["elixir", "--version"])
-    match = re.search(r"^Elixir (\S+) \(compiled with Erlang/OTP (\d+)\)", out, re.M) if code == 0 else None
-    found = f"{match.group(1)}-otp-{match.group(2)}" if match else "unknown"
-    wanted = pins["elixir"] if "-otp-" in pins["elixir"] else None
-    if not match or (found != wanted if wanted else match.group(1) != pins["elixir"]):
-        return f"elixir on PATH is {found}, {TOOL_VERSIONS} pins {pins['elixir']}"
-    return None
-
-
-def build_plan(root, candidates):
-    """For each build pair with neither `_build` nor `deps`: the first candidate with equal pins and a `deps` that
-    matches its lock.
-
-    Returns (pairs to clone as (subdir, source), pairs that are partly present or have no safe source).
-    """
-    clone, missing = [], []
-    root = pathlib.Path(root).resolve()
-    for subdir, files in BUILD_PAIRS:
-        here = root / subdir
-        present = [(here / d).exists() for d in ("_build", "deps")]
-        if all(present):
-            continue
-        if any(present):
-            missing.append(subdir)
-            continue
-        for candidate in candidates:
-            if candidate.resolve() == root:
-                continue
-            there = candidate / subdir
-            if ((there / "_build").is_dir() and (there / "deps").is_dir() and same_files(here, there, files)
-                    and deps_match_lock(there)):
-                clone.append((subdir, candidate))
-                break
-        else:
-            missing.append(subdir)
-    return clone, missing
-
-
-def clone_dir(source, target, runner=run, system=platform.system, prune=None):
-    """Copy-on-write clone of a directory, through a temporary name so that a failure or an interrupt leaves no
-    partial target and no temporary directory. `prune(partial)` runs before the rename."""
-    partial = target.with_name(f".{target.name}.clone-{os.getpid()}")
-    argv = ["cp", "-Rc", str(source), str(partial)] if system() == "Darwin" else \
-        ["cp", "-a", "--reflink=auto", str(source), str(partial)]
-    try:
-        code, _out, err = runner(argv)
-        if code != 0:
-            raise Stop(f"clone of {target.name} failed (exit {code}: {err.strip()[:200]})")
-        if prune:
-            prune(partial)
-        partial.rename(target)
-    finally:
-        if os.path.lexists(partial):
-            shutil.rmtree(partial, ignore_errors=True)
-
-
-def without_project(app):
-    """A prune step: remove the compiled project itself (`<env>/lib/<app>` and `<env>/consolidated`) from a
-    cloned `_build`, so that Mix compiles the project in this worktree and no copied project file can be stale."""
-    def prune(build):
-        for env_dir in pathlib.Path(build).iterdir():
-            for own in (env_dir / "lib" / app, env_dir / "consolidated"):
-                if os.path.lexists(own):
-                    shutil.rmtree(own)
-    return prune
-
-
-FOREIGN_DEPS_PATH = re.compile(rb"(/[^\x00-\x20\"'<>|]+?)/deps/[A-Za-z0-9_.-]+/")
-
-
-def holds_foreign_path(project, own):
-    """The first file under `_build` or `deps` of `project` that holds an absolute path into the `deps` directory of
-    a Mix project other than `own`, under the same top directory as `own` (a path of this host, such as /Users or
-    /home; a path where a package was built, such as /rust in a precompiled NIF, does not count), or None.
-
-    Measured on a developer host: compiled dependencies (in `_build`, and in `deps`, for example the Cure standard
-    library stage) hold the absolute path of the worktree that compiled them, also after a copy and also when that
-    worktree is no longer listed; Mix uses such a copied build without a recompile, and Cure then resolves its
-    standard library through the other worktree."""
-    own = str(pathlib.Path(own).resolve()).encode()
-    top = b"/" + own.split(b"/")[1] + b"/"
-    for directory in ("_build", "deps"):
-        for folder, _dirs, files in os.walk(pathlib.Path(project) / directory):
-            for name in files:
-                path = os.path.join(folder, name)
-                if os.path.islink(path):
-                    continue
-                try:
-                    with open(path, "rb") as handle:
-                        data = handle.read()
-                except OSError:
-                    continue
-                if any(match.group(1) != own and match.group(1).startswith(top)
-                       for match in FOREIGN_DEPS_PATH.finditer(data)):
-                    return path
-    return None
-
-
-def clone_pair(root, subdir, source, runner=run, system=platform.system):
-    """Clone `_build` (without the project itself) and `deps` of one Mix project; then check `deps` of the target
-    against its lock again. Returns None, or the reason why the clone was refused or discarded."""
-    here = pathlib.Path(root) / subdir
-    app = project_app(here)
-    if not app:
-        return "no `app:` in mix.exs"
-    if holds_foreign_path(source / subdir, here):
-        return "the build of the source holds absolute paths of another checkout"
-    try:
-        clone_dir(source / subdir / "_build", here / "_build", runner, system, prune=without_project(app))
-        clone_dir(source / subdir / "deps", here / "deps", runner, system)
-        if not deps_match_lock(here):
-            reason = "the cloned deps do not match mix.lock (the source changed during the copy?)"
-        elif holds_foreign_path(here, here):
-            reason = "the cloned build holds absolute paths of another checkout (the source changed during the copy?)"
-        else:
-            return None
-    except Stop as error:
-        reason = str(error)
-    for directory in ("_build", "deps"):
-        shutil.rmtree(here / directory, ignore_errors=True)
-    return reason
-
-
-def warm_build(root, runner=run, out=print, system=platform.system, clock=time.monotonic):
-    started = clock()
-    clone, missing = build_plan(root, worktrees(root, runner))
-    if clone:
-        mismatch = toolchain_mismatch(root, runner)
-        if mismatch:
-            out(f"ELZOO SERVICES build: no clone: {mismatch}")
-            missing, clone = missing + [subdir for subdir, _source in clone], []
-    for subdir, source in clone:
-        reason = clone_pair(root, subdir, source, runner, system)
-        if reason:
-            out(f"ELZOO SERVICES build: no clone of {subdir}: {reason}")
-            missing.append(subdir)
-            continue
-        out(f"ELZOO SERVICES build: cloned {subdir}/_build (without the project itself) and {subdir}/deps "
-            f"from another worktree with equal pins; deps match mix.lock after the copy")
-    if missing:
-        out(f"ELZOO SERVICES build: no safe clone for {', '.join(missing)}; running mix setup")
-        code, _o, _e = runner(["mix", "setup"], cwd=str(root), stream=True)
-        if code != 0:
-            raise Stop(f"mix setup failed (exit {code})")
-    if not clone and not missing:
-        out("ELZOO SERVICES build: _build and deps present; left alone")
-    out(f"ELZOO SERVICES build: seconds={clock() - started:.1f}")
-
-
 # --- command line ------------------------------------------------------------------------------------------------
 
 HELP_EPILOG = """\
@@ -973,7 +736,6 @@ def main(argv=None, runner=run, out=print, env=None):
                         help="up: start or reuse; status: this worktree; down: remove this worktree's services; "
                              "list: every worker-services container on this host")
     parser.add_argument("--worktree", default=".", help="worktree path (default: the current one)")
-    parser.add_argument("--no-build", action="store_true", help="up: skip the warm build step")
     args = parser.parse_args(argv)
     try:
         if args.command == "list":
@@ -991,10 +753,7 @@ def main(argv=None, runner=run, out=print, env=None):
             root = worktree_root(args.worktree, runner)
         services = Services(root, runner=runner, env=env, out=out)
         if args.command == "up":
-            code = services.up()
-            if not args.no_build:
-                warm_build(root, runner, out)
-            return code
+            return services.up()
         return services.status() if args.command == "status" else services.down()
     except Stop as error:
         out(f"ELZOO SERVICES {args.command} failed: {error}")

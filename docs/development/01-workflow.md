@@ -176,23 +176,10 @@ file is missing, or the pinned image or the network changed. `status` exits
 1 when a port in the environment file is not the port that Docker publishes
 now (for example after `docker restart`); `up` then writes the file again.
 
-When the worktree has no `_build` and `deps`, `up` runs `mix setup`. It
-clones them (copy-on-write) from another worktree only when all of these
-are true: the same `mix.exs`, `mix.lock` and `.tool-versions`; `erl` and
-`elixir` on `PATH` are the versions of `.tool-versions`; `deps` holds each
-locked dependency at its locked checksum or revision, before and after the
-copy; and no file in `_build` or `deps` holds an absolute path into the
-`deps` directory of another checkout on this host, before and after the
-copy. The clone
-leaves out the compiled project itself, so that Mix compiles it. Measured on
-a developer host: each compiled dependency holds the absolute path of the
-worktree that compiled it, also after a copy and also when Git no longer
-lists that worktree; after a clone, Mix compiled only the project and used
-the copied dependency builds, and the first compile failed because Cure
-found its standard library also through the other worktree. So in practice
-`up` refuses the clone of a real build and runs `mix setup`. A source that runs `deps.get` or a compile during the
-copy can still change files that these checks do not read. `--no-build`
-skips this step.
+`up` starts the services only; it does nothing about the build. On a new
+worktree path, run `mix setup` first (about 10 minutes on a developer host).
+A compiled `_build` and `deps` cannot be copied from another path, so reuse
+the same worktree path for the next task to keep the build.
 
 Names derive from the worktree path, and each container, volume and network
 carries the label of its worktree. `down` removes only those, and the files
