@@ -16,6 +16,7 @@
   ],
   "files": [
     "cure/elzoo/port.cure",
+    "examples/elzoo/port.exs",
     "lib/elzoo/port.ex",
     "test/elzoo/port_test.exs"
   ],
