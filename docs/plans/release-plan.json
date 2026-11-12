@@ -181,7 +181,7 @@
       "outcome": "Recipe-driven bot platform: run engine, agent pattern and Lua recipes (waves 1 to 3)",
       "coverage_case": "new named workload; extends C6/C7",
       "jobs": [
-        "RC-68",
+        "ELZ-114",
         "RC-44",
         "RC-45",
         "RC-46",
@@ -3817,6 +3817,35 @@
       "product_role": "Example and evidence for the ready Piece core/edge; not an additional product prerequisite or catalogue capability."
     },
     {
+      "id": "ELZ-114",
+      "title": "ELZ-114 — Shared pattern-step protocol",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": [
+        "ELZ-033",
+        "ELZ-002",
+        "ELZ-006",
+        "ELZ-023"
+      ],
+      "status": "published 2026-11-12",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-114-pattern-step.md"
+      ],
+      "outputs": [
+        "workflow/pattern-step"
+      ],
+      "acceptance": "Owner-approved v1 action/input/outcome sets with wake and correlated verified-person answers; exact map round trips and redacted refusals; unique action IDs and fixed 64-action bound; pure first-outcome correlation with unknown/duplicate/explicitly late inputs unapplied; selected Cure repeat-settlement law and negative control; one checked example. No engine, payload-schema framework, ready-Piece or dependency change.",
+      "product_aims": [
+        "P13"
+      ],
+      "product_role": "First bot-platform wave-1 Piece and first Piece-only small-gate acceptance run; replaces RC-68's output.",
+      "issue": 224,
+      "url": "https://github.com/balungpisah/elzoo/issues/224",
+      "issue_body_sha256": "22df09e2745b34d5684d0f0553f1b93a7bd346a2eb24e1a244dee9f368856062"
+    },
+    {
       "id": "RC-44",
       "title": "Typed payload check at a Port",
       "kind": "proposal",
@@ -3961,18 +3990,17 @@
         "ELZ-033",
         "ELZ-010",
         "RC-12",
-        "RC-68"
+        "ELZ-114"
       ],
       "status": "blocked: unpublished admission proposal",
-      "contract": "A total lifecycle decision for a Run that can wait for more than one thing at once: a model result, tool results, an approval, a person, child Runs, an outside event, an event from a run resource; plus paused. A pure step over the phase, the set of open waits and one input of RC-68. Boundary: RC-12 owns Run and Attempt identity, the parent-child links and the Run outcome set; this Piece uses that set and owns only the phase, the open waits and pause. An input of an older Attempt leaves the phase unchanged. A cancel names one Attempt. Which Attempt is current and what a cancel names is the rule of RC-12: this Piece takes it and does not define it again.",
-      "acceptance": "Every (phase, input) pair has a defined result; a result for a closed wait is late (the RC-68 class); a cancel for an older Attempt changes nothing; pause stops new actions while results of open actions are still accepted; an empty budget gives paused or out of budget by declared policy; continue restores the open waits. Candidate Cure law: totality and late-input classification.",
+      "contract": "A total lifecycle decision for a Run that can wait for more than one thing at once: a model result, tool results, an approval, a person, child Runs, an outside event, an event from a run resource; plus paused. A pure step over the phase, the set of open waits and one input of RC-68. Boundary: RC-12 owns Run and Attempt identity, the parent-child links and the Run outcome set; this Piece uses that set and owns only the phase, the open waits and pause. An input of an older Attempt leaves the phase unchanged. A cancel names one Attempt. Which Attempt is current and what a cancel names is the rule of RC-12: this Piece takes it and does not define it again. Owner decision 2026-11-12: time limits continue to count during a pause, and the pause has its own time limit. The person who continues a Run can give it a new time limit in the same recorded action. The total decision still names waits for child Runs and an outside event; no RC-68 version-1 action opens them, and tests supply those waits as data.",
+      "acceptance": "Every (phase, input) pair has a defined result; a result for a closed wait is late (the RC-68 class); a cancel for an older Attempt changes nothing; pause stops new actions while results of open actions are still accepted; an empty budget gives paused or out of budget by declared policy; continue restores the open waits. Time limits expire during pause, including the pause's own limit; a continuation can record a replacement time limit in the same action. Child-Run and outside-event waits are supplied as data, not opened by v1 actions. Candidate Cure law: totality and late-input classification.",
       "reuse": "Ready workflow/state-machine (the job-Run decision, pieces/workflow/state-machine/cure/elzoo/job_run.cure) is the model for one rule only: a result of a stale Attempt leaves the phase unchanged. Do not copy two of its points: its CancelRequested carries no Attempt and wins from every non-terminal phase, and its 'late success' means a current result after expiry. It stays unchanged under its ID; this is a new Piece ID. No statechart framework.",
       "paths": [
         "pieces/workflow/bot-run-lifecycle/"
       ],
       "blockers": [
         "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
-        "Product owner decision pending: what time limits do while a Run is paused (draft: they keep counting and the pause has its own limit).",
         "One outcome vocabulary only: agree with RC-12 that its Run outcome set has out of budget and out of time before either job is admitted."
       ],
       "owner_role": "one claimed task worker after admission",
@@ -3996,19 +4024,18 @@
         "ELZ-028",
         "ELZ-006",
         "ELZ-022",
-        "RC-68"
+        "ELZ-114"
       ],
       "status": "blocked: unpublished admission proposal",
-      "contract": "A Run can hold a live thing between actions: an OS program, a code sandbox, a browser, a call. Opening is an Effect with intent, call and outcome records. The resource belongs to one Run; Run identity is opaque text here. One action at a time uses it and the others wait in a bounded line. It can give events to the Run. It has a time limit and a cost per minute. The owner closes it when the Run ends with any outcome. A lost resource is reported to the Run as an input and is never reopened automatically. The resource event and 'Run ended' are input kinds of RC-68. Each resource has its own lease stream, apart from the log stream of the Run.",
-      "acceptance": "Two concurrent actions on one resource are serialized; the line bound refuses explicitly; the Run-ended input of RC-68 closes the resource, whatever outcome it carries (the outcome value is opaque here; RC-12 owns the set); an orphan found after a restart is reported lost, and its close is an Effect that needs an effect-intent owner that the host started with a grant (with a read-only owner it is reported as closing, not closed); an open with unknown outcome is not retried automatically; time-limit expiry closes and reports; a resource event for a finished Run is late; minutes are counted in a workflow/budget unit.",
+      "contract": "A Run can hold a live thing between actions: an OS program, a code sandbox, a browser, a call. Opening is an Effect with intent, call and outcome records. The resource belongs to one Run; Run identity is opaque text here. One action at a time uses it and the others wait in a bounded line. It can give events to the Run. It has a time limit and a cost per minute. The owner closes it when the Run ends with any outcome. A lost resource is reported to the Run as an input and is never reopened automatically. The resource event and 'Run ended' are input kinds of RC-68. Each resource has its own lease stream, apart from the log stream of the Run. Owner decision 2026-11-12: a nested callable of the same Run can use a resource only when the outer node gives its name in the typed input; a child Run cannot use a parent's resource. Each resource declares stay or close on pause; the default is stay until its own time limit. Its cost is recorded even when the budget is empty. Moving ownership to a different Run is a later form, not implemented or ruled out by this Contract.",
+      "acceptance": "Two concurrent actions on one resource are serialized; the line bound refuses explicitly; the Run-ended input of RC-68 closes the resource, whatever outcome it carries (the outcome value is opaque here; RC-12 owns the set); an orphan found after a restart is reported lost, and its close is an Effect that needs an effect-intent owner that the host started with a grant (with a read-only owner it is reported as closing, not closed); an open with unknown outcome is not retried automatically; time-limit expiry closes and reports; a resource event for a finished Run is late; minutes are counted in a workflow/budget unit. A same-Run nested callable can use only a resource named in its typed input; a child Run is refused. Exercise stay and close on pause, default stay through its own time limit, and retained cost with an empty budget. No ownership-transfer implementation in this version.",
       "reuse": "delivery/effect-intent (ELZ-023) for the open and close records; the host decides activation one time, when the owner starts (the activate call in init, pieces/delivery/effect-intent/lib/elzoo/effect_intent.ex); an owner that starts without a grant stays read-only and answers read_only, and a fresh first start needs a grant too. state/lease (ELZ-028) for single ownership: a lease lives in the stream of the state that it guards, so a resource gets its own stream and does not contend with the log Writer of the Run. workflow/budget (ELZ-022) for the minutes. delivery/time for the limit inside one runtime. This Piece owns only ownership, serialization and close policy behind a provider behaviour, and ships with a test provider.",
       "paths": [
         "pieces/workflow/run-resource/"
       ],
       "blockers": [
         "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
-        "No real provider in this job; the first provider (OS session, sandbox, browser or call) is admitted separately.",
-        "Product owner decision pending: whether a nested callable or a child Run may use a resource of the outer Run (draft: the same Run yes, by name; a child Run no)."
+        "No real provider in this job; the first provider (OS session, sandbox, browser or call) is admitted separately."
       ],
       "owner_role": "one claimed task worker after admission",
       "product_aims": [
@@ -4027,7 +4054,7 @@
       ],
       "dependencies": [
         "ELZ-033",
-        "RC-68",
+        "ELZ-114",
         "RC-44",
         "RC-45",
         "RC-46",
@@ -4175,7 +4202,7 @@
         "ELZ-030",
         "RC-51",
         "RC-53",
-        "RC-68"
+        "ELZ-114"
       ],
       "status": "blocked: unpublished admission proposal",
       "contract": "Build one provider-neutral integration/ai-text request from role instructions, selected memory, history and a tool list in the ai-text tool shape (name, description, input_schema), within a token limit and within the hard request bounds of ai-text, with a declared order and a declared drop order. Untrusted content stays marked. An image or binary value appears only as a marked text reference to an Artifact. Compaction is a pure step that gives one model-call action (RC-68); the engine records the intent, the outcome and the original history. Keep-rule items (the goal, open actions, decisions, failed approaches) are structured records carried verbatim outside the summary; only free text is summarized. The summary is derived content with derived_from references.",
@@ -4209,7 +4236,7 @@
         "ELZ-002",
         "RC-44",
         "ELZ-079",
-        "RC-68"
+        "ELZ-114"
       ],
       "status": "blocked: unpublished admission proposal",
       "contract": "A pattern step of RC-68 where a model gives one answer of a fixed set, or an answer that matches a schema. A non-matching output starts a bounded number of repair requests that carry a violation list. After the bound the result is an explicit failure, never a guessed value. integration/ai-text decides valid or invalid; the violation list comes from the RC-44 check of the same schema value over the returned content. If the two disagree, the result is an explicit failure.",
@@ -4241,7 +4268,7 @@
         "ELZ-033",
         "ELZ-002",
         "ELZ-079",
-        "RC-68",
+        "ELZ-114",
         "RC-52",
         "RC-54",
         "RC-69",
@@ -4310,11 +4337,11 @@
         "ELZ-033",
         "RC-12",
         "RC-48",
-        "RC-68"
+        "ELZ-114"
       ],
       "status": "blocked: unpublished admission proposal",
-      "contract": "Two small pure policies over a Run, in the input and action shapes of RC-68. Wait for a person: a Run asks a named person one question, stops, and continues with the answer or a time-out; this is not an approval, which binds one exact action. The person who answers is a host-verified principal input, never taken from message text. The time-out is the 'too old' outcome of the ask-a-person action, which the engine records with the time that it read: RC-68 has no time-out input kind and this job adds none. The policy has no timer. A durable timer belongs to the host and is not in this job: its wake reaches the Run as an input of an existing RC-68 kind (draft: a new message from the host), and the engine (RC-50) records 'too old' for each open ask that is past its deadline. Mid-run input: a new message during an active Run follows one declared rule: queue, reject, interrupt, steer or side run.",
-      "acceptance": "An answer after the time-out is late; an answer from a person other than the named one is refused; two answers (the first stands); each mid-run rule on the same recorded trace gives its declared result, and interrupt reports what was already delivered; a side run reads state and cannot change the first Run.",
+      "contract": "Two small pure policies over a Run, in the input and action shapes of RC-68. Wait for a person: a Run asks a named person one question, stops, and continues with the answer or a time-out; this is not an approval, which binds one exact action. The person's answer is its own RC-68 input kind: it names exactly one ask-a-person action and carries the host-verified identity of the person, never taken from message text. That action gets no other completed outcome. Text without an open ask is a new message. The time-out is the 'too old' outcome of the ask-a-person action, which the engine records with the time that it read: RC-68 has no time-out input kind and this job adds none. The policy has no timer. A durable timer belongs to the host and is not in this job: its wake is the RC-68 wake input, carrying no content, only engine-read time; it never goes through the mid-run-input policy. The engine (RC-50) records 'too old' for each open ask that is past its deadline. Mid-run input: a new message during an active Run follows one declared rule: queue, reject, interrupt, steer or side run.",
+      "acceptance": "An answer after the time-out is late; an answer from a person other than the named one is refused; two answers (the first stands); a person answer names its ask action and no other completed outcome settles that action; text without an open ask is a new message; wake bypasses every mid-run policy; each mid-run rule on the same recorded trace gives its declared result, and interrupt reports what was already delivered; a side run reads state and cannot change the first Run.",
       "reuse": "Ready workflow/approval is the model for binding a person: it takes the verified identity as a Need. The open-wait, pause and continue rules are RC-48's. delivery/time is a volatile timer inside one runtime and is not used: a Run that sleeps cannot rely on it. Pure decisions; Cure where a law earns it.",
       "paths": [
         "pieces/workflow/wait-for-person/",
@@ -4411,7 +4438,7 @@
         "ELZ-026",
         "ELZ-024",
         "ELZ-105",
-        "RC-68"
+        "ELZ-114"
       ],
       "status": "blocked: unpublished admission proposal",
       "contract": "The plain data that a recipe gives: named callables (a graph of nodes, an agent, a typed decision), each with a typed input and output; nodes that state what they need and give; links that add only order and branches; outcome links, each for one outcome class of RC-68; rules such as an approval on an action; bindings apart from the graphs. A rule can only add a requirement: it never relaxes the authorization policy of the consumer. Callables nest by name with a depth limit. A loop is a node that re-runs a nested callable (RC-63), never a back-edge, so a graph has no legal cycle. A package manifest gives name, version, needs, permissions and each skill that the recipe uses, with its version. Tenant settings are checked against the schema that the package declares; a secret setting is a reference.",
@@ -4449,7 +4476,7 @@
         "ELZ-002",
         "RC-52",
         "RC-61",
-        "RC-68",
+        "ELZ-114",
         "ELZ-022"
       ],
       "status": "blocked: unpublished admission proposal",
@@ -4482,7 +4509,7 @@
       "dependencies": [
         "ELZ-033",
         "ELZ-002",
-        "RC-68",
+        "ELZ-114",
         "RC-61",
         "ELZ-026",
         "ELZ-098",
@@ -4522,7 +4549,7 @@
         "RC-52",
         "ELZ-022",
         "ELZ-024",
-        "RC-68"
+        "ELZ-114"
       ],
       "status": "blocked: unpublished admission proposal",
       "contract": "Check a recipe before it can run: structure, the needs of each node, permissions, budgets, an upper cost limit from node budgets and map and loop maxima, and tool sources that exist. A pure checker. The same check accepts a graph that a model gives at run time as plain data, carried by the nested-callable action of RC-68, with added limits: only the callables and tool sources of its agent node, no new authority, a budget share, a node and depth maximum, data only. A refused graph returns its reasons as content for the model.",
@@ -4598,7 +4625,7 @@
         "RC-63",
         "RC-64",
         "ELZ-079",
-        "RC-68"
+        "ELZ-114"
       ],
       "status": "blocked: unpublished admission proposal",
       "contract": "Run a recipe end to end through the real engine and patterns with scripted model and tool Adapters, no network and a controlled clock. The harness takes only Adapter modules from an allow-list that the caller supplies; any other Adapter is refused at start. The result is the full record of steps. This harness is how a recipe author and a Piece worker test without a provider.",
@@ -4659,17 +4686,15 @@
       "kind": "proposal",
       "release": "V1B",
       "stage": "pieces",
-      "outputs": [
-        "workflow/pattern-step"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "ELZ-002",
         "ELZ-006",
         "ELZ-023"
       ],
-      "status": "blocked: unpublished admission proposal",
-      "contract": "The one shared shape between a pattern and the engine, as data and pure validation. A pattern step takes state and one input and gives new state and zero or one request: the core/operator shape. A request holds a bounded set of actions. Each action has an identity, a kind, and a payload keyed by the (schema_id, schema_version) of core/port. Validation here checks that an identity is unique in its request; the engine checks that it is unique in the Run, against its log (RC-50). Each outcome is an input that names exactly one action identity. Each input carries the time that the engine read when it recorded the input: a pattern gets time only from there. This Piece owns three closed, versioned sets. Action kinds: model call, tool call, local work, ask a person, run a nested callable (by name, or as data that passed the recipe check), open, use or close a run resource, finish. Input kinds: start, action outcome, a person's answer, a new message, a run-resource event, cancel of one Attempt, Run ended. Outcome classes of an action: completed, failed, refused, late, unknown, out of budget, tries used up, too old, resource lost. A kind of a later wave (a part of an answer to a channel, a message to another member) enters as a new version. This Piece performs nothing and knows no pattern.",
+      "status": "superseded for workflow/pattern-step by published ELZ-114; output moved",
+      "contract": "The one shared shape between a pattern and the engine, as data and pure validation. A pattern step takes state and one input and gives new state and zero or one request: the core/operator shape. A request holds a bounded set of actions. Each action has an identity, a kind, and a payload keyed by the (schema_id, schema_version) of core/port. Validation here checks that an identity is unique in its request; the engine checks that it is unique in the Run, against its log (RC-50). Each outcome is an input that names exactly one action identity. Each input carries the time that the engine read when it recorded the input: a pattern gets time only from there. Owner decision 2026-11-12: three closed, versioned sets. Action kinds v1: model call, tool call, local work, ask a person, run a nested callable (by name, or as data that passed the recipe check), open a run resource, use a run resource, close a run resource, finish. The three resource actions are distinct. Input kinds v1: start, action outcome, a person's answer, a new message, a run-resource event, cancel of one Attempt, Run ended, wake. Wake has no content, only engine-read time, and never goes through the mid-run-input policy. A person's answer names exactly one ask-a-person action and carries the verified identity of the person; that action gets no other completed outcome. Text without an open ask is a new message. Outcome classes v1 remain completed, failed, refused, late, unknown, out of budget, tries used up, too old, resource lost. New versions only add members to any of the three sets, never change or remove them, and older records stay readable. Excluded from v1: start a child Run, wait for an outside event, a part of an answer to a channel, a message to another member, make or remove a binding, give an inside event, give a run resource to a person. These enter in later versions with the wave that performs them. Ask for an approval and fill a secret are never action kinds: the engine does them. This Piece performs nothing and knows no pattern.",
       "acceptance": "Construction and validation of each kind; a request with two actions of one identity refused; a request over the declared action bound refused; an outcome that names an unknown action is classified late and not applied; a second outcome for one action is classified late; an unknown kind or version refused, not guessed; encode and decode round-trip stable; no payload content in errors. The Run outcome set is not defined here: RC-12 owns it. Candidate Cure law: each action of a request gets at most one applied outcome.",
       "reuse": "Ready core/operator (state and one input give new state and at most one output) is the step shape and stays unchanged: the request is its one output. core/port gives the payload key. delivery/effect-intent (ELZ-023) and delivery/retry-timeout (ELZ-006) already have words for dispatched, unknown and exhausted retries (the :exhausted decision and the retries_exhausted dead-letter reason of retry-timeout). The job records a table that maps each outcome class to the existing term where one exists; 'tries used up' and 'too old' are draft names for that table, not a second vocabulary. No engine code and no pattern code here.",
       "paths": [
@@ -4677,8 +4702,7 @@
       ],
       "blockers": [
         "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
-        "Admit this job first. RC-48, RC-49, RC-50, RC-54, RC-55, RC-56, RC-58, RC-61, RC-62, RC-63, RC-64, RC-69 and RC-70 use these shapes and must not define their own.",
-        "Product owner decision pending: the first version of the action-kind set (draft: the list in the Contract)."
+        "Admit this job first. RC-48, RC-49, RC-50, RC-54, RC-55, RC-56, RC-58, RC-61, RC-62, RC-63, RC-64, RC-69 and RC-70 use these shapes and must not define their own."
       ],
       "owner_role": "one claimed task worker after admission",
       "product_aims": [
@@ -4699,7 +4723,7 @@
         "ELZ-033",
         "ELZ-096",
         "RC-51",
-        "RC-68",
+        "ELZ-114",
         "ELZ-023",
         "ELZ-009"
       ],
@@ -4731,7 +4755,7 @@
       ],
       "dependencies": [
         "ELZ-033",
-        "RC-68"
+        "ELZ-114"
       ],
       "status": "blocked: unpublished admission proposal",
       "contract": "Decide from the recorded inputs and requests of a Run (RC-68 shapes) that it makes no progress, apart from retry policy. A pure function over a bounded window of the record. It gives a verdict with a reason class and stops nothing: the caller decides.",
@@ -5740,10 +5764,10 @@
     },
     {
       "id": "workflow/pattern-step",
-      "job": "RC-68",
+      "job": "ELZ-114",
       "note": "Bot platform wave 1 (P13). Closed, versioned sets of action kinds, input kinds and outcome classes, as data and pure validation, so that the engine and every pattern use one vocabulary. The step shape is ready core/operator, unchanged.",
       "baseline_status": "not in baseline (new row, RC-68)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "planned",
       "catalogue_reference": "registry/catalogue.json"
     },
     {

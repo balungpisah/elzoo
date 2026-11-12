@@ -22,7 +22,7 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | P10 | V2 | Internal transfers and reconciled refunds / C3/C4 | ELZ-031, RC-22, RC-24, RC-42, RC-43 | One payment provider, explicit accounting policy; no bank/compliance certification or inventory system. |
 | P11 | V2 | Event-driven and incremental build workflows / new named workload | RC-27, RC-28, RC-29, RC-30 | One broker/language; cache keys include actual build dependencies. Not a general build service. |
 | P12 | V3 | Offline collaboration, devices and classified records / research-gated | RC-33, RC-34, RC-35, RC-36 | Separate admission decisions; these directions require additional domain contracts and are not a release promise yet. |
-| P13 | V1B | Recipe-driven bot platform: run engine, agent pattern and Lua recipes (waves 1 to 3) / new named workload; extends C6/C7 | RC-68, RC-44, RC-45, RC-46, RC-47, RC-12, RC-48, RC-49, RC-50, RC-51, RC-52, RC-69, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-70, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67 | Consumer owns the bot product: business records, public API, screens, channels, tenancy policy and deployment. Waves 4 and later are named in bot-platform.md and are not registered. |
+| P13 | V1B | Recipe-driven bot platform: run engine, agent pattern and Lua recipes (waves 1 to 3) / new named workload; extends C6/C7 | ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-12, RC-48, RC-49, RC-50, RC-51, RC-52, RC-69, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-70, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67 | Consumer owns the bot product: business records, public API, screens, channels, tenancy policy and deployment. Waves 4 and later are named in bot-platform.md and are not registered. |
 
 ## Jobs and published issues
 
@@ -139,33 +139,34 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-111](https://github.com/balungpisah/elzoo/issues/211) | V1 / pieces | none | published 2026-11-12 | one claimed task worker; coordinator owns review and merge queue |
 | [ELZ-112](https://github.com/balungpisah/elzoo/issues/212) | V1 / pieces | none | published 2026-11-12 | one claimed task worker; coordinator owns review and merge queue |
 | [ELZ-113](https://github.com/balungpisah/elzoo/issues/213) | V1 / pieces | none | published 2026-11-12 | one claimed task worker; coordinator owns review and merge queue |
+| [ELZ-114](https://github.com/balungpisah/elzoo/issues/224) | V1B / pieces | ELZ-033, ELZ-002, ELZ-006, ELZ-023 | published 2026-11-12 | one claimed task worker; coordinator owns independent review and merge queue |
 | RC-44 | V1B / pieces | ELZ-033, ELZ-002, ELZ-079, ELZ-083 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-45 | V1B / pieces | ELZ-033, ELZ-004, ELZ-009, ELZ-010, ELZ-002 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-46 | V1B / pieces | ELZ-033, ELZ-004, ELZ-013, RC-45 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-47 | V1B / pieces | ELZ-033, ELZ-004, ELZ-013, ELZ-006, ELZ-098 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-68 | V1B / pieces | ELZ-033, ELZ-002, ELZ-006, ELZ-023 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-48 | V1B / pieces | ELZ-033, ELZ-010, RC-12, RC-68 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-49 | V1B / pieces | ELZ-033, ELZ-023, ELZ-028, ELZ-006, ELZ-022, RC-68 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-50 | V1B / pieces | ELZ-033, RC-68, RC-44, RC-45, RC-46, RC-47, RC-12, RC-48, RC-49, ELZ-002, ELZ-009, ELZ-022, ELZ-023, ELZ-024, ELZ-098, ELZ-003 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| RC-48 | V1B / pieces | ELZ-033, ELZ-010, RC-12, ELZ-114 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| RC-49 | V1B / pieces | ELZ-033, ELZ-023, ELZ-028, ELZ-006, ELZ-022, ELZ-114 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| RC-50 | V1B / pieces | ELZ-033, ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-12, RC-48, RC-49, ELZ-002, ELZ-009, ELZ-022, ELZ-023, ELZ-024, ELZ-098, ELZ-003 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-51 | V1B / pieces | ELZ-033, ELZ-083, ELZ-030, ELZ-002, ELZ-003 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-52 | V1B / pieces | ELZ-033, RC-44, ELZ-083, ELZ-079 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-53 | V1B / pieces | ELZ-033, ELZ-079, ELZ-030 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-54 | V1B / pieces | ELZ-033, ELZ-079, ELZ-030, RC-51, RC-53, RC-68 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-55 | V1B / pieces | ELZ-033, ELZ-002, RC-44, ELZ-079, RC-68 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-69 | V1B / pieces | ELZ-033, ELZ-096, RC-51, RC-68, ELZ-023, ELZ-009 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-56 | V1B / pieces | ELZ-033, ELZ-002, ELZ-079, RC-68, RC-52, RC-54, RC-69, ELZ-087 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| RC-54 | V1B / pieces | ELZ-033, ELZ-079, ELZ-030, RC-51, RC-53, ELZ-114 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| RC-55 | V1B / pieces | ELZ-033, ELZ-002, RC-44, ELZ-079, ELZ-114 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| RC-69 | V1B / pieces | ELZ-033, ELZ-096, RC-51, ELZ-114, ELZ-023, ELZ-009 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| RC-56 | V1B / pieces | ELZ-033, ELZ-002, ELZ-079, ELZ-114, RC-52, RC-54, RC-69, ELZ-087 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-57 | V1B / pieces | ELZ-033, ELZ-101, ELZ-079 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-58 | V1B / pieces | ELZ-033, RC-12, RC-48, RC-68 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| RC-58 | V1B / pieces | ELZ-033, RC-12, RC-48, ELZ-114 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-59 | V1B / pieces | ELZ-033, ELZ-083, ELZ-105 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-60 | V1B / pieces | ELZ-033 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-61 | V1B / pieces | ELZ-033, RC-44, ELZ-026, ELZ-024, ELZ-105, RC-68 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-62 | V1B / pieces | ELZ-033, RC-60, RC-44, ELZ-002, RC-52, RC-61, RC-68, ELZ-022 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-63 | V1B / pieces | ELZ-033, ELZ-002, RC-68, RC-61, ELZ-026, ELZ-098, ELZ-003, ELZ-006 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-64 | V1B / pieces | ELZ-033, RC-61, RC-52, ELZ-022, ELZ-024, RC-68 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| RC-61 | V1B / pieces | ELZ-033, RC-44, ELZ-026, ELZ-024, ELZ-105, ELZ-114 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| RC-62 | V1B / pieces | ELZ-033, RC-60, RC-44, ELZ-002, RC-52, RC-61, ELZ-114, ELZ-022 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| RC-63 | V1B / pieces | ELZ-033, ELZ-002, ELZ-114, RC-61, ELZ-026, ELZ-098, ELZ-003, ELZ-006 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| RC-64 | V1B / pieces | ELZ-033, RC-61, RC-52, ELZ-022, ELZ-024, ELZ-114 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-65 | V1B / pieces | ELZ-033, ELZ-096, ELZ-009, RC-61, RC-64, RC-12 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-66 | V1B / pieces | ELZ-033, RC-50, RC-52, RC-55, RC-56, RC-60, RC-61, RC-62, RC-63, RC-64, ELZ-079, RC-68 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| RC-66 | V1B / pieces | ELZ-033, RC-50, RC-52, RC-55, RC-56, RC-60, RC-61, RC-62, RC-63, RC-64, ELZ-079, ELZ-114 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-67 | V1B / pieces | ELZ-033, ELZ-096, RC-52, RC-54, RC-56, RC-65, RC-66, RC-61, RC-69 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-70 | V1B / pieces | ELZ-033, RC-68 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| RC-68 | V1B / pieces | ELZ-033, ELZ-002, ELZ-006, ELZ-023 | superseded for workflow/pattern-step by published ELZ-114; output moved | one claimed task worker after admission |
+| RC-70 | V1B / pieces | ELZ-033, ELZ-114 | blocked: unpublished admission proposal | one claimed task worker after admission |
 
 ## Catalogue accounting
 
@@ -279,7 +280,7 @@ Baseline status is immutable inventory history, not a current planning status. R
 | workflow/run | deferred | V1 / pieces | RC-12 / P01, P02, P03, P05, P06, P07, P08, P11, P13 | blocked-admission-proposal: Execution identity, outcome, parent/child settlement, cancellation and late-result handling for C2/C5/C6/C7; evaluate Oban/Jido where appropriate; no full orchestrator implemented. ELZ-025 study: Run outcome and effect settlement are distinct facts; parent/child attachment is reciprocal; cancellation names the Attempt and an indeterminate cancellation terminates the owner; child spawn is an Effect with unknown outcome under timeout; the owner observes attempt death by monitor; completed means durable evidence. |
 | [workflow/state-machine](../../pieces/workflow/state-machine/piece.json) | planned | V1 / pieces | ELZ-010 / P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12 | merged-ready-contract; task acceptance separate: Job-Run lifecycle decision Elzoo.JobRun: total step/4 over phase, attempt-identity input (current/stale result, start/duplicate/stale start, cancel), supplied expiry and the unchanged ELZ-006 RetryDecision; Cure identity classification start_input/4 and result_input/3; validating Elixir projection. No statecharts, gen_statem framework, saga or compensation. |
 | workflow/work-item | deferred | V1 / pieces | RC-11 / P03, P07 | blocked-admission-proposal: Assignee, acceptance criterion and policy-defined completion for C5/C6; independent of job/agent attempt success. Reuse a suitable workflow implementation before authoring policy. ELZ-015 evaluates Ash resource actions with tenant context; no ready bundle or durable execution claim. ELZ-025 study: enumerated lifecycle transitions, completion bound to the current lease or authority holder, no-op transitions write nothing. |
-| workflow/pattern-step | not in baseline (new row, RC-68) | V1B / pieces | RC-68 / P13 | blocked-admission-proposal: Bot platform wave 1 (P13). Closed, versioned sets of action kinds, input kinds and outcome classes, as data and pure validation, so that the engine and every pattern use one vocabulary. The step shape is ready core/operator, unchanged. |
+| workflow/pattern-step | not in baseline (new row, RC-68) | V1B / pieces | ELZ-114 / P13 | planned: Bot platform wave 1 (P13). Closed, versioned sets of action kinds, input kinds and outcome classes, as data and pure validation, so that the engine and every pattern use one vocabulary. The step shape is ready core/operator, unchanged. |
 | core/payload-schema | not in baseline (new row, RC-44) | V1B / pieces | RC-44 / P13 | blocked-admission-proposal: Bot platform wave 1 (P13). One schema value per Port direction, keyed by the schema_id and schema_version of core/port, with a bounded violation result, shared by a module function, a recipe node, a tool argument and a model output. Reuse one pinned validator; ready integration/ai-text (jsv) and integration/mcp-client (ex_json_schema) keep their own validators and results. |
 | runtime/durable-unit | not in baseline (new row, RC-45) | V1B / pieces | RC-45 / P13 | blocked-admission-proposal: Bot platform wave 1 (P13). Each input is appended before the pure transition reads it; state returns from ready state/event-log, state/checkpoint and state/outbox. New ID: ready runtime/unit stays volatile and unchanged. |
 | runtime/dynamic-units | not in baseline (new row, RC-46) | V1B / pieces | RC-46 / P13 | blocked-admission-proposal: Bot platform wave 1 (P13). At most one live Unit per Run or room identity, a bound on live Units and an idle sleep, over OTP DynamicSupervisor and Registry. New ID: ready runtime/host starts a fixed list. |
@@ -336,7 +337,7 @@ Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, EL
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70.
 
 ### V2-ACCEPT
 
@@ -1815,6 +1816,16 @@ Publication copy: [tasks/ELZ-113-core-edge-example.md](../../tasks/ELZ-113-core-
 
 **Acceptance:** One example file of core/edge that one test of the Piece evaluates with exact expected values; one added files entry, one README sentence and the new manifest hash. A negative control proves that the test fails on a wrong value. No Contract, lib or cure change.
 
+### ELZ-114
+
+ELZ-114 — Shared pattern-step protocol
+
+Publication copy: [tasks/ELZ-114-pattern-step.md](../../tasks/ELZ-114-pattern-step.md).
+
+**Product aims:** P13. First bot-platform wave-1 Piece and first Piece-only small-gate acceptance run; replaces RC-68's output.
+
+**Acceptance:** Owner-approved v1 action/input/outcome sets with wake and correlated verified-person answers; exact map round trips and redacted refusals; unique action IDs and fixed 64-action bound; pure first-outcome correlation with unknown/duplicate/explicitly late inputs unapplied; selected Cure repeat-settlement law and negative control; one checked example. No engine, payload-schema framework, ready-Piece or dependency change.
+
 ### RC-44
 
 Typed payload check at a Port
@@ -1891,16 +1902,15 @@ Run lifecycle with several open waits, pause and continue
 
 **Product aims:** P13. Bot platform track; see docs/plans/bot-platform.md.
 
-**Contract:** A total lifecycle decision for a Run that can wait for more than one thing at once: a model result, tool results, an approval, a person, child Runs, an outside event, an event from a run resource; plus paused. A pure step over the phase, the set of open waits and one input of RC-68. Boundary: RC-12 owns Run and Attempt identity, the parent-child links and the Run outcome set; this Piece uses that set and owns only the phase, the open waits and pause. An input of an older Attempt leaves the phase unchanged. A cancel names one Attempt. Which Attempt is current and what a cancel names is the rule of RC-12: this Piece takes it and does not define it again.
+**Contract:** A total lifecycle decision for a Run that can wait for more than one thing at once: a model result, tool results, an approval, a person, child Runs, an outside event, an event from a run resource; plus paused. A pure step over the phase, the set of open waits and one input of RC-68. Boundary: RC-12 owns Run and Attempt identity, the parent-child links and the Run outcome set; this Piece uses that set and owns only the phase, the open waits and pause. An input of an older Attempt leaves the phase unchanged. A cancel names one Attempt. Which Attempt is current and what a cancel names is the rule of RC-12: this Piece takes it and does not define it again. Owner decision 2026-11-12: time limits continue to count during a pause, and the pause has its own time limit. The person who continues a Run can give it a new time limit in the same recorded action. The total decision still names waits for child Runs and an outside event; no RC-68 version-1 action opens them, and tests supply those waits as data.
 
-**Acceptance:** Every (phase, input) pair has a defined result; a result for a closed wait is late (the RC-68 class); a cancel for an older Attempt changes nothing; pause stops new actions while results of open actions are still accepted; an empty budget gives paused or out of budget by declared policy; continue restores the open waits. Candidate Cure law: totality and late-input classification.
+**Acceptance:** Every (phase, input) pair has a defined result; a result for a closed wait is late (the RC-68 class); a cancel for an older Attempt changes nothing; pause stops new actions while results of open actions are still accepted; an empty budget gives paused or out of budget by declared policy; continue restores the open waits. Time limits expire during pause, including the pause's own limit; a continuation can record a replacement time limit in the same action. Child-Run and outside-event waits are supplied as data, not opened by v1 actions. Candidate Cure law: totality and late-input classification.
 
 **Reuse:** Ready workflow/state-machine (the job-Run decision, pieces/workflow/state-machine/cure/elzoo/job_run.cure) is the model for one rule only: a result of a stale Attempt leaves the phase unchanged. Do not copy two of its points: its CancelRequested carries no Attempt and wins from every non-terminal phase, and its 'late success' means a current result after expiry. It stays unchanged under its ID; this is a new Piece ID. No statechart framework.
 
 **Blockers:**
 
 - Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.
-- Product owner decision pending: what time limits do while a Run is paused (draft: they keep counting and the pause has its own limit).
 - One outcome vocabulary only: agree with RC-12 that its Run outcome set has out of budget and out of time before either job is admitted.
 
 ### RC-49
@@ -1909,9 +1919,9 @@ Run resource: a live thing that a Run holds
 
 **Product aims:** P13. Bot platform track; see docs/plans/bot-platform.md.
 
-**Contract:** A Run can hold a live thing between actions: an OS program, a code sandbox, a browser, a call. Opening is an Effect with intent, call and outcome records. The resource belongs to one Run; Run identity is opaque text here. One action at a time uses it and the others wait in a bounded line. It can give events to the Run. It has a time limit and a cost per minute. The owner closes it when the Run ends with any outcome. A lost resource is reported to the Run as an input and is never reopened automatically. The resource event and 'Run ended' are input kinds of RC-68. Each resource has its own lease stream, apart from the log stream of the Run.
+**Contract:** A Run can hold a live thing between actions: an OS program, a code sandbox, a browser, a call. Opening is an Effect with intent, call and outcome records. The resource belongs to one Run; Run identity is opaque text here. One action at a time uses it and the others wait in a bounded line. It can give events to the Run. It has a time limit and a cost per minute. The owner closes it when the Run ends with any outcome. A lost resource is reported to the Run as an input and is never reopened automatically. The resource event and 'Run ended' are input kinds of RC-68. Each resource has its own lease stream, apart from the log stream of the Run. Owner decision 2026-11-12: a nested callable of the same Run can use a resource only when the outer node gives its name in the typed input; a child Run cannot use a parent's resource. Each resource declares stay or close on pause; the default is stay until its own time limit. Its cost is recorded even when the budget is empty. Moving ownership to a different Run is a later form, not implemented or ruled out by this Contract.
 
-**Acceptance:** Two concurrent actions on one resource are serialized; the line bound refuses explicitly; the Run-ended input of RC-68 closes the resource, whatever outcome it carries (the outcome value is opaque here; RC-12 owns the set); an orphan found after a restart is reported lost, and its close is an Effect that needs an effect-intent owner that the host started with a grant (with a read-only owner it is reported as closing, not closed); an open with unknown outcome is not retried automatically; time-limit expiry closes and reports; a resource event for a finished Run is late; minutes are counted in a workflow/budget unit.
+**Acceptance:** Two concurrent actions on one resource are serialized; the line bound refuses explicitly; the Run-ended input of RC-68 closes the resource, whatever outcome it carries (the outcome value is opaque here; RC-12 owns the set); an orphan found after a restart is reported lost, and its close is an Effect that needs an effect-intent owner that the host started with a grant (with a read-only owner it is reported as closing, not closed); an open with unknown outcome is not retried automatically; time-limit expiry closes and reports; a resource event for a finished Run is late; minutes are counted in a workflow/budget unit. A same-Run nested callable can use only a resource named in its typed input; a child Run is refused. Exercise stay and close on pause, default stay through its own time limit, and retained cost with an empty budget. No ownership-transfer implementation in this version.
 
 **Reuse:** delivery/effect-intent (ELZ-023) for the open and close records; the host decides activation one time, when the owner starts (the activate call in init, pieces/delivery/effect-intent/lib/elzoo/effect_intent.ex); an owner that starts without a grant stays read-only and answers read_only, and a fresh first start needs a grant too. state/lease (ELZ-028) for single ownership: a lease lives in the stream of the state that it guards, so a resource gets its own stream and does not contend with the log Writer of the Run. workflow/budget (ELZ-022) for the minutes. delivery/time for the limit inside one runtime. This Piece owns only ownership, serialization and close policy behind a provider behaviour, and ships with a test provider.
 
@@ -1919,7 +1929,6 @@ Run resource: a live thing that a Run holds
 
 - Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.
 - No real provider in this job; the first provider (OS session, sandbox, browser or call) is admitted separately.
-- Product owner decision pending: whether a nested callable or a child Run may use a resource of the outer Run (draft: the same Run yes, by name; a child Run no).
 
 ### RC-50
 
@@ -2065,9 +2074,9 @@ Run inputs from people
 
 **Product aims:** P13. Bot platform track; see docs/plans/bot-platform.md.
 
-**Contract:** Two small pure policies over a Run, in the input and action shapes of RC-68. Wait for a person: a Run asks a named person one question, stops, and continues with the answer or a time-out; this is not an approval, which binds one exact action. The person who answers is a host-verified principal input, never taken from message text. The time-out is the 'too old' outcome of the ask-a-person action, which the engine records with the time that it read: RC-68 has no time-out input kind and this job adds none. The policy has no timer. A durable timer belongs to the host and is not in this job: its wake reaches the Run as an input of an existing RC-68 kind (draft: a new message from the host), and the engine (RC-50) records 'too old' for each open ask that is past its deadline. Mid-run input: a new message during an active Run follows one declared rule: queue, reject, interrupt, steer or side run.
+**Contract:** Two small pure policies over a Run, in the input and action shapes of RC-68. Wait for a person: a Run asks a named person one question, stops, and continues with the answer or a time-out; this is not an approval, which binds one exact action. The person's answer is its own RC-68 input kind: it names exactly one ask-a-person action and carries the host-verified identity of the person, never taken from message text. That action gets no other completed outcome. Text without an open ask is a new message. The time-out is the 'too old' outcome of the ask-a-person action, which the engine records with the time that it read: RC-68 has no time-out input kind and this job adds none. The policy has no timer. A durable timer belongs to the host and is not in this job: its wake is the RC-68 wake input, carrying no content, only engine-read time; it never goes through the mid-run-input policy. The engine (RC-50) records 'too old' for each open ask that is past its deadline. Mid-run input: a new message during an active Run follows one declared rule: queue, reject, interrupt, steer or side run.
 
-**Acceptance:** An answer after the time-out is late; an answer from a person other than the named one is refused; two answers (the first stands); each mid-run rule on the same recorded trace gives its declared result, and interrupt reports what was already delivered; a side run reads state and cannot change the first Run.
+**Acceptance:** An answer after the time-out is late; an answer from a person other than the named one is refused; two answers (the first stands); a person answer names its ask action and no other completed outcome settles that action; text without an open ask is a new message; wake bypasses every mid-run policy; each mid-run rule on the same recorded trace gives its declared result, and interrupt reports what was already delivered; a side run reads state and cannot change the first Run.
 
 **Reuse:** Ready workflow/approval is the model for binding a person: it takes the verified identity as a Need. The open-wait, pause and continue rules are RC-48's. delivery/time is a volatile timer inside one runtime and is not used: a Run that sleeps cannot rely on it. Pure decisions; Cure where a law earns it.
 
@@ -2233,7 +2242,7 @@ Pattern step protocol: inputs, one request with actions, outcomes
 
 **Product aims:** P13. Bot platform track; see docs/plans/bot-platform.md.
 
-**Contract:** The one shared shape between a pattern and the engine, as data and pure validation. A pattern step takes state and one input and gives new state and zero or one request: the core/operator shape. A request holds a bounded set of actions. Each action has an identity, a kind, and a payload keyed by the (schema_id, schema_version) of core/port. Validation here checks that an identity is unique in its request; the engine checks that it is unique in the Run, against its log (RC-50). Each outcome is an input that names exactly one action identity. Each input carries the time that the engine read when it recorded the input: a pattern gets time only from there. This Piece owns three closed, versioned sets. Action kinds: model call, tool call, local work, ask a person, run a nested callable (by name, or as data that passed the recipe check), open, use or close a run resource, finish. Input kinds: start, action outcome, a person's answer, a new message, a run-resource event, cancel of one Attempt, Run ended. Outcome classes of an action: completed, failed, refused, late, unknown, out of budget, tries used up, too old, resource lost. A kind of a later wave (a part of an answer to a channel, a message to another member) enters as a new version. This Piece performs nothing and knows no pattern.
+**Contract:** The one shared shape between a pattern and the engine, as data and pure validation. A pattern step takes state and one input and gives new state and zero or one request: the core/operator shape. A request holds a bounded set of actions. Each action has an identity, a kind, and a payload keyed by the (schema_id, schema_version) of core/port. Validation here checks that an identity is unique in its request; the engine checks that it is unique in the Run, against its log (RC-50). Each outcome is an input that names exactly one action identity. Each input carries the time that the engine read when it recorded the input: a pattern gets time only from there. Owner decision 2026-11-12: three closed, versioned sets. Action kinds v1: model call, tool call, local work, ask a person, run a nested callable (by name, or as data that passed the recipe check), open a run resource, use a run resource, close a run resource, finish. The three resource actions are distinct. Input kinds v1: start, action outcome, a person's answer, a new message, a run-resource event, cancel of one Attempt, Run ended, wake. Wake has no content, only engine-read time, and never goes through the mid-run-input policy. A person's answer names exactly one ask-a-person action and carries the verified identity of the person; that action gets no other completed outcome. Text without an open ask is a new message. Outcome classes v1 remain completed, failed, refused, late, unknown, out of budget, tries used up, too old, resource lost. New versions only add members to any of the three sets, never change or remove them, and older records stay readable. Excluded from v1: start a child Run, wait for an outside event, a part of an answer to a channel, a message to another member, make or remove a binding, give an inside event, give a run resource to a person. These enter in later versions with the wave that performs them. Ask for an approval and fill a secret are never action kinds: the engine does them. This Piece performs nothing and knows no pattern.
 
 **Acceptance:** Construction and validation of each kind; a request with two actions of one identity refused; a request over the declared action bound refused; an outcome that names an unknown action is classified late and not applied; a second outcome for one action is classified late; an unknown kind or version refused, not guessed; encode and decode round-trip stable; no payload content in errors. The Run outcome set is not defined here: RC-12 owns it. Candidate Cure law: each action of a request gets at most one applied outcome.
 
@@ -2243,7 +2252,6 @@ Pattern step protocol: inputs, one request with actions, outcomes
 
 - Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.
 - Admit this job first. RC-48, RC-49, RC-50, RC-54, RC-55, RC-56, RC-58, RC-61, RC-62, RC-63, RC-64, RC-69 and RC-70 use these shapes and must not define their own.
-- Product owner decision pending: the first version of the action-kind set (draft: the list in the Contract).
 
 ### RC-69
 
