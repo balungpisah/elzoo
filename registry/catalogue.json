@@ -859,7 +859,8 @@
       "summary": "One supervised Unit per identity, with sleep and wake",
       "disposition": "adapt",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/runtime/dynamic-units/piece.json",
       "reason": "Bot platform wave 1 (P13). At most one live Unit per Run or room identity, a bound on live Units and an idle sleep, over OTP DynamicSupervisor and Registry. New ID: ready runtime/host starts a fixed list."
     },
     {
@@ -876,7 +877,8 @@
       "summary": "Run lifecycle with several open waits, pause and continue",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/bot-run-lifecycle/piece.json",
       "reason": "Bot platform wave 1 (P13). A total decision for a Run that waits for a model, tools, an approval, a person, child Runs or events at the same time. Uses the Run outcome set of workflow/run. New ID: ready workflow/state-machine knows job Runs only."
     },
     {
@@ -884,8 +886,18 @@
       "summary": "A live thing that a Run holds, used by one action at a time and closed with the Run",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/run-resource/piece.json",
       "reason": "Bot platform wave 1 (P13). Ownership, serialization, time limit and close policy for an OS program, a sandbox, a browser or a call. A lost resource is an input and is never reopened automatically. No real provider yet."
+    },
+    {
+      "id": "workflow/run-approval-release",
+      "summary": "Run owner with durable approval release without dispatch",
+      "disposition": "own",
+      "phase": "demand-led",
+      "status": "ready",
+      "manifest": "pieces/workflow/run-approval-release/piece.json",
+      "reason": "Bot platform wave 1 (P13). A distinct Run owner retains approval release without dispatch, enabling resource-owned dispatch; ready workflow/run remains unchanged."
     },
     {
       "id": "assembly/run-engine",

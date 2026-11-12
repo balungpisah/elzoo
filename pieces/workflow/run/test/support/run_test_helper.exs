@@ -1,8 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
-Code.require_file(
-  "../../../../integration/sql/test/support/durable_log_postgres_test_helper.exs",
-  __DIR__
-)
+sql_helper = Path.expand("durable_log_postgres_test_helper.exs", __DIR__)
+
+sql_helper =
+  if File.regular?(sql_helper),
+    do: sql_helper,
+    else:
+      Path.expand(
+        "../../../../integration/sql/test/support/durable_log_postgres_test_helper.exs",
+        __DIR__
+      )
+
+Code.require_file(sql_helper)
 
 defmodule Elzoo.Run.TestRepo do
   use Ecto.Repo, otp_app: :elzoo, adapter: Ecto.Adapters.Postgres

@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "id": "workflow/bot-run-lifecycle",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["cure", "elixir"],
+  "dependencies": ["workflow/run", "workflow/pattern-step"],
+  "contract": "Pure total Run lifecycle decision over phase, simultaneous caller-owned waits, targeted execution Attempt inputs, pause/continue and recorded deadlines/budget; ready Run owns identity and committed outcomes, ready PatternStep owns protocol validation and first settlement. No runtime or durability.",
+  "limits": [
+    "No Store, clock, timer, runtime, transport, dispatch, authorization service or statechart framework; requests for terminal outcomes require a separate ready Run commit before further work.",
+    "Selected Cure laws cover supplied classifications only; Elixir validation, identity lookup and native time comparisons are finite-test/upstream grounded.",
+    "Host serializes/preserves authentic state/trackers and supplies durable Run facts, truthful action correlation, verified person/Control authority, recorded time, budget facts and wakes.",
+    "Child/outside/approval waits are caller data, not new v1 actions or inputs; no effect reconciliation, physical cancellation or new restart protocol."
+  ],
+  "files": [
+    "cure/elzoo/bot_run_lifecycle.cure",
+    "lib/elzoo/bot_run_lifecycle.ex",
+    "test/elzoo/bot_run_lifecycle_test.exs",
+    "examples/bot_run_lifecycle.exs"
+  ],
+  "grounding": [
+    {"kind": "proof", "file": "cure/elzoo/bot_run_lifecycle.cure", "symbol": "terminal_absorbing", "claim": "Terminal supplied phase returns unchanged for every admitted event and budget classification."},
+    {"kind": "proof", "file": "cure/elzoo/bot_run_lifecycle.cure", "symbol": "old_attempt_unchanged", "claim": "Old-Attempt supplied classification returns unchanged in every phase for both Boolean budget operands; excludes identity lookup."},
+    {"kind": "proof", "file": "cure/elzoo/bot_run_lifecycle.cure", "symbol": "closed_wait_late", "claim": "Closed-wait supplied classification in waiting phase returns late for both Boolean budget operands; excludes lookup and native expiry precedence."},
+    {"kind": "type", "file": "cure/elzoo/bot_run_lifecycle.cure", "claim": "Pinned Cure checks types and totality of the production finite classification table; selected law/source audit excludes axioms, holes and unresolved or unproved-total definitions."},
+    {"kind": "test", "file": "test/elzoo/bot_run_lifecycle_test.exs", "claim": "Seven named lifecycle table, several waits, Attempt/cancel, pause/continue, budget/time, protocol distinctions and Cure laws/example groups; temporary closed-wait production mutation is a negative control. Finite scenarios, not a durable replay or authentication proof."},
+    {"kind": "upstream", "provider": "cure", "reference": "https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89", "claim": "Pinned Cure compilation, reduction checking and BEAM decision semantics; compiler soundness not locally proved."},
+    {"kind": "upstream", "provider": "elixir", "reference": "https://hexdocs.pm/elixir/1.20.4/", "claim": "Pinned Elixir immutable maps and native integer comparison; ready Run currentness/outcome and PatternStep validation/settlement contracts are reused unchanged."},
+    {"kind": "assumption", "claim": "Serialized host preserves authentic opaque trackers and state, supplies durable identity/outcome/correlation facts, verifies person and Control authority, records time and budget truthfully, and commits requested termination through Run before further work."}
+  ],
+  "operations": {
+    "telemetry": {"status": "not_applicable", "contract": "Pure callable emits no observations; host owns instrumentation."},
+    "config": {"status": "not_applicable", "contract": "Recorded intrinsic operands and the single admitted exhausted-budget rule only; no ambient or hot settings facility."},
+    "control": {"status": "not_applicable", "contract": "No independently controlled runtime; pause/continue are pure decisions over host-recorded Control inputs."}
+  }
+}
