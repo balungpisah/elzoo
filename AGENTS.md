@@ -151,22 +151,39 @@ While you build, run the tests of your Piece:
 
     mix test pieces/<family>/<name>/test
 
-Before you open the pull request, and before each later push to it:
+Before you open the pull request, and before each later push to it, run the
+local gate. For a Piece task, the local gate is the small gate:
+
+    mix check --piece "$(git merge-base origin/main HEAD)"
+    git diff --check
+
+A Piece task changes only files in Piece directories, the index and generated
+files of section 3, and documents. `scripts/ci-change-class.py` decides this.
+The small gate runs format, compile, the ledger and Registry checks, the tests
+of each changed Piece and of each ready Piece that depends on it, the root
+tests that read the index, and the per-ID consumers of those IDs. It is a
+selected check, not the full check. It refuses a change with any other path.
+
+For a change of shared paths, the local gate is:
 
     mix check --affected origin/main
     git diff --check
 
-For a Piece that is not ready yet, and for a change of index files or shared
-paths, `--affected` selects everything. Then it runs each test of the full
-check, but its marker still says `AFFECTED`: take the one slot of the database
-server (section 3). After a change of `mix.exs`,
-`mix.lock`, `config/` or a toolchain pin, run `mix check` with no flag. On a
-new checkout, run `mix setup` first.
+For shared paths, `--affected` selects everything. Then it runs each test of
+the full check, but its marker still says `AFFECTED`: take the one slot of the
+database server (section 3). After a change of `mix.exs`, `mix.lock`,
+`config/` or a toolchain pin, run `mix check` with no flag. On a new checkout,
+run `mix setup` first.
 
-Each push to a pull request starts the hosted check on the new head: about 20
-minutes, or about 1 minute when each changed path is on the documents list in
-`scripts/ci-change-class.py`. That run is the merge evidence. So push finished
-batches, not each small commit.
+Each push to a pull request starts the hosted check on the new head:
+
+- a Piece-only change: the small gate, in the job `check-piece`;
+- a change of documents only: about 1 minute;
+- each other change: the full check, about 20 minutes.
+
+That run is the merge evidence. For a Piece-only change, the full check runs
+on `main` after the merge (section 7). So push finished batches, not each
+small commit.
 
 Open the pull request as a draft when the branch is complete in itself. Use
 this body, and leave out a line that does not apply:
@@ -227,6 +244,13 @@ The queue takes only a pull request that is not a draft, from a branch named
 hosted check on the exact head and then merges with a merge commit. The
 required checks on `main` are `check-hosted` and `gleam-hosted`. A red push run
 on `main` stops all merges until it is classified; see the CI guide.
+
+For a Piece-only pull request, the queue accepts the small gate only when its
+own classification also says Piece-only. It does not wait for the push run of
+`main`. The push run on `main` after the merge is the full check. Thus several
+small-gate merges can land before the first full run reports. The coordinator
+waits for a green `main` at the end of each level of tasks
+([coordinator](docs/development/13-coordinator.md)).
 
 If the queue stops on a conflict, or on a red check of the index files after
 it updated the branch, the coordinator repairs the branch or gives it back to

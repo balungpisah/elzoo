@@ -28,7 +28,8 @@ with a higher ID than its evidence run exists. A newer `workflow_dispatch` run i
 and this script accepts it only as a completed success with the full marker, else the full check runs. Only a
 `pull_request` run that is created after that listing, and that is green before the decision step of the push job
 (about 20 minutes of check time), could still decide)
-is a completed success whose exact attempt has exactly the five jobs of the evidence unit (ELZ-073), each once:
+is a completed success whose exact attempt has exactly the five jobs of the evidence unit (ELZ-073) and the skipped
+`check-piece` job of the small gate, each once:
 every executed job is successful on the exact head and run, on a GitHub-hosted runner (group `GitHub Actions`, label
 `ubuntu-24.04`, runner name `GitHub Actions <number>`), has a successful runner identity step and started in this attempt;
 the plan job printed `ELZOO PLAN: run=true`; each of the three work jobs has a successful `Run mix check` step and its
@@ -197,7 +198,8 @@ merely latest green run, and refuses an ambiguous match. A dispatch run is valid
 status. A run for another head, another branch, another workflow, a dispatch, push or fork run is never adopted.
 
 The completed run must succeed. Its exact attempt must have exactly the five jobs `check-plan`, `check-root`,
-`check-consumers-db`, `check-consumers` and `check-hosted`, each once (ELZ-073: one evidence unit). Every executed job
+`check-consumers-db`, `check-consumers` and `check-hosted`, each once (ELZ-073: one evidence unit), and the sixth job
+`check-piece` once, skipped except in the small-gate shape ("Small gate for Piece-only pull requests"). Every executed job
 must be successful on the same head and run, on a GitHub-hosted runner (group `GitHub Actions`, label `ubuntu-24.04`,
 runner name `GitHub Actions <number>`), with a successful runner identity step, and it must have started at or after the
 start of the run (a partial re-run copies the green jobs of the earlier attempt with their old start time: that is no
@@ -416,6 +418,79 @@ new path. The marker proves that the docs-only steps ran on the merge of the hea
 into the base; the queue's path check decides acceptance. A documentation-only run starts only the plan job and the
 aggregating job (no libraries, database or service container), so it costs two job starts plus the short check, not zero.
 
+## Small gate for Piece-only pull requests
+
+A Piece-only pull request gets a small gate before the merge instead of the full check. The full check runs on `main`
+after the merge (the push run), and it is the full evidence of the merge. Owner decision; the trial of three small
+tasks measured 17 minutes of queue wait for each pull request behind `main`.
+
+**The class** is in `scripts/ci-change-class.py`, the one file of the workflow, the queue, the skip decision and
+`mix check --piece`. A change is Piece-only when it has at least one changed path below `pieces/<family>/<name>/`, and
+each changed path is a regular file below `pieces/<family>/<name>/` (family and name in lower case letters, digits
+and dashes), an index or generated file (`registry/catalogue.json`, `docs/plans/release-plan.json`, `LEDGER.md`,
+`docs/plans/views.md`, `docs/plans/dependencies.mmd`), or a path of the documentation allowlist. Each other path means
+"not Piece-only": `pieces/test_helper.exs`, a file directly below `pieces/` or `pieces/<family>/`, `lib/`, `test/`,
+`config/`, `scripts/`, `.github/`, `mix.*`, `docs/consuming.md`. The Git rules of the documentation class apply: a
+rename counts both paths (so a rename into or out of a Piece directory is not Piece-only), a raw rename or copy entry
+is refused, a symlink or submodule entry is never Piece-only, and each doubt means "not Piece-only". The class also
+gives the set of changed Piece IDs. `docs_only` is unchanged, and it is decided first: a change of documents only
+gets the short check, not the small gate.
+
+**`mix check --piece BASE`** (`Elzoo.CheckSelection.piece_changes/2` and `piece/3`) takes the changed paths since
+`BASE` (commits, working tree and untracked files) and refuses with a non-zero exit, before any stage, when a path is
+outside the class, when the list is empty, when the working tree has a symlink or a directory at a changed path, or
+when `BASE` is not a commit. It never falls back to a narrower or a wider run. It runs `format`, `compile`,
+`ledger` and the registry load with the consumer-inventory validation, as the full check does. Then one `mix test`
+run with these paths: the `test` directory of each changed Piece; the `test` directory of each ready Piece that
+depends on a changed ready ID (transitive, as in affected mode); the root tests of
+`Elzoo.CheckSelection.piece_root_tests/0`, which read the index and generated files or each Piece directory
+(`registry_test.exs`, `install_configuration_test.exs`, `elzoo_take_task_test.exs`, `cure_record_tags_test.exs`) or
+hold the per-ID consumers (`export_test.exs` and the three consumer group modules); and the per-ID consumers of the
+affected ready IDs. A changed Piece directory that is not a ready ID (a new Piece) is valid: its own tests run. The
+aggregate consumer, the Ash spike and the other root tests do not run, also when an affected ID has no per-ID
+consumer. The report says so in its `LIMIT:` line, and the success marker is
+`ELZOO PIECE CHECK PASSED (small gate; a selected check, not the full check; see LIMIT)`, distinct from the full,
+part and affected markers. No ExUnit test reads `docs/plans/release-plan.json` or the two plan views:
+`scripts/check-roadmap.py` checks them in the plan job.
+
+**Workflow.** The plan job runs the step `Classify a Piece change` (`ci-change-class.py github-piece`, output
+`piece_only`) after `Classify the change`. The step `Plan the work jobs` writes `piece=true` and `run=false` only
+when the full check would run, the change is Piece-only and the event is `pull_request`. A push to `main` and a
+`workflow_dispatch` run never get the small gate. With `piece=true` the three work jobs are skipped and the job
+`check-piece` runs `sh scripts/run-ci-check.sh --piece HEAD^1` (the first parent of the merge checkout is the base).
+It has the header, the PostgreSQL service, the runtime libraries, the S3 test server, `setup-beam`, the dependency
+cache restore and the hosted-runner identity step of a work job; it saves no cache. `check-hosted` keeps its name
+and accepts three shapes: full (three work jobs green, `check-piece` skipped, prints `ELZOO CHECK PASSED`), small
+gate (`check-piece` green, three work jobs skipped, no full marker) and skipped (docs-only or a logged push skip).
+The plan log has the line `ELZOO PIECE PLAN: piece=<true|false> piece_only=<...>`. The guard
+(`scripts/check-ci-runners.py`) pins the new job, its step, the classification step, the plan output and the
+aggregating text, and it rejects the piece marker on a workflow line.
+
+**Queue.** `scripts/merge-queue.py` reads six jobs per run. It accepts the small gate (mode `piece`) only for a
+`pull_request` run on the exact head in which `check-piece` ran on a hosted runner in this attempt with its step
+`Run the small gate` green and the piece marker as a line of its own; the three work jobs were skipped; the plan job
+passed both classification steps and printed `ELZOO PLAN: run=false ... docs_only=false` and `ELZOO PIECE PLAN:
+piece=true piece_only=true`; and no full, part, docs-only or affected marker is present. Then the queue's own copy
+of the classifier must say Piece-only for `git diff main...head` on the fetched refs (`piece_only_change`), once after
+the evidence and once right before the merge. If not, the queue dispatches a full run, and a dispatched run never has
+the piece shape. The merge line ends with `mode=piece (small gate; the full check is the push run on main)` and
+names `check-piece`. The queue requires that `main` is not frozen (before the evidence and before the merge). It does
+not wait for the push run of the current `main`, unlike the documentation-only path.
+
+**Push run.** `scripts/ci-skip-decision.py` never skips the full check on the evidence of a run in which
+`check-piece` ran, also when the merge is classified as documentation only. So each small-gate merge gets the full
+check on `main`.
+
+**Limits.** The small gate is a selected check, not the full check. The aggregate consumer, the root tests that are
+not in the list (for example a root test that loads a Piece example or module directly) and the Ash spike run only
+in the full check on `main`. **Residual risk:** the freeze rule ignores a first attempt of a push run in progress, so
+several small-gate merges can land before the first full run of `main` after them reports. A red full run then
+freezes the next merge, and the coordinator repairs forward from the pull request bodies
+([coordinator](13-coordinator.md)); the coordinator also waits for a green `main` at the end of each level of a
+wave. The hosted time of `check-piece` is not measured yet. Locally the mode took 253 seconds for a one-file change
+in a leaf Piece and 376 seconds for a one-file change in `core/port` (10 affected ready IDs); most of it is the root
+test list.
+
 ## Timing lines in CI logs (ELZ-045)
 
 `mix check` prints `ELZOO STAGE <name> start|end utc=... elapsed=...` around format, compile,
@@ -621,7 +696,8 @@ chosen by a repository variable; ELZ-069 removed the self-hosted jobs, the runne
 run and the variable. There is one lane.
 
 **Jobs.** `symbolic-check.yml` has five jobs since ELZ-073 (`check-plan`, `check-root`, `check-consumers-db`,
-`check-consumers` and the aggregating job `check-hosted`, see "Parallel jobs (ELZ-073)"); `symbolic-gleam.yml` has one job, `gleam-hosted`. All run
+`check-consumers` and the aggregating job `check-hosted`, see "Parallel jobs (ELZ-073)") and a sixth, `check-piece`,
+for the small gate; `symbolic-gleam.yml` has one job, `gleam-hosted`. All run
 on the one label `ubuntu-24.04`, without a job container, and run for a push to `main`, a manual run
 (`workflow_dispatch`, no inputs) and a pull request from the same repository (a fork pull request skips them).
 `scripts/check-ci-runners.py` pins their `if:` lines and their header lines exactly: token permissions, time limit,
@@ -636,7 +712,7 @@ first step of each job checks `RUNNER_ENVIRONMENT`, `RUNNER_OS`, `RUNNER_ARCH` a
 cache key has no runner name: `elzoo-hosted-v1-<OS>-<ImageOS>-<OTP>-<Elixir>-<lock files hash>`.
 
 **Evidence.** The merge queue (`scripts/merge-queue.py`) and the push skip decision (`scripts/ci-skip-decision.py`)
-accept a run when its job list holds exactly the five jobs of the evidence unit, each once, and every executed job has
+accept a run when its job list holds exactly the five jobs of the evidence unit and `check-piece`, each once, and every executed job has
 `runner_group_name` = `GitHub Actions`, `labels` = `["ubuntu-24.04"]`, a `runner_name` of the form `GitHub Actions
 <number>` and a green identity step (the other rules: "Coordinator merge queue"). The Gleam gate accepts exactly one
 `gleam-hosted` job under the same rule. A run of a former shape (a job named `check-fast`, `check-any` or `gleam`, the single
@@ -744,7 +820,8 @@ measurement passed the rule (tables below).
 | `check-root` | `mix check --part root`: format, compile, ledger, Ash spike, registry, every test that is not a copied consumer | `ELZOO ROOT SUITE PASSED` |
 | `check-consumers-db` | `mix check --part consumers-db`: the aggregate consumer and the three PostgreSQL consumers (`integration/sql`, `integration/jobs`, `assembly/durable-job`) | `ELZOO CONSUMERS DB PASSED` |
 | `check-consumers` | `mix check --part consumers`: the 23 database-free per-ID consumers | `ELZOO CONSUMERS PASSED` |
-| `check-hosted` | the aggregating job (`needs` all four, `if: always()`); step `Require every job` | `ELZOO CHECK PASSED` |
+| `check-piece` | small gate only: `mix check --piece HEAD^1` (see "Small gate for Piece-only pull requests") | `ELZOO PIECE CHECK PASSED (...)` |
+| `check-hosted` | the aggregating job (`needs` all five, `if: always()`); step `Require every job` | `ELZOO CHECK PASSED` |
 
 **The plan job.** A job-level `if:` can read only `needs`, so the one decision for three jobs is a job output: the step
 `Plan the work jobs` writes `run=false` when the skip decision says `skip=true` or the change is documentation only, and
