@@ -271,8 +271,9 @@ close its door. It has no catalogue row and no job.
 
 The engine of RC-50 checks each action of a Run: payload schema, identity,
 host gate, budget, authority and approval rule. An administration command
-needs the same checks. Examples: make a binding, invite a member, publish a
-version. Such a command has no Run of the engine, no pattern and no budget.
+needs the same checks. Examples, when a person gives them outside a Run: make
+a binding, invite a member, publish a version. Such a command has no Run of
+the engine, no pattern and no budget.
 Today no Piece gives those checks to that caller. A consumer that writes them
 a second time can get a different verdict for the same action.
 
@@ -280,30 +281,34 @@ The engine is not expected to serve this caller unchanged. Three differences
 are known:
 
 - The engine refuses an action identity that the Run already used. A command
-  gives back the recorded result of an equal repeat.
+  gives back the recorded result of an equal repeat. That is the durable
+  identity of RC-42.
 - The engine needs a budget. A command has none.
 - The engine records an outcome after the work. A command commits its change
   and its outcome record together.
 
 `state/audit-log` records the attribution of a change. An action that changes
-no record has no audit row there, so a denied command has no record today.
+no record has no audit row there, so no ready Piece records a denied command
+today. `domain/authorization` leaves the retention of a denial to the caller.
 
 The brief is written when wave 4 is registered. It must hold at least these
 aims:
 
 1. For an action that passes the schema and identity checks and that the
    budget admits, the command and the engine give the same verdict from the
-   same trusted context, policy and gate.
+   same trusted context, policy, gate and host state.
 2. The acting principal, the effect class and the tenant are trusted values
    from the host and never come from a payload.
 3. The change that is applied is exactly the write set that the committed
-   allow or release covers.
+   authorization allow or approval release covers.
 4. A change commits with its outcome record, and a denied command gets a
-   record.
+   record. The ready Store refuses a call inside a caller transaction, so a
+   change outside the Store needs RC-42 or an equal.
 5. An approval that waits survives a restart.
 
-RC-50 carries one blocker line for this door. It asks its admission for the
-form in which a later Assembly gets the checks of one action.
+RC-50 carries one blocker line for this door. Its admission records whether a
+later Assembly can reuse the check order with no Run of the engine, and in
+which form. RC-50 gets no new API and no new acceptance item for it.
 
 ## What stays with the consumer
 
