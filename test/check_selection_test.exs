@@ -280,7 +280,7 @@ defmodule Elzoo.CheckSelectionTest do
     opts |> Keyword.get_values(:exclude) |> ExUnit.Filters.parse()
   end
 
-  defp git_fixture do
+  defp git_fixture(mode \\ :regular) do
     root =
       Path.join(
         System.tmp_dir!(),
@@ -300,6 +300,25 @@ defmodule Elzoo.CheckSelectionTest do
 
     git!(root, ["add", "."])
     git!(root, ["-c", "commit.gpgsign=false", "commit", "-qm", "base"])
+
+    if mode != :regular do
+      path = "pieces/core/port/a.ex"
+      File.rm!(Path.join(root, path))
+
+      case mode do
+        :symlink ->
+          File.ln_s!("target.ex", Path.join(root, path))
+          git!(root, ["add", path])
+
+        :gitlink ->
+          sha = git!(root, ["rev-parse", "HEAD"]) |> String.trim()
+          File.mkdir!(Path.join(root, path))
+          git!(root, ["update-index", "--cacheinfo", "160000,#{sha},#{path}"])
+      end
+
+      git!(root, ["-c", "commit.gpgsign=false", "commit", "-qm", "special base"])
+    end
+
     root
   end
 
@@ -545,6 +564,49 @@ defmodule Elzoo.CheckSelectionTest do
       end
     end
 
+    test "a deleted tracked symlink refuses in working, staged and committed changes" do
+      for state <- [:working, :staged, :committed] do
+        root = git_fixture(:symlink)
+        base = git!(root, ["rev-parse", "HEAD"]) |> String.trim()
+        assert git!(root, ["ls-tree", base, "--", "pieces/core/port/a.ex"]) =~ "120000"
+        File.rm!(Path.join(root, "pieces/core/port/a.ex"))
+        record_change(root, state)
+        assert {:error, _} = Selection.piece_changes(base, root)
+      end
+    end
+
+    test "a tracked symlink replaced by a regular file refuses in working, staged and committed changes" do
+      for state <- [:working, :staged, :committed] do
+        root = git_fixture(:symlink)
+        base = git!(root, ["rev-parse", "HEAD"]) |> String.trim()
+        File.rm!(Path.join(root, "pieces/core/port/a.ex"))
+        File.write!(Path.join(root, "pieces/core/port/a.ex"), "regular replacement")
+        record_change(root, state)
+        assert {:error, _} = Selection.piece_changes(base, root)
+      end
+    end
+
+    test "a removed tracked gitlink refuses in working, staged and committed changes" do
+      for state <- [:working, :staged, :committed] do
+        root = git_fixture(:gitlink)
+        base = git!(root, ["rev-parse", "HEAD"]) |> String.trim()
+        assert git!(root, ["ls-tree", base, "--", "pieces/core/port/a.ex"]) =~ "160000"
+        File.rmdir!(Path.join(root, "pieces/core/port/a.ex"))
+        record_change(root, state)
+        assert {:error, _} = Selection.piece_changes(base, root)
+      end
+    end
+
+    test "an ordinary tracked file deletion still selects its Piece in working, staged and committed changes" do
+      for state <- [:working, :staged, :committed] do
+        root = git_fixture()
+        base = git!(root, ["rev-parse", "HEAD"]) |> String.trim()
+        File.rm!(Path.join(root, "pieces/core/port/a.ex"))
+        record_change(root, state)
+        assert {:ok, %{pieces: ["core/port"]}} = Selection.piece_changes(base, root)
+      end
+    end
+
     test "CI runs the small gate in its own step with the first parent of the merge as the base" do
       workflow = File.read!(".github/workflows/symbolic-check.yml")
 
@@ -588,6 +650,13 @@ defmodule Elzoo.CheckSelectionTest do
     root = git_fixture()
     for id <- ids, do: File.mkdir_p!(Path.join([root, "pieces", id, "test"]))
     root
+  end
+
+  defp record_change(root, state) do
+    if state != :working, do: git!(root, ["add", "-A"])
+
+    if state == :committed,
+      do: git!(root, ["-c", "commit.gpgsign=false", "commit", "-qm", "change"])
   end
 
   defp git!(root, args) do
