@@ -58,13 +58,11 @@
 
      One exception. When the red run of `main` is classified as `defect` or
      `conflict` (see the [CI guide](10-symbolic-ci.md)), the repair needs a
-     new task, and the rule above would block it. Then ask the owner. With
-     the approval of the owner, publish only the repair task, and merge its
+     new task, and the rule above would block it. The owner authorizes up to two repair attempts before escalation. Publish only the repair task, and merge its
      pull request when the second command prints `0` and its own check is
      green. The queue does not accept a short check on a red `main`, so this
      merge is a known exception. The repair task adds no new Piece ID. If its
-     check cannot be green (for example the red is in the index files), ask
-     the owner.
+     check cannot be green (for example the red is in the index files), fix it before merging; do not waive a required check. Ask the owner if two repair attempts have not restored a green `main`.
   4. After the merge, wait until the push run of the merge commit is green.
      Then add the label `task` to the issues. Workers then start
      from a `main` that holds their task and their rows. If that run is red,
@@ -96,6 +94,7 @@
   4. The repair agent repairs forward in a new task: a new commit on top of
      `main`, not a revert and not a history rewrite. Publish the repair task as
      the exception in step 3 above says.
+  5. Keep unrelated merges frozen until the current `main` push run is green. Each repair attempt is a proposed fix checked on its exact head and, if merged, on `main`; record its result on the repair issue. After two unsuccessful attempts, stop and ask the owner with the failing command, last green commit and remaining decision. Force pushes, history rewrites, deletion of unmerged work and branch-protection changes still need the owner's approval.
 - `python3 scripts/check-roadmap.py --live` compares each issue body with
   `issue_body_sha256`. After you edit an issue body, update the task file and
   the hash in one commit. This prints the hash:
