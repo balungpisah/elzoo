@@ -8,3 +8,6 @@
 
 # Amp orb portals
 /.amp/portals/*
+
+# Disposable test services of scripts/worker-services.py (credentials)
+/.elzoo-services/
