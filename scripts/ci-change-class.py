@@ -13,10 +13,26 @@ copied consumers read it). Everything else is code or configuration for this pur
 symlink or submodule entry on either side is never documentation. Any doubt (empty list, failed Git
 command, malformed output, an odd path) means "not documentation only".
 
+Small gate: is a change Piece-only?
+
+A change is Piece-only when it has at least one changed path below `pieces/<family>/<name>/` and every changed path
+is one of: a regular file below `pieces/<family>/<name>/` (family and name in lower case letters, digits and dashes);
+an index or generated file (INDEX_FILES); or a path that the documentation allowlist above accepts. Everything else
+means "not Piece-only": `pieces/test_helper.exs`, a file directly below `pieces/` or `pieces/<family>/`, `lib/`,
+`test/`, `config/`, `scripts/`, `.github/`, `mix.*`, `docs/consuming.md`. The same rules as above apply: renames count
+both paths (a rename out of or into the class is not Piece-only; a raw rename or copy entry is refused), a symlink or
+submodule entry is never Piece-only, and any doubt means "not Piece-only". A Piece-only change also names the set of
+changed Piece IDs (`<family>/<name>`). A Piece-only pull request gets the small gate (`mix check --piece`) instead of
+the full check; the full check runs on main after the merge.
+
 Commands:
   ci-change-class.py github                 for the workflow: writes docs_only=true|false to $GITHUB_OUTPUT
+  ci-change-class.py github-piece           for the workflow: writes piece_only=true|false to $GITHUB_OUTPUT
   ci-change-class.py range <base> <head>    prints true or false for `git diff base...head`
+  ci-change-class.py piece-paths <path>...  for `mix check --piece`: prints one JSON object
+                                            {"piece_only": bool, "pieces": [...], "refused": path or null}
 """
+import json
 import os
 import re
 import subprocess
@@ -33,6 +49,11 @@ READ_BY_CODE = {"docs/consuming.md"}
 # Git's raw format: ":<old mode> <new mode> <old sha> <new sha> <status>", then the path, NUL separated.
 RAW = re.compile(r"^:([0-7]{6}) ([0-7]{6}) [0-9a-f]{40} [0-9a-f]{40} ([A-Z])$")
 SPECIAL_MODES = {"120000", "160000"}  # symlink, submodule
+# Small gate: the index and generated files that a Piece task changes in its last commit (AGENTS.md section 3).
+# scripts/check-roadmap.py (plan job) and the root tests that read the index (mix check --piece) check them.
+INDEX_FILES = {"registry/catalogue.json", "docs/plans/release-plan.json", "LEDGER.md", "docs/plans/views.md",
+               "docs/plans/dependencies.mmd"}
+PIECE_SEGMENT = re.compile(r"[a-z0-9][a-z0-9-]*")
 
 
 class Unclear(Exception):
@@ -63,6 +84,52 @@ def docs_only(entries):
         if not doc_path(path):
             return False
     return True
+
+
+def piece_id(path):
+    """The Piece ID `<family>/<name>` of a path below `pieces/<family>/<name>/`, or None."""
+    if not doc_path_shape(path):
+        return None
+    parts = path.split("/")
+    if len(parts) < 4 or parts[0] != "pieces":
+        return None
+    if not (PIECE_SEGMENT.fullmatch(parts[1]) and PIECE_SEGMENT.fullmatch(parts[2])):
+        return None
+    return f"{parts[1]}/{parts[2]}"
+
+
+def doc_path_shape(path):
+    """The shape rules of doc_path without the allowlist: a plain relative path with no odd part."""
+    if not isinstance(path, str) or not path or path != path.strip():
+        return False
+    if path.startswith("/") or "\\" in path or "\x00" in path or "\n" in path or "\r" in path:
+        return False
+    return not any(part in ("", ".", "..") for part in path.split("/"))
+
+
+def piece_paths(paths):
+    """(piece_only, sorted Piece IDs, first refused path or None) for a list of paths, without modes."""
+    if not isinstance(paths, list) or not paths:
+        return False, [], None
+    ids = set()
+    for path in paths:
+        found = piece_id(path)
+        if found:
+            ids.add(found)
+        elif not (doc_path_shape(path) and (path in INDEX_FILES or doc_path(path))):
+            return False, [], path
+    return bool(ids), sorted(ids), None
+
+
+def piece_only(entries):
+    """entries: (old_mode, new_mode, status, path) tuples. (True, IDs) only when the change is Piece-only."""
+    if not entries:
+        return False, []
+    for old_mode, new_mode, status, path in entries:
+        if old_mode in SPECIAL_MODES or new_mode in SPECIAL_MODES:
+            return False, []
+    verdict, ids, _refused = piece_paths([path for _o, _n, _s, path in entries])
+    return (True, ids) if verdict else (False, [])
 
 
 def parse_raw(output):
@@ -108,6 +175,36 @@ def classify_range(base, head, run=subprocess.run):
         return False
 
 
+def classify_piece_range(base, head, run=subprocess.run):
+    try:
+        return piece_only(changed(base, head, run))
+    except (Unclear, OSError, subprocess.TimeoutExpired, ValueError):
+        return False, []
+
+
+def merge_parents(env, run):
+    """(base, head) of a pull_request merge checkout, or None for any other event or shape."""
+    if env.get("GITHUB_EVENT_NAME") != "pull_request":
+        return None
+    try:
+        parents = run(["git", "rev-list", "--parents", "-n1", "HEAD"], capture_output=True, text=True,
+                      timeout=60).stdout.split()
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if len(parents) != 3 or not all(re.fullmatch(r"[0-9a-f]{40}", p) for p in parents):
+        return None
+    return parents[1], parents[2]
+
+
+def classify_piece_github(env, run=subprocess.run):
+    """For the workflow: only a pull_request run can be Piece-only. A push, a dispatch or any other event, and a HEAD
+    that is not a two-parent merge, are never Piece-only."""
+    pair = merge_parents(env, run)
+    if pair is None:
+        return False, []
+    return classify_piece_range(pair[0], pair[1], run)
+
+
 def classify_github(env, run=subprocess.run):
     """For the workflow. A pull_request run checks out the merge of the head into the base: HEAD^1 is the
     base, HEAD^2 is the head. Any other event, or a HEAD that is not such a merge, is not documentation."""
@@ -132,6 +229,18 @@ def main(argv, env=None, out=print):
         if target:
             with open(target, "a", encoding="utf-8") as handle:
                 handle.write(f"docs_only={'true' if verdict else 'false'}\n")
+        return 0
+    if len(argv) == 1 and argv[0] == "github-piece":
+        verdict, ids = classify_piece_github(env)
+        out(f"ELZOO CHANGE CLASS: piece_only={'true' if verdict else 'false'} pieces={','.join(ids) or 'none'}")
+        target = env.get("GITHUB_OUTPUT")
+        if target:
+            with open(target, "a", encoding="utf-8") as handle:
+                handle.write(f"piece_only={'true' if verdict else 'false'}\n")
+        return 0
+    if len(argv) >= 2 and argv[0] == "piece-paths":
+        verdict, ids, refused = piece_paths(argv[1:])
+        out(json.dumps({"piece_only": verdict, "pieces": ids, "refused": refused}))
         return 0
     if len(argv) == 3 and argv[0] == "range":
         out("true" if classify_range(argv[1], argv[2]) else "false")
