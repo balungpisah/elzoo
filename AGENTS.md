@@ -81,7 +81,9 @@ Never add a self-hosted runner and never change `runs-on`: the repository is
 public.
 
 **Index files.** Change them in one last commit, immediately before you ask
-for the merge. This keeps the conflict window short.
+for the merge. This keeps the conflict window short. A later commit that does
+not change `piece.json` (for example a format fix) is allowed. The rule is:
+`manifest_sha256` equals the SHA-256 of the bytes of `piece.json` at the head.
 
 1. `registry/catalogue.json`, your row: `"status": "ready"` and
    `"manifest": "pieces/<family>/<name>/piece.json"`.
@@ -144,6 +146,9 @@ agent writes in a worktree at a time.
   an issue or a pull request. Use roles.
 - Write a file under `docs/work/` only when the task body names that file as a
   deliverable. The pull request body is the record of the task.
+- Make a negative control by a temporary edit in the worktree. Run the test,
+  record the failure, then revert the edit. Never commit the edit. A scratch
+  copy of a file does not work when the test finds the file by its path.
 
 ## 5. Local gate, then pull request
 
@@ -185,6 +190,14 @@ That run is the merge evidence. For a Piece-only change, the full check runs
 on `main` after the merge (section 7). So push finished batches, not each
 small commit.
 
+A hosted job can fail on a test that your change cannot affect. Then rerun
+the run on the same head, with no push:
+`gh run rerun <run ID> -R balungpisah/elzoo`. Rerun all jobs: the queue
+refuses a partial rerun (`--failed`), because the green jobs keep the start
+time of the earlier attempt. Record the first failure in the pull request
+body. Open an issue for the flaky test, or comment on its open issue. A second
+failure of the same test is a real failure.
+
 Open the pull request as a draft when the branch is complete in itself. Use
 this body, and leave out a line that does not apply:
 
@@ -212,20 +225,36 @@ An independent review is necessary for a new Piece, a changed Contract or Cure
 law, an Effect or Adapter, storage or delivery behavior, a change of grounding
 or evidence wording in `piece.json` or a README, a toolchain pin, and a change
 in `scripts/` or `.github/`. It is not necessary for other documents, the
-index files, or a test repair that changes no assertion.
+index files, or a test repair that changes no assertion. A new README sentence
+that names a test or an example is evidence wording: it gets the one review.
 
 - The reviewer is a different agent session, and a different model where one
-  is available. Give it the issue body and the diff, not your summary.
+  is available. Give it the issue body and the diff, not your summary. The
+  review comment names the model of the reviewer. When no different model is
+  available, a different session is accepted, and the comment says so.
 - The reviewer reports all findings in one pass. Each finding is a `BLOCKER`
   (wrong behavior, a broken Contract, a claim with no evidence) or a `NOTE`.
 - Correct all blockers in one batch. The second pass reads only the commits
-  made after the first pass. A third pass occurs only if a blocker stays open.
+  made after the first pass: the range `<first reviewed SHA>..<head>`, which
+  its comment names. A third pass occurs only if a blocker stays open.
+- A reviewer that cannot run the tests says so. Then you run the tests that it
+  names, and you record each command and its exit code in the review comment.
 - For a `NOTE`: correct it if that is quick. If not, open a follow-up issue or
   decline it in one line.
-- The record is one pull request comment: the reviewer role, the reviewed SHA,
-  the findings and the verdict. Write no review file.
+- The record is one pull request comment for each pass. Write no review file.
+  Use these five lines:
+
+      Reviewer: <role>; <model> | same model, different session (no other model available)
+      Reviewed: <SHA> | second pass <first reviewed SHA>..<head>
+      Findings: <BLOCKER or NOTE, each with file and line> | none
+      Tests: <commands that the reviewer ran, and exit codes> | reviewer could not run tests; worker ran <command>: exit <code>
+      Verdict: <no blocker open | blockers open>
 - Answer each finding of the automated reviewer in its thread, and resolve
   the thread.
+
+A local command can be impossible on your host, for example when a service is
+missing. Then record the command and the reason in `Local gate:`. The hosted
+check is the evidence for that command.
 
 When the local gate, the hosted check and the review are green, mark the pull
 request ready for review. That is the request to merge. From then the
