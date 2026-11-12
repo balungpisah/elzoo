@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "id": "core/payload-schema",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["jason", "jsv", "ex_json_schema", "telemetry"],
+  "dependencies": ["core/port"],
+  "contract": "Caller-owned JSON Schema checking bound to exact Port direction, schema ID and version; original JSON payload retained, compact encoding at most 65,536 bytes and container depth at most 32; failures return fixed tags or at most 16 key-redacted structural violations.",
+  "limits": [
+    "Host-approved decoded schema objects only, draft 2020-12, fragment-only references; conservative scanning also refuses reserved reference keys in literal schema data.",
+    "Bounds cover accepted payloads and returned violations, not encoding allocation, validator errors, regex/schema complexity, CPU or memory.",
+    "No schema registry, digest, negotiation, defaults, coercion, codec, process, persistence, effects or delivery guarantee; ready callers keep their existing admission and disagreement policy.",
+    "No exhaustive violation list, total count or ordering guarantee; structural paths are not dereferenceable JSON Pointers.",
+    "ex_json_schema and telemetry are declared for copied tests, not production validation. Snapshot comparison is a repository-only observation recorded in README, not copied runtime support."
+  ],
+  "files": [
+    "lib/elzoo/payload_schema.ex",
+    "examples/elzoo/payload_schema.exs",
+    "test/elzoo/payload_schema_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/payload_schema_test.exs",
+      "claim": "Named declared-type, malformed-shape, reference, unknown-field, size/depth, violation-bound, version/binding, redaction/log/event, pinned-validator divergence and checked-example scenarios; finite tests, not a universal proof."
+    },
+    {
+      "kind": "upstream",
+      "provider": "jsv",
+      "reference": "https://hexdocs.pm/jsv/0.27.0/JSV.html",
+      "claim": "Pinned build and cast:false validation with resolver:[], formats:false, atoms:false and warnings silenced; Error.data_path is reversed, with binary object keys and integer array positions."
+    },
+    {
+      "kind": "upstream",
+      "provider": "jason",
+      "reference": "https://hexdocs.pm/jason/1.4.5/Jason.html",
+      "claim": "Default compact JSON encoding supplies the byte count after representation and depth checks."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The host supplies truthful Port identities, consistent schema meaning per ID/version pair and approved schema complexity. Checked values come from build/2; forged internals are outside the Contract. Port descriptor policy relies on the unchanged core/port dependency and its pinned Cure grounding."
+    }
+  ],
+  "operations": {
+    "telemetry": {"status": "not_applicable", "contract": "No logs or telemetry emitted; the caller owns instrumentation."},
+    "config": {"status": "not_applicable", "contract": "Intrinsic Port/schema/payload operands and fixed bounds; no selectable settings."},
+    "control": {"status": "not_applicable", "contract": "Caller-owned immutable schema state only; no process or lifecycle commands."}
+  }
+}

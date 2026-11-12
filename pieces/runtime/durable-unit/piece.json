@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "id": "runtime/durable-unit",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "adapter",
+  "providers": ["elixir", "otp"],
+  "dependencies": ["core/operator", "state/event-log", "state/checkpoint", "state/outbox"],
+  "applications": ["crypto"],
+  "contract": "One Unit's input-before-transition recording, committed-result recovery, FIFO completed-input identity retention and zero-or-one committed outbox offers through the ready Store, Writer, Checkpoint and Outbox boundaries.",
+  "limits": [
+    "Finite DU1–DU8 scenarios, not universal recovery or exactly-once proofs; no new Cure law for the shell.",
+    "Input-identity retention does not bound log/witness memory or recovery time; no pruning or checkpoint witness truncation. Evicted IDs may apply again.",
+    "Mailbox delivery is volatile and unacknowledged; only synchronous applied/duplicate replies establish committed results. Caller owns resubmission and reconciliation after uncertainty.",
+    "Persistence inherits the Store; Memory demonstrates process restart, not disk durability. Destination dispatch, idempotency, acknowledgement and availability are external.",
+    "Trusted deterministic serializable plain BEAM data, excluding processes, references, funs, resources and secrets; caller owns data compatibility. Stream configuration and v1 format interpretation are fixed for its lifetime.",
+    "No retry scheduler, poison skip, migration, follower promotion, pause/drain/resume or automatic restart loop on named shutdown reasons."
+  ],
+  "files": [
+    "lib/elzoo/durable_unit.ex",
+    "test/elzoo/durable_unit_test.exs",
+    "examples/restart.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/durable_unit_test.exs",
+      "claim": "Named DU1–DU8 scenarios: both intakes/validation, crashes before input and before/after result, unresolved restarts, offers/ack/64-item passes, checkpoint fault reconciliation/version/pruning/size, FIFO retention, both conflict stages, poison/format/storage uncertainty and transient shutdown; finite Memory scenarios, not disk durability or universal proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/GenServer.html",
+      "claim": "Pinned Elixir GenServer calls, registration and transient child specifications; call timeout/exit without reply is uncertain."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/",
+      "claim": "OTP 29.1.2 links, monitors, SHA-256, deterministic external-term encoding and safe decoding are upstream contracts, not local proofs."
+    },
+    {
+      "kind": "assumption",
+      "claim": "Caller supplies supervision, exclusively matching Store/fold/limits/stream configuration, a pure deterministic terminating operator, trusted serializable application data, prompt nonblocking offer callback and dispatcher commit/ack policy. Ready Store CAS, Writer, Checkpoint and Outbox contracts supply persistence boundaries."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "planned",
+      "contract": "No telemetry events or input/state/output payload logging supplied."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Required store, stream, operator, retention_count, max_record_bytes, max_checkpoint_bytes and offer fixed at start; optional ordinary OTP name; positive integer inclusive byte limits, FIFO completed-input count; no hot reconfiguration.",
+      "evidence": ["test/elzoo/durable_unit_test.exs"]
+    },
+    "control": {
+      "status": "supported",
+      "contract": "checkpoint returns ready Checkpoint.take/4 result unchanged (indeterminate stops); offer_pending returns {:ok, offered_count} or {:error, :offer_unavailable}, at most 64 offers per pass. Ordinary OTP lifecycle; no pause/drain/resume.",
+      "evidence": ["test/elzoo/durable_unit_test.exs"]
+    }
+  }
+}

@@ -4929,6 +4929,27 @@
       "issue": 232,
       "url": "https://github.com/balungpisah/elzoo/issues/232",
       "issue_body_sha256": "d23a8672732d589c4d6808ee839dbb257052a7421168cf4a3d40798e15f44c32"
+    },
+    {
+      "id": "ELZ-121",
+      "title": "ELZ-121 — Keep affected consumer selection test aligned with ready dependencies",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [],
+      "status": "published 2026-11-12",
+      "owner_role": "one claimed task worker; coordinator owns review and merge queue",
+      "paths": [
+        "tasks/ELZ-121-affected-consumer-selection.md"
+      ],
+      "outputs": [],
+      "acceptance": "The existing affected-selection case keeps no selected consumers, aggregate true and approval membership, and asserts uncovered equals affected with current main and with the new ready Run dependent. Fixed per-ID inventory assertions and selection coverage remain unchanged; only test/export_test.exs changes.",
+      "product_aims": [
+        "P01"
+      ],
+      "issue": 238,
+      "url": "https://github.com/balungpisah/elzoo/issues/238",
+      "issue_body_sha256": "4e277f624d86b2ddf81635fd1ffdaec4c2057671dfb6ef9d9535a94a85f2ec3e"
     }
   ],
   "entries": [
@@ -5932,17 +5953,21 @@
     {
       "id": "core/payload-schema",
       "job": "ELZ-115",
-      "note": "Bot platform wave 1 (P13). One schema value per Port direction, keyed by the schema_id and schema_version of core/port, with a bounded violation result, shared by a module function, a recipe node, a tool argument and a model output. Reuse one pinned validator; ready integration/ai-text (jsv) and integration/mcp-client (ex_json_schema) keep their own validators and results.",
+      "note": "Caller-owned JSON Schema checking bound to exact Port direction, schema ID and version; original JSON payload retained, compact encoding at most 65,536 bytes and container depth at most 32; failures return fixed tags or at most 16 key-redacted structural violations.",
       "baseline_status": "not in baseline (new row, RC-44)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/core/payload-schema/piece.json",
+      "manifest_sha256": "b7f5c1abbf1e90c7c3190127d715827731949fb1ccdf721117513fa4189b9935",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
       "id": "runtime/durable-unit",
       "job": "ELZ-117",
-      "note": "Bot platform wave 1 (P13). Each input is appended before the pure transition reads it; state returns from ready state/event-log, state/checkpoint and state/outbox. New ID: ready runtime/unit stays volatile and unchanged.",
+      "note": "One Unit's input-before-transition recording, committed-result recovery, FIFO completed-input identity retention and zero-or-one committed outbox offers through the ready Store, Writer, Checkpoint and Outbox boundaries.",
       "baseline_status": "not in baseline (new row, RC-45)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/runtime/durable-unit/piece.json",
+      "manifest_sha256": "7cef42ef2a81da3b0861f6b580ca29e39277cdf9ca85f62a5c06e1ed0f6067a4",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
@@ -5956,9 +5981,11 @@
     {
       "id": "runtime/async-work",
       "job": "ELZ-118",
-      "note": "Bot platform wave 1 (P13). Local work that is not an Effect (a bounded script run) must not block the Unit that owns a Run; results return by registered name as messages with the work identity. An Effect stays with delivery/effect-intent. Volatile; durable work stays with integration/jobs.",
+      "note": "Bounded volatile local computation under an injected Task.Supervisor: a per-owner controller serializes completion, DOWN, cancel and monotonic deadlines, counts tasks through actual termination and offers one caller-wrapped outcome through the owner's current Registry name. Cancel brutally kills active tasks; success processed at or after deadline is timed_out. Owner-only restart preserves controller tracking but the replacement owner rejects unknown actions as late; controller restart loses tracking. No queue, durable delivery, retry or engine policy.",
       "baseline_status": "not in baseline (new row, RC-47)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/runtime/async-work/piece.json",
+      "manifest_sha256": "e11814bc9ba18d1797829c35f00e4e83b38a7186e9ef3bd01b3d9a45098ff7c1",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
