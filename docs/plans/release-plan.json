@@ -4929,6 +4929,27 @@
       "issue": 232,
       "url": "https://github.com/balungpisah/elzoo/issues/232",
       "issue_body_sha256": "d23a8672732d589c4d6808ee839dbb257052a7421168cf4a3d40798e15f44c32"
+    },
+    {
+      "id": "ELZ-121",
+      "title": "ELZ-121 — Keep affected consumer selection test aligned with ready dependencies",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [],
+      "status": "published 2026-11-12",
+      "owner_role": "one claimed task worker; coordinator owns review and merge queue",
+      "paths": [
+        "tasks/ELZ-121-affected-consumer-selection.md"
+      ],
+      "outputs": [],
+      "acceptance": "The existing affected-selection case keeps no selected consumers, aggregate true and approval membership, and asserts uncovered equals affected with current main and with the new ready Run dependent. Fixed per-ID inventory assertions and selection coverage remain unchanged; only test/export_test.exs changes.",
+      "product_aims": [
+        "P01"
+      ],
+      "issue": 238,
+      "url": "https://github.com/balungpisah/elzoo/issues/238",
+      "issue_body_sha256": "4e277f624d86b2ddf81635fd1ffdaec4c2057671dfb6ef9d9535a94a85f2ec3e"
     }
   ],
   "entries": [
