@@ -64,6 +64,8 @@ S3_BINARY = "/opt/elzoo-minio"
 PG_READY_SECONDS = 180
 PG_CONNECT_SECONDS = 30
 LOCK_ATTEMPTS = 3
+PG_MESSAGE_LIMIT = 1 << 20          # bytes of one message from the server
+SCRAM_ITERATION_LIMIT = 100_000     # PostgreSQL uses 4096
 SECRETS_DIR = "/run/elzoo-secrets"
 VALUE = re.compile(r"[A-Za-z0-9_.:/@-]+")
 ENV_VALUE = re.compile(r"[A-Za-z0-9_.:/@=-]+")
@@ -229,6 +231,28 @@ def url_port(url):
 
 # --- PostgreSQL client: the test role over TCP with SCRAM-SHA-256 ------------------------------------------------
 
+def _scram_attrs(message):
+    """The attributes of a SCRAM message (`a=1,b=2`); Stop on another form."""
+    try:
+        text = message.decode()
+    except UnicodeDecodeError:
+        raise Stop("PostgreSQL sent a malformed SCRAM-SHA-256 message") from None
+    attrs = {}
+    for item in text.split(","):
+        key, sep, value = item.partition("=")
+        if not sep or not key:
+            raise Stop("PostgreSQL sent a malformed SCRAM-SHA-256 message")
+        attrs[key] = value
+    return attrs
+
+
+def _scram_base64(value):
+    try:
+        return base64.b64decode(value, validate=True)
+    except ValueError:
+        raise Stop("PostgreSQL sent a malformed SCRAM-SHA-256 message") from None
+
+
 class Scram:
     """The client side of SCRAM-SHA-256 (RFC 5802, RFC 7677) without channel binding, as PostgreSQL uses it."""
 
@@ -243,11 +267,14 @@ class Scram:
         return ("n,," + self.bare).encode()
 
     def client_final(self, server_first):
+        attrs = _scram_attrs(server_first)
         server_first = server_first.decode()
-        attrs = dict(item.split("=", 1) for item in server_first.split(","))
         if not attrs.get("r", "").startswith(self.nonce) or "s" not in attrs or "i" not in attrs:
             raise Stop("PostgreSQL sent an invalid SCRAM-SHA-256 server-first message")
-        salted = hashlib.pbkdf2_hmac("sha256", self.password, base64.b64decode(attrs["s"]), int(attrs["i"]))
+        if not re.fullmatch(r"[0-9]{1,7}", attrs["i"]) or not 1 <= int(attrs["i"]) <= SCRAM_ITERATION_LIMIT:
+            raise Stop(f"PostgreSQL asked for a SCRAM-SHA-256 iteration count outside 1..{SCRAM_ITERATION_LIMIT}")
+        salted = hashlib.pbkdf2_hmac("sha256", self.password, _scram_base64(attrs["s"]),
+                                     int(attrs["i"]))
         client_key = hmac.new(salted, b"Client Key", hashlib.sha256).digest()
         stored_key = hashlib.sha256(client_key).digest()
         without_proof = f"c=biws,r={attrs['r']}"
@@ -258,9 +285,13 @@ class Scram:
         return f"{without_proof},p={base64.b64encode(proof).decode()}".encode()
 
     def check_server_final(self, server_final):
-        attrs = dict(item.split("=", 1) for item in server_final.decode().split(","))
-        expected = hmac.new(self.server_key or b"", self.auth or b"", hashlib.sha256).digest()
-        if "v" not in attrs or not hmac.compare_digest(base64.b64decode(attrs["v"]), expected):
+        """The server signature must follow the server-first message and match the password: only a server that
+        knows the password (its stored keys) can compute it."""
+        if self.server_key is None or self.auth is None:
+            raise Stop("PostgreSQL sent the SCRAM-SHA-256 server-final message before the server-first message")
+        attrs = _scram_attrs(server_final)
+        expected = hmac.new(self.server_key, self.auth, hashlib.sha256).digest()
+        if "v" not in attrs or not hmac.compare_digest(_scram_base64(attrs["v"]), expected):
             raise Stop("the PostgreSQL server signature does not match: it does not know the password")
         self.verified = True
 
@@ -275,6 +306,8 @@ def _pg_read(stream):
     if len(head) < 5:
         raise ConnectionError("PostgreSQL closed the connection")
     size = struct.unpack("!I", head[1:])[0] - 4
+    if not 0 <= size <= PG_MESSAGE_LIMIT:
+        raise Stop(f"PostgreSQL sent a message length outside 0..{PG_MESSAGE_LIMIT} bytes")
     body = stream.read(size)
     if len(body) < size:
         raise ConnectionError("PostgreSQL closed the connection")
@@ -289,8 +322,17 @@ def _pg_error(payload):
 def pg_query(host, port, user, password, database, sql, timeout=10):
     """Run one query as `user` over TCP, as a test client does, and return its rows as text.
 
-    Only SCRAM-SHA-256 is accepted, and the server signature is checked: a server that lets the role in without a
-    password, or with another method, fails this check. A wrong password fails it with the server's error."""
+    Only SCRAM-SHA-256 is accepted. The role is in only after the server signature, which follows the server-first
+    message, matches the password: a server that lets the role in without that signature, or asks for another
+    method, fails this check. A wrong password fails it with the server's error. A malformed message, a message
+    over PG_MESSAGE_LIMIT bytes or an iteration count over SCRAM_ITERATION_LIMIT stops it."""
+    try:
+        return _pg_query(host, port, user, password, database, sql, timeout)
+    except (ValueError, IndexError, struct.error) as error:     # includes UnicodeDecodeError and binascii.Error
+        raise Stop(f"PostgreSQL sent a malformed message ({type(error).__name__})") from error
+
+
+def _pg_query(host, port, user, password, database, sql, timeout):
     with socket.create_connection((host, port), timeout=timeout) as connection, \
             connection.makefile("rwb") as stream:
         body = struct.pack("!I", 196608) + b"".join(
@@ -325,6 +367,8 @@ def pg_query(host, port, user, password, database, sql, timeout=10):
                 for _ in range(count):
                     size = struct.unpack("!i", payload[offset:offset + 4])[0]
                     offset += 4
+                    if offset + max(size, 0) > len(payload):
+                        raise Stop("PostgreSQL sent a malformed data row")
                     row.append(None if size < 0 else payload[offset:offset + size].decode())
                     offset += max(size, 0)
                 rows.append(row)

@@ -524,8 +524,25 @@ class FakePostgres(threading.Thread):
             elif self.mode == "md5":
                 send(b"R", struct.pack("!I", 5) + b"salt")
                 return
-            else:
+            elif self.mode == "short-auth":
+                send(b"R", b"\0")
+                return
+            elif self.mode == "final-first":
+                # Skips the server-first message and signs with empty keys: this needs no password.
                 send(b"R", struct.pack("!I", 10) + b"SCRAM-SHA-256\0\0")
+                recv()
+                forged = hmac.new(b"", b"", hashlib.sha256).digest()
+                send(b"R", struct.pack("!I", 12) + b"v=" + base64.b64encode(forged))
+                send(b"R", struct.pack("!I", 0))
+            elif self.mode == "garbled-first":
+                send(b"R", struct.pack("!I", 10) + b"SCRAM-SHA-256\0\0")
+                recv()
+                send(b"R", struct.pack("!I", 11) + b"no-equals-sign")
+                recv()
+                return
+            else:
+                offer = b"SCRAM-SHA-256-PLUS\0\0" if self.mode == "plus-only" else b"SCRAM-SHA-256\0\0"
+                send(b"R", struct.pack("!I", 10) + offer)
                 _, body = recv()
                 first = body[body.index(b"\0") + 5:].decode()
                 bare = first[3:]
@@ -544,14 +561,18 @@ class FakePostgres(threading.Thread):
                     send(b"E", b'SFATAL\0C28P01\0Mpassword authentication failed for user "elzoo_test"\0\0')
                     return
                 server_key = hmac.new(salted, b"Server Key", hashlib.sha256).digest()
-                verifier = hmac.new(server_key, auth, hashlib.sha256).digest() if self.mode == "scram" else b"x" * 32
+                verifier = (b"x" * 32 if self.mode == "bad-signature"
+                            else hmac.new(server_key, auth, hashlib.sha256).digest())
                 send(b"R", struct.pack("!I", 12) + b"v=" + base64.b64encode(verifier))
                 send(b"R", struct.pack("!I", 0))
             send(b"S", b"server_version\x0016.15\x00")
             send(b"Z", b"I")
             _, self.query = recv()
             field = lambda text: struct.pack("!i", len(text)) + text  # noqa: E731
-            send(b"D", struct.pack("!H", 3) + field(b"16.15") + field(b"100") + struct.pack("!i", -1))
+            if self.mode == "short-row":
+                send(b"D", struct.pack("!H", 3) + field(b"16.15") + struct.pack("!i", 50) + b"short")
+            else:
+                send(b"D", struct.pack("!H", 3) + field(b"16.15") + field(b"100") + struct.pack("!i", -1))
             send(b"C", b"SELECT 1\0")
             send(b"Z", b"I")
             recv()
@@ -590,6 +611,49 @@ class PostgresClient(unittest.TestCase):
                               ("bad-signature", "server signature")):
             with self.subTest(mode=mode), self.assertRaisesRegex(ws.Stop, message):
                 self.query(mode, "right-password")
+
+    def test_a_server_final_message_before_the_server_first_message_is_refused(self):
+        # BLOCKER 1 of review 2: a signature over empty keys must not let the role in.
+        with self.assertRaisesRegex(ws.Stop, "server-final message before the server-first message"):
+            self.query("final-first", "wrong-password")
+
+    def test_a_server_that_offers_only_another_sasl_mechanism_is_refused(self):
+        with self.assertRaisesRegex(ws.Stop, "does not offer SCRAM-SHA-256"):
+            self.query("plus-only", "right-password")
+
+    def test_a_server_nonce_that_does_not_extend_the_client_nonce_is_refused(self):
+        scram = ws.Scram("pencil", nonce="client-nonce")
+        salt = base64.b64encode(b"salt").decode()
+        with self.assertRaisesRegex(ws.Stop, "invalid SCRAM-SHA-256 server-first"):
+            scram.client_final(f"r=other-nonce-srv,s={salt},i=4096".encode())
+        scram.client_final(f"r=client-nonce-srv,s={salt},i=4096".encode())     # the control: accepted
+
+    def test_malformed_server_messages_stop_without_a_traceback(self):
+        for mode, message in (("garbled-first", "malformed SCRAM-SHA-256 message"),
+                              ("short-row", "malformed data row"), ("short-auth", r"malformed message \(error\)")):
+            with self.subTest(mode=mode), self.assertRaisesRegex(ws.Stop, message):
+                self.query(mode, "right-password")
+        for data in (b"r=client-nonce-srv,s=@@@,i=4096", b"r=client-nonce-srv,s=c2FsdA==,i=x", b"\xff=1"):
+            with self.subTest(data=data), self.assertRaises(ws.Stop):
+                ws.Scram("pencil", nonce="client-nonce").client_final(data)
+
+    def test_a_message_over_one_mebibyte_is_refused_before_it_is_read(self):
+        def message(size):
+            return io.BytesIO(b"D" + struct.pack("!I", size + 4) + b"x" * size)
+        self.assertEqual((b"D", b"x" * ws.PG_MESSAGE_LIMIT), ws._pg_read(message(ws.PG_MESSAGE_LIMIT)))
+        self.assertEqual(1 << 20, ws.PG_MESSAGE_LIMIT)
+        with self.assertRaisesRegex(ws.Stop, "message length"):
+            ws._pg_read(message(ws.PG_MESSAGE_LIMIT + 1))
+        with self.assertRaisesRegex(ws.Stop, "message length"):
+            ws._pg_read(io.BytesIO(b"D" + struct.pack("!I", 3)))       # a length below the 4 bytes of the field
+
+    def test_an_iteration_count_over_100000_is_refused_before_the_key_derivation(self):
+        self.assertEqual(100_000, ws.SCRAM_ITERATION_LIMIT)
+        salt = base64.b64encode(b"salt").decode()
+        ws.Scram("pencil", nonce="n").client_final(f"r=n-srv,s={salt},i=100000".encode())     # the control
+        for rounds in ("100001", "0"):
+            with self.subTest(rounds=rounds), self.assertRaisesRegex(ws.Stop, "iteration count"):
+                ws.Scram("pencil", nonce="n").client_final(f"r=n-srv,s={salt},i={rounds}".encode())
 
 
 class Hardening(ServicesCase):
