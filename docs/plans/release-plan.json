@@ -3595,37 +3595,17 @@
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
-      "dependencies": [
-        "ELZ-033",
-        "ELZ-011",
-        "ELZ-079"
-      ],
+      "dependencies": ["ELZ-033", "ELZ-011", "ELZ-079"],
       "status": "implementation prepared locally; final-tree checks, review and coordinated acceptance pending",
       "url": "https://github.com/balungpisah/elzoo/issues/197",
-      "paths": [
-        "tasks/ELZ-105-scoped-credential-references.md"
-      ],
-      "outputs": [
-        "integration/secrets"
-      ],
+      "paths": ["tasks/ELZ-105-scoped-credential-references.md"],
+      "outputs": ["integration/secrets"],
       "acceptance": "Unchanged live issue body and byte-equal publication copy; scoped credential boundary and finite evidence as specified in the Contract.",
       "issue": 197,
       "issue_body_sha256": "0b29576da366bf5901f9f1bb745d6a80495f62e58b77830299a68c157b4f5a0f",
       "observed_issue_state": "OPEN",
       "owner_role": "one claimed task worker; coordinator owns integration",
-      "product_aims": [
-        "P01",
-        "P03",
-        "P04",
-        "P05",
-        "P06",
-        "P07",
-        "P08",
-        "P09",
-        "P10",
-        "P11",
-        "P12"
-      ]
+      "product_aims": ["P01", "P03", "P04", "P05", "P06", "P07", "P08", "P09", "P10", "P11", "P12"]
     },
     {
       "id": "ELZ-107",
@@ -3633,26 +3613,17 @@
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
-      "dependencies": [
-        "ELZ-033",
-        "ELZ-052"
-      ],
+      "dependencies": ["ELZ-033", "ELZ-052"],
       "status": "published; claimed task/ELZ-107; provider verification and acceptance pending",
       "url": "https://github.com/balungpisah/elzoo/issues/198",
-      "paths": [
-        "tasks/ELZ-107-prometheus-provider-prerequisite.md"
-      ],
+      "paths": ["tasks/ELZ-107-prometheus-provider-prerequisite.md"],
       "outputs": [],
       "acceptance": "Unchanged live issue body and byte-equal publication copy; exact provider closure/configuration and finite boundary evidence; no Piece readiness promotion.",
       "issue": 198,
       "issue_body_sha256": "fd83a22a11685527bc03b0df3690c10984f69b07d96976fa5291f09b05f8401a",
       "observed_issue_state": "OPEN",
       "owner_role": "one claimed provider worker; coordinator owns integration",
-      "product_aims": [
-        "P01",
-        "P05",
-        "P07"
-      ]
+      "product_aims": ["P01", "P05", "P07"]
     },
     {
       "id": "ELZ-106",
@@ -3660,30 +3631,17 @@
       "kind": "published",
       "release": "V1",
       "stage": "pieces",
-      "dependencies": [
-        "ELZ-033",
-        "ELZ-004",
-        "ELZ-052",
-        "ELZ-107"
-      ],
+      "dependencies": ["ELZ-033", "ELZ-004", "ELZ-052", "ELZ-107"],
       "status": "implementation reviewed; claimed task/ELZ-106 after ELZ-107 acceptance; publication held until ELZ-105 acceptance; corrected final checks and task acceptance pending",
       "url": "https://github.com/balungpisah/elzoo/issues/199",
-      "paths": [
-        "tasks/ELZ-106-prometheus-exporter.md"
-      ],
-      "outputs": [
-        "integration/observability"
-      ],
+      "paths": ["tasks/ELZ-106-prometheus-exporter.md"],
+      "outputs": ["integration/observability"],
       "acceptance": "Unchanged live issue body and byte-equal publication copy; finite Prometheus exporter boundary evidence as specified in the Contract.",
       "issue": 199,
       "issue_body_sha256": "384fade7ab8b5a3dbeb7ebad19fa5b264b51a84a2d03273143206f38edf7d0b4",
       "observed_issue_state": "OPEN",
       "owner_role": "one claimed task worker; coordinator owns integration",
-      "product_aims": [
-        "P01",
-        "P05",
-        "P07"
-      ]
+      "product_aims": ["P01", "P05", "P07"]
     },
     {
       "id": "ELZ-108",
