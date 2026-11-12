@@ -101,8 +101,7 @@ rows first (section 9).
 `LEDGER.md`, `docs/plans/views.md` and `docs/plans/dependencies.mmd` are
 generated. Do not edit or hand-merge them. On a conflict, take the version of
 `main`. After each merge of `main` into your branch, run step 3 again, also
-when Git reports no conflict: `docs/plans/views.md` holds the count of ready
-Pieces, and Git can merge that line clean but wrong.
+when Git reports no conflict.
 
 **Live state.** GitHub holds it. Do not write "claimed", "PR pending" or a
 pull request number into `release-plan.json`.
