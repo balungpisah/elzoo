@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: Apache-2.0
+mod Elzoo.PatternStep
+  type PatternDecision = PatternApplied | PatternLate | PatternRefused
+
+  @total true
+  @reducible
+  fn decide(known: Bool, settled: Bool, reported_late: Bool, compatible: Bool) -> PatternDecision =
+    match settled
+      True() -> PatternLate()
+      False() ->
+        pickup
+          not known -> PatternLate()
+          reported_late -> PatternLate()
+          not compatible -> PatternRefused()
+          else -> PatternApplied()
+
+  # This is the production decision, with settlement supplied by the caller's tracker.
+  fn settled_never_applied(known: Bool, reported_late: Bool, compatible: Bool) -> Equivalent(PatternDecision, decide(known, True(), reported_late, compatible), PatternLate()) =
+    reflexive(PatternLate())
+end
