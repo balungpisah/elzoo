@@ -5943,10 +5943,12 @@
     {
       "id": "workflow/pattern-step",
       "job": "ELZ-114",
-      "note": "Bot platform wave 1 (P13). Closed, versioned sets of action kinds, input kinds and outcome classes, as data and pure validation, so that the engine and every pattern use one vocabulary. The step shape is ready core/operator, unchanged.",
+      "note": "Exact v1 pattern-step maps and pure per-request action settlement; no runtime or payload-schema validation.",
       "baseline_status": "not in baseline (new row, RC-68)",
-      "disposition": "planned",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/workflow/pattern-step/piece.json",
+      "manifest_sha256": "d0b92258eb5cb64c30a5be78baacd16dff0882c990ca691f3f2ea9cf5b110bd1"
     },
     {
       "id": "core/payload-schema",
