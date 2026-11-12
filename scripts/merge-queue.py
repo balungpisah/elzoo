@@ -579,12 +579,8 @@ class Queue:
         the canonical repository) and names at least one Piece. Any failure, a missing classifier or an odd answer is
         False.
 
-        Unlike `docs_only_change`, this does not wait for the push run of the current main (owner decision): the
-        caller only requires that main is not frozen (`check_main_not_frozen`, before the evidence and again right
-        before the merge). Residual risk: a first-attempt push run of main in progress does not freeze the queue, so
-        several small-gate merges can land before the first full run of main after them reports. A red full run then
-        freezes the next merge; the repair reads the pull requests merged since the last green main
-        (docs/development/13-coordinator.md)."""
+        Unlike `docs_only_change`, this does not wait for the push run of the current main. The caller separately
+        checks the freeze rule and the bounded first-parent window before accepting Piece evidence and merging."""
         if CLASSIFIER is None:
             return False
         try:
@@ -595,6 +591,22 @@ class Queue:
             return verdict is True and isinstance(ids, list) and len(ids) > 0
         except (QueueError, CLASSIFIER.Unclear, KeyError, TypeError, ValueError, AttributeError):
             return False
+
+    def check_piece_window(self):
+        """ELZ-120: at most two first-parent commits may be outstanding before the next small-gate merge."""
+        main = self.api("git/ref/heads/main")["object"]["sha"]
+        require(valid_sha(main), "Invalid canonical main SHA")
+        chain = self.text("git", "rev-list", "--first-parent", main).splitlines()
+        require(chain and chain[0] == main and all(valid_sha(sha) for sha in chain),
+                "Unreadable first-parent chain; refusing small gate")
+        for count, sha in enumerate(chain):
+            run = self.latest_push_run(sha)
+            if run is None or run.get("status") != "completed" or run.get("conclusion") != "success":
+                continue
+            require(count < 3, f"Small gate window exhausted: covering SHA={sha} count={count}; "
+                              "wait for a newer successful main push")
+            return
+        raise QueueError("No successful covering main push on the first-parent chain; refusing small gate")
 
     def gleam_evidence(self, pr):
         workflow_id = self.api(f"actions/workflows/{GLEAM_WORKFLOW}")["id"]
@@ -768,6 +780,8 @@ class Queue:
                 self.emit(f"Stopped while awaiting run {run_id} for PR #{number} head={pr['headRefOid']}: "
                           "inspect that run; the queue adopts it again on the next start", flush=True)
                 raise
+            if mode == "piece":
+                self.check_piece_window()
             self.unchanged_pr(pr)
             required, why = self.gleam_required(pr)
             gleam_job = self.gleam_evidence(pr) if required else None
@@ -797,6 +811,8 @@ class Queue:
             require(newer is None, f"Run {newer} on head {fresh['headRefOid']} is newer than the evidence run "
                                    f"{run_id}; the push run could decide on it; refusing to merge")
             self.check_main_not_frozen()
+            if mode == "piece":
+                self.check_piece_window()
             self.text("gh", "pr", "merge", str(number), "-R", REPO,
                       "--merge", "--match-head-commit", pr["headRefOid"])
             merged = self.data("gh", "pr", "view", str(number), "-R", REPO,

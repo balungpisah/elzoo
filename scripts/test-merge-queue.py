@@ -83,6 +83,8 @@ class Fake:
         self.main_head_calls = 0
         self.main_head_error = False
         self.main_head_raw = None      # a raw body instead of {"workflow_runs": ...}
+        self.first_parent_chain = None  # None: canonical main only
+        self.covering_runs = None      # SHA -> push runs for the Piece window
         self.raw_diff_calls = []
         self.raw_error = False
         self.raw_output = None         # a raw string instead of the one built from raw_paths
@@ -286,6 +288,8 @@ class Fake:
             out = "".join(path + "\x00" for path in self.diff_paths)
         elif argv[:2] == ["git", "fetch"]:
             pass
+        elif argv[:3] == ["git", "rev-list", "--first-parent"]:
+            out = "\n".join(self.first_parent_chain or [self.canonical_main])
         elif argv[:2] == ["git", "rev-parse"]:
             out = M if argv[-1].endswith("/main") else self.pr["headRefOid"]
         elif argv[:2] == ["git", "merge-base"]:
@@ -334,6 +338,8 @@ class Fake:
                     runs = self.main_head_runs_later
                 if self.main_head_calls <= self.main_head_hidden:
                     runs = []
+                if self.covering_runs is not None:
+                    runs = self.covering_runs.get(path.split("head_sha=")[1].split("&")[0], [])
                 out = self.main_head_raw if self.main_head_raw is not None else {"workflow_runs": runs}
             elif "/workflows/symbolic-check.yml/runs?" in path and "event=push" in path:
                 if self.main_listing_error:
@@ -1649,17 +1655,73 @@ class PieceFastPath(unittest.TestCase):
         self.assertIn(f'def success_marker(%{{mode: :piece}}),\n    do: "{queue.PIECE_MARKER}"', source)
 
     def test_the_small_gate_does_not_wait_for_the_push_run_of_the_current_main(self):
-        # Unlike the docs-only path: no read of the push run of the current main commit, also while it runs.
+        # A pending current main is allowed when an older first-parent push covers the window.
         for runs in ([self.fake.main_head_run(status="in_progress", conclusion=None)], [],
                      [self.fake.main_head_run(conclusion="failure")]):
             with self.subTest(runs=runs):
                 self.setUp()
                 self.piece_pr()
-                self.fake.main_head_runs = runs
+                self.fake.first_parent_chain = [M, B]
+                self.fake.covering_runs = {M: runs, B: [self.fake.main_head_run(head_sha=B)]}
                 self.q.process(79)
                 self.assertTrue(self.fake.merged)
-                self.assertEqual(0, self.fake.main_head_calls)
                 self.assertFalse(any(m.startswith("Waiting: push run of main") for m in self.fake.messages))
+
+    def test_the_window_counts_all_first_parent_commits_at_two_and_three(self):
+        for count in (0, 1, 2, 3):
+            with self.subTest(count=count):
+                self.setUp()
+                self.piece_pr()
+                self.fake.first_parent_chain = [M, A, B, "d" * 40][:count + 1]
+                cover = self.fake.first_parent_chain[-1]
+                self.fake.covering_runs = {cover: [self.fake.main_head_run(head_sha=cover)]}
+                if count < 3:
+                    self.q.process(79)
+                    self.assertTrue(self.fake.merged)
+                else:
+                    self.refuses(f"covering SHA={cover} count=3")
+                self.assertEqual(0, self.fake.dispatches)
+
+    def test_a_new_covering_push_reopens_the_window(self):
+        self.piece_pr()
+        self.fake.first_parent_chain = [M, A, B, "d" * 40]
+        self.fake.covering_runs = {"d" * 40: [self.fake.main_head_run(head_sha="d" * 40)]}
+        self.refuses("count=3")
+        self.fake.covering_runs[B] = [self.fake.main_head_run(9001, head_sha=B)]
+        self.q.process(79)
+        self.assertTrue(self.fake.merged)
+
+    def test_second_parent_success_does_not_cover_main(self):
+        self.piece_pr()
+        self.fake.first_parent_chain = [M, B]
+        self.fake.covering_runs = {A: [self.fake.main_head_run(head_sha=A)]}
+        self.refuses("No successful covering main push")
+
+    def test_missing_failed_pending_or_unreadable_covering_evidence_refuses(self):
+        for runs in ([], [self.fake.main_head_run(conclusion="failure")],
+                     [self.fake.main_head_run(status="in_progress", conclusion=None, run_attempt=2)],
+                     [self.fake.main_head_run(), self.fake.main_head_run(9001, conclusion="failure")],
+                     [self.fake.main_head_run(), self.fake.main_head_run(9001, status="queued", conclusion=None)]):
+            with self.subTest(runs=runs):
+                self.setUp()
+                self.piece_pr()
+                self.fake.main_head_runs = runs
+                self.refuses("No successful covering main push")
+        for error in ("main_head_error", "main_head_raw"):
+            with self.subTest(error=error):
+                self.setUp()
+                self.piece_pr()
+                setattr(self.fake, error, True)
+                self.refuses("main head listing failed|Invalid push run listing")
+
+    def test_covering_push_is_rechecked_immediately_before_merge(self):
+        self.piece_pr()
+        self.fake.first_parent_chain = [M, A, B, "d" * 40]
+        self.fake.main_head_runs_later = [
+            self.fake.main_head_run(status="in_progress", conclusion=None, run_attempt=2),
+            self.fake.main_head_run(8999, head_sha="d" * 40)]
+        self.refuses(f"covering SHA={'d' * 40} count=3")
+        self.assertEqual(0, self.fake.dispatches)
 
     def test_a_frozen_main_refuses_the_small_gate_merge(self):
         self.piece_pr()
