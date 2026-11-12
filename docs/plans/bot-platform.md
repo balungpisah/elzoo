@@ -76,7 +76,7 @@ prerequisite; the tables leave it out.
 
 A Run that survives: the engine runs one host, records each step, checks budget and authority, and continues after a crash.
 
-RC-68 is admitted as [ELZ-114](../../tasks/ELZ-114-pattern-step.md). References to RC-68 below name that design; executable prerequisite rows in `release-plan.json` now name ELZ-114. No other wave-1 proposal is admitted by this publication.
+RC-68 is admitted as [ELZ-114](../../tasks/ELZ-114-pattern-step.md), RC-44 as [ELZ-115](../../tasks/ELZ-115-payload-schema.md), RC-12 as [ELZ-116](../../tasks/ELZ-116-run.md), RC-45 as [ELZ-117](../../tasks/ELZ-117-durable-unit.md), and RC-47 as [ELZ-118](../../tasks/ELZ-118-async-work.md). References to the RC IDs below name those designs; executable prerequisite rows in `release-plan.json` use the published ELZ IDs. RC-46 and RC-48 remain proposals.
 
 | Job | Outputs | Prerequisites | Level | Jobs that wait for it |
 | --- | --- | --- | --- | --- |
@@ -184,7 +184,12 @@ the width.
 Rules for this track:
 
 1. **RC-68 first.** It holds the action, input and outcome shapes that 14 jobs
-   use directly and 16 jobs wait for. It gets the first free worker.
+   use directly and 16 jobs wait for. Other admitted level-1 tasks may build
+   in parallel in separate orbs; other small-gate merges wait for the RC-68
+   six-point proof. A wave-1 level-2 task may publish once its own prerequisites
+   merge and current main is green, without waiting for all level-1 jobs. The
+   serial queue, independent review, three-small-gate limit and red-main rules
+   remain in force.
 2. **Order of admission.** When a worker slot is free, admit the first job in
    this list whose prerequisites are merged:
    RC-68, RC-44, RC-12, RC-45, RC-48, RC-47, RC-46, RC-49, RC-50, RC-52, RC-51, RC-53, RC-69, RC-54, RC-55, RC-56, RC-61, RC-60, RC-64, RC-62, RC-63, RC-65, RC-66, RC-57, RC-59, RC-70, RC-58, RC-67.
