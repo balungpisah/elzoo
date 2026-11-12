@@ -193,9 +193,13 @@ defmodule Elzoo.DurableUnit do
   end
 
   defp append(state, kind, bytes, items) do
-    case writer_call(fn -> Writer.append(state.writer, [{kind, 1, bytes}], items) end) do
-      {:committed, _} ->
-        {:ok, %{state | model: Writer.snapshot(state.writer).model}}
+    case writer_call(fn ->
+           with {:committed, _} <- Writer.append(state.writer, [{kind, 1, bytes}], items) do
+             {:ok, Writer.snapshot(state.writer).model}
+           end
+         end) do
+      {:ok, model} ->
+        {:ok, %{state | model: model}}
 
       {:conflict, _} ->
         failure(state, :durable_unit_conflict)

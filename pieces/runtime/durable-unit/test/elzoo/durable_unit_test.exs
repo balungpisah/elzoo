@@ -598,6 +598,41 @@ defmodule Elzoo.DurableUnitTest do
     down(unit, {:shutdown, :durable_unit_indeterminate})
     probe(%{append: %{}})
 
+    # A committed append reply can be queued while its Writer dies before snapshot.
+    probe(%{append: %{0 => :block}})
+    input = {3, 5, "DU8_PRIVATE_INPUT"}
+    opts = Keyword.put(ctx.opts, :stream, "snapshot-gap")
+
+    diagnostics =
+      ExUnit.CaptureLog.capture_log(fn ->
+        {:ok, supervisor} = Supervisor.start_link([{DurableUnit, opts}], strategy: :one_for_one)
+        [{_, unit, _, _}] = Supervisor.which_children(supervisor)
+        ref = Process.monitor(unit)
+        call_step(unit, "A", input)
+        assert_receive {:append, writer, 0, [%{stream: "snapshot-gap"}], []}
+        :erlang.suspend_process(unit)
+        send(writer, :continue)
+        # This call is serviced after the Writer sends its committed append reply.
+        assert %{cursor: {1, false, []}} = Writer.snapshot(writer)
+        killed(writer)
+        :erlang.resume_process(unit)
+        assert_receive {:reply, reply}
+        assert_receive {:DOWN, ^ref, :process, ^unit, reason}
+        children = Supervisor.which_children(supervisor)
+        send(self(), {:snapshot_gap, reply, reason, children})
+        Supervisor.stop(supervisor)
+      end)
+
+    assert_receive {:snapshot_gap, reply, reason, children}
+    assert reply == {:indeterminate, :storage_unknown}
+    assert reason == {:shutdown, :durable_unit_indeterminate}
+    assert [{_, :undefined, _, _}] = children
+    refute diagnostics =~ "DU8_PRIVATE_INPUT"
+    refute_receive {:transition, _, _, ^input}
+    assert {:ok, [%{kind: "input"}], %{revision: 1}} = Log.read(ctx.store, "snapshot-gap", 1, 10)
+    assert {:ok, []} = Outbox.pending(ctx.store, "snapshot-gap", 64)
+    probe(%{append: %{}})
+
     for {kind, payload, version} <- [
           {"input", {"A", {3, 5, false}}, 9},
           {"result", {"A", 11}, 1},
