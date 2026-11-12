@@ -13,9 +13,24 @@ defmodule Elzoo.CheckSelection do
   @postgres_consumer_ids ~w(integration/sql integration/jobs assembly/durable-job integration/ai-text state/scheduler)
   @parts ~w(root consumers-db consumers)
 
+  # Small gate (`mix check --piece BASE`): the root tests that read the index and generated files or every Piece
+  # directory, and the four modules that hold the per-ID consumers. Each one runs in every small gate:
+  # - registry_test.exs: loads registry/catalogue.json and every manifest, compares LEDGER.md with the ledger;
+  # - install_configuration_test.exs: loads the Registry and plans the export of every ready ID;
+  # - elzoo_take_task_test.exs: loads the Registry and runs `mix elzoo.take` on one ready ID;
+  # - cure_record_tags_test.exs: reads every .cure file below pieces/ (record names unique across Pieces);
+  # - export_test.exs and the three consumer group modules: their setup loads the Registry; they hold the per-ID
+  #   consumers (filtered by tag, as in affected mode); export_test.exs asserts that all four modules are loaded.
+  # docs/plans/release-plan.json, docs/plans/views.md and docs/plans/dependencies.mmd are read by no ExUnit test:
+  # scripts/check-roadmap.py checks them in the plan job of the workflow.
+  @piece_root_tests ~w(test/registry_test.exs test/install_configuration_test.exs test/elzoo_take_task_test.exs
+                       test/cure_record_tags_test.exs test/export_test.exs test/consumer_group_a_test.exs
+                       test/consumer_group_b_test.exs test/consumer_group_c_test.exs)
+
   def consumer_ids, do: @consumer_ids
   def postgres_consumer_ids, do: @postgres_consumer_ids
   def parts, do: @parts
+  def piece_root_tests, do: @piece_root_tests
 
   @doc """
   One of three disjoint parts of the full check (ELZ-073): `root` (every test that is not a copied
@@ -88,7 +103,112 @@ defmodule Elzoo.CheckSelection do
 
   def changed_paths(_, _), do: {:error, "missing comparison base"}
 
+  @doc """
+  Small gate, first half (no Registry needed): the changed paths since `base` (commits, working tree and untracked
+  files, as in affected mode) must all be in the Piece-only class of scripts/ci-change-class.py, the one allowlist of
+  the workflow and the queue. Returns `{:ok, %{pieces: ids, comparison: text}}` or `{:error, reason}`: the mode
+  refuses, it never falls back to a narrower or a wider run.
+  """
+  def piece_changes(base, root \\ File.cwd!(), classify \\ &classify_piece_paths/1) do
+    with {:ok, %{paths: paths, base: resolved, head: head}} <- changed_paths(root, base),
+         :ok <- nonempty(paths),
+         :ok <- no_special_entries(root, paths),
+         {:ok, ids} <- classify.(paths) do
+      {:ok, %{pieces: ids, comparison: "#{resolved} -> #{head} + working tree/untracked files"}}
+    end
+  end
+
+  @doc """
+  Small gate, second half: the tests of each changed Piece, of each ready Piece that depends on a changed one
+  (transitively, the closure of affected mode), the root tests of `piece_root_tests/0` and the per-ID consumers of
+  the affected ready IDs. The aggregate consumer never runs here. A changed directory that is not a ready ID (a new
+  Piece) has no dependants and no consumer; its own tests run.
+  """
+  def piece(registry, %{pieces: [_ | _] = ids} = changes, root \\ File.cwd!()) do
+    ready = ready_ids(registry)
+    changed_ready = Enum.filter(ids, &(&1 in ready))
+
+    affected =
+      if changed_ready == [],
+        do: [],
+        else: Enum.sort(dependants(registry, MapSet.new(changed_ready)))
+
+    selected = Enum.filter(@consumer_ids, &(&1 in affected))
+
+    piece_tests =
+      (ids ++ affected)
+      |> Enum.uniq()
+      |> Enum.sort()
+      |> Enum.map(&"pieces/#{&1}/test")
+      |> Enum.filter(&File.dir?(Path.join(root, &1)))
+
+    %{
+      mode: :piece,
+      comparison: Map.get(changes, :comparison, "not requested"),
+      changed: Enum.sort(ids),
+      new: Enum.sort(ids -- ready),
+      affected: affected,
+      selected: Enum.sort(selected),
+      skipped: Enum.sort(@consumer_ids -- selected),
+      test_paths: piece_tests ++ @piece_root_tests
+    }
+  end
+
+  defp nonempty([]), do: {:error, "empty changed-path set"}
+  defp nonempty(_), do: :ok
+
+  # The Git name list has no file modes: a symlink or a directory (a submodule checkout) in the working tree refuses.
+  defp no_special_entries(root, paths) do
+    case Enum.find(paths, &(special_entry(Path.join(root, &1)) != nil)) do
+      nil -> :ok
+      path -> {:error, "#{special_entry(Path.join(root, path))} in the change: #{inspect(path)}"}
+    end
+  end
+
+  defp special_entry(file) do
+    case File.lstat(file) do
+      {:ok, %File.Stat{type: :symlink}} -> "symlink"
+      {:ok, %File.Stat{type: :directory}} -> "directory or submodule"
+      {:ok, %File.Stat{type: :regular}} -> nil
+      {:ok, %File.Stat{type: type}} -> "#{type} entry"
+      {:error, :enoent} -> nil
+      {:error, reason} -> "unreadable path (#{reason})"
+    end
+  end
+
+  @doc "The Piece-only rule of scripts/ci-change-class.py (`piece-paths`), applied to a path list."
+  def classify_piece_paths(paths, script \\ Path.expand("scripts/ci-change-class.py")) do
+    case System.cmd("python3", [script, "piece-paths" | paths], stderr_to_stdout: true) do
+      {output, 0} -> piece_verdict(Jason.decode(output))
+      {_, status} -> {:error, "the Piece-only classifier failed (exit #{status})"}
+    end
+  rescue
+    error in ErlangError -> {:error, "python3 unavailable: #{inspect(error.original)}"}
+  end
+
+  defp piece_verdict({:ok, %{"piece_only" => true, "pieces" => [_ | _] = ids, "refused" => nil}}) do
+    if Enum.all?(
+         ids,
+         &(is_binary(&1) and Regex.match?(~r/\A[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9-]*\z/, &1))
+       ),
+       do: {:ok, Enum.sort(ids)},
+       else: {:error, "malformed Piece IDs from the classifier"}
+  end
+
+  defp piece_verdict({:ok, %{"piece_only" => false, "refused" => path}}) when is_binary(path),
+    do: {:error, "path outside the Piece-only class: #{inspect(path)}"}
+
+  defp piece_verdict({:ok, %{"piece_only" => false, "refused" => nil}}),
+    do: {:error, "no changed path below pieces/<family>/<name>/"}
+
+  defp piece_verdict(_), do: {:error, "malformed answer of the Piece-only classifier"}
+
   def test_args(%{mode: :full}), do: ["--warnings-as-errors"]
+
+  def test_args(%{mode: :piece, skipped: skipped, test_paths: paths}) do
+    ["--warnings-as-errors", "--exclude", "aggregate_consumer"] ++
+      Enum.flat_map(skipped, &["--exclude", "consumer_id:#{&1}"]) ++ paths
+  end
 
   def test_args(%{mode: :affected, skipped: skipped, aggregate: aggregate}) do
     ["--warnings-as-errors"] ++
@@ -131,6 +251,25 @@ defmodule Elzoo.CheckSelection do
       "LIMIT: one of the parts #{Enum.join(@parts, ", ")}; the full check is the three together."
   end
 
+  def report(%{mode: :piece} = selection) do
+    [
+      "ELZOO CHECK SELECTION: piece (small gate)",
+      "Comparison: #{selection.comparison}",
+      "Changed Piece IDs: #{inspect(selection.changed, limit: :infinity)}",
+      "Changed Piece directories that are not ready IDs: #{inspect(selection.new, limit: :infinity)}",
+      "Affected ready IDs (changed and dependants): #{inspect(selection.affected, limit: :infinity)}",
+      "Selected consumer IDs (#{length(selection.selected)}): #{inspect(selection.selected, limit: :infinity)}",
+      "Skipped consumer IDs (#{length(selection.skipped)}): #{inspect(selection.skipped, limit: :infinity)}",
+      "Test paths: #{inspect(selection.test_paths, limit: :infinity)}",
+      "Aggregate consumer: not run in piece mode",
+      "Ash spike: not run in piece mode",
+      "LIMIT: a selected check, not the full check: only the test paths above run (unselected per-ID consumers " <>
+        "excluded); the aggregate consumer, the other root tests and the Ash spike do not run. " <>
+        "The full check runs on main after the merge."
+    ]
+    |> Enum.join("\n")
+  end
+
   def report(selection) do
     [
       "ELZOO CHECK SELECTION: #{selection.mode}",
@@ -156,6 +295,9 @@ defmodule Elzoo.CheckSelection do
   def success_marker(%{mode: :part, part: "root"}), do: "ELZOO ROOT SUITE PASSED"
   def success_marker(%{mode: :part, part: "consumers-db"}), do: "ELZOO CONSUMERS DB PASSED"
   def success_marker(%{mode: :part, part: "consumers"}), do: "ELZOO CONSUMERS PASSED"
+
+  def success_marker(%{mode: :piece}),
+    do: "ELZOO PIECE CHECK PASSED (small gate; a selected check, not the full check; see LIMIT)"
 
   def success_marker(%{mode: :affected}),
     do: "ELZOO AFFECTED CHECK PASSED (not full consumer acceptance; see selected consumer scope)"
