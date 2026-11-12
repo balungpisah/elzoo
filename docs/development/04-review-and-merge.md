@@ -1,5 +1,8 @@
 # Review, merge and cleanup
 
+> **Replaced for workflow rules.** `AGENTS.md` at the repository root is the workflow. Where this page
+> differs, `AGENTS.md` wins. Do not read this page for a task. The reviewer questions stay useful as a checklist.
+
 The Pull Request is the review boundary. Its body names the ELZ task ID,
 dependency status, changed interface/Contract, evidence table, exact commands,
 limits and upstream assumptions. The coordinator checks acceptance on the
