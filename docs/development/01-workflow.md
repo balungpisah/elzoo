@@ -147,8 +147,10 @@ Git-ignored file `.elzoo-services/env.sh` (mode 0600) and are never printed.
 follows a changed port. It recreates the services of the worktree when the
 environment file is missing or the pinned image changed. When the worktree
 has no `_build` and `deps`, `up` clones them (copy-on-write) from another
-worktree with the same `mix.exs`, `mix.lock` and `.tool-versions`, and runs
-`mix setup` when no such worktree exists. After a clone, the first Mix command
+worktree with the same `mix.exs`, `mix.lock` and `.tool-versions` whose
+`deps` holds each locked dependency at its locked checksum or revision (an
+equal `mix.lock` alone does not prove that), and runs `mix setup` when no such
+worktree exists. After a clone, the first Mix command
 compiles the modules of the project again, not the dependencies. `--no-build`
 skips this step.
 
