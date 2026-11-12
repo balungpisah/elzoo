@@ -40,22 +40,23 @@
        `main`. If it prints another number, `main` moved: run
        `gh pr update-branch <PR number> -R balungpisah/elzoo`, wait for green
        on the new head and start again.
-     - The third command shows the newest push run of the check on that
-       `main`. For a pull request with the full check, the freeze rule of
-       `AGENTS.md` section 7 applies: do not merge while that run is red and
-       not classified.
-     - A pull request whose changed paths are all on the documents list of
-       `scripts/ci-change-class.py` gets the short check, and the short check
-       runs no tests. For that pull request the third command must print
-       `completed success`. A run in progress or no run: wait. A red run: do
-       not merge, also when the red run is classified. Wait for a green
-       `main`. This is stricter than the freeze rule of `AGENTS.md` section 7,
-       and it applies only to a pull request with the short check.
+     - The third command must print `completed success`: the newest push run
+       of the check on the current `main` is green. For each other output (a
+       run in progress, a re-run, no run, a red run, also a classified red
+       run): do not merge. Wait for a green `main`.
+
+     This is stricter than the freeze rule of `AGENTS.md` section 7, for each
+     publication pull request. A publication with only documents (the
+     allowlist in `scripts/ci-change-class.py`) gets the short check, and the
+     short check runs no tests. A publication is never urgent.
 
      Run the three commands again immediately before the merge. Then merge
      with
      `gh pr merge <PR number> -R balungpisah/elzoo --merge --match-head-commit <green head SHA>`.
-  4. After the merge, add the label `task` to the issues. Workers then start
+     `main` can still move between the commands and the merge. The queue has
+     the same window. The push run of `main` after the merge covers it.
+  4. After the merge, wait until the push run of the new `main` is green.
+     Then add the label `task` to the issues. Workers then start
      from a `main` that holds their task and their rows.
 - `python3 scripts/check-roadmap.py --live` compares each issue body with
   `issue_body_sha256`. After you edit an issue body, update the task file and
