@@ -6039,9 +6039,11 @@
     {
       "id": "runtime/dynamic-units",
       "job": "ELZ-122",
-      "note": "Bot platform wave 1 (P13). At most one live Unit per Run or room identity, a bound on live Units and an idle sleep, over OTP DynamicSupervisor and Registry. New ID: ready runtime/host starts a fixed list.",
+      "note": "Bounded local durable-Unit identity admission, serialized route processing barriers and idle sleep/wake over caller-owned OTP Registry and DynamicSupervisor, preserving the Unit's transient restart and shutdown policy.",
       "baseline_status": "not in baseline (new row, RC-46)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/runtime/dynamic-units/piece.json",
+      "manifest_sha256": "4cff83c6b1ddc7d61dcbd4627087abb7efb690a228da4e9865fcb5e5c021f2f1",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
