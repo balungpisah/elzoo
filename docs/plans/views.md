@@ -22,7 +22,7 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | P10 | V2 | Internal transfers and reconciled refunds / C3/C4 | ELZ-031, RC-22, RC-24, RC-42, RC-43 | One payment provider, explicit accounting policy; no bank/compliance certification or inventory system. |
 | P11 | V2 | Event-driven and incremental build workflows / new named workload | RC-27, RC-28, RC-29, RC-30 | One broker/language; cache keys include actual build dependencies. Not a general build service. |
 | P12 | V3 | Offline collaboration, devices and classified records / research-gated | RC-33, RC-34, RC-35, RC-36 | Separate admission decisions; these directions require additional domain contracts and are not a release promise yet. |
-| P13 | V1B | Recipe-driven bot platform: run engine, agent pattern and Lua recipes (waves 1 to 3) / new named workload; extends C6/C7 | RC-68, RC-44, RC-45, RC-46, RC-47, RC-12, RC-48, RC-49, RC-50, RC-05, RC-51, RC-52, RC-69, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-70, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67 | Consumer owns the bot product: business records, public API, screens, channels, tenancy policy and deployment. Waves 4 and later are named in bot-platform.md and are not registered. |
+| P13 | V1B | Recipe-driven bot platform: run engine, agent pattern and Lua recipes (waves 1 to 3) / new named workload; extends C6/C7 | RC-68, RC-44, RC-45, RC-46, RC-47, RC-12, RC-48, RC-49, RC-50, RC-51, RC-52, RC-69, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-70, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67 | Consumer owns the bot product: business records, public API, screens, channels, tenancy policy and deployment. Waves 4 and later are named in bot-platform.md and are not registered. |
 
 ## Jobs and published issues
 
@@ -156,9 +156,9 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | RC-56 | V1B / pieces | ELZ-033, ELZ-002, ELZ-079, RC-68, RC-52, RC-54, RC-69, ELZ-087 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-57 | V1B / pieces | ELZ-033, ELZ-101, ELZ-079 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-58 | V1B / pieces | ELZ-033, RC-12, RC-48, RC-68 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-59 | V1B / pieces | ELZ-033, ELZ-083, RC-05 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| RC-59 | V1B / pieces | ELZ-033, ELZ-083, ELZ-105 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-60 | V1B / pieces | ELZ-033 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-61 | V1B / pieces | ELZ-033, RC-44, ELZ-026, ELZ-024, RC-05, RC-68 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| RC-61 | V1B / pieces | ELZ-033, RC-44, ELZ-026, ELZ-024, ELZ-105, RC-68 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-62 | V1B / pieces | ELZ-033, RC-60, RC-44, ELZ-002, RC-52, RC-61, RC-68, ELZ-022 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-63 | V1B / pieces | ELZ-033, ELZ-002, RC-68, RC-61, ELZ-026, ELZ-098 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-64 | V1B / pieces | ELZ-033, RC-61, RC-44, RC-52, ELZ-022, ELZ-024, RC-68 | blocked: unpublished admission proposal | one claimed task worker after admission |
@@ -960,7 +960,7 @@ Operational interfaces for new stateful Pieces
 
 Scoped credential references
 
-**Product aims:** P01, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12, P13.
+**Product aims:** P01, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12.
 
 **Contract:** Opaque secret reference plus caller scope -> ephemeral credential or explicit denial/unavailable. Select injected credentials as initial backend; document refresh and rotation semantics without promising a vault.
 

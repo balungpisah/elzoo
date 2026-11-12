@@ -63,8 +63,9 @@ one of them stops and reports; it does not weaken the rule.
 Each wave ends with a thing that runs or with a pattern that is proven on
 recorded traces, so each Piece has a concrete caller.
 Release `V1B` holds the new proposals. Its gate does not wait for V1
-acceptance, and it changes no V1 gate. Two existing V1 proposals are
-prerequisites here and keep their release: RC-05 and RC-12.
+acceptance, and it changes no V1 gate. One existing V1 proposal is a
+prerequisite here and keeps its release: RC-12. The published task ELZ-105
+replaced RC-05 and made `integration/secrets` ready.
 
 "Level" is 1 plus the longest chain of unfinished proposals before the job.
 "Jobs that wait for it" counts the track jobs that cannot start before it,
@@ -93,7 +94,6 @@ An agent that uses tools: the agent loop and the typed decision are pure steps, 
 
 | Job | Outputs | Prerequisites | Level | Jobs that wait for it |
 | --- | --- | --- | --- | --- |
-| RC-05 | `integration/secrets` | ELZ-011 | 1 | 8 |
 | RC-51 | `workflow/untrusted-content` | ELZ-083, ELZ-030, ELZ-002 | 1 | 9 |
 | RC-52 | `workflow/tool-registry` | RC-44, ELZ-083, ELZ-079, RC-51 | 2 | 6 |
 | RC-69 | `workflow/tool-result-limit` | ELZ-096, RC-51, RC-68, ELZ-023, ELZ-009 | 2 | 3 |
@@ -104,7 +104,7 @@ An agent that uses tools: the agent loop and the typed decision are pure steps, 
 | RC-57 | `delivery/provider-stream` | ELZ-101, ELZ-079 | 1 | 0 |
 | RC-58 | `workflow/wait-for-person`, `workflow/mid-run-input` | RC-12, RC-48, RC-68 | 3 | 0 |
 | RC-70 | `workflow/stall-detect` | RC-68 | 2 | 0 |
-| RC-59 | `integration/mcp-multi` | ELZ-083, RC-05 | 2 | 0 |
+| RC-59 | `integration/mcp-multi` | ELZ-083, ELZ-105 | 1 | 0 |
 
 ### Wave 3
 
@@ -113,7 +113,7 @@ A recipe in Lua: a Lua file gives callables as data, the engine runs a graph, an
 | Job | Outputs | Prerequisites | Level | Jobs that wait for it |
 | --- | --- | --- | --- | --- |
 | RC-60 | `runtime/lua-sandbox`, `runtime/lua-stdlib` | none | 1 | 3 |
-| RC-61 | `domain/recipe-graph`, `domain/recipe-package`, `domain/recipe-config` | RC-44, ELZ-026, ELZ-024, RC-05, RC-68 | 2 | 6 |
+| RC-61 | `domain/recipe-graph`, `domain/recipe-package`, `domain/recipe-config` | RC-44, ELZ-026, ELZ-024, ELZ-105, RC-68 | 2 | 6 |
 | RC-62 | `runtime/lua-binding`, `workflow/lua-tool` | RC-60, RC-44, ELZ-002, RC-52, RC-61, RC-68, ELZ-022 | 3 | 2 |
 | RC-63 | `workflow/graph-run`, `workflow/node-outcome` | ELZ-002, RC-68, RC-61, ELZ-026, ELZ-098 | 3 | 2 |
 | RC-64 | `workflow/recipe-check`, `workflow/runtime-graph` | RC-61, RC-44, RC-52, ELZ-022, ELZ-024, RC-68 | 3 | 3 |
@@ -162,21 +162,18 @@ text. These published prerequisites of the track have ready Pieces on main:
 | ELZ-096 | `state/artifact` |
 | ELZ-098 | `delivery/aggregation` |
 | ELZ-101 | `delivery/data-stream` |
-
-RC-05 (`integration/secrets`) has a remote branch `task/ELZ-105` that held no
-commit of its own when this page was checked, and the manifest has no ELZ-105
-job yet. This track waits for that work and changes nothing in RC-05.
+| ELZ-105 | `integration/secrets` |
 
 ## Parallel work
 
-The coordination rules allow at most three task workers that run Mix at one
-time on one host. The track is wider than that, so the order matters more than
+`AGENTS.md` section 3 allows at most three workers that run Mix at one time
+on one host. The track is wider than that, so the order matters more than
 the width.
 
 | Level | Jobs that can start at this level |
 | --- | --- |
-| 1 | RC-68, RC-44, RC-45, RC-47, RC-12, RC-05, RC-51, RC-53, RC-57, RC-60 |
-| 2 | RC-46, RC-48, RC-49, RC-52, RC-69, RC-54, RC-55, RC-70, RC-59, RC-61 |
+| 1 | RC-68, RC-44, RC-45, RC-47, RC-12, RC-51, RC-53, RC-57, RC-59, RC-60 |
+| 2 | RC-46, RC-48, RC-49, RC-52, RC-69, RC-54, RC-55, RC-70, RC-61 |
 | 3 | RC-50, RC-56, RC-58, RC-62, RC-63, RC-64 |
 | 4 | RC-65, RC-66 |
 | 5 | RC-67 |
@@ -187,7 +184,7 @@ Rules for this track:
    use directly and 16 jobs wait for. It gets the first free worker.
 2. **Order of admission.** When a worker slot is free, admit the first job in
    this list whose prerequisites are merged:
-   RC-68, RC-44, RC-51, RC-05, RC-12, RC-52, RC-61, RC-45, RC-53, RC-48, RC-47, RC-60, RC-46, RC-49, RC-54, RC-69, RC-64, RC-55, RC-50, RC-56, RC-62, RC-63, RC-65, RC-66, RC-57, RC-59, RC-70, RC-58, RC-67.
+   RC-68, RC-44, RC-51, RC-12, RC-52, RC-61, RC-45, RC-53, RC-48, RC-47, RC-60, RC-46, RC-49, RC-54, RC-69, RC-64, RC-55, RC-50, RC-56, RC-62, RC-63, RC-65, RC-66, RC-57, RC-59, RC-70, RC-58, RC-67.
    The list is sorted by the number of jobs that wait, then by level.
 3. **Each job writes only its own Piece directories.** No two jobs of the
    track share a path under `pieces/`. New Pieces are found by glob, so a job
@@ -223,7 +220,7 @@ this way:
 | Row | Job | In this track |
 | --- | --- | --- |
 | `workflow/run` | RC-12 | Needed in wave 1. This adoption changes the row to `planned`: the track is its concrete caller. |
-| `integration/secrets` | RC-05 | Needed in waves 2 and 3. A branch `task/ELZ-105` exists for it. The row is not changed here; that task makes it ready. |
+| `integration/secrets` | ELZ-105 | Needed in waves 2 and 3. It is ready on `main` through the published task ELZ-105, which replaced RC-05. |
 | `domain/principal`, `integration/identity` | RC-06 | Not needed in waves 1 to 3: the engine takes the acting principal as trusted text from the host, as `domain/authorization` does. The principal is needed in wave 4 and the identity provider in wave 5. The disposition record puts the principal after the identity provider; settle that order when wave 4 is registered. |
 | `domain/membership`, `domain/entitlement`, `integration/auth-policy`, `domain/policy-rules` | RC-07, RC-09, RC-20 | Wave 5. The status changes when that wave is registered. |
 | `domain/metering`, `domain/pricing`, `domain/quota`, `domain/journal`, `assembly/tenant-edge`, `ui/component` | RC-21, RC-23, RC-08, RC-22, RC-40, RC-31 | Wave 6. The same rule. |
