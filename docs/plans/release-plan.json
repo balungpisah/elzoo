@@ -4047,6 +4047,7 @@
         "ELZ-116",
         "ELZ-124",
         "ELZ-123",
+        "ELZ-126",
         "ELZ-002",
         "ELZ-009",
         "ELZ-022",
@@ -5016,6 +5017,23 @@
       "issue": 252,
       "url": "https://github.com/balungpisah/elzoo/issues/252",
       "issue_body_sha256": "dc3bb86b2dc07daa766c15c92e0145af56602a993dfdc17d9a57234021ebd9af"
+    },
+    {
+      "id": "ELZ-126",
+      "title": "ELZ-126 — Run with durable approval release, without dispatch",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-009", "ELZ-023", "ELZ-024", "ELZ-028", "ELZ-116", "ELZ-123"],
+      "status": "published 2026-11-12",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-126-run-approval-release.md"],
+      "outputs": ["workflow/run-approval-release"],
+      "acceptance": "Retain the renamed Run baseline and exercise six groups covering release without dispatch, waiting and retained consent, restart windows, currentness and authority, resource-owned send, and isolation and copy, with two negative controls.",
+      "product_aims": ["P13"],
+      "issue": 256,
+      "url": "https://github.com/balungpisah/elzoo/issues/256",
+      "issue_body_sha256": "dc5c9114de4fe2c4421da1bd21f53f484e83846b0121c727a3319250fd04cd1d"
     }
   ],
   "entries": [
@@ -6076,6 +6094,14 @@
       "disposition": "ready-contract",
       "manifest": "pieces/workflow/run-resource/piece.json",
       "manifest_sha256": "9a97218a45a9c00e575a963fe55e2b21fdbf0880bb5219c0b8076a86450c0e47",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "workflow/run-approval-release",
+      "job": "ELZ-126",
+      "note": "Bot platform wave 1 (P13). A distinct Run owner retains approval release without dispatch, enabling resource-owned dispatch; ready workflow/run remains unchanged.",
+      "baseline_status": "not in baseline (new row, ELZ-126)",
+      "disposition": "planned",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
