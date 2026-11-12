@@ -5888,9 +5888,11 @@
     {
       "id": "core/payload-schema",
       "job": "ELZ-115",
-      "note": "Bot platform wave 1 (P13). One schema value per Port direction, keyed by the schema_id and schema_version of core/port, with a bounded violation result, shared by a module function, a recipe node, a tool argument and a model output. Reuse one pinned validator; ready integration/ai-text (jsv) and integration/mcp-client (ex_json_schema) keep their own validators and results.",
+      "note": "Caller-owned JSON Schema checking bound to exact Port direction, schema ID and version; original JSON payload retained, compact encoding at most 65,536 bytes and container depth at most 32; failures return fixed tags or at most 16 key-redacted structural violations.",
       "baseline_status": "not in baseline (new row, RC-44)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/core/payload-schema/piece.json",
+      "manifest_sha256": "b7f5c1abbf1e90c7c3190127d715827731949fb1ccdf721117513fa4189b9935",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
