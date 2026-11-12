@@ -913,23 +913,33 @@ class BuildSafety(unittest.TestCase):
         self.assertTrue(any("no clone of .: the cloned deps do not match" in line for line in lines), lines)
         self.assertEqual([["mix", "setup"]], [c["argv"] for c in docker.calls if c["argv"][0] == "mix"])
 
-    def test_a_build_that_holds_the_absolute_path_of_a_worktree_is_not_cloned(self):
-        # A real Mix build holds the path of the worktree that compiled it (in beams of `_build`, and in `deps`).
-        for where in ("_build/test/lib/jason/ebin/x.beam", "deps/cure/_build/stage/.cure_manifest"):
-            with self.subTest(where=where):
+    def test_a_build_that_holds_an_absolute_path_of_another_checkout_is_not_cloned(self):
+        # A real Mix build holds the path of the worktree that compiled it (in beams of `_build`, and in `deps`),
+        # also when that worktree is no longer listed by Git.
+        for where, owner in (("_build/test/lib/jason/ebin/x.beam", "main"),
+                             ("deps/cure/_build/stage/.cure_manifest", "main"),
+                             ("_build/test/lib/cure/ebin/x.beam", "removed-worktree")):
+            with self.subTest(where=where, owner=owner):
                 shutil.rmtree(self.tmp)
                 self.tmp.mkdir()
                 here = self.checkout("here", built=False)
                 main = self.checkout("main")
                 target = main / where
                 target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(b"\x00" + str(main).encode() + b"/deps/cure/lib/std/option.cure\x00")
+                target.write_bytes(b"\x00" + str(self.tmp / owner).encode() + b"/deps/cure/lib/std/option.cure\x00")
                 docker = FakeDocker(worktree_list=f"worktree {main}\nworktree {here}\n")
                 lines = []
                 ws.warm_build(here, docker, lines.append, system=lambda: "Darwin")
                 self.assertFalse((here / "_build").exists() or (here / "deps").exists())
                 self.assertTrue(any("no clone of .: the build of the source holds" in line for line in lines), lines)
                 self.assertEqual([["mix", "setup"]], [c["argv"] for c in docker.calls if c["argv"][0] == "mix"])
+
+    def test_a_path_into_the_own_deps_or_outside_any_deps_does_not_count(self):
+        project = self.checkout("here")
+        beam = project / "_build" / "test" / "lib" / "jason" / "ebin" / "x.beam"
+        beam.write_bytes(str(project).encode() + b"/deps/jason/lib/jason.ex\x00/usr/lib/elixir/lib/elixir/x.ex")
+        self.assertIsNone(ws.holds_foreign_path(project, project))
+        self.assertEqual(str(beam), ws.holds_foreign_path(project, self.tmp / "other"))
 
     def test_a_build_that_gains_a_worktree_path_during_the_copy_is_discarded(self):
         docker = FakeDocker()
@@ -940,7 +950,7 @@ class BuildSafety(unittest.TestCase):
             if argv[0] == "cp" and pathlib.Path(argv[-1]).name.startswith("._build.clone-") \
                     and "spikes" not in argv[-1]:
                 (pathlib.Path(argv[-1]) / "test" / "lib" / "jason" / "ebin" / "x.beam").write_bytes(
-                    str(pathlib.Path(argv[-2]).parent).encode() + b"/deps/x")
+                    str(pathlib.Path(argv[-2]).parent).encode() + b"/deps/jason/lib/jason.ex")
             return result
         here, _docker, lines = self.clone_into_here(docker, runner)
         self.assertFalse((here / "_build").exists() or (here / "deps").exists())

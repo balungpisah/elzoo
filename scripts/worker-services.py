@@ -874,13 +874,18 @@ def without_project(app):
     return prune
 
 
-def holds_worktree_path(project, roots):
-    """The first file under `_build` or `deps` of a project that holds the absolute path of a worktree, or None.
+FOREIGN_DEPS_PATH = re.compile(rb"(/[^\x00-\x20\"'<>|]+?)/deps/[A-Za-z0-9_.-]+/")
+
+
+def holds_foreign_path(project, own):
+    """The first file under `_build` or `deps` of `project` that holds an absolute path into the `deps` directory of
+    a Mix project other than `own`, or None.
 
     Measured on a developer host: compiled dependencies (in `_build`, and in `deps`, for example the Cure standard
-    library stage) hold the absolute path of the worktree that compiled them; Mix uses such a copied build without
-    a recompile, and Cure then resolves its standard library through the other worktree."""
-    needles = [str(pathlib.Path(r).resolve()).encode() + b"/" for r in roots]
+    library stage) hold the absolute path of the worktree that compiled them, also after a copy and also when that
+    worktree is no longer listed; Mix uses such a copied build without a recompile, and Cure then resolves its
+    standard library through the other worktree."""
+    own = str(pathlib.Path(own).resolve()).encode()
     for directory in ("_build", "deps"):
         for folder, _dirs, files in os.walk(pathlib.Path(project) / directory):
             for name in files:
@@ -892,28 +897,27 @@ def holds_worktree_path(project, roots):
                         data = handle.read()
                 except OSError:
                     continue
-                if any(needle in data for needle in needles):
+                if any(match.group(1) != own for match in FOREIGN_DEPS_PATH.finditer(data)):
                     return path
     return None
 
 
-def clone_pair(root, subdir, source, runner=run, system=platform.system, roots=()):
+def clone_pair(root, subdir, source, runner=run, system=platform.system):
     """Clone `_build` (without the project itself) and `deps` of one Mix project; then check `deps` of the target
     against its lock again. Returns None, or the reason why the clone was refused or discarded."""
     here = pathlib.Path(root) / subdir
     app = project_app(here)
     if not app:
         return "no `app:` in mix.exs"
-    roots = [*roots, source, root]
-    if holds_worktree_path(source / subdir, roots):
-        return "the build of the source holds the absolute path of a worktree"
+    if holds_foreign_path(source / subdir, here):
+        return "the build of the source holds absolute paths of another checkout"
     try:
         clone_dir(source / subdir / "_build", here / "_build", runner, system, prune=without_project(app))
         clone_dir(source / subdir / "deps", here / "deps", runner, system)
         if not deps_match_lock(here):
             reason = "the cloned deps do not match mix.lock (the source changed during the copy?)"
-        elif holds_worktree_path(here, roots):
-            reason = "the cloned build holds the absolute path of a worktree (the source changed during the copy?)"
+        elif holds_foreign_path(here, here):
+            reason = "the cloned build holds absolute paths of another checkout (the source changed during the copy?)"
         else:
             return None
     except Stop as error:
@@ -925,15 +929,14 @@ def clone_pair(root, subdir, source, runner=run, system=platform.system, roots=(
 
 def warm_build(root, runner=run, out=print, system=platform.system, clock=time.monotonic):
     started = clock()
-    roots = worktrees(root, runner)
-    clone, missing = build_plan(root, roots)
+    clone, missing = build_plan(root, worktrees(root, runner))
     if clone:
         mismatch = toolchain_mismatch(root, runner)
         if mismatch:
             out(f"ELZOO SERVICES build: no clone: {mismatch}")
             missing, clone = missing + [subdir for subdir, _source in clone], []
     for subdir, source in clone:
-        reason = clone_pair(root, subdir, source, runner, system, roots)
+        reason = clone_pair(root, subdir, source, runner, system)
         if reason:
             out(f"ELZOO SERVICES build: no clone of {subdir}: {reason}")
             missing.append(subdir)
