@@ -34,8 +34,7 @@ fun = fn payload -> {:invoice, payload} end
 
 %{
   translated: Transformation.translate(source, target, fun),
-  implicit_correlation:
-    Transformation.translate(Map.delete(source, "correlation_id"), target, fun),
+  implicit_correlation: Transformation.translate(Map.delete(source, "correlation_id"), target, fun),
   input_port:
     Transformation.translate(
       source,
