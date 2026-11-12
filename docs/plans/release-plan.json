@@ -6055,9 +6055,11 @@
     {
       "id": "workflow/bot-run-lifecycle",
       "job": "ELZ-124",
-      "note": "Bot platform wave 1 (P13). A total decision for a Run that waits for a model, tools, an approval, a person, child Runs or events at the same time. Uses the Run outcome set of workflow/run. New ID: ready workflow/state-machine knows job Runs only.",
+      "note": "Pure total Run lifecycle decision over phase, simultaneous caller-owned waits, targeted execution Attempt inputs, pause/continue and recorded deadlines/budget; ready Run owns identity and committed outcomes, ready PatternStep owns protocol validation and first settlement. No runtime or durability.",
       "baseline_status": "not in baseline (new row, RC-48)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/workflow/bot-run-lifecycle/piece.json",
+      "manifest_sha256": "14962d23c73f69b0a0a0aba62d5d37e7a4ec76cd0f70e3a0ddbb4d413eaf23d9",
       "catalogue_reference": "registry/catalogue.json"
     },
     {

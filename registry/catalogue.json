@@ -876,7 +876,8 @@
       "summary": "Run lifecycle with several open waits, pause and continue",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/bot-run-lifecycle/piece.json",
       "reason": "Bot platform wave 1 (P13). A total decision for a Run that waits for a model, tools, an approval, a person, child Runs or events at the same time. Uses the Run outcome set of workflow/run. New ID: ready workflow/state-machine knows job Runs only."
     },
     {
