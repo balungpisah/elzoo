@@ -140,6 +140,71 @@ The task decides which proofs and scenarios are selected. No finite test set
 silently becomes a universal proof, and no external library is required to
 carry a Cure proof. Record versions, commands, output and limits in the PR.
 
+### Services for one worktree (developer host with Docker)
+
+On a developer host with Docker, one command gives a worktree its own test
+services, so that workers on one host share no database server:
+
+    python3 scripts/worker-services.py up      # once, after the claim
+    . .elzoo-services/env.sh                   # in each shell that runs Mix
+    python3 scripts/worker-services.py status
+    python3 scripts/worker-services.py down    # before `git worktree remove`
+
+`up` starts two containers for the worktree and checks each one as the tests
+use it:
+
+- its own PostgreSQL server from the image and digest of the job `check-root`
+  (read from the workflow), with the role and database `elzoo_test` and the
+  `vector` extension that the superuser creates, as in that job. The server
+  has no TCP rule that lets a role in without its password. `up` connects as
+  the test role with its password from the host, through the published port,
+  with SCRAM-SHA-256, and a wrong password stops `up`;
+- its own S3 test server: the MinIO release of `scripts/ci-minio.py`, the
+  asset for the architecture of the Docker server, checked against a pinned
+  size and SHA-256 (a mismatch stops `up`), with the same bucket and region.
+  It runs in a container of the same pinned image; no official container
+  image of that release exists.
+
+Both containers are on a Docker network of their own and publish their port
+on `127.0.0.1` only, on a port that Docker chooses. The credentials are
+random for each worktree. They reach the containers as files, so `docker
+inspect` does not show them. They are written only to the Git-ignored file
+`.elzoo-services/env.sh` (mode 0600) and are never printed. `up` is
+idempotent: it reuses running containers, starts stopped ones and follows a
+changed port. It recreates the services of the worktree when the environment
+file is missing, or the pinned image or the network changed. `status` exits
+1 when a port in the environment file is not the port that Docker publishes
+now (for example after `docker restart`); `up` then writes the file again.
+`status` compares ports only and does not prove the password; `up` does. When
+`up` reports a wrong password, remove `.elzoo-services/env.sh` and run `up`
+again: it recreates the services of the worktree.
+
+`up` starts the services only; it does nothing about the build. On a new
+worktree path, run `mix setup` first (about 10 minutes on a developer host).
+A compiled `_build` and `deps` cannot be copied from another path, so reuse
+the same worktree path for the next task to keep the build.
+
+Names derive from the worktree path, and each container, volume and network
+carries the label of its worktree. `down` removes only those, and the files
+that `up` wrote in `.elzoo-services/`; it refuses an `.elzoo-services` that is
+a symbolic link. `down --worktree PATH` takes the top level of a worktree, or
+a path that is already removed; it refuses a path inside a worktree, and an
+existing directory that is not a Git worktree. When a removal fails, `down`
+still does the other removals, reports each failure and exits 1. The
+verified binary stays in a cache under `~/.cache/elzoo-worker-services/` for
+the next worktree.
+
+Expected to be equal to the job `check-root` (same pinned image, no server
+options in the job); observed on a developer host: PostgreSQL 16.15,
+`max_connections` 100, time zone UTC (`Etc/UTC`), encoding UTF8, `vector`
+0.8.7, a test role that is not a superuser.
+Different on an arm64 host: the arm64 variant of the image and the arm64
+MinIO binary (both pinned), and vector distances can differ in the last bits
+of a float.
+
+This command is for a developer host only. Its results are never merge
+evidence: the hosted check on the exact pull request head is.
+
 ## Review, merge and cleanup
 
 PR bodies include stable ID, dependency status, changed Contract, exact checks,
