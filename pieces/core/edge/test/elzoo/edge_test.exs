@@ -170,4 +170,16 @@ defmodule Elzoo.EdgeTest do
     assert audit.not_proven_total == []
     assert audit.absurd == 0
   end
+
+  test "the example file evaluates to the documented results" do
+    {result, _} = Code.eval_file(Path.expand("../../examples/elzoo/edge.exs", __DIR__))
+
+    assert result == %{
+             fused_inside_one_unit: {:ok, true},
+             hop_between_two_units: {:ok, true},
+             fused_between_two_units: {:error, :placement_mismatch},
+             source_reference_names_missing_port: {:error, :reference_mismatch},
+             source_binding_with_fifth_key: {:error, {:source, :invalid_shape}}
+           }
+  end
 end
