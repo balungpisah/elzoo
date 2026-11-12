@@ -559,11 +559,11 @@
     },
     {
       "id": "integration/observability",
-      "summary": "Telemetry exporter, tracing, logs, SLO/alerts",
+      "summary": "Opt-in v1 Prometheus pull counts and terminal microsecond totals for the fixed Elzoo telemetry family",
       "disposition": "adapt",
       "phase": "P3",
-      "status": "planned",
-      "reason": "`:telemetry`/OpenTelemetry candidates; redaction and sampling are Elzoo contracts"
+      "status": "ready",
+      "manifest": "pieces/integration/observability/piece.json"
     },
     {
       "id": "integration/payments",
