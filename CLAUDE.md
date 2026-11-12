@@ -5,6 +5,8 @@
 `AGENTS.md` is the one source of the workflow. This file only imports it and
 adds notes for Claude Code. Put a workflow rule in `AGENTS.md`, not here.
 
+For plan-only and publication merges on non-task branches, follow the push-check evidence-reuse rule in `AGENTS.md` section 7: branch names do not authorize reuse or relax its evidence and main-green guards.
+
 ## Claude Code only
 
 - Claim from the main checkout. Then start the build session inside the task
