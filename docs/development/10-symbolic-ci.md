@@ -484,8 +484,7 @@ check on `main`.
 **Limits.** The small gate is a selected check, not the full check. The aggregate consumer, the root tests that are
 not in the list (for example a root test that loads a Piece example or module directly) and the Ash spike run only
 in the full check on `main`. **Residual risk:** the freeze rule ignores a first attempt of a push run in progress, so
-small-gate merges can land before the first full run of `main` after them reports. No count limits them; only the
-time of one full run does. A red full run then
+small-gate merges can land before the first full run of `main` after them reports. The queue has no count limit yet; the coordinator enforces the bound of three in `AGENTS.md` section 7 until code enforces it. A red full run then
 freezes the next merge, and the coordinator repairs forward from the pull request bodies
 ([coordinator](13-coordinator.md)); the coordinator also waits for a green `main` at the end of each level of a
 wave. The hosted time of `check-piece` is not measured yet. Locally the mode took 253 seconds for a one-file change

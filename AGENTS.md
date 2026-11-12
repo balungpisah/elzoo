@@ -169,7 +169,7 @@ of each changed Piece and of each ready Piece that depends on it, the root
 tests that read the index, and the per-ID consumers of those IDs. It is a
 selected check, not the full check. It refuses a change with any other path.
 
-For a change of shared paths other than index/generated files or documents, the local gate is:
+For a change of shared paths, the local gate is:
 
     mix check --affected origin/main
     git diff --check
@@ -179,8 +179,6 @@ the full check, but its marker still says `AFFECTED`: take the one slot of the
 database server (section 3). After a change of `mix.exs`, `mix.lock`,
 `config/` or a toolchain pin, run `mix check` with no flag. On a new checkout,
 run `mix setup` first.
-
-For changes limited to index/generated files or documents, run `git diff --check` and the applicable index checks in section 3; the broader local Mix gate may be omitted. A Piece task that also updates these files may likewise rely on the exact-head hosted gate instead of repeating a costly broad local gate, but still runs its own tests locally. Record the omitted command and reason in `Local gate:` and identify the hosted run used as its evidence. This exception does not waive the full local check for dependencies, configuration or toolchain pins.
 
 Each push to a pull request starts the hosted check on the new head:
 
