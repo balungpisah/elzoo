@@ -904,7 +904,8 @@
       "summary": "Run one pattern for one host: record, check, act, bring outcomes back",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/assembly/run-engine/piece.json",
       "reason": "Bot platform wave 1 (P13). The small explicit engine role of docs/capability-model.md as an Assembly of ready pieces. It knows no pattern, does the fan-out, and keeps budget and approval state durable. Not a privileged kernel: a non-agent caller must be able to use it."
     },
     {
