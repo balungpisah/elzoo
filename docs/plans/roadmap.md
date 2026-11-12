@@ -265,3 +265,34 @@ assumptions remain distinct. No new runtime behavior, authentication, durable
 approval, provider adoption, security certification or product/release completion
 is established by adoption. Missing essential provider/API/transaction decisions
 remain explicit per-job blockers in the canonical manifest.
+
+## Bot platform track (P13, release V1B)
+
+Owner priority of 2026-11-11: a recipe-driven bot platform is a concrete
+product aim, and the catalogue serves it first. [bot-platform.md](bot-platform.md)
+holds the aim, the rules and the wave order.
+
+This adoption adds 37 planned catalogue rows (the catalogue goes from 106 to
+143 IDs), 27 proposals RC-44 to RC-70, product aim P13 and the gate
+`V1B-ACCEPT`. The 37 rows are not in the 97-row baseline; each mapping says so. No ready manifest, baseline
+status, published task or V1, V2 or V3 gate changes. Two existing proposals
+gain P13 as one more product aim: RC-05 and RC-12. RC-12 also replaces its
+prerequisite RC-10, which has no output left, with ELZ-055, which owns the
+audit-log row; the atomic commit of decision and attribution has no owner yet
+(a blocker of RC-12). Its Contract gains the boundary with RC-48 and
+RC-50. Its row `workflow/run` changes status from deferred to planned and
+disposition from `defer` to `adapt`, and its reason text names the track as
+the concrete caller. Each brief was checked two times, by independent
+reviewers, against the source of the ready Pieces at main `ecf822e`.
+
+[catalogue-dispositions.md](catalogue-dispositions.md) is a rendered record of
+2026-11-08 and is not changed here: it still lists `workflow/run` as deferred
+and holds no record for the 37 new rows. Until a record exists, the reuse text
+of each brief is the draft disposition, and the coordinator records the
+disposition at admission.
+
+Only waves 1 to 3 are registered. Waves 4 to 9 are named in
+[bot-platform.md](bot-platform.md) and get rows and proposals when the wave
+before is accepted. This keeps the rule above: inventory is not a build queue
+and no row is a placeholder. A proposal is still not permission to implement;
+the coordinator admits each job under the usual rules.

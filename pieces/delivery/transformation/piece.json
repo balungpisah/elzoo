@@ -18,6 +18,7 @@
     "No target payload-schema validation, lookup, runtime execution or ordinary stream implementation."
   ],
   "files": [
+    "examples/elzoo/transformation.exs",
     "lib/elzoo/transformation.ex",
     "test/elzoo/transformation_test.exs"
   ],

@@ -805,10 +805,10 @@
     {
       "id": "workflow/run",
       "summary": "Execution and attempt lifecycle",
-      "disposition": "defer",
+      "disposition": "adapt",
       "phase": "demand-led",
-      "status": "deferred",
-      "reason": "Execution identity, outcome, parent/child settlement, cancellation and late-result handling for C2/C5/C6/C7; evaluate Oban/Jido where appropriate; no full orchestrator implemented. ELZ-025 study: Run outcome and effect settlement are distinct facts; parent/child attachment is reciprocal; cancellation names the Attempt and an indeterminate cancellation terminates the owner; child spawn is an Effect with unknown outcome under timeout; the owner observes attempt death by monitor; completed means durable evidence."
+      "status": "planned",
+      "reason": "Execution identity, outcome, parent/child settlement, cancellation and late-result handling for C2/C5/C6/C7; evaluate Oban/Jido where appropriate; no full orchestrator implemented. ELZ-025 study: Run outcome and effect settlement are distinct facts; parent/child attachment is reciprocal; cancellation names the Attempt and an indeterminate cancellation terminates the owner; child spawn is an Effect with unknown outcome under timeout; the owner observes attempt death by monitor; completed means durable evidence. Owner priority 2026-11-11: the bot platform track (P13) is the concrete caller, so this row is planned, not deferred; RC-12 sets the pace of its wave 1."
     },
     {
       "id": "workflow/state-machine",
@@ -825,6 +825,302 @@
       "phase": "demand-led",
       "status": "deferred",
       "reason": "Assignee, acceptance criterion and policy-defined completion for C5/C6; independent of job/agent attempt success. Reuse a suitable workflow implementation before authoring policy. ELZ-015 evaluates Ash resource actions with tenant context; no ready bundle or durable execution claim. ELZ-025 study: enumerated lifecycle transitions, completion bound to the current lease or authority holder, no-op transitions write nothing."
+    },
+    {
+      "id": "workflow/pattern-step",
+      "summary": "The shared shape of a pattern step: inputs, one request with a set of actions, outcomes",
+      "disposition": "own",
+      "phase": "demand-led",
+      "status": "planned",
+      "reason": "Bot platform wave 1 (P13). Closed, versioned sets of action kinds, input kinds and outcome classes, as data and pure validation, so that the engine and every pattern use one vocabulary. The step shape is ready core/operator, unchanged."
+    },
+    {
+      "id": "core/payload-schema",
+      "summary": "One schema check for a payload at a Port",
+      "disposition": "adapt",
+      "phase": "demand-led",
+      "status": "planned",
+      "reason": "Bot platform wave 1 (P13). One schema value per Port direction, keyed by the schema_id and schema_version of core/port, with a bounded violation result, shared by a module function, a recipe node, a tool argument and a model output. Reuse one pinned validator; ready integration/ai-text (jsv) and integration/mcp-client (ex_json_schema) keep their own validators and results."
+    },
+    {
+      "id": "runtime/durable-unit",
+      "summary": "Durable mode of a Unit: state returns after a restart",
+      "disposition": "own",
+      "phase": "demand-led",
+      "status": "planned",
+      "reason": "Bot platform wave 1 (P13). Each input is appended before the pure transition reads it; state returns from ready state/event-log, state/checkpoint and state/outbox. New ID: ready runtime/unit stays volatile and unchanged."
+    },
+    {
+      "id": "runtime/dynamic-units",
+      "summary": "One supervised Unit per identity, with sleep and wake",
+      "disposition": "adapt",
+      "phase": "demand-led",
+      "status": "planned",
+      "reason": "Bot platform wave 1 (P13). At most one live Unit per Run or room identity, a bound on live Units and an idle sleep, over OTP DynamicSupervisor and Registry. New ID: ready runtime/host starts a fixed list."
+    },
+    {
+      "id": "runtime/async-work",
+      "summary": "Slow local work away from the Unit, with cancel and late results",
+      "disposition": "adapt",
+      "phase": "demand-led",
+      "status": "planned",
+      "reason": "Bot platform wave 1 (P13). Local work that is not an Effect (a bounded script run) must not block the Unit that owns a Run; results return by registered name as messages with the work identity. An Effect stays with delivery/effect-intent. Volatile; durable work stays with integration/jobs."
+    },
+    {
+      "id": "workflow/bot-run-lifecycle",
+      "summary": "Run lifecycle with several open waits, pause and continue",
+      "disposition": "own",
+      "phase": "demand-led",
+      "status": "planned",
+      "reason": "Bot platform wave 1 (P13). A total decision for a Run that waits for a model, tools, an approval, a person, child Runs or events at the same time. Uses the Run outcome set of workflow/run. New ID: ready workflow/state-machine knows job Runs only."
+    },
+    {
+      "id": "workflow/run-resource",
+      "summary": "A live thing that a Run holds, used by one action at a time and closed with the Run",
+      "disposition": "own",
+      "phase": "demand-led",
+      "status": "planned",
+      "reason": "Bot platform wave 1 (P13). Ownership, serialization, time limit and close policy for an OS program, a sandbox, a browser or a call. A lost resource is an input and is never reopened automatically. No real provider yet."
+    },
+    {
+      "id": "assembly/run-engine",
+      "summary": "Run one pattern for one host: record, check, act, bring outcomes back",
+      "disposition": "own",
+      "phase": "demand-led",
+      "status": "planned",
+      "reason": "Bot platform wave 1 (P13). The small explicit engine role of docs/capability-model.md as an Assembly of ready pieces. It knows no pattern, does the fan-out, and keeps budget and approval state durable. Not a privileged kernel: a non-agent caller must be able to use it."
+    },
+    {
+      "id": "workflow/untrusted-content",
+      "summary": "Mark content so that it cannot give orders",
+      "disposition": "own",
+      "phase": "demand-led",
+      "status": "planned",
+      "reason": "Bot platform wave 2 (P13). One shared mark with source and trust class for tool results, documents and messages from other members, kept through transformation, with a tested render rule for a model request. The mark travels inside the payload; core/envelope is unchanged."
+    },
+    {
+      "id": "workflow/tool-registry",
+      "summary": "Resolve a tool name from a model to one callable by alias and descriptor digest",
+      "disposition": "own",
+      "phase": "demand-led",
+      "status": "planned",
+      "reason": "Bot platform wave 2 (P13). Tool sources can change at run time (MCP). Owns the model-facing alias and the version, a digest of the descriptor. Finding a tool grants no permission. Unknown, ambiguous and changed tools are explicit results."
+    },
+    {
+      "id": "workflow/tool-result-limit",
+      "summary": "Cut or store a large tool result so that it fits a model request",
+      "disposition": "own",
+      "phase": "demand-led",
+      "status": "planned",
+      "reason": "Bot platform wave 2 (P13). A result over the bound becomes an Artifact reference with a bounded preview; the cut is visible and the content stays marked untrusted."
+    },
+    {
+      "id": "integration/ai-token-count",
+      "summary": "Estimate the input size of a text request before the call",
+      "disposition": "adapt",
+      "phase": "demand-led",
+      "status": "planned",
+      "reason": "Bot platform wave 2 (P13). An upper bound or a labelled approximation for a named model, used to refuse or shorten a request. Not a usage fact and not for billing."
+    },
+    {
+      "id": "workflow/prompt-assembly",
+      "summary": "Build one text request from instructions, memory, history and tools within a limit",
+      "disposition": "own",
+      "phase": "demand-led",
+      "status": "planned",
+      "reason": "Bot platform wave 2 (P13). Declared order and drop order inside the hard request bounds of integration/ai-text; never drops instructions or splits a tool call from its result; untrusted content stays marked. Uses ready workflow/context-selection."
+    },
+    {
+      "id": "workflow/context-compaction",
+      "summary": "Replace old history with a recorded summary under a keep rule",
+      "disposition": "own",
+      "phase": "demand-led",
+      "status": "planned",
+      "reason": "Bot platform wave 2 (P13). A pure step that gives one model-call action; the engine records it. Keep-rule items (the goal, open actions, decisions, failed approaches) are structured records kept verbatim; only free text is summarized."
+    },
+    {
+      "id": "workflow/output-repair",
+      "summary": "Ask again, a bounded number of times, when model output does not match a schema",
+      "disposition": "own",
+      "phase": "demand-led",
+      "status": "planned",
+      "reason": "Bot platform wave 2 (P13). integration/ai-text decides valid or invalid and core/payload-schema gives the violation list; this owns only the repair bound and the explicit failure after it. Never a guessed value."
+    },
+    {
+      "id": "workflow/typed-decision",
+      "summary": "Pattern step: a model gives one answer of a fixed set or an answer that matches a schema",
+      "disposition": "own",
+      "phase": "demand-led",
+      "status": "planned",
+      "reason": "Bot platform wave 2 (P13). A pure step in the shape of workflow/pattern-step, used to pick a branch, check a result or pick a speaker."
+    },
+    {
+      "id": "workflow/agent-loop",
+      "summary": "Pattern step: a model picks tools until it has an answer",
+      "disposition": "own",
+      "phase": "demand-led",
+      "status": "planned",
+      "reason": "Bot platform wave 2 (P13). The agent loop as one pure step in the shape of workflow/pattern-step, not the base and not a host. All tool calls of one model turn go in one request. assembly/agent-product stays the later example Assembly."
+    },
+    {
+      "id": "delivery/provider-stream",
+      "summary": "Partial output of one model call with tool calls (Anthropic first)",
+      "disposition": "adapt",
+      "phase": "demand-led",
+      "status": "planned",
+      "reason": "Bot platform wave 2 (P13). Widens ready delivery/data-stream (one Anthropic text stream) to tool calls, so it is a new ID. The assembled result equals the completed value of the synchronous provider for a paired fixture. A second provider is a separate Piece."
+    },
+    {
+      "id": "workflow/wait-for-person",
+      "summary": "A Run asks a named person one question and continues with the answer",
+      "disposition": "own",
+      "phase": "demand-led",
+      "status": "planned",
+      "reason": "Bot platform wave 2 (P13). Not an approval: an approval binds one exact action. Late and wrong-person answers are explicit."
+    },
+    {
+      "id": "workflow/mid-run-input",
+      "summary": "One declared rule for a new message during an active Run",
+      "disposition": "own",
+      "phase": "demand-led",
+      "status": "planned",
+      "reason": "Bot platform wave 2 (P13). Queue, reject, interrupt, steer or side run. An interrupt reports what was already delivered."
+    },
+    {
+      "id": "workflow/stall-detect",
+      "summary": "Decide from the record that a Run makes no progress",
+      "disposition": "own",
+      "phase": "demand-led",
+      "status": "planned",
+      "reason": "Bot platform wave 2 (P13). A verdict apart from retry policy; a healthy long wait is not a stall. Named by the orchestration reference study."
+    },
+    {
+      "id": "integration/mcp-multi",
+      "summary": "Several MCP servers per tenant from a build-time set of bindings",
+      "disposition": "adapt",
+      "phase": "demand-led",
+      "status": "planned",
+      "reason": "Bot platform wave 2 (P13). Each server is one compiled binding of ready integration/mcp-client, with its own credential Need and limits; tool lists are keyed by server; one failing server does not block the others. Streamable HTTP and bearer token only. A server added at run time is out of scope. New ID: ready integration/mcp-client is unchanged."
+    },
+    {
+      "id": "runtime/lua-sandbox",
+      "summary": "Run Lua with hard limits and no ambient access",
+      "disposition": "adapt",
+      "phase": "demand-led",
+      "status": "planned",
+      "reason": "Bot platform wave 3 (P13). Limits on steps and memory; no file, network, clock or random access unless given; a wall-time stop is a host outcome. Starts with a provider-fit probe of at least two Lua runtimes, one of them outside the process boundary of the VM; no runtime is chosen yet."
+    },
+    {
+      "id": "runtime/lua-stdlib",
+      "summary": "The safe helper set that a recipe can call in Lua",
+      "disposition": "adapt",
+      "phase": "demand-led",
+      "status": "planned",
+      "reason": "Bot platform wave 3 (P13). JSON and text helpers and time values passed in. Nothing else is reachable from the sandbox."
+    },
+    {
+      "id": "domain/recipe-graph",
+      "summary": "The callables that a recipe gives as plain data",
+      "disposition": "own",
+      "phase": "demand-led",
+      "status": "planned",
+      "reason": "Bot platform wave 3 (P13). Graphs, agents and typed decisions with typed input and output, needs and gives, links, outcome links, rules and bindings; callables nest by name with a depth limit. A rule can only add a requirement. Data and validation only."
+    },
+    {
+      "id": "domain/recipe-package",
+      "summary": "Recipe manifest: name, version, needs and permissions",
+      "disposition": "own",
+      "phase": "demand-led",
+      "status": "planned",
+      "reason": "Bot platform wave 3 (P13). What a recipe declares before it can be checked, stored or shared."
+    },
+    {
+      "id": "domain/recipe-config",
+      "summary": "Tenant settings for a recipe, checked against its declared schema",
+      "disposition": "own",
+      "phase": "demand-led",
+      "status": "planned",
+      "reason": "Bot platform wave 3 (P13). A secret setting is a credential reference, never a value."
+    },
+    {
+      "id": "runtime/lua-binding",
+      "summary": "Give declared module functions to Lua with checked arguments",
+      "disposition": "own",
+      "phase": "demand-led",
+      "status": "planned",
+      "reason": "Bot platform wave 3 (P13). Built from a function manifest that this Piece defines and the caller supplies; no run-time discovery. A binding call at load time builds data and performs no Effect."
+    },
+    {
+      "id": "workflow/lua-tool",
+      "summary": "A tool that a recipe defines as a sandboxed Lua function",
+      "disposition": "own",
+      "phase": "demand-led",
+      "status": "planned",
+      "reason": "Bot platform wave 3 (P13). Registered like any other tool. Each module call becomes a request for the engine, and the tool runs again from the start with the recorded results; sandbox state is never persisted."
+    },
+    {
+      "id": "workflow/graph-run",
+      "summary": "Pattern step: decide the next nodes of a recipe graph",
+      "disposition": "own",
+      "phase": "demand-led",
+      "status": "planned",
+      "reason": "Bot platform wave 3 (P13). Needs and gives set the order; branch, map and loop are bounded; a settled node never runs again. Ready workflow/dependency-graph gives the AND-join of acyclic needs and delivery/aggregation the status of a map; either-of joins, skipped branches and loops are written here."
+    },
+    {
+      "id": "workflow/node-outcome",
+      "summary": "Decide what follows a node that failed, was late or was refused",
+      "disposition": "own",
+      "phase": "demand-led",
+      "status": "planned",
+      "reason": "Bot platform wave 3 (P13). Each outcome follows its link or the Run fails explicitly. No automatic retry after an unknown outcome."
+    },
+    {
+      "id": "workflow/recipe-check",
+      "summary": "Check a recipe before it can run",
+      "disposition": "own",
+      "phase": "demand-led",
+      "status": "planned",
+      "reason": "Bot platform wave 3 (P13). Structure, needs, permissions, budgets and an upper cost limit, with located reasons."
+    },
+    {
+      "id": "workflow/runtime-graph",
+      "summary": "Check and accept a graph that a model gives at run time",
+      "disposition": "own",
+      "phase": "demand-led",
+      "status": "planned",
+      "reason": "Bot platform wave 3 (P13). The same check as at load time plus limits: only the callables and tool sources of its agent node, no new authority, a budget share, a node and depth maximum, data only."
+    },
+    {
+      "id": "state/recipe-store",
+      "summary": "Immutable recipe versions per tenant, with publish and go-back",
+      "disposition": "own",
+      "phase": "demand-led",
+      "status": "planned",
+      "reason": "Bot platform wave 3 (P13). Recipe bytes and versions in ready state/artifact; this adds the published pointer, the check gate and the pin records. Only a checked version can be published, and a version that a live Run pins is not deleted."
+    },
+    {
+      "id": "workflow/version-pin",
+      "summary": "A Run stays on the recipe version that it started with",
+      "disposition": "own",
+      "phase": "demand-led",
+      "status": "planned",
+      "reason": "Bot platform wave 3 (P13). The pure rule of which version a Run uses: the one at its start. Publishing changes no running Run. The delete refusal belongs to state/recipe-store."
+    },
+    {
+      "id": "runtime/recipe-test",
+      "summary": "Run a recipe through the real engine with scripted models and tools",
+      "disposition": "own",
+      "phase": "demand-led",
+      "status": "planned",
+      "reason": "Bot platform wave 3 (P13). No network and a controlled clock; an unscripted call fails the test. The way an author and a Piece worker test without a provider."
+    },
+    {
+      "id": "workflow/skill",
+      "summary": "A versioned pack of instructions and files that a model loads on demand",
+      "disposition": "own",
+      "phase": "demand-led",
+      "status": "planned",
+      "reason": "Bot platform wave 3 (P13). A skill is a tool source of the registry: loading is a recorded tool call and grants no authority; the tools of the skill still pass the checks of the engine."
     }
   ]
 }
