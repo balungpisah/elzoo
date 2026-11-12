@@ -171,6 +171,8 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | RC-67 | V1B / pieces | ELZ-033, ELZ-096, RC-52, RC-54, RC-56, RC-65, RC-66, RC-61, RC-69 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-68 | V1B / pieces | ELZ-033, ELZ-002, ELZ-006, ELZ-023 | superseded for workflow/pattern-step by published ELZ-114; output moved | one claimed task worker after admission |
 | RC-70 | V1B / pieces | ELZ-033, ELZ-114 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| [ELZ-119](https://github.com/balungpisah/elzoo/issues/221) | V1 / pieces | none | published 2026-11-12 | one claimed task worker; coordinator owns review and merge queue |
+| [ELZ-120](https://github.com/balungpisah/elzoo/issues/232) | V1 / pieces | none | published 2026-11-12 | one claimed task worker; coordinator owns independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -284,7 +286,7 @@ Baseline status is immutable inventory history, not a current planning status. R
 | workflow/run | deferred | V1 / pieces | ELZ-116 / P01, P02, P03, P05, P06, P07, P08, P11, P13 | blocked-admission-proposal: Execution identity, outcome, parent/child settlement, cancellation and late-result handling for C2/C5/C6/C7; evaluate Oban/Jido where appropriate; no full orchestrator implemented. ELZ-025 study: Run outcome and effect settlement are distinct facts; parent/child attachment is reciprocal; cancellation names the Attempt and an indeterminate cancellation terminates the owner; child spawn is an Effect with unknown outcome under timeout; the owner observes attempt death by monitor; completed means durable evidence. |
 | [workflow/state-machine](../../pieces/workflow/state-machine/piece.json) | planned | V1 / pieces | ELZ-010 / P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12 | merged-ready-contract; task acceptance separate: Job-Run lifecycle decision Elzoo.JobRun: total step/4 over phase, attempt-identity input (current/stale result, start/duplicate/stale start, cancel), supplied expiry and the unchanged ELZ-006 RetryDecision; Cure identity classification start_input/4 and result_input/3; validating Elixir projection. No statecharts, gen_statem framework, saga or compensation. |
 | workflow/work-item | deferred | V1 / pieces | RC-11 / P03, P07 | blocked-admission-proposal: Assignee, acceptance criterion and policy-defined completion for C5/C6; independent of job/agent attempt success. Reuse a suitable workflow implementation before authoring policy. ELZ-015 evaluates Ash resource actions with tenant context; no ready bundle or durable execution claim. ELZ-025 study: enumerated lifecycle transitions, completion bound to the current lease or authority holder, no-op transitions write nothing. |
-| workflow/pattern-step | not in baseline (new row, RC-68) | V1B / pieces | ELZ-114 / P13 | planned: Bot platform wave 1 (P13). Closed, versioned sets of action kinds, input kinds and outcome classes, as data and pure validation, so that the engine and every pattern use one vocabulary. The step shape is ready core/operator, unchanged. |
+| [workflow/pattern-step](../../pieces/workflow/pattern-step/piece.json) | not in baseline (new row, RC-68) | V1B / pieces | ELZ-114 / P13 | ready-contract: Exact v1 pattern-step maps and pure per-request action settlement; no runtime or payload-schema validation. |
 | [core/payload-schema](../../pieces/core/payload-schema/piece.json) | not in baseline (new row, RC-44) | V1B / pieces | ELZ-115 / P13 | ready-contract: Caller-owned JSON Schema checking bound to exact Port direction, schema ID and version; original JSON payload retained, compact encoding at most 65,536 bytes and container depth at most 32; failures return fixed tags or at most 16 key-redacted structural violations. |
 | runtime/durable-unit | not in baseline (new row, RC-45) | V1B / pieces | ELZ-117 / P13 | blocked-admission-proposal: Bot platform wave 1 (P13). Each input is appended before the pure transition reads it; state returns from ready state/event-log, state/checkpoint and state/outbox. New ID: ready runtime/unit stays volatile and unchanged. |
 | runtime/dynamic-units | not in baseline (new row, RC-46) | V1B / pieces | RC-46 / P13 | blocked-admission-proposal: Bot platform wave 1 (P13). At most one live Unit per Run or room identity, a bound on live Units and an idle sleep, over OTP DynamicSupervisor and Registry. New ID: ready runtime/host starts a fixed list. |
@@ -335,7 +337,7 @@ Derived from selectors in the manifest; changing the selected scope changes the 
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; integrated pinned mix check, source-copy/namespace/schema/provider compatibility and claim-level evidence. No future release acceptance follows from ELZ-012.
 
-Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, ELZ-008, ELZ-009, ELZ-010, ELZ-011, ELZ-012, ELZ-013, ELZ-014, ELZ-015, ELZ-016, ELZ-017, ELZ-018, ELZ-019, ELZ-020, ELZ-021, ELZ-022, ELZ-023, ELZ-024, ELZ-025, ELZ-026, ELZ-027, ELZ-028, ELZ-029, ELZ-030, ELZ-032, ELZ-033, ELZ-050, ELZ-052, ELZ-053, ELZ-054, ELZ-055, ELZ-083, ELZ-081, ELZ-084, ELZ-087, ELZ-079, ELZ-080, ELZ-085, ELZ-091, ELZ-092, ELZ-097, RC-01, RC-02, RC-03, RC-04, RC-05, RC-06, RC-07, RC-08, RC-09, RC-10, RC-11, RC-12, RC-13, RC-14, RC-15, RC-16, RC-17, RC-18, RC-19, RC-26, RC-32, RC-42, RC-43, ELZ-094, ELZ-093, ELZ-095, ELZ-082, ELZ-096, ELZ-098, ELZ-099, ELZ-100, ELZ-101, ELZ-104, ELZ-103, ELZ-105, ELZ-107, ELZ-106, ELZ-108, ELZ-109, ELZ-110, ELZ-111, ELZ-112, ELZ-113, ELZ-116.
+Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, ELZ-008, ELZ-009, ELZ-010, ELZ-011, ELZ-012, ELZ-013, ELZ-014, ELZ-015, ELZ-016, ELZ-017, ELZ-018, ELZ-019, ELZ-020, ELZ-021, ELZ-022, ELZ-023, ELZ-024, ELZ-025, ELZ-026, ELZ-027, ELZ-028, ELZ-029, ELZ-030, ELZ-032, ELZ-033, ELZ-050, ELZ-052, ELZ-053, ELZ-054, ELZ-055, ELZ-083, ELZ-081, ELZ-084, ELZ-087, ELZ-079, ELZ-080, ELZ-085, ELZ-091, ELZ-092, ELZ-097, RC-01, RC-02, RC-03, RC-04, RC-05, RC-06, RC-07, RC-08, RC-09, RC-10, RC-11, RC-12, RC-13, RC-14, RC-15, RC-16, RC-17, RC-18, RC-19, RC-26, RC-32, RC-42, RC-43, ELZ-094, ELZ-093, ELZ-095, ELZ-082, ELZ-096, ELZ-098, ELZ-099, ELZ-100, ELZ-101, ELZ-104, ELZ-103, ELZ-105, ELZ-107, ELZ-106, ELZ-108, ELZ-109, ELZ-110, ELZ-111, ELZ-112, ELZ-113, ELZ-116, ELZ-119, ELZ-120.
 
 ### V1B-ACCEPT
 
@@ -2326,3 +2328,23 @@ Publication copy: [tasks/ELZ-118-async-work.md](../../tasks/ELZ-118-async-work.m
 **Product aims:** P13.
 
 **Acceptance:** Cancel during the work; result after cancel (late); worker crash (loss message with a reason class); deadline kill; owner restart while work runs (the result reaches the new owner by name, and this Piece does not know the work_ref any more: the owner decides, and the engine of RC-50 gives the open action a failed outcome with a loss class in its payload at start, so a result after that is late); a bound on concurrent work per owner with explicit refusal; no result payload in telemetry.
+
+### ELZ-119
+
+ELZ-119 — Reject removed tracked special files in the local Piece gate
+
+Publication copy: [tasks/ELZ-119-piece-gate-modes.md](../../tasks/ELZ-119-piece-gate-modes.md).
+
+**Product aims:** P01.
+
+**Acceptance:** The local Piece gate refuses deleted tracked symlinks, symlinks replaced by regular files and removed tracked gitlinks, but accepts ordinary Piece file deletion; committed and staged/working-tree changes, untracked symlinks, invalid bases and fail-closed Git/mode errors are covered. Negative controls fail on the old admission logic.
+
+### ELZ-120
+
+ELZ-120 — Bound the outstanding small-gate merge window
+
+Publication copy: [tasks/ELZ-120-small-gate-window.md](../../tasks/ELZ-120-small-gate-window.md).
+
+**Product aims:** P01.
+
+**Acceptance:** Before accepting and immediately before merging a Piece, count all first-parent main commits after valid covering successful main push evidence: 0–2 permit, 3 or more refuse. Tests cover the boundary, renewed coverage, second-parent exclusion, missing or failed evidence, recheck, red-main freeze and full-run adoption. Document only behavior and limits.

@@ -831,7 +831,8 @@
       "summary": "The shared shape of a pattern step: inputs, one request with a set of actions, outcomes",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/pattern-step/piece.json",
       "reason": "Bot platform wave 1 (P13). Closed, versioned sets of action kinds, input kinds and outcome classes, as data and pure validation, so that the engine and every pattern use one vocabulary. The step shape is ready core/operator, unchanged."
     },
     {

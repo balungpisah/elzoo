@@ -4887,6 +4887,48 @@
       "issue": 229,
       "url": "https://github.com/balungpisah/elzoo/issues/229",
       "issue_body_sha256": "790e5d658f307eac7f87a3437c47ce453086acac116f4b067df47cc4b6146882"
+    },
+    {
+      "id": "ELZ-119",
+      "title": "ELZ-119 — Reject removed tracked special files in the local Piece gate",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [],
+      "status": "published 2026-11-12",
+      "owner_role": "one claimed task worker; coordinator owns review and merge queue",
+      "paths": [
+        "tasks/ELZ-119-piece-gate-modes.md"
+      ],
+      "outputs": [],
+      "acceptance": "The local Piece gate refuses deleted tracked symlinks, symlinks replaced by regular files and removed tracked gitlinks, but accepts ordinary Piece file deletion; committed and staged/working-tree changes, untracked symlinks, invalid bases and fail-closed Git/mode errors are covered. Negative controls fail on the old admission logic.",
+      "product_aims": [
+        "P01"
+      ],
+      "issue": 221,
+      "url": "https://github.com/balungpisah/elzoo/issues/221",
+      "issue_body_sha256": "7b108edbb3c5b5a28fa80119419d22a88b63ba2911deb891bef5adf0039c0ba7"
+    },
+    {
+      "id": "ELZ-120",
+      "title": "ELZ-120 — Bound the outstanding small-gate merge window",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": [],
+      "status": "published 2026-11-12",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": [
+        "tasks/ELZ-120-small-gate-window.md"
+      ],
+      "outputs": [],
+      "acceptance": "Before accepting and immediately before merging a Piece, count all first-parent main commits after valid covering successful main push evidence: 0–2 permit, 3 or more refuse. Tests cover the boundary, renewed coverage, second-parent exclusion, missing or failed evidence, recheck, red-main freeze and full-run adoption. Document only behavior and limits.",
+      "product_aims": [
+        "P01"
+      ],
+      "issue": 232,
+      "url": "https://github.com/balungpisah/elzoo/issues/232",
+      "issue_body_sha256": "d23a8672732d589c4d6808ee839dbb257052a7421168cf4a3d40798e15f44c32"
     }
   ],
   "entries": [
@@ -5880,10 +5922,12 @@
     {
       "id": "workflow/pattern-step",
       "job": "ELZ-114",
-      "note": "Bot platform wave 1 (P13). Closed, versioned sets of action kinds, input kinds and outcome classes, as data and pure validation, so that the engine and every pattern use one vocabulary. The step shape is ready core/operator, unchanged.",
+      "note": "Exact v1 pattern-step maps and pure per-request action settlement; no runtime or payload-schema validation.",
       "baseline_status": "not in baseline (new row, RC-68)",
-      "disposition": "planned",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/workflow/pattern-step/piece.json",
+      "manifest_sha256": "d0b92258eb5cb64c30a5be78baacd16dff0882c990ca691f3f2ea9cf5b110bd1"
     },
     {
       "id": "core/payload-schema",
