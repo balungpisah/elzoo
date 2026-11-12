@@ -6065,9 +6065,11 @@
     {
       "id": "workflow/run-resource",
       "job": "ELZ-123",
-      "note": "Bot platform wave 1 (P13). Ownership, serialization, time limit and close policy for an OS program, a sandbox, a browser or a call. A lost resource is an input and is never reopened automatically. No real provider yet.",
+      "note": "One Run's serialized leased resource: one active use and bounded FIFO, immutable intent dispatch through EffectIntent, neutral PatternStep inputs, lost-on-recovery cleanup without reopen, pause/deadline policy and one total-lifetime Budget settlement; host-authorized evidence and physical fencing required.",
       "baseline_status": "not in baseline (new row, RC-49)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/workflow/run-resource/piece.json",
+      "manifest_sha256": "9a97218a45a9c00e575a963fe55e2b21fdbf0880bb5219c0b8076a86450c0e47",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
