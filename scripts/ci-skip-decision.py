@@ -21,6 +21,10 @@ first parent, the main before the merge, has a push run of this workflow that co
 runs no tests, so it must not hide a red or unfinished push run of that main behind a green documentation merge
 (otherwise the full check runs, with the code of the first parent in the tree).
 
+Small gate: a run whose job `check-piece` ran (the small gate of a Piece-only pull request, `mix check --piece`) is never
+evidence here, whatever the classification of the merge says. The small gate is a selected check; the push run on main
+is the full check of the merged content (owner decision), so it always runs after a small-gate merge.
+
 Fail closed: every other case, and every error, prints skip=false (a full run). The script never
 exits non-zero because it cannot decide. It writes skip=true|false to $GITHUB_OUTPUT.
 """
@@ -44,7 +48,11 @@ HOSTED_JOB = "check-hosted"
 PLAN_JOB = "check-plan"
 WORK_PARTS = (("check-root", "ELZOO ROOT SUITE PASSED"), ("check-consumers-db", "ELZOO CONSUMERS DB PASSED"),
               ("check-consumers", "ELZOO CONSUMERS PASSED"))
-BACKEND_JOBS = (PLAN_JOB,) + tuple(job for job, _marker in WORK_PARTS) + (HOSTED_JOB,)
+# The five jobs that are the evidence of an accepted run.
+EVIDENCE_JOBS = (PLAN_JOB,) + tuple(job for job, _marker in WORK_PARTS) + (HOSTED_JOB,)
+# Small gate: the sixth job of the unit. It must be skipped in every run that this script accepts.
+PIECE_JOB = "check-piece"
+BACKEND_JOBS = EVIDENCE_JOBS + (PIECE_JOB,)
 LOG_STAMP = r"(?m)^(?:\d{4}-\d\d-\d\dT[0-9:.]+Z )?"
 HOSTED_GROUP = "GitHub Actions"
 HOSTED_LABELS = ["ubuntu-24.04"]
@@ -250,7 +258,8 @@ def decide(env, run_git=git, api=None):
     jobs = jobs_page.get("jobs")
     need(isinstance(jobs, list) and jobs_page.get("total_count") == len(jobs), "job listing incomplete")
     need(all(isinstance(job, dict) for job in jobs), "job listing malformed")
-    need(sorted(str(job.get("name")) for job in jobs) == sorted(BACKEND_JOBS), "the jobs are not the five backend jobs, once each")
+    need(sorted(str(job.get("name")) for job in jobs) == sorted(BACKEND_JOBS),
+         "the jobs are not the six backend jobs (five and check-piece), once each")
     by_name = {job["name"]: job for job in jobs}
     began = parse_time(run.get("run_started_at"), "run start")
     for job in jobs:
@@ -269,6 +278,9 @@ def decide(env, run_git=git, api=None):
     plan, aggregate = by_name[PLAN_JOB], by_name[HOSTED_JOB]
     need(plan.get("conclusion") != "skipped" and aggregate.get("conclusion") != "skipped",
          "the plan job and the aggregating job must have run")
+    # Small gate: never the evidence of a push run, also when the classification of the merge agrees.
+    need(by_name[PIECE_JOB].get("conclusion") == "skipped",
+         "the second parent's run is a small-gate (piece) run: a selected check is never the evidence of a push run")
     work = [by_name[job] for job, _marker in WORK_PARTS]
     ran = [job for job in work if job.get("conclusion") != "skipped"]
     mode = "full" if len(ran) == len(work) else "docs-only"
@@ -321,7 +333,7 @@ def decide(env, run_git=git, api=None):
          and latest.get("conclusion") == "success" and latest.get("run_attempt") == attempt,
          "run changed while reading it")
     details = dict(second_parent=second, tree=tree, run=run_id, mode=mode,
-                   jobs=",".join(name + ":" + str(by_name[name]["id"]) for name in BACKEND_JOBS))
+                   jobs=",".join(name + ":" + str(by_name[name]["id"]) for name in EVIDENCE_JOBS))
     if mode == "docs-only":
         return True, "identical tree, documentation-only change and a passed exact-head docs-only check", details
     return True, "identical tree and a passed exact-head full run", details
