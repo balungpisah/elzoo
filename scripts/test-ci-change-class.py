@@ -505,6 +505,9 @@ REVIEWED = {
     ("test/support/cure_consumer_case_test_helper.exs", 'Path.wildcard(Path.join([@root, "_build", "test", "lib", "*", "ebin"]))'):
         "compiled beams below _build, not documentation",
     ("test/export_test.exs", 'assert File.ls!(ctx.destination) == ["mix.exs"]'): "lists the temporary export destination, not the root",
+    ("lib/elzoo/check_selection.ex",
+     "# docs/plans/release-plan.json, docs/plans/views.md and docs/plans/dependencies.mmd are read by no ExUnit test:"):
+        "comment (the small gate names the plan files that no root test reads), not a read",
     ("test/elz099_streaming_provider_test.exs", 'for entry <- File.ls!(source), entry not in ["_build", "ebin", ".git"] do'):
         "lists the two installed provider source directories from Mix.Project.deps_paths(), not repository documentation",
 }
