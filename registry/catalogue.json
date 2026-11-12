@@ -859,7 +859,8 @@
       "summary": "One supervised Unit per identity, with sleep and wake",
       "disposition": "adapt",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/runtime/dynamic-units/piece.json",
       "reason": "Bot platform wave 1 (P13). At most one live Unit per Run or room identity, a bound on live Units and an idle sleep, over OTP DynamicSupervisor and Registry. New ID: ready runtime/host starts a fixed list."
     },
     {
