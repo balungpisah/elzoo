@@ -55,9 +55,19 @@
      `gh pr merge <PR number> -R balungpisah/elzoo --merge --match-head-commit <green head SHA>`.
      `main` can still move between the commands and the merge. The queue has
      the same window. The push run of `main` after the merge covers it.
-  4. After the merge, wait until the push run of the new `main` is green.
+
+     One exception. When the red run of `main` is classified as `defect` or
+     `conflict` (see the [CI guide](10-symbolic-ci.md)), the repair needs a
+     new task, and the rule above would block it. Then ask the owner. With
+     the approval of the owner, publish only the repair task, and merge its
+     pull request when the second command prints `0` and its own check is
+     green.
+  4. After the merge, wait until the push run of the merge commit is green.
      Then add the label `task` to the issues. Workers then start
-     from a `main` that holds their task and their rows.
+     from a `main` that holds their task and their rows. If that run is red,
+     classify it as the CI guide says and add no label until `main` is green.
+     For the repair task of the exception, add the label immediately after
+     the merge.
 - `python3 scripts/check-roadmap.py --live` compares each issue body with
   `issue_body_sha256`. After you edit an issue body, update the task file and
   the hash in one commit. This prints the hash:
