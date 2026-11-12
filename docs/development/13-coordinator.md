@@ -30,8 +30,22 @@
      Use a branch that is not named `task/...`. The queue does not take it.
      Merge one such pull request at a time. If `main` moved after the green
      run, run `gh pr update-branch <PR number> -R balungpisah/elzoo` and wait
-     for green again. Do not merge while a queue run is active, or while the
-     last push run of `main` is red and not classified. Then merge with
+     for green again. Do not merge while a queue run is active.
+
+     A pull request that changes only `tasks/` and `docs/` gets the short
+     check, and the short check runs no tests. So `main` itself must be
+     green: the newest push run of `symbolic-check.yml` on the current `main`
+     SHA must be completed with success. This shows it:
+
+         main=$(gh api repos/balungpisah/elzoo/git/ref/heads/main --jq .object.sha)
+         gh api "repos/balungpisah/elzoo/actions/workflows/symbolic-check.yml/runs?event=push&head_sha=$main&per_page=100" \
+           --jq '[.workflow_runs[] | select(.head_branch == "main")] | max_by(.id) | "\(.status) \(.conclusion)"'
+
+     Merge only when it prints `completed success`. A run in progress or no
+     run: wait. A red run: do not merge, also when the red run is classified.
+     Wait for a green `main`. Run the two commands again immediately before
+     the merge. If `main` moved, update the branch and start again. Then merge
+     with
      `gh pr merge <PR number> -R balungpisah/elzoo --merge --match-head-commit <green head SHA>`.
   4. After the merge, add the label `task` to the issues. Workers then start
      from a `main` that holds their task and their rows.
