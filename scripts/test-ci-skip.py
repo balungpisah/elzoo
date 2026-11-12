@@ -71,9 +71,11 @@ def make_repo(root, scenario):
 
 
 class FakeApi:
-    """Answers the JSON reads, the logs reads and the run re-read from dictionaries (ELZ-073: five jobs per run)."""
+    """Answers the JSON reads, the logs reads and the run re-read from dictionaries (ELZ-073: five jobs per run, plus the
+    small-gate job check-piece, which is skipped unless `piece` is set)."""
 
     NAMES = ("check-plan", "check-root", "check-consumers-db", "check-consumers", "check-hosted")
+    ALL = NAMES + ("check-piece",)
     WORK = {"check-root": "ELZOO ROOT SUITE PASSED", "check-consumers-db": "ELZOO CONSUMERS DB PASSED",
             "check-consumers": "ELZOO CONSUMERS PASSED"}
     STAMP = "2026-11-08T12:00:00.0000000Z "
@@ -96,6 +98,7 @@ class FakeApi:
         self.jobs = None                   # a complete listing instead of the generated one
         self.jobs_total = None             # a total_count that differs from the listing
         self.docs = False                  # the docs-only shape: the three work jobs are skipped
+        self.piece = False                 # the small-gate shape: the three work jobs skipped, check-piece ran
         self.plan_steps = None             # the steps of the plan job after the identity step
         self.log = None                    # a log text for every job instead of the default logs
         self.logs_by_job = {}
@@ -111,13 +114,14 @@ class FakeApi:
             [{"name": "Classify the change", "conclusion": "success"},
              {"name": "Docs-only check", "conclusion": "success" if self.docs else "skipped"}])
         jobs = []
-        for position, name in enumerate(self.NAMES):
+        for position, name in enumerate(self.ALL):
             if name in self.drop_jobs:
                 continue
-            skipped = self.docs and name in self.WORK
+            skipped = ((self.docs or self.piece) and name in self.WORK) or (name == "check-piece" and not self.piece)
             steps = ([] if skipped else
                      [gate] + (plan if name == "check-plan" else
                                [{"name": "Require every job", "conclusion": "success"}] if name == "check-hosted" else
+                               [{"name": "Run the small gate", "conclusion": "success"}] if name == "check-piece" else
                                [{"name": "Run mix check", "conclusion": "success"}]))
             job = dict(copy.deepcopy(self.job), id=901 + position, name=name, steps=steps)
             if skipped:
@@ -155,12 +159,17 @@ class FakeApi:
         if self.fail and self.fail in path:
             raise skip.Full(f"API {path} answered HTTP 500")
         position = int(path.split("/jobs/")[1].split("/")[0]) - 901
-        name = self.NAMES[position]
+        name = self.ALL[position]
         if name in self.logs_by_job:
             return self.logs_by_job[name]
         if self.log is not None:
             return self.log
+        if name == "check-piece":
+            return self.STAMP + "ELZOO PIECE CHECK PASSED (small gate)\n" if self.piece else ""
         if name == "check-plan":
+            if self.piece:
+                return (self.STAMP + "ELZOO PLAN: run=false skip=false docs_only=false\n" + self.STAMP +
+                        "ELZOO PIECE PLAN: piece=true piece_only=true\n")
             if self.docs:
                 return self.STAMP + "ELZOO DOCS-ONLY CHECK PASSED\n" + self.STAMP + "ELZOO PLAN: run=false skip=false docs_only=true\n"
             return self.STAMP + "ELZOO PLAN: run=true skip=false docs_only=false\n"
@@ -379,7 +388,7 @@ class DecisionTest(unittest.TestCase):
 
     def test_the_job_listing_must_be_complete_and_well_formed(self):
         env, run_git, second = self.scenario("merge")
-        for label, total in {"more jobs exist": 6, "fewer jobs exist": 4, "no count": None, "text count": "5"}.items():
+        for label, total in {"more jobs exist": 7, "fewer jobs exist": 4, "no count": None, "text count": "5"}.items():
             with self.subTest(label=label):
                 api = FakeApi(second)
                 api.jobs_total = total if total is not None else -1
@@ -390,7 +399,7 @@ class DecisionTest(unittest.TestCase):
                     skip.decide(env, run_git, api)
         api = FakeApi(second)
         api.jobs = FakeApi(second).build_jobs() + ["not a job"]
-        api.jobs_total = 6
+        api.jobs_total = 7
         with self.assertRaisesRegex(skip.Full, "job listing malformed"):
             skip.decide(env, run_git, api)
 
@@ -642,6 +651,80 @@ class HttpTest(unittest.TestCase):
                          "http://productionresultssa9.blob.core.windows.net/actions-results/x"):
             with self.subTest(location=location):
                 self.assertFalse(skip.redirect_allowed(location))
+
+
+class SmallGateDecision(unittest.TestCase):
+    """Small gate: a run in which check-piece ran (mix check --piece) is never the evidence of a push run on main."""
+
+    PR_RUN = dict(event="pull_request", head_repository={"full_name": "balungpisah/elzoo"})
+
+    def scenario(self, name):
+        path = tempfile.mkdtemp(prefix="elzoo-skip-piece-")
+        self.addCleanup(shutil.rmtree, path, True)
+        repo, head, second = make_repo(path, name)
+        env = {"GITHUB_EVENT_NAME": "push", "GITHUB_REF": "refs/heads/main", "GITHUB_SHA": head,
+               "GITHUB_REPOSITORY": "balungpisah/elzoo", "GITHUB_TOKEN": "token"}
+        return env, (lambda *argv: sh(repo, *argv)), second
+
+    def piece_api(self, second, **run):
+        api = FakeApi(second)
+        api.run.update(self.PR_RUN, **run)
+        api.piece = True
+        return api
+
+    def test_a_small_gate_run_never_skips_the_push_run(self):
+        # "merge" is a code change, "docs" a documentation change: the small-gate shape refuses before the
+        # classification of the merge is read, so neither one can skip on it.
+        for name in ("merge", "docs", "same-change"):
+            with self.subTest(name=name):
+                env, run_git, second = self.scenario(name)
+                api = self.piece_api(second)
+                if name == "same-change":
+                    api.run.update(event="workflow_dispatch")
+                with self.assertRaisesRegex(skip.Full, "small-gate"):
+                    skip.decide(env, run_git, api)
+
+    def test_main_prints_skip_false_for_a_small_gate_run(self):
+        env, run_git, second = self.scenario("merge")
+        lines = []
+        out = pathlib.Path(tempfile.mkdtemp(prefix="elzoo-skip-piece-out-"))
+        self.addCleanup(shutil.rmtree, out, True)
+        env["GITHUB_OUTPUT"] = str(out / "output")
+        skip.main(env, run_git, self.piece_api(second), out=lines.append)
+        self.assertIn("skip=false", (out / "output").read_text())
+        self.assertTrue(any("small-gate" in line for line in lines), lines)
+
+    def test_a_full_run_in_which_check_piece_also_ran_is_not_evidence(self):
+        env, run_git, second = self.scenario("merge")
+        api = FakeApi(second)
+        api.run.update(self.PR_RUN)
+        gate = {"name": "Verify the GitHub-hosted runner", "conclusion": "success"}
+        api.jobs_changes["check-piece"] = dict(conclusion="success", steps=[
+            gate, {"name": "Run the small gate", "conclusion": "success"}])
+        with self.assertRaisesRegex(skip.Full, "small-gate"):
+            skip.decide(env, run_git, api)
+
+    def test_the_piece_job_must_be_listed_once(self):
+        # A run of the five-job workflow (before the small gate) or a listing with check-piece twice is no evidence.
+        env, run_git, second = self.scenario("merge")
+        base = FakeApi(second).build_jobs()
+        piece = [job for job in base if job["name"] == "check-piece"][0]
+        for label, jobs in {"check-piece missing": [job for job in base if job["name"] != "check-piece"],
+                            "check-piece twice": base + [dict(piece, id=990)]}.items():
+            with self.subTest(label=label):
+                api = FakeApi(second)
+                api.jobs = copy.deepcopy(jobs)
+                with self.assertRaisesRegex(skip.Full, "six backend jobs"):
+                    skip.decide(env, run_git, api)
+
+    def test_a_skipped_piece_job_keeps_the_full_run_valid(self):
+        # Positive control for the rule above: the same full run with check-piece skipped skips the push run.
+        env, run_git, second = self.scenario("merge")
+        api = FakeApi(second)
+        api.run.update(self.PR_RUN)
+        verdict, _reason, details = skip.decide(env, run_git, api)
+        self.assertTrue(verdict)
+        self.assertNotIn("check-piece", details["jobs"])
 
 
 class DocsOnlyDecision(unittest.TestCase):

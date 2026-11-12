@@ -23,6 +23,7 @@ jobs:
     timeout-minutes: 20
     outputs:
       run: ${{ steps.plan.outputs.run }}
+      piece: ${{ steps.plan.outputs.piece }}
     steps:
       - name: Verify the GitHub-hosted runner
         run: |
@@ -41,6 +42,9 @@ jobs:
       - name: Classify the change
         id: class
         run: python3 scripts/ci-change-class.py github
+      - name: Classify a Piece change
+        id: piece
+        run: python3 scripts/ci-change-class.py github-piece
       - run: python3 scripts/check-claims.py
       - run: python3 scripts/check-ci-runners.py
       - run: python3 scripts/test-ci-runners.py
@@ -68,14 +72,23 @@ jobs:
         env:
           SKIP: ${{ steps.skip.outputs.skip }}
           DOCS_ONLY: ${{ steps.class.outputs.docs_only }}
+          PIECE_ONLY: ${{ steps.piece.outputs.piece_only }}
+          EVENT: ${{ github.event_name }}
         run: |
           if [ "$SKIP" != true ] && [ "$DOCS_ONLY" != true ]; then
             RUN=true
           else
             RUN=false
           fi
+          PIECE=false
+          if [ "$RUN" = true ] && [ "$PIECE_ONLY" = true ] && [ "$EVENT" = pull_request ]; then
+            RUN=false
+            PIECE=true
+          fi
           echo "run=$RUN" >> "$GITHUB_OUTPUT"
+          echo "piece=$PIECE" >> "$GITHUB_OUTPUT"
           echo "ELZOO PLAN: run=$RUN skip=${SKIP:-unset} docs_only=${DOCS_ONLY:-unset}"
+          echo "ELZOO PIECE PLAN: piece=$PIECE piece_only=${PIECE_ONLY:-unset}"
   check-root:
     if: ${{ needs.check-plan.outputs.run == 'true' }}
     needs: check-plan
@@ -404,9 +417,113 @@ jobs:
           fi
           sed -n '1,5p' /proc/meminfo
           cat /proc/loadavg
+  check-piece:
+    if: ${{ needs.check-plan.outputs.piece == 'true' }}
+    needs: check-plan
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: 120
+    env:
+      ImageOS: ubuntu24
+      ERL_FLAGS: '+S 4:4 +SDcpu 1 +SDio 1'
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.7-pg16-bookworm@sha256:0dd3149a06e4579a0d70d8fef9945636cd514005e7237deb27f9b67886f8dc4f
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - name: Verify the GitHub-hosted runner
+        run: |
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$RUNNER_OS" = Linux
+          test "$RUNNER_ARCH" = X64
+          . /etc/os-release
+          test "$ID" = ubuntu
+          test "$VERSION_ID" = 24.04
+          echo "Hosted runner: $RUNNER_NAME"
+          free -h || true
+      - name: Report host load and memory context
+        run: |
+          sed -n '1,5p' /proc/meminfo
+          cat /proc/loadavg
+          nproc
+      - name: Prepare disposable PostgreSQL database
+        run: |
+          set -eu
+          export PGPASSWORD=postgres PGHOST=localhost PGUSER=postgres
+          psql -v ON_ERROR_STOP=1 -c "CREATE ROLE elzoo_test LOGIN PASSWORD 'elzoo_test'"
+          createdb -O elzoo_test elzoo_test
+          psql -d elzoo_test -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION vector'
+          echo 'ELZOO_TEST_DATABASE_URL=ecto://elzoo_test:elzoo_test@localhost/elzoo_test' >> "$GITHUB_ENV"
+          psql -d elzoo_test -c 'SHOW server_version'
+          psql -d elzoo_test -v ON_ERROR_STOP=1 -c "SELECT extname, extversion FROM pg_extension WHERE extname = 'vector'"
+          test "$(psql -d elzoo_test -At -c "SELECT count(*) FROM pg_extension WHERE extname = 'vector'")" = 1
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install runtime libraries
+        run: sudo python3 scripts/ci-install-runtime.py
+      - name: Restore the pinned S3 test server binary
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/elzoo-minio-cache
+          key: elzoo-minio-RELEASE.2025-09-07T16-13-09Z-7c5bd8512c6e966455b1d198209358b2d191c77a83ab377c4073281065fb855f
+      - name: Start the disposable S3 test server
+        id: minio
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci-minio.py
+      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1
+        with:
+          elixir-version: '1.20.4'
+          otp-version: '29.1.2'
+      - name: Report BEAM capacity
+        run: |
+          erl -noshell -eval 'io:format("BEAM schedulers=~p online=~p dirty_cpu=~p dirty_io=~p~n", [erlang:system_info(schedulers), erlang:system_info(schedulers_online), erlang:system_info(dirty_cpu_schedulers_online), erlang:system_info(dirty_io_schedulers)]), halt().'
+      - name: Restore dependency cache
+        id: deps-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            deps
+            _build
+            spikes/ash_foundation/deps
+            spikes/ash_foundation/_build
+          key: elzoo-hosted-v1-${{ runner.os }}-${{ env.ImageOS }}-otp29.1.2-elixir1.20.4-${{ hashFiles('mix.lock', 'mix.exs', 'spikes/ash_foundation/mix.lock', 'spikes/ash_foundation/mix.exs') }}
+          restore-keys: |
+            elzoo-hosted-v1-${{ runner.os }}-${{ env.ImageOS }}-otp29.1.2-elixir1.20.4-
+      - run: mix local.hex --force
+      - run: mix local.rebar --force
+      - run: mix setup
+      - name: Run the small gate
+        run: sh scripts/run-ci-check.sh --piece HEAD^1
+      - name: Report container resource observations
+        if: always()
+        run: |
+          if test -r /sys/fs/cgroup/memory.peak; then
+            echo "cgroup memory peak bytes: $(cat /sys/fs/cgroup/memory.peak)"
+          else
+            echo "cgroup memory peak unavailable"
+          fi
+          if test -r "$RUNNER_TEMP/elzoo-ci-cpu.json"; then
+            cat "$RUNNER_TEMP/elzoo-ci-cpu.json"
+          else
+            echo "cgroup CPU sample unavailable"
+          fi
+          sed -n '1,5p' /proc/meminfo
+          cat /proc/loadavg
   check-hosted:
     if: ${{ always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) }}
-    needs: [check-plan, check-root, check-consumers-db, check-consumers]
+    needs: [check-plan, check-root, check-consumers-db, check-consumers, check-piece]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -426,19 +543,31 @@ jobs:
         env:
           PLAN: ${{ needs.check-plan.result }}
           RUN: ${{ needs.check-plan.outputs.run }}
+          PIECE: ${{ needs.check-plan.outputs.piece }}
           ROOT: ${{ needs.check-root.result }}
           DB: ${{ needs.check-consumers-db.result }}
           CONSUMERS: ${{ needs.check-consumers.result }}
+          SMALL: ${{ needs.check-piece.result }}
         run: |
-          echo "plan=$PLAN run=$RUN root=$ROOT consumers-db=$DB consumers=$CONSUMERS"
+          echo "plan=$PLAN run=$RUN piece=$PIECE root=$ROOT consumers-db=$DB consumers=$CONSUMERS check-piece=$SMALL"
           test "$PLAN" = success
           if [ "$RUN" = true ]; then
+            test "$PIECE" = false
+            test "$SMALL" = skipped
             test "$ROOT" = success
             test "$DB" = success
             test "$CONSUMERS" = success
             echo "ELZOO CHECK PASSED"
+          elif [ "$PIECE" = true ]; then
+            test "$RUN" = false
+            test "$SMALL" = success
+            test "$ROOT" = skipped
+            test "$DB" = skipped
+            test "$CONSUMERS" = skipped
           else
             test "$RUN" = false
+            test "$PIECE" = false
+            test "$SMALL" = skipped
             test "$ROOT" = skipped
             test "$DB" = skipped
             test "$CONSUMERS" = skipped

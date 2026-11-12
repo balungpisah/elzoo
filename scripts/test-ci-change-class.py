@@ -7,6 +7,7 @@ repository sources.
 import contextlib
 import importlib.util
 import io
+import json
 import os
 from pathlib import Path
 import re
@@ -504,6 +505,9 @@ REVIEWED = {
     ("test/support/cure_consumer_case_test_helper.exs", 'Path.wildcard(Path.join([@root, "_build", "test", "lib", "*", "ebin"]))'):
         "compiled beams below _build, not documentation",
     ("test/export_test.exs", 'assert File.ls!(ctx.destination) == ["mix.exs"]'): "lists the temporary export destination, not the root",
+    ("lib/elzoo/check_selection.ex",
+     "# docs/plans/release-plan.json, docs/plans/views.md and docs/plans/dependencies.mmd are read by no ExUnit test:"):
+        "comment (the small gate names the plan files that no root test reads), not a read",
     ("test/elz099_streaming_provider_test.exs", 'for entry <- File.ls!(source), entry not in ["_build", "ebin", ".git"] do'):
         "lists the two installed provider source directories from Mix.Project.deps_paths(), not repository documentation",
 }
@@ -694,6 +698,189 @@ class AllowlistGuard(unittest.TestCase):
         (scratch / "deps").mkdir()
         (scratch / "deps/c.ex").write_text('File.read!("docs/x.md")\n')      # build output and dependencies
         self.assertEqual({}, documentation_literals(scratch))
+
+
+
+# --- small gate: the Piece-only class -------------------------------------------------------------------------------
+class PieceOnly(unittest.TestCase):
+    PIECE = ["pieces/core/port/lib/elzoo/port.ex", "pieces/core/port/test/elzoo/port_test.exs",
+             "pieces/core/port/piece.json", "pieces/core/port/README.md", "pieces/core/port/cure/elzoo/port.cure",
+             "pieces/integration/ai-text-anthropic/lib/x.ex", "pieces/state/new-piece/README.md",
+             "pieces/core/port/examples/a.exs", "pieces/core/port/test/support/h.exs"]
+    # Not in the class, and not documentation: each one alone, and next to a Piece path, means "not Piece-only".
+    OUTSIDE = ["pieces/test_helper.exs", "pieces/README.md", "pieces/core/README.md", "pieces/core", "pieces",
+               "pieces/", "pieces/core/port", "pieces/core/port/", "pieces/Core/port/lib/x.ex",
+               "pieces/core/Port/lib/x.ex", "pieces/core/-port/lib/x.ex", "pieces/core/po_rt/lib/x.ex",
+               "pieces/core/port/../../lib/x.ex", "pieces/core/port//x.ex", "pieces/./port/x.ex",
+               "./pieces/core/port/x.ex", "/pieces/core/port/x.ex", "pieces\\core\\port\\x.ex",
+               "pieces/core/port/x.ex\nlib/y.ex", " pieces/core/port/x.ex", "pieces/core/port/x.ex ",
+               "lib/elzoo/export.ex", "lib/elzoo/check_selection.ex", "test/registry_test.exs", "config/config.exs",
+               "mix.exs", "mix.lock", ".tool-versions", "scripts/ci-change-class.py",
+               ".github/workflows/symbolic-check.yml", "registry/providers.json", "docs/consuming.md",
+               "spikes/ash_foundation/mix.exs", "LICENSE", "registry/catalogue.json.bak", "", None, 5]
+
+    def test_a_change_inside_piece_directories_is_piece_only_and_names_the_ids(self):
+        verdict, ids = cc.piece_only([file_entry(path) for path in self.PIECE])
+        self.assertTrue(verdict)
+        self.assertEqual(["core/port", "integration/ai-text-anthropic", "state/new-piece"], ids)
+
+    def test_index_generated_and_documentation_files_may_come_with_a_piece(self):
+        for extra in sorted(cc.INDEX_FILES) + ["docs/a.md", "tasks/ELZ-200.md", "AGENTS.md", "README.md"]:
+            with self.subTest(extra=extra):
+                self.assertEqual((True, ["core/port"]),
+                                 cc.piece_only([file_entry("pieces/core/port/lib/x.ex"), file_entry(extra)]))
+
+    def test_the_index_files_are_exactly_these(self):
+        self.assertEqual({"registry/catalogue.json", "docs/plans/release-plan.json", "LEDGER.md",
+                          "docs/plans/views.md", "docs/plans/dependencies.mmd"}, cc.INDEX_FILES)
+
+    def test_without_a_piece_path_it_is_not_piece_only(self):
+        # Negative control: index and documentation files alone are not a Piece change (docs_only decides those).
+        for entries in ([], [file_entry("LEDGER.md")], [file_entry("docs/a.md")],
+                        [file_entry("registry/catalogue.json"), file_entry("docs/plans/release-plan.json")]):
+            with self.subTest(entries=entries):
+                self.assertEqual((False, []), cc.piece_only(entries))
+
+    def test_one_path_outside_the_class_makes_the_whole_change_not_piece_only(self):
+        for path in self.OUTSIDE:
+            with self.subTest(path=path):
+                self.assertEqual((False, []), cc.piece_only([file_entry("pieces/core/port/lib/x.ex"), file_entry(path)]))
+                self.assertEqual((False, []), cc.piece_only([file_entry(path)]))
+
+    def test_symlink_and_submodule_entries_are_never_piece_only(self):
+        for old, new in (("120000", "120000"), ("000000", "120000"), ("100644", "120000"), ("120000", "100644"),
+                         ("160000", "160000"), ("000000", "160000"), ("160000", "000000")):
+            with self.subTest(old=old, new=new):
+                self.assertEqual((False, []), cc.piece_only([(old, new, "M", "pieces/core/port/lib/link.ex")]))
+                self.assertEqual((False, []), cc.piece_only([file_entry("pieces/core/port/lib/x.ex"),
+                                                             (old, new, "A", "pieces/core/port/lib/link.ex")]))
+
+    def test_added_deleted_and_mode_changed_piece_files_are_piece_only(self):
+        for entry in (("000000", "100644", "A", "pieces/core/port/lib/new.ex"),
+                      ("100644", "000000", "D", "pieces/core/port/lib/old.ex"),
+                      ("100644", "100755", "M", "pieces/core/port/bin/x.sh")):
+            with self.subTest(entry=entry):
+                self.assertEqual((True, ["core/port"]), cc.piece_only([entry]))
+
+    def test_a_raw_rename_or_copy_entry_is_refused_by_the_parser(self):
+        for status in ("R100", "C100", "R", "C"):
+            with self.subTest(status=status):
+                output = f":100644 100644 {H} {H} {status}\x00pieces/core/port/a.ex\x00"
+                with self.assertRaises(cc.Unclear):
+                    cc.parse_raw(output)
+
+    def test_piece_paths_is_the_same_rule_for_mix_check(self):
+        self.assertEqual((True, ["core/port"], None), cc.piece_paths(["pieces/core/port/lib/x.ex", "LEDGER.md"]))
+        self.assertEqual((False, [], None), cc.piece_paths(["docs/a.md"]))
+        self.assertEqual((False, [], None), cc.piece_paths([]))
+        self.assertEqual((False, [], None), cc.piece_paths("pieces/core/port/lib/x.ex"))
+        for path in self.OUTSIDE:
+            with self.subTest(path=path):
+                self.assertEqual((False, [], path), cc.piece_paths(["pieces/core/port/lib/x.ex", path]))
+
+    def test_a_path_with_a_control_character_is_never_piece_only(self):
+        for char in ("\t", "\r", "\n", "\x00", "\x1b", "\x7f"):
+            path = f"pieces/core/port/lib/x{char}ex"
+            with self.subTest(char=repr(char)):
+                self.assertIsNone(cc.piece_id(path))
+                self.assertEqual((False, [], path), cc.piece_paths(["pieces/core/port/lib/x.ex", path]))
+
+    def test_the_documentation_class_is_unchanged_by_the_piece_class(self):
+        # docs_only keeps its answer for a Piece path (code) and for an index file (LEDGER.md is code).
+        self.assertFalse(cc.docs_only([file_entry("pieces/core/port/README.md")]))
+        self.assertFalse(cc.docs_only([file_entry("LEDGER.md")]))
+        self.assertFalse(cc.docs_only([file_entry("registry/catalogue.json")]))
+
+
+class PieceOnlyGitRepository(unittest.TestCase):
+    # The repository helpers of GitRepository, without its tests.
+    git, write, gitlink, branch = GitRepository.git, GitRepository.write, GitRepository.gitlink, GitRepository.branch
+
+    def setUp(self):
+        GitRepository.setUp(self)
+        self.write("pieces/core/port/lib/port.ex", "port\n")
+        self.write("pieces/test_helper.exs", "helper\n")
+        self.write("LEDGER.md", "l\n")
+        self.write("lib/x.ex", "x\n")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "pieces")
+
+    def piece(self, event="pull_request"):
+        cwd = os.getcwd()
+        os.chdir(self.dir)
+        try:
+            return cc.classify_piece_github({"GITHUB_EVENT_NAME": event})
+        finally:
+            os.chdir(cwd)
+
+    def test_a_piece_merge_is_piece_only(self):
+        self.branch(lambda: (self.write("pieces/core/port/lib/port.ex", "changed\n"), self.write("LEDGER.md", "m\n"),
+                             self.write("pieces/state/new-one/README.md", "n\n")))
+        self.assertEqual((True, ["core/port", "state/new-one"]), self.piece())
+
+    def test_one_shared_path_in_the_merge_is_not_piece_only(self):
+        for path in ("lib/x.ex", "pieces/test_helper.exs", "scripts/tool.py"):
+            with self.subTest(path=path):
+                self.setUp()
+                self.branch(lambda: (self.write("pieces/core/port/lib/port.ex", "changed\n"), self.write(path, "y\n")))
+                self.assertEqual((False, []), self.piece())
+
+    def test_a_rename_out_of_a_piece_directory_is_not_piece_only(self):
+        self.branch(lambda: self.git("mv", "pieces/core/port/lib/port.ex", "lib/port.ex"))
+        self.assertEqual((False, []), self.piece())
+
+    def test_a_rename_into_a_piece_directory_is_not_piece_only(self):
+        self.branch(lambda: self.git("mv", "lib/x.ex", "pieces/core/port/lib/x.ex"))
+        self.assertEqual((False, []), self.piece())
+
+    def test_a_symlink_in_a_piece_directory_is_never_piece_only(self):
+        self.branch(lambda: os.symlink("../../../../lib/x.ex", Path(self.dir, "pieces/core/port/lib/link.ex")))
+        self.assertEqual((False, []), self.piece())
+
+    def test_a_submodule_in_a_piece_directory_is_never_piece_only(self):
+        self.branch(lambda: (self.write("pieces/core/port/lib/port.ex", "changed\n"),
+                             self.gitlink("pieces/core/port/vendor")))
+        self.assertIn("160000", self.git("diff", "--raw", "HEAD^1...HEAD^2"))
+        self.assertEqual((False, []), self.piece())
+
+    def test_other_events_are_never_piece_only(self):
+        self.branch(lambda: self.write("pieces/core/port/lib/port.ex", "changed\n"))
+        self.assertEqual((True, ["core/port"]), self.piece())   # the control: the same merge on pull_request
+        for event in ("push", "workflow_dispatch", "pull_request_target", "schedule", "", None):
+            with self.subTest(event=event):
+                self.assertEqual((False, []), self.piece(event))
+
+    def test_a_head_that_is_not_a_merge_commit_is_not_piece_only(self):
+        self.write("pieces/core/port/lib/port.ex", "changed\n")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "no merge")
+        self.assertEqual((False, []), self.piece())
+
+
+class PieceCommandLine(unittest.TestCase):
+    def test_github_piece_writes_its_own_output_and_a_log_line(self):
+        out, lines = Path(tempfile.mkdtemp(prefix="elzoo-class-out-")), []
+        self.addCleanup(shutil.rmtree, out, True)
+        target = out / "output"
+        self.assertEqual(0, cc.main(["github-piece"], env={"GITHUB_EVENT_NAME": "push", "GITHUB_OUTPUT": str(target)},
+                                    out=lines.append))
+        self.assertEqual("piece_only=false\n", target.read_text())
+        self.assertEqual(["ELZOO CHANGE CLASS: piece_only=false pieces=none"], lines)
+
+    def test_piece_paths_prints_json(self):
+        lines = []
+        self.assertEqual(0, cc.main(["piece-paths", "pieces/core/port/x.ex", "docs/a.md"], out=lines.append))
+        self.assertEqual([{"piece_only": True, "pieces": ["core/port"], "refused": None}],
+                         [json.loads(line) for line in lines])
+        lines.clear()
+        self.assertEqual(0, cc.main(["piece-paths", "pieces/core/port/x.ex", "mix.exs"], out=lines.append))
+        self.assertEqual([{"piece_only": False, "pieces": [], "refused": "mix.exs"}],
+                         [json.loads(line) for line in lines])
+
+    def test_other_arguments_print_the_usage_and_fail(self):
+        for argv in (["piece-paths"], ["github-piece", "x"]):
+            with self.subTest(argv=argv), contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(2, cc.main(argv, env={}))
 
 
 if __name__ == "__main__":

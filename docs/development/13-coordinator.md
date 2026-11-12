@@ -72,6 +72,30 @@
      For the repair task of the exception, add the label immediately after
      the merge. Then classify the red push run of that merge also, so that
      the queue takes the repair.
+- **Levels.** Publish a wave of tasks in levels. A task of a level depends
+  only on tasks of earlier levels. A Piece-only pull request merges on the
+  small gate, and the queue does not wait for the full check of `main` between
+  two such merges. At the end of each level, wait until the third command of
+  step 3 above prints `completed success` for the current `main`. Only then
+  publish the next level, or add the label `task` to its issues. If the run is
+  red, do the repair below first.
+- **Repair of a red `main`.** The full check on `main` is the evidence of the
+  small-gate merges. When it is red:
+  1. Classify the red run on issue #98, as the
+     [CI guide](10-symbolic-ci.md) says.
+  2. Find the last green `main` and the pull requests merged after it:
+
+         gh api 'repos/balungpisah/elzoo/actions/workflows/symbolic-check.yml/runs?event=push&branch=main&status=success&per_page=1' \
+           --jq '.workflow_runs[0].head_sha'
+         git log --merges --first-parent --format='%h %s' <last green SHA>..origin/main
+
+  3. Give a repair agent the log of the red run and the body of each of those
+     pull requests (`gh pr view <PR number> -R balungpisah/elzoo --json body`).
+     The lines `Test:`, `Contract:` and `Limits:` of each body state what that
+     pull request expected.
+  4. The repair agent repairs forward in a new task: a new commit on top of
+     `main`, not a revert and not a history rewrite. Publish the repair task as
+     the exception in step 3 above says.
 - `python3 scripts/check-roadmap.py --live` compares each issue body with
   `issue_body_sha256`. After you edit an issue body, update the task file and
   the hash in one commit. This prints the hash:

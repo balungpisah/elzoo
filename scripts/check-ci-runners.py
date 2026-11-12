@@ -15,12 +15,15 @@ HOSTED_LABEL = "runs-on: ubuntu-24.04"
 # decision once (it is the only job with `actions: read` and the decision token) and says through its output `run`
 # whether the three work jobs run; the work jobs run the three parts of `mix check`; `check-hosted` (the name that
 # branch protection requires) aggregates them and fails explicitly when a job it needs is not as planned.
+# Small gate: a sixth job, `check-piece`, runs `mix check --piece` for a Piece-only pull request (plan output `piece`)
+# in place of the three work jobs; it has the header, services and S3 steps of a work job and saves no cache.
 HOSTED_PLAN_HEADER = """    permissions:
       actions: read
       contents: read
     timeout-minutes: 20
     outputs:
       run: ${{ steps.plan.outputs.run }}
+      piece: ${{ steps.plan.outputs.piece }}
     steps:""".split("\n")
 HOSTED_AGG_HEADER = """    permissions:
       contents: read
@@ -28,8 +31,9 @@ HOSTED_AGG_HEADER = """    permissions:
     steps:""".split("\n")
 WORK_IF = "    if: ${{ needs.check-plan.outputs.run == 'true' }}"
 WORK_NEEDS = "    needs: check-plan"
+PIECE_IF = "    if: ${{ needs.check-plan.outputs.piece == 'true' }}"
 AGG_IF = ("    if: ${{ always() && (" + HOSTED_BACKEND_GATE.split("${{ ", 1)[1].rsplit(" }}", 1)[0] + ") }}")
-AGG_NEEDS = "    needs: [check-plan, check-root, check-consumers-db, check-consumers]"
+AGG_NEEDS = "    needs: [check-plan, check-root, check-consumers-db, check-consumers, check-piece]"
 WORK_JOBS = {"check-root": "root", "check-consumers-db": "consumers-db", "check-consumers": "consumers"}
 HOSTED_BACKEND_HEADER = """    permissions:
       contents: read
@@ -67,6 +71,7 @@ expected = {
         ("check-root", [WORK_IF, WORK_NEEDS], HOSTED_LABEL, HOSTED_BACKEND_HEADER, "work"),
         ("check-consumers-db", [WORK_IF, WORK_NEEDS], HOSTED_LABEL, HOSTED_BACKEND_HEADER, "work"),
         ("check-consumers", [WORK_IF, WORK_NEEDS], HOSTED_LABEL, HOSTED_BACKEND_HEADER, "work"),
+        ("check-piece", [PIECE_IF, WORK_NEEDS], HOSTED_LABEL, HOSTED_BACKEND_HEADER, "work"),
         ("check-hosted", [AGG_IF, AGG_NEEDS], HOSTED_LABEL, HOSTED_AGG_HEADER, "aggregate"),
     ],
     "symbolic-gleam.yml": [
@@ -124,6 +129,11 @@ MIX_CHECK_STEPS = {
         run: sh scripts/run-ci-check.sh --part {part}"""
     for job, part in WORK_JOBS.items()
 }
+# Small gate: the piece job runs `mix check --piece` against the first parent of the pull_request merge checkout
+# (the base); the step has its own name, so no other job's `Run mix check` step can be taken for it.
+PIECE_STEP = """      - name: Run the small gate
+        run: sh scripts/run-ci-check.sh --piece HEAD^1"""
+MIX_CHECK_STEPS["check-piece"] = PIECE_STEP
 ROADMAP_STEP = """      - name: Check the roadmap views
         if: ${{ steps.skip.outputs.skip != 'true' && steps.class.outputs.docs_only != 'true' }}
         run: python3 scripts/check-roadmap.py"""
@@ -134,6 +144,10 @@ CLASS_STEP = """      - name: Classify the change
         id: class
         run: python3 scripts/ci-change-class.py github"""
 CLASS_TEST_STEP = "      - run: python3 scripts/test-ci-change-class.py"
+# Small gate: the Piece-only classification (same file, own command and output), right after the first one.
+PIECE_CLASS_STEP = """      - name: Classify a Piece change
+        id: piece
+        run: python3 scripts/ci-change-class.py github-piece"""
 DOCS_ONLY_MARKER = "ELZOO DOCS-ONLY CHECK PASSED"
 DOCS_ONLY_STEP = """      - name: Docs-only check
         if: ${{ steps.class.outputs.docs_only == 'true' }}
@@ -147,44 +161,66 @@ PLAN_STEP = """      - name: Plan the work jobs
         env:
           SKIP: ${{ steps.skip.outputs.skip }}
           DOCS_ONLY: ${{ steps.class.outputs.docs_only }}
+          PIECE_ONLY: ${{ steps.piece.outputs.piece_only }}
+          EVENT: ${{ github.event_name }}
         run: |
           if [ "$SKIP" != true ] && [ "$DOCS_ONLY" != true ]; then
             RUN=true
           else
             RUN=false
           fi
+          PIECE=false
+          if [ "$RUN" = true ] && [ "$PIECE_ONLY" = true ] && [ "$EVENT" = pull_request ]; then
+            RUN=false
+            PIECE=true
+          fi
           echo "run=$RUN" >> "$GITHUB_OUTPUT"
-          echo "ELZOO PLAN: run=$RUN skip=${SKIP:-unset} docs_only=${DOCS_ONLY:-unset}\""""
+          echo "piece=$PIECE" >> "$GITHUB_OUTPUT"
+          echo "ELZOO PLAN: run=$RUN skip=${SKIP:-unset} docs_only=${DOCS_ONLY:-unset}"
+          echo "ELZOO PIECE PLAN: piece=$PIECE piece_only=${PIECE_ONLY:-unset}\""""
 # ELZ-073: the aggregating job. It is never skipped (`always()`), fails when the plan failed, when the work jobs
 # were planned and one is not successful, and when they were not planned and one is not skipped. Only it prints
 # the full-check marker.
 FULL_MARKER = "ELZOO CHECK PASSED"
-# The marker lines that `mix check --part` prints (Elzoo.CheckSelection.success_marker/1).
-PART_MARKERS = ("ELZOO ROOT SUITE PASSED", "ELZOO CONSUMERS DB PASSED", "ELZOO CONSUMERS PASSED")
+# The marker lines that `mix check --part` and `mix check --piece` print (Elzoo.CheckSelection.success_marker/1).
+PART_MARKERS = ("ELZOO ROOT SUITE PASSED", "ELZOO CONSUMERS DB PASSED", "ELZOO CONSUMERS PASSED", "ELZOO PIECE CHECK PASSED")
 AGG_STEP = """      - name: Require every job
         env:
           PLAN: ${{ needs.check-plan.result }}
           RUN: ${{ needs.check-plan.outputs.run }}
+          PIECE: ${{ needs.check-plan.outputs.piece }}
           ROOT: ${{ needs.check-root.result }}
           DB: ${{ needs.check-consumers-db.result }}
           CONSUMERS: ${{ needs.check-consumers.result }}
+          SMALL: ${{ needs.check-piece.result }}
         run: |
-          echo "plan=$PLAN run=$RUN root=$ROOT consumers-db=$DB consumers=$CONSUMERS"
+          echo "plan=$PLAN run=$RUN piece=$PIECE root=$ROOT consumers-db=$DB consumers=$CONSUMERS check-piece=$SMALL"
           test "$PLAN" = success
           if [ "$RUN" = true ]; then
+            test "$PIECE" = false
+            test "$SMALL" = skipped
             test "$ROOT" = success
             test "$DB" = success
             test "$CONSUMERS" = success
             echo "ELZOO CHECK PASSED"
+          elif [ "$PIECE" = true ]; then
+            test "$RUN" = false
+            test "$SMALL" = success
+            test "$ROOT" = skipped
+            test "$DB" = skipped
+            test "$CONSUMERS" = skipped
           else
             test "$RUN" = false
+            test "$PIECE" = false
+            test "$SMALL" = skipped
             test "$ROOT" = skipped
             test "$DB" = skipped
             test "$CONSUMERS" = skipped
           fi"""
 REPORT_STEP_IF = ("      - name: Report container resource observations", "        if: always()")
 # Pinned steps and step-level conditions per job. Pairs are (step header line, if: line), in order.
-PLAN_PINNED = [CLASS_STEP, CLASS_TEST_STEP, RUNTIME_TEST_STEP, ROADMAP_STEP, DOCS_ONLY_STEP, PLAN_STEP]
+PLAN_PINNED = [CLASS_STEP + "\n" + PIECE_CLASS_STEP, CLASS_TEST_STEP, RUNTIME_TEST_STEP, ROADMAP_STEP, DOCS_ONLY_STEP,
+               PLAN_STEP]
 PLAN_STEP_IFS = [
     ("      - name: Check the roadmap views", SKIP_IF),
     ("      - name: Docs-only check", DOCS_IF),
@@ -198,6 +234,7 @@ WORK_STEP_IFS = {
     ],
     "check-consumers-db": [REPORT_STEP_IF],
     "check-consumers": [REPORT_STEP_IF],
+    "check-piece": [REPORT_STEP_IF],
 }
 # Approved triggers: push to main, same-repository pull_request, workflow_dispatch (no inputs).
 # pull_request_target and every other event need a new reviewed policy.

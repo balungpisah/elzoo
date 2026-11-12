@@ -81,7 +81,9 @@ Never add a self-hosted runner and never change `runs-on`: the repository is
 public.
 
 **Index files.** Change them in one last commit, immediately before you ask
-for the merge. This keeps the conflict window short.
+for the merge. This keeps the conflict window short. A later commit that does
+not change `piece.json` (for example a format fix) is allowed. The rule is:
+`manifest_sha256` equals the SHA-256 of the bytes of `piece.json` at the head.
 
 1. `registry/catalogue.json`, your row: `"status": "ready"` and
    `"manifest": "pieces/<family>/<name>/piece.json"`.
@@ -144,6 +146,9 @@ agent writes in a worktree at a time.
   an issue or a pull request. Use roles.
 - Write a file under `docs/work/` only when the task body names that file as a
   deliverable. The pull request body is the record of the task.
+- Make a negative control by a temporary edit in the worktree. Run the test,
+  record the failure, then revert the edit. Never commit the edit. A scratch
+  copy of a file does not work when the test finds the file by its path.
 
 ## 5. Local gate, then pull request
 
@@ -151,22 +156,47 @@ While you build, run the tests of your Piece:
 
     mix test pieces/<family>/<name>/test
 
-Before you open the pull request, and before each later push to it:
+Before you open the pull request, and before each later push to it, run the
+local gate. For a Piece task, the local gate is the small gate:
+
+    mix check --piece "$(git merge-base origin/main HEAD)"
+    git diff --check
+
+A Piece task changes only files in Piece directories, the index and generated
+files of section 3, and documents. `scripts/ci-change-class.py` decides this.
+The small gate runs format, compile, the ledger and Registry checks, the tests
+of each changed Piece and of each ready Piece that depends on it, the root
+tests that read the index, and the per-ID consumers of those IDs. It is a
+selected check, not the full check. It refuses a change with any other path.
+
+For a change of shared paths, the local gate is:
 
     mix check --affected origin/main
     git diff --check
 
-For a Piece that is not ready yet, and for a change of index files or shared
-paths, `--affected` selects everything. Then it runs each test of the full
-check, but its marker still says `AFFECTED`: take the one slot of the database
-server (section 3). After a change of `mix.exs`,
-`mix.lock`, `config/` or a toolchain pin, run `mix check` with no flag. On a
-new checkout, run `mix setup` first.
+For shared paths, `--affected` selects everything. Then it runs each test of
+the full check, but its marker still says `AFFECTED`: take the one slot of the
+database server (section 3). After a change of `mix.exs`, `mix.lock`,
+`config/` or a toolchain pin, run `mix check` with no flag. On a new checkout,
+run `mix setup` first.
 
-Each push to a pull request starts the hosted check on the new head: about 20
-minutes, or about 1 minute when each changed path is on the documents list in
-`scripts/ci-change-class.py`. That run is the merge evidence. So push finished
-batches, not each small commit.
+Each push to a pull request starts the hosted check on the new head:
+
+- a Piece-only change: the small gate, in the job `check-piece`;
+- a change of documents only: about 1 minute;
+- each other change: the full check, about 20 minutes.
+
+That run is the merge evidence. For a Piece-only change, the full check runs
+on `main` after the merge (section 7). So push finished batches, not each
+small commit.
+
+A hosted job can fail on a test that your change cannot affect. Then rerun
+the run on the same head, with no push:
+`gh run rerun <run ID> -R balungpisah/elzoo`. Rerun all jobs: the queue
+refuses a partial rerun (`--failed`), because the green jobs keep the start
+time of the earlier attempt. Record the first failure in the pull request
+body. Open an issue for the flaky test, or comment on its open issue. A second
+failure of the same test is a real failure.
 
 Open the pull request as a draft when the branch is complete in itself. Use
 this body, and leave out a line that does not apply:
@@ -195,20 +225,36 @@ An independent review is necessary for a new Piece, a changed Contract or Cure
 law, an Effect or Adapter, storage or delivery behavior, a change of grounding
 or evidence wording in `piece.json` or a README, a toolchain pin, and a change
 in `scripts/` or `.github/`. It is not necessary for other documents, the
-index files, or a test repair that changes no assertion.
+index files, or a test repair that changes no assertion. A new README sentence
+that names a test or an example is evidence wording: it gets the one review.
 
 - The reviewer is a different agent session, and a different model where one
-  is available. Give it the issue body and the diff, not your summary.
+  is available. Give it the issue body and the diff, not your summary. The
+  review comment names the model of the reviewer. When no different model is
+  available, a different session is accepted, and the comment says so.
 - The reviewer reports all findings in one pass. Each finding is a `BLOCKER`
   (wrong behavior, a broken Contract, a claim with no evidence) or a `NOTE`.
 - Correct all blockers in one batch. The second pass reads only the commits
-  made after the first pass. A third pass occurs only if a blocker stays open.
+  made after the first pass: the range `<first reviewed SHA>..<head>`, which
+  its comment names. A third pass occurs only if a blocker stays open.
+- A reviewer that cannot run the tests says so. Then you run the tests that it
+  names, and you record each command and its exit code in the review comment.
 - For a `NOTE`: correct it if that is quick. If not, open a follow-up issue or
   decline it in one line.
-- The record is one pull request comment: the reviewer role, the reviewed SHA,
-  the findings and the verdict. Write no review file.
+- The record is one pull request comment for each pass. Write no review file.
+  Use these five lines:
+
+      Reviewer: <role>; <model> | same model, different session (no other model available)
+      Reviewed: <SHA> | second pass <first reviewed SHA>..<head>
+      Findings: <BLOCKER or NOTE, each with file and line> | none
+      Tests: <commands that the reviewer ran, and exit codes> | reviewer could not run tests; worker ran <command>: exit <code>
+      Verdict: <no blocker open | blockers open>
 - Answer each finding of the automated reviewer in its thread, and resolve
   the thread.
+
+A local command can be impossible on your host, for example when a service is
+missing. Then record the command and the reason in `Local gate:`. The hosted
+check is the evidence for that command.
 
 When the local gate, the hosted check and the review are green, mark the pull
 request ready for review. That is the request to merge. From then the
@@ -227,6 +273,13 @@ The queue takes only a pull request that is not a draft, from a branch named
 hosted check on the exact head and then merges with a merge commit. The
 required checks on `main` are `check-hosted` and `gleam-hosted`. A red push run
 on `main` stops all merges until it is classified; see the CI guide.
+
+For a Piece-only pull request, the queue accepts the small gate only when its
+own classification also says Piece-only. It does not wait for the push run of
+`main`. The push run on `main` after the merge is the full check. Thus several
+small-gate merges can land before the first full run reports. The coordinator
+waits for a green `main` at the end of each level of tasks
+([coordinator](docs/development/13-coordinator.md)).
 
 If the queue stops on a conflict, or on a red check of the index files after
 it updated the branch, the coordinator repairs the branch or gives it back to

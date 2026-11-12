@@ -364,6 +364,232 @@ defmodule Elzoo.CheckSelectionTest do
     assert_raise Mix.Error, ~r/usage: mix check/, fn -> Mix.Tasks.Check.run(["--bogus"]) end
   end
 
+  # Small gate (`mix check --piece BASE`): a selected check of a Piece-only change.
+  describe "piece mode" do
+    test "a changed ready Piece selects its tests, its dependants, the root list and its consumers",
+         ctx do
+      root = piece_tree(["runtime/unit", "runtime/host", "assembly/ingest-json-unit", "core/port"])
+      selection = Selection.piece(ctx.registry, %{pieces: ["runtime/unit"], comparison: "c"}, root)
+
+      assert selection.mode == :piece
+      assert selection.changed == ["runtime/unit"]
+      assert selection.new == []
+      assert selection.affected == ["assembly/ingest-json-unit", "runtime/host", "runtime/unit"]
+      assert selection.selected == ["assembly/ingest-json-unit", "runtime/host"]
+      assert_partition(selection)
+
+      assert selection.test_paths ==
+               [
+                 "pieces/assembly/ingest-json-unit/test",
+                 "pieces/runtime/host/test",
+                 "pieces/runtime/unit/test"
+               ] ++ Selection.piece_root_tests()
+
+      # An unrelated Piece with a test directory is not selected.
+      refute "pieces/core/port/test" in selection.test_paths
+    end
+
+    test "the root list holds the index readers and the four consumer modules" do
+      assert Selection.piece_root_tests() == [
+               "test/registry_test.exs",
+               "test/install_configuration_test.exs",
+               "test/elzoo_take_task_test.exs",
+               "test/cure_record_tags_test.exs",
+               "test/export_test.exs",
+               "test/consumer_group_a_test.exs",
+               "test/consumer_group_b_test.exs",
+               "test/consumer_group_c_test.exs"
+             ]
+
+      for path <- Selection.piece_root_tests(), do: assert(File.regular?(path), path)
+    end
+
+    test "a new Piece directory has no dependants and no consumer; its own tests run", ctx do
+      root = piece_tree(["state/new-one"])
+      selection = Selection.piece(ctx.registry, %{pieces: ["state/new-one"]}, root)
+      assert selection.new == ["state/new-one"]
+      assert selection.affected == []
+      assert selection.selected == []
+      assert selection.skipped == Enum.sort(Selection.consumer_ids())
+      assert hd(selection.test_paths) == "pieces/state/new-one/test"
+    end
+
+    test "a changed Piece without a test directory adds no path; the root list always runs", ctx do
+      root = piece_tree([])
+      selection = Selection.piece(ctx.registry, %{pieces: ["workflow/approval"]}, root)
+      assert selection.affected == ["workflow/approval"]
+      assert selection.test_paths == Selection.piece_root_tests()
+    end
+
+    test "the filters exclude the aggregate and unselected consumers and keep every other test",
+         ctx do
+      root = piece_tree(["core/port"])
+      selection = Selection.piece(ctx.registry, %{pieces: ["core/port"]}, root)
+      args = Selection.test_args(selection)
+      assert hd(args) == "--warnings-as-errors"
+      refute "--only" in args
+      refute "--include" in args
+
+      {opts, paths, []} =
+        OptionParser.parse(args, strict: [exclude: :keep, warnings_as_errors: :boolean])
+
+      assert paths == selection.test_paths
+      filters = opts |> Keyword.get_values(:exclude) |> ExUnit.Filters.parse()
+      assert :ok == ExUnit.Filters.eval([], filters, %{}, [])
+      assert :ok == ExUnit.Filters.eval([], filters, %{consumer_id: "core/port"}, [])
+      assert {:excluded, _} = ExUnit.Filters.eval([], filters, %{aggregate_consumer: true}, [])
+
+      for id <- selection.skipped do
+        assert {:excluded, _} = ExUnit.Filters.eval([], filters, %{consumer_id: id}, [])
+      end
+    end
+
+    test "the aggregate consumer never runs, also when an affected ID has no per-ID consumer",
+         ctx do
+      root = piece_tree(["workflow/approval"])
+      selection = Selection.piece(ctx.registry, %{pieces: ["workflow/approval"]}, root)
+      assert selection.selected == []
+      assert "--exclude" in Selection.test_args(selection)
+
+      [flag | pairs] = Selection.test_args(selection) -- selection.test_paths
+      assert flag == "--warnings-as-errors"
+      assert ["--exclude", "aggregate_consumer"] in Enum.chunk_every(pairs, 2)
+
+      report = Selection.report(selection)
+      assert report =~ "Aggregate consumer: not run in piece mode"
+      assert report =~ ~r/^LIMIT: a selected check, not the full check: .*runs on main/m
+    end
+
+    test "the marker differs from every other marker and is never the full marker", ctx do
+      selection = Selection.piece(ctx.registry, %{pieces: ["core/port"]}, piece_tree([]))
+      marker = Selection.success_marker(selection)
+      assert marker =~ ~r/^ELZOO PIECE CHECK PASSED /
+
+      others =
+        [Selection.full(ctx.registry), select(ctx.registry, ["pieces/core/port/README.md"])] ++
+          Enum.map(Selection.parts(), &Selection.part/1)
+
+      for other <- others, do: refute(marker == Selection.success_marker(other))
+      refute marker =~ "ELZOO CHECK PASSED"
+      refute marker =~ "ELZOO AFFECTED CHECK PASSED"
+      refute marker =~ ~r/\b(full check passed|verified|accepted)\b/i
+    end
+
+    test "the real registry: a change of core/port selects existing test directories only" do
+      registry = Elzoo.Registry.load!()
+      selection = Selection.piece(registry, %{pieces: ["core/port"]})
+      assert "core/port" in selection.affected
+      assert length(selection.affected) > 1
+      assert "core/port" in selection.selected
+      for path <- selection.test_paths, do: assert(File.exists?(path), path)
+    end
+
+    test "the classifier of the workflow decides which paths the mode takes" do
+      assert {:ok, ["core/port", "state/new-one"]} =
+               Selection.classify_piece_paths([
+                 "pieces/core/port/lib/x.ex",
+                 "pieces/state/new-one/README.md",
+                 "LEDGER.md",
+                 "registry/catalogue.json"
+               ])
+
+      for path <- [
+            "lib/elzoo/export.ex",
+            "test/registry_test.exs",
+            "mix.exs",
+            "mix.lock",
+            "config/config.exs",
+            "pieces/test_helper.exs",
+            "scripts/run-ci-check.sh",
+            ".github/workflows/symbolic-check.yml"
+          ] do
+        assert {:error, reason} = Selection.classify_piece_paths(["pieces/core/port/x.ex", path])
+        assert reason =~ "outside the Piece-only class"
+        assert reason =~ path
+      end
+
+      assert {:error, reason} = Selection.classify_piece_paths(["LEDGER.md"])
+      assert reason =~ "no changed path below pieces/"
+
+      assert {:error, _} =
+               Selection.classify_piece_paths(["pieces/core/port/x.ex"], "scripts/missing.py")
+    end
+
+    test "Git changes: a Piece change passes; a shared path, a symlink, a bad base and no change refuse" do
+      root = git_fixture()
+      base = git!(root, ["rev-parse", "HEAD"]) |> String.trim()
+      assert {:error, "empty changed-path set"} = Selection.piece_changes(base, root)
+
+      File.write!(Path.join(root, "pieces/core/port/a.ex"), "changed")
+
+      assert {:ok, %{pieces: ["core/port"], comparison: comparison}} =
+               Selection.piece_changes(base, root)
+
+      assert comparison =~ base
+
+      File.mkdir_p!(Path.join(root, "lib"))
+      File.write!(Path.join(root, "lib/shared.ex"), "new")
+      assert {:error, reason} = Selection.piece_changes(base, root)
+      assert reason =~ "lib/shared.ex"
+      File.rm!(Path.join(root, "lib/shared.ex"))
+
+      File.ln_s!("a.ex", Path.join(root, "pieces/core/port/link.ex"))
+      assert {:error, reason} = Selection.piece_changes(base, root)
+      assert reason =~ "symlink"
+      File.rm!(Path.join(root, "pieces/core/port/link.ex"))
+
+      assert {:ok, _} = Selection.piece_changes(base, root)
+
+      for ref <- ["", "missing-ref", "--help"] do
+        assert {:error, _} = Selection.piece_changes(ref, root)
+      end
+    end
+
+    test "CI runs the small gate in its own step with the first parent of the merge as the base" do
+      workflow = File.read!(".github/workflows/symbolic-check.yml")
+
+      [[_, step]] =
+        Regex.scan(~r/      - name: Run the small gate\n(.*?)      - name:/s, workflow)
+
+      [_, script] = Regex.run(~r/^        run: (.+)\n/m, step)
+      assert script == "sh scripts/run-ci-check.sh --piece HEAD^1"
+
+      root = git_fixture()
+      stub = Path.join(root, "sh")
+      File.write!(stub, "#!/bin/sh\nprintf '%s\\n' \"$@\"\n")
+      File.chmod!(stub, 0o755)
+
+      {output, 0} =
+        System.cmd("/bin/sh", ["-eu", "-c", script],
+          env: [{"PATH", root <> ":" <> System.fetch_env!("PATH")}]
+        )
+
+      assert output == "scripts/run-ci-check.sh\n--piece\nHEAD^1\n"
+    end
+
+    test "mix check --piece refuses a bad comparison before any stage, and odd arguments" do
+      assert_raise Mix.Error, ~r/mix check --piece refuses/, fn ->
+        Mix.Tasks.Check.run(["--piece", "refs/heads/elzoo-small-gate-no-such-ref"])
+      end
+
+      assert_raise Mix.Error, ~r/usage: mix check/, fn -> Mix.Tasks.Check.run(["--piece"]) end
+
+      assert_raise Mix.Error, ~r/usage: mix check/, fn ->
+        Mix.Tasks.Check.run(["--piece", "x", "--part", "root"])
+      end
+
+      assert_raise Mix.Error, ~r/usage: mix check/, fn ->
+        Mix.Tasks.Check.run(["--piece", "x", "--affected", "x"])
+      end
+    end
+  end
+
+  defp piece_tree(ids) do
+    root = git_fixture()
+    for id <- ids, do: File.mkdir_p!(Path.join([root, "pieces", id, "test"]))
+    root
+  end
+
   defp git!(root, args) do
     {output, status} = System.cmd("git", args, cd: root, stderr_to_stdout: true)
     assert status == 0, output
