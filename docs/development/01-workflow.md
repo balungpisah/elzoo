@@ -175,6 +175,9 @@ changed port. It recreates the services of the worktree when the environment
 file is missing, or the pinned image or the network changed. `status` exits
 1 when a port in the environment file is not the port that Docker publishes
 now (for example after `docker restart`); `up` then writes the file again.
+`status` compares ports only and does not prove the password; `up` does. When
+`up` reports a wrong password, remove `.elzoo-services/env.sh` and run `up`
+again: it recreates the services of the worktree.
 
 `up` starts the services only; it does nothing about the build. On a new
 worktree path, run `mix setup` first (about 10 minutes on a developer host).
@@ -185,13 +188,16 @@ Names derive from the worktree path, and each container, volume and network
 carries the label of its worktree. `down` removes only those, and the files
 that `up` wrote in `.elzoo-services/`; it refuses an `.elzoo-services` that is
 a symbolic link. `down --worktree PATH` takes the top level of a worktree, or
-a path that is already removed; it refuses a path inside a worktree. The
+a path that is already removed; it refuses a path inside a worktree, and an
+existing directory that is not a Git worktree. When a removal fails, `down`
+still does the other removals, reports each failure and exits 1. The
 verified binary stays in a cache under `~/.cache/elzoo-worker-services/` for
 the next worktree.
 
-Equal to the job `check-root` (same pinned image; observed on a developer
-host): PostgreSQL 16.15, `max_connections` 100, time zone UTC (`Etc/UTC`),
-encoding UTF8, `vector` 0.8.7, a test role that is not a superuser.
+Expected to be equal to the job `check-root` (same pinned image, no server
+options in the job); observed on a developer host: PostgreSQL 16.15,
+`max_connections` 100, time zone UTC (`Etc/UTC`), encoding UTF8, `vector`
+0.8.7, a test role that is not a superuser.
 Different on an arm64 host: the arm64 variant of the image and the arm64
 MinIO binary (both pinned), and vector distances can differ in the last bits
 of a float.
