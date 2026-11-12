@@ -859,7 +859,8 @@
       "summary": "One supervised Unit per identity, with sleep and wake",
       "disposition": "adapt",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/runtime/dynamic-units/piece.json",
       "reason": "Bot platform wave 1 (P13). At most one live Unit per Run or room identity, a bound on live Units and an idle sleep, over OTP DynamicSupervisor and Registry. New ID: ready runtime/host starts a fixed list."
     },
     {
@@ -885,7 +886,8 @@
       "summary": "A live thing that a Run holds, used by one action at a time and closed with the Run",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/run-resource/piece.json",
       "reason": "Bot platform wave 1 (P13). Ownership, serialization, time limit and close policy for an OS program, a sandbox, a browser or a call. A lost resource is an input and is never reopened automatically. No real provider yet."
     },
     {
