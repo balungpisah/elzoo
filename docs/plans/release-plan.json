@@ -5366,6 +5366,23 @@
       "issue": 314,
       "url": "https://github.com/balungpisah/elzoo/issues/314",
       "issue_body_sha256": "f2576498765e8f79964f12ab271b570ea26a33f01b948e7edee411b9fc8b5928"
+    },
+    {
+      "id": "ELZ-148",
+      "title": "ELZ-148 — Give the provider-stream fixtures a directory of their own",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-143", "ELZ-138"],
+      "status": "published 2026-11-13",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-148-provider-stream-fixture-directory.md"],
+      "outputs": [],
+      "acceptance": "The hosted full check on the exact head passes the aggregate copied-consumer test; no target path is written by two ready Pieces with different content; the thirteen fixture files move byte for byte and all 22 cases and assertions of the Piece stay unchanged and pass, with the named Piece gate.",
+      "product_aims": ["P13"],
+      "issue": 317,
+      "url": "https://github.com/balungpisah/elzoo/issues/317",
+      "issue_body_sha256": "cd5e2f8f1911cbaa796d150782daef815fab321bc5c14f276236ace306c58571"
     }
   ],
   "entries": [
@@ -6545,7 +6562,7 @@
       "baseline_status": "not in baseline (new row, RC-57)",
       "disposition": "ready-contract",
       "manifest": "pieces/delivery/provider-stream/piece.json",
-      "manifest_sha256": "756ec936b1c86d96faf17f50ff67040423b094db7713306c163c7959cd80f589",
+      "manifest_sha256": "eaaf540665b925d1684d232f1cf65a978b3902baa210e0d9a9698d8309c7a6e3",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
