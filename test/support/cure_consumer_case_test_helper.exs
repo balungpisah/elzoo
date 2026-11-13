@@ -169,6 +169,15 @@ defmodule Elzoo.CureConsumerCase do
 
     File.write!(Path.join(ctx.destination, "test/test_helper.exs"), helper)
 
+    # ELZ-153: the consumer of an added Piece (small gate) gives the inner run only the test files that
+    # the plan wrote for that ID. The closure is planned, written and compiled as for every consumer; the
+    # test files of its dependencies stay on disk and are not loaded. No option: every test file runs.
+    inner_tests =
+      case Keyword.fetch(opts, :only_tests_of) do
+        {:ok, id} -> own_test_files!(plan, id)
+        :error -> []
+      end
+
     # Reuse only compiled upstream dependency artifacts. A fresh VM gets no
     # elzoo ebin, project sources, or runtime application. The fixture keeps
     # these injected upstream code paths for compiler/test use. Compilation may
@@ -193,7 +202,7 @@ defmodule Elzoo.CureConsumerCase do
     unless :code.which(Elzoo.Registry) == :non_existing and :code.which(:"Cure.Elzoo.Core") == :non_existing,
       do: raise("Elzoo leaked into the consumer code path")
     #{if ai_text_only?, do: @no_provider_check, else: ""}
-    Mix.CLI.main(["test", "--no-deps-check"])
+    Mix.CLI.main(#{inspect(["test", "--no-deps-check" | inner_tests], limit: :infinity)})
     """)
 
     args = Enum.flat_map(paths, &["-pa", &1]) ++ [bootstrap]
@@ -457,6 +466,21 @@ defmodule Elzoo.CureConsumerCase do
 
     if ai_text_only?,
       do: assert(output =~ "ai-text consumer: no provider module, ReqLLM or Plug loadable")
+  end
+
+  # The files of one ID that `mix test` loads by default in the consumer: `*_test.exs` below `test/`.
+  defp own_test_files!(plan, id) do
+    piece = Enum.find(plan.pieces, &(&1["id"] == id))
+    assert piece, "#{id} is not in the plan"
+
+    files =
+      Enum.filter(
+        piece["files"],
+        &(String.starts_with?(&1, "test/") and String.ends_with?(&1, "_test.exs"))
+      )
+
+    assert files != [], "#{id} has no test file of its own for its consumer"
+    files
   end
 
   defp assert_no_ai_text_provider!(plan) do

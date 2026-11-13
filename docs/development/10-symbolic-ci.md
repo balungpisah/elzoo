@@ -502,6 +502,41 @@ consumer. The report says so in its `LIMIT:` line, and the success marker is
 part and affected markers. No ExUnit test reads `docs/plans/release-plan.json` or the two plan views:
 `scripts/check-roadmap.py` checks them in the plan job.
 
+**Consumer of an added Piece (ELZ-153, owner decision on issue #328).** A ready Piece that the change adds and that
+has no per-ID consumer in the inventory (`Elzoo.CheckSelection.consumer_ids/0`) runs once in a copied consumer of its
+own. A Piece is added when it is a ready ID at the head and not a ready ID at `BASE`: `piece_changes` reads
+`pieces/<id>/piece.json` from the commit `BASE`, and no file there, or a status other than `ready`, means added (key
+`added` of its result). The export of the dependency closure is planned, written and compiled as for every consumer
+(`assert_cure_consumer`). The inner `mix test` gets only the test files of the added ID: the `*_test.exs` files below
+`test/` in the `files` list of its `piece.json`. The test files of its dependencies are copied and not loaded.
+`export_test.exs` holds one test with the tag `new_piece_consumer` for each ready ID outside the inventory,
+`test/test_helper.exs` excludes that tag, and only piece mode passes `--include new_piece_consumer:<ID>`, for the
+added IDs. So the full check, its five parts and affected mode never run these tests (the aggregate consumer holds
+every ready Piece). A changed Piece that was ready at `BASE` gets no such consumer, and neither does a dependant; the
+test arguments of such a change are the ones of before ELZ-153. The report names the IDs in its line
+`Added ready IDs without a per-ID consumer, ...`.
+
+Each of these tests has a limit of 300 s, the value that ELZ-062 set for `assembly/durable-job`. No other limit
+changed. The basis is the rule of the task and one measurement. The rule: the largest measured total decides; at most
+80 s keeps the default limit of 120 s, more than 80 s and at most 200 s gives 300 s, more than 200 s delivers nothing
+(80 s and 200 s are two thirds of the limit above them: a margin for a slower hosted runner, not a measured ratio).
+The measurement: five existing IDs that stand for a new Piece, three runs each, one at a time, on a developer host.
+These numbers are not evidence of the hosted time. `total` is the whole consumer test (the line
+`ELZOO TIMING consumer=<ID> total`); the step times are those of the first run. The two last columns come from the
+summary line of the inner `mix test`, which was printed for the measurement only: the delivered code does not print it.
+
+| ID | Pieces in the closure | total, three runs (s) | `consumer_mix_test` (s) | of it the inner tests (s) | inner tests |
+| --- | --- | --- | --- | --- | --- |
+| `assembly/run-engine` | 28 | 90.5, 90.7, 90.0 | 90.0 | 71.6 | 52 |
+| `assembly/http-job` | 17 | 58.4, 57.4, 58.2 | 57.9 | 44.5 | 37 |
+| `workflow/agent-loop` | 27 | 21.3, 21.3, 22.5 | 20.0 | 4.7 | 23 |
+| `integration/ai-token-count` | 16 | 19.1, 19.8, 20.1 | 17.8 | 3.8 | 11 |
+| `workflow/context-compaction` | 19 | 14.1, 14.7, 14.8 | 13.7 | 0.08 | 2 |
+
+The largest total is 90.7 s: above 80 s and below 200 s, so the limit is 300 s. `plan_write` took 0.1 s and
+`runtime_vm` 0.4 to 1.1 s in each run. With the tests of the whole closure, the same five IDs took 257.5, 132.3,
+102.2, 89.6 and 84.4 s (ELZ-152, one run each). The other 61 ready IDs outside the inventory are not measured.
+
 **Workflow.** The plan job runs the step `Classify a Piece change` (`ci-change-class.py github-piece`, output
 `piece_only`) after `Classify the change`. The step `Plan the work jobs` writes `piece=true` and `run=false` only
 when the full check would run, the change is Piece-only and the event is `pull_request`. A push to `main` and a
@@ -543,7 +578,11 @@ check on `main`.
 
 **Limits.** The small gate is a selected check, not the full check. The aggregate consumer, the root tests that are
 not in the list (for example a root test that loads a Piece example or module directly) and the Ash spike run only
-in the full check on `main`. **Residual risk:** the freeze rule ignores a first attempt of a push run in progress, so
+in the full check on `main`. Two things about the export stay unseen before the merge (ELZ-153). A changed Piece
+that was ready at the base and has no per-ID consumer is not exported on its own: a test of it that fails only in a
+copied consumer is seen on `main`. In the consumer of an added Piece the tests of its dependencies do not run; their
+sources are copied and compiled. The aggregate consumer of the full check covers both.
+**Residual risk:** the freeze rule ignores a first attempt of a push run in progress, so
 small-gate merges can land before the first full run of `main` after them reports, within the window above. Counting
 every first-parent commit is conservative and can pause earlier than counting only Piece merges. A red full run then
 freezes the next merge, and the coordinator repairs forward from the pull request bodies

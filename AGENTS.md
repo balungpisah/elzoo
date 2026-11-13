@@ -171,8 +171,15 @@ files of section 3, and documents. `scripts/ci-change-class.py` decides this.
 The small gate runs format, compile, the ledger and Registry checks, the tests
 of each changed Piece and of each ready Piece that depends on it, the root
 tests that read the index, and the per-ID consumers of those IDs. One of the
-root tests plans the export of every ready Piece together. It is a selected
-check, not the full check. It refuses a change with any other path.
+root tests plans the export of every ready Piece together. A ready Piece that
+the change adds (ready at the head, not a ready ID at the base) and that has
+no per-ID consumer runs once in a copied consumer of its own: its dependency
+closure is copied and compiled, and only its own tests run there, with a limit
+of 300 s for that test. The gate still does not see two things. A changed
+Piece that was ready at the base and has no per-ID consumer is not exported on
+its own before the merge. The tests of the dependencies do not run in the
+consumer of the new Piece. It is a selected check, not the full check. It
+refuses a change with any other path.
 
 For a change of shared paths, the local gate is:
 

@@ -6,7 +6,8 @@ defmodule Mix.Tasks.Check do
   tests of the full check. `--piece BASE` is the small gate of a Piece-only change: format, compile,
   ledger, the Registry, and the tests of the changed Pieces, their dependants, the root tests that read
   the index and the per-ID consumers of the affected ready IDs. One of the root tests plans the export
-  of every ready Piece into one destination. It refuses any other change.
+  of every ready Piece into one destination. A ready Piece that the change adds and that has no per-ID
+  consumer runs its own tests once in a copied consumer of its own. It refuses any other change.
   """
 
   use Mix.Task

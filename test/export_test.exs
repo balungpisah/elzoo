@@ -143,6 +143,30 @@ defmodule Elzoo.ExportTest do
     assert File.ls!(ctx.destination) == ["mix.exs"]
   end
 
+  # ELZ-153: one copied consumer for each ready ID that has no per-ID consumer in the inventory
+  # (`Elzoo.CheckSelection.consumer_ids/0`). The closure is planned, written and compiled as for every
+  # consumer; the inner run takes only the test files of the ID itself. test/test_helper.exs excludes the
+  # tag, so the full check, its five parts and affected mode never run these tests; `mix check --piece`
+  # includes the tag for the IDs that the change adds. In sequence, here: the closure of such an ID can
+  # need the PostgreSQL database.
+  # The limit (owner decision on issue #328, 2026-11-13): 300 s on these tests only, the value that ELZ-062
+  # set for `assembly/durable-job`. Rule of the task: the largest measured total decides; at most 80 s keeps
+  # the default limit, more than 80 s and at most 200 s gives 300 s. Measured on a developer host, three
+  # runs each, one at a time (not evidence of the hosted time): `assembly/run-engine` 90.5, 90.7 and
+  # 90.0 s; `assembly/http-job` 58.4, 57.4 and 58.2 s; `workflow/agent-loop` 21.3, 21.3 and 22.5 s;
+  # `integration/ai-token-count` 19.1, 19.8 and 20.1 s; `workflow/context-compaction` 14.1, 14.7 and
+  # 14.8 s. The largest, 90.7 s, is above 80 s. The other 61 IDs outside the inventory are not measured.
+  @new_piece_consumer_timeout 300_000
+  for {id, %{"status" => "ready"}} <- Enum.sort(Elzoo.Registry.load!().entries),
+      id not in Elzoo.CheckSelection.consumer_ids() do
+    @tag timeout: @new_piece_consumer_timeout
+    @tag new_piece_consumer: id
+    test "#{id} runs its own tests in a copied consumer of its own (small gate, added Piece)",
+         ctx do
+      assert_cure_consumer(ctx, [unquote(id)], only_tests_of: unquote(id))
+    end
+  end
+
   # PostgreSQL consumers share one disposable CI database: in sequence, here. The
   # database-free consumers run from test/consumer_group_{a,b,c}_test.exs (ELZ-049).
   # ELZ-062 (owner approval 2026-11-08, time limit only): `assembly/durable-job` alone gets 300 s. It exceeded
@@ -333,5 +357,74 @@ defmodule Elzoo.ExportTest do
     [aggregate] = Enum.filter(tests, &Map.has_key?(&1.tags, :aggregate_consumer))
     assert aggregate.tags.timeout == 1_200_000
     assert Elzoo.ExportTest.aggregate_inner_timeout() == 300_000
+  end
+
+  # ELZ-153: the partition test above reads the command-line filters only. This test adds the default
+  # exclusion of test/test_helper.exs, read from the configuration of this run.
+  test "only the small gate runs the consumer of an added Piece that has none (ELZ-153)", ctx do
+    own = Enum.filter(__MODULE__.__ex_unit__().tests, &Map.has_key?(&1.tags, :new_piece_consumer))
+
+    without = Elzoo.CheckSelection.full(ctx.registry).without_consumer
+    assert without != []
+    assert Enum.sort(Enum.map(own, & &1.tags.new_piece_consumer)) == without
+
+    # No tag of a part of the full check. The limit of ELZ-153 is on these tests and on no other test.
+    for test <- own do
+      for tag <- [:consumer_id, :aggregate_consumer] do
+        refute Map.has_key?(test.tags, tag), "#{test.tags.new_piece_consumer} has the tag #{tag}"
+      end
+
+      assert test.tags.timeout == 300_000
+    end
+
+    default = Enum.filter(ExUnit.configuration()[:exclude], &(&1 == :new_piece_consumer))
+    assert default == [:new_piece_consumer]
+
+    # The IDs whose consumer test a selection runs: its `mix test` filters plus the default exclusion.
+    runs = fn selection ->
+      {opts, _paths, []} =
+        OptionParser.parse(Elzoo.CheckSelection.test_args(selection),
+          strict: [only: :keep, include: :keep, exclude: :keep, warnings_as_errors: :boolean]
+        )
+
+      [only, include, exclude] =
+        for key <- [:only, :include, :exclude],
+            do: opts |> Keyword.get_values(key) |> ExUnit.Filters.parse()
+
+      exclude = exclude ++ default ++ if(only == [], do: [], else: [:test])
+
+      Enum.sort(
+        for test <- own,
+            tags = Map.put(test.tags, :test, test.name),
+            ExUnit.Filters.eval(only ++ include, exclude, tags, [test]) == :ok,
+            do: test.tags.new_piece_consumer
+      )
+    end
+
+    [id, other | _] = without
+    change = {:ok, ["pieces/#{id}/piece.json"]}
+
+    not_piece =
+      [
+        Elzoo.CheckSelection.full(ctx.registry),
+        Elzoo.CheckSelection.for_changes(ctx.registry, change)
+      ] ++
+        Enum.map(Elzoo.CheckSelection.parts(), &Elzoo.CheckSelection.part/1)
+
+    for selection <- not_piece, do: assert(runs.(selection) == [], inspect(selection.mode))
+
+    piece = &Elzoo.CheckSelection.piece(ctx.registry, %{pieces: &1, added: &2})
+    assert runs.(piece.([id], [id])) == [id]
+    assert runs.(piece.([other, id], [other, id])) == [id, other]
+
+    # A changed Piece that was ready at the base gets none.
+    assert runs.(piece.([other, id], [id])) == [id]
+    assert runs.(piece.([id], [])) == []
+
+    # An ID of the inventory and a directory that is not a ready ID get none, and neither does a dependant.
+    added = ["core/port", "family/not-a-ready-id"]
+    inventory = piece.(added, added)
+    assert inventory.affected -- Elzoo.CheckSelection.consumer_ids() != []
+    assert runs.(inventory) == []
   end
 end

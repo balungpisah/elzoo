@@ -492,6 +492,154 @@ defmodule Elzoo.CheckSelectionTest do
       assert report =~ ~r/^LIMIT: a selected check, not the full check: .*runs on main/m
     end
 
+    # ELZ-153: test/test_helper.exs excludes the tag `new_piece_consumer`; piece mode includes it for the
+    # ready IDs that the change adds (ready at the head, not ready at the base) and that have no per-ID
+    # consumer in the inventory.
+    test "an added ready ID outside the inventory gets a consumer of its own; no other changed ID does",
+         ctx do
+      registry =
+        put_in(ctx.registry, [:entries, "workflow/approval", "dependencies"], ["core/port"])
+
+      root = piece_tree([])
+
+      # A dependant of an added ID, an added directory that is not a ready ID and an added ID of the
+      # inventory get none.
+      none =
+        Selection.piece(
+          registry,
+          %{pieces: ["core/port", "state/new-one"], added: ["core/port", "state/new-one"]},
+          root
+        )
+
+      assert none.affected == ["core/port", "workflow/approval"]
+      assert none.new == ["state/new-one"]
+      assert none.new_piece_consumers == []
+      refute "--include" in Selection.test_args(none)
+
+      changed = ["workflow/approval", "runtime/unit", "core/port"]
+      selection = Selection.piece(registry, %{pieces: changed, added: changed}, root)
+      assert selection.new_piece_consumers == ["runtime/unit", "workflow/approval"]
+      assert selection.selected == ["assembly/ingest-json-unit", "core/port", "runtime/host"]
+      args = Selection.test_args(selection)
+      refute "--only" in args
+
+      {opts, paths, []} =
+        OptionParser.parse(args,
+          strict: [include: :keep, exclude: :keep, warnings_as_errors: :boolean]
+        )
+
+      assert paths == selection.test_paths
+
+      assert Keyword.get_values(opts, :include) ==
+               ["new_piece_consumer:runtime/unit", "new_piece_consumer:workflow/approval"]
+
+      include = opts |> Keyword.get_values(:include) |> ExUnit.Filters.parse()
+
+      exclude =
+        (opts |> Keyword.get_values(:exclude) |> ExUnit.Filters.parse()) ++ [:new_piece_consumer]
+
+      eval = &ExUnit.Filters.eval(include, exclude, &1, [])
+      for id <- selection.new_piece_consumers, do: assert(:ok == eval.(%{new_piece_consumer: id}))
+      assert {:excluded, _} = eval.(%{new_piece_consumer: "state/new-one"})
+      assert {:excluded, _} = eval.(%{aggregate_consumer: true})
+      for id <- selection.skipped, do: assert({:excluded, _} = eval.(%{consumer_id: id}))
+      for id <- selection.selected, do: assert(:ok == eval.(%{consumer_id: id}))
+      assert :ok == eval.(%{})
+
+      report = Selection.report(selection)
+
+      assert report =~
+               "Added ready IDs without a per-ID consumer, each run in a copied consumer of its own with " <>
+                 "its own tests only (2): [\"runtime/unit\", \"workflow/approval\"]"
+
+      assert report =~ ~r/^LIMIT: a selected check, not the full check: .*runs on main/m
+
+      assert report =~
+               ~r/^LIMIT: .*the consumer of an added Piece runs the tests of that Piece only/m
+    end
+
+    # Acceptance `changed_piece_gets_none`.
+    test "changed_piece_gets_none: a ready Piece of the base outside the inventory gets no consumer and the test arguments of main",
+         ctx do
+      root = piece_tree(["workflow/approval"])
+      manifest = Path.join(root, "pieces/workflow/approval/piece.json")
+      File.write!(manifest, ~s({"id": "workflow/approval", "status": "ready"}\n))
+      record_change(root, :committed)
+      base = git!(root, ["rev-parse", "HEAD"]) |> String.trim()
+
+      File.write!(Path.join(root, "pieces/workflow/approval/lib.ex"), "changed")
+
+      assert {:ok, %{pieces: ["workflow/approval"], added: []} = changes} =
+               Selection.piece_changes(base, root)
+
+      selection = Selection.piece(ctx.registry, changes, root)
+      assert selection.affected == ["workflow/approval"]
+      assert selection.new_piece_consumers == []
+
+      # The arguments of `main` before ELZ-153, written out.
+      assert Selection.test_args(selection) ==
+               ["--warnings-as-errors", "--exclude", "aggregate_consumer"] ++
+                 Enum.flat_map(
+                   Enum.sort(Selection.consumer_ids()),
+                   &["--exclude", "consumer_id:#{&1}"]
+                 ) ++ ["pieces/workflow/approval/test" | Selection.piece_root_tests()]
+
+      assert Selection.report(selection) =~ "its own tests only (0): []"
+    end
+
+    test "a Piece is added when the base holds no ready piece.json for it", ctx do
+      root = piece_tree([])
+
+      for {id, bytes} <- [
+            {"workflow/approval", ~s({"status": "ready"})},
+            {"runtime/unit", ~s({"status": "planned"})},
+            {"runtime/host", "not JSON"}
+          ] do
+        File.mkdir_p!(Path.join([root, "pieces", id]))
+        File.write!(Path.join([root, "pieces", id, "piece.json"]), bytes)
+      end
+
+      record_change(root, :committed)
+      base = git!(root, ["rev-parse", "HEAD"]) |> String.trim()
+
+      # At the head all four are ready IDs of the registry; `core/port` has no piece.json at the base and
+      # `state/new-one` has no directory there.
+      for id <- ["workflow/approval", "runtime/unit", "runtime/host", "core/port", "state/new-one"] do
+        File.mkdir_p!(Path.join([root, "pieces", id]))
+        File.write!(Path.join([root, "pieces", id, "piece.json"]), ~s({"status": "ready"}\n))
+      end
+
+      for state <- [:working, :staged, :committed] do
+        record_change(root, state)
+        assert {:ok, changes} = Selection.piece_changes(base, root)
+
+        assert changes.pieces ==
+                 ["core/port", "runtime/host", "runtime/unit", "state/new-one", "workflow/approval"]
+
+        assert changes.added == ["core/port", "runtime/host", "runtime/unit", "state/new-one"]
+
+        # Ready at the head and outside the inventory: `runtime/unit` alone. `runtime/host` and `core/port`
+        # are in the inventory, `state/new-one` is no ready ID of the registry.
+        assert Selection.piece(ctx.registry, changes, root).new_piece_consumers == ["runtime/unit"]
+      end
+    end
+
+    test "a change of a Piece of the inventory selects the test arguments of before ELZ-153", ctx do
+      root = piece_tree(["core/port"])
+
+      for added <- [[], ["core/port"]] do
+        selection = Selection.piece(ctx.registry, %{pieces: ["core/port"], added: added}, root)
+        assert selection.new_piece_consumers == []
+
+        assert Selection.test_args(selection) ==
+                 ["--warnings-as-errors", "--exclude", "aggregate_consumer"] ++
+                   Enum.flat_map(
+                     Enum.sort(Selection.consumer_ids() -- ["core/port"]),
+                     &["--exclude", "consumer_id:#{&1}"]
+                   ) ++ ["pieces/core/port/test" | Selection.piece_root_tests()]
+      end
+    end
+
     test "the marker differs from every other marker and is never the full marker", ctx do
       selection = Selection.piece(ctx.registry, %{pieces: ["core/port"]}, piece_tree([]))
       marker = Selection.success_marker(selection)

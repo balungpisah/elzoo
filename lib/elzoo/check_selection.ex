@@ -30,6 +30,9 @@ defmodule Elzoo.CheckSelection do
   # - export_test.exs and the three consumer group modules: their setup loads the Registry; they hold the per-ID
   #   consumers (filtered by tag, as in affected mode); export_test.exs asserts that all four modules are loaded.
   #   ELZ-152: export_test.exs also plans the export of every ready ID into one destination.
+  #   ELZ-153: it also holds one consumer test (tag `new_piece_consumer`) for each ready ID outside the inventory
+  #   above. test/test_helper.exs excludes that tag; only `test_args/1` of piece mode includes it, for the IDs that
+  #   the change adds.
   # docs/plans/release-plan.json, docs/plans/views.md and docs/plans/dependencies.mmd are read by no ExUnit test:
   # scripts/check-roadmap.py checks them in the plan job of the workflow.
   @piece_root_tests ~w(test/registry_test.exs test/install_configuration_test.exs test/elzoo_take_task_test.exs
@@ -114,16 +117,23 @@ defmodule Elzoo.CheckSelection do
   @doc """
   Small gate, first half (no Registry needed): the changed paths since `base` (commits, working tree and untracked
   files, as in affected mode) must all be in the Piece-only class of scripts/ci-change-class.py, the one allowlist of
-  the workflow and the queue. Returns `{:ok, %{pieces: ids, comparison: text}}` or `{:error, reason}`: the mode
-  refuses, it never falls back to a narrower or a wider run.
+  the workflow and the queue. Returns `{:ok, %{pieces: ids, added: ids, comparison: text}}` or `{:error, reason}`:
+  the mode refuses, it never falls back to a narrower or a wider run. `added` holds the changed IDs that are no
+  ready ID at `base`: no `piece.json` there, or a status other than `ready` (ELZ-153).
   """
   def piece_changes(base, root \\ File.cwd!(), classify \\ &classify_piece_paths/1) do
     with {:ok, %{paths: paths, base: resolved, head: head}} <- changed_paths(root, base),
          :ok <- nonempty(paths),
          :ok <- no_special_modes(root, resolved),
          :ok <- no_special_entries(root, paths),
-         {:ok, ids} <- classify.(paths) do
-      {:ok, %{pieces: ids, comparison: "#{resolved} -> #{head} + working tree/untracked files"}}
+         {:ok, ids} <- classify.(paths),
+         {:ok, added} <- not_ready_at_base(root, resolved, ids) do
+      {:ok,
+       %{
+         pieces: ids,
+         added: added,
+         comparison: "#{resolved} -> #{head} + working tree/untracked files"
+       }}
     end
   end
 
@@ -131,7 +141,10 @@ defmodule Elzoo.CheckSelection do
   Small gate, second half: the tests of each changed Piece, of each ready Piece that depends on a changed one
   (transitively, the closure of affected mode), the root tests of `piece_root_tests/0` and the per-ID consumers of
   the affected ready IDs. The aggregate consumer never runs here. A changed directory that is not a ready ID (a new
-  Piece) has no dependants and no consumer; its own tests run.
+  Piece) has no dependants and no consumer; its own tests run. A ready ID that the change adds (`added` of
+  `piece_changes/3`) and that is outside the inventory gets a copied consumer of its own, in which only its own
+  tests run (`new_piece_consumers`, ELZ-153). A changed Piece that was ready at the base gets none, and neither
+  does a dependant.
   """
   def piece(registry, %{pieces: [_ | _] = ids} = changes, root \\ File.cwd!()) do
     ready = ready_ids(registry)
@@ -159,8 +172,43 @@ defmodule Elzoo.CheckSelection do
       affected: affected,
       selected: Enum.sort(selected),
       skipped: Enum.sort(@consumer_ids -- selected),
+      new_piece_consumers:
+        Enum.sort(
+          for id <- Map.get(changes, :added, []),
+              id in changed_ready,
+              id not in @consumer_ids,
+              do: id
+        ),
       test_paths: piece_tests ++ @piece_root_tests
     }
+  end
+
+  # ELZ-153: the changed IDs that are no ready ID in the base commit. `pieces/<id>/piece.json` is read from the
+  # commit itself: no such file, a file that is not JSON and a status other than `ready` all mean "not ready at
+  # the base". A Git failure refuses.
+  defp not_ready_at_base(root, base, ids) do
+    Enum.reduce_while(ids, {:ok, []}, fn id, {:ok, added} ->
+      case ready_at_base?(root, base, "pieces/#{id}/piece.json") do
+        {:ok, true} -> {:cont, {:ok, added}}
+        {:ok, false} -> {:cont, {:ok, added ++ [id]}}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  # `git ls-tree` prints nothing and exits 0 for a path that the commit does not hold.
+  defp ready_at_base?(root, base, path) do
+    case git(root, ["ls-tree", "--full-tree", "-z", base, "--", path]) do
+      {:ok, ""} ->
+        {:ok, false}
+
+      {:ok, _} ->
+        with {:ok, bytes} <- git(root, ["show", "#{base}:#{path}"]),
+             do: {:ok, match?({:ok, %{"status" => "ready"}}, Jason.decode(bytes))}
+
+      error ->
+        error
+    end
   end
 
   defp nonempty([]), do: {:error, "empty changed-path set"}
@@ -259,9 +307,11 @@ defmodule Elzoo.CheckSelection do
 
   def test_args(%{mode: :full}), do: ["--warnings-as-errors"]
 
-  def test_args(%{mode: :piece, skipped: skipped, test_paths: paths}) do
+  # An include wins over the default exclusion of test/test_helper.exs, for the named IDs only.
+  def test_args(%{mode: :piece, skipped: skipped, new_piece_consumers: own, test_paths: paths}) do
     ["--warnings-as-errors", "--exclude", "aggregate_consumer"] ++
-      Enum.flat_map(skipped, &["--exclude", "consumer_id:#{&1}"]) ++ paths
+      Enum.flat_map(skipped, &["--exclude", "consumer_id:#{&1}"]) ++
+      Enum.flat_map(own, &["--include", "new_piece_consumer:#{&1}"]) ++ paths
   end
 
   def test_args(%{mode: :affected, skipped: skipped, aggregate: aggregate}) do
@@ -332,12 +382,15 @@ defmodule Elzoo.CheckSelection do
       "Affected ready IDs (changed and dependants): #{inspect(selection.affected, limit: :infinity)}",
       "Selected consumer IDs (#{length(selection.selected)}): #{inspect(selection.selected, limit: :infinity)}",
       "Skipped consumer IDs (#{length(selection.skipped)}): #{inspect(selection.skipped, limit: :infinity)}",
+      "Added ready IDs without a per-ID consumer, each run in a copied consumer of its own with its own tests " <>
+        "only (#{length(selection.new_piece_consumers)}): #{inspect(selection.new_piece_consumers, limit: :infinity)}",
       "Test paths: #{inspect(selection.test_paths, limit: :infinity)}",
       "Aggregate consumer: not run in piece mode",
       "Ash spike: not run in piece mode",
       "LIMIT: a selected check, not the full check: only the test paths above run (unselected per-ID consumers " <>
-        "excluded); the aggregate consumer, the other root tests and the Ash spike do not run. " <>
-        "The full check runs on main after the merge."
+        "excluded; the consumer of an added Piece runs the tests of that Piece only; a changed Piece that was " <>
+        "ready at the base gets no such consumer); the aggregate consumer, the other root tests and the Ash " <>
+        "spike do not run. The full check runs on main after the merge."
     ]
     |> Enum.join("\n")
   end
