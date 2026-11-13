@@ -525,10 +525,14 @@ defmodule Elzoo.DataStream.SchemaTest do
       counted = if at < 8, do: 1, else: 0
       assert ended.last_usage.event_index == plain.last_usage.event_index + counted
 
-      assert %{ended | index: plain.index, last_usage: plain.last_usage} == plain
+      last = %{ended.last_usage | event_index: plain.last_usage.event_index}
+      assert %{ended | index: plain.index, last_usage: last} == plain
     end
 
     s = after_events([Fixture.start(), a_start])
+
+    assert {:ok, _, :none} =
+             Protocol.block(~s(event: new_event\ndata: {"type":"new_event"}\n\n), s)
 
     for data <- [
           ~s([{"type":"new_event"}]),
