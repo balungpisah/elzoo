@@ -18,35 +18,6 @@ defmodule Elzoo.MixProject do
       cure_paths: Path.wildcard("pieces/**/cure"),
       deps: deps(),
       aliases: aliases(),
-      tia: [
-        map: "_build/test/tia/map.json",
-        base: "origin/main",
-        test_globs: ["test/**/*_test.exs", "pieces/**/*_test.exs"],
-        macro_globs: [
-          "lib/**/*.ex",
-          "pieces/**/lib/**/*.ex",
-          "test/support/**/*.{ex,exs}",
-          "pieces/**/test/support/**/*.{ex,exs}"
-        ],
-        global_globs: [
-          "config/config.exs",
-          "config/test.exs",
-          "config/runtime.exs",
-          "priv/*/migrations/*.exs",
-          "config/**/*.exs",
-          "test/support/**/*",
-          "pieces/**/test/support/**/*",
-          "pieces/**/cure/**/*",
-          "**/Cure.toml",
-          "pieces/**/*.{json,tsv,csv,sql}",
-          "test/**/fixtures/**/*",
-          "pieces/**/test/**/fixtures/**/*",
-          "test/examples/**/*",
-          "pieces/**/examples/**/*",
-          "registry/**/*",
-          "scripts/**/*"
-        ]
-      ],
       elixirc_options: [warnings_as_errors: true]
     ]
   end
@@ -59,15 +30,7 @@ defmodule Elzoo.MixProject do
   end
 
   def cli do
-    [
-      preferred_envs: [
-        setup: :test,
-        check: :test,
-        tia: :test,
-        "elzoo.ledger": :test,
-        "elzoo.take": :test
-      ]
-    ]
+    [preferred_envs: [setup: :test, check: :test, "elzoo.ledger": :test, "elzoo.take": :test]]
   end
 
   defp deps do
@@ -135,8 +98,7 @@ defmodule Elzoo.MixProject do
       # rejected: it is @moduledoc false (not public API) and carries no
       # ambiguity semantics for the DST contract.
       {:crontab, "== 1.2.1"},
-      {:tz, "== 0.28.4"},
-      {:tia, "== 0.1.1", only: [:dev, :test], runtime: false}
+      {:tz, "== 0.28.4"}
     ]
   end
 
