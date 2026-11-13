@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: Apache-2.0
+mod Elzoo.UntrustedContent
+  type Trust = Untrusted | Derived
+  type Both = Both(Trust, Trust)
+
+  @total true
+  @reducible
+  fn least_trusted(a: Trust, b: Trust) -> Trust =
+    match a
+      Derived() -> Derived()
+      Untrusted() -> b
+
+  fn derived_absorbs(t: Trust) -> Equivalent(Both, Both(least_trusted(Derived(), t), least_trusted(t, Derived())), Both(Derived(), Derived())) =
+    match t
+      Untrusted() -> reflexive(Both(Derived(), Derived()))
+      Derived() -> reflexive(Both(Derived(), Derived()))
+end
