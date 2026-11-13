@@ -21,12 +21,12 @@
   "applications": [
     "crypto"
   ],
-  "contract": "Bounded caller-scoped text-only Anthropic HTTP1.1 stream: serialized Backpressure admission, actual checkpoint-before-send EffectIntent, exact raw-block/SSE/JSON schema, one acknowledged local offer at a time, source-complete finish after request result/DOWN, finite cleanup/retention and provider-reported usage independent of delivery.",
+  "contract": "Bounded caller-scoped text-only Anthropic HTTP1.1 stream: serialized Backpressure admission, actual checkpoint-before-send EffectIntent, exact raw-block/SSE framing, a JSON schema of the members that it reads with each other member and event type ignored, one acknowledged local offer at a time, source-complete finish after request result/DOWN, finite cleanup/retention and provider-reported usage independent of delivery.",
   "limits": [
     "Trusted BEAM, host authority/clock/credentials/Store durability and bounded sink/API traffic are Needs. No root Application or synchronous AiText provider.",
     "No automatic resend/rearm/reconnect, provider status/idempotency/replay certificate, remote cancellation, billing reconciliation, durable delivery or exactly-once claim.",
     "Retained raw block at most 65536 plus current chunk and decoded overhead; total received 4194304 plus one overflowing chunk, not a total RSS law. Req/Finch/TLS/kernel buffering remains upstream.",
-    "Tests are finite documented-format loopback/SQL observations; no paid/live provider call or new Cure proof.",
+    "Tests are finite documented-format loopback/SQL observations and replays of one recorded stream; no test calls a provider, and there is no new Cure proof.",
     "Memory is explicitly volatile. Local delivery completion and provider usage survive indeterminate intent settlement; a local ack is not a durable receipt."
   ],
   "files": [
@@ -51,6 +51,9 @@
     "test/elzoo/data_stream_protocol_test.exs",
     "test/elzoo/data_stream_schema_test.exs",
     "test/elzoo/data_stream_store_test.exs",
+    "test/fixtures/anthropic-direct-stream/PROVENANCE.md",
+    "test/fixtures/anthropic-direct-stream/text.sse",
+    "test/fixtures/anthropic-direct-stream/text.upstream.json",
     "test/fixtures/loopback-ca.pem",
     "test/fixtures/loopback-cert.pem",
     "test/fixtures/loopback-key.pem",
@@ -66,7 +69,7 @@
     {
       "kind": "test",
       "file": "test/elzoo/data_stream_owner_test.exs",
-      "claim": "Actual HTTP1 callback/peer-close, serialized caller custody/controls/capacity, source-versus-delivery races, delayed timers, abrupt kill and verified TLS with HTTP1-only pool."
+      "claim": "Actual HTTP1 callback/peer-close, serialized caller custody/controls/capacity, source-versus-delivery races, delayed timers, abrupt kill and verified TLS with HTTP1-only pool. The recorded direct stream through start on loopback is complete, with the request body equal to the recorded one; unknown event types give no frame and the same terminal."
     },
     {
       "kind": "test",
@@ -81,7 +84,7 @@
     {
       "kind": "test",
       "file": "test/elzoo/data_stream_schema_test.exs",
-      "claim": "Strict nested protocol/order/finish, cumulative/null/TTL usage, derived overflow, exact raw blocks and status/header scenarios. Allowed never-read members: three derived events of a recorded route pass, each member alone holds any JSON value without a change of state, and a member in no list and the OpenRouter differences stay refused."
+      "claim": "Nested protocol/order/finish, cumulative/null/TTL usage, derived overflow, exact raw blocks and status/header scenarios. Ignore rule: the recorded direct stream replays at piece sizes 1, 7, 97 and 4096; an added member of six kinds of value in each read object, an unknown event type at four points and a number with a fraction of at most 64 bytes change neither state nor action; a cache_creation lifetime that is not read leaves the group unused; the kept refusals and decoder bounds. Three derived events of a recorded OpenRouter route pass with and without their members."
     },
     {
       "kind": "test",
@@ -89,9 +92,14 @@
       "claim": "Actual volatile EffectIntent barriers/activation, credentials and recovered identity refuse redispatch; post-200 error preserves interim usage."
     },
     {
+      "kind": "monitor",
+      "file": "test/fixtures/anthropic-direct-stream/PROVENANCE.md",
+      "claim": "One text stream of claude-haiku-5-5 recorded on 2026-11-13 from Anthropic's own endpoint with curl over HTTP/2, committed unchanged with its request body. An observation of one model in one call, not a proof and not the provider's Contract; HTTP/1.1 on the live endpoint was not recorded."
+    },
+    {
       "kind": "type",
       "file": "lib/elzoo/data_stream/binding.ex",
-      "claim": "Existing Binding compiler checks the total static closed failure table and sole credentials-unavailable no-send attestation; runtime exact schema validators check translated boundaries, not unchecked typespecs."
+      "claim": "Existing Binding compiler checks the total static closed failure table and sole credentials-unavailable no-send attestation; runtime schema validators check translated boundaries, not unchecked typespecs."
     },
     {
       "kind": "upstream",

@@ -53,7 +53,7 @@ defmodule Elzoo.DataStream.Protocol do
         {:ok, %{s | parser: parser}}
 
       {[%{event: name, data: data}], parser} ->
-        with {:ok, m} when is_map(m) <- JSON.decode(data),
+        with {:ok, m} when is_map(m) <- JSON.decode_event(data),
              {:ok, s, action} <- event(%{s | parser: parser}, name, m) do
           {:ok, s, action}
         else
@@ -80,12 +80,11 @@ defmodule Elzoo.DataStream.Protocol do
   end
 
   defp transition(%{phase: phase}, _, _) when phase == :stopped, do: {:error, :malformed_response}
-  defp transition(s, "ping", m), do: with(:ok <- shape(m, ["type"], []), do: {:ok, s, :none})
 
   defp transition(s, "error", m) do
-    with :ok <- shape(m, ~w(type error), ["request_id"]),
+    with :ok <- shape(m, ~w(type error)),
          e when is_map(e) <- m["error"],
-         :ok <- shape(e, ~w(type message), []),
+         :ok <- shape(e, ~w(type message)),
          true <- is_binary(e["type"]) and Regex.match?(~r/\A[\x21-\x7e]{1,64}\z/, e["type"]),
          true <- text?(e["message"], 16_384),
          true <- not Map.has_key?(m, "request_id") or id?(m["request_id"]) do
@@ -98,14 +97,9 @@ defmodule Elzoo.DataStream.Protocol do
   end
 
   defp transition(%{phase: :start} = s, "message_start", m) do
-    with :ok <- shape(m, ~w(type message), []),
+    with :ok <- shape(m, ~w(type message)),
          a when is_map(a) <- m["message"],
-         :ok <-
-           shape(
-             a,
-             ~w(id type role model content stop_reason stop_sequence),
-             ~w(usage container stop_details)
-           ),
+         :ok <- shape(a, ~w(id type role model content stop_reason stop_sequence)),
          true <- id?(a["id"]) and model?(a["model"]),
          true <-
            a["type"] == "message" and a["role"] == "assistant" and a["content"] == [] and
@@ -128,10 +122,10 @@ defmodule Elzoo.DataStream.Protocol do
 
   defp transition(%{phase: :content, open: nil, next: n} = s, "content_block_start", m)
        when n < 64 do
-    with :ok <- shape(m, ~w(type index content_block), []),
+    with :ok <- shape(m, ~w(type index content_block)),
          true <- is_integer(m["index"]) and m["index"] == n,
          b when is_map(b) <- m["content_block"],
-         :ok <- shape(b, ~w(type text), ["citations"]),
+         :ok <- shape(b, ["type"]),
          :ok <- variant(b["type"], "text"),
          true <- text?(b["text"], 65_536) do
       action = if b["text"] == "", do: :none, else: {:text, :binary.copy(b["text"])}
@@ -143,10 +137,10 @@ defmodule Elzoo.DataStream.Protocol do
   end
 
   defp transition(%{phase: :content, open: n} = s, "content_block_delta", m) when is_integer(n) do
-    with :ok <- shape(m, ~w(type index delta), []),
+    with :ok <- shape(m, ~w(type index delta)),
          true <- is_integer(m["index"]) and m["index"] == n,
          d when is_map(d) <- m["delta"],
-         :ok <- shape(d, ~w(type text), []),
+         :ok <- shape(d, ["type"]),
          :ok <- variant(d["type"], "text_delta"),
          true <- text?(d["text"], 65_536) do
       {:ok, s, {:text, :binary.copy(d["text"])}}
@@ -157,7 +151,7 @@ defmodule Elzoo.DataStream.Protocol do
   end
 
   defp transition(%{phase: :content, open: n} = s, "content_block_stop", m) when is_integer(n) do
-    with :ok <- shape(m, ~w(type index), []), true <- is_integer(m["index"]) and m["index"] == n do
+    with :ok <- shape(m, ~w(type index)), true <- is_integer(m["index"]) and m["index"] == n do
       {:ok, %{s | open: nil}, :none}
     else
       {:error, _} = e -> e
@@ -166,9 +160,8 @@ defmodule Elzoo.DataStream.Protocol do
   end
 
   defp transition(%{phase: p, open: nil} = s, "message_delta", m) when p in [:content, :delta] do
-    with :ok <- shape(m, ~w(type delta), ~w(usage context_management)),
+    with :ok <- shape(m, ~w(type delta)),
          d when is_map(d) <- m["delta"],
-         :ok <- shape(d, [], ~w(stop_reason stop_sequence container stop_details)),
          true <- is_nil(d["stop_sequence"]),
          {:ok, finish} <- finish(s.finish, Map.get(d, "stop_reason")),
          {:ok, s} <- observe_usage(s, m, :message_delta) do
@@ -180,9 +173,8 @@ defmodule Elzoo.DataStream.Protocol do
     end
   end
 
-  defp transition(%{phase: :delta, finish: f} = s, "message_stop", m) when not is_nil(f) do
-    with :ok <- shape(m, ["type"], []),
-         {:ok, u} <-
+  defp transition(%{phase: :delta, finish: f} = s, "message_stop", _) when not is_nil(f) do
+    with {:ok, u} <-
            Usage.value(if(s.delta_output, do: s.usage, else: %{s.usage | output: :unknown})) do
       {:ok, %{s | phase: :stopped, incurred_usage: {:provider_reported, u}}, :stop}
     end
@@ -192,7 +184,9 @@ defmodule Elzoo.DataStream.Protocol do
        when name in ~w(message_start content_block_start content_block_delta content_block_stop message_delta message_stop),
        do: {:error, :malformed_response}
 
-  defp transition(_, _, _), do: {:error, :unsupported_response}
+  # ELZ-155: `ping` and each event type that the Piece does not read are
+  # ignored at every point before the stop. event/3 counts the event.
+  defp transition(s, _, _), do: {:ok, s, :none}
 
   defp observe_usage(s, m, stage) do
     case Map.fetch(m, "usage") do
@@ -229,17 +223,10 @@ defmodule Elzoo.DataStream.Protocol do
   defp variant(a, a), do: :ok
   defp variant(_, _), do: {:error, :unsupported_response}
 
-  # Exact keys. ELZ-151: `container`, `stop_details`, `citations` and
-  # `context_management` are in an `opt` list only to be allowed. They hold any
-  # value and no code reads them. A member in neither list is still refused.
-  def shape(m, req, opt) do
-    cond do
-      not is_map(m) -> {:error, :malformed_response}
-      not Enum.all?(Map.keys(m), &(&1 in req or &1 in opt)) -> {:error, :unsupported_response}
-      not Enum.all?(req, &Map.has_key?(m, &1)) -> {:error, :malformed_response}
-      true -> :ok
-    end
-  end
+  # The required members. ELZ-155: a member that the Piece does not read is
+  # ignored; it holds any value and no code reads it.
+  defp shape(m, req),
+    do: if(Enum.all?(req, &Map.has_key?(m, &1)), do: :ok, else: {:error, :malformed_response})
 
   def text?(b, max), do: is_binary(b) and byte_size(b) <= max and String.valid?(b)
   def id?(b), do: is_binary(b) and Regex.match?(~r/\A[A-Za-z0-9_-]{1,128}\z/, b)

@@ -125,6 +125,83 @@ defmodule Elzoo.DataStream.OwnerTest do
     assert t.last_usage == %{usage: u, event_index: 4, stage: :message_delta}
   end
 
+  test "direct_recording_owner: the recorded direct stream through the public start is complete" do
+    directory = Path.expand("../fixtures/anthropic-direct-stream", __DIR__)
+    recorded = File.read!(Path.join(directory, "text.sse"))
+    upstream = File.read!(Path.join(directory, "text.upstream.json"))
+    {:ok, request} = Elzoo.DataStream.JSON.decode(upstream)
+    effect = Fixture.effect(%{}, Map.drop(request, ~w(stream thinking)))
+
+    {frames, t} =
+      loopback(recorded, effect, [models: ["claude-haiku-5-5"]], [
+        {"content-type", "text/event-stream; charset=utf-8"}
+      ])
+
+    # The request bytes of the Piece are the recorded request bytes.
+    assert_receive {:stream_request, _, _, _, ^upstream}, 2_000
+
+    assert [
+             {Stream.Frame, 0, %{kind: :text_delta, payload: "Red"}, :partial},
+             {Stream.Frame, 1, %{kind: :text_delta, payload: "\nOrange\nYellow"}, :partial},
+             {Stream.FinishFrame, 2, %{kind: :finish, payload: %{reason: :stop}}, :source_complete}
+           ] = frames
+
+    assert t.status == :complete and t.delivery_complete and t.source_complete
+    assert t.offered_frames == 3 and t.acknowledged_frames == 3
+    assert t.received_body_bytes == 1_408 and t.raw_blocks == 8
+    assert t.provenance.response_id == "msg_011Ch1BENb7LZPb4upBAsq3o"
+    assert t.provenance.provider_model == "claude-haiku-5-5"
+    assert {:provider_reported, u} = t.incurred_usage
+    assert Elzoo.AiModel.Usage.amount(u, :input_uncached_tokens) == 22
+    assert Elzoo.AiModel.Usage.amount(u, :output_tokens) == 13
+    assert Elzoo.AiModel.Usage.amount(u, :cache_read_tokens) == 0
+    assert Elzoo.AiModel.Usage.sum(u.cache_writes) == 0
+    assert Elzoo.AiModel.Usage.amount(u, :reasoning_tokens) == 0
+    assert t.last_usage == %{usage: u, event_index: 6, stage: :message_delta}
+  end
+
+  test "unread_event_ignored: an unknown event type gives no frame and the same terminal" do
+    # It looks like a text delta, and it holds a number with a fraction.
+    unknown = %{
+      "type" => "new_event",
+      "index" => 0,
+      "delta" => %{"type" => "text_delta", "text" => "not offered"},
+      "n" => 1.5
+    }
+
+    [start, block, text, block_stop, delta, stop] =
+      plain = [Fixture.start()] ++ Fixture.text() ++ [Fixture.delta(), Fixture.stop()]
+
+    # Before message_start, inside the open block, after it and after message_delta.
+    with_events = [unknown, start, block, unknown, text, block_stop, unknown, delta, unknown, stop]
+
+    [{frames, t}, {plain_frames, plain_t}] =
+      for events <- [with_events, plain] do
+        wire = Fixture.wire(events)
+        {frames, t} = loopback(wire)
+        assert t.received_body_bytes == byte_size(wire) and t.raw_blocks == length(events)
+        {frames, t}
+      end
+
+    assert frames == plain_frames
+
+    assert [
+             {Stream.Frame, 0, %{kind: :text_delta, payload: "private output"}, :partial},
+             {Stream.FinishFrame, 1, %{kind: :finish, payload: %{reason: :stop}}, :source_complete}
+           ] = frames
+
+    assert t.status == :complete and t.delivery_complete and t.source_complete
+    # It counts as one event, as ping does: three of the four come before message_delta.
+    assert plain_t.last_usage.event_index == 4 and t.last_usage.event_index == 7
+
+    assert %{
+             t
+             | received_body_bytes: plain_t.received_body_bytes,
+               raw_blocks: plain_t.raw_blocks,
+               last_usage: plain_t.last_usage
+           } == plain_t
+  end
+
   test "failed finish retains source-complete usage; interruption before stop cannot incur it" do
     for {stop, expected} <- [{true, true}, {false, false}] do
       events = [Fixture.start(), Fixture.delta()] ++ if(stop, do: [Fixture.stop()], else: [])
@@ -612,6 +689,30 @@ defmodule Elzoo.DataStream.OwnerTest do
     assert req.options.finch[:conn_opts][:transport_opts][:timeout] == 5_000
     assert req.options.finch[:pool_max_idle_time] == 60_000
     GenServer.stop(owner)
+  end
+
+  # One loopback run through the public start: the frames that the sink took
+  # and the terminal.
+  defp loopback(
+         body,
+         effect \\ Fixture.effect(),
+         settings \\ [],
+         headers \\ [{"content-type", "text/event-stream"}]
+       ) do
+    peer = Peer.start(self(), fn mod, s -> Peer.response(mod, s, body, 200, headers) end)
+    parent = self()
+    tag = make_ref()
+
+    sink = fn frame ->
+      send(parent, {tag, frame})
+      Fixture.ack(frame)
+    end
+
+    {:ok, owner} = Stream.__start_loopback__(Fixture.settings(settings), peer.origin)
+    {:ok, h} = Stream.start(owner, effect, sink)
+    t = Fixture.terminal(h)
+    GenServer.stop(owner)
+    {offered(tag), t}
   end
 
   # The frames that one sink offered, without the references of the run.

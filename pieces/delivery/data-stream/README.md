@@ -1,7 +1,8 @@
 # delivery/data-stream
 
 An opt-in, text-only Anthropic Messages streaming Adapter, namespace
-`Elzoo.DataStream`. Its complete selected Contract is [ELZ-101](https://github.com/balungpisah/elzoo/issues/187).
+`Elzoo.DataStream`. Its complete selected Contract is [ELZ-101](https://github.com/balungpisah/elzoo/issues/187),
+with the rule of [ELZ-155](https://github.com/balungpisah/elzoo/issues/335) for what the Piece does not read.
 It does not implement or change either synchronous AiText provider.
 
 ## Use and construction
@@ -111,27 +112,53 @@ blocks; one incremental parser state; LF/CR/CRLF and split BOM/UTF8 are handled.
 Boundary CR's possible LF is resolved before emitting. EOF resolves real CR;
 it never appends a separator or flushes unfinished data into an event.
 
-Exact schemas live in Protocol: message_start; contiguous one-open text blocks;
-text_delta; block_stop; message_delta; message_stop; ping; error. Nested exact
-keys are checked as well. Unknown variants/fields fail unsupported_response;
-malformed shape/order fails malformed_response. Four finish reasons map to stop,
-length, refusal, context_limit. Zero text is allowed with the valid final sequence.
+Schemas live in Protocol: message_start; contiguous one-open text blocks;
+text_delta; block_stop; message_delta; message_stop; error. The Piece reads
+these JSON objects: the object of each event, `message`, `content_block`, each
+`delta`, `error`, each `usage`, `cache_creation` and `output_tokens_details`.
+Each member that it reads keeps its rule: required or optional, type, bound and
+value. Malformed shape/order fails malformed_response. A content block that is
+not text, a delta that is not text_delta, a stop reason outside the four, a
+stop_sequence that is not null and a thinking_tokens amount other than 0 or
+null fail unsupported_response. Four finish reasons map to stop, length,
+refusal, context_limit. Zero text is allowed with the valid final sequence.
 Post-200 errors are partial/stream_error, even overloaded_error. No raw error
 message survives translation. HTTP EOF/Req success is not completion.
 
-These members are allowed and never read: `container` and `stop_details` in the
-message of message_start and in the delta of message_delta; `citations` in the
-text block of content_block_start; `context_management` in message_delta;
-`inference_geo`, `server_tool_use`, `service_tier` and `speed` in usage of both
-events. Each may be absent or hold any JSON value inside the decoder's bounds
-(a number with a fraction or exponent is still malformed_response). A stream
-with them gives the frames, usage, finish reason, provenance and terminal of
-the same stream without them, except that received_body_bytes counts their
-bytes and that the two byte bounds count them too: 65,536 for one raw block and
-4,194,304 for the body.
-Every other member is still unsupported_response. A `provider` member, a
-`model` text with `/` and `cost`, `is_byok` or `cost_details` in usage stay
-refused: a stream through OpenRouter belongs to delivery/provider-stream.
+The Piece ignores what it does not read (ELZ-155, a decision of the owner):
+
+- **Members.** In each object above, a member that the Piece does not read is
+  ignored. It may hold any JSON value inside the bounds of the decoder: nesting
+  at most 16, an integer of at most 19 digits, no duplicate key at any depth.
+  `provider` in the message and `cost`, `is_byok` and `cost_details` in usage
+  are ignored as each other such member: the request goes only to Anthropic's
+  endpoint. A `model` text with `/` is still refused, because `model` is read.
+- **Event types.** An event whose type the Piece does not read is ignored at
+  each point where `ping` is accepted: each point before message_stop. It must
+  be one well-formed block: its data is one JSON object, and the `type` of that
+  object is equal to the event name. If not, the result is malformed_response.
+  It gives no frame and changes no state, but it counts as one event, as `ping`
+  does.
+- **Numbers.** In an event, a number with a fraction or an exponent is accepted
+  when it has at most 64 bytes, sign included. With 65 bytes it is
+  malformed_response. So is a value above the range of a double, for example
+  `1e309`: the decoder cannot hold it. In a member that the Piece reads as an
+  integer, a number with a fraction or an exponent is malformed_response, as
+  each other wrong type is. The request decoder is not changed: it refuses a
+  fraction and an exponent.
+- **One exception.** In `cache_creation` each member name is one lifetime. If
+  the group holds a member other than the two that the Piece reads, the Piece
+  does not use the group: the cache-write result is `provider_default` with the
+  amount of `cache_creation_input_tokens` of the same usage object, or unknown
+  when that member is absent or null. The two members that the Piece reads keep
+  their type rule.
+
+A stream with an ignored member or event gives exactly the frames, usage, finish
+reason, provenance and terminal of the same stream without it. Three things
+differ and no more: received_body_bytes counts its bytes; the two byte bounds
+count them too (65,536 for one raw block and 4,194,304 for the body); an ignored
+event counts as one event (the bound of 65,536 blocks, raw_blocks and the event
+index of last_usage).
 
 Raw cumulative usage is translated independently of sink returns, with unknown
 preserved under the exact nested omission/null rules. Values replace, never sum
@@ -174,20 +201,34 @@ Primary docs fetched 2026-11-11: [Messages](https://platform.claude.com/docs/en/
 [versioning](https://platform.claude.com/docs/en/api/versioning),
 [authentication](https://platform.claude.com/docs/en/api/overview#authentication),
 [thinking](https://platform.claude.com/docs/en/build-with-claude/thinking#turning-thinking-off).
-The never-read members rest on two pages read 2026-11-13 and on one recorded
-route. The Messages reference lists `container` and `stop_details` on the
+The ignore rule rests on a decision of the owner, on pages read 2026-11-13 and
+on two recordings. The Messages reference lists `container` and `stop_details` on the
 Message and on the delta of message_delta, `citations` on a text block, the
 four usage members on the usage of the Message and `server_tool_use` on the
-usage of message_delta. The versioning page says that values may be added to
-the output within one API version. `context_management` is on neither page. A
+usage of message_delta. The versioning page says that values, and new variants
+of enum-like values such as event types, may be added to the output within one
+API version. The streaming page says that code should handle unknown event
+types gracefully. `context_management` is on neither reference page. A
 text stream recorded on 2026-11-13 through OpenRouter's Anthropic-compatible
 endpoint, routed to Anthropic (model claude-haiku-5-5, thinking disabled; a
 fixture of delivery/provider-stream), carried every one of them, `inference_geo`
 in message_start only. Three of its events are schema test data here as derived
-data with the OpenRouter differences removed; no test reads the recording. The
-owner test compares one whole loopback stream with and without the members. Not
-verified: that Anthropic's own endpoint sends each member in its stream events,
-and any other model.
+data with the OpenRouter differences removed; no test reads that recording. The
+owner test compares one whole loopback stream with and without the members.
+One text stream was recorded on 2026-11-13 from Anthropic's own endpoint (model
+claude-haiku-5-5, thinking disabled; `test/fixtures/anthropic-direct-stream/`,
+with its facts in PROVENANCE.md). The schema test replays it through Framer and
+Protocol in pieces of 1, 7, 97 and 4,096 bytes. The owner test replays it
+through `start` on loopback and checks that the request body of the Piece is
+equal to the recorded request body. The recording shows: `container`,
+`stop_details` and `diagnostics` in the message, each null; `service_tier`,
+`inference_geo` and `speed` in its usage; `container` and `stop_details` in the
+delta of message_delta; a `ping` inside the open block; spaces before the last
+brace of six data lines; `charset=utf-8` in the content type. It does not show: `citations`,
+`context_management` or `server_tool_use`; an event type that the Piece does not
+read; a number with a fraction; another model; a second call; a tool call;
+thinking; an error event; a cut stream; HTTP/1.1 on the live endpoint. The call
+was made with curl over HTTP/2, and the transport of the Piece is HTTP/1.1.
 Run `mix test pieces/delivery/data-stream/test` in the catalogue; the independent
 consumer test runs the copied boundary tests in a separate VM with only the
 selected upstream application closure.
