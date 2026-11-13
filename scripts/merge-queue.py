@@ -404,11 +404,11 @@ class Queue:
 
     def evidence(self, run_id, pr, workflow_id, allow_docs_only=True, allow_piece=True):
         """The successful run of the exact head, read as one evidence unit (ELZ-073). Returns (jobs, mode), where
-        jobs maps the six job names to their API objects. Mode "full": the five evidence jobs ran in this attempt and
-        succeeded, check-piece was skipped, the three work jobs printed their part markers and the aggregating job
-        printed the full marker. Mode "docs-only": the plan job passed the short check (marker line), the three work
-        jobs and check-piece were skipped and the aggregating job succeeded. Mode "piece" (small gate): a pull_request
-        run in which check-piece ran and printed the piece marker, the three work jobs were skipped and no other marker
+        jobs maps the complete legacy six-job or fixed split eight-job unit to API objects. Mode "full": all work
+        jobs ran in this attempt and succeeded, check-piece was skipped, each work job printed its part marker and
+        the aggregating job printed the full marker. Mode "docs-only": the plan job passed the short check (marker
+        line), all work jobs and check-piece were skipped and the aggregating job succeeded. Mode "piece" (small gate):
+        a pull_request run in which check-piece ran and printed the piece marker, all work jobs were skipped and no other marker
         is present. The caller accepts docs-only and piece only after the queue's own classification. Anything else (a
         missing, extra, duplicated, red, cancelled or mixed set, a job that ran in an earlier attempt) is no evidence."""
         while True:
