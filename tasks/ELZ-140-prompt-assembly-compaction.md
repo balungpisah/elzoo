@@ -85,16 +85,16 @@ The model-call vocabulary is the one that every pattern step uses (ELZ-141 too).
 - `action_id`: the ID of the one model-call action. The caller keeps it unique in the Run.
 - `entries`: 1 to 256 history entries in the shape above: the range to compact.
 - `model`, `max_output_tokens`, `role_instructions`, `window`, `max_request_bytes`: for the summary request. The role instructions say how to summarize; the host writes them.
-- `summary`: `%{id: id, source: text, max_bytes: n}`: the ID of the summary entry, and the source and the size bound of its mark. A `source` outside the source grammar of ELZ-137 or a `max_bytes` outside 1..16,777,216 is `:invalid_input`.
+- `summary`: `%{id: id, source: text, max_bytes: n}`: the ID of the summary entry, and the source and the size bound of its mark. A `source` outside the source grammar of ELZ-137, a `max_bytes` outside 1..16,777,216 or an `id` that an entry of the range already has is `:invalid_input`.
 
-The `:record` entries are the keep-rule items. They are carried as they are and are not sent to the model. The other entries are the free text. `open/2` builds the summary request with `PromptAssembly.build/2` from the role instructions and those entries, with no skill instructions, no memory, no tools and `max_image_refs` 256. If that build drops an entry, the range does not fit one request: the result is `{:error, :over_limit}`, and the caller takes a shorter range. A range with no free text is `{:error, :nothing_to_summarize}`. Each other error of the build comes back unchanged.
+The `:record` entries are the keep-rule items. They are carried as they are and are not sent to the model. A record that is not a JSON object is `:invalid_input`. The other entries are the free text. `open/2` builds the summary request with `PromptAssembly.build/2` from the role instructions and those entries, with no skill instructions, no memory, no tools and `max_image_refs` 256. If that build drops an entry, the range does not fit one request: the result is `{:error, :over_limit}`, and the caller takes a shorter range. A range with no free text is `{:error, :nothing_to_summarize}`. Each other error of the build comes back unchanged.
 
 `request` is a request of `workflow/pattern-step` with exactly one action: its `id` is `action_id`, and its kind, key and payload are as above. `state` is plain data (no function, PID or reference) that the caller keeps.
 
 `accept(state, input)` takes a neutral input map of `workflow/pattern-step` and settles the action through `PatternStep.open/1` and `PatternStep.accept/2`:
 
-- `{:late, state}` for an outcome of another action and for a late outcome. `{:error, :invalid_input}` for a map that `PatternStep.decode/1` refuses. `{:error, reason}` with the reason of `PatternStep.accept/2` (`:not_an_outcome`, `:incompatible_answer_kind`) for an input that it refuses.
-- `{:error, {:model_call, outcome}}` for an outcome class other than `completed`.
+- `{:late, state}` for an outcome of another action and for a late outcome. `{:error, :invalid_input}` for a map that `PatternStep.decode/1` refuses and for a map that is not an input (a request). `{:error, reason}` with the reason of `PatternStep.accept/2` (`:not_an_outcome`, `:incompatible_answer_kind`) for an input that it refuses.
+- `{:error, {:model_call, outcome}}` for an outcome class other than `completed`; `outcome` is the class as text, for example `"failed"`.
 - `{:error, :invalid_summary}` when the schema key is not the result key above, when `finish` is not `"stop"`, or when `content` is not a nonempty UTF-8 text of at most `summary.max_bytes` bytes. A refusal, an empty answer and an answer cut by the length limit are in this case.
 - Otherwise `{:ok, compacted}`:
 
@@ -111,7 +111,7 @@ In each error case there is no compacted value, and the caller keeps the origina
 
 Needs. The caller decides what is an instruction and what is content: role instructions come from the recipe, skill instructions only from a `pinned_skill` source, and each tool result, document, member message and summary is a marked value. The marks are stamped truthfully (ELZ-137). The `estimate` function is pure and tells its direction truthfully. Memory was selected with its access check. A `:record` entry holds no unmarked content of a tool, a document or another member. The caller keeps IDs unique and keeps the original history. The host's model binding gives a completed outcome in the vocabulary above.
 
-Limits. No claim that a provider accepts each order of messages that the inputs allow. No claim about the accuracy of an estimate. No other optional member of the ai-text request is built. No image part and no image input. No claim about the quality of a summary. No claim that marking prevents prompt injection. Telemetry, Config and Control are not applicable to these pure functions; the manifests say why.
+Limits. No claim that a provider accepts each order of messages that the inputs allow. No claim about the accuracy of an estimate. No other optional member of the ai-text request is built. No image part and no image input. No claim about the quality of a summary. No claim that marking prevents prompt injection. Telemetry and Control are not applicable to these pure functions. Config is supported per call: the limits that the caller passes with each call (the window, `max_request_bytes`, `max_image_refs`), with no default and no ambient setting.
 
 ## Acceptance groups
 

@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: Apache-2.0
+mod Elzoo.ToolRegistry
+  type Resolution = Resolved | Changed | Removed | Ambiguous | Unknown
+
+  # live: the name is the alias of a listed tool; differs: a version was given and is not
+  # the listed one; removed: the name is in a removed set; many: the name is the own name
+  # of tools on two or more sources.
+  @total true
+  @reducible
+  fn decide(live: Bool, differs: Bool, removed: Bool, many: Bool) -> Resolution =
+    match live
+      True() ->
+        match differs
+          True() -> Changed()
+          False() -> Resolved()
+      False() ->
+        match removed
+          True() -> Removed()
+          False() ->
+            match many
+              True() -> Ambiguous()
+              False() -> Unknown()
+
+  fn live_differs_changed(removed: Bool, many: Bool) -> Equivalent(Resolution, decide(True(), True(), removed, many), Changed()) =
+    reflexive(Changed())
+
+  fn not_live_removed(differs: Bool, many: Bool) -> Equivalent(Resolution, decide(False(), differs, True(), many), Removed()) =
+    reflexive(Removed())
+
+  fn not_live_ambiguous(differs: Bool) -> Equivalent(Resolution, decide(False(), differs, False(), True()), Ambiguous()) =
+    reflexive(Ambiguous())
+
+  fn not_live_unknown(differs: Bool) -> Equivalent(Resolution, decide(False(), differs, False(), False()), Unknown()) =
+    reflexive(Unknown())
+end

@@ -4144,15 +4144,13 @@
       "kind": "proposal",
       "release": "V1B",
       "stage": "pieces",
-      "outputs": [
-        "integration/ai-token-count"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "ELZ-079",
         "ELZ-030"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "superseded for integration/ai-token-count by published ELZ-138; output moved",
       "contract": "Estimate the input size of a provider-neutral text request for a named model before the call, with a declared error direction: an upper bound, or a value labelled approximate. The value carries an estimator_id and an estimator_version, the fields that a window of workflow/context-selection names for its estimates. Used to refuse or shorten a request before spending. The reported usage of the provider stays the only usage fact. First provider: Anthropic.",
       "acceptance": "Estimate against provider-reported usage on recorded Anthropic fixtures, with the observed error stated; an estimate below the reported value on a fixture fails the upper-bound claim; unknown model refused; tools and system text counted; an approximate value never presented as exact; no network call unless a provider count endpoint is the declared method.",
       "reuse": "llm_db (pinned) for model limits; req_llm (pinned) and provider count endpoints where they exist. In workflow/context-selection the estimator_id and estimator_version sit on the window, and the estimate of a candidate is a bare number under that window. It refuses a byte estimate that is below the content bytes and does not check a token estimate: token accuracy and provider limits are external Needs there (README; context_selection.ex). No tokenizer is pinned: adopting one is a separate provider-prerequisite task (mix.exs, mix.lock, registry/providers.json).",
@@ -4182,7 +4180,7 @@
         "ELZ-079",
         "ELZ-030",
         "ELZ-137",
-        "RC-53",
+        "ELZ-138",
         "ELZ-114"
       ],
       "status": "superseded for workflow/prompt-assembly and workflow/context-compaction by published ELZ-140; output moved",
@@ -4239,9 +4237,7 @@
       "kind": "proposal",
       "release": "V1B",
       "stage": "pieces",
-      "outputs": [
-        "workflow/agent-loop"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "ELZ-002",
@@ -4252,7 +4248,7 @@
         "ELZ-139",
         "ELZ-087"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "superseded for workflow/agent-loop by published ELZ-142; output moved",
       "contract": "The agent loop as one pattern, not the base: a pure step of RC-68. Inputs: start, a model result, a tool result, a person's answer, a new message, cancel. Output: new state and zero or one request with a set of actions (call the model, call one or more tools, ask a person, run a nested callable, finish), all in the shapes of RC-68. The model proposes; the step maps each proposed tool call through the pure resolution of the tool registry (RC-52) over the snapshot in its state, and puts all calls of one model turn in one request. RC-65 captures the source set at Run start from the pinned recipe and then-read tenant settings; no model, tool or person adds sources, changed settings affect the next Run, and an explicit version-pin change does not change the captured set. Known-source tool lists may change by recorded input. This job owns the declaration result shape and accepts instructions or tools only when the resolved source kind in the registry snapshot permits them: pinned-package skill instructions and declarations, or host listing tool declarations, never inferred from result shape or text. A listing outside the captured set is refused without changing the snapshot. It owns named refusals for exceeding 64 tools and a total loaded-instruction byte bound; the worker proposes the latter at admission considering ai-text's 65,536 canonical-byte request cap. An instruction-overbound load adds no instruction; instructions are never cut and a repeat loaded skill adds nothing. A fresh listing reaches the step as the outcome of a tool-call action to a host listing tool: mcp-client discovery never sends tools/call, so a host tool wraps it and this job tests with a scripted one. It builds each model request with RC-54 and applies RC-69 to other tool results and skill files, never the SKILL.md body. The step has no clock, network or storage, and checks neither budget nor authority: the engine does that for every action.",
       "acceptance": "Recorded-trace tests with no model and no network: a final answer; several tool calls in one turn (one request, each result returns once, in any order); an unknown tool (a result for the model, not a crash); a malformed proposal (each malformed tag of ai-text) reaches the model by a declared rule that request.ex accepts: it is echoed with an empty arguments object and its tag is the tool-result text, or the call is left out and the tag is plain content, and a proposal whose name is outside the tool-name grammar is always left out; a known-source listing changes the snapshot (a new tool usable in the next turn, a change over 64 tools refused); outside-set listing refused with snapshot unchanged; any other tool's exact declaration-shaped result adds neither instructions nor tools, while a pinned-package skill load adds instructions; an instruction-overbound load adds no instruction, instructions are not cut and a repeat loaded skill adds nothing; a proposal without an id cannot get a tool result and is answered by a declared rule; a tool that the engine refuses (the refusal returns as content, rendered by a declared rule that every supported provider accepts); a tool result after cancel (late); the turn limit (explicit outcome); the text 'done' from a model is not completion evidence.",
       "reuse": "The ELZ-025 study surveyed agent libraries, Jido included, and adopted none because each owns the process host; they are references for the step table only. integration/ai-text returns an undeclared or invalid tool call with arguments nil and a malformed tag; a proposal id can be nil; a tool_result message needs a tool_use_id of 1 to 256 bytes (adapter.ex, request.ex). An assistant message that echoes a tool call needs an id of 1 to 256 bytes, a name in the tool-name grammar and an object for arguments, or the request is refused invalid_request (request.ex): a malformed proposal cannot be echoed as it came. integration/ai-text-openai (ELZ-087) refuses a request that holds a tool result with is_error true (open_ai.ex), so a refusal is not rendered as an error result there. Composes RC-52, RC-54, RC-69 and integration/ai-text. assembly/agent-product (RC-38) remains the later example Assembly and is not this Piece.",
@@ -4276,15 +4272,13 @@
       "kind": "proposal",
       "release": "V1B",
       "stage": "pieces",
-      "outputs": [
-        "delivery/provider-stream"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "ELZ-101",
         "ELZ-079"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "superseded for delivery/provider-stream by published ELZ-143; output moved",
       "contract": "Partial output of one model call, partial tool-call arguments included, as a bounded stream under the lifetime rules of delivery/data-stream: one acknowledged frame at a time. The start of a tool call (id and name) is carried in a chunk shape that this Piece owns; Elzoo.AiModel.StreamChunk is unchanged. The complete result is assembled once, within its own declared byte bound. A consumer that stops reading closes the local HTTP request; provider work and charges after the close are unknown. First provider: Anthropic. A second provider is a separate Piece of the same family, as with integration/ai-text.",
       "acceptance": "Text only; a tool call split across chunks; a stream cut in the middle of a tool call (explicit incomplete, never a partial tool call dispatched); a slow consumer (one unacknowledged frame, then backpressure or close by declared policy); an assembled result over its byte bound (explicit refusal); a provider error mid-stream; the content, the tool calls (id, name, arguments) and the finish reason of the assembled result equal those of the paired recorded non-stream fixture; response_id, usage and provenance differ between two recordings and are not compared.",
       "reuse": "Ready delivery/data-stream bounds one Anthropic text stream, keeps no decoded backlog, claims no remote cancellation and uses no ReqLLM (README). req_llm streaming is pinned (mix.lock): assess it against those bounds before adopting it. The ready tool_delta chunk carries only index and delta (pieces/integration/ai-model/lib/elzoo/ai_model/stream_chunk.ex). A new Piece ID, because it widens the ready Contract to tool calls.",
@@ -4592,7 +4586,7 @@
         "RC-50",
         "ELZ-136",
         "ELZ-141",
-        "RC-56",
+        "ELZ-142",
         "RC-60",
         "RC-61",
         "RC-62",
@@ -4631,7 +4625,7 @@
         "ELZ-096",
         "ELZ-136",
         "ELZ-140",
-        "RC-56",
+        "ELZ-142",
         "RC-65",
         "RC-66",
         "RC-61",
@@ -5252,7 +5246,7 @@
       "product_aims": ["P13"],
       "issue": 290,
       "url": "https://github.com/balungpisah/elzoo/issues/290",
-      "issue_body_sha256": "ede95b993d81be227b6740ff80f4b7dc7e3cbb72ab77cea0af97292025585b0c"
+      "issue_body_sha256": "f4f5381ecc5480fac8fbd5f912aaaeec1d1a928dc667864b5d1f2fcf289cf846"
     },
     {
       "id": "ELZ-137",
@@ -5286,7 +5280,7 @@
       "product_aims": ["P13"],
       "issue": 293,
       "url": "https://github.com/balungpisah/elzoo/issues/293",
-      "issue_body_sha256": "7521b1622c74a7b9997d6ccdc11b7f77be142bcda4c7f8731e91eda34617cb7c"
+      "issue_body_sha256": "f877a55fc6a842fcf69eb8df6589463f841f616c1476f6be4e3370d09a4b4f89"
     },
     {
       "id": "ELZ-140",
@@ -5303,7 +5297,58 @@
       "product_aims": ["P13"],
       "issue": 294,
       "url": "https://github.com/balungpisah/elzoo/issues/294",
-      "issue_body_sha256": "722dc93fc7336a60c513e608d4666263a803ccff4a341856e7e9d0df3be1726f"
+      "issue_body_sha256": "1ec5002b37c7ae7c5228e1079a7e29047bbaf9e602fcf229fdbb516a880fcdaa"
+    },
+    {
+      "id": "ELZ-142",
+      "title": "ELZ-142 — Agent loop as one pure pattern step",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-002", "ELZ-079", "ELZ-114", "ELZ-136", "ELZ-140", "ELZ-139", "ELZ-087"],
+      "status": "published 2026-11-13",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-142-agent-loop.md"],
+      "outputs": ["workflow/agent-loop"],
+      "acceptance": "The fourteen named groups cover a final answer, one turn in one request, an unknown tool, malformed proposals, a listing that changes the snapshot, a listing outside the captured set, declarations by source kind, the instruction bound, a proposal without an id, an engine refusal as content, a result after cancel, the turn limit, the word done not being completion evidence, and an ask with its answer, with two negative controls and selected Cure laws.",
+      "product_aims": ["P13"],
+      "issue": 301,
+      "url": "https://github.com/balungpisah/elzoo/issues/301",
+      "issue_body_sha256": "922a1354af1ead2382dd1f8590d41819f3cc981c9eea0352f185c3bfc385a0a5"
+    },
+    {
+      "id": "ELZ-138",
+      "title": "ELZ-138 — Token estimate before a model call (Anthropic first)",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-079", "ELZ-030"],
+      "status": "published 2026-11-13",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-138-ai-token-count.md"],
+      "outputs": ["integration/ai-token-count"],
+      "acceptance": "The seven named groups cover the upper bound on fifteen fixtures recorded through OpenRouter's Anthropic-compatible endpoint, the observed error stated, each fixture matching what the ready adapter sends, an unknown model refused, tools and system text counted, a value never presented as exact, and no network call.",
+      "product_aims": ["P13"],
+      "issue": 306,
+      "url": "https://github.com/balungpisah/elzoo/issues/306",
+      "issue_body_sha256": "11809f9582030f557e6c80a5be6df54b8dbab7f18157bb3d2f5bd96e86cc4eef"
+    },
+    {
+      "id": "ELZ-143",
+      "title": "ELZ-143 — Provider stream with tool calls (Anthropic first)",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-101", "ELZ-079"],
+      "status": "published 2026-11-13",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-143-provider-stream.md"],
+      "outputs": ["delivery/provider-stream"],
+      "acceptance": "The seven named groups cover text only, a tool call split across chunks, a stream cut inside a tool call, a slow consumer, an assembled result over its bound, a provider error mid-stream, and the assembled result equal to the second form of the same recorded response.",
+      "product_aims": ["P13"],
+      "issue": 307,
+      "url": "https://github.com/balungpisah/elzoo/issues/307",
+      "issue_body_sha256": "d8b21acfbda017a2bdb8b3ea1b8d7738a4caedc118c101fca2436e50eea3a5bf"
     }
   ],
   "entries": [
@@ -6389,30 +6434,36 @@
     {
       "id": "workflow/untrusted-content",
       "job": "ELZ-137",
-      "note": "Bot platform wave 2 (P13). One shared mark with source and trust class for tool results, documents and messages from other members, kept through transformation, with a tested render rule for a model request. The mark travels inside the payload; core/envelope is unchanged.",
+      "note": "Pure mark for content that must not give orders: a checked version-1 neutral map with ordered distinct sources, trust class untrusted or derived, a byte bound and UTF-8 content; decode, encode, concat and wrap keep the least trusted class, and render gives the one content-tagged block for a model request. Marking grants no authority and prevents no injection.",
       "baseline_status": "not in baseline (new row, RC-51)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/workflow/untrusted-content/piece.json",
+      "manifest_sha256": "a6195ec2ef48341789f1980500cb7629f9ae928b3cbea279beeede3265eb8f62",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
       "id": "workflow/tool-registry",
       "job": "ELZ-136",
-      "note": "Bot platform wave 2 (P13). Tool sources can change at run time (MCP). Owns the model-facing alias and the version, a digest of the descriptor. Finding a tool grants no permission. Unknown, ambiguous and changed tools are explicit results.",
+      "note": "Pure resolution of a model-proposed tool name over a caller-supplied snapshot of at most 64 untrusted descriptors from declared sources: deterministic ai-text-grammar alias per source and name, SHA-256 version of the canonical descriptor without trust, model-facing description fill and cut, one argument check through core/payload-schema; resolved, changed, removed (latest listing only), ambiguous or unknown, never the first match. Source kind comes only from the caller; finding a tool grants no permission. No listing, dispatch, process, clock or storage.",
       "baseline_status": "not in baseline (new row, RC-52)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/workflow/tool-registry/piece.json",
+      "manifest_sha256": "fdc6675fe8a127721f4982a28810438d0f0543ab4e19ae07e2bd3b43b3b983f2",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
       "id": "workflow/tool-result-limit",
       "job": "ELZ-139",
-      "note": "Bot platform wave 2 (P13). A result over the bound becomes an Artifact reference with a bounded preview; the cut is visible and the content stays marked untrusted.",
+      "note": "Bounded tool results: the pure decide/3 gives a marked text result of at most the declared bound unchanged, a store action payload and a bounded pending for larger text and each binary result up to the Artifact bound, and the note over_artifact_max above it; settle/3 turns the outcome class of the store action into a marked value whose content is one notice line, for text with a UTF-8 prefix preview, of at most the declared bound, with the Artifact reference or the note store_refused or store_unknown. The effect-intent Adapter reads the committed log record of the outcome, checks its bytes against the arguments and puts them once into state/artifact, with a sealed receipt digest and three attested no-send tags.",
       "baseline_status": "not in baseline (new row, RC-69)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/workflow/tool-result-limit/piece.json",
+      "manifest_sha256": "97fa7667eb20590f373a3e1fd0a95c2e829050c8e7101206e0bd6980253ae6c0",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
       "id": "integration/ai-token-count",
-      "job": "RC-53",
+      "job": "ELZ-138",
       "note": "Bot platform wave 2 (P13). An upper bound or a labelled approximation for a named model, used to refuse or shorten a request. Not a usage fact and not for billing.",
       "baseline_status": "not in baseline (new row, RC-53)",
       "disposition": "blocked-admission-proposal",
@@ -6421,38 +6472,46 @@
     {
       "id": "workflow/prompt-assembly",
       "job": "ELZ-140",
-      "note": "Bot platform wave 2 (P13). Declared order and drop order inside the hard request bounds of integration/ai-text; never drops instructions or splits a tool call from its result; untrusted content stays marked. Uses ready workflow/context-selection.",
+      "note": "Pure build of one integration/ai-text request from role and skill instructions, selected memory, history and tools in one declared order (one system message, one memory block, one message per history entry, marked content only as rendered blocks), within a caller-supplied token window and estimate and the hard request bounds of ai-text; one declared drop order (oldest unit of a call with its results, then the last memory item) never drops instructions, tools, keep-rule records or the newest unit; older image references become a fixed marked text; refusals before any drop, over_limit when nothing is left to drop.",
       "baseline_status": "not in baseline (new row, RC-54)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/workflow/prompt-assembly/piece.json",
+      "manifest_sha256": "b3c386797ec5c933b1f61fe3c4a86e547c3dd8c1ee9ee74479241d8e70ed5e79",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
       "id": "workflow/context-compaction",
       "job": "ELZ-140",
-      "note": "Bot platform wave 2 (P13). A pure step that gives one model-call action; the engine records it. Keep-rule items (the goal, open actions, decisions, failed approaches) are structured records kept verbatim; only free text is summarized.",
+      "note": "Pure pattern step that asks a model for one summary of a range of history: open gives one model_call action (key elzoo/ai-text-request v1) built by workflow/prompt-assembly from the free-text entries, never the keep-rule records, and refuses a range that does not fit one request; accept settles it through workflow/pattern-step and gives the records unchanged plus one derived marked summary with its derived_from references, or a named error with no compacted value; check refuses a value that lost a keep-rule record.",
       "baseline_status": "not in baseline (new row, RC-54)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/workflow/context-compaction/piece.json",
+      "manifest_sha256": "9f30bca92525b5cf2a91c65aa2bd143e1e36365b24da2deafe5fa83bee499a5f",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
       "id": "workflow/output-repair",
       "job": "ELZ-141",
-      "note": "Bot platform wave 2 (P13). integration/ai-text decides valid or invalid and core/payload-schema gives the violation list; this owns only the repair bound and the explicit failure after it. Never a guessed value.",
+      "note": "Pure bounded output repair over an ai-text completed result: accept only a value that both ai-text and the payload-schema check accept; repair only an invalid answered output while repairs remain, with the unchanged violation list; otherwise fail as length, no_answer, validator_disagreement or invalid_at_bound. Never a guessed value.",
       "baseline_status": "not in baseline (new row, RC-55)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/workflow/output-repair/piece.json",
+      "manifest_sha256": "1f6401bf7bed26cad13ec1f36f18fd340d5074e720d23ef1688fe3c93c375669",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
       "id": "workflow/typed-decision",
       "job": "ELZ-141",
-      "note": "Bot platform wave 2 (P13). A pure step in the shape of workflow/pattern-step, used to pick a branch, check a result or pick a speaker.",
+      "note": "Pure pattern step in the core/operator shape over PatternStep v1 neutral maps: one model_call action per request for an answer of a fixed set of two or more members or of a schema, bounded repair calls by workflow/output-repair, and one finish with status decided and the value both checks accepted, or failed with a named reason. No model call, clock, store or process.",
       "baseline_status": "not in baseline (new row, RC-55)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/workflow/typed-decision/piece.json",
+      "manifest_sha256": "27e9e653d7393007bff6b3bdfe2c12b2b0a7f8fc73a23686e7837a19aae54cd4",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
       "id": "workflow/agent-loop",
-      "job": "RC-56",
+      "job": "ELZ-142",
       "note": "Bot platform wave 2 (P13). The agent loop as one pure step in the shape of workflow/pattern-step, not the base and not a host. All tool calls of one model turn go in one request. assembly/agent-product stays the later example Assembly.",
       "baseline_status": "not in baseline (new row, RC-56)",
       "disposition": "blocked-admission-proposal",
@@ -6460,7 +6519,7 @@
     },
     {
       "id": "delivery/provider-stream",
-      "job": "RC-57",
+      "job": "ELZ-143",
       "note": "Bot platform wave 2 (P13). Widens ready delivery/data-stream (one Anthropic text stream) to tool calls, so it is a new ID. The assembled result equals the completed value of the synchronous provider for a paired fixture. A second provider is a separate Piece.",
       "baseline_status": "not in baseline (new row, RC-57)",
       "disposition": "blocked-admission-proposal",
@@ -6489,18 +6548,22 @@
     {
       "id": "workflow/stall-detect",
       "job": "ELZ-145",
-      "note": "Bot platform wave 2 (P13). A verdict apart from retry policy; a healthy long wait is not a stall. Named by the orchestration reference study.",
+      "note": "Pure stall verdict over 1..256 recorded v1 pattern-step entries of one Run: repeated identical actions at the caller's count, then no non-wake input within the caller's idle bound unless an open ask or host-listed approval wait is in the window; stops nothing.",
       "baseline_status": "not in baseline (new row, RC-70)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/workflow/stall-detect/piece.json",
+      "manifest_sha256": "1bd277dddfd9343f01e478c033521469eff270aca34b24c1914f3b2d4de73bf1",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
       "id": "integration/mcp-multi",
       "job": "ELZ-144",
-      "note": "Bot platform wave 2 (P13). Each server is one compiled binding of ready integration/mcp-client, with its own credential Need and limits; tool lists are keyed by server; one failing server does not block the others. Streamable HTTP and bearer token only. A server added at run time is out of scope. New ID: ready integration/mcp-client is unchanged.",
+      "note": "Several MCP servers for one tenant from a build-time set of 1..16 compiled integration/mcp-client Bindings (Streamable HTTP, bearer token): each server keeps its own ready session, bounds and zero-arity credential Need built from an integration/secrets reference that resolves again at each request. configure/1 calls no host function; a repeated server text, an unknown key or a refused entry refuses the whole set. connect/2 and list_tools/1 take the servers in order with a check before each call; tool lists are keyed by {tenant, server} and hold the unchanged ready listing or unavailable{credentials_expired | credentials_unavailable | a finite reason of the ready client}, so one server's failure is recorded for that server only. session/2 hands out the ready values; a tool call stays the ready admission/3, context/2 and call_tool/3 path with its outcome set. No cache, process, reconnect, subscription, alias or server added at run time.",
       "baseline_status": "not in baseline (new row, RC-59)",
-      "disposition": "blocked-admission-proposal",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/integration/mcp-multi/piece.json",
+      "manifest_sha256": "3bfb14e162cecb26cbdae82ab4de7a13815264973899e40d50c4f193317b9021"
     },
     {
       "id": "runtime/lua-sandbox",
