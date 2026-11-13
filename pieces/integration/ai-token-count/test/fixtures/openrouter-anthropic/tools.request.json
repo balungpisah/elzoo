@@ -1,0 +1,61 @@
+{
+ "version": 1,
+ "model": "claude-haiku-5-5",
+ "max_output_tokens": 16,
+ "messages": [
+  {
+   "role": "user",
+   "text": "Do you have any brass hinges in the north warehouse?"
+  }
+ ],
+ "tools": [
+  {
+   "name": "find_part",
+   "description": "Search the parts catalogue by name and return matching part numbers.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "name": {
+      "type": "string",
+      "description": "Name or partial name of the part."
+     },
+     "max_results": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 20
+     }
+    },
+    "required": [
+     "name"
+    ]
+   }
+  },
+  {
+   "name": "check_stock",
+   "description": "Return how many units of one part are in one warehouse.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "part_id": {
+      "type": "string"
+     },
+     "warehouse": {
+      "type": "string",
+      "enum": [
+       "north",
+       "south",
+       "central"
+      ]
+     }
+    },
+    "required": [
+     "part_id",
+     "warehouse"
+    ]
+   }
+  }
+ ],
+ "tool_choice": {
+  "type": "auto"
+ }
+}

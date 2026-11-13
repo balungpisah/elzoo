@@ -6464,9 +6464,11 @@
     {
       "id": "integration/ai-token-count",
       "job": "ELZ-138",
-      "note": "Bot platform wave 2 (P13). An upper bound or a labelled approximation for a named model, used to refuse or shorten a request. Not a usage fact and not for billing.",
+      "note": "Pure upper bound, as far as recordings through OpenRouter's Anthropic-compatible endpoint, routed to Anthropic, show under a named assumption (not proved), before the call, for the input tokens of one integration/ai-text request to Anthropic: Elzoo.AiTokenCount.Anthropic.estimate/1 decodes the request bytes with Elzoo.AiText.Request.decode/1 and returns size = 3 * canonical bytes, plus 1,024 when the request has a tool, with unit :tokens, direction :upper_bound, provider_id, model_id and estimator elzoo/ai-token-count/anthropic-bytes version 1 (the fields of a workflow/context-selection window); refuses the decoder's reasons unchanged, an output_schema as :unsupported_feature and a model that pinned llm_db does not know for Anthropic as :unknown_model. Not a token count and not a usage fact.",
       "baseline_status": "not in baseline (new row, RC-53)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/integration/ai-token-count/piece.json",
+      "manifest_sha256": "aec2d679961550b445196a3df3cf1feb34eca4d88fc49a5a2e8dca694f69bd93",
       "catalogue_reference": "registry/catalogue.json"
     },
     {

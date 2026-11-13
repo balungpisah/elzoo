@@ -1,0 +1,80 @@
+{
+ "version": 1,
+ "model": "claude-haiku-5-5",
+ "max_output_tokens": 16,
+ "messages": [
+  {
+   "role": "user",
+   "text": "Do you have any brass hinges?"
+  },
+  {
+   "role": "assistant",
+   "text": "",
+   "tool_calls": [
+    {
+     "id": "toolu_01AbCdEfGhIjKlMnOpQrStUv",
+     "name": "find_part",
+     "arguments": {
+      "name": "brass hinge",
+      "max_results": 3
+     }
+    }
+   ]
+  },
+  {
+   "role": "tool_result",
+   "tool_use_id": "toolu_01AbCdEfGhIjKlMnOpQrStUv",
+   "text": "[{\"part_id\":\"BH-204\",\"name\":\"Brass hinge 50 mm\"},{\"part_id\":\"BH-310\",\"name\":\"Brass hinge 75 mm\"}]"
+  }
+ ],
+ "tools": [
+  {
+   "name": "find_part",
+   "description": "Search the parts catalogue by name and return matching part numbers.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "name": {
+      "type": "string",
+      "description": "Name or partial name of the part."
+     },
+     "max_results": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 20
+     }
+    },
+    "required": [
+     "name"
+    ]
+   }
+  },
+  {
+   "name": "check_stock",
+   "description": "Return how many units of one part are in one warehouse.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "part_id": {
+      "type": "string"
+     },
+     "warehouse": {
+      "type": "string",
+      "enum": [
+       "north",
+       "south",
+       "central"
+      ]
+     }
+    },
+    "required": [
+     "part_id",
+     "warehouse"
+    ]
+   }
+  }
+ ],
+ "tool_choice": {
+  "type": "auto"
+ }
+}

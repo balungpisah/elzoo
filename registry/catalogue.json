@@ -940,7 +940,8 @@
       "summary": "Estimate the input size of a text request before the call",
       "disposition": "adapt",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/integration/ai-token-count/piece.json",
       "reason": "Bot platform wave 2 (P13). An upper bound or a labelled approximation for a named model, used to refuse or shorten a request. Not a usage fact and not for billing."
     },
     {

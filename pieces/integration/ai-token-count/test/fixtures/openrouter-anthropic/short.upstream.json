@@ -1,0 +1,1 @@
+{"provider":{"only":["anthropic"],"allow_fallbacks":false},"messages":[{"role":"user","content":"What is the capital of France?"}],"stream":false,"model":"claude-haiku-5-5","max_tokens":16}
