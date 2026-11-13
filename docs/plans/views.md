@@ -156,25 +156,27 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-126](https://github.com/balungpisah/elzoo/issues/256) | V1B / pieces | ELZ-009, ELZ-023, ELZ-024, ELZ-028, ELZ-116, ELZ-123 | published 2026-11-12 | one claimed task worker; coordinator owns independent review and merge queue |
 | RC-50 | V1B / pieces | ELZ-033, ELZ-114, ELZ-115, ELZ-117, ELZ-122, ELZ-118, ELZ-116, ELZ-124, ELZ-123, ELZ-126, ELZ-002, ELZ-009, ELZ-022, ELZ-023, ELZ-024, ELZ-098, ELZ-003 | admitted as ELZ-127 | one claimed task worker after admission |
 | RC-51 | V1B / pieces | ELZ-033, ELZ-083, ELZ-030, ELZ-002, ELZ-003 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-52 | V1B / pieces | ELZ-033, ELZ-115, ELZ-083, ELZ-079 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| RC-52 | V1B / pieces | ELZ-033, ELZ-115, ELZ-083, ELZ-079 | superseded for workflow/tool-registry by published ELZ-136; output moved | one claimed task worker after admission |
 | RC-53 | V1B / pieces | ELZ-033, ELZ-079, ELZ-030 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-54 | V1B / pieces | ELZ-033, ELZ-079, ELZ-030, RC-51, RC-53, ELZ-114 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-55 | V1B / pieces | ELZ-033, ELZ-002, ELZ-115, ELZ-079, ELZ-114 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| RC-55 | V1B / pieces | ELZ-033, ELZ-002, ELZ-115, ELZ-079, ELZ-114 | superseded for workflow/output-repair and workflow/typed-decision by published ELZ-141; output moved | one claimed task worker after admission |
+| [ELZ-136](https://github.com/balungpisah/elzoo/issues/286) | V1B / pieces | ELZ-033, ELZ-115, ELZ-083, ELZ-079 | published 2026-11-13 | one claimed task worker; coordinator owns independent review and merge queue |
 | RC-69 | V1B / pieces | ELZ-033, ELZ-096, RC-51, ELZ-114, ELZ-023, ELZ-009 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-56 | V1B / pieces | ELZ-033, ELZ-002, ELZ-079, ELZ-114, RC-52, RC-54, RC-69, ELZ-087 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| RC-56 | V1B / pieces | ELZ-033, ELZ-002, ELZ-079, ELZ-114, ELZ-136, RC-54, RC-69, ELZ-087 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-57 | V1B / pieces | ELZ-033, ELZ-101, ELZ-079 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-58 | V1B / pieces | ELZ-033, ELZ-116, ELZ-124, ELZ-114 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-59 | V1B / pieces | ELZ-033, ELZ-083, ELZ-105 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| RC-58 | V1B / pieces | ELZ-033, ELZ-116, ELZ-124, ELZ-114 | superseded for workflow/wait-for-person and workflow/mid-run-input by published ELZ-146; output moved | one claimed task worker after admission |
+| RC-59 | V1B / pieces | ELZ-033, ELZ-083, ELZ-105 | superseded for integration/mcp-multi by published ELZ-144; output moved | one claimed task worker after admission |
 | RC-60 | V1B / pieces | ELZ-033 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-61 | V1B / pieces | ELZ-033, ELZ-115, ELZ-026, ELZ-024, ELZ-105, ELZ-114 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-62 | V1B / pieces | ELZ-033, RC-60, ELZ-115, ELZ-002, RC-52, RC-61, ELZ-114, ELZ-022 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| RC-62 | V1B / pieces | ELZ-033, RC-60, ELZ-115, ELZ-002, ELZ-136, RC-61, ELZ-114, ELZ-022 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-63 | V1B / pieces | ELZ-033, ELZ-002, ELZ-114, RC-61, ELZ-026, ELZ-098, ELZ-003, ELZ-006 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-64 | V1B / pieces | ELZ-033, RC-61, RC-52, ELZ-022, ELZ-024, ELZ-114 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| RC-64 | V1B / pieces | ELZ-033, RC-61, ELZ-136, ELZ-022, ELZ-024, ELZ-114 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-65 | V1B / pieces | ELZ-033, ELZ-096, ELZ-009, RC-61, RC-64, ELZ-116 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-66 | V1B / pieces | ELZ-033, RC-50, RC-52, RC-55, RC-56, RC-60, RC-61, RC-62, RC-63, RC-64, ELZ-079, ELZ-114 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-67 | V1B / pieces | ELZ-033, ELZ-096, RC-52, RC-54, RC-56, RC-65, RC-66, RC-61, RC-69 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| [ELZ-141](https://github.com/balungpisah/elzoo/issues/287) | V1B / pieces | ELZ-033, ELZ-002, ELZ-115, ELZ-079, ELZ-114 | published 2026-11-13 | one claimed task worker; coordinator owns independent review and merge queue |
+| RC-66 | V1B / pieces | ELZ-033, RC-50, ELZ-136, ELZ-141, RC-56, RC-60, RC-61, RC-62, RC-63, RC-64, ELZ-079, ELZ-114 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| RC-67 | V1B / pieces | ELZ-033, ELZ-096, ELZ-136, RC-54, RC-56, RC-65, RC-66, RC-61, RC-69 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-68 | V1B / pieces | ELZ-033, ELZ-002, ELZ-006, ELZ-023 | superseded for workflow/pattern-step by published ELZ-114; output moved | one claimed task worker after admission |
-| RC-70 | V1B / pieces | ELZ-033, ELZ-114 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| RC-70 | V1B / pieces | ELZ-033, ELZ-114 | superseded for workflow/stall-detect by published ELZ-145; output moved | one claimed task worker after admission |
 | [ELZ-119](https://github.com/balungpisah/elzoo/issues/221) | V1 / pieces | none | published 2026-11-12 | one claimed task worker; coordinator owns review and merge queue |
 | [ELZ-120](https://github.com/balungpisah/elzoo/issues/232) | V1 / pieces | none | published 2026-11-12 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-121](https://github.com/balungpisah/elzoo/issues/238) | V1 / pieces | none | published 2026-11-12 | one claimed task worker; coordinator owns review and merge queue |
@@ -188,6 +190,9 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-133](https://github.com/balungpisah/elzoo/issues/274) | V1 / pieces | none | published 2026-11-13 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-134](https://github.com/balungpisah/elzoo/issues/275) | V1 / pieces | none | published 2026-11-13 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-135](https://github.com/balungpisah/elzoo/issues/280) | V1 / pieces | ELZ-129 | published 2026-11-13 | one claimed task worker; coordinator owns merge queue |
+| [ELZ-144](https://github.com/balungpisah/elzoo/issues/288) | V1B / pieces | ELZ-033, ELZ-083, ELZ-105 | published 2026-11-13 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-145](https://github.com/balungpisah/elzoo/issues/289) | V1B / pieces | ELZ-033, ELZ-114 | published 2026-11-13 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-146](https://github.com/balungpisah/elzoo/issues/290) | V1B / pieces | ELZ-033, ELZ-116, ELZ-124, ELZ-114 | published 2026-11-13 | one claimed task worker; coordinator owns independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -311,19 +316,19 @@ Baseline status is immutable inventory history, not a current planning status. R
 | [workflow/run-approval-release](../../pieces/workflow/run-approval-release/piece.json) | not in baseline (new row, ELZ-126) | V1B / pieces | ELZ-126 / P13 | ready-contract: Explicit Run source variant retaining guarded lifecycle, children, completion and Run-owned dispatch, plus release_approved committing or currently revalidating exact-action Approval without intent admission, activation, work scheduling or send; Resource retains its independent current lifetime/FIFO and reservation-before-send boundary. |
 | [assembly/run-engine](../../pieces/assembly/run-engine/piece.json) | not in baseline (new row, RC-50) | V1B / pieces | ELZ-127 / P13 | ready-contract: One recorded pure pattern cycle and ordinary dispatcher per host Unit/Run: shared sealed request charge, schema/identity/committed host gate/Budget/authority/Approval checks, occurrence-first settlement, durable owner composition and explicit fail-stop recovery; charge exhaustion stops generation while retaining prior within-cap obligations, without new work or resend permission. |
 | workflow/untrusted-content | not in baseline (new row, RC-51) | V1B / pieces | RC-51 / P13 | blocked-admission-proposal: Bot platform wave 2 (P13). One shared mark with source and trust class for tool results, documents and messages from other members, kept through transformation, with a tested render rule for a model request. The mark travels inside the payload; core/envelope is unchanged. |
-| workflow/tool-registry | not in baseline (new row, RC-52) | V1B / pieces | RC-52 / P13 | blocked-admission-proposal: Bot platform wave 2 (P13). Tool sources can change at run time (MCP). Owns the model-facing alias and the version, a digest of the descriptor. Finding a tool grants no permission. Unknown, ambiguous and changed tools are explicit results. |
+| workflow/tool-registry | not in baseline (new row, RC-52) | V1B / pieces | ELZ-136 / P13 | blocked-admission-proposal: Bot platform wave 2 (P13). Tool sources can change at run time (MCP). Owns the model-facing alias and the version, a digest of the descriptor. Finding a tool grants no permission. Unknown, ambiguous and changed tools are explicit results. |
 | workflow/tool-result-limit | not in baseline (new row, RC-69) | V1B / pieces | RC-69 / P13 | blocked-admission-proposal: Bot platform wave 2 (P13). A result over the bound becomes an Artifact reference with a bounded preview; the cut is visible and the content stays marked untrusted. |
 | integration/ai-token-count | not in baseline (new row, RC-53) | V1B / pieces | RC-53 / P13 | blocked-admission-proposal: Bot platform wave 2 (P13). An upper bound or a labelled approximation for a named model, used to refuse or shorten a request. Not a usage fact and not for billing. |
 | workflow/prompt-assembly | not in baseline (new row, RC-54) | V1B / pieces | RC-54 / P13 | blocked-admission-proposal: Bot platform wave 2 (P13). Declared order and drop order inside the hard request bounds of integration/ai-text; never drops instructions or splits a tool call from its result; untrusted content stays marked. Uses ready workflow/context-selection. |
 | workflow/context-compaction | not in baseline (new row, RC-54) | V1B / pieces | RC-54 / P13 | blocked-admission-proposal: Bot platform wave 2 (P13). A pure step that gives one model-call action; the engine records it. Keep-rule items (the goal, open actions, decisions, failed approaches) are structured records kept verbatim; only free text is summarized. |
-| workflow/output-repair | not in baseline (new row, RC-55) | V1B / pieces | RC-55 / P13 | blocked-admission-proposal: Bot platform wave 2 (P13). integration/ai-text decides valid or invalid and core/payload-schema gives the violation list; this owns only the repair bound and the explicit failure after it. Never a guessed value. |
-| workflow/typed-decision | not in baseline (new row, RC-55) | V1B / pieces | RC-55 / P13 | blocked-admission-proposal: Bot platform wave 2 (P13). A pure step in the shape of workflow/pattern-step, used to pick a branch, check a result or pick a speaker. |
+| workflow/output-repair | not in baseline (new row, RC-55) | V1B / pieces | ELZ-141 / P13 | blocked-admission-proposal: Bot platform wave 2 (P13). integration/ai-text decides valid or invalid and core/payload-schema gives the violation list; this owns only the repair bound and the explicit failure after it. Never a guessed value. |
+| workflow/typed-decision | not in baseline (new row, RC-55) | V1B / pieces | ELZ-141 / P13 | blocked-admission-proposal: Bot platform wave 2 (P13). A pure step in the shape of workflow/pattern-step, used to pick a branch, check a result or pick a speaker. |
 | workflow/agent-loop | not in baseline (new row, RC-56) | V1B / pieces | RC-56 / P13 | blocked-admission-proposal: Bot platform wave 2 (P13). The agent loop as one pure step in the shape of workflow/pattern-step, not the base and not a host. All tool calls of one model turn go in one request. assembly/agent-product stays the later example Assembly. |
 | delivery/provider-stream | not in baseline (new row, RC-57) | V1B / pieces | RC-57 / P13 | blocked-admission-proposal: Bot platform wave 2 (P13). Widens ready delivery/data-stream (one Anthropic text stream) to tool calls, so it is a new ID. The assembled result equals the completed value of the synchronous provider for a paired fixture. A second provider is a separate Piece. |
-| workflow/wait-for-person | not in baseline (new row, RC-58) | V1B / pieces | RC-58 / P13 | blocked-admission-proposal: Bot platform wave 2 (P13). Not an approval: an approval binds one exact action. Late and wrong-person answers are explicit. |
-| workflow/mid-run-input | not in baseline (new row, RC-58) | V1B / pieces | RC-58 / P13 | blocked-admission-proposal: Bot platform wave 2 (P13). Queue, reject, interrupt, steer or side run. An interrupt reports what was already delivered. |
-| workflow/stall-detect | not in baseline (new row, RC-70) | V1B / pieces | RC-70 / P13 | blocked-admission-proposal: Bot platform wave 2 (P13). A verdict apart from retry policy; a healthy long wait is not a stall. Named by the orchestration reference study. |
-| integration/mcp-multi | not in baseline (new row, RC-59) | V1B / pieces | RC-59 / P13 | blocked-admission-proposal: Bot platform wave 2 (P13). Each server is one compiled binding of ready integration/mcp-client, with its own credential Need and limits; tool lists are keyed by server; one failing server does not block the others. Streamable HTTP and bearer token only. A server added at run time is out of scope. New ID: ready integration/mcp-client is unchanged. |
+| workflow/wait-for-person | not in baseline (new row, RC-58) | V1B / pieces | ELZ-146 / P13 | blocked-admission-proposal: Bot platform wave 2 (P13). Not an approval: an approval binds one exact action. Late and wrong-person answers are explicit. |
+| workflow/mid-run-input | not in baseline (new row, RC-58) | V1B / pieces | ELZ-146 / P13 | blocked-admission-proposal: Bot platform wave 2 (P13). Queue, reject, interrupt, steer or side run. An interrupt reports what was already delivered. |
+| workflow/stall-detect | not in baseline (new row, RC-70) | V1B / pieces | ELZ-145 / P13 | blocked-admission-proposal: Bot platform wave 2 (P13). A verdict apart from retry policy; a healthy long wait is not a stall. Named by the orchestration reference study. |
+| integration/mcp-multi | not in baseline (new row, RC-59) | V1B / pieces | ELZ-144 / P13 | blocked-admission-proposal: Bot platform wave 2 (P13). Each server is one compiled binding of ready integration/mcp-client, with its own credential Need and limits; tool lists are keyed by server; one failing server does not block the others. Streamable HTTP and bearer token only. A server added at run time is out of scope. New ID: ready integration/mcp-client is unchanged. |
 | runtime/lua-sandbox | not in baseline (new row, RC-60) | V1B / pieces | RC-60 / P13 | blocked-admission-proposal: Bot platform wave 3 (P13). Limits on steps and memory; no file, network, clock or random access unless given; a wall-time stop is a host outcome. Starts with a provider-fit probe of at least two Lua runtimes, one of them outside the process boundary of the VM; no runtime is chosen yet. |
 | runtime/lua-stdlib | not in baseline (new row, RC-60) | V1B / pieces | RC-60 / P13 | blocked-admission-proposal: Bot platform wave 3 (P13). JSON and text helpers and time values passed in. Nothing else is reachable from the sandbox. |
 | domain/recipe-graph | not in baseline (new row, RC-61) | V1B / pieces | RC-61 / P13 | blocked-admission-proposal: Bot platform wave 3 (P13). Graphs, agents and typed decisions with typed input and output, needs and gives, links, outcome links, rules and bindings; callables nest by name with a depth limit. A rule can only add a requirement. Data and validation only. |
@@ -359,7 +364,7 @@ Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, EL
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146.
 
 ### V2-ACCEPT
 
@@ -2520,3 +2525,53 @@ Publication copy: [tasks/ELZ-135-piece-window-five.md](../../tasks/ELZ-135-piece
 **Product aims:** P01.
 
 **Acceptance:** Allow a candidate with at most four outstanding first-parent commits and refuse five or more, preserving covering evidence and freeze guards; test the boundary and update matching guidance. Owner waives separate independent review for this task's publication and implementation only.
+
+### ELZ-136
+
+ELZ-136 — Tool registry: one callable for a proposed tool name
+
+Publication copy: [tasks/ELZ-136-tool-registry.md](../../tasks/ELZ-136-tool-registry.md).
+
+**Product aims:** P13.
+
+**Acceptance:** The seven named groups cover unknown names and source kind, the same name on two sources, alias grammar and the 64-tool bound, fresh listings with changed and removed tools, one validation result with validator disagreement, descriptor rules, and selected Cure laws with an example, including two negative controls.
+
+### ELZ-141
+
+ELZ-141 — Typed decision with bounded output repair
+
+Publication copy: [tasks/ELZ-141-typed-decision-repair.md](../../tasks/ELZ-141-typed-decision-repair.md).
+
+**Product aims:** P13.
+
+**Acceptance:** The ten named groups cover an answer outside the set, valid after one repair, invalid at the bound, refusal or empty output, finish length, validator disagreement, repair calls visible to the budget, a single-member set refused, deterministic replay, and selected laws with an example, including the named negative controls.
+
+### ELZ-144
+
+ELZ-144 — Several MCP servers per tenant, from a build-time set
+
+Publication copy: [tasks/ELZ-144-mcp-multi.md](../../tasks/ELZ-144-mcp-multi.md).
+
+**Product aims:** P13.
+
+**Acceptance:** The eight named groups cover the same tool name on two servers, lists keyed by tenant and server, one server down, a missing credential that sends nothing, a rejected credential after dispatch, a list change seen by listing again, per-server bounds, and no credential in outputs.
+
+### ELZ-145
+
+ELZ-145 — Stall verdict from the record
+
+Publication copy: [tasks/ELZ-145-stall-detect.md](../../tasks/ELZ-145-stall-detect.md).
+
+**Product aims:** P13.
+
+**Acceptance:** The five named groups cover repeated identical actions, no new input within the bound, a healthy wait for a person or an approval, a window over the bound refused, and a deterministic verdict.
+
+### ELZ-146
+
+ELZ-146 — Run inputs from people: wait for a person, and a new message during a Run
+
+Publication copy: [tasks/ELZ-146-run-inputs-from-people.md](../../tasks/ELZ-146-run-inputs-from-people.md).
+
+**Product aims:** P13.
+
+**Acceptance:** The eight named groups cover a late answer after time-out, another person refused, the first answer standing, an answer naming its ask, text without an open ask as a message, wake bypassing every rule, the five mid-run rules on one trace, and a side run that leaves the first Run unchanged.

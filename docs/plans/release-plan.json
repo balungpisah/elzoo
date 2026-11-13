@@ -4116,16 +4116,14 @@
       "kind": "proposal",
       "release": "V1B",
       "stage": "pieces",
-      "outputs": [
-        "workflow/tool-registry"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "ELZ-115",
         "ELZ-083",
         "ELZ-079"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "superseded for workflow/tool-registry by published ELZ-136; output moved",
       "contract": "Resolve a tool name that a model proposes to one real callable, from declared tool sources whose lists can change at run time (an MCP server). Resolution is a pure function over a snapshot of listings that the caller passes in. The snapshot identifies the resolved source kind so RC-56 can distinguish a pinned-package skill, a host listing tool and other tools without inferring kind from result shape or text. Finding a tool grants no permission to use it. The registry owns the model-facing alias: deterministic, inside the tool-name grammar of integration/ai-text ([a-zA-Z0-9_-], 1 to 64 bytes) and its bound of 64 tools, and mapped to (source, tool, version). An alias collision is refused, never a silent first match. A source keeps its own tool names. Version is the SHA-256 of the canonical descriptor (name, input schema, description, annotations), because an MCP descriptor has no version. A callable is an Adapter call or a nested callable by name (a tool written in Lua, RC-62). Resolution returns the callable with its argument schema and resolved source kind, or an explicit unknown, ambiguous or changed result.",
       "acceptance": "Unknown name; resolution identifies the source kind from the snapshot, not result shape or text; the same tool name on two sources (two aliases, never a silent first match); an MCP name with a dot or over 64 bytes gets a valid alias; more than 64 tools is refused or cut by a declared rule; a descriptor whose digest differs in a fresh listing (changed, with the new version named); a tool absent from a fresh listing (removed); a removal after the last listing stays a dispatched unknown and is not claimed as detected; arguments get one validation result before dispatch; a later invalid_arguments refusal of mcp-client is the tool-call outcome and is recorded as a validator disagreement; an absent description is filled and a long one is cut by a declared rule. A descriptor from discovery with its trust field is accepted, a descriptor whose trust value is not the text untrusted is refused, and the trust field does not change the digest.",
       "reuse": "integration/mcp-client gives inert, bounded discovery: a descriptor has five fields: trust (always the text untrusted), name, description, input_schema and annotations (discovery.ex, README); names follow [A-Za-z0-9_.-] up to 128 bytes (wire.ex); its snapshot is a local filter that can be stale. The registry accepts that five-field shape and refuses a descriptor whose trust value is not the text untrusted. The version digest of this job covers only the four content fields (name, input schema, description, annotations) and leaves out the constant trust stamp. The shared content-marking contract stays with RC-51. The argument check of mcp-client (ex_json_schema) runs too and can refuse invalid_arguments as a real outcome (binding.ex, README): when it refuses after the registry check passed, that refusal is the tool-call outcome and is recorded as a validator disagreement. A description can be absent there (discovery.ex), and ai-text needs a text description of at most 4,096 bytes (request.ex). integration/ai-text checks tool proposals with jsv and returns an undeclared or invalid call with arguments nil and a malformed tag (adapter.ex): that check decides for a tool declared in the request. RC-44 is expected to choose jsv too; if it does not, this job says which check decides. A disagreement is an explicit failure. The integration/agent-runner proposal (RC-17) asks for a stable host tool registry id and version and does not depend on this job today. No tool framework.",
@@ -4215,10 +4213,7 @@
       "kind": "proposal",
       "release": "V1B",
       "stage": "pieces",
-      "outputs": [
-        "workflow/output-repair",
-        "workflow/typed-decision"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "ELZ-002",
@@ -4226,7 +4221,7 @@
         "ELZ-079",
         "ELZ-114"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "superseded for workflow/output-repair and workflow/typed-decision by published ELZ-141; output moved",
       "contract": "A pattern step of RC-68 where a model gives one answer of a fixed set, or an answer that matches a schema. A non-matching output starts a bounded number of repair requests that carry a violation list. After the bound the result is an explicit failure, never a guessed value. integration/ai-text decides valid or invalid; the violation list comes from the RC-44 check of the same schema value over the returned content. If the two disagree, the result is an explicit failure.",
       "acceptance": "Answer outside the set; valid after one repair; still invalid at the bound (explicit failure with the last violations); a refusal or empty output of the provider; an output cut by the length limit (finish length); ai-text and RC-44 disagree (explicit failure); each repair call visible to the budget of the caller; a fixed set with one element refused at construction; the step is deterministic for recorded inputs.",
       "reuse": "integration/ai-text validates structured output with jsv and returns only {:invalid, :missing | :schema_mismatch | :invalid_json}, with no paths (adapter.ex); both ready providers also give the raw JSON text in content. Reuse it and RC-44. Author only the repair bound and the pattern step.",
@@ -4257,7 +4252,7 @@
         "ELZ-002",
         "ELZ-079",
         "ELZ-114",
-        "RC-52",
+        "ELZ-136",
         "RC-54",
         "RC-69",
         "ELZ-087"
@@ -4317,17 +4312,14 @@
       "kind": "proposal",
       "release": "V1B",
       "stage": "pieces",
-      "outputs": [
-        "workflow/wait-for-person",
-        "workflow/mid-run-input"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "ELZ-116",
         "ELZ-124",
         "ELZ-114"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "superseded for workflow/wait-for-person and workflow/mid-run-input by published ELZ-146; output moved",
       "contract": "Two small pure policies over a Run, in the input and action shapes of RC-68. Wait for a person: a Run asks a named person one question, stops, and continues with the answer or a time-out; this is not an approval, which binds one exact action. The person's answer is its own RC-68 input kind: it names exactly one ask-a-person action and carries the host-verified identity of the person, never taken from message text. That action gets no other completed outcome. Text without an open ask is a new message. The time-out is the 'too old' outcome of the ask-a-person action, which the engine records with the time that it read: RC-68 has no time-out input kind and this job adds none. The policy has no timer. A durable timer belongs to the host and is not in this job: its wake is the RC-68 wake input, carrying no content, only engine-read time; it never goes through the mid-run-input policy. The engine (RC-50) records 'too old' for each open ask that is past its deadline. Mid-run input: a new message during an active Run follows one declared rule: queue, reject, interrupt, steer or side run.",
       "acceptance": "An answer after the time-out is late; an answer from a person other than the named one is refused; two answers (the first stands); a person answer names its ask action and no other completed outcome settles that action; text without an open ask is a new message; wake bypasses every mid-run policy; each mid-run rule on the same recorded trace gives its declared result, and interrupt reports what was already delivered; a side run reads state and cannot change the first Run.",
       "reuse": "Ready workflow/approval is the model for binding a person: it takes the verified identity as a Need. The open-wait, pause and continue rules are RC-48's. delivery/time is a volatile timer inside one runtime and is not used: a Run that sleeps cannot rely on it. Pure decisions; Cure where a law earns it.",
@@ -4350,15 +4342,13 @@
       "kind": "proposal",
       "release": "V1B",
       "stage": "pieces",
-      "outputs": [
-        "integration/mcp-multi"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "ELZ-083",
         "ELZ-105"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "superseded for integration/mcp-multi by published ELZ-144; output moved",
       "contract": "Several MCP servers for one tenant behind the ready one-server Contract. Each server is one compiled Elzoo.McpClient.Binding module: server identity, endpoint and network policy are fixed at build. This Piece composes a declared, build-time set of bindings per tenant, each with its own credential Need and limits. Tool lists belong to server plus credential; RC-59 has one tenant credential per server and keys lists by tenant and server. Future per-person credentials require separate lists: MCP 2026-07-28 says lists MAY vary by authorization (https://modelcontextprotocol.io/specification/2026-07-28/server/tools). It does not rename tools: the model-facing alias belongs to the tool registry (RC-52). One failing server does not block the others. A credential is a bearer token from an integration/secrets reference, supplied as the zero-arity credential Need of mcp-client; no OAuth. Streamable HTTP only. Tenant-added runtime servers need a new one-server runtime-endpoint Piece under integration/egress-policy in wave 5, bearer first; OAuth with integration/oauth-client is wave 9. These are out of scope here.",
       "acceptance": "The same tool name on two servers stays distinct by server identity; lists for different tenants and servers remain separate; one server down (its tools are explicitly unavailable, the others work); a missing credential is refused credentials_unavailable and nothing is sent; a rejected or expired credential is refused authentication_failed after dispatch, and expiry is named only if integration/secrets reports it before the call; a tool-list change on one server is seen by listing again, with no push; per-server bounds; no credential in the results, errors or events that Elzoo emits.",
       "reuse": "Ready integration/mcp-client over ex_mcp (pinned): the binding is compile-time (pieces/integration/mcp-client/lib/elzoo/mcp_client/binding.ex), configure takes no endpoint, there is no OAuth and no list_changed subscription, and a 401 or 403 gives authentication_failed. The consumer starts the application of ex_mcp, and its own telemetry stays the responsibility of the consumer (README). integration/secrets for credential references. A new Piece ID: the ready one-server Contract is unchanged.",
@@ -4463,7 +4453,7 @@
         "RC-60",
         "ELZ-115",
         "ELZ-002",
-        "RC-52",
+        "ELZ-136",
         "RC-61",
         "ELZ-114",
         "ELZ-022"
@@ -4535,7 +4525,7 @@
       "dependencies": [
         "ELZ-033",
         "RC-61",
-        "RC-52",
+        "ELZ-136",
         "ELZ-022",
         "ELZ-024",
         "ELZ-114"
@@ -4605,8 +4595,8 @@
       "dependencies": [
         "ELZ-033",
         "RC-50",
-        "RC-52",
-        "RC-55",
+        "ELZ-136",
+        "ELZ-141",
         "RC-56",
         "RC-60",
         "RC-61",
@@ -4644,7 +4634,7 @@
       "dependencies": [
         "ELZ-033",
         "ELZ-096",
-        "RC-52",
+        "ELZ-136",
         "RC-54",
         "RC-56",
         "RC-65",
@@ -4738,14 +4728,12 @@
       "kind": "proposal",
       "release": "V1B",
       "stage": "pieces",
-      "outputs": [
-        "workflow/stall-detect"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "ELZ-114"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "superseded for workflow/stall-detect by published ELZ-145; output moved",
       "contract": "Decide from the recorded inputs and requests of a Run (RC-68 shapes) that it makes no progress, apart from retry policy. A pure function over a bounded window of the record. It gives a verdict with a reason class and stops nothing: the caller decides.",
       "acceptance": "On recorded traces: repeated identical actions over a declared count; no new input within a declared bound, with the time of each input read from the record and the current time given as a function argument, not as a new input kind; a healthy long wait for a person or an approval that is not a stall; a window over the bound is refused; the verdict is deterministic for the same record.",
       "reuse": "The orchestration reference study names the stall idea. delivery/retry-timeout owns retry exhaustion, which is a different fact. No timer and no process here.",
@@ -5187,6 +5175,91 @@
       "issue": 280,
       "url": "https://github.com/balungpisah/elzoo/issues/280",
       "issue_body_sha256": "a374e02c9d37ae40698838b9dd4e96fa4c08ac0d92df030040d000aca9ef87de"
+    },
+    {
+      "id": "ELZ-136",
+      "title": "ELZ-136 — Tool registry: one callable for a proposed tool name",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-115", "ELZ-083", "ELZ-079"],
+      "status": "published 2026-11-13",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-136-tool-registry.md"],
+      "outputs": ["workflow/tool-registry"],
+      "acceptance": "The seven named groups cover unknown names and source kind, the same name on two sources, alias grammar and the 64-tool bound, fresh listings with changed and removed tools, one validation result with validator disagreement, descriptor rules, and selected Cure laws with an example, including two negative controls.",
+      "product_aims": ["P13"],
+      "issue": 286,
+      "url": "https://github.com/balungpisah/elzoo/issues/286",
+      "issue_body_sha256": "cdb5dbba9cec4ee0efcbb9f82a922402e59b4318650380ef8b01fe74a7e5db00"
+    },
+    {
+      "id": "ELZ-141",
+      "title": "ELZ-141 — Typed decision with bounded output repair",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-002", "ELZ-115", "ELZ-079", "ELZ-114"],
+      "status": "published 2026-11-13",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-141-typed-decision-repair.md"],
+      "outputs": ["workflow/output-repair", "workflow/typed-decision"],
+      "acceptance": "The ten named groups cover an answer outside the set, valid after one repair, invalid at the bound, refusal or empty output, finish length, validator disagreement, repair calls visible to the budget, a single-member set refused, deterministic replay, and selected laws with an example, including the named negative controls.",
+      "product_aims": ["P13"],
+      "issue": 287,
+      "url": "https://github.com/balungpisah/elzoo/issues/287",
+      "issue_body_sha256": "b21ab4f93fcaec7fc57c3aae0184cab7c9cd30248be72c54728f1b64e6bce4bd"
+    },
+    {
+      "id": "ELZ-144",
+      "title": "ELZ-144 — Several MCP servers per tenant, from a build-time set",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-083", "ELZ-105"],
+      "status": "published 2026-11-13",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-144-mcp-multi.md"],
+      "outputs": ["integration/mcp-multi"],
+      "acceptance": "The eight named groups cover the same tool name on two servers, lists keyed by tenant and server, one server down, a missing credential that sends nothing, a rejected credential after dispatch, a list change seen by listing again, per-server bounds, and no credential in outputs.",
+      "product_aims": ["P13"],
+      "issue": 288,
+      "url": "https://github.com/balungpisah/elzoo/issues/288",
+      "issue_body_sha256": "f93f02db4715ecbb89fa3575cc2b5de9dc5ca95126a8fb30099cfb3491a66b0e"
+    },
+    {
+      "id": "ELZ-145",
+      "title": "ELZ-145 — Stall verdict from the record",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-114"],
+      "status": "published 2026-11-13",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-145-stall-detect.md"],
+      "outputs": ["workflow/stall-detect"],
+      "acceptance": "The five named groups cover repeated identical actions, no new input within the bound, a healthy wait for a person or an approval, a window over the bound refused, and a deterministic verdict.",
+      "product_aims": ["P13"],
+      "issue": 289,
+      "url": "https://github.com/balungpisah/elzoo/issues/289",
+      "issue_body_sha256": "03f0395e2192e62df0fea9c3ff78346cee1c37d1a1122f59b256f02f6292c801"
+    },
+    {
+      "id": "ELZ-146",
+      "title": "ELZ-146 — Run inputs from people: wait for a person, and a new message during a Run",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-116", "ELZ-124", "ELZ-114"],
+      "status": "published 2026-11-13",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-146-run-inputs-from-people.md"],
+      "outputs": ["workflow/wait-for-person", "workflow/mid-run-input"],
+      "acceptance": "The eight named groups cover a late answer after time-out, another person refused, the first answer standing, an answer naming its ask, text without an open ask as a message, wake bypassing every rule, the five mid-run rules on one trace, and a side run that leaves the first Run unchanged.",
+      "product_aims": ["P13"],
+      "issue": 290,
+      "url": "https://github.com/balungpisah/elzoo/issues/290",
+      "issue_body_sha256": "ede95b993d81be227b6740ff80f4b7dc7e3cbb72ab77cea0af97292025585b0c"
     }
   ],
   "entries": [
@@ -6279,7 +6352,7 @@
     },
     {
       "id": "workflow/tool-registry",
-      "job": "RC-52",
+      "job": "ELZ-136",
       "note": "Bot platform wave 2 (P13). Tool sources can change at run time (MCP). Owns the model-facing alias and the version, a digest of the descriptor. Finding a tool grants no permission. Unknown, ambiguous and changed tools are explicit results.",
       "baseline_status": "not in baseline (new row, RC-52)",
       "disposition": "blocked-admission-proposal",
@@ -6319,7 +6392,7 @@
     },
     {
       "id": "workflow/output-repair",
-      "job": "RC-55",
+      "job": "ELZ-141",
       "note": "Bot platform wave 2 (P13). integration/ai-text decides valid or invalid and core/payload-schema gives the violation list; this owns only the repair bound and the explicit failure after it. Never a guessed value.",
       "baseline_status": "not in baseline (new row, RC-55)",
       "disposition": "blocked-admission-proposal",
@@ -6327,7 +6400,7 @@
     },
     {
       "id": "workflow/typed-decision",
-      "job": "RC-55",
+      "job": "ELZ-141",
       "note": "Bot platform wave 2 (P13). A pure step in the shape of workflow/pattern-step, used to pick a branch, check a result or pick a speaker.",
       "baseline_status": "not in baseline (new row, RC-55)",
       "disposition": "blocked-admission-proposal",
@@ -6351,7 +6424,7 @@
     },
     {
       "id": "workflow/wait-for-person",
-      "job": "RC-58",
+      "job": "ELZ-146",
       "note": "Bot platform wave 2 (P13). Not an approval: an approval binds one exact action. Late and wrong-person answers are explicit.",
       "baseline_status": "not in baseline (new row, RC-58)",
       "disposition": "blocked-admission-proposal",
@@ -6359,7 +6432,7 @@
     },
     {
       "id": "workflow/mid-run-input",
-      "job": "RC-58",
+      "job": "ELZ-146",
       "note": "Bot platform wave 2 (P13). Queue, reject, interrupt, steer or side run. An interrupt reports what was already delivered.",
       "baseline_status": "not in baseline (new row, RC-58)",
       "disposition": "blocked-admission-proposal",
@@ -6367,7 +6440,7 @@
     },
     {
       "id": "workflow/stall-detect",
-      "job": "RC-70",
+      "job": "ELZ-145",
       "note": "Bot platform wave 2 (P13). A verdict apart from retry policy; a healthy long wait is not a stall. Named by the orchestration reference study.",
       "baseline_status": "not in baseline (new row, RC-70)",
       "disposition": "blocked-admission-proposal",
@@ -6375,7 +6448,7 @@
     },
     {
       "id": "integration/mcp-multi",
-      "job": "RC-59",
+      "job": "ELZ-144",
       "note": "Bot platform wave 2 (P13). Each server is one compiled binding of ready integration/mcp-client, with its own credential Need and limits; tool lists are keyed by server; one failing server does not block the others. Streamable HTTP and bearer token only. A server added at run time is out of scope. New ID: ready integration/mcp-client is unchanged.",
       "baseline_status": "not in baseline (new row, RC-59)",
       "disposition": "blocked-admission-proposal",
