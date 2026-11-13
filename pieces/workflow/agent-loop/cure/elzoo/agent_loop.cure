@@ -1,0 +1,81 @@
+# SPDX-License-Identifier: Apache-2.0
+mod Elzoo.AgentLoop
+  type Keep = Kept | NameOutsideGrammar | Malformed | MissingId | RepeatedId | OverCallBound
+  type SourceKind = PinnedSkill | HostListing | Other
+  type Permit = Permitted | Refused
+
+  # One proposal of a model turn, over supplied classifications. name_ok: the name is a
+  # text of the alias grammar; well_formed: ai-text set no malformed tag; has_id: the id is
+  # a text of 1 to 256 bytes; new_id: no earlier kept proposal of the turn has this id;
+  # in_bound: fewer than 64 proposals of the turn are kept. The first failing check decides.
+  @total true
+  @reducible
+  fn keep(name_ok: Bool, well_formed: Bool, has_id: Bool, new_id: Bool, in_bound: Bool) -> Keep =
+    match name_ok
+      False() -> NameOutsideGrammar()
+      True() ->
+        match well_formed
+          False() -> Malformed()
+          True() ->
+            match has_id
+              False() -> MissingId()
+              True() ->
+                match new_id
+                  False() -> RepeatedId()
+                  True() ->
+                    match in_bound
+                      False() -> OverCallBound()
+                      True() -> Kept()
+
+  @total true
+  @reducible
+  fn kept(decision: Keep) -> Bool =
+    match decision
+      Kept() -> True()
+      _ -> False()
+
+  # A declaration in a tool result, over the source kind that the registry gave for the
+  # called tool when its action was made. A pinned_skill tool may give a skill, a listing
+  # or both; a host_listing tool a listing only; an other tool nothing.
+  @total true
+  @reducible
+  fn permit(kind: SourceKind, has_skill: Bool, has_listing: Bool) -> Permit =
+    match kind
+      Other() -> Refused()
+      HostListing() ->
+        match has_skill
+          True() -> Refused()
+          False() ->
+            match has_listing
+              True() -> Permitted()
+              False() -> Refused()
+      PinnedSkill() ->
+        match has_skill
+          True() -> Permitted()
+          False() ->
+            match has_listing
+              True() -> Permitted()
+              False() -> Refused()
+
+  fn name_outside_left_out(well_formed: Bool, has_id: Bool, new_id: Bool, in_bound: Bool) -> Equivalent(Bool, kept(keep(False(), well_formed, has_id, new_id, in_bound)), False()) =
+    reflexive(False())
+
+  fn malformed_left_out(name_ok: Bool, has_id: Bool, new_id: Bool, in_bound: Bool) -> Equivalent(Bool, kept(keep(name_ok, False(), has_id, new_id, in_bound)), False()) =
+    match name_ok
+      True() -> reflexive(False())
+      False() -> reflexive(False())
+
+  fn missing_id_left_out(name_ok: Bool, well_formed: Bool, new_id: Bool, in_bound: Bool) -> Equivalent(Bool, kept(keep(name_ok, well_formed, False(), new_id, in_bound)), False()) =
+    match name_ok
+      False() -> reflexive(False())
+      True() ->
+        match well_formed
+          True() -> reflexive(False())
+          False() -> reflexive(False())
+
+  fn other_refused(has_skill: Bool, has_listing: Bool) -> Equivalent(Permit, permit(Other(), has_skill, has_listing), Refused()) =
+    reflexive(Refused())
+
+  fn host_listing_skill_refused(has_listing: Bool) -> Equivalent(Permit, permit(HostListing(), True(), has_listing), Refused()) =
+    reflexive(Refused())
+end

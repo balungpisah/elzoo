@@ -985,7 +985,8 @@
       "summary": "Pattern step: a model picks tools until it has an answer",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/agent-loop/piece.json",
       "reason": "Bot platform wave 2 (P13). The agent loop as one pure step in the shape of workflow/pattern-step, not the base and not a host. All tool calls of one model turn go in one request. assembly/agent-product stays the later example Assembly."
     },
     {

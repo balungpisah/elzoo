@@ -6531,9 +6531,11 @@
     {
       "id": "workflow/agent-loop",
       "job": "ELZ-142",
-      "note": "Bot platform wave 2 (P13). The agent loop as one pure step in the shape of workflow/pattern-step, not the base and not a host. All tool calls of one model turn go in one request. assembly/agent-product stays the later example Assembly.",
+      "note": "Pure agent loop step in the core/operator shape over PatternStep v1 neutral maps: each model request built by PromptAssembly.build/2 from the history and the tool list of a ToolRegistry snapshot in the state; each proposal of a model turn kept or left out with a named tag; all actions of one turn (tool_call, nested_callable or ask_person) in one request; each result bounded by ToolResultLimit with store actions in a second request; declarations of a skill or a listing permitted only by the source kind of the called tool; refusals and failed calls as marked notices; one finish answered or stopped with a named reason. State within 65,536 bytes, loaded instructions within 16,384 bytes. No model call, tool call, clock, storage or process; no budget or authority check.",
       "baseline_status": "not in baseline (new row, RC-56)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/workflow/agent-loop/piece.json",
+      "manifest_sha256": "3d0a674b73b539b2d28e987266c5e2fdc6bd69b260640e4be225dcc48c76d401",
       "catalogue_reference": "registry/catalogue.json"
     },
     {

@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "id": "workflow/agent-loop",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["cure", "elixir", "otp"],
+  "dependencies": [
+    "workflow/pattern-step",
+    "workflow/tool-registry",
+    "workflow/tool-result-limit",
+    "workflow/prompt-assembly",
+    "workflow/untrusted-content",
+    "integration/ai-text",
+    "integration/ai-text-anthropic",
+    "integration/ai-text-openai"
+  ],
+  "contract": "Pure agent loop step in the core/operator shape over PatternStep v1 neutral maps: each model request built by PromptAssembly.build/2 from the history and the tool list of a ToolRegistry snapshot in the state; each proposal of a model turn kept or left out with a named tag; all actions of one turn (tool_call, nested_callable or ask_person) in one request; each result bounded by ToolResultLimit with store actions in a second request; declarations of a skill or a listing permitted only by the source kind of the called tool; refusals and failed calls as marked notices; one finish answered or stopped with a named reason. State within 65,536 bytes, loaded instructions within 16,384 bytes. No model call, tool call, clock, storage or process; no budget or authority check.",
+  "limits": [
+    "No provider is called: each test input is a literal neutral map; that the providers accept the refusal rule is shown on Request.decode/2 and the pure translate/2 of the two ready providers only.",
+    "A model call or a tool call that did not complete is never tried again; no rule for a second Attempt; no memory, compaction or member message.",
+    "The step verifies no person: an applied person_answer is read as it is and is content with no authority; marking is no claim against prompt injection.",
+    "answered says that the model gave an answer, not that the work is done; no engine claim (the ready run engine refuses a stopped root finish and gives no result of a nested callable).",
+    "Selected Cure laws cover the two decisions over supplied classifications only; the step table, history, notices, bounds and each call into the composed Pieces have finite tests only."
+  ],
+  "files": [
+    "cure/elzoo/agent_loop.cure",
+    "lib/elzoo/agent_loop.ex",
+    "test/elzoo/agent_loop_test.exs",
+    "examples/agent_loop.exs"
+  ],
+  "grounding": [
+    {"kind": "proof", "file": "cure/elzoo/agent_loop.cure", "symbol": "name_outside_left_out", "claim": "keep with name_ok false is not Kept for every value of well_formed, has_id, new_id and in_bound."},
+    {"kind": "proof", "file": "cure/elzoo/agent_loop.cure", "symbol": "malformed_left_out", "claim": "keep with well_formed false is not Kept for every value of name_ok, has_id, new_id and in_bound."},
+    {"kind": "proof", "file": "cure/elzoo/agent_loop.cure", "symbol": "missing_id_left_out", "claim": "keep with has_id false is not Kept for every value of name_ok, well_formed, new_id and in_bound."},
+    {"kind": "proof", "file": "cure/elzoo/agent_loop.cure", "symbol": "other_refused", "claim": "permit with source kind Other is Refused for every value of has_skill and has_listing."},
+    {"kind": "proof", "file": "cure/elzoo/agent_loop.cure", "symbol": "host_listing_skill_refused", "claim": "permit with source kind HostListing and has_skill true is Refused for both values of has_listing."},
+    {"kind": "type", "file": "cure/elzoo/agent_loop.cure", "claim": "Pinned Cure checks types and totality of the keep and permit decisions; the source audit finds no axioms, holes, unresolved, unaudited, opaque or unproved-total definitions."},
+    {"kind": "test", "file": "test/elzoo/agent_loop_test.exs", "claim": "Fourteen named recorded-trace groups pass: final_answer, one_turn_one_request, unknown_tool, malformed_proposals, listing_changes_snapshot, outside_set_listing, declarations_by_source_kind, instruction_bound, proposal_without_id, engine_refusal_as_content, result_after_cancel, turn_limit, done_is_not_evidence, ask_and_answer; plus new_refusals and laws_and_example (law check, source audit, checked example of a start, one tool turn and the answer). Each request passes PatternStep.decode/1, each model_call payload passes Request.decode/2 with 65,536 bytes, each state is plain data within 65,536 bytes. Negative controls: permit giving Permitted for Other fails the law check; a next model call at the first tool outcome fails one_turn_one_request. Finite scenarios, not a universal proof."},
+    {"kind": "upstream", "provider": "cure", "reference": "https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89", "claim": "Pinned Cure compilation, reduction checking and BEAM decision semantics; compiler soundness not locally proved."},
+    {"kind": "upstream", "provider": "elixir", "reference": "https://hexdocs.pm/elixir/1.20.4/", "claim": "Pinned Elixir immutable maps and lists; the ready Contracts of workflow/pattern-step, workflow/tool-registry, workflow/tool-result-limit, workflow/prompt-assembly, workflow/untrusted-content and integration/ai-text, and the pure translate/2 of integration/ai-text-anthropic and integration/ai-text-openai, are reused unchanged."},
+    {"kind": "upstream", "provider": "otp", "reference": "https://www.erlang.org/doc/apps/erts/erlang.html#term_to_binary/2", "claim": "The state bound is measured as the byte size of term_to_binary(state, [deterministic, {minor_version, 2}]), the measure of the ready run engine."},
+    {"kind": "assumption", "claim": "The engine records each input before the step reads it, gives only inputs of its Attempt and checks payload, budget, authority and approval for every action; the model-call binding gives the ai-text JSON view with tool_proposals; the tool binding maps each action to a real Adapter or nested callable, marks results truthfully and gives a declaration only for a skill load or a listing; the store and ask bindings, the verified person, a truthful source set with kinds captured at Run start, complete listings, a pure truthful estimate, a Run-wide unique id and spec values that fit the state bound and the bounds of the engine."}
+  ],
+  "operations": {
+    "telemetry": {"status": "not_applicable", "contract": "Pure step emits no observations; the engine owns instrumentation."},
+    "config": {"status": "not_applicable", "contract": "Intrinsic spec operands and two fixed bounds (state 65,536 bytes, loaded instructions 16,384 bytes); no ambient or hot settings."},
+    "control": {"status": "not_applicable", "contract": "No independent process; cancel and run_ended are pattern inputs, not operational commands."}
+  }
+}
