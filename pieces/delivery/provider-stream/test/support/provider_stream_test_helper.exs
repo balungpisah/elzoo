@@ -8,27 +8,29 @@ defmodule Elzoo.ProviderStream.Peer do
     parent = self()
     {:ok, l} = :gen_tcp.listen(0, [:binary, active: false, reuseaddr: true, ip: {127, 0, 0, 1}])
     {:ok, port} = :inet.port(l)
-    pid = spawn_link(fn -> accept(l, parent, respond) end)
+    origin = "http://127.0.0.1:#{port}"
+    pid = spawn_link(fn -> accept(l, parent, origin, respond) end)
 
     ExUnit.Callbacks.on_exit(fn ->
       Process.exit(pid, :kill)
       :gen_tcp.close(l)
     end)
 
-    "http://127.0.0.1:#{port}"
+    origin
   end
 
-  defp accept(l, parent, respond) do
+  # Each message carries the origin, so a test reads the peer it means.
+  defp accept(l, parent, origin, respond) do
     {:ok, s} = :gen_tcp.accept(l)
     {:ok, raw} = read_head(s, "")
     [head, tail] = :binary.split(raw, "\r\n\r\n")
     [_, n] = Regex.run(~r/\r\ncontent-length: ([0-9]+)/i, head)
     {:ok, body} = read_body(s, tail, String.to_integer(n))
-    send(parent, {:request, head, body})
+    send(parent, {:request, origin, head, body})
     respond.(s)
-    send(parent, {:peer_close, :gen_tcp.recv(s, 0, 10_000)})
+    send(parent, {:peer_close, origin, :gen_tcp.recv(s, 0, 10_000)})
     :gen_tcp.close(s)
-    accept(l, parent, respond)
+    accept(l, parent, origin, respond)
   end
 
   defp read_head(s, acc) do
@@ -88,15 +90,45 @@ defmodule Elzoo.ProviderStream.Fixture do
     )
   end
 
-  # A sink that acknowledges each frame and stamps the offer and the ack.
+  # A sink that acknowledges each frame at once.
   def acking_sink do
     parent = self()
 
     fn frame ->
-      send(parent, {:offered, frame, System.unique_integer([:monotonic])})
-      answer = {:ack, frame.callback_ref, frame.seq}
-      send(parent, {:acked, frame.seq, System.unique_integer([:monotonic])})
-      answer
+      send(parent, {:offered, frame})
+      {:ack, frame.callback_ref, frame.seq}
+    end
+  end
+
+  # A sink that holds each frame until the test releases it.
+  def holding_sink do
+    parent = self()
+
+    fn frame ->
+      send(parent, {:held, frame, self()})
+
+      receive do
+        :release -> {:ack, frame.callback_ref, frame.seq}
+      end
+    end
+  end
+
+  # Releases n held frames one by one. While a frame is held, no other frame
+  # may be offered within `window.(frame)` milliseconds.
+  def release(0, _window), do: []
+
+  def release(n, window) do
+    receive do
+      {:held, frame, pid} ->
+        receive do
+          {:held, other, _} -> raise "frame #{other.seq} offered while #{frame.seq} was held"
+        after
+          window.(frame) -> send(pid, :release)
+        end
+
+        [frame | release(n - 1, window)]
+    after
+      2_000 -> raise "frame missing"
     end
   end
 
@@ -125,17 +157,9 @@ defmodule Elzoo.ProviderStream.Fixture do
 
   def offered do
     receive do
-      {:offered, frame, stamp} -> [{frame, stamp} | offered()]
+      {:offered, frame} -> [frame | offered()]
     after
       0 -> []
-    end
-  end
-
-  def acked do
-    receive do
-      {:acked, seq, stamp} -> Map.put(acked(), seq, stamp)
-    after
-      0 -> %{}
     end
   end
 

@@ -75,6 +75,8 @@ defmodule Elzoo.ProviderStream do
     else
       _ -> {:error, :configuration}
     end
+  rescue
+    _ -> {:error, :configuration}
   end
 
   defp integer?(n, max), do: is_integer(n) and n >= 1 and n <= max
@@ -123,7 +125,9 @@ defmodule Elzoo.ProviderStream do
         done(s, outcome)
 
       {:DOWN, ^monitor, :process, _, _} ->
-        close(s, {:incomplete, :adapter_error})
+        # The worker is already dead; its only DOWN is taken here.
+        flush(s.tag)
+        {:incomplete, :adapter_error}
     after
       remaining(s) -> close(s, {:incomplete, :timeout})
     end

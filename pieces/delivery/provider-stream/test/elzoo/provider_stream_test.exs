@@ -14,9 +14,9 @@ defmodule Elzoo.ProviderStreamTest do
   # "Streaming messages" page (Error events). No such event was recorded.
   @hand_built_error ~s(event: error\ndata: {"type": "error", "error": {"type": "overloaded_error", "message": "Overloaded"}}\n\n)
 
-  defp texts(frames), do: for({%{chunk: %{kind: :text_delta, payload: t}}, _} <- frames, do: t)
+  defp texts(frames), do: for(%{chunk: %{kind: :text_delta, payload: t}} <- frames, do: t)
 
-  defp kinds(frames), do: Enum.map(frames, fn {f, _} -> f.chunk.kind end)
+  defp kinds(frames), do: Enum.map(frames, & &1.chunk.kind)
 
   describe "text_only" do
     test "text frames in order, each acknowledged before the next, then complete" do
@@ -25,32 +25,27 @@ defmodule Elzoo.ProviderStreamTest do
       task =
         Fixture.run(
           Fixture.read("text.ai-text.json"),
-          Fixture.acking_sink(),
+          Fixture.holding_sink(),
           Fixture.settings(),
           origin
         )
 
+      frames = Fixture.release(25, fn _ -> 20 end)
       assert {:complete, result} = Task.await(task)
 
-      assert_receive {:request, head, body}
+      assert_receive {:request, ^origin, head, body}
       assert head =~ ~r/\APOST \/v1\/messages HTTP\/1.1\r\n/
       assert Jason.decode!(body) == Fixture.upstream("text")
-      refute_receive {:request, _, _}, 100
+      refute_receive {:request, _, _, _}, 100
 
-      frames = Fixture.offered()
-      acked = Fixture.acked()
-      assert length(frames) == 25
-      assert Enum.map(frames, fn {f, _} -> f.seq end) == Enum.to_list(0..24)
-      assert Enum.all?(frames, fn {f, _} -> f.chunk.seq == f.seq end)
+      assert Enum.map(frames, & &1.seq) == Enum.to_list(0..24)
+      assert Enum.all?(frames, &(&1.chunk.seq == &1.seq))
       assert Enum.join(texts(frames)) == result.content
 
-      for {f, _} <- frames do
+      for f <- frames do
         assert {:ok, _} = StreamChunk.validate(f.chunk)
         assert {:ok, _} = Chunk.validate(f.chunk)
       end
-
-      for [{_, _}, {next, offered_at}] <- Enum.chunk_every(frames, 2, 1, :discard),
-          do: assert(acked[next.seq - 1] < offered_at)
 
       assert result.tool_calls == []
       assert result.finish == :stop
@@ -109,7 +104,7 @@ defmodule Elzoo.ProviderStreamTest do
       end
 
       refute_received :credentials_read
-      refute_receive {:request, _, _}, 200
+      refute_receive {:request, _, _, _}, 200
     end
 
     test "assistant tool calls and tool results translate to the documented blocks" do
@@ -134,7 +129,7 @@ defmodule Elzoo.ProviderStreamTest do
       payload = Jason.encode!(%{base | "messages" => messages, "tool_choice" => %{"type" => "any"}})
       task = Fixture.run(payload, Fixture.acking_sink(), Fixture.settings(), origin)
       assert {:complete, _} = Task.await(task)
-      assert_receive {:request, _, body}
+      assert_receive {:request, ^origin, _, body}
       sent = Jason.decode!(body)
       assert sent["tool_choice"] == %{"type" => "any"}
 
@@ -183,22 +178,21 @@ defmodule Elzoo.ProviderStreamTest do
       task =
         Fixture.run(
           Fixture.read("tool.ai-text.json"),
-          Fixture.acking_sink(),
+          Fixture.holding_sink(),
           Fixture.settings(),
           origin
         )
 
+      # The tool_start frame is held longest: no delta may be offered meanwhile.
+      frames = Fixture.release(14, &if(&1.chunk.kind == :tool_start, do: 400, else: 20))
       assert {:complete, result} = Task.await(task)
-      assert_receive {:request, _, body}
+      assert_receive {:request, ^origin, _, body}
       assert Jason.decode!(body) == Fixture.upstream("tool")
-
-      frames = Fixture.offered()
-      acked = Fixture.acked()
 
       assert kinds(frames) ==
                List.duplicate(:text_delta, 4) ++ [:tool_start] ++ List.duplicate(:tool_delta, 9)
 
-      [{start, _}, {first_delta, first_offered} | _] = Enum.drop(frames, 4)
+      [start, first_delta | _] = Enum.drop(frames, 4)
 
       assert start.chunk.payload == %{
                index: 1,
@@ -208,10 +202,9 @@ defmodule Elzoo.ProviderStreamTest do
 
       assert {:ok, _} = Chunk.validate(start.chunk)
       assert {:error, :stream_chunk} = StreamChunk.validate(start.chunk)
-      assert acked[start.seq] < first_offered
       assert first_delta.chunk.payload.index == 1
 
-      deltas = for {%{chunk: %{kind: :tool_delta} = c}, _} <- frames, do: c
+      deltas = for %{chunk: %{kind: :tool_delta} = c} <- frames, do: c
       assert Enum.all?(deltas, &match?({:ok, _}, StreamChunk.validate(&1)))
       assert Enum.all?(deltas, &(&1.payload.index == 1 and &1.payload.delta != ""))
 
@@ -219,7 +212,9 @@ defmodule Elzoo.ProviderStreamTest do
                result.tool_calls
 
       assert args == Enum.map_join(deltas, & &1.payload.delta)
-      assert is_map(Jason.decode!(args))
+      message = Jason.decode!(Fixture.read("tool.message.json"))
+      assert [%{"input" => input}] = for(%{"type" => "tool_use"} = b <- message["content"], do: b)
+      assert Jason.decode!(args) == input
       assert result.content == "Saving your tomato watering reminder now."
       assert result.finish == :tool_calls
     end
@@ -285,30 +280,25 @@ defmodule Elzoo.ProviderStreamTest do
 
       assert_receive {:held, 0}, 2_000
       refute_receive {:held, _}, 400
-      refute_received {:peer_close, _}
+      refute_received {:peer_close, _, _}
       assert Task.await(task) == {:incomplete, :sink_timeout}
-      assert_receive {:peer_close, {:error, :closed}}, 2_000
+      assert_receive {:peer_close, ^origin, {:error, :closed}}, 2_000
       refute_received {:held, _}
     end
 
-    test "a sink that cancels, disconnects or fails closes the request too" do
-      for {answer, reason} <- [
-            {{:cancel, :caller_cancelled}, :caller_cancelled},
-            {{:error, :disconnected}, :disconnected},
-            {:ok, :sink_failed}
+    test "a sink that cancels, disconnects, fails, raises or acks another frame closes the request" do
+      for {sink, reason} <- [
+            {fn _ -> {:cancel, :caller_cancelled} end, :caller_cancelled},
+            {fn _ -> {:error, :disconnected} end, :disconnected},
+            {fn _ -> :ok end, :sink_failed},
+            {fn f -> {:ack, make_ref(), f.seq} end, :sink_failed},
+            {fn f -> {:ack, f.callback_ref, f.seq + 1} end, :sink_failed},
+            {fn _ -> raise "sink" end, :sink_failed}
           ] do
         origin = Peer.start(Fixture.open(Fixture.read("text.sse")))
-
-        task =
-          Fixture.run(
-            Fixture.read("text.ai-text.json"),
-            fn _ -> answer end,
-            Fixture.settings(),
-            origin
-          )
-
+        task = Fixture.run(Fixture.read("text.ai-text.json"), sink, Fixture.settings(), origin)
         assert Task.await(task) == {:incomplete, reason}
-        assert_receive {:peer_close, {:error, :closed}}, 2_000
+        assert_receive {:peer_close, ^origin, {:error, :closed}}, 2_000
       end
     end
   end
@@ -343,11 +333,11 @@ defmodule Elzoo.ProviderStreamTest do
         assert length(offered) == length(all) - 1
         assert kinds(offered) == Enum.drop(kinds(all), -1)
         assert List.last(kinds(all)) == unquote(last)
-        assert_receive {:peer_close, {:error, :closed}}, 2_000
+        assert_receive {:peer_close, ^origin, {:error, :closed}}, 2_000
       end
     end
 
-    test "a missing or out-of-range max_result_bytes is a configuration error and sends nothing" do
+    test "a missing or out-of-range max_result_bytes, or another bad setting, is a configuration error and sends nothing" do
       origin = Peer.start(Fixture.whole(Fixture.read("text.sse")))
       payload = Fixture.read("text.ai-text.json")
 
@@ -357,14 +347,15 @@ defmodule Elzoo.ProviderStreamTest do
             Fixture.settings(max_result_bytes: 1_048_577),
             Fixture.settings(max_result_bytes: "283"),
             Fixture.settings() ++ [max_result_bytes: 283],
-            Fixture.settings(unknown: 1)
+            Fixture.settings(unknown: 1),
+            Fixture.settings(models: ["claude-haiku-5-5" | "claude-other"])
           ] do
         assert Task.await(Fixture.run(payload, Fixture.acking_sink(), settings, origin)) ==
                  {:error, :configuration}
       end
 
       refute_received :credentials_read
-      refute_receive {:request, _, _}, 200
+      refute_receive {:request, _, _, _}, 200
     end
   end
 
@@ -383,7 +374,7 @@ defmodule Elzoo.ProviderStreamTest do
 
       assert Task.await(task) == {:incomplete, :stream_error}
       assert length(Fixture.offered()) == 3
-      assert_receive {:peer_close, {:error, :closed}}, 2_000
+      assert_receive {:peer_close, ^origin, {:error, :closed}}, 2_000
     end
 
     test "status 529 with no stream is refused overloaded" do
@@ -441,6 +432,100 @@ defmodule Elzoo.ProviderStreamTest do
                [:stop, :stop, :length, :tool_calls, :refusal, {:other, "pause_turn"}]
 
       assert Protocol.finish(String.duplicate("x", 65)) == {:other, "unrecognized"}
+    end
+  end
+
+  describe "declared paths" do
+    setup do
+      %{
+        start: Fixture.through(Fixture.read("text.sse"), "message_start", 1),
+        payload: Fixture.read("text.ai-text.json")
+      }
+    end
+
+    test "more than 4,194,304 received bytes give receive_limit", %{start: start, payload: p} do
+      comment = ":" <> String.duplicate("x", 65_000) <> "\n\n"
+
+      origin =
+        Peer.start(fn s ->
+          Peer.head(s)
+          Peer.chunk(s, start)
+          for _ <- 1..65, do: Peer.chunk(s, comment)
+        end)
+
+      task = Fixture.run(p, Fixture.acking_sink(), Fixture.settings(), origin)
+      assert Task.await(task) == {:incomplete, :receive_limit}
+      assert_receive {:peer_close, ^origin, {:error, :closed}}, 2_000
+    end
+
+    test "total_timeout_ms ends a stream that keeps sending", %{start: start, payload: p} do
+      origin =
+        Peer.start(fn s ->
+          Peer.head(s)
+          Peer.chunk(s, start)
+
+          Enum.reduce_while(1..30, :ok, fn _, _ ->
+            Process.sleep(100)
+            if Peer.chunk(s, ": ping\n\n") == :ok, do: {:cont, :ok}, else: {:halt, :ok}
+          end)
+        end)
+
+      settings =
+        Fixture.settings(total_timeout_ms: 600, receive_timeout_ms: 400, ack_timeout_ms: 500)
+
+      t0 = System.monotonic_time(:millisecond)
+
+      assert Task.await(Fixture.run(p, Fixture.acking_sink(), settings, origin)) ==
+               {:incomplete, :timeout}
+
+      assert System.monotonic_time(:millisecond) - t0 < 1_500
+      assert_receive {:peer_close, ^origin, {:error, :closed}}, 3_000
+    end
+
+    test "receive_timeout_ms ends a silent stream before the total", %{start: start, payload: p} do
+      origin = Peer.start(Fixture.open(start))
+      settings = Fixture.settings(total_timeout_ms: 5_000, receive_timeout_ms: 300)
+      t0 = System.monotonic_time(:millisecond)
+
+      assert Task.await(Fixture.run(p, Fixture.acking_sink(), settings, origin)) ==
+               {:incomplete, :timeout}
+
+      assert System.monotonic_time(:millisecond) - t0 < 2_000
+      assert_receive {:peer_close, ^origin, {:error, :closed}}, 2_000
+    end
+
+    test "a credential function that gives no key is refused and sends nothing", %{payload: p} do
+      origin = Peer.start(Fixture.whole(Fixture.read("text.sse")))
+      settings = Fixture.settings(credentials: fn -> :error end)
+
+      assert Task.await(Fixture.run(p, Fixture.acking_sink(), settings, origin)) ==
+               {:refused, :credentials_unavailable}
+
+      refute_receive {:request, _, _, _}, 200
+    end
+
+    test "an HTTP worker killed by an exit signal gives adapter_error to a caller that traps exits",
+         %{payload: p} do
+      parent = self()
+      origin = Peer.start(Fixture.whole(Fixture.read("text.sse")))
+
+      settings =
+        Fixture.settings(
+          credentials: fn ->
+            send(parent, {:worker, self()})
+            Process.sleep(:infinity)
+          end
+        )
+
+      task =
+        Task.async(fn ->
+          Process.flag(:trap_exit, true)
+          Elzoo.ProviderStream.run(p, Fixture.acking_sink(), settings, {:loopback, origin, nil})
+        end)
+
+      assert_receive {:worker, worker}, 2_000
+      Process.exit(worker, :stopped_from_outside)
+      assert Task.await(task, 1_000) == {:incomplete, :adapter_error}
     end
   end
 

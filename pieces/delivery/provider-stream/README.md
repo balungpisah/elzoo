@@ -171,4 +171,6 @@ structured output, cache hint, stop sequences or server tools. No claim about
 memory beyond the retained raw block, the current receive chunk and the
 assembled result. Tool arguments are not checked against the tool's schema;
 `integration/ai-text` owns that check. No remote cancellation, retry, replay,
-delivery durability or billing claim.
+delivery durability or billing claim. Reading stops at `message_stop`, as in
+`delivery/data-stream`: bytes after it in the same receive chunk are not read,
+so they do not change a `:complete` result.
