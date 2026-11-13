@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "id": "workflow/wait-for-person",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["cure", "elixir"],
+  "dependencies": ["workflow/pattern-step"],
+  "contract": "Pure policy over the open ask_person actions of one request: settles an ask with the answer of its named, host-verified person or its recorded outcome (expired is the time-out), refuses wrong-person and incompatible answers, and routes verified text to an answer or a message; ready PatternStep owns shapes and first settlement. No timer, runtime or authentication.",
+  "limits": [
+    "No process, clock, timer, deadline arithmetic, storage, callback, authentication or recording; the engine records expired for an ask past its deadline before later inputs.",
+    "Not an approval: no approval state and no binding of an exact action; a text never settles an ask by itself.",
+    "Selected Cure law covers supplied classifications only; map validation, text comparison, ask lookup and the ready tracker are finite-test or upstream grounded.",
+    "Phase, open waits, pause and continue stay with workflow/bot-run-lifecycle; Attempt currentness stays with workflow/run; inputs must be of the current Attempt."
+  ],
+  "files": [
+    "cure/elzoo/wait_for_person.cure",
+    "lib/elzoo/wait_for_person.ex",
+    "test/elzoo/wait_for_person_test.exs",
+    "examples/wait_for_person.exs"
+  ],
+  "grounding": [
+    {"kind": "proof", "file": "cure/elzoo/wait_for_person.cure", "symbol": "mismatch_never_answer", "claim": "For both values of the ask-lookup flag and each tracker settlement class, a person answer whose three person texts are not all equal is never the answer decision; excludes map validation, text comparison, lookup and the ready tracker."},
+    {"kind": "type", "file": "cure/elzoo/wait_for_person.cure", "claim": "Pinned Cure checks types and totality of the production decision; the source audit reports no axiom, hole, unresolved, unaudited, opaque or unproved-total definition and zero absurd."},
+    {"kind": "test", "file": "test/elzoo/wait_for_person_test.exs", "claim": "Named groups answer_after_timeout_is_late, other_person_refused, first_answer_stands, answer_names_its_ask and text_without_open_ask_is_message, redacted invalid operands, the Cure law/audit and the checked example pass; removing the person comparison makes other_person_refused fail (negative control). Finite scenarios, not an authentication proof."},
+    {"kind": "upstream", "provider": "cure", "reference": "https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89", "claim": "Pinned Cure compilation, reduction checking and BEAM decision semantics; compiler soundness not locally proved."},
+    {"kind": "upstream", "provider": "elixir", "reference": "https://hexdocs.pm/elixir/1.20.4/", "claim": "Pinned Elixir immutable maps and exact binary equality; ready PatternStep decode/encode/accept settlement is reused unchanged."},
+    {"kind": "assumption", "claim": "The host authenticates the sender and supplies a truthful verified_person, names the person of each ask from trusted data, records each input before the policy reads it, gives only current-Attempt inputs, records expired for an ask past its deadline before any later input, and serializes and preserves state and tracker."}
+  ],
+  "operations": {
+    "telemetry": {"status": "not_applicable", "contract": "Pure callable emits no observations; the host owns instrumentation."},
+    "config": {"status": "not_applicable", "contract": "No selectable behavior: asks, tracker and verified identity are recorded data operands, and the 0..64 ask bound is fixed."},
+    "control": {"status": "not_applicable", "contract": "No independently controlled runtime or lifecycle commands."}
+  }
+}
