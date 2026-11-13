@@ -70,6 +70,50 @@ defmodule Elzoo.RegistryTest do
     end
   end
 
+  test "every proof in a shared source is checked and subsequent loads read changed declarations" do
+    root = fixture()
+    manifest = "pieces/core/operator/piece.json"
+    original_manifest = File.read!(Path.join(root, manifest))
+    source = Path.join(root, "pieces/core/operator/cure/elzoo/composition.cure")
+    original_source = File.read!(source)
+    assert Elzoo.Registry.load!(root).entries["core/operator"]["status"] == "ready"
+
+    change_json(root, manifest, fn piece ->
+      Map.update!(piece, "grounding", fn claims ->
+        Enum.map(claims, fn claim ->
+          if claim["symbol"] == "drop_keeps_downstream",
+            do: Map.put(claim, "symbol", "invented_law"),
+            else: claim
+        end)
+      end)
+    end)
+
+    assert_raise ArgumentError, ~r/missing checked equality proof invented_law/, fn ->
+      Elzoo.Registry.load!(root)
+    end
+
+    File.write!(Path.join(root, manifest), original_manifest)
+
+    for changed_source <- [
+          String.replace(original_source, "fn drop_keeps_downstream(", "fn renamed_law("),
+          original_source
+          |> String.replace(
+            "Equivalent(t, right_after(compose(discard, next, state, input)), state_right(state))",
+            "t"
+          )
+          |> String.replace("reflexive(state_right(state))", "state_right(state)")
+        ] do
+      File.write!(source, changed_source)
+
+      assert_raise ArgumentError, ~r/missing checked equality proof drop_keeps_downstream/, fn ->
+        Elzoo.Registry.load!(root)
+      end
+    end
+
+    File.write!(source, original_source)
+    assert Elzoo.Registry.load!(root).entries["core/operator"]["status"] == "ready"
+  end
+
   test "comments and strings cannot impersonate an equality proof declaration" do
     for impostor <- [
           "\n# fn invented_law(input) -> Equivalent(Int, input, input)\n",

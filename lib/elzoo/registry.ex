@@ -207,7 +207,7 @@ defmodule Elzoo.Registry do
       "executable evidence missing: #{id}"
     )
 
-    Enum.each(piece["grounding"], fn claim ->
+    Enum.reduce(piece["grounding"], %{}, fn claim, proofs ->
       ensure!(claim["kind"] in @grounding, "invalid grounding kind: #{id}")
       nonempty!(claim["claim"], "grounding claim: #{id}")
 
@@ -222,17 +222,6 @@ defmodule Elzoo.Registry do
                 "test evidence must be executable: #{id}"
               )
 
-          if kind == "proof" do
-            symbol = claim["symbol"]
-            nonempty!(symbol, "proof symbol: #{id}")
-            source = File.read!(source!(root, "#{directory}/#{claim["file"]}"))
-
-            ensure!(
-              equality_declaration?(source, symbol),
-              "missing checked equality proof #{symbol}: #{id}"
-            )
-          end
-
         "upstream" ->
           ensure!(claim["provider"] in piece["providers"], "undeclared upstream provider: #{id}")
 
@@ -243,6 +232,27 @@ defmodule Elzoo.Registry do
 
         "assumption" ->
           :ok
+      end
+
+      if claim["kind"] == "proof" do
+        symbol = claim["symbol"]
+        nonempty!(symbol, "proof symbol: #{id}")
+        file = claim["file"]
+        path = source!(root, "#{directory}/#{file}")
+
+        symbols =
+          Map.get_lazy(proofs, file, fn ->
+            path |> File.read!() |> equality_declarations()
+          end)
+
+        ensure!(
+          MapSet.member?(symbols, symbol),
+          "missing checked equality proof #{symbol}: #{id}"
+        )
+
+        Map.put(proofs, file, symbols)
+      else
+        proofs
       end
     end)
 
@@ -390,20 +400,20 @@ defmodule Elzoo.Registry do
   # Parse declarations with the pinned Cure parser. Comments and string literals
   # must not count as definitions. Compilation still owns type/proof checking;
   # this only connects a metadata claim to its actual equality declaration.
-  defp equality_declaration?(source, symbol) do
+  defp equality_declarations(source) do
     with {:ok, tokens} <- Cure.Compiler.Lexer.tokenize(source, emit_events: false),
          {:ok, ast} <- Cure.Compiler.Parser.parse(tokens, emit_events: false) do
       ast
       |> declarations()
-      |> Enum.any?(fn meta ->
-        meta[:name] == symbol and
-          case meta[:return_type] do
-            {:function_call, type_meta, [_, _, _]} -> type_meta[:name] == "Equivalent"
-            _ -> false
-          end
+      |> Enum.filter(fn meta ->
+        case meta[:return_type] do
+          {:function_call, type_meta, [_, _, _]} -> type_meta[:name] == "Equivalent"
+          _ -> false
+        end
       end)
+      |> MapSet.new(& &1[:name])
     else
-      _ -> false
+      _ -> MapSet.new()
     end
   end
 
