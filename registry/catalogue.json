@@ -913,7 +913,8 @@
       "summary": "Mark content so that it cannot give orders",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/untrusted-content/piece.json",
       "reason": "Bot platform wave 2 (P13). One shared mark with source and trust class for tool results, documents and messages from other members, kept through transformation, with a tested render rule for a model request. The mark travels inside the payload; core/envelope is unchanged."
     },
     {
@@ -921,7 +922,8 @@
       "summary": "Resolve a tool name from a model to one callable by alias and descriptor digest",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/tool-registry/piece.json",
       "reason": "Bot platform wave 2 (P13). Tool sources can change at run time (MCP). Owns the model-facing alias and the version, a digest of the descriptor. Finding a tool grants no permission. Unknown, ambiguous and changed tools are explicit results."
     },
     {
@@ -961,7 +963,8 @@
       "summary": "Ask again, a bounded number of times, when model output does not match a schema",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/output-repair/piece.json",
       "reason": "Bot platform wave 2 (P13). integration/ai-text decides valid or invalid and core/payload-schema gives the violation list; this owns only the repair bound and the explicit failure after it. Never a guessed value."
     },
     {
@@ -969,7 +972,8 @@
       "summary": "Pattern step: a model gives one answer of a fixed set or an answer that matches a schema",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/typed-decision/piece.json",
       "reason": "Bot platform wave 2 (P13). A pure step in the shape of workflow/pattern-step, used to pick a branch, check a result or pick a speaker."
     },
     {
@@ -1009,7 +1013,8 @@
       "summary": "Decide from the record that a Run makes no progress",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/stall-detect/piece.json",
       "reason": "Bot platform wave 2 (P13). A verdict apart from retry policy; a healthy long wait is not a stall. Named by the orchestration reference study."
     },
     {
