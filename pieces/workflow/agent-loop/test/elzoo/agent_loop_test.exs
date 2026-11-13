@@ -943,6 +943,221 @@ defmodule Elzoo.AgentLoopTest do
              elem(plain, 1)["actions"]
   end
 
+  ## One named group for each further rule
+
+  test "declaration_over_state_bound" do
+    # A host listing with one long description: the snapshot holds the listing whole.
+    listing = fn bytes ->
+      described = %{descriptor("list") | "description" => String.duplicate("d", bytes)}
+      declared("run:t:1:1", nil, %{"source" => "hub", "tools" => [described]})
+    end
+
+    # The second call stays open, so step/3 returns the state that rule 6 measures.
+    proposals = [call("c1", "hub_list"), call("c2", "files_read")]
+    {open, [_, _]} = trace([start(), model(1, "", "tool_calls", proposals)])
+
+    # Exactly 65,536 bytes with the declaration applied: accepted.
+    {accepted, outputs} = run(open, [listing.(55_608)])
+    assert outputs == [:none]
+
+    assert byte_size(:erlang.term_to_binary(accepted, [:deterministic, {:minor_version, 2}])) ==
+             65_536
+
+    listed = for %{"name" => name} <- ToolRegistry.tools(accepted.snapshot), do: name
+    assert listed == for(%{"name" => name} <- tools(), name != "hub_extra", do: name)
+
+    # One more byte: refused, and nothing but the result of that call changes in the state.
+    {refused, outputs} = run(open, [listing.(55_609)])
+    assert outputs == [:none]
+    assert Map.delete(refused, :open) == Map.delete(open, :open)
+
+    {_, [next]} = run(refused, [result("run:t:1:2", "r2")])
+    assert payload(next)["tools"] == tools()
+
+    assert Enum.take(messages(next), -2) == [
+             tool_result("c1", notice("[declaration refused: state_over_bound]")),
+             tool_result("c2", block(["tool:test"], "r2"))
+           ]
+  end
+
+  test "repeated_id" do
+    proposals = [
+      proposal("c1", "files_read", nil, "invalid_json"),
+      call("c1", "files_read", "a"),
+      call("c1", "web_fetch", "b"),
+      call("c2", "sub_plan", "c")
+    ]
+
+    {_, [_, turn, :none, next]} =
+      trace([
+        start(),
+        model(1, "", "tool_calls", proposals),
+        result("run:t:1:2", "r2"),
+        result("run:t:1:4", "r4")
+      ])
+
+    # The id of a proposal that was left out is not taken; the id of a kept one is.
+    assert turn ==
+             {:some,
+              request([
+                tool_action("run:t:1:2", "tool_call", "files_read", "files", "read", "a"),
+                tool_action("run:t:1:4", "nested_callable", "sub_plan", "sub", "plan", "c")
+              ])}
+
+    lines = [
+      "[tool call left out: files_read: invalid_json]",
+      "[tool call left out: web_fetch: repeated_id]"
+    ]
+
+    assert messages(next) == [
+             @system,
+             %{"role" => "user", "text" => "go"},
+             %{
+               "role" => "assistant",
+               "text" => "",
+               "tool_calls" => [echo("c1", "files_read", "a"), echo("c2", "sub_plan", "c")]
+             },
+             tool_result("c1", block(["tool:test"], "r2")),
+             tool_result("c2", block(["tool:test"], "r4")),
+             %{"role" => "user", "text" => notice(Enum.join(lines, "\n"))}
+           ]
+  end
+
+  test "over_call_bound" do
+    proposals = for i <- 1..65, do: call("c#{i}", "files_read", "#{i}")
+    {open, [_, turn]} = trace([start(), model(1, "", "tool_calls", proposals)])
+
+    # 64 kept calls give 64 actions in one request; proposal 65 gives none.
+    assert turn ==
+             {:some,
+              request(
+                for i <- 1..64 do
+                  tool_action("run:t:1:#{i}", "tool_call", "files_read", "files", "read", "#{i}")
+                end
+              )}
+
+    {_, outputs} = run(open, for(i <- 1..64, do: result("run:t:1:#{i}", "r#{i}")))
+    assert Enum.drop(outputs, -1) == List.duplicate(:none, 63)
+    next = List.last(outputs)
+
+    assert Enum.at(messages(next), 2)["tool_calls"] ==
+             for(i <- 1..64, do: echo("c#{i}", "files_read", "#{i}"))
+
+    refute Enum.any?(messages(next), &(&1["tool_use_id"] == "c65"))
+
+    assert List.last(messages(next)) == %{
+             "role" => "user",
+             "text" => notice("[tool call left out: files_read: over_call_bound]")
+           }
+  end
+
+  test "validator_disagreement" do
+    # No tag, so the proposal check passed these arguments; the schema of the tool refuses them.
+    disagreed = proposal("c1", "files_read", %{"q" => 7})
+
+    {_, [_, turn, next]} =
+      trace([
+        start(),
+        model(1, "", "tool_calls", [disagreed, call("c2", "web_fetch")]),
+        result("run:t:1:2", "fetched")
+      ])
+
+    assert turn ==
+             {:some, request([tool_action("run:t:1:2", "tool_call", "web_fetch", "web", "fetch")])}
+
+    assert messages(next) == [
+             @system,
+             %{"role" => "user", "text" => "go"},
+             %{
+               "role" => "assistant",
+               "text" => "",
+               "tool_calls" => [
+                 %{"id" => "c1", "name" => "files_read", "arguments" => %{"q" => 7}},
+                 echo("c2", "web_fetch")
+               ]
+             },
+             tool_result("c1", notice("[tool call not run: validator_disagreement]")),
+             tool_result("c2", block(["tool:test"], "fetched"))
+           ]
+  end
+
+  test "not_resolved" do
+    # No tag on either: a name that no entry holds, and an own name on two sources.
+    two = [
+      source("files", "other", "adapter", [descriptor("read")]),
+      source("web", "other", "adapter", [descriptor("read")])
+    ]
+
+    proposals = [call("c1", "nowhere"), call("c2", "read"), call("c3", "files_read")]
+
+    {_, [_, turn, next]} =
+      trace(
+        [start(), model(1, "", "tool_calls", proposals), result("run:t:1:3", "r3")],
+        %{sources: two}
+      )
+
+    assert turn ==
+             {:some,
+              request([tool_action("run:t:1:3", "tool_call", "files_read", "files", "read")])}
+
+    # No model call echoes a call that does not resolve: each notice is content behind the results.
+    assert messages(next) == [
+             @system,
+             %{"role" => "user", "text" => "go"},
+             %{"role" => "assistant", "text" => "", "tool_calls" => [echo("c3", "files_read")]},
+             tool_result("c3", block(["tool:test"], "r3")),
+             %{"role" => "user", "text" => notice("[tool call not run: not_resolved]")},
+             %{"role" => "user", "text" => notice("[tool call not run: not_resolved]")}
+           ]
+  end
+
+  test "request_not_built" do
+    # A spec member that build/2 refuses at the first model call.
+    {closed, outputs} = trace([start()], %{role_instructions: []})
+    assert outputs == [{:some, finish("stopped", "request_not_built", nil, 0)}]
+    assert AgentLoop.step(closed, start(), &estimate/1) == {:Transition, closed, :none}
+
+    # A turn that no request of 2,000 bytes holds, also when the older unit is dropped.
+    inputs = [
+      start(),
+      model(1, "", "tool_calls", [call("c1", "files_read")]),
+      result("run:t:1:1", String.duplicate("r", 1_000))
+    ]
+
+    {closed, outputs} = trace(inputs, %{max_request_bytes: 2_000})
+    assert [{:some, %{"actions" => [%{"id" => "run:m:1"}]}}, {:some, _}, last] = outputs
+    assert last == {:some, finish("stopped", "request_not_built", nil, 1)}
+    assert AgentLoop.step(closed, message("more"), &estimate/1) == {:Transition, closed, :none}
+  end
+
+  test "run_ended" do
+    ended =
+      input("run_ended", %{"schema_id" => "test/any", "schema_version" => 1, "payload" => nil})
+
+    long = String.duplicate("s", 2_000)
+    sha = :crypto.hash(:sha256, long) |> Base.encode16(case: :lower)
+    stored = %{"sha256" => sha, "size_bytes" => 2_000, "media_type" => "text/plain"}
+    turn = model(1, "", "tool_calls", [call("c1", "files_read")])
+
+    # The trace that opens each phase, the model calls made, and an input that the phase reads.
+    phases = [
+      {:new, [], 0, start()},
+      {:model, [start()], 1, model(1, "4.", "stop", [])},
+      {:tools, [start(), turn], 1, result("run:t:1:1", "r1")},
+      {:stores, [start(), turn, result("run:t:1:1", long)], 1, receipt("run:s:1:1", stored)}
+    ]
+
+    for {phase, inputs, turns, awaited} <- phases do
+      {open, _} = trace(inputs)
+      assert open.phase == phase
+      assert {:Transition, _, {:some, _}} = AgentLoop.step(open, awaited, &estimate/1)
+
+      assert {:Transition, closed, :none} = AgentLoop.step(open, ended, &estimate/1)
+      assert closed == %{phase: :closed, id: "run", turns: turns}
+      assert AgentLoop.step(closed, awaited, &estimate/1) == {:Transition, closed, :none}
+    end
+  end
+
   test "new_refusals" do
     assert AgentLoop.new(Map.delete(spec(), :ask)) == {:error, :invalid_spec}
     assert AgentLoop.new(spec(%{turn_limit: 0})) == {:error, :invalid_spec}
