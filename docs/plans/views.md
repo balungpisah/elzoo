@@ -209,6 +209,7 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-154](https://github.com/balungpisah/elzoo/issues/330) | V1 / pieces | ELZ-101, ELZ-149 | published 2026-11-13 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-155](https://github.com/balungpisah/elzoo/issues/335) | V1 / pieces | ELZ-101, ELZ-151, ELZ-154 | published 2026-11-13 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-156](https://github.com/balungpisah/elzoo/issues/336) | V1B / pieces | ELZ-143 | published 2026-11-13 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-157](https://github.com/balungpisah/elzoo/issues/342) | V1 / pieces | none | published 2026-11-13 | one claimed provider worker; coordinator owns independent review and merge |
 
 ## Catalogue accounting
 
@@ -374,7 +375,7 @@ Derived from selectors in the manifest; changing the selected scope changes the 
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; integrated pinned mix check, source-copy/namespace/schema/provider compatibility and claim-level evidence. No future release acceptance follows from ELZ-012.
 
-Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, ELZ-008, ELZ-009, ELZ-010, ELZ-011, ELZ-012, ELZ-013, ELZ-014, ELZ-015, ELZ-016, ELZ-017, ELZ-018, ELZ-019, ELZ-020, ELZ-021, ELZ-022, ELZ-023, ELZ-024, ELZ-025, ELZ-026, ELZ-027, ELZ-028, ELZ-029, ELZ-030, ELZ-032, ELZ-033, ELZ-050, ELZ-052, ELZ-053, ELZ-054, ELZ-055, ELZ-083, ELZ-081, ELZ-084, ELZ-087, ELZ-079, ELZ-080, ELZ-085, ELZ-091, ELZ-092, ELZ-097, RC-01, RC-02, RC-03, RC-04, RC-05, RC-06, RC-07, RC-08, RC-09, RC-10, RC-11, RC-12, RC-13, RC-14, RC-15, RC-16, RC-17, RC-18, RC-19, RC-26, RC-32, RC-42, RC-43, ELZ-094, ELZ-093, ELZ-095, ELZ-082, ELZ-096, ELZ-098, ELZ-099, ELZ-100, ELZ-101, ELZ-104, ELZ-103, ELZ-105, ELZ-107, ELZ-106, ELZ-108, ELZ-109, ELZ-110, ELZ-111, ELZ-112, ELZ-113, ELZ-116, ELZ-119, ELZ-120, ELZ-121, ELZ-128, ELZ-129, ELZ-130, ELZ-131, ELZ-132, ELZ-133, ELZ-134, ELZ-135, ELZ-149, ELZ-151, ELZ-152, ELZ-153, ELZ-154, ELZ-155.
+Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, ELZ-008, ELZ-009, ELZ-010, ELZ-011, ELZ-012, ELZ-013, ELZ-014, ELZ-015, ELZ-016, ELZ-017, ELZ-018, ELZ-019, ELZ-020, ELZ-021, ELZ-022, ELZ-023, ELZ-024, ELZ-025, ELZ-026, ELZ-027, ELZ-028, ELZ-029, ELZ-030, ELZ-032, ELZ-033, ELZ-050, ELZ-052, ELZ-053, ELZ-054, ELZ-055, ELZ-083, ELZ-081, ELZ-084, ELZ-087, ELZ-079, ELZ-080, ELZ-085, ELZ-091, ELZ-092, ELZ-097, RC-01, RC-02, RC-03, RC-04, RC-05, RC-06, RC-07, RC-08, RC-09, RC-10, RC-11, RC-12, RC-13, RC-14, RC-15, RC-16, RC-17, RC-18, RC-19, RC-26, RC-32, RC-42, RC-43, ELZ-094, ELZ-093, ELZ-095, ELZ-082, ELZ-096, ELZ-098, ELZ-099, ELZ-100, ELZ-101, ELZ-104, ELZ-103, ELZ-105, ELZ-107, ELZ-106, ELZ-108, ELZ-109, ELZ-110, ELZ-111, ELZ-112, ELZ-113, ELZ-116, ELZ-119, ELZ-120, ELZ-121, ELZ-128, ELZ-129, ELZ-130, ELZ-131, ELZ-132, ELZ-133, ELZ-134, ELZ-135, ELZ-149, ELZ-151, ELZ-152, ELZ-153, ELZ-154, ELZ-155, ELZ-157.
 
 ### V1B-ACCEPT
 
@@ -2751,3 +2752,13 @@ Publication copy: [tasks/ELZ-156-provider-stream-direct-recording.md](../../task
 **Product aims:** P13.
 
 **Acceptance:** A stream recorded from Anthropic's own endpoint is a fixture of delivery/provider-stream with its provenance; a loopback scenario over real HTTP/1.1 reads it whole, in pieces of 97 bytes and in pieces of 1 byte to a complete result with the recorded text, finish and usage, and fails when ping is made an error; the sentences which say that no test shows such a stream are replaced; no change of lib; with the named Piece gate.
+
+### ELZ-157
+
+ELZ-157 — Update the AshAi spike pin for the tool-error disclosure advisory
+
+Publication copy: [tasks/ELZ-157-ash-ai-security-update.md](../../tasks/ELZ-157-ash-ai-security-update.md).
+
+**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12.
+
+**Acceptance:** Pin AshAi 1.5.4 in the Ash foundation spike, reconcile its lock and README, record advisory checks without EEF-CVE-2026-119613 for the resolved dependency, retain existing spike scenarios, and pass spike formatting/tests and the full root check; no other direct pin or Piece Contract changes; explain every strictly required transitive lock change.
