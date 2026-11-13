@@ -29,6 +29,7 @@ defmodule Elzoo.UntrustedContentTest do
       neutral(trust: "derived"),
       neutral(sources: many(16)),
       neutral(content: ""),
+      neutral(max_bytes: 1, content: "a"),
       neutral(max_bytes: 3, content: "abc"),
       neutral(max_bytes: 4, content: "zé!"),
       neutral(max_bytes: 16_777_216, sources: ["a@b.c:d/e-f_g"])
@@ -84,7 +85,7 @@ defmodule Elzoo.UntrustedContentTest do
       neutral(sources: many(17)),
       neutral(trust: "trusted"),
       neutral(trust: :untrusted),
-      neutral(max_bytes: 0),
+      neutral(max_bytes: 0, content: ""),
       neutral(max_bytes: 16_777_217),
       neutral(max_bytes: 4096.0),
       neutral(content: <<0xFF, 0xFE>>),
