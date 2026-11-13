@@ -1,0 +1,3 @@
+%{
+  "lua": {:hex, :lua, "1.0.2", "f349d1b8c18ac2747d698aa78fbd0b50626462cb4f4703a51b59e571d143542f", [:mix], [], "hexpm", "cf14ab77c27f1acf2fb933b82530bd728dab8a69e7a05757e21a3b49180d4690"},
+}
