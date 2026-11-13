@@ -31,7 +31,7 @@ A result is a map with exactly three string keys:
 `decide(result, limits, source_action_id)`. `limits` is `%{max_bytes: n, artifact_max_bytes: m}`. `n`, from 1,024 to 1,048,576, is the declared bound. `m`, a positive integer, is the `max_bytes` of the Artifact store, which the host states. `source_action_id` is the ID of the tool-call action whose recorded outcome holds the result.
 
 - Text of at most `max_bytes` bytes: `{:ok, %{"content" => marked_map, "cut" => nil}}`, with the same map, unchanged.
-- Text over `max_bytes`, and each binary result, of at most `artifact_max_bytes` bytes: `{:store, pending, payload}`. `payload` is the payload of one `tool_call` action under the schema key `elzoo.tool-result-limit.store` version 1. It has exactly the keys `source_action_id`, `sha256`, `size_bytes`, `media_type` and `encoding`, and it never holds content. The caller gives the action its ID. `pending` is plain data (no function, PID or reference) that the caller keeps until the outcome and passes back unchanged.
+- Text over `max_bytes`, and each binary result, of at most `artifact_max_bytes` bytes: `{:store, pending, payload}`. `payload` is the payload of one `tool_call` action under the schema key `elzoo.tool-result-limit.store` version 1. It has exactly the keys `source_action_id`, `sha256`, `size_bytes`, `media_type` and `encoding`, and it never holds content. The caller gives the action its ID. `pending` is plain data (no function, PID or reference) that the caller keeps until the outcome and passes back unchanged. It holds the preview, the fields of the cut, the `sources` and `trust` of the mark and the declared bound, never the content beyond the preview, so a caller can keep it in a bounded state.
 - A result of more than `artifact_max_bytes` bytes: `{:ok, bounded}` with the note `over_artifact_max`, and no store action.
 - `{:error, :unmarked}` when `content` does not pass `Elzoo.UntrustedContent.decode/1`. `{:error, :invalid_input}` for each other malformed operand, base64 that does not decode included. No error holds content.
 
@@ -57,7 +57,7 @@ The preview is the longest prefix of the content that has at most `max_bytes - 5
 
 It implements the Adapter callbacks of `delivery/effect-intent` (README, "Binding and provider Needs"). It also exports `failures/0` and `no_send/0` for the host's `use Elzoo.EffectIntent.Binding`, and `arguments(payload, stream, sequence)`.
 
-`arguments/3` gives the canonical argument bytes of an intent: one JSON object with sorted keys and no white space, with exactly `version` (1), `stream`, `sequence`, `sha256`, `size_bytes`, `media_type` and `encoding`. `stream` and `sequence` name the record of `state/event-log` that holds the outcome. `delivery/effect-intent` refuses arguments over 65,536 bytes; these never hold a result. `validate/2` accepts only this form.
+`arguments/3` returns `{:ok, bytes}`, the canonical argument bytes of an intent, or `{:error, :invalid_input}` for operands that are not in form. The bytes are one JSON object with sorted keys and no white space, with exactly `version` (1), `stream`, `sequence`, `sha256`, `size_bytes`, `media_type` and `encoding`. `stream` and `sequence` name the record of `state/event-log` that holds the outcome. `delivery/effect-intent` refuses arguments over 65,536 bytes; these never hold a result. `validate/2` accepts only this form.
 
 The Adapter context is a map that the host fixes when it starts the intent owner. It has exactly these keys, all required, with no default:
 

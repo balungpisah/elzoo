@@ -922,7 +922,8 @@
       "summary": "Resolve a tool name from a model to one callable by alias and descriptor digest",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/tool-registry/piece.json",
       "reason": "Bot platform wave 2 (P13). Tool sources can change at run time (MCP). Owns the model-facing alias and the version, a digest of the descriptor. Finding a tool grants no permission. Unknown, ambiguous and changed tools are explicit results."
     },
     {
@@ -930,7 +931,8 @@
       "summary": "Cut or store a large tool result so that it fits a model request",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/tool-result-limit/piece.json",
       "reason": "Bot platform wave 2 (P13). A result over the bound becomes an Artifact reference with a bounded preview; the cut is visible and the content stays marked untrusted."
     },
     {
@@ -1023,8 +1025,9 @@
       "summary": "Several MCP servers per tenant from a build-time set of bindings",
       "disposition": "adapt",
       "phase": "demand-led",
-      "status": "planned",
-      "reason": "Bot platform wave 2 (P13). Each server is one compiled binding of ready integration/mcp-client, with its own credential Need and limits; tool lists are keyed by server; one failing server does not block the others. Streamable HTTP and bearer token only. A server added at run time is out of scope. New ID: ready integration/mcp-client is unchanged."
+      "status": "ready",
+      "reason": "Bot platform wave 2 (P13). Each server is one compiled binding of ready integration/mcp-client, with its own credential Need and limits; tool lists are keyed by server; one failing server does not block the others. Streamable HTTP and bearer token only. A server added at run time is out of scope. New ID: ready integration/mcp-client is unchanged.",
+      "manifest": "pieces/integration/mcp-multi/piece.json"
     },
     {
       "id": "runtime/lua-sandbox",
