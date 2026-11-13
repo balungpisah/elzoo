@@ -72,7 +72,7 @@ defmodule Elzoo.OutputRepair do
 
   defp operands?(checked_schema, port, completed, used, bound) do
     match?({PayloadSchema, _, _, _, _}, checked_schema) and
-      match?({:ok, _}, Elzoo.Port.decode(port)) and
+      match?({:ok, _}, Elzoo.Port.decode(port)) and port["direction"] == "output" and
       is_integer(bound) and bound in 0..8 and is_integer(used) and used in 0..bound//1 and
       completed?(completed)
   end

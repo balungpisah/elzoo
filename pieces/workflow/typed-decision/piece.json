@@ -22,6 +22,7 @@
   "grounding": [
     {"kind": "test", "file": "test/elzoo/typed_decision_test.exs", "claim": "Named groups outside_the_set, valid_after_one_repair, invalid_at_bound, refusal_or_empty, finish_length, validators_disagree, repair_calls_visible, single_member_set_refused, deterministic_replay and laws_and_example pass, with the two negative controls of workflow/output-repair. Finite scenarios, not a universal proof."},
     {"kind": "upstream", "provider": "elixir", "reference": "https://hexdocs.pm/elixir/1.20.4/", "claim": "Pinned Elixir immutable maps and term equality; the ready Contracts of workflow/pattern-step and integration/ai-text and the ELZ-141 model-call boundary are reused unchanged."},
+    {"kind": "assumption", "claim": "The value that ai-text reports as valid is the decoding of content; both ready providers give this."},
     {"kind": "assumption", "claim": "The engine records each input before the step reads it and charges and checks each action; the model-call binding of the host gives the ai-text completed map as its JSON view without changing content, structured or finish; the id is Run-wide unique; each answer Port pair has one meaning; the base request leaves room within the ai-text bounds for one echoed output and one repair text."}
   ],
   "operations": {

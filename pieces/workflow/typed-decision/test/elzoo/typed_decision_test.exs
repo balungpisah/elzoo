@@ -16,6 +16,12 @@ defmodule Elzoo.TypedDecisionTest do
     "messages" => [%{"role" => "user", "text" => "Pick one."}]
   }
   @members ["red", "green"]
+  @set_schema %{
+    "type" => "object",
+    "properties" => %{"answer" => %{"enum" => ["red", "green"]}},
+    "required" => ["answer"],
+    "additionalProperties" => false
+  }
   @schema %{
     "type" => "object",
     "properties" => %{"n" => %{"type" => "integer"}},
@@ -136,7 +142,7 @@ defmodule Elzoo.TypedDecisionTest do
              "action_id" => "d:call:1"
            }
 
-    {:ok, checked} = Elzoo.PayloadSchema.build(@port, new!().schema)
+    {:ok, checked} = Elzoo.PayloadSchema.build(@port, @set_schema)
     {:error, {:violations, list}} = Elzoo.PayloadSchema.check(checked, @port, %{"answer" => "blue"})
 
     assert action(repair)["payload"]["messages"] ==
@@ -145,6 +151,19 @@ defmodule Elzoo.TypedDecisionTest do
                  %{"role" => "assistant", "text" => answer("blue")},
                  %{"role" => "user", "text" => OutputRepair.render(list)}
                ]
+  end
+
+  test "decided_schema_answer" do
+    state = started(%{answer: {:schema, @schema}})
+    valid = completed("d:call:0", ~s({"n": 4}), %{"valid" => %{"n" => 4}})
+    {result, [_finish]} = finished(state, [valid])
+
+    assert result == %{
+             "status" => "decided",
+             "value" => %{"n" => 4},
+             "repairs" => 0,
+             "action_id" => "d:call:0"
+           }
   end
 
   test "invalid_at_bound" do
@@ -240,7 +259,7 @@ defmodule Elzoo.TypedDecisionTest do
     {_, [call0]} = run(new!(%{repairs: 2}), [start()])
     assert action(call0)["id"] == "d:call:0"
     assert action(call0)["schema_id"] == "elzoo/ai-text-request"
-    assert action(call0)["payload"] == Map.put(@request, "output_schema", new!().schema)
+    assert action(call0)["payload"] == Map.put(@request, "output_schema", @set_schema)
 
     for class <- ["out_of_budget", "refused", "unknown", "failed", "expired"] do
       {result, [_repair, _finish]} =
@@ -258,8 +277,12 @@ defmodule Elzoo.TypedDecisionTest do
   end
 
   test "single_member_set_refused" do
-    for members <- [["red"], [], ["red", "red"], ["red", ""], ["red", :green], "red"] do
+    for members <- [["red"], [], ["red", "red"]] do
       assert TypedDecision.new(spec(%{answer: {:set, members}})) == {:error, :invalid_set}
+    end
+
+    for members <- [["red", ""], ["red", :green], ["red", <<255>>], "red"] do
+      assert TypedDecision.new(spec(%{answer: {:set, members}})) == {:error, :invalid_spec}
     end
 
     for schema <- [%{"type" => 7}, %{"$ref" => "http://x"}, "object"] do
@@ -353,6 +376,12 @@ defmodule Elzoo.TypedDecisionTest do
 
       assert %{"reason" => "malformed_result", "outcome" => "completed", "violations" => []} =
                result
+    end
+
+    # Both checks pass, but the value ai-text reports is not {"answer": member}.
+    for value <- [%{"answer" => "purple"}, %{"answer" => 1}, "red"] do
+      {result, [_]} = finished(waiting, [put_structured(ok("red"), %{"valid" => value})])
+      assert %{"reason" => "malformed_result", "outcome" => "completed"} = result
     end
 
     {result, [_]} = finished(waiting, [put_in(ok("red"), ["payload", "finish"], %{"other" => "x"})])

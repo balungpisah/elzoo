@@ -19,13 +19,16 @@ process. The engine performs each action.
   `{"type": "object", "properties": {"answer": {"enum": members}}, "required": ["answer"], "additionalProperties": false}`.
 - `repairs`: the bound of output-repair, 0 to 8.
 
-Errors: `:invalid_set` (one member, no member, a repeated or non-text member),
-`:invalid_schema` (`PayloadSchema.build/2` refuses), otherwise `:invalid_spec`.
+Errors: `:invalid_set` (one member, no member or a repeated member),
+`:invalid_schema` (`PayloadSchema.build/2` refuses), otherwise `:invalid_spec`
+(an empty or non-text member and `members` that is not a list included).
 
 The state is an atom-keyed plain map, owned by the copying application:
 `%{phase: :new | :waiting | :closed, id:, request:, port:, answer: :set | :schema,
-schema: schema_object, repairs: bound, used: repairs_made}`. It holds no
-struct, function or compiled schema; `step/2` builds the checked schema again
+schema: schema_object, repairs: bound, used: repairs_made}`. For a
+JSON-plain request it holds no struct, function or compiled schema; `new/1`
+checks only the top level of `request`, so plain data inside it is the
+caller's duty; `step/2` builds the checked schema again
 from the stored object. The open call is `id <> ":call:" <> used`.
 
 ## `step(state, input)`
@@ -56,7 +59,9 @@ After a finish the state is closed. `at_ms` and the `start` payload are not read
   `{"invalid": "missing" | "schema_mismatch" | "invalid_json"}`) and `"finish"`
   (`"stop"`, `"length"`, `"tool_calls"`, `"content_filter"`, `"refusal"` or
   `{"other": text}`); other members are not read. Otherwise, or when `decide/5`
-  gives `:invalid_input`, the step fails with `malformed_result`.
+  gives `:invalid_input`, the step fails with `malformed_result`. For a set, an
+  accepted value that is not `{"answer": member}` with a listed member also
+  fails with `malformed_result`.
 - Finish: action `id:finish`, kind `finish`, schema
   `elzoo.typed-decision.result` version 1, payload
   `{"status": "decided", "value", "repairs", "action_id"}` or
@@ -75,6 +80,9 @@ Tests only: `mix test pieces/workflow/typed-decision/test` runs the groups
 `laws_and_example` (the checked example `examples/typed_decision.exs`: a set
 decision with one repair). The Cure laws are those of `workflow/output-repair`.
 Finite scenarios, not a universal proof.
+
+Assumption: the value that ai-text reports as valid is the decoding of
+`content` (both ready providers give this).
 
 Needs: an engine that records each input before the step reads it and charges
 and checks each action; the model-call boundary above, performed through

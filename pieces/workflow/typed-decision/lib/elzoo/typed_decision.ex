@@ -196,17 +196,21 @@ defmodule Elzoo.TypedDecision do
   defp finish(_), do: :error
 
   defp answer({:set, members}) do
-    if is_list(members) and length(members) >= 2 and Enum.all?(members, &text?/1) and
-         length(Enum.uniq(members)) == length(members) do
-      {:ok, :set,
-       %{
-         "type" => "object",
-         "properties" => %{"answer" => %{"enum" => members}},
-         "required" => ["answer"],
-         "additionalProperties" => false
-       }}
-    else
-      {:error, :invalid_set}
+    cond do
+      not (is_list(members) and Enum.all?(members, &text?/1)) ->
+        {:error, :invalid_spec}
+
+      length(members) < 2 or length(Enum.uniq(members)) != length(members) ->
+        {:error, :invalid_set}
+
+      true ->
+        {:ok, :set,
+         %{
+           "type" => "object",
+           "properties" => %{"answer" => %{"enum" => members}},
+           "required" => ["answer"],
+           "additionalProperties" => false
+         }}
     end
   end
 

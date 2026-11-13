@@ -9,7 +9,7 @@ value and starts no process.
 ## `decide(checked_schema, port, completed, used, bound)`
 
 - `checked_schema`, `port`: the value of `Elzoo.PayloadSchema.build(port, schema)`
-  and its output Port, for the same schema object that the request carried as
+  and its output Port (another direction is `:invalid_input`), for the same schema object that the request carried as
   `output_schema`.
 - `completed`: a map with `content` (UTF-8 text), `structured`
   (`{:valid, value}` or `{:invalid, :missing | :schema_mismatch | :invalid_json}`)
@@ -67,7 +67,8 @@ holds fails `validators_disagree`. The checked example
 accept. Finite scenarios, not a universal proof.
 
 Upstream: Jason 1.4.5; jsv 0.27.0 through `core/payload-schema`. Assumptions:
-the caller passes the ai-text result unchanged, the checked schema of the same
+the value that ai-text reports as valid is the decoding of `content` (both
+ready providers give this); the caller passes the ai-text result unchanged, the checked schema of the same
 schema object and a truthful `used`. An answer that matches the schema is not a
 correct answer. Telemetry, Config and Control are not applicable: pure
 functions over intrinsic operands.

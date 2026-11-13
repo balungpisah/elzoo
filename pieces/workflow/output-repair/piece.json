@@ -23,8 +23,8 @@
     {"kind": "proof", "file": "cure/elzoo/output_repair.cure", "symbol": "length_fails", "claim": "Finish length fails as length for every answered, A, B and repairs-left value."},
     {"kind": "proof", "file": "cure/elzoo/output_repair.cure", "symbol": "other_finish_no_answer", "claim": "A finish other than stop or length fails as no_answer for every answered, A, B and repairs-left value."},
     {"kind": "proof", "file": "cure/elzoo/output_repair.cure", "symbol": "unanswered_no_answer", "claim": "An unanswered stop output fails as no_answer for every A, B and repairs-left value."},
-    {"kind": "proof", "file": "cure/elzoo/output_repair.cure", "symbol": "valid_only_disagrees", "claim": "A without B fails as validator_disagreement for both repairs-left values."},
-    {"kind": "proof", "file": "cure/elzoo/output_repair.cure", "symbol": "decoded_only_disagrees", "claim": "B without A fails as validator_disagreement for both repairs-left values."},
+    {"kind": "proof", "file": "cure/elzoo/output_repair.cure", "symbol": "valid_only_disagrees", "claim": "With finish stop and answered true, A without B fails as validator_disagreement for both repairs-left values."},
+    {"kind": "proof", "file": "cure/elzoo/output_repair.cure", "symbol": "decoded_only_disagrees", "claim": "With finish stop and answered true, B without A fails as validator_disagreement for both repairs-left values."},
     {"kind": "proof", "file": "cure/elzoo/output_repair.cure", "symbol": "invalid_at_bound", "claim": "An answered stop output with neither A nor B and no repair left is invalid_at_bound."},
     {"kind": "proof", "file": "cure/elzoo/output_repair.cure", "symbol": "no_repair_at_bound", "claim": "With no repair left the decision is never a repair, for every finish class, answered, A and B value."},
     {"kind": "type", "file": "cure/elzoo/output_repair.cure", "claim": "The pinned Cure compiler checks types and totality of the production decision table; the source audit finds no axioms, holes, unresolved, unaudited, opaque or unproved-total definitions and zero absurd."},
@@ -33,6 +33,7 @@
     {"kind": "upstream", "provider": "elixir", "reference": "https://hexdocs.pm/elixir/1.20.4/String.html#trim/1", "claim": "Pinned Elixir Unicode whitespace trimming decides empty content."},
     {"kind": "upstream", "provider": "jason", "reference": "https://hexdocs.pm/jason/1.4.5/Jason.html", "claim": "Jason 1.4.5 decodes the content; a decoding error is the invalid_json violation."},
     {"kind": "upstream", "provider": "jsv", "reference": "https://hexdocs.pm/jsv/0.27.0/JSV.html", "claim": "jsv 0.27.0 schema validation through the ready core/payload-schema check, reused unchanged."},
+    {"kind": "assumption", "claim": "The value that ai-text reports as valid is the decoding of content; both ready providers give this."},
     {"kind": "assumption", "claim": "The caller supplies the checked schema built from the same schema object that the request carried, the completed result of ai-text unchanged, and a truthful count of repair requests made."}
   ],
   "operations": {

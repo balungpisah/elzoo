@@ -56,6 +56,10 @@ defmodule Elzoo.OutputRepairTest do
 
     assert OutputRepair.decide(:schema, @port, ok, 0, 1) == {:error, :invalid_input}
     assert OutputRepair.decide(checked(), %{"id" => "x"}, ok, 0, 1) == {:error, :invalid_input}
+
+    input_port = Map.put(@port, "direction", "input")
+    {:ok, input_checked} = PayloadSchema.build(input_port, @schema)
+    assert OutputRepair.decide(input_checked, input_port, ok, 0, 1) == {:error, :invalid_input}
     assert OutputRepair.decide(checked(), @port, ok, 8, 8) == {:accept, %{"n" => 3}}
 
     # Rule 2 precedes rule 3: a cut, empty output fails as length.
