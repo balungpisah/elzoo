@@ -5749,12 +5749,12 @@
     {
       "id": "delivery/data-stream",
       "job": "ELZ-101",
-      "note": "Bounded caller-scoped text-only Anthropic HTTP1.1 stream: serialized Backpressure admission, actual checkpoint-before-send EffectIntent, exact raw-block/SSE/JSON schema, one acknowledged local offer at a time, source-complete finish after request result/DOWN, finite cleanup/retention and provider-reported usage independent of delivery.",
+      "note": "Bounded caller-scoped text-only Anthropic HTTP1.1 stream: serialized Backpressure admission, actual checkpoint-before-send EffectIntent, exact raw-block/SSE framing, a JSON schema of the members that it reads with each other member and event type ignored, one acknowledged local offer at a time, source-complete finish after request result/DOWN, finite cleanup/retention and provider-reported usage independent of delivery.",
       "baseline_status": "deferred",
       "disposition": "ready-contract on task branch; task acceptance separate",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/delivery/data-stream/piece.json",
-      "manifest_sha256": "400e820ba6fe4032632b3925c00bd3cb6088abb9f5bce30b379dccfbe0659c95"
+      "manifest_sha256": "02d29717c19cd324ad00082d91611ecd2638e44ed1bb9d1d69bb69d28bac18ec"
     },
     {
       "id": "delivery/dead-letter",

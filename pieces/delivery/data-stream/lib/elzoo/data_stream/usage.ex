@@ -3,9 +3,8 @@ defmodule Elzoo.DataStream.Usage do
   @moduledoc false
   alias Elzoo.AiModel.Usage, as: Core
   @max 9_223_372_036_854_775_807
-  @keys ~w(input_tokens output_tokens cache_read_input_tokens cache_creation_input_tokens cache_creation output_tokens_details)
-  # ELZ-151: allowed with any value and never read.
-  @unread ~w(inference_geo server_tool_use service_tier speed)
+  @scalars ~w(input_tokens output_tokens cache_read_input_tokens cache_creation_input_tokens)
+  @lifetimes ~w(ephemeral_5m_input_tokens ephemeral_1h_input_tokens)
   def new,
     do: %{
       input: :unknown,
@@ -18,14 +17,7 @@ defmodule Elzoo.DataStream.Usage do
   def merge(_, nil), do: {:ok, new()}
 
   def merge(old, m) when is_map(m) do
-    with :ok <- shape(m, @keys ++ @unread),
-         :ok <-
-           counters(
-             Map.take(
-               m,
-               ~w(input_tokens output_tokens cache_read_input_tokens cache_creation_input_tokens)
-             )
-           ),
+    with :ok <- counters(m, @scalars),
          {:ok, reasoning} <- reasoning(old.reasoning, Map.fetch(m, "output_tokens_details")),
          {:ok, writes} <- writes(old.writes, m) do
       r = %{
@@ -83,8 +75,7 @@ defmodule Elzoo.DataStream.Usage do
   defp reasoning(_, {:ok, nil}), do: {:ok, :unknown}
 
   defp reasoning(_, {:ok, m}) when is_map(m) do
-    with :ok <- shape(m, ["thinking_tokens"]),
-         :ok <- counters(m),
+    with :ok <- counters(m, ["thinking_tokens"]),
          n = scalar(m, "thinking_tokens", :unknown),
          true <- n in [:unknown, 0] do
       {:ok, n}
@@ -110,12 +101,16 @@ defmodule Elzoo.DataStream.Usage do
           {:ok, [%{ttl: "provider_default", amount: :unknown}]}
 
         {:ok, group} when is_map(group) ->
-          with :ok <- shape(group, ~w(ephemeral_5m_input_tokens ephemeral_1h_input_tokens)),
-               :ok <- counters(group) do
+          with :ok <- counters(group, @lifetimes) do
             a = scalar(group, "ephemeral_5m_input_tokens", :unknown)
             b = scalar(group, "ephemeral_1h_input_tokens", :unknown)
 
             cond do
+              # ELZ-155: each member name of this group is one lifetime. With a
+              # lifetime that is not read, the group is not used.
+              Map.keys(group) -- @lifetimes != [] ->
+                {:ok, [%{ttl: "provider_default", amount: total}]}
+
               is_integer(a) and is_integer(b) and a + b > @max ->
                 {:error, :malformed_response}
 
@@ -133,12 +128,15 @@ defmodule Elzoo.DataStream.Usage do
     end
   end
 
-  defp shape(m, keys),
-    do: if(Enum.all?(Map.keys(m), &(&1 in keys)), do: :ok, else: {:error, :unsupported_response})
-
-  defp counters(m),
+  # ELZ-155: only the members that the Piece reads are checked. Each other
+  # member is ignored.
+  defp counters(m, keys),
     do:
-      if(Enum.all?(Map.values(m), fn x -> is_nil(x) or (is_integer(x) and x in 0..@max) end),
+      if(
+        Enum.all?(keys, fn k ->
+          x = Map.get(m, k)
+          is_nil(x) or (is_integer(x) and x in 0..@max)
+        end),
         do: :ok,
         else: {:error, :malformed_response}
       )
