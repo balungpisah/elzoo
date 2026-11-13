@@ -6472,17 +6472,21 @@
     {
       "id": "workflow/prompt-assembly",
       "job": "ELZ-140",
-      "note": "Bot platform wave 2 (P13). Declared order and drop order inside the hard request bounds of integration/ai-text; never drops instructions or splits a tool call from its result; untrusted content stays marked. Uses ready workflow/context-selection.",
+      "note": "Pure build of one integration/ai-text request from role and skill instructions, selected memory, history and tools in one declared order (one system message, one memory block, one message per history entry, marked content only as rendered blocks), within a caller-supplied token window and estimate and the hard request bounds of ai-text; one declared drop order (oldest unit of a call with its results, then the last memory item) never drops instructions, tools, keep-rule records or the newest unit; older image references become a fixed marked text; refusals before any drop, over_limit when nothing is left to drop.",
       "baseline_status": "not in baseline (new row, RC-54)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/workflow/prompt-assembly/piece.json",
+      "manifest_sha256": "b3c386797ec5c933b1f61fe3c4a86e547c3dd8c1ee9ee74479241d8e70ed5e79",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
       "id": "workflow/context-compaction",
       "job": "ELZ-140",
-      "note": "Bot platform wave 2 (P13). A pure step that gives one model-call action; the engine records it. Keep-rule items (the goal, open actions, decisions, failed approaches) are structured records kept verbatim; only free text is summarized.",
+      "note": "Pure pattern step that asks a model for one summary of a range of history: open gives one model_call action (key elzoo/ai-text-request v1) built by workflow/prompt-assembly from the free-text entries, never the keep-rule records, and refuses a range that does not fit one request; accept settles it through workflow/pattern-step and gives the records unchanged plus one derived marked summary with its derived_from references, or a named error with no compacted value; check refuses a value that lost a keep-rule record.",
       "baseline_status": "not in baseline (new row, RC-54)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/workflow/context-compaction/piece.json",
+      "manifest_sha256": "9f30bca92525b5cf2a91c65aa2bd143e1e36365b24da2deafe5fa83bee499a5f",
       "catalogue_reference": "registry/catalogue.json"
     },
     {

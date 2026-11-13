@@ -948,7 +948,8 @@
       "summary": "Build one text request from instructions, memory, history and tools within a limit",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/prompt-assembly/piece.json",
       "reason": "Bot platform wave 2 (P13). Declared order and drop order inside the hard request bounds of integration/ai-text; never drops instructions or splits a tool call from its result; untrusted content stays marked. Uses ready workflow/context-selection."
     },
     {
@@ -956,7 +957,8 @@
       "summary": "Replace old history with a recorded summary under a keep rule",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/context-compaction/piece.json",
       "reason": "Bot platform wave 2 (P13). A pure step that gives one model-call action; the engine records it. Keep-rule items (the goal, open actions, decisions, failed approaches) are structured records kept verbatim; only free text is summarized."
     },
     {
