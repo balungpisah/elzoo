@@ -5553,6 +5553,23 @@
       "issue": 345,
       "url": "https://github.com/balungpisah/elzoo/issues/345",
       "issue_body_sha256": "ab3a52d476ec79992b0f5927c2e798dcd2204692634e5bb506f56e8dce5c260b"
+    },
+    {
+      "id": "ELZ-159",
+      "title": "ELZ-159 — Provider-fit record for a bounded Lua runtime (RC-60, first deliverable)",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033"],
+      "status": "published 2026-11-14",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-159-lua-runtime-fit.md"],
+      "outputs": [],
+      "acceptance": "A documents-only provider-fit record for RC-60 in docs/work/ELZ-159-lua-runtime-fit.md with re-runnable probe sources in docs/work/ELZ-159-probes/: lua 1.0.2, luerl 1.5.1 and reference Lua 5.4 in an OS process each recorded for limits, uncatchable stops, escape paths, allow-list fit, determinism, plain data and errors, cost and build; a recommendation and proposed answers to the open RC-60 policy points for the owner; no dependency, pin or Piece change.",
+      "product_aims": ["P13"],
+      "issue": 347,
+      "url": "https://github.com/balungpisah/elzoo/issues/347",
+      "issue_body_sha256": "ef94fff18e8486bd322c5c3544a0e59e2ea013f54fa8c41e153c3d66502085b8"
     }
   ],
   "entries": [
