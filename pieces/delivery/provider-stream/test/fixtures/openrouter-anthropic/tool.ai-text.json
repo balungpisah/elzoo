@@ -1,0 +1,46 @@
+{
+ "version": 1,
+ "model": "claude-haiku-5-5",
+ "max_output_tokens": 300,
+ "messages": [
+  {
+   "role": "system",
+   "text": "You keep notes for the user. First say one short sentence, then call the save_note tool exactly once."
+  },
+  {
+   "role": "user",
+   "text": "Save a note about watering the tomato plants every second day, with the tags garden and summer."
+  }
+ ],
+ "tools": [
+  {
+   "name": "save_note",
+   "description": "Save one note with a title, a body and tags.",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "title": {
+      "type": "string"
+     },
+     "body": {
+      "type": "string"
+     },
+     "tags": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     }
+    },
+    "required": [
+     "title",
+     "body",
+     "tags"
+    ]
+   }
+  }
+ ],
+ "tool_choice": {
+  "type": "auto"
+ }
+}
