@@ -6489,7 +6489,7 @@
       "baseline_status": "not in baseline (new row, RC-70)",
       "disposition": "ready-contract",
       "manifest": "pieces/workflow/stall-detect/piece.json",
-      "manifest_sha256": "7fc132ee833a117031b003fd135c8d017717bc114cb65430d65031f5d55aa0f3",
+      "manifest_sha256": "1bd277dddfd9343f01e478c033521469eff270aca34b24c1914f3b2d4de73bf1",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
