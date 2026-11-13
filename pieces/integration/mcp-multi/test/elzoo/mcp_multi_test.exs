@@ -204,6 +204,9 @@ defmodule Elzoo.McpMultiTest do
 
   defp names({:ok, listing}), do: Enum.map(listing.tools, & &1["name"])
 
+  # The whole term, past any custom Inspect implementation.
+  defp full(term), do: inspect(term, structs: false, limit: :infinity, printable_limit: :infinity)
+
   defp refute_tokens(term, refs) do
     text =
       if is_binary(term),
@@ -340,6 +343,23 @@ defmodule Elzoo.McpMultiTest do
              call(ctx, m, "gamma", snapshot, "echo", %{"x" => "1"})
 
     refute "tools/call" in seen(c)
+
+    # A secrets function that raises, or returns no context.
+    for secrets <- [fn _ -> raise "no authority" end, fn _ -> nil end] do
+      e = server("epsilon")
+
+      {:ok, cfg} =
+        McpMulti.configure(tenant: "tenant-a", secrets: secrets, servers: [entry(e, "tenant-a")])
+
+      {:ok, m} = McpMulti.connect(cfg, ctx.sup)
+      assert McpMulti.session(m, "epsilon") == {:unavailable, :credentials_unavailable}
+
+      assert McpMulti.list_tools(m) == %{
+               {"tenant-a", "epsilon"} => {:unavailable, :credentials_unavailable}
+             }
+
+      assert seen(e) == []
+    end
   end
 
   test "rejected_credential_after_dispatch: 401 and 403 are refused authentication_failed after one tools/call; an expired reference is credentials_expired with nothing sent",
@@ -479,6 +499,8 @@ defmodule Elzoo.McpMultiTest do
         {c, m} = multi(ctx, v, "tenant-a", [entry(a, "tenant-a"), entry(b, "tenant-a")])
         refute_tokens(inspect(c), refs)
         refute_tokens(inspect(m), refs)
+        refute_tokens(full(c), refs)
+        refute_tokens(full(m), refs)
         assert inspect(c) =~ "tenant-a" and inspect(m) =~ inspect(a.binding)
 
         Server.mode(a, {:echo_list, ""})
@@ -499,6 +521,8 @@ defmodule Elzoo.McpMultiTest do
 
         missing(v, ref(a, "tenant-a"))
         refute_tokens(McpMulti.list_tools(m), refs)
+        refute_tokens(full(c), refs)
+        refute_tokens(full(m), refs)
         refute_tokens(McpMulti.close(m), refs)
       end)
 
