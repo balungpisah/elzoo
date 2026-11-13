@@ -51,7 +51,8 @@ Which input the host records for text from a verified person. Exactly one open
 ask names the person: `{:answer, action_id}` (record a `person_answer`). None:
 `:message` (record a `message`). Several: `{:refused, :ambiguous_ask}`; this
 Piece does not choose. `asks` may be the union of the `asks` maps of the Run.
-An `asks` or a `verified_person` that is not in the form above is
+An `asks` that is not a map of nonempty UTF-8 texts (any size), or a
+`verified_person` that is not nonempty UTF-8 text (`nil` included), is
 `{:error, :invalid_shape}`.
 
 ## Grounding

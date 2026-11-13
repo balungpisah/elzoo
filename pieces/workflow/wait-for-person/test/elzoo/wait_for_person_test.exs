@@ -106,7 +106,7 @@ defmodule Elzoo.WaitForPersonTest do
 
     # person_id names another person, but the verified sender is the asked person.
     assert {:ok, ^s0, {:refused, :wrong_person}} =
-             WaitForPerson.step(s0, answer("ask-a", "principal-9"), "principal-7")
+             WaitForPerson.step(s0, other_answer(), "principal-7")
 
     # No verified sender at all.
     assert {:ok, ^s0, {:refused, :wrong_person}} = WaitForPerson.step(s0, named_answer(), nil)
