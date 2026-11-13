@@ -104,6 +104,10 @@ defmodule Elzoo.WaitForPersonTest do
     assert {:ok, ^s0, {:refused, :wrong_person}} =
              WaitForPerson.step(s0, named_answer(), "principal-9")
 
+    # person_id names another person, but the verified sender is the asked person.
+    assert {:ok, ^s0, {:refused, :wrong_person}} =
+             WaitForPerson.step(s0, answer("ask-a", "principal-9"), "principal-7")
+
     # No verified sender at all.
     assert {:ok, ^s0, {:refused, :wrong_person}} = WaitForPerson.step(s0, named_answer(), nil)
 
@@ -187,6 +191,20 @@ defmodule Elzoo.WaitForPersonTest do
         do: assert(WaitForPerson.step(state, input, person) == {:error, :invalid_shape})
 
     assert WaitForPerson.route(%{"ask-a" => :principal}, "principal-7") == {:error, :invalid_shape}
+
+    # The asks of one request are bounded to 0..64 entries.
+    asks = fn n -> Map.new(1..n, &{"ask-#{&1}", "principal-9"}) end
+
+    assert {:ok, _, {:answer, "ask-a"}} =
+             WaitForPerson.step(
+               %{s0 | asks: Map.put(asks.(63), "ask-a", "principal-7")},
+               named_answer(),
+               "principal-7"
+             )
+
+    assert WaitForPerson.step(%{s0 | asks: asks.(65)}, named_answer(), "principal-7") ==
+             {:error, :invalid_shape}
+
     assert WaitForPerson.route(%{}, nil) == {:error, :invalid_shape}
   end
 

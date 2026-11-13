@@ -47,8 +47,8 @@ and phase: a `wake` is never queued, refused, reported or handed on. For a
 ## `next(state)`
 
 `{:ok, new_state, {:deliver, message}}` with the oldest queued message removed,
-or `{:ok, state, :empty}`. The caller calls it when the lifecycle permits new
-work.
+or `{:ok, state, :empty}`, or `{:error, :invalid_shape}` for a state that is not
+in the form above. The caller calls it when the lifecycle permits new work.
 
 ## Grounding
 

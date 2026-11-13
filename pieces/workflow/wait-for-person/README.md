@@ -41,7 +41,9 @@ operand echoed. Rules, in order:
 
 A caller that also uses `workflow/bot-run-lifecycle` gives it a `person_answer`
 only after this policy returned `{:answer, _}`, with the tracker from before
-this step; both steps then return equal trackers.
+this step. When `workflow/bot-run-lifecycle` accepts that wait, both steps
+return equal trackers; on its terminal, deadline-expired and closed-wait
+paths it returns its tracker unchanged.
 
 ## `route(asks, verified_person)`
 
@@ -49,6 +51,8 @@ Which input the host records for text from a verified person. Exactly one open
 ask names the person: `{:answer, action_id}` (record a `person_answer`). None:
 `:message` (record a `message`). Several: `{:refused, :ambiguous_ask}`; this
 Piece does not choose. `asks` may be the union of the `asks` maps of the Run.
+An `asks` or a `verified_person` that is not in the form above is
+`{:error, :invalid_shape}`.
 
 ## Grounding
 
