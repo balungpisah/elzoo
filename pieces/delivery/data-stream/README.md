@@ -98,6 +98,9 @@ the current Finch options interface, avoiding deprecated request options.
 Req's application owns the pools. No global Req defaults/plugins are imported.
 The one monotonic lifetime includes validation, setup, credentials, pool/connect,
 reception, every callback and ack commit. Receive timeout is inactivity only.
+An intent failure (admission refused or failed, bootstrap worker or intent
+process lost) that the session records when the lifetime is over ends the
+stream with timeout; while the lifetime runs, it ends with intent_unavailable.
 
 Validate 200 protocol headers even with no data callback. Non-200 classification
 is status-only and takes priority over discarded-body size. Total bytes cap:

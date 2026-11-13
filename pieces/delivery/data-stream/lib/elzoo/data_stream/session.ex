@@ -228,7 +228,7 @@ defmodule Elzoo.DataStream.Session do
     case Map.get(s.workers, ref) do
       {:http, _} -> {:noreply, %{s | http_result: result}}
       {:sink, _} -> {:noreply, %{s | sink_result: result}}
-      {:bootstrap, _} -> {:noreply, fail(s, :intent_unavailable)}
+      {:bootstrap, _} -> {:noreply, intent_failed(s)}
       nil -> {:noreply, s}
     end
   end
@@ -245,7 +245,7 @@ defmodule Elzoo.DataStream.Session do
         finish_cleanup(
           if(s.cleaning,
             do: %{s | intent_ref: nil},
-            else: begin_cleanup(fail(%{s | intent_ref: nil}, :intent_unavailable))
+            else: begin_cleanup(intent_failed(%{s | intent_ref: nil}))
           )
         )
 
@@ -271,7 +271,7 @@ defmodule Elzoo.DataStream.Session do
                   sink_down(s, reason)
 
                 :bootstrap ->
-                  if(s.cleaning, do: s, else: begin_cleanup(fail(s, :intent_unavailable)))
+                  if(s.cleaning, do: s, else: begin_cleanup(intent_failed(s)))
 
                 :cleanup ->
                   s
@@ -319,7 +319,7 @@ defmodule Elzoo.DataStream.Session do
   end
 
   def handle_info({:bootstrap_failed, token}, %{token: token} = s),
-    do: {:noreply, begin_cleanup(fail(s, :intent_unavailable))}
+    do: {:noreply, begin_cleanup(intent_failed(s))}
 
   def handle_info({:deadline, token}, %{token: token} = s) do
     if remaining(s) == 0 do
@@ -526,6 +526,11 @@ defmodule Elzoo.DataStream.Session do
     publish(s)
     if s.adapter, do: settle(s, {:error, r, :redacted}), else: begin_cleanup(s)
   end
+
+  # The one lifetime includes setup. An intent that fails after its end is a
+  # timeout, in the order that the acknowledgement limit already uses.
+  defp intent_failed(s),
+    do: fail(s, if(remaining(s) == 0, do: :timeout, else: :intent_unavailable))
 
   defp settle(s, result) do
     send(s.adapter, {:data_stream_adapter, s.token, result})
