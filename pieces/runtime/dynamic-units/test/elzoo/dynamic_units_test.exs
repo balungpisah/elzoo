@@ -596,7 +596,7 @@ defmodule Elzoo.DynamicUnitsTest do
     before = :erlang.system_info(:atom_count)
     for index <- 1..20, do: cycle.("binary-#{index}")
     assert :erlang.system_info(:atom_count) == before
-    assert Registry.count(p.registry) == 0
+    eventually(fn -> Registry.count(p.registry) == 0 end)
     assert :sys.get_state(d).entries == %{}
     assert {:monitors, monitors} = Process.info(d, :monitors)
     assert length(monitors) == 2
