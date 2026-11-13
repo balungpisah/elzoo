@@ -229,8 +229,8 @@ Every change gets one independent review, including documents, index files and t
 
 Freeze the diff for review; the local gate can run alongside that review.
 When the reviewed delta is unchanged, avoid repeated main chasing and local
-gate runs; this does not waive base and exact-head requirements or hosted
-checks on a new head.
+gate runs; this does not waive section 5's required local gates, base and
+exact-head requirements, or hosted checks on a new head.
 
 - The reviewer is a different agent session, and a different model where one
   is available. Give it the issue body and the diff, not your summary. The
