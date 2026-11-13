@@ -4,6 +4,8 @@ defmodule Elzoo.DataStream.Usage do
   alias Elzoo.AiModel.Usage, as: Core
   @max 9_223_372_036_854_775_807
   @keys ~w(input_tokens output_tokens cache_read_input_tokens cache_creation_input_tokens cache_creation output_tokens_details)
+  # ELZ-151: allowed with any value and never read.
+  @unread ~w(inference_geo server_tool_use service_tier speed)
   def new,
     do: %{
       input: :unknown,
@@ -16,7 +18,7 @@ defmodule Elzoo.DataStream.Usage do
   def merge(_, nil), do: {:ok, new()}
 
   def merge(old, m) when is_map(m) do
-    with :ok <- shape(m, @keys),
+    with :ok <- shape(m, @keys ++ @unread),
          :ok <-
            counters(
              Map.take(

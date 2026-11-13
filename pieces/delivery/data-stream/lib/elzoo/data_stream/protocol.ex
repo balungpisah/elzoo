@@ -100,7 +100,12 @@ defmodule Elzoo.DataStream.Protocol do
   defp transition(%{phase: :start} = s, "message_start", m) do
     with :ok <- shape(m, ~w(type message), []),
          a when is_map(a) <- m["message"],
-         :ok <- shape(a, ~w(id type role model content stop_reason stop_sequence), ["usage"]),
+         :ok <-
+           shape(
+             a,
+             ~w(id type role model content stop_reason stop_sequence),
+             ~w(usage container stop_details)
+           ),
          true <- id?(a["id"]) and model?(a["model"]),
          true <-
            a["type"] == "message" and a["role"] == "assistant" and a["content"] == [] and
@@ -126,7 +131,7 @@ defmodule Elzoo.DataStream.Protocol do
     with :ok <- shape(m, ~w(type index content_block), []),
          true <- is_integer(m["index"]) and m["index"] == n,
          b when is_map(b) <- m["content_block"],
-         :ok <- shape(b, ~w(type text), []),
+         :ok <- shape(b, ~w(type text), ["citations"]),
          :ok <- variant(b["type"], "text"),
          true <- text?(b["text"], 65_536) do
       action = if b["text"] == "", do: :none, else: {:text, :binary.copy(b["text"])}
@@ -161,9 +166,9 @@ defmodule Elzoo.DataStream.Protocol do
   end
 
   defp transition(%{phase: p, open: nil} = s, "message_delta", m) when p in [:content, :delta] do
-    with :ok <- shape(m, ~w(type delta), ["usage"]),
+    with :ok <- shape(m, ~w(type delta), ~w(usage context_management)),
          d when is_map(d) <- m["delta"],
-         :ok <- shape(d, [], ~w(stop_reason stop_sequence)),
+         :ok <- shape(d, [], ~w(stop_reason stop_sequence container stop_details)),
          true <- is_nil(d["stop_sequence"]),
          {:ok, finish} <- finish(s.finish, Map.get(d, "stop_reason")),
          {:ok, s} <- observe_usage(s, m, :message_delta) do
@@ -224,6 +229,9 @@ defmodule Elzoo.DataStream.Protocol do
   defp variant(a, a), do: :ok
   defp variant(_, _), do: {:error, :unsupported_response}
 
+  # Exact keys. ELZ-151: `container`, `stop_details`, `citations` and
+  # `context_management` are in an `opt` list only to be allowed. They hold any
+  # value and no code reads them. A member in neither list is still refused.
   def shape(m, req, opt) do
     cond do
       not is_map(m) -> {:error, :malformed_response}

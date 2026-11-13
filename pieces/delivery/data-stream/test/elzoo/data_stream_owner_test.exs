@@ -54,6 +54,77 @@ defmodule Elzoo.DataStream.OwnerTest do
     GenServer.stop(owner)
   end
 
+  test "allowed members are never read: same frames, usage and terminal with and without them" do
+    # Hand-made values of several JSON kinds; some look like members that are read.
+    usage = %{
+      "inference_geo" => "eu",
+      "server_tool_use" => %{"web_search_requests" => 7, "output_tokens" => 99},
+      "service_tier" => ["priority"],
+      "speed" => 9
+    }
+
+    message = %{
+      "container" => %{"id" => "container_1", "expires_at" => "2026-11-13T00:00:00Z"},
+      "stop_details" => %{"type" => "refusal", "stop_reason" => "max_tokens"}
+    }
+
+    [start, block, text, block_stop, delta, stop] =
+      plain = [Fixture.start()] ++ Fixture.text() ++ [Fixture.delta(), Fixture.stop()]
+
+    with_members = [
+      start
+      |> update_in(["message"], &Map.merge(&1, message))
+      |> update_in(["message", "usage"], &Map.merge(&1, usage)),
+      put_in(block, ["content_block", "citations"], [%{"type" => "char_location"}]),
+      text,
+      block_stop,
+      delta
+      |> Map.put("context_management", %{"applied_edits" => [%{"cleared_input_tokens" => 3}]})
+      |> update_in(["delta"], &Map.merge(&1, message))
+      |> update_in(["usage"], &Map.merge(&1, usage)),
+      stop
+    ]
+
+    effect = Fixture.effect()
+    parent = self()
+
+    [with_result, plain_result] =
+      for events <- [with_members, plain] do
+        wire = Fixture.wire(events)
+        peer = Peer.start(self(), fn mod, s -> Peer.response(mod, s, wire) end)
+        tag = make_ref()
+
+        sink = fn frame ->
+          send(parent, {tag, frame})
+          Fixture.ack(frame)
+        end
+
+        {:ok, owner} = Stream.__start_loopback__(Fixture.settings(), peer.origin)
+        {:ok, h} = Stream.start(owner, effect, sink)
+        t = Fixture.terminal(h)
+        GenServer.stop(owner)
+        # This one field counts the bytes of the wire, so it is compared with
+        # its own wire. Every other field of the terminal is compared below.
+        assert t.received_body_bytes == byte_size(wire)
+        {offered(tag), t |> Map.from_struct() |> Map.delete(:received_body_bytes)}
+      end
+
+    assert with_result == plain_result
+    {frames, t} = with_result
+
+    assert [
+             {Stream.Frame, 0, %{kind: :text_delta, payload: "private output"}, :partial},
+             {Stream.FinishFrame, 1, %{kind: :finish, payload: %{reason: :stop}}, :source_complete}
+           ] = frames
+
+    assert t.status == :complete and t.delivery_complete and t.source_complete
+    assert t.provenance.response_id == "msg_1"
+    assert {:provider_reported, u} = t.incurred_usage
+    assert Elzoo.AiModel.Usage.amount(u, :input_uncached_tokens) == 2
+    assert Elzoo.AiModel.Usage.amount(u, :output_tokens) == 5
+    assert t.last_usage == %{usage: u, event_index: 4, stage: :message_delta}
+  end
+
   test "failed finish retains source-complete usage; interruption before stop cannot incur it" do
     for {stop, expected} <- [{true, true}, {false, false}] do
       events = [Fixture.start(), Fixture.delta()] ++ if(stop, do: [Fixture.stop()], else: [])
@@ -541,5 +612,15 @@ defmodule Elzoo.DataStream.OwnerTest do
     assert req.options.finch[:conn_opts][:transport_opts][:timeout] == 5_000
     assert req.options.finch[:pool_max_idle_time] == 60_000
     GenServer.stop(owner)
+  end
+
+  # The frames that one sink offered, without the references of the run.
+  defp offered(tag) do
+    receive do
+      {^tag, %module{seq: seq, chunk: chunk, completeness: c}} ->
+        [{module, seq, chunk, c} | offered(tag)]
+    after
+      0 -> []
+    end
   end
 end
