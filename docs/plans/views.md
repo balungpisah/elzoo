@@ -207,6 +207,8 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-152](https://github.com/balungpisah/elzoo/issues/322) | V1 / pieces | none | published 2026-11-13 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-153](https://github.com/balungpisah/elzoo/issues/329) | V1 / pieces | ELZ-152 | published 2026-11-13 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-154](https://github.com/balungpisah/elzoo/issues/330) | V1 / pieces | ELZ-101, ELZ-149 | published 2026-11-13 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-155](https://github.com/balungpisah/elzoo/issues/335) | V1 / pieces | ELZ-101, ELZ-151, ELZ-154 | published 2026-11-13 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-156](https://github.com/balungpisah/elzoo/issues/336) | V1B / pieces | ELZ-143 | published 2026-11-13 | one claimed task worker; coordinator owns independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -372,13 +374,13 @@ Derived from selectors in the manifest; changing the selected scope changes the 
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; integrated pinned mix check, source-copy/namespace/schema/provider compatibility and claim-level evidence. No future release acceptance follows from ELZ-012.
 
-Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, ELZ-008, ELZ-009, ELZ-010, ELZ-011, ELZ-012, ELZ-013, ELZ-014, ELZ-015, ELZ-016, ELZ-017, ELZ-018, ELZ-019, ELZ-020, ELZ-021, ELZ-022, ELZ-023, ELZ-024, ELZ-025, ELZ-026, ELZ-027, ELZ-028, ELZ-029, ELZ-030, ELZ-032, ELZ-033, ELZ-050, ELZ-052, ELZ-053, ELZ-054, ELZ-055, ELZ-083, ELZ-081, ELZ-084, ELZ-087, ELZ-079, ELZ-080, ELZ-085, ELZ-091, ELZ-092, ELZ-097, RC-01, RC-02, RC-03, RC-04, RC-05, RC-06, RC-07, RC-08, RC-09, RC-10, RC-11, RC-12, RC-13, RC-14, RC-15, RC-16, RC-17, RC-18, RC-19, RC-26, RC-32, RC-42, RC-43, ELZ-094, ELZ-093, ELZ-095, ELZ-082, ELZ-096, ELZ-098, ELZ-099, ELZ-100, ELZ-101, ELZ-104, ELZ-103, ELZ-105, ELZ-107, ELZ-106, ELZ-108, ELZ-109, ELZ-110, ELZ-111, ELZ-112, ELZ-113, ELZ-116, ELZ-119, ELZ-120, ELZ-121, ELZ-128, ELZ-129, ELZ-130, ELZ-131, ELZ-132, ELZ-133, ELZ-134, ELZ-135, ELZ-149, ELZ-151, ELZ-152, ELZ-153, ELZ-154.
+Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, ELZ-008, ELZ-009, ELZ-010, ELZ-011, ELZ-012, ELZ-013, ELZ-014, ELZ-015, ELZ-016, ELZ-017, ELZ-018, ELZ-019, ELZ-020, ELZ-021, ELZ-022, ELZ-023, ELZ-024, ELZ-025, ELZ-026, ELZ-027, ELZ-028, ELZ-029, ELZ-030, ELZ-032, ELZ-033, ELZ-050, ELZ-052, ELZ-053, ELZ-054, ELZ-055, ELZ-083, ELZ-081, ELZ-084, ELZ-087, ELZ-079, ELZ-080, ELZ-085, ELZ-091, ELZ-092, ELZ-097, RC-01, RC-02, RC-03, RC-04, RC-05, RC-06, RC-07, RC-08, RC-09, RC-10, RC-11, RC-12, RC-13, RC-14, RC-15, RC-16, RC-17, RC-18, RC-19, RC-26, RC-32, RC-42, RC-43, ELZ-094, ELZ-093, ELZ-095, ELZ-082, ELZ-096, ELZ-098, ELZ-099, ELZ-100, ELZ-101, ELZ-104, ELZ-103, ELZ-105, ELZ-107, ELZ-106, ELZ-108, ELZ-109, ELZ-110, ELZ-111, ELZ-112, ELZ-113, ELZ-116, ELZ-119, ELZ-120, ELZ-121, ELZ-128, ELZ-129, ELZ-130, ELZ-131, ELZ-132, ELZ-133, ELZ-134, ELZ-135, ELZ-149, ELZ-151, ELZ-152, ELZ-153, ELZ-154, ELZ-155.
 
 ### V1B-ACCEPT
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156.
 
 ### V2-ACCEPT
 
@@ -2729,3 +2731,23 @@ Publication copy: [tasks/ELZ-154-data-stream-timeout-during-admission.md](../../
 **Product aims:** P06.
 
 **Acceptance:** A stream whose lifetime is over when Session records a failure of the intent ends with reason timeout, shown by a sweep across the end of the lifetime that fails with the change undone; a failure of the intent while the lifetime runs is still intent_unavailable; an inconclusive sample of the blocked acknowledged-write test must end with timeout again, with the named Piece gate.
+
+### ELZ-155
+
+ELZ-155 — Make `delivery/data-stream` ignore the members and event types that it does not read
+
+Publication copy: [tasks/ELZ-155-data-stream-ignore-unread.md](../../tasks/ELZ-155-data-stream-ignore-unread.md).
+
+**Product aims:** P06.
+
+**Acceptance:** delivery/data-stream ignores a member and an event type that it does not read and accepts a number with a fraction where it reads none; each member that it reads keeps its rule, and content that is not text, an unknown stop reason and a wrong order are still refused; a stream recorded from Anthropic's own endpoint, refused before the change, is read to its end at four piece sizes and through one loopback run, and is refused again with the change undone; with the named Piece gate.
+
+### ELZ-156
+
+ELZ-156 — Test `delivery/provider-stream` on a stream recorded from Anthropic's own endpoint
+
+Publication copy: [tasks/ELZ-156-provider-stream-direct-recording.md](../../tasks/ELZ-156-provider-stream-direct-recording.md).
+
+**Product aims:** P13.
+
+**Acceptance:** A stream recorded from Anthropic's own endpoint is a fixture of delivery/provider-stream with its provenance; a loopback scenario over real HTTP/1.1 reads it whole, in pieces of 97 bytes and in pieces of 1 byte to a complete result with the recorded text, finish and usage, and fails when ping is made an error; the sentences which say that no test shows such a stream are replaced; no change of lib; with the named Piece gate.

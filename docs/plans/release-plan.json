@@ -5485,6 +5485,40 @@
       "issue": 330,
       "url": "https://github.com/balungpisah/elzoo/issues/330",
       "issue_body_sha256": "affa025216061e45abb77751116ad76a8a0741e7ddc0c52dbc3c1f6ac4dc5985"
+    },
+    {
+      "id": "ELZ-155",
+      "title": "ELZ-155 — Make `delivery/data-stream` ignore the members and event types that it does not read",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": ["ELZ-101", "ELZ-151", "ELZ-154"],
+      "status": "published 2026-11-13",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-155-data-stream-ignore-unread.md"],
+      "outputs": [],
+      "acceptance": "delivery/data-stream ignores a member and an event type that it does not read and accepts a number with a fraction where it reads none; each member that it reads keeps its rule, and content that is not text, an unknown stop reason and a wrong order are still refused; a stream recorded from Anthropic's own endpoint, refused before the change, is read to its end at four piece sizes and through one loopback run, and is refused again with the change undone; with the named Piece gate.",
+      "product_aims": ["P06"],
+      "issue": 335,
+      "url": "https://github.com/balungpisah/elzoo/issues/335",
+      "issue_body_sha256": "b020c87cd79dcd10aa416fa985281f5023ce2f8614101e22c0d5f70fd73091ef"
+    },
+    {
+      "id": "ELZ-156",
+      "title": "ELZ-156 — Test `delivery/provider-stream` on a stream recorded from Anthropic's own endpoint",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-143"],
+      "status": "published 2026-11-13",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-156-provider-stream-direct-recording.md"],
+      "outputs": [],
+      "acceptance": "A stream recorded from Anthropic's own endpoint is a fixture of delivery/provider-stream with its provenance; a loopback scenario over real HTTP/1.1 reads it whole, in pieces of 97 bytes and in pieces of 1 byte to a complete result with the recorded text, finish and usage, and fails when ping is made an error; the sentences which say that no test shows such a stream are replaced; no change of lib; with the named Piece gate.",
+      "product_aims": ["P13"],
+      "issue": 336,
+      "url": "https://github.com/balungpisah/elzoo/issues/336",
+      "issue_body_sha256": "2329065879d52103627072ca32d32c9e93255a6d8709be9063a9dfdf631a073b"
     }
   ],
   "entries": [
