@@ -205,13 +205,38 @@ defmodule Elzoo.DataStream.PostgresTest do
     settings =
       Keyword.merge(c.settings, total_timeout_ms: 150, receive_timeout_ms: 100, ack_timeout_ms: 100)
 
-    {:ok, owner} = Stream.__start_loopback__(settings, peer.origin)
-    {:ok, h} = Stream.start(owner, Fixture.effect(), &Fixture.ack/1)
-    assert_receive {:blocked_sql, worker}, 1_000
-    t = Fixture.terminal(h)
-    assert t.reason == :timeout
-    refute Process.alive?(worker)
-    refute_receive {:stream_request, _, _, _, _}, 0
-    GenServer.stop(owner)
+    # D starts with the session, and the blocked checkpoint write comes after
+    # SQL work of the intent. A sample whose D ends before that write says
+    # nothing about the blocked path: it is inconclusive, never a pass. A
+    # repeated key is fenced, so each sample has its own.
+    keys = for n <- 1..5, do: "logical-#{n}"
+
+    conclusive =
+      Enum.find(keys, fn key ->
+        {:ok, owner} = Stream.__start_loopback__(settings, peer.origin)
+        effect = Fixture.effect(%{"idempotency_key" => key})
+        {:ok, h} = Stream.start(owner, effect, &Fixture.ack/1)
+        t = Fixture.terminal(h)
+        assert t.reason == :timeout
+
+        # The blocked writer is the intent process, and the session settles
+        # only after that process is down. So the block report of this sample,
+        # if one was sent, is in the mailbox before its terminal.
+        blocked =
+          receive do
+            {:blocked_sql, worker} ->
+              refute Process.alive?(worker)
+              true
+          after
+            0 -> false
+          end
+
+        refute_receive {:stream_request, _, _, _, _}, 0
+        GenServer.stop(owner)
+        blocked
+      end)
+
+    assert conclusive,
+           "inconclusive samples #{Enum.join(keys, ", ")}: none reached the blocked checkpoint write"
   end
 end
