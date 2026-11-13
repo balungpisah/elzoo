@@ -112,6 +112,7 @@ defmodule Elzoo.CheckSelection do
   def piece_changes(base, root \\ File.cwd!(), classify \\ &classify_piece_paths/1) do
     with {:ok, %{paths: paths, base: resolved, head: head}} <- changed_paths(root, base),
          :ok <- nonempty(paths),
+         :ok <- no_special_modes(root, resolved),
          :ok <- no_special_entries(root, paths),
          {:ok, ids} <- classify.(paths) do
       {:ok, %{pieces: ids, comparison: "#{resolved} -> #{head} + working tree/untracked files"}}
@@ -156,6 +157,51 @@ defmodule Elzoo.CheckSelection do
 
   defp nonempty([]), do: {:error, "empty changed-path set"}
   defp nonempty(_), do: :ok
+
+  # Removed or replaced special entries are invisible to lstat. Keep the base-to-working-tree comparison.
+  defp no_special_modes(root, base) do
+    with {:ok, output} <-
+           git(root, [
+             "diff",
+             "--no-ext-diff",
+             "--no-renames",
+             "--raw",
+             "-z",
+             "--no-abbrev",
+             "--ignore-submodules=none",
+             "--no-relative",
+             base,
+             "--"
+           ]),
+         true <- output == "" or String.ends_with?(output, "\0") do
+      output
+      |> String.split("\0")
+      |> Enum.drop(-1)
+      |> Enum.chunk_every(2)
+      |> Enum.reduce_while(:ok, fn
+        [header, path], :ok ->
+          case {Regex.run(~r/\A:([0-7]{6}) ([0-7]{6}) [0-9a-f]{40} [0-9a-f]{40} [ADMT]\z/, header),
+                safe_path?(path)} do
+            {[_, old, new], true} when old in ["120000", "160000"] or new in ["120000", "160000"] ->
+              {:halt, {:error, "tracked symlink or submodule in the change: #{inspect(path)}"}}
+
+            {[_, old, new], true}
+            when old in ["000000", "100644", "100755"] and new in ["000000", "100644", "100755"] and
+                   (old != "000000" or new != "000000") ->
+              {:cont, :ok}
+
+            _ ->
+              {:halt, {:error, "malformed Git mode output"}}
+          end
+
+        _, :ok ->
+          {:halt, {:error, "malformed Git mode output"}}
+      end)
+    else
+      false -> {:error, "malformed Git mode output"}
+      error -> error
+    end
+  end
 
   # The Git name list has no file modes: a symlink or a directory (a submodule checkout) in the working tree refuses.
   defp no_special_entries(root, paths) do

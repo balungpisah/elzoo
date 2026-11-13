@@ -121,6 +121,8 @@ When `main` moves and you have a conflict, merge it:
 **Subagents.** A worker can use subagents to read and to review. Only one
 agent writes in a worktree at a time.
 
+- Use a strong reasoning model for coordination, admission, Contract decisions and independent review; a general coding model for implementation; and a fast, low-cost model for mechanical work. Replace an implementation worker that overbuilds with the low-cost model.
+
 ## 4. Build
 
 - The issue body decides scope and acceptance. If it is wrong or incomplete,
@@ -131,7 +133,8 @@ agent writes in a worktree at a time.
   Effects go through Adapters with declared Needs.
 - Use upstream releases and ordinary `Enum`/`Stream` first. Write only the
   policy that is missing. Make no wrapper around an ordinary upstream API and
-  no placeholder for a planned entry.
+  no placeholder for a planned entry. Build only what the acceptance scenarios need: no extra layers, frameworks or hooks. Reviewers flag extra layers as findings.
+- Take a discovered defect or regression as its own small, scoped task without asking whether to fix it. Follow the claim and shared-path rules; do not fold the repair into unrelated work.
 - Layout: `pieces/<family>/<name>/` with `lib/`, `cure/`, `test/`, `examples/`,
   `README.md` and `piece.json`. `piece.json` owns the source list, the
   dependencies, the grounding of each claim and the Telemetry, Config and
@@ -221,12 +224,7 @@ passes" or "listed scenarios pass", not "verified".
 
 ## 6. Review: one round
 
-An independent review is necessary for a new Piece, a changed Contract or Cure
-law, an Effect or Adapter, storage or delivery behavior, a change of grounding
-or evidence wording in `piece.json` or a README, a toolchain pin, and a change
-in `scripts/` or `.github/`. It is not necessary for other documents, the
-index files, or a test repair that changes no assertion. A new README sentence
-that names a test or an example is evidence wording: it gets the one review.
+Every change gets one independent review, including documents, index files and test repairs. Do not repeat a review of unchanged code.
 
 - The reviewer is a different agent session, and a different model where one
   is available. Give it the issue body and the diff, not your summary. The
@@ -236,7 +234,7 @@ that names a test or an example is evidence wording: it gets the one review.
   (wrong behavior, a broken Contract, a claim with no evidence) or a `NOTE`.
 - Correct all blockers in one batch. The second pass reads only the commits
   made after the first pass: the range `<first reviewed SHA>..<head>`, which
-  its comment names. A third pass occurs only if a blocker stays open.
+  its comment names. Re-review only when the reviewed code changed; do not start another loop for an unchanged open blocker.
 - A reviewer that cannot run the tests says so. Then you run the tests that it
   names, and you record each command and its exit code in the review comment.
 - For a `NOTE`: correct it if that is quick. If not, open a follow-up issue or
@@ -265,6 +263,8 @@ back. You can claim the next task.
 
 The coordinator merges, one queue run at a time. A worker does not merge. A
 worker with no coordinator takes the coordinator role for its own pull request.
+
+- Mark a pull request ready before merging it; a draft is not eligible to merge.
 
     python3 scripts/merge-queue.py <PR number> [<PR number> ...]
 
@@ -301,6 +301,7 @@ holds work that is not merged.
 
 ## 8. Blocked, refused or stale
 
+- If a write is refused for permissions, branch protection or policy, stop and report the refusal. Do not bypass it with another identity, token, endpoint or merge method. The push-conflict recovery below applies only to a non-fast-forward conflict, not a policy refusal.
 - **Blocked.** Comment on the issue: the exact command, its output, the last
   green commit and the decision that you need. Keep the branch. A dependency
   that is not merged is not a blocker: the task is not ready.

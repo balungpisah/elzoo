@@ -479,6 +479,17 @@ the piece shape. The merge line ends with `mode=piece (small gate; the full chec
 names `check-piece`. The queue requires that `main` is not frozen (before the evidence and before the merge). It does
 not wait for the push run of the current `main`, unlike the documentation-only path.
 
+**Outstanding window (ELZ-120).** Before accepting Piece evidence and again immediately before merging, the queue
+walks canonical `main`'s first-parent chain to the nearest commit whose latest push run of `symbolic-check.yml` on
+`main` completed successfully. It counts **all first-parent commits** after that covering SHA, not only Piece merges:
+counts 0, 1 and 2 allow the next small-gate merge; count 3 or greater refuses, naming the covering SHA and count.
+A newer successful covering push reopens the window. Second-parent ancestry is not coverage. Missing or unreadable
+evidence fails closed; a failed or unfinished latest run or rerun cannot supply coverage through an older success on
+that SHA. Window refusal stops rather than dispatching a full run. Existing full-run adoption, dispatch behavior,
+documentation-only checks and the red-main freeze rule are unchanged; full evidence remains usable for repairs when
+the freeze rule permits them. Local queue tests exercise these decisions, not live dispatch. Production dispatch
+evidence uses the separately authorized reviewed implementation PR; the PR #219 six-proof hold remains.
+
 **Push run.** `scripts/ci-skip-decision.py` never skips the full check on the evidence of a run in which
 `check-piece` ran, also when the merge is classified as documentation only. So each small-gate merge gets the full
 check on `main`.
@@ -486,7 +497,8 @@ check on `main`.
 **Limits.** The small gate is a selected check, not the full check. The aggregate consumer, the root tests that are
 not in the list (for example a root test that loads a Piece example or module directly) and the Ash spike run only
 in the full check on `main`. **Residual risk:** the freeze rule ignores a first attempt of a push run in progress, so
-small-gate merges can land before the first full run of `main` after them reports. The queue has no count limit yet; the coordinator enforces the bound of three in `AGENTS.md` section 7 until code enforces it. A red full run then
+small-gate merges can land before the first full run of `main` after them reports, within the window above. Counting
+every first-parent commit is conservative and can pause earlier than counting only Piece merges. A red full run then
 freezes the next merge, and the coordinator repairs forward from the pull request bodies
 ([coordinator](13-coordinator.md)); the coordinator also waits for a green `main` at the end of each level of a
 wave. The hosted time of `check-piece` is not measured yet. Locally the mode took 253 seconds for a one-file change
