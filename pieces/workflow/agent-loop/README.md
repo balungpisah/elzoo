@@ -191,11 +191,13 @@ not make are outside the Contract.
   classifications only.
 - Type: the pinned Cure compiler checks that source; the source audit finds no
   axioms, holes or unproved-total definitions.
-- Test: `mix test pieces/workflow/agent-loop/test` runs the fourteen named groups
+- Test: `mix test pieces/workflow/agent-loop/test` runs the twenty-one named groups
   `final_answer`, `one_turn_one_request`, `unknown_tool`, `malformed_proposals`,
   `listing_changes_snapshot`, `outside_set_listing`, `declarations_by_source_kind`,
   `instruction_bound`, `proposal_without_id`, `engine_refusal_as_content`,
   `result_after_cancel`, `turn_limit`, `done_is_not_evidence`, `ask_and_answer`,
+  `declaration_over_state_bound`, `repeated_id`, `over_call_bound`,
+  `validator_disagreement`, `not_resolved`, `request_not_built`, `run_ended`,
   plus `new_refusals` and `laws_and_example` (law check, source audit and the checked
   example `examples/agent_loop.exs`: a start, one tool turn, the answer). Each
   request passes `PatternStep.decode/1`, each model call payload `Request.decode/2`
