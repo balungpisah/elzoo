@@ -4239,9 +4239,7 @@
       "kind": "proposal",
       "release": "V1B",
       "stage": "pieces",
-      "outputs": [
-        "workflow/agent-loop"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "ELZ-002",
@@ -4252,7 +4250,7 @@
         "ELZ-139",
         "ELZ-087"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "superseded for workflow/agent-loop by published ELZ-142; output moved",
       "contract": "The agent loop as one pattern, not the base: a pure step of RC-68. Inputs: start, a model result, a tool result, a person's answer, a new message, cancel. Output: new state and zero or one request with a set of actions (call the model, call one or more tools, ask a person, run a nested callable, finish), all in the shapes of RC-68. The model proposes; the step maps each proposed tool call through the pure resolution of the tool registry (RC-52) over the snapshot in its state, and puts all calls of one model turn in one request. RC-65 captures the source set at Run start from the pinned recipe and then-read tenant settings; no model, tool or person adds sources, changed settings affect the next Run, and an explicit version-pin change does not change the captured set. Known-source tool lists may change by recorded input. This job owns the declaration result shape and accepts instructions or tools only when the resolved source kind in the registry snapshot permits them: pinned-package skill instructions and declarations, or host listing tool declarations, never inferred from result shape or text. A listing outside the captured set is refused without changing the snapshot. It owns named refusals for exceeding 64 tools and a total loaded-instruction byte bound; the worker proposes the latter at admission considering ai-text's 65,536 canonical-byte request cap. An instruction-overbound load adds no instruction; instructions are never cut and a repeat loaded skill adds nothing. A fresh listing reaches the step as the outcome of a tool-call action to a host listing tool: mcp-client discovery never sends tools/call, so a host tool wraps it and this job tests with a scripted one. It builds each model request with RC-54 and applies RC-69 to other tool results and skill files, never the SKILL.md body. The step has no clock, network or storage, and checks neither budget nor authority: the engine does that for every action.",
       "acceptance": "Recorded-trace tests with no model and no network: a final answer; several tool calls in one turn (one request, each result returns once, in any order); an unknown tool (a result for the model, not a crash); a malformed proposal (each malformed tag of ai-text) reaches the model by a declared rule that request.ex accepts: it is echoed with an empty arguments object and its tag is the tool-result text, or the call is left out and the tag is plain content, and a proposal whose name is outside the tool-name grammar is always left out; a known-source listing changes the snapshot (a new tool usable in the next turn, a change over 64 tools refused); outside-set listing refused with snapshot unchanged; any other tool's exact declaration-shaped result adds neither instructions nor tools, while a pinned-package skill load adds instructions; an instruction-overbound load adds no instruction, instructions are not cut and a repeat loaded skill adds nothing; a proposal without an id cannot get a tool result and is answered by a declared rule; a tool that the engine refuses (the refusal returns as content, rendered by a declared rule that every supported provider accepts); a tool result after cancel (late); the turn limit (explicit outcome); the text 'done' from a model is not completion evidence.",
       "reuse": "The ELZ-025 study surveyed agent libraries, Jido included, and adopted none because each owns the process host; they are references for the step table only. integration/ai-text returns an undeclared or invalid tool call with arguments nil and a malformed tag; a proposal id can be nil; a tool_result message needs a tool_use_id of 1 to 256 bytes (adapter.ex, request.ex). An assistant message that echoes a tool call needs an id of 1 to 256 bytes, a name in the tool-name grammar and an object for arguments, or the request is refused invalid_request (request.ex): a malformed proposal cannot be echoed as it came. integration/ai-text-openai (ELZ-087) refuses a request that holds a tool result with is_error true (open_ai.ex), so a refusal is not rendered as an error result there. Composes RC-52, RC-54, RC-69 and integration/ai-text. assembly/agent-product (RC-38) remains the later example Assembly and is not this Piece.",
@@ -4592,7 +4590,7 @@
         "RC-50",
         "ELZ-136",
         "ELZ-141",
-        "RC-56",
+        "ELZ-142",
         "RC-60",
         "RC-61",
         "RC-62",
@@ -4631,7 +4629,7 @@
         "ELZ-096",
         "ELZ-136",
         "ELZ-140",
-        "RC-56",
+        "ELZ-142",
         "RC-65",
         "RC-66",
         "RC-61",
@@ -5286,7 +5284,7 @@
       "product_aims": ["P13"],
       "issue": 293,
       "url": "https://github.com/balungpisah/elzoo/issues/293",
-      "issue_body_sha256": "7521b1622c74a7b9997d6ccdc11b7f77be142bcda4c7f8731e91eda34617cb7c"
+      "issue_body_sha256": "9f8c53f7f7c3a8750c5c2b8fe3d96dc94f7cc1713e0be56d38b152b0591eec48"
     },
     {
       "id": "ELZ-140",
@@ -5304,6 +5302,23 @@
       "issue": 294,
       "url": "https://github.com/balungpisah/elzoo/issues/294",
       "issue_body_sha256": "722dc93fc7336a60c513e608d4666263a803ccff4a341856e7e9d0df3be1726f"
+    },
+    {
+      "id": "ELZ-142",
+      "title": "ELZ-142 — Agent loop as one pure pattern step",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-002", "ELZ-079", "ELZ-114", "ELZ-136", "ELZ-140", "ELZ-139", "ELZ-087"],
+      "status": "published 2026-11-13",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-142-agent-loop.md"],
+      "outputs": ["workflow/agent-loop"],
+      "acceptance": "The fourteen named groups cover a final answer, one turn in one request, an unknown tool, malformed proposals, a listing that changes the snapshot, a listing outside the captured set, declarations by source kind, the instruction bound, a proposal without an id, an engine refusal as content, a result after cancel, the turn limit, the word done not being completion evidence, and an ask with its answer, with two negative controls and selected Cure laws.",
+      "product_aims": ["P13"],
+      "issue": 301,
+      "url": "https://github.com/balungpisah/elzoo/issues/301",
+      "issue_body_sha256": "922a1354af1ead2382dd1f8590d41819f3cc981c9eea0352f185c3bfc385a0a5"
     }
   ],
   "entries": [
@@ -6458,7 +6473,7 @@
     },
     {
       "id": "workflow/agent-loop",
-      "job": "RC-56",
+      "job": "ELZ-142",
       "note": "Bot platform wave 2 (P13). The agent loop as one pure step in the shape of workflow/pattern-step, not the base and not a host. All tool calls of one model turn go in one request. assembly/agent-product stays the later example Assembly.",
       "baseline_status": "not in baseline (new row, RC-56)",
       "disposition": "blocked-admission-proposal",
