@@ -62,12 +62,14 @@ bytes for `expanding` and the three `adv_` fixtures. With the factor 1 these
 four are below the reported value; that is why the factor is 3.
 
 The fixtures were recorded through OpenRouter's Anthropic-compatible endpoint, routed to Anthropic,
-on 2026-11-13, for the model `claude-haiku-5-5`. Nothing was recorded from
-Anthropic's own endpoint. `test/fixtures/openrouter-anthropic/PROVENANCE.md`
+on 2026-11-13, for the model `claude-haiku-5-5`; Anthropic's own endpoint was
+not called. `test/fixtures/openrouter-anthropic/PROVENANCE.md`
 says how the provider was pinned, which response members show it, each
 difference from a direct call and what was not recorded. A recording is a
 Monitored observation of one model on one day through one intermediary: it is
-not a proof and not the provider's Contract.
+not a proof and not the provider's Contract. Seven response fixtures hold the
+`signature` of a thinking block as recorded: opaque provider data, not a
+credential.
 
 | Fixture | Canonical bytes | Reported | `size` | `size` / reported |
 | --- | ---: | ---: | ---: | ---: |

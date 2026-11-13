@@ -121,7 +121,7 @@ defmodule Elzoo.AiTokenCount.AnthropicTest do
       assert text =~
                "recorded through OpenRouter's Anthropic-compatible endpoint, routed to Anthropic"
 
-      refute text =~ ~r/recorded from Anthropic(?!'s own endpoint)/
+      refute text =~ ~r/recorded from\s+Anthropic(?!'s own endpoint)/
     end
   end
 
@@ -271,7 +271,7 @@ defmodule Elzoo.AiTokenCount.AnthropicTest do
       assert lib == ["lib/elzoo/ai_token_count/anthropic.ex"]
 
       forbidden =
-        ~r/\b(Req\.|ReqLLM|Finch|Mint\.|HTTPoison|Tesla|Plug\.|:httpc|:gen_tcp|:gen_udp|:ssl|:socket|System\.(get_env|fetch_env)|Application\.(get_env|fetch_env|get_all_env)|spawn|Task\.|GenServer|Agent\.|Process\.|Port\.|File\.write|:ets)/
+        ~r/(\b(Req\.|ReqLLM|Finch|Mint\.|HTTPoison|Tesla|Plug\.|System\.(get_env|fetch_env)|Application\.(get_env|fetch_env|get_all_env)|spawn|Task\.|GenServer|Agent\.|Process\.|Port\.|File\.write)|:(httpc|gen_tcp|gen_udp|ssl|socket|ets)\b)/
 
       for f <- lib do
         source = File.read!(Path.join(root, f))
