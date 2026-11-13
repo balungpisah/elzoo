@@ -964,7 +964,8 @@
       "summary": "Ask again, a bounded number of times, when model output does not match a schema",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/output-repair/piece.json",
       "reason": "Bot platform wave 2 (P13). integration/ai-text decides valid or invalid and core/payload-schema gives the violation list; this owns only the repair bound and the explicit failure after it. Never a guessed value."
     },
     {
@@ -972,7 +973,8 @@
       "summary": "Pattern step: a model gives one answer of a fixed set or an answer that matches a schema",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/typed-decision/piece.json",
       "reason": "Bot platform wave 2 (P13). A pure step in the shape of workflow/pattern-step, used to pick a branch, check a result or pick a speaker."
     },
     {

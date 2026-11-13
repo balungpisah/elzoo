@@ -6443,17 +6443,21 @@
     {
       "id": "workflow/output-repair",
       "job": "ELZ-141",
-      "note": "Bot platform wave 2 (P13). integration/ai-text decides valid or invalid and core/payload-schema gives the violation list; this owns only the repair bound and the explicit failure after it. Never a guessed value.",
+      "note": "Pure bounded output repair over an ai-text completed result: accept only a value that both ai-text and the payload-schema check accept; repair only an invalid answered output while repairs remain, with the unchanged violation list; otherwise fail as length, no_answer, validator_disagreement or invalid_at_bound. Never a guessed value.",
       "baseline_status": "not in baseline (new row, RC-55)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/workflow/output-repair/piece.json",
+      "manifest_sha256": "1f6401bf7bed26cad13ec1f36f18fd340d5074e720d23ef1688fe3c93c375669",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
       "id": "workflow/typed-decision",
       "job": "ELZ-141",
-      "note": "Bot platform wave 2 (P13). A pure step in the shape of workflow/pattern-step, used to pick a branch, check a result or pick a speaker.",
+      "note": "Pure pattern step in the core/operator shape over PatternStep v1 neutral maps: one model_call action per request for an answer of a fixed set of two or more members or of a schema, bounded repair calls by workflow/output-repair, and one finish with status decided and the value both checks accepted, or failed with a named reason. No model call, clock, store or process.",
       "baseline_status": "not in baseline (new row, RC-55)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/workflow/typed-decision/piece.json",
+      "manifest_sha256": "27e9e653d7393007bff6b3bdfe2c12b2b0a7f8fc73a23686e7837a19aae54cd4",
       "catalogue_reference": "registry/catalogue.json"
     },
     {

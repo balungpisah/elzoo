@@ -1,0 +1,65 @@
+# SPDX-License-Identifier: Apache-2.0
+mod Elzoo.OutputRepair
+  type FinishClass = FinishStop | FinishLength | FinishOther
+  type RepairDecision = Accept | Repair | FailLength | FailNoAnswer | FailDisagreement | FailAtBound
+
+  # The production decision over supplied classifications: finish class, answered,
+  # A (ai-text valid), B (decoded content passes the schema check) and repairs left.
+  @total true
+  @reducible
+  fn decide(finish: FinishClass, answered: Bool, a: Bool, b: Bool, left: Bool) -> RepairDecision =
+    match finish
+      FinishLength() -> FailLength()
+      FinishOther() -> FailNoAnswer()
+      FinishStop() ->
+        pickup
+          not answered -> FailNoAnswer()
+          a ->
+            match b
+              True() -> Accept()
+              False() -> FailDisagreement()
+          b -> FailDisagreement()
+          left -> Repair()
+          else -> FailAtBound()
+
+  fn length_fails(answered: Bool, a: Bool, b: Bool, left: Bool) -> Equivalent(RepairDecision, decide(FinishLength(), answered, a, b, left), FailLength()) =
+    reflexive(FailLength())
+
+  fn other_finish_no_answer(answered: Bool, a: Bool, b: Bool, left: Bool) -> Equivalent(RepairDecision, decide(FinishOther(), answered, a, b, left), FailNoAnswer()) =
+    reflexive(FailNoAnswer())
+
+  fn unanswered_no_answer(a: Bool, b: Bool, left: Bool) -> Equivalent(RepairDecision, decide(FinishStop(), False(), a, b, left), FailNoAnswer()) =
+    reflexive(FailNoAnswer())
+
+  fn valid_only_disagrees(left: Bool) -> Equivalent(RepairDecision, decide(FinishStop(), True(), True(), False(), left), FailDisagreement()) =
+    reflexive(FailDisagreement())
+
+  fn decoded_only_disagrees(left: Bool) -> Equivalent(RepairDecision, decide(FinishStop(), True(), False(), True(), left), FailDisagreement()) =
+    reflexive(FailDisagreement())
+
+  fn invalid_at_bound() -> Equivalent(RepairDecision, decide(FinishStop(), True(), False(), False(), False()), FailAtBound()) =
+    reflexive(FailAtBound())
+
+  fn is_repair(decision: RepairDecision) -> Bool =
+    match decision
+      Repair() -> True()
+      _ -> False()
+
+  fn no_repair_at_bound(finish: FinishClass, answered: Bool, a: Bool, b: Bool) -> Equivalent(Bool, is_repair(decide(finish, answered, a, b, False())), False()) =
+    match finish
+      FinishLength() -> reflexive(False())
+      FinishOther() -> reflexive(False())
+      FinishStop() ->
+        match answered
+          False() -> reflexive(False())
+          True() ->
+            match a
+              True() ->
+                match b
+                  True() -> reflexive(False())
+                  False() -> reflexive(False())
+              False() ->
+                match b
+                  True() -> reflexive(False())
+                  False() -> reflexive(False())
+end
