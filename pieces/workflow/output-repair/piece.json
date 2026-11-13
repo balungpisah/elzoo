@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "id": "workflow/output-repair",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["cure", "elixir", "jason", "jsv"],
+  "dependencies": ["core/payload-schema", "core/port"],
+  "contract": "Pure bounded output repair over an ai-text completed result: accept only a value that both ai-text and the payload-schema check accept; repair only an invalid answered output while repairs remain, with the unchanged violation list; otherwise fail as length, no_answer, validator_disagreement or invalid_at_bound. Never a guessed value.",
+  "limits": [
+    "No model call, clock, store or process; the caller performs each repair request and counts the requests made.",
+    "Selected Cure laws cover the decision over supplied classifications only; JSON decoding, the schema check, operand validation and the render rule are Elixir and test-grounded.",
+    "An answer that matches the schema is not a correct answer; violations are the redacted, possibly partial list of core/payload-schema."
+  ],
+  "files": [
+    "cure/elzoo/output_repair.cure",
+    "lib/elzoo/output_repair.ex",
+    "test/elzoo/output_repair_test.exs",
+    "examples/output_repair.exs"
+  ],
+  "grounding": [
+    {"kind": "proof", "file": "cure/elzoo/output_repair.cure", "symbol": "length_fails", "claim": "Finish length fails as length for every answered, A, B and repairs-left value."},
+    {"kind": "proof", "file": "cure/elzoo/output_repair.cure", "symbol": "other_finish_no_answer", "claim": "A finish other than stop or length fails as no_answer for every answered, A, B and repairs-left value."},
+    {"kind": "proof", "file": "cure/elzoo/output_repair.cure", "symbol": "unanswered_no_answer", "claim": "An unanswered stop output fails as no_answer for every A, B and repairs-left value."},
+    {"kind": "proof", "file": "cure/elzoo/output_repair.cure", "symbol": "valid_only_disagrees", "claim": "A without B fails as validator_disagreement for both repairs-left values."},
+    {"kind": "proof", "file": "cure/elzoo/output_repair.cure", "symbol": "decoded_only_disagrees", "claim": "B without A fails as validator_disagreement for both repairs-left values."},
+    {"kind": "proof", "file": "cure/elzoo/output_repair.cure", "symbol": "invalid_at_bound", "claim": "An answered stop output with neither A nor B and no repair left is invalid_at_bound."},
+    {"kind": "proof", "file": "cure/elzoo/output_repair.cure", "symbol": "no_repair_at_bound", "claim": "With no repair left the decision is never a repair, for every finish class, answered, A and B value."},
+    {"kind": "type", "file": "cure/elzoo/output_repair.cure", "claim": "The pinned Cure compiler checks types and totality of the production decision table; the source audit finds no axioms, holes, unresolved, unaudited, opaque or unproved-total definitions and zero absurd."},
+    {"kind": "test", "file": "test/elzoo/output_repair_test.exs", "claim": "Rule order and invalid operands, the violation list, invalid_at_bound, validators_disagree, render, and laws and example scenarios pass; two temporary production mutations are negative controls. Finite scenarios, not a universal proof."},
+    {"kind": "upstream", "provider": "cure", "reference": "https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89", "claim": "Pinned Cure compilation, reduction checking and BEAM decision semantics; compiler soundness not locally proved."},
+    {"kind": "upstream", "provider": "elixir", "reference": "https://hexdocs.pm/elixir/1.20.4/String.html#trim/1", "claim": "Pinned Elixir Unicode whitespace trimming decides empty content."},
+    {"kind": "upstream", "provider": "jason", "reference": "https://hexdocs.pm/jason/1.4.5/Jason.html", "claim": "Jason 1.4.5 decodes the content; a decoding error is the invalid_json violation."},
+    {"kind": "upstream", "provider": "jsv", "reference": "https://hexdocs.pm/jsv/0.27.0/JSV.html", "claim": "jsv 0.27.0 schema validation through the ready core/payload-schema check, reused unchanged."},
+    {"kind": "assumption", "claim": "The caller supplies the checked schema built from the same schema object that the request carried, the completed result of ai-text unchanged, and a truthful count of repair requests made."}
+  ],
+  "operations": {
+    "telemetry": {"status": "not_applicable", "contract": "Pure functions emit no observations; the host owns instrumentation."},
+    "config": {"status": "not_applicable", "contract": "The repair bound is an intrinsic operand of each call; no ambient settings."},
+    "control": {"status": "not_applicable", "contract": "No independent process, lifecycle or operational commands."}
+  }
+}

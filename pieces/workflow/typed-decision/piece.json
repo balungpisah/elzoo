@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "id": "workflow/typed-decision",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["elixir"],
+  "dependencies": ["workflow/output-repair", "workflow/pattern-step", "core/payload-schema", "core/port"],
+  "contract": "Pure pattern step in the core/operator shape over PatternStep v1 neutral maps: one model_call action per request for an answer of a fixed set of two or more members or of a schema, bounded repair calls by workflow/output-repair, and one finish with status decided and the value both checks accepted, or failed with a named reason. No model call, clock, store or process.",
+  "limits": [
+    "A model call that did not complete is never tried again; a refused repair call ends as call_not_completed.",
+    "No tools in a typed decision; no provider is called or tested; each test input is a literal neutral map.",
+    "No engine claim: a parent pattern that needs the value calls step/2 inside its own step and reads the finish request.",
+    "An answer that matches the schema is not a correct answer; a failed finish is not evidence of completion."
+  ],
+  "files": [
+    "lib/elzoo/typed_decision.ex",
+    "test/elzoo/typed_decision_test.exs",
+    "examples/typed_decision.exs"
+  ],
+  "grounding": [
+    {"kind": "test", "file": "test/elzoo/typed_decision_test.exs", "claim": "Named groups outside_the_set, valid_after_one_repair, invalid_at_bound, refusal_or_empty, finish_length, validators_disagree, repair_calls_visible, single_member_set_refused, deterministic_replay and laws_and_example pass, with the two negative controls of workflow/output-repair. Finite scenarios, not a universal proof."},
+    {"kind": "upstream", "provider": "elixir", "reference": "https://hexdocs.pm/elixir/1.20.4/", "claim": "Pinned Elixir immutable maps and term equality; the ready Contracts of workflow/pattern-step and integration/ai-text and the ELZ-141 model-call boundary are reused unchanged."},
+    {"kind": "assumption", "claim": "The engine records each input before the step reads it and charges and checks each action; the model-call binding of the host gives the ai-text completed map as its JSON view without changing content, structured or finish; the id is Run-wide unique; each answer Port pair has one meaning; the base request leaves room within the ai-text bounds for one echoed output and one repair text."}
+  ],
+  "operations": {
+    "telemetry": {"status": "not_applicable", "contract": "Pure step emits no observations; the engine owns instrumentation."},
+    "config": {"status": "not_applicable", "contract": "The answer set or schema and the repair bound are intrinsic spec operands; no ambient settings."},
+    "control": {"status": "not_applicable", "contract": "No independent process; cancel and run_ended are pattern inputs, not operational commands."}
+  }
+}
