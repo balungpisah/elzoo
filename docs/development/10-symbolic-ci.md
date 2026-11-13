@@ -522,7 +522,8 @@ changed. The basis is the rule of the task and one measurement. The rule: the la
 (80 s and 200 s are two thirds of the limit above them: a margin for a slower hosted runner, not a measured ratio).
 The measurement: five existing IDs that stand for a new Piece, three runs each, one at a time, on a developer host.
 These numbers are not evidence of the hosted time. `total` is the whole consumer test (the line
-`ELZOO TIMING consumer=<ID> total`); the step times are those of the first run.
+`ELZOO TIMING consumer=<ID> total`); the step times are those of the first run. The two last columns come from the
+summary line of the inner `mix test`, which was printed for the measurement only: the delivered code does not print it.
 
 | ID | Pieces in the closure | total, three runs (s) | `consumer_mix_test` (s) | of it the inner tests (s) | inner tests |
 | --- | --- | --- | --- | --- | --- |
