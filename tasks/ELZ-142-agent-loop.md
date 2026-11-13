@@ -1,0 +1,154 @@
+# ELZ-142 — Agent loop as one pure pattern step
+
+## Scope and reuse
+
+- Dependencies: ELZ-033, ELZ-002, ELZ-079, ELZ-114, ELZ-136, ELZ-140, ELZ-139, ELZ-087
+- Output: `workflow/agent-loop`, one public module `Elzoo.AgentLoop`; release V1B; bot-platform level 3.
+- Owned paths: `pieces/workflow/agent-loop/**` and its index/generated changes under AGENTS.md section 3.
+
+Admit RC-56. The agent loop is one pattern among others: a pure step in the shapes of `workflow/pattern-step`, where state and one recorded input give a new state and zero or one request. A model proposes tool calls. The step resolves each one through the registry snapshot in its state (ELZ-136), puts all calls of one model turn in one request, bounds each result (ELZ-139) and builds each model request with `Elzoo.PromptAssembly.build/2` (ELZ-140). It calls no model and no tool, reads no clock, stores nothing and starts no process. It checks neither budget nor authority: the engine does that for every action.
+
+Implement only the acceptance groups below. Use the public functions of ELZ-136, ELZ-139, ELZ-140 and `Elzoo.PatternStep` as they are on main. Add no options, layers, behaviours, generic helpers or future hooks: no memory, no compaction, no second try of a call, no tool framework, no engine code. Edit no ready Piece, shared path, pin or CI file. Ask the coordinator before any expansion. The independent reviewer flags unrequested features for removal.
+
+Facts checked on main:
+
+- `integration/ai-text` (adapter.ex) gives a completed call as `content`, `tool_proposals`, `structured`, `finish`, `usage` and `provenance`. A proposal has `id` and `name` (each a text of at most 256 bytes, or `nil`), `raw_arguments` (the argument text that the provider sent, or `nil`), `arguments` and `malformed`. A proposal for an undeclared tool, or with arguments that are not JSON, not an object or not valid for the declared schema, has `arguments: nil` and the tag `undeclared_tool`, `invalid_json`, `not_an_object` or `schema_mismatch`.
+- `Elzoo.AiText.Request` (request.ex) takes an echoed call only with an id of 1 to 256 bytes, a name in `[a-zA-Z0-9_-]{1,64}` and an object for arguments; at most 64 echoed calls in one assistant message; a `tool_result` message only with a `tool_use_id` of 1 to 256 bytes.
+- `integration/ai-text-openai` (open_ai.ex, `combination/1`) refuses a request that holds a `tool_result` message with `is_error` true. `integration/ai-text-anthropic` takes both values.
+- No recorded provider exchange is on main (the provider Pieces hold request schemas only), and a worker has no credential. So the open point of the brief, whether each provider accepts an echoed call to a tool that the request does not declare, cannot be checked. This task uses the second rule of the brief for every malformed proposal (the call is left out and its tag is plain content) and never echoes a call to a tool that the request does not declare.
+- `assembly/run-engine` (README, "Failure, size and audit limits"; run_engine.ex) calls a pattern as `function(state, input)` with the neutral input map. It installs a callable state only when it is plain data of at most 65,536 bytes as `:erlang.term_to_binary(state, [:deterministic, {:minor_version, 2}])`. It records an outcome payload of at most 65,536 bytes of JSON and records `unknown` for a larger one. It has one result key for each action kind.
+
+## Payloads
+
+All keys are strings and each version is 1. The README states these shapes; the host builds the payload schemas of its engine from them.
+
+- **Model call.** The boundary of ELZ-141 ("Model-call boundary"), unchanged: kind `model_call`, key `elzoo/ai-text-request`, payload the `request` of `PromptAssembly.build/2`; a completed outcome has the key `elzoo.ai-text.result`. This step reads `"content"`, `"finish"` and one more member of the same JSON view, `"tool_proposals"`: a list of objects, each with at least `"id"` (a string or `null`), `"name"` (a string or `null`), `"arguments"` (an object, or `null` when the tag is set) and `"malformed"` (`null`, `"undeclared_tool"`, `"schema_mismatch"`, `"not_an_object"` or `"invalid_json"`). Other members of a proposal, such as `"raw_arguments"`, are not read and do not make the form invalid. It reads no other member of the result.
+- **Start and message.** Key `elzoo.agent-loop.message`, payload exactly `{"text": text}`: a message of the principal, not empty.
+- **Tool action.** Key `elzoo.agent-loop.tool-call`, payload exactly `{"alias", "source", "tool", "version", "arguments"}`: four values of the resolved tool and the arguments of the proposal. The kind is `tool_call` for a callable `{:adapter, _, _}` and `nested_callable` for `{:nested, _, _}`.
+- **Ask action.** Kind `ask_person`, key `elzoo.agent-loop.ask`, payload exactly `{"person_id": text of 1 to 256 bytes, "question": text that is not empty}`. Both come from the validated arguments of the call, never from the content. The ready engine names the person by the `person` function of the host's `ask_person` binding over the action, and applies a `person_answer` only when its `person_id` and the verified person of that input both equal that name (run_engine.ex, `dispatch` and `settle_protocol`). So that function returns `person_id` of this payload.
+- **Answer.** Key `elzoo.agent-loop.answer`, the result key of the `ask_person` binding: the payload of a `person_answer` is exactly `{"text": text}`.
+- **Store action.** Kind `tool_call`, key `elzoo.tool-result-limit.store`, the payload that `ToolResultLimit.decide/3` gives. No tool list shows it.
+- **Tool result.** `elzoo.agent-loop.tool-result` is the one result key of tool and store actions: the host declares it for its `tool_call` and `nested_callable` bindings. A completed payload has one of three exact forms. Result: the three members of a result of ELZ-139, with `content` a marked map that the tool binding of the host wrote. Declaration: `{"declaration": {"skill": S, "listing": L}}`, where `S` is `null` or `{"name": text of 1 to 64 bytes, "instructions": text that is not empty}`, `L` is `null` or `{"source": source id, "tools": [descriptor]}`, and at least one is set. Receipt: the five members of the receipt of ELZ-139, for a store action. An outcome that is not completed can have any key: the step reads only its class and an optional `"reason"` member in `[a-z0-9_]{1,64}`, which the refusal payload of the ready engine has.
+- **Finish.** Kind `finish`, key `elzoo.agent-loop.result`, payload exactly `{"status", "reason", "action_id", "turns"}`. `answered` has `reason` `null` and the identity of the completed model call that gave the answer; the answer is the `content` of that recorded outcome and is not copied. `stopped` has `action_id` `null` and the reason `turn_limit`, `model_call_not_completed`, `model_stopped`, `request_not_built` or `state_over_bound`. `turns` counts the model calls made.
+
+Action identities derive from `id` of the spec: model call `N` (from 1) is `id <> ":m:" <> N`; call `I` of turn `N` is `id <> ":t:" <> N <> ":" <> I`, and its store action `id <> ":s:" <> N <> ":" <> I`; the finish is `id <> ":finish"`. `I` is the position, from 1, of the proposal in that model result. So a proposal that is left out or makes no action still uses up its number.
+
+The `id` member of each history entry (ELZ-140: a text of 1 to 1,024 bytes, unique in the history) derives the same way. The `:assistant` entry of turn `N` has the identity of model call `N`. The `:tool_result` entry of proposal `I` has `id <> ":t:" <> N <> ":" <> I`, also when no action was made. The note of turn `N` has `id <> ":n:" <> N`. `:user` entry `K`, counted from 1 in order of arrival over the whole Run (the start is 1), has `id <> ":u:" <> K`. An entry that changes its kind keeps its `id`.
+
+## Interface
+
+`Elzoo.AgentLoop.new(spec)` returns `{:ok, state}` or `{:error, :invalid_spec | {:sources, reason} | :state_too_large}`. `spec` is a map with exactly these atom keys:
+
+- `id`: UTF-8 text of 1 to 128 bytes. The caller keeps it unique in the Run.
+- `model`, `max_output_tokens`, `role_instructions`, `window`, `max_request_bytes`, `max_image_refs`: the members of the `build/2` input of ELZ-140, given to it unchanged. `build/2` checks them at the first model call.
+- `sources`: the operand of `ToolRegistry.snapshot/1`: the source set that the host captured at Run start, with the first listing of each source. `{:sources, reason}` holds its refusal unchanged.
+- `result_limits`: the `limits` of `ToolResultLimit.decide/3`.
+- `ask`: `nil`, or the alias (a text in `[a-zA-Z0-9_-]{1,64}`) of the one listed tool whose calls are questions to a person. With `nil` no call is an ask. An alias that `ToolRegistry.resolve/2` does not resolve in the first snapshot is `:invalid_spec`.
+- `turn_limit`: 1 to 256, the largest number of model calls. Required, with no default.
+
+`Elzoo.AgentLoop.step(state, input, estimate)` returns `{:Transition, new_state, :none | {:some, request}}`, the `core/operator` shape. `input` and `request` are neutral maps of `Elzoo.PatternStep`, and each request passes `PatternStep.decode/1`. `estimate` is the function that `build/2` takes; it is never stored. The engine calls a function of two arguments, so the host gives the engine a function of its own that supplies `estimate`.
+
+The state is opaque plain data (maps, lists, tuples, atoms, numbers, binaries). It holds the spec, the snapshot, the loaded skills, the history as entries of ELZ-140, the messages that wait, the turn count, and for the open request its `PatternStep` tracker and what each open call needs. Document its form for source-copy ownership.
+
+| Phase | Input | Result |
+| --- | --- | --- |
+| new | `start` | one `:user` entry; model call 1 |
+| model | outcome of the open model call | "One model result" |
+| tools | outcome of an open tool or ask action; `person_answer` of an open ask action | "One turn", step 3 |
+| stores | outcome of an open store action | "One turn", step 4 |
+| model, tools, stores | `message` | the text waits; no request |
+| new, model, tools, stores | `cancel`, `run_ended` | closed; no request |
+| any | each other input: `resource_event`, `wake`, a `start` after the first, an outcome of class `late`, an outcome or a `person_answer` of an action that is not open or is settled, a `person_answer` that names no ask action, a `completed` outcome of an ask action, a payload in another shape, a map that `PatternStep.decode/1` refuses | no change, no request |
+| closed | every input | no change, no request |
+
+Outcomes and person answers are settled through `PatternStep.open/1` and `accept/2` on the open request, and only an applied one is read. So each result returns once, only a `person_answer` completes an ask, and a result after a cancel is late: it changes nothing.
+
+## One model result
+
+The first rule that holds decides. No rule reads the words of the content.
+
+1. The outcome class is not `completed`: `stopped`, `model_call_not_completed`. There is no second try.
+2. The key is not `elzoo.ai-text.result`, or a member that the step reads is not in the form above: `stopped`, `model_stopped`.
+3. `finish` is `"stop"`, there is no proposal and no message waits: `answered` when the content is not empty, else `stopped`, `model_stopped`.
+4. `finish` is neither `"stop"` nor `"tool_calls"`, or it is `"tool_calls"` with no proposal: `stopped`, `model_stopped`. A cut answer, a refusal and a filtered answer end here.
+5. The turn count equals `turn_limit`: `stopped`, `turn_limit`. No tool of this result runs.
+6. Otherwise the turn runs.
+
+Each end is one finish request, and the state is closed after it.
+
+## One turn
+
+1. Each proposal, in order, is kept or left out by the first rule that holds: `name` is not a text in `[a-zA-Z0-9_-]{1,64}` (left out, `name_outside_grammar`); `malformed` is set (left out, with the tag of ai-text); `id` is not a text of 1 to 256 bytes (left out, `missing_id`); an earlier kept proposal of the turn has the same `id` (left out, `repeated_id`); 64 proposals are kept (left out, `over_call_bound`); otherwise kept. A proposal that is left out is never echoed, never run and gets no tool result. The model reads its tag in the note of step 5.
+2. Each kept call goes through `ToolRegistry.resolve(snapshot, name)` and then `ToolRegistry.check(tool, arguments)`. Resolved and `:ok`: one action. For the alias that equals `ask` of the spec it is the ask action, with the `person_id` and `question` members of the arguments; arguments without those two texts give no action and the notice `[tool call not run: invalid_ask]`. For each other alias it is a tool action. `check/2` not `:ok`: no action, and the result of the call is the notice `[tool call not run: validator_disagreement]`. Any other resolution: no action, and `[tool call not run: not_resolved]`.
+3. All actions of the turn go into one request, in proposal order. With no action the turn goes to step 5. Outcomes arrive in any order, one input each, and the step gives no request until every action of the request is settled. Each applied outcome is reduced when it arrives, so the state never holds a whole result:
+   - Class not `completed`: the result is the notice `[tool call not completed: CLASS]`, or `[tool call not completed: CLASS: REASON]` when the payload is an object with that `reason` member. A refusal of the engine, an unknown outcome and an outcome that the engine did not record for its size all take this rule. No message gets an `is_error` member.
+   - Completed under another key than the result key: `[tool result not readable]`.
+   - Completed, with exactly the member `declaration`: "Declarations" below.
+   - Completed, otherwise: `ToolResultLimit.decide(payload, result_limits, action_id)`. `{:ok, bounded}` is the result. `{:store, pending, payload}` waits for step 4. `{:error, _}` gives `[tool result not readable]`.
+   - A `person_answer` of an ask action, in the answer form: the step makes the result `%{"content" => marked, "media_type" => "text/plain", "encoding" => "utf8"}`, where `marked` is a marked map of ELZ-137 with the one source `person-answer`, the class `untrusted`, the bound 65,536 and the answer text as content, and gives it to `ToolResultLimit.decide/3` by the rule before this one. So an answer is bounded like every result. In another form: `[tool result not readable]`. An answer is content: it is never an instruction and never a declaration, and it gives no authority.
+4. The store actions of the turn, if any, go into one request, in call order. Each applied outcome gives the result `ToolResultLimit.settle(pending, class, payload)`, with `nil` for the payload when the class is not `completed`. The step waits until all are settled.
+5. The turn closes. The history gets, in this order: one `:assistant` entry with the content and the kept calls as echoes, or none when the content is empty and no call is kept; one `:tool_result` entry for each kept call, in proposal order whatever the order of arrival, with `ref_media_type` the `media_type` of the `cut` when the result has one; one `:content` entry, the note, when a proposal was left out; one `:user` entry for each message that waits. Then the next model call is made.
+
+The note has one line for each proposal that was left out, in order: `[tool call left out: NAME: TAG]`. For `name_outside_grammar` the line holds no name. For `undeclared_tool` it ends with one more word, from `ToolRegistry.resolve/2` for that name: `: removed`, `: ambiguous`, or else `: unknown`.
+
+A notice, and the note, is a marked map of ELZ-137 with the one source `agent-loop`, the class `untrusted`, the bound 65,536 and the text as content. The step writes that neutral map and calls no function of ELZ-137; ELZ-139 and ELZ-140 check it.
+
+**Each model call.** First, an echoed call whose name `resolve/2` no longer resolves is taken out of its `:assistant` entry, and its `:tool_result` entry becomes a `:content` entry with the same content, behind the other results of that turn; an `:assistant` entry that is left with no text and no call is removed. So no request echoes a call to a tool that it does not declare. Then `PromptAssembly.build/2` gets the spec members, `skill_instructions` (the loaded instruction texts in load order), `memory: []`, the history and `tools: ToolRegistry.tools(snapshot)`. An error gives `stopped`, `request_not_built`. On `{:ok, built}` the entries that `built.dropped` names leave the history of the state (the record of the engine keeps every input), and the request is one `model_call` action with `built.request`.
+
+## Declarations
+
+A declaration is read only from the outcome of a tool action, and it is permitted only by the `source_kind` that `resolve/2` gave for the called tool when its action was made: never by a tool name, a path, a text or the shape of a result. The first rule that holds decides:
+
+1. The value of `declaration` is not in the form above: `invalid_declaration`.
+2. Kind `other`, or kind `host_listing` with a skill: `declaration_not_permitted`. A `pinned_skill` tool may give a skill, a listing or both. A `host_listing` tool may give a listing only.
+3. The skill name is loaded already: `already_loaded`.
+4. The loaded instruction bytes plus those of this skill are over 16,384: `instructions_over_bound`.
+5. `ToolRegistry.refresh(snapshot, source, tools)` refuses: its reason unchanged. So more than 64 tools is `too_many_tools`, and a source outside the captured set is `unknown_source`.
+6. The state with the declaration applied would be over the state bound: `state_over_bound`.
+7. Accepted: the instructions join the loaded skills, with no mark and no cut, and the snapshot is replaced. The tools are in the tool list from the next model call.
+
+A refusal changes nothing: no instruction, no tool and the same snapshot, also for a part of the declaration that would be accepted alone. The result of the call is the notice `[declaration accepted]` or `[declaration refused: REASON]`. A declaration never goes to `ToolResultLimit`. Declarations take effect in the order of their recorded inputs.
+
+## Bounds
+
+Two fixed numbers, not Config.
+
+- State: 65,536 bytes of `:erlang.term_to_binary(state, [:deterministic, {:minor_version, 2}])`: the bound and the measure of the ready engine, which does not install a larger state. `step/3` never returns one. A declaration that would make the state larger than the bound is refused (rule 6). Each other transition that would do so closes the step with `stopped`, `state_over_bound`. `new/1` refuses `:state_too_large`. The snapshot has no bound of its own in ELZ-136; it is bounded here, as a part of the state.
+- Loaded instructions: 16,384 bytes, the sum of the byte sizes of the instruction texts of the loaded skills. Reason: instructions are held in the state and sent in every request, each capped at 65,536 bytes, and they are never dropped and never cut. One quarter of each cap leaves three quarters for the role instructions, the tool list and the history that the model works on.
+
+## Host Needs and Limits
+
+Needs: an engine that records each input before the step reads it, gives the step only inputs of the Attempt that it runs in, and checks payload, budget, authority and approval for every action; the model-call binding of ELZ-141 with the `tool_proposals` member; a tool binding that maps `source` and `tool` of an action to a real Adapter call or nested callable, marks each result truthfully (ELZ-137) and gives a declaration only for a skill load or a listing; the host's `tool_call` binding makes the ELZ-139 store intent for an action under `elzoo.tool-result-limit.store`, with the receipt as the whole payload; for an ask, a listed ask tool whose input schema requires the string members `person_id` and `question` and admits only persons who may be asked, an `ask_person` binding whose `person` function returns `person_id` of the payload, with the deadline of the host and the result key `elzoo.agent-loop.answer`, verification by the host of the person who answers, before the answer reaches the step, and, for an answer that is stored, an `extract` of the store Adapter that reads the answer text of a `person_answer` record as a `text/plain`, `utf8` result; a truthful source set with truthful kinds, captured at Run start; a host listing tool that names only the source that it lists and gives a complete listing; a pure `estimate` that tells its direction truthfully; a Run-wide unique `id`; values of `max_request_bytes`, `result_limits` and `turn_limit` that fit the state bound and the bounds of the engine (the ready one: 64 open and 256 lifetime actions, a request cap, and one slot of 131,072 bytes for a `model_call` action together with the arguments of its intent).
+
+Limits: no provider is called, and each test input is a literal neutral map. That every supported provider accepts the refusal rule is shown on `Request.decode/2` and on the pure `translate/2` of the two ready providers, not on a provider exchange. The step verifies no person: it reads an applied `person_answer` as it is, and the answer is content with no authority. No selected memory, no compaction, no message of another member. A model call or a tool call that did not complete is never tried again. `answered` says that the model gave an answer; it is not evidence that the work is done. No rule for a second Attempt: after a `cancel` the step stays closed. No engine claim: with the ready `assembly/run-engine` a root `finish` completes a Run only when it names a completed action, so a `stopped` finish comes back refused and the Run ends by its cancel or deadline; that engine gives a pattern no `cancel`, no late outcome and no `message` while an action is open; its outcome of a nested callable holds no result of the child, so that call gets `[tool result not readable]`; and a request that it does not admit gets no outcome. A result over the outcome bound of the engine never arrives; a cut on the host side is not in this task. No claim that marking prevents prompt injection. Telemetry, Config and Control are not applicable: pure functions over intrinsic operands.
+
+## Named acceptance groups
+
+Recorded-trace tests with no model and no network. Each trace is a fixed list of neutral maps in the test file, and expected requests are written by hand. The `estimate` of a test is a plain function of the byte size. In every group each request passes `PatternStep.decode/1`, each `model_call` payload passes `Request.decode/2` with the configured bound, and each state is plain data within the state bound.
+
+1. **`final_answer`**: `start`, then a completed result with finish `stop`, content and no proposal: one model request, then one finish `answered` whose `action_id` is that model call, and a closed state. With a `message` that arrives while that call is open, the same result is not final: the next request holds the answer as an assistant message and the message after it. The trace run a second time gives equal states and requests.
+2. **`one_turn_one_request`**: a result with three proposals, two for Adapter tools and one for a nested callable, gives exactly one request with three actions in proposal order, of the kinds `tool_call`, `tool_call` and `nested_callable`. No request comes before the last outcome. Each of the six orders of the three outcomes gives the same next model request, with the results in proposal order. A second outcome for one action changes nothing.
+3. **`unknown_tool`**: a proposal with the tag `undeclared_tool` and a name that no entry holds gives no action and no raise; the next request holds its line with `unknown` as content. A name that the last listing removed gives `removed`. An own name on two sources gives `ambiguous`.
+4. **`malformed_proposals`**: one proposal for each of the four tags of ai-text and three with a name outside the grammar (a dot, 65 bytes, `null`), beside one valid call. Only the valid call is echoed and run. The note has one line for each other proposal, in order, and holds no name outside the grammar. A result whose proposals are all left out gives the next model request and no tool action.
+5. **`listing_changes_snapshot`**: with a scripted host listing tool, a listing for a declared source adds a tool: the next request declares its alias, and a proposal for it in the next turn gives an action. A listing that makes 65 tools is refused `too_many_tools`, and the next request declares the old tools. After a listing that removes a tool that the history calls, the next request does not declare it, echoes no call to it and still holds its result as content.
+6. **`outside_set_listing`**: a listing for a source that the spec did not declare is refused `unknown_source`, and `ToolRegistry.tools/1` of the snapshot is unchanged.
+7. **`declarations_by_source_kind`**: the same declaration payload, with a skill and a listing, comes byte for byte from a tool of each kind. From `other` and from `host_listing` it adds no instruction and no tool. From `pinned_skill` both are taken: the instructions stand in the system message of the next request, after the role instructions and with no mark, and the request declares the listed tool. A declaration with a listing only is taken from `host_listing` and refused from `other`. A result of a `pinned_skill` tool that is not a declaration is content in a marked block.
+8. **`instruction_bound`**: loads that reach exactly 16,384 bytes are accepted. One more byte is refused `instructions_over_bound`: the system message is unchanged and no request holds a part of the refused text. A second load of a loaded name, also with another text, adds nothing. A skill file over `result_limits.max_bytes` gives one store action that no tool list shows, and enters the history as a reference and a preview; an instruction body of the same size is whole in the system message.
+9. **`proposal_without_id`**: a well-formed proposal with `id` `null` gives no action and no `tool_result` message. The note holds its line with `missing_id`.
+10. **`engine_refusal_as_content`**: of two tool actions one comes back `refused` with a reason. The other runs. The next request holds, for the refused call, a `tool_result` message with the line `[tool call not completed: refused: REASON]`, and no message has an `is_error` member. `Elzoo.AiText.Anthropic.translate/2` and `Elzoo.AiText.OpenAI.translate/2` return `{:ok, _}` for that request as `Request.decode/2` gives it, with `nil` as the provider config and a model that the tests of each provider use. With `"is_error" => true` put on that message the OpenAI function refuses, so the check reads the rule. The classes `unknown`, `failed`, `out_of_budget` and `expired` render by the same rule.
+11. **`result_after_cancel`**: a `cancel` while two tool actions are open closes the step and gives no request. A completed outcome of one of them after that gives an equal state and no request. An outcome of class `late` for an open action and a map that `PatternStep.decode/1` refuses change nothing.
+12. **`turn_limit`**: with `turn_limit` 2 the second result proposes a tool: one finish `stopped`, `turn_limit`, with `action_id` `null`, and no tool action. The other explicit ends, once each: a model call that comes back `unknown`; a result with finish `length`; a transition whose next state would be over the state bound.
+13. **`done_is_not_evidence`**: the content `done` with finish `tool_calls` and one proposal gives a tool request and no finish. The content `done` with finish `length` gives `stopped`. Two traces that differ only in the words of the content give the same actions, apart from the text that the next request echoes. An `answered` finish holds no text and names a completed model call; every other finish has `action_id` `null`.
+14. **`ask_and_answer`**: with `ask` set to a listed alias, a result with one proposal for it and one for another tool gives one request with an `ask_person` action and a `tool_call` action in proposal order. The ask payload is exactly the `person_id` and the `question` of the arguments, also when the content of the model names another person. The `person_answer` of that action gives, in the next request, a `tool_result` message for that call with the answer in a marked block of the class `untrusted` and the source `person-answer`; the system message is unchanged. An answer over `result_limits.max_bytes` gives a store action and enters the history as a reference and a preview. For an `expired` outcome of the ask: with the payload that the ready engine records (reason `expired`) the line is `[tool call not completed: expired: expired]`; with a payload that has no `reason` it is `[tool call not completed: expired]`. A `person_answer` that names a tool action, a `completed` outcome of the open ask and a second answer change nothing. Arguments without `person_id` give no action and `[tool call not run: invalid_ask]`. With `ask: nil` the same proposal gives a `tool_call` action.
+
+Negative controls, each a temporary edit that is never committed: (a) rule 2 of "Declarations" permits kind `other`: `declarations_by_source_kind` or the law check must fail; (b) the step makes the next model call at the first tool outcome: `one_turn_one_request` must fail.
+
+## Evidence
+
+- Proof: Cure owns two decisions over supplied classifications. `keep(name_ok, well_formed, has_id, new_id, in_bound)` gives kept or left out; selected laws: it is left out when `name_ok` is false, when `well_formed` is false and when `has_id` is false, each for every value of the other operands. `permit(kind, has_skill, has_listing)` over the three source kinds gives permitted or refused; selected laws: kind `other` is refused for every value of the two flags, and kind `host_listing` with a skill is refused for both values of `has_listing`. If the pinned compiler cannot express a selected law, ask the coordinator; do not weaken it silently.
+- Type: the pinned Cure compiler checks that source.
+- Test: the fourteen named groups, the two negative controls and one small checked example (a start, one tool turn, the answer). The step table, the history, the notices, the bounds and each call into ELZ-136, ELZ-139 and ELZ-140 are Elixir and have tests only. Finite scenarios, not a universal proof.
+- Upstream: the Contracts of `workflow/tool-registry`, `workflow/tool-result-limit`, `workflow/prompt-assembly`, `workflow/pattern-step` and `integration/ai-text`; the pure `translate/2` of the two provider Pieces; OTP `term_to_binary`.
+- Assumptions: the Needs above. No monitored claim.
+
+Run the Piece tests, then `mix check --piece "$(git merge-base origin/main HEAD)"` and `git diff --check`. Record laws, scenarios, upstream facts and assumptions apart. One independent review checks this body against the exact diff, including features that nobody asked for.

@@ -4084,9 +4084,7 @@
       "kind": "proposal",
       "release": "V1B",
       "stage": "pieces",
-      "outputs": [
-        "workflow/untrusted-content"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "ELZ-083",
@@ -4094,7 +4092,7 @@
         "ELZ-002",
         "ELZ-003"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "superseded for workflow/untrusted-content by published ELZ-137; output moved",
       "contract": "Tool results other than named skill instructions from the pinned package manifest source, retrieved documents and messages from another member are content, not instructions. RC-51 does not mark those skill instructions; source kind comes from the registry snapshot, not a path or result shape. The Piece wraps content with its source, a trust class and a size bound, and keeps the mark through transformation and storage, so that a prompt builder and a guard can treat it apart from principal instructions. The mark travels inside the payload, under its own schema_id and schema_version, the key of core/port (ELZ-002); core/envelope is unchanged. Authority comes only from the principal; a mark never grants or removes authority.",
       "acceptance": "The mark survives encode, decode and concatenation; unmarked input to a marked-only interface is refused; a marked value in a model request is delimited and labelled by a declared, tested format; nested marks keep the least trusted class. No claim that marking prevents prompt injection: that stays a stated assumption.",
       "reuse": "core/envelope has no metadata extension and refuses unknown keys (pieces/core/envelope/README.md), so the mark is payload, not envelope metadata. integration/mcp-client marks discovery descriptors with trust 'untrusted' (discovery.ex) and returns tool results unmarked: this Piece applies the mark to results. workflow/context-selection keeps derived content as an untrusted proposal: use the same words. Author only the shared mark and the render rule.",
@@ -4178,19 +4176,16 @@
       "kind": "proposal",
       "release": "V1B",
       "stage": "pieces",
-      "outputs": [
-        "workflow/prompt-assembly",
-        "workflow/context-compaction"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "ELZ-079",
         "ELZ-030",
-        "RC-51",
+        "ELZ-137",
         "RC-53",
         "ELZ-114"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "superseded for workflow/prompt-assembly and workflow/context-compaction by published ELZ-140; output moved",
       "contract": "Build one provider-neutral integration/ai-text request from role instructions, named skill instructions from the pinned package manifest source, selected memory, history and a tool list in the ai-text tool shape (name, description, input_schema), within a token limit and within the hard request bounds of ai-text, with a declared order and a declared drop order. Named skill instructions rank with recipe role instructions and are built as instructions, never dropped. Untrusted content stays marked. An image or binary value appears only as a marked text reference to an Artifact. Compaction is a pure step that gives one model-call action (RC-68); the engine records the intent, the outcome and the original history. Keep-rule items (the goal, open actions, decisions, failed approaches) are structured records carried verbatim outside the summary; only free text is summarized. The summary is derived content with derived_from references.",
       "acceptance": "Over-limit input drops in the declared order and never drops recipe role or named skill instructions or splits a tool call from its result; a tool result without its call is refused; the result respects 256 messages, 64 tools, 4096 bytes per tool description and the configured max_request_bytes of ai-text (at most 65,536 canonical bytes), and an input over them drops by the same order or is refused before admission; the request is deterministic for the same inputs; a compaction that loses a keep-rule item is found by set difference on item ids and refused; references to images keep only the last N by a declared rule; no image part is put in a request.",
       "reuse": "Ready workflow/context-selection (versioned selection with an access check; derived content needs allow_derived) and the integration/ai-text request shape, which refuses image, document and parts content as unsupported_feature (pieces/integration/ai-text/lib/elzoo/ai_text/request.ex). The estimate of RC-53. Image input waits for a multimodal interface of a later wave. The join of the tool registry with the prompt is RC-56, not here. No prompt-template framework.",
@@ -4244,20 +4239,18 @@
       "kind": "proposal",
       "release": "V1B",
       "stage": "pieces",
-      "outputs": [
-        "workflow/agent-loop"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "ELZ-002",
         "ELZ-079",
         "ELZ-114",
         "ELZ-136",
-        "RC-54",
-        "RC-69",
+        "ELZ-140",
+        "ELZ-139",
         "ELZ-087"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "superseded for workflow/agent-loop by published ELZ-142; output moved",
       "contract": "The agent loop as one pattern, not the base: a pure step of RC-68. Inputs: start, a model result, a tool result, a person's answer, a new message, cancel. Output: new state and zero or one request with a set of actions (call the model, call one or more tools, ask a person, run a nested callable, finish), all in the shapes of RC-68. The model proposes; the step maps each proposed tool call through the pure resolution of the tool registry (RC-52) over the snapshot in its state, and puts all calls of one model turn in one request. RC-65 captures the source set at Run start from the pinned recipe and then-read tenant settings; no model, tool or person adds sources, changed settings affect the next Run, and an explicit version-pin change does not change the captured set. Known-source tool lists may change by recorded input. This job owns the declaration result shape and accepts instructions or tools only when the resolved source kind in the registry snapshot permits them: pinned-package skill instructions and declarations, or host listing tool declarations, never inferred from result shape or text. A listing outside the captured set is refused without changing the snapshot. It owns named refusals for exceeding 64 tools and a total loaded-instruction byte bound; the worker proposes the latter at admission considering ai-text's 65,536 canonical-byte request cap. An instruction-overbound load adds no instruction; instructions are never cut and a repeat loaded skill adds nothing. A fresh listing reaches the step as the outcome of a tool-call action to a host listing tool: mcp-client discovery never sends tools/call, so a host tool wraps it and this job tests with a scripted one. It builds each model request with RC-54 and applies RC-69 to other tool results and skill files, never the SKILL.md body. The step has no clock, network or storage, and checks neither budget nor authority: the engine does that for every action.",
       "acceptance": "Recorded-trace tests with no model and no network: a final answer; several tool calls in one turn (one request, each result returns once, in any order); an unknown tool (a result for the model, not a crash); a malformed proposal (each malformed tag of ai-text) reaches the model by a declared rule that request.ex accepts: it is echoed with an empty arguments object and its tag is the tool-result text, or the call is left out and the tag is plain content, and a proposal whose name is outside the tool-name grammar is always left out; a known-source listing changes the snapshot (a new tool usable in the next turn, a change over 64 tools refused); outside-set listing refused with snapshot unchanged; any other tool's exact declaration-shaped result adds neither instructions nor tools, while a pinned-package skill load adds instructions; an instruction-overbound load adds no instruction, instructions are not cut and a repeat loaded skill adds nothing; a proposal without an id cannot get a tool result and is answered by a declared rule; a tool that the engine refuses (the refusal returns as content, rendered by a declared rule that every supported provider accepts); a tool result after cancel (late); the turn limit (explicit outcome); the text 'done' from a model is not completion evidence.",
       "reuse": "The ELZ-025 study surveyed agent libraries, Jido included, and adopted none because each owns the process host; they are references for the step table only. integration/ai-text returns an undeclared or invalid tool call with arguments nil and a malformed tag; a proposal id can be nil; a tool_result message needs a tool_use_id of 1 to 256 bytes (adapter.ex, request.ex). An assistant message that echoes a tool call needs an id of 1 to 256 bytes, a name in the tool-name grammar and an object for arguments, or the request is refused invalid_request (request.ex): a malformed proposal cannot be echoed as it came. integration/ai-text-openai (ELZ-087) refuses a request that holds a tool result with is_error true (open_ai.ex), so a refusal is not rendered as an error result there. Composes RC-52, RC-54, RC-69 and integration/ai-text. assembly/agent-product (RC-38) remains the later example Assembly and is not this Piece.",
@@ -4597,7 +4590,7 @@
         "RC-50",
         "ELZ-136",
         "ELZ-141",
-        "RC-56",
+        "ELZ-142",
         "RC-60",
         "RC-61",
         "RC-62",
@@ -4635,12 +4628,12 @@
         "ELZ-033",
         "ELZ-096",
         "ELZ-136",
-        "RC-54",
-        "RC-56",
+        "ELZ-140",
+        "ELZ-142",
         "RC-65",
         "RC-66",
         "RC-61",
-        "RC-69"
+        "ELZ-139"
       ],
       "status": "blocked: unpublished admission proposal",
       "contract": "A skill follows the public Agent Skills format (https://agentskills.io/specification, accessed 2026-11-12; no spec version): a folder with SKILL.md, YAML frontmatter and Markdown instructions. Required name is 1–64 lowercase alphanumeric or hyphen characters, has no leading, trailing or consecutive hyphens, and matches the folder; required description is 1–1024 characters. Malformed skills are refused at package checking, not load. V1 skills come only from the recipe package; MCP io.modelcontextprotocol/skills is out of scope, and future use requires person approval of the exact digest. A model sees only descriptions until it asks for one. A skill is a registry tool source (RC-52); asking is a recorded tool call whose result holds instructions and the tools declared by the pinned package manifest, using RC-56's declaration shape. Trust comes from the pinned package manifest source, never the path or result shape. Named instructions rank with recipe role instructions, RC-54 builds them as instructions and never drops them, and RC-51 does not mark them; other tool results remain marked content. RC-56 accepts them only for the resolved pinned-package skill source kind, owns the 64-tool and total loaded-instruction byte bounds and named refusals, refuses an instruction-overbound load without adding instructions, and adds nothing for a repeat loaded skill. A load exceeding 64 tools gives the instructions and named tool refusal if the instruction bound permits. Instructions are never cut; RC-69 may cut skill files, not the SKILL.md body. A skill grants no authority, including through allowed-tools frontmatter; tools still pass engine checks. Scripts are stored and read but never executed in v1. RC-61's package manifest names each skill with its version and tools; the pinned recipe fixes skill versions.",
@@ -4694,18 +4687,16 @@
       "kind": "proposal",
       "release": "V1B",
       "stage": "pieces",
-      "outputs": [
-        "workflow/tool-result-limit"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "ELZ-096",
-        "RC-51",
+        "ELZ-137",
         "ELZ-114",
         "ELZ-023",
         "ELZ-009"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "superseded for workflow/tool-result-limit by published ELZ-139; output moved",
       "contract": "A large tool result is cut to a declared bound, or kept whole as an Artifact with a reference and a bounded preview. Skill files may be cut, but the SKILL.md instruction body is never cut; RC-56 refuses instruction loads over its total bound instead. The cut decision is pure. Storing is an outside write, so it is not local work (RC-47): it is a tool-call action of RC-68 to a host tool that wraps the put of state/artifact behind an effect-intent Adapter. The arguments of an intent hold at most 65,536 bytes, so they name the recorded outcome (its record reference and its digest) and never hold the result: the Adapter reads the bytes from the record and checks the digest before the put. The model never sees that tool. The engine performs it, with the tenant, principal, scopes, access terms and retention of the caller. The result stays marked as untrusted content (RC-51).",
       "acceptance": "A result under the bound passes unchanged; a result over the bound becomes a reference plus a bounded preview, and the cut is visible in the value; a skill file may be cut but the SKILL.md body is never cut; a binary result is handled by reference only; a store that is refused or unknown, or a result over max_bytes of the Artifact store, leaves the bounded preview and a named note, never the full result; the mark survives the cut.",
       "reuse": "state/artifact (ELZ-096): put is a direct call of the Piece and no effect-intent Adapter exists for it, so this job writes that Adapter. delivery/effect-intent (ELZ-023) refuses arguments over 65,536 bytes (effect_intent.ex), far below the max_bytes of an Artifact, so the Adapter takes a reference and reads the bytes from state/event-log (ELZ-009); a put with an unknown outcome leaves uncertain staging. put needs the tenant, principal, scopes, access terms and retention of the caller, and one Artifact holds at most the configured max_bytes (pieces/state/artifact/README.md). RC-51 for the mark. Author only the bound and the cut rule.",
@@ -5260,6 +5251,74 @@
       "issue": 290,
       "url": "https://github.com/balungpisah/elzoo/issues/290",
       "issue_body_sha256": "ede95b993d81be227b6740ff80f4b7dc7e3cbb72ab77cea0af97292025585b0c"
+    },
+    {
+      "id": "ELZ-137",
+      "title": "ELZ-137 — Mark content that must not give orders",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-083", "ELZ-030", "ELZ-002", "ELZ-003"],
+      "status": "published 2026-11-13",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-137-untrusted-content.md"],
+      "outputs": ["workflow/untrusted-content"],
+      "acceptance": "The four named groups cover a mark that survives encode, decode and concatenation, unmarked input refused, the declared render format for a model request, and nested marks keeping the least trusted class; no claim that marking prevents prompt injection.",
+      "product_aims": ["P13"],
+      "issue": 292,
+      "url": "https://github.com/balungpisah/elzoo/issues/292",
+      "issue_body_sha256": "903c79ce7dbb1bffe87b59a6d67b556c155291de63878f6b58089a9361e0b75b"
+    },
+    {
+      "id": "ELZ-139",
+      "title": "ELZ-139 — Bounded tool results",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-096", "ELZ-137", "ELZ-114", "ELZ-023", "ELZ-009"],
+      "status": "published 2026-11-13",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-139-tool-result-limit.md"],
+      "outputs": ["workflow/tool-result-limit"],
+      "acceptance": "The six named groups cover a result under the bound unchanged, a result over the bound as a reference plus bounded preview, a skill file cut while the instruction body is never cut, a binary result by reference only, a store that is refused, unknown or too large leaving the preview and a named note, and the mark surviving the cut.",
+      "product_aims": ["P13"],
+      "issue": 293,
+      "url": "https://github.com/balungpisah/elzoo/issues/293",
+      "issue_body_sha256": "9f8c53f7f7c3a8750c5c2b8fe3d96dc94f7cc1713e0be56d38b152b0591eec48"
+    },
+    {
+      "id": "ELZ-140",
+      "title": "ELZ-140 — Prompt assembly and history compaction",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-079", "ELZ-030", "ELZ-137", "ELZ-114"],
+      "status": "published 2026-11-13",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-140-prompt-assembly-compaction.md"],
+      "outputs": ["workflow/prompt-assembly", "workflow/context-compaction"],
+      "acceptance": "The six named groups cover the declared drop order, an orphan tool result refused, the hard request bounds of ai-text, a deterministic request, image references kept by a declared rule, and compaction that never loses a keep-rule item.",
+      "product_aims": ["P13"],
+      "issue": 294,
+      "url": "https://github.com/balungpisah/elzoo/issues/294",
+      "issue_body_sha256": "722dc93fc7336a60c513e608d4666263a803ccff4a341856e7e9d0df3be1726f"
+    },
+    {
+      "id": "ELZ-142",
+      "title": "ELZ-142 — Agent loop as one pure pattern step",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-002", "ELZ-079", "ELZ-114", "ELZ-136", "ELZ-140", "ELZ-139", "ELZ-087"],
+      "status": "published 2026-11-13",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-142-agent-loop.md"],
+      "outputs": ["workflow/agent-loop"],
+      "acceptance": "The fourteen named groups cover a final answer, one turn in one request, an unknown tool, malformed proposals, a listing that changes the snapshot, a listing outside the captured set, declarations by source kind, the instruction bound, a proposal without an id, an engine refusal as content, a result after cancel, the turn limit, the word done not being completion evidence, and an ask with its answer, with two negative controls and selected Cure laws.",
+      "product_aims": ["P13"],
+      "issue": 301,
+      "url": "https://github.com/balungpisah/elzoo/issues/301",
+      "issue_body_sha256": "922a1354af1ead2382dd1f8590d41819f3cc981c9eea0352f185c3bfc385a0a5"
     }
   ],
   "entries": [
@@ -6344,10 +6403,12 @@
     },
     {
       "id": "workflow/untrusted-content",
-      "job": "RC-51",
-      "note": "Bot platform wave 2 (P13). One shared mark with source and trust class for tool results, documents and messages from other members, kept through transformation, with a tested render rule for a model request. The mark travels inside the payload; core/envelope is unchanged.",
+      "job": "ELZ-137",
+      "note": "Pure mark for content that must not give orders: a checked version-1 neutral map with ordered distinct sources, trust class untrusted or derived, a byte bound and UTF-8 content; decode, encode, concat and wrap keep the least trusted class, and render gives the one content-tagged block for a model request. Marking grants no authority and prevents no injection.",
       "baseline_status": "not in baseline (new row, RC-51)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/workflow/untrusted-content/piece.json",
+      "manifest_sha256": "a6195ec2ef48341789f1980500cb7629f9ae928b3cbea279beeede3265eb8f62",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
@@ -6362,7 +6423,7 @@
     },
     {
       "id": "workflow/tool-result-limit",
-      "job": "RC-69",
+      "job": "ELZ-139",
       "note": "Bot platform wave 2 (P13). A result over the bound becomes an Artifact reference with a bounded preview; the cut is visible and the content stays marked untrusted.",
       "baseline_status": "not in baseline (new row, RC-69)",
       "disposition": "blocked-admission-proposal",
@@ -6378,7 +6439,7 @@
     },
     {
       "id": "workflow/prompt-assembly",
-      "job": "RC-54",
+      "job": "ELZ-140",
       "note": "Bot platform wave 2 (P13). Declared order and drop order inside the hard request bounds of integration/ai-text; never drops instructions or splits a tool call from its result; untrusted content stays marked. Uses ready workflow/context-selection.",
       "baseline_status": "not in baseline (new row, RC-54)",
       "disposition": "blocked-admission-proposal",
@@ -6386,7 +6447,7 @@
     },
     {
       "id": "workflow/context-compaction",
-      "job": "RC-54",
+      "job": "ELZ-140",
       "note": "Bot platform wave 2 (P13). A pure step that gives one model-call action; the engine records it. Keep-rule items (the goal, open actions, decisions, failed approaches) are structured records kept verbatim; only free text is summarized.",
       "baseline_status": "not in baseline (new row, RC-54)",
       "disposition": "blocked-admission-proposal",
@@ -6395,22 +6456,26 @@
     {
       "id": "workflow/output-repair",
       "job": "ELZ-141",
-      "note": "Bot platform wave 2 (P13). integration/ai-text decides valid or invalid and core/payload-schema gives the violation list; this owns only the repair bound and the explicit failure after it. Never a guessed value.",
+      "note": "Pure bounded output repair over an ai-text completed result: accept only a value that both ai-text and the payload-schema check accept; repair only an invalid answered output while repairs remain, with the unchanged violation list; otherwise fail as length, no_answer, validator_disagreement or invalid_at_bound. Never a guessed value.",
       "baseline_status": "not in baseline (new row, RC-55)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/workflow/output-repair/piece.json",
+      "manifest_sha256": "1f6401bf7bed26cad13ec1f36f18fd340d5074e720d23ef1688fe3c93c375669",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
       "id": "workflow/typed-decision",
       "job": "ELZ-141",
-      "note": "Bot platform wave 2 (P13). A pure step in the shape of workflow/pattern-step, used to pick a branch, check a result or pick a speaker.",
+      "note": "Pure pattern step in the core/operator shape over PatternStep v1 neutral maps: one model_call action per request for an answer of a fixed set of two or more members or of a schema, bounded repair calls by workflow/output-repair, and one finish with status decided and the value both checks accepted, or failed with a named reason. No model call, clock, store or process.",
       "baseline_status": "not in baseline (new row, RC-55)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/workflow/typed-decision/piece.json",
+      "manifest_sha256": "27e9e653d7393007bff6b3bdfe2c12b2b0a7f8fc73a23686e7837a19aae54cd4",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
       "id": "workflow/agent-loop",
-      "job": "RC-56",
+      "job": "ELZ-142",
       "note": "Bot platform wave 2 (P13). The agent loop as one pure step in the shape of workflow/pattern-step, not the base and not a host. All tool calls of one model turn go in one request. assembly/agent-product stays the later example Assembly.",
       "baseline_status": "not in baseline (new row, RC-56)",
       "disposition": "blocked-admission-proposal",
@@ -6443,9 +6508,11 @@
     {
       "id": "workflow/stall-detect",
       "job": "ELZ-145",
-      "note": "Bot platform wave 2 (P13). A verdict apart from retry policy; a healthy long wait is not a stall. Named by the orchestration reference study.",
+      "note": "Pure stall verdict over 1..256 recorded v1 pattern-step entries of one Run: repeated identical actions at the caller's count, then no non-wake input within the caller's idle bound unless an open ask or host-listed approval wait is in the window; stops nothing.",
       "baseline_status": "not in baseline (new row, RC-70)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/workflow/stall-detect/piece.json",
+      "manifest_sha256": "1bd277dddfd9343f01e478c033521469eff270aca34b24c1914f3b2d4de73bf1",
       "catalogue_reference": "registry/catalogue.json"
     },
     {

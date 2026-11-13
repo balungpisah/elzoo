@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "id": "workflow/untrusted-content",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["cure", "elixir", "otp", "jason"],
+  "dependencies": [],
+  "contract": "Pure mark for content that must not give orders: a checked version-1 neutral map with ordered distinct sources, trust class untrusted or derived, a byte bound and UTF-8 content; decode, encode, concat and wrap keep the least trusted class, and render gives the one content-tagged block for a model request. Marking grants no authority and prevents no injection.",
+  "limits": [
+    "No claim that marking prevents prompt injection; that a model treats a marked block as data is an assumption, not a result of this Piece.",
+    "No check of who made the content, no authentication of a source and no detection of instructions inside content; the host stamps sources and trust truthfully.",
+    "The checked value is not a security boundary against BEAM code that forges it; a caller that copies content out of the value loses the mark.",
+    "The block format holds only while no content holds the first 128 bits of its own SHA-256 tag on a closing line."
+  ],
+  "files": [
+    "cure/elzoo/untrusted_content.cure",
+    "lib/elzoo/untrusted_content.ex",
+    "test/elzoo/untrusted_content_test.exs",
+    "examples/untrusted_content.exs"
+  ],
+  "grounding": [
+    {"kind": "proof", "file": "cure/elzoo/untrusted_content.cure", "symbol": "derived_absorbs", "claim": "The production class decision least_trusted gives Derived when either operand is Derived, over the closed set of two classes; excludes the map check, rendering and what a caller marks."},
+    {"kind": "type", "file": "cure/elzoo/untrusted_content.cure", "claim": "Pinned Cure checks types and totality of the two-class decision; the source audit finds no axioms, holes, unresolved, unaudited, opaque or unproved-total definitions."},
+    {"kind": "test", "file": "test/elzoo/untrusted_content_test.exs", "claim": "Named groups mark_survives, unmarked_refused, render_format and nested_least_trusted, plus the law and checked example; a left-operand class decision and a constant render tag are negative controls. Finite scenarios, not a proof of the map check or the format."},
+    {"kind": "upstream", "provider": "otp", "reference": "https://www.erlang.org/doc/apps/crypto/crypto.html", "claim": "OTP :crypto SHA-256 of the content bytes gives the block tag."},
+    {"kind": "upstream", "provider": "jason", "reference": "https://hexdocs.pm/jason/1.4.5/Jason.html", "claim": "Pinned Jason encodes and decodes the neutral map unchanged; only the test uses it."},
+    {"kind": "upstream", "provider": "cure", "reference": "https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89", "claim": "Pinned Cure compilation, reduction checking and BEAM decision semantics; compiler soundness not locally proved."},
+    {"kind": "assumption", "claim": "The host or pattern stamps sources and trust truthfully, marks each tool result, retrieved document and member message before a prompt builder sees it, keeps the neutral map whole, and decides from the registry snapshot which text is a pinned skill instruction and so not content."}
+  ],
+  "operations": {
+    "telemetry": {"status": "not_applicable", "contract": "Pure functions emit no observations; the host owns instrumentation."},
+    "config": {"status": "not_applicable", "contract": "The size bound is a recorded field of each marked value, not a setting; no ambient or hot configuration."},
+    "control": {"status": "not_applicable", "contract": "No process or lifecycle to control."}
+  }
+}

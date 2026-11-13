@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "id": "workflow/stall-detect",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["elixir"],
+  "dependencies": ["workflow/pattern-step"],
+  "contract": "Pure stall verdict over 1..256 recorded v1 pattern-step entries of one Run: repeated identical actions at the caller's count, then no non-wake input within the caller's idle bound unless an open ask or host-listed approval wait is in the window; stops nothing.",
+  "limits": [
+    "Sees only the window: an open ask or approval wait whose request is outside it is not recognised; the caller sizes the window.",
+    "Thresholds are per-call operands with no default; no clock, timer, process, storage, new input kind or Run-ended rule.",
+    "Retry exhaustion belongs to delivery/retry-timeout; the verdict is about the record, not a provider, person or retry policy."
+  ],
+  "files": [
+    "lib/elzoo/stall_detect.ex",
+    "examples/elzoo/stall_detect.exs",
+    "test/elzoo/stall_detect_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/stall_detect_test.exs",
+      "claim": "Named repeated_identical_actions, no_new_input_within_bound, healthy_person_or_approval_wait, window_over_bound_refused, deterministic_verdict and checked-example scenarios pass on fixed recorded traces; finite tests, not a proof."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Pinned Elixir exact term equality and integer arithmetic; ready PatternStep decode/open/accept validation and settlement are reused unchanged."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The host passes the window in true record order with engine-recorded times, Run-wide unique action IDs, a truthful approval_waits list, and a window that holds the request of each open ask and approval wait."
+    }
+  ],
+  "operations": {
+    "telemetry": {"status": "not_applicable", "contract": "Pure verdict emits no observations; the caller owns instrumentation."},
+    "config": {
+      "status": "supported",
+      "contract": "Per call, no default, no hot reconfiguration: limits.repeats (integer count, 2..256, identical actions that are a stall) and limits.idle_ms (positive integer ms, compared as now_ms - last >= idle_ms); the 256-entry window bound is fixed.",
+      "evidence": [
+        "test/elzoo/stall_detect_test.exs"
+      ]
+    },
+    "control": {"status": "not_applicable", "contract": "No process or lifecycle; the caller decides what to do with a verdict."}
+  }
+}
