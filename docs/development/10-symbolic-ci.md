@@ -42,8 +42,9 @@ requires all five and Piece skipped and spike successful. Docs-only or a qualifi
 all five, Piece and spike skipped. Only `check-hosted` emits the full marker, after checking every required result.
 
 The queue accepts complete legacy six/eight-job units and the nine-job unit, with matching per-shape steps and markers;
-mixed units are refused. The push-skip validator is unchanged: it does not reuse nine-job evidence and fails closed to
-a full push check. In particular every spike merge gets a full check on main.
+mixed units are refused. The push-skip validator accepts the same full and docs-only evidence as before with
+a skipped `check-spike` treated as neutral. An executed `check-spike` is never push-skip evidence:
+every spike merge gets a full check on main.
 Exact tree/head/current-base/latest-attempt, hosted identity, green-parent/docs qualification, full-main, merge-window and
 policy-refusal safeguards remain in force. A small gate is never full-main evidence.
 
@@ -74,7 +75,7 @@ root project. It uses the same pinned runtime/setup/cache actions as other jobs
 and prints exactly one `ELZOO SPIKE CHECK PASSED` marker. Gleam paths remain
 covered by the existing Gleam workflow. `check-hosted` checks the complete
 spike result shape and prints no full marker. Push and dispatch runs never
-select the spike gate; main runs the full check.
+select the spike gate; a spike merge runs the full check on main.
 
 The queue independently classifies the fetched exact head, requires a successful
 complete latest attempt on hosted runners, the spike plan/classification and

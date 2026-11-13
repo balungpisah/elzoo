@@ -47,8 +47,8 @@ Separate publication PRs keep the coordinator merge path (section 9).
 | New or changed Piece Contract | Coordinator publishes the new Piece ID first; then claim (sections 2–4, 9) | Piece gate below; never reuse an old ID for a new Contract |
 | Piece-only implementation | Published task, claim, implementation PR (sections 2–3) | Small gate (section 5) → `check-piece`; full check on main covers omitted tests |
 | Documents only | Published task or coordinator one-PR path below; claim | Roadmap/claims checks and diff check → docs-only check; no executable inputs changed |
-| Spike only | Published task or coordinator one-PR path; claim | Changed spike's own checks and roadmap/diff checks → `check-spike` and Gleam when applicable; isolated consumers, full check on main |
-| Non-Piece dependency, advisory or shared harness repair | Own task; published or coordinator one-PR path; claim | Full/affected gate as section 5 requires → full hosted check; no selected-gate shortcut |
+| Spike only, including dependencies or pins confined to the spike's own files (`mix.exs`, `mix.lock`, etc.) | Own task; published or coordinator one-PR path; claim | Changed spike's own checks and roadmap/diff checks → `check-spike` and Gleam when applicable; root tests do not consume spike contents, full check on main |
+| Non-Piece root/shared dependency, advisory or harness repair | Own task; published or coordinator one-PR path; claim | Full/affected gate as section 5 requires → full hosted check; no selected-gate shortcut |
 | CI, workflow or queue change | Same non-Piece flow; never docs-only | Relevant guard tests plus full/affected gate → full hosted check; no spike shortcut |
 
 For a coordinator-owned non-Piece change with no output Piece ID or Piece
@@ -104,6 +104,8 @@ Piece, and this file. Do not edit a shared path that the task body does not
 list. If you need one, stop that part and comment on the issue with the path
 and the reason. The coordinator then makes a prerequisite task. A new
 dependency or a changed pin is always its own task, and it merges first.
+For a spike-local dependency or pin, that task uses the spike-only gate above;
+it still merges before any task that depends on it.
 Never add a self-hosted runner and never change `runs-on`: the repository is
 public.
 
