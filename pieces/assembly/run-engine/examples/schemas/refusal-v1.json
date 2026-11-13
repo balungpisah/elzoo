@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["reason", "gate_id", "gate_version", "request", "index"],
+  "properties": {
+    "reason": {"type": "string", "pattern": "^[a-z0-9_]{1,64}$"},
+    "gate_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "gate_version": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+    "request": {"type": "integer", "minimum": 0, "maximum": 256},
+    "index": {"type": "integer", "minimum": 0, "maximum": 63}
+  }
+}
