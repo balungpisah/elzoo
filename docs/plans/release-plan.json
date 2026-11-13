@@ -6407,9 +6407,11 @@
     {
       "id": "workflow/tool-result-limit",
       "job": "ELZ-139",
-      "note": "Bot platform wave 2 (P13). A result over the bound becomes an Artifact reference with a bounded preview; the cut is visible and the content stays marked untrusted.",
+      "note": "Bounded tool results: the pure decide/3 gives a marked text result of at most the declared bound unchanged, a store action payload and a bounded pending for larger text and each binary result up to the Artifact bound, and the note over_artifact_max above it; settle/3 turns the outcome class of the store action into a marked value whose content is one notice line, for text with a UTF-8 prefix preview, of at most the declared bound, with the Artifact reference or the note store_refused or store_unknown. The effect-intent Adapter reads the committed log record of the outcome, checks its bytes against the arguments and puts them once into state/artifact, with a sealed receipt digest and three attested no-send tags.",
       "baseline_status": "not in baseline (new row, RC-69)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/workflow/tool-result-limit/piece.json",
+      "manifest_sha256": "89b39f8f9f7449fb7f62ce3b98ccc26f2350f7d8c57a0855ad23cfbcaa6e203c",
       "catalogue_reference": "registry/catalogue.json"
     },
     {

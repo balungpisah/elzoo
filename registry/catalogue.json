@@ -930,7 +930,8 @@
       "summary": "Cut or store a large tool result so that it fits a model request",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/tool-result-limit/piece.json",
       "reason": "Bot platform wave 2 (P13). A result over the bound becomes an Artifact reference with a bounded preview; the cut is visible and the content stays marked untrusted."
     },
     {
