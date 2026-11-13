@@ -4144,15 +4144,13 @@
       "kind": "proposal",
       "release": "V1B",
       "stage": "pieces",
-      "outputs": [
-        "integration/ai-token-count"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "ELZ-079",
         "ELZ-030"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "superseded for integration/ai-token-count by published ELZ-138; output moved",
       "contract": "Estimate the input size of a provider-neutral text request for a named model before the call, with a declared error direction: an upper bound, or a value labelled approximate. The value carries an estimator_id and an estimator_version, the fields that a window of workflow/context-selection names for its estimates. Used to refuse or shorten a request before spending. The reported usage of the provider stays the only usage fact. First provider: Anthropic.",
       "acceptance": "Estimate against provider-reported usage on recorded Anthropic fixtures, with the observed error stated; an estimate below the reported value on a fixture fails the upper-bound claim; unknown model refused; tools and system text counted; an approximate value never presented as exact; no network call unless a provider count endpoint is the declared method.",
       "reuse": "llm_db (pinned) for model limits; req_llm (pinned) and provider count endpoints where they exist. In workflow/context-selection the estimator_id and estimator_version sit on the window, and the estimate of a candidate is a bare number under that window. It refuses a byte estimate that is below the content bytes and does not check a token estimate: token accuracy and provider limits are external Needs there (README; context_selection.ex). No tokenizer is pinned: adopting one is a separate provider-prerequisite task (mix.exs, mix.lock, registry/providers.json).",
@@ -4182,7 +4180,7 @@
         "ELZ-079",
         "ELZ-030",
         "ELZ-137",
-        "RC-53",
+        "ELZ-138",
         "ELZ-114"
       ],
       "status": "superseded for workflow/prompt-assembly and workflow/context-compaction by published ELZ-140; output moved",
@@ -4274,15 +4272,13 @@
       "kind": "proposal",
       "release": "V1B",
       "stage": "pieces",
-      "outputs": [
-        "delivery/provider-stream"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "ELZ-101",
         "ELZ-079"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "superseded for delivery/provider-stream by published ELZ-143; output moved",
       "contract": "Partial output of one model call, partial tool-call arguments included, as a bounded stream under the lifetime rules of delivery/data-stream: one acknowledged frame at a time. The start of a tool call (id and name) is carried in a chunk shape that this Piece owns; Elzoo.AiModel.StreamChunk is unchanged. The complete result is assembled once, within its own declared byte bound. A consumer that stops reading closes the local HTTP request; provider work and charges after the close are unknown. First provider: Anthropic. A second provider is a separate Piece of the same family, as with integration/ai-text.",
       "acceptance": "Text only; a tool call split across chunks; a stream cut in the middle of a tool call (explicit incomplete, never a partial tool call dispatched); a slow consumer (one unacknowledged frame, then backpressure or close by declared policy); an assembled result over its byte bound (explicit refusal); a provider error mid-stream; the content, the tool calls (id, name, arguments) and the finish reason of the assembled result equal those of the paired recorded non-stream fixture; response_id, usage and provenance differ between two recordings and are not compared.",
       "reuse": "Ready delivery/data-stream bounds one Anthropic text stream, keeps no decoded backlog, claims no remote cancellation and uses no ReqLLM (README). req_llm streaming is pinned (mix.lock): assess it against those bounds before adopting it. The ready tool_delta chunk carries only index and delta (pieces/integration/ai-model/lib/elzoo/ai_model/stream_chunk.ex). A new Piece ID, because it widens the ready Contract to tool calls.",
@@ -5250,7 +5246,7 @@
       "product_aims": ["P13"],
       "issue": 290,
       "url": "https://github.com/balungpisah/elzoo/issues/290",
-      "issue_body_sha256": "ede95b993d81be227b6740ff80f4b7dc7e3cbb72ab77cea0af97292025585b0c"
+      "issue_body_sha256": "f4f5381ecc5480fac8fbd5f912aaaeec1d1a928dc667864b5d1f2fcf289cf846"
     },
     {
       "id": "ELZ-137",
@@ -5284,7 +5280,7 @@
       "product_aims": ["P13"],
       "issue": 293,
       "url": "https://github.com/balungpisah/elzoo/issues/293",
-      "issue_body_sha256": "9f8c53f7f7c3a8750c5c2b8fe3d96dc94f7cc1713e0be56d38b152b0591eec48"
+      "issue_body_sha256": "f877a55fc6a842fcf69eb8df6589463f841f616c1476f6be4e3370d09a4b4f89"
     },
     {
       "id": "ELZ-140",
@@ -5301,7 +5297,7 @@
       "product_aims": ["P13"],
       "issue": 294,
       "url": "https://github.com/balungpisah/elzoo/issues/294",
-      "issue_body_sha256": "722dc93fc7336a60c513e608d4666263a803ccff4a341856e7e9d0df3be1726f"
+      "issue_body_sha256": "1ec5002b37c7ae7c5228e1079a7e29047bbaf9e602fcf229fdbb516a880fcdaa"
     },
     {
       "id": "ELZ-142",
@@ -5319,6 +5315,40 @@
       "issue": 301,
       "url": "https://github.com/balungpisah/elzoo/issues/301",
       "issue_body_sha256": "922a1354af1ead2382dd1f8590d41819f3cc981c9eea0352f185c3bfc385a0a5"
+    },
+    {
+      "id": "ELZ-138",
+      "title": "ELZ-138 — Token estimate before a model call (Anthropic first)",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-079", "ELZ-030"],
+      "status": "published 2026-11-13",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-138-ai-token-count.md"],
+      "outputs": ["integration/ai-token-count"],
+      "acceptance": "The seven named groups cover the upper bound on fifteen fixtures recorded through OpenRouter's Anthropic-compatible endpoint, the observed error stated, each fixture matching what the ready adapter sends, an unknown model refused, tools and system text counted, a value never presented as exact, and no network call.",
+      "product_aims": ["P13"],
+      "issue": 306,
+      "url": "https://github.com/balungpisah/elzoo/issues/306",
+      "issue_body_sha256": "11809f9582030f557e6c80a5be6df54b8dbab7f18157bb3d2f5bd96e86cc4eef"
+    },
+    {
+      "id": "ELZ-143",
+      "title": "ELZ-143 — Provider stream with tool calls (Anthropic first)",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-101", "ELZ-079"],
+      "status": "published 2026-11-13",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-143-provider-stream.md"],
+      "outputs": ["delivery/provider-stream"],
+      "acceptance": "The seven named groups cover text only, a tool call split across chunks, a stream cut inside a tool call, a slow consumer, an assembled result over its bound, a provider error mid-stream, and the assembled result equal to the second form of the same recorded response.",
+      "product_aims": ["P13"],
+      "issue": 307,
+      "url": "https://github.com/balungpisah/elzoo/issues/307",
+      "issue_body_sha256": "d8b21acfbda017a2bdb8b3ea1b8d7738a4caedc118c101fca2436e50eea3a5bf"
     }
   ],
   "entries": [
@@ -6431,7 +6461,7 @@
     },
     {
       "id": "integration/ai-token-count",
-      "job": "RC-53",
+      "job": "ELZ-138",
       "note": "Bot platform wave 2 (P13). An upper bound or a labelled approximation for a named model, used to refuse or shorten a request. Not a usage fact and not for billing.",
       "baseline_status": "not in baseline (new row, RC-53)",
       "disposition": "blocked-admission-proposal",
@@ -6483,7 +6513,7 @@
     },
     {
       "id": "delivery/provider-stream",
-      "job": "RC-57",
+      "job": "ELZ-143",
       "note": "Bot platform wave 2 (P13). Widens ready delivery/data-stream (one Anthropic text stream) to tool calls, so it is a new ID. The assembled result equals the completed value of the synchronous provider for a paired fixture. A second provider is a separate Piece.",
       "baseline_status": "not in baseline (new row, RC-57)",
       "disposition": "blocked-admission-proposal",
