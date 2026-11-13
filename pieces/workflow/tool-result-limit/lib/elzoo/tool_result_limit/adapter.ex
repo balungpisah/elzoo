@@ -16,7 +16,7 @@ defmodule Elzoo.ToolResultLimit.Adapter do
   access_expires_at_unix_ms, retain_until_unix_ms, sink, seal_key}`, fixed by
   the host when it starts the intent owner.
   """
-  alias Elzoo.ToolResultLimit
+  alias Elzoo.ToolResultLimit.Result
 
   @schema "elzoo.tool-result-limit.put"
   @value_schema "elzoo.tool-result-limit.receipt"
@@ -204,7 +204,7 @@ defmodule Elzoo.ToolResultLimit.Adapter do
 
   # Step 2: the recorded result has the media type, encoding, size and hash of the arguments.
   defp matching(result, a) do
-    with {:ok, _marked, media, encoding, bytes} <- ToolResultLimit.result(result),
+    with {:ok, _marked, media, encoding, bytes} <- Result.result(result),
          true <- media == a["media_type"] and encoding == a["encoding"],
          true <- byte_size(bytes) == a["size_bytes"] and sha256(bytes) == a["sha256"] do
       {:ok, bytes}
@@ -230,10 +230,10 @@ defmodule Elzoo.ToolResultLimit.Adapter do
   defp decode(_), do: :error
 
   defp fields?(f) do
-    f["version"] == 1 and is_binary(f["stream"]) and f["stream"] != "" and
+    f["version"] === 1 and is_binary(f["stream"]) and f["stream"] != "" and
       String.valid?(f["stream"]) and is_integer(f["sequence"]) and f["sequence"] > 0 and
       hex?(f["sha256"]) and is_integer(f["size_bytes"]) and f["size_bytes"] >= 0 and
-      ToolResultLimit.media?(f["media_type"]) and f["encoding"] in ["utf8", "base64"]
+      Result.media?(f["media_type"]) and f["encoding"] in ["utf8", "base64"]
   end
 
   defp canonical(map),

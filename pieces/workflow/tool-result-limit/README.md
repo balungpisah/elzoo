@@ -50,7 +50,7 @@ the declared bound `n` as `max_bytes`; never content beyond the preview.
 | Outcome | Value |
 | --- | --- |
 | `completed`, receipt of exactly `artifact_id`, `version`, `sha256`, `size_bytes`, `media_type` with the pending `sha256` and `size_bytes` | `{:ok, bounded}` with the reference |
-| `completed` with any other receipt, `unknown` | note `store_unknown` |
+| `completed` with any other receipt (other keys, another `sha256` or `size_bytes`, an `artifact_id` that is not an ID segment of `state/artifact`, a `version` outside 1 to 2^63 - 1, an invalid `media_type`), `unknown` | note `store_unknown` |
 | `late`, a word that is not an outcome class, a malformed `pending` | `{:error, :invalid_input}` |
 | each other class | note `store_refused` |
 
@@ -82,12 +82,14 @@ The host binds it with `use Elzoo.EffectIntent.Binding, adapter:
 Elzoo.ToolResultLimit.Adapter, failures: Adapter.failures(),
 no_send_attestations: Adapter.no_send(), ...`.
 
-`arguments(payload, stream, sequence)` gives `{:ok, bytes}`: one JSON object
-with sorted keys and no white space, with exactly `version` (1), `stream`,
+`arguments(payload, stream, sequence)` returns `{:ok, bytes}`, the canonical
+argument bytes of an intent, or `{:error, :invalid_input}` for operands that
+are not in form. The host passes `bytes`, not the tuple, as the `arguments` of
+`Elzoo.EffectIntent.start_link/1`. The bytes are one JSON object with sorted
+keys and no white space, with exactly `version` (the integer 1), `stream`,
 `sequence`, `sha256`, `size_bytes`, `media_type` and `encoding`, where
-`stream` and `sequence` name the `state/event-log` record of the outcome; or
-`{:error, :invalid_input}`. It never holds a result. `validate/2` accepts only
-this form.
+`stream` and `sequence` name the `state/event-log` record of the outcome. They
+never hold a result. `validate/2` accepts only this form.
 
 The Adapter context, fixed by the host when it starts the intent owner, has
 exactly `log` (Store tuple), `extract` (pure function of a log payload binary
@@ -158,9 +160,11 @@ reconciles uncertain staging with `Elzoo.Artifact.status/3`.
 Limits: no bound on a result before the engine records it (a rule of the
 host's result sink). No tool that reads an Artifact back for a model. No reap
 and no reconciliation of staging. No scan of stored bytes. The preview is a
-prefix, not a summary.
+prefix, not a summary. A `media_type` with a line feed (it is UTF-8 with no
+NUL, as `state/artifact` takes it) makes a binary notice of two lines.
 
 Telemetry: none of its own. Config: the limits of each `decide/3` call and the
 Adapter context of an owner, fixed at its start; no hot change. Control: not
-applicable. Modules are application-owned under `Elzoo.ToolResultLimit` and
+applicable. `Elzoo.ToolResultLimit.Result` is internal (`@moduledoc false`) and not part
+of the Contract. Modules are application-owned under `Elzoo.ToolResultLimit` and
 `Cure.Elzoo.ToolResultLimit`. Apache-2.0; no new dependency or pin.

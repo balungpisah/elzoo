@@ -5,11 +5,11 @@ defmodule Elzoo.ToolResultLimit do
   store action for the whole bytes and a bounded, still marked, preview.
   """
   alias Elzoo.UntrustedContent
+  alias Elzoo.ToolResultLimit.Result
 
   @min_bound 1_024
   @max_bound 1_048_576
   @reserve 512
-  @encodings ~w(utf8 base64)
   @outcomes ~w(completed failed refused late unknown out_of_budget retries_exhausted expired resource_lost)
   @pending_keys ~w(content size_bytes sha256 media_type encoding)
   @receipt_keys ~w(artifact_id version sha256 size_bytes media_type)
@@ -23,7 +23,7 @@ defmodule Elzoo.ToolResultLimit do
   the schema key `elzoo.tool-result-limit.store` version 1.
   """
   def decide(result, limits, source_action_id) do
-    with {:ok, marked, media, encoding, bytes} <- result(result),
+    with {:ok, marked, media, encoding, bytes} <- Result.result(result),
          {:ok, max, artifact_max} <- limits(limits),
          true <- text?(source_action_id) || {:error, :invalid_input} do
       size = byte_size(bytes)
@@ -81,33 +81,6 @@ defmodule Elzoo.ToolResultLimit do
     end
   end
 
-  @doc false
-  # The bytes of a result: `{:ok, marked, media_type, encoding, bytes}`.
-  def result(%{"content" => content, "media_type" => media, "encoding" => encoding} = result)
-      when map_size(result) == 3 do
-    case UntrustedContent.decode(content) do
-      {:ok, marked} ->
-        with true <- media?(media) and encoding in @encodings,
-             {:ok, bytes} <- bytes(content["content"], encoding) do
-          {:ok, marked, media, encoding, bytes}
-        else
-          _ -> {:error, :invalid_input}
-        end
-
-      _ ->
-        {:error, :unmarked}
-    end
-  end
-
-  def result(_), do: {:error, :invalid_input}
-
-  @doc false
-  def media?(media),
-    do: text?(media) and byte_size(media) <= 256 and not String.contains?(media, <<0>>)
-
-  defp bytes(text, "utf8"), do: {:ok, text}
-  defp bytes(text, "base64"), do: Base.decode64(text)
-
   defp limits(%{max_bytes: max, artifact_max_bytes: artifact_max} = limits)
        when map_size(limits) == 2 and is_integer(max) and max in @min_bound..@max_bound and
               is_integer(artifact_max) and artifact_max > 0,
@@ -150,7 +123,7 @@ defmodule Elzoo.ToolResultLimit do
          true <- content["max_bytes"] in @min_bound..@max_bound,
          true <- byte_size(preview) <= content["max_bytes"] - @reserve,
          true <- is_integer(p["size_bytes"]) and p["size_bytes"] in byte_size(preview)..16_777_216,
-         true <- hex?(p["sha256"]) and media?(p["media_type"]),
+         true <- hex?(p["sha256"]) and Result.media?(p["media_type"]),
          true <- p["encoding"] == "utf8" or (p["encoding"] == "base64" and preview == "") do
       true
     else
@@ -163,7 +136,8 @@ defmodule Elzoo.ToolResultLimit do
   defp receipt?(%{} = r, p) when map_size(r) == 5 do
     Enum.all?(@receipt_keys, &Map.has_key?(r, &1)) and is_binary(r["artifact_id"]) and
       Regex.match?(@segment, r["artifact_id"]) and r["artifact_id"] not in [".", ".."] and
-      is_integer(r["version"]) and r["version"] in 1..@max_version and media?(r["media_type"]) and
+      is_integer(r["version"]) and r["version"] in 1..@max_version and
+      Result.media?(r["media_type"]) and
       r["sha256"] == p["sha256"] and r["size_bytes"] === p["size_bytes"]
   end
 

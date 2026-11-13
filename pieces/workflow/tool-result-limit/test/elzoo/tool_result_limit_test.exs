@@ -289,7 +289,12 @@ defmodule Elzoo.ToolResultLimitTest do
     assert_bounded(bounded, big)
 
     # only the canonical arguments; only a sealed result of this request
-    for bad <- [" " <> arguments, String.replace(arguments, "\"version\":1", "\"version\":2"), "{}"],
+    for bad <- [
+          " " <> arguments,
+          String.replace(arguments, "\"version\":1", "\"version\":2"),
+          String.replace(arguments, "\"version\":1", "\"version\":1.0"),
+          "{}"
+        ],
         do: assert(Adapter.validate(bad, Adapter.schema()) == :error)
 
     sequence = record!(ctx.log, text(big))
@@ -474,13 +479,46 @@ defmodule Elzoo.ToolResultLimitTest do
               ],
               do: ToolResultLimit.settle(pending, outcome, receipt)
 
-      for {:ok, bounded} <- values do
+      for value <- values do
+        assert {:ok, bounded} = value
         assert bounded["content"]["sources"] == sources
         assert bounded["content"]["trust"] == trust
         assert_bounded(bounded, result["content"]["content"])
       end
+    end
+  end
 
-      assert length(values) == 4
+  test "failure table and arguments results" do
+    assert Adapter.failures() == %{
+             invalid_arguments: {"rejected", "not_dispatched", "permanent"},
+             record_unavailable: {"timed_out", "not_dispatched", "unavailable"},
+             digest_mismatch: {"rejected", "not_dispatched", "permanent"},
+             store_refused: {"failed", "dispatched", "permanent"},
+             store_unknown: {"unknown", "dispatched", "unclassified"}
+           }
+
+    assert Enum.sort(Adapter.no_send()) ==
+             Enum.sort([:invalid_arguments, :record_unavailable, :digest_mismatch])
+
+    assert {:store, _, payload} =
+             ToolResultLimit.decide(text(String.duplicate("q", 2_000)), @limits, "act-10")
+
+    assert {:ok, bytes} = Adapter.arguments(payload, @stream, 4)
+
+    assert bytes ==
+             ~s({"encoding":"utf8","media_type":"text/plain","sequence":4,) <>
+               ~s("sha256":"#{payload["sha256"]}","size_bytes":2000,"stream":"#{@stream}","version":1})
+
+    for {p, stream, sequence} <- [
+          {payload, @stream, 0},
+          {payload, "", 4},
+          {payload, @stream, "4"},
+          {%{payload | "sha256" => "ABC"}, @stream, 4},
+          {%{payload | "size_bytes" => -1}, @stream, 4},
+          {%{payload | "encoding" => "utf16"}, @stream, 4},
+          {nil, @stream, 4}
+        ] do
+      assert Adapter.arguments(p, stream, sequence) == {:error, :invalid_input}
     end
   end
 
