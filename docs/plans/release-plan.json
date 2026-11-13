@@ -6454,33 +6454,41 @@
     {
       "id": "workflow/tool-result-limit",
       "job": "ELZ-139",
-      "note": "Bot platform wave 2 (P13). A result over the bound becomes an Artifact reference with a bounded preview; the cut is visible and the content stays marked untrusted.",
+      "note": "Bounded tool results: the pure decide/3 gives a marked text result of at most the declared bound unchanged, a store action payload and a bounded pending for larger text and each binary result up to the Artifact bound, and the note over_artifact_max above it; settle/3 turns the outcome class of the store action into a marked value whose content is one notice line, for text with a UTF-8 prefix preview, of at most the declared bound, with the Artifact reference or the note store_refused or store_unknown. The effect-intent Adapter reads the committed log record of the outcome, checks its bytes against the arguments and puts them once into state/artifact, with a sealed receipt digest and three attested no-send tags.",
       "baseline_status": "not in baseline (new row, RC-69)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/workflow/tool-result-limit/piece.json",
+      "manifest_sha256": "97fa7667eb20590f373a3e1fd0a95c2e829050c8e7101206e0bd6980253ae6c0",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
       "id": "integration/ai-token-count",
       "job": "ELZ-138",
-      "note": "Bot platform wave 2 (P13). An upper bound or a labelled approximation for a named model, used to refuse or shorten a request. Not a usage fact and not for billing.",
+      "note": "Pure upper bound, as far as recordings through OpenRouter's Anthropic-compatible endpoint, routed to Anthropic, show under a named assumption (not proved), before the call, for the input tokens of one integration/ai-text request to Anthropic: Elzoo.AiTokenCount.Anthropic.estimate/1 decodes the request bytes with Elzoo.AiText.Request.decode/1 and returns size = 3 * canonical bytes, plus 1,024 when the request has a tool, with unit :tokens, direction :upper_bound, provider_id, model_id and estimator elzoo/ai-token-count/anthropic-bytes version 1 (the fields of a workflow/context-selection window); refuses the decoder's reasons unchanged, an output_schema as :unsupported_feature and a model that pinned llm_db does not know for Anthropic as :unknown_model. Not a token count and not a usage fact.",
       "baseline_status": "not in baseline (new row, RC-53)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/integration/ai-token-count/piece.json",
+      "manifest_sha256": "aec2d679961550b445196a3df3cf1feb34eca4d88fc49a5a2e8dca694f69bd93",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
       "id": "workflow/prompt-assembly",
       "job": "ELZ-140",
-      "note": "Bot platform wave 2 (P13). Declared order and drop order inside the hard request bounds of integration/ai-text; never drops instructions or splits a tool call from its result; untrusted content stays marked. Uses ready workflow/context-selection.",
+      "note": "Pure build of one integration/ai-text request from role and skill instructions, selected memory, history and tools in one declared order (one system message, one memory block, one message per history entry, marked content only as rendered blocks), within a caller-supplied token window and estimate and the hard request bounds of ai-text; one declared drop order (oldest unit of a call with its results, then the last memory item) never drops instructions, tools, keep-rule records or the newest unit; older image references become a fixed marked text; refusals before any drop, over_limit when nothing is left to drop.",
       "baseline_status": "not in baseline (new row, RC-54)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/workflow/prompt-assembly/piece.json",
+      "manifest_sha256": "b3c386797ec5c933b1f61fe3c4a86e547c3dd8c1ee9ee74479241d8e70ed5e79",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
       "id": "workflow/context-compaction",
       "job": "ELZ-140",
-      "note": "Bot platform wave 2 (P13). A pure step that gives one model-call action; the engine records it. Keep-rule items (the goal, open actions, decisions, failed approaches) are structured records kept verbatim; only free text is summarized.",
+      "note": "Pure pattern step that asks a model for one summary of a range of history: open gives one model_call action (key elzoo/ai-text-request v1) built by workflow/prompt-assembly from the free-text entries, never the keep-rule records, and refuses a range that does not fit one request; accept settles it through workflow/pattern-step and gives the records unchanged plus one derived marked summary with its derived_from references, or a named error with no compacted value; check refuses a value that lost a keep-rule record.",
       "baseline_status": "not in baseline (new row, RC-54)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/workflow/context-compaction/piece.json",
+      "manifest_sha256": "9f30bca92525b5cf2a91c65aa2bd143e1e36365b24da2deafe5fa83bee499a5f",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
@@ -6524,17 +6532,21 @@
     {
       "id": "workflow/wait-for-person",
       "job": "ELZ-146",
-      "note": "Bot platform wave 2 (P13). Not an approval: an approval binds one exact action. Late and wrong-person answers are explicit.",
+      "manifest": "pieces/workflow/wait-for-person/piece.json",
+      "manifest_sha256": "74a007107decca7d430ad096a2a20341b10bd786c7a1689e6cc3a45762b4b080",
+      "note": "Pure policy over the open ask_person actions of one request: settles an ask with the answer of its named, host-verified person or its recorded outcome (expired is the time-out), refuses wrong-person and incompatible answers, and routes verified text to an answer or a message; ready PatternStep owns shapes and first settlement. No timer, runtime or authentication.",
       "baseline_status": "not in baseline (new row, RC-58)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
       "id": "workflow/mid-run-input",
       "job": "ELZ-146",
-      "note": "Bot platform wave 2 (P13). Queue, reject, interrupt, steer or side run. An interrupt reports what was already delivered.",
+      "manifest": "pieces/workflow/mid-run-input/piece.json",
+      "manifest_sha256": "e077775a1ec59fe57b6d00d5110afe9ff63318c22f83914cc9a04f76451e6766",
+      "note": "Pure policy for a new message during a Run under the one declared rule (queue, reject, interrupt, steer or side run) and the supplied Run phase: deliver, queue up to 16, refuse, or interrupt or hand to a side run with a report of delivered and open actions; every other input passes. No runtime, Run start or stop.",
       "baseline_status": "not in baseline (new row, RC-58)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
@@ -6550,10 +6562,12 @@
     {
       "id": "integration/mcp-multi",
       "job": "ELZ-144",
-      "note": "Bot platform wave 2 (P13). Each server is one compiled binding of ready integration/mcp-client, with its own credential Need and limits; tool lists are keyed by server; one failing server does not block the others. Streamable HTTP and bearer token only. A server added at run time is out of scope. New ID: ready integration/mcp-client is unchanged.",
+      "note": "Several MCP servers for one tenant from a build-time set of 1..16 compiled integration/mcp-client Bindings (Streamable HTTP, bearer token): each server keeps its own ready session, bounds and zero-arity credential Need built from an integration/secrets reference that resolves again at each request. configure/1 calls no host function; a repeated server text, an unknown key or a refused entry refuses the whole set. connect/2 and list_tools/1 take the servers in order with a check before each call; tool lists are keyed by {tenant, server} and hold the unchanged ready listing or unavailable{credentials_expired | credentials_unavailable | a finite reason of the ready client}, so one server's failure is recorded for that server only. session/2 hands out the ready values; a tool call stays the ready admission/3, context/2 and call_tool/3 path with its outcome set. No cache, process, reconnect, subscription, alias or server added at run time.",
       "baseline_status": "not in baseline (new row, RC-59)",
-      "disposition": "blocked-admission-proposal",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/integration/mcp-multi/piece.json",
+      "manifest_sha256": "3bfb14e162cecb26cbdae82ab4de7a13815264973899e40d50c4f193317b9021"
     },
     {
       "id": "runtime/lua-sandbox",

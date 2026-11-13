@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: Apache-2.0
+mod Elzoo.MidRunInput
+  type Rule = QueueRule | RejectRule | InterruptRule | SteerRule | SideRunRule
+  type RunPhase = RunActive | RunWaiting | RunPaused | RunTerminal
+  type QueueFill = QueueEmpty | QueueHolding | QueueFull
+  type MidDecision = MidPass | MidDeliver | MidQueued | MidQueueFull | MidRunBusy | MidInterrupt | MidSideRun | MidRunEnded
+
+  @total true
+  @reducible
+  fn hold(fill: QueueFill) -> MidDecision =
+    match fill
+      QueueFull() -> MidQueueFull()
+      _ -> MidQueued()
+
+  @total true
+  @reducible
+  fn busy(rule: Rule, fill: QueueFill) -> MidDecision =
+    match rule
+      QueueRule() -> hold(fill)
+      RejectRule() -> MidRunBusy()
+      InterruptRule() -> MidInterrupt()
+      SteerRule() -> MidDeliver()
+      SideRunRule() -> MidSideRun()
+
+  @total true
+  @reducible
+  fn decide(rule: Rule, phase: RunPhase, message: Bool, fill: QueueFill) -> MidDecision =
+    match message
+      False() -> MidPass()
+      True() ->
+        match phase
+          RunTerminal() -> MidRunEnded()
+          RunActive() ->
+            match rule
+              QueueRule() ->
+                match fill
+                  QueueEmpty() -> MidDeliver()
+                  _ -> hold(fill)
+              _ -> MidDeliver()
+          _ -> busy(rule, fill)
+
+  # Every rule, phase and queue fill: an input that is not a message passes.
+  fn non_message_passes(rule: Rule, phase: RunPhase, fill: QueueFill) -> Equivalent(MidDecision, decide(rule, phase, False(), fill), MidPass()) =
+    reflexive(MidPass())
+end
