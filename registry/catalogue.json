@@ -913,7 +913,8 @@
       "summary": "Mark content so that it cannot give orders",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/untrusted-content/piece.json",
       "reason": "Bot platform wave 2 (P13). One shared mark with source and trust class for tool results, documents and messages from other members, kept through transformation, with a tested render rule for a model request. The mark travels inside the payload; core/envelope is unchanged."
     },
     {
