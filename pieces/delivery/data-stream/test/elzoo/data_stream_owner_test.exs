@@ -126,7 +126,7 @@ defmodule Elzoo.DataStream.OwnerTest do
   end
 
   test "direct_recording_owner: the recorded direct stream through the public start is complete" do
-    directory = Path.expand("../fixtures/anthropic-direct-stream", __DIR__)
+    directory = Path.expand("../fixtures/anthropic-direct-data-stream", __DIR__)
     recorded = File.read!(Path.join(directory, "text.sse"))
     upstream = File.read!(Path.join(directory, "text.upstream.json"))
     {:ok, request} = Elzoo.DataStream.JSON.decode(upstream)

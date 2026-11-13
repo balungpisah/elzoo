@@ -216,7 +216,7 @@ in message_start only. Three of its events are schema test data here as derived
 data with the OpenRouter differences removed; no test reads that recording. The
 owner test compares one whole loopback stream with and without the members.
 One text stream was recorded on 2026-11-13 from Anthropic's own endpoint (model
-claude-haiku-5-5, thinking disabled; `test/fixtures/anthropic-direct-stream/`,
+claude-haiku-5-5, thinking disabled; `test/fixtures/anthropic-direct-data-stream/`,
 with its facts in PROVENANCE.md). The schema test replays it through Framer and
 Protocol in pieces of 1, 7, 97 and 4,096 bytes. The owner test replays it
 through `start` on loopback and checks that the request body of the Piece is

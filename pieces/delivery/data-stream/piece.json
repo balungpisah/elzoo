@@ -51,9 +51,9 @@
     "test/elzoo/data_stream_protocol_test.exs",
     "test/elzoo/data_stream_schema_test.exs",
     "test/elzoo/data_stream_store_test.exs",
-    "test/fixtures/anthropic-direct-stream/PROVENANCE.md",
-    "test/fixtures/anthropic-direct-stream/text.sse",
-    "test/fixtures/anthropic-direct-stream/text.upstream.json",
+    "test/fixtures/anthropic-direct-data-stream/PROVENANCE.md",
+    "test/fixtures/anthropic-direct-data-stream/text.sse",
+    "test/fixtures/anthropic-direct-data-stream/text.upstream.json",
     "test/fixtures/loopback-ca.pem",
     "test/fixtures/loopback-cert.pem",
     "test/fixtures/loopback-key.pem",
@@ -93,7 +93,7 @@
     },
     {
       "kind": "monitor",
-      "file": "test/fixtures/anthropic-direct-stream/PROVENANCE.md",
+      "file": "test/fixtures/anthropic-direct-data-stream/PROVENANCE.md",
       "claim": "One text stream of claude-haiku-5-5 recorded on 2026-11-13 from Anthropic's own endpoint with curl over HTTP/2, committed unchanged with its request body. An observation of one model in one call, not a proof and not the provider's Contract; HTTP/1.1 on the live endpoint was not recorded."
     },
     {

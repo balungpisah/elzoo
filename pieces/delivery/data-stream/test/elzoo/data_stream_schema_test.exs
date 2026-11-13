@@ -8,7 +8,7 @@ defmodule Elzoo.DataStream.SchemaTest do
 
   # ELZ-155. One text stream recorded from Anthropic's own endpoint; the facts
   # are in PROVENANCE.md beside it.
-  @recording Path.expand("../fixtures/anthropic-direct-stream/text.sse", __DIR__)
+  @recording Path.expand("../fixtures/anthropic-direct-data-stream/text.sse", __DIR__)
 
   # ELZ-151. Derived data, not a recording; no test reads a file of another
   # Piece. These are the `data` lines of the message_start, the text
