@@ -6441,7 +6441,7 @@
       "baseline_status": "not in baseline (new row, RC-55)",
       "disposition": "ready-contract",
       "manifest": "pieces/workflow/output-repair/piece.json",
-      "manifest_sha256": "37d12c61baf04581ecb06f6cbc4a86e6e128bf37429c978a17cbd7c2a6f94326",
+      "manifest_sha256": "1f6401bf7bed26cad13ec1f36f18fd340d5074e720d23ef1688fe3c93c375669",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
@@ -6451,7 +6451,7 @@
       "baseline_status": "not in baseline (new row, RC-55)",
       "disposition": "ready-contract",
       "manifest": "pieces/workflow/typed-decision/piece.json",
-      "manifest_sha256": "aee17917bc2b57073cb9699b4aa304ef04e43a30eee666ed92cda6f7b0426115",
+      "manifest_sha256": "27e9e653d7393007bff6b3bdfe2c12b2b0a7f8fc73a23686e7837a19aae54cd4",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
