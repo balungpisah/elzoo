@@ -1697,6 +1697,69 @@ defmodule Elzoo.RunEngineTest do
       end
     end
 
+    test "ASK non-Effect ready recovery revalidates release after death before dispatch" do
+      for authority <- [:unchanged, :changed] do
+        c = fixture(pattern: {TestPattern, :step, %{requests: [request([action("approved")])]}})
+        require_approval(c)
+        armed = start_supervised!({Agent, fn -> true end}, id: make_ref())
+        parent = self()
+        base = c.opts[:bindings]["local_work"]
+
+        binding = %{
+          base
+          | effect_class: "publish",
+            work: fn action ->
+              if Agent.get_and_update(armed, &{&1, false}) do
+                send(parent, :died_after_ready)
+                Process.exit(self(), :kill)
+              end
+
+              send(parent, :work_dispatched)
+              base.work.(action)
+            end
+        }
+
+        bindings = Map.put(c.opts[:bindings], "local_work", binding)
+        engine = start(c, bindings: bindings)
+        assert {:ok, :applied} = send_input(engine)
+        {:ok, run} = Run.status(c.run, "run")
+        [%{request_key: key}] = run.approvals
+        monitor = Process.monitor(engine)
+
+        assert catch_exit(
+                 RunEngine.control(
+                   engine,
+                   "consent",
+                   %{kind: :approval_evidence, request_key: key, evidence: consent(key)},
+                   verified()
+                 )
+               )
+
+        assert_receive :died_after_ready
+        assert_receive {:DOWN, ^monitor, :process, ^engine, :killed}
+        {:ok, unit} = DynamicUnits.find(c.directory, c.prefix)
+        assert DurableUnit.snapshot(unit).slots[{1, 0}].phase == :ready
+        {:ok, run} = Run.status(c.run, "run")
+        assert [%{status: :released}] = Enum.map(run.approvals, &Map.take(&1, [:status]))
+        assert run.effects == %{}
+        refute_receive :work_dispatched
+
+        if authority == :changed, do: Agent.update(c.context, &%{&1 | authority: []})
+        engine = start(c, bindings: bindings)
+        state = wait_for(engine, &(&1.slots[{1, 0}].phase == :settled))
+
+        if authority == :unchanged do
+          assert state.slots[{1, 0}].outcome == "completed"
+          assert_receive :work_dispatched
+        else
+          assert state.slots[{1, 0}].outcome == "refused"
+        end
+
+        refute_receive :work_dispatched
+        refute_receive {:effect_started, _, _}
+      end
+    end
+
     test "ASK descriptor recovery checks engine startup binding before first Run binding" do
       c =
         fixture(

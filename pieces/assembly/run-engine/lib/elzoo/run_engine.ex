@@ -2258,7 +2258,7 @@ defmodule Elzoo.RunEngine do
           (id in ["startup", "replacement"] or
              slot.kind in ["resource_open", "resource_use", "resource_close"])
 
-      if (slot.phase == :approval or recovering) and not is_nil(slot[:request_key]) and
+      if (slot.phase in [:approval, :ready] or recovering) and not is_nil(slot[:request_key]) and
            permitted?(snapshot(acc), slot, acc.opts.clock.()) and
            check_payload(acc, action(snapshot(acc), key)) == :ok do
         fresh =
