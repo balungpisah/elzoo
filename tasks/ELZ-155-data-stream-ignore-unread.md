@@ -30,7 +30,7 @@ After this change `provider` in the message and `cost`, `is_byok` and `cost_deta
 
 ## Fixture
 
-Add `test/fixtures/anthropic-direct-stream/` with three files:
+Add `test/fixtures/anthropic-direct-data-stream/` with three files. The directory has a name of this Piece's own: an exported consumer puts the test files of each selected Piece at the same relative path, and `delivery/provider-stream` holds `test/fixtures/anthropic-direct-stream/` with a `PROVENANCE.md` of other bytes (ELZ-156). The first form of this body named that same directory; the export refuses two different files at one path.
 
 - `text.sse`: the response body exactly as received (1,408 bytes, SHA-256 `2d76b71a857ec16d5fec8bdbc4e90998c7e85fda3544b98fb32ae314a999362a`).
 - `text.upstream.json`: the request body exactly as sent (177 bytes, SHA-256 `64326ee9e0285b49974b48e8d8e415de25487b5f81ba4c433f401d64d1ff3f11`).
