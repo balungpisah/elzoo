@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "id": "workflow/prompt-assembly",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["elixir", "jason"],
+  "dependencies": ["integration/ai-text", "workflow/untrusted-content"],
+  "contract": "Pure build of one integration/ai-text request from role and skill instructions, selected memory, history and tools in one declared order (one system message, one memory block, one message per history entry, marked content only as rendered blocks), within a caller-supplied token window and estimate and the hard request bounds of ai-text; one declared drop order (oldest unit of a call with its results, then the last memory item) never drops instructions, tools, keep-rule records or the newest unit; older image references become a fixed marked text; refusals before any drop, over_limit when nothing is left to drop.",
+  "limits": [
+    "No claim that a provider accepts each order of messages that the inputs allow, and no claim about the accuracy of an estimate; an approximate estimate is returned as approximate.",
+    "No other optional member of the ai-text request, no image part or image input, no template language, no tokenizer, no rule that decides when to compact and no join with a tool registry.",
+    "No claim that marking prevents prompt injection; the caller decides what is an instruction and what is content.",
+    "Too many tools and a tool description over 4,096 bytes are refused, not cut."
+  ],
+  "files": [
+    "lib/elzoo/prompt_assembly.ex",
+    "test/elzoo/prompt_assembly_test.exs"
+  ],
+  "grounding": [
+    {"kind": "test", "file": "test/elzoo/prompt_assembly_test.exs", "claim": "Named groups drop_order (a two-call unit goes whole, then memory from the last, literal dropped list, over_limit), orphan_tool_result (four refused histories, no estimate call), hard_bounds (257 messages to 256, 65 tools, descriptions of 4,097 and 4,096 bytes, byte bounds 1,000, 2,000 and 65,536, never-dropped parts alone over a bound), deterministic (one literal canonical text, estimate sees only canonical bytes, approximate and other-estimator values) and image_refs (five references with limits 2 and 0, image, document and parts keys refused), plus shape refusals; every accepted request passes Request.decode/2 with its bound. A drop that removes an assistant entry without its results is a negative control. Finite scenarios with a byte-size estimate, not a proof."},
+    {"kind": "upstream", "provider": "elixir", "reference": "https://hexdocs.pm/elixir/1.20.4/", "claim": "Pinned Elixir lists and maps; the ready Contracts of integration/ai-text (Request.decode/2 decides what a valid request is and its canonical encoding) and workflow/untrusted-content (decode/1, encode/1, render/1) are reused unchanged."},
+    {"kind": "upstream", "provider": "jason", "reference": "https://hexdocs.pm/jason/1.4.5/Jason.html", "claim": "Pinned Jason encodes the JSON values in Request.canonical/1 and decodes them in Request.decode/2."},
+    {"kind": "assumption", "claim": "The caller decides what is an instruction and what is content: role instructions come from the recipe, skill instructions only from a pinned_skill source, every tool result, document, member message and summary is a truthfully stamped marked value, memory was selected with its access check, a record holds no unmarked content, IDs are unique, and the estimate function is pure and tells its direction truthfully."}
+  ],
+  "operations": {
+    "telemetry": {"status": "not_applicable", "contract": "Pure function emits no observations; the host owns instrumentation."},
+    "config": {"status": "supported", "contract": "Per call only, supplied by the caller in the input: max_request_bytes 1..65,536 (the host's ai-text request-byte Config), max_image_refs 0..256, and the token window (size, estimator_id, estimator_version; unit tokens) with the host's estimate function. No defaults, no ambient or stored setting and no hot reconfiguration.", "evidence": ["test/elzoo/prompt_assembly_test.exs"]},
+    "control": {"status": "not_applicable", "contract": "No process or lifecycle to control."}
+  }
+}

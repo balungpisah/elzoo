@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "id": "workflow/context-compaction",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["elixir"],
+  "dependencies": ["workflow/prompt-assembly", "workflow/pattern-step", "workflow/untrusted-content"],
+  "contract": "Pure pattern step that asks a model for one summary of a range of history: open gives one model_call action (key elzoo/ai-text-request v1) built by workflow/prompt-assembly from the free-text entries, never the keep-rule records, and refuses a range that does not fit one request; accept settles it through workflow/pattern-step and gives the records unchanged plus one derived marked summary with its derived_from references, or a named error with no compacted value; check refuses a value that lost a keep-rule record.",
+  "limits": [
+    "No rule that decides when to compact, no claim about the quality of a summary and no claim that marking prevents prompt injection.",
+    "Deletes nothing and stores nothing: the caller keeps the original history and the state, and the engine records the intent and the outcome.",
+    "Reads only content and finish of a completed elzoo.ai-text.result v1 payload; the host's model binding gives that vocabulary."
+  ],
+  "files": [
+    "lib/elzoo/context_compaction.ex",
+    "test/elzoo/context_compaction_test.exs"
+  ],
+  "grounding": [
+    {"kind": "test", "file": "test/elzoo/context_compaction_test.exs", "claim": "Named group compaction: a six-entry range with two records gives a PatternStep.decode/1 request with one model_call action whose payload Request.decode/2 accepts and holds no record; a completed outcome gives a literal compacted value (records unchanged, derived summary with the given source and bound, derived_from of the four summarized entries); failed, refused and unknown outcomes, finish length and refusal, empty and over-bound content and another schema key give the named errors; another action and a late outcome are late; check/2 names one lost record. Open refusals: nothing_to_summarize, over_limit, bad summary source, bound or ID, orphan result. An accept that leaves out the first record is a negative control. Finite scenarios, not a proof."},
+    {"kind": "upstream", "provider": "elixir", "reference": "https://hexdocs.pm/elixir/1.20.4/", "claim": "Pinned Elixir lists and maps; the ready Contracts of workflow/pattern-step (decode, encode, open, accept), workflow/untrusted-content (decode, encode) and workflow/prompt-assembly (build) are reused unchanged."},
+    {"kind": "assumption", "claim": "The caller keeps action_id unique in the Run, keeps the state and the original history, stamps the summary source truthfully, writes role instructions that say how to summarize, supplies a pure estimate function, and its model binding gives a completed outcome in the elzoo.ai-text.result v1 vocabulary; a host that reads a compacted value from a record runs check/2 again before the value replaces history."}
+  ],
+  "operations": {
+    "telemetry": {"status": "not_applicable", "contract": "Pure functions emit no observations; the host owns instrumentation."},
+    "config": {"status": "supported", "contract": "Per call only, supplied by the caller in the open input: max_request_bytes 1..65,536, the token window with the host's estimate function, and the summary bound max_bytes 1..16,777,216. No defaults, no ambient or stored setting and no hot reconfiguration.", "evidence": ["test/elzoo/context_compaction_test.exs"]},
+    "control": {"status": "not_applicable", "contract": "No process or lifecycle; the engine owns the action and its settlement record."}
+  }
+}
