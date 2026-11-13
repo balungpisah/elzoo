@@ -1,17 +1,25 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule Elzoo.CheckSelection do
-  @moduledoc "Selection of independent consumer tests; root tests always run."
+  @moduledoc "Selection of consumer tests and disjoint full-check parts."
 
   # This is the existing export-test inventory, not every ready Piece. Adding a
   # standalone consumer is a separate evidence change, not a selector side effect.
   @consumer_ids ~w(core/operator core/port core/assembly core/envelope core/edge core/wiring core/selection delivery/idempotency delivery/windowed-idempotency delivery/request-reply delivery/routing delivery/transformation delivery/backpressure delivery/dead-letter delivery/retry-timeout runtime/adapter runtime/host assembly/ingest-json-unit assembly/request-route-retry state/event-log state/checkpoint state/outbox state/scheduler integration/sql workflow/state-machine integration/jobs assembly/durable-job integration/ai-text)
 
-  # ELZ-073: the consumers that need the disposable PostgreSQL database stay together with the
-  # aggregate consumer (one database per job); test/export_test.exs asserts that this list equals
+  # The per-ID consumers that need the disposable PostgreSQL database stay together, separately from
+  # the aggregate consumer (one database per job); test/export_test.exs asserts that this list equals
   # Elzoo.CureConsumerCase.postgres_consumer_ids/0. ELZ-091 added integration/ai-text: its closure
   # reaches integration/sql through delivery/effect-intent.
   @postgres_consumer_ids ~w(integration/sql integration/jobs assembly/durable-job integration/ai-text state/scheduler)
-  @parts ~w(root consumers-db consumers)
+  @parts ~w(root-a root-b aggregate consumers-db consumers)
+
+  # ELZ-129: fixed slow files from the baseline module profile. Root-a keeps the rest and the Ash spike.
+  @root_b_tests ~w(test/export_test.exs test/install_configuration_test.exs test/registry_test.exs
+                   test/elzoo_take_task_test.exs pieces/assembly/run-engine/test/elzoo/run_engine_test.exs
+                   pieces/workflow/context-selection/test/elzoo/context_selection_test.exs
+                   pieces/assembly/durable-job/test/elzoo/durable_job_test.exs
+                   pieces/delivery/data-stream/test/elzoo/data_stream_copy_test.exs
+                   pieces/assembly/http-job/test/elzoo/http_job_test.exs)
 
   # Small gate (`mix check --piece BASE`): the root tests that read the index and generated files or every Piece
   # directory, and the four modules that hold the per-ID consumers. Each one runs in every small gate:
@@ -33,10 +41,9 @@ defmodule Elzoo.CheckSelection do
   def piece_root_tests, do: @piece_root_tests
 
   @doc """
-  One of three disjoint parts of the full check (ELZ-073): `root` (every test that is not a copied
-  consumer), `consumers-db` (the aggregate consumer and the PostgreSQL per-ID consumers) and
-  `consumers` (the database-free per-ID consumers). Together they select exactly the tests of the
-  full check; test/export_test.exs proves the partition over the loaded suite.
+  One of five disjoint parts of the full check: two fixed root groups, the aggregate consumer,
+  PostgreSQL per-ID consumers and database-free per-ID consumers. Together they select exactly
+  the tests of the full check; test/export_test.exs checks the partition over the loaded suite.
   """
   def part(part) when part in @parts, do: %{mode: :part, part: part}
 
@@ -271,18 +278,36 @@ defmodule Elzoo.CheckSelection do
 
   @doc """
   The ExUnit filters of one part, as `mix test` takes them (`--only` and `--exclude`). The single source
-  of the part's test arguments and of the partition proof in test/export_test.exs.
+  of the part's test arguments and of the partition check in test/export_test.exs.
 
   Notes on ExUnit: `--exclude consumer_id` drops every test that has that tag, whatever its value; an
   `--only` filter wins over an `--exclude` filter, so the database-free consumers are listed one by one
-  (every per-ID consumer except the PostgreSQL ones). The partition test proves that no consumer test
-  falls between the parts.
+  (every per-ID consumer except the PostgreSQL ones). Root parts load all files and exclude the other
+  group's files by absolute name. The partition test checks every loaded test identity.
   """
-  def part_filters("root"), do: %{include: [], exclude: ["consumer_id", "aggregate_consumer"]}
+  def part_filters("root-a"),
+    do: %{
+      include: [],
+      exclude:
+        ["consumer_id", "aggregate_consumer"] ++ Enum.map(@root_b_tests, &"file:#{Path.expand(&1)}")
+    }
+
+  def part_filters("root-b") do
+    files = Path.wildcard("test/**/*.exs") ++ Path.wildcard("pieces/**/*.exs")
+
+    %{
+      include: [],
+      exclude:
+        ["consumer_id", "aggregate_consumer"] ++
+          Enum.map(files -- @root_b_tests, &"file:#{Path.expand(&1)}")
+    }
+  end
+
+  def part_filters("aggregate"), do: %{include: ["aggregate_consumer"], exclude: []}
 
   def part_filters("consumers-db"),
     do: %{
-      include: ["aggregate_consumer" | Enum.map(@postgres_consumer_ids, &"consumer_id:#{&1}")],
+      include: Enum.map(@postgres_consumer_ids, &"consumer_id:#{&1}"),
       exclude: []
     }
 
@@ -294,7 +319,7 @@ defmodule Elzoo.CheckSelection do
 
   def report(%{mode: :part, part: part}) do
     "ELZOO CHECK SELECTION: part #{part}\n" <>
-      "LIMIT: one of the parts #{Enum.join(@parts, ", ")}; the full check is the three together."
+      "LIMIT: one of the parts #{Enum.join(@parts, ", ")}; the full check is the five together."
   end
 
   def report(%{mode: :piece} = selection) do
@@ -338,7 +363,9 @@ defmodule Elzoo.CheckSelection do
   end
 
   def success_marker(%{mode: :full}), do: "ELZOO CHECK PASSED"
-  def success_marker(%{mode: :part, part: "root"}), do: "ELZOO ROOT SUITE PASSED"
+  def success_marker(%{mode: :part, part: "root-a"}), do: "ELZOO ROOT A SUITE PASSED"
+  def success_marker(%{mode: :part, part: "root-b"}), do: "ELZOO ROOT B SUITE PASSED"
+  def success_marker(%{mode: :part, part: "aggregate"}), do: "ELZOO AGGREGATE CONSUMER PASSED"
   def success_marker(%{mode: :part, part: "consumers-db"}), do: "ELZOO CONSUMERS DB PASSED"
   def success_marker(%{mode: :part, part: "consumers"}), do: "ELZOO CONSUMERS PASSED"
 

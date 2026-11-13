@@ -5,6 +5,50 @@ decision 2026-11-09), and GitHub provides the compute, the scheduling and the ch
 owner's own machines; "History" at the end summarises that period. ELZ-069 removed its jobs, its guard rules, the runner
 roles and the lane variable. "Hosted CI" below has the job shapes, the flip record, the measured figures and the fallback.
 
+## Current five-part full check (ELZ-129)
+
+This section supersedes the job counts, part names and consumer counts in the historical ELZ-073 sections below;
+their measurements describe that earlier shape, not the current one. The full workflow now has exactly eight jobs:
+
+| Job | Part / work | Success marker |
+| --- | --- | --- |
+| `check-plan` | Existing guards, classification and skip decision; outputs `run` and `piece` | Existing plan markers |
+| `check-root` | `root-a`: root tests outside the fixed root-b files, plus the Ash spike exactly once | `ELZOO ROOT A SUITE PASSED` |
+| `check-root-b` | `root-b`: the fixed files below | `ELZOO ROOT B SUITE PASSED` |
+| `check-aggregate` | `aggregate`: the one all-ready-ID copied consumer | `ELZOO AGGREGATE CONSUMER PASSED` |
+| `check-consumers-db` | `consumers-db`: the five PostgreSQL per-ID consumers | `ELZOO CONSUMERS DB PASSED` |
+| `check-consumers` | `consumers`: the 23 database-free per-ID consumers | `ELZOO CONSUMERS PASSED` |
+| `check-piece` | Unchanged small gate, only for a Piece-only pull request | Existing Piece marker, never the full marker |
+| `check-hosted` | Requires the complete planned result unit | `ELZOO CHECK PASSED` only for full execution |
+
+Every work job keeps the pinned disposable PostgreSQL service, S3 setup, runtime, four schedulers and dependency-cache
+restore. Databases are separate because jobs have separate services. `check-root` remains a real work shard and the sole
+writer of both caches, not a reducer. `scripts/run-ci-check.sh` is unchanged and forwards each fixed part to `mix check`.
+
+The baseline all-file slowest-module profile selected nine root-b files: `test/export_test.exs`,
+`test/install_configuration_test.exs`, `test/registry_test.exs`, `test/elzoo_take_task_test.exs`, and the primary tests of
+`assembly/run-engine`, `workflow/context-selection`, `assembly/durable-job`, `assembly/http-job` and the source-copy test
+of `delivery/data-stream`. The exact list is `@root_b_tests` in `Elzoo.CheckSelection`. It splits both slow synchronous
+tests and the largest asynchronous modules; the serial profile is a grouping input, not a hosted speedup measurement.
+Both root parts use standard all-file ExUnit loading, exclude consumer tags and exclude the other group's absolute file
+names. No file-path argument narrows loading. The existing partition test parses the actual CLI arguments and checks
+every loaded test identity belongs to exactly one part, preserves the consumer-module and PostgreSQL inventory checks,
+and keeps the aggregate and per-ID timeouts. Unsplit full, affected and Piece selection semantics are unchanged.
+
+The workflow guard pins all eight jobs and their own steps. Full execution requires all five work jobs successful and
+Piece skipped. Piece execution requires all five skipped and Piece successful. Docs-only or a qualified push skip requires
+all five and Piece skipped. Only `check-hosted` emits the full marker, after checking every required result.
+
+The previously merged ELZ-131 queue and skip validators accept only the complete legacy six-job or new eight-job unit,
+with the matching per-shape steps and markers; mixed units are refused. Those validators are unchanged by ELZ-129.
+Exact tree/head/current-base/latest-attempt, hosted identity, green-parent/docs qualification, full-main, merge-window and
+policy-refusal safeguards remain in force. A small gate is never full-main evidence.
+
+Before adoption, the task's PR records at least three complete attempts on each frozen arm, with matching non-CI source,
+bundle blobs and workload across arms. It records failures, actual cold/warm cache state, setup/stage/test durations,
+queue/wall/critical-path and summed runner time, medians and ranges. No cache hit is called a cold measurement, and no
+historical timing or planning target is a promised saving.
+
 ## Redundant push runs and duplicate pull request checks (ELZ-058, ELZ-059)
 
 A merge cost several full checks of the same content: the queue's exact-head run, then the push run on
