@@ -12,7 +12,7 @@ defmodule ElzooAshSpike.MixProject do
       deps: [
         {:ash, "== 3.37.3"},
         {:ash_postgres, "== 2.15.2"},
-        {:ash_ai, "== 1.5.0"},
+        {:ash_ai, "== 1.5.4"},
         {:simple_sat, "== 0.1.4"},
         {:telemetry, "== 1.4.2"},
         {:ash_state_machine, "== 0.3.0"},
