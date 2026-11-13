@@ -6469,17 +6469,21 @@
     {
       "id": "workflow/wait-for-person",
       "job": "ELZ-146",
-      "note": "Bot platform wave 2 (P13). Not an approval: an approval binds one exact action. Late and wrong-person answers are explicit.",
+      "manifest": "pieces/workflow/wait-for-person/piece.json",
+      "manifest_sha256": "74a007107decca7d430ad096a2a20341b10bd786c7a1689e6cc3a45762b4b080",
+      "note": "Pure policy over the open ask_person actions of one request: settles an ask with the answer of its named, host-verified person or its recorded outcome (expired is the time-out), refuses wrong-person and incompatible answers, and routes verified text to an answer or a message; ready PatternStep owns shapes and first settlement. No timer, runtime or authentication.",
       "baseline_status": "not in baseline (new row, RC-58)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
       "id": "workflow/mid-run-input",
       "job": "ELZ-146",
-      "note": "Bot platform wave 2 (P13). Queue, reject, interrupt, steer or side run. An interrupt reports what was already delivered.",
+      "manifest": "pieces/workflow/mid-run-input/piece.json",
+      "manifest_sha256": "e077775a1ec59fe57b6d00d5110afe9ff63318c22f83914cc9a04f76451e6766",
+      "note": "Pure policy for a new message during a Run under the one declared rule (queue, reject, interrupt, steer or side run) and the supplied Run phase: deliver, queue up to 16, refuse, or interrupt or hand to a side run with a report of delivered and open actions; every other input passes. No runtime, Run start or stop.",
       "baseline_status": "not in baseline (new row, RC-58)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
