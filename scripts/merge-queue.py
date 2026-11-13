@@ -71,6 +71,8 @@ FULL_MARKER = "ELZOO CHECK PASSED"
 DOCS_MARKER = "ELZOO DOCS-ONLY CHECK PASSED"
 # Elzoo.CheckSelection.success_marker(%{mode: :piece}); scripts/test-merge-queue.py compares the two.
 PIECE_MARKER = "ELZOO PIECE CHECK PASSED (small gate; a selected check, not the full check; see LIMIT)"
+SPIKE_JOB = "check-spike"
+SPIKE_MARKER = "ELZOO SPIKE CHECK PASSED"
 AFFECTED_MARKER = "ELZOO AFFECTED CHECK PASSED"
 LOG_STAMP = r"(?m)^(?:\d{4}-\d\d-\d\dT[0-9:.]+Z )?"
 HOSTED_GROUP = "GitHub Actions"
@@ -402,7 +404,7 @@ class Queue:
                 return run["id"]
             self.pause("new exact-head workflow_dispatch run", end)
 
-    def evidence(self, run_id, pr, workflow_id, allow_docs_only=True, allow_piece=True):
+    def evidence(self, run_id, pr, workflow_id, allow_docs_only=True, allow_piece=True, allow_spike=True):
         """The successful run of the exact head, read as one evidence unit (ELZ-073). Returns (jobs, mode), where
         jobs maps the complete legacy six-job or fixed split eight-job unit to API objects. Mode "full": all work
         jobs ran in this attempt and succeeded, check-piece was skipped, each work job printed its part marker and
@@ -426,7 +428,8 @@ class Queue:
                           f"repos/{REPO}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100")
         jobs = [job for page in pages for job in page["jobs"]]
         names = [job.get("name") for job in jobs]
-        split = sorted(names) == sorted(SPLIT_BACKEND_JOBS)
+        spike_shape = sorted(names) == sorted(SPLIT_BACKEND_JOBS + (SPIKE_JOB,))
+        split = spike_shape or sorted(names) == sorted(SPLIT_BACKEND_JOBS)
         require(split or sorted(names) == sorted(BACKEND_JOBS),
                 "Expected exactly the five backend jobs and check-piece, or the fixed split eight-job unit, once each")
         work_parts = SPLIT_WORK_PARTS if split else WORK_PARTS
@@ -440,7 +443,12 @@ class Queue:
         work = [by_name[job] for job, _part, _marker in work_parts]
         ran = [job for job in work if job.get("conclusion") != "skipped"]
         piece_ran = by_name[PIECE_JOB].get("conclusion") != "skipped"
-        if len(ran) == len(work):
+        spike_ran = spike_shape and by_name[SPIKE_JOB].get("conclusion") != "skipped"
+        if spike_ran:
+            require(not ran and not piece_ran and allow_spike, "Spike run refused here, or work jobs ran beside it")
+            require(run.get("event") == "pull_request", "A spike run is evidence only on a pull_request run")
+            mode = "spike"
+        elif len(ran) == len(work):
             require(not piece_ran, "check-piece ran in a full run: not one shape")
             mode = "full"
         elif piece_ran:
@@ -470,7 +478,36 @@ class Queue:
         require(len(step(aggregate, "Require every job")) == 1 and
                 step(aggregate, "Require every job")[0].get("conclusion") == "success",
                 "Aggregating step missing, skipped or failed")
-        if mode == "full":
+        if mode != "spike":
+            require(not any(SPIKE_MARKER in log(job) for job in jobs if job.get("conclusion") != "skipped"),
+                    "Spike marker present outside a spike run")
+        if mode == "spike":
+            spike = by_name[SPIKE_JOB]
+            for name in ("Classify a spike change",):
+                classified = step(plan, name)
+                require(len(classified) == 1 and classified[0].get("conclusion") == "success",
+                        "Spike classification step missing, skipped or failed")
+            ash_steps = step(spike, "Check the Ash spike")
+            require(len(ash_steps) == 1 and ash_steps[0].get("conclusion") in ("success", "skipped"),
+                    "Ash spike step missing or failed")
+            for name in ("Record the spike check",):
+                recorded = step(spike, name)
+                require(len(recorded) == 1 and recorded[0].get("conclusion") == "success",
+                        "Spike check step missing, skipped or failed")
+            require(len(docs_step) == 1 and docs_step[0].get("conclusion") == "skipped",
+                    "Docs-only check ran in a spike run")
+            require(has_line(plan, r"ELZOO PLAN: run=false skip=\S+ docs_only=false") and
+                    has_line(plan, r"ELZOO SPIKE PLAN: spike=true spike_only=true"),
+                    "Missing spike plan lines")
+            require(len(re.findall(LOG_STAMP + re.escape(SPIKE_MARKER) + r"\s*$", log(spike))) == 1,
+                    "Missing or duplicate spike marker")
+            for job in (plan, spike, aggregate):
+                require(not any(marker in log(job) for marker in
+                                (FULL_MARKER, DOCS_MARKER, "ELZOO PIECE CHECK PASSED", AFFECTED_MARKER, *PART_MARKERS)),
+                        "Unexpected marker in a spike run")
+            require(SPIKE_MARKER not in log(plan) and SPIKE_MARKER not in log(aggregate),
+                    "Spike marker printed outside check-spike")
+        elif mode == "full":
             require(len(docs_step) == 1 and docs_step[0].get("conclusion") == "skipped",
                     "Docs-only step ran or is missing in a full run")
             require(has_line(plan, r"ELZOO PLAN: run=true skip=\S+ docs_only=\S+") and
@@ -605,6 +642,22 @@ class Queue:
             out = self.run(CLASSIFIER.diff_argv(main, f"refs/remotes/origin/{pr['headRefName']}")).stdout
             verdict, ids = CLASSIFIER.piece_only(CLASSIFIER.parse_raw(out))
             return verdict is True and isinstance(ids, list) and len(ids) > 0
+        except (QueueError, CLASSIFIER.Unclear, KeyError, TypeError, ValueError, AttributeError):
+            return False
+
+    def spike_only_change(self, pr, jobs=None):
+        if CLASSIFIER is None:
+            return False
+        try:
+            main = self.api("git/ref/heads/main")["object"]["sha"]
+            require(valid_sha(main), "Invalid canonical main SHA")
+            out = self.run(CLASSIFIER.diff_argv(main, f"refs/remotes/origin/{pr['headRefName']}")).stdout
+            verdict, ash = CLASSIFIER.spike_only(CLASSIFIER.parse_raw(out))
+            if jobs is not None:
+                steps = [step for step in jobs[SPIKE_JOB].get("steps", []) if step.get("name") == "Check the Ash spike"]
+                if len(steps) != 1 or steps[0].get("conclusion") != ("success" if ash else "skipped"):
+                    return False
+            return verdict is True
         except (QueueError, CLASSIFIER.Unclear, KeyError, TypeError, ValueError, AttributeError):
             return False
 
@@ -782,7 +835,7 @@ class Queue:
                               "documentation only, or the push run of the current main is not a completed "
                               "success); dispatching a full run", flush=True)
                     run_id, adopted = self.dispatch(pr, workflow_id), False
-                    jobs, mode = self.evidence(run_id, pr, workflow_id, allow_docs_only=False, allow_piece=False)
+                    jobs, mode = self.evidence(run_id, pr, workflow_id, allow_docs_only=False, allow_piece=False, allow_spike=False)
                 elif mode == "piece" and not self.piece_only_change(pr):
                     # The run passed the small gate of its own classification; this queue's own classifier does not
                     # agree (or is unavailable), so only a full run is evidence.
@@ -790,13 +843,19 @@ class Queue:
                               f"head={pr['headRefOid']} (its own classification is not Piece-only); dispatching a "
                               "full run", flush=True)
                     run_id, adopted = self.dispatch(pr, workflow_id), False
-                    jobs, mode = self.evidence(run_id, pr, workflow_id, allow_docs_only=False, allow_piece=False)
+                    jobs, mode = self.evidence(run_id, pr, workflow_id, allow_docs_only=False, allow_piece=False, allow_spike=False)
+                elif mode == "spike" and not self.spike_only_change(pr, jobs):
+                    self.emit(f"Run {run_id} passed the spike gate, but the queue does not accept it "
+                              "(its own classification is not spike-only); dispatching a full run", flush=True)
+                    run_id, adopted = self.dispatch(pr, workflow_id), False
+                    jobs, mode = self.evidence(run_id, pr, workflow_id, allow_docs_only=False,
+                                               allow_piece=False, allow_spike=False)
             except (QueueError, KeyError, TypeError, ValueError, AttributeError):
                 # The run goes on after the queue stops; name it so that it can be adopted by hand.
                 self.emit(f"Stopped while awaiting run {run_id} for PR #{number} head={pr['headRefOid']}: "
                           "inspect that run; the queue adopts it again on the next start", flush=True)
                 raise
-            if mode == "piece":
+            if mode in ("piece", "spike"):
                 self.check_piece_window()
             self.unchanged_pr(pr)
             required, why = self.gleam_required(pr)
@@ -817,6 +876,9 @@ class Queue:
                 # The same for the small gate: classify once more on the fresh refs right before the merge.
                 require(self.piece_only_change(fresh),
                         f"Small gate run {run_id} no longer matches the queue's own classification; refusing to merge")
+            if mode == "spike":
+                require(self.spike_only_change(fresh, jobs),
+                        f"Spike run {run_id} no longer matches the queue's own classification; refusing to merge")
             if adopted:
                 # The adoption rules held when the run was chosen. A sibling pull request or a retarget that came
                 # later could make the run (or the push run that follows the merge) count for another base.
@@ -827,7 +889,7 @@ class Queue:
             require(newer is None, f"Run {newer} on head {fresh['headRefOid']} is newer than the evidence run "
                                    f"{run_id}; the push run could decide on it; refusing to merge")
             self.check_main_not_frozen()
-            if mode == "piece":
+            if mode in ("piece", "spike"):
                 self.check_piece_window()
             self.text("gh", "pr", "merge", str(number), "-R", REPO,
                       "--merge", "--match-head-commit", pr["headRefOid"])
@@ -843,9 +905,12 @@ class Queue:
             else:
                 self.emit(f"ELZOO GLEAM GATE not required pr={number} head={pr['headRefOid']} ({why})", flush=True)
             names = (SPLIT_EVIDENCE_JOBS if "check-root-b" in jobs else EVIDENCE_JOBS) + ((PIECE_JOB,) if mode == "piece" else ())
+            if mode == "spike":
+                names += (SPIKE_JOB,)
             job_ids = ",".join(name + ":" + str(jobs[name]["id"]) for name in names)
             self.emit(f"ELZOO MERGE EVIDENCE pr={number} run={run_id} jobs={job_ids} "
                       f"head={pr['headRefOid']} merge={merge_sha}"
+                      + (" mode=spike (the full check is the push run on main)" if mode == "spike" else "")
                       + (" mode=docs-only" if mode == "docs-only" else "")
                       + (" mode=piece (small gate; the full check is the push run on main)" if mode == "piece" else ""),
                       flush=True)

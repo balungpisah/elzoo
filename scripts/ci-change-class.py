@@ -132,6 +132,36 @@ def piece_only(entries):
     return (True, ids) if verdict else (False, [])
 
 
+SPIKE_PREFIXES = ("spikes/ash_foundation/", "spikes/gleam_ui/")
+SPIKE_INDEX = {"docs/plans/release-plan.json", "docs/plans/views.md", "docs/plans/dependencies.mmd"}
+
+
+def spike_only(entries):
+    """(spike-only, Ash changed) for regular spike files plus permitted documentation."""
+    found = ash = False
+    for old, new, status, path in entries:
+        if old not in {"000000", "100644", "100755"} or new not in {"000000", "100644", "100755"}:
+            return False, False
+        if not doc_path_shape(path):
+            return False, False
+        if path.startswith(SPIKE_PREFIXES):
+            found = True
+            ash = ash or path.startswith(SPIKE_PREFIXES[0])
+        elif not (doc_path(path) or path in SPIKE_INDEX):
+            return False, False
+    return found, ash if found else False
+
+
+def classify_spike_github(env, run=subprocess.run):
+    pair = merge_parents(env, run)
+    if pair is None:
+        return False, False
+    try:
+        return spike_only(changed(*pair, run=run))
+    except (Unclear, OSError, subprocess.TimeoutExpired, ValueError):
+        return False, False
+
+
 def parse_raw(output):
     """Parse `git diff --raw -z --no-renames`. Raises Unclear on any shape it does not know."""
     fields = output.split("\x00")
@@ -229,6 +259,14 @@ def main(argv, env=None, out=print):
         if target:
             with open(target, "a", encoding="utf-8") as handle:
                 handle.write(f"docs_only={'true' if verdict else 'false'}\n")
+        return 0
+    if len(argv) == 1 and argv[0] == "github-spike":
+        verdict, ash = classify_spike_github(env)
+        out(f"ELZOO CHANGE CLASS: spike_only={str(verdict).lower()} ash={str(ash).lower()}")
+        target = env.get("GITHUB_OUTPUT")
+        if target:
+            with open(target, "a", encoding="utf-8") as handle:
+                handle.write(f"spike_only={str(verdict).lower()}\nash={str(ash).lower()}\n")
         return 0
     if len(argv) == 1 and argv[0] == "github-piece":
         verdict, ids = classify_piece_github(env)

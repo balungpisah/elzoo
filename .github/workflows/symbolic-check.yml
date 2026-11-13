@@ -24,6 +24,8 @@ jobs:
     outputs:
       run: ${{ steps.plan.outputs.run }}
       piece: ${{ steps.plan.outputs.piece }}
+      spike: ${{ steps.plan.outputs.spike }}
+      ash: ${{ steps.spike.outputs.ash }}
     steps:
       - name: Verify the GitHub-hosted runner
         run: |
@@ -45,6 +47,9 @@ jobs:
       - name: Classify a Piece change
         id: piece
         run: python3 scripts/ci-change-class.py github-piece
+      - name: Classify a spike change
+        id: spike
+        run: python3 scripts/ci-change-class.py github-spike
       - run: python3 scripts/check-claims.py
       - run: python3 scripts/check-ci-runners.py
       - run: python3 scripts/test-ci-runners.py
@@ -73,6 +78,7 @@ jobs:
           SKIP: ${{ steps.skip.outputs.skip }}
           DOCS_ONLY: ${{ steps.class.outputs.docs_only }}
           PIECE_ONLY: ${{ steps.piece.outputs.piece_only }}
+          SPIKE_ONLY: ${{ steps.spike.outputs.spike_only }}
           EVENT: ${{ github.event_name }}
         run: |
           if [ "$SKIP" != true ] && [ "$DOCS_ONLY" != true ]; then
@@ -85,6 +91,13 @@ jobs:
             RUN=false
             PIECE=true
           fi
+          SPIKE=false
+          if [ "$RUN" = true ] && [ "$SPIKE_ONLY" = true ] && [ "$EVENT" = pull_request ]; then
+            RUN=false
+            SPIKE=true
+          fi
+          echo "spike=$SPIKE" >> "$GITHUB_OUTPUT"
+          echo "ELZOO SPIKE PLAN: spike=$SPIKE spike_only=${SPIKE_ONLY:-unset}"
           echo "run=$RUN" >> "$GITHUB_OUTPUT"
           echo "piece=$PIECE" >> "$GITHUB_OUTPUT"
           echo "ELZOO PLAN: run=$RUN skip=${SKIP:-unset} docs_only=${DOCS_ONLY:-unset}"
@@ -729,9 +742,60 @@ jobs:
           fi
           sed -n '1,5p' /proc/meminfo
           cat /proc/loadavg
+  check-spike:
+    if: ${{ needs.check-plan.outputs.spike == 'true' }}
+    needs: check-plan
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: 20
+    env:
+      ImageOS: ubuntu24
+      ERL_FLAGS: '+S 4:4 +SDcpu 1 +SDio 1'
+      MIX_ENV: test
+    steps:
+      - name: Verify the GitHub-hosted runner
+        run: |
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$RUNNER_OS" = Linux
+          test "$RUNNER_ARCH" = X64
+          . /etc/os-release
+          test "$ID" = ubuntu
+          test "$VERSION_ID" = 24.04
+          echo "Hosted runner: $RUNNER_NAME"
+          free -h || true
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install runtime libraries
+        run: sudo python3 scripts/ci-install-runtime.py
+      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1
+        with:
+          elixir-version: '1.20.4'
+          otp-version: '29.1.2'
+      - name: Restore dependency cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            spikes/ash_foundation/deps
+            spikes/ash_foundation/_build
+          key: elzoo-spike-v1-${{ runner.os }}-${{ env.ImageOS }}-otp29.1.2-elixir1.20.4-${{ hashFiles('spikes/ash_foundation/mix.lock', 'spikes/ash_foundation/mix.exs') }}
+      - run: mix local.hex --force
+      - run: mix local.rebar --force
+      - name: Check the Ash spike
+        if: ${{ needs.check-plan.outputs.ash == 'true' }}
+        working-directory: spikes/ash_foundation
+        run: |
+          unset MIX_BUILD_PATH MIX_DEPS_PATH
+          mix deps.get
+          mix format --check-formatted
+          mix test --warnings-as-errors
+      - name: Record the spike check
+        run: echo "ELZOO SPIKE CHECK PASSED"
   check-hosted:
     if: ${{ always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) }}
-    needs: [check-plan, check-root, check-root-b, check-aggregate, check-consumers-db, check-consumers, check-piece]
+    needs: [check-plan, check-root, check-root-b, check-aggregate, check-consumers-db, check-consumers, check-piece, check-spike]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -752,6 +816,8 @@ jobs:
           PLAN: ${{ needs.check-plan.result }}
           RUN: ${{ needs.check-plan.outputs.run }}
           PIECE: ${{ needs.check-plan.outputs.piece }}
+          SPIKE: ${{ needs.check-plan.outputs.spike }}
+          SPIKE_RESULT: ${{ needs.check-spike.result }}
           ROOT: ${{ needs.check-root.result }}
           ROOT_B: ${{ needs.check-root-b.result }}
           AGGREGATE: ${{ needs.check-aggregate.result }}
@@ -762,6 +828,8 @@ jobs:
           echo "plan=$PLAN run=$RUN piece=$PIECE root=$ROOT root-b=$ROOT_B aggregate=$AGGREGATE consumers-db=$DB consumers=$CONSUMERS check-piece=$SMALL"
           test "$PLAN" = success
           if [ "$RUN" = true ]; then
+            test "$SPIKE" = false
+            test "$SPIKE_RESULT" = skipped
             test "$PIECE" = false
             test "$SMALL" = skipped
             test "$ROOT" = success
@@ -771,6 +839,8 @@ jobs:
             test "$CONSUMERS" = success
             echo "ELZOO CHECK PASSED"
           elif [ "$PIECE" = true ]; then
+            test "$SPIKE" = false
+            test "$SPIKE_RESULT" = skipped
             test "$RUN" = false
             test "$SMALL" = success
             test "$ROOT" = skipped
@@ -778,7 +848,19 @@ jobs:
             test "$AGGREGATE" = skipped
             test "$DB" = skipped
             test "$CONSUMERS" = skipped
+          elif [ "$SPIKE" = true ]; then
+            test "$RUN" = false
+            test "$PIECE" = false
+            test "$SPIKE_RESULT" = success
+            test "$SMALL" = skipped
+            test "$ROOT" = skipped
+            test "$ROOT_B" = skipped
+            test "$AGGREGATE" = skipped
+            test "$DB" = skipped
+            test "$CONSUMERS" = skipped
           else
+            test "$SPIKE" = false
+            test "$SPIKE_RESULT" = skipped
             test "$RUN" = false
             test "$PIECE" = false
             test "$SMALL" = skipped

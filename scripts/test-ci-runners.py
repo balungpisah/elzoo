@@ -170,7 +170,7 @@ class RunnerPolicyTest(unittest.TestCase):
 
     def test_extra_backend_job_header_rejected_independently(self):
         self.add_job_header_without_selector("symbolic-check.yml")
-        self.assertIn("exactly the jobs check-plan, check-root, check-root-b, check-aggregate, check-consumers-db, check-consumers, check-piece, check-hosted are required, in this order", self.check(1).stderr)
+        self.assertIn("exactly the jobs check-plan, check-root, check-root-b, check-aggregate, check-consumers-db, check-consumers, check-piece, check-spike, check-hosted are required, in this order", self.check(1).stderr)
 
     def test_extra_gleam_job_header_rejected_independently(self):
         self.add_job_header_without_selector("symbolic-gleam.yml")
@@ -511,7 +511,7 @@ class RunnerPolicyTest(unittest.TestCase):
         self.assertEqual(1, source.count(self.DECISION))
         self.assertEqual(1, source.count(self.ANY_PERMS))
         self.assertEqual(7, source.count("github.token"))  # the decision step and the S3 test server step of each work job and of check-piece
-        self.assertEqual(9, source.count("permissions:"))  # top level and the eight jobs
+        self.assertEqual(10, source.count("permissions:"))  # top level and the eight jobs
         self.check(0)
 
     def test_write_permissions_rejected(self):
@@ -658,7 +658,7 @@ class RunnerPolicyTest(unittest.TestCase):
 """
 
     def test_checkout_must_not_persist_the_token(self):
-        self.assertEqual(7, self.source().count(self.CHECKOUT))     # check-plan, the five work jobs and check-piece
+        self.assertEqual(8, self.source().count(self.CHECKOUT))     # check-plan, the five work jobs and check-piece
         for job in ("check-plan", "check-root", "check-root-b", "check-aggregate", "check-consumers-db", "check-consumers", "check-piece"):
             for new in (self.CHECKOUT.replace("          persist-credentials: false\n", ""),
                         self.CHECKOUT.replace("persist-credentials: false", "persist-credentials: true"),
@@ -812,7 +812,7 @@ class RunnerPolicyTest(unittest.TestCase):
         path = self.root / ".github" / "workflows" / "symbolic-check.yml"
         source = path.read_text()
         path.write_text(source[:source.index("\n  check-hosted:\n")] + "\n")
-        self.assertIn("exactly the jobs check-plan, check-root, check-root-b, check-aggregate, check-consumers-db, check-consumers, check-piece, check-hosted are required, in this order", self.check(1).stderr)
+        self.assertIn("exactly the jobs check-plan, check-root, check-root-b, check-aggregate, check-consumers-db, check-consumers, check-piece, check-spike, check-hosted are required, in this order", self.check(1).stderr)
         self.tearDown()
         self.setUp()
         path = self.root / ".github" / "workflows" / "symbolic-gleam.yml"
@@ -887,7 +887,7 @@ class RunnerPolicyTest(unittest.TestCase):
                         old, new = "      - name: Require every job\n", step + "      - name: Require every job\n"
                     else:
                         old, new = "      - uses: actions/checkout@", step + "      - uses: actions/checkout@"
-                        if job != "check-plan":
+                        if job not in ("check-plan", "check-spike"):
                             old = "      - name: Report BEAM capacity\n"
                             new = step + old
                     self.change_in_job("symbolic-check.yml", job, old, new)
@@ -1031,7 +1031,7 @@ class RunnerPolicyTest(unittest.TestCase):
     # ELZ-069: the self-hosted lane is gone; nothing of it may come back silently.
     def test_jobs_must_keep_their_names(self):
         self.change("symbolic-check.yml", "  check-hosted:\n", "  check-renamed:\n")
-        self.assertIn("exactly the jobs check-plan, check-root, check-root-b, check-aggregate, check-consumers-db, check-consumers, check-piece, check-hosted are required, in this order", self.check(1).stderr)
+        self.assertIn("exactly the jobs check-plan, check-root, check-root-b, check-aggregate, check-consumers-db, check-consumers, check-piece, check-spike, check-hosted are required, in this order", self.check(1).stderr)
         self.tearDown()
         self.setUp()
         self.change("symbolic-gleam.yml", "  gleam-hosted:\n", "  gleam:\n")
@@ -1186,7 +1186,7 @@ class RunnerPolicyTest(unittest.TestCase):
         self.assertTrue(self.check(1).stderr)
 
     WORK_JOB_NAMES = ("check-root", "check-root-b", "check-aggregate", "check-consumers-db", "check-consumers")
-    BACKEND_JOB_NAMES = ("check-plan", "check-root", "check-root-b", "check-aggregate", "check-consumers-db", "check-consumers", "check-piece", "check-hosted")
+    BACKEND_JOB_NAMES = ("check-plan", "check-root", "check-root-b", "check-aggregate", "check-consumers-db", "check-consumers", "check-piece", "check-spike", "check-hosted")
     WORK_HEAD = "    if: ${{ needs.check-plan.outputs.run == 'true' }}\n    needs: check-plan\n"
 
     def test_every_work_job_waits_for_the_plan(self):
@@ -1225,7 +1225,7 @@ class RunnerPolicyTest(unittest.TestCase):
                 text = self.job_text(job)
                 path = self.root / ".github" / "workflows" / "symbolic-check.yml"
                 path.write_text(source.replace(text, "", 1))
-                self.assertIn("exactly the jobs check-plan, check-root, check-root-b, check-aggregate, check-consumers-db, check-consumers, check-piece, check-hosted are required, in this order",
+                self.assertIn("exactly the jobs check-plan, check-root, check-root-b, check-aggregate, check-consumers-db, check-consumers, check-piece, check-spike, check-hosted are required, in this order",
                               self.check(1).stderr)
                 self.tearDown()
                 self.setUp()
@@ -1250,7 +1250,7 @@ class RunnerPolicyTest(unittest.TestCase):
 
     PLAN_STEP = ('      - name: Plan the work jobs\n        id: plan\n        env:\n          SKIP: ${{ steps.skip.outputs.skip }}\n'
                  '          DOCS_ONLY: ${{ steps.class.outputs.docs_only }}\n'
-                 '          PIECE_ONLY: ${{ steps.piece.outputs.piece_only }}\n          EVENT: ${{ github.event_name }}\n        run: |\n'
+                 '          PIECE_ONLY: ${{ steps.piece.outputs.piece_only }}\n          SPIKE_ONLY: ${{ steps.spike.outputs.spike_only }}\n          EVENT: ${{ github.event_name }}\n        run: |\n'
                  '          if [ "$SKIP" != true ] && [ "$DOCS_ONLY" != true ]; then\n            RUN=true\n          else\n            RUN=false\n          fi\n')
 
     def test_the_plan_step_is_present_and_pinned(self):
@@ -1282,9 +1282,9 @@ class RunnerPolicyTest(unittest.TestCase):
         gate = "    if: ${{ always() && (github.event_name == 'push'"
         for old, new in ((gate, "    if: ${{ (github.event_name == 'push'"),                                     # no always()
                          (gate, "    if: ${{ !cancelled() && (github.event_name == 'push'"),
-                         ("    needs: [check-plan, check-root, check-root-b, check-aggregate, check-consumers-db, check-consumers, check-piece]\n", "    needs: [check-plan, check-root, check-root-b, check-aggregate, check-consumers-db]\n"),
-                         ("    needs: [check-plan, check-root, check-root-b, check-aggregate, check-consumers-db, check-consumers, check-piece]\n", "    needs: [check-root, check-consumers-db, check-consumers]\n"),
-                         ("    needs: [check-plan, check-root, check-root-b, check-aggregate, check-consumers-db, check-consumers, check-piece]\n", "    needs: check-plan\n"),
+                         ("    needs: [check-plan, check-root, check-root-b, check-aggregate, check-consumers-db, check-consumers, check-piece, check-spike]\n", "    needs: [check-plan, check-root, check-root-b, check-aggregate, check-consumers-db]\n"),
+                         ("    needs: [check-plan, check-root, check-root-b, check-aggregate, check-consumers-db, check-consumers, check-piece, check-spike]\n", "    needs: [check-root, check-consumers-db, check-consumers]\n"),
+                         ("    needs: [check-plan, check-root, check-root-b, check-aggregate, check-consumers-db, check-consumers, check-piece, check-spike]\n", "    needs: check-plan\n"),
                          ("          test \"$PLAN\" = success\n", ""),
                          ("            test \"$ROOT\" = success\n", ""),
                          ("            test \"$DB\" = success\n", ""),
@@ -1435,8 +1435,8 @@ class RunnerPolicyTest(unittest.TestCase):
                 self.setUp()
 
     def test_the_aggregating_job_needs_the_piece_job_and_checks_its_result(self):
-        needs = "    needs: [check-plan, check-root, check-root-b, check-aggregate, check-consumers-db, check-consumers, check-piece]\n"
-        for old, new in ((needs, needs.replace(", check-piece]", "]")),
+        needs = "    needs: [check-plan, check-root, check-root-b, check-aggregate, check-consumers-db, check-consumers, check-piece, check-spike]\n"
+        for old, new in ((needs, needs.replace(", check-piece, check-spike]", "]")),
                          ("          SMALL: ${{ needs.check-piece.result }}\n", "          SMALL: success\n"),
                          ("          PIECE: ${{ needs.check-plan.outputs.piece }}\n", "          PIECE: false\n"),
                          ("            test \"$SMALL\" = success\n", ""),
@@ -1465,7 +1465,8 @@ class RunnerPolicyTest(unittest.TestCase):
         out = self.root / "github-output"
         out.write_text("")
         result = subprocess.run(["sh", "-eu", "-c", script], capture_output=True, text=True,
-                                env=dict(env, GITHUB_OUTPUT=str(out), PATH=os.environ["PATH"]))
+                                env=dict({"SPIKE": "false", "SPIKE_ONLY": "false", "SPIKE_RESULT": "skipped"}, **env,
+                                         GITHUB_OUTPUT=str(out), PATH=os.environ["PATH"]))
         return result, dict(line.split("=", 1) for line in out.read_text().splitlines() if line)
 
     def test_the_plan_step_chooses_the_piece_job_only_for_a_piece_only_pull_request(self):
@@ -1527,6 +1528,43 @@ class RunnerPolicyTest(unittest.TestCase):
                             result, _ = self.run_script(script, {**env, job: value})
                             self.assertNotEqual(0, result.returncode)
                             self.assertNotIn("ELZOO CHECK PASSED", result.stdout)
+
+
+    def test_spike_plan_shape_and_main_full_check(self):
+        script = self.step_script("check-plan", "Plan the work jobs")
+        for event, expected in (("pull_request", ("false", "true")),
+                                ("push", ("true", "false")), ("workflow_dispatch", ("true", "false"))):
+            result, outputs = self.run_script(script, {
+                "SKIP": "false", "DOCS_ONLY": "false", "PIECE_ONLY": "false",
+                "SPIKE_ONLY": "true", "EVENT": event})
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertEqual(expected, (outputs["run"], outputs["spike"]))
+            self.assertEqual("false", outputs["piece"])
+        agg = self.step_script("check-hosted", "Require every job")
+        env = dict(PLAN="success", RUN="false", PIECE="false", SPIKE="true", SPIKE_RESULT="success",
+                   ROOT="skipped", ROOT_B="skipped", AGGREGATE="skipped", DB="skipped",
+                   CONSUMERS="skipped", SMALL="skipped")
+        result, _ = self.run_script(agg, env)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertNotIn("ELZOO CHECK PASSED", result.stdout)
+        for name in ("ROOT", "ROOT_B", "AGGREGATE", "DB", "CONSUMERS", "SMALL", "SPIKE_RESULT"):
+            result, _ = self.run_script(agg, {**env, name: "failure"})
+            self.assertNotEqual(0, result.returncode)
+
+    def test_spike_job_is_pinned_and_needs_no_root_setup_or_services(self):
+        job = self.job_text("check-spike")
+        self.assertNotIn("services:", job)
+        self.assertNotIn("mix setup", job)
+        self.assertIn("working-directory: spikes/ash_foundation", job)
+        self.assertIn("MIX_ENV: test", job)
+        for old, new in (("          mix test --warnings-as-errors", "          true"),
+                         ("          mix deps.get", "          true"),
+                         ("    needs: check-plan", "    needs: []"),
+                         ("needs.check-plan.outputs.spike == 'true'", "true")):
+            self.change_in_job("symbolic-check.yml", "check-spike", old, new)
+            self.assertTrue(self.check(1).stderr)
+            self.tearDown()
+            self.setUp()
 
 
 if __name__ == "__main__":
