@@ -5349,6 +5349,23 @@
       "issue": 307,
       "url": "https://github.com/balungpisah/elzoo/issues/307",
       "issue_body_sha256": "d8b21acfbda017a2bdb8b3ea1b8d7738a4caedc118c101fca2436e50eea3a5bf"
+    },
+    {
+      "id": "ELZ-147",
+      "title": "ELZ-147 — Find the ai-token-count lib files in a copied consumer",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-138"],
+      "status": "published 2026-11-13",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-147-ai-token-count-consumer-root.md"],
+      "outputs": [],
+      "acceptance": "The hosted full check on the exact head passes the aggregate copied-consumer test with the lib files found from the test directory; all 11 cases and assertions of the Piece stay unchanged and pass, with the named Piece gate.",
+      "product_aims": ["P13"],
+      "issue": 314,
+      "url": "https://github.com/balungpisah/elzoo/issues/314",
+      "issue_body_sha256": "f2576498765e8f79964f12ab271b570ea26a33f01b948e7edee411b9fc8b5928"
     }
   ],
   "entries": [

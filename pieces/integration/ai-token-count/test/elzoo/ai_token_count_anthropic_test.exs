@@ -266,7 +266,11 @@ defmodule Elzoo.AiTokenCount.AnthropicTest do
   describe "no_network" do
     test "this Piece's own lib files hold no HTTP client, socket, ReqLLM, environment read or process start" do
       manifest = Jason.decode!(File.read!(one!(@manifests)))
-      root = Path.dirname(one!(@manifests))
+
+      # The lib files sit two levels above this test file: at the Piece root in this repository, at the
+      # consumer root in an exported consumer. The manifest moves in an export (to .elzoo/pieces/...), so
+      # its directory is the root only in this repository.
+      root = Path.expand("../..", __DIR__)
       lib = for f <- manifest["files"], String.starts_with?(f, "lib/"), do: f
       assert lib == ["lib/elzoo/ai_token_count/anthropic.ex"]
 
