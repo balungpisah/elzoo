@@ -57,7 +57,7 @@ The preview is the longest prefix of the content that has at most `max_bytes - 5
 
 It implements the Adapter callbacks of `delivery/effect-intent` (README, "Binding and provider Needs"). It also exports `failures/0` and `no_send/0` for the host's `use Elzoo.EffectIntent.Binding`, and `arguments(payload, stream, sequence)`.
 
-`arguments/3` gives the canonical argument bytes of an intent: one JSON object with sorted keys and no white space, with exactly `version` (1), `stream`, `sequence`, `sha256`, `size_bytes`, `media_type` and `encoding`. `stream` and `sequence` name the record of `state/event-log` that holds the outcome. `delivery/effect-intent` refuses arguments over 65,536 bytes; these never hold a result. `validate/2` accepts only this form.
+`arguments/3` returns `{:ok, bytes}`, the canonical argument bytes of an intent, or `{:error, :invalid_input}` for operands that are not in form. The bytes are one JSON object with sorted keys and no white space, with exactly `version` (1), `stream`, `sequence`, `sha256`, `size_bytes`, `media_type` and `encoding`. `stream` and `sequence` name the record of `state/event-log` that holds the outcome. `delivery/effect-intent` refuses arguments over 65,536 bytes; these never hold a result. `validate/2` accepts only this form.
 
 The Adapter context is a map that the host fixes when it starts the intent owner. It has exactly these keys, all required, with no default:
 
