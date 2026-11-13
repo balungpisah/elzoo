@@ -39,6 +39,18 @@ defmodule Elzoo.RunEngine do
       when is_map(control) do
     {next, output} = transition(state, record)
 
+    slots =
+      Map.new(next.slots, fn {key, slot} ->
+        discard =
+          next.control.generation_closed or next.control.lifecycle.phase == :terminal or
+            slot.attempt_id != next.control.attempt_id or
+            next.control.callables[slot.callable].closed
+
+        {key, if(discard, do: Map.delete(slot, :pending_input), else: slot)}
+      end)
+
+    next = %{next | slots: slots}
+
     requests =
       Map.reject(next.requests, fn {ordinal, _} ->
         next.slots
@@ -72,8 +84,49 @@ defmodule Elzoo.RunEngine do
              not state.control.callables[callable].closed do
           invoke(state, record, callable)
         else
-          {state, :none}
+          if accepted and state.control.lifecycle.phase == :paused and
+               not state.control.generation_closed and is_nil(state.control.stop_pending) and
+               not state.control.callables[callable].closed and
+               record.correlation[:occurrence] != nil do
+            key = record.correlation.occurrence
+
+            order =
+              Enum.reduce(state.slots, 0, fn {_, slot}, n ->
+                max(n, (slot[:pending_input] || %{order: 0}).order)
+              end)
+
+            pending = %{order: order + 1, record: %{record | input: Jason.encode!(record.input)}}
+            {put_in(state.slots[key][:pending_input], pending), :none}
+          else
+            {state, :none}
+          end
         end
+    end
+  end
+
+  defp transition(state, %{kind: :nested_actual, occurrence: key, actual: actual, at_ms: at}) do
+    slot = state.slots[key]
+
+    if slot.phase == :settled and is_nil(slot[:actual]) do
+      state = settle_budget(state, key, actual, at)
+      {put_in(state.slots[key][:actual], actual), :none}
+    else
+      {state, :none}
+    end
+  end
+
+  defp transition(state, %{kind: :resume_input, occurrence: key}) do
+    slot = state.slots[key]
+
+    if not is_nil(slot[:pending_input]) and
+         state.control.lifecycle.phase not in [:paused, :terminal] and
+         not state.control.generation_closed and is_nil(state.control.stop_pending) and
+         not state.control.callables[slot.callable].closed do
+      record = slot.pending_input.record
+      state = update_in(state.slots[key], &Map.delete(&1, :pending_input))
+      invoke(state, %{record | input: Jason.decode!(record.input)}, slot.callable)
+    else
+      {state, :none}
     end
   end
 
@@ -164,6 +217,10 @@ defmodule Elzoo.RunEngine do
           case result do
             {:reserved, reservation} ->
               slot = Map.merge(slot, facts)
+
+              slot =
+                if slot[:intent], do: Map.put(slot, :intent_digest, digest(slot.intent)), else: slot
+
               slot = Map.merge(slot, %{phase: :authorizing, reservation: reservation})
               {put_in(state.slots[key], slot), :none}
 
@@ -196,7 +253,7 @@ defmodule Elzoo.RunEngine do
   defp transition(state, %{kind: :continuation, occurrence: key, phase: phase, facts: facts}) do
     slot = Map.fetch!(state.slots, key)
 
-    if slot.phase in [:approval, :ready, :opening, :running] do
+    if slot.phase in [:approval, :ready, :opening, :running, :reconcile] do
       state = put_in(state.slots[key], Map.merge(slot, Map.put(facts, :phase, phase)))
 
       state =
@@ -320,7 +377,7 @@ defmodule Elzoo.RunEngine do
       BotRunLifecycle.step(
         lifecycle(state, nil),
         command,
-        life_context(state, context, state.control.attempt_id, false)
+        life_context(state, context, state.control.attempt_id, false, command.at_ms)
       )
 
     state = install_lifecycle(state, life, decision)
@@ -367,15 +424,28 @@ defmodule Elzoo.RunEngine do
          kind: :resource_cursor,
          resource: resource,
          sequence: sequence,
+         budget_owner: budget_owner,
          budget_command: command,
          at_ms: at
        }) do
     if sequence > Map.get(state.control.cursors, resource, 0) do
       state =
         if command do
-          budget = state.control.budgets["root"]
-          {:Transition, next, {:some, _}} = Budget.step(budget.state, {at, command})
-          put_in(state.control.budgets["root"].state, next)
+          budget = state.control.budgets[budget_owner]
+          {:Transition, next, {:some, result}} = Budget.step(budget.state, {at, command})
+          true = elem(result, 0) in [:settled, :released]
+          state = put_in(state.control.budgets[budget_owner].state, next)
+          {kind, fields} = command
+
+          key =
+            Enum.find_value(state.slots, fn {key, slot} ->
+              if (slot.callable == budget_owner and slot[:reservation]) &&
+                   Map.take(slot.reservation, [:cost_ref, :generation]) ==
+                     Map.take(fields, [:cost_ref, :generation]),
+                 do: key
+            end)
+
+          put_in(state.slots[key][:actual], if(kind == :release, do: 0, else: fields.actual))
         else
           state
         end
@@ -404,7 +474,7 @@ defmodule Elzoo.RunEngine do
           BotRunLifecycle.step(
             lifecycle(state, nil),
             checked,
-            life_context(state, record.context, record.attempt_id, exhausted)
+            life_context(state, record.context, record.attempt_id, exhausted, input["at_ms"])
           )
 
         next = install_lifecycle(state, life, decision)
@@ -421,7 +491,7 @@ defmodule Elzoo.RunEngine do
           BotRunLifecycle.step(
             lifecycle(state, nil),
             checked,
-            life_context(state, record.context, record.attempt_id, false)
+            life_context(state, record.context, record.attempt_id, false, input["at_ms"])
           )
 
         state = put_in(state.control.cancelled_attempt, record.attempt_id)
@@ -445,7 +515,7 @@ defmodule Elzoo.RunEngine do
           BotRunLifecycle.step(
             lifecycle(state, nil),
             checked,
-            life_context(state, record.context, record.attempt_id, false)
+            life_context(state, record.context, record.attempt_id, false, input["at_ms"])
           )
 
         next = install_lifecycle(state, life, decision)
@@ -503,13 +573,13 @@ defmodule Elzoo.RunEngine do
                 BotRunLifecycle.step(
                   life,
                   checked,
-                  life_context(state, record.context, record.attempt_id, false)
+                  life_context(state, record.context, record.attempt_id, false, at)
                 )
 
               next = install_lifecycle(state, life, decision)
 
               accepted =
-                if match?({:accept_wait, _}, decision),
+                if life.tracker != request.tracker,
                   do: {:applied, life.tracker},
                   else: {:late, request.tracker}
 
@@ -534,10 +604,17 @@ defmodule Elzoo.RunEngine do
                 :person_id,
                 :deadline_ms,
                 :resource_name,
+                :intent_digest,
                 :request_key
               ])
 
-            slot = Map.merge(slot, %{phase: :settled, outcome: input["outcome"] || "completed"})
+            slot =
+              Map.merge(slot, %{
+                phase: :settled,
+                outcome: input["outcome"] || "completed",
+                actual: record.correlation[:actual]
+              })
+
             state = put_in(state.slots[key], slot)
             state = update_in(state.control.lifecycle.waits, &Map.delete(&1, input["action_id"]))
 
@@ -546,6 +623,7 @@ defmodule Elzoo.RunEngine do
                 do: put_in(state.control.lifecycle.phase, :active),
                 else: state
 
+            {state, _} = local_precedence(state, record, retained)
             {classify(restore_waiting(state), :applied), true, slot.callable}
 
           {:late, _} ->
@@ -572,12 +650,13 @@ defmodule Elzoo.RunEngine do
       BotRunLifecycle.step(
         lifecycle(state, nil),
         wake,
-        life_context(state, record.context, record.attempt_id, false)
+        life_context(state, record.context, record.attempt_id, false, record.input["at_ms"])
       )
 
     {install_lifecycle(state, life, decision),
      decision not in [:unchanged, :late] and
-       not match?({:request_outcome, _}, decision)}
+       (not match?({:request_outcome, _}, decision) or
+          decision == {:request_outcome, :out_of_budget})}
   end
 
   defp restore_waiting(state) do
@@ -667,7 +746,13 @@ defmodule Elzoo.RunEngine do
               BotRunLifecycle.step(
                 lifecycle(state, nil),
                 wake,
-                life_context(state, record.context, state.control.attempt_id, true)
+                life_context(
+                  state,
+                  record.context,
+                  state.control.attempt_id,
+                  true,
+                  record.input["at_ms"]
+                )
               )
 
             state = install_lifecycle(state, life, decision)
@@ -697,16 +782,16 @@ defmodule Elzoo.RunEngine do
          {:ok, json} <- Jason.encode(value),
          true <- active_count(state) + length(actions) <= 64,
          true <- state.control.lifetime + length(actions) <= 256,
-         true <- bytes(Map.put(state.requests, ordinal, json)) <= @request_bytes do
-      {:ok, join} =
-        Aggregation.new(Enum.map(actions, & &1["id"]),
-          branch_key: {:field, ["correlation_id"]},
-          max_branches: 64,
-          max_result_bytes: 262_144,
-          deadline_unix_ms: :unbounded,
-          now: fn -> at end
-        )
-
+         true <- Enum.all?(actions, &action_ids?/1),
+         true <- bytes(Map.put(state.requests, ordinal, json)) <= @request_bytes,
+         {:ok, join} <-
+           Aggregation.new(Enum.map(actions, & &1["id"]),
+             branch_key: {:field, ["correlation_id"]},
+             max_branches: 64,
+             max_result_bytes: 262_144,
+             deadline_unix_ms: :unbounded,
+             now: fn -> at end
+           ) do
       request = %{
         tracker: PatternStep.open(checked),
         join: Map.delete(join, :now),
@@ -859,11 +944,14 @@ defmodule Elzoo.RunEngine do
     %{life | tracker: tracker}
   end
 
-  defp life_context(state, context, origin, exhausted) do
+  defp life_context(state, context, origin, exhausted, at) do
+    budget = state.control.budgets["root"]
+    {:Transition, _, {:some, {:status, status}}} = Budget.step(budget.state, {at, :status})
+
     Map.merge(context, %{
       current_attempt: state.control.attempt_id,
       originating_attempt: origin,
-      budget_exhausted: exhausted,
+      budget_exhausted: exhausted or status.committed >= status.cap,
       budget_rule: state.control.budget_rule
     })
   end
@@ -1141,6 +1229,18 @@ defmodule Elzoo.RunEngine do
       end
 
     cond do
+      input["kind"] in ["action_outcome", "person_answer"] and slot != nil and
+          (input["action_id"] != slot.action_id or input["outcome"] == "late" or
+             (slot.kind == "ask_person" and input["kind"] == "action_outcome" and
+                input["outcome"] == "completed") or
+             (input["kind"] == "person_answer" and
+                (slot.kind != "ask_person" or slot[:person_id] != input["person_id"] or
+                   context[:verified_person] != input["person_id"]))) ->
+        if check_payload(s, input) == :ok and
+             {input["schema_id"], input["schema_version"]} == expected,
+           do: {:ok, input, correlation},
+           else: {:error, :invalid_correlation}
+
       input["kind"] in ["wake", "cancel"] ->
         {:ok, input, correlation}
 
@@ -1196,6 +1296,13 @@ defmodule Elzoo.RunEngine do
 
       %{kind: :protocol} = original ->
         comparable = fn r -> r |> put_in([:input, "at_ms"], 0) end
+
+        if comparable.(original) == comparable.(candidate),
+          do: {:ok, original},
+          else: {:error, :input_id_conflict}
+
+      %{kind: :lifecycle} = original when candidate.kind == :lifecycle ->
+        comparable = fn r -> put_in(r.command.at_ms, 0) end
 
         if comparable.(original) == comparable.(candidate),
           do: {:ok, original},
@@ -1292,6 +1399,23 @@ defmodule Elzoo.RunEngine do
   defp drain(s) do
     state = snapshot(s)
 
+    pending =
+      state.slots
+      |> Enum.filter(fn {_, slot} -> slot[:pending_input] != nil end)
+      |> Enum.min_by(fn {_, slot} -> slot.pending_input.order end, fn -> nil end)
+
+    finished_child =
+      Enum.find(state.control.callables, fn {_, child} ->
+        child.parent && (child.closed or state.control.generation_closed) &&
+          (state.slots[child.parent].phase == :running or
+             (state.slots[child.parent].phase == :settled and
+                is_nil(state.slots[child.parent][:actual]))) &&
+          Enum.all?(state.slots, fn {_, slot} ->
+            slot.callable != occurrence_id(child.parent) or
+              (slot.phase == :settled and (slot[:reservation] == nil or is_integer(slot[:actual])))
+          end)
+      end)
+
     next =
       Enum.find(Enum.sort(state.slots), fn {_, slot} ->
         (slot.phase in [:checking, :refusing, :allowed, :authorizing, :ready] or
@@ -1304,6 +1428,47 @@ defmodule Elzoo.RunEngine do
       state.control.stop_pending != nil ->
         with {:ok, s} <- finish_run(s, state.control.stop_pending, state.control.completion),
              do: drain(s)
+
+      pending != nil and state.control.lifecycle.phase not in [:paused, :terminal] and
+          not state.control.generation_closed ->
+        {key, _} = pending
+
+        with {:ok, s} <-
+               commit(s, stable_id("resume:", {s.opts.run_id, key}), %{
+                 version: 1,
+                 kind: :resume_input,
+                 occurrence: key
+               }),
+             do: drain(s)
+
+      finished_child != nil ->
+        {id, child} = finished_child
+        budget = state.control.budgets[id]
+
+        {:Transition, _, {:some, {:status, status}}} =
+          Budget.step(budget.state, {s.opts.clock.(), :status})
+
+        if status.reserved == 0 do
+          result =
+            if state.slots[child.parent].phase == :settled do
+              commit(s, stable_id("nested-actual:", {s.opts.run_id, child.parent}), %{
+                version: 1,
+                kind: :nested_actual,
+                occurrence: child.parent,
+                actual: status.committed,
+                at_ms: s.opts.clock.()
+              })
+            else
+              internal_outcome(s, child.parent, "completed", "nested_completed", %{
+                actual: status.committed
+              })
+            end
+
+          with {:ok, s} <- result,
+               do: drain(s)
+        else
+          {:ok, s}
+        end
 
       next == nil ->
         {:ok, s}
@@ -1588,18 +1753,8 @@ defmodule Elzoo.RunEngine do
              do: internal_outcome(s, key, "refused", "completion_evidence", %{actual: 0})
       end
     else
-      child = snapshot(s).control.callables[slot.callable]
-      budget = snapshot(s).control.budgets[slot.callable]
-
-      {:Transition, _, {:some, {:status, status}}} =
-        Budget.step(budget.state, {s.opts.clock.(), :status})
-
       with {:ok, s} <- continuation(s, key, :running, %{finish_callable: slot.callable}),
-           {:ok, s} <- internal_outcome(s, key, "completed", "finished", %{actual: 0}) do
-        internal_outcome(s, child.parent, "completed", "nested_completed", %{
-          actual: status.committed
-        })
-      end
+           do: internal_outcome(s, key, "completed", "finished", %{actual: 0})
     end
   end
 
@@ -1644,7 +1799,9 @@ defmodule Elzoo.RunEngine do
                do: internal_outcome(s, key, "unknown", "lost_outcome", %{dispatch: "unknown"})
 
         true ->
-          with {:ok, s} <- continuation(s, key, :running, %{}) do
+          facts = if slot[:reconciliation] == :active, do: %{reconciliation: :active}, else: %{}
+
+          with {:ok, s} <- continuation(s, key, :running, facts) do
             case EffectIntent.advance(owner, :dispatch) do
               {:ok, :dispatched} ->
                 {:ok, s}
@@ -1703,10 +1860,8 @@ defmodule Elzoo.RunEngine do
   defp intent(s, key, slot) do
     descriptor = slot.intent
     startup = Map.fetch!(s.opts.effect_intent, descriptor.binding)
-    {:ok, binding} = Binding.load(Keyword.fetch!(startup, :binding))
 
-    if descriptor.binding_digest != binding.digest or
-         hd(descriptor.identity) != s.opts.tenant do
+    if check_binding(s, descriptor) != :ok do
       {:error, :changed_binding, %{s | halted: :changed_binding}}
     else
       case s.intents[key] do
@@ -1730,6 +1885,17 @@ defmodule Elzoo.RunEngine do
               {:error, :intent_recovery, %{s | halted: :intent_recovery}}
           end
       end
+    end
+  end
+
+  defp check_binding(s, descriptor) do
+    with startup when is_list(startup) <- s.opts.effect_intent[descriptor.binding],
+         {:ok, binding} <- Binding.load(startup[:binding]),
+         true <-
+           descriptor.binding_digest == binding.digest and hd(descriptor.identity) == s.opts.tenant do
+      :ok
+    else
+      _ -> {:error, :changed_binding}
     end
   end
 
@@ -1902,7 +2068,24 @@ defmodule Elzoo.RunEngine do
           end
         end)
 
+      budget_owner =
+        if entry.budget_command do
+          {_, command} = entry.budget_command
+
+          Enum.find_value(snapshot(acc).slots, fn {_, slot} ->
+            if (slot[:resource_name] == name and slot[:reservation]) &&
+                 Map.take(slot.reservation, [:cost_ref, :generation]) ==
+                   Map.take(command, [:cost_ref, :generation]),
+               do: slot.callable
+          end)
+        end
+
       with {:ok, acc} <- result,
+           :ok <-
+             if(entry.budget_command == nil or budget_owner != nil,
+               do: :ok,
+               else: {:error, :resource_budget, acc}
+             ),
            {:ok, acc} <- resource_effects(acc, name, resource, entry.effects),
            {:ok, acc} <-
              commit(acc, stable_id("cursor:", {s.opts.run_id, name, entry.seq}), %{
@@ -1910,6 +2093,7 @@ defmodule Elzoo.RunEngine do
                kind: :resource_cursor,
                resource: name,
                sequence: entry.seq,
+               budget_owner: budget_owner,
                budget_command: entry.budget_command,
                at_ms: s.opts.clock.()
              }) do
@@ -1926,43 +2110,48 @@ defmodule Elzoo.RunEngine do
 
       origin =
         Enum.find(snapshot(acc).slots, fn {_, slot} ->
-          slot[:resource_name] == name and slot[:intent] == descriptor
+          slot[:resource_name] == name and
+            (slot[:intent] == descriptor or slot[:intent_digest] == digest(descriptor))
         end)
 
-      # Ordinary queued work must pass today's checks again. The only descriptor
-      # without an action origin is Resource's immutable cleanup descriptor;
-      # Resource itself checks that descriptor and its closing barrier.
+      # Keep ordinary provenance even after settlement. The ready Resource only
+      # exposes its immutable close descriptor without an action in :closing.
       result =
         if origin do
           {occurrence, slot} = origin
 
-          if slot[:request_key] do
-            release_waiting(acc, "replacement", %{})
+          if slot.phase == :settled do
+            {:ok, acc}
           else
-            state = snapshot(acc)
-            context = action_context(acc, occurrence, %{})
+            if slot[:request_key] do
+              release_waiting(acc, "replacement", %{})
+            else
+              state = snapshot(acc)
+              context = action_context(acc, occurrence, %{})
 
-            cond do
-              state.control.lifecycle.phase == :paused ->
-                {:ok, acc}
+              cond do
+                state.control.lifecycle.phase == :paused ->
+                  {:ok, acc}
 
-              permitted?(state, slot, acc.opts.clock.()) and
-                check_payload(acc, action(state, occurrence)) == :ok and
-                  match?(
-                    {:ok, %{verdict: :allow}},
-                    Authorization.decide(context.policy, context.proposal, context.authority)
-                  ) ->
-                dispatch_resource(acc, occurrence, slot)
+                permitted?(state, slot, acc.opts.clock.()) and
+                  check_payload(acc, action(state, occurrence)) == :ok and
+                    match?(
+                      {:ok, %{verdict: :allow}},
+                      Authorization.decide(context.policy, context.proposal, context.authority)
+                    ) ->
+                  dispatch_resource(acc, occurrence, slot)
 
-              true ->
-                internal_outcome(acc, occurrence, "refused", "resource_authority", %{
-                  actual: 0,
-                  dispatch: "not_dispatched"
-                })
+                true ->
+                  internal_outcome(acc, occurrence, "refused", "resource_authority", %{
+                    actual: 0,
+                    dispatch: "not_dispatched"
+                  })
+              end
             end
           end
         else
-          with {:ok, acc, effect} <- intent(acc, key, %{intent: descriptor}) do
+          with {:ok, %{state: %{phase: :closing}}} <- RunResource.read(owner, 0),
+               {:ok, acc, effect} <- intent(acc, key, %{intent: descriptor}) do
             status = EffectIntent.status(effect)
 
             if status.active and status.attempts == 0 do
@@ -1980,7 +2169,8 @@ defmodule Elzoo.RunEngine do
               {:error, :cleanup_pending, %{acc | halted: :cleanup_pending}}
             end
           else
-            other -> other
+            {:error, _, _} = error -> error
+            _ -> {:error, :unknown_resource_intent, %{acc | halted: :unknown_resource_intent}}
           end
         end
 
@@ -2010,19 +2200,32 @@ defmodule Elzoo.RunEngine do
     state = snapshot(s)
     context = Map.take(context, [:verified_person, :pause_deadline])
 
-    with {:ok, _, _} <-
+    with {:ok, record} <-
+           original_record(s, id, %{version: 1, kind: :lifecycle, command: event, context: context}),
+         {:ok, _, _} <-
            BotRunLifecycle.step(
              lifecycle(state, nil),
-             event,
-             life_context(state, context, state.control.attempt_id, false)
+             record.command,
+             life_context(
+               state,
+               record.context,
+               state.control.attempt_id,
+               false,
+               record.command.at_ms
+             )
            ),
+         {:ok, s} <- commit(s, id, record),
          {:ok, s} <-
-           commit(s, id, %{version: 1, kind: :lifecycle, command: event, context: context}),
-         {:ok, s} <- resource_control(s, kind),
+           resource_control(
+             s,
+             if(snapshot(s).control.lifecycle.phase == :paused, do: :pause, else: :continue),
+             record.command.at_ms
+           ),
          {:ok, s} <- consume_resources(s) do
       drain(s)
     else
       {:error, _, _} = error -> error
+      {:error, :input_id_conflict} -> {:error, :input_id_conflict, s}
       _ -> {:error, :invalid_control, s}
     end
   end
@@ -2051,7 +2254,7 @@ defmodule Elzoo.RunEngine do
   defp release_waiting(s, id, context) do
     Enum.reduce_while(snapshot(s).slots, {:ok, s}, fn {key, slot}, {:ok, acc} ->
       recovering =
-        slot.phase == :running and
+        slot.phase in [:running, :reconcile] and
           (id in ["startup", "replacement"] or
              slot.kind in ["resource_open", "resource_use", "resource_close"])
 
@@ -2062,16 +2265,21 @@ defmodule Elzoo.RunEngine do
           action_context(s, key, context)
           |> Map.take([:now, :max_age, :verifiers, :run, :policy, :proposal, :authority, :approver])
 
-        if slot.kind in ["resource_open", "resource_use", "resource_close"] do
+        if slot.kind not in ["tool_call", "model_call"] do
           result =
             run_command(acc, :release_approved, %{request_key: slot.request_key, context: fresh})
 
           case result do
             {:ok, _, %{approval: :released}} ->
               result =
-                if slot.phase == :running,
-                  do: dispatch_resource(acc, key, slot),
-                  else: dispatch(acc, key, slot)
+                if slot.phase in [:running, :reconcile] and
+                     slot.kind in ["resource_open", "resource_use", "resource_close"],
+                   do: dispatch_resource(acc, key, slot),
+                   else:
+                     with(
+                       {:ok, acc} <- continuation(acc, key, :ready, %{}),
+                       do: dispatch(acc, key, %{slot | phase: :ready})
+                     )
 
               with {:ok, acc} <- result,
                    do: {:cont, {:ok, acc}}
@@ -2084,16 +2292,20 @@ defmodule Elzoo.RunEngine do
           end
         else
           result =
-            run_command(acc, :dispatch_approved, %{
-              request_key: slot.request_key,
-              context: fresh,
-              intent: %{
-                identity: slot.intent.identity,
-                arguments: slot.intent.arguments,
-                binding_ref: slot.intent.binding,
-                deadline: slot.intent.deadline_ms
-              }
-            })
+            if check_binding(acc, slot.intent) == :ok do
+              run_command(acc, :dispatch_approved, %{
+                request_key: slot.request_key,
+                context: fresh,
+                intent: %{
+                  identity: slot.intent.identity,
+                  arguments: slot.intent.arguments,
+                  binding_ref: slot.intent.binding,
+                  deadline: slot.intent.deadline_ms
+                }
+              })
+            else
+              {:error, :changed_binding}
+            end
 
           case result do
             {:ok, _, %{classification: classification}} ->
@@ -2127,6 +2339,9 @@ defmodule Elzoo.RunEngine do
                 error -> {:halt, error}
               end
 
+            {:error, :changed_binding} ->
+              {:halt, {:error, :changed_binding, %{acc | halted: :changed_binding}}}
+
             _ ->
               {:cont, {:ok, acc}}
           end
@@ -2157,7 +2372,8 @@ defmodule Elzoo.RunEngine do
 
   defp recover_intents(s) do
     Enum.reduce_while(snapshot(s).slots, {:ok, s}, fn {key, slot}, {:ok, acc} ->
-      if slot.phase == :running and slot.kind in ["model_call", "tool_call"] and
+      if slot.phase in [:running, :reconcile] and
+           slot.kind in ["model_call", "tool_call", "resource_open", "resource_use"] and
            is_nil(slot[:request_key]) do
         with {:ok, acc, owner} <- intent(acc, key, slot) do
           view = EffectIntent.status(owner)
@@ -2167,11 +2383,17 @@ defmodule Elzoo.RunEngine do
               not view.active ->
                 continuation(acc, key, :reconcile, %{reconciliation: :read_only})
 
-              view.attempts > 0 ->
+              view.attempts > 0 and slot.kind in ["model_call", "tool_call"] ->
                 internal_outcome(acc, key, "unknown", "lost_outcome", %{dispatch: "unknown"})
 
               true ->
-                progress(acc, key, %{slot | phase: :ready})
+                facts = %{reconciliation: :active}
+
+                with {:ok, acc} <- continuation(acc, key, :ready, facts) do
+                  if snapshot(acc).control.lifecycle.phase == :paused,
+                    do: {:ok, acc},
+                    else: progress(acc, key, Map.merge(slot, Map.put(facts, :phase, :ready)))
+                end
             end
 
           case result do
@@ -2196,10 +2418,8 @@ defmodule Elzoo.RunEngine do
     end)
   end
 
-  defp resource_control(s, kind) do
+  defp resource_control(s, kind, at) do
     Enum.reduce_while(s.opts.resources, {:ok, s}, fn {name, owner}, {:ok, acc} ->
-      at = s.opts.clock.()
-
       result =
         RunResource.command(owner, %{
           id: stable_id("control:", {name, kind, at}),
@@ -2382,7 +2602,10 @@ defmodule Elzoo.RunEngine do
   end
 
   defp classify(state, classification), do: put_in(state.control.classification, classification)
-  defp active_count(state), do: Enum.count(state.slots, fn {_, s} -> s.phase != :settled end)
+
+  defp active_count(state),
+    do: Enum.count(state.slots, fn {_, s} -> s.phase != :settled or s[:pending_input] != nil end)
+
   defp slot_fits?(slot), do: bytes(slot) <= @slot_bytes
 
   defp fits?(state) do

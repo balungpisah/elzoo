@@ -96,6 +96,15 @@ defmodule Elzoo.RunEngine.TestPattern do
 
   def work(payload), do: payload
 
+  def oversized_id(size, _) do
+    request =
+      Elzoo.RunEngine.TestHelper.request([
+        Elzoo.RunEngine.TestHelper.action(String.duplicate("i", size))
+      ])
+
+    {:Transition, size, {:some, request}}
+  end
+
   def blocked(parent, payload) do
     send(parent, {:local_started, self()})
     receive do: (:finish -> payload)
@@ -150,6 +159,17 @@ defmodule Elzoo.RunEngine.ChangedAccountBinding do
     provider_account: "changed-account",
     operation: "publish",
     clock: "unix-ms",
+    failures: %{timeout: {"timed_out", "unknown", "unavailable"}}
+end
+
+defmodule Elzoo.RunEngine.ChangedRevisionBinding do
+  use Elzoo.EffectIntent.Binding,
+    adapter: Elzoo.RunEngine.TestAdapter,
+    id: "effect",
+    provider_account: "account",
+    operation: "publish",
+    clock: "unix-ms",
+    revision: :same_key_changed_arguments,
     failures: %{timeout: {"timed_out", "unknown", "unavailable"}}
 end
 
@@ -598,7 +618,7 @@ defmodule Elzoo.RunEngine.TestHelper do
       expiry: 20_000
     }
 
-  def resource(c, pause_policy \\ :stay) do
+  def resource(c, pause_policy \\ :stay, budget \\ nil) do
     fold = %{
       initial: nil,
       versions: [1],
@@ -628,7 +648,9 @@ defmodule Elzoo.RunEngine.TestHelper do
       rate_per_minute: 1,
       max_waiting: 2,
       pause_policy: pause_policy,
-      budget: %{budget_id: "budget", unit: "credits", cost_ref: "1:0", generation: {"sealed", 1}},
+      budget:
+        budget ||
+          %{budget_id: "budget", unit: "credits", cost_ref: "1:0", generation: {"sealed", 1}},
       close_intent: cleanup
     }
 

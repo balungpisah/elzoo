@@ -259,6 +259,178 @@ defmodule Elzoo.RunEngineTest do
   end
 
   describe "Durable budget and nested share" do
+    test "monetary exhaustion stops below the request cap without discarding the accepted result" do
+      for rule <- [:pause, :finish] do
+        c =
+          fixture(
+            pattern: {TestPattern, :step, %{requests: [request([action("cost", "tool_call")])]}},
+            budget: %{cap: 1, unit: "credits", id: "budget", incarnation: "sealed"},
+            budget_rule: rule
+          )
+
+        engine = start(c)
+        assert {:ok, :applied} = send_input(engine)
+        assert_receive {:effect_started, provider, _}
+
+        assert {:ok, :applied} =
+                 RunEngine.input(
+                   engine,
+                   "actual",
+                   result("cost"),
+                   verified(%{occurrence: {1, 0}, actual: 3, dispatch: "dispatched"})
+                 )
+
+        assert view(engine).slots[{1, 0}].outcome == "completed"
+        assert view(engine).joins[1].closed
+        assert view(engine).request_count == 1
+
+        if rule == :finish do
+          assert view(engine).outcome == :out_of_budget
+        else
+          assert view(engine).phase == :paused
+
+          assert {:ok, :applied} =
+                   RunEngine.control(
+                     engine,
+                     "continue-money",
+                     %{kind: :continue, person_id: "person", run_deadline: 60_000},
+                     verified(%{verified_person: "person"})
+                   )
+
+          assert view(engine).phase == :paused
+        end
+
+        send(provider, {:result, %{}})
+      end
+    end
+
+    test "child finish does not release its parent share before outstanding actual cost" do
+      c =
+        fixture(
+          pattern:
+            {TestPattern, :step, %{requests: [request([action("nested", "nested_callable")])]}},
+          budget: %{cap: 5, unit: "credits", id: "budget", incarnation: "sealed"}
+        )
+
+      base = c.opts[:bindings]["nested_callable"]
+
+      nested = %{
+        base
+        | facts: fn a -> %{base.facts.(a) | estimate: 5} end,
+          nested: fn a ->
+            %{
+              base.nested.(a)
+              | initial_state: %{
+                  requests: [
+                    request([action("slow", "tool_call"), action("finish-child", "finish")])
+                  ]
+                }
+            }
+          end
+      }
+
+      engine = start(c, bindings: Map.put(c.opts[:bindings], "nested_callable", nested))
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, provider, _}
+      assert view(engine).slots[{1, 0}].phase == :running
+      {:ok, unit} = DynamicUnits.find(c.directory, c.prefix)
+      budget = DurableUnit.snapshot(unit).control.budgets["root"].state
+
+      assert {:Transition, _, {:some, {:status, %{committed: 0, reserved: 5}}}} =
+               Elzoo.Budget.step(budget, {2_000, :status})
+
+      assert {:ok, :applied} =
+               RunEngine.input(
+                 engine,
+                 "child-actual",
+                 result("slow"),
+                 verified(%{occurrence: {2, 0}, actual: 7, dispatch: "dispatched"})
+               )
+
+      assert view(engine).slots[{1, 0}].outcome == "completed"
+      budget = DurableUnit.snapshot(unit).control.budgets["root"].state
+
+      assert {:Transition, _, {:some, {:status, %{committed: 7, reserved: 0}}}} =
+               Elzoo.Budget.step(budget, {2_000, :status})
+
+      send(provider, {:result, %{}})
+    end
+
+    test "charge-stopped child propagates later actual without changing its settled parent outcome" do
+      c =
+        fixture(
+          pattern:
+            {TestPattern, :step, %{requests: [request([action("nested", "nested_callable")])]}},
+          request_cap: 2,
+          budget: %{cap: 5, unit: "credits", id: "budget", incarnation: "sealed"}
+        )
+
+      base = c.opts[:bindings]["nested_callable"]
+
+      nested = %{
+        base
+        | facts: fn a -> %{base.facts.(a) | estimate: 5} end,
+          nested: fn a ->
+            %{
+              base.nested.(a)
+              | initial_state: %{
+                  requests: [
+                    request([action("slow", "tool_call"), action("person", "ask_person")]),
+                    request([action("excess")])
+                  ]
+                }
+            }
+          end
+      }
+
+      engine = start(c, bindings: Map.put(c.opts[:bindings], "nested_callable", nested))
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, provider, _}
+
+      answer = %{
+        "type" => "input",
+        "version" => 1,
+        "kind" => "person_answer",
+        "action_id" => "person",
+        "person_id" => "person",
+        "schema_id" => "message",
+        "schema_version" => 1,
+        "payload" => %{}
+      }
+
+      assert {:ok, :applied} =
+               RunEngine.input(
+                 engine,
+                 "person-answer",
+                 answer,
+                 verified(%{occurrence: {2, 1}, verified_person: "person", actual: 0})
+               )
+
+      assert view(engine).slots[{1, 0}].outcome == "out_of_budget"
+      {:ok, unit} = DynamicUnits.find(c.directory, c.prefix)
+      budget = DurableUnit.snapshot(unit).control.budgets["root"].state
+
+      assert {:Transition, _, {:some, {:status, %{committed: 0, reserved: 5}}}} =
+               Elzoo.Budget.step(budget, {2_000, :status})
+
+      assert {:ok, :applied} =
+               RunEngine.input(
+                 engine,
+                 "child-actual",
+                 result("slow"),
+                 verified(%{occurrence: {2, 0}, actual: 7, dispatch: "dispatched"})
+               )
+
+      assert view(engine).slots[{1, 0}].outcome == "out_of_budget"
+      assert view(engine).request_count == 3
+      budget = DurableUnit.snapshot(unit).control.budgets["root"].state
+
+      assert {:Transition, _, {:some, {:status, %{committed: 7, reserved: 0}}}} =
+               Elzoo.Budget.step(budget, {2_000, :status})
+
+      send(provider, {:result, %{}})
+    end
+
     test "sibling reservations cannot overspend; overage persists and unknown is never released as zero" do
       for {outcome, actual, committed, reserved} <- [
             {"completed", 3, 3, 0},
@@ -449,6 +621,72 @@ defmodule Elzoo.RunEngineTest do
   end
 
   describe "Person, pause, wake and termination" do
+    test "a result accepted while paused reaches the pattern once after continue, including restart" do
+      c =
+        fixture(
+          pattern:
+            {TestPattern, :step,
+             %{
+               requests: [
+                 request([action("answer", "ask_person")]),
+                 request([action("after", "ask_person")])
+               ]
+             }}
+        )
+
+      engine = start(c)
+      assert {:ok, :applied} = send_input(engine)
+
+      assert {:ok, :applied} =
+               RunEngine.control(
+                 engine,
+                 "pause",
+                 %{kind: :pause, pause_deadline: 50_000},
+                 verified()
+               )
+
+      answer =
+        result("answer")
+        |> Map.put("kind", "person_answer")
+        |> Map.put("person_id", "person")
+        |> Map.delete("outcome")
+
+      assert {:ok, :applied} =
+               RunEngine.input(
+                 engine,
+                 "answer",
+                 answer,
+                 verified(%{occurrence: {1, 0}, verified_person: "person", actual: 0})
+               )
+
+      assert view(engine).joins[1].closed
+      assert view(engine).request_count == 1
+      GenServer.stop(engine)
+      engine = start(c)
+      assert view(engine).phase == :paused
+
+      assert {:ok, :applied} =
+               RunEngine.control(
+                 engine,
+                 "resume",
+                 %{kind: :continue, person_id: "person", run_deadline: 60_000},
+                 verified(%{verified_person: "person"})
+               )
+
+      assert view(engine).request_count == 2
+      assert view(engine).slots[{2, 0}].phase == :waiting
+
+      assert {:ok, :duplicate} =
+               RunEngine.input(
+                 engine,
+                 "answer",
+                 answer,
+                 verified(%{occurrence: {1, 0}, verified_person: "person", actual: 0})
+               )
+
+      assert view(engine).request_count == 2
+    end
+
     test "local action expiry is distinct from global deadline, and pause/continue retains pending local veto" do
       for action <- [:expired, :pause] do
         c = fixture(pattern: {TestPattern, :step, %{requests: [request([action("slow")])]}})
@@ -1204,6 +1442,37 @@ defmodule Elzoo.RunEngineTest do
       assert {:ok, :applied} = RunEngine.input(engine, "wake", wake(), verified())
       assert view(engine).slots[{1, 0}].phase == :reconcile
       refute_receive {:effect_started, _, _}
+
+      assert {:ok, :applied} =
+               RunEngine.control(
+                 engine,
+                 "pause-reconciliation",
+                 %{kind: :pause, pause_deadline: 50_000},
+                 verified()
+               )
+
+      GenServer.stop(engine)
+      engine = start(c)
+      assert view(engine).phase == :paused
+      assert view(engine).slots[{1, 0}].phase == :ready
+      refute_receive {:effect_started, _, _}
+
+      assert {:ok, :applied} =
+               RunEngine.control(
+                 engine,
+                 "continue-reconciliation",
+                 %{kind: :continue, person_id: "person", run_deadline: 60_000},
+                 verified(%{verified_person: "person"})
+               )
+
+      assert_receive {:effect_started, provider, _}
+      assert view(engine).slots[{1, 0}].phase == :running
+      GenServer.stop(engine)
+      Agent.update(c.host_mode, fn _ -> :recover end)
+      engine = start(c)
+      refute_receive {:effect_started, _, _}
+      assert view(engine).slots[{1, 0}].outcome == "unknown"
+      send(provider, {:result, %{}})
     end
 
     test "ALLOW dispatches once and a reserved recovery never sends again" do
@@ -1400,6 +1669,110 @@ defmodule Elzoo.RunEngineTest do
   end
 
   describe "ASK and release-only resource composition" do
+    test "ASK non-Effects release approval without inventing an intent" do
+      for kind <- ["local_work", "ask_person", "nested_callable", "finish"] do
+        c =
+          fixture(pattern: {TestPattern, :step, %{requests: [request([action("approved", kind)])]}})
+
+        require_approval(c)
+        bindings = Map.update!(c.opts[:bindings], kind, &%{&1 | effect_class: "publish"})
+        engine = start(c, bindings: bindings)
+        assert {:ok, :applied} = send_input(engine)
+        {:ok, run} = Run.status(c.run, "run")
+        [%{request_key: key}] = run.approvals
+
+        assert {:ok, :applied} =
+                 RunEngine.control(
+                   engine,
+                   "consent",
+                   %{kind: :approval_evidence, request_key: key, evidence: consent(key)},
+                   verified()
+                 )
+
+        assert view(engine).slots[{1, 0}].phase != :approval
+        {:ok, run} = Run.status(c.run, "run")
+        assert run.effects == %{}
+        assert [%{status: :released}] = Enum.map(run.approvals, &Map.take(&1, [:status]))
+        refute_receive {:effect_started, _, _}
+      end
+    end
+
+    test "ASK descriptor recovery checks engine startup binding before first Run binding" do
+      c =
+        fixture(
+          pattern: {TestPattern, :step, %{requests: [request([action("publish", "tool_call")])]}}
+        )
+
+      require_approval(c)
+      {module, config} = c.store
+
+      store =
+        {module,
+         %{
+           config
+           | test_dispatch: fn op, request, run ->
+               if op == :append and request.stream == c.prefix and request.target == 12,
+                 do: PostgresHarness.hook(c.store, :inject, [:append, :reply_loss])
+
+               config.test_dispatch.(op, request, run)
+             end
+         }}
+
+      directory =
+        start_supervised!(%{
+          id: make_ref(),
+          restart: :temporary,
+          start:
+            {DynamicUnits, :start_link,
+             [
+               [
+                 registry: Elzoo.RunEngine.UnitRegistry,
+                 supervisor: c.supervisor,
+                 idle_ms: 60_000,
+                 unit_options: fn _ -> Keyword.put(c.unit_opts, :store, store) end
+               ]
+             ]}
+        })
+
+      engine = start(c, store: store, directory: directory)
+      assert {:error, :storage_unknown} = send_input(engine)
+      {:ok, run} = Run.status(c.run, "run")
+      assert run.effects == %{}
+      GenServer.stop(engine)
+      assert :ok = DynamicUnits.stop(directory, c.prefix)
+
+      changed =
+        Map.update!(
+          c.opts[:effect_intent],
+          "effect",
+          &Keyword.put(&1, :binding, Elzoo.RunEngine.ChangedRevisionBinding)
+        )
+
+      assert {:error, :changed_binding} =
+               RunEngine.start_link(
+                 Keyword.merge(c.opts, effect_intent: changed, store: store, directory: directory)
+               )
+
+      {:ok, run} = Run.status(c.run, "run")
+      assert run.effects == %{}
+      refute_receive {:effect_started, _, _}
+      engine = start(c, store: store, directory: directory)
+      {:ok, run} = Run.status(c.run, "run")
+      [%{request_key: key}] = run.approvals
+
+      assert {:ok, :applied} =
+               RunEngine.control(
+                 engine,
+                 "consent",
+                 %{kind: :approval_evidence, request_key: key, evidence: consent(key)},
+                 verified()
+               )
+
+      assert_receive {:effect_started, provider, _}
+      refute_receive {:effect_started, _, _}
+      send(provider, {:result, %{}})
+    end
+
     test "retained consent is revalidated against changed authority and revocation before any send" do
       c =
         fixture(
@@ -1559,6 +1932,209 @@ defmodule Elzoo.RunEngineTest do
   end
 
   describe "Resource lifetime and consumption" do
+    test "nested Resource lifetime settles its owning child Budget and cursor only once" do
+      open =
+        action("open", "resource_open", %{
+          "run_id" => "run",
+          "resource_name" => "document",
+          "data" => %{}
+        })
+
+      c =
+        fixture(
+          pattern:
+            {TestPattern, :step, %{requests: [request([action("nested", "nested_callable")])]}}
+        )
+
+      {owner, bindings} =
+        resource(c, :stay, %{
+          budget_id: "nested-nested",
+          unit: "credits",
+          cost_ref: "2:0",
+          generation: {"sealed", 1}
+        })
+
+      base = bindings["nested_callable"]
+
+      bindings =
+        Map.put(bindings, "nested_callable", %{
+          base
+          | facts: fn a -> %{base.facts.(a) | estimate: 5} end,
+            nested: fn a -> %{base.nested.(a) | initial_state: %{requests: [request([open])]}} end
+        })
+
+      engine = start(c, resources: %{"document" => owner}, bindings: bindings)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, opening, _}
+
+      assert {:ok, _} =
+               Elzoo.RunResource.command(owner, %{
+                 id: "opened",
+                 at_ms: 2_000,
+                 body:
+                   {:observed, ["tenant", "account", "effect", "publish", "open"],
+                    {:completed, %{opened_at_ms: 2_000}}}
+               })
+
+      assert {:ok, :applied} = RunEngine.input(engine, "consume-open", wake(), verified())
+      assert {:ok, _} = Elzoo.RunResource.command(owner, %{id: "close", at_ms: 3_000, body: :pause})
+      Agent.update(c.clock, fn _ -> 40_000 end)
+
+      assert {:ok, _} =
+               Elzoo.RunResource.command(owner, %{id: "expiry", at_ms: 40_000, body: :tick})
+
+      assert {:ok, :applied} = RunEngine.input(engine, "consume-close", wake(), verified())
+      assert_receive {:effect_started, closing, _}
+
+      assert {:ok, _} =
+               Elzoo.RunResource.command(owner, %{
+                 id: "closed",
+                 at_ms: 40_000,
+                 body:
+                   {:observed, ["tenant", "account", "effect", "publish", "cleanup"],
+                    {:completed, %{opened_at_ms: 2_000, closed_at_ms: 40_000}}}
+               })
+
+      assert {:ok, :applied} = RunEngine.input(engine, "consume-actual", wake(), verified())
+      {:ok, unit} = DynamicUnits.find(c.directory, c.prefix)
+      budgets = DurableUnit.snapshot(unit).control.budgets
+
+      assert {:Transition, _, {:some, {:status, %{committed: 1, reserved: 0}}}} =
+               Elzoo.Budget.step(budgets["1:0"].state, {40_000, :status})
+
+      assert {:Transition, _, {:some, {:status, %{committed: 0, reserved: 5}}}} =
+               Elzoo.Budget.step(budgets["root"].state, {39_999, :status})
+
+      GenServer.stop(engine)
+      engine = start(c, resources: %{"document" => owner}, bindings: bindings)
+      assert DurableUnit.snapshot(unit).control.budgets == budgets
+      assert view(engine).reconciliation == nil
+      send(opening, {:result, %{}})
+      send(closing, {:result, %{}})
+    end
+
+    test "refused queued Resource intent remains ordinary after death before cursor commit" do
+      payload = %{"run_id" => "run", "resource_name" => "document", "data" => %{}}
+
+      c =
+        fixture(
+          pattern:
+            {TestPattern, :step,
+             %{
+               requests: [
+                 request([action("open", "resource_open", payload)]),
+                 request([
+                   action("using", "resource_use", payload),
+                   action("queued", "resource_use", payload)
+                 ])
+               ]
+             }}
+        )
+
+      {owner, bindings} = resource(c)
+      armed = start_supervised!({Agent, fn -> false end}, id: make_ref())
+      parent = self()
+      {module, config} = c.store
+
+      store =
+        {module,
+         %{
+           config
+           | test_dispatch: fn op, req, run ->
+               if op == :append and req.stream == c.prefix and Agent.get(armed, & &1) and
+                    req.expected > 0 do
+                 {:ok, rows, _} = Elzoo.DurableLog.read(c.store, c.prefix, req.expected, 1)
+
+                 case rows do
+                   [%{kind: "result", payload: bytes}] ->
+                     {1, {_, state}} = :erlang.binary_to_term(bytes, [:safe])
+
+                     if match?(%{phase: :settled}, state.slots[{2, 1}]) do
+                       Agent.update(armed, fn _ -> false end)
+                       send(parent, :died_before_cursor)
+                       exit(:kill)
+                     end
+
+                   _ ->
+                     :ok
+                 end
+               end
+
+               config.test_dispatch.(op, req, run)
+             end
+         }}
+
+      directory =
+        start_supervised!(%{
+          id: make_ref(),
+          restart: :temporary,
+          start:
+            {DynamicUnits, :start_link,
+             [
+               [
+                 registry: Elzoo.RunEngine.UnitRegistry,
+                 supervisor: c.supervisor,
+                 idle_ms: 60_000,
+                 unit_options: fn _ -> Keyword.put(c.unit_opts, :store, store) end
+               ]
+             ]}
+        })
+
+      engine =
+        start(c,
+          resources: %{"document" => owner},
+          bindings: bindings,
+          store: store,
+          directory: directory
+        )
+
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, opening, _}
+
+      assert {:ok, _} =
+               Elzoo.RunResource.command(owner, %{
+                 id: "opened",
+                 at_ms: 2_000,
+                 body:
+                   {:observed, ["tenant", "account", "effect", "publish", "open"],
+                    {:completed, %{opened_at_ms: 2_000}}}
+               })
+
+      assert {:ok, :applied} = RunEngine.input(engine, "opened", wake(), verified())
+      assert_receive {:effect_started, using, _}
+      refute_receive {:effect_started, _, _}
+      Agent.update(c.context, &%{&1 | authority: []})
+
+      assert {:ok, _} =
+               Elzoo.RunResource.command(owner, %{
+                 id: "used",
+                 at_ms: 2_001,
+                 body:
+                   {:observed, ["tenant", "account", "effect", "publish", "using"],
+                    {:completed, %{}}}
+               })
+
+      Agent.update(armed, fn _ -> true end)
+      assert {:error, _} = RunEngine.input(engine, "consume-use", wake(), verified())
+      assert_receive :died_before_cursor
+      GenServer.stop(engine)
+      assert :ok = DynamicUnits.stop(directory, c.prefix)
+      Agent.update(c.host_mode, fn _ -> :recover end)
+
+      engine =
+        start(c,
+          resources: %{"document" => owner},
+          bindings: bindings,
+          store: store,
+          directory: directory
+        )
+
+      assert view(engine).slots[{2, 1}].outcome == "refused"
+      refute_receive {:effect_started, _, _}
+      send(opening, {:result, %{}})
+      send(using, {:result, %{}})
+    end
+
     test "stay/close pause and deadline retain Resource's barrier; read-only cleanup remains visible" do
       for {policy, mode} <- [{:stay, :fresh}, {:close, :fresh}, {:close, :read_only}] do
         a =
@@ -1593,6 +2169,26 @@ defmodule Elzoo.RunEngineTest do
         if policy == :stay do
           assert reply == {:ok, :applied}
           assert {:ok, %{state: %{phase: :open}}} = Elzoo.RunResource.read(owner, 0)
+          Agent.update(c.clock, &(&1 + 1))
+
+          assert {:ok, :applied} =
+                   RunEngine.control(
+                     engine,
+                     "pause",
+                     %{kind: :pause, pause_deadline: 50_000},
+                     verified()
+                   )
+
+          assert {:error, :input_id_conflict} =
+                   RunEngine.control(
+                     engine,
+                     "pause",
+                     %{kind: :continue, person_id: "person", run_deadline: 60_000},
+                     verified(%{verified_person: "person"})
+                   )
+
+          assert view(engine).phase == :paused
+          assert {:ok, %{state: %{paused: true}}} = Elzoo.RunResource.read(owner, 0)
           refute_receive {:effect_started, _, _}
           Agent.update(c.clock, fn _ -> 40_000 end)
 
@@ -1748,6 +2344,66 @@ defmodule Elzoo.RunEngineTest do
   end
 
   describe "Sizing and sanitized evidence" do
+    test "malformed outcomes cannot replace wrong action or unverified person correlation" do
+      for kind <- ["tool_call", "ask_person"],
+          bad <- [:action, :unverified, :person],
+          oversized <- [false, true] do
+        c =
+          fixture(pattern: {TestPattern, :step, %{requests: [request([action("pending", kind)])]}})
+
+        engine = start(c)
+        assert {:ok, :applied} = send_input(engine)
+
+        input =
+          result(
+            if(bad == :action, do: "other", else: "pending"),
+            if(oversized, do: %{"data" => String.duplicate("s", 65_537)}, else: %{})
+          )
+          |> Map.put("schema_id", "wrong")
+
+        input =
+          if kind == "ask_person",
+            do:
+              input
+              |> Map.put("kind", "person_answer")
+              |> Map.put("person_id", if(bad == :person, do: "other", else: "person"))
+              |> Map.delete("outcome"),
+            else: input
+
+        context =
+          verified(%{
+            occurrence: {1, 0},
+            verified_person: if(bad == :unverified, do: nil, else: "person")
+          })
+
+        reply = RunEngine.input(engine, "wrong", input, context)
+        assert match?({:ok, :applied}, reply) or match?({:error, _}, reply)
+
+        if kind == "ask_person" or bad == :action do
+          assert view(engine).slots[{1, 0}].phase in [:running, :waiting]
+          refute view(engine).joins[1].closed
+        end
+
+        if kind == "tool_call" do
+          assert_receive {:effect_started, provider, _}
+          send(provider, {:result, %{}})
+        end
+      end
+    end
+
+    test "oversized request identities become charged bounded invalid output before join creation" do
+      c =
+        fixture(pattern: {TestPattern, :oversized_id, 300_000})
+
+      engine = start(c)
+      assert {:ok, :applied} = send_input(engine)
+      assert view(engine).request_count == 1
+      assert view(engine).joins == %{}
+      assert view(engine).slots == %{}
+      assert view(engine).classification == :invalid_request
+      assert {:ok, :applied} = RunEngine.input(engine, "next", wake(), verified())
+    end
+
     test "oversized or wrong-schema outcomes become bounded local loss or external unknown, never truncated completion" do
       for kind <- ["local_work", "tool_call"], failure <- [:size, :schema] do
         c =

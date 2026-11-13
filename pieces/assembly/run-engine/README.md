@@ -14,6 +14,9 @@ a durable conforming Store, RunApprovalRelease with its exclusive Lease, an
 allocated Run and current execution Attempt, AsyncWork/Task.Supervisor, fixed
 EffectIntent startup bindings and any RunResource owners. No new runtime,
 supervisor factory, Budget owner, Approval owner or storage service is supplied.
+The engine and Run owner must receive the same fixed binding mapping. The
+engine checks recorded Effect digests against its supplied startup bindings,
+including ASK before Run dispatch; it does not attest Run's private mapping.
 The host serializes Run cancellation/Attempt changes and engine admission;
 status polling is not a concurrency fence.
 
@@ -123,6 +126,10 @@ per-request PatternStep trackers classify before Aggregation's bounded joins.
 Only first applied compatible settlement contributes; losses use `mark_lost`.
 Monetary Budget state/generations persist; known zero releases, positive actual
 settles once, unknown is not zero. Estimates are not provider-enforced charges.
+Child finish does not settle the parent's share until outstanding child actual
+costs are known. Paused accepted results retain their pattern input until
+continue, without dispatch while paused; monetary exhaustion still takes
+lifecycle precedence below the request-count cap.
 
 Gate receives the checked action and trusted proposer/effect-class/tenant.
 Malformed return/raise/throw/catchable exit denies with `gate_failure`, never
@@ -136,8 +143,9 @@ refusal digests `{1, {host_identity, run_id}, request, index, :gate_refusal}`
 with `out:`. Answers, payloads and newly sampled time do not change these IDs.
 
 ALLOW Effects use recorded descriptor bytes and existing EffectIntent activation.
-ASK Effects use Run's approval/dispatch protocol; ASK Resources use only
-`release_approved` followed by Resource-owned lifetime/FIFO dispatch. A released
+ASK Effects use Run's approval/dispatch protocol; non-Effect ASK actions use
+`release_approved` followed by their existing kind dispatch, with Resources
+retaining Resource-owned lifetime/FIFO dispatch. A released
 reply is no cached send permit. Recovery never resends a reserved intent or
 replaces its identity. Read-only owners expose reconciliation; lost raw sink
 values become unknown, not a fabricated completion. The trusted Adapter/host
