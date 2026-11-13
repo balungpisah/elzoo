@@ -178,6 +178,7 @@ defmodule Elzoo.AgentLoop do
        when is_map(p) and not is_struct(p) do
     with %{"content" => content, "finish" => finish, "tool_proposals" => proposals} <- p,
          true <- text?(content) and finish?(finish) and is_list(proposals),
+         false <- List.improper?(proposals),
          true <- Enum.all?(proposals, &proposal?/1) do
       {:ok, %{content: content, finish: finish, proposals: proposals}}
     else

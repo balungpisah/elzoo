@@ -785,6 +785,12 @@ defmodule Elzoo.AgentLoopTest do
     assert last(trace([start(), model(1, "Partial", "length", [])])) ==
              {:some, finish("stopped", "model_stopped", nil, 1)}
 
+    # Proposals that are not a proper list are not in the form that the step reads: no raise.
+    improper = [call("c1", "files_read") | "tail"]
+
+    assert last(trace([start(), model(1, "", "tool_calls", improper)])) ==
+             {:some, finish("stopped", "model_stopped", nil, 1)}
+
     {state, outputs} = trace([start(), message(String.duplicate("m", 65_000))])
     assert List.last(outputs) == {:some, finish("stopped", "state_over_bound", nil, 1)}
 
