@@ -1,7 +1,7 @@
 # ELZ-158 — Choose the flow by the class of the change, and give spike-only changes their own gate
 
 - Dependencies: none
-- Allowed implementation paths: `AGENTS.md`, `CLAUDE.md`, `docs/development/13-coordinator.md`, `docs/development/10-symbolic-ci.md`, `scripts/ci-change-class.py`, `scripts/test-ci-change-class.py`, `scripts/merge-queue.py`, `scripts/test-merge-queue.py`, `.github/workflows/symbolic-check.yml`, `scripts/check-ci-runners.py` and `scripts/test-ci-runners.py` (only if the guard must accept the new job), this task file and its row in `docs/plans/release-plan.json` with the generated plan views.
+- Allowed implementation paths: `AGENTS.md`, `CLAUDE.md`, `docs/development/13-coordinator.md`, `docs/development/10-symbolic-ci.md`, `scripts/ci-change-class.py`, `scripts/test-ci-change-class.py`, `scripts/merge-queue.py`, `scripts/test-merge-queue.py`, `scripts/ci-skip-decision.py`, `scripts/test-ci-skip.py`, `.github/workflows/symbolic-check.yml`, `scripts/check-ci-runners.py` and `scripts/test-ci-runners.py` (only if the guard must accept the new job), this task file and its row in `docs/plans/release-plan.json` with the generated plan views.
 
 Owner direction (2026-11-14): the flow of a change must follow from its class, so that a small change does not pay the ceremony of a Piece task and a risky change does not get a lighter flow. Record the rule where every agent reads it.
 
