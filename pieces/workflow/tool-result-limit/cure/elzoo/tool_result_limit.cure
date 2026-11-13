@@ -1,0 +1,55 @@
+# SPDX-License-Identifier: Apache-2.0
+mod Elzoo.ToolResultLimit
+  type Cut = Whole | Store | OverArtifactMax
+
+  @total true
+  @reducible
+  fn stored(over_artifact: Bool) -> Cut =
+    match over_artifact
+      True() -> OverArtifactMax()
+      False() -> Store()
+
+  # The production decision: text not over the bound goes whole; every other
+  # result is stored, unless it is over the Artifact bound.
+  @total true
+  @reducible
+  fn decide(text: Bool, over: Bool, over_artifact: Bool) -> Cut =
+    match text
+      True() ->
+        match over
+          False() -> Whole()
+          True() -> stored(over_artifact)
+      False() -> stored(over_artifact)
+
+  @total true
+  @reducible
+  fn whole(cut: Cut) -> Bool =
+    match cut
+      Whole() -> True()
+      Store() -> False()
+      OverArtifactMax() -> False()
+
+  @total true
+  @reducible
+  fn text_under_bound(text: Bool, over: Bool) -> Bool =
+    match text
+      True() ->
+        match over
+          True() -> False()
+          False() -> True()
+      False() -> False()
+
+  fn whole_only_under_bound(text: Bool, over: Bool, over_artifact: Bool) -> Equivalent(Bool, whole(decide(text, over, over_artifact)), text_under_bound(text, over)) =
+    match text
+      True() ->
+        match over
+          False() -> reflexive(True())
+          True() ->
+            match over_artifact
+              True() -> reflexive(False())
+              False() -> reflexive(False())
+      False() ->
+        match over_artifact
+          True() -> reflexive(False())
+          False() -> reflexive(False())
+end
