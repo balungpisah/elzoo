@@ -50,7 +50,9 @@ defmodule Elzoo.ToolRegistryTest do
                ToolRegistry.resolve(snapshot, name)
     end
 
-    assert ToolRegistry.snapshot([source("x", "other", [Map.put(tool("t"), "kind", "pinned_skill")])]) ==
+    assert ToolRegistry.snapshot([
+             source("x", "other", [Map.put(tool("t"), "kind", "pinned_skill")])
+           ]) ==
              {:error, :invalid_descriptor}
 
     assert ToolRegistry.refresh(snapshot, "misc", [Map.put(tool("t"), "kind", "pinned_skill")]) ==
@@ -119,7 +121,13 @@ defmodule Elzoo.ToolRegistryTest do
     assert names(snapshot) -- names(reordered) == []
 
     many = for i <- 1..64, do: tool("t#{i}")
-    {:ok, full} = ToolRegistry.snapshot([source("a", "other", Enum.take(many, 40)), source("b", "other", Enum.drop(many, 40))])
+
+    {:ok, full} =
+      ToolRegistry.snapshot([
+        source("a", "other", Enum.take(many, 40)),
+        source("b", "other", Enum.drop(many, 40))
+      ])
+
     assert length(ToolRegistry.tools(full)) == 64
 
     request = %{
@@ -137,8 +145,12 @@ defmodule Elzoo.ToolRegistryTest do
     assert {:ok, _, _} = Elzoo.AiText.Request.decode(Jason.encode!(request))
 
     extra = tool("t65")
-    assert ToolRegistry.snapshot([source("a", "other", [extra | many])]) == {:error, :too_many_tools}
-    assert ToolRegistry.refresh(full, "b", [extra | Enum.drop(many, 40)]) == {:error, :too_many_tools}
+
+    assert ToolRegistry.snapshot([source("a", "other", [extra | many])]) ==
+             {:error, :too_many_tools}
+
+    assert ToolRegistry.refresh(full, "b", [extra | Enum.drop(many, 40)]) ==
+             {:error, :too_many_tools}
   end
 
   test "fresh_listing" do
@@ -190,7 +202,9 @@ defmodule Elzoo.ToolRegistryTest do
     {:ok, checked} = PayloadSchema.build(port, @schema)
     invalid = %{"query" => 7}
     assert {:error, {:violations, list}} = PayloadSchema.check(checked, port, invalid)
-    assert ToolRegistry.check(held, invalid) == {:error, {:validator_disagreement, {:violations, list}}}
+
+    assert ToolRegistry.check(held, invalid) ==
+             {:error, {:validator_disagreement, {:violations, list}}}
 
     assert ToolRegistry.check(held, %{"query" => String.duplicate("a", 65_536)}) ==
              {:error, {:validator_disagreement, :too_large}}
@@ -200,12 +214,17 @@ defmodule Elzoo.ToolRegistryTest do
     others =
       [{:completed, %{content: [], is_error: false, structured: nil}}] ++
         for(
-          reason <- ~w(unknown_tool too_large target_refused credentials_unavailable not_connected invalid_request authentication_failed)a,
+          reason <-
+            ~w(unknown_tool too_large target_refused credentials_unavailable not_connected invalid_request authentication_failed)a,
           do: {:refused, reason}
         ) ++
-        for(sub <- ~w(invalid_arguments invalid_request protocol_error other)a, do: {:unknown, {:server_error, sub}}) ++
         for(
-          reason <- ~w(input_required malformed_response timeout connection_lost adapter_error settlement_unconfirmed)a,
+          sub <- ~w(invalid_arguments invalid_request protocol_error other)a,
+          do: {:unknown, {:server_error, sub}}
+        ) ++
+        for(
+          reason <-
+            ~w(input_required malformed_response timeout connection_lost adapter_error settlement_unconfirmed)a,
           do: {:unknown, reason}
         )
 
@@ -216,7 +235,9 @@ defmodule Elzoo.ToolRegistryTest do
     fixed = tool("echo", %{"description" => "Echo", "input_schema" => %{"type" => "object"}})
     assert {:ok, snapshot} = ToolRegistry.snapshot([source("s", "host_listing", [fixed])])
 
-    canonical = ~s({"annotations":null,"description":"Echo","input_schema":{"type":"object"},"name":"echo"})
+    canonical =
+      ~s({"annotations":null,"description":"Echo","input_schema":{"type":"object"},"name":"echo"})
+
     expected = :crypto.hash(:sha256, canonical) |> Base.encode16(case: :lower)
     assert {:resolved, %{version: ^expected}} = ToolRegistry.resolve(snapshot, "s_echo")
 

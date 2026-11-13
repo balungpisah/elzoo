@@ -107,7 +107,9 @@ defmodule Elzoo.ToolRegistry do
         {:error, :too_many_tools}
 
       true ->
-        entries = for source <- sources, descriptor <- source["tools"], do: entry(source, descriptor)
+        entries =
+          for source <- sources, descriptor <- source["tools"], do: entry(source, descriptor)
+
         index = Map.new(entries, &{elem(&1, 0).alias, &1})
 
         if map_size(index) == length(entries),
@@ -138,7 +140,10 @@ defmodule Elzoo.ToolRegistry do
       (is_nil(d["description"]) or (is_binary(d["description"]) and String.valid?(d["description"]))) and
       (is_nil(d["annotations"]) or (plain_map?(d["annotations"]) and json?(d["annotations"]))) and
       plain_map?(d["input_schema"]) and json?(d["input_schema"]) and
-      match?({:ok, _}, PayloadSchema.build(port(alias_of(id, d["name"]), version(d)), d["input_schema"]))
+      match?(
+        {:ok, _},
+        PayloadSchema.build(port(alias_of(id, d["name"]), version(d)), d["input_schema"])
+      )
   end
 
   defp entry(source, d) do
@@ -164,7 +169,9 @@ defmodule Elzoo.ToolRegistry do
     if Regex.match?(~r/\A[a-zA-Z0-9_-]{1,64}\z/, plain) do
       plain
     else
-      kept = for <<byte <- binary_part(plain, 0, min(55, byte_size(plain)))>>, into: "", do: safe(byte)
+      kept =
+        for <<byte <- binary_part(plain, 0, min(55, byte_size(plain)))>>, into: "", do: safe(byte)
+
       digest = :crypto.hash(:sha256, id <> <<0>> <> name) |> Base.encode16(case: :lower)
       kept <> "_" <> binary_part(digest, 0, 8)
     end
@@ -210,7 +217,8 @@ defmodule Elzoo.ToolRegistry do
   defp json?([head | rest]), do: json?(head) and is_list(rest) and json?(rest)
 
   defp json?(value) when is_map(value) and not is_struct(value),
-    do: Enum.all?(value, fn {key, item} -> is_binary(key) and String.valid?(key) and json?(item) end)
+    do:
+      Enum.all?(value, fn {key, item} -> is_binary(key) and String.valid?(key) and json?(item) end)
 
   defp json?(_), do: false
 end
