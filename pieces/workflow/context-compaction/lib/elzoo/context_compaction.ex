@@ -99,10 +99,15 @@ defmodule Elzoo.ContextCompaction do
 
   defp record?(_), do: true
 
+  # JSON data: nil, booleans, numbers, UTF-8 strings, proper lists, and maps
+  # that are not structs with UTF-8 string keys.
   defp json?(value) when is_binary(value), do: String.valid?(value)
   defp json?(value) when is_number(value) or is_boolean(value) or is_nil(value), do: true
-  defp json?(list) when is_list(list), do: Enum.all?(list, &json?/1)
-  defp json?(%{} = map), do: Enum.all?(map, fn {k, v} -> is_binary(k) and json?(v) end)
+  defp json?(list) when is_list(list), do: not List.improper?(list) and Enum.all?(list, &json?/1)
+
+  defp json?(map) when is_map(map) and not is_struct(map),
+    do: Enum.all?(map, fn {k, v} -> is_binary(k) and String.valid?(k) and json?(v) end)
+
   defp json?(_), do: false
 
   defp unique_ids?(entries) do

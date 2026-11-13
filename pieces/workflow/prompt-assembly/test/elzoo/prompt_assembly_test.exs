@@ -356,6 +356,20 @@ defmodule Elzoo.PromptAssemblyTest do
     assert build(input(max_image_refs: 257)) == {:error, :invalid_input}
     assert PromptAssembly.build(input([]), fn -> :ok end) == {:error, :invalid_input}
     assert build(input(model: <<0xFF>>)) == {:error, :invalid_input}
+
+    # A struct is not JSON data: in a record, in tool-call arguments, in a tool.
+    date = ~U[2026-01-01 00:00:00Z]
+    call = %{"id" => "c1", "name" => "lookup", "arguments" => %{"at" => date}}
+
+    for fields <- [
+          [history: [%{record("r1", :goal) | record: %{"at" => date}}]],
+          [history: [%{record("r1", :goal) | record: date}]],
+          [history: [%{assistant("a1", []) | tool_calls: [call]}]],
+          [tools: [Map.put(tool("lookup"), "input_schema", %{"at" => date})]]
+        ] do
+      assert build(input(fields)) == {:error, :invalid_input}
+    end
+
     assert build(input(model: "")) == {:error, {:request, :invalid_request}}
     refute_received {:estimated, _}
   end

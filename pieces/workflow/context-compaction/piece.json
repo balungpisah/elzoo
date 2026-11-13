@@ -24,7 +24,7 @@
   ],
   "operations": {
     "telemetry": {"status": "not_applicable", "contract": "Pure functions emit no observations; the host owns instrumentation."},
-    "config": {"status": "supported", "contract": "Per call only, supplied by the caller in the open input: max_request_bytes 1..65,536, the token window with the host's estimate function, and the summary bound max_bytes 1..16,777,216. No defaults, no ambient or stored setting and no hot reconfiguration.", "evidence": ["test/elzoo/context_compaction_test.exs"]},
+    "config": {"status": "supported", "contract": "Per call only, supplied by the caller in the open input: max_request_bytes 1..65,536 and the token window with the host's estimate function; the summary operand (ID, source, bound) describes the summary entry and is data, not Config. No defaults, no ambient or stored setting and no hot reconfiguration.", "evidence": ["test/elzoo/context_compaction_test.exs"]},
     "control": {"status": "not_applicable", "contract": "No process or lifecycle; the engine owns the action and its settlement record."}
   }
 }

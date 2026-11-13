@@ -87,7 +87,8 @@ no claim that marking prevents prompt injection.
 
 Telemetry and Control are not applicable: pure functions, no observations and
 no process; the engine records the intent and the outcome. Config is supported
-per call only: `max_request_bytes`, the window with its estimate and
-`summary.max_bytes` come in the input; no default, stored setting or hot change.
+per call only: `max_request_bytes` and the window with its estimate come in the
+input; no default, stored setting or hot change. `summary` describes the summary
+entry and is data, not Config.
 Module `Elzoo.ContextCompaction` is application-owned after copying.
 Apache-2.0; no new dependency or pin.

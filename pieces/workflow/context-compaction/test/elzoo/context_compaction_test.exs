@@ -198,11 +198,14 @@ defmodule Elzoo.ContextCompactionTest do
              {:error, :over_limit}
 
     # A record that is not a JSON object never enters the plain-data state.
-    for value <- [fn -> :ok end, self()] do
+    # So is a record with a struct, that is a struct, or with a key that is not UTF-8.
+    date = ~U[2026-01-01 00:00:00Z]
+
+    for value <- [%{"x" => fn -> :ok end}, %{"x" => self()}, %{"x" => date}, date, %{<<0xFF>> => 1}] do
       [record | rest] = entries()
 
       assert ContextCompaction.open(
-               input(entries: [%{record | record: %{"x" => value}} | rest]),
+               input(entries: [%{record | record: value} | rest]),
                &estimate/1
              ) ==
                {:error, :invalid_input}
