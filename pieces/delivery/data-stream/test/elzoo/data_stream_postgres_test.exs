@@ -61,7 +61,7 @@ defmodule Elzoo.DataStream.PostgresTest do
           {:error, :lost_reply}
 
         m == :block_dispatch_checkpoint and op == :put_checkpoint and req.target == 2 ->
-          send(parent, {:blocked_sql, self()})
+          send(parent, {:blocked_sql, self(), req.stream})
 
           receive do
             :release -> result
@@ -215,6 +215,9 @@ defmodule Elzoo.DataStream.PostgresTest do
       Enum.find(keys, fn key ->
         {:ok, owner} = Stream.__start_loopback__(settings, peer.origin)
         effect = Fixture.effect(%{"idempotency_key" => key})
+        # The block report names the intent stream, which is one per key.
+        identity = [settings[:tenant], "workspace-test", "stream-test", "generate_stream", key]
+        stream = Elzoo.EffectIntent.Model.stream(Elzoo.EffectIntent.Model.key(identity))
         {:ok, h} = Stream.start(owner, effect, &Fixture.ack/1)
         t = Fixture.terminal(h)
 
@@ -223,7 +226,7 @@ defmodule Elzoo.DataStream.PostgresTest do
         # of this sample, if one was sent, is in the mailbox before its terminal.
         blocked =
           receive do
-            {:blocked_sql, worker} ->
+            {:blocked_sql, worker, ^stream} ->
               assert t.reason == :timeout
               refute Process.alive?(worker)
               true
@@ -234,6 +237,8 @@ defmodule Elzoo.DataStream.PostgresTest do
               false
           end
 
+        # A sample accepts only its own report. Any other report is a fault.
+        refute_receive {:blocked_sql, _, _}, 0
         refute_receive {:stream_request, _, _, _, _}, 0
         GenServer.stop(owner)
         blocked
