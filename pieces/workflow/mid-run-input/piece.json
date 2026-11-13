@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "id": "workflow/mid-run-input",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["cure", "elixir"],
+  "dependencies": ["workflow/pattern-step"],
+  "contract": "Pure policy for a new message during a Run under the one declared rule (queue, reject, interrupt, steer or side run) and the supplied Run phase: deliver, queue up to 16, refuse, or interrupt or hand to a side run with a report of delivered and open actions; every other input passes. No runtime, Run start or stop.",
+  "limits": [
+    "No process, clock, timer, storage, callback or recording; it does not start, cancel or stop a Run or an action, and adds no input kind that carries the report to a pattern.",
+    "The report names actions with an applied outcome and open actions in pattern-step terms only; it does not say what a person has seen nor that an open action was not sent.",
+    "Selected Cure law covers supplied classifications only; map validation, the queue and the Run facts are finite-test grounded.",
+    "Phase and when new work may start stay with workflow/bot-run-lifecycle; Attempt currentness stays with workflow/run; no child-Run action in v1."
+  ],
+  "files": [
+    "cure/elzoo/mid_run_input.cure",
+    "lib/elzoo/mid_run_input.ex",
+    "test/elzoo/mid_run_input_test.exs",
+    "examples/mid_run_input.exs"
+  ],
+  "grounding": [
+    {"kind": "proof", "file": "cure/elzoo/mid_run_input.cure", "symbol": "non_message_passes", "claim": "For each rule, phase and queue fill class, an input that is not a message gives the pass decision; excludes map validation, the queue contents and the Run facts."},
+    {"kind": "type", "file": "cure/elzoo/mid_run_input.cure", "claim": "Pinned Cure checks types and totality of the production decision table; the source audit reports no axiom, hole, unresolved, unaudited, opaque or unproved-total definition and zero absurd."},
+    {"kind": "test", "file": "test/elzoo/mid_run_input_test.exs", "claim": "Named groups wake_bypasses_every_rule, five_rules_one_trace and side_run_leaves_first_run_unchanged, redacted invalid operands, the Cure law/audit and the checked example pass; letting a side-run message enter the queue makes side_run_leaves_first_run_unchanged fail (negative control). Finite scenarios."},
+    {"kind": "upstream", "provider": "cure", "reference": "https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89", "claim": "Pinned Cure compilation, reduction checking and BEAM decision semantics; compiler soundness not locally proved."},
+    {"kind": "upstream", "provider": "elixir", "reference": "https://hexdocs.pm/elixir/1.20.4/", "claim": "Pinned Elixir immutable maps and lists; ready PatternStep decode/encode is reused unchanged."},
+    {"kind": "assumption", "claim": "The caller supplies truthful Run facts (the phase that bot-run-lifecycle decided for the same input, delivered and open action IDs), records each input before the policy reads it, gives only current-Attempt inputs, calls next only when new work is permitted, handles interrupts and side runs under the Run and lifecycle rules, and serializes and preserves the state."}
+  ],
+  "operations": {
+    "telemetry": {"status": "not_applicable", "contract": "Pure callable emits no observations; the host owns instrumentation."},
+    "config": {"status": "supported", "contract": "The rule (queue, reject, interrupt, steer or side_run) is a caller choice set when the state is constructed for one Run and passed with every call; it never changes during the Run and there is no hot reconfiguration. The queue bound of 16 is fixed, not Config.", "evidence": ["test/elzoo/mid_run_input_test.exs"]},
+    "control": {"status": "not_applicable", "contract": "No independently controlled runtime or lifecycle commands; interrupt and side run are decisions for the caller."}
+  }
+}

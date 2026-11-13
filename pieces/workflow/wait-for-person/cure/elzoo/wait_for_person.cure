@@ -1,0 +1,52 @@
+# SPDX-License-Identifier: Apache-2.0
+mod Elzoo.WaitForPerson
+  type InputKind = OtherInput | OutcomeInput | AnswerInput
+  type Settlement = SettleApplied | SettleLate | SettleRefused
+  type AskDecision = AskPass | AskClosed | AskAnswer | AskWrongPerson | AskLate | AskIncompatible
+
+  @total true
+  @reducible
+  fn settled(settlement: Settlement, applied: AskDecision) -> AskDecision =
+    match settlement
+      SettleApplied() -> applied
+      SettleLate() -> AskLate()
+      SettleRefused() -> AskIncompatible()
+
+  @total true
+  @reducible
+  fn decide(kind: InputKind, listed: Bool, settlement: Settlement, same_person: Bool) -> AskDecision =
+    match kind
+      OtherInput() -> AskPass()
+      OutcomeInput() ->
+        match listed
+          False() -> AskPass()
+          True() -> settled(settlement, AskClosed())
+      AnswerInput() ->
+        match listed
+          False() -> settled(settlement, AskWrongPerson())
+          True() ->
+            match same_person
+              True() -> settled(settlement, AskAnswer())
+              False() -> settled(settlement, AskWrongPerson())
+
+  @total true
+  @reducible
+  fn is_answer(decision: AskDecision) -> Bool =
+    match decision
+      AskAnswer() -> True()
+      _ -> False()
+
+  # The person texts are not all equal: whatever the ask lookup and tracker class, no answer.
+  fn mismatch_never_answer(listed: Bool, settlement: Settlement) -> Equivalent(Bool, is_answer(decide(AnswerInput(), listed, settlement, False())), False()) =
+    match listed
+      True() ->
+        match settlement
+          SettleApplied() -> reflexive(False())
+          SettleLate() -> reflexive(False())
+          SettleRefused() -> reflexive(False())
+      False() ->
+        match settlement
+          SettleApplied() -> reflexive(False())
+          SettleLate() -> reflexive(False())
+          SettleRefused() -> reflexive(False())
+end

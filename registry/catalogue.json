@@ -931,7 +931,8 @@
       "summary": "Cut or store a large tool result so that it fits a model request",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/tool-result-limit/piece.json",
       "reason": "Bot platform wave 2 (P13). A result over the bound becomes an Artifact reference with a bounded preview; the cut is visible and the content stays marked untrusted."
     },
     {
@@ -948,7 +949,8 @@
       "summary": "Build one text request from instructions, memory, history and tools within a limit",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/prompt-assembly/piece.json",
       "reason": "Bot platform wave 2 (P13). Declared order and drop order inside the hard request bounds of integration/ai-text; never drops instructions or splits a tool call from its result; untrusted content stays marked. Uses ready workflow/context-selection."
     },
     {
@@ -956,7 +958,8 @@
       "summary": "Replace old history with a recorded summary under a keep rule",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/context-compaction/piece.json",
       "reason": "Bot platform wave 2 (P13). A pure step that gives one model-call action; the engine records it. Keep-rule items (the goal, open actions, decisions, failed approaches) are structured records kept verbatim; only free text is summarized."
     },
     {
@@ -998,7 +1001,8 @@
       "summary": "A Run asks a named person one question and continues with the answer",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/wait-for-person/piece.json",
       "reason": "Bot platform wave 2 (P13). Not an approval: an approval binds one exact action. Late and wrong-person answers are explicit."
     },
     {
@@ -1006,7 +1010,8 @@
       "summary": "One declared rule for a new message during an active Run",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/mid-run-input/piece.json",
       "reason": "Bot platform wave 2 (P13). Queue, reject, interrupt, steer or side run. An interrupt reports what was already delivered."
     },
     {
@@ -1023,8 +1028,9 @@
       "summary": "Several MCP servers per tenant from a build-time set of bindings",
       "disposition": "adapt",
       "phase": "demand-led",
-      "status": "planned",
-      "reason": "Bot platform wave 2 (P13). Each server is one compiled binding of ready integration/mcp-client, with its own credential Need and limits; tool lists are keyed by server; one failing server does not block the others. Streamable HTTP and bearer token only. A server added at run time is out of scope. New ID: ready integration/mcp-client is unchanged."
+      "status": "ready",
+      "reason": "Bot platform wave 2 (P13). Each server is one compiled binding of ready integration/mcp-client, with its own credential Need and limits; tool lists are keyed by server; one failing server does not block the others. Streamable HTTP and bearer token only. A server added at run time is out of scope. New ID: ready integration/mcp-client is unchanged.",
+      "manifest": "pieces/integration/mcp-multi/piece.json"
     },
     {
       "id": "runtime/lua-sandbox",

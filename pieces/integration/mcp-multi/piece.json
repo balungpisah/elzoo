@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "id": "integration/mcp-multi",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "adapter",
+  "providers": [
+    "ex_mcp",
+    "elixir",
+    "otp"
+  ],
+  "dependencies": [
+    "integration/mcp-client",
+    "integration/secrets"
+  ],
+  "contract": "Several MCP servers for one tenant from a build-time set of 1..16 compiled integration/mcp-client Bindings (Streamable HTTP, bearer token): each server keeps its own ready session, bounds and zero-arity credential Need built from an integration/secrets reference that resolves again at each request. configure/1 calls no host function; a repeated server text, an unknown key or a refused entry refuses the whole set. connect/2 and list_tools/1 take the servers in order with a check before each call; tool lists are keyed by {tenant, server} and hold the unchanged ready listing or unavailable{credentials_expired | credentials_unavailable | a finite reason of the ready client}, so one server's failure is recorded for that server only. session/2 hands out the ready values; a tool call stays the ready admission/3, context/2 and call_tool/3 path with its outcome set. No cache, process, reconnect, subscription, alias or server added at run time.",
+  "limits": [
+    "One tenant credential for each server; listings for a person's credential need separate sets and are not here.",
+    "Servers are taken one after another: a call costs at most the sum of the servers' bounds; a server that does not answer delays the others by its own bound and does not fail them.",
+    "No reconnect: a server that is down stays unavailable until the host connects a new value. No rename and no model-facing tool alias (workflow/tool-registry owns it).",
+    "No stdio, no OAuth, no server added at run time. The check before the call and the credential Need are two samples of the resolver; a rotation between them is possible.",
+    "No claim about what a tool does. Finite tests against the ready client's in-process loopback server; no proof is claimed."
+  ],
+  "files": [
+    "examples/mcp_multi.exs",
+    "lib/elzoo/mcp_multi.ex",
+    "test/elzoo/mcp_multi_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/mcp_multi_test.exs",
+      "claim": "Named acceptance groups against instances of the ready client's in-process loopback server, each with its own recording process: same_tool_name_two_servers, lists_keyed_by_tenant_and_server, one_server_down, missing_credential_sends_nothing, rejected_credential_after_dispatch, list_change_seen_by_listing_again, per_server_bounds, no_credential_in_outputs, and the checked construction example; tool calls dispatch through a real delivery/effect-intent owner on the volatile Memory store. Finite evidence, not proof."
+    },
+    {
+      "kind": "upstream",
+      "provider": "ex_mcp",
+      "reference": "https://hexdocs.pm/ex_mcp/1.8.1/ExMCP.Client.html",
+      "claim": "ex_mcp 1.8.1 at its exact pin, reached only through the ready integration/mcp-client and integration/secrets Contracts, used unchanged; the redaction of a token in server data is the ready client's, per session."
+    },
+    {
+      "kind": "assumption",
+      "claim": "An HTTP 401 or 403 means that nothing ran (the named assumption of the ready client). The host supplies a truthful secrets function and resolver with each scope bound to one tenant and one server, starts ex_mcp and a DynamicSupervisor, and supplies the recipient and owner of each tool call."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "planned",
+      "contract": "No Elzoo event and no log of its own, as the ready client: ex_mcp emits upstream [:ex_mcp, ...] events and debug logs that consumer-installed handlers may see (the consumer's responsibility). Own events: a future task when a consumer needs them."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Construction-time only through configure/1: tenant, the secrets function, and the build-time server set (1..16 entries, fixed bound) of compiled Binding modules, credential references and per-server ready client bounds with the ready client's ranges and defaults. No server added or removed after configure/1; no hot update.",
+      "evidence": [
+        "test/elzoo/mcp_multi_test.exs"
+      ]
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "close/1 closes each session, as the ready client's close/1; no pause, drain or reconnect. Dispatch and recovery of a tool call are the delivery/effect-intent owner's Control."
+    }
+  }
+}
