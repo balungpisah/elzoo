@@ -59,6 +59,9 @@ intermediary. They are not a proof and not the provider's Contract.
 
 ## Not recorded
 
-A direct call to Anthropic. Another model. A provider error in the middle of a stream. A cut stream.
-A slow or closed consumer. A stream with a comment line or a `ping`. Two tool calls in one answer.
-A stop for `max_tokens` inside a tool call.
+These files hold no stream from a direct call to Anthropic and no stream with a `ping`. One stream from
+Anthropic's own endpoint, with one `ping`, is in `../anthropic-direct-stream/`, which has its own
+`PROVENANCE.md`. A stream with a comment line is in neither directory.
+
+Also not recorded here: another model. A provider error in the middle of a stream. A cut stream. A slow or
+closed consumer. Two tool calls in one answer. A stop for `max_tokens` inside a tool call.

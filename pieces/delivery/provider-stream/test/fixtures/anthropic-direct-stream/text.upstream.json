@@ -1,0 +1,1 @@
+{"max_tokens":64,"messages":[{"content":"Name three colours of a rainbow, one per line.","role":"user"}],"model":"claude-haiku-5-5","stream":true,"thinking":{"type":"disabled"}}

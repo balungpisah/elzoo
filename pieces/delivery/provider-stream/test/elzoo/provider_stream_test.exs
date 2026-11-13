@@ -3,9 +3,11 @@ Code.require_file("../support/provider_stream_test_helper.exs", __DIR__)
 
 defmodule Elzoo.ProviderStreamTest do
   # The recorded streams were recorded through OpenRouter's Anthropic-compatible
-  # endpoint, routed to Anthropic (see the fixtures' PROVENANCE.md). They are
-  # Monitored observations replayed by a loopback peer, not the provider's
-  # Contract. Each case below runs over real HTTP/1.1 against that peer.
+  # endpoint, routed to Anthropic, except the one of `direct_recording`, which
+  # came from Anthropic's own endpoint (see the PROVENANCE.md of each fixture
+  # directory). They are Monitored observations replayed by a loopback peer,
+  # not the provider's Contract. Each case below runs over real HTTP/1.1
+  # against that peer.
   use ExUnit.Case, async: true
   alias Elzoo.AiModel.{StreamChunk, Usage}
   alias Elzoo.ProviderStream.{Chunk, Fixture, Peer, Protocol}
@@ -432,6 +434,81 @@ defmodule Elzoo.ProviderStreamTest do
                [:stop, :stop, :length, :tool_calls, :refusal, {:other, "pause_turn"}]
 
       assert Protocol.finish(String.duplicate("x", 65)) == {:other, "unrecognized"}
+    end
+  end
+
+  describe "direct_recording" do
+    # One text stream recorded from Anthropic's own endpoint; the PROVENANCE.md
+    # of its directory lists the facts. The Piece did not build the request of
+    # that call. The request below takes its model, limit and prompt, and the
+    # POST body is not compared with it.
+    @direct Path.expand("../fixtures/anthropic-direct-stream", __DIR__)
+
+    for {name, size, count} <- [
+          {"whole", 1_408, 1},
+          {"in pieces of 97 bytes", 97, 15},
+          {"in pieces of 1 byte", 1, 1_408}
+        ] do
+      test "#{name}: two text frames, none for the ping, then complete" do
+        sse = File.read!(Path.join(@direct, "text.sse"))
+        assert sse =~ ~s(event: ping\ndata: {"type": "ping"}\n\n)
+
+        pieces =
+          sse
+          |> :binary.bin_to_list()
+          |> Enum.chunk_every(unquote(size))
+          |> Enum.map(&:binary.list_to_bin/1)
+
+        assert length(pieces) == unquote(count)
+
+        origin =
+          Peer.start(fn s ->
+            Peer.head(s)
+            for p <- pieces, do: Peer.chunk(s, p)
+            Peer.finish(s)
+          end)
+
+        sent = Jason.decode!(File.read!(Path.join(@direct, "text.upstream.json")))
+        [%{"role" => "user", "content" => prompt}] = sent["messages"]
+
+        payload =
+          Jason.encode!(%{
+            version: 1,
+            model: sent["model"],
+            max_output_tokens: sent["max_tokens"],
+            messages: [%{role: "user", text: prompt}]
+          })
+
+        task = Fixture.run(payload, Fixture.holding_sink(), Fixture.settings(), origin)
+        frames = Fixture.release(2, fn _ -> 20 end)
+        assert {:complete, result} = Task.await(task)
+        refute_received {:held, _, _}
+
+        assert Enum.map(frames, &{&1.seq, &1.chunk}) == [
+                 {0, %{seq: 0, kind: :text_delta, payload: "Red"}},
+                 {1, %{seq: 1, kind: :text_delta, payload: "\nOrange\nYellow"}}
+               ]
+
+        assert result.content == "Red\nOrange\nYellow"
+        assert result.tool_calls == []
+        assert result.finish == :stop
+        assert Usage.amount(result.usage, :input_uncached_tokens) == 22
+        assert Usage.amount(result.usage, :output_tokens) == 13
+        assert Usage.amount(result.usage, :cache_read_tokens) == 0
+        assert result.usage.cache_writes == [%{ttl: "provider_default", amount: 0}]
+
+        assert result.provenance == %{
+                 model_ref: %{
+                   provider: "anthropic",
+                   model_id: "claude-haiku-5-5",
+                   wire_surface: "messages"
+                 },
+                 provider_model: "claude-haiku-5-5",
+                 response_id: "msg_011Ch1BENb7LZPb4upBAsq3o",
+                 request_id: "req_loopback_1",
+                 provider_piece: "delivery/provider-stream"
+               }
+      end
     end
   end
 
