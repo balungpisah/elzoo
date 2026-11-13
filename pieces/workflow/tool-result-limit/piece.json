@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "id": "workflow/tool-result-limit",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "adapter",
+  "providers": ["cure", "elixir", "otp", "jason"],
+  "dependencies": [
+    "workflow/untrusted-content",
+    "state/artifact",
+    "state/event-log",
+    "delivery/effect-intent",
+    "workflow/pattern-step"
+  ],
+  "applications": ["crypto"],
+  "contract": "Bounded tool results: the pure decide/3 gives a marked text result of at most the declared bound unchanged, a store action payload and a bounded pending for larger text and each binary result up to the Artifact bound, and the note over_artifact_max above it; settle/3 turns the outcome class of the store action into a marked value whose content is one notice line, for text with a UTF-8 prefix preview, of at most the declared bound, with the Artifact reference or the note store_refused or store_unknown. The effect-intent Adapter reads the committed log record of the outcome, checks its bytes against the arguments and puts them once into state/artifact, with a sealed receipt digest and three attested no-send tags.",
+  "limits": [
+    "No bound on a result before the engine records it; that is a rule of the host's result sink.",
+    "No tool that reads an Artifact back for a model, no reap and no reconciliation of staging, no scan of stored bytes; the preview is a prefix, not a summary.",
+    "A refused or unknown put can leave staged or uncertain Artifact versions; only invalid_arguments, record_unavailable and digest_mismatch attest that put was not called, and poll never reconciles.",
+    "Marking and cutting grant no authority and prevent no prompt injection; a caller that copies content out of the marked value loses the mark."
+  ],
+  "files": [
+    "cure/elzoo/tool_result_limit.cure",
+    "lib/elzoo/tool_result_limit.ex",
+    "lib/elzoo/tool_result_limit/adapter.ex",
+    "test/elzoo/tool_result_limit_test.exs",
+    "examples/tool_result_limit.exs"
+  ],
+  "grounding": [
+    {"kind": "proof", "file": "cure/elzoo/tool_result_limit.cure", "symbol": "whole_only_under_bound", "claim": "The production decision over the three Booleans text, over the bound and over the Artifact bound gives Whole exactly when text is true and over the bound is false, for all eight operands; excludes byte counts, the UTF-8 cut, the hash and the Adapter."},
+    {"kind": "type", "file": "cure/elzoo/tool_result_limit.cure", "claim": "Pinned Cure checks types and totality of the three-Boolean decision; the source audit finds no axioms, holes, unresolved, unaudited, opaque or unproved-total definitions."},
+    {"kind": "test", "file": "test/elzoo/tool_result_limit_test.exs", "claim": "Named groups under_bound_unchanged (text of 0 to 1,024 bytes at max_bytes 1,024), over_bound_reference_and_preview (1,025 bytes with a two-byte character at the cut, 1,113 bytes with a three-byte one, and 60,000 bytes with arguments under 1,024 bytes, through the owner and the Adapter), skill_file_cut_body_never, binary_by_reference_only, store_refused_unknown_or_too_large (403, 500, artifact_max_bytes 2,999, absent record, staged tail, other bytes) and mark_survives_cut (two classes, two sources), plus malformed operands, the law check and the checked example, on the Memory Store, the loopback S3 double of state/artifact and a volatile EffectIntent owner. Negative controls: a settle/3 that returns the whole content after a failed store, and a send without the comparison of step 2. Finite scenarios, not evidence of durability or of a real object store."},
+    {"kind": "upstream", "provider": "otp", "reference": "https://www.erlang.org/doc/apps/crypto/crypto.html", "claim": "OTP :crypto SHA-256 of the result bytes and of the canonical receipt, and HMAC-SHA-256 of the seal."},
+    {"kind": "upstream", "provider": "jason", "reference": "https://hexdocs.pm/jason/1.4.5/Jason.html", "claim": "Pinned Jason encodes an ordered object without white space for the canonical arguments and receipt, and decodes the arguments."},
+    {"kind": "upstream", "provider": "cure", "reference": "https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89", "claim": "Pinned Cure compilation, reduction checking and BEAM decision semantics; compiler soundness not locally proved."},
+    {"kind": "upstream", "provider": "elixir", "reference": "https://hexdocs.pm/elixir/1.20.4/", "claim": "Pinned Elixir Base decode64 refuses unpadded and non-alphabet base64; the Contracts of workflow/untrusted-content, state/artifact, state/event-log, delivery/effect-intent and workflow/pattern-step are used unchanged."},
+    {"kind": "assumption", "claim": "The caller applies decide/3 to each tool result and never to an instruction body, sends the store payload as a tool_call action hidden from the model and keeps pending; the host binding finds the record of the applied outcome, makes the intent identity and arguments, gives the receipt from the sink to the engine, states artifact_max_bytes, media_type and encoding truthfully, does not prune the log stream while a store action is open and reconciles uncertain staging with Elzoo.Artifact.status/3."}
+  ],
+  "operations": {
+    "telemetry": {"status": "not_applicable", "contract": "No observations of its own; the ready state/artifact and delivery/effect-intent keep their declared telemetry and the host owns instrumentation."},
+    "config": {"status": "supported", "contract": "Per call: the limits of decide/3, max_bytes an integer from 1,024 to 1,048,576 and artifact_max_bytes a positive integer, with no default. Per owner: the Adapter context (log, extract, artifact, caller, access terms, retention, sink, seal_key), all required with no default and fixed at the owner's start. No ambient setting and no hot reconfiguration.", "evidence": ["test/elzoo/tool_result_limit_test.exs"]},
+    "control": {"status": "not_applicable", "contract": "No process or lifecycle of its own; the effect-intent owner keeps its own commands."}
+  }
+}
