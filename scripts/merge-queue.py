@@ -54,11 +54,19 @@ PLAN_JOB = "check-plan"
 WORK_PARTS = (("check-root", "root", "ELZOO ROOT SUITE PASSED"),
               ("check-consumers-db", "consumers-db", "ELZOO CONSUMERS DB PASSED"),
               ("check-consumers", "consumers", "ELZOO CONSUMERS PASSED"))
+SPLIT_WORK_PARTS = (("check-root", "root-a", "ELZOO ROOT A SUITE PASSED"),
+                    ("check-root-b", "root-b", "ELZOO ROOT B SUITE PASSED"),
+                    ("check-aggregate", "aggregate", "ELZOO AGGREGATE CONSUMER PASSED"),
+                    ("check-consumers-db", "consumers-db", "ELZOO CONSUMERS DB PASSED"),
+                    ("check-consumers", "consumers", "ELZOO CONSUMERS PASSED"))
 EVIDENCE_JOBS = (PLAN_JOB,) + tuple(job for job, _part, _marker in WORK_PARTS) + (HOSTED_JOB,)
 # Small gate: the sixth job of the unit. It runs only in the piece shape and is skipped in the full and docs-only shapes.
 PIECE_JOB = "check-piece"
 PIECE_STEP = "Run the small gate"
 BACKEND_JOBS = EVIDENCE_JOBS + (PIECE_JOB,)
+SPLIT_EVIDENCE_JOBS = (PLAN_JOB,) + tuple(job for job, _part, _marker in SPLIT_WORK_PARTS) + (HOSTED_JOB,)
+SPLIT_BACKEND_JOBS = SPLIT_EVIDENCE_JOBS + (PIECE_JOB,)
+PART_MARKERS = {marker for _job, _part, marker in WORK_PARTS + SPLIT_WORK_PARTS}
 FULL_MARKER = "ELZOO CHECK PASSED"
 DOCS_MARKER = "ELZOO DOCS-ONLY CHECK PASSED"
 # Elzoo.CheckSelection.success_marker(%{mode: :piece}); scripts/test-merge-queue.py compares the two.
@@ -396,11 +404,11 @@ class Queue:
 
     def evidence(self, run_id, pr, workflow_id, allow_docs_only=True, allow_piece=True):
         """The successful run of the exact head, read as one evidence unit (ELZ-073). Returns (jobs, mode), where
-        jobs maps the six job names to their API objects. Mode "full": the five evidence jobs ran in this attempt and
-        succeeded, check-piece was skipped, the three work jobs printed their part markers and the aggregating job
-        printed the full marker. Mode "docs-only": the plan job passed the short check (marker line), the three work
-        jobs and check-piece were skipped and the aggregating job succeeded. Mode "piece" (small gate): a pull_request
-        run in which check-piece ran and printed the piece marker, the three work jobs were skipped and no other marker
+        jobs maps the complete legacy six-job or fixed split eight-job unit to API objects. Mode "full": all work
+        jobs ran in this attempt and succeeded, check-piece was skipped, each work job printed its part marker and
+        the aggregating job printed the full marker. Mode "docs-only": the plan job passed the short check (marker
+        line), all work jobs and check-piece were skipped and the aggregating job succeeded. Mode "piece" (small gate):
+        a pull_request run in which check-piece ran and printed the piece marker, all work jobs were skipped and no other marker
         is present. The caller accepts docs-only and piece only after the queue's own classification. Anything else (a
         missing, extra, duplicated, red, cancelled or mixed set, a job that ran in an earlier attempt) is no evidence."""
         while True:
@@ -418,8 +426,10 @@ class Queue:
                           f"repos/{REPO}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100")
         jobs = [job for page in pages for job in page["jobs"]]
         names = [job.get("name") for job in jobs]
-        require(sorted(names) == sorted(BACKEND_JOBS),
-                "Expected exactly the five backend jobs and check-piece, once each")
+        split = sorted(names) == sorted(SPLIT_BACKEND_JOBS)
+        require(split or sorted(names) == sorted(BACKEND_JOBS),
+                "Expected exactly the five backend jobs and check-piece, or the fixed split eight-job unit, once each")
+        work_parts = SPLIT_WORK_PARTS if split else WORK_PARTS
         by_name = {job["name"]: job for job in jobs}
         for job in jobs:
             if job.get("conclusion") != "skipped":
@@ -427,7 +437,7 @@ class Queue:
         plan, aggregate = by_name[PLAN_JOB], by_name[HOSTED_JOB]
         require(plan.get("conclusion") != "skipped" and aggregate.get("conclusion") != "skipped",
                 "The plan job and the aggregating job must have run")
-        work = [by_name[job] for job, _part, _marker in WORK_PARTS]
+        work = [by_name[job] for job, _part, _marker in work_parts]
         ran = [job for job in work if job.get("conclusion") != "skipped"]
         piece_ran = by_name[PIECE_JOB].get("conclusion") != "skipped"
         if len(ran) == len(work):
@@ -470,11 +480,15 @@ class Queue:
                 mix = step(job, "Run mix check")
                 require(len(mix) == 1 and mix[0].get("conclusion") == "success",
                         f"Full check step missing, skipped or failed ({job['name']})")
-            for job, _part, marker in WORK_PARTS:
+            for job, _part, marker in work_parts:
                 require(has_line(by_name[job], re.escape(marker)) and
                         "ELZOO AFFECTED CHECK PASSED" not in log(by_name[job]),
                         f"Missing part marker or affected-mode marker present ({job})")
+                require(not any(has_line(by_name[job], re.escape(other)) for other in PART_MARKERS - {marker}),
+                        f"Unexpected part marker ({job})")
             require(has_line(aggregate, re.escape(FULL_MARKER)), "Missing full success marker of the aggregating job")
+            require(not any(has_line(job, re.escape(FULL_MARKER)) for job in [plan] + work),
+                    "Full success marker outside check-hosted")
             require(not has_line(plan, re.escape(DOCS_MARKER)), "Docs-only marker present in a full run")
             require(all("ELZOO PIECE CHECK PASSED" not in log(job) for job in [plan, aggregate] + work),
                     "Small gate marker present in a full run")
@@ -495,7 +509,7 @@ class Queue:
             # No other marker: not the full, part, docs-only or affected marker in any executed job.
             for job in (plan, piece, aggregate):
                 require(not has_line(job, re.escape(FULL_MARKER)) and not has_line(job, re.escape(DOCS_MARKER)) and
-                        not any(has_line(job, re.escape(marker)) for _job, _part, marker in WORK_PARTS) and
+                        not any(has_line(job, re.escape(marker)) for marker in PART_MARKERS) and
                         AFFECTED_MARKER not in log(job),
                         f"A full, part, docs-only or affected-mode marker is present in a small gate run ({job['name']})")
             require(not has_line(plan, "ELZOO PIECE CHECK PASSED.*") and not has_line(aggregate, "ELZOO PIECE CHECK PASSED.*"),
@@ -510,6 +524,8 @@ class Queue:
                     "A full-run or affected-mode marker is present in a docs-only run")
             require("ELZOO PIECE CHECK PASSED" not in log(plan) and not has_line(aggregate, "ELZOO PIECE CHECK PASSED.*"),
                     "Small gate marker present in a docs-only run")
+            require(not any(has_line(job, re.escape(marker)) for job in [plan, aggregate] for marker in PART_MARKERS),
+                    "Part marker present in a docs-only run")
         latest = self.api(f"actions/runs/{run_id}")
         require(self.run_matches(latest, pr, workflow_id) and latest.get("status") == "completed" and
                 latest.get("conclusion") == "success" and latest.get("run_attempt") == attempt,
@@ -826,7 +842,7 @@ class Queue:
                           f"head={pr['headRefOid']}", flush=True)
             else:
                 self.emit(f"ELZOO GLEAM GATE not required pr={number} head={pr['headRefOid']} ({why})", flush=True)
-            names = EVIDENCE_JOBS + ((PIECE_JOB,) if mode == "piece" else ())
+            names = (SPLIT_EVIDENCE_JOBS if "check-root-b" in jobs else EVIDENCE_JOBS) + ((PIECE_JOB,) if mode == "piece" else ())
             job_ids = ",".join(name + ":" + str(jobs[name]["id"]) for name in names)
             self.emit(f"ELZOO MERGE EVIDENCE pr={number} run={run_id} jobs={job_ids} "
                       f"head={pr['headRefOid']} merge={merge_sha}"

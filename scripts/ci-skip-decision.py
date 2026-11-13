@@ -48,11 +48,18 @@ HOSTED_JOB = "check-hosted"
 PLAN_JOB = "check-plan"
 WORK_PARTS = (("check-root", "ELZOO ROOT SUITE PASSED"), ("check-consumers-db", "ELZOO CONSUMERS DB PASSED"),
               ("check-consumers", "ELZOO CONSUMERS PASSED"))
+SPLIT_WORK_PARTS = (("check-root", "ELZOO ROOT A SUITE PASSED"), ("check-root-b", "ELZOO ROOT B SUITE PASSED"),
+                    ("check-aggregate", "ELZOO AGGREGATE CONSUMER PASSED"),
+                    ("check-consumers-db", "ELZOO CONSUMERS DB PASSED"),
+                    ("check-consumers", "ELZOO CONSUMERS PASSED"))
 # The five jobs that are the evidence of an accepted run.
 EVIDENCE_JOBS = (PLAN_JOB,) + tuple(job for job, _marker in WORK_PARTS) + (HOSTED_JOB,)
 # Small gate: the sixth job of the unit. It must be skipped in every run that this script accepts.
 PIECE_JOB = "check-piece"
 BACKEND_JOBS = EVIDENCE_JOBS + (PIECE_JOB,)
+SPLIT_EVIDENCE_JOBS = (PLAN_JOB,) + tuple(job for job, _marker in SPLIT_WORK_PARTS) + (HOSTED_JOB,)
+SPLIT_BACKEND_JOBS = SPLIT_EVIDENCE_JOBS + (PIECE_JOB,)
+PART_MARKERS = {marker for _job, marker in WORK_PARTS + SPLIT_WORK_PARTS}
 LOG_STAMP = r"(?m)^(?:\d{4}-\d\d-\d\dT[0-9:.]+Z )?"
 HOSTED_GROUP = "GitHub Actions"
 HOSTED_LABELS = ["ubuntu-24.04"]
@@ -256,8 +263,11 @@ def decide(env, run_git=git, api=None):
     jobs = jobs_page.get("jobs")
     need(isinstance(jobs, list) and jobs_page.get("total_count") == len(jobs), "job listing incomplete")
     need(all(isinstance(job, dict) for job in jobs), "job listing malformed")
-    need(sorted(str(job.get("name")) for job in jobs) == sorted(BACKEND_JOBS),
-         "the jobs are not the six backend jobs (five and check-piece), once each")
+    names = sorted(str(job.get("name")) for job in jobs)
+    split = names == sorted(SPLIT_BACKEND_JOBS)
+    need(split or names == sorted(BACKEND_JOBS),
+         "the jobs are not the six backend jobs (five and check-piece) or the fixed split eight-job unit, once each")
+    work_parts = SPLIT_WORK_PARTS if split else WORK_PARTS
     by_name = {job["name"]: job for job in jobs}
     began = parse_time(run.get("run_started_at"), "run start")
     for job in jobs:
@@ -279,7 +289,7 @@ def decide(env, run_git=git, api=None):
     # Small gate: never the evidence of a push run, also when the classification of the merge agrees.
     need(by_name[PIECE_JOB].get("conclusion") == "skipped",
          "the second parent's run is a small-gate (piece) run: a selected check is never the evidence of a push run")
-    work = [by_name[job] for job, _marker in WORK_PARTS]
+    work = [by_name[job] for job, _marker in work_parts]
     ran = [job for job in work if job.get("conclusion") != "skipped"]
     mode = "full" if len(ran) == len(work) else "docs-only"
     need(mode == "full" or not ran, "the work jobs are partly skipped: not a full run")
@@ -307,11 +317,15 @@ def decide(env, run_git=git, api=None):
         for job in work:
             mix = step(job, "Run mix check")
             need(len(mix) == 1 and mix[0].get("conclusion") == "success", f"Run mix check step not green ({job['name']})")
-        for name, marker in WORK_PARTS:
+        for name, marker in work_parts:
             need(has_line(by_name[name], re.escape(marker)) and "ELZOO AFFECTED CHECK PASSED" not in log(by_name[name]),
                  f"part marker missing or affected-mode marker present ({name})")
+            need(not any(has_line(by_name[name], re.escape(other)) for other in PART_MARKERS - {marker}),
+                 f"unexpected part marker ({name})")
         need(has_line(aggregate, "ELZOO CHECK PASSED") and "ELZOO AFFECTED CHECK PASSED" not in log(aggregate),
              "full success marker missing or affected-mode marker present in the aggregating job")
+        need(not any(has_line(job, "ELZOO CHECK PASSED") for job in [plan] + work),
+             "full success marker outside check-hosted")
         need(not has_line(plan, "ELZOO DOCS-ONLY CHECK PASSED"), "docs-only marker present in a full run")
     else:
         # ELZ-071: the short check of a documentation-only pull_request run.
@@ -325,13 +339,16 @@ def decide(env, run_git=git, api=None):
         need(not has_line(aggregate, "ELZOO CHECK PASSED") and not has_line(plan, "ELZOO CHECK PASSED")
              and "ELZOO AFFECTED CHECK PASSED" not in log(plan),
              "a full or affected-mode marker is present in a docs-only run")
+        need(not any(has_line(job, re.escape(marker)) for job in [plan, aggregate] for marker in PART_MARKERS),
+             "part marker present in a docs-only run")
 
     latest = api.json(f"actions/runs/{run_id}")
     need(latest.get("id") == run_id and latest.get("status") == "completed"
          and latest.get("conclusion") == "success" and latest.get("run_attempt") == attempt,
          "run changed while reading it")
     details = dict(second_parent=second, tree=tree, run=run_id, mode=mode,
-                   jobs=",".join(name + ":" + str(by_name[name]["id"]) for name in EVIDENCE_JOBS))
+                   jobs=",".join(name + ":" + str(by_name[name]["id"])
+                                 for name in (SPLIT_EVIDENCE_JOBS if split else EVIDENCE_JOBS)))
     if mode == "docs-only":
         return True, "identical tree, documentation-only change and a passed exact-head docs-only check", details
     return True, "identical tree and a passed exact-head full run", details

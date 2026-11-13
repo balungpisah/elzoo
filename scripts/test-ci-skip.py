@@ -80,7 +80,13 @@ class FakeApi:
             "check-consumers": "ELZOO CONSUMERS PASSED"}
     STAMP = "2026-11-08T12:00:00.0000000Z "
 
-    def __init__(self, second):
+    def __init__(self, second, split=False):
+        if split:
+            self.WORK = {"check-root": "ELZOO ROOT A SUITE PASSED", "check-root-b": "ELZOO ROOT B SUITE PASSED",
+                         "check-aggregate": "ELZOO AGGREGATE CONSUMER PASSED",
+                         "check-consumers-db": "ELZOO CONSUMERS DB PASSED", "check-consumers": "ELZOO CONSUMERS PASSED"}
+            self.NAMES = ("check-plan",) + tuple(self.WORK) + ("check-hosted",)
+            self.ALL = self.NAMES + ("check-piece",)
         self.second = second
         self.calls = []
         # Exercise every evidence safeguard on a non-task branch, not only the positive reuse cases.
@@ -211,6 +217,70 @@ class DecisionTest(unittest.TestCase):
         self.assertEqual((second, 900, "check-plan:901,check-root:902,check-consumers-db:903,check-consumers:904,check-hosted:905"),
                          (details["second_parent"], details["run"], details["jobs"]))
         self.assertRegex(reason, "identical tree")
+
+    def test_split_full_and_docs_units_skip_but_piece_never_does(self):
+        for mode in ("full", "docs", "piece"):
+            with self.subTest(mode=mode):
+                env, run_git, second = self.scenario("docs" if mode == "docs" else "merge")
+                api = FakeApi(second, split=True)
+                api.docs, api.piece = mode == "docs", mode == "piece"
+                if api.docs:
+                    api.run.update(event="pull_request", head_repository={"full_name": "balungpisah/elzoo"})
+                if api.piece:
+                    with self.assertRaisesRegex(skip.Full, "small-gate"):
+                        skip.decide(env, run_git, api)
+                else:
+                    verdict, _reason, details = skip.decide(env, run_git, api)
+                    self.assertTrue(verdict)
+                    self.assertEqual("docs-only" if api.docs else "full", details["mode"])
+                    self.assertEqual(",".join(f"{name}:{901 + position}" for position, name in enumerate(api.NAMES)),
+                                     details["jobs"])
+
+    def test_only_complete_legacy_or_split_units_can_skip(self):
+        env, run_git, second = self.scenario("merge")
+        for split in (False, True):
+            for missing in FakeApi(second, split=split).ALL:
+                with self.subTest(split=split, missing=missing):
+                    api = FakeApi(second, split=split)
+                    api.drop_jobs = {missing}
+                    with self.assertRaisesRegex(skip.Full, "six backend jobs"):
+                        skip.decide(env, run_git, api)
+            for extra in ("check-any", "check-root-b" if not split else "check-root"):
+                with self.subTest(split=split, extra=extra):
+                    api = FakeApi(second, split=split)
+                    api.extra_jobs = [dict(api.build_jobs()[1], name=extra)]
+                    with self.assertRaisesRegex(skip.Full, "six backend jobs"):
+                        skip.decide(env, run_git, api)
+
+    def test_split_work_requires_each_own_step_marker_and_success(self):
+        env, run_git, second = self.scenario("merge")
+        gate = {"name": "Verify the GitHub-hosted runner", "conclusion": "success"}
+        for name, marker in FakeApi(second, split=True).WORK.items():
+            for change in ({"conclusion": "skipped"}, {"conclusion": "failure"}):
+                with self.subTest(job=name, change=change):
+                    api = FakeApi(second, split=True)
+                    api.jobs_changes = {name: change}
+                    with self.assertRaises(skip.Full):
+                        skip.decide(env, run_git, api)
+            for steps in ([], [{"name": "Run mix check", "conclusion": "skipped"}],
+                          [{"name": "Run mix check", "conclusion": "failure"}],
+                          [{"name": "Run mix check", "conclusion": "success"}] * 2):
+                with self.subTest(job=name, steps=steps):
+                    api = FakeApi(second, split=True)
+                    api.jobs_changes = {name: {"steps": [gate] + steps}}
+                    with self.assertRaisesRegex(skip.Full, "Run mix check step"):
+                        skip.decide(env, run_git, api)
+            for log in ("", "ELZOO ROOT SUITE PASSED\n", marker + "\nELZOO ROOT SUITE PASSED\n",
+                        marker + "\nELZOO CHECK PASSED\n"):
+                with self.subTest(job=name, log=log):
+                    api = FakeApi(second, split=True)
+                    api.logs_by_job = {name: log}
+                    with self.assertRaisesRegex(skip.Full, "marker"):
+                        skip.decide(env, run_git, api)
+        api = FakeApi(second)
+        api.logs_by_job = {"check-root": "ELZOO ROOT A SUITE PASSED\n"}
+        with self.assertRaisesRegex(skip.Full, "marker"):
+            skip.decide(env, run_git, api)
 
     def test_same_change_on_main_still_has_an_identical_tree_and_skips(self):
         (verdict, _reason, _details), _api, _second = self.decide("same-change")
