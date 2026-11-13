@@ -80,13 +80,15 @@ class FakeApi:
             "check-consumers": "ELZOO CONSUMERS PASSED"}
     STAMP = "2026-11-08T12:00:00.0000000Z "
 
-    def __init__(self, second, split=False):
+    def __init__(self, second, split=False, spike=False):
         if split:
             self.WORK = {"check-root": "ELZOO ROOT A SUITE PASSED", "check-root-b": "ELZOO ROOT B SUITE PASSED",
                          "check-aggregate": "ELZOO AGGREGATE CONSUMER PASSED",
                          "check-consumers-db": "ELZOO CONSUMERS DB PASSED", "check-consumers": "ELZOO CONSUMERS PASSED"}
             self.NAMES = ("check-plan",) + tuple(self.WORK) + ("check-hosted",)
             self.ALL = self.NAMES + ("check-piece",)
+        if spike:
+            self.ALL += ("check-spike",)
         self.second = second
         self.calls = []
         # Exercise every evidence safeguard on a non-task branch, not only the positive reuse cases.
@@ -124,7 +126,7 @@ class FakeApi:
         for position, name in enumerate(self.ALL):
             if name in self.drop_jobs:
                 continue
-            skipped = ((self.docs or self.piece) and name in self.WORK) or (name == "check-piece" and not self.piece)
+            skipped = ((self.docs or self.piece) and name in self.WORK) or (name == "check-piece" and not self.piece) or name == "check-spike"
             steps = ([] if skipped else
                      [gate] + (plan if name == "check-plan" else
                                [{"name": "Require every job", "conclusion": "success"}] if name == "check-hosted" else
@@ -251,6 +253,46 @@ class DecisionTest(unittest.TestCase):
                     api.extra_jobs = [dict(api.build_jobs()[1], name=extra)]
                     with self.assertRaisesRegex(skip.Full, "six backend jobs"):
                         skip.decide(env, run_git, api)
+
+    def test_skipped_spike_is_neutral_for_full_docs_and_piece_evidence(self):
+        for mode in ("full", "full-pr", "docs", "piece"):
+            with self.subTest(mode=mode):
+                env, run_git, second = self.scenario("docs" if mode == "docs" else "merge")
+                api = FakeApi(second, split=True)
+                api.docs, api.piece = mode == "docs", mode == "piece"
+                if api.docs or mode == "full-pr":
+                    api.run.update(event="pull_request", head_repository={"full_name": "balungpisah/elzoo"})
+                if api.piece:
+                    api.ALL += ("check-spike",)
+                    with self.assertRaisesRegex(skip.Full, "small-gate"):
+                        skip.decide(env, run_git, api)
+                else:
+                    before = skip.decide(env, run_git, api)
+                    api.ALL += ("check-spike",)
+                    self.assertEqual(before, skip.decide(env, run_git, api))
+                    if api.docs:
+                        api.first_parent_runs = []
+                        with self.assertRaisesRegex(skip.Full, "first parent"):
+                            skip.decide(env, run_git, api)
+
+    def test_spike_must_be_skipped_and_not_hide_an_incomplete_unit(self):
+        env, run_git, second = self.scenario("merge")
+        for conclusion in ("success", "failure", "cancelled", None, ""):
+            with self.subTest(conclusion=conclusion):
+                api = FakeApi(second, split=True, spike=True)
+                api.jobs_changes["check-spike"] = {"conclusion": conclusion}
+                with self.assertRaisesRegex(skip.Full, "executed check-spike"):
+                    skip.decide(env, run_git, api)
+        for missing in FakeApi(second, split=True).ALL:
+            with self.subTest(missing=missing):
+                api = FakeApi(second, split=True, spike=True)
+                api.drop_jobs = {missing}
+                with self.assertRaisesRegex(skip.Full, "six backend jobs"):
+                    skip.decide(env, run_git, api)
+        api = FakeApi(second, split=True, spike=True)
+        api.extra_jobs = [dict(api.build_jobs()[-1], id=999)]
+        with self.assertRaisesRegex(skip.Full, "six backend jobs"):
+            skip.decide(env, run_git, api)
 
     def test_split_work_requires_each_own_step_marker_and_success(self):
         env, run_git, second = self.scenario("merge")

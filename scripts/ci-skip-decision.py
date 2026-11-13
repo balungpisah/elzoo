@@ -24,6 +24,7 @@ runs no tests, so it must not hide a red or unfinished push run of that main beh
 Small gate: a run whose job `check-piece` ran (the small gate of a Piece-only pull request, `mix check --piece`) is never
 evidence here, whatever the classification of the merge says. The small gate is a selected check; the push run on main
 is the full check of the merged content (owner decision), so it always runs after a small-gate merge.
+The same rule applies to an executed `check-spike`; a skipped `check-spike` is neutral in a full or docs-only unit.
 
 Fail closed: every other case, and every error, prints skip=false (a full run). The script never
 exits non-zero because it cannot decide. It writes skip=true|false to $GITHUB_OUTPUT.
@@ -56,6 +57,7 @@ SPLIT_WORK_PARTS = (("check-root", "ELZOO ROOT A SUITE PASSED"), ("check-root-b"
 EVIDENCE_JOBS = (PLAN_JOB,) + tuple(job for job, _marker in WORK_PARTS) + (HOSTED_JOB,)
 # Small gate: the sixth job of the unit. It must be skipped in every run that this script accepts.
 PIECE_JOB = "check-piece"
+SPIKE_JOB = "check-spike"
 BACKEND_JOBS = EVIDENCE_JOBS + (PIECE_JOB,)
 SPLIT_EVIDENCE_JOBS = (PLAN_JOB,) + tuple(job for job, _marker in SPLIT_WORK_PARTS) + (HOSTED_JOB,)
 SPLIT_BACKEND_JOBS = SPLIT_EVIDENCE_JOBS + (PIECE_JOB,)
@@ -264,11 +266,13 @@ def decide(env, run_git=git, api=None):
     need(isinstance(jobs, list) and jobs_page.get("total_count") == len(jobs), "job listing incomplete")
     need(all(isinstance(job, dict) for job in jobs), "job listing malformed")
     names = sorted(str(job.get("name")) for job in jobs)
-    split = names == sorted(SPLIT_BACKEND_JOBS)
+    split = names in (sorted(SPLIT_BACKEND_JOBS), sorted(SPLIT_BACKEND_JOBS + (SPIKE_JOB,)))
     need(split or names == sorted(BACKEND_JOBS),
-         "the jobs are not the six backend jobs (five and check-piece) or the fixed split eight-job unit, once each")
+         "the jobs are not the six backend jobs (five and check-piece), fixed split eight-job unit or nine-job unit, once each")
     work_parts = SPLIT_WORK_PARTS if split else WORK_PARTS
     by_name = {job["name"]: job for job in jobs}
+    need(SPIKE_JOB not in by_name or by_name[SPIKE_JOB].get("conclusion") == "skipped",
+         "the second parent's run executed check-spike: a selected check is never the evidence of a push run")
     began = parse_time(run.get("run_started_at"), "run start")
     for job in jobs:
         if job.get("conclusion") == "skipped":

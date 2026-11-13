@@ -883,5 +883,46 @@ class PieceCommandLine(unittest.TestCase):
                 self.assertEqual(2, cc.main(argv, env={}))
 
 
+class SpikeClass(unittest.TestCase):
+    def test_spikes_with_docs_and_plan_files(self):
+        for path, ash in (("spikes/ash_foundation/mix.lock", True),
+                          ("spikes/gleam_ui/src/main.gleam", False)):
+            self.assertEqual((True, ash), cc.spike_only([file_entry(path)]))
+            self.assertEqual((True, ash), cc.spike_only([
+                file_entry(path), file_entry("tasks/ELZ-158.md"),
+                file_entry("docs/plans/release-plan.json"), file_entry("docs/plans/views.md"),
+                file_entry("docs/plans/dependencies.mmd")]))
+
+    def test_root_and_piece_paths_are_not_spike_only(self):
+        spike = file_entry("spikes/ash_foundation/mix.lock")
+        for path in ("lib/x.ex", "mix.lock", "pieces/core/port/lib/x.ex",
+                     "docs/consuming.md", "registry/catalogue.json", "LEDGER.md",
+                     "spikes/other/file", "spikes/ash_foundation", "spikes/ash_foundation/../x",
+                     "spikes/ash_foundation//x"):
+            with self.subTest(path=path):
+                self.assertEqual((False, False), cc.spike_only([spike, file_entry(path)]))
+        self.assertEqual((False, False), cc.spike_only([]))
+        self.assertEqual((False, False), cc.spike_only([file_entry("docs/a.md")]))
+
+    def test_rename_out_symlink_submodule_and_odd_modes(self):
+        self.assertEqual((False, False), cc.spike_only([
+            ("100644", "000000", "D", "spikes/ash_foundation/old.ex"),
+            ("000000", "100644", "A", "lib/new.ex")]))
+        for mode in ("120000", "160000", "040000"):
+            for old, new in ((mode, "100644"), ("100644", mode)):
+                self.assertEqual((False, False), cc.spike_only([
+                    (old, new, "M", "spikes/ash_foundation/link")]))
+
+    def test_only_pull_request_merge_checkouts_can_select_spikes(self):
+        for event in ("push", "workflow_dispatch", ""):
+            self.assertEqual((False, False), cc.classify_spike_github({"GITHUB_EVENT_NAME": event}))
+        def run(argv, **kwargs):
+            output = f"{H} {H} {H}" if argv[1] == "rev-list" else raw(file_entry("spikes/ash_foundation/mix.exs"))
+            return subprocess.CompletedProcess(argv, 0, output)
+        self.assertEqual((True, True), cc.classify_spike_github({"GITHUB_EVENT_NAME": "pull_request"}, run))
+        self.assertEqual((False, False), cc.classify_spike_github(
+            {"GITHUB_EVENT_NAME": "pull_request"}, FakeRun(stdout="not a merge")))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -8,7 +8,19 @@
   The body lists each path outside the Piece directory.
 - Give parallel workers tasks with disjoint paths. Put a shared prerequisite
   in its own task and merge it first.
-- Publish a batch of tasks in this order:
+- **One PR for coordinator-owned non-Piece work.** If the coordinator does
+  the work itself, there is no output Piece ID or Piece Contract change, and
+  the task is not offered to another worker, publication and implementation
+  may share one `task/ELZ-###` PR. Write the task, create its issue from the
+  file without `task`, and claim the branch with the section 2 API lock.
+  Commit the task file, its job row (the fields in step 3 below, including the
+  live issue-body hash, with no outputs) and implementation. Regenerate the
+  plan views. Close the task issue and reporting issue if any in the PR.
+  No separate publication PR, publication merge wait or task label is needed:
+  no worker is waiting to claim it. Independent review, exact-head hosted
+  evidence, freeze rules and the queue are unchanged. Classify the actual
+  paths using the decision tree in `AGENTS.md` section 1.
+- Publish a batch of tasks for workers in this order:
   1. Write each `tasks/ELZ-###-<slug>.md`. It must hold one line
      `- Dependencies: ELZ-..., ELZ-...`.
   2. Create each issue from its file, without the label `task`:

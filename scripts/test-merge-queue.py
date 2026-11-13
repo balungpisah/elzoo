@@ -20,6 +20,23 @@ A, B, M = "a" * 40, "b" * 40, "c" * 40
 HOSTED_FIELDS = dict(runner_name="GitHub Actions 7", runner_group_name="GitHub Actions", labels=["ubuntu-24.04"])
 
 
+def step_script_log(name):
+    step = (ROOT / ".github/workflows/symbolic-check.yml").read_text().split(f"      - name: {name}\n", 1)[1]
+    run = step.split("        run: ", 1)[1]
+    if run.startswith("|\n"):
+        lines = []
+        for line in run[2:].splitlines():
+            if not line.startswith("          "):
+                break
+            lines.append(line[10:])
+    else:
+        lines = [run.splitlines()[0]]
+    stamp = "2026-11-07T13:00:00.0000000Z "
+    return (stamp + "##[group]Run " + lines[0] + "\n"
+            + "".join(stamp + "\x1b[36;1m" + line + "\x1b[0m\n" for line in lines)
+            + stamp + "##[endgroup]\n")
+
+
 def jobs_text(base):
     """The jobs part of the merge line: the five job IDs of a run whose job base is `base` (position 0 to 4)."""
     names = ("check-plan", "check-root", "check-consumers-db", "check-consumers", "check-hosted")
@@ -38,7 +55,7 @@ class Fake:
                                  "check-consumers-db": "ELZOO CONSUMERS DB PASSED",
                                  "check-consumers": "ELZOO CONSUMERS PASSED"}
             self.NAMES = ("check-plan",) + tuple(self.PART_MARKERS) + ("check-hosted",)
-            self.ALL = self.NAMES + ("check-piece",)
+            self.ALL = self.NAMES + ("check-piece", "check-spike")
         self.calls = []
         self.now = 0
         self.messages = []
@@ -76,6 +93,7 @@ class Fake:
                            {"name": "Docs-only check", "conclusion": "success"}]       # steps of the plan job in a docs-only run
         self.docs_log = "2026-11-09T05:00:00.0000000Z ELZOO DOCS-ONLY CHECK PASSED\n"
         # Small gate: a run can have the piece shape (work jobs skipped, check-piece ran with its own marker).
+        self.spike_runs = set()
         self.piece_runs = set()        # IDs of runs that have the piece shape; their jobs have the base ID 500
         self.piece_steps = [{"name": "Classify the change", "conclusion": "success"},
                             {"name": "Classify a Piece change", "conclusion": "success"},
@@ -203,6 +221,8 @@ class Fake:
                     "check-consumers": "ELZOO CONSUMERS PASSED"}
 
     def job_base(self, read_run):
+        if read_run in self.spike_runs:
+            return 600
         if read_run in self.piece_runs:
             return 500
         return 400 if read_run in self.docs_runs else 200 + self.dispatches
@@ -212,22 +232,30 @@ class Fake:
 
     def backend_jobs(self, read_run):
         piece = read_run in self.piece_runs
-        docs = read_run in self.docs_runs or piece
+        spike = read_run in self.spike_runs
+        docs = read_run in self.docs_runs or piece or spike
         base = self.job_base(read_run)
         run_id = read_run if docs else 100 + self.dispatches if self.dispatches else self.adopted()
         gate = {"name": "Verify the GitHub-hosted runner", "conclusion": "success"}
         plan_steps = (list(self.piece_steps) if piece else list(self.docs_steps) if docs else
                       [{"name": "Classify the change", "conclusion": "success"},
                        {"name": "Docs-only check", "conclusion": "skipped"}])
+        if spike:
+            plan_steps = [{"name": "Classify the change", "conclusion": "success"},
+                          {"name": "Classify a spike change", "conclusion": "success"},
+                          {"name": "Docs-only check", "conclusion": "skipped"}]
         jobs = []
         for name in self.ALL:
             if name in self.drop_jobs:
                 continue
-            skipped = (docs and name in self.PART_MARKERS) or (name == "check-piece" and not piece)
+            skipped = ((docs and name in self.PART_MARKERS) or (name == "check-piece" and not piece)
+                       or (name == "check-spike" and not spike))
             steps = ([] if skipped else
                      [gate] + (plan_steps if name == "check-plan" else
                                [{"name": "Require every job", "conclusion": "success"}] if name == "check-hosted" else
                                [{"name": "Run the small gate", "conclusion": "success"}] if name == "check-piece" else
+                               [{"name": "Check the Ash spike", "conclusion": "success"},
+                                {"name": "Record the spike check", "conclusion": "success"}] if name == "check-spike" else
                                list(self.steps)))
             job = dict(id=self.job_id(base, name), run_id=run_id, name=name, head_sha=self.pr["headRefOid"],
                        status="completed", conclusion="skipped" if skipped else "success", **HOSTED_FIELDS,
@@ -250,6 +278,11 @@ class Fake:
         if self.log is not None:
             return self.log
         stamp = "2026-11-07T13:00:00.0000000Z "
+        if base == 600:
+            return {"check-plan": step_script_log("Plan the work jobs") + stamp + "ELZOO PLAN: run=false skip=false docs_only=false\n"
+                    + stamp + "ELZOO SPIKE PLAN: spike=true spike_only=true\n",
+                    "check-spike": step_script_log("Record the spike check") + stamp + queue.SPIKE_MARKER + "\n",
+                    "check-hosted": step_script_log("Require every job")}.get(name, "")
         if base == 500:   # a small gate run
             return {"check-plan": self.piece_plan_log, "check-piece": self.piece_log}.get(name, "")
         if base == 400:   # a docs-only run
@@ -764,7 +797,7 @@ class HostedLaneEvidence(unittest.TestCase):
                         self.fake.diff_paths = ["pieces/core/port/lib/port.ex"]
                 self.q.process(79)
                 self.assertTrue(self.fake.merged)
-                names = self.fake.ALL if mode == "piece" else self.fake.NAMES
+                names = self.fake.NAMES + (("check-piece",) if mode == "piece" else ())
                 base = 500 if mode == "piece" else 400 if mode == "docs" else 201
                 ids = ",".join(f"{name}:{base * 10 + position}" for position, name in enumerate(names))
                 self.assertIn(f"jobs={ids} head=", self.fake.messages[-1])
@@ -772,6 +805,8 @@ class HostedLaneEvidence(unittest.TestCase):
     def test_only_complete_legacy_or_split_units_are_evidence(self):
         for split in (False, True):
             for missing in Fake(split=split).ALL:
+                if missing == "check-spike":
+                    continue  # The complete legacy split unit remains accepted.
                 with self.subTest(split=split, missing=missing):
                     self.setUp(split=split)
                     self.fake.drop_jobs = {missing}
@@ -1997,6 +2032,22 @@ class DocsOnlyFastPath(unittest.TestCase):
         self.fake.docs_runs = {run_id}
         self.fake.diff_paths = list(paths)
 
+    def test_echoed_spike_marker_is_neutral_but_output_is_refused(self):
+        for job in ("check-plan", "check-hosted"):
+            with self.subTest(job=job):
+                self.setUp()
+                self.docs_pr()
+                original = (self.fake.job_log(self.fake.job_id(400, job)) if job == "check-plan"
+                            else step_script_log("Require every job"))
+                self.fake.logs_by_job[job] = original + step_script_log("Record the spike check")
+                self.q.process(79)
+                self.assertTrue(self.fake.merged)
+                self.assertIn("mode=docs-only", self.fake.messages[-1])
+                self.setUp()
+                self.docs_pr()
+                self.fake.logs_by_job[job] = original + queue.SPIKE_MARKER + "\n"
+                self.refuses("Spike marker present outside")
+
     def refuses(self, pattern):
         with self.assertRaisesRegex(queue.QueueError, pattern):
             self.q.process(79)
@@ -2485,6 +2536,110 @@ class ReviewControls(unittest.TestCase):
     def test_gleam_concurrency_keeps_main_and_dispatch_runs(self):
         source = (ROOT / ".github/workflows/symbolic-gleam.yml").read_text()
         self.assertIn("\nconcurrency:\n  group: gleam-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}\n  cancel-in-progress: ${{ github.event_name == 'pull_request' }}\n", source)
+
+
+class SpikeFastPath(unittest.TestCase):
+    def setUp(self):
+        self.fake = Fake(split=True)
+        self.fake.pr_runs = [self.fake.pr_run(700)]
+        self.fake.spike_runs = {700}
+        self.fake.diff_paths = ["spikes/ash_foundation/mix.lock", "tasks/ELZ-158.md"]
+        self.q = self.fake.make_queue(timeout=3600)
+
+    def refuses(self, pattern):
+        with self.assertRaisesRegex(queue.QueueError, pattern):
+            self.q.process(79)
+        self.assertFalse(self.fake.merged)
+
+    def test_spike_run_merges_with_own_classification(self):
+        self.q.process(79)
+        self.assertTrue(self.fake.merged)
+        self.assertEqual(0, self.fake.dispatches)
+        self.assertEqual(2, len(self.fake.raw_diff_calls))
+        self.assertIn("mode=spike", self.fake.messages[-1])
+        self.assertIn("check-spike:", self.fake.messages[-1])
+
+    def test_echoed_scripts_are_not_success_markers(self):
+        self.assertIn('echo "ELZOO CHECK PASSED"', self.fake.job_log(self.fake.job_id(600, "check-hosted")))
+        self.assertIn('echo "ELZOO SPIKE CHECK PASSED"', self.fake.job_log(self.fake.job_id(600, "check-spike")))
+        self.q.process(79)
+        self.assertTrue(self.fake.merged)
+        self.assertEqual(0, self.fake.dispatches)
+        self.assertIn("mode=spike", self.fake.messages[-1])
+
+    def test_echo_without_spike_marker_output_is_refused(self):
+        self.fake.logs_by_job["check-spike"] = step_script_log("Record the spike check")
+        self.refuses("Missing or duplicate spike marker")
+
+    def test_spike_marker_script_is_neutral_but_output_in_other_jobs_is_refused(self):
+        for job in ("check-plan", "check-hosted"):
+            with self.subTest(job=job):
+                self.setUp()
+                original = self.fake.job_log(self.fake.job_id(600, job))
+                self.fake.logs_by_job[job] = original + step_script_log("Record the spike check")
+                self.q.process(79)
+                self.assertTrue(self.fake.merged)
+                self.setUp()
+                self.fake.logs_by_job[job] = original + queue.SPIKE_MARKER + "\n"
+                self.refuses("Spike marker printed outside")
+
+    def test_classifier_disagreement_dispatches_full(self):
+        self.fake.diff_paths.append("mix.lock")
+        self.q.process(79)
+        self.assertEqual(1, self.fake.dispatches)
+        self.assertTrue(self.fake.merged)
+        self.assertNotIn("mode=spike", self.fake.messages[-1])
+
+    def test_skipped_required_ash_step_dispatches_full_and_gleam_only_can_skip_it(self):
+        steps = [{"name": "Verify the GitHub-hosted runner", "conclusion": "success"},
+                 {"name": "Check the Ash spike", "conclusion": "skipped"},
+                 {"name": "Record the spike check", "conclusion": "success"}]
+        self.fake.jobs_changes = {"check-spike": {"steps": steps}}
+        self.q.process(79)
+        self.assertEqual(1, self.fake.dispatches)
+        self.assertNotIn("mode=spike", self.fake.messages[-1])
+        self.setUp()
+        self.fake.diff_paths = ["spikes/gleam_ui/src/main.gleam"]
+        self.fake.jobs_changes = {"check-spike": {"steps": steps}}
+        self.q.process(79)
+        self.assertEqual(0, self.fake.dispatches)
+        self.assertIn("mode=spike", self.fake.messages[-1])
+        self.assertTrue(any(m.startswith("ELZOO GLEAM EVIDENCE") for m in self.fake.messages))
+
+    def test_other_markers_or_duplicate_spike_marker_are_refused(self):
+        for job in ("check-plan", "check-spike", "check-hosted"):
+            for marker in (queue.FULL_MARKER, queue.DOCS_MARKER, queue.PIECE_MARKER,
+                           queue.AFFECTED_MARKER, *queue.PART_MARKERS, queue.SPIKE_MARKER):
+                with self.subTest(job=job, marker=marker):
+                    self.setUp()
+                    self.fake.logs_by_job[job] = self.fake.job_log(self.fake.job_id(600, job)) + marker + "\n"
+                    self.refuses("marker")
+
+    def test_a_work_job_running_is_refused(self):
+        self.fake.jobs_changes = {"check-root": {"conclusion": "success", "steps": [
+            {"name": "Verify the GitHub-hosted runner", "conclusion": "success"}]}}
+        self.refuses("work jobs ran beside it")
+
+    def test_partial_rerun_and_wrong_head_or_runner_are_refused(self):
+        for change in ({"started_at": "2026-11-09T00:59:00Z"},
+                       {"head_sha": B}, {"runner_name": "other runner"}):
+            with self.subTest(change=change):
+                self.setUp()
+                self.fake.jobs_changes = {"check-spike": change}
+                self.refuses(".")
+
+    def test_spike_classification_is_rechecked_before_merge(self):
+        self.fake.raw_paths_later = ["mix.lock"]
+        self.refuses("no longer matches")
+
+    def test_same_freeze_and_first_parent_window_as_small_gate(self):
+        self.fake.main_runs = [dict(id=9000, event="push", head_branch="main", status="completed",
+                                   conclusion="failure", path=".github/workflows/symbolic-check.yml")]
+        self.refuses("Main is frozen")
+        self.setUp()
+        self.fake.first_parent_chain = [M, A, B, "d" * 40, "e" * 40, "f" * 40]
+        self.fake.covering_runs = {"f" * 40: [self.fake.main_head_run(head_sha="f" * 40)]}
+        self.refuses("count=5")
 
 
 if __name__ == "__main__":

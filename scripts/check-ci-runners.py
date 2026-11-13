@@ -24,6 +24,8 @@ HOSTED_PLAN_HEADER = """    permissions:
     outputs:
       run: ${{ steps.plan.outputs.run }}
       piece: ${{ steps.plan.outputs.piece }}
+      spike: ${{ steps.plan.outputs.spike }}
+      ash: ${{ steps.spike.outputs.ash }}
     steps:""".split("\n")
 HOSTED_AGG_HEADER = """    permissions:
       contents: read
@@ -33,7 +35,7 @@ WORK_IF = "    if: ${{ needs.check-plan.outputs.run == 'true' }}"
 WORK_NEEDS = "    needs: check-plan"
 PIECE_IF = "    if: ${{ needs.check-plan.outputs.piece == 'true' }}"
 AGG_IF = ("    if: ${{ always() && (" + HOSTED_BACKEND_GATE.split("${{ ", 1)[1].rsplit(" }}", 1)[0] + ") }}")
-AGG_NEEDS = "    needs: [check-plan, check-root, check-root-b, check-aggregate, check-consumers-db, check-consumers, check-piece]"
+AGG_NEEDS = "    needs: [check-plan, check-root, check-root-b, check-aggregate, check-consumers-db, check-consumers, check-piece, check-spike]"
 WORK_JOBS = {"check-root": "root-a", "check-root-b": "root-b", "check-aggregate": "aggregate",
              "check-consumers-db": "consumers-db", "check-consumers": "consumers"}
 HOSTED_BACKEND_HEADER = """    permissions:
@@ -66,6 +68,57 @@ HOSTED_GLEAM_HEADER = """    timeout-minutes: 30
 # Jobs in order: (name, exact lines below the job name (if:, needs:), exact runs-on line, exact hosted header lines
 # below runs-on, role). A hosted job has the exact header and no job container. `actions: read` (ELZ-058, the
 # decision step reads the exact-head run of the merged pull request head) is in the check-plan header only.
+SPIKE_JOB = '''  check-spike:
+    if: ${{ needs.check-plan.outputs.spike == 'true' }}
+    needs: check-plan
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: 20
+    env:
+      ImageOS: ubuntu24
+      ERL_FLAGS: '+S 4:4 +SDcpu 1 +SDio 1'
+      MIX_ENV: test
+    steps:
+      - name: Verify the GitHub-hosted runner
+        run: |
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$RUNNER_OS" = Linux
+          test "$RUNNER_ARCH" = X64
+          . /etc/os-release
+          test "$ID" = ubuntu
+          test "$VERSION_ID" = 24.04
+          echo "Hosted runner: $RUNNER_NAME"
+          free -h || true
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install runtime libraries
+        run: sudo python3 scripts/ci-install-runtime.py
+      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1
+        with:
+          elixir-version: '1.20.4'
+          otp-version: '29.1.2'
+      - name: Restore dependency cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            spikes/ash_foundation/deps
+            spikes/ash_foundation/_build
+          key: elzoo-spike-v1-${{ runner.os }}-${{ env.ImageOS }}-otp29.1.2-elixir1.20.4-${{ hashFiles('spikes/ash_foundation/mix.lock', 'spikes/ash_foundation/mix.exs') }}
+      - run: mix local.hex --force
+      - run: mix local.rebar --force
+      - name: Check the Ash spike
+        if: ${{ needs.check-plan.outputs.ash == 'true' }}
+        working-directory: spikes/ash_foundation
+        run: |
+          unset MIX_BUILD_PATH MIX_DEPS_PATH
+          mix deps.get
+          mix format --check-formatted
+          mix test --warnings-as-errors
+      - name: Record the spike check
+        run: echo "ELZOO SPIKE CHECK PASSED"'''
 expected = {
     "symbolic-check.yml": [
         ("check-plan", [HOSTED_BACKEND_GATE], HOSTED_LABEL, HOSTED_PLAN_HEADER, "plan"),
@@ -75,6 +128,7 @@ expected = {
         ("check-consumers-db", [WORK_IF, WORK_NEEDS], HOSTED_LABEL, HOSTED_BACKEND_HEADER, "work"),
         ("check-consumers", [WORK_IF, WORK_NEEDS], HOSTED_LABEL, HOSTED_BACKEND_HEADER, "work"),
         ("check-piece", [PIECE_IF, WORK_NEEDS], HOSTED_LABEL, HOSTED_BACKEND_HEADER, "work"),
+        ("check-spike", SPIKE_JOB.splitlines()[1:3], HOSTED_LABEL, SPIKE_JOB.splitlines()[4:12], "spike"),
         ("check-hosted", [AGG_IF, AGG_NEEDS], HOSTED_LABEL, HOSTED_AGG_HEADER, "aggregate"),
     ],
     "symbolic-gleam.yml": [
@@ -159,12 +213,13 @@ DOCS_ONLY_STEP = """      - name: Docs-only check
           python3 scripts/check-roadmap.py
           echo "ELZOO DOCS-ONLY CHECK PASSED\""""
 # ELZ-073: the plan step exposes whether the work jobs run: true unless the push skip or the docs-only path applies.
-PLAN_STEP = """      - name: Plan the work jobs
+PLAN_STEP = '''      - name: Plan the work jobs
         id: plan
         env:
           SKIP: ${{ steps.skip.outputs.skip }}
           DOCS_ONLY: ${{ steps.class.outputs.docs_only }}
           PIECE_ONLY: ${{ steps.piece.outputs.piece_only }}
+          SPIKE_ONLY: ${{ steps.spike.outputs.spike_only }}
           EVENT: ${{ github.event_name }}
         run: |
           if [ "$SKIP" != true ] && [ "$DOCS_ONLY" != true ]; then
@@ -177,10 +232,17 @@ PLAN_STEP = """      - name: Plan the work jobs
             RUN=false
             PIECE=true
           fi
+          SPIKE=false
+          if [ "$RUN" = true ] && [ "$SPIKE_ONLY" = true ] && [ "$EVENT" = pull_request ]; then
+            RUN=false
+            SPIKE=true
+          fi
+          echo "spike=$SPIKE" >> "$GITHUB_OUTPUT"
+          echo "ELZOO SPIKE PLAN: spike=$SPIKE spike_only=${SPIKE_ONLY:-unset}"
           echo "run=$RUN" >> "$GITHUB_OUTPUT"
           echo "piece=$PIECE" >> "$GITHUB_OUTPUT"
           echo "ELZOO PLAN: run=$RUN skip=${SKIP:-unset} docs_only=${DOCS_ONLY:-unset}"
-          echo "ELZOO PIECE PLAN: piece=$PIECE piece_only=${PIECE_ONLY:-unset}\""""
+          echo "ELZOO PIECE PLAN: piece=$PIECE piece_only=${PIECE_ONLY:-unset}"'''
 # ELZ-073: the aggregating job. It is never skipped (`always()`), fails when the plan failed, when the work jobs
 # were planned and one is not successful, and when they were not planned and one is not skipped. Only it prints
 # the full-check marker.
@@ -194,6 +256,8 @@ AGG_STEP = """      - name: Require every job
           PLAN: ${{ needs.check-plan.result }}
           RUN: ${{ needs.check-plan.outputs.run }}
           PIECE: ${{ needs.check-plan.outputs.piece }}
+          SPIKE: ${{ needs.check-plan.outputs.spike }}
+          SPIKE_RESULT: ${{ needs.check-spike.result }}
           ROOT: ${{ needs.check-root.result }}
           ROOT_B: ${{ needs.check-root-b.result }}
           AGGREGATE: ${{ needs.check-aggregate.result }}
@@ -204,6 +268,8 @@ AGG_STEP = """      - name: Require every job
           echo "plan=$PLAN run=$RUN piece=$PIECE root=$ROOT root-b=$ROOT_B aggregate=$AGGREGATE consumers-db=$DB consumers=$CONSUMERS check-piece=$SMALL"
           test "$PLAN" = success
           if [ "$RUN" = true ]; then
+            test "$SPIKE" = false
+            test "$SPIKE_RESULT" = skipped
             test "$PIECE" = false
             test "$SMALL" = skipped
             test "$ROOT" = success
@@ -213,6 +279,8 @@ AGG_STEP = """      - name: Require every job
             test "$CONSUMERS" = success
             echo "ELZOO CHECK PASSED"
           elif [ "$PIECE" = true ]; then
+            test "$SPIKE" = false
+            test "$SPIKE_RESULT" = skipped
             test "$RUN" = false
             test "$SMALL" = success
             test "$ROOT" = skipped
@@ -220,7 +288,19 @@ AGG_STEP = """      - name: Require every job
             test "$AGGREGATE" = skipped
             test "$DB" = skipped
             test "$CONSUMERS" = skipped
+          elif [ "$SPIKE" = true ]; then
+            test "$RUN" = false
+            test "$PIECE" = false
+            test "$SPIKE_RESULT" = success
+            test "$SMALL" = skipped
+            test "$ROOT" = skipped
+            test "$ROOT_B" = skipped
+            test "$AGGREGATE" = skipped
+            test "$DB" = skipped
+            test "$CONSUMERS" = skipped
           else
+            test "$SPIKE" = false
+            test "$SPIKE_RESULT" = skipped
             test "$RUN" = false
             test "$PIECE" = false
             test "$SMALL" = skipped
@@ -232,7 +312,10 @@ AGG_STEP = """      - name: Require every job
           fi"""
 REPORT_STEP_IF = ("      - name: Report container resource observations", "        if: always()")
 # Pinned steps and step-level conditions per job. Pairs are (step header line, if: line), in order.
-PLAN_PINNED = [CLASS_STEP + "\n" + PIECE_CLASS_STEP, CLASS_TEST_STEP, RUNTIME_TEST_STEP, ROADMAP_STEP, DOCS_ONLY_STEP,
+SPIKE_CLASS_STEP = """      - name: Classify a spike change
+        id: spike
+        run: python3 scripts/ci-change-class.py github-spike"""
+PLAN_PINNED = [CLASS_STEP + "\n" + PIECE_CLASS_STEP + "\n" + SPIKE_CLASS_STEP, CLASS_TEST_STEP, RUNTIME_TEST_STEP, ROADMAP_STEP, DOCS_ONLY_STEP,
                PLAN_STEP]
 PLAN_STEP_IFS = [
     ("      - name: Check the roadmap views", SKIP_IF),
@@ -604,6 +687,9 @@ for file in files:
                     pinned_tokens.append(s3_start + len(MINIO_CACHE_STEPS[0].split('\n')) + 3)
                 pin(MIX_CHECK_STEPS[name])
                 expected_ifs = WORK_STEP_IFS[name]
+            elif role == 'spike':
+                pin(SPIKE_JOB[SPIKE_JOB.index("      - uses: actions/checkout@"):])
+                expected_ifs = [("      - name: Check the Ash spike", "        if: ${{ needs.check-plan.outputs.ash == 'true' }}")]
             else:
                 pin(AGG_STEP)
                 step_starts = [i for i in block if lines[i].startswith('      - ') and i > steps[0]]
@@ -628,6 +714,8 @@ for file in files:
             # marker is printed by the aggregating job only.
             docs_lines = [i for i in block if DOCS_ONLY_MARKER in lines[i]]  # raw lines: script text and comments count
             full_lines = [i for i in block if FULL_MARKER in lines[i]]
+            if sum("ELZOO SPIKE CHECK PASSED" in lines[i] for i in block) != (1 if role == "spike" else 0):
+                errors.append(f'{file}: the spike marker belongs only in the pinned spike job ({name})')
             if len(docs_lines) != (1 if role == 'plan' else 0):
                 errors.append(f'{file}: the docs-only marker may be printed by the pinned Docs-only check step only ({name})')
             if len(full_lines) != (1 if role == 'aggregate' else 0):
@@ -647,7 +735,7 @@ for file in files:
             # `actions/cache` and `actions/cache/save` written in this form; other spellings (a `.` path part) and other
             # actions that cache are not counted (follow-ups on #147).
             cache_saves = [i for i in block if re.search(r'uses\s*:\s*actions/cache(?:/save)?@', lines[i], re.IGNORECASE)]
-            if len(cache_saves) != (2 if name == 'check-root' else 0):
+            if len(cache_saves) != (2 if name == 'check-root' else 1 if role == 'spike' else 0):
                 errors.append(f'{file}: only the root job saves caches, with exactly two save steps ({name})')
     # ELZ-069: no workflow reads `vars` (the lane variable is gone), and no self-hosted runner, label list or
     # tier input may come back. Case-insensitive and on raw lines, script text and comments included: GitHub
