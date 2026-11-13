@@ -306,10 +306,28 @@ defmodule Elzoo.CircuitBreakerTest do
   test "C8 duplicate registration cannot reset another fuse; explicit replacement is cold and rejects old tokens" do
     owner = closed()
     {:ok, permit} = C.admit(owner)
-    assert C.finish(owner, permit, :unhealthy) == {:ok, :applied}
-    assert C.start_link(name: @name, cooldown_ms: 60_000) == {:error, {:already_started, owner}}
-    assert status(owner).mode == :open
-    assert :fuse.ask(@fuse, :sync) == :blown
+    cooldown = System.convert_time_unit(status(owner).settings.cooldown_ms, :millisecond, :native)
+
+    eventually(fn ->
+      if :fuse.ask(@fuse, :sync) == :ok and status(owner).cooldown_remaining_ms == 0 do
+        {:ok, sample} = C.admit(owner)
+        started = System.monotonic_time()
+        assert C.finish(owner, sample, :unhealthy) == {:ok, :applied}
+        assert C.start_link(name: @name, cooldown_ms: 60_000) == {:error, {:already_started, owner}}
+        assert status(owner).mode == :open
+        provider = :fuse.ask(@fuse, :sync)
+
+        # A later auto-reset says nothing about whether the duplicate reset the fuse.
+        if System.monotonic_time() - started < cooldown do
+          assert provider == :blown
+        else
+          false
+        end
+      else
+        false
+      end
+    end)
+
     assert C.child_spec(name: @name).restart == :temporary
     GenServer.stop(owner)
     replacement = start()
