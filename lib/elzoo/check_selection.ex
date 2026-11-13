@@ -29,6 +29,9 @@ defmodule Elzoo.CheckSelection do
   # - cure_record_tags_test.exs: reads every .cure file below pieces/ (record names unique across Pieces);
   # - export_test.exs and the three consumer group modules: their setup loads the Registry; they hold the per-ID
   #   consumers (filtered by tag, as in affected mode); export_test.exs asserts that all four modules are loaded.
+  #   ELZ-152: export_test.exs also plans the export of every ready ID into one destination, and it holds one
+  #   consumer test (tag `changed_piece_consumer`) for each ready ID outside the inventory above.
+  #   test/test_helper.exs excludes that tag; only `test_args/1` of piece mode includes it, for the changed IDs.
   # docs/plans/release-plan.json, docs/plans/views.md and docs/plans/dependencies.mmd are read by no ExUnit test:
   # scripts/check-roadmap.py checks them in the plan job of the workflow.
   @piece_root_tests ~w(test/registry_test.exs test/install_configuration_test.exs test/elzoo_take_task_test.exs
@@ -130,7 +133,8 @@ defmodule Elzoo.CheckSelection do
   Small gate, second half: the tests of each changed Piece, of each ready Piece that depends on a changed one
   (transitively, the closure of affected mode), the root tests of `piece_root_tests/0` and the per-ID consumers of
   the affected ready IDs. The aggregate consumer never runs here. A changed directory that is not a ready ID (a new
-  Piece) has no dependants and no consumer; its own tests run.
+  Piece) has no dependants and no consumer; its own tests run. A changed ready ID outside the inventory gets a
+  copied consumer of its own (`changed_consumers`, ELZ-152); a dependant of a changed Piece gets none.
   """
   def piece(registry, %{pieces: [_ | _] = ids} = changes, root \\ File.cwd!()) do
     ready = ready_ids(registry)
@@ -158,6 +162,7 @@ defmodule Elzoo.CheckSelection do
       affected: affected,
       selected: Enum.sort(selected),
       skipped: Enum.sort(@consumer_ids -- selected),
+      changed_consumers: Enum.sort(changed_ready -- @consumer_ids),
       test_paths: piece_tests ++ @piece_root_tests
     }
   end
@@ -258,9 +263,11 @@ defmodule Elzoo.CheckSelection do
 
   def test_args(%{mode: :full}), do: ["--warnings-as-errors"]
 
-  def test_args(%{mode: :piece, skipped: skipped, test_paths: paths}) do
+  # An include wins over the default exclusion of test/test_helper.exs, for the named IDs only.
+  def test_args(%{mode: :piece, skipped: skipped, changed_consumers: own, test_paths: paths}) do
     ["--warnings-as-errors", "--exclude", "aggregate_consumer"] ++
-      Enum.flat_map(skipped, &["--exclude", "consumer_id:#{&1}"]) ++ paths
+      Enum.flat_map(skipped, &["--exclude", "consumer_id:#{&1}"]) ++
+      Enum.flat_map(own, &["--include", "changed_piece_consumer:#{&1}"]) ++ paths
   end
 
   def test_args(%{mode: :affected, skipped: skipped, aggregate: aggregate}) do
@@ -331,6 +338,8 @@ defmodule Elzoo.CheckSelection do
       "Affected ready IDs (changed and dependants): #{inspect(selection.affected, limit: :infinity)}",
       "Selected consumer IDs (#{length(selection.selected)}): #{inspect(selection.selected, limit: :infinity)}",
       "Skipped consumer IDs (#{length(selection.skipped)}): #{inspect(selection.skipped, limit: :infinity)}",
+      "Changed ready IDs without a per-ID consumer, each run in a copied consumer of its own " <>
+        "(#{length(selection.changed_consumers)}): #{inspect(selection.changed_consumers, limit: :infinity)}",
       "Test paths: #{inspect(selection.test_paths, limit: :infinity)}",
       "Aggregate consumer: not run in piece mode",
       "Ash spike: not run in piece mode",

@@ -132,6 +132,29 @@ defmodule Elzoo.ExportTest do
     assert_cure_consumer(ctx, ids, inner_timeout: @aggregate_inner_timeout)
   end
 
+  # ELZ-152: the first step of the aggregate consumer above, alone: the plan of every ready Piece into one
+  # destination. No write, no compile, no inner test run. When two Pieces disagree on a target or on a
+  # setting, `Elzoo.Export.plan!` raises and its message is the failure. No aggregate or consumer tag: the
+  # small gate and the root-b part run it.
+  test "every ready Piece plans into one destination", ctx do
+    ids = for {id, %{"status" => "ready"}} <- ctx.registry.entries, do: id
+    plan = Elzoo.Export.plan!(ctx.registry, ids, ctx.destination)
+    assert Enum.sort(Enum.map(plan.pieces, & &1["id"])) == Enum.sort(ids)
+    assert File.ls!(ctx.destination) == ["mix.exs"]
+  end
+
+  # ELZ-152: one copied consumer for each ready ID that has no per-ID consumer in the inventory
+  # (`Elzoo.CheckSelection.consumer_ids/0`), with the default limits. test/test_helper.exs excludes the
+  # tag, so the full check and its parts never run these tests; `mix check --piece` includes the tag for
+  # the changed IDs. In sequence, here: the closure of such an ID can need the PostgreSQL database.
+  for {id, %{"status" => "ready"}} <- Enum.sort(Elzoo.Registry.load!().entries),
+      id not in Elzoo.CheckSelection.consumer_ids() do
+    @tag changed_piece_consumer: id
+    test "#{id} runs its own checks in a copied consumer of its own (small gate)", ctx do
+      assert_cure_consumer(ctx, [unquote(id)])
+    end
+  end
+
   # PostgreSQL consumers share one disposable CI database: in sequence, here. The
   # database-free consumers run from test/consumer_group_{a,b,c}_test.exs (ELZ-049).
   # ELZ-062 (owner approval 2026-11-08, time limit only): `assembly/durable-job` alone gets 300 s. It exceeded
@@ -322,5 +345,66 @@ defmodule Elzoo.ExportTest do
     [aggregate] = Enum.filter(tests, &Map.has_key?(&1.tags, :aggregate_consumer))
     assert aggregate.tags.timeout == 1_200_000
     assert Elzoo.ExportTest.aggregate_inner_timeout() == 300_000
+  end
+
+  # ELZ-152: the partition test above reads the command-line filters only. This test adds the default
+  # exclusion of test/test_helper.exs, read from the configuration of this run.
+  test "only the small gate runs the consumer of a changed Piece that has none (ELZ-152)", ctx do
+    own =
+      Enum.filter(__MODULE__.__ex_unit__().tests, &Map.has_key?(&1.tags, :changed_piece_consumer))
+
+    without = Elzoo.CheckSelection.full(ctx.registry).without_consumer
+    assert without != []
+    assert Enum.sort(Enum.map(own, & &1.tags.changed_piece_consumer)) == without
+
+    # No tag of a part of the full check, and no limit of its own: the default limit of the suite.
+    for test <- own, tag <- [:consumer_id, :aggregate_consumer, :timeout] do
+      refute Map.has_key?(test.tags, tag), "#{test.tags.changed_piece_consumer} has the tag #{tag}"
+    end
+
+    default = Enum.filter(ExUnit.configuration()[:exclude], &(&1 == :changed_piece_consumer))
+    assert default == [:changed_piece_consumer]
+
+    # The IDs whose consumer test a selection runs: its `mix test` filters plus the default exclusion.
+    runs = fn selection ->
+      {opts, _paths, []} =
+        OptionParser.parse(Elzoo.CheckSelection.test_args(selection),
+          strict: [only: :keep, include: :keep, exclude: :keep, warnings_as_errors: :boolean]
+        )
+
+      [only, include, exclude] =
+        for key <- [:only, :include, :exclude],
+            do: opts |> Keyword.get_values(key) |> ExUnit.Filters.parse()
+
+      exclude = exclude ++ default ++ if(only == [], do: [], else: [:test])
+
+      Enum.sort(
+        for test <- own,
+            tags = Map.put(test.tags, :test, test.name),
+            ExUnit.Filters.eval(only ++ include, exclude, tags, [test]) == :ok,
+            do: test.tags.changed_piece_consumer
+      )
+    end
+
+    [id, other | _] = without
+    change = {:ok, ["pieces/#{id}/piece.json"]}
+
+    not_piece =
+      [
+        Elzoo.CheckSelection.full(ctx.registry),
+        Elzoo.CheckSelection.for_changes(ctx.registry, change)
+      ] ++
+        Enum.map(Elzoo.CheckSelection.parts(), &Elzoo.CheckSelection.part/1)
+
+    for selection <- not_piece, do: assert(runs.(selection) == [], inspect(selection.mode))
+
+    piece = &Elzoo.CheckSelection.piece(ctx.registry, %{pieces: &1})
+    assert runs.(piece.([id])) == [id]
+    assert runs.(piece.([other, id])) == [id, other]
+
+    # An ID of the inventory and a directory that is not a ready ID get none, and neither does a dependant.
+    inventory = piece.(["core/port", "family/not-a-ready-id"])
+    assert inventory.affected -- Elzoo.CheckSelection.consumer_ids() != []
+    assert runs.(inventory) == []
   end
 end

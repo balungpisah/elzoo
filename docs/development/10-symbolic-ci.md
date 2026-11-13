@@ -494,7 +494,17 @@ depends on a changed ready ID (transitive, as in affected mode); the root tests 
 hold the per-ID consumers (`export_test.exs` and the three consumer group modules); and the per-ID consumers of the
 affected ready IDs. A changed Piece directory that is not a ready ID (a new Piece) is valid: its own tests run. The
 aggregate consumer, the Ash spike and the other root tests do not run, also when an affected ID has no per-ID
-consumer. The report says so in its `LIMIT:` line, and the success marker is
+consumer. Two checks cover a part of what the aggregate consumer sees (ELZ-152). First, `export_test.exs` plans the
+export of every ready Piece into one destination (`Elzoo.Export.plan!`: no write, no compile, no inner test run),
+so two Pieces that disagree on a target or on a setting fail with the message of the exporter. This test has no
+consumer tag: the part `root-b` runs it too. Second, each changed ready ID that has no per-ID consumer in the
+inventory (`Elzoo.CheckSelection.consumer_ids/0`) runs its tests once in a copied consumer of its own, with the
+default limits. `export_test.exs` holds one test with the tag `changed_piece_consumer` for each ready ID outside
+the inventory, `test/test_helper.exs` excludes that tag, and only piece mode passes
+`--include changed_piece_consumer:<ID>`, for the changed IDs. So the full check, its five parts and affected mode
+never run these tests (the aggregate consumer holds every ready Piece), and a dependant of a changed Piece gets no
+such consumer. The report names the IDs in its line `Changed ready IDs without a per-ID consumer, ...`. The
+report states what does not run in its `LIMIT:` line, and the success marker is
 `ELZOO PIECE CHECK PASSED (small gate; a selected check, not the full check; see LIMIT)`, distinct from the full,
 part and affected markers. No ExUnit test reads `docs/plans/release-plan.json` or the two plan views:
 `scripts/check-roadmap.py` checks them in the plan job.
