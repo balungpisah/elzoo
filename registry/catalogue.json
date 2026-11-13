@@ -1000,7 +1000,8 @@
       "summary": "A Run asks a named person one question and continues with the answer",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/wait-for-person/piece.json",
       "reason": "Bot platform wave 2 (P13). Not an approval: an approval binds one exact action. Late and wrong-person answers are explicit."
     },
     {
@@ -1008,7 +1009,8 @@
       "summary": "One declared rule for a new message during an active Run",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/mid-run-input/piece.json",
       "reason": "Bot platform wave 2 (P13). Queue, reject, interrupt, steer or side run. An interrupt reports what was already delivered."
     },
     {
