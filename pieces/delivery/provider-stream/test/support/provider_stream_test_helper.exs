@@ -63,7 +63,7 @@ defmodule Elzoo.ProviderStream.Fixture do
   @moduledoc false
   alias Elzoo.ProviderStream.Peer
 
-  @dir Path.expand("../fixtures/openrouter-anthropic", __DIR__)
+  @dir Path.expand("../fixtures/openrouter-anthropic-stream", __DIR__)
 
   def read(name), do: File.read!(Path.join(@dir, name))
 

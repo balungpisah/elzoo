@@ -139,7 +139,7 @@ providers: Req 0.7.5, Jason, server_sent_events 1.1.0, Elixir, OTP.
   order and type rules. Finite loopback scenarios over real HTTP/1.1 on the
   recorded files and on bytes the test cuts or adds. The `error` event is
   hand-built in the documented format and labelled so.
-- Monitored: the two recorded streams in `test/fixtures/openrouter-anthropic/`
+- Monitored: the two recorded streams in `test/fixtures/openrouter-anthropic-stream/`
   were recorded on 2026-11-13 through OpenRouter's Anthropic-compatible
   endpoint, routed to Anthropic, for the model `claude-haiku-5-5`. They are
   observations of one model on one day, not a proof and not the provider's
