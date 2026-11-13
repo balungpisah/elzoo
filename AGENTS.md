@@ -170,8 +170,9 @@ A Piece task changes only files in Piece directories, the index and generated
 files of section 3, and documents. `scripts/ci-change-class.py` decides this.
 The small gate runs format, compile, the ledger and Registry checks, the tests
 of each changed Piece and of each ready Piece that depends on it, the root
-tests that read the index, and the per-ID consumers of those IDs. It is a
-selected check, not the full check. It refuses a change with any other path.
+tests that read the index, and the per-ID consumers of those IDs. One of the
+root tests plans the export of every ready Piece together. It is a selected
+check, not the full check. It refuses a change with any other path.
 
 For a change of shared paths, the local gate is:
 

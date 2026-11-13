@@ -29,6 +29,7 @@ defmodule Elzoo.CheckSelection do
   # - cure_record_tags_test.exs: reads every .cure file below pieces/ (record names unique across Pieces);
   # - export_test.exs and the three consumer group modules: their setup loads the Registry; they hold the per-ID
   #   consumers (filtered by tag, as in affected mode); export_test.exs asserts that all four modules are loaded.
+  #   ELZ-152: export_test.exs also plans the export of every ready ID into one destination.
   # docs/plans/release-plan.json, docs/plans/views.md and docs/plans/dependencies.mmd are read by no ExUnit test:
   # scripts/check-roadmap.py checks them in the plan job of the workflow.
   @piece_root_tests ~w(test/registry_test.exs test/install_configuration_test.exs test/elzoo_take_task_test.exs

@@ -132,6 +132,17 @@ defmodule Elzoo.ExportTest do
     assert_cure_consumer(ctx, ids, inner_timeout: @aggregate_inner_timeout)
   end
 
+  # ELZ-152: the first step of the aggregate consumer above, alone: the plan of every ready Piece into one
+  # destination. No write, no compile, no inner test run. When two Pieces disagree on a target or on a
+  # setting, `Elzoo.Export.plan!` raises and its message is the failure. No aggregate or consumer tag: the
+  # small gate and the root-b part run it.
+  test "every ready Piece plans into one destination", ctx do
+    ids = for {id, %{"status" => "ready"}} <- ctx.registry.entries, do: id
+    plan = Elzoo.Export.plan!(ctx.registry, ids, ctx.destination)
+    assert Enum.sort(Enum.map(plan.pieces, & &1["id"])) == Enum.sort(ids)
+    assert File.ls!(ctx.destination) == ["mix.exs"]
+  end
+
   # PostgreSQL consumers share one disposable CI database: in sequence, here. The
   # database-free consumers run from test/consumer_group_{a,b,c}_test.exs (ELZ-049).
   # ELZ-062 (owner approval 2026-11-08, time limit only): `assembly/durable-job` alone gets 300 s. It exceeded

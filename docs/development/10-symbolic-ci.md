@@ -492,7 +492,10 @@ depends on a changed ready ID (transitive, as in affected mode); the root tests 
 `Elzoo.CheckSelection.piece_root_tests/0`, which read the index and generated files or each Piece directory
 (`registry_test.exs`, `install_configuration_test.exs`, `elzoo_take_task_test.exs`, `cure_record_tags_test.exs`) or
 hold the per-ID consumers (`export_test.exs` and the three consumer group modules); and the per-ID consumers of the
-affected ready IDs. A changed Piece directory that is not a ready ID (a new Piece) is valid: its own tests run. The
+affected ready IDs. `export_test.exs` also plans the export of every ready Piece into one destination
+(`Elzoo.Export.plan!`: no write, no compile, no inner test run), so two Pieces that disagree on a target or on a
+setting fail before the merge, with the message of the exporter (ELZ-152); the part `root-b` runs this test too.
+A changed Piece directory that is not a ready ID (a new Piece) is valid: its own tests run. The
 aggregate consumer, the Ash spike and the other root tests do not run, also when an affected ID has no per-ID
 consumer. The report says so in its `LIMIT:` line, and the success marker is
 `ELZOO PIECE CHECK PASSED (small gate; a selected check, not the full check; see LIMIT)`, distinct from the full,
