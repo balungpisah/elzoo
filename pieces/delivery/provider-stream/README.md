@@ -133,12 +133,12 @@ providers: Req 0.7.5, Jason, server_sent_events 1.1.0, Elixir, OTP.
 
 ## Evidence
 
-- Test: `test/elzoo/provider_stream_test.exs`, the seven groups `text_only`,
+- Test: `test/elzoo/provider_stream_test.exs`, the eight groups `text_only`,
   `tool_call_split`, `cut_in_tool_call`, `slow_consumer`, `result_over_bound`,
-  `provider_error_mid_stream` and `equals_non_stream`, plus a table of protocol
-  order and type rules. Finite loopback scenarios over real HTTP/1.1 on the
-  recorded files and on bytes the test cuts or adds. The `error` event is
-  hand-built in the documented format and labelled so.
+  `provider_error_mid_stream`, `equals_non_stream` and `direct_recording`, plus
+  a table of protocol order and type rules. Finite loopback scenarios over real
+  HTTP/1.1 on the recorded files and on bytes the test cuts or adds. The
+  `error` event is hand-built in the documented format and labelled so.
 - Monitored: the two recorded streams in `test/fixtures/openrouter-anthropic-stream/`
   were recorded on 2026-11-13 through OpenRouter's Anthropic-compatible
   endpoint, routed to Anthropic, for the model `claude-haiku-5-5`. They are
@@ -148,6 +148,17 @@ providers: Req 0.7.5, Jason, server_sent_events 1.1.0, Elixir, OTP.
   direct call. The `.message.json` files are the Message that Anthropic's
   TypeScript SDK built afterwards from those same bytes, not a second
   observation. `not-a-pair/` holds separate calls; no test uses it.
+- Monitored: the one recorded stream in `test/fixtures/anthropic-direct-stream/`
+  was recorded on 2026-11-13 from Anthropic's own endpoint, in one call, for
+  the model `claude-haiku-5-5`. It shows a text answer only: eight events, one
+  of them a `ping`, two text deltas, and spaces before the last brace of six
+  `data:` lines. `direct_recording` replays it whole, in pieces of 97 bytes and
+  in pieces of 1 byte. It does not show another model, a second call, a tool
+  call, thinking, an `error` event, a cut stream or HTTP/1.1 on the live
+  endpoint: the live response came over HTTP/2. It is an observation of one
+  model on one day, not a proof and not the provider's Contract.
+  `PROVENANCE.md` there lists the request, the members and the form. The Piece
+  did not build the recorded request body.
 - Upstream: Req 0.7.5 through the reused `Transport`; server_sent_events 1.1.0
   on each raw block; Anthropic's
   [Streaming messages](https://platform.claude.com/docs/en/build-with-claude/streaming),
@@ -165,8 +176,12 @@ Control is the sink's return: cancel or disconnect closes the local request.
 
 ## Limits
 
-One provider and one wire surface. The fixtures came through OpenRouter, so no
-test shows a stream from Anthropic's own endpoint. No thinking blocks,
+One provider and one wire surface. Two of the three recorded streams came
+through OpenRouter. The third came from Anthropic's own endpoint: one text
+answer of one model on one day, with one `ping`, received over HTTP/2. So no
+test shows, from Anthropic's own endpoint, another model, a second call, a tool
+call, thinking, an `error` event or a cut stream, and no test shows HTTP/1.1,
+the transport of this Piece, on the live endpoint. No thinking blocks,
 structured output, cache hint, stop sequences or server tools. No claim about
 memory beyond the retained raw block, the current receive chunk and the
 assembled result. Tool arguments are not checked against the tool's schema;
