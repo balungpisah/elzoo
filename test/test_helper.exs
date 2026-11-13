@@ -6,4 +6,14 @@ Code.require_file("support/cure_consumer_case_test_helper.exs", __DIR__)
 # modules therefore run at most two at a time on machine B and up to three on machine A (bounded
 # by the module count, not by this cap). Measured basis: PR #90, run 42454973591, where three
 # concurrent consumer VMs on two cores hit the 120 s limit.
-ExUnit.start(seed: 0, timeout: 120_000, max_cases: System.schedulers_online())
+#
+# ELZ-153: `new_piece_consumer` is excluded by default. test/export_test.exs holds one such test for each
+# ready ID that has no per-ID consumer; only the small gate (`mix check --piece`) includes it, for the
+# IDs that the change adds. The full check and its five parts never run these tests: the aggregate
+# consumer already holds every ready Piece.
+ExUnit.start(
+  seed: 0,
+  timeout: 120_000,
+  max_cases: System.schedulers_online(),
+  exclude: [:new_piece_consumer]
+)
