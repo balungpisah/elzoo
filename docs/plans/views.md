@@ -201,6 +201,10 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-143](https://github.com/balungpisah/elzoo/issues/307) | V1B / pieces | ELZ-033, ELZ-101, ELZ-079 | published 2026-11-13 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-147](https://github.com/balungpisah/elzoo/issues/314) | V1B / pieces | ELZ-138 | published 2026-11-13 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-148](https://github.com/balungpisah/elzoo/issues/317) | V1B / pieces | ELZ-143, ELZ-138 | published 2026-11-13 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-149](https://github.com/balungpisah/elzoo/issues/319) | V1 / pieces | ELZ-101 | published 2026-11-13 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-150](https://github.com/balungpisah/elzoo/issues/320) | V1B / pieces | ELZ-142 | published 2026-11-13 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-151](https://github.com/balungpisah/elzoo/issues/321) | V1 / pieces | ELZ-101 | published 2026-11-13 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-152](https://github.com/balungpisah/elzoo/issues/322) | V1 / pieces | none | published 2026-11-13 | one claimed task worker; coordinator owns independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -366,13 +370,13 @@ Derived from selectors in the manifest; changing the selected scope changes the 
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; integrated pinned mix check, source-copy/namespace/schema/provider compatibility and claim-level evidence. No future release acceptance follows from ELZ-012.
 
-Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, ELZ-008, ELZ-009, ELZ-010, ELZ-011, ELZ-012, ELZ-013, ELZ-014, ELZ-015, ELZ-016, ELZ-017, ELZ-018, ELZ-019, ELZ-020, ELZ-021, ELZ-022, ELZ-023, ELZ-024, ELZ-025, ELZ-026, ELZ-027, ELZ-028, ELZ-029, ELZ-030, ELZ-032, ELZ-033, ELZ-050, ELZ-052, ELZ-053, ELZ-054, ELZ-055, ELZ-083, ELZ-081, ELZ-084, ELZ-087, ELZ-079, ELZ-080, ELZ-085, ELZ-091, ELZ-092, ELZ-097, RC-01, RC-02, RC-03, RC-04, RC-05, RC-06, RC-07, RC-08, RC-09, RC-10, RC-11, RC-12, RC-13, RC-14, RC-15, RC-16, RC-17, RC-18, RC-19, RC-26, RC-32, RC-42, RC-43, ELZ-094, ELZ-093, ELZ-095, ELZ-082, ELZ-096, ELZ-098, ELZ-099, ELZ-100, ELZ-101, ELZ-104, ELZ-103, ELZ-105, ELZ-107, ELZ-106, ELZ-108, ELZ-109, ELZ-110, ELZ-111, ELZ-112, ELZ-113, ELZ-116, ELZ-119, ELZ-120, ELZ-121, ELZ-128, ELZ-129, ELZ-130, ELZ-131, ELZ-132, ELZ-133, ELZ-134, ELZ-135.
+Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, ELZ-008, ELZ-009, ELZ-010, ELZ-011, ELZ-012, ELZ-013, ELZ-014, ELZ-015, ELZ-016, ELZ-017, ELZ-018, ELZ-019, ELZ-020, ELZ-021, ELZ-022, ELZ-023, ELZ-024, ELZ-025, ELZ-026, ELZ-027, ELZ-028, ELZ-029, ELZ-030, ELZ-032, ELZ-033, ELZ-050, ELZ-052, ELZ-053, ELZ-054, ELZ-055, ELZ-083, ELZ-081, ELZ-084, ELZ-087, ELZ-079, ELZ-080, ELZ-085, ELZ-091, ELZ-092, ELZ-097, RC-01, RC-02, RC-03, RC-04, RC-05, RC-06, RC-07, RC-08, RC-09, RC-10, RC-11, RC-12, RC-13, RC-14, RC-15, RC-16, RC-17, RC-18, RC-19, RC-26, RC-32, RC-42, RC-43, ELZ-094, ELZ-093, ELZ-095, ELZ-082, ELZ-096, ELZ-098, ELZ-099, ELZ-100, ELZ-101, ELZ-104, ELZ-103, ELZ-105, ELZ-107, ELZ-106, ELZ-108, ELZ-109, ELZ-110, ELZ-111, ELZ-112, ELZ-113, ELZ-116, ELZ-119, ELZ-120, ELZ-121, ELZ-128, ELZ-129, ELZ-130, ELZ-131, ELZ-132, ELZ-133, ELZ-134, ELZ-135, ELZ-149, ELZ-151, ELZ-152.
 
 ### V1B-ACCEPT
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150.
 
 ### V2-ACCEPT
 
@@ -2663,3 +2667,43 @@ Publication copy: [tasks/ELZ-148-provider-stream-fixture-directory.md](../../tas
 **Product aims:** P13.
 
 **Acceptance:** The hosted full check on the exact head passes the aggregate copied-consumer test; no target path is written by two ready Pieces with different content; the thirteen fixture files move byte for byte and all 22 cases and assertions of the Piece stay unchanged and pass, with the named Piece gate.
+
+### ELZ-149
+
+ELZ-149 — Make the blocked acknowledged-write test of data-stream conclusive
+
+Publication copy: [tasks/ELZ-149-data-stream-blocked-write-test.md](../../tasks/ELZ-149-data-stream-blocked-write-test.md).
+
+**Product aims:** P06.
+
+**Acceptance:** The blocked acknowledged-write test keeps its settings and assertions and gives a verdict only on a sample that reached the blocked write before its lifetime ran out; an inconclusive sample is taken again, at most five, and never counts as a pass; the diagnosis and the negative controls are recorded, with the named Piece gate.
+
+### ELZ-150
+
+ELZ-150 — Test the agent-loop rules that no test runs
+
+Publication copy: [tasks/ELZ-150-agent-loop-untested-rules.md](../../tasks/ELZ-150-agent-loop-untested-rules.md).
+
+**Product aims:** P13.
+
+**Acceptance:** One named test for each of the seven rules of the agent loop that no test ran, each shown to fail under a temporary mutation of its rule; no change of behaviour; the fourteen existing groups stay unchanged and pass, with the named Piece gate.
+
+### ELZ-151
+
+ELZ-151 — Accept the documented response members in the data-stream schema
+
+Publication copy: [tasks/ELZ-151-data-stream-documented-members.md](../../tasks/ELZ-151-data-stream-documented-members.md).
+
+**Product aims:** P06.
+
+**Acceptance:** The three derived events of the recorded stream are refused before the change and pass after it; the named members are allowed and never read, so a stream with them gives the same frames and terminal; every other member is still refused, with the named Piece gate.
+
+### ELZ-152
+
+ELZ-152 — Let the small gate see what the aggregate consumer sees
+
+Publication copy: [tasks/ELZ-152-small-gate-export.md](../../tasks/ELZ-152-small-gate-export.md).
+
+**Product aims:** P01.
+
+**Acceptance:** The small gate plans the export of every ready Piece and runs a copied consumer for a changed ready Piece that has none; the first fails on the red main before ELZ-148 and the second fails with the fix of ELZ-147 undone; the five parts still run exactly the tests of the full check, shown by the hosted full check on the exact head.
