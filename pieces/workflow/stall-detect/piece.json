@@ -37,7 +37,13 @@
   ],
   "operations": {
     "telemetry": {"status": "not_applicable", "contract": "Pure verdict emits no observations; the caller owns instrumentation."},
-    "config": {"status": "not_applicable", "contract": "The two thresholds are per-call operands and the 256 bound is fixed; no ambient settings."},
+    "config": {
+      "status": "supported",
+      "contract": "Per call, no default, no hot reconfiguration: limits.repeats (integer count, 2..256, identical actions that are a stall) and limits.idle_ms (positive integer ms, compared as now_ms - last >= idle_ms); the 256-entry window bound is fixed.",
+      "evidence": [
+        "test/elzoo/stall_detect_test.exs"
+      ]
+    },
     "control": {"status": "not_applicable", "contract": "No process or lifecycle; the caller decides what to do with a verdict."}
   }
 }
