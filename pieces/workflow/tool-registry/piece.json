@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "id": "workflow/tool-registry",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["cure", "elixir", "jason", "jsv", "otp"],
+  "dependencies": ["core/payload-schema", "integration/ai-text"],
+  "applications": ["crypto"],
+  "contract": "Pure resolution of a model-proposed tool name over a caller-supplied snapshot of at most 64 untrusted descriptors from declared sources: deterministic ai-text-grammar alias per source and name, SHA-256 version of the canonical descriptor without trust, model-facing description fill and cut, one argument check through core/payload-schema; resolved, changed, removed (latest listing only), ambiguous or unknown, never the first match. Source kind comes only from the caller; finding a tool grants no permission. No listing, dispatch, process, clock or storage.",
+  "limits": [
+    "No claim about the current tool set of a source: a change or removal after the last listing is not detected and the tool still resolves; removed covers the latest listing of a source only.",
+    "One refused descriptor refuses the whole call; no bound on schema complexity, validation time or snapshot bytes.",
+    "The digest is stable for the pinned Jason and OTP; it is not RFC 8785.",
+    "No content mark, tool-result handling, instruction loading, authority, approval or budget check; the caller maps callables to real Adapter bindings or nested callables.",
+    "Selected Cure laws cover the four supplied Booleans of the resolution decision only; lookup, alias, digest, description rule and map validation are finite tests."
+  ],
+  "files": [
+    "cure/elzoo/tool_registry.cure",
+    "lib/elzoo/tool_registry.ex",
+    "test/elzoo/tool_registry_test.exs",
+    "examples/tool_registry.exs"
+  ],
+  "grounding": [
+    {"kind": "proof", "file": "cure/elzoo/tool_registry.cure", "symbol": "live_differs_changed", "claim": "A live name with a differing held version is Changed for every removed and many operand."},
+    {"kind": "proof", "file": "cure/elzoo/tool_registry.cure", "symbol": "not_live_removed", "claim": "A not-live removed name is Removed for every differs and many operand."},
+    {"kind": "proof", "file": "cure/elzoo/tool_registry.cure", "symbol": "not_live_ambiguous", "claim": "A not-live, not-removed name owned on two or more sources is Ambiguous for every differs operand."},
+    {"kind": "proof", "file": "cure/elzoo/tool_registry.cure", "symbol": "not_live_unknown", "claim": "A not-live, not-removed name owned on fewer than two sources is Unknown for every differs operand; no not-live row is Resolved."},
+    {"kind": "type", "file": "cure/elzoo/tool_registry.cure", "claim": "Pinned Cure checks types and totality of the production resolution decision; the source audit finds no axioms, holes, unresolved, unaudited, opaque or unproved-total definitions."},
+    {"kind": "test", "file": "test/elzoo/tool_registry_test.exs", "claim": "Seven named groups: unknown_and_source_kind, same_name_two_sources, alias_grammar_and_bound, fresh_listing, one_validation_result, descriptor_rules, laws_and_example; temporary first-own-name-match and dropped-hash-suffix mutations are negative controls. Finite scenarios, not a universal proof."},
+    {"kind": "upstream", "provider": "cure", "reference": "https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89", "claim": "Pinned Cure compilation, reduction checking and BEAM decision semantics; compiler soundness not locally proved."},
+    {"kind": "upstream", "provider": "jsv", "reference": "https://hexdocs.pm/jsv/0.27.0/JSV.html", "claim": "Argument and schema checks reuse ready core/payload-schema with pinned JSV 0.27.0, draft 2020-12, no casting."},
+    {"kind": "upstream", "provider": "jason", "reference": "https://hexdocs.pm/jason/1.4.5/Jason.html", "claim": "Scalar encoding inside the ready ai-text canonical encoding used for the version digest."},
+    {"kind": "upstream", "provider": "otp", "reference": "https://www.erlang.org/doc/apps/crypto/crypto.html", "claim": "SHA-256 of OTP crypto for the version and the alias suffix."},
+    {"kind": "upstream", "provider": "elixir", "reference": "https://hexdocs.pm/elixir/1.20.4/", "claim": "Pinned Elixir immutable maps, lists and byte-wise binary operations."},
+    {"kind": "assumption", "claim": "The host supplies a truthful source set and source kinds, complete listings, approval of each listed source and its schemas, a record of each listing and outcome before use, the map from callables to real bindings, and authority, approval and budget checks for every action."}
+  ],
+  "operations": {
+    "telemetry": {"status": "not_applicable", "contract": "Pure functions emit no observations; the caller owns instrumentation."},
+    "config": {"status": "not_applicable", "contract": "Intrinsic operands and fixed bounds only; no selectable settings."},
+    "control": {"status": "not_applicable", "contract": "No process or lifecycle; the snapshot is caller-owned plain data."}
+  }
+}
