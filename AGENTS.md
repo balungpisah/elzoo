@@ -149,9 +149,10 @@ agent writes in a worktree at a time.
   an issue or a pull request. Use roles.
 - Write a file under `docs/work/` only when the task body names that file as a
   deliverable. The pull request body is the record of the task.
-- Make a negative control by a temporary edit in the worktree. Run the test,
-  record the failure, then revert the edit. Never commit the edit. A scratch
-  copy of a file does not work when the test finds the file by its path.
+- Test named Contract boundaries adversarially; a first green run alone is not
+  enough. Make a negative control by a temporary edit in the worktree, run the
+  test, record the failure, then revert the edit. Never commit the edit. A
+  scratch copy does not work when the test finds the file by its path.
 
 ## 5. Local gate, then pull request
 
@@ -226,6 +227,11 @@ passes" or "listed scenarios pass", not "verified".
 
 Every change gets one independent review, including documents, index files and test repairs. Do not repeat a review of unchanged code.
 
+Freeze the diff for review; the local gate can run alongside that review.
+When the reviewed delta is unchanged, avoid repeated main chasing and local
+gate runs; this does not waive section 5's required local gates, base and
+exact-head requirements, or hosted checks on a new head.
+
 - The reviewer is a different agent session, and a different model where one
   is available. Give it the issue body and the diff, not your summary. The
   review comment names the model of the reviewer. When no different model is
@@ -273,7 +279,7 @@ The queue takes only a pull request that is not a draft, from a branch named
 hosted check on the exact head and then merges with a merge commit. The
 required checks on `main` are `check-hosted` and `gleam-hosted`. A red push run on `main` freezes all merges except the classified repair path in the coordinator guide.
 
-- Push-check evidence reuse is independent of the PR branch name, including non-task plan-only and publication merges. Require the exact head and tree, the current base for PR evidence, the latest successful complete attempt and GitHub-hosted identity. A docs-only short check also requires local docs-only classification and a completed green push run on the first parent; selected Piece evidence never skips the full main check. Keep the coordinator's main-green guards and merge paths unchanged (see [CI guide](docs/development/10-symbolic-ci.md)).
+- Reuse qualifying push-check evidence, including for non-task plan-only and publication merges; branch name does not decide reuse. Require the exact head and tree, the current base for PR evidence, the latest successful complete attempt and GitHub-hosted identity. A docs-only short check also requires local docs-only classification and a completed green push run on the first parent; selected Piece evidence never skips the full main check. Keep the coordinator's main-green guards and merge paths unchanged (see [CI guide](docs/development/10-symbolic-ci.md)).
 
 For a Piece-only pull request, the queue accepts the small gate only when its
 own classification also says Piece-only. It does not wait for the push run of
