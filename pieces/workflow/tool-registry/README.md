@@ -47,6 +47,7 @@ text is data; it is not the source kind and gives no authority.
   order: `:invalid_source`, `:invalid_descriptor`, `:invalid_trust`,
   `:too_many_tools` (more than 64 tools in all sources; never cut),
   `:alias_collision`.
+  A `"tools"` value (or `refresh/3` descriptors) that is not a list is `:invalid_source`.
 - `refresh(snapshot, source_id, descriptors)`: replaces the listing of one
   declared source (`:unknown_source` otherwise; it never adds or removes a
   source). The aliases the previous listing held and the fresh one does not
@@ -89,7 +90,8 @@ outside the Contract.
 - Proof: `Cure.Elzoo.ToolRegistry.decide/4` in `cure/elzoo/tool_registry.cure` is
   the production decision over four supplied Booleans (`live`, `differs`,
   `removed`, `many`). Selected laws: `live_differs_changed`, `not_live_removed`,
-  `not_live_ambiguous`, `not_live_unknown`; so no not-live row is `Resolved`.
+  `not_live_ambiguous`, `not_live_unknown`; the three `not_live_` laws together
+  give that no not-live row is `Resolved`.
   They cover the decision only, not lookup or validation.
 - Type: the pinned Cure compiler checks types and totality; the source audit
   finds no axioms, holes or unproved-total definitions.

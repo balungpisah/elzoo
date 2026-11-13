@@ -69,6 +69,7 @@ defmodule Elzoo.ToolRegistryTest do
           [source("x", "other", []), source("x", "host_listing", [])],
           [Map.put(source("x", "other", []), "extra", 1)],
           [source(String.duplicate("a", 33), "other", [])],
+          [source("x", "other", :not_a_list)],
           :not_a_list
         ],
         do: assert(ToolRegistry.snapshot(bad) == {:error, :invalid_source})
@@ -109,6 +110,9 @@ defmodule Elzoo.ToolRegistryTest do
 
     assert length(Enum.uniq(aliases)) == 3
     assert "src_repo_search" in aliases
+
+    # Body rule: cleaned "src_repo.search", "_", first 8 hex of SHA-256 of "src" <> <<0>> <> "repo.search".
+    assert "src_repo_search_e1b6c559" in aliases
     assert Enum.all?(aliases, &Regex.match?(~r/\A[a-zA-Z0-9_-]{1,64}\z/, &1))
     assert Enum.any?(aliases, &(byte_size(&1) == 64 and String.starts_with?(&1, "src_nnn")))
 
@@ -180,6 +184,7 @@ defmodule Elzoo.ToolRegistryTest do
     assert ToolRegistry.resolve(later, "mcp_drop") == :unknown
 
     assert ToolRegistry.refresh(snapshot, "nowhere", []) == {:error, :unknown_source}
+    assert ToolRegistry.refresh(snapshot, "mcp", :not_a_list) == {:error, :invalid_source}
 
     # A removal at the server after the last listing is not detected.
     assert {:resolved, _} = ToolRegistry.resolve(snapshot, "mcp_drop")
