@@ -1,0 +1,1 @@
+return type(_G)
