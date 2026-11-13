@@ -6437,7 +6437,7 @@
       "baseline_status": "not in baseline (new row, RC-54)",
       "disposition": "ready-contract",
       "manifest": "pieces/workflow/context-compaction/piece.json",
-      "manifest_sha256": "2e959ba320a89445ec67437d33aa7ecdd6b2f32f0fb2d8231e07c252f24c04e5",
+      "manifest_sha256": "9f30bca92525b5cf2a91c65aa2bd143e1e36365b24da2deafe5fa83bee499a5f",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
