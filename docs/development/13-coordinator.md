@@ -79,8 +79,8 @@
   red, do the repair below first. Wave 1 exception: a level-2 task may be
   published after its own prerequisites merge and current `main` is green,
   without waiting for every level-1 job. The serial merge queue, independent
-  review, maximum of three small-gate merges between covering green `main`
-  runs and red-`main` rules remain in force.
+  review, the queue's limit of four outstanding first-parent commits before a
+  small-gate merge and red-`main` rules remain in force.
 - **Repair of a red `main`.** The full check on `main` is the evidence of the
   small-gate merges. When it is red:
   1. Classify the red run on issue #98, as the

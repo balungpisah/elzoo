@@ -526,7 +526,7 @@ not wait for the push run of the current `main`, unlike the documentation-only p
 **Outstanding window (ELZ-120).** Before accepting Piece evidence and again immediately before merging, the queue
 walks canonical `main`'s first-parent chain to the nearest commit whose latest push run of `symbolic-check.yml` on
 `main` completed successfully. It counts **all first-parent commits** after that covering SHA, not only Piece merges:
-counts 0, 1 and 2 allow the next small-gate merge; count 3 or greater refuses, naming the covering SHA and count.
+counts 0 through 4 allow the next small-gate merge; count 5 or greater refuses, naming the covering SHA and count.
 A newer successful covering push reopens the window. Second-parent ancestry is not coverage. Missing or unreadable
 evidence fails closed; a failed or unfinished latest run or rerun cannot supply coverage through an older success on
 that SHA. Window refusal stops rather than dispatching a full run. Existing full-run adoption, dispatch behavior,

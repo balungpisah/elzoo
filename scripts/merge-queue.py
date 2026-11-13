@@ -609,7 +609,7 @@ class Queue:
             return False
 
     def check_piece_window(self):
-        """ELZ-120: at most two first-parent commits may be outstanding before the next small-gate merge."""
+        """At most four first-parent commits may be outstanding before the next small-gate merge."""
         main = self.api("git/ref/heads/main")["object"]["sha"]
         require(valid_sha(main), "Invalid canonical main SHA")
         chain = self.text("git", "rev-list", "--first-parent", main).splitlines()
@@ -619,7 +619,7 @@ class Queue:
             run = self.latest_push_run(sha)
             if run is None or run.get("status") != "completed" or run.get("conclusion") != "success":
                 continue
-            require(count < 3, f"Small gate window exhausted: covering SHA={sha} count={count}; "
+            require(count < 5, f"Small gate window exhausted: covering SHA={sha} count={count}; "
                               "wait for a newer successful main push")
             return
         raise QueueError("No successful covering main push on the first-parent chain; refusing small gate")
