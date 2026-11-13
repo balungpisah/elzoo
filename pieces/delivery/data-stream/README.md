@@ -116,6 +116,18 @@ length, refusal, context_limit. Zero text is allowed with the valid final sequen
 Post-200 errors are partial/stream_error, even overloaded_error. No raw error
 message survives translation. HTTP EOF/Req success is not completion.
 
+These members are allowed and never read: `container` and `stop_details` in the
+message of message_start and in the delta of message_delta; `citations` in the
+text block of content_block_start; `context_management` in message_delta;
+`inference_geo`, `server_tool_use`, `service_tier` and `speed` in usage of both
+events. Each may be absent or hold any JSON value inside the decoder's bounds
+(a number with a fraction or exponent is still malformed_response). A stream
+with them gives the frames, usage, finish reason, provenance and terminal of
+the same stream without them; only received_body_bytes counts their bytes.
+Every other member is still unsupported_response. A `provider` member, a
+`model` text with `/` and `cost`, `is_byok` or `cost_details` in usage stay
+refused: a stream through OpenRouter belongs to delivery/provider-stream.
+
 Raw cumulative usage is translated independently of sink returns, with unknown
 preserved under the exact nested omission/null rules. Values replace, never sum
 successive reports. Cache-write TTL bases replace together; incomplete or
@@ -157,6 +169,20 @@ Primary docs fetched 2026-11-11: [Messages](https://platform.claude.com/docs/en/
 [versioning](https://platform.claude.com/docs/en/api/versioning),
 [authentication](https://platform.claude.com/docs/en/api/overview#authentication),
 [thinking](https://platform.claude.com/docs/en/build-with-claude/thinking#turning-thinking-off).
+The never-read members rest on two pages read 2026-11-13 and on one recorded
+route. The Messages reference lists `container` and `stop_details` on the
+Message and on the delta of message_delta, `citations` on a text block, the
+four usage members on the usage of the Message and `server_tool_use` on the
+usage of message_delta. The versioning page says that values may be added to
+the output within one API version. `context_management` is on neither page. A
+text stream recorded on 2026-11-13 through OpenRouter's Anthropic-compatible
+endpoint, routed to Anthropic (model claude-haiku-5-5, thinking disabled; a
+fixture of delivery/provider-stream), carried every one of them, `inference_geo`
+in message_start only. Three of its events are schema test data here as derived
+data with the OpenRouter differences removed; no test reads the recording. The
+owner test compares one whole loopback stream with and without the members. Not
+verified: that Anthropic's own endpoint sends each member in its stream events,
+and any other model.
 Run `mix test pieces/delivery/data-stream/test` in the catalogue; the independent
 consumer test runs the copied boundary tests in a separate VM with only the
 selected upstream application closure.

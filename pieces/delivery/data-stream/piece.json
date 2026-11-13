@@ -81,7 +81,7 @@
     {
       "kind": "test",
       "file": "test/elzoo/data_stream_schema_test.exs",
-      "claim": "Strict nested protocol/order/finish, cumulative/null/TTL usage, derived overflow, exact raw blocks and status/header scenarios."
+      "claim": "Strict nested protocol/order/finish, cumulative/null/TTL usage, derived overflow, exact raw blocks and status/header scenarios. Allowed never-read members: three derived events of a recorded route pass, each member alone holds any JSON value without a change of state, and a member in no list and the OpenRouter differences stay refused."
     },
     {
       "kind": "test",
