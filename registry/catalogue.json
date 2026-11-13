@@ -1017,8 +1017,9 @@
       "summary": "Several MCP servers per tenant from a build-time set of bindings",
       "disposition": "adapt",
       "phase": "demand-led",
-      "status": "planned",
-      "reason": "Bot platform wave 2 (P13). Each server is one compiled binding of ready integration/mcp-client, with its own credential Need and limits; tool lists are keyed by server; one failing server does not block the others. Streamable HTTP and bearer token only. A server added at run time is out of scope. New ID: ready integration/mcp-client is unchanged."
+      "status": "ready",
+      "reason": "Bot platform wave 2 (P13). Each server is one compiled binding of ready integration/mcp-client, with its own credential Need and limits; tool lists are keyed by server; one failing server does not block the others. Streamable HTTP and bearer token only. A server added at run time is out of scope. New ID: ready integration/mcp-client is unchanged.",
+      "manifest": "pieces/integration/mcp-multi/piece.json"
     },
     {
       "id": "runtime/lua-sandbox",
