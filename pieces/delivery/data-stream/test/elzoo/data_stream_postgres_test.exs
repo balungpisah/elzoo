@@ -217,18 +217,21 @@ defmodule Elzoo.DataStream.PostgresTest do
         effect = Fixture.effect(%{"idempotency_key" => key})
         {:ok, h} = Stream.start(owner, effect, &Fixture.ack/1)
         t = Fixture.terminal(h)
-        assert t.reason == :timeout
 
-        # The blocked writer is the intent process, and the session settles
-        # only after that process is down. So the block report of this sample,
-        # if one was sent, is in the mailbox before its terminal.
+        # Only a registered intent process reaches the blocked write, and the
+        # session settles only after that process is down. So the block report
+        # of this sample, if one was sent, is in the mailbox before its terminal.
         blocked =
           receive do
             {:blocked_sql, worker} ->
+              assert t.reason == :timeout
               refute Process.alive?(worker)
               true
           after
-            0 -> false
+            0 ->
+              # D that ends while the intent is admitted gives intent_unavailable.
+              assert t.reason in [:timeout, :intent_unavailable]
+              false
           end
 
         refute_receive {:stream_request, _, _, _, _}, 0
