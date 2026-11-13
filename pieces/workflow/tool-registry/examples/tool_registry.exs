@@ -18,7 +18,7 @@ end
 {:ok, snapshot} =
   ToolRegistry.snapshot([
     %{
-      "id" => "docs",
+      "id" => "guide",
       "kind" => "pinned_skill",
       "callable" => "nested",
       "tools" => [search.("Search docs")]
@@ -31,7 +31,7 @@ end
     }
   ])
 
-{:ambiguous, ["docs_search", "issues_search"]} = ToolRegistry.resolve(snapshot, "search")
+{:ambiguous, ["guide_search", "issues_search"]} = ToolRegistry.resolve(snapshot, "search")
 
 # A resolved call: the model proposed the alias; the arguments pass the one check.
 {:resolved, held} = ToolRegistry.resolve(snapshot, "issues_search")
