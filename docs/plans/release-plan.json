@@ -5170,6 +5170,23 @@
       "issue": 275,
       "url": "https://github.com/balungpisah/elzoo/issues/275",
       "issue_body_sha256": "fe09a994cd2d33c1ea073db01b2cb6cbdf9bbbf299119b5d735e09476423f3a5"
+    },
+    {
+      "id": "ELZ-135",
+      "title": "ELZ-135 — Widen the outstanding Piece merge window to five",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": ["ELZ-129"],
+      "status": "published 2026-11-13",
+      "owner_role": "one claimed task worker; coordinator owns merge queue",
+      "paths": ["tasks/ELZ-135-piece-window-five.md"],
+      "outputs": [],
+      "acceptance": "Allow a candidate with at most four outstanding first-parent commits and refuse five or more, preserving covering evidence and freeze guards; test the boundary and update matching guidance. Owner waives separate independent review for this task's publication and implementation only.",
+      "product_aims": ["P01"],
+      "issue": 280,
+      "url": "https://github.com/balungpisah/elzoo/issues/280",
+      "issue_body_sha256": "a374e02c9d37ae40698838b9dd4e96fa4c08ac0d92df030040d000aca9ef87de"
     }
   ],
   "entries": [
