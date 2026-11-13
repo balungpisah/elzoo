@@ -199,6 +199,7 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-145](https://github.com/balungpisah/elzoo/issues/289) | V1B / pieces | ELZ-033, ELZ-114 | published 2026-11-13 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-146](https://github.com/balungpisah/elzoo/issues/290) | V1B / pieces | ELZ-033, ELZ-116, ELZ-124, ELZ-114 | published 2026-11-13 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-143](https://github.com/balungpisah/elzoo/issues/307) | V1B / pieces | ELZ-033, ELZ-101, ELZ-079 | published 2026-11-13 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-147](https://github.com/balungpisah/elzoo/issues/314) | V1B / pieces | ELZ-138 | published 2026-11-13 | one claimed task worker; coordinator owns independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -370,7 +371,7 @@ Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, EL
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147.
 
 ### V2-ACCEPT
 
@@ -2641,3 +2642,13 @@ Publication copy: [tasks/ELZ-143-provider-stream.md](../../tasks/ELZ-143-provide
 **Product aims:** P13.
 
 **Acceptance:** The seven named groups cover text only, a tool call split across chunks, a stream cut inside a tool call, a slow consumer, an assembled result over its bound, a provider error mid-stream, and the assembled result equal to the second form of the same recorded response.
+
+### ELZ-147
+
+ELZ-147 — Find the ai-token-count lib files in a copied consumer
+
+Publication copy: [tasks/ELZ-147-ai-token-count-consumer-root.md](../../tasks/ELZ-147-ai-token-count-consumer-root.md).
+
+**Product aims:** P13.
+
+**Acceptance:** The hosted full check on the exact head passes the aggregate copied-consumer test with the lib files found from the test directory; all 11 cases and assertions of the Piece stay unchanged and pass, with the named Piece gate.
