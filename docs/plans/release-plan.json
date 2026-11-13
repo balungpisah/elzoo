@@ -5451,6 +5451,40 @@
       "issue": 322,
       "url": "https://github.com/balungpisah/elzoo/issues/322",
       "issue_body_sha256": "03ce1f820805cb226e0fe596fd37002936ba1727cb78d06a2a765a4d6dd0e0cf"
+    },
+    {
+      "id": "ELZ-153",
+      "title": "ELZ-153 — Run a new Piece in a copied consumer in the small gate",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": ["ELZ-152"],
+      "status": "published 2026-11-13",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-153-small-gate-new-piece-consumer.md"],
+      "outputs": [],
+      "acceptance": "In the small gate, a ready Piece that the change adds and that has no per-ID consumer runs its own tests once in a copied consumer of its dependency closure; the limit of this check follows from the recorded measurement by the stated rule; the check fails with the fix of ELZ-147 undone; a changed Piece that was ready at the base gets none; the five parts still run exactly the tests of the full check, shown by the hosted full check on the exact head.",
+      "product_aims": ["P01"],
+      "issue": 329,
+      "url": "https://github.com/balungpisah/elzoo/issues/329",
+      "issue_body_sha256": "c8b2e025e5447c8bedbdc4e6dd481c42d83b1fba0d44747c7b745e694433c9a8"
+    },
+    {
+      "id": "ELZ-154",
+      "title": "ELZ-154 — End a data-stream with `timeout` when its lifetime ends during intent admission",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": ["ELZ-101", "ELZ-149"],
+      "status": "published 2026-11-13",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-154-data-stream-timeout-during-admission.md"],
+      "outputs": [],
+      "acceptance": "A stream whose lifetime is over when Session records a failure of the intent ends with reason timeout, shown by a sweep across the end of the lifetime that fails with the change undone; a failure of the intent while the lifetime runs is still intent_unavailable; an inconclusive sample of the blocked acknowledged-write test must end with timeout again, with the named Piece gate.",
+      "product_aims": ["P06"],
+      "issue": 330,
+      "url": "https://github.com/balungpisah/elzoo/issues/330",
+      "issue_body_sha256": "affa025216061e45abb77751116ad76a8a0741e7ddc0c52dbc3c1f6ac4dc5985"
     }
   ],
   "entries": [

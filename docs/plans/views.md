@@ -205,6 +205,8 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-150](https://github.com/balungpisah/elzoo/issues/320) | V1B / pieces | ELZ-142 | published 2026-11-13 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-151](https://github.com/balungpisah/elzoo/issues/321) | V1 / pieces | ELZ-101 | published 2026-11-13 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-152](https://github.com/balungpisah/elzoo/issues/322) | V1 / pieces | none | published 2026-11-13 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-153](https://github.com/balungpisah/elzoo/issues/329) | V1 / pieces | ELZ-152 | published 2026-11-13 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-154](https://github.com/balungpisah/elzoo/issues/330) | V1 / pieces | ELZ-101, ELZ-149 | published 2026-11-13 | one claimed task worker; coordinator owns independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -370,7 +372,7 @@ Derived from selectors in the manifest; changing the selected scope changes the 
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; integrated pinned mix check, source-copy/namespace/schema/provider compatibility and claim-level evidence. No future release acceptance follows from ELZ-012.
 
-Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, ELZ-008, ELZ-009, ELZ-010, ELZ-011, ELZ-012, ELZ-013, ELZ-014, ELZ-015, ELZ-016, ELZ-017, ELZ-018, ELZ-019, ELZ-020, ELZ-021, ELZ-022, ELZ-023, ELZ-024, ELZ-025, ELZ-026, ELZ-027, ELZ-028, ELZ-029, ELZ-030, ELZ-032, ELZ-033, ELZ-050, ELZ-052, ELZ-053, ELZ-054, ELZ-055, ELZ-083, ELZ-081, ELZ-084, ELZ-087, ELZ-079, ELZ-080, ELZ-085, ELZ-091, ELZ-092, ELZ-097, RC-01, RC-02, RC-03, RC-04, RC-05, RC-06, RC-07, RC-08, RC-09, RC-10, RC-11, RC-12, RC-13, RC-14, RC-15, RC-16, RC-17, RC-18, RC-19, RC-26, RC-32, RC-42, RC-43, ELZ-094, ELZ-093, ELZ-095, ELZ-082, ELZ-096, ELZ-098, ELZ-099, ELZ-100, ELZ-101, ELZ-104, ELZ-103, ELZ-105, ELZ-107, ELZ-106, ELZ-108, ELZ-109, ELZ-110, ELZ-111, ELZ-112, ELZ-113, ELZ-116, ELZ-119, ELZ-120, ELZ-121, ELZ-128, ELZ-129, ELZ-130, ELZ-131, ELZ-132, ELZ-133, ELZ-134, ELZ-135, ELZ-149, ELZ-151, ELZ-152.
+Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, ELZ-008, ELZ-009, ELZ-010, ELZ-011, ELZ-012, ELZ-013, ELZ-014, ELZ-015, ELZ-016, ELZ-017, ELZ-018, ELZ-019, ELZ-020, ELZ-021, ELZ-022, ELZ-023, ELZ-024, ELZ-025, ELZ-026, ELZ-027, ELZ-028, ELZ-029, ELZ-030, ELZ-032, ELZ-033, ELZ-050, ELZ-052, ELZ-053, ELZ-054, ELZ-055, ELZ-083, ELZ-081, ELZ-084, ELZ-087, ELZ-079, ELZ-080, ELZ-085, ELZ-091, ELZ-092, ELZ-097, RC-01, RC-02, RC-03, RC-04, RC-05, RC-06, RC-07, RC-08, RC-09, RC-10, RC-11, RC-12, RC-13, RC-14, RC-15, RC-16, RC-17, RC-18, RC-19, RC-26, RC-32, RC-42, RC-43, ELZ-094, ELZ-093, ELZ-095, ELZ-082, ELZ-096, ELZ-098, ELZ-099, ELZ-100, ELZ-101, ELZ-104, ELZ-103, ELZ-105, ELZ-107, ELZ-106, ELZ-108, ELZ-109, ELZ-110, ELZ-111, ELZ-112, ELZ-113, ELZ-116, ELZ-119, ELZ-120, ELZ-121, ELZ-128, ELZ-129, ELZ-130, ELZ-131, ELZ-132, ELZ-133, ELZ-134, ELZ-135, ELZ-149, ELZ-151, ELZ-152, ELZ-153, ELZ-154.
 
 ### V1B-ACCEPT
 
@@ -2707,3 +2709,23 @@ Publication copy: [tasks/ELZ-152-small-gate-export.md](../../tasks/ELZ-152-small
 **Product aims:** P01.
 
 **Acceptance:** The small gate plans the export of every ready Piece and runs a copied consumer for a changed ready Piece that has none; the first fails on the red main before ELZ-148 and the second fails with the fix of ELZ-147 undone; the five parts still run exactly the tests of the full check, shown by the hosted full check on the exact head.
+
+### ELZ-153
+
+ELZ-153 — Run a new Piece in a copied consumer in the small gate
+
+Publication copy: [tasks/ELZ-153-small-gate-new-piece-consumer.md](../../tasks/ELZ-153-small-gate-new-piece-consumer.md).
+
+**Product aims:** P01.
+
+**Acceptance:** In the small gate, a ready Piece that the change adds and that has no per-ID consumer runs its own tests once in a copied consumer of its dependency closure; the limit of this check follows from the recorded measurement by the stated rule; the check fails with the fix of ELZ-147 undone; a changed Piece that was ready at the base gets none; the five parts still run exactly the tests of the full check, shown by the hosted full check on the exact head.
+
+### ELZ-154
+
+ELZ-154 — End a data-stream with `timeout` when its lifetime ends during intent admission
+
+Publication copy: [tasks/ELZ-154-data-stream-timeout-during-admission.md](../../tasks/ELZ-154-data-stream-timeout-during-admission.md).
+
+**Product aims:** P06.
+
+**Acceptance:** A stream whose lifetime is over when Session records a failure of the intent ends with reason timeout, shown by a sweep across the end of the lifetime that fails with the change undone; a failure of the intent while the lifetime runs is still intent_unavailable; an inconclusive sample of the blocked acknowledged-write test must end with timeout again, with the named Piece gate.
