@@ -310,6 +310,24 @@ RC-50 carries one blocker line for this door. Its admission records whether a
 later Assembly can reuse the check order with no Run of the engine, and in
 which form. RC-50 gets no new API and no new acceptance item for it.
 
+### A decision that wave 8 waits for: the life of a room
+
+Wave 8 is not registered before the owner decides this point. The coordinator
+asks the owner first, and records the answer here.
+
+The ready `assembly/run-engine` (ELZ-127) gives one Unit "64 active/256
+lifetime actions". Its README says: "The per-Unit 256 lifetime-action limit
+is not reset by that period." After 256 actions the engine refuses the next
+request of that host. A Run has a request cap of at most 256 and ends. A room
+is one host that lives long, so a room reaches the limit.
+
+Two candidates are known. Neither is chosen.
+
+- The consumer starts a new host identity for the room and carries the needed
+  state over. Elzoo gets no new Piece.
+- A new Piece of wave 8 moves a room to a new Unit. The ready engine keeps its
+  ID and Contract.
+
 ## What stays with the consumer
 
 The consumer writes these and Elzoo does not: the bot records (definition,
@@ -351,6 +369,7 @@ Resolved on 2026-11-12; these decisions are also in the corresponding job Contra
 | The final node list, and the name of the recipe data handle | RC-61 |
 | The language of model-written code | not registered (wave 9) |
 | The turn policies of a room | not registered (wave 8) |
+| What a room does when its Unit reaches the 256 lifetime actions of `assembly/run-engine`. Wave 8 is not registered before this is decided | not registered (wave 8) |
 
 ## Check
 
