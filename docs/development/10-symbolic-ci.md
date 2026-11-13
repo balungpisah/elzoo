@@ -8,17 +8,18 @@ roles and the lane variable. "Hosted CI" below has the job shapes, the flip reco
 ## Current five-part full check (ELZ-129)
 
 This section supersedes the job counts, part names and consumer counts in the historical ELZ-073 sections below;
-their measurements describe that earlier shape, not the current one. The full workflow now has exactly eight jobs:
+their measurements describe that earlier shape, not the current one. With ELZ-158 the workflow has nine jobs:
 
 | Job | Part / work | Success marker |
 | --- | --- | --- |
-| `check-plan` | Existing guards, classification and skip decision; outputs `run` and `piece` | Existing plan markers |
+| `check-plan` | Existing guards, classification and skip decision; outputs `run`, `piece`, `spike` and `ash` | Existing plan markers and spike plan line |
 | `check-root` | `root-a`: root tests outside the fixed root-b files, plus the Ash spike exactly once | `ELZOO ROOT A SUITE PASSED` |
 | `check-root-b` | `root-b`: the fixed files below | `ELZOO ROOT B SUITE PASSED` |
 | `check-aggregate` | `aggregate`: the one all-ready-ID copied consumer | `ELZOO AGGREGATE CONSUMER PASSED` |
 | `check-consumers-db` | `consumers-db`: the five PostgreSQL per-ID consumers | `ELZOO CONSUMERS DB PASSED` |
 | `check-consumers` | `consumers`: the 23 database-free per-ID consumers | `ELZOO CONSUMERS PASSED` |
 | `check-piece` | Unchanged small gate, only for a Piece-only pull request | Existing Piece marker, never the full marker |
+| `check-spike` | Isolated Ash checks when Ash changed, only for a spike-only pull request | `ELZOO SPIKE CHECK PASSED` |
 | `check-hosted` | Requires the complete planned result unit | `ELZOO CHECK PASSED` only for full execution |
 
 Every work job keeps the pinned disposable PostgreSQL service, S3 setup, runtime, four schedulers and dependency-cache
@@ -35,12 +36,14 @@ names. No file-path argument narrows loading. The existing partition test parses
 every loaded test identity belongs to exactly one part, preserves the consumer-module and PostgreSQL inventory checks,
 and keeps the aggregate and per-ID timeouts. Unsplit full, affected and Piece selection semantics are unchanged.
 
-The workflow guard pins all eight jobs and their own steps. Full execution requires all five work jobs successful and
-Piece skipped. Piece execution requires all five skipped and Piece successful. Docs-only or a qualified push skip requires
-all five and Piece skipped. Only `check-hosted` emits the full marker, after checking every required result.
+The workflow guard pins all nine jobs and their own steps. Full execution requires all five work jobs successful and
+Piece and spike skipped. Piece execution requires all five and spike skipped and Piece successful. Spike execution
+requires all five and Piece skipped and spike successful. Docs-only or a qualified push skip requires
+all five, Piece and spike skipped. Only `check-hosted` emits the full marker, after checking every required result.
 
-The previously merged ELZ-131 queue and skip validators accept only the complete legacy six-job or new eight-job unit,
-with the matching per-shape steps and markers; mixed units are refused. Those validators are unchanged by ELZ-129.
+The queue accepts complete legacy six/eight-job units and the nine-job unit, with matching per-shape steps and markers;
+mixed units are refused. The push-skip validator is unchanged: it does not reuse nine-job evidence and fails closed to
+a full push check. In particular every spike merge gets a full check on main.
 Exact tree/head/current-base/latest-attempt, hosted identity, green-parent/docs qualification, full-main, merge-window and
 policy-refusal safeguards remain in force. A small gate is never full-main evidence.
 
@@ -48,6 +51,46 @@ Before adoption, the task's PR records at least three complete attempts on each 
 bundle blobs and workload across arms. It records failures, actual cold/warm cache state, setup/stage/test durations,
 queue/wall/critical-path and summed runner time, medians and ranges. No cache hit is called a cold measurement, and no
 historical timing or planning target is a promised saving.
+
+## Spike-only pull requests (ELZ-158)
+
+`scripts/ci-change-class.py` is the shared workflow/queue classifier. A spike-only
+change has at least one regular file below `spikes/ash_foundation/` or
+`spikes/gleam_ui/`, and otherwise only documentation-allowlisted files (including
+`tasks/`) or `docs/plans/release-plan.json`, `docs/plans/views.md` and
+`docs/plans/dependencies.mmd`. Both rename paths count. Symlinks, submodules,
+malformed paths, an empty diff or any root/Piece code path refuse the shortcut.
+The documentation-only and Piece-only rules are unchanged.
+
+On pull requests only, the plan runs all guards and roadmap checks, writes
+`run=false`, `piece=false`, `spike=true` and
+`ELZOO SPIKE PLAN: spike=true spike_only=true`. The five work jobs and
+`check-piece` are skipped. `check-spike` needs no PostgreSQL or S3 service:
+when Ash changed it runs `mix deps.get`, `mix format --check-formatted` and
+`mix test --warnings-as-errors` directly in the Ash spike with `MIX_ENV=test`
+and root build/dependency overrides removed. This is the subprocess work of
+`mix elzoo.ash_spike --setup` and `mix elzoo.ash_spike`, without compiling the
+root project. It uses the same pinned runtime/setup/cache actions as other jobs
+and prints exactly one `ELZOO SPIKE CHECK PASSED` marker. Gleam paths remain
+covered by the existing Gleam workflow. `check-hosted` checks the complete
+spike result shape and prints no full marker. Push and dispatch runs never
+select the spike gate; main runs the full check.
+
+The queue independently classifies the fetched exact head, requires a successful
+complete latest attempt on hosted runners, the spike plan/classification and
+recording steps, the spike marker and no other success marker, with every work
+job and `check-piece` skipped. Disagreement dispatches a full run. The fresh
+classification is checked again before merge, with the same freeze rule and
+bounded first-parent window as the Piece small gate. A partial rerun is refused.
+The first spike-only PR after this merge records the duration of `check-spike`;
+no hosted duration is claimed here.
+
+No root test or Piece consumes the contents of `spikes/`. Root code names
+spike paths only to run the spikes (`mix elzoo.ash_spike`,
+`scripts/benchmark-ci.py`), in cache keys, and as a path fixture of the
+selection test (`test/check_selection_test.exs`). The root `--affected`
+fallback for spike paths stays unchanged. This isolation is why the spike-only
+PR may omit root tests, not a claim that selected evidence is the full check.
 
 ## Redundant push runs and duplicate pull request checks (ELZ-058, ELZ-059)
 

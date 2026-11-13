@@ -7,6 +7,8 @@ adds notes for Claude Code. Put a workflow rule in `AGENTS.md`, not here.
 
 ## Claude Code only
 
+- Choose the change's flow using the decision tree in `AGENTS.md` section 1.
+
 - Claim from the main checkout. Then start the build session inside the task
   worktree.
 - A subagent that edits files gets its own task and its own worktree. Do not

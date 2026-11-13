@@ -35,6 +35,33 @@ Do not read `PLAN.md`, `GATES.md` or `gates/` (the one-time bootstrap) or
 `docs/work/` (old task logs). Do not read `LEDGER.md` or
 `docs/plans/release-plan.json` from top to bottom: search them for your Piece ID.
 
+### Choose the flow
+
+Classify paths with `scripts/ci-change-class.py`; mixed or unclear changes take
+the heavier gate. Every implementation PR keeps one independent review
+(section 6), an exact-head hosted check and the merge queue (section 7).
+Separate publication PRs keep the coordinator merge path (section 9).
+
+| Change | Publication and claim | Local gate → hosted check |
+| --- | --- | --- |
+| New or changed Piece Contract | Coordinator publishes the new Piece ID first; then claim (sections 2–4, 9) | Piece gate below; never reuse an old ID for a new Contract |
+| Piece-only implementation | Published task, claim, implementation PR (sections 2–3) | Small gate (section 5) → `check-piece`; full check on main covers omitted tests |
+| Documents only | Published task or coordinator one-PR path below; claim | Roadmap/claims checks and diff check → docs-only check; no executable inputs changed |
+| Spike only | Published task or coordinator one-PR path; claim | Changed spike's own checks and roadmap/diff checks → `check-spike` and Gleam when applicable; isolated consumers, full check on main |
+| Non-Piece dependency, advisory or shared harness repair | Own task; published or coordinator one-PR path; claim | Full/affected gate as section 5 requires → full hosted check; no selected-gate shortcut |
+| CI, workflow or queue change | Same non-Piece flow; never docs-only | Relevant guard tests plus full/affected gate → full hosted check; no spike shortcut |
+
+For a coordinator-owned non-Piece change with no output Piece ID or Piece
+Contract change, publication and implementation may share one PR: create the
+issue from the task file without `task`, claim with the section 2 API lock,
+and commit the task, its published job row with live body hash and the change
+on `task/ELZ-###`. Close the task issue and the reporting issue if any.
+Do not offer it to another worker. All review, gate and queue rules remain.
+See the coordinator guide for publication details.
+
+If a local service is unavailable, record the command and reason; the hosted
+substitution in section 5 applies, not a lighter change class.
+
 ## 2. Pick and claim
 
     gh issue list -R balungpisah/elzoo --state open --label task --limit 100 --json number,title,body
@@ -192,10 +219,22 @@ database server (section 3). After a change of `mix.exs`, `mix.lock`,
 `config/` or a toolchain pin, run `mix check` with no flag. On a new checkout,
 run `mix setup` first.
 
+If a required local command cannot run on the host (for example PostgreSQL 16
+with pgvector or MinIO is unavailable), record the command and exact reason
+in `Local gate:`. The hosted check is the evidence for that command.
+
+For spike-only changes, run the changed spike's own checks (Ash:
+`MIX_ENV=test mix deps.get`, `mix format --check-formatted` and
+`mix test --warnings-as-errors` with `MIX_ENV=test`, from its directory;
+Gleam: its setup/check scripts), roadmap checks and `git diff --check`.
+This exception does not change the root `--affected` fallback for spike paths.
+
 Each push to a pull request starts the hosted check on the new head:
 
 - a Piece-only change: the small gate, in the job `check-piece`;
 - a change of documents only: about 1 minute;
+- a spike-only change: `check-spike` (Ash checks only when Ash changed), with
+  the Gleam workflow for Gleam paths; root work jobs and `check-piece` skipped;
 - each other change: the full check, about 20 minutes.
 
 That run is the merge evidence. For a Piece-only change, the full check runs
@@ -288,6 +327,11 @@ hosted check on the exact head and then merges with a merge commit. The
 required checks on `main` are `check-hosted` and `gleam-hosted`. A red push run on `main` freezes all merges except the classified repair path in the coordinator guide.
 
 - Reuse qualifying push-check evidence, including for non-task plan-only and publication merges; branch name does not decide reuse. Require the exact head and tree, the current base for PR evidence, the latest successful complete attempt and GitHub-hosted identity. A docs-only short check also requires local docs-only classification and a completed green push run on the first parent; selected Piece evidence never skips the full main check. Keep the coordinator's main-green guards and merge paths unchanged (see [CI guide](docs/development/10-symbolic-ci.md)).
+
+For a spike-only pull request, the queue accepts the spike marker only when
+its own classifier agrees, with hosted exact-head evidence, no other marker
+and no work job or Piece job running. The same freeze rule and first-parent
+window below apply. The full check runs on main after the merge.
 
 For a Piece-only pull request, the queue accepts the small gate only when its
 own classification also says Piece-only. It does not wait for the push run of
