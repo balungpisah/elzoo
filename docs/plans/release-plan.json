@@ -6353,9 +6353,11 @@
     {
       "id": "workflow/tool-registry",
       "job": "ELZ-136",
-      "note": "Bot platform wave 2 (P13). Tool sources can change at run time (MCP). Owns the model-facing alias and the version, a digest of the descriptor. Finding a tool grants no permission. Unknown, ambiguous and changed tools are explicit results.",
+      "note": "Pure resolution of a model-proposed tool name over a caller-supplied snapshot of at most 64 untrusted descriptors from declared sources: deterministic ai-text-grammar alias per source and name, SHA-256 version of the canonical descriptor without trust, model-facing description fill and cut, one argument check through core/payload-schema; resolved, changed, removed (latest listing only), ambiguous or unknown, never the first match. Source kind comes only from the caller; finding a tool grants no permission. No listing, dispatch, process, clock or storage.",
       "baseline_status": "not in baseline (new row, RC-52)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/workflow/tool-registry/piece.json",
+      "manifest_sha256": "76d0373c0fb9c9007bd09d6d97d822740e19b68b1ade6fb8bb0ff5d948dc066d",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
