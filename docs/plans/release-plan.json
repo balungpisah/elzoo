@@ -5686,7 +5686,7 @@
       "disposition": "ready-contract on task branch; task acceptance separate",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/delivery/data-stream/piece.json",
-      "manifest_sha256": "d9ad251ec531f03f4abeeec783f7e9ef1ac474ad03981d3438b3566cff96392e"
+      "manifest_sha256": "400e820ba6fe4032632b3925c00bd3cb6088abb9f5bce30b379dccfbe0659c95"
     },
     {
       "id": "delivery/dead-letter",
