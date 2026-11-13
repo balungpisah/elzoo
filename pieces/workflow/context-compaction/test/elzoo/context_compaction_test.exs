@@ -116,7 +116,6 @@ defmodule Elzoo.ContextCompactionTest do
     texts = Enum.map(payload["messages"], & &1["text"])
     refute Enum.any?(texts, &(&1 =~ "keep" or &1 =~ "ship the report" or &1 =~ "grep"))
     assert hd(texts) == "Summarize the history in a few lines."
-    assert :erlang.binary_to_term(:erlang.term_to_binary(state)) == state
 
     # A completed outcome: the records unchanged, then the derived summary.
     assert {:ok, compacted} = ContextCompaction.accept(state, outcome())
@@ -166,6 +165,7 @@ defmodule Elzoo.ContextCompactionTest do
     assert ContextCompaction.accept(state, outcome(%{"action_id" => "other"})) == {:late, state}
     assert ContextCompaction.accept(state, outcome(%{"outcome" => "late"})) == {:late, state}
     assert ContextCompaction.accept(state, %{"type" => "input"}) == {:error, :invalid_input}
+    assert ContextCompaction.accept(state, request) == {:error, :invalid_input}
 
     message =
       outcome()
@@ -193,6 +193,20 @@ defmodule Elzoo.ContextCompactionTest do
 
     assert ContextCompaction.open(input(window: %{@window | size: small}), &estimate/1) ==
              {:error, :over_limit}
+
+    assert ContextCompaction.open(input(max_request_bytes: small), &estimate/1) ==
+             {:error, :over_limit}
+
+    # A record that is not a JSON object never enters the plain-data state.
+    for value <- [fn -> :ok end, self()] do
+      [record | rest] = entries()
+
+      assert ContextCompaction.open(
+               input(entries: [%{record | record: %{"x" => value}} | rest]),
+               &estimate/1
+             ) ==
+               {:error, :invalid_input}
+    end
 
     for summary <- [
           %{id: "s1", source: "bad source", max_bytes: 64},

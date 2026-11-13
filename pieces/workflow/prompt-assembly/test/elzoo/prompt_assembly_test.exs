@@ -168,6 +168,7 @@ defmodule Elzoo.PromptAssemblyTest do
     cases = [
       [user("u1"), result("t1", "c1")],
       [result("t1", "c1")],
+      [assistant("a1", ["c1"]), result("t1", "c9")],
       [assistant("a1", ["c1"]), user("u1"), result("t1", "c1")],
       [assistant("a1", ["c1"]), result("t1", "c1"), result("t2", "c1")]
     ]
@@ -354,6 +355,7 @@ defmodule Elzoo.PromptAssemblyTest do
     assert build(input(max_request_bytes: 65_537)) == {:error, :invalid_input}
     assert build(input(max_image_refs: 257)) == {:error, :invalid_input}
     assert PromptAssembly.build(input([]), fn -> :ok end) == {:error, :invalid_input}
+    assert build(input(model: <<0xFF>>)) == {:error, :invalid_input}
     assert build(input(model: "")) == {:error, {:request, :invalid_request}}
     refute_received {:estimated, _}
   end

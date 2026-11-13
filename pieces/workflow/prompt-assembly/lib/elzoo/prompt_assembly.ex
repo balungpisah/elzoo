@@ -52,7 +52,7 @@ defmodule Elzoo.PromptAssembly do
 
   defp check_input(%{} = input, estimate) when is_function(estimate, 1) do
     ok =
-      exact?(input, @input_keys) and is_binary(input.model) and
+      exact?(input, @input_keys) and text?(input.model) and
         is_integer(input.max_output_tokens) and
         texts?(input.role_instructions) and input.role_instructions != [] and
         texts?(input.skill_instructions) and

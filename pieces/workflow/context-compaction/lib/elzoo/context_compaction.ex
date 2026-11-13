@@ -46,6 +46,7 @@ defmodule Elzoo.ContextCompaction do
   @doc "Settles the one action with a neutral pattern-step input."
   def accept(state, input) do
     with {:ok, checked} <- decode(input),
+         %{"type" => "input"} <- PatternStep.encode(checked),
          {:applied, _} <- PatternStep.accept(state.tracker, checked),
          %{"outcome" => "completed"} = outcome <- PatternStep.encode(checked),
          {:ok, content} <- summary(outcome, state.summary.max_bytes) do
@@ -57,6 +58,7 @@ defmodule Elzoo.ContextCompaction do
       with :ok <- check(state.records, compacted), do: {:ok, compacted}
     else
       {:late, _} -> {:late, state}
+      %{"type" => "request"} -> {:error, :invalid_input}
       {:refused, reason, _} -> {:error, reason}
       %{"outcome" => outcome} -> {:error, {:model_call, outcome}}
       {:error, reason} -> {:error, reason}
@@ -91,10 +93,17 @@ defmodule Elzoo.ContextCompaction do
   # Records do not reach the build, so their shape is checked here.
   defp record?(%{kind: :record} = e) do
     map_size(e) == 4 and id?(Map.get(e, :id)) and is_map(Map.get(e, :record)) and
+      json?(Map.get(e, :record)) and
       Map.get(e, :keep) in [:goal, :open_action, :decision, :failed_approach]
   end
 
   defp record?(_), do: true
+
+  defp json?(value) when is_binary(value), do: String.valid?(value)
+  defp json?(value) when is_number(value) or is_boolean(value) or is_nil(value), do: true
+  defp json?(list) when is_list(list), do: Enum.all?(list, &json?/1)
+  defp json?(%{} = map), do: Enum.all?(map, fn {k, v} -> is_binary(k) and json?(v) end)
+  defp json?(_), do: false
 
   defp unique_ids?(entries) do
     ids = Enum.map(entries, &Map.get(&1, :id))

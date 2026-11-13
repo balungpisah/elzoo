@@ -20,9 +20,11 @@ range), `model`, `max_output_tokens`, `role_instructions` (how to summarize,
 written by the host), `window`, `max_request_bytes`, and `summary`
 (`%{id: id, source: text, max_bytes: n}`). A `source` outside the source grammar
 of `workflow/untrusted-content`, a `max_bytes` outside 1..16,777,216 or an `id`
-that an entry of the range already has is `:invalid_input`.
+that an entry of the range already has is `:invalid_input` (this keeps the IDs
+of `compacted.entries` unique).
 
-The `:record` entries are carried as they are and never sent to the model. The
+The `:record` entries are carried as they are and never sent to the model; a
+record that is not a JSON object is `:invalid_input`. The
 other entries are built into the summary request by
 `Elzoo.PromptAssembly.build/2` with no skill instructions, memory or tools and
 `max_image_refs` 256. A build that drops an entry gives `{:error, :over_limit}`
@@ -39,9 +41,11 @@ Result: `{:ok, state, request}`, where `request` is a neutral request of
 through `PatternStep.open/1` and `PatternStep.accept/2`.
 
 - `{:late, state}`: an outcome of another action, or a late outcome.
-- `{:error, :invalid_input}`: a map that `PatternStep.decode/1` refuses;
+- `{:error, :invalid_input}`: a map that `PatternStep.decode/1` refuses, or a
+  map that is not an input (a request);
   `{:error, :not_an_outcome | :incompatible_answer_kind}` as `PatternStep.accept/2` refuses.
-- `{:error, {:model_call, outcome}}`: an outcome class other than `"completed"`.
+- `{:error, {:model_call, outcome}}`: an outcome class other than `"completed"`;
+  `outcome` is the class as text, for example `"failed"`.
 - `{:error, :invalid_summary}`: another schema key, `finish` other than `"stop"`,
   or `content` that is not a nonempty UTF-8 text of at most `summary.max_bytes`.
 - Otherwise `{:ok, compacted}`:
