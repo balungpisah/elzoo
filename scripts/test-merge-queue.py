@@ -31,7 +31,14 @@ def merge_line(run, base, head=None, merge=None):
 
 
 class Fake:
-    def __init__(self):
+    def __init__(self, split=False):
+        if split:
+            self.PART_MARKERS = {"check-root": "ELZOO ROOT A SUITE PASSED", "check-root-b": "ELZOO ROOT B SUITE PASSED",
+                                 "check-aggregate": "ELZOO AGGREGATE CONSUMER PASSED",
+                                 "check-consumers-db": "ELZOO CONSUMERS DB PASSED",
+                                 "check-consumers": "ELZOO CONSUMERS PASSED"}
+            self.NAMES = ("check-plan",) + tuple(self.PART_MARKERS) + ("check-hosted",)
+            self.ALL = self.NAMES + ("check-piece",)
         self.calls = []
         self.now = 0
         self.messages = []
@@ -733,8 +740,8 @@ class QueueTest(unittest.TestCase):
 class HostedLaneEvidence(unittest.TestCase):
     """ELZ-066: the same queue accepts evidence from the hosted lane, under stricter job identity rules."""
 
-    def setUp(self):
-        self.fake = Fake()
+    def setUp(self, split=False):
+        self.fake = Fake(split=split)
         self.q = self.fake.make_queue()
 
     def refuses(self, pattern=None):
@@ -742,6 +749,66 @@ class HostedLaneEvidence(unittest.TestCase):
             self.q.process(79)
         self.assertFalse(self.fake.merged)
         self.assertFalse(self.fake.commands(["gh", "pr", "merge"]))
+
+    def test_split_full_docs_and_piece_units_keep_every_evidence_job(self):
+        for mode in ("full", "docs", "piece"):
+            with self.subTest(mode=mode):
+                self.setUp(split=True)
+                if mode != "full":
+                    self.fake.pr_runs = [self.fake.pr_run(700)]
+                    if mode == "docs":
+                        self.fake.docs_runs = {700}
+                        self.fake.diff_paths = ["docs/a.md"]
+                    else:
+                        self.fake.piece_runs = {700}
+                        self.fake.diff_paths = ["pieces/core/port/lib/port.ex"]
+                self.q.process(79)
+                self.assertTrue(self.fake.merged)
+                names = self.fake.ALL if mode == "piece" else self.fake.NAMES
+                base = 500 if mode == "piece" else 400 if mode == "docs" else 201
+                ids = ",".join(f"{name}:{base * 10 + position}" for position, name in enumerate(names))
+                self.assertIn(f"jobs={ids} head=", self.fake.messages[-1])
+
+    def test_only_complete_legacy_or_split_units_are_evidence(self):
+        for split in (False, True):
+            for missing in Fake(split=split).ALL:
+                with self.subTest(split=split, missing=missing):
+                    self.setUp(split=split)
+                    self.fake.drop_jobs = {missing}
+                    self.refuses("Expected exactly")
+            for extra in ("check-any", "check-root-b" if not split else "check-root"):
+                with self.subTest(split=split, extra=extra):
+                    self.setUp(split=split)
+                    self.fake.other_job_changes = {"name": extra}
+                    self.refuses("Expected exactly")
+            self.setUp(split=split)
+            self.fake.duplicate_job = True
+            self.refuses("Expected exactly")
+
+    def test_split_work_requires_each_own_step_marker_and_success(self):
+        gate = {"name": "Verify the GitHub-hosted runner", "conclusion": "success"}
+        for name, marker in Fake(split=True).PART_MARKERS.items():
+            for change in ({"conclusion": "skipped"}, {"conclusion": "failure"}):
+                with self.subTest(job=name, change=change):
+                    self.setUp(split=True)
+                    self.fake.jobs_changes = {name: change}
+                    self.refuses()
+            for steps in ([], [{"name": "Run mix check", "conclusion": "skipped"}],
+                          [{"name": "Run mix check", "conclusion": "failure"}],
+                          [{"name": "Run mix check", "conclusion": "success"}] * 2):
+                with self.subTest(job=name, steps=steps):
+                    self.setUp(split=True)
+                    self.fake.jobs_changes = {name: {"steps": [gate] + steps}}
+                    self.refuses("Full check step")
+            for log in ("", "ELZOO ROOT SUITE PASSED\n", marker + "\nELZOO ROOT SUITE PASSED\n",
+                        marker + "\nELZOO CHECK PASSED\n"):
+                with self.subTest(job=name, log=log):
+                    self.setUp(split=True)
+                    self.fake.logs_by_job = {name: log}
+                    self.refuses("marker")
+        self.setUp()
+        self.fake.logs_by_job = {"check-root": "ELZOO ROOT A SUITE PASSED\n"}
+        self.refuses("marker")
 
     def test_executed_check_any_is_never_evidence_in_either_lane(self):
         self.fake.job_changes = {"name": "check-any"}
