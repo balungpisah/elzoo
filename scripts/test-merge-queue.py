@@ -1734,26 +1734,26 @@ class PieceFastPath(unittest.TestCase):
                 self.assertTrue(self.fake.merged)
                 self.assertFalse(any(m.startswith("Waiting: push run of main") for m in self.fake.messages))
 
-    def test_the_window_counts_all_first_parent_commits_at_two_and_three(self):
-        for count in (0, 1, 2, 3):
+    def test_the_window_counts_all_first_parent_commits_at_four_and_five(self):
+        for count in (0, 1, 2, 3, 4, 5):
             with self.subTest(count=count):
                 self.setUp()
                 self.piece_pr()
-                self.fake.first_parent_chain = [M, A, B, "d" * 40][:count + 1]
+                self.fake.first_parent_chain = [M, A, B, "d" * 40, "e" * 40, "f" * 40][:count + 1]
                 cover = self.fake.first_parent_chain[-1]
                 self.fake.covering_runs = {cover: [self.fake.main_head_run(head_sha=cover)]}
-                if count < 3:
+                if count < 5:
                     self.q.process(79)
                     self.assertTrue(self.fake.merged)
                 else:
-                    self.refuses(f"covering SHA={cover} count=3")
+                    self.refuses(f"covering SHA={cover} count=5")
                 self.assertEqual(0, self.fake.dispatches)
 
     def test_a_new_covering_push_reopens_the_window(self):
         self.piece_pr()
-        self.fake.first_parent_chain = [M, A, B, "d" * 40]
-        self.fake.covering_runs = {"d" * 40: [self.fake.main_head_run(head_sha="d" * 40)]}
-        self.refuses("count=3")
+        self.fake.first_parent_chain = [M, A, B, "d" * 40, "e" * 40, "f" * 40]
+        self.fake.covering_runs = {"f" * 40: [self.fake.main_head_run(head_sha="f" * 40)]}
+        self.refuses("count=5")
         self.fake.covering_runs[B] = [self.fake.main_head_run(9001, head_sha=B)]
         self.q.process(79)
         self.assertTrue(self.fake.merged)
@@ -1783,11 +1783,11 @@ class PieceFastPath(unittest.TestCase):
 
     def test_covering_push_is_rechecked_immediately_before_merge(self):
         self.piece_pr()
-        self.fake.first_parent_chain = [M, A, B, "d" * 40]
+        self.fake.first_parent_chain = [M, A, B, "d" * 40, "e" * 40, "f" * 40]
         self.fake.main_head_runs_later = [
             self.fake.main_head_run(status="in_progress", conclusion=None, run_attempt=2),
-            self.fake.main_head_run(8999, head_sha="d" * 40)]
-        self.refuses(f"covering SHA={'d' * 40} count=3")
+            self.fake.main_head_run(8999, head_sha="f" * 40)]
+        self.refuses(f"covering SHA={'f' * 40} count=5")
         self.assertEqual(0, self.fake.dispatches)
 
     def test_a_frozen_main_refuses_the_small_gate_merge(self):

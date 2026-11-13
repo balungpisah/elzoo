@@ -283,7 +283,7 @@ required checks on `main` are `check-hosted` and `gleam-hosted`. A red push run 
 
 For a Piece-only pull request, the queue accepts the small gate only when its
 own classification also says Piece-only. It does not wait for the push run of
-`main`. The push run on `main` after the merge is the full check. Until the queue enforces a count limit, the coordinator allows at most three small-gate merges after the newest green push run of `main`, then waits for a green push run covering them before another. The coordinator also waits for a green `main` at the end of each level of tasks
+`main`. The push run on `main` after the merge is the full check. Before a small-gate merge, the queue permits at most four outstanding first-parent commits after the newest covering green push run of `main`; at five it refuses until a newer covering green run. The coordinator also waits for a green `main` at the end of each level of tasks
 ([coordinator](docs/development/13-coordinator.md)).
 
 If the queue stops on a conflict, or on a red check of the index files after
