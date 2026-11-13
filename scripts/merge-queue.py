@@ -479,7 +479,7 @@ class Queue:
                 step(aggregate, "Require every job")[0].get("conclusion") == "success",
                 "Aggregating step missing, skipped or failed")
         if mode != "spike":
-            require(not any(SPIKE_MARKER in log(job) for job in jobs if job.get("conclusion") != "skipped"),
+            require(not any(has_line(job, re.escape(SPIKE_MARKER)) for job in jobs if job.get("conclusion") != "skipped"),
                     "Spike marker present outside a spike run")
         if mode == "spike":
             spike = by_name[SPIKE_JOB]
@@ -502,10 +502,10 @@ class Queue:
             require(len(re.findall(LOG_STAMP + re.escape(SPIKE_MARKER) + r"\s*$", log(spike))) == 1,
                     "Missing or duplicate spike marker")
             for job in (plan, spike, aggregate):
-                require(not any(marker in log(job) for marker in
+                require(not any(has_line(job, re.escape(marker) + r".*") for marker in
                                 (FULL_MARKER, DOCS_MARKER, "ELZOO PIECE CHECK PASSED", AFFECTED_MARKER, *PART_MARKERS)),
                         "Unexpected marker in a spike run")
-            require(SPIKE_MARKER not in log(plan) and SPIKE_MARKER not in log(aggregate),
+            require(not has_line(plan, re.escape(SPIKE_MARKER)) and not has_line(aggregate, re.escape(SPIKE_MARKER)),
                     "Spike marker printed outside check-spike")
         elif mode == "full":
             require(len(docs_step) == 1 and docs_step[0].get("conclusion") == "skipped",
