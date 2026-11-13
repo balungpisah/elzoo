@@ -6539,9 +6539,11 @@
     {
       "id": "delivery/provider-stream",
       "job": "ELZ-143",
-      "note": "Bot platform wave 2 (P13). Widens ready delivery/data-stream (one Anthropic text stream) to tool calls, so it is a new ID. The assembled result equals the completed value of the synchronous provider for a paired fixture. A second provider is a separate Piece.",
+      "note": "One blocking Anthropic Messages stream call run(payload, sink, settings) for one elzoo/ai-text-request: at most one POST; text, tool_start (owned shape) and tool_delta frames offered one at a time, each acknowledged before the next and no decoded backlog; complete{content, tool_calls, finish, usage, provenance} only after a valid message_stop and a normal HTTP worker end, inside max_result_bytes; otherwise incomplete or refused with a fixed reason; a sink that stops, times out or fails closes the local request; HTTP and sink workers are dead before return.",
       "baseline_status": "not in baseline (new row, RC-57)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/delivery/provider-stream/piece.json",
+      "manifest_sha256": "756ec936b1c86d96faf17f50ff67040423b094db7713306c163c7959cd80f589",
       "catalogue_reference": "registry/catalogue.json"
     },
     {

@@ -1,0 +1,36 @@
+{
+ "id": "msg_011CgzXnzKALMgLi5HCHiogj",
+ "type": "message",
+ "role": "assistant",
+ "container": null,
+ "content": [
+  {
+   "type": "text",
+   "text": "Sunlight contains all colors, and water absorbs longer wavelengths like red and orange more strongly than blue, so the blue light is scattered back to our eyes. Water molecules and tiny particles scatter blue light most effectively, and the reflection of the sky adds to this effect.",
+   "citations": []
+  }
+ ],
+ "model": "anthropic/claude-haiku-5.5",
+ "stop_reason": "end_turn",
+ "stop_details": null,
+ "stop_sequence": null,
+ "usage": {
+  "input_tokens": 37,
+  "output_tokens": 93,
+  "output_tokens_details": {
+   "thinking_tokens": 0
+  },
+  "cache_creation_input_tokens": 0,
+  "cache_read_input_tokens": 0,
+  "cache_creation": {
+   "ephemeral_5m_input_tokens": 0,
+   "ephemeral_1h_input_tokens": 0
+  },
+  "inference_geo": "global",
+  "server_tool_use": null,
+  "service_tier": "standard",
+  "speed": "standard"
+ },
+ "provider": "Anthropic",
+ "parsed_output": null
+}

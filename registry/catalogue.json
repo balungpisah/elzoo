@@ -993,7 +993,8 @@
       "summary": "Partial output of one model call with tool calls (Anthropic first)",
       "disposition": "adapt",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/delivery/provider-stream/piece.json",
       "reason": "Bot platform wave 2 (P13). Widens ready delivery/data-stream (one Anthropic text stream) to tool calls, so it is a new ID. The assembled result equals the completed value of the synchronous provider for a paired fixture. A second provider is a separate Piece."
     },
     {

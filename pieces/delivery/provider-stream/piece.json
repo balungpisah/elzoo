@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "id": "delivery/provider-stream",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "adapter",
+  "providers": [
+    "req",
+    "jason",
+    "server_sent_events",
+    "elixir",
+    "otp"
+  ],
+  "dependencies": [
+    "delivery/data-stream",
+    "integration/ai-model",
+    "integration/ai-text"
+  ],
+  "contract": "One blocking Anthropic Messages stream call run(payload, sink, settings) for one elzoo/ai-text-request: at most one POST; text, tool_start (owned shape) and tool_delta frames offered one at a time, each acknowledged before the next and no decoded backlog; complete{content, tool_calls, finish, usage, provenance} only after a valid message_stop and a normal HTTP worker end, inside max_result_bytes; otherwise incomplete or refused with a fixed reason; a sink that stops, times out or fails closes the local request; HTTP and sink workers are dead before return.",
+  "limits": [
+    "One provider and one wire surface. The recorded streams came through OpenRouter's Anthropic-compatible endpoint, routed to Anthropic; no test shows a stream from Anthropic's own endpoint.",
+    "No thinking blocks, structured output, cache hint, stop sequences, sampling, server tools, retry, reconnect, remote cancellation, replay, delivery durability or billing claim. Provider work and charges after a local close are unknown.",
+    "No memory claim beyond the retained raw block (65536 bytes), the current receive chunk and the assembled result. Tool arguments are not checked against the tool's schema.",
+    "The caller holds the effect-intent custody; this Piece keeps no intent or outcome record and cannot stop a caller that calls it twice. Tests are finite loopback scenarios; no Cure law."
+  ],
+  "files": [
+    "lib/elzoo/provider_stream.ex",
+    "lib/elzoo/provider_stream/chunk.ex",
+    "lib/elzoo/provider_stream/frame.ex",
+    "lib/elzoo/provider_stream/protocol.ex",
+    "lib/elzoo/provider_stream/request.ex",
+    "test/elzoo/provider_stream_test.exs",
+    "test/fixtures/openrouter-anthropic/PROVENANCE.md",
+    "test/fixtures/openrouter-anthropic/not-a-pair/text.response.json",
+    "test/fixtures/openrouter-anthropic/not-a-pair/text.upstream.json",
+    "test/fixtures/openrouter-anthropic/not-a-pair/tool.response.json",
+    "test/fixtures/openrouter-anthropic/not-a-pair/tool.upstream.json",
+    "test/fixtures/openrouter-anthropic/text.ai-text.json",
+    "test/fixtures/openrouter-anthropic/text.message.json",
+    "test/fixtures/openrouter-anthropic/text.sse",
+    "test/fixtures/openrouter-anthropic/text.upstream.json",
+    "test/fixtures/openrouter-anthropic/tool.ai-text.json",
+    "test/fixtures/openrouter-anthropic/tool.message.json",
+    "test/fixtures/openrouter-anthropic/tool.sse",
+    "test/fixtures/openrouter-anthropic/tool.upstream.json",
+    "test/support/provider_stream_test_helper.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/provider_stream_test.exs",
+      "claim": "Listed loopback scenarios over real HTTP/1.1 pass; peer messages carry their origin. text_only (25 text frames of text.sse, each held by the sink with no further offer until released, complete with no tool call, POST body equal to text.upstream.json without provider, refused requests reach neither credentials nor peer); tool_call_split (tool.sse in 97-byte pieces: tool_start held 400 ms with no delta offered, then nine tool_delta frames, complete, arguments equal to tool.message.json input); cut_in_tool_call (cut after the fifth tool delta: closed connection is incomplete transport, ended body is incomplete missing_completion); slow_consumer (one unacknowledged frame, no second offer and no peer close; ack_timeout_ms 1000 gives sink_timeout and peer close; cancel, disconnect, another return, an ack of another ref or seq, and a raising sink close too); result_over_bound (max_result_bytes 283 text and 212 tool complete, 282 and 211 give result_limit without the last frame and with the close of that peer; missing, 0, 1048577, duplicate, unknown or improper-list setting is a configuration error that sends nothing); provider_error_mid_stream (hand-built documented error event after three recorded deltas is stream_error; status 529 is refused overloaded); equals_non_stream (content, tool calls and finish equal both .message.json second forms). Declared paths: more than 4194304 received bytes give receive_limit; total_timeout_ms 600 and receive_timeout_ms 300 each give timeout and peer close; a credential function with no key is refused credentials_unavailable with no request; a worker killed by an exit signal gives adapter_error within 1000 ms to a caller that traps exits. Negative controls: offering without the acknowledgement fails text_only, tool_call_split and slow_consumer; counting the end of the body as completion fails cut_in_tool_call; returning result_limit without the close fails result_over_bound; waiting again for the worker's DOWN fails the adapter_error case."
+    },
+    {
+      "kind": "monitor",
+      "file": "test/fixtures/openrouter-anthropic/PROVENANCE.md",
+      "claim": "Two streams of claude-haiku-5-5 recorded on 2026-11-13 through OpenRouter's Anthropic-compatible endpoint, routed to Anthropic, committed unchanged; the .message.json files are the Message that Anthropic's TypeScript SDK built from the same bytes. Observations of one model on one day, not a proof and not the provider's Contract."
+    },
+    {
+      "kind": "upstream",
+      "provider": "req",
+      "reference": "https://hexdocs.pm/req/0.7.5/Req.html",
+      "claim": "Pinned function-into body callback that waits per call, through the unchanged Transport of delivery/data-stream (HTTP/1, retry and redirect off)."
+    },
+    {
+      "kind": "upstream",
+      "provider": "server_sent_events",
+      "reference": "https://hexdocs.pm/server_sent_events/1.1.0/ServerSentEvents.Parser.html",
+      "claim": "Unmodified parse/1 on each complete raw block of at most 65536 bytes."
+    },
+    {
+      "kind": "upstream",
+      "provider": "jason",
+      "reference": "https://hexdocs.pm/jason/1.4.5/Jason.html",
+      "claim": "Decodes each event's data and the joined tool arguments; encodes the POST body."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/Process.html",
+      "claim": "Linked worker processes, monitors and kill; no scheduler timing claim."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/apps/kernel/gen_tcp.html",
+      "claim": "A socket closes when its owning process dies, which the loopback peer observes as a close."
+    },
+    {
+      "kind": "assumption",
+      "claim": "Anthropic's Streaming messages, Claude API errors and API versions pages, read 2026-11-13, describe the event order, the error event format, the status table and that new output values and event types may appear. The host holds effect-intent custody, a workspace key, TLS egress, a model that accepts thinking disabled and a trusted sink."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "planned",
+      "contract": "No Elzoo event. Req and Finch emit their own upstream telemetry, including transport request metadata; a host that installs handlers must redact it."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Construction of one call only: required credentials, models and max_result_bytes (1..1048576, no default); total_timeout_ms (1..300000, default 60000), receive_timeout_ms (1..min(30000,total), default 5000), ack_timeout_ms (1..min(10000,total), default 1000). Unknown, missing or duplicate keys give {:error, :configuration} and send nothing. No hot update; endpoint fixed.",
+      "evidence": [
+        "test/elzoo/provider_stream_test.exs"
+      ]
+    },
+    "control": {
+      "status": "supported",
+      "contract": "The sink's return per frame: {:cancel, :caller_cancelled} or {:error, :disconnected} kills the workers and closes the local HTTP request, giving incomplete; no remote cancellation. No other command.",
+      "evidence": [
+        "test/elzoo/provider_stream_test.exs"
+      ]
+    }
+  }
+}
