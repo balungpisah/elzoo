@@ -67,6 +67,16 @@ defmodule Elzoo.DataStream.PostgresTest do
             :release -> result
           end
 
+        m == :hold_admission_checkpoint and op == :put_checkpoint and req.target == 1 ->
+          send(parent, {:held_sql, self(), req.stream, System.monotonic_time(:microsecond)})
+
+          receive do
+            {:until, moment} ->
+              hold(moment)
+              send(parent, {:released_sql, self(), System.monotonic_time(:microsecond) - moment})
+              result
+          end
+
         true ->
           result
       end
@@ -232,8 +242,8 @@ defmodule Elzoo.DataStream.PostgresTest do
               true
           after
             0 ->
-              # D that ends while the intent is admitted gives intent_unavailable.
-              assert t.reason in [:timeout, :intent_unavailable]
+              # D that ends while the intent is admitted is a timeout as well.
+              assert t.reason == :timeout
               false
           end
 
@@ -246,5 +256,95 @@ defmodule Elzoo.DataStream.PostgresTest do
 
     assert conclusive,
            "inconclusive samples #{Enum.join(keys, ", ")}: none reached the blocked checkpoint write"
+  end
+
+  test "lifetime_end_during_admission: D that ends while the intent is admitted gives timeout",
+       c do
+    Agent.update(c.mode, fn _ -> :hold_admission_checkpoint end)
+
+    settings =
+      Keyword.merge(c.settings, total_timeout_ms: 150, receive_timeout_ms: 100, ack_timeout_ms: 100)
+
+    # The sweep of issue 319. Session refuses the intent from the millisecond
+    # in which D ends and handles its deadline message about 1 ms later. The
+    # first checkpoint write returns from 300 µs before the end of D to
+    # 1300 µs after it, so the registration that follows it meets that window.
+    steps = Enum.to_list(-300..1_300//100)
+    samples = Enum.flat_map(steps, &held_samples(settings, &1, 1))
+
+    # Each sample with another reason, whether it was held to its moment or not.
+    assert for({step, reason, _} <- samples, reason != :timeout, do: {step, reason}) == []
+    # A step without a sample that was held to its moment is not a pass.
+    assert for({step, _, true} <- samples, do: step) == steps
+  end
+
+  # Samples of one step until one is held to its moment, three at most.
+  defp held_samples(settings, step, n) do
+    {reason, held} = held_sample(settings, step, "sweep-#{step + 300}-#{n}")
+    rest = if held or n == 3, do: [], else: held_samples(settings, step, n + 1)
+    [{step, reason, held} | rest]
+  end
+
+  # One stream whose first checkpoint write may return `step` µs after the end
+  # of D and not before. Gives the terminal reason and whether the write was
+  # held to that moment.
+  defp held_sample(settings, step, key) do
+    %{id: peer, origin: origin} =
+      Peer.start(self(), fn mod, s -> Peer.response(mod, s, Fixture.complete()) end)
+
+    {:ok, owner} = Stream.__start_loopback__(settings, origin)
+    identity = [settings[:tenant], "workspace-test", "stream-test", "generate_stream", key]
+    stream = Elzoo.EffectIntent.Model.stream(Elzoo.EffectIntent.Model.key(identity))
+    {:ok, h} = Stream.start(owner, Fixture.effect(%{"idempotency_key" => key}), &Fixture.ack/1)
+    e = :sys.get_state(owner).entries[h.ref]
+    # Session compares whole milliseconds: D is over from this microsecond.
+    moment = :sys.get_state(e.session).prepared.deadline * 1_000 + step
+
+    # A worker that does not reach the write while D runs gets no moment. It
+    # then waits until cleanup, and its sample is not held.
+    {worker, began} =
+      receive do
+        {:held_sql, worker, ^stream, began} ->
+          send(worker, {:until, moment})
+          {worker, began}
+      after
+        settings[:total_timeout_ms] -> {nil, nil}
+      end
+
+    t = Fixture.terminal(h)
+    refute Process.alive?(e.sup)
+    if worker, do: refute(Process.alive?(worker))
+
+    # Held: the write returned in the 100 µs of its step. At the end of D or
+    # later also: cleanup stopped the worker, which held from before the moment.
+    held =
+      receive do
+        {:released_sql, ^worker, late} -> late < 100
+      after
+        0 -> step >= 0 and is_pid(worker) and began < moment
+      end
+
+    if step >= 0, do: refute_receive({:stream_request, ^peer, _, _, _}, 20)
+    GenServer.stop(owner)
+    {t.reason, held}
+  end
+
+  # A timer is up to a millisecond late, so the last part of the wait spins.
+  defp hold(moment) do
+    left = moment - System.monotonic_time(:microsecond)
+
+    cond do
+      left > 5_000 ->
+        receive do
+        after
+          div(left, 1_000) - 5 -> hold(moment)
+        end
+
+      left > 0 ->
+        hold(moment)
+
+      true ->
+        :ok
+    end
   end
 end
