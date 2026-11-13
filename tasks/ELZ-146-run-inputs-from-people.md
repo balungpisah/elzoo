@@ -33,9 +33,9 @@ State is the exact atom-keyed map `%{asks: asks, tracker: tracker}` for one requ
 3. An applied `action_outcome` gives `{:closed, action_id, outcome}`. The entry leaves `asks` and the new tracker is kept. Outcome `"expired"` is the time-out; no other time-out exists here.
 4. An applied `person_answer` is an answer only when its `action_id` is in `asks` and three texts are byte-equal: the named person, `person_id` of the input, and `verified_person`. Then the decision is `{:answer, action_id}`, the entry leaves `asks` and the new tracker is kept. Otherwise the decision is `{:refused, :wrong_person}`: the applied tracker is discarded, the ask stays open, and a later answer of the named person still stands.
 
-`route(asks, verified_person)` makes the choice that ELZ-114 leaves to this job: which input the host records for text from a verified person. Exactly one open ask names the person: `{:answer, action_id}`, and the host records a `person_answer` for that action. No open ask names the person: `:message`, and the host records a `message`. Several do: `{:refused, :ambiguous_ask}`; this Piece does not choose. `asks` may be the union of the `asks` maps of the Run.
+`route(asks, verified_person)` makes the choice that ELZ-114 leaves to this job: which input the host records for text from a verified person. Exactly one open ask names the person: `{:answer, action_id}`, and the host records a `person_answer` for that action. No open ask names the person: `:message`, and the host records a `message`. Several do: `{:refused, :ambiguous_ask}`; this Piece does not choose. `asks` may be the union of the `asks` maps of the Run. An `asks` that is not a map of nonempty UTF-8 texts (any size), or a `verified_person` that is not nonempty UTF-8 text (`nil` included), is `{:error, :invalid_shape}`.
 
-A caller that also uses ELZ-124 gives it a `person_answer` only after this policy returned `{:answer, _}`, with the tracker from before this step. Both steps then return equal trackers.
+A caller that also uses ELZ-124 gives it a `person_answer` only after this policy returned `{:answer, _}`, with the tracker from before this step. When ELZ-124 accepts that wait, both steps return equal trackers; on its terminal, deadline-expired and closed-wait paths ELZ-124 returns its tracker unchanged.
 
 ## `workflow/mid-run-input`: `Elzoo.MidRunInput`
 
@@ -62,13 +62,13 @@ An input whose kind is not `message` gives `:pass` and leaves the state unchange
 - `{:interrupt, message, report}`: the same, with the report. "Already delivered" reads the record in pattern-step shapes: the actions that have an applied outcome. v1 has no action for a part of an answer to a channel, so the report does not say what a person has seen. An open action can already be sent: the report never says that it was not.
 - `{:side_run, message, report}`: a different Run answers the message. It gets the message and the report to read. The first Run gets nothing: no input, no queued message, no state change.
 
-`next(state)` returns `{:ok, new_state, {:deliver, message}}` with the oldest queued message removed, or `{:ok, state, :empty}`. The caller calls it when ELZ-124 permits new work.
+`next(state)` returns `{:ok, new_state, {:deliver, message}}` with the oldest queued message removed, or `{:ok, state, :empty}`, or `{:error, :invalid_shape}` for a state that is not in the form above. The caller calls it when ELZ-124 permits new work.
 
 ## Host Needs and Limits
 
 Needs: authentication of the person and the truthful `verified_person`; the named person of each ask; each input recorded before a policy reads it; inputs of the current Attempt only; the `expired` outcome recorded for an ask that is past its deadline, before any input that was read at or after that deadline (the engine owns the deadline and the durable timer); truthful `run` facts; serialization and preservation of both states and of the tracker. For an interrupt, the caller stops or leaves the open actions under the rules of ELZ-116 and ELZ-124. For a side run, the host starts the other Run with its own identity and budget, authority not above the first Run, and a copy of the state it may read.
 
-Limits: neither policy authenticates, records, starts, cancels or stops anything. No deadline arithmetic and no timer: `delivery/time` is not used. No child-Run action: v1 has none. The report is part of a decision for the caller; this task adds no input kind that carries it to a pattern. A text never settles an ask by itself. Telemetry, Config and Control are not applicable: both are pure callables, and the rule is a recorded operand of the state.
+Limits: neither policy authenticates, records, starts, cancels or stops anything. No deadline arithmetic and no timer: `delivery/time` is not used. No child-Run action: v1 has none. The report is part of a decision for the caller; this task adds no input kind that carries it to a pattern. A text never settles an ask by itself. Telemetry and Control are not applicable: both are pure callables. Config: the `rule` of `workflow/mid-run-input` is supported, set when the state is built and the same for the whole Run, with no hot change; the fixed bound of 16 is not Config. `workflow/wait-for-person` has no Config.
 
 ## Named acceptance groups
 
