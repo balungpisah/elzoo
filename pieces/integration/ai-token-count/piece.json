@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "id": "integration/ai-token-count",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": [
+    "llm_db",
+    "jason",
+    "plug",
+    "elixir"
+  ],
+  "dependencies": [
+    "integration/ai-text",
+    "integration/ai-text-anthropic"
+  ],
+  "contract": "Pure upper bound, before the call, for the input tokens of one integration/ai-text request to Anthropic: Elzoo.AiTokenCount.Anthropic.estimate/1 decodes the request bytes with Elzoo.AiText.Request.decode/1 and returns size = 3 * canonical bytes, plus 1,024 when the request has a tool, with unit :tokens, direction :upper_bound, provider_id, model_id and estimator elzoo/ai-token-count/anthropic-bytes version 1 (the fields of a workflow/context-selection window); refuses the decoder's reasons unchanged, an output_schema as :unsupported_feature and a model that pinned llm_db does not know for Anthropic as :unknown_model. Not a token count and not a usage fact.",
+  "limits": [
+    "The factor 3 rests on Monitored recordings of one model (claude-haiku-5-5) on one day, recorded through OpenRouter's Anthropic-compatible endpoint, routed to Anthropic; not a proof, not the provider's Contract. The tokenizer is not published: a text pattern that was not tried, a new model or a new tokenizer can break the bound.",
+    "No claim for another model, a direct call to Anthropic, or a request feature that no fixture covers (reasoning, cache hint, stop sequences); a request with an output_schema is refused.",
+    "Not exact and not tight: on the fixtures size is 1.74 to 29.72 times the reported prompt input, about nine times on ordinary prose. No claim about output tokens, cost, cache savings or a rate limit; the value is not a usage fact and is not for billing.",
+    "Known models are those of the pinned llm_db 2026.11.0 catalogue as packaged; a host that filters or replaces it changes which models are known. A caller reads a model's limit from LLMDB.model/2 itself; this Piece wraps neither.",
+    "integration/ai-text-anthropic and plug are test-only dependencies (group fixture_matches_adapter captures the adapter's body through its :plug test transport); the lib file uses neither and no test calls the network."
+  ],
+  "files": [
+    "lib/elzoo/ai_token_count/anthropic.ex",
+    "test/elzoo/ai_token_count_anthropic_test.exs",
+    "test/fixtures/openrouter-anthropic/PROVENANCE.md",
+    "test/fixtures/openrouter-anthropic/adv_ascii_caps_punct.request.json",
+    "test/fixtures/openrouter-anthropic/adv_ascii_caps_punct.response.json",
+    "test/fixtures/openrouter-anthropic/adv_ascii_caps_punct.upstream.json",
+    "test/fixtures/openrouter-anthropic/adv_rare_punct.request.json",
+    "test/fixtures/openrouter-anthropic/adv_rare_punct.response.json",
+    "test/fixtures/openrouter-anthropic/adv_rare_punct.upstream.json",
+    "test/fixtures/openrouter-anthropic/adv_upper_rare_punct.request.json",
+    "test/fixtures/openrouter-anthropic/adv_upper_rare_punct.response.json",
+    "test/fixtures/openrouter-anthropic/adv_upper_rare_punct.upstream.json",
+    "test/fixtures/openrouter-anthropic/dense.request.json",
+    "test/fixtures/openrouter-anthropic/dense.response.json",
+    "test/fixtures/openrouter-anthropic/dense.upstream.json",
+    "test/fixtures/openrouter-anthropic/expanding.request.json",
+    "test/fixtures/openrouter-anthropic/expanding.response.json",
+    "test/fixtures/openrouter-anthropic/expanding.upstream.json",
+    "test/fixtures/openrouter-anthropic/many_messages.request.json",
+    "test/fixtures/openrouter-anthropic/many_messages.response.json",
+    "test/fixtures/openrouter-anthropic/many_messages.upstream.json",
+    "test/fixtures/openrouter-anthropic/many_tools.request.json",
+    "test/fixtures/openrouter-anthropic/many_tools.response.json",
+    "test/fixtures/openrouter-anthropic/many_tools.upstream.json",
+    "test/fixtures/openrouter-anthropic/non_latin.request.json",
+    "test/fixtures/openrouter-anthropic/non_latin.response.json",
+    "test/fixtures/openrouter-anthropic/non_latin.upstream.json",
+    "test/fixtures/openrouter-anthropic/probe-table.tsv",
+    "test/fixtures/openrouter-anthropic/prose.request.json",
+    "test/fixtures/openrouter-anthropic/prose.response.json",
+    "test/fixtures/openrouter-anthropic/prose.upstream.json",
+    "test/fixtures/openrouter-anthropic/short.request.json",
+    "test/fixtures/openrouter-anthropic/short.response.json",
+    "test/fixtures/openrouter-anthropic/short.upstream.json",
+    "test/fixtures/openrouter-anthropic/symbols.request.json",
+    "test/fixtures/openrouter-anthropic/symbols.response.json",
+    "test/fixtures/openrouter-anthropic/symbols.upstream.json",
+    "test/fixtures/openrouter-anthropic/system.request.json",
+    "test/fixtures/openrouter-anthropic/system.response.json",
+    "test/fixtures/openrouter-anthropic/system.upstream.json",
+    "test/fixtures/openrouter-anthropic/tool_turn.request.json",
+    "test/fixtures/openrouter-anthropic/tool_turn.response.json",
+    "test/fixtures/openrouter-anthropic/tool_turn.upstream.json",
+    "test/fixtures/openrouter-anthropic/tools.request.json",
+    "test/fixtures/openrouter-anthropic/tools.response.json",
+    "test/fixtures/openrouter-anthropic/tools.upstream.json",
+    "test/fixtures/openrouter-anthropic/tools_any.request.json",
+    "test/fixtures/openrouter-anthropic/tools_any.response.json",
+    "test/fixtures/openrouter-anthropic/tools_any.upstream.json"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/ai_token_count_anthropic_test.exs",
+      "claim": "Seven listed groups on the committed fixtures, no network. fixtures_upper_bound: for each of the fifteen fixtures, size is at least input_tokens + cache_read_input_tokens + cache_creation_input_tokens of its recorded response. observed_error_stated: the README row of each fixture (canonical bytes, reported, size, size / reported to two decimals), the smallest ratio 1.74 and the largest 29.72 and the provenance wording are computed again from the fixtures. fixture_matches_adapter: for each fixture the body that integration/ai-text-anthropic sends (translate/2 with a plug, call/2 with a stub credential) equals the upstream fixture without its provider member, as decoded JSON. unknown_model_refused: claude-no-such-model-9, gpt-4o-mini and anthropic:claude-haiku-5-5 are refused :unknown_model; the alias claude-sonnet-4-5 is accepted with model_id unchanged. tools_and_system_counted: a first tool adds 3 * its canonical bytes + 1,024, a second tool 3 * its canonical bytes; a system message adds at least 3 * its text bytes; key order and whitespace do not change the result. never_exact: each result has exactly the seven keys and direction :upper_bound; only estimate/1 is exported; each refusal is reached with no number; README and manifest call the value an upper bound. no_network: source audit of the lib file and of the manifest providers. Negative controls: factor 1 fails fixtures_upper_bound on four fixtures; tools left out fail tools_and_system_counted. Finite scenarios, not proofs."
+    },
+    {
+      "kind": "monitor",
+      "file": "test/fixtures/openrouter-anthropic/PROVENANCE.md",
+      "claim": "Fifteen fixtures and a probe table of 465 further requests (464 with usage), recorded 2026-11-13 through OpenRouter's Anthropic-compatible endpoint, routed to Anthropic (provider pinned to Anthropic, no fallback), for claude-haiku-5-5; the file lists each difference from a direct call and what was not recorded. Observations of one model on one day, not a proof."
+    },
+    {
+      "kind": "upstream",
+      "provider": "llm_db",
+      "reference": "https://hexdocs.pm/llm_db/2026.11.0/",
+      "claim": "llm_db 2026.11.0 LLMDB.model/2 resolves Anthropic model ids and aliases from the snapshot packaged inside the library, with no network."
+    },
+    {
+      "kind": "assumption",
+      "claim": "No request gives more than three reported tokens for each canonical byte; Anthropic's tool-use system prompt stays at most 1,024 tokens (its table of tool use system prompt tokens, page Tool use with Claude, section Pricing, read 2026-11-13, had 804 as its largest value); OpenRouter passes the request body and Anthropic's usage on unchanged."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "Pure function: emits no event, measurement or trace; the caller owns instrumentation."
+    },
+    "config": {
+      "status": "not_applicable",
+      "contract": "No setting: the factor 3, the 1,024 for tools and the estimator version are fixed in the code; a change of the rule is a new estimator_version."
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No process, lifecycle or state to control: one call returns one value."
+    }
+  }
+}

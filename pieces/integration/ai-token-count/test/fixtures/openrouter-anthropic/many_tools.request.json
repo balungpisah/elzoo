@@ -1,0 +1,296 @@
+{
+ "version": 1,
+ "model": "claude-haiku-5-5",
+ "max_output_tokens": 16,
+ "messages": [
+  {
+   "role": "user",
+   "text": "Hello."
+  }
+ ],
+ "tools": [
+  {
+   "name": "t00",
+   "description": "",
+   "input_schema": {
+    "type": "object"
+   }
+  },
+  {
+   "name": "t01",
+   "description": "",
+   "input_schema": {
+    "type": "object"
+   }
+  },
+  {
+   "name": "t02",
+   "description": "",
+   "input_schema": {
+    "type": "object"
+   }
+  },
+  {
+   "name": "t03",
+   "description": "",
+   "input_schema": {
+    "type": "object"
+   }
+  },
+  {
+   "name": "t04",
+   "description": "",
+   "input_schema": {
+    "type": "object"
+   }
+  },
+  {
+   "name": "t05",
+   "description": "",
+   "input_schema": {
+    "type": "object"
+   }
+  },
+  {
+   "name": "t06",
+   "description": "",
+   "input_schema": {
+    "type": "object"
+   }
+  },
+  {
+   "name": "t07",
+   "description": "",
+   "input_schema": {
+    "type": "object"
+   }
+  },
+  {
+   "name": "t08",
+   "description": "",
+   "input_schema": {
+    "type": "object"
+   }
+  },
+  {
+   "name": "t09",
+   "description": "",
+   "input_schema": {
+    "type": "object"
+   }
+  },
+  {
+   "name": "t10",
+   "description": "",
+   "input_schema": {
+    "type": "object"
+   }
+  },
+  {
+   "name": "t11",
+   "description": "",
+   "input_schema": {
+    "type": "object"
+   }
+  },
+  {
+   "name": "t12",
+   "description": "",
+   "input_schema": {
+    "type": "object"
+   }
+  },
+  {
+   "name": "t13",
+   "description": "",
+   "input_schema": {
+    "type": "object"
+   }
+  },
+  {
+   "name": "t14",
+   "description": "",
+   "input_schema": {
+    "type": "object"
+   }
+  },
+  {
+   "name": "t15",
+   "description": "",
+   "input_schema": {
+    "type": "object"
+   }
+  },
+  {
+   "name": "t16",
+   "description": "",
+   "input_schema": {
+    "type": "object"
+   }
+  },
+  {
+   "name": "t17",
+   "description": "",
+   "input_schema": {
+    "type": "object"
+   }
+  },
+  {
+   "name": "t18",
+   "description": "",
+   "input_schema": {
+    "type": "object"
+   }
+  },
+  {
+   "name": "t19",
+   "description": "",
+   "input_schema": {
+    "type": "object"
+   }
+  },
+  {
+   "name": "t20",
+   "description": "",
+   "input_schema": {
+    "type": "object"
+   }
+  },
+  {
+   "name": "t21",
+   "description": "",
+   "input_schema": {
+    "type": "object"
+   }
+  },
+  {
+   "name": "t22",
+   "description": "",
+   "input_schema": {
+    "type": "object"
+   }
+  },
+  {
+   "name": "t23",
+   "description": "",
+   "input_schema": {
+    "type": "object"
+   }
+  },
+  {
+   "name": "t24",
+   "description": "",
+   "input_schema": {
+    "type": "object"
+   }
+  },
+  {
+   "name": "t25",
+   "description": "",
+   "input_schema": {
+    "type": "object"
+   }
+  },
+  {
+   "name": "t26",
+   "description": "",
+   "input_schema": {
+    "type": "object"
+   }
+  },
+  {
+   "name": "t27",
+   "description": "",
+   "input_schema": {
+    "type": "object"
+   }
+  },
+  {
+   "name": "t28",
+   "description": "",
+   "input_schema": {
+    "type": "object"
+   }
+  },
+  {
+   "name": "t29",
+   "description": "",
+   "input_schema": {
+    "type": "object"
+   }
+  },
+  {
+   "name": "t30",
+   "description": "",
+   "input_schema": {
+    "type": "object"
+   }
+  },
+  {
+   "name": "t31",
+   "description": "",
+   "input_schema": {
+    "type": "object"
+   }
+  },
+  {
+   "name": "t32",
+   "description": "",
+   "input_schema": {
+    "type": "object"
+   }
+  },
+  {
+   "name": "t33",
+   "description": "",
+   "input_schema": {
+    "type": "object"
+   }
+  },
+  {
+   "name": "t34",
+   "description": "",
+   "input_schema": {
+    "type": "object"
+   }
+  },
+  {
+   "name": "t35",
+   "description": "",
+   "input_schema": {
+    "type": "object"
+   }
+  },
+  {
+   "name": "t36",
+   "description": "",
+   "input_schema": {
+    "type": "object"
+   }
+  },
+  {
+   "name": "t37",
+   "description": "",
+   "input_schema": {
+    "type": "object"
+   }
+  },
+  {
+   "name": "t38",
+   "description": "",
+   "input_schema": {
+    "type": "object"
+   }
+  },
+  {
+   "name": "t39",
+   "description": "",
+   "input_schema": {
+    "type": "object"
+   }
+  }
+ ],
+ "tool_choice": {
+  "type": "auto"
+ }
+}
