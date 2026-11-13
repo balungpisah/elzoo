@@ -123,7 +123,9 @@ text block of content_block_start; `context_management` in message_delta;
 events. Each may be absent or hold any JSON value inside the decoder's bounds
 (a number with a fraction or exponent is still malformed_response). A stream
 with them gives the frames, usage, finish reason, provenance and terminal of
-the same stream without them; only received_body_bytes counts their bytes.
+the same stream without them, except that received_body_bytes counts their
+bytes and that the two byte bounds count them too: 65,536 for one raw block and
+4,194,304 for the body.
 Every other member is still unsupported_response. A `provider` member, a
 `model` text with `/` and `cost`, `is_byok` or `cost_details` in usage stay
 refused: a stream through OpenRouter belongs to delivery/provider-stream.
