@@ -940,7 +940,8 @@
       "summary": "Estimate the input size of a text request before the call",
       "disposition": "adapt",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/integration/ai-token-count/piece.json",
       "reason": "Bot platform wave 2 (P13). An upper bound or a labelled approximation for a named model, used to refuse or shorten a request. Not a usage fact and not for billing."
     },
     {
@@ -993,7 +994,8 @@
       "summary": "Partial output of one model call with tool calls (Anthropic first)",
       "disposition": "adapt",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/delivery/provider-stream/piece.json",
       "reason": "Bot platform wave 2 (P13). Widens ready delivery/data-stream (one Anthropic text stream) to tool calls, so it is a new ID. The assembled result equals the completed value of the synchronous provider for a paired fixture. A second provider is a separate Piece."
     },
     {
@@ -1001,7 +1003,8 @@
       "summary": "A Run asks a named person one question and continues with the answer",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/wait-for-person/piece.json",
       "reason": "Bot platform wave 2 (P13). Not an approval: an approval binds one exact action. Late and wrong-person answers are explicit."
     },
     {
@@ -1009,7 +1012,8 @@
       "summary": "One declared rule for a new message during an active Run",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/mid-run-input/piece.json",
       "reason": "Bot platform wave 2 (P13). Queue, reject, interrupt, steer or side run. An interrupt reports what was already delivered."
     },
     {

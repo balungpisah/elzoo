@@ -5349,6 +5349,23 @@
       "issue": 307,
       "url": "https://github.com/balungpisah/elzoo/issues/307",
       "issue_body_sha256": "d8b21acfbda017a2bdb8b3ea1b8d7738a4caedc118c101fca2436e50eea3a5bf"
+    },
+    {
+      "id": "ELZ-147",
+      "title": "ELZ-147 — Find the ai-token-count lib files in a copied consumer",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-138"],
+      "status": "published 2026-11-13",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-147-ai-token-count-consumer-root.md"],
+      "outputs": [],
+      "acceptance": "The hosted full check on the exact head passes the aggregate copied-consumer test with the lib files found from the test directory; all 11 cases and assertions of the Piece stay unchanged and pass, with the named Piece gate.",
+      "product_aims": ["P13"],
+      "issue": 314,
+      "url": "https://github.com/balungpisah/elzoo/issues/314",
+      "issue_body_sha256": "f2576498765e8f79964f12ab271b570ea26a33f01b948e7edee411b9fc8b5928"
     }
   ],
   "entries": [
@@ -6464,9 +6481,11 @@
     {
       "id": "integration/ai-token-count",
       "job": "ELZ-138",
-      "note": "Bot platform wave 2 (P13). An upper bound or a labelled approximation for a named model, used to refuse or shorten a request. Not a usage fact and not for billing.",
+      "note": "Pure upper bound, as far as recordings through OpenRouter's Anthropic-compatible endpoint, routed to Anthropic, show under a named assumption (not proved), before the call, for the input tokens of one integration/ai-text request to Anthropic: Elzoo.AiTokenCount.Anthropic.estimate/1 decodes the request bytes with Elzoo.AiText.Request.decode/1 and returns size = 3 * canonical bytes, plus 1,024 when the request has a tool, with unit :tokens, direction :upper_bound, provider_id, model_id and estimator elzoo/ai-token-count/anthropic-bytes version 1 (the fields of a workflow/context-selection window); refuses the decoder's reasons unchanged, an output_schema as :unsupported_feature and a model that pinned llm_db does not know for Anthropic as :unknown_model. Not a token count and not a usage fact.",
       "baseline_status": "not in baseline (new row, RC-53)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/integration/ai-token-count/piece.json",
+      "manifest_sha256": "aec2d679961550b445196a3df3cf1feb34eca4d88fc49a5a2e8dca694f69bd93",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
@@ -6522,25 +6541,31 @@
     {
       "id": "delivery/provider-stream",
       "job": "ELZ-143",
-      "note": "Bot platform wave 2 (P13). Widens ready delivery/data-stream (one Anthropic text stream) to tool calls, so it is a new ID. The assembled result equals the completed value of the synchronous provider for a paired fixture. A second provider is a separate Piece.",
+      "note": "One blocking Anthropic Messages stream call run(payload, sink, settings) for one elzoo/ai-text-request: at most one POST; text, tool_start (owned shape) and tool_delta frames offered one at a time, each acknowledged before the next and no decoded backlog; complete{content, tool_calls, finish, usage, provenance} only after a valid message_stop and a normal HTTP worker end, inside max_result_bytes; otherwise incomplete or refused with a fixed reason; a sink that stops, times out or fails closes the local request; HTTP and sink workers are dead before return.",
       "baseline_status": "not in baseline (new row, RC-57)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/delivery/provider-stream/piece.json",
+      "manifest_sha256": "756ec936b1c86d96faf17f50ff67040423b094db7713306c163c7959cd80f589",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
       "id": "workflow/wait-for-person",
       "job": "ELZ-146",
-      "note": "Bot platform wave 2 (P13). Not an approval: an approval binds one exact action. Late and wrong-person answers are explicit.",
+      "manifest": "pieces/workflow/wait-for-person/piece.json",
+      "manifest_sha256": "74a007107decca7d430ad096a2a20341b10bd786c7a1689e6cc3a45762b4b080",
+      "note": "Pure policy over the open ask_person actions of one request: settles an ask with the answer of its named, host-verified person or its recorded outcome (expired is the time-out), refuses wrong-person and incompatible answers, and routes verified text to an answer or a message; ready PatternStep owns shapes and first settlement. No timer, runtime or authentication.",
       "baseline_status": "not in baseline (new row, RC-58)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
       "id": "workflow/mid-run-input",
       "job": "ELZ-146",
-      "note": "Bot platform wave 2 (P13). Queue, reject, interrupt, steer or side run. An interrupt reports what was already delivered.",
+      "manifest": "pieces/workflow/mid-run-input/piece.json",
+      "manifest_sha256": "e077775a1ec59fe57b6d00d5110afe9ff63318c22f83914cc9a04f76451e6766",
+      "note": "Pure policy for a new message during a Run under the one declared rule (queue, reject, interrupt, steer or side run) and the supplied Run phase: deliver, queue up to 16, refuse, or interrupt or hand to a side run with a report of delivered and open actions; every other input passes. No runtime, Run start or stop.",
       "baseline_status": "not in baseline (new row, RC-58)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json"
     },
     {

@@ -1,0 +1,52 @@
+{
+ "id": "msg_011CgzXo6aSmRXd6EET8ux9T",
+ "type": "message",
+ "role": "assistant",
+ "container": null,
+ "content": [
+  {
+   "type": "text",
+   "text": "Saving your tomato watering reminder now.",
+   "citations": []
+  },
+  {
+   "type": "tool_use",
+   "id": "toolu_01Cj23WuFfcxzpBvktwJhJET",
+   "caller": {
+    "type": "direct"
+   },
+   "name": "save_note",
+   "input": {
+    "title": "Water tomato plants every second day",
+    "body": "Water the tomato plants every second day.",
+    "tags": [
+     "garden",
+     "summer"
+    ]
+   }
+  }
+ ],
+ "model": "anthropic/claude-haiku-5.5",
+ "stop_reason": "tool_use",
+ "stop_details": null,
+ "stop_sequence": null,
+ "usage": {
+  "input_tokens": 470,
+  "output_tokens": 133,
+  "output_tokens_details": {
+   "thinking_tokens": 0
+  },
+  "cache_creation_input_tokens": 0,
+  "cache_read_input_tokens": 0,
+  "cache_creation": {
+   "ephemeral_5m_input_tokens": 0,
+   "ephemeral_1h_input_tokens": 0
+  },
+  "inference_geo": "global",
+  "server_tool_use": null,
+  "service_tier": "standard",
+  "speed": "standard"
+ },
+ "provider": "Anthropic",
+ "parsed_output": null
+}
