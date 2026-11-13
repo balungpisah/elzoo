@@ -206,7 +206,7 @@ defmodule Elzoo.CheckSelectionTest do
     refute workflow =~ "ELZOO_CHECK_BASE"
     refute workflow =~ "--affected"
 
-    # ELZ-073: three work jobs run the three parts of the full check; together they are the full check.
+    # Five work jobs run the five parts of the full check; together they are the full check.
     # Execute the actual run blocks using a harmless stand-in for the check wrapper.
     scripts =
       for [_, step] <-
@@ -322,12 +322,18 @@ defmodule Elzoo.CheckSelectionTest do
     root
   end
 
-  # ELZ-073: `mix check --part ...` runs one of three disjoint parts of the full check.
+  # ELZ-129: `mix check --part ...` runs one of five disjoint parts of the full check.
   test "a part names its markers, filters and report" do
-    assert Selection.parts() == ["root", "consumers-db", "consumers"]
+    assert Selection.parts() == ["root-a", "root-b", "aggregate", "consumers-db", "consumers"]
 
     assert Enum.map(Selection.parts(), &Selection.success_marker(Selection.part(&1))) ==
-             ["ELZOO ROOT SUITE PASSED", "ELZOO CONSUMERS DB PASSED", "ELZOO CONSUMERS PASSED"]
+             [
+               "ELZOO ROOT A SUITE PASSED",
+               "ELZOO ROOT B SUITE PASSED",
+               "ELZOO AGGREGATE CONSUMER PASSED",
+               "ELZOO CONSUMERS DB PASSED",
+               "ELZOO CONSUMERS PASSED"
+             ]
 
     # No part prints the marker of the full check, which only the aggregating job prints.
     refute "ELZOO CHECK PASSED" in Enum.map(
@@ -365,8 +371,15 @@ defmodule Elzoo.CheckSelectionTest do
              &(&1 in Enum.map(Selection.consumer_ids(), fn id -> "consumer_id:#{id}" end))
            )
 
-    assert "aggregate_consumer" in db
-    assert Selection.part_filters("root").exclude == ["consumer_id", "aggregate_consumer"]
+    refute "aggregate_consumer" in db
+    assert Selection.part_filters("aggregate") == %{include: ["aggregate_consumer"], exclude: []}
+
+    for part <- ["root-a", "root-b"] do
+      assert Selection.part_filters(part).include == []
+      assert ["consumer_id", "aggregate_consumer" | files] = Selection.part_filters(part).exclude
+      assert files != []
+      assert Enum.all?(files, &String.starts_with?(&1, "file:/"))
+    end
   end
 
   test "mix check refuses an unknown part and other arguments before it runs any stage" do
@@ -377,7 +390,7 @@ defmodule Elzoo.CheckSelectionTest do
     assert_raise Mix.Error, ~r/usage: mix check/, fn -> Mix.Tasks.Check.run(["--part"]) end
 
     assert_raise Mix.Error, ~r/usage: mix check/, fn ->
-      Mix.Tasks.Check.run(["--part", "root", "--affected", "x"])
+      Mix.Tasks.Check.run(["--part", "root-a", "--affected", "x"])
     end
 
     assert_raise Mix.Error, ~r/usage: mix check/, fn -> Mix.Tasks.Check.run(["--bogus"]) end
