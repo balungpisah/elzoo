@@ -6389,9 +6389,11 @@
     {
       "id": "workflow/untrusted-content",
       "job": "ELZ-137",
-      "note": "Bot platform wave 2 (P13). One shared mark with source and trust class for tool results, documents and messages from other members, kept through transformation, with a tested render rule for a model request. The mark travels inside the payload; core/envelope is unchanged.",
+      "note": "Pure mark for content that must not give orders: a checked version-1 neutral map with ordered distinct sources, trust class untrusted or derived, a byte bound and UTF-8 content; decode, encode, concat and wrap keep the least trusted class, and render gives the one content-tagged block for a model request. Marking grants no authority and prevents no injection.",
       "baseline_status": "not in baseline (new row, RC-51)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/workflow/untrusted-content/piece.json",
+      "manifest_sha256": "a6195ec2ef48341789f1980500cb7629f9ae928b3cbea279beeede3265eb8f62",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
