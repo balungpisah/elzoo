@@ -6411,7 +6411,7 @@
       "baseline_status": "not in baseline (new row, RC-69)",
       "disposition": "ready-contract",
       "manifest": "pieces/workflow/tool-result-limit/piece.json",
-      "manifest_sha256": "89b39f8f9f7449fb7f62ce3b98ccc26f2350f7d8c57a0855ad23cfbcaa6e203c",
+      "manifest_sha256": "97fa7667eb20590f373a3e1fd0a95c2e829050c8e7101206e0bd6980253ae6c0",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
