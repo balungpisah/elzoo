@@ -6487,9 +6487,11 @@
     {
       "id": "workflow/stall-detect",
       "job": "ELZ-145",
-      "note": "Bot platform wave 2 (P13). A verdict apart from retry policy; a healthy long wait is not a stall. Named by the orchestration reference study.",
+      "note": "Pure stall verdict over 1..256 recorded v1 pattern-step entries of one Run: repeated identical actions at the caller's count, then no non-wake input within the caller's idle bound unless an open ask or host-listed approval wait is in the window; stops nothing.",
       "baseline_status": "not in baseline (new row, RC-70)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/workflow/stall-detect/piece.json",
+      "manifest_sha256": "1bd277dddfd9343f01e478c033521469eff270aca34b24c1914f3b2d4de73bf1",
       "catalogue_reference": "registry/catalogue.json"
     },
     {

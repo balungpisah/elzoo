@@ -1010,7 +1010,8 @@
       "summary": "Decide from the record that a Run makes no progress",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/stall-detect/piece.json",
       "reason": "Bot platform wave 2 (P13). A verdict apart from retry policy; a healthy long wait is not a stall. Named by the orchestration reference study."
     },
     {
