@@ -6427,7 +6427,7 @@
       "baseline_status": "not in baseline (new row, RC-54)",
       "disposition": "ready-contract",
       "manifest": "pieces/workflow/prompt-assembly/piece.json",
-      "manifest_sha256": "e227a7e6e5cead3c5e51eabd67a627a26316a0c35e7902b63b3b9315c97e78c6",
+      "manifest_sha256": "b3c386797ec5c933b1f61fe3c4a86e547c3dd8c1ee9ee74479241d8e70ed5e79",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
@@ -6437,7 +6437,7 @@
       "baseline_status": "not in baseline (new row, RC-54)",
       "disposition": "ready-contract",
       "manifest": "pieces/workflow/context-compaction/piece.json",
-      "manifest_sha256": "ea3dc6567617b7452b5593a37356e5e4be9c4aba82f662511b65c34f3a80924c",
+      "manifest_sha256": "2e959ba320a89445ec67437d33aa7ecdd6b2f32f0fb2d8231e07c252f24c04e5",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
