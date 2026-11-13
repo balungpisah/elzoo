@@ -146,7 +146,8 @@ defmodule Elzoo.ProviderStream.Protocol do
 
   defp tool_delta(%{open: open} = s, j) do
     with {:ok, s} <- grow(s, byte_size(j)) do
-      {:ok, %{s | open: %{open | args: open.args <> j}}, {:tool_delta, %{index: open.index, delta: j}}}
+      {:ok, %{s | open: %{open | args: open.args <> j}},
+       {:tool_delta, %{index: open.index, delta: j}}}
     end
   end
 
@@ -172,9 +173,14 @@ defmodule Elzoo.ProviderStream.Protocol do
   defp usage(s, %{"usage" => %{} = u}) do
     Enum.reduce_while(@counters, {:ok, s}, fn {key, counter}, {:ok, s} ->
       case Map.get(u, key) do
-        nil -> {:cont, {:ok, s}}
-        n when is_integer(n) and n >= 0 -> {:cont, {:ok, %{s | counters: Map.put(s.counters, counter, n)}}}
-        _ -> {:halt, :error}
+        nil ->
+          {:cont, {:ok, s}}
+
+        n when is_integer(n) and n >= 0 ->
+          {:cont, {:ok, %{s | counters: Map.put(s.counters, counter, n)}}}
+
+        _ ->
+          {:halt, :error}
       end
     end)
   end
