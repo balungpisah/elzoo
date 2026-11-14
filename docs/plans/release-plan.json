@@ -7041,10 +7041,12 @@
     {
       "id": "workflow/recipe-check",
       "job": "ELZ-167",
-      "note": "Pure load-time check of a recipe package against caller-supplied facts: structure, tools that resolve, declared and provided needs, declared and granted permissions, stated costs and an exact upper cost under a cap, with located reasons in a fixed order. It grants nothing and reserves nothing.",
+      "note": "Pure load-time check of a recipe package, or of a recipe outside a package, against caller-supplied facts: structure by the ready validators located at its part, then every tool, declared need and permission and cost compared, with an exact upper cost against a cap; an ok verdict or all refusal reasons in a fixed order, no execution, grant or budget.",
       "baseline_status": "not in baseline (new row, RC-64)",
-      "disposition": "published-task; implementation pending",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/workflow/recipe-check/piece.json",
+      "manifest_sha256": "9ae4255f3a6c0180086b465672c325577e34e16e37c1f447ae2e31e84ff16fee"
     },
     {
       "id": "workflow/runtime-graph",
