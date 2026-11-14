@@ -2,7 +2,7 @@
 
 ## Scope and reuse
 
-- Dependencies: ELZ-033, ELZ-169, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181
+- Dependencies: ELZ-033, ELZ-169, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-190
 - Output: none. This task changes `runtime/recipe-test` (ELZ-181) in place; the Piece ID stays. Second and last portion of RC-66.
 - Change class: Piece-only implementation, in place on a ready Piece; small local gate and hosted `check-piece`.
 - Owned paths: `pieces/runtime/recipe-test/**` and its index/generated changes under AGENTS.md section 3 (the `manifest_sha256` and `note` of its row, and the generated files).
