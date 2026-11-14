@@ -4582,7 +4582,8 @@
         "RC-64",
         "ELZ-079",
         "ELZ-114",
-        "ELZ-172"
+        "ELZ-172",
+        "ELZ-180"
       ],
       "status": "blocked: unpublished admission proposal",
       "contract": "Run a recipe end to end through the real engine and patterns with scripted model and tool Adapters, no network and a controlled clock. The harness takes only Adapter modules from an allow-list that the caller supplies; any other Adapter is refused at start. The result is the full record of steps. This harness is how a recipe author and a Piece worker test without a provider.",
@@ -5900,6 +5901,57 @@
       "issue": 398,
       "url": "https://github.com/balungpisah/elzoo/issues/398",
       "issue_body_sha256": "a24e7d0ace57d8b4a55a04dbbf3a9a003ae7c91ef1c9b54b1acda0340443bf57"
+    },
+    {
+      "id": "ELZ-180",
+      "title": "ELZ-180 — The run engine chooses a binding by the schema of the action",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-127", "ELZ-172"],
+      "status": "published 2026-11-14",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-180-engine-bindings-by-schema.md"],
+      "outputs": [],
+      "acceptance": "assembly/run-engine, changed in place (same Piece ID): for an action kind the host gives one binding, as before, or a map from the schema ID of the action to a binding, and the engine uses the chosen binding at each of its reads; an action whose schema ID has no entry is refused as missing_binding; existing hosts and tests are unchanged. The test fixture of the Piece gets an effect_bindings override so that another Piece can register its own Effect bindings. Prerequisite of RC-66.",
+      "product_aims": ["P13"],
+      "issue": 401,
+      "url": "https://github.com/balungpisah/elzoo/issues/401",
+      "issue_body_sha256": "d0dde0a5395cb65e5e5599890fbdf4cb78d16a9cb4f6131ea1b1209fa48fce82"
+    },
+    {
+      "id": "ELZ-184",
+      "title": "ELZ-184 — The presign test of integration/object-store reads its URL before it can expire",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033"],
+      "status": "published 2026-11-14",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-184-object-store-presign-test.md"],
+      "outputs": [],
+      "acceptance": "Repair of one flaky test of integration/object-store (issue 381): the works-before-expiry claim uses a URL with a long life and the refused-after claim a second URL with a short life that is read only after it expired. No change of the Piece Contract.",
+      "product_aims": ["P06"],
+      "issue": 402,
+      "url": "https://github.com/balungpisah/elzoo/issues/402",
+      "issue_body_sha256": "379af990b8ed3cb536d65cd382995cf77e7aa9db74f29a79cb69fac22d023fa1"
+    },
+    {
+      "id": "ELZ-185",
+      "title": "ELZ-185 — The local full check stays inside the connection limit of the worker database",
+      "kind": "published",
+      "release": "V1",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033"],
+      "status": "published 2026-11-14",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-185-local-full-check-connections.md"],
+      "outputs": [],
+      "acceptance": "Harness repair: one local full check on a fresh worker database with max_connections 100 passes twice with a recorded peak of at most 80 connections, with the same test set, no raised limit and no skipped or weakened test; the cause of the 103-connection peak is found and repaired in the test harness. Full local and hosted check.",
+      "product_aims": ["P06"],
+      "issue": 403,
+      "url": "https://github.com/balungpisah/elzoo/issues/403",
+      "issue_body_sha256": "22f062ef4b377f1dc7086c5089ca85314e95cc3cb8643a75ba816f596847012f"
     }
   ],
   "entries": [
