@@ -1,10 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule Elzoo.LuaSandboxBindingsTest do
   @moduledoc """
-  Groups `request_shape` and `none_is_version_2_surface` of the module-call bindings
-  (policy version 3): the five-key request with its `calls` operand, decided before
-  any process starts and again by the host, the version 3 identity, and the surface
-  that mode `"none"` leaves as it was in version 2.
+  The module-call bindings (policy version 3), one group for each `describe`:
+  `request_shape` (the five-key request with its `calls` operand, decided before any
+  process starts and again by the host, the version 3 identity), `none_is_version_2_surface`,
+  `data_mode_builds_data`, `replay_in_order`, `replay_mismatch`, `pending_is_sticky`,
+  `same_request_same_reply` (20 fresh calls and two fresh BEAM processes for each case, then
+  the BEAM, the child and a next call) and `no_callback_no_state`, with the exact pending
+  reply of the Elixir decoder.
   """
   use ExUnit.Case, async: false
 
@@ -29,6 +32,7 @@ defmodule Elzoo.LuaSandboxBindingsTest do
 
     %{
       executable: executable,
+      directory: directory,
       fake: fake,
       marker: marker,
       control: control,
@@ -1254,6 +1258,335 @@ defmodule Elzoo.LuaSandboxBindingsTest do
     test "call_mismatch is a child refusal", %{dir: dir} do
       body = ~s({"status":"refused","reason":"call_mismatch"})
       assert fake_reply(dir, body, one_record()) == {:refused, :call_mismatch}
+    end
+  end
+
+  # Each case of groups 3 to 5 (and the sticky cases of group 6) as `{name, request}`.
+  defp same_cases do
+    replay_names = @replay_names
+    replay = fn recorded -> %{mode: "replay", names: replay_names, recorded: recorded} end
+
+    loop = """
+    return function()
+      local out = {}
+      for i = 1, 3 do out[i] = bindings.fetch(i) end
+      return out
+    end
+    """
+
+    chunk = """
+    local first = bindings.fetch(1)
+    return function() return {first, bindings.store(first)} end
+    """
+
+    sort = """
+    return function()
+      local t = {3, 1, 2}
+      table.sort(t, function(a, b) bindings.fetch({a, b}) return a < b end)
+      return 'marker'
+    end
+    """
+
+    gsub = """
+    return function()
+      return string.gsub("abc", ".", function(c) return bindings.fetch(c) end)
+    end
+    """
+
+    wrong = """
+    return function()
+      local ok1 = pcall(bindings.fetch, 1, 2)
+      local ok2 = pcall(bindings.fetch, function() end)
+      return bindings.store({ok1, ok2})
+    end
+    """
+
+    insertion = """
+    return function()
+      local t = {}
+      t.c = {z = 1, y = 2}
+      t.b = 2
+      t.a = 1
+      return bindings.fetch(t)
+    end
+    """
+
+    nested = """
+    return function(x)
+      return {
+        a = bindings.fetch({id = 1}),
+        b = bindings.store(bindings.fetch(nil)),
+        c = bindings.fetch(x.o),
+        d = bindings.fetch(x.a),
+        e = bindings.fetch(helpers.null)
+      }
+    end
+    """
+
+    thousand = "return function() local r for i = 1, 1000 do r = bindings.fetch(i) end return r end"
+    own = "return function() bindings.fetch = function() return 1 end return bindings.fetch(1) end"
+    caught = "return function() local ok, m = pcall(bindings.fetch, 1, 2) return {ok, m} end"
+    over = "return function() local ok = pcall(bindings.fetch, string.rep('x', 99)) return 1 end"
+    arg_steps = "return function(s) local ok = pcall(bindings.fetch, s) return 'marker' end"
+    big = String.duplicate("x", 1_000)
+
+    data_cases = [
+      {"data: nested objects", nested, %{"o" => %{}, "a" => []}, %{}, @data},
+      {"data: 1,000 calls", thousand, nil, %{}, @data},
+      {"data: an unlisted name", "return function() return bindings.unknown(1) end", nil, %{},
+       @data},
+      {"data: the caller's own binding", own, nil, %{}, @data},
+      {"data: an error that pcall catches", caught, nil, %{}, @data},
+      {"data: value_size", over, nil, %{value_bytes: 100}, @data},
+      {"data: steps while the argument is charged", arg_steps, big, %{steps: 100}, @data},
+      {"data: no names", "return function() return type(bindings) end", nil, %{},
+       %{mode: "data", names: [], recorded: []}}
+    ]
+
+    replay_cases =
+      for count <- 0..2 do
+        {"replay: two calls, #{count} records", @two_calls, nil, %{},
+         replay.(Enum.take([@first, @second], count))}
+      end ++
+        for count <- 0..3 do
+          {"replay: a loop, #{count} records", loop, nil, %{},
+           replay.(for i <- Enum.take(1..3, count), do: rec("fetch", i, i * 10))}
+        end ++
+        [
+          {"replay: a call in the chunk, none", chunk, nil, %{}, replay.([])},
+          {"replay: a call in the chunk, one", chunk, nil, %{}, replay.([rec("fetch", 1, "x")])},
+          {"replay: a call in the chunk, two", chunk, nil, %{},
+           replay.([rec("fetch", 1, "x"), rec("store", "x", 9)])},
+          {"replay: insertion order", insertion, nil, %{},
+           replay.([rec("fetch", %{"a" => 1, "b" => 2, "c" => %{"y" => 2, "z" => 1}}, 7)])},
+          {"replay: the pending call in pcall", @caught, nil, %{}, replay.([])},
+          {"replay: the pending call in a comparator", sort, nil, %{}, replay.([])},
+          {"replay: the pending call in a gsub callback", gsub, nil, %{}, replay.([])},
+          {"replay: the second call in a gsub callback", gsub, nil, %{},
+           replay.([rec("fetch", "a", "A")])},
+          {"replay: gsub complete", gsub, nil, %{},
+           replay.([rec("fetch", "a", "A"), rec("fetch", "b", "B"), rec("fetch", "c", "C")])},
+          {"replay: a wrong call has no index", wrong, nil, %{}, replay.([])},
+          {"replay: a wrong call, recorded", wrong, nil, %{},
+           replay.([rec("store", [false, false], 5)])},
+          {"replay: steps before the call",
+           "return function() for i = 1, 1000 do end return bindings.fetch(1) end", nil,
+           %{steps: 100}, replay.([])},
+          {"replay: steps while the argument is charged", arg_steps, big, %{steps: 100},
+           replay.([])},
+          {"replay: a small argument is pending", arg_steps, "abcde", %{steps: 100}, replay.([])},
+          {"replay: value_size before the pending call",
+           "return function(s) local ok = pcall(bindings.fetch, {s, s}) return bindings.store(1) end",
+           String.duplicate("x", 60), %{value_bytes: 100}, replay.([])},
+          {"replay: an unlisted name", "return function() return bindings.other(1) end", nil, %{},
+           replay.([])}
+        ]
+
+    mismatch_cases =
+      for {label, recorded} <- [
+            {"another name", [rec("store", %{"k" => 1}, 1)]},
+            {"a changed argument", [rec("fetch", %{"k" => 2}, 1)]},
+            {"an extra key", [rec("fetch", %{"k" => 1, "extra" => 0}, 1)]},
+            {"an array for an object", [rec("fetch", [%{"k" => 1}], 1)]},
+            {"a longer list", [rec("fetch", %{"k" => 1}, 1), rec("fetch", %{"k" => 1}, 1)]}
+          ],
+          {kind, source} <- [direct: @direct, caught: @caught_all],
+          do: {"mismatch: #{label}, #{kind}", source, nil, %{}, replay.(recorded)}
+
+    mismatch_cases =
+      mismatch_cases ++
+        [
+          {"mismatch: a comparator", sort, nil, %{}, replay.([rec("fetch", [9, 9], 1)])},
+          {"mismatch: a record the source did not ask for", "return function() return 1 end", nil,
+           %{}, replay.([rec("fetch", 1, 1)])},
+          {"mismatch: an integer is not a float", "return function() return bindings.fetch(1) end",
+           nil, %{}, replay.([rec("fetch", 1.0, 5)])},
+          {"replay: a matching record", @direct, nil, %{}, replay.([rec("fetch", %{"k" => 1}, 1)])}
+        ]
+
+    for {name, source, input, limits, calls} <- data_cases ++ replay_cases ++ mismatch_cases do
+      {name, Helper.request(source, input, limits, calls)}
+    end
+  end
+
+  defp run_request(exe, request), do: LuaSandbox.run(exe, request)
+
+  defp encode(term), do: :erlang.term_to_binary(term, [:deterministic])
+
+  describe "same_request_same_reply" do
+    setup ctx do
+      %{unique: Helper.unique_exe!(ctx.executable, ctx.directory, "same")}
+    end
+
+    test "each case gives one reply in 20 fresh calls; the BEAM lives, the child is reaped",
+         %{unique: unique} do
+      for {name, request} <- same_cases() do
+        first = encode(run_request(unique, request))
+
+        for call <- 2..20 do
+          assert encode(run_request(unique, request)) == first,
+                 "#{name}: call #{call} differs from the first"
+        end
+
+        assert Process.alive?(self())
+        assert Helper.pids(unique) == [], "#{name}: a child of the executable is still alive"
+
+        assert {:ok, %{value: 42}} = Helper.run(unique, "return function() return 42 end"),
+               "#{name}: the next valid call failed"
+
+        assert Helper.pids(unique) == []
+      end
+    end
+
+    test "the cases end in every kind of reply that groups 3 to 6 name", %{unique: unique} do
+      replies = for {_, request} <- same_cases(), do: run_request(unique, request)
+
+      assert Enum.any?(replies, &match?({:ok, _}, &1))
+      assert Enum.any?(replies, &match?({:pending_call, %{index: 0}}, &1))
+      assert Enum.any?(replies, &match?({:pending_call, %{index: 1}}, &1))
+      assert Enum.any?(replies, &match?({:pending_call, %{index: 2}}, &1))
+
+      for reason <- ~w(call_mismatch steps value_size unlisted_name)a do
+        assert {:refused, reason} in replies, "no case ends in #{reason}"
+      end
+    end
+
+    test "two fresh BEAM processes give the same replies as this one", %{
+      unique: unique,
+      directory: dir
+    } do
+      cases = same_cases()
+      parent = for {name, request} <- cases, do: {name, run_request(unique, request)}
+
+      tasks =
+        for label <- ["bindings-a", "bindings-b"] do
+          Task.async(fn -> Helper.other_beam!(unique, cases, dir, label) end)
+        end
+
+      [first, second] = Task.await_many(tasks, 180_000)
+      assert length(first) == length(cases)
+      assert encode(first) == encode(second)
+
+      for {{name, mine}, {name, theirs}} <- Enum.zip(parent, first) do
+        assert encode(mine) == encode(theirs), "#{name}: this process and a fresh BEAM disagree"
+      end
+
+      assert Process.alive?(self())
+      assert Helper.pids(unique) == []
+      assert {:ok, %{value: 42}} = Helper.run(unique, "return function() return 42 end")
+    end
+
+    test "a raw frame with the recorded keys in another order gives one reply in 20 calls",
+         %{unique: unique} do
+      limits =
+        Jason.encode!(Map.new(Helper.default_limits(), fn {k, v} -> {Atom.to_string(k), v} end))
+
+      source =
+        Jason.encode!("return function() return bindings.fetch({a = 1, b = {d = 4, c = 3}}) end")
+
+      body =
+        ~s({"source":#{source},"limits":#{limits},"calls":{"recorded":[{"result":7,) <>
+          ~s("name":"fetch","arguments":{"b":{"d":4,"c":3},"a":1}}],"names":["fetch"],) <>
+          ~s("mode":"replay"},"policy":"#{LuaSandbox.policy().identity}","input":null})
+
+      {first, 0} = Helper.raw_exchange(unique, Helper.frame(body))
+      assert %{"status" => "ok", "value" => 7} = Helper.decode_frame!(first)
+
+      for _ <- 2..20 do
+        assert {^first, 0} = Helper.raw_exchange(unique, Helper.frame(body))
+      end
+
+      assert Helper.pids(unique) == []
+    end
+  end
+
+  describe "no_callback_no_state" do
+    test "the audit of the host lists no bindings name and no bindings field", %{executable: exe} do
+      {output, 0} = System.cmd(exe, ["--audit"])
+      audit = Helper.decode_frame!(output)
+
+      refute String.contains?(output, "bindings")
+      refute Map.has_key?(audit["names"], "bindings")
+      refute Enum.any?(Map.keys(audit["names"]), &String.starts_with?(&1, "bindings."))
+      refute Map.has_key?(audit, "bindings")
+    end
+
+    test "fixed-name probes: absent with mode none, a table of functions with the other two",
+         %{executable: exe} do
+      type = "return function() return type(bindings) end"
+      assert Helper.run(exe, type) == {:refused, :unlisted_name}
+
+      assert Helper.run(exe, "return function() return type(bindings.fetch) end") ==
+               {:refused, :unlisted_name}
+
+      for mode <- ["data", "replay"] do
+        calls = %{mode: mode, names: @replay_names, recorded: []}
+        assert {:ok, %{value: "table"}} = Helper.run(exe, type, nil, %{}, calls)
+
+        for name <- @replay_names do
+          source = "return function() return type(bindings.#{name}) end"
+          assert {:ok, %{value: "function"}} = Helper.run(exe, source, nil, %{}, calls)
+        end
+
+        other = "return function() return type(bindings.other) end"
+        assert Helper.run(exe, other, nil, %{}, calls) == {:refused, :unlisted_name}
+      end
+    end
+
+    test "a second identical request gives the identical reply and sees nothing of the first",
+         %{executable: exe} do
+      source = """
+      return function()
+        local seen = {type(bindings.fetch), type(string.upper), type(helpers.json_encode)}
+        bindings.fetch = 1
+        bindings.extra = 2
+        string.upper = 3
+        string.mine = 4
+        helpers.mine = 5
+        return seen
+      end
+      """
+
+      for calls <- [@data, %{mode: "replay", names: @replay_names, recorded: []}] do
+        first = Helper.run(exe, source, nil, %{}, calls)
+        assert {:ok, %{value: ["function", "function", "function"]}} = first
+        assert Helper.run(exe, source, nil, %{}, calls) == first
+
+        # what the first run assigned is gone: a field it made is still unlisted_name
+        for read <- ["bindings.extra", "string.mine", "helpers.mine"] do
+          probe = "return function() return #{read} end"
+          assert Helper.run(exe, probe, nil, %{}, calls) == {:refused, :unlisted_name}, read
+        end
+
+        probe = "return function() return type(string.upper) end"
+        assert {:ok, %{value: "function"}} = Helper.run(exe, probe, nil, %{}, calls)
+      end
+
+      # the binding function is back in the next run
+      assert {:ok, %{value: %{"binding" => "fetch", "arguments" => 1}}} =
+               data(exe, "return function() return bindings.fetch(1) end")
+    end
+
+    test "a child that sends a second frame after the pending frame is protocol_error", %{
+      directory: dir
+    } do
+      calls = %{mode: "replay", names: @replay_names, recorded: []}
+      pending = ~s({"status":"pending","call":{"index":0,"name":"fetch","arguments":1}})
+      second = ~s({"status":"pending","call":{"index":0,"name":"store","arguments":2}})
+
+      run = fn label, bytes ->
+        path = Helper.fake!(dir, "second-#{label}", Helper.printf(bytes))
+        LuaSandbox.run(path, Helper.request(@valid, nil, %{}, calls))
+      end
+
+      # the control: the one frame is the pending reply
+      assert run.("one", Helper.frame(pending)) ==
+               {:pending_call, %{index: 0, name: "fetch", arguments: 1}}
+
+      assert run.("two", Helper.frame(pending) <> Helper.frame(second)) ==
+               {:host_outcome, :protocol_error}
+
+      assert run.("junk", Helper.frame(pending) <> "x") == {:host_outcome, :protocol_error}
     end
   end
 end

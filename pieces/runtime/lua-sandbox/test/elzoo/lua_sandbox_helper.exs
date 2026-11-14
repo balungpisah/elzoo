@@ -132,6 +132,48 @@ defmodule Elzoo.LuaSandboxHelper do
     status != 0
   end
 
+  # The second BEAM: loads the compiled modules of this run, runs each named request once.
+  @beam_script """
+  [executable, cases_file, out_file] = System.argv()
+  cases = cases_file |> File.read!() |> :erlang.binary_to_term()
+
+  results =
+    for {name, request} <- cases do
+      {name, Elzoo.LuaSandbox.run(executable, request)}
+    end
+
+  File.write!(out_file, :erlang.term_to_binary(results, [:deterministic]))
+  """
+
+  @doc "Run each `{name, request}` once in a fresh BEAM; the results are `{name, reply}`."
+  def other_beam!(exe, requests, directory, label) do
+    elixir = System.find_executable("elixir")
+    assert is_binary(elixir), "the elixir executable is missing"
+
+    cases_file = Path.join(directory, "cases-#{label}.bin")
+    out_file = Path.join(directory, "out-#{label}.bin")
+    script = Path.join(directory, "beam-#{label}.exs")
+    File.write!(script, @beam_script)
+    File.write!(cases_file, :erlang.term_to_binary(requests))
+
+    # Every code path outside the Erlang and Elixir installations: the compiled Piece and
+    # its providers, which a copied consumer may build outside its own build path.
+    installed = [List.to_string(:code.root_dir()), Path.dirname(Application.app_dir(:elixir))]
+
+    code_paths =
+      for path <- :code.get_path(),
+          path = List.to_string(path),
+          not Enum.any?(installed, &String.starts_with?(path, &1)),
+          arg <- ["-pa", path],
+          do: arg
+
+    {output, status} =
+      System.cmd(elixir, code_paths ++ [script, exe, cases_file, out_file], stderr_to_stdout: true)
+
+    assert status == 0, "second BEAM failed: #{String.slice(output, 0, 500)}"
+    out_file |> File.read!() |> :erlang.binary_to_term()
+  end
+
   @doc "A Lua source whose function runs `body`; the chunk returns the function."
   def function_source(body), do: "return function() " <> body <> " end"
 

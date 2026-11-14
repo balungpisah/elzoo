@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule Elzoo.LuaSandboxHelpersTest do
   @moduledoc """
-  Groups `policy_v2_identity`, `helpers_surface`, `text_helpers`, `json_round_trip`,
+  Groups `policy_v3_identity`, `helpers_surface`, `text_helpers`, `json_round_trip`,
   `helpers_are_bounded` and `time_values` of the helper set (policy version 3).
 
   The helper names of the contract are one module attribute (`@helpers`); each helper that
@@ -57,7 +57,7 @@ defmodule Elzoo.LuaSandboxHelpersTest do
 
   defp run(exe, body), do: Helper.run(exe, Helper.function_source(body))
 
-  describe "policy_v2_identity" do
+  describe "policy_v3_identity" do
     test "the descriptor names version 3 and the sorted helpers, with the v3 identity" do
       %{identity: identity, descriptor: descriptor} = LuaSandbox.policy()
 
