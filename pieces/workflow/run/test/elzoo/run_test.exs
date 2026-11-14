@@ -6,7 +6,8 @@ defmodule Elzoo.RunTest do
   use ExUnit.Case, async: false
   import Elzoo.Run.TestHelper
   alias Elzoo.{Run, Approval, Lease}
-  alias Elzoo.DurableLog.{Store, PostgresHarness}
+  alias Ecto.Adapters.SQL
+  alias Elzoo.DurableLog.{Store, PostgresHarness, Postgres}
 
   setup do
     c = Elzoo.Run.TestHelper.setup()
@@ -298,6 +299,100 @@ defmodule Elzoo.RunTest do
     assert snapshot(p).children == %{}
     assert snapshot(p).effects["action"].intent_key == stable
     refute_receive {:send_started, _, _}, 10
+  end
+
+  describe "missing_evidence_is_refused" do
+    test "missing or unstored evidence is refused, true duplicates stay unchanged", c do
+      p = owner(c)
+      create(p, c)
+      {key, _} = request(p)
+      revision = snapshot(p).revision
+      written = history(c)
+      missing = put_elem(key, 1, "missing-action")
+      send_evidence = &command(p, :approval_evidence, Map.merge(%{attempt_id: "attempt-1"}, &1))
+
+      assert {:refused, :invalid_evidence} = send_evidence.(%{request_key: key, evidence: nil})
+      assert {:refused, :unknown_request} = send_evidence.(%{request_key: missing, evidence: nil})
+
+      assert {:refused, :unknown_request} =
+               send_evidence.(%{request_key: missing, evidence: evidence(missing)})
+
+      assert snapshot(p).revision == revision
+      assert history(c) == written
+
+      approve(p, key)
+      stored = snapshot(p).revision
+      assert stored == revision + 1
+
+      assert {:unchanged, :duplicate, ^stored} =
+               send_evidence.(%{request_key: key, evidence: evidence(key)})
+
+      assert {:refused, :invalid_evidence} = send_evidence.(%{request_key: key, evidence: nil})
+      assert snapshot(p).revision == stored
+    end
+  end
+
+  describe "failed_death_write_is_kept" do
+    test "a death whose write failed is written with the next command", c do
+      {p, child} = attached_child(c)
+      break_schema(c)
+      end_child(p, child)
+      repair_schema(c)
+      assert snapshot(p).children["child"].dead == false
+
+      assert {:ok, revision, "attempt-2"} = command(p, :begin_attempt, %{attempt_id: "attempt-2"})
+      assert snapshot(p).children["child"].dead == true
+      assert snapshot(p).revision == revision + 1
+    end
+
+    test "a second failure keeps the death for the command after it", c do
+      {p, child} = attached_child(c)
+      break_schema(c)
+      end_child(p, child)
+      revision = snapshot(p).revision
+
+      assert {:unchanged, :duplicate, ^revision} =
+               command(p, :begin_attempt, %{attempt_id: "attempt-1"})
+
+      assert {:refused, :invalid_command} = Run.command(p, %{kind: :nope})
+      repair_schema(c)
+      assert snapshot(p).children["child"].dead == false
+
+      assert {:refused, :conflict} =
+               command(p, :begin_attempt, %{attempt_id: "x", expected_revision: 0})
+
+      assert snapshot(p).children["child"].dead == true
+      assert snapshot(p).revision == revision + 1
+    end
+
+    test "an indeterminate write of a kept death stops the owner, the command still replies", c do
+      {p, child} = attached_child(c)
+      break_schema(c)
+      end_child(p, child)
+      repair_schema(c)
+      revision = snapshot(p).revision
+      fault(c, :append, "runs", revision, :unavailable)
+      ref = Process.monitor(p)
+
+      assert {:unchanged, :duplicate, ^revision} =
+               command(p, :begin_attempt, %{attempt_id: "attempt-1"})
+
+      assert_receive {:DOWN, ^ref, :process, ^p, {:shutdown, {:indeterminate, _}}}
+    end
+  end
+
+  describe "death_is_best_effort" do
+    test "a child that ends after a restart of the owner stays dead: false", c do
+      {p, child} = attached_child(c)
+      p = restart(c, p)
+      ref = Process.monitor(child)
+      send(child, :stop)
+      assert_receive {:DOWN, ^ref, :process, ^child, _}
+      :sys.get_state(p)
+      assert {:ok, _, "attempt-2"} = command(p, :begin_attempt, %{attempt_id: "attempt-2"})
+      assert snapshot(p).children["child"].dead == false
+      assert snapshot(restart(c, p)).children["child"].dead == false
+    end
   end
 
   for scope <- [:once, :run, :root] do
@@ -706,6 +801,43 @@ defmodule Elzoo.RunTest do
           :paused
         ],
         do: refute(Run.outcome?(action_class))
+  end
+
+  # A write that fails with `{:error, _}`: the Store seam only yields
+  # `:indeterminate`, so the shape check of the log tables fails instead.
+  defp break_schema(c) do
+    # Registered after the setup callback, so it runs before the schema is
+    # dropped: the shape is restored even when the test fails.
+    on_exit(fn -> repair_schema(c) end)
+    SQL.query!(c.repo, "ALTER TABLE #{log_records(c)} ADD COLUMN probe text", [], log: false)
+  end
+
+  defp repair_schema(c) do
+    SQL.query!(
+      c.repo,
+      "ALTER TABLE IF EXISTS #{log_records(c)} DROP COLUMN IF EXISTS probe",
+      [],
+      log: false
+    )
+  end
+
+  defp log_records(c), do: Postgres.identifier(c.prefix) <> ".elzoo_log_records"
+
+  defp attached_child(c) do
+    p = owner(c)
+    create(p, c)
+    create(p, c, "child")
+    child = spawn(fn -> receive(do: (:stop -> :ok)) end)
+    attach = %{attempt_id: "attempt-1", child_run_id: "child", child_pid: child}
+    assert {:ok, _, "child"} = command(p, :attach_child, attach)
+    {p, child}
+  end
+
+  defp end_child(p, child) do
+    ref = Process.monitor(child)
+    send(child, :stop)
+    assert_receive {:DOWN, ^ref, :process, ^child, _}
+    :sys.get_state(p)
   end
 
   defp assert_refusal(:deny_at_release, result),
