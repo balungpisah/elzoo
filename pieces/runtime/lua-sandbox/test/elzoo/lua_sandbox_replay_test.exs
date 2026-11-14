@@ -257,12 +257,14 @@ defmodule Elzoo.LuaSandboxReplayTest do
 
     File.write!(cases_file, :erlang.term_to_binary(requests))
 
-    build = Mix.Project.build_path()
+    # Every code path outside the Erlang and Elixir installations: the compiled Piece and
+    # its providers, which a copied consumer may build outside its own build path.
+    installed = [List.to_string(:code.root_dir()), Path.dirname(Application.app_dir(:elixir))]
 
     code_paths =
       for path <- :code.get_path(),
           path = List.to_string(path),
-          String.starts_with?(path, build),
+          not Enum.any?(installed, &String.starts_with?(path, &1)),
           arg <- ["-pa", path],
           do: arg
 
