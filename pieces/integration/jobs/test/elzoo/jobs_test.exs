@@ -1,10 +1,18 @@
 # SPDX-License-Identifier: Apache-2.0
 Code.require_file("../support/jobs_test_helper.exs", __DIR__)
 
+defmodule Elzoo.JobsTest.ForeignWorker do
+  use Oban.Worker
+
+  @impl true
+  def perform(_job), do: :ok
+end
+
 defmodule Elzoo.JobsTest do
   use ExUnit.Case, async: false
   alias Elzoo.Jobs
   alias Elzoo.Jobs.{Relay, TestHelper, TestRepo, Worker}
+  alias Elzoo.JobsTest.ForeignWorker
   alias Elzoo.DurableLog.{Memory, Writer}
 
   @fold %{
@@ -41,6 +49,46 @@ defmodule Elzoo.JobsTest do
     assert {:ok, :absent} = Jobs.state(o, "q", "missing")
     assert {:ok, 1} = Jobs.cancel(o, "q", "k")
     assert {:ok, {^a, "cancelled"}} = Jobs.state(o, "q", "k")
+  end
+
+  test "foreign_job_is_not_reached", ctx do
+    o = oban(ctx, JobsForeign)
+    args = %{"v" => 1, "queue" => "q", "job_key" => "k"}
+    {:ok, %Oban.Job{id: other_queue}} = Oban.insert(o, ForeignWorker.new(args, queue: "other_q"))
+    {:ok, %Oban.Job{id: same_queue}} = Oban.insert(o, ForeignWorker.new(args, queue: "q"))
+    foreign = [other_queue, same_queue]
+
+    foreign_states = fn ->
+      for id <- foreign, do: Jobs.state_by_id(o, id)
+    end
+
+    available = [{:ok, {other_queue, "available"}}, {:ok, {same_queue, "available"}}]
+    assert foreign_states.() == available
+
+    # no job of the Piece: the foreign jobs are not reported nor cancelled
+    assert Jobs.state(o, "q", "k") == {:ok, :absent}
+    assert Jobs.states(o, "q", "k") == {:ok, []}
+    assert Jobs.cancel(o, "q", "k") == {:ok, 0}
+    assert foreign_states.() == available
+
+    # a job of the Piece beside them: only it is reported and cancelled
+    {:ok, p} = Jobs.enqueue(o, Jobs.changeset("q", "k", 3))
+    assert p not in foreign
+    assert Jobs.state(o, "q", "k") == {:ok, {p, "available"}}
+    assert Jobs.states(o, "q", "k") == {:ok, [{p, "available"}]}
+    assert Jobs.cancel(o, "q", "k") == {:ok, 1}
+    assert Jobs.state_by_id(o, p) == {:ok, {p, "cancelled"}}
+    assert foreign_states.() == available
+  end
+
+  test "own_job_is_reached", ctx do
+    o = oban(ctx, JobsOwn)
+    {:ok, id} = Jobs.enqueue(o, Jobs.changeset("q2", "k2", 3))
+    assert Jobs.state(o, "q2", "k2") == {:ok, {id, "available"}}
+    assert Jobs.states(o, "q2", "k2") == {:ok, [{id, "available"}]}
+    assert Jobs.cancel(o, "q2", "k2") == {:ok, 1}
+    assert Jobs.state(o, "q2", "k2") == {:ok, {id, "cancelled"}}
+    assert Jobs.states(o, "q2", "k2") == {:ok, [{id, "cancelled"}]}
   end
 
   test "a held unique lock yields {:retry, :unique_lock_held}, never a false enqueue (O3 rule)",

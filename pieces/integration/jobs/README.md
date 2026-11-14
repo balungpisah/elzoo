@@ -20,7 +20,7 @@ Oban instance, queues, Lifeline settings and runs `Oban.Migration` itself.
 
 ## Evidence and operations
 
-- `test/elzoo/jobs_test.exs`: unique changesets, the persisted-id rule under a held lock, worker dispatch/exit trapping/version refusal, a real Oban execution, relay ack/skip/in-page continuation, the full-page limit and option validation.
+- `test/elzoo/jobs_test.exs`: unique changesets, the persisted-id rule under a held lock, worker dispatch/exit trapping/version refusal, a real Oban execution, `query/state/states/cancel` reaching only this Piece's worker in its Oban queue (`foreign_job_is_not_reached`, `own_job_is_reached`), relay ack/skip/in-page continuation, the full-page limit and option validation.
 
 - telemetry: **inherited** (oban) — Oban job and plugin events; Elzoo adds none.
 - config: **supported** — Construction-time Relay store, stream, handle, limit and interval; per-insert queue, key and provider budget; no hot change.
