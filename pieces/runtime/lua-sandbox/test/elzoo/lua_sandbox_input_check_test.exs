@@ -187,19 +187,13 @@ defmodule Elzoo.LuaSandboxInputCheckTest do
 
     defp name_of(length), do: "n" <> String.duplicate("x", length - 1)
 
-    # one recorded call of `name`, asked by the source, and the source returns the length
-    # of a literal equal to `literal`
-    defp length_of_literal(exe, name, literal) do
-      source =
-        "return function() bindings.#{name}(nil) return #'#{literal}' end"
-
-      calls = %{
-        mode: "replay",
-        names: [name],
-        recorded: [%{name: name, arguments: nil, result: nil}]
-      }
-
-      Helper.run(exe, source, nil, @limits, calls)
+    # `name` is put into the state through `calls.names` (the host interns each of them
+    # before the limits are armed) and the source never names it as an identifier: the only
+    # string of the source that is the text of `name` is the literal under test, which
+    # returns its length. No record is given, so the source asks for no call.
+    defp length_of_literal(exe, names, literal, mode \\ "data") do
+      source = "return function() return #'#{literal}' end"
+      Helper.run(exe, source, nil, @limits, %{mode: mode, names: names, recorded: []})
     end
 
     test "(a) a literal equal to a string that the runtime holds is not measured: value 6",
@@ -208,46 +202,50 @@ defmodule Elzoo.LuaSandboxInputCheckTest do
                Helper.run(exe, "return function() return #'string' end", nil, @limits)
     end
 
-    test "(b) a literal equal to a short recorded name (5 to 40 bytes) gives its length",
+    test "(b) a literal equal to a short name in calls.names (5 to 40 bytes) gives its length",
          %{executable: exe} do
-      for length <- [5, 17, 40] do
+      for length <- [5, 17, 40], mode <- ["data", "replay"] do
         name = name_of(length)
-        assert {:ok, %{value: ^length}} = length_of_literal(exe, name, name), "#{length} bytes"
+
+        assert {:ok, %{value: ^length}} = length_of_literal(exe, [name], name, mode),
+               "#{length} bytes, mode #{mode}"
       end
     end
 
-    test "(b) a literal equal to a recorded name of 41 to 64 bytes is value_size",
+    test "(b) a literal equal to a name in calls.names of 41 to 64 bytes is value_size",
          %{executable: exe} do
-      for length <- [41, 64] do
+      for length <- [41, 64], mode <- ["data", "replay"] do
         name = name_of(length)
-        assert length_of_literal(exe, name, name) == {:refused, :value_size}, "#{length} bytes"
+
+        assert length_of_literal(exe, [name], name, mode) == {:refused, :value_size},
+               "#{length} bytes, mode #{mode}"
       end
     end
 
     test "(c) a literal of the same length that the state does not hold is value_size",
          %{executable: exe} do
-      # `strinh` has the 6 bytes of `string`; a recorded name of 5 bytes and a literal of
-      # another content are the same case
+      # `strinh` has the 6 bytes of `string`
       assert Helper.run(exe, "return function() return #'strinh' end", nil, @limits) ==
                {:refused, :value_size}
 
+      # a name of 17 bytes is held; a literal of 17 bytes with another content is not
       name = name_of(17)
       other = name_of(16) <> "y"
-      assert length_of_literal(exe, name, other) == {:refused, :value_size}
+      assert {:ok, %{value: 17}} = length_of_literal(exe, [name], name)
+      assert length_of_literal(exe, [name], other) == {:refused, :value_size}
     end
 
     test "(d) a literal one byte longer than a short string is value_size, also when the state holds the same text",
          %{executable: exe} do
-      # The recorded name of 41 bytes is put into the state, as a long string, before the
-      # limits are armed; an equal literal of 41 bytes is still allocated and measured.
+      # The name of 41 bytes in calls.names is put into the state, as a long string, before
+      # the limits are armed; an equal literal of 41 bytes is still allocated and measured.
       # The pinned Lua (LUAI_MAXSHORTLEN is 40; luaS_newlstr interns only up to 40 bytes)
       # makes a fresh string object for each longer literal.
       name = name_of(41)
-      assert length_of_literal(exe, name, name) == {:refused, :value_size}
+      assert length_of_literal(exe, [name], name) == {:refused, :value_size}
 
       # not held at all: the same result
-      assert Helper.run(exe, "return function() return #'#{name}' end", nil, @limits) ==
-               {:refused, :value_size}
+      assert length_of_literal(exe, [], name, "none") == {:refused, :value_size}
     end
   end
 end

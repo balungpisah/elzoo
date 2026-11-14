@@ -378,10 +378,12 @@ The repair of the size check adds three groups in `lua_sandbox_input_check_test.
     and result; a term over the size that also holds a value that is not plain data is the
     refusal that the walk meets first, tested in both orders.
 24. **`held_string_limit`** (5 tests): with `value_bytes` 4, the literal `'string'` has the
-    length 6; a literal equal to a recorded call name of 5 to 40 bytes has its length; one equal
-    to a name of 41 to 64 bytes, a literal of the same length that the state does not hold, and
-    a literal of 41 bytes (also when the state holds the same text as a recorded name, which
-    the host puts into the state before the limits are armed) are `value_size`.
+    length 6. A name is put into the state through `calls.names` (modes `"data"` and `"replay"`,
+    no record) and the source does not name it as an identifier, so its only string equal to the
+    name is the literal under test: a literal equal to a name of 5 to 40 bytes has its length;
+    one equal to a name of 41 to 64 bytes, a literal of the same length that the state does not
+    hold, and a literal of 41 bytes (also when `calls.names` holds the same text, which the host
+    interns before the limits are armed) are `value_size`.
 
 ## Limits
 
@@ -405,8 +407,8 @@ The repair of the size check adds three groups in `lua_sandbox_input_check_test.
   the Lua state already holds when the limits are armed is not allocated and so is not
   measured. A longer string is always allocated and measured, also when the state holds an
   equal one. Held strings come, for example, from the Lua runtime (its out-of-memory message),
-  from the libraries, from the names that the host puts into the state and from the names of
-  recorded calls; the list is not complete. The gap matters only for a `value_bytes` below 40:
+  from the libraries, from the names that the host puts into the state (each entry of `calls.names`);
+  the list is not complete. The gap matters only for a `value_bytes` below 40:
   a held string that was swept before its duplicate is made is allocated and measured, so the
   gap can only be narrower than this Limit says. The encoded result and each helper argument
   keep their own check.
