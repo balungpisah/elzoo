@@ -11,9 +11,13 @@ Code.require_file("support/cure_consumer_case_test_helper.exs", __DIR__)
 # ready ID that has no per-ID consumer; only the small gate (`mix check --piece`) includes it, for the
 # IDs that the change adds. The full check and its five parts never run these tests: the aggregate
 # consumer already holds every ready Piece.
+#
+# ELZ-218: a default `assert_receive` asserts that a message arrives, not a time. 5,000 ms as ELZ-189 chose;
+# `refute_receive_timeout` keeps its default.
 ExUnit.start(
   seed: 0,
   timeout: 120_000,
+  assert_receive_timeout: 5_000,
   max_cases: System.schedulers_online(),
   exclude: [:new_piece_consumer]
 )
