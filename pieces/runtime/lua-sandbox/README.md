@@ -104,6 +104,16 @@ threads, cycles, non-finite numbers and invalid UTF-8 are `invalid_result`; obje
 encoded with sorted keys and floats with shortest round-trip digits. Sizes are checked
 before any recursive traversal.
 
+The check of the caller side (the input, and each recorded argument and result) walks the term
+with a budget of `value_bytes`: each node takes at most its size in the canonical encoding (a
+string its bytes and two quotes, a number or a literal one byte, a container two bytes), and the
+walk stops at once with `value_size` when the budget is used up. Its work is bounded by
+`value_bytes`, not by the count of references to a shared part of the term, and it reads no
+clock. The exact size of the canonical encoding is compared only for a term that the walk
+passed. For a term that is both over `value_bytes` and not plain data, the answer is the one
+that the walk meets first, `value_size` or `invalid_request`; both are refusals before a process
+starts.
+
 ## Framing and process
 
 One fresh process and Lua state per call; a short-lived owner process, not linked to the
@@ -201,8 +211,12 @@ and gives plain values. It reads no clock, environment or file.
 | `recorded` | At most 256 maps with exactly `name` (one of `names`), `arguments` and `result` (plain values); empty with modes `"none"` and `"data"`. |
 
 Another shape is `invalid_request`; the canonical JSON of each `arguments` and each `result`
-is at most `value_bytes`, else `value_size`. This is decided before a process starts and again
-by the host before the Lua state exists; in the frame `calls` is one more member with string
+is at most `value_bytes`, else `value_size`. The size is decided before a process starts. Before
+the Lua state exists the host checks the shape, the names, the counts and the depth of `calls`
+and does not measure the size of a recorded value again; a single string over `value_bytes` in a
+record is stopped by the allocator when the record is pushed, with the one exception that the
+held-string Limit below states (a short string equal to one that the state already holds is not
+allocated, in a record too). In the frame `calls` is one more member with string
 keys, so the host reads five members. Policy version 3 names only: it has no schema check of
 arguments, no cost and no permission (`runtime/lua-binding` owns them).
 
@@ -349,6 +363,40 @@ pending reply of the Elixir decoder):
     the other two; a second identical request gives the identical reply and sees nothing of
     the first; a child that sends a second frame after the pending frame is `protocol_error`.
 
+The repair of the size check adds three groups in `lua_sandbox_input_check_test.exs`, and a
+repair of the test fakes adds two more (groups 25 and 26):
+
+22. **`input_check_is_bounded`** (3 tests): an input built from one short string by doubling a
+    list 22 times (about four million leaves, a few hundred bytes of memory), with
+    `value_bytes` 4 and with 65,536, is `value_size`, no process starts, and the calling process
+    uses fewer than 1,000,000 reductions (measured: 574 and 209,968); the same term as a recorded
+    `arguments` and as a recorded `result` is `value_size`; a small well-formed request does
+    start the process. Negative control: the budget removed from the walk (12 million
+    reductions with 18 doublings, 199 million with 22) fails this group.
+23. **`size_answers_are_exact`** (4 tests): an input whose canonical encoding is exactly
+    `value_bytes` passes and one byte more is `value_size`, for a string, a string with an
+    escape, a list of numbers, a map and a nested term, as an input and as a recorded argument
+    and result; a term over the size that also holds a value that is not plain data is the
+    refusal that the walk meets first, tested in both orders.
+24. **`held_string_limit`** (5 tests): with `value_bytes` 4, the literal `'string'` has the
+    length 6. A name is put into the state through `calls.names` (modes `"data"` and `"replay"`,
+    no record) and the source does not name it as an identifier, so its only string equal to the
+    name is the literal under test: a literal equal to a name of 5 to 40 bytes has its length;
+    one equal to a name of 41 to 64 bytes, a literal of the same length that the state does not
+    hold, and a literal of 41 bytes (also when `calls.names` holds the same text, which the host
+    interns before the limits are armed) are `value_size`.
+25. **`fakes_read_first`** (the tests that hold a changed fake, in
+    `lua_sandbox_protocol_test.exs`, `lua_sandbox_bindings_test.exs` and
+    `lua_sandbox_replay_test.exs`): each fake child that writes or exits without a read of its
+    input, and whose test expects a result other than `process_exit`, reads the four bytes of
+    the frame header from its input before it writes, so the request is never written to a child
+    that has already ended. The expected results are unchanged and the tests were run 200 times
+    in one launch with `--repeat-until-failure 200`. Negative control: with the read removed from
+    one fake the test still passes in most runs, so this control is not decisive and the review
+    reads the fakes.
+26. **`existing_behaviour`**: every existing test of the Piece passes unchanged, apart from the
+    bodies of the fakes of group 25.
+
 ## Limits
 
 * Not OS security isolation (above). No caller callback, module manifest, schema check of
@@ -366,6 +414,17 @@ pending reply of the Elixir decoder):
   `offsetof(TString, contents)` and the string allocation tag of the pinned internal
   `lobject.h`. The build refuses any revision other than the pinned bytes, but a new Lua
   revision needs a new review of that coupling before the pin moves.
+* **Held strings:** `value_bytes` is enforced for a string when the run allocates it. A short
+  string (at most 40 bytes, the pinned `LUAI_MAXSHORTLEN`) whose content equals a string that
+  the Lua state already holds when the limits are armed is not allocated and so is not
+  measured. A longer string is always allocated and measured, also when the state holds an
+  equal one. Held strings come, for example, from the Lua runtime (its out-of-memory message),
+  from the libraries, from the names that the host puts into the state (such as `helpers` and
+  the helper names) and from each entry of `calls.names`; the list is not complete. The gap
+  matters only for a `value_bytes` below 40:
+  a held string that was swept before its duplicate is made is allocated and measured, so the
+  gap can only be narrower than this Limit says. The encoded result and each helper argument
+  keep their own check.
 * No cross-build replay claim. Memory, wall time and abnormal exit are host outcomes.
 * The C host assumes Linux (`-DLUA_USE_LINUX`, `poll`, `setitimer`, `/dev/null`).
 * The consumer owns the production build and install; the build is not per evaluation.

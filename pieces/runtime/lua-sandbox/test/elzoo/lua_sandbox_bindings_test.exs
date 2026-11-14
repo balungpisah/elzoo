@@ -1250,7 +1250,7 @@ defmodule Elzoo.LuaSandboxBindingsTest do
         Helper.fake!(
           dir,
           "pending-#{System.unique_integer([:positive])}",
-          Helper.printf(Helper.frame(body))
+          "head -c 4 >/dev/null\n" <> Helper.printf(Helper.frame(body))
         )
 
       LuaSandbox.run(path, Helper.request(@valid, nil, limits, calls))
@@ -1641,7 +1641,9 @@ defmodule Elzoo.LuaSandboxBindingsTest do
       second = ~s({"status":"pending","call":{"index":0,"name":"store","arguments":2}})
 
       run = fn label, bytes ->
-        path = Helper.fake!(dir, "second-#{label}", Helper.printf(bytes))
+        path =
+          Helper.fake!(dir, "second-#{label}", "head -c 4 >/dev/null\n" <> Helper.printf(bytes))
+
         LuaSandbox.run(path, Helper.request(@valid, nil, %{}, calls))
       end
 
