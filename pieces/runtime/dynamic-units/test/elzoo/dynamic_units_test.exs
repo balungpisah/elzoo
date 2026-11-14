@@ -349,7 +349,8 @@ defmodule Elzoo.DynamicUnitsTest do
 
     # A barrier cannot return normally after the Unit's named shutdown.
     assert_receive {:DOWN, ^ref, :process, ^replacement,
-                    {:shutdown, :durable_unit_transition_failed}}
+                    {:shutdown, :durable_unit_transition_failed}},
+                   5000
 
     absent(p, "recover")
     assert DynamicSupervisor.count_children(p.supervisor).specs == 0
@@ -374,7 +375,7 @@ defmodule Elzoo.DynamicUnitsTest do
 
     sup_ref = Process.monitor(p.supervisor)
     Process.exit(last, :kill)
-    assert_receive {:DOWN, ^sup_ref, :process, _, :shutdown}
+    assert_receive {:DOWN, ^sup_ref, :process, _, :shutdown}, 5000
     eventually(fn -> DynamicUnits.find(d, "intensity") == {:error, :unavailable} end)
 
     # Hold a real which_children reply containing an unadopted P2, then kill
@@ -435,7 +436,7 @@ defmodule Elzoo.DynamicUnitsTest do
         assert_receive {:snapshot_held, [{:undefined, ^second, :worker, _}]}
         second_ref = Process.monitor(second)
         if reason == :normal, do: :sys.terminate(second, :normal), else: Process.exit(second, :kill)
-        assert_receive {:DOWN, ^second_ref, :process, ^second, ^reason}
+        assert_receive {:DOWN, ^second_ref, :process, ^second, ^reason}, 5000
         eventually(fn -> Registry.lookup(p.registry, id) == [] end)
         assert :erlang.resume_process(d)
         assert_receive :snapshot_processed
@@ -500,7 +501,7 @@ defmodule Elzoo.DynamicUnitsTest do
     try do
       a_ref = Process.monitor(a)
       :sys.terminate(a, :normal)
-      assert_receive {:DOWN, ^a_ref, :process, ^a, :normal}
+      assert_receive {:DOWN, ^a_ref, :process, ^a, :normal}, 5000
       Process.exit(b, :kill)
 
       eventually(fn ->
@@ -568,7 +569,7 @@ defmodule Elzoo.DynamicUnitsTest do
     assert {:indeterminate, :delivery} =
              DynamicUnits.route(right.directory, "shared", {:durable_unit_input, "losing", 9})
 
-    assert_receive {:DOWN, ^ref, :process, ^loser, {:shutdown, :durable_unit_conflict}}
+    assert_receive {:DOWN, ^ref, :process, ^loser, {:shutdown, :durable_unit_conflict}}, 5000
     absent(right, "shared")
     assert DynamicSupervisor.count_children(right.supervisor).specs == 0
     assert DurableUnit.snapshot(winner) == 11
