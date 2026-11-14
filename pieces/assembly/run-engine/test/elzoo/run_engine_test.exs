@@ -4261,7 +4261,7 @@ defmodule Elzoo.RunEngineTest do
   end
 
   describe "local_work_closed_without_a_budget_step" do
-    test "a child whose local work is closed at an Attempt change gives its parent no outcome" do
+    test "a child whose local work is closed at an Attempt change settles its parent as unknown, with no actual and no outcome record" do
       parent = self()
       script = [request([action("work", "local_work"), finish_action("done")])]
       {c, bindings} = lost_setup(script, [])
@@ -4297,13 +4297,20 @@ defmodule Elzoo.RunEngineTest do
       refute Map.has_key?(state.slots[{2, 0}], :reservation)
       refute Map.has_key?(state.slots[{2, 0}], :actual)
       assert budget_status(c, "1:0") == %{committed: 0, reserved: 1}
-      # The parent of the old Attempt takes no outcome: no record is written for it.
-      assert view.slots[{1, 0}].phase == :running
+      # The parent of the old Attempt is settled by the change itself, in the run_view fold
+      # step: the child cost is final unknown, so no actual and the root Budget keeps the share.
+      assert view.slots[{1, 0}].phase == :settled
+      assert view.slots[{1, 0}].outcome == "unknown"
+      assert state.slots[{1, 0}][:actual] == nil
+      assert budget_status(c, "root") == %{committed: 0, reserved: 10}
+      # No protocol record is written for the parent.
       assert outcome_records(c, "nested") == []
       count = length(rows(c))
 
       engine = restart(c, engine, bindings: bindings)
-      assert view(engine).slots[{1, 0}].phase == :running
+      assert view(engine).slots[{1, 0}].phase == :settled
+      assert view(engine).slots[{1, 0}].outcome == "unknown"
+      assert budget_status(c, "root") == %{committed: 0, reserved: 10}
       assert outcome_records(c, "nested") == []
       assert length(rows(c)) == count
       send(task, :finish)
@@ -4489,7 +4496,8 @@ defmodule Elzoo.RunEngineTest do
                end)
 
       assert slot_by(view(engine), "work").outcome == "failed"
-      assert slot_by(view(engine), "nested").phase == :running
+      assert slot_by(view(engine), "nested").phase == :settled
+      assert slot_by(view(engine), "nested").outcome == "unknown"
 
       assert {:ok, :applied} =
                bounded(fn ->
