@@ -7306,7 +7306,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/runtime/lua-binding/piece.json",
-      "manifest_sha256": "e100f1c2f38114c40eb5332f65b209350ef38e5dd7edc5202249ea79933bd892"
+      "manifest_sha256": "35c56e342267608a01daa256248ceefaaf237e47bd85ffbedcf37e1b83822ec1"
     },
     {
       "id": "workflow/lua-tool",
