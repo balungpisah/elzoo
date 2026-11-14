@@ -1,0 +1,191 @@
+# SPDX-License-Identifier: Apache-2.0
+defmodule Elzoo.LuaSandboxHelpersTest do
+  @moduledoc """
+  Groups `policy_v2_identity` and `helpers_surface` of the helper set (policy version 2).
+
+  The helper names of the contract are one module attribute (`@helpers`); each helper that
+  the host gains is added there and the descriptor, the audit and the probes must agree.
+
+  Negative control (recorded in the pull request, never committed): granting one more field
+  of `helpers` in the C host makes the audit and the descriptor disagree.
+  """
+  use ExUnit.Case, async: false
+
+  alias Elzoo.LuaSandbox
+  alias Elzoo.LuaSandbox.Descriptor
+
+  Code.require_file("lua_sandbox_helper.exs", __DIR__)
+  alias Elzoo.LuaSandboxHelper, as: Helper
+
+  @moduletag timeout: 180_000
+
+  # The helper names of the contract; each later helper is added here.
+  @helpers ~w(null object)
+
+  @valid "return function() return 1 end"
+  @mismatch %{"status" => "refused", "reason" => "policy_mismatch"}
+
+  setup_all do
+    {executable, _directory} = Helper.build!("helpers")
+    %{executable: executable}
+  end
+
+  defp audit!(exe) do
+    {output, 0} = System.cmd(exe, ["--audit"])
+    Helper.decode_frame!(output)
+  end
+
+  defp raw_frame(policy) do
+    Helper.frame(
+      Jason.encode!(%{
+        "source" => @valid,
+        "input" => nil,
+        "policy" => policy,
+        "limits" => %{
+          "steps" => 1000,
+          "call_depth" => 8,
+          "value_bytes" => 1000,
+          "memory_bytes" => 16_777_216,
+          "wall_ms" => 500
+        }
+      })
+    )
+  end
+
+  defp run(exe, body), do: Helper.run(exe, Helper.function_source(body))
+
+  describe "policy_v2_identity" do
+    test "the descriptor names version 2 and the sorted helpers, with the v2 identity" do
+      %{identity: identity, descriptor: descriptor} = LuaSandbox.policy()
+
+      assert descriptor["policy_version"] == 2
+
+      assert descriptor["helpers"] ==
+               for(name <- Enum.sort(@helpers), do: %{"name" => name, "version" => 1})
+
+      assert identity =~ ~r/\Apolicy-v2:sha256:[0-9a-f]{64}\z/
+      assert identity == Descriptor.identity(descriptor)
+    end
+
+    test "a v1 identity and an identity with one helper removed are policy_mismatch", %{
+      executable: exe
+    } do
+      %{identity: identity, descriptor: descriptor} = LuaSandbox.policy()
+      "policy-v2:sha256:" <> digest = identity
+      v1 = "policy-v1:sha256:" <> digest
+      removed = Descriptor.identity(put_in(descriptor, ["helpers"], tl(descriptor["helpers"])))
+
+      refute removed == identity
+      assert removed =~ ~r/\Apolicy-v2:sha256:[0-9a-f]{64}\z/
+
+      # the same source succeeds under the right identity
+      assert {:ok, %{value: 1}} = Helper.run(exe, @valid)
+
+      for other <- [v1, removed] do
+        request = %{Helper.request(@valid) | policy: other}
+        assert LuaSandbox.run(exe, request) == {:refused, :policy_mismatch}, other
+
+        # the host itself gives the same answer to the raw frame
+        {output, 0} = Helper.raw_exchange(exe, raw_frame(other))
+        assert Helper.decode_frame!(output) == @mismatch, other
+      end
+
+      # and the raw frame of the right identity is accepted
+      {output, 0} = Helper.raw_exchange(exe, raw_frame(identity))
+      assert %{"status" => "ok", "value" => 1} = Helper.decode_frame!(output)
+    end
+
+    test "the audit, the descriptor and fixed-name probes agree on the helper names", %{
+      executable: exe
+    } do
+      audit = audit!(exe)
+      listed = for %{"name" => name} <- LuaSandbox.policy().descriptor["helpers"], do: name
+
+      assert listed == Enum.sort(@helpers)
+      assert audit["names"]["helpers"] == "table"
+
+      assert for({"helpers." <> name, _} <- audit["names"], do: name) |> Enum.sort() == listed
+
+      for name <- listed do
+        audited = audit["names"]["helpers." <> name]
+        assert audited in ["function", "userdata"], name
+        assert {:ok, %{value: ^audited}} = run(exe, "return type(helpers.#{name})")
+      end
+    end
+  end
+
+  describe "helpers_surface" do
+    test "each listed helper is reachable", %{executable: exe} do
+      assert {:ok, %{value: "userdata"}} = run(exe, "return type(helpers.null)")
+      assert {:ok, %{value: true}} = run(exe, "return helpers.null ~= nil")
+      assert {:ok, %{value: true}} = run(exe, "return helpers.null == helpers.null")
+      assert {:ok, %{value: "function"}} = run(exe, "return type(helpers.object)")
+      assert {:ok, %{value: "table"}} = run(exe, "return type(helpers)")
+    end
+
+    test "a name that is not listed is unlisted_name, also inside pcall", %{executable: exe} do
+      for name <- ~w(helpers.x helpers.json helpers.__index json text time clock now helper_echo) do
+        assert run(exe, "return #{name}") == {:refused, :unlisted_name}, name
+        assert run(exe, "return type(#{name})") == {:refused, :unlisted_name}, name
+
+        assert run(exe, "return pcall(function() return #{name} end)") ==
+                 {:refused, :unlisted_name},
+               name
+      end
+    end
+
+    test "an assignment to helpers lasts one run, and the next run has the policy", %{
+      executable: exe
+    } do
+      assert {:ok, %{value: [1, 2]}} =
+               run(
+                 exe,
+                 "helpers.object = 1 helpers.newfield = 2 return {helpers.object, helpers.newfield}"
+               )
+
+      assert {:ok, %{value: "function"}} = run(exe, "return type(helpers.object)")
+      assert run(exe, "return helpers.newfield") == {:refused, :unlisted_name}
+
+      # a listed field assigned to nil is a value of that run only
+      assert {:ok, %{value: "function"}} =
+               run(exe, "helpers.null = nil return type(helpers.object)")
+
+      assert {:ok, %{value: "userdata"}} = run(exe, "return type(helpers.null)")
+    end
+
+    test "the metatable of helpers is not reachable", %{executable: exe} do
+      assert run(exe, "return getmetatable(helpers)") == {:refused, :unlisted_name}
+      assert run(exe, "return (\"\").helpers") == {:refused, :unlisted_name}
+      assert run(exe, "return pcall(getmetatable, helpers)") == {:refused, :unlisted_name}
+    end
+
+    test "tostring of a helper is a lua_error", %{executable: exe} do
+      assert run(exe, "return tostring(helpers.object)") == {:refused, :lua_error}
+      assert run(exe, "return tostring(helpers.null)") == {:refused, :lua_error}
+    end
+
+    test "null and object values encode as the contract says", %{executable: exe} do
+      assert {:ok, %{value: value}} = run(exe, "return helpers.object()")
+      assert value == %{}
+
+      assert {:ok, %{value: [nil]}} = run(exe, "return {helpers.null}")
+      assert {:ok, %{value: nil}} = run(exe, "return helpers.null")
+      assert {:ok, %{value: [%{}]}} = run(exe, "return {helpers.object()}")
+      assert {:ok, %{value: %{"a" => %{}}}} = run(exe, "return {a = helpers.object()}")
+      assert {:ok, %{value: %{"a" => 1}}} = run(exe, "local o = helpers.object() o.a = 1 return o")
+      assert {:ok, %{value: [%{}, []]}} = run(exe, "return {helpers.object(), {}}")
+
+      # each call makes a fresh table
+      assert {:ok, %{value: true}} = run(exe, "return helpers.object() ~= helpers.object()")
+    end
+
+    test "helpers.object takes no argument: pcall catches the error, uncaught it is lua_error", %{
+      executable: exe
+    } do
+      assert {:ok, %{value: true}} = run(exe, "return select(1, pcall(helpers.object, 1)) == false")
+      assert {:ok, %{value: true}} = run(exe, "return select(1, pcall(helpers.object)) == true")
+      assert run(exe, "return helpers.object(1)") == {:refused, :lua_error}
+      assert run(exe, "return helpers.object(nil)") == {:refused, :lua_error}
+    end
+  end
+end
