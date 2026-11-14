@@ -594,7 +594,8 @@ defmodule Elzoo.DurableLog.PostgresTest do
 
     for {name, call} <- calls do
       {result, events} = queries(call)
-      assert {name, match?([<<"SELECT ", _::binary>>], events)} == {name, true}
+      assert {name, length(events)} == {name, 1}
+      assert {name, String.starts_with?(hd(events), "SELECT ")} == {name, true}
       refute Enum.any?(events, &(&1 in ["begin", "commit", @set_snapshot]))
 
       # the same call on a held connection runs in the wrapper and reads the same value
