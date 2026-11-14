@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "id": "runtime/lua-binding",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["elixir", "jason", "jsv", "otp"],
+  "dependencies": ["core/payload-schema", "workflow/tool-registry"],
+  "applications": ["crypto"],
+  "contract": "Pure resolution of a recipe's declared module functions (name and version) against at most 256 caller-supplied manifests (name, version, description, arguments and result schemas, cost, permissions) with every reason given at once; a check of the arguments of a call and of its result through core/payload-schema, refusals located by function name and structural path; a SHA-256 identity of the resolved manifests; one workflow/tool-registry source. No call of a module, no Lua, no process, no discovery.",
+  "limits": [
+    "No claim that a function exists or behaves as its manifest says: the manifests are the host's statement. A schema check says that a value has the declared form, not that a call is allowed or succeeded.",
+    "A refusal names the function and the structural path of core/payload-schema (a member is :key, an array position is its integer); the name of a member is never given, and at most 16 violations come in no fixed order.",
+    "The cost is an estimate that the manifest states; the Piece neither measures nor enforces it.",
+    "No bound on schema complexity or validation time beyond core/payload-schema; no check that a schema suits the module.",
+    "The identity is stable for the pinned Jason and OTP; it is not RFC 8785. Bindings are opaque plain data that only resolve/2 makes; a value from elsewhere is outside the Contract.",
+    "No Cure law is selected: the classification of a declared name is a restatement of lookups; lookup, bounds, canonical encoding and source form are finite tests."
+  ],
+  "files": [
+    "lib/elzoo/lua_binding.ex",
+    "test/elzoo/lua_binding_test.exs",
+    "examples/elzoo/lua_binding.exs"
+  ],
+  "grounding": [
+    {"kind": "test", "file": "test/elzoo/lua_binding_test.exs", "claim": "Seven named groups: resolve_at_load, arguments_located, results_checked_before_return, identity_changes_with_the_manifest, registry_source, names_fit_the_sandbox, bounds_and_redaction; temporary acceptance of a wrong version and a temporary skipped result check are negative controls (groups resolve_at_load and results_checked_before_return fail). Finite scenarios, not a universal proof."},
+    {"kind": "upstream", "provider": "jsv", "reference": "https://hexdocs.pm/jsv/0.27.0/JSV.html", "claim": "Schema and argument or result checks reuse ready core/payload-schema with pinned JSV 0.27.0, draft 2020-12, no casting; the source reuses ready workflow/tool-registry unchanged."},
+    {"kind": "upstream", "provider": "jason", "reference": "https://hexdocs.pm/jason/1.4.5/Jason.html", "claim": "Scalar and string encoding inside the private canonical JSON (keys sorted by bytes) of the identity."},
+    {"kind": "upstream", "provider": "otp", "reference": "https://www.erlang.org/doc/apps/crypto/crypto.html", "claim": "SHA-256 of OTP crypto for the identity."},
+    {"kind": "upstream", "provider": "elixir", "reference": "https://hexdocs.pm/elixir/1.20.4/", "claim": "Pinned Elixir immutable maps, lists, binaries and anchored regular expressions."},
+    {"kind": "assumption", "claim": "The host supplies truthful manifests, one for each function that a module really offers, with schemas that it approved; an Adapter binding for each alias of the source; a caller that checks the arguments before it dispatches a call and the result before it records it for the replay; and, for workflow/recipe-check, the permissions and the estimate of each manifest with a unit equal to the unit of that check."}
+  ],
+  "operations": {
+    "telemetry": {"status": "not_applicable", "contract": "Pure functions emit no observations; the caller owns instrumentation."},
+    "config": {"status": "not_applicable", "contract": "Intrinsic operands and fixed bounds only; no selectable settings."},
+    "control": {"status": "not_applicable", "contract": "No process or lifecycle; bindings are caller-owned plain data."}
+  }
+}

@@ -7165,10 +7165,12 @@
     {
       "id": "runtime/lua-binding",
       "job": "ELZ-178",
-      "note": "Pure function manifests and their resolution against a declaration of a recipe; arguments checked before a call and results before return; the names for the sandbox and one tool-registry source. No call and no discovery.",
+      "note": "Pure resolution of a recipe's declared module functions (name and version) against at most 256 caller-supplied manifests (name, version, description, arguments and result schemas, cost, permissions) with every reason given at once; a check of the arguments of a call and of its result through core/payload-schema, refusals located by function name and structural path; a SHA-256 identity of the resolved manifests; one workflow/tool-registry source. No call of a module, no Lua, no process, no discovery.",
       "baseline_status": "not in baseline (new row, RC-62)",
-      "disposition": "published-task; implementation pending",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/runtime/lua-binding/piece.json",
+      "manifest_sha256": "e100f1c2f38114c40eb5332f65b209350ef38e5dd7edc5202249ea79933bd892"
     },
     {
       "id": "workflow/lua-tool",

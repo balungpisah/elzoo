@@ -1075,8 +1075,9 @@
       "summary": "Give declared module functions to Lua with checked arguments",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
-      "reason": "Bot platform wave 3 (P13). Built from a function manifest that this Piece defines and the caller supplies; no run-time discovery. A binding call at load time builds data and performs no Effect."
+      "status": "ready",
+      "reason": "Bot platform wave 3 (P13). Built from a function manifest that this Piece defines and the caller supplies; no run-time discovery. A binding call at load time builds data and performs no Effect.",
+      "manifest": "pieces/runtime/lua-binding/piece.json"
     },
     {
       "id": "workflow/lua-tool",
