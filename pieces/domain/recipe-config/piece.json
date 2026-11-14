@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "id": "domain/recipe-config",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["elixir", "jason", "jsv", "telemetry"],
+  "dependencies": ["core/payload-schema", "integration/secrets"],
+  "contract": "Pure check of tenant settings against a caller-supplied version 1 descriptor (id, revision, input Port, closed-object draft 2020-12 schema, at most 64 secret names) through the ready core/payload-schema; a secret setting is only an exact 1..128-byte ref/scope reference, never resolved. Success returns the original settings; fixed bounds and fixed redacted failures; no defaults, coercion, store or resolver.",
+  "limits": [
+    "Host-approved schema complexity and truthful immutable meaning per (id, revision, version) are host Needs; no digest, registry, timeout or CPU/memory isolation.",
+    "A well-shaped reference authenticates nobody and is not checked for existence, authority, expiry or value; credential bytes placed in an identifier are not detected.",
+    "Nested property validation and schema semantics are the ready core/payload-schema and pinned JSV; this Piece does not prove them.",
+    "Finite listed scenarios, not universal proofs. integration/secrets and telemetry are used by copied tests only, not by the library."
+  ],
+  "files": [
+    "lib/elzoo/recipe_config.ex",
+    "examples/elzoo/recipe_config.exs",
+    "test/elzoo/recipe_config_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/recipe_config_test.exs",
+      "claim": "Listed scenarios of the groups declared_settings_only, secret_reference_not_value, identity_and_ready_schema_reuse and fixed_bounds_and_redacted_failure pass, including the checked example; two temporary production edits are negative controls. Finite scenarios, not a universal proof."
+    },
+    {
+      "kind": "upstream",
+      "provider": "jsv",
+      "reference": "https://hexdocs.pm/jsv/0.27.0/JSV.html",
+      "claim": "Schema compilation and validation through the ready core/payload-schema build/2 and check/3, reused unchanged."
+    },
+    {
+      "kind": "upstream",
+      "provider": "jason",
+      "reference": "https://hexdocs.pm/jason/1.4.5/Jason.html",
+      "claim": "Default compact JSON encoding supplies the descriptor and settings byte counts after the representation and depth checks."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Pinned Elixir String.valid?/1, byte_size/1 and exact term comparison decide names, identifiers and the reference schema shape."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The host supplies approved schema complexity, immutable truthful identity per (id, revision, version), secret-free nonsecret values and reference identifiers, and later resolves the exact scope under fresh authority. Checked values come from build/1; forged internals are outside the Contract."
+    }
+  ],
+  "operations": {
+    "telemetry": {"status": "not_applicable", "contract": "No logs or telemetry emitted; the caller owns instrumentation."},
+    "config": {"status": "not_applicable", "contract": "Descriptor and settings are data operands of each call and the bounds are fixed; no ambient settings."},
+    "control": {"status": "not_applicable", "contract": "No process, lifecycle or settings execution."}
+  }
+}

@@ -1072,7 +1072,8 @@
       "summary": "Tenant settings for a recipe, checked against its declared schema",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/domain/recipe-config/piece.json",
       "reason": "Bot platform wave 3 (P13). A secret setting is a credential reference, never a value."
     },
     {
