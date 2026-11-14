@@ -771,6 +771,46 @@ static int h_text_trim(lua_State *L) {
   return 1;
 }
 
+/* helpers.text_split(text, separator): the parts of text between the plain,
+** non-empty separator, left to right and non-overlapping, as a dense array;
+** n occurrences give n + 1 parts and empty parts are kept. */
+static int h_text_split(lua_State *L) {
+  const char *s, *sep, *p, *end;
+  size_t len, seplen;
+  lua_Integer idx = 1;
+  if (lua_gettop(L) != 2 || (s = text_arg(L, 1, &len)) == NULL || (sep = text_arg(L, 2, &seplen)) == NULL)
+    return luaL_error(L, "helpers.text_split: expected two strings");
+  if (seplen == 0) return luaL_error(L, "helpers.text_split: empty separator");
+  charge(L, (long long)len + (long long)seplen);
+  luaL_checkstack(L, 3, "helpers");
+  lua_createtable(L, 0, 0);
+  p = s;
+  end = s + len;
+  for (;;) {
+    const char *q = NULL;
+    size_t plen;
+    if ((size_t)(end - p) >= seplen) {
+      const char *scan = p, *last = end - seplen; /* last possible start */
+      while (scan <= last) {
+        scan = (const char *)memchr(scan, (unsigned char)sep[0], (size_t)(last - scan) + 1);
+        if (scan == NULL) break;
+        if (memcmp(scan, sep, seplen) == 0) {
+          q = scan;
+          break;
+        }
+        scan++;
+      }
+    }
+    plen = (size_t)((q ? q : end) - p);
+    charge(L, 1 + (long long)plen);
+    lua_pushlstring(L, p, plen);
+    lua_rawseti(L, -2, idx++);
+    if (q == NULL) break;
+    p = q + seplen;
+  }
+  return 1;
+}
+
 static int w_tostring(lua_State *L) {
   int t;
   luaL_checkany(L, 1);
@@ -1047,6 +1087,8 @@ static int init_env(lua_State *L) {
   lua_setfield(L, -2, "null");
   lua_pushcfunction(L, h_object);
   lua_setfield(L, -2, "object");
+  lua_pushcfunction(L, h_text_split);
+  lua_setfield(L, -2, "text_split");
   lua_pushcfunction(L, h_text_trim);
   lua_setfield(L, -2, "text_trim");
   set_unlisted_meta(L, lua_gettop(L), mt);

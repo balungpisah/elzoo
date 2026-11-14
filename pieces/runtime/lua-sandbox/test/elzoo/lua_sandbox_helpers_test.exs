@@ -21,7 +21,7 @@ defmodule Elzoo.LuaSandboxHelpersTest do
   @moduletag timeout: 180_000
 
   # The helper names of the contract; each later helper is added here.
-  @helpers ~w(null object text_trim)
+  @helpers ~w(null object text_split text_trim)
 
   @valid "return function() return 1 end"
   @mismatch %{"status" => "refused", "reason" => "policy_mismatch"}
@@ -244,6 +244,182 @@ defmodule Elzoo.LuaSandboxHelpersTest do
                      helpers.text_trim({})] ++ [~S|helpers.text_trim("a", "b")|] do
         assert run(exe, "return " <> call) == {:refused, :lua_error}, call
       end
+    end
+
+    test "split: separator at the start, at the end, doubled, absent, several", %{executable: exe} do
+      assert {:ok, %{value: ["", "a", "b"]}} = run(exe, ~S|return helpers.text_split(",a,b", ",")|)
+      assert {:ok, %{value: ["a", "b", ""]}} = run(exe, ~S|return helpers.text_split("a,b,", ",")|)
+      assert {:ok, %{value: ["a", "", "b"]}} = run(exe, ~S|return helpers.text_split("a,,b", ",")|)
+      assert {:ok, %{value: ["abc"]}} = run(exe, ~S|return helpers.text_split("abc", ",")|)
+
+      assert {:ok, %{value: ["a", "b", "c"]}} =
+               run(exe, ~S|return helpers.text_split("a,b,c", ",")|)
+
+      assert {:ok, %{value: ["", ""]}} = run(exe, ~S|return helpers.text_split(",", ",")|)
+      assert {:ok, %{value: ["", "", ""]}} = run(exe, ~S|return helpers.text_split(",,", ",")|)
+    end
+
+    test "split: a multi-byte separator, plain and non-overlapping, left to right", %{
+      executable: exe
+    } do
+      assert {:ok, %{value: ["a", "b", "c"]}} =
+               run(exe, ~S|return helpers.text_split("a::b::c", "::")|)
+
+      # not a pattern: the separator is plain text
+      assert {:ok, %{value: ["a", "b"]}} = run(exe, ~S|return helpers.text_split("a.%b", ".%")|)
+      assert {:ok, %{value: ["a", "b"]}} = run(exe, ~S|return helpers.text_split("a b", " ")|)
+
+      # overlapping candidates: ":::" holds "::" once, then ":" is left
+      assert {:ok, %{value: ["", ":"]}} = run(exe, ~S|return helpers.text_split(":::", "::")|)
+      assert {:ok, %{value: ["", "", ""]}} = run(exe, ~S|return helpers.text_split("::::", "::")|)
+      assert {:ok, %{value: ["", "aa"]}} = run(exe, ~S|return helpers.text_split("aaaaa", "aaa")|)
+
+      # a partial match at the end is not a separator
+      assert {:ok, %{value: ["x", "a"]}} = run(exe, ~S|return helpers.text_split("xaba", "ab")|)
+
+      assert {:ok, %{value: ["x", "y", "", ""]}} =
+               run(exe, ~S|return helpers.text_split("xabyabab", "ab")|)
+
+      assert {:ok, %{value: ["aab"]}} = run(exe, ~S|return helpers.text_split("aab", "abb")|)
+
+      assert {:ok, %{value: ["é", "è"]}} = run(exe, ~S'return helpers.text_split("é|è", "|")')
+    end
+
+    test "split: the empty text, a separator longer than the text, a one-byte text", %{
+      executable: exe
+    } do
+      assert {:ok, %{value: [""]}} = run(exe, ~S|return helpers.text_split("", ",")|)
+      assert {:ok, %{value: ["ab"]}} = run(exe, ~S|return helpers.text_split("ab", "abc")|)
+      assert {:ok, %{value: [""]}} = run(exe, ~S|return helpers.text_split("", "abc")|)
+      assert {:ok, %{value: ["", ""]}} = run(exe, ~S|return helpers.text_split("a", "a")|)
+    end
+
+    test "split: the result is a dense array of n + 1 parts", %{executable: exe} do
+      source = ~S"""
+      local t = helpers.text_split("a,b,,c,", ",")
+      local n = 0
+      for _ in ipairs(t) do n = n + 1 end
+      return {#t, n, t[1], t[2], t[3], t[4], t[5], t[6] == nil}
+      """
+
+      assert {:ok, %{value: [5, 5, "a", "b", "", "c", "", true]}} = run(exe, source)
+    end
+
+    test "split: the empty separator is an error that pcall catches, uncaught lua_error", %{
+      executable: exe
+    } do
+      assert {:ok, %{value: [false, "helpers.text_split: empty separator"]}} =
+               run(exe, ~S|return {pcall(helpers.text_split, "abc", "")}|)
+
+      assert {:ok, %{value: [false, "helpers.text_split: empty separator"]}} =
+               run(exe, ~S|return {pcall(helpers.text_split, "", "")}|)
+
+      assert run(exe, ~S|return helpers.text_split("abc", "")|) == {:refused, :lua_error}
+    end
+
+    test "split: wrong arguments are errors that pcall catches", %{executable: exe} do
+      extras = [~S|"a"|, ~S|"a", 1|, ~S|1, ","|, ~S|"a", ",", "c"|, ~S|"a", nil|, ~S|{}, ","|]
+
+      assert {:ok, %{value: results}} = run(exe, wrong_arguments("helpers.text_split", extras))
+      assert results == List.duplicate(false, 11)
+
+      for call <-
+            ~w[helpers.text_split() helpers.text_split(1) helpers.text_split(nil)] ++
+              [
+                ~S|helpers.text_split("a")|,
+                ~S|helpers.text_split("a", 1)|,
+                ~S|helpers.text_split(1, "a")|,
+                ~S|helpers.text_split("a", ",", "c")|
+              ] do
+        assert run(exe, "return " <> call) == {:refused, :lua_error}, call
+      end
+    end
+  end
+
+  describe "helpers_are_bounded" do
+    @bounded_limits %{steps: 10_000, value_bytes: 65_536, memory_bytes: 16_777_216}
+
+    test "split of 65,536 separator bytes under 10,000 steps is the steps stop", %{executable: exe} do
+      # string.rep itself costs no step here, so the helper makes the stop
+      source = Helper.function_source(~S|return helpers.text_split(string.rep(",", 65536), ",")|)
+      assert Helper.run(exe, source, nil, @bounded_limits) == {:refused, :steps}
+
+      counted = Helper.function_source(~S|return #helpers.text_split(string.rep(",", 65536), ",")|)
+      assert {:ok, %{value: 65_537}} = Helper.run(exe, counted, nil, %{steps: 1_000_000})
+
+      # the text as input (the largest input that the request accepts is 65,534 bytes)
+      commas = String.duplicate(",", 65_534)
+      from_input = "return function(x) return helpers.text_split(x, \",\") end"
+      assert Helper.run(exe, from_input, commas, @bounded_limits) == {:refused, :steps}
+    end
+
+    test "a pcall around the split does not continue after the steps stop", %{executable: exe} do
+      split = ~S|helpers.text_split(string.rep(",", 65536), ",")|
+
+      sources = [
+        ~s|return pcall(function() return #{split} end) and "after" or "after"|,
+        ~s|local ok = pcall(function() return #{split} end) if not ok then return "marker" end return "after"|,
+        ~s|local ok = pcall(function() return #{split} end) return "marker"|,
+        ~s|local ok = pcall(helpers.text_split, string.rep(",", 65536), ",") return "after"|
+      ]
+
+      for body <- sources do
+        assert Helper.run(exe, Helper.function_source(body), nil, @bounded_limits) ==
+                 {:refused, :steps},
+               body
+      end
+    end
+
+    test "the step count grows with the size of the input of each text helper", %{executable: exe} do
+      # the cost of one call: the bytes read, the bytes given back, one for each table entry
+      for {name, call, per_byte} <- [
+            {"text_split", ~S|#helpers.text_split(x, ",")|, 2},
+            {"text_trim", ~S|#helpers.text_trim(x)|, 2}
+          ] do
+        base = min_steps(exe, call, String.duplicate("a", 0))
+        small = min_steps(exe, call, String.duplicate("a", 1_000))
+        large = min_steps(exe, call, String.duplicate("a", 4_000))
+
+        assert small - base == per_byte * 1_000, name
+        assert large - base == per_byte * 4_000, name
+
+        # a limit between the two costs: 1,000 bytes pass, 4,000 bytes end in steps
+        limit = div(small + large, 2)
+
+        assert {:ok, %{value: _}} =
+                 Helper.run(
+                   exe,
+                   "return function(x) return #{call} end",
+                   String.duplicate("a", 1_000),
+                   %{steps: limit}
+                 ),
+               name
+
+        assert Helper.run(
+                 exe,
+                 "return function(x) return #{call} end",
+                 String.duplicate("a", 4_000),
+                 %{steps: limit}
+               ) == {:refused, :steps},
+               name
+      end
+    end
+  end
+
+  # the least `steps` limit under which `return function(x) return <call> end` finishes
+  defp min_steps(exe, call, input) do
+    source = "return function(x) return " <> call <> " end"
+    bisect(exe, source, input, 1, 1_000_000)
+  end
+
+  defp bisect(_exe, _source, _input, low, high) when low >= high, do: low
+
+  defp bisect(exe, source, input, low, high) do
+    middle = div(low + high, 2)
+
+    case Helper.run(exe, source, input, %{steps: middle}) do
+      {:ok, _} -> bisect(exe, source, input, low, middle)
+      {:refused, :steps} -> bisect(exe, source, input, middle + 1, high)
     end
   end
 

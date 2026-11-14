@@ -37,7 +37,12 @@ defmodule Elzoo.LuaSandboxSurfaceTest do
   @libraries ~w(math string table)
   @operator_metamethods ~w(__add __div __idiv __mod __mul __pow __sub __unm)
   # The helpers of policy version 2: name => type of the value (each part adds its names).
-  @helpers %{"null" => "userdata", "object" => "function", "text_trim" => "function"}
+  @helpers %{
+    "null" => "userdata",
+    "object" => "function",
+    "text_split" => "function",
+    "text_trim" => "function"
+  }
 
   # name => type of the value
   defp expected_surface do
