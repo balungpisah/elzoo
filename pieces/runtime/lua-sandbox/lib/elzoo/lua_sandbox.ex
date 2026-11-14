@@ -13,12 +13,11 @@ defmodule Elzoo.LuaSandbox do
     host-supplied paths, never Lua input.
   * `policy()` -> `%{identity: "policy-v3:sha256:<hex>", descriptor: map}`.
   * `run(executable, request)` -> `{:ok, %{value: v, identity: i, runtime: r}}`,
-    `{:refused, reason}` or `{:host_outcome, reason}`.
+    `{:refused, reason}`, `{:host_outcome, reason}` or `{:pending_call, call}`.
 
   The request has exactly `source`, `input`, `policy`, `limits` and `calls`
-  (`calls` is `%{mode: "none" | "data" | "replay", names: [...], recorded: [...]}`;
-  `limits` is `steps call_depth value_bytes memory_bytes wall_ms`, positive integers with
-  the inclusive maxima 1_000_000, 64, 65_536, 16_777_216 and 1_000).
+  (`limits` is `steps call_depth value_bytes memory_bytes wall_ms`, positive integers with
+  the inclusive maxima 1_000_000, 64, 65_536, 16_777_216 and 1_000; `calls` is below).
   The source is UTF-8 Lua text of at most 65_536 bytes: a chunk that returns
   exactly one function; the function takes the plain input and returns exactly
   one plain result. Bytecode is never accepted.
@@ -35,12 +34,53 @@ defmodule Elzoo.LuaSandbox do
   array; a source builds a fresh empty object with `helpers.object()` and reaches null as
   `helpers.null`.
 
+  ## Module-call bindings
+
+  `calls` is a plain map with exactly `mode`, `names` and `recorded`:
+
+    * `mode` is `"none"`, `"data"` or `"replay"`.
+    * `names` is a list of at most 64 unique binaries that match `[a-z][a-z0-9_]{0,63}`;
+      with mode `"none"` it is empty.
+    * `recorded` is a list of at most 256 maps with exactly `name` (a listed name),
+      `arguments` and `result` (plain values); with modes `"none"` and `"data"` it is empty.
+
+  Any other shape is `:invalid_request`. The canonical JSON of each `arguments` and each
+  `result` is at most `value_bytes`, else `:value_size`. All of this is decided before a
+  process starts; in the frame `calls` is one more member with string keys.
+
+  With mode `"none"` the global `bindings` does not exist (`bindings.x` is `:unlisted_name`).
+  With the other modes it is a fresh table with the strict lookup of a library: for each
+  name of `names`, `bindings.<name>` is a function, and every other field is
+  `:unlisted_name`. A source may assign a field of it in its own run. The sandbox answers
+  every call itself: no callback, no second process, no state between runs.
+
+  A binding function takes exactly one value (`nil` is null). No value, two values or a
+  value that a result would refuse is an ordinary Lua error with a fixed message that
+  `pcall` catches, and the call gets no index. An argument whose canonical JSON is over
+  `value_bytes` is the sticky `:value_size` stop. The order inside a call: one step for each
+  byte of the canonical JSON of the argument; then the mode rule; then one step for each byte
+  of a value that the call returns. So a `steps` limit reached while the argument is
+  charged is `:steps`, never a pending call.
+
+  Mode `"data"`: the call returns a fresh object `{"binding" => name, "arguments" => copy}`
+  (null for `nil`); nothing is recorded and the run continues.
+
+  Mode `"replay"`: the binding calls are counted from 0 over the chunk and the function.
+  Call `k < length(recorded)` must have the name and the canonical JSON of the arguments of
+  `recorded[k]` (object keys in any order); it returns the plain `result`, else the sticky
+  refusal `:call_mismatch`. Call `k == length(recorded)` is the sticky stop that ends the
+  run as `{:pending_call, %{index: k, name: name, arguments: plain}}`: no later statement
+  runs and `pcall` does not catch it. A function that returns one value after fewer calls
+  than `length(recorded)` is `:call_mismatch`, a record that the source did not ask for.
+  A limit reached first wins: the stops stay sticky in the order in which they happen.
+  The same request gives the same reply.
+
   ## Outcomes
 
+  `run/2` returns one of four forms: `{:ok, _}`, `{:refused, reason}`,
+  `{:host_outcome, reason}` or `{:pending_call, call}` (mode `"replay"` only).
   Refusals: `:invalid_request`, `:policy_mismatch`, `:invalid_result`, `:steps`,
-  `:call_depth`, `:value_size`, `:unlisted_name`, `:lua_error`, `:call_mismatch`. A fourth
-  reply form, `{:pending_call, %{index: k, name: name, arguments: plain}}`, answers a mode
-  `"replay"` request whose source made a binding call that has no recorded result. Host outcomes:
+  `:call_depth`, `:value_size`, `:unlisted_name`, `:lua_error`, `:call_mismatch`. Host outcomes:
   `:memory`, `:wall_time`, `:process_exit`, `:protocol_error`. Memory, wall time
   and abnormal exits are inputs to record, never deterministic replay decisions.
 
