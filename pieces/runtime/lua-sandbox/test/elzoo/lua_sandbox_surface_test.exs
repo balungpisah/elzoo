@@ -38,6 +38,7 @@ defmodule Elzoo.LuaSandboxSurfaceTest do
   @operator_metamethods ~w(__add __div __idiv __mod __mul __pow __sub __unm)
   # The helpers of policy version 2: name => type of the value (each part adds its names).
   @helpers %{
+    "json_decode" => "function",
     "json_encode" => "function",
     "null" => "userdata",
     "object" => "function",

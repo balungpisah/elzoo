@@ -22,7 +22,7 @@ defmodule Elzoo.LuaSandboxHelpersTest do
   @moduletag timeout: 180_000
 
   # The helper names of the contract; each later helper is added here.
-  @helpers ~w(json_encode null object text_split text_trim text_utf8_len)
+  @helpers ~w(json_decode json_encode null object text_split text_trim text_utf8_len)
 
   @valid "return function() return 1 end"
   @mismatch %{"status" => "refused", "reason" => "policy_mismatch"}
@@ -582,6 +582,415 @@ defmodule Elzoo.LuaSandboxHelpersTest do
       assert {:ok, %{value: [false, false, false, false, false, "[1,2]"]}} = run(exe, source)
     end
 
+    test "json_decode of each scalar type; integers and floats keep their Lua subtype", %{
+      executable: exe
+    } do
+      source = ~S"""
+      local d = helpers.json_decode
+      return {
+        d("true"), d("false"), d("0"), d("-7"), d("9223372036854775807"), d("-9223372036854775808"),
+        d("1.5"), d("0.1"), d("1e300"), d("1E2"), d("2e0"), d("-1.5e-3"), d('"abc"'), d('""'),
+        d(" \t\r\n 5 \n"),
+        math.type(d("1")), math.type(d("-0")), math.type(d("1.0")), math.type(d("1e2")),
+        math.type(d("-0.0")), 1 / d("-0.0") < 0, d("-0") == 0,
+        d("null") == helpers.null, d("true") == true, d("false") == false
+      }
+      """
+
+      assert {:ok, %{value: values}} = run(exe, source)
+
+      assert values == [
+               true,
+               false,
+               0,
+               -7,
+               9_223_372_036_854_775_807,
+               -9_223_372_036_854_775_808,
+               1.5,
+               0.1,
+               1.0e300,
+               100.0,
+               2.0,
+               -0.0015,
+               "abc",
+               "",
+               5,
+               "integer",
+               "integer",
+               "float",
+               "float",
+               "float",
+               true,
+               true,
+               true,
+               true,
+               true
+             ]
+    end
+
+    test "json_decode of strings: each escape, surrogate pairs, raw UTF-8, long strings", %{
+      executable: exe
+    } do
+      source = ~S"""
+      local d = helpers.json_decode
+      local long = string.rep("a\\n\\u00e9", 2000)
+      return {
+        d([==["é😀\n\/\b\f\r\t\"\\"]==]) == "\xC3\xA9\xF0\x9F\x98\x80\n/\b\f\r\t\"\\",
+        d([==["\u0000\u001f\u007F€😀"]==]) == "\0\31\127\xE2\x82\xAC\xF0\x9F\x98\x80",
+        d('"\xC3\xA9\xE2\x82\xAC\xF0\x9F\x98\x80 \x7f"') == "\xC3\xA9\xE2\x82\xAC\xF0\x9F\x98\x80 \x7f",
+        d('"' .. long .. '"') == string.rep("a\n\xC3\xA9", 2000),
+        d('"' .. string.rep("x", 30000) .. '"') == string.rep("x", 30000),
+        #d('"' .. string.rep("\\u0041", 5000) .. '"'),
+        d([==["😀😀"]==]) == "\xF0\x9F\x98\x80\xF0\x9F\x98\x80",
+        d([==["aAb"]==])
+      }
+      """
+
+      assert {:ok, %{value: values}} = run(exe, source)
+      assert values == [true, true, true, true, true, 5000, true, "aAb"]
+    end
+
+    test "json_decode: null is helpers.null, empty containers stay distinct, arrays are dense", %{
+      executable: exe
+    } do
+      source = ~S"""
+      local d, e = helpers.json_decode, helpers.json_encode
+      local a = d("[1,null,3]")
+      return {
+        d("null") == helpers.null,
+        a[2] == helpers.null, #a == 3, a[1], a[3],
+        e(d("{}")), e(d("[]")), e(d(" [ ] ")), e(d("{ }")),
+        e(d("[[],{},[{}],{\"a\":[],\"b\":{}}]")),
+        e(d("{\"1\":\"a\",\"2\":\"b\"}")),
+        e(d("{\"b\":1,\"a\":2}")),
+        d("[]"), d("{}"), d("[[],{}]"), d("{\"a\":[],\"b\":{}}"), d("null"), d("[null,[null]]")
+      }
+      """
+
+      assert {:ok, %{value: values}} = run(exe, source)
+
+      assert values == [
+               true,
+               true,
+               true,
+               1,
+               3,
+               "{}",
+               "[]",
+               "[]",
+               "{}",
+               ~s([[],{},[{}],{"a":[],"b":{}}]),
+               ~s({"1":"a","2":"b"}),
+               ~s({"a":2,"b":1}),
+               [],
+               %{},
+               [[], %{}],
+               %{"a" => [], "b" => %{}},
+               nil,
+               [nil, [nil]]
+             ]
+    end
+
+    test "json_decode of a document at depth 32 passes and 33 is an error, in both directions", %{
+      executable: exe
+    } do
+      source = ~S"""
+      local d, e = helpers.json_decode, helpers.json_encode
+      local function arr(n) return string.rep("[", n) .. string.rep("]", n) end
+      local function obj(n) return string.rep('{"a":', n - 1) .. "{}" .. string.rep("}", n - 1) end
+      local ok1, a = pcall(d, arr(32))
+      local ok2, b = pcall(d, arr(33))
+      local ok3, c = pcall(d, obj(32))
+      local ok4, f = pcall(d, obj(33))
+      local ok5, g = pcall(d, string.rep("[", 64) .. string.rep("]", 64))
+      local ok6, h = pcall(d, string.rep("[", 10000) .. string.rep("]", 10000))
+      return {
+        ok1, ok1 and e(a) == arr(32), ok2, b,
+        ok3, ok3 and e(c) == obj(32), ok4, f, ok5, g, ok6, h
+      }
+      """
+
+      assert {:ok, %{value: values}} = run(exe, source)
+      invalid = "helpers.json_decode: invalid JSON"
+
+      assert values == [
+               true,
+               true,
+               false,
+               invalid,
+               true,
+               true,
+               false,
+               invalid,
+               false,
+               invalid,
+               false,
+               invalid
+             ]
+
+      assert run(exe, ~S|return helpers.json_decode(string.rep("[", 33) .. string.rep("]", 33))|) ==
+               {:refused, :lua_error}
+    end
+
+    @bad_documents [
+      ~S|""|,
+      ~S|"  \n\t "|,
+      ~S|'{"a":1,"a":2}'|,
+      ~S|'{"a":1,"b":2,"a":3}'|,
+      ~S|'{"a":1,"\\u0061":2}'|,
+      ~S|'[{"a":1,"a":1}]'|,
+      ~S|"1 2"|,
+      ~S|"{} x"|,
+      ~S|"[]]"|,
+      ~S|"1\0"|,
+      ~S|'"\xff"'|,
+      ~S|'"a\xC3"'|,
+      ~S|'"\xC0\xAF"'|,
+      ~S|'"\xED\xA0\x80"'|,
+      ~S|'"\xF4\x90\x80\x80"'|,
+      ~S|'{"\xff":1}'|,
+      ~S|'"\\ud800"'|,
+      ~S|'"\\udc00"'|,
+      ~S|'"\\ud800\\u0041"'|,
+      ~S|'"\\ud800\\ud800"'|,
+      ~S|'"\\u12"'|,
+      ~S|'"\\u12zz"'|,
+      ~S|'"\\x"'|,
+      ~S|'"\\'|,
+      ~S|'"abc'|,
+      ~S|'"a\nb"'|,
+      ~S|'"a\0b"'|,
+      ~S|'"a\x1fb"'|,
+      ~S|"9223372036854775808"|,
+      ~S|"-9223372036854775809"|,
+      ~S|"1e999"|,
+      ~S|"-1e999"|,
+      ~S|"0." .. string.rep("0", 70) .. "1"|,
+      ~S|string.rep("1", 70)|,
+      ~S|"01"|,
+      ~S|"+1"|,
+      ~S|".5"|,
+      ~S|"1."|,
+      ~S|"1e"|,
+      ~S|"-"|,
+      ~S|"--1"|,
+      ~S|"0x10"|,
+      ~S|"NaN"|,
+      ~S|"Infinity"|,
+      ~S|"[1,]"|,
+      ~S|"[,1]"|,
+      ~S|"[1 2]"|,
+      ~S|"[1"|,
+      ~S|'{"a"}'|,
+      ~S|'{"a":}'|,
+      ~S|'{"a":1,}'|,
+      ~S|'{a:1}'|,
+      ~S|'{"a":1'|,
+      ~S|"nul"|,
+      ~S|"tru"|,
+      ~S|"nulll"|,
+      ~S|"True"|,
+      ~S|"'a'"|,
+      ~S|"\xEF\xBB\xBF1"|,
+      ~S|"\x0b1"|,
+      ~S|"\x0c1"|,
+      ~S|"\xC2\xA01"|,
+      ~S|string.rep("[", 33) .. string.rep("]", 33)|,
+      ~S|string.rep('{"a":', 33) .. "1" .. string.rep("}", 33)|
+    ]
+
+    test "json_decode refuses what the reader of a request refuses: pcall catches, uncaught is lua_error",
+         %{executable: exe} do
+      for expression <- @bad_documents do
+        caught = "return {pcall(helpers.json_decode, #{expression})}"
+
+        assert {:ok, %{value: [false, "helpers.json_decode: invalid JSON"]}} = run(exe, caught),
+               expression
+
+        assert run(exe, "return helpers.json_decode(#{expression})") == {:refused, :lua_error},
+               expression
+      end
+    end
+
+    test "json_decode: wrong arguments are errors that pcall catches", %{executable: exe} do
+      assert {:ok, %{value: results}} =
+               run(exe, wrong_arguments("helpers.json_decode", [~S|"1", "2"|, ~S|"1", nil|]))
+
+      assert results == List.duplicate(false, 7)
+
+      for call <-
+            ~w[helpers.json_decode() helpers.json_decode(1) helpers.json_decode(nil)
+               helpers.json_decode({}) helpers.json_decode(true)] ++
+              [~S|helpers.json_decode("1", "2")|] do
+        assert run(exe, "return " <> call) == {:refused, :lua_error}, call
+      end
+    end
+
+    @round_trip_documents [
+      nil,
+      true,
+      false,
+      0,
+      -1,
+      9_223_372_036_854_775_807,
+      -9_223_372_036_854_775_808,
+      1.5,
+      0.1,
+      -0.0,
+      1.0e300,
+      1.0e-300,
+      5.0e-324,
+      123_456_789.125,
+      100.0,
+      "",
+      "plain",
+      "q\" b\\ n\n r\r t\t b\b f\f \u0000 \u001F \u007F / é € 😀",
+      [],
+      %{},
+      [[]],
+      [%{}],
+      %{"a" => []},
+      %{"a" => %{}},
+      [nil, [nil], %{"n" => nil}],
+      [1, 2.5, "x", true, false, nil, [], %{}],
+      %{"b" => 1, "a" => 2, "" => 3, "é" => 4, "Z" => 5, "aa" => [6]},
+      %{"k" => %{"k" => %{"k" => [%{"k" => [[[%{}]]]}]}}},
+      Enum.reduce(1..32, [], fn _, acc -> [acc] end) |> then(fn [inner] -> inner end),
+      Enum.reduce(1..31, %{}, fn _, acc -> %{"a" => acc} end),
+      Enum.map(1..300, &%{"id" => &1, "tags" => ["x", "y"], "score" => &1 / 4, "none" => nil})
+    ]
+
+    test "json_encode(json_decode(t)) is the canonical text t of each document", %{executable: exe} do
+      texts = Enum.map(@round_trip_documents, &Json.encode/1)
+
+      source = """
+      return function(x)
+        local out = {}
+        for i = 1, #x do out[i] = helpers.json_encode(helpers.json_decode(x[i])) end
+        return out
+      end
+      """
+
+      assert {:ok, %{value: results}} = Helper.run(exe, source, texts, %{steps: 1_000_000})
+      assert results == texts
+    end
+
+    test "a text that is not canonical decodes to the canonical text", %{executable: exe} do
+      pairs = [
+        {~S| { "b" : [ 1 , 2.50 , "é\/" ] , "a" : null } |, ~s({"a":null,"b":[1,2.5,"é/"]})},
+        {"1E2", "100.0"},
+        {"-0", "0"},
+        {"1e2", "100.0"},
+        {"0.10", "0.1"},
+        {"[1.0,2.0]", "[1.0,2.0]"},
+        {~S|"Aé😀"|, ~s("Aé😀")},
+        {~S|"\/\u001f\u007f"|, ~s("/\\u001f\x7F")},
+        {~S|{"b":1,"a":2}|, ~s({"a":2,"b":1})},
+        {"[ ]", "[]"},
+        {"{ }", "{}"},
+        {"\r\n[\t1\n]\r", "[1]"}
+      ]
+
+      source = """
+      return function(x)
+        local out = {}
+        for i = 1, #x do out[i] = helpers.json_encode(helpers.json_decode(x[i])) end
+        return out
+      end
+      """
+
+      assert {:ok, %{value: results}} = Helper.run(exe, source, Enum.map(pairs, &elem(&1, 0)))
+      assert results == Enum.map(pairs, &elem(&1, 1))
+    end
+
+    test "json_decode(json_encode(v)) encodes to the same text", %{executable: exe} do
+      source = ~S"""
+      local values = {
+        true, false, 0, -1, math.maxinteger, math.mininteger, 1.5, 0.1, -0.0, 1e300, 5e-324,
+        "", "a\"b\\c\n\0\31\xC3\xA9\xF0\x9F\x98\x80", helpers.null, {}, helpers.object(),
+        {1, 2, 3}, {{}, helpers.object(), {{}}}, {b = 1, a = {true, helpers.null}},
+        {k = {1.5, "x", {n = helpers.null, e = helpers.object(), f = {}}}}
+      }
+      local out = {}
+      for i, v in ipairs(values) do
+        local t = helpers.json_encode(v)
+        local w = helpers.json_decode(t)
+        out[#out + 1] = helpers.json_encode(w) == t
+        out[#out + 1] = helpers.json_encode(helpers.json_decode(helpers.json_encode(w))) == t
+      end
+      out[#out + 1] = #values
+      return out
+      """
+
+      assert {:ok, %{value: results}} = run(exe, source)
+      {flags, [count]} = Enum.split(results, -1)
+      assert count == 20
+      assert flags == List.duplicate(true, 40)
+    end
+
+    test "a decode in the function of a request leaves its input unchanged", %{executable: exe} do
+      document = %{
+        "list" => [1, 2.5, "x", nil, [], %{}, [%{"deep" => [true, false]}]],
+        "map" => %{"b" => %{"c" => []}, "a" => nil},
+        "text" => "é\n",
+        "empty" => %{}
+      }
+
+      input = %{"doc" => document, "text" => Json.encode(document)}
+
+      source = """
+      return function(x)
+        local decoded = helpers.json_decode(x.text)
+        -- the decoded copy is a separate value: change it in many ways
+        decoded.list = helpers.null
+        decoded.map = helpers.null
+        decoded.text = helpers.null
+        decoded.empty = helpers.null
+        decoded.added = {1, 2, 3}
+        local second = helpers.json_decode(x.text)
+        second.list[7] = nil
+        second.map.a = 1
+        return {x.doc, decoded, second, helpers.json_encode(x.doc) == x.text}
+      end
+      """
+
+      assert {:ok, %{value: [first, decoded, second, same]}} = Helper.run(exe, source, input)
+
+      assert first == document
+      assert same == true
+
+      assert decoded == %{
+               "list" => nil,
+               "map" => nil,
+               "text" => nil,
+               "empty" => nil,
+               "added" => [1, 2, 3]
+             }
+
+      assert second["map"] == %{"b" => %{"c" => []}, "a" => 1}
+      assert length(second["list"]) == 6
+    end
+
+    test "1,000 encode and decode calls in one run give equal results", %{executable: exe} do
+      source = ~S"""
+      local v = {a = {1, 2, {b = "c\n"}}, s = "x\"y", f = 1.5, n = helpers.null,
+                 e = helpers.object(), l = {}, big = math.maxinteger}
+      local first = helpers.json_encode(v)
+      local equal = true
+      for _ = 1, 1000 do
+        local text = helpers.json_encode(v)
+        local back = helpers.json_decode(text)
+        if text ~= first or helpers.json_encode(back) ~= first then equal = false end
+      end
+      return {equal, first}
+      """
+
+      assert {:ok, %{value: [true, first]}} = run(exe, source)
+
+      assert first ==
+               ~s({"a":[1,2,{"b":"c\\n"}],"big":9223372036854775807,"e":{},"f":1.5,"l":[],"n":null,"s":"x\\"y"})
+    end
+
     # one rule for both: the text of the helper equals the text of the reply writer
     @reply_values [
       "true",
@@ -738,6 +1147,106 @@ defmodule Elzoo.LuaSandboxHelpersTest do
             array <> " local ok = pcall(helpers.json_encode, t) return \"marker\""
           ] do
         assert Helper.run(exe, Helper.function_source(body), nil, %{steps: 20_000}) ==
+                 {:refused, :steps},
+               body
+      end
+    end
+
+    test "a decode of a document near value_bytes in a loop is the memory host outcome", %{
+      executable: exe
+    } do
+      # 64,001 bytes: 8,000 small objects in an array
+      document = ~S|local text = "[" .. string.rep('{"a":1},', 7999) .. '{"a":1}]'|
+      keep = "local keep = {} for i = 1, LOOP do keep[i] = helpers.json_decode(text) end"
+      limits = %{memory_bytes: 4_194_304, steps: 1_000_000}
+
+      loop = fn count ->
+        String.replace(document <> " " <> keep, "LOOP", Integer.to_string(count))
+      end
+
+      # the text is near the bound, and one decode fits in the memory limit
+      assert {:ok, %{value: [64_001, 8_000]}} =
+               Helper.run(
+                 exe,
+                 Helper.function_source(
+                   document <> ~S| return {#text, #helpers.json_decode(text)}|
+                 ),
+                 nil,
+                 limits
+               )
+
+      assert {:ok, %{value: "kept"}} =
+               Helper.run(exe, Helper.function_source(loop.(1) <> ~S| return "kept"|), nil, limits)
+
+      # the loop keeps every result: the memory limit is reached first, not the steps limit
+      for body <- [
+            loop.(100) <> ~S| return "marker"|,
+            "local ok = pcall(function() " <> loop.(100) <> " end) return \"marker\"",
+            "local ok = pcall(function() " <>
+              loop.(100) <> " end) if not ok then return \"marker\" end return \"after\"",
+            document <>
+              ~S| local keep = {} for i = 1, 100 do local ok = pcall(function() keep[i] = helpers.json_decode(text) end) end return "marker"|
+          ] do
+        assert Helper.run(exe, Helper.function_source(body), nil, limits) ==
+                 {:host_outcome, :memory},
+               body
+      end
+
+      # the same loop under a limit that fits its work in steps and a big memory limit is not memory
+      assert {:ok, %{value: "kept"}} =
+               Helper.run(
+                 exe,
+                 Helper.function_source(loop.(3) <> ~S| return "kept"|),
+                 nil,
+                 %{memory_bytes: 16_777_216, steps: 1_000_000}
+               )
+    end
+
+    test "the step count of one decode grows with its input, on each side of a limit", %{
+      executable: exe
+    } do
+      call = "#helpers.json_decode(x)"
+      # a string: the bytes read (the quotes included), the bytes given back
+      string = fn n -> Json.encode(String.duplicate("a", n)) end
+      # an array of one-digit integers: two bytes read and one entry for each
+      array = fn n -> Json.encode(List.duplicate(1, n)) end
+      # an object with five-byte keys: `"k0001":1,` is ten bytes read, one entry
+      # and the key given back (five bytes)
+      object = fn n ->
+        Json.encode(Map.new(1..n, &{"k" <> String.pad_leading(Integer.to_string(&1), 4, "0"), 1}))
+      end
+
+      for {name, input, per_unit} <- [
+            {"string", string, 2},
+            {"array", array, 3},
+            {"object", object, 16}
+          ] do
+        small = min_steps(exe, call, input.(500))
+        large = min_steps(exe, call, input.(2_000))
+
+        assert {name, large - small} == {name, per_unit * 1_500}
+
+        limit = div(small + large, 2)
+        source = "return function(x) return #{call} end"
+
+        assert {:ok, %{value: _}} = Helper.run(exe, source, input.(500), %{steps: limit}), name
+
+        assert Helper.run(exe, source, input.(2_000), %{steps: limit}) == {:refused, :steps},
+               name
+
+        assert {:ok, _} = Helper.run(exe, source, input.(500), %{steps: small}), name
+        assert Helper.run(exe, source, input.(500), %{steps: small - 1}) == {:refused, :steps}, name
+      end
+    end
+
+    test "a decode under steps is the steps stop, also inside pcall", %{executable: exe} do
+      document = ~S|local text = "[" .. string.rep("1,", 5000) .. "1]"|
+
+      for body <- [
+            document <> " return #helpers.json_decode(text)",
+            document <> ~S| local ok = pcall(helpers.json_decode, text) return "marker"|
+          ] do
+        assert Helper.run(exe, Helper.function_source(body), nil, %{steps: 10_000}) ==
                  {:refused, :steps},
                body
       end

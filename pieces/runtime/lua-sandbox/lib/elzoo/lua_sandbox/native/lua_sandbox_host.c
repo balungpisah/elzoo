@@ -273,9 +273,12 @@ static void sput(const char *s, size_t n) {
   slen_total += n;
 }
 
-static void ws(void) {
-  while (jp < jend && (*jp == ' ' || *jp == '\t' || *jp == '\n' || *jp == '\r')) jp++;
+/* JSON white space is exactly space, tab, line feed and carriage return. */
+static void skip_ws(const unsigned char **pp, const unsigned char *end) {
+  while (*pp < end && (**pp == ' ' || **pp == '\t' || **pp == '\n' || **pp == '\r')) (*pp)++;
 }
+
+static void ws(void) { skip_ws(&jp, jend); }
 
 static int hexv(int c) {
   if (c >= '0' && c <= '9') return c - '0';
@@ -284,41 +287,66 @@ static int hexv(int c) {
   return -1;
 }
 
-static int hex4(unsigned *out) {
+/* Four hex digits at *pp: the value, and *pp moves past them. 0 or -1. */
+static int hex4(const unsigned char **pp, const unsigned char *end, unsigned *out) {
+  const unsigned char *q = *pp;
   unsigned v = 0;
   int i;
-  if (jend - jp < 4) return -1;
+  if (end - q < 4) return -1;
   for (i = 0; i < 4; i++) {
-    int h = hexv(jp[i]);
+    int h = hexv(q[i]);
     if (h < 0) return -1;
     v = v * 16 + (unsigned)h;
   }
-  jp += 4;
+  *pp = q + 4;
   *out = v;
   return 0;
 }
 
-static void put_utf8(unsigned cp) {
-  char b[4];
+/* The code point of a \u escape. *pp is just after the `u` and moves past the escape
+** (and past the second escape of a surrogate pair). A lone surrogate is -1. */
+static int unicode_escape(const unsigned char **pp, const unsigned char *end, unsigned *out) {
+  unsigned cp, lo;
+  if (hex4(pp, end, &cp) < 0) return -1;
+  if (cp >= 0xD800 && cp <= 0xDBFF) {
+    if (end - *pp < 2 || (*pp)[0] != '\\' || (*pp)[1] != 'u') return -1;
+    *pp += 2;
+    if (hex4(pp, end, &lo) < 0 || lo < 0xDC00 || lo > 0xDFFF) return -1;
+    cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
+  } else if (cp >= 0xDC00 && cp <= 0xDFFF) {
+    return -1;
+  }
+  *out = cp;
+  return 0;
+}
+
+/* The UTF-8 bytes of one code point in b; their number. */
+static size_t utf8_encode(unsigned cp, char *b) {
   if (cp < 0x80) {
     b[0] = (char)cp;
-    sput(b, 1);
-  } else if (cp < 0x800) {
+    return 1;
+  }
+  if (cp < 0x800) {
     b[0] = (char)(0xC0 | (cp >> 6));
     b[1] = (char)(0x80 | (cp & 0x3F));
-    sput(b, 2);
-  } else if (cp < 0x10000) {
+    return 2;
+  }
+  if (cp < 0x10000) {
     b[0] = (char)(0xE0 | (cp >> 12));
     b[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
     b[2] = (char)(0x80 | (cp & 0x3F));
-    sput(b, 3);
-  } else {
-    b[0] = (char)(0xF0 | (cp >> 18));
-    b[1] = (char)(0x80 | ((cp >> 12) & 0x3F));
-    b[2] = (char)(0x80 | ((cp >> 6) & 0x3F));
-    b[3] = (char)(0x80 | (cp & 0x3F));
-    sput(b, 4);
+    return 3;
   }
+  b[0] = (char)(0xF0 | (cp >> 18));
+  b[1] = (char)(0x80 | ((cp >> 12) & 0x3F));
+  b[2] = (char)(0x80 | ((cp >> 6) & 0x3F));
+  b[3] = (char)(0x80 | (cp & 0x3F));
+  return 4;
+}
+
+static void put_utf8(unsigned cp) {
+  char b[4];
+  sput(b, utf8_encode(cp, b));
 }
 
 /* Length of one valid UTF-8 sequence at s (n bytes left), or 0. */
@@ -369,17 +397,9 @@ static int parse_string(size_t *off, size_t *len) {
         case 'r': sput("\r", 1); jp++; break;
         case 't': sput("\t", 1); jp++; break;
         case 'u': {
-          unsigned cp, lo;
+          unsigned cp;
           jp++;
-          if (hex4(&cp) < 0) return -1;
-          if (cp >= 0xD800 && cp <= 0xDBFF) {
-            if (jend - jp < 2 || jp[0] != '\\' || jp[1] != 'u') return -1;
-            jp += 2;
-            if (hex4(&lo) < 0 || lo < 0xDC00 || lo > 0xDFFF) return -1;
-            cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
-          } else if (cp >= 0xDC00 && cp <= 0xDFFF) {
-            return -1;
-          }
+          if (unicode_escape(&jp, jend, &cp) < 0) return -1;
           put_utf8(cp);
           break;
         }
@@ -431,60 +451,78 @@ static void link_child(long parent, long child) {
   nodes[parent].count++;
 }
 
-static long parse_number(void) {
-  const unsigned char *s = jp;
-  int is_float = 0;
-  char tmp[64];
-  size_t n;
-  long id;
-  if (jp < jend && *jp == '-') jp++;
-  if (jp >= jend) return -1;
-  if (*jp == '0') {
-    jp++;
-  } else if (*jp >= '1' && *jp <= '9') {
-    while (jp < jend && *jp >= '0' && *jp <= '9') jp++;
+/* The grammar of a JSON number at s: its length, or 0 when it is not one. */
+static size_t num_span(const unsigned char *s, const unsigned char *end, int *is_float) {
+  const unsigned char *q = s;
+  *is_float = 0;
+  if (q < end && *q == '-') q++;
+  if (q >= end) return 0;
+  if (*q == '0') {
+    q++;
+  } else if (*q >= '1' && *q <= '9') {
+    while (q < end && *q >= '0' && *q <= '9') q++;
   } else {
-    return -1;
+    return 0;
   }
-  if (jp < jend && *jp == '.') {
-    is_float = 1;
-    jp++;
-    if (jp >= jend || *jp < '0' || *jp > '9') return -1;
-    while (jp < jend && *jp >= '0' && *jp <= '9') jp++;
+  if (q < end && *q == '.') {
+    *is_float = 1;
+    q++;
+    if (q >= end || *q < '0' || *q > '9') return 0;
+    while (q < end && *q >= '0' && *q <= '9') q++;
   }
-  if (jp < jend && (*jp == 'e' || *jp == 'E')) {
-    is_float = 1;
-    jp++;
-    if (jp < jend && (*jp == '+' || *jp == '-')) jp++;
-    if (jp >= jend || *jp < '0' || *jp > '9') return -1;
-    while (jp < jend && *jp >= '0' && *jp <= '9') jp++;
+  if (q < end && (*q == 'e' || *q == 'E')) {
+    *is_float = 1;
+    q++;
+    if (q < end && (*q == '+' || *q == '-')) q++;
+    if (q >= end || *q < '0' || *q > '9') return 0;
+    while (q < end && *q >= '0' && *q <= '9') q++;
   }
-  n = (size_t)(jp - s);
+  return (size_t)(q - s);
+}
+
+/* The value of the n bytes of a number: a float must be finite, an integer must fit
+** int64, and the text is at most 63 bytes. 0, or -1 when it is refused. */
+static int num_value(const unsigned char *s, size_t n, int is_float, long long *iv, double *dv) {
+  char tmp[64];
   if (n >= sizeof tmp) return -1;
   memcpy(tmp, s, n);
   tmp[n] = 0;
   if (is_float) {
-    double d = strtod(tmp, NULL);
-    if (!isfinite(d)) return -1;
-    id = new_node(T_FLOAT);
-    nodes[id].d = d;
+    *dv = strtod(tmp, NULL);
+    if (!isfinite(*dv)) return -1;
   } else {
-    long long v;
     errno = 0;
-    v = strtoll(tmp, NULL, 10);
+    *iv = strtoll(tmp, NULL, 10);
     if (errno == ERANGE) return -1;
-    id = new_node(T_INT);
-    nodes[id].i = v;
   }
+  return 0;
+}
+
+static long parse_number(void) {
+  int is_float;
+  long long iv = 0;
+  double dv = 0;
+  long id;
+  size_t n = num_span(jp, jend, &is_float);
+  if (n == 0 || num_value(jp, n, is_float, &iv, &dv) < 0) return -1;
+  jp += n;
+  id = new_node(is_float ? T_FLOAT : T_INT);
+  if (is_float)
+    nodes[id].d = dv;
+  else
+    nodes[id].i = iv;
   return id;
 }
 
-static int literal(const char *lit) {
+/* The literal lit at *pp: 1 and *pp moves past it, or 0. */
+static int literal_at(const unsigned char **pp, const unsigned char *end, const char *lit) {
   size_t n = strlen(lit);
-  if ((size_t)(jend - jp) < n || memcmp(jp, lit, n) != 0) return 0;
-  jp += n;
+  if ((size_t)(end - *pp) < n || memcmp(*pp, lit, n) != 0) return 0;
+  *pp += n;
   return 1;
 }
+
+static int literal(const char *lit) { return literal_at(&jp, jend, lit); }
 
 static long parse_value(int depth) {
   long id;
@@ -731,16 +769,22 @@ static int w_pcall(lua_State *L) {
 /* Helpers (policy version 2): fields of the global `helpers`            */
 /* ------------------------------------------------------------------ */
 
+/* Record the table at the top of the stack as an array (kind 1) or an object (kind 2)
+** in the host-private weak table `elzoo.kinds`. */
+static void mark_kind(lua_State *L, int kind) {
+  lua_getfield(L, LUA_REGISTRYINDEX, "elzoo.kinds");
+  lua_pushvalue(L, -2);
+  lua_pushinteger(L, kind);
+  lua_rawset(L, -3);
+  lua_pop(L, 1);
+}
+
 /* helpers.object(): a fresh empty table that encodes as a JSON object. */
 static int h_object(lua_State *L) {
   if (lua_gettop(L) != 0) return luaL_error(L, "helpers.object: takes no argument");
   charge(L, 1);
   lua_createtable(L, 0, 0);
-  lua_getfield(L, LUA_REGISTRYINDEX, "elzoo.kinds");
-  lua_pushvalue(L, -2);
-  lua_pushinteger(L, 2);
-  lua_rawset(L, -3);
-  lua_pop(L, 1);
+  mark_kind(L, 2);
   return 1;
 }
 
@@ -821,6 +865,211 @@ static int h_text_split(lua_State *L) {
 }
 
 static int enc_value(lua_State *L, int idx, int depth, buf *B);
+
+/* ------------------------------------------------------------------ */
+/* helpers.json_decode: a reader with a local cursor that pushes Lua values  */
+/* directly. It uses none of the request reader's static state (jp, jend, nodes,  */
+/* sarena): every byte it keeps is Lua memory, so memory_bytes counts it and an   */
+/* error frees it. The rules are those of the request reader, but at most 32      */
+/* nested containers.                                                             */
+/* ------------------------------------------------------------------ */
+
+typedef struct {
+  lua_State *L;
+  const unsigned char *p, *end;
+} jcur;
+
+/* A string at the cursor (opening quote): its decoded bytes are pushed as one Lua
+** string, charged by length first. The first escape opens a luaL_Buffer; it is closed
+** by luaL_pushresult before this function returns, and nothing recurses while it is
+** open. Raw bytes must be valid UTF-8 and not below 0x20. 0, or -1 (the caller
+** raises, which discards the stack). */
+static int jc_string(jcur *c) {
+  lua_State *L = c->L;
+  luaL_Buffer b;
+  int buffered = 0;
+  const unsigned char *start;
+  if (c->p >= c->end || *c->p != '"') return -1;
+  c->p++;
+  start = c->p;
+  for (;;) {
+    unsigned char ch;
+    if (c->p >= c->end) return -1;
+    ch = *c->p;
+    if (ch == '"') break;
+    if (ch < 0x20) return -1;
+    if (ch == '\\') {
+      char e[4];
+      size_t el = 1;
+      if (!buffered) {
+        luaL_buffinit(L, &b);
+        buffered = 1;
+      }
+      luaL_addlstring(&b, (const char *)start, (size_t)(c->p - start));
+      c->p++;
+      if (c->p >= c->end) return -1;
+      if (*c->p == 'u') {
+        unsigned cp;
+        c->p++;
+        if (unicode_escape(&c->p, c->end, &cp) < 0) return -1;
+        el = utf8_encode(cp, e);
+      } else {
+        switch (*c->p) {
+          case '"': e[0] = '"'; break;
+          case '\\': e[0] = '\\'; break;
+          case '/': e[0] = '/'; break;
+          case 'b': e[0] = '\b'; break;
+          case 'f': e[0] = '\f'; break;
+          case 'n': e[0] = '\n'; break;
+          case 'r': e[0] = '\r'; break;
+          case 't': e[0] = '\t'; break;
+          default: return -1;
+        }
+        c->p++;
+      }
+      luaL_addlstring(&b, e, el);
+      start = c->p;
+    } else {
+      int l = utf8_len(c->p, (size_t)(c->end - c->p));
+      if (l == 0) return -1;
+      c->p += l;
+    }
+  }
+  /* the sizes below are at most the length of the text argument (at most value_bytes) */
+  if (buffered) {
+    luaL_addlstring(&b, (const char *)start, (size_t)(c->p - start));
+    charge(L, (long long)luaL_bufflen(&b));
+    luaL_pushresult(&b);
+  } else {
+    charge(L, (long long)(c->p - start));
+    lua_pushlstring(L, (const char *)start, (size_t)(c->p - start));
+  }
+  c->p++;
+  return 0;
+}
+
+static int jc_number(jcur *c) {
+  int is_float;
+  long long iv = 0;
+  double dv = 0;
+  size_t n = num_span(c->p, c->end, &is_float);
+  if (n == 0 || num_value(c->p, n, is_float, &iv, &dv) < 0) return -1;
+  c->p += n;
+  if (is_float)
+    lua_pushnumber(c->L, (lua_Number)dv);
+  else
+    lua_pushinteger(c->L, (lua_Integer)iv);
+  return 0;
+}
+
+/* One value: pushes exactly one Lua value. nest is the number of open containers;
+** the 33rd is refused. A container is charged one step for each entry, before the
+** entry is stored. */
+static int jc_value(jcur *c, int nest) {
+  lua_State *L = c->L;
+  luaL_checkstack(L, 8, "helpers");
+  skip_ws(&c->p, c->end);
+  if (c->p >= c->end) return -1;
+  switch (*c->p) {
+    case 'n':
+      if (!literal_at(&c->p, c->end, "null")) return -1;
+      lua_pushlightuserdata(L, &null_sentinel);
+      return 0;
+    case 't':
+      if (!literal_at(&c->p, c->end, "true")) return -1;
+      lua_pushboolean(L, 1);
+      return 0;
+    case 'f':
+      if (!literal_at(&c->p, c->end, "false")) return -1;
+      lua_pushboolean(L, 0);
+      return 0;
+    case '"': return jc_string(c);
+    case '[': {
+      lua_Integer i = 1;
+      if (nest >= MAX_CONTAINERS) return -1;
+      c->p++;
+      lua_createtable(L, 0, 0);
+      mark_kind(L, 1);
+      skip_ws(&c->p, c->end);
+      if (c->p < c->end && *c->p == ']') {
+        c->p++;
+        return 0;
+      }
+      for (;;) {
+        if (jc_value(c, nest + 1) < 0) return -1;
+        charge(L, 1);
+        lua_rawseti(L, -2, i++);
+        skip_ws(&c->p, c->end);
+        if (c->p >= c->end) return -1;
+        if (*c->p == ',') {
+          c->p++;
+          continue;
+        }
+        if (*c->p == ']') {
+          c->p++;
+          return 0;
+        }
+        return -1;
+      }
+    }
+    case '{': {
+      if (nest >= MAX_CONTAINERS) return -1;
+      c->p++;
+      lua_createtable(L, 0, 0);
+      mark_kind(L, 2);
+      skip_ws(&c->p, c->end);
+      if (c->p < c->end && *c->p == '}') {
+        c->p++;
+        return 0;
+      }
+      for (;;) {
+        int duplicate;
+        skip_ws(&c->p, c->end);
+        if (jc_string(c) < 0) return -1; /* stack: object, key */
+        skip_ws(&c->p, c->end);
+        if (c->p >= c->end || *c->p != ':') return -1;
+        c->p++;
+        lua_pushvalue(L, -1);
+        lua_rawget(L, -3); /* a member is never nil: null is the light userdata */
+        duplicate = !lua_isnil(L, -1);
+        lua_pop(L, 1);
+        if (duplicate) return -1;
+        if (jc_value(c, nest + 1) < 0) return -1; /* stack: object, key, value */
+        charge(L, 1);
+        lua_rawset(L, -3);
+        skip_ws(&c->p, c->end);
+        if (c->p >= c->end) return -1;
+        if (*c->p == ',') {
+          c->p++;
+          continue;
+        }
+        if (*c->p == '}') {
+          c->p++;
+          return 0;
+        }
+        return -1;
+      }
+    }
+    default: return jc_number(c);
+  }
+}
+
+/* helpers.json_decode(text): the plain value of one JSON document. */
+static int h_json_decode(lua_State *L) {
+  const char *s;
+  size_t len;
+  jcur c;
+  if (lua_gettop(L) != 1 || (s = text_arg(L, 1, &len)) == NULL)
+    return luaL_error(L, "helpers.json_decode: expected one string");
+  charge(L, (long long)len);
+  c.L = L;
+  c.p = (const unsigned char *)s;
+  c.end = c.p + len;
+  if (jc_value(&c, 0) < 0) return luaL_error(L, "helpers.json_decode: invalid JSON");
+  skip_ws(&c.p, c.end);
+  if (c.p != c.end) return luaL_error(L, "helpers.json_decode: invalid JSON");
+  return 1; /* the value is at the top, above the text */
+}
 
 /* helpers.json_encode(value): the canonical JSON text of a plain value, by the
 ** rules of the reply writer (the same functions). The output is written into one
@@ -1137,6 +1386,8 @@ static int init_env(lua_State *L) {
   lua_newtable(L);
   lua_pushlightuserdata(L, &null_sentinel);
   lua_setfield(L, -2, "null");
+  lua_pushcfunction(L, h_json_decode);
+  lua_setfield(L, -2, "json_decode");
   lua_pushcfunction(L, h_json_encode);
   lua_setfield(L, -2, "json_encode");
   lua_pushcfunction(L, h_object);
@@ -1186,11 +1437,7 @@ static int push_node(lua_State *L, long id) {
       int is_arr = nd->type == T_ARR;
       lua_Integer i = 1;
       lua_createtable(L, is_arr ? (int)nd->count : 0, is_arr ? 0 : (int)nd->count);
-      lua_getfield(L, LUA_REGISTRYINDEX, "elzoo.kinds");
-      lua_pushvalue(L, -2);
-      lua_pushinteger(L, is_arr ? 1 : 2);
-      lua_rawset(L, -3);
-      lua_pop(L, 1);
+      mark_kind(L, is_arr ? 1 : 2);
       for (c = nd->first; c >= 0; c = nodes[c].next) {
         if (is_arr) {
           push_node(L, c);
