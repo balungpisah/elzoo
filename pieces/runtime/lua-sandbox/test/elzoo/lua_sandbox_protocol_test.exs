@@ -328,34 +328,39 @@ defmodule Elzoo.LuaSandboxProtocolTest do
 
     test "a well-formed reply passes through, for the fake as for the real host", %{fake: dir} do
       assert {:ok, %{value: 42, runtime: runtime}} =
-               run_fake(dir, "good", Helper.printf(reply_frame()))
+               run_fake(dir, "good", "head -c 4 >/dev/null\n" <> Helper.printf(reply_frame()))
 
       assert runtime == LuaSandbox.Build.runtime_identity()
 
       other = Helper.frame(Jason.encode!(%{"status" => "refused", "reason" => "steps"}))
-      assert run_fake(dir, "refused", Helper.printf(other)) == {:refused, :steps}
+
+      assert run_fake(dir, "refused", "head -c 4 >/dev/null\n" <> Helper.printf(other)) ==
+               {:refused, :steps}
+
       memory = Helper.frame(~s({"status":"memory"}))
-      assert run_fake(dir, "memory", Helper.printf(memory)) == {:host_outcome, :memory}
+
+      assert run_fake(dir, "memory", "head -c 4 >/dev/null\n" <> Helper.printf(memory)) ==
+               {:host_outcome, :memory}
     end
 
     test "zero and overbound lengths are decided before the body", %{fake: dir} do
-      zero = Helper.printf(<<0, 0, 0, 0>>) <> "\nexec sleep 5"
+      zero = "head -c 4 >/dev/null\n" <> Helper.printf(<<0, 0, 0, 0>>) <> "\nexec sleep 5"
       started = System.monotonic_time(:millisecond)
       assert run_fake(dir, "zero", zero) == {:host_outcome, :protocol_error}
 
       # 1_048_577 = 0x100001, then no body; the caller does not wait for one
-      overbound = Helper.printf(<<1, 0, 16, 0>>) <> "\nexec sleep 5"
+      overbound = "head -c 4 >/dev/null\n" <> Helper.printf(<<1, 0, 16, 0>>) <> "\nexec sleep 5"
       assert run_fake(dir, "overbound", overbound) == {:host_outcome, :protocol_error}
-      huge = Helper.printf(<<255, 255, 255, 255>>) <> "\nexec sleep 5"
+      huge = "head -c 4 >/dev/null\n" <> Helper.printf(<<255, 255, 255, 255>>) <> "\nexec sleep 5"
       assert run_fake(dir, "huge", huge) == {:host_outcome, :protocol_error}
       assert System.monotonic_time(:millisecond) - started < 4_000
     end
 
     test "partial header, partial body and EOF", %{fake: dir} do
-      assert run_fake(dir, "partial-header", Helper.printf(<<7, 0>>)) ==
+      assert run_fake(dir, "partial-header", "head -c 4 >/dev/null\n" <> Helper.printf(<<7, 0>>)) ==
                {:host_outcome, :protocol_error}
 
-      partial_body = Helper.printf(<<10, 0, 0, 0, ?{, ?", ?a>>)
+      partial_body = "head -c 4 >/dev/null\n" <> Helper.printf(<<10, 0, 0, 0, ?{, ?", ?a>>)
       assert run_fake(dir, "partial-body", partial_body) == {:host_outcome, :protocol_error}
 
       # exit with nothing written: no reply
@@ -388,7 +393,7 @@ defmodule Elzoo.LuaSandboxProtocolTest do
       ]
 
       for {name, body} <- cases do
-        assert run_fake(dir, name, Helper.printf(Helper.frame(body))) ==
+        assert run_fake(dir, name, "head -c 4 >/dev/null\n" <> Helper.printf(Helper.frame(body))) ==
                  {:host_outcome, :protocol_error},
                name
       end
@@ -397,23 +402,28 @@ defmodule Elzoo.LuaSandboxProtocolTest do
     test "trailing bytes and a second reply", %{fake: dir} do
       frame = reply_frame()
 
-      assert run_fake(dir, "trailing", Helper.printf(frame <> "x")) ==
+      assert run_fake(dir, "trailing", "head -c 4 >/dev/null\n" <> Helper.printf(frame <> "x")) ==
                {:host_outcome, :protocol_error}
 
-      assert run_fake(dir, "two-replies", Helper.printf(frame <> frame)) ==
+      assert run_fake(dir, "two-replies", "head -c 4 >/dev/null\n" <> Helper.printf(frame <> frame)) ==
                {:host_outcome, :protocol_error}
 
-      late = Helper.printf(frame) <> "\nsleep 0.2\n" <> Helper.printf(frame)
+      late =
+        "head -c 4 >/dev/null\n" <> Helper.printf(frame) <> "\nsleep 0.2\n" <> Helper.printf(frame)
+
       assert run_fake(dir, "late-second-reply", late) == {:host_outcome, :protocol_error}
     end
 
     test "oversize output is a protocol error", %{fake: dir} do
       # a full frame of the largest legal length that is not a reply
-      body = Helper.printf(<<0, 0, 16, 0>>) <> "\nhead -c 1048576 /dev/zero | tr '\\000' 'a'"
+      body =
+        "head -c 4 >/dev/null\n" <>
+          Helper.printf(<<0, 0, 16, 0>>) <> "\nhead -c 1048576 /dev/zero | tr '\\000' 'a'"
+
       assert run_fake(dir, "max-frame", body) == {:host_outcome, :protocol_error}
 
       # more than the maximum, streamed without a pause
-      streamed = "head -c 3000000 /dev/zero"
+      streamed = "head -c 4 >/dev/null\nhead -c 3000000 /dev/zero"
       assert run_fake(dir, "streamed", streamed) == {:host_outcome, :protocol_error}
     end
 
@@ -435,14 +445,14 @@ defmodule Elzoo.LuaSandboxProtocolTest do
       log =
         capture_log(fn ->
           results = [
-            run_fake(dir, "stderr-only", "echo #{marker} >&2\nexit 0"),
+            run_fake(dir, "stderr-only", "head -c 4 >/dev/null\necho #{marker} >&2\nexit 0"),
             run_fake(
               dir,
               "stderr-then-reply",
-              "echo #{marker} >&2\n" <> Helper.printf(reply_frame())
+              "head -c 4 >/dev/null\necho #{marker} >&2\n" <> Helper.printf(reply_frame())
             ),
-            run_fake(dir, "stderr-crash", "echo #{marker} >&2\nexit 9"),
-            run_fake(dir, "stdout-text", "echo #{marker}")
+            run_fake(dir, "stderr-crash", "head -c 4 >/dev/null\necho #{marker} >&2\nexit 9"),
+            run_fake(dir, "stdout-text", "head -c 4 >/dev/null\necho #{marker}")
           ]
 
           # stderr is merged into the byte stream, so any text breaks the framing
@@ -619,8 +629,8 @@ defmodule Elzoo.LuaSandboxProtocolTest do
          false},
         {"killed-outside", "exec sleep 30", largest, {:host_outcome, :process_exit}, true, true},
         {"never-reads", "exec sleep 30", short, {:host_outcome, :wall_time}, true, false},
-        {"stderr-exit-0", "echo X >&2\nexit 0", small, {:host_outcome, :protocol_error}, false,
-         false},
+        {"stderr-exit-0", "head -c 4 >/dev/null\necho X >&2\nexit 0", small,
+         {:host_outcome, :protocol_error}, false, false},
         {"exit-3", "exit 3", small, {:host_outcome, :process_exit}, false, false}
       ]
 

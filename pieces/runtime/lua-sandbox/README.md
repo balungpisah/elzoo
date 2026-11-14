@@ -363,7 +363,8 @@ pending reply of the Elixir decoder):
     the other two; a second identical request gives the identical reply and sees nothing of
     the first; a child that sends a second frame after the pending frame is `protocol_error`.
 
-The repair of the size check adds three groups in `lua_sandbox_input_check_test.exs`:
+The repair of the size check adds three groups in `lua_sandbox_input_check_test.exs`, and a
+repair of the test fakes adds two more (groups 25 and 26):
 
 22. **`input_check_is_bounded`** (3 tests): an input built from one short string by doubling a
     list 22 times (about four million leaves, a few hundred bytes of memory), with
@@ -384,6 +385,17 @@ The repair of the size check adds three groups in `lua_sandbox_input_check_test.
     one equal to a name of 41 to 64 bytes, a literal of the same length that the state does not
     hold, and a literal of 41 bytes (also when `calls.names` holds the same text, which the host
     interns before the limits are armed) are `value_size`.
+25. **`fakes_read_first`** (the tests that hold a changed fake, in
+    `lua_sandbox_protocol_test.exs`, `lua_sandbox_bindings_test.exs` and
+    `lua_sandbox_replay_test.exs`): each fake child that writes or exits without a read of its
+    input, and whose test expects a result other than `process_exit`, reads the four bytes of
+    the frame header from its input before it writes, so the request is never written to a child
+    that has already ended. The expected results are unchanged and the tests were run 200 times
+    in one launch with `--repeat-until-failure 200`. Negative control: with the read removed from
+    one fake the test still passes in most runs, so this control is not decisive and the review
+    reads the fakes.
+26. **`existing_behaviour`**: every existing test of the Piece passes unchanged, apart from the
+    bodies of the fakes of group 25.
 
 ## Limits
 
@@ -407,8 +419,9 @@ The repair of the size check adds three groups in `lua_sandbox_input_check_test.
   the Lua state already holds when the limits are armed is not allocated and so is not
   measured. A longer string is always allocated and measured, also when the state holds an
   equal one. Held strings come, for example, from the Lua runtime (its out-of-memory message),
-  from the libraries, from the names that the host puts into the state (each entry of `calls.names`);
-  the list is not complete. The gap matters only for a `value_bytes` below 40:
+  from the libraries, from the names that the host puts into the state (such as `helpers` and
+  the helper names) and from each entry of `calls.names`; the list is not complete. The gap
+  matters only for a `value_bytes` below 40:
   a held string that was swept before its duplicate is made is allocated and measured, so the
   gap can only be narrower than this Limit says. The encoded result and each helper argument
   keep their own check.
