@@ -63,8 +63,12 @@ defmodule Elzoo.RecipeStore do
     {fold, limits} =
       case log do
         {module, o} when is_atom(module) and (is_map(o) or is_list(o)) ->
-          o = Map.new(o)
-          {Map.get(o, :fold), Map.get(o, :limits)}
+          if is_map(o) or Keyword.keyword?(o) do
+            o = Map.new(o)
+            {Map.get(o, :fold), Map.get(o, :limits)}
+          else
+            {nil, nil}
+          end
 
         _ ->
           {nil, nil}

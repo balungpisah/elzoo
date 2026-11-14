@@ -824,6 +824,9 @@ defmodule Elzoo.RecipeStoreTest do
       assert {:error, {:invalid, :log}} =
                RecipeStore.new(artifact: art, log: {Elzoo.DurableLog.Memory, %{}})
 
+      assert {:error, {:invalid, :log}} =
+               RecipeStore.new(artifact: art, log: {Elzoo.DurableLog.Memory, [1, 2]})
+
       # a Store whose fold lacks the kinds of this Piece
       {module, opts} = store
       bare = update_in(opts, [:fold, :kinds], &Map.drop(&1, Map.keys(RecipeStore.kinds())))
