@@ -343,19 +343,19 @@ defmodule Elzoo.GraphRun do
 
   defp settle(state, node, tag, input) do
     state = %{state | open: Map.delete(state.open, input["action_id"])}
-
-    state =
-      if input["kind"] == "person_answer" or input["outcome"] == "completed",
-        do: %{state | last: input["action_id"]},
-        else: state
-
     result(state, node, tag, input)
   end
 
+  # Only an action that the step kept as completed is the last one that completed.
+  defp completed(state, input), do: %{state | last: input["action_id"]}
+
   defp result(state, node, :whole, input) do
     case whole(node, input) do
-      {:completed, gives, choice} -> finish_node(state, node, "completed", gives, choice)
-      {:class, class} -> finish_node(state, node, class, %{}, nil)
+      {:completed, gives, choice} ->
+        finish_node(completed(state, input), node, "completed", gives, choice)
+
+      {:class, class} ->
+        finish_node(state, node, class, %{}, nil)
     end
   end
 
@@ -376,6 +376,7 @@ defmodule Elzoo.GraphRun do
           {class, nil}
       end
 
+    state = if elem(result, 0) == "completed", do: completed(state, input), else: state
     {_, mode} = state.maps[node.id]
     work = state.work[node.id]
 
@@ -396,10 +397,10 @@ defmodule Elzoo.GraphRun do
     case whole(node, input) do
       {:completed, gives, {:continue, true}} when k < node.max ->
         work = %{next: k + 1, previous: gives, queued: true}
-        %{state | work: Map.put(state.work, node.id, work)}
+        %{completed(state, input) | work: Map.put(state.work, node.id, work)}
 
       {:completed, gives, {:continue, _}} ->
-        finish_node(state, node, "completed", gives, nil)
+        finish_node(completed(state, input), node, "completed", gives, nil)
 
       {:class, class} ->
         finish_node(state, node, class, %{}, nil)

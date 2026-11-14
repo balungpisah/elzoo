@@ -675,6 +675,30 @@ defmodule Elzoo.GraphRunTest do
       assert requests == [req([item(0, "a"), item(1, "b")]), nil]
     end
 
+    test "partial: the finish names the item that truly completed last, not a malformed completed one" do
+      inputs = [
+        five(),
+        done("run:n:m:0", %{"v" => 0}),
+        outcome("run:n:m:1", "failed"),
+        done("run:n:m:2", %{"v" => 2}),
+        done("run:n:m:3", %{"v" => 3}),
+        outcome("run:n:m:4", "completed", %{"gives" => "not an object"})
+      ]
+
+      assert List.last(run(map_graph(:partial), inputs)) ==
+               req([
+                 completed("run:n:m:3", %{
+                   "items" => [
+                     %{"index" => 0, "status" => "completed", "gives" => %{"v" => 0}},
+                     %{"index" => 1, "status" => "failed"},
+                     %{"index" => 2, "status" => "completed", "gives" => %{"v" => 2}},
+                     %{"index" => 3, "status" => "completed", "gives" => %{"v" => 3}},
+                     %{"index" => 4, "status" => "failed"}
+                   ]
+                 })
+               ])
+    end
+
     # open actions after each step: requests add, an applied outcome of an open action removes
     defp max_open(inputs, requests) do
       {_, max} =
