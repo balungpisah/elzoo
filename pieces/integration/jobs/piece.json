@@ -37,7 +37,7 @@
     {
       "kind": "test",
       "file": "test/elzoo/jobs_test.exs",
-      "claim": "Unique changeset, persisted-id enqueue under a held unique lock, worker dispatch/exit trapping/version refusal, a real Oban execution, relay ack/skip/in-page continuation, full-page block limit and option validation on a disposable PostgreSQL and Memory; finite scenarios."
+      "claim": "Unique changeset, persisted-id enqueue under a held unique lock, worker dispatch/exit trapping/version refusal, a real Oban execution, query/state/states/cancel reach only this Piece's worker in its Oban queue (foreign_job_is_not_reached, own_job_is_reached), relay ack/skip/in-page continuation, full-page block limit and option validation on a disposable PostgreSQL and Memory; finite scenarios."
     },
     {
       "kind": "upstream",

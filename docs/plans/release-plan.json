@@ -7337,7 +7337,7 @@
       "disposition": "merged-ready-contract; task acceptance separate",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/jobs/piece.json",
-      "manifest_sha256": "4721d814b46dd76bca723a7aafac1034e6d4357639ef6eb04a9f6ea8c6770301"
+      "manifest_sha256": "72a80e3ec12dea175dfc0e5e38f0a6c4b45fc8f94973843b527fd126d7374672"
     },
     {
       "id": "integration/json",
