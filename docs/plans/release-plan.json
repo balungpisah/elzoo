@@ -6861,9 +6861,11 @@
     {
       "id": "domain/recipe-graph",
       "job": "ELZ-161",
-      "note": "Bot platform wave 3 (P13). Graphs, agents and typed decisions with typed input and output, needs and gives, links, outcome links, rules and bindings; callables nest by name with a depth limit. A rule can only add a requirement. Data and validation only.",
+      "note": "Pure bounded v1 recipe callables as plain data: exact graph, agent and typed-decision declarations, six node kinds, typed slots, acyclic dependency and named-call graphs, explicit identity, bounded nesting and requirement-only rules. Encode preserves the original map; no execution or authority.",
       "baseline_status": "not in baseline (new row, RC-61)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/domain/recipe-graph/piece.json",
+      "manifest_sha256": "5a5f72e33a16d79851c73d7322935db9d36f45ad2f27e3dc171db8b4fc1a444c",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
@@ -6877,9 +6879,11 @@
     {
       "id": "domain/recipe-config",
       "job": "ELZ-162",
-      "note": "Bot platform wave 3 (P13). A secret setting is a credential reference, never a value.",
+      "note": "Pure check of tenant settings against a caller-supplied version 1 descriptor (id, revision, input Port, closed-object draft 2020-12 schema, at most 64 secret names) through the ready core/payload-schema; a secret setting is only an exact 1..128-byte ref/scope reference, never resolved. Success returns the original settings; fixed bounds and fixed redacted failures; no defaults, coercion, store or resolver.",
       "baseline_status": "not in baseline (new row, RC-61)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/domain/recipe-config/piece.json",
+      "manifest_sha256": "fb61ce4dccb71d917bbb67c914d1e6097eb29096dc78b15cbfd9a714c2a5d5d7",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
