@@ -375,7 +375,9 @@ defmodule Elzoo.Skill do
   # `{last, quote, depth}`: `last` is `:start` after `{`, `[`, `,`, `:`, a
   # comment or the end of a tag (a token can start here, after any blanks and
   # line breaks), `:close` after `]` or `}` (a `&` or `*` can start a token
-  # here, a `?` cannot) and `:other` after anything else; `quote` is nil, `:single` or `:double`;
+  # here, a `?` cannot), `:quoted` after a closing quote (only blanks, a
+  # comment, `,`, `:`, `]` or `}` may follow; any other byte is `invalid_yaml`)
+  # and `:other` after anything else; `quote` is nil, `:single` or `:double`;
   # `depth` is the number of open `[` and `{`. A `?` at a token start that a
   # space, a tab or the line end follows is the explicit-key indicator and is
   # `invalid_yaml`, before every alias of the line. A `&` or `*` at a token
@@ -394,13 +396,13 @@ defmodule Elzoo.Skill do
     do: flow_bytes(rest, state, false, alias?)
 
   defp flow_bytes(<<"'", rest::binary>>, {_last, :single, depth}, _blank, alias?),
-    do: flow_bytes(rest, {:other, nil, depth}, false, alias?)
+    do: flow_bytes(rest, {:quoted, nil, depth}, false, alias?)
 
   defp flow_bytes(<<"\\", _, rest::binary>>, {_last, :double, _depth} = state, _blank, alias?),
     do: flow_bytes(rest, state, false, alias?)
 
   defp flow_bytes(<<"\"", rest::binary>>, {_last, :double, depth}, _blank, alias?),
-    do: flow_bytes(rest, {:other, nil, depth}, false, alias?)
+    do: flow_bytes(rest, {:quoted, nil, depth}, false, alias?)
 
   defp flow_bytes(<<_, rest::binary>>, {_last, quote, _depth} = state, _blank, alias?)
        when quote != nil,
@@ -412,6 +414,11 @@ defmodule Elzoo.Skill do
   # A comment ends the token: the next byte that is not blank starts a new one.
   defp flow_bytes(<<"#", _::binary>>, {_last, quote, depth}, true, alias?),
     do: {:ok, {:start, quote, depth}, alias?}
+
+  # After a closing quote only `,`, `:`, `]`, `}`, blanks and a comment follow.
+  defp flow_bytes(<<c, _::binary>>, {:quoted, _quote, _depth}, _blank, _alias?)
+       when c not in [?,, ?:, ?], ?}],
+       do: {:error, :invalid_yaml}
 
   defp flow_bytes(<<"?", c, _::binary>>, {:start, _quote, _depth}, _blank, _alias?)
        when c in [?\s, ?\t],
@@ -548,10 +555,14 @@ defmodule Elzoo.Skill do
 
   defp block_indicator?(text), do: Regex.match?(~r/\A[|>][+\-1-9]{0,2}(?: +(?:#.*)?)?\z/, text)
 
+  # A quoted scalar ends on its line. Only blanks and the end of the line, a
+  # comment (after a blank) or a `:` that a blank or the end of the line follows
+  # may come after the closing quote; every other byte is `invalid_yaml`, so no
+  # text is glued on to a quoted scalar.
   defp scan_quoted(<<q, body::binary>>, column, top?, seen) do
     case quote_end(q, body, 0) do
       nil ->
-        {:ok, nil, seen}
+        {:error, :invalid_yaml}
 
       length ->
         inner = binary_part(body, 0, length)
@@ -560,13 +571,19 @@ defmodule Elzoo.Skill do
         key = if q == ?', do: String.replace(inner, "''", "'"), else: inner
 
         case after_quote do
+          "" ->
+            {:ok, nil, seen}
+
+          "#" <> _ when spaces > 0 ->
+            {:ok, nil, seen}
+
           ":" <> value when value == "" or binary_part(value, 0, 1) in [" ", "\t"] ->
             {more, value} = drop_blanks(value)
             value_at = column + length + 2 + spaces + 1 + more
             key_value(key, value, value_at, column, top?, seen)
 
           _other ->
-            {:ok, nil, seen}
+            {:error, :invalid_yaml}
         end
     end
   end

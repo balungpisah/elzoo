@@ -90,6 +90,16 @@ passes; the first refusal ends the scan.
    `yaml_alias`. A key at indentation 0 that an earlier line already had is
    `duplicate_key`; a key is checked before its value.
 
+   After the closing quote of a quoted scalar only spaces and tabs, then the
+   end of the line, a comment (`#` after a space or a tab) or `:` followed by
+   a space, a tab or the end of the line may come; in a flow region also `,`,
+   `]`, `}` and `:`. Every other byte is `invalid_yaml`, so `'a':[x]`,
+   `'k' ? x` and `"a"b` are refused and no text is glued on to a quoted scalar.
+   A quoted scalar of a block region ends on its line: one that does not is
+   `invalid_yaml` (a quoted scalar of a flow region may run over lines). A
+   continuation line of a plain scalar that begins with a quote follows the
+   same rule.
+
 The scan refuses some texts that are not aliases (a continuation line that
 begins with `*` or with `? `, a `*` after `: ` in a trailing comment, `<<` in
 quoted text or in a comment of a flow collection). `&` and `*` in quoted text
@@ -181,16 +191,23 @@ is a host Need; a changed version does not change a running Run through
 over the given package; and the restart case is shown by folding the agent loop
 again over a cut trace, not with the harness of RC-66. A file read is not tied
 to a loaded skill. The media type is never guessed from the path. No Markdown is
-parsed and no script is read as code, compiled, evaluated or run.
+parsed and no script is read as code, compiled, evaluated or run. The test
+`scan_agrees_with_the_reader` calls the parser of the pinned `yamerl` directly,
+in test files only, with an option that the pinned docs do not expand; no file
+of `lib/` does, and the test opens with a positive control of that oracle.
 
 Telemetry, Config and Control are not applicable: pure functions over intrinsic
 operands and fixed bounds.
 
 ## Evidence
 
-Ten named test groups in `test/elzoo/skill_test.exs`: `skill_md_split`,
+Eleven named test groups: ten in `test/elzoo/skill_test.exs`: `skill_md_split`,
 `yaml_refusals`, `package_checks_fields`, `folder_bounds_and_paths`,
 `pinned_skill_source`, `load_gives_declaration`, `file_read_is_marked_content`,
-`scripts_never_run`, `agent_loop_accepts` and `pinned_version_answers`, and the
-checked example `examples/skill.exs`. They are finite scenarios, not a universal
-proof; no Cure law is selected.
+`scripts_never_run`, `agent_loop_accepts` and `pinned_version_answers`; the
+eleventh, `scan_agrees_with_the_reader` in
+`test/elzoo/skill_differential_test.exs`, feeds seeded random texts and every
+short text to `read/4` and asks the token stream of the pinned parser about
+each accepted text (no anchor, alias, other tag, key `<<` or explicit key); and
+the checked example `examples/skill.exs`. They are finite scenarios and a finite
+sample, not a universal proof; no Cure law is selected.

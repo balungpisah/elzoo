@@ -649,6 +649,78 @@ defmodule Elzoo.SkillTest do
       assert {:ok, %{entry: %{"frontmatter" => %{"c" => ["a#c *y"]}}}} = fm("c: [a#c\n  *y]\n")
     end
 
+    test "2.23 after a closing quote only blanks, a comment or a colon and a blank may follow" do
+      # The four texts of the rule, and the rows of the second review pass: a
+      # flow collection or a key glued on to a closing quote reached the reader.
+      for frontmatter <- [
+            "'a':[x]\n",
+            "'a':{k: v}\n",
+            "'k' ? x\n",
+            "\"a\"b\n",
+            "'a':[&x z, *x]\n",
+            "'a':{<<: v}\n",
+            "'<<':{a: 1}\n",
+            "a: 'k':[&x z, *x]\n",
+            "'k' ? << :v\n"
+          ] do
+        assert {:error, :invalid_yaml} = fm(frontmatter)
+      end
+
+      # The same rule after a value, an indicator and a tag, with an anchor or
+      # alias glued on (found by the differential test), and without a blank
+      # before a comment.
+      for frontmatter <- [
+            "''& :\n",
+            "''&a :\n",
+            "'a'& :\n",
+            "a: 'b'&x c\n",
+            "- \"a\"*x\n",
+            "a: !!str 'b'c\n",
+            "'a'#c\n",
+            "'a' b: c\n",
+            "\"a\"\\\n"
+          ] do
+        assert {:error, :invalid_yaml} = fm(frontmatter)
+      end
+
+      # A quoted scalar of a block region ends on its line.
+      assert {:error, :invalid_yaml} = fm("a: 'b\n  c'\n")
+      assert {:error, :invalid_yaml} = fm("\"a\nb\": c\n")
+
+      # What may follow: blanks, the end of the line, a comment, a colon and a
+      # blank, a tab or the end of the line.
+      assert {:ok, %{entry: %{"frontmatter" => %{"a" => "b", "c" => "d", "e" => "f", "g" => "h"}}}} =
+               fm("'a': b # c\n\"c\"\t:\td\n'e' \t:\n  f\ng: 'h' \t\n")
+
+      assert {:ok, %{entry: %{"frontmatter" => %{"a" => "b"}}}} = fm("a: 'b'\n")
+      assert {:ok, %{entry: %{"frontmatter" => %{"a" => "b"}}}} = fm("a: \"b\" # c *x\n")
+    end
+
+    test "2.24 in a flow region only a comma, a colon, a bracket, a blank or a comment follows a closing quote" do
+      for frontmatter <- [
+            "m: ['a'b]\n",
+            "m: ['a'[x]]\n",
+            "m: ['a'{x: y}]\n",
+            "m: [\"a\"&x, *x]\n",
+            "m: [\"a\"#c\n]\n",
+            "m: {'a'? x}\n",
+            "m: ['a'\n  b]\n",
+            "m: ['a\n  b'c]\n",
+            "m: [a, 'b'\n&x]\n"
+          ] do
+        assert {:error, :invalid_yaml} = fm(frontmatter)
+      end
+
+      assert {:ok, %{entry: %{"frontmatter" => %{"m" => ["a", "b", "c"]}}}} =
+               fm("m: [ 'a' , \"b\"\t,\n  'c' # d\n  ]\n")
+
+      assert {:ok, %{entry: %{"frontmatter" => %{"m" => %{"a" => "b", "c" => "d"}}}}} =
+               fm("m: {'a': 'b', \"c\" : \"d\"}\n")
+
+      assert {:ok, %{entry: %{"frontmatter" => %{"m" => [["a"], %{"b" => "c"}]}}}} =
+               fm("m: [['a'], {'b': 'c'}]\n")
+    end
+
     # Extra cases that pin a rule that a written case does not reach.
 
     test "a comment line does not end a flow region, and a block region ends at a comment line at its column" do
