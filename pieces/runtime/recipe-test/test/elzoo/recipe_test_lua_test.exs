@@ -171,15 +171,19 @@ defmodule Elzoo.RecipeTestLuaTest do
   defp answer(text),
     do: {:completed, %{"content" => text, "finish" => "stop", "tool_proposals" => []}}
 
-  defp tool_turn(name, arguments),
+  defp tool_turn(name, arguments), do: tool_turn([{"c1", name, arguments}])
+
+  # One model result that proposes every call of the list `{id, name, arguments}`.
+  defp tool_turn(calls),
     do:
       {:completed,
        %{
          "content" => "",
          "finish" => "tool_calls",
-         "tool_proposals" => [
-           %{"id" => "c1", "name" => name, "arguments" => arguments, "malformed" => nil}
-         ]
+         "tool_proposals" =>
+           for {id, name, arguments} <- calls do
+             %{"id" => id, "name" => name, "arguments" => arguments, "malformed" => nil}
+           end
        }}
 
   defp base_spec(package, facts, sources, script, input, executable, tools),
@@ -267,6 +271,37 @@ defmodule Elzoo.RecipeTestLuaTest do
       %{"luat_sum" => entry}
     )
   end
+
+  # A root agent whose first model result proposes `count` calls of the Lua tool at once.
+  defp lua_runs_spec(executable, count) do
+    calls = for i <- 1..count, do: {"c#{i}", "luat_sum", %{"n" => i}}
+
+    lua_agent_spec(executable, %{
+      {:model, "scripted-model"} => [tool_turn(calls), answer("Done.")],
+      {:tool, "calc_add"} => List.duplicate({:completed, %{"n" => 2}}, count)
+    })
+  end
+
+  # The `action_outcome` inputs of the Run stream, as `{action id, input}`.
+  defp outcomes(record),
+    do:
+      for(
+        %{step: :input, input: %{"kind" => "action_outcome", "action_id" => id} = input} <-
+          record.steps,
+        do: {id, input}
+      )
+
+  # The outcome and the text of the result of the agent's tool call `id`.
+  defp tool_result(record, id) do
+    assert {_, %{"outcome" => outcome, "payload" => payload}} =
+             List.keyfind(outcomes(record), id, 0)
+
+    {outcome, payload["content"]["content"]}
+  end
+
+  # Nothing in the record, at any depth, holds the reason `local_unavailable`.
+  defp refute_local_unavailable(record),
+    do: refute(inspect(record, limit: :infinity, printable_limit: :infinity) =~ "local_unavailable")
 
   # A root graph whose one tool node is the Lua tool.
   defp lua_graph_spec(executable) do
@@ -494,6 +529,61 @@ defmodule Elzoo.RecipeTestLuaTest do
       assert %{"status" => "completed", "gives" => %{"total" => 3}} =
                actions["d1:finish"]["payload"]
     end
+
+    test "five_lua_runs_together: five held Lua runs all complete", %{executable: executable} do
+      assert {:ok, record} = RecipeTest.run(lua_runs_spec(executable, 5))
+      assert record.outcome == :completed
+      assert record.restarted == false
+      assert record.unused == %{}
+      assert record.asked == %{{:model, "scripted-model"} => 2, {:tool, "calc_add"} => 5}
+
+      for i <- 1..5 do
+        assert tool_result(record, "d1:t:1:#{i}") == {"completed", canonical(%{"total" => 3})}
+      end
+
+      assert for({id, %{"outcome" => "failed"}} <- outcomes(record), do: id) == []
+      refute_local_unavailable(record)
+    end
+
+    test "lua_runs_after_restart: a dropped Lua run keeps its place and four later ones complete",
+         %{executable: executable} do
+      call = fn i -> {"c#{i}", "luat_sum", %{"n" => i}} end
+
+      script = %{
+        {:model, "scripted-model"} => [
+          tool_turn([call.(1)]),
+          tool_turn(for(i <- 2..5, do: call.(i))),
+          answer("Done.")
+        ],
+        {:tool, "calc_add"} => List.duplicate({:completed, %{"n" => 2}}, 4)
+      }
+
+      # restart_after 1: the one delivery is model call 1; the Lua run that it started is the
+      # only one held at the next quiet point, so the restart drops exactly that run.
+      spec = %{lua_agent_spec(executable, script) | restart_after: 1}
+      assert {:ok, record} = RecipeTest.run(spec)
+      assert record.outcome == :completed
+      assert record.restarted == true
+      assert record.unused == %{}
+      assert record.asked == %{{:model, "scripted-model"} => 3, {:tool, "calc_add"} => 4}
+
+      dropped = child_id(2, "d1:t:1:1") <> ":r:1"
+
+      assert [{^dropped, "local_restart"}] =
+               for(
+                 {id, %{"outcome" => "failed", "payload" => payload}} <- outcomes(record),
+                 do: {id, payload["reason"]}
+               )
+
+      assert tool_result(record, "d1:t:1:1") ==
+               {"completed", "[lua tool failed: run_not_completed]"}
+
+      for i <- 1..4 do
+        assert tool_result(record, "d1:t:2:#{i}") == {"completed", canonical(%{"total" => 3})}
+      end
+
+      refute_local_unavailable(record)
+    end
   end
 
   ## Group 3
@@ -624,6 +714,14 @@ defmodule Elzoo.RecipeTestLuaTest do
     test "the agent spec of the Lua tool gives two equal records", %{executable: executable} do
       assert {:ok, first} = RecipeTest.run(lua_agent_spec(executable))
       assert {:ok, second} = RecipeTest.run(lua_agent_spec(executable))
+      assert first.outcome == :completed
+      assert first == second
+    end
+
+    test "existing_behaviour: two runs of the five Lua runs spec give equal records",
+         %{executable: executable} do
+      assert {:ok, first} = RecipeTest.run(lua_runs_spec(executable, 5))
+      assert {:ok, second} = RecipeTest.run(lua_runs_spec(executable, 5))
       assert first.outcome == :completed
       assert first == second
     end
