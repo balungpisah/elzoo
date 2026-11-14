@@ -57,6 +57,17 @@ or behavior as a contract.
 
 ## Source distribution and authoritative pins
 
+ELZ-160 adopts the source-only `lua_source` provider, PUC Lua 5.4.9 at
+`312b9efaa1061c2c4cad08554dbc1351c3270eef` (MIT; notices retained in
+upstream `lua.h`). The root adoption test compiles the explicit upstream
+library sources into a disposable static archive and links a test-only C host.
+An OTP Port exercises `luaL_newstate`, `luaL_loadstring`, `lua_pcall` and
+`lua_close`: integer 42, zero-result empty source, malformed-source load failure
+and protected-call failure. Upstream owns parsing, evaluation and the C API.
+This is finite build/API compatibility evidence, not a security proof,
+sandbox policy, resource-limit guarantee or production artifact packaging.
+The host is test support only; no public Elixir API or runtime Piece is added.
+
 `registry/providers.json` records direct provider versions/licenses and is
 checked against mix.lock and .tool-versions. Each ready bundle records its
 own usage/evidence in piece.json; [LEDGER.md](../LEDGER.md) is generated from
