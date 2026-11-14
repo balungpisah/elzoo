@@ -56,7 +56,9 @@ durable settlement. `DOWN` is death, never completion.
 `dead` is best effort: no pid is stored, so a death is not recorded when the
 owner restarts before or while the child ends, or when its write is fenced or
 rejected. A death whose write failed with an error is kept in the process and
-written after the next command, whatever its result. `status` writes nothing.
+written after the next command, whether that command is applied, unchanged
+or refused; when the command's own write is indeterminate, the owner stops
+first and the kept death is lost. `status` writes nothing.
 Restoration creates no Attempt. Stale cancellation does not cancel a newer Attempt. Completion needs
 authenticated committed evidence correlating Run, operation, Attempt and action.
 The five immutable outcomes remain `completed`, `failed`, `cancelled`,

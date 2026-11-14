@@ -93,7 +93,9 @@ host-dispatched Effect; an unknown spawn does not permit replacement or retry.
 `dead` is best effort: no pid is stored, so a death is not recorded when the
 owner restarts before or while the child ends, or when its write is fenced or
 rejected. A death whose write failed with an error is kept in the process and
-written after the next command, whatever its result. `status` writes nothing.
+written after the next command, whether that command is applied, unchanged
+or refused; when the command's own write is indeterminate, the owner stops
+first and the kept death is lost. `status` writes nothing.
 
 Completion requires a committed Store record, not process success or a bare
 reference. Evidence references are `%{stream: text, sequence: integer}`. The
