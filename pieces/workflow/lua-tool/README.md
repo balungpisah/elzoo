@@ -121,10 +121,8 @@ starts a second try; a module call with an `unknown` outcome is never repeated.
   pending call fails `call_order_differs`; starting a second run after a failed
   run fails `sandbox_stops_are_tool_failures`.
 - `state_is_plain_data` is outside the nine groups. It checks that the state is
-  plain data within 65,536 bytes after every transition, and it fails today
-  only because the bindings of `LuaBinding.resolve/2` hold `JSV.Root` structs.
-  The repair belongs to its own task; this Piece does not copy or convert the
-  bindings.
+  plain data (no struct) within 65,536 bytes after every transition of the
+  trace of `two_module_calls_in_order`, by the measure of the ready run engine.
 - Upstream: the Contracts of `workflow/pattern-step`, `workflow/tool-registry`
   and `runtime/lua-binding`, and the OTP `term_to_binary` measure of the run
   engine.

@@ -167,7 +167,7 @@ defmodule Elzoo.LuaTool do
     count = length(state.record)
 
     cond do
-      index != count or not is_map_key(state.tools, name) ->
+      index != count or name not in LuaBinding.names(state.bindings) ->
         finish_failed(state, "call_mismatch", nil)
 
       count == state.max_calls ->

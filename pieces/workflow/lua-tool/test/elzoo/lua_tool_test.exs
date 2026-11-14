@@ -339,6 +339,16 @@ defmodule Elzoo.LuaToolTest do
       assert List.last(requests(steps)) == failed("call_mismatch", nil, "tool:r:1")
     end
 
+    test "a registry tool that is not a binding is call_mismatch" do
+      # The source holds one more function than the bindings of the spec.
+      extra = sources(bindings(["alpha", "beta", "gamma"]))
+      state = new!(%{sources: extra})
+      steps = fold(state, [start(), pending(1, 0, "gamma", %{"query" => "a"})])
+
+      assert requests(steps) == [run_request(1, []), failed("call_mismatch", nil, "tool:r:1")]
+      assert {%{phase: :closed}, _} = List.last(steps)
+    end
+
     test "arguments that the schema refuses are invalid_arguments, with no action and no value" do
       secret = "SENTINEL-arguments-value"
 

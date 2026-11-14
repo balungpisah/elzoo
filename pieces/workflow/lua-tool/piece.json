@@ -12,7 +12,6 @@
     "The step runs no Lua and calls no module: each test input is a literal neutral map, no sandbox is run and the Piece does not depend on runtime/lua-sandbox; the form of the run payload and of the four run-result forms is shown against literal forms of the sandbox, not against its code.",
     "No ready parent reads elzoo.lua-tool.result: the host wraps the step in a function of its own that turns the finish into the form of the parent; a Run in which another pattern also makes tool calls needs a binding chosen by the schema of the action, else each module call ends as module_call_not_completed.",
     "A run or a module call that did not complete ends the tool as failed and is never repeated; a replay whose call order differs from the record is a failure, never a repair; each module call costs one more sandbox run from the start, so a tool with n calls runs n + 1 times; a memory or wall-time stop is a host outcome and ends the tool as failed.",
-    "Known defect on main: the bindings of LuaBinding.resolve/2 hold JSV.Root structs, so the state is not plain data and the run engine would not install it; the test state_is_plain_data shows this and stays failing until the bindings are repaired by their own task.",
     "No Cure law is selected: the decisions of the step table have finite recorded-trace tests only; no universal claim."
   ],
   "files": [
@@ -24,7 +23,7 @@
     {
       "kind": "test",
       "file": "test/elzoo/lua_tool_test.exs",
-      "claim": "Nine named recorded-trace groups pass: no_module_call, two_module_calls_in_order, restart_between_calls, call_order_differs, undeclared_and_wrong_arguments, sandbox_stops_are_tool_failures, module_call_not_completed, limits_and_closed and forms_agree; plus the checked example of one module call. Each request passes PatternStep.decode/1. Negative controls: skipping the index test of a pending call fails call_order_differs; starting a second run after a failed run fails sandbox_stops_are_tool_failures. state_is_plain_data (plain data and 65,536 bytes after every transition) is outside the groups and fails today only because of the bindings. Finite scenarios, not a universal proof."
+      "claim": "Nine named recorded-trace groups pass: no_module_call, two_module_calls_in_order, restart_between_calls, call_order_differs, undeclared_and_wrong_arguments, sandbox_stops_are_tool_failures, module_call_not_completed, limits_and_closed and forms_agree; plus the checked example of one module call. Each request passes PatternStep.decode/1. Negative controls: skipping the index test of a pending call fails call_order_differs; starting a second run after a failed run fails sandbox_stops_are_tool_failures. state_is_plain_data: the state is plain data (no struct) within 65,536 bytes after every transition of the trace of two_module_calls_in_order, by the measure of the ready run engine. Finite scenarios, not a universal proof."
     },
     {
       "kind": "upstream",
