@@ -40,6 +40,9 @@ defmodule Elzoo.Elz010ProviderProbeTest do
   setup_all do
     {:ok, repo} = Repo.start_link(url: P.url!(), pool_size: 20, log: false)
     Process.unlink(repo)
+    # The module that started the Repo stops it: an idle pool must not outlive its module.
+    # on_exit callbacks run last-registered first, so the schema cleanup below runs before this stop.
+    on_exit(fn -> if Process.alive?(repo), do: Supervisor.stop(repo) end)
     Repo.query!("select 1", [], log: false)
 
     for schema <- [P.prefix(), @store_prefix] do

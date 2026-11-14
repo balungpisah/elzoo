@@ -21,8 +21,19 @@ defmodule Elzoo.Jobs.TestHelper do
   @doc "Start the test Repo and an isolated Oban schema; returns the prefix."
   def setup_database! do
     case TestRepo.start_link(url: url!(), pool_size: 10, log: false) do
-      {:ok, repo} -> Process.unlink(repo)
-      {:error, {:already_started, _}} -> :ok
+      {:ok, repo} ->
+        Process.unlink(repo)
+        # The module that started the Repo stops it: an idle pool must not outlive its module.
+        ExUnit.Callbacks.on_exit(fn ->
+          try do
+            Supervisor.stop(TestRepo)
+          catch
+            :exit, _ -> :ok
+          end
+        end)
+
+      {:error, {:already_started, _}} ->
+        :ok
     end
 
     try do
