@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "id": "workflow/recipe-check",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["elixir"],
+  "dependencies": ["domain/recipe-package", "domain/recipe-graph", "workflow/tool-registry"],
+  "contract": "Pure load-time check of a recipe package, or of a recipe outside a package, against caller-supplied facts: structure by the ready validators located at its part, then every tool, declared need and permission and cost compared, with an exact upper cost against a cap; an ok verdict or all refusal reasons in a fixed order, no execution, grant or budget.",
+  "limits": [
+    "Finite named scenarios only; no new Cure law selected, and reused Piece Contracts stay scoped to those Pieces.",
+    "Compares and sums; grants no permission, reserves no budget, is no tenant quota and calls no authorization, approval or budget function; the engine still checks authority, approval and budget at run time. Settings of a tenant are not checked.",
+    "A structural fault is located at its part (the package, graph, settings or skills) because the ready validators stop at the first fault and give no path. A tool that changes or leaves its source after the snapshot is not seen; agent and decision bindings are opaque.",
+    "No I/O, clock, process or storage."
+  ],
+  "files": ["lib/elzoo/recipe_check.ex", "test/elzoo/recipe_check_test.exs", "examples/recipe_check.exs"],
+  "grounding": [
+    {"kind": "test", "file": "test/elzoo/recipe_check_test.exs", "claim": "Named groups structural_faults_located, tools_exist, needs_and_permissions, upper_cost, all_reasons_in_order and same_input_same_verdict exercise the located structural faults, tool resolution, requirements, grants, exact upper costs, reason order, repeated and cross-process results, fixed redacted refusals, captured logs, bounds and the checked example; finite listed scenarios pass. Two temporary production mutations (count only the taken branch in the sum; skip the grant comparison) are negative controls that make the upper_cost and needs_and_permissions groups fail, never shipped."},
+    {"kind": "assumption", "claim": "A truthful snapshot captured for this recipe, truthful requirements of each tool, truthful grants of the tenant, estimates that are upper limits in one unit, and a caller that runs only a package whose check gave ok and keeps the verdict with the package identity. A snapshot not made by ToolRegistry.snapshot/1 or refresh/3 is outside the interface."}
+  ],
+  "operations": {
+    "telemetry": {"status": "not_applicable", "contract": "Pure check emits no logs or observations."},
+    "config": {"status": "not_applicable", "contract": "Intrinsic operands and fixed bounds; no ambient settings."},
+    "control": {"status": "not_applicable", "contract": "No process or independent lifecycle."}
+  }
+}
