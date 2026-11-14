@@ -58,9 +58,9 @@ when you start, and if one differs, stop and ask):
 - The `head_branch` of the two runs is the head branch of their pull
   requests.
 - `GET /repos/{owner}/{repo}/issues/{number}/timeline` for #474 and
-  #473 returned 12 and 14 events (`committed`, `commented`,
-  `ready_for_review`, `reviewed`, `merged`, `closed`,
-  `head_ref_deleted`) and no base change.
+  #473 returned no base-change event. The count and the kinds of
+  the other events grow with later comments and references; a
+  different count is not a difference of this fact.
 - `scripts/merge-queue.py`, about 83: `BASE_CHANGES =
   ("base_ref_changed", "automatic_base_change_succeeded",
   "automatic_base_change_failed")`. About 307 to 327: the queue lists
@@ -129,8 +129,8 @@ when you start, and if one differs, stop and ask):
 
 7. The CI guide: the rule in the list of the push-run skip; the new
    permission in the trust model paragraph; and under the limits: a
-   pull request whose base ever changed, a pull request with more than
-   1,000 timeline events, and a head branch with 100 or more pull
+   pull request whose base ever changed, a pull request with 1,000 or
+   more timeline events, and a head branch with 100 or more pull
    requests each cost one full run after the merge.
 
 Build nothing else: no cache of the answer, no option, no environment
