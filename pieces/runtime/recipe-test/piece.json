@@ -5,7 +5,7 @@
   "coverage": "subset",
   "license": "Apache-2.0",
   "kind": "owned",
-  "providers": ["elixir", "otp", "jason"],
+  "providers": ["elixir", "otp", "jason", "lua_source"],
   "dependencies": [
     "assembly/run-engine",
     "workflow/agent-loop",
@@ -16,15 +16,21 @@
     "workflow/pattern-step",
     "delivery/effect-intent",
     "state/event-log",
-    "integration/sql"
+    "integration/sql",
+    "workflow/lua-tool",
+    "runtime/lua-binding",
+    "runtime/lua-sandbox",
+    "workflow/runtime-graph"
   ],
   "applications": ["crypto"],
-  "contract": "An ExUnit helper that checks a recipe package, runs it end to end through the real Run engine and the real agent, graph and decision pattern Pieces on disposable PostgreSQL with scripted model and tool results from allowed Adapters only, no network and a clock that does not move, and gives back the record of every step, with an explicit failure for a call that the script does not name.",
+  "contract": "An ExUnit helper that checks a recipe package, runs it end to end through the real Run engine and the real agent, graph and decision pattern Pieces on disposable PostgreSQL with scripted model and tool results from allowed Adapters only, tools written in Lua whose module calls are scripted, graphs that the scripted model gives, one restart of the engine, no network and a clock that does not move, and gives back the record of every step, with an explicit failure for a call that the script does not name.",
   "limits": [
     "`Elzoo.RecipeTest.run/1` is a function of the test helper `test/support/recipe_test_helper.exs`, loaded with `Code.require_file`, because it builds the host with the `.exs` helper of `assembly/run-engine`; only the Adapter, the two binding modules and the glue are compiled. The calling test module starts and stops the repository and the two Registries of that helper itself.",
     "A scripted model result is written by the author, so `structured` and `tool_proposals` are what the script says, not what a provider or `integration/ai-text` would make. No network, no provider and no real or MCP Adapter; only Adapters in the list of the caller are accepted.",
     "The clock stays at 2,000 ms: no deadline, Budget expiry or time-based stop is tested. The driver polls the status every 5 ms and gives up after 2,000 polls.",
-    "Adapter tools only: no nested tool, no `ask_person`, no approval, no resource, no store of a cut tool result (an agent tool result over its `max_bytes` gets the note `store_refused`, as the agent loop decides), no restart. A skill load is delivered as marked tool text, not as a declaration. A `loop` node fails at its first iteration, because no wrapper gives `continue`. ELZ-183 changes this Piece in place for a nested tool, a tool written in Lua, a model-given graph and a restart.",
+    "No `ask_person`, no approval, no resource, no store of a cut tool result (an agent tool result over its `max_bytes` gets the note `store_refused`, as the agent loop decides). A skill load is delivered as marked tool text, not as a declaration. A `loop` node fails at its first iteration, because no wrapper gives `continue`.",
+    "A Lua run is real: its `wall_ms` is real time, not the clock of the harness; at most 256 module calls of a Lua tool in a Run. A test that uses a Lua tool needs the `lua_source` checkout and a C compiler, and the caller builds the sandbox once per test module and passes its path. Module functions are scripted by their alias, which shares its script list with a tool of the Run of the same alias.",
+    "One restart at most. It drops every call and Lua run in flight: an Effect becomes `unknown`, a Lua run `failed` with `local_restart`; a dropped call's task waits until the test ends. It shows that the record is read again and that no recorded call is asked again, not a restart without loss. The harness does not reserve the `upper_cost` of an accepted graph, and a `:graph` tool reached from a graph node gets `graph_tool_in_graph`.",
     "Fixed bounds are those of the engine: 256 requests and 256 actions in a Run, 64 active occurrences, payloads of 65,536 bytes and callable states of 65,536 bytes. An outcome payload over 65,536 bytes of JSON reaches the pattern as class `unknown` with the reason `outcome_too_large`. The Budget cap of a callable at depth 9 is 64 and at depth 10 or deeper it is 1, so such a callable cannot make a call and also finish.",
     "The same record for the same spec is observed, not proven: every commit happens inside the engine process and the deliveries come one at a time in occurrence order. The record is read from the engine's version-1 records; a later record form needs a change here."
   ],
@@ -35,6 +41,7 @@
     "lib/elzoo/recipe_test/tool_binding.ex",
     "test/support/recipe_test_helper.exs",
     "test/elzoo/recipe_test_test.exs",
+    "test/elzoo/recipe_test_lua_test.exs",
     "test/elzoo/recipe_test/glue_test.exs"
   ],
   "grounding": [
@@ -45,8 +52,13 @@
     },
     {
       "kind": "test",
+      "file": "test/elzoo/recipe_test_lua_test.exs",
+      "claim": "Listed scenarios of the groups tool_start_refusals (no Run starts), lua_tool_module_call, model_graph_after_restart, model_graph_refused and same_lua_spec_same_record pass. The groups after tool_start_refusals run on PostgreSQL through ELZOO_TEST_DATABASE_URL and fail closed when it is missing; none is skipped. The module builds the sandbox once in setup_all. Two negative controls: a completed module call that is given its raw value instead of {\"result\": value} fails lua_tool_module_call with module_call_not_completed, and held calls that are delivered after the restart fail model_graph_after_restart. Finite scenarios, not a universal proof."
+    },
+    {
+      "kind": "test",
       "file": "test/elzoo/recipe_test/glue_test.exs",
-      "claim": "Listed scenarios of the group glue_forms pass: Glue.step/2 folded over literal traces gives each row of the conversion table, the content of the last model result for an answered agent and the unchanged request for the root, and estimate/1 gives its value. The group starts no Run and needs no database."
+      "claim": "Listed scenarios of the groups glue_forms and glue_tool_forms pass: Glue.step/2 folded over literal traces gives each row of the conversion table, the content of the last model result for an answered agent and the unchanged request for the root, the Lua and refused child forms and the tool results, and estimate/1 gives its value; lua_request/1 and lua_reply/1 give the forms written as literals in the test. The groups start no Run and need no database."
     },
     {
       "kind": "upstream",
@@ -56,7 +68,7 @@
     },
     {
       "kind": "assumption",
-      "claim": "The Contracts of assembly/run-engine, workflow/agent-loop, workflow/graph-run, workflow/typed-decision, workflow/recipe-check, workflow/tool-registry, workflow/pattern-step, delivery/effect-intent, state/event-log and integration/sql hold as each of them states, scoped as it states them; this Piece proves nothing about them. It has no Cure module: the harness holds no pure decision with a meaningful law."
+      "claim": "The Contracts of assembly/run-engine, workflow/agent-loop, workflow/graph-run, workflow/typed-decision, workflow/recipe-check, workflow/tool-registry, workflow/pattern-step, delivery/effect-intent, state/event-log, integration/sql, workflow/lua-tool, runtime/lua-binding, runtime/lua-sandbox and workflow/runtime-graph hold as each of them states, scoped as it states them; this Piece proves nothing about them. It has no Cure module: the harness holds no pure decision with a meaningful law."
     }
   ],
   "operations": {

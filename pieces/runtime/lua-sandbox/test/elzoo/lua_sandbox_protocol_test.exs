@@ -456,6 +456,276 @@ defmodule Elzoo.LuaSandboxProtocolTest do
     end
   end
 
+  describe "early_exit_is_a_host_outcome" do
+    # A child that ends before the request is written must give a host outcome and must
+    # never end the process that called `run/2`. The request is the largest one that the
+    # Piece accepts, so the write cannot complete into the pipe buffer.
+    @exchanges 200
+
+    setup do
+      %{dir: Helper.tmp_dir!("early-exit")}
+    end
+
+    test "the largest request is exactly the frame maximum, and one more byte is refused",
+         %{executable: exe} do
+      request = largest_request(0)
+      assert request_body(request) |> byte_size() == Elzoo.LuaSandbox.Json.frame_max()
+      assert Elzoo.LuaSandbox.Json.frame_max() == 1_048_576
+
+      assert LuaSandbox.run(exe, largest_request(1)) == {:refused, :invalid_request}
+    end
+
+    @tag timeout: 300_000
+    test "a child that exits at once never ends the caller: 200 exchanges", %{dir: dir} do
+      fake = Helper.fake!(dir, "exit-at-once", "exit 0")
+      request = largest_request(0)
+
+      for _ <- 1..@exchanges do
+        assert LuaSandbox.run(fake, request) == {:host_outcome, :process_exit}
+        assert Process.alive?(self())
+      end
+    end
+
+    @tag timeout: 300_000
+    test "a child that closes its input never ends the caller and is reaped: 200 exchanges",
+         %{dir: dir} do
+      request = largest_request(0)
+
+      for index <- 1..@exchanges do
+        pidfile = Path.join(dir, "closed-#{index}.pid")
+
+        fake =
+          Helper.fake!(dir, "closed-#{index}", "echo $$ > #{pidfile}\nexec 0<&-\nexec sleep 30")
+
+        assert LuaSandbox.run(fake, request) == {:host_outcome, :process_exit}
+        assert Process.alive?(self())
+        assert Helper.gone?(read_pid!(pidfile))
+      end
+    end
+
+    @tag timeout: 300_000
+    test "a child killed from outside while the request is written: 200 exchanges",
+         %{dir: dir} do
+      request = largest_request(0)
+
+      for index <- 1..@exchanges do
+        pidfile = Path.join(dir, "killed-#{index}.pid")
+        fake = Helper.fake!(dir, "killed-#{index}", "echo $$ > #{pidfile}\nexec sleep 30")
+        spawn(fn -> kill_when_started(pidfile, 5_000) end)
+
+        assert LuaSandbox.run(fake, request) == {:host_outcome, :process_exit}
+        assert Process.alive?(self())
+        assert Helper.gone?(read_pid!(pidfile))
+      end
+    end
+
+    # The same string-keyed map that `LuaSandbox.run/2` encodes.
+    defp request_body(%{source: source, input: input, policy: policy, limits: limits, calls: calls}) do
+      Elzoo.LuaSandbox.Json.encode(%{
+        "source" => source,
+        "input" => input,
+        "policy" => policy,
+        "limits" => Map.new(limits, fn {key, value} -> {Atom.to_string(key), value} end),
+        "calls" => %{
+          "mode" => calls.mode,
+          "names" => calls.names,
+          "recorded" =>
+            for record <- calls.recorded do
+              %{
+                "name" => record.name,
+                "arguments" => record.arguments,
+                "result" => record.result
+              }
+            end
+        }
+      })
+    end
+
+    # `extra` bytes are added to the last argument. With 0, the encoded body is exactly the
+    # frame maximum: each argument stays within `value_bytes`, and the last one is tuned.
+    defp largest_request(extra) do
+      per_argument = Helper.default_limits().value_bytes - 2
+      frame_max = Elzoo.LuaSandbox.Json.frame_max()
+
+      count =
+        Enum.find(1..256, fn count ->
+          frame_max - byte_size(request_body(padded_request(List.duplicate(0, count)))) <=
+            count * per_argument
+        end)
+
+      empty = byte_size(request_body(padded_request(List.duplicate(0, count))))
+
+      {sizes, _} =
+        Enum.map_reduce(1..count, frame_max - empty, fn _, rest ->
+          size = min(rest, per_argument)
+          {size, rest - size}
+        end)
+
+      {last, others} = List.pop_at(sizes, -1)
+      padded_request(others ++ [last + extra])
+    end
+
+    defp padded_request(sizes) do
+      recorded =
+        for size <- sizes,
+            do: %{name: "pad", arguments: String.duplicate("a", size), result: nil}
+
+      Helper.request(@identity, 1, %{}, %{mode: "replay", names: ["pad"], recorded: recorded})
+    end
+
+    defp read_pid!(pidfile), do: pidfile |> File.read!() |> String.trim() |> String.to_integer()
+
+    # Polls for the child's pid file, then kills the child: it never reads its input.
+    defp kill_when_started(pidfile, wait_ms) do
+      pid =
+        with {:ok, text} <- File.read(pidfile),
+             {pid, ""} <- Integer.parse(String.trim(text)) do
+          pid
+        else
+          _ -> nil
+        end
+
+      cond do
+        pid != nil ->
+          System.cmd("kill", ["-KILL", Integer.to_string(pid)], stderr_to_stdout: true)
+
+        wait_ms <= 0 ->
+          :gave_up
+
+        true ->
+          Process.sleep(2)
+          kill_when_started(pidfile, wait_ms - 2)
+      end
+    end
+  end
+
+  describe "caller_is_unchanged" do
+    # After each adverse exchange the caller has the same links, monitors and flag, an empty
+    # mailbox and no process of the Piece beside it, and a next valid call succeeds.
+    setup do
+      %{dir: Helper.tmp_dir!("caller-unchanged")}
+    end
+
+    test "links, monitors, flags and mailbox are the same after each adverse case",
+         %{executable: exe, dir: dir} do
+      largest = largest_request(0)
+      short = %{largest | limits: %{largest.limits | wall_ms: 200}}
+      small = Helper.request(@identity, 1)
+
+      cases = [
+        # {name, body of the fake, request, result, child must be gone, kill from outside}
+        {"exit-at-once", "exit 0", largest, {:host_outcome, :process_exit}, false, false},
+        {"closed-input", "exec 0<&-\nexec sleep 30", largest, {:host_outcome, :process_exit}, true,
+         false},
+        {"killed-outside", "exec sleep 30", largest, {:host_outcome, :process_exit}, true, true},
+        {"never-reads", "exec sleep 30", short, {:host_outcome, :wall_time}, true, false},
+        {"stderr-exit-0", "echo X >&2\nexit 0", small, {:host_outcome, :protocol_error}, false,
+         false},
+        {"exit-3", "exit 3", small, {:host_outcome, :process_exit}, false, false}
+      ]
+
+      for trapping <- [false, true], {name, body, request, expected, gone?, kill?} <- cases do
+        previous = Process.flag(:trap_exit, trapping)
+
+        try do
+          pidfile = Path.join(dir, "#{name}-#{trapping}.pid")
+          fake = Helper.fake!(dir, "#{name}-#{trapping}", "echo $$ > #{pidfile}\n" <> body)
+          if kill?, do: spawn(fn -> kill_when_started(pidfile, 5_000) end)
+
+          # `System.cmd` in the test itself (`Helper.gone?`) leaves its own Port exit behind
+          drain_test_ports()
+          before = caller_state()
+          started = System.monotonic_time(:millisecond)
+          result = LuaSandbox.run(fake, request)
+          elapsed = System.monotonic_time(:millisecond) - started
+
+          label = "#{name}, trap_exit #{trapping}"
+          assert result == expected, label
+          assert caller_state() == before, label
+          assert Process.info(self(), :messages) == {:messages, []}, label
+          assert piece_processes() == [], label
+          if gone?, do: assert(Helper.gone?(read_pid!(pidfile)), label)
+          if name == "never-reads", do: assert(elapsed < 200 + 1_000, label)
+
+          assert {:ok, %{value: 1}} = Helper.identity_function(exe, 1)
+        after
+          Process.flag(:trap_exit, previous)
+        end
+      end
+    end
+
+    defp drain_test_ports do
+      receive do
+        {:EXIT, port, :normal} when is_port(port) -> drain_test_ports()
+      after
+        0 -> :ok
+      end
+    end
+
+    defp caller_state do
+      for {key, value} <- Process.info(self(), [:links, :monitors, :monitored_by, :trap_exit]),
+          do: {key, if(is_list(value), do: Enum.sort(value), else: value)}
+    end
+  end
+
+  describe "no_orphan" do
+    setup do
+      %{dir: Helper.tmp_dir!("no-orphan")}
+    end
+
+    @tag timeout: 300_000
+    test "a caller killed while the request is written leaves no child and no process of the Piece",
+         %{dir: dir} do
+      request = largest_request(0)
+
+      for index <- 1..20 do
+        pidfile = Path.join(dir, "orphan-#{index}.pid")
+        fake = Helper.fake!(dir, "orphan-#{index}", "echo $$ > #{pidfile}\nexec sleep 30")
+        caller = spawn(fn -> LuaSandbox.run(fake, request) end)
+
+        pid = wait_until(5_000, fn -> pid_from(pidfile) end)
+        assert pid, "the child of exchange #{index} never started"
+        assert wait_until(5_000, fn -> piece_processes() != [] end)
+
+        Process.exit(caller, :kill)
+
+        assert wait_until(1_500, fn -> Helper.gone?(pid) and piece_processes() == [] end),
+               "exchange #{index}: child gone #{Helper.gone?(pid)}, processes #{inspect(piece_processes())}"
+
+        assert Helper.gone?(pid)
+        assert piece_processes() == []
+        assert Process.info(self(), :messages) == {:messages, []}
+      end
+    end
+
+    defp pid_from(pidfile) do
+      with {:ok, text} <- File.read(pidfile),
+           {pid, ""} <- Integer.parse(String.trim(text)) do
+        pid
+      else
+        _ -> nil
+      end
+    end
+
+    # The first truthy value of `fun`, polled every 5 ms, or nil after `wait_ms`.
+    defp wait_until(wait_ms, fun) do
+      cond do
+        value = fun.() -> value
+        wait_ms <= 0 -> nil
+        true -> Process.sleep(5) && wait_until(wait_ms - 5, fun)
+      end
+    end
+  end
+
+  # Processes other than the caller that run code of the Piece's child module.
+  defp piece_processes do
+    for pid <- Process.list(),
+        pid != self(),
+        {:current_stacktrace, stack} <- [Process.info(pid, :current_stacktrace)],
+        Enum.any?(stack, fn {module, _, _, _} -> module == Elzoo.LuaSandbox.Child end),
+        do: pid
+  end
+
   describe "one smoke test for each other mechanism" do
     test "steps: an infinite loop", %{executable: exe} do
       assert {:refused, :steps} = Helper.run(exe, "return function() while true do end end")
