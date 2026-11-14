@@ -239,7 +239,7 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-184](https://github.com/balungpisah/elzoo/issues/402) | V1 / pieces | ELZ-033 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-185](https://github.com/balungpisah/elzoo/issues/403) | V1 / pieces | ELZ-033 | published 2026-11-14; amended 2026-11-14 (test files of Pieces allowed for the repair) | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-186](https://github.com/balungpisah/elzoo/issues/412) | V1B / pieces | ELZ-033, ELZ-178 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
-| [ELZ-187](https://github.com/balungpisah/elzoo/issues/415) | V1B / pieces | ELZ-033, ELZ-180 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-187](https://github.com/balungpisah/elzoo/issues/415) | V1B / pieces | ELZ-033, ELZ-180 | published 2026-11-14; amended 2026-11-14 (fixed call limit after the measurement) | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-188](https://github.com/balungpisah/elzoo/issues/422) | V1B / pieces | ELZ-033, ELZ-177 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-189](https://github.com/balungpisah/elzoo/issues/423) | V1B / pieces | ELZ-033 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 
@@ -3085,13 +3085,13 @@ Publication copy: [tasks/ELZ-186-lua-binding-plain-bindings.md](../../tasks/ELZ-
 
 ### ELZ-187
 
-ELZ-187 — The 64-entry sizing test of assembly/run-engine does not depend on host load
+ELZ-187 — A call of assembly/run-engine waits long enough for an input at the bounds of the Piece
 
 Publication copy: [tasks/ELZ-187-run-engine-sizing-test.md](../../tasks/ELZ-187-run-engine-sizing-test.md).
 
 **Product aims:** P13.
 
-**Acceptance:** Repair for issue #334 on assembly/run-engine: the first input of the 64-entry sizing test is measured, avoidable repeated work is removed so that the call stays far inside the 5 s call limit alone and beside the Piece suite, with unchanged assertions, journal records, fingerprints and replies; a limit operand is not added, and a case that needs one stops for a coordinator decision.
+**Acceptance:** Repair for issue #334 on assembly/run-engine, in place: input/4, control/4 and status/1 call the engine with one fixed limit of 60,000 ms, with no operand or option, because a measured input at the bounds of the Piece needs about 4.5 s; README and piece.json state the limit and what a caller knows after it; a certain test shows an input slower than 5 s; the sizing test and every engine record stay unchanged.
 
 ### ELZ-188
 
