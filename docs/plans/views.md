@@ -179,7 +179,10 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-162](https://github.com/balungpisah/elzoo/issues/352) | V1B / pieces | ELZ-033, ELZ-115, ELZ-105 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-164](https://github.com/balungpisah/elzoo/issues/357) | V1B / pieces | ELZ-033, ELZ-115, ELZ-161, ELZ-162 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 | RC-61 | V1B / pieces | ELZ-033, ELZ-115, ELZ-026, ELZ-024, ELZ-105, ELZ-114, ELZ-161, ELZ-162, ELZ-164 | all three portions published: ELZ-161 recipe-graph, ELZ-162 recipe-config and ELZ-164 recipe-package | one claimed task worker after admission |
-| RC-62 | V1B / pieces | ELZ-033, RC-60, ELZ-115, ELZ-002, ELZ-136, RC-61, ELZ-114, ELZ-022 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| [ELZ-177](https://github.com/balungpisah/elzoo/issues/396) | V1B / pieces | ELZ-033, ELZ-163, ELZ-174 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-178](https://github.com/balungpisah/elzoo/issues/397) | V1B / pieces | ELZ-033, ELZ-022, ELZ-115, ELZ-136 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-179](https://github.com/balungpisah/elzoo/issues/398) | V1B / pieces | ELZ-033, ELZ-002, ELZ-114, ELZ-136, ELZ-177, ELZ-178 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| RC-62 | V1B / pieces | ELZ-033, RC-60, ELZ-115, ELZ-002, ELZ-136, RC-61, ELZ-114, ELZ-022, ELZ-177, ELZ-178, ELZ-179 | all portions published: ELZ-177 sandbox module calls, ELZ-178 lua-binding and ELZ-179 lua-tool | one claimed task worker after admission |
 | [ELZ-166](https://github.com/balungpisah/elzoo/issues/364) | V1B / pieces | ELZ-033, ELZ-114, ELZ-161 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-168](https://github.com/balungpisah/elzoo/issues/369) | V1B / pieces | ELZ-033, ELZ-002, ELZ-114, ELZ-136, ELZ-161, ELZ-166 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 | RC-63 | V1B / pieces | ELZ-033, ELZ-002, ELZ-114, RC-61, ELZ-026, ELZ-098, ELZ-003, ELZ-006, ELZ-166, ELZ-168 | both portions published: ELZ-166 node-outcome and ELZ-168 graph-run | one claimed task worker after admission |
@@ -369,8 +372,8 @@ Baseline status is immutable inventory history, not a current planning status. R
 | [domain/recipe-graph](../../pieces/domain/recipe-graph/piece.json) | not in baseline (new row, RC-61) | V1B / pieces | ELZ-161 / P13 | ready-contract: Pure bounded v1 recipe callables as plain data: exact graph, agent and typed-decision declarations, six node kinds, typed slots, acyclic dependency and named-call graphs, explicit identity, bounded nesting and requirement-only rules. Encode preserves the original map; no execution or authority. |
 | [domain/recipe-package](../../pieces/domain/recipe-package/piece.json) | not in baseline (new row, RC-61) | V1B / pieces | ELZ-164 / P13 | ready-contract: Pure bounded v1 recipe package as decoded plain JSON data: exact name, opaque version, canonical SHA-256 content identity, declarative needs and permissions, unchanged ready graph and settings descriptor, and bounded decoded skill frontmatter and Markdown. Encode returns the exact original map; fixed redacted refusals, no loading or authority. |
 | [domain/recipe-config](../../pieces/domain/recipe-config/piece.json) | not in baseline (new row, RC-61) | V1B / pieces | ELZ-162 / P13 | ready-contract: Pure check of tenant settings against a caller-supplied version 1 descriptor (id, revision, input Port, closed-object draft 2020-12 schema, at most 64 secret names) through the ready core/payload-schema; a secret setting is only an exact 1..128-byte ref/scope reference, never resolved. Success returns the original settings; fixed bounds and fixed redacted failures; no defaults, coercion, store or resolver. |
-| runtime/lua-binding | not in baseline (new row, RC-62) | V1B / pieces | RC-62 / P13 | blocked-admission-proposal: Bot platform wave 3 (P13). Built from a function manifest that this Piece defines and the caller supplies; no run-time discovery. A binding call at load time builds data and performs no Effect. |
-| workflow/lua-tool | not in baseline (new row, RC-62) | V1B / pieces | RC-62 / P13 | blocked-admission-proposal: Bot platform wave 3 (P13). Registered like any other tool. Each module call becomes a request for the engine, and the tool runs again from the start with the recorded results; sandbox state is never persisted. |
+| runtime/lua-binding | not in baseline (new row, RC-62) | V1B / pieces | ELZ-178 / P13 | published-task; implementation pending: Pure function manifests and their resolution against a declaration of a recipe; arguments checked before a call and results before return; the names for the sandbox and one tool-registry source. No call and no discovery. |
+| workflow/lua-tool | not in baseline (new row, RC-62) | V1B / pieces | ELZ-179 / P13 | published-task; implementation pending: Pure pattern step for a tool written in Lua: sandbox runs from the start with recorded module results, one tool-call action for each pending module call, explicit failure on a call order that differs from the record. |
 | [workflow/graph-run](../../pieces/workflow/graph-run/piece.json) | not in baseline (new row, RC-63) | V1B / pieces | ELZ-168 / P13 | ready-contract: Pure pattern step for one graph callable: needs, gives and links set the order, a join does not wait for a skipped branch, map and loop are bounded, each outcome follows its link or fails the Run, and a settled node never runs again. |
 | [workflow/node-outcome](../../pieces/workflow/node-outcome/piece.json) | not in baseline (new row, RC-63) | V1B / pieces | ELZ-166 / P13 | ready-contract: Pure rule for one settled graph node: the outcome routes of the node from decoded links, and follow, proceed or fail-the-Run for one of the nine action outcome classes; no execution, graph walk or retry. |
 | [workflow/recipe-check](../../pieces/workflow/recipe-check/piece.json) | not in baseline (new row, RC-64) | V1B / pieces | ELZ-167 / P13 | ready-contract: Pure load-time check of a recipe package, or of a recipe outside a package, against caller-supplied facts: structure by the ready validators located at its part, then every tool, declared need and permission and cost compared, with an exact upper cost against a cap; an ok verdict or all refusal reasons in a fixed order, no execution, grant or budget. |
@@ -399,7 +402,7 @@ Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, EL
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179.
 
 ### V2-ACCEPT
 
@@ -2214,7 +2217,8 @@ Module functions for Lua, and tools written in Lua
 
 **Blockers:**
 
-- Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.
+- All RC-62 portions are published: ELZ-177 (module calls in runtime/lua-sandbox, in place), ELZ-178 runtime/lua-binding and ELZ-179 workflow/lua-tool.
+- Coordinator decisions, 2026-11-14: the sandbox answers a binding call itself (data at load time, a replay of recorded results at run time), so there is no callback into the caller; a refused argument is located by the function name and the structural path of core/payload-schema, which hides member names, and no second validator is written; the ready engine has one binding for each action kind, so a Run that mixes patterns needs the engine to choose a binding by the schema of the action (a later task), and a nested child is wrapped by the host so that its finish has the form of its parent.
 
 ### RC-63
 
@@ -2968,3 +2972,33 @@ Publication copy: [tasks/ELZ-176-yaml-provider.md](../../tasks/ELZ-176-yaml-prov
 **Product aims:** P13.
 
 **Acceptance:** Provider prerequisite for RC-67 by owner decision (adopt a maintained library): yaml_elixir 2.12.2 and yamerl 0.10.0 pinned in mix.exs, mix.lock and registry/providers.json with an entry in the dependency register, and one root test that records on the pinned versions what the skill reader will rely on: plain frontmatter with block scalars, the terms of typed scalars, aliases and merge keys, documents that are not one plain map, no new atoms, bounded time. Full local and hosted check. No Piece and no public API.
+
+### ELZ-177
+
+ELZ-177 — The Lua sandbox carries module calls as data and as a replay
+
+Publication copy: [tasks/ELZ-177-lua-sandbox-module-calls.md](../../tasks/ELZ-177-lua-sandbox-module-calls.md).
+
+**Product aims:** P13.
+
+**Acceptance:** runtime/lua-sandbox, changed in place (same Piece ID), policy version 3: a request names up to 64 binding functions; at load time a call returns data that describes the call; at run time a call returns the result that the caller recorded for it, in order, a call with no record ends the run with a pending-call reply, and a call that differs from the record is call_mismatch. No callback into the caller and no state between runs. First portion of RC-62.
+
+### ELZ-178
+
+ELZ-178 — Declared module functions for Lua, with checked arguments and results
+
+Publication copy: [tasks/ELZ-178-lua-binding.md](../../tasks/ELZ-178-lua-binding.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Pure function manifests (name, version, argument and result schema of core/payload-schema, cost, permissions) and a resolution of the declaration of a recipe against the manifests that the caller supplies: a missing function, a wrong version and an invalid manifest are refused at load with the function named; arguments are checked before a call and results before return, located by the structural path of core/payload-schema; a content identity; the names for the sandbox and one tool-registry source. No call, no Lua, no discovery.
+
+### ELZ-179
+
+ELZ-179 — A tool written in Lua, as one pure pattern step
+
+Publication copy: [tasks/ELZ-179-lua-tool.md](../../tasks/ELZ-179-lua-tool.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Pure pattern step for a tool written in Lua: one local-work action runs the function in the sandbox from the start with the recorded module results; a pending call becomes one tool-call action by the registry alias after its arguments pass the binding check; its checked result is recorded and the run is asked for again; a call order that differs from the record, a sandbox stop and a module call that did not complete are explicit failures; no action is asked for twice and sandbox state is never kept. Tested on recorded traces.
