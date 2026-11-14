@@ -3984,10 +3984,10 @@ defmodule Elzoo.RunEngineTest do
 
       engine = restart(c, engine, bindings: bindings)
       wait_for(engine, &(&1.slots[{1, 0}].phase == :settled))
-      assert unit_state(c).slots[{1, 0}][:actual] == nil
       # The child Budget still holds the lost action, the parent Budget the share.
       assert budget_status(c, "1:0") == %{committed: 0, reserved: 1}
       assert budget_status(c, "root") == %{committed: 0, reserved: 10}
+      assert unit_state(c).slots[{1, 0}][:actual] == nil
       # No room beside the share: the next action is refused as with a known cost of that size.
       assert wait_for(engine, &(&1.slots[{3, 0}] != nil)).slots[{3, 0}].outcome == "out_of_budget"
     end
@@ -4349,7 +4349,17 @@ defmodule Elzoo.RunEngineTest do
   describe "expired_reservation_is_still_unknown" do
     test "a lost Effect whose deadline passed before the child finished gives the parent no actual, at any clock" do
       payload = %{"choice" => "kept"}
-      {c, bindings} = lost_setup(lost_child(payload), [])
+
+      # The child waits for a person after the loss and finishes after the deadline of the
+      # lost Effect: the finish asks the Budget of the child at that later clock, which
+      # sweeps the lost entry to Expired in the durable state.
+      script = [
+        request([action("lost", "tool_call")]),
+        request([action("hold", "ask_person")]),
+        request([finish_action("done", payload)])
+      ]
+
+      {c, bindings} = lost_setup(script, [])
 
       bindings =
         bindings
@@ -4369,8 +4379,31 @@ defmodule Elzoo.RunEngineTest do
       engine = start(c, bindings: bindings)
       assert {:ok, :applied} = send_input(engine)
       assert_receive {:effect_started, _lost, _}
-      Agent.update(c.clock, fn _ -> 25_000 end)
       engine = restart(c, engine, bindings: bindings)
+      wait_for(engine, &(&1.slots[{3, 0}] != nil))
+      assert view(engine).slots[{2, 0}].outcome == "unknown"
+      assert view(engine).slots[{1, 0}].phase == :running
+      Agent.update(c.clock, fn _ -> 25_000 end)
+
+      answer = %{
+        "type" => "input",
+        "version" => 1,
+        "kind" => "person_answer",
+        "action_id" => "hold",
+        "person_id" => "person",
+        "schema_id" => "message",
+        "schema_version" => 1,
+        "payload" => %{}
+      }
+
+      assert {:ok, :applied} =
+               RunEngine.input(
+                 engine,
+                 "person-answer",
+                 answer,
+                 verified(%{occurrence: {3, 0}, verified_person: "person", actual: 0})
+               )
+
       wait_for(engine, &(&1.slots[{1, 0}].phase == :settled))
       assert view(engine).slots[{1, 0}].outcome == "completed"
       assert unit_state(c).slots[{1, 0}][:actual] == nil
@@ -4388,6 +4421,8 @@ defmodule Elzoo.RunEngineTest do
       end
 
       first = record.(engine)
+      engine = restart(c, engine, bindings: bindings)
+      assert record.(engine) == first
       Agent.update(c.clock, fn _ -> 58_000 end)
       engine = restart(c, engine, bindings: bindings)
       assert record.(engine) == first
@@ -4417,7 +4452,7 @@ defmodule Elzoo.RunEngineTest do
       {c, bindings} = finishing_root([])
       engine = start(c, bindings: bindings)
       assert {:ok, :applied} = bounded(fn -> send_input(engine) end)
-      view = wait_for(engine, &(&1.outcome == :completed))
+      view = bounded(fn -> wait_for(engine, &(&1.outcome == :completed)) end, 5_000)
       assert slot_by(view, "nested").phase == :running
       assert outcome_records(c, "nested") == []
 
