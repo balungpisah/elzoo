@@ -77,11 +77,17 @@ settle.
    drain with `{:ok, s}`. Use the test that the last branch already
    has (the state before the round against the state after it); a
    cheaper test is the subject of a later task.
-2. `due_child/4` does not select a parent of a terminal request-cap
-   Run at or after the deadline of its slot. The term is the one of
-   `settle_protocol/3`, read with the clock of the engine, so the
-   selector and the fold agree. When the clock passes the deadline
-   between the selection and the record, edit 1 ends the round.
+2. `due_child/4` does not select a RUNNING parent of a terminal
+   request-cap Run, for the hand-over of an outcome, at or after the
+   deadline of its slot. The term is the one of `settle_protocol/3`,
+   read with the clock of the engine, so the selector and the fold
+   agree. When the clock passes the deadline between the selection and
+   the record, edit 1 ends the round. The deadline term applies to that
+   case only. The other case of the selector, a parent that is already
+   settled with no actual and gets a `:nested_actual` record when the
+   cost of its child becomes known, has no deadline check in the fold
+   and gets none in the selector: a settled parent past its deadline
+   still receives a later known child cost.
 
 The parent that is not selected stays `running`. This task does not
 settle it (its own task, on the slots of a terminal Run). The fold does
