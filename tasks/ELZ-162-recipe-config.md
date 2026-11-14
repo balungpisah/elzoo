@@ -6,13 +6,12 @@
 - Output: `domain/recipe-config`; release V1B; RC-61 settings portion.
 - Owned paths: `pieces/domain/recipe-config/**` and its index/generated changes under AGENTS.md section 3.
 
-Draft only; not published or claimable. The concrete descriptor and fixed
-bounds below are admission proposals for owner review.
-
 Check tenant settings against an explicit caller-supplied schema descriptor,
 the same descriptor a later recipe-package declares. Secret settings hold only
 credential references, never credential values. One pure boundary, independent
 of recipe-graph and recipe-package: package loading is not needed to call it.
+ELZ-162 and ELZ-161 (recipe-graph) are independent. Recipe-package follows in
+a later publication.
 
 Implement only the named acceptance groups below. Add no extra features,
 settings store, environment lookup, defaults, coercion, merge layers, secret

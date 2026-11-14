@@ -6,9 +6,6 @@
 - Output: `domain/recipe-graph`; release V1B; RC-61 graph portion.
 - Owned paths: `pieces/domain/recipe-graph/**` and its index/generated changes under AGENTS.md section 3.
 
-Draft only; not published or claimable. The concrete data shape and bounds
-below are admission proposals for owner review.
-
 Owner decision, 2026-11-14: callable kinds v1 are graph, agent and typed decision;
 node kinds v1 are call, tool, ask, decision, map and loop. Map and loop re-run a
 named callable within a bound, never via a back-edge. The handle stays
@@ -26,7 +23,8 @@ Reuse `core/payload-schema` for schema/Port declarations. Keep the existing
 `domain/authorization` policy identity and `workflow/approval` requirement and
 exact-action binding semantics; invent no policy evaluator or approval format.
 Use the nine v1 outcome classes of `workflow/pattern-step`, not new words.
-No dependency on recipe-config or the later recipe-package is needed.
+ELZ-161 and ELZ-162 (recipe-config) are independent. No dependency on
+recipe-config is needed. Recipe-package follows in a later publication.
 
 ## Interface: `Elzoo.RecipeGraph`
 

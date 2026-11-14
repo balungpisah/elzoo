@@ -7,10 +7,6 @@
 - Change class: non-Piece root dependency; full local and hosted check.
 - Owned paths: `mix.exs`, `mix.lock`, `registry/providers.json`, `docs/dependencies.md`, `test/elz160_lua_provider_test.exs`, `test/support/elz160_lua_provider_host.c`.
 
-Draft only; not published or claimable. The test/support location below is the
-least-weight proposal for owner review, not an approved implementation choice.
-Do not publish until the owner accepts it and the source-equivalence limit below.
-
 Owner runtime decision, 2026-11-14: reference PUC Lua 5.4.9 outside the VM over
 a Port with a small C host, as ELZ-159 recommends. Adopt only the source provider
 and exercise its C API here. No sandbox Piece, capability policy, limit host,
@@ -35,7 +31,7 @@ Add exactly this source-only dependency:
  app: false}
 ```
 
-Draft preparation checked `git ls-remote` and a scratch clone: upstream tag
+Publication preparation checked `git ls-remote` and a scratch clone: upstream tag
 `v5.4.9` points to that commit. A standalone Mix project fetched it with these
 options; `mix deps.compile` and `mix deps` succeeded, without an OTP app file.
 Use the resolved Git entry in `mix.lock`, never a moving tag or branch.
@@ -58,7 +54,7 @@ Add a narrow adoption entry to `docs/dependencies.md` with API, failure path,
 license and limitations. Libraries are installed by Mix, never copied into
 the repository as Elzoo source.
 
-No public Elixir API is added. Proposed adoption check: one root ExUnit test
+No public Elixir API is added. The adoption check is one root ExUnit test that
 builds the installed provider's explicit release library source list into
 `liblua.a` in its own disposable build directory, then links the tiny owned
 test-support host with `cc` and `ar`. Exclude `lua.c`, tests, and amalgamations.
