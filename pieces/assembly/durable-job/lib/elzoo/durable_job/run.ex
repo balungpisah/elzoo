@@ -56,7 +56,12 @@ defmodule Elzoo.DurableJob.Run do
       is_binary(k) and byte_size(k) in 1..160 and String.valid?(k) and
         not String.contains?(k, ["/", <<0>>])
 
-  @doc "Validate a submission; returns the canonical request map or `{:error, {:invalid, field}}`."
+  @doc """
+  Validate a submission; returns the canonical request map or `{:error, {:invalid, field}}`.
+
+  `deadline_ms` must be an integer here; its comparison with `now_ms` belongs to
+  the Submitter, which makes it only for a job key that is not stored.
+  """
   def request(job_key, input, policy, deadline_ms, now_ms) do
     max = Keyword.get(policy, :max_attempts, 3)
     base = Keyword.get(policy, :base_backoff_ms, 1_000)
@@ -78,7 +83,7 @@ defmodule Elzoo.DurableJob.Run do
       ) ->
         {:error, {:invalid, :backoff}}
 
-      not (is_integer(deadline_ms) and deadline_ms > now_ms) ->
+      not is_integer(deadline_ms) ->
         {:error, {:invalid, :deadline_ms}}
 
       true ->
