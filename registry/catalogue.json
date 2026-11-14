@@ -1098,7 +1098,8 @@
       "summary": "Pattern step: decide the next nodes of a recipe graph",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/graph-run/piece.json",
       "reason": "Bot platform wave 3 (P13). Needs and gives set the order; branch, map and loop are bounded; a settled node never runs again. Ready workflow/dependency-graph gives the AND-join of acyclic needs and delivery/aggregation the status of a map; either-of joins, skipped branches and loops are written here."
     },
     {

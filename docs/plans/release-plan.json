@@ -7023,10 +7023,12 @@
     {
       "id": "workflow/graph-run",
       "job": "ELZ-168",
-      "note": "Pure pattern step for one graph callable: needs, gives and links set the order; a join does not wait for a skipped branch; map and loop are bounded; each outcome follows its link or the Run fails; a settled node never runs again.",
+      "note": "Pure pattern step for one graph callable: needs, gives and links set the order, a join does not wait for a skipped branch, map and loop are bounded, each outcome follows its link or fails the Run, and a settled node never runs again.",
       "baseline_status": "not in baseline (new row, RC-63)",
-      "disposition": "published-task; implementation pending",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/workflow/graph-run/piece.json",
+      "manifest_sha256": "4f568e6f95b666188e705e3f4689882ad6d2b13bcb7a23c209a2c7eb7a16020b"
     },
     {
       "id": "workflow/node-outcome",
