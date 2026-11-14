@@ -39,12 +39,22 @@ defmodule Elzoo.DurableLog.Postgres do
       else: raise(ArgumentError, "invalid SQL identifier")
   end
 
-  defp options({__MODULE__, opts}), do: Map.new(opts)
+  # The internal key :direct_read_timeout is set only by read/3 for its own call,
+  # so a key that a consumer passes to store/2 never reaches a statement.
+  defp options({__MODULE__, opts}), do: opts |> Map.new() |> Map.delete(:direct_read_timeout)
 
   defp table(opts, name),
     do: identifier(Map.get(opts, :prefix, "public")) <> "." <> identifier(name)
 
-  defp query(opts, sql, params \\ []), do: SQL.query!(opts.repo, sql, params, log: false)
+  defp query(opts, sql, params \\ []) do
+    case opts do
+      %{direct_read_timeout: timeout} ->
+        SQL.query!(opts.repo, sql, params, log: false, timeout: timeout)
+
+      _ ->
+        SQL.query!(opts.repo, sql, params, log: false)
+    end
+  end
 
   @impl true
   def capabilities(_), do: %{append_visibility: :atomic}
@@ -467,6 +477,16 @@ defmodule Elzoo.DurableLog.Postgres do
     end
   end
 
+  # These read callbacks send exactly one SELECT on every path.
+  @one_statement_reads [
+    :head,
+    :latest_checkpoint,
+    :read_checkpoint,
+    :pending,
+    :read_ack,
+    :read_maintenance
+  ]
+
   defp read(store, operation, fun) do
     try do
       opts = options(store)
@@ -483,15 +503,21 @@ defmodule Elzoo.DurableLog.Postgres do
           end
       end
 
-      case opts.repo.transaction(
-             fn ->
-               query(opts, "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
-               fun.(opts)
-             end,
-             timeout: Map.get(opts, :timeout, 5_000)
-           ) do
-        {:ok, result} -> result
-        _ -> {:error, :unavailable}
+      if operation in @one_statement_reads and not opts.repo.checked_out?() do
+        # One statement sees one snapshot: no transaction, one round trip. The
+        # store timeout bounds the statement.
+        fun.(Map.put(opts, :direct_read_timeout, Map.get(opts, :timeout, 5_000)))
+      else
+        case opts.repo.transaction(
+               fn ->
+                 query(opts, "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+                 fun.(opts)
+               end,
+               timeout: Map.get(opts, :timeout, 5_000)
+             ) do
+          {:ok, result} -> result
+          _ -> {:error, :unavailable}
+        end
       end
     rescue
       _ -> {:error, :unavailable}
