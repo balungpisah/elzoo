@@ -80,6 +80,120 @@ loopback HTTP 200 and 503, plus a deterministic injected transport timeout.
 TLS, network failure modes, authentication and durable job/effect policy are
 not proved by those tests. See [the recipe](../pieces/integration/http/README.md).
 
+## YAML reader for skill frontmatter (ELZ-176)
+
+ELZ-176 adopts `yaml_elixir` 2.12.2 (MIT) and `yamerl` 0.10.0 (BSD-2-Clause;
+the notice is retained in the package's `LICENSE` as distributed by Hex) as
+the provider of the later RC-67 `workflow/skill` Piece, which reads the YAML
+frontmatter of a `SKILL.md` file. Both are pinned exactly in `mix.exs`.
+`yamerl` is named although it is transitive, because it is the parser: its
+version decides what a document means. No Piece, wrapper, writer or public
+Elzoo API is added. The root test `test/elz176_yaml_provider_test.exs` is the
+adoption check; it uses only `YamlElixir.read_from_string/2` (and
+`read_all_from_string/2` once, to show the second document).
+
+**Upstream contract, quoted.** `yaml_elixir` 2.12.2 has no `@doc` text; its
+README is the whole documented contract. It says: "This is a wrapper for
+yamerl - a native Erlang `YAML` parser"; "By default, all map keys are
+processed as strings, as are all bareword or quoted values"; `atoms: true`
+turns values that begin with `:` into atoms and "Atoms are not garbage
+collected by `BEAM`, so be careful with this option, and don't use it with
+user-supplied input"; "In case your YAML contains anchors, you can have these
+resolved by passing `merge_anchors: true`". Its README example for
+`read_from_string/1` gives `{:ok, %{"a" => "a", "b" => 1, "c" => true, "d" =>
+nil, "e" => "nil"}}`. The source of `read_from_string/2` returns `{:ok,
+term}` or `{:error, error}` and catches every throw, error and exit of the
+parser. `yamerl_constr` documents the options that matter here:
+`{node_mods, Mods_List}` "List of Erlang modules to extend support node
+types. Default: `[]`", `{schema, failsafe | json | core | yaml11}` "Name of
+the official schema to use. Default: `core`", `{keep_duplicate_keys,
+boolean()}` "By default all duplicate keys in maps/proplists will be ignored
+and the last occurence of a key will prevail", and `{ignore_unrecognized_tags,
+boolean()}` "When `false` (the default), a node with an unrecognized tag can't
+be constructed". `yaml_elixir` fixes `detailed_constr`, `str_node_as_binary`
+and `keep_duplicate_keys` itself; `merge_anchors`, `atoms` and
+`maps_as_keywords` are its own options.
+
+**Test results** (literal documents; options `[]` unless stated; each line is
+asserted by the root test):
+
+- Plain frontmatter: `{:ok, map}` with string keys and string values. Plain,
+  single-quoted and double-quoted scalars are strings; `|` gives
+  `"one\ntwo\n"` and `>` gives `"three four\nfive\n"`; a nested map of string
+  pairs is a nested map. String keys need no option.
+- Typed scalars: plain `true` is `true`, `null` and `~` are `nil`, `12` is
+  `12`, `1.5` is `1.5`, `0x10` is `16`; plain `no`, `on` and `2026-11-14` stay
+  the strings `"no"`, `"on"` and `"2026-11-14"` (core schema, no YAML 1.1
+  booleans, no timestamps). An empty value is `nil`. The same texts in single
+  or double quotes are always the strings, and `''` is `""`. The reader keeps
+  a string apart from a typed value only through the quotes, so RC-67 must
+  compare the term type, not the text.
+- Aliases and merges: a block-style alias is expanded to the anchored value
+  (`use: *b` gives `%{"x" => 1}`); no marker, no error, and `merge_anchors:
+  true` changes nothing for it. A merge key `<<: *b` without the option stays
+  a key `"<<N"` (`N` from `System.unique_integer/1`, so it is not stable)
+  holding the anchored map; with `merge_anchors: true` its pairs merge into
+  the parent. An alias without an anchor is
+  `{:error, %YamlElixir.ParsingError{type: :no_matching_anchor}}`. A depth-6
+  block-style chain expands (128 leaves). A
+  flow-style depth-6 chain (`a1: &a1 [*a0, *a0, *a0]` and so on) does not give
+  the anchored value: `a1` is `["x", "x", "x"]` and `a2` to `a6` are three
+  copies of their own key name (`["a2", "a2", "a2"]`); it is a wrong result,
+  not an error and not a marker. **No option and no result form lets a caller
+  refuse an alias or detect that one was used.** RC-67 therefore refuses a
+  frontmatter that holds `&`, `*` or `<<` outside a quoted scalar before it
+  calls the reader. A quoted `'&x'`, `'*x'` or `"<<"` stays the plain string.
+- Not one plain map: a list gives `{:ok, ["a", "b"]}`; a scalar gives
+  `{:ok, "just text"}`; the empty string and a blank line give `{:ok, %{}}`;
+  two documents in one string give the last one (`{:ok, %{"b" => 2}}`), while
+  `read_all_from_string/2` gives both; a duplicate key is no error and the
+  first value wins (`{:ok, %{"a" => 1}}`, which differs from the yamerl text
+  quoted above, because `yaml_elixir` aggregates with `Map.put_new/3`); a
+  tab-indented line is no error (`"a:\n\tb: 1"` gives `%{"a" => nil, "b" =>
+  1}`); invalid UTF-8 inside a plain scalar is `{:error,
+  %YamlElixir.ParsingError{type: :invalid_unicode}}`, inside a quoted scalar
+  `type: :unexpected_eos`; a document that starts with the bytes `FF FE` is
+  read as UTF-16 (byte-order mark) and gives a scalar string, not an error;
+  `!!binary` is decoded (`"hello"`); `!ruby/object:Foo` is `{:error,
+  %YamlElixir.ParsingError{type: :unrecognized_node}}`; an unterminated flow
+  collection is `{:error, %YamlElixir.ParsingError{message: "malformed yaml"}}`.
+  No input raised or killed the caller. RC-67 must still check that the
+  result is a map before it uses it.
+- Atoms and code: 2,000 documents with 2,000 distinct new keys left
+  `:erlang.system_info(:atom_count)` unchanged (after one warm-up parse).
+  yamerl's Erlang node modules (`yamerl_node_erlang_atom`,
+  `yamerl_node_erlang_fun`) are off (`node_mods` is `[]`), so the tags
+  `!<tag:yamerl,2012:atom>` and `!<tag:yamerl,2012:fun>` are
+  `{:error, ... type: :unrecognized_node}` and a document naming
+  `persistent_term:put/2` does not run it. A control in the same test turns
+  `node_mods` on (a global yamerl parameter) and the same document then does
+  run the named call during the read (and still returns `{:error, "malformed
+  yaml"}`): the reader is safe against that only while no caller sets
+  `node_mods`. RC-67 must never set it.
+- Bounded time: nested plain maps of exactly 16,384 and 1,048,576 bytes each
+  parsed inside a `Task` with a 5 s limit and gave `{:ok, map}`. The measured
+  times are in the pull request body; the 1 MiB parse used most of the limit
+  on the development host, so RC-67 must bound the frontmatter size well below
+  1 MiB itself.
+
+**Start of `yamerl`.** `yaml_elixir` has no `application/0`, so Mix infers
+`applications: [:kernel, :stdlib, :elixir, :yamerl]` and `yamerl` starts with
+it in a release or under `mix`. `YamlElixir` also calls
+`Application.start(:yamerl)` on every read, so a copied consumer that lists
+`yaml_elixir` as a dependency does not need to start `yamerl` itself, and a
+consumer that excludes it from `applications` still works through that call.
+Hex access is needed to fetch both packages; `yamerl` builds with rebar3.
+
+**Assumptions, not tested.** The behaviour of other versions, other input
+sizes, `atoms: true`, `maps_as_keywords`, the file readers and the `~y` sigil.
+`yamerl` source for `yamerl_node_erlang_fun` was read: it evaluates the text
+with `erl_eval`.
+
+**Limits.** This shows finite behaviour of two pinned versions on literal
+documents. It is not a claim that the reader is safe for hostile input of any
+size, and it adopts no YAML writer. Telemetry, Config and Control do not
+apply: there is no Piece and no running Elzoo service.
+
 ## OTP API reuse candidates
 
 OTP is part of the pinned platform, but each behavior still needs an Elzoo
