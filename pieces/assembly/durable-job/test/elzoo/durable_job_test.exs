@@ -574,6 +574,15 @@ defmodule Elzoo.DurableJobTest do
 
     Process.unlink(repo)
 
+    # backoff_type: :stop can end the pool by itself: the Repo may already be gone.
+    on_exit(fn ->
+      try do
+        Supervisor.stop(repo)
+      catch
+        :exit, _ -> :ok
+      end
+    end)
+
     store =
       Elzoo.DurableLog.Postgres.store(Elzoo.DurableJob.UnreachableRepo,
         fold: Run.store_fold(),
