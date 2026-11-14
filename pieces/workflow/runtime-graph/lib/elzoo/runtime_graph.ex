@@ -186,7 +186,7 @@ defmodule Elzoo.RuntimeGraph do
   defp walk(value, left) when is_map(value) and not is_struct(value) do
     cond do
       map_size(value) * 4 > left -> :too_large
-      true -> walk_map(Map.to_list(value), left)
+      true -> with {:ok, left} <- charge(left, 2), do: walk_map(Map.to_list(value), left)
     end
   end
 

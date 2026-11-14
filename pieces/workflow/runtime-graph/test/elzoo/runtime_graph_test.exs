@@ -6,6 +6,7 @@ defmodule Elzoo.RuntimeGraphTest do
   alias Elzoo.{RecipeGraph, RuntimeGraph, ToolRegistry}
 
   @max_estimate 9_007_199_254_740_992
+  @scan_reduction_limit 1_000_000
 
   # --- builders: small literal neutral maps -------------------------------------------
 
@@ -68,6 +69,14 @@ defmodule Elzoo.RuntimeGraphTest do
   end
 
   defp reason(path, code), do: %{path: path, code: code}
+
+  # The reductions that the calling process uses for one call; no wall time.
+  defp reductions_of(fun) do
+    {:reductions, before} = Process.info(self(), :reductions)
+    result = fun.()
+    {:reductions, later} = Process.info(self(), :reductions)
+    {result, later - before}
+  end
 
   defp source(id, names) do
     tools =
@@ -536,6 +545,45 @@ defmodule Elzoo.RuntimeGraphTest do
       assert accept(many) == {:refused, [reason([], :too_large)]}
       wide = Map.put(proposal([ask("a")]), "links", [Map.new(1..30_000, &{"k#{&1}", 1})])
       assert accept(wide) == {:refused, [reason([], :too_large)]}
+    end
+
+    test "empty objects are charged by the scan" do
+      too_large = {:refused, [reason([], :too_large)]}
+
+      # 100,000 empty objects in one list
+      assert accept(Map.put(proposal([ask("a")]), "links", List.duplicate(%{}, 100_000))) ==
+               too_large
+
+      # one list of 1,000 empty objects that 1,000 cells of links hold: one shared term, a
+      # million empty objects in all. The scan stops at the byte bound, so it walks about 22,000
+      # of them (each costs 2 and each inner list 1) and not the million that the cells hold.
+      shared = List.duplicate(%{}, 1_000)
+      links = List.duplicate(shared, 1_000)
+      held = Map.put(proposal([ask("a")]), "links", links)
+
+      {result, reductions} = reductions_of(fn -> accept(held) end)
+
+      assert result == too_large
+      assert reductions < @scan_reduction_limit
+    end
+
+    test "a proposal of exactly 65,536 bytes that holds nested empty objects passes the scan" do
+      # each object of links costs 2 for its braces, as in compact JSON, and the key of the
+      # second costs 3 and its value 2
+      links = List.duplicate(%{}, 2_000) ++ List.duplicate(%{"k" => %{"j" => %{}}}, 500)
+
+      padded = fn n ->
+        proposal([Map.put(ask("a"), "pad", String.duplicate("x", n))], links)
+      end
+
+      size = fn proposal -> byte_size(Jason.encode!(proposal)) end
+      n = 65_536 - size.(padded.(0))
+
+      assert n > 0
+      assert size.(padded.(n)) == 65_536
+      assert accept(padded.(n)) == {:refused, [reason([], :invalid_shape)]}
+      assert size.(padded.(n + 1)) == 65_537
+      assert accept(padded.(n + 1)) == {:refused, [reason([], :too_large)]}
     end
 
     test "a structural fault of the checker is refused with its atom at the root" do
