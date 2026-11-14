@@ -1,0 +1,280 @@
+{
+  "schema_version": 1,
+  "id": "state/recipe-store",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "adapter",
+  "providers": [
+    "cure",
+    "jason",
+    "ecto_sql",
+    "postgrex",
+    "req",
+    "req_s3",
+    "telemetry",
+    "elixir",
+    "otp"
+  ],
+  "dependencies": [
+    "state/artifact",
+    "state/event-log",
+    "integration/sql",
+    "domain/recipe-package",
+    "workflow/recipe-check"
+  ],
+  "applications": [
+    "crypto"
+  ],
+  "contract": "Immutable recipe versions of a tenant over the ready Pieces: the bytes of each version are an artifact of state/artifact, and the stored records, check verdicts, published pointer, pin records and delete marks are records of the one stream recipe-store/<tenant> of the ready Store, each change read, decided by the pure Cure table over the folded state and appended at the head revision (at most 3 tries, then contended; an indeterminate append is never tried again). Only a stored, checked, live version is published (go-back is a publish of an older version); a version that a pin record holds or that is published is not deleted; the delete mark is committed before any artifact delete. Refusal order not_found, deleted, not_checked, pinned, published.",
+  "limits": [
+    "No transaction across the tenant stream and an artifact: between the delete mark and the artifact delete the bytes exist and get/3 already gives deleted. An interrupted put leaves bytes that no function lists; a later put of the same package adopts them and nothing else removes them. Several artifact versions of equal bytes may exist; get reads the head and delete deletes every version. A staging version that an interrupted artifact put leaves makes delete report {:delete_incomplete, {:invalid, :state}} until state/artifact reap removes it.",
+    "A pin record is a record, not a lease: a Run that never unpins keeps the version. The host must never call delete or reap of state/artifact on a recipe artifact directly; that breaks the pin rule and this Piece cannot prevent it.",
+    "The check verdict is that of the facts given then; a later change of the facts is not seen. Only the identity and the upper cost of a passing verdict are recorded; versions/2 reports whether a version is checked, not the verdict.",
+    "Fixed bounds: those of domain/recipe-package for a package, 10,000 records in one tenant stream then stream_full for each change that appends (no compaction, no pruning: a pruned or damaged stream is refused as {:log, _}), 128 bytes for a Run ID and 3 tries on a conflict.",
+    "No listing across tenants, no search by name, no tenant settings, no cache, no process. Publishing changes no running Run: which version a Run uses is workflow/version-pin, which this Piece does not call.",
+    "Selected laws cover the pure decision table over supplied flags, not the Elixir fold, the append order, the storage or the artifact bytes. The one order of two changes rests on the head-revision compare-and-set of the ready Store; finite named scenarios and 20 concurrent rounds on PostgreSQL support it, they do not prove it.",
+    "The caller is consumer-vouched attribution: no authentication, no authorization. No package content appears in an error, a log or a telemetry event of this Piece, which emits none; the telemetry of state/artifact is that Piece's own family."
+  ],
+  "files": [
+    "cure/elzoo/recipe_store.cure",
+    "lib/elzoo/recipe_store.ex",
+    "test/elzoo/recipe_store_test.exs",
+    "test/support/recipe_store_test_helper.exs",
+    "examples/recipe_store.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/recipe_store.cure",
+      "symbol": "delete_refused_while_pinned",
+      "claim": "R1: a delete is refused as pinned whenever a pin record exists, quantified over the check flag and the published flag; checked by the pinned Cure."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/recipe_store.cure",
+      "symbol": "delete_refused_while_published",
+      "claim": "R2: a delete of the published version without a pin is refused as published, quantified over the check flag; checked by the pinned Cure."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/recipe_store.cure",
+      "symbol": "pinned_before_published",
+      "claim": "R3: a pinned and published version is refused as pinned, the first of the refusal order, quantified over the check flag; checked by the pinned Cure."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/recipe_store.cure",
+      "symbol": "publish_refused_unchecked",
+      "claim": "R4: publish of a live, unchecked version is refused as not_checked, quantified over the pin and published flags; checked by the pinned Cure."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/recipe_store.cure",
+      "symbol": "deleted_admits_no_pin",
+      "claim": "R5a: a pin of a deleted version is refused as deleted, quantified over the check, pin and published flags; checked by the pinned Cure."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/recipe_store.cure",
+      "symbol": "deleted_admits_no_check",
+      "claim": "R5b: a check of a deleted version is refused as deleted, quantified over the other flags; checked by the pinned Cure."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/recipe_store.cure",
+      "symbol": "deleted_admits_no_get",
+      "claim": "R5c: a read of a deleted version is refused as deleted, quantified over the other flags; checked by the pinned Cure."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/recipe_store.cure",
+      "symbol": "deleted_admits_no_publish",
+      "claim": "R5d: a publish of a deleted version is refused as deleted, quantified over the other flags; checked by the pinned Cure."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/recipe_store.cure",
+      "symbol": "deleted_before_not_checked",
+      "claim": "R6: a deleted, unchecked version is refused as deleted, before not_checked, quantified over the pin and published flags; checked by the pinned Cure."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/recipe_store.cure",
+      "symbol": "unknown_is_not_found",
+      "claim": "R7: an unknown version is refused as not_found for every operation and every flag, quantified over the operation and the four flags; checked by the pinned Cure."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/recipe_store.cure",
+      "symbol": "marked_delete_resumes",
+      "claim": "R8: a delete of a marked version is no refusal but a resumption, whatever the other flags say; checked by the pinned Cure."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/recipe_store.cure",
+      "symbol": "live_unchecked_may_be_pinned",
+      "claim": "R9a: a pin of a stored, live, unchecked version is allowed, quantified over the pin and published flags; checked by the pinned Cure."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/recipe_store.cure",
+      "symbol": "free_version_may_be_deleted",
+      "claim": "R9b: a delete of a live version with no pin that is not published is allowed, with or without a check, quantified over the check flag; checked by the pinned Cure."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/recipe_store.cure",
+      "symbol": "checked_live_may_be_published",
+      "claim": "R10: a publish of a stored, checked, live version is allowed, also when it is pinned or already published, quantified over both flags; checked by the pinned Cure."
+    },
+    {
+      "kind": "type",
+      "file": "cure/elzoo/recipe_store.cure",
+      "claim": "The pinned Cure compiles the module and checks each selected law at its reflexive line; a temporary false claim for R1 (an allowed delete of a pinned version) is rejected at the reflexive line of that law and was reverted. Not a proof of the Elixir fold, of the append order or of the storage."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/recipe_store_test.exs",
+      "claim": "Named group immutable_versions: put then get gives the same map; the same package twice gives one version and one stored record; put of a deleted identity is deleted and adds no artifact version; a put whose stored append failed once is completed by a second put; two concurrent puts of one package give one stored record and get gives the map with two artifact versions; a put that loses against a concurrent delete returns deleted and leaves no committed artifact version; a changed package gives another identity and both stay readable; a malformed package is invalid_package and writes nothing; bytes that do not match the identity are integrity_mismatch; the artifact has access expiry and retention never. Runs on the Memory Store and on the ready PostgreSQL Store (ELZOO_TEST_DATABASE_URL, a schema of its own for each test, fail closed) over the disposable S3 test server (ELZOO_TEST_S3_*, fail closed); never skipped. Finite listed scenarios pass; these are not a universal claim."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/recipe_store_test.exs",
+      "claim": "Named group only_checked_is_published: publish of a stored, unchecked version is not_checked; a refused check and an invalid_facts result record nothing and publish stays refused; an unknown identity is not_found; after a passing check publish succeeds; a recorded pass is not undone by a later refused check. Runs on the Memory Store and on the ready PostgreSQL Store (ELZOO_TEST_DATABASE_URL, a schema of its own for each test, fail closed) over the disposable S3 test server (ELZOO_TEST_S3_*, fail closed); never skipped. Finite listed scenarios pass; these are not a universal claim."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/recipe_store_test.exs",
+      "claim": "Named group go_back: publish A, B, A gives the pointer A, B, A with the right previous each time; publishing the published version appends nothing; all versions stay readable. Runs on the Memory Store and on the ready PostgreSQL Store (ELZOO_TEST_DATABASE_URL, a schema of its own for each test, fail closed) over the disposable S3 test server (ELZOO_TEST_S3_*, fail closed); never skipped. Finite listed scenarios pass; these are not a universal claim."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/recipe_store_test.exs",
+      "claim": "Named group two_publishes_one_order: a publish that read before another publish committed is decided again (conflict, read again, previous follows the order of the records) and the pointer is the later record; two free concurrent publishes are ok or contended in one order; a Store that always conflicts gives contended after exactly 3 appends; an indeterminate append is indeterminate after exactly 1 append. Runs on the Memory Store and on the ready PostgreSQL Store (ELZOO_TEST_DATABASE_URL, a schema of its own for each test, fail closed) over the disposable S3 test server (ELZOO_TEST_S3_*, fail closed); never skipped. Finite listed scenarios pass; these are not a universal claim."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/recipe_store_test.exs",
+      "claim": "Named group pinned_is_not_deleted: delete of a pinned version is pinned and after unpin it succeeds; a repeated pin and an unpin of an unknown pair append nothing; delete of the published version is published; two Runs pin one version and it is deletable only after both unpin; get, pin, check and publish of a deleted version are deleted; the refusal order not_found, deleted, not_checked, pinned, published. Runs on the Memory Store and on the ready PostgreSQL Store (ELZOO_TEST_DATABASE_URL, a schema of its own for each test, fail closed) over the disposable S3 test server (ELZOO_TEST_S3_*, fail closed); never skipped. Finite listed scenarios pass; these are not a universal claim."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/recipe_store_test.exs",
+      "claim": "Named group pin_and_delete_one_winner: both arrival orders (pin first, delete first) on a conflict of the tenant stream, and 20 concurrent rounds of a pin and a delete of one version, each with exactly one winner and a state (pins, delete mark, artifact versions, get) that agrees with it. Runs on the Memory Store and on the ready PostgreSQL Store (ELZOO_TEST_DATABASE_URL, a schema of its own for each test, fail closed) over the disposable S3 test server (ELZOO_TEST_S3_*, fail closed); never skipped. Finite listed scenarios pass; these are not a universal claim."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/recipe_store_test.exs",
+      "claim": "Named group delete_mark_before_artifact: with a Store wrapper of the test that refuses the append to the artifact stream once, delete gives delete_incomplete, the mark is in the tenant stream, the version reads deleted and a second and a third delete give deleted; a recipe artifact with two versions has none committed after one delete; at each append that deletes an artifact version the tenant stream held the mark; a refused delete (pinned, published) deletes no artifact record and commits no mark. Runs on the Memory Store and on the ready PostgreSQL Store (ELZOO_TEST_DATABASE_URL, a schema of its own for each test, fail closed) over the disposable S3 test server (ELZOO_TEST_S3_*, fail closed); never skipped. Finite listed scenarios pass; these are not a universal claim."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/recipe_store_test.exs",
+      "claim": "Named group reap_keeps_recipes: Artifact.reap on a recipe artifact with two versions, with the clock far in the future, removes no version. Runs on the Memory Store and on the ready PostgreSQL Store (ELZOO_TEST_DATABASE_URL, a schema of its own for each test, fail closed) over the disposable S3 test server (ELZOO_TEST_S3_*, fail closed); never skipped. Finite listed scenarios pass; these are not a universal claim."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/recipe_store_test.exs",
+      "claim": "Named group tenant_isolation: another tenant gets not_found for get, check, publish, pin and delete of each identity (stored, checked, pinned, published, deleted), unpinned with no record for unpin, an empty versions and no published pointer, and writes no row; versions of the tenant lists the right members in stored order; the published pointer is unchanged; two tenants can store one package independently. Runs on the Memory Store and on the ready PostgreSQL Store (ELZOO_TEST_DATABASE_URL, a schema of its own for each test, fail closed) over the disposable S3 test server (ELZOO_TEST_S3_*, fail closed); never skipped. Finite listed scenarios pass; these are not a universal claim."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/recipe_store_test.exs",
+      "claim": "Named group bounds_and_redaction: a tenant stream of 10,000 records written on the Memory Store gives stream_full for each change that appends (and writes no artifact for a refused put), while a call that appends nothing and each read still work (Memory Store only); a Run ID of 1 to 128 bytes and an invalid result for each malformed store, caller, identity and Run ID; new/1 refuses a missing or extra option, a handle that is not an artifact handle and a Store whose fold lacks the kinds or schema version 1; a sentinel text in a package does not appear in an error, a captured log or a telemetry event of the artifact family; the checked example runs on the Memory Store. Except for the 10,000-record scenario and the example (Memory Store), runs on the Memory Store and on the ready PostgreSQL Store (ELZOO_TEST_DATABASE_URL, a schema of its own for each test, fail closed) over the disposable S3 test server (ELZOO_TEST_S3_*, fail closed); never skipped. Finite listed scenarios pass; these are not a universal claim."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/recipe_store_test.exs",
+      "claim": "Database groups named as such: every scenario of the ten named groups except the 10,000-record scenario and the checked example runs on the ready PostgreSQL Store (ELZOO_TEST_DATABASE_URL, a schema of its own for each test, fail closed) and over the disposable S3 test server (ELZOO_TEST_S3_*, fail closed); the helper raises when either service is missing. Negative controls are made by temporary edits outside the committed tree."
+    },
+    {
+      "kind": "upstream",
+      "provider": "cure",
+      "reference": "https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89",
+      "claim": "Relies on the pinned Cure compiler/kernel for the selected equality laws and the reducible decision table over supplied flags."
+    },
+    {
+      "kind": "upstream",
+      "provider": "jason",
+      "reference": "https://hexdocs.pm/jason/1.4.5/Jason.html",
+      "claim": "Jason 1.4.5 encodes and decodes the record payloads and the package bytes (the ready integration/json recipe's direct use); a decoding failure is an unreadable record or an integrity mismatch."
+    },
+    {
+      "kind": "upstream",
+      "provider": "ecto_sql",
+      "reference": "https://hexdocs.pm/ecto_sql/3.14.0/Ecto.Adapters.SQL.html",
+      "claim": "Ecto SQL 3.14.0 behind the ready PostgreSQL Store is an upstream contract."
+    },
+    {
+      "kind": "upstream",
+      "provider": "postgrex",
+      "reference": "https://www.postgresql.org/docs/17/",
+      "claim": "PostgreSQL commit atomicity and visibility reached through the ready Store and Postgrex 0.22.4 are upstream server contracts, not local proofs; the order of two changes of one tenant rests on the compare-and-set of the head revision."
+    },
+    {
+      "kind": "upstream",
+      "provider": "req",
+      "reference": "https://hexdocs.pm/req/0.7.5/",
+      "claim": "HTTP transport under the ready object-store Adapter of state/artifact is an upstream contract."
+    },
+    {
+      "kind": "upstream",
+      "provider": "req_s3",
+      "reference": "https://hexdocs.pm/req_s3/0.2.5/",
+      "claim": "S3 signing and checksum echo through req_s3 0.2.5 under the ready object-store Adapter of state/artifact are upstream contracts."
+    },
+    {
+      "kind": "upstream",
+      "provider": "telemetry",
+      "reference": "https://hexdocs.pm/telemetry/1.4.2/telemetry.html#execute/3",
+      "claim": "telemetry 1.4.2 handler dispatch is the upstream contract the redaction scenario observes on the events of state/artifact; this Piece emits no event."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Elixir validation, exceptions, Task and BEAM execution are upstream contracts, not proved here."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/",
+      "claim": "OTP 29.1.2 :crypto SHA-256, Agent and processes are upstream contracts; no exactly-once or disk durability guarantee."
+    },
+    {
+      "kind": "assumption",
+      "claim": "Reused Contract of state/artifact (ELZ-096), as it states it: put/5, get/4, delete/4, versions/3, reap/3 and head/4 with a caller map of tenant, principal and scopes; an artifact_id is 1 to 64 bytes of alphanumerics and -_.; put has no content test and always adds a version; delete applies to a committed version, a staging version is {:invalid, :state}; access expiry and retention :never keep a version from reap; the streams of two artifacts commit separately (no cross-stream transaction). Used unchanged; this Piece never reads the object member of a result."
+    },
+    {
+      "kind": "assumption",
+      "claim": "Reused Contract of state/event-log (ELZ-009) and integration/sql, as they state it: a Store appends to a stream under an expected head revision and gives committed, conflict, rejected or indeterminate; a stream name is 1 to 200 bytes of UTF-8 text and the log has no tenant of its own; the Memory double and the PostgreSQL Store are interchangeable behind it. The host keeps the fold with the kinds of this Piece (kinds/0, schema version 1), never writes those kinds itself and never prunes the tenant stream (a pruned or damaged stream is refused as {:log, _})."
+    },
+    {
+      "kind": "assumption",
+      "claim": "Reused Contracts of domain/recipe-package (ELZ-164) and workflow/recipe-check (ELZ-167), as they state them: a package identity is recipe-package-v1:sha256: plus 64 lowercase hex characters, a content digest that is never trusted origin; check(package, facts) gives {:ok, verdict}, {:refused, reasons} or {:error, :invalid_facts} and grants nothing. The host supplies truthful facts; the verdict is that of the facts given then."
+    },
+    {
+      "kind": "assumption",
+      "claim": "A caller whose tenant the host verified (caller identity is vouched attribution, never authentication or authorization); a host that pins a version before a Run starts and unpins when the Run has ended, also after a crash; and a host that never calls delete or reap of state/artifact on a recipe artifact directly, which would break the pin rule and which this Piece cannot prevent."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "inherited",
+      "from": "state/artifact",
+      "contract": "This Piece emits no event of its own; the artifact calls it makes emit the declared family of state/artifact (ids and sizes, no bytes), and no package content appears in those events (observed by the redaction scenario)."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Construction-time artifact handle and ready Store (new/1 takes exactly artifact and log and checks the fold kinds, schema version 1 and limits); fixed bounds (10,000 records, 128-byte Run ID, 3 tries); no hot reconfiguration.",
+      "evidence": [
+        "test/elzoo/recipe_store_test.exs"
+      ]
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No process, pause, drain or lifecycle command: put, check, publish, pin, unpin and delete are domain operations that return applied, refused, contended or indeterminate results; there is no hot Config and no Control interface."
+    }
+  }
+}
