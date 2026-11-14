@@ -76,7 +76,7 @@ prerequisite; the tables leave it out.
 
 A Run that survives: the engine runs one host, records each step, checks budget and authority, and continues after a crash.
 
-RC-68 is admitted as [ELZ-114](../../tasks/ELZ-114-pattern-step.md), RC-44 as [ELZ-115](../../tasks/ELZ-115-payload-schema.md), RC-12 as [ELZ-116](../../tasks/ELZ-116-run.md), RC-45 as [ELZ-117](../../tasks/ELZ-117-durable-unit.md), and RC-47 as [ELZ-118](../../tasks/ELZ-118-async-work.md). References to the RC IDs below name those designs; executable prerequisite rows in `release-plan.json` use the published ELZ IDs. RC-46 and RC-48 remain proposals.
+RC-68 is admitted as [ELZ-114](../../tasks/ELZ-114-pattern-step.md), RC-44 as [ELZ-115](../../tasks/ELZ-115-payload-schema.md), RC-12 as [ELZ-116](../../tasks/ELZ-116-run.md), RC-45 as [ELZ-117](../../tasks/ELZ-117-durable-unit.md), and RC-47 as [ELZ-118](../../tasks/ELZ-118-async-work.md). References to the RC IDs below name those designs; executable prerequisite rows in `release-plan.json` use the published ELZ IDs. RC-46 is admitted as [ELZ-122](../../tasks/ELZ-122-dynamic-units.md) and RC-48 as [ELZ-124](../../tasks/ELZ-124-bot-run-lifecycle.md).
 
 | Job | Outputs | Prerequisites | Level | Jobs that wait for it |
 | --- | --- | --- | --- | --- |

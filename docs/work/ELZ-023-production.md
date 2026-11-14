@@ -159,7 +159,7 @@ production files were committed and unchanged throughout this uninterrupted run.
 This is an export using compiled upstream artifacts, not a cold dependency fetch
 or a production release-assembly test.
 
-Exact final commands, each exit 0:
+Final commands, each exit 0 (exact, but the role, the password and the database name of the URL are replaced by placeholders):
 
 ```sh
 env LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ERL_FLAGS='+S 4:4 +SDcpu 1 +SDio 1' MIX_ENV=test ELZOO_TEST_DATABASE_URL=ecto://<test role>:…@localhost/<test database> mix setup
