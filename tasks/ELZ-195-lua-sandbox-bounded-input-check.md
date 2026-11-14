@@ -46,10 +46,13 @@ stop and ask):
   `protocol_error`. `Child.await/4` (`lib/elzoo/lua_sandbox/child.ex`,
   about 112 to 117) gives `process_exit` when the Port ends with no report
   and an empty buffer, which happens when the request is written to a
-  child that has already ended. The fakes `stderr-only`, `stderr-crash`
-  and `stdout-text` (same file, about 438 to 445) and `stderr text`
-  (`test/elzoo/lua_sandbox_replay_test.exs`, about line 753) have the same
-  form.
+  child that has already ended. The fakes `stderr-only`, `stderr-crash`,
+  `stderr-then-reply` and `stdout-text` (same file, about 438 to 445) and
+  `stderr text` (`test/elzoo/lua_sandbox_replay_test.exs`, about line 753)
+  have the same form. Before you change them, search both test files for
+  every fake that writes or exits without reading its input while its
+  test expects another result than `process_exit`, and repair each one;
+  name each in the pull request body.
 
 ## The repair
 
@@ -71,12 +74,22 @@ stop and ask):
    stated Limit, not a check at load: the C host stays byte for byte as
    it is, so no build identity and no recorded reply changes. State in
    the README Limits and in `limits` of `piece.json`: a string that is
-   equal to a short name that the Lua state already holds when the limits
-   are armed (names of the libraries and of metamethods, reserved words)
-   can exist although it is longer than `value_bytes`; this matters only
-   for a `value_bytes` below the length of such a name; the encoded result
-   and each helper argument keep their own check. One test shows the
-   stated case (group 3).
+   equal to a name that the Lua state already holds when the limits are
+   armed can exist although it is longer than `value_bytes`. Those names
+   are: the names of the libraries and of metamethods, the reserved
+   words, every name that the host itself puts into the state before it
+   arms the limits (`init_env`: the helper and field names of `elzoo`,
+   for example `json_decode` or `time_unix_ms`), and every name of a
+   recorded call (`calls.names`, which the caller chooses and which are
+   bounded by the existing bounds of a record). Read `init_state`,
+   `init_env` and `bindings_cf` in `lua_sandbox_host.c` (about 2196 and
+   2285 to 2291) and word the Limit so that it names every source that
+   you find; a source missing from the Limit is a defect of this task.
+   The Limit also says: this matters only for a `value_bytes` below the
+   length of such a name; the length of a recorded name has its own
+   bound; the encoded result and each helper argument keep their own
+   check. One test shows the stated case with a library name and one
+   with a recorded call name (group 3).
 3. **README sentence (finding of #405).** Replace "This is decided before
    a process starts and again by the host before the Lua state exists"
    with a sentence that says: the size is decided before a process

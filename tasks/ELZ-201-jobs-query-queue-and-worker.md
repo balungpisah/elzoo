@@ -21,10 +21,11 @@ writing; confirm each when you start, and if one differs, stop and ask):
   `Elzoo.Jobs.Worker.new/2` and the option `queue: queue`, so the Oban
   queue of a job of the Piece equals the `"queue"` argument and its
   worker is `Elzoo.Jobs.Worker`.
-- The callers in the repository (`state/scheduler`, `assembly/durable-job`)
-  make jobs only through `changeset/4`; two tests of
-  `assembly/durable-job` call `Elzoo.Jobs.Worker.new/2` directly, with
-  `queue:` equal to the argument.
+- The callers in the repository (`state/scheduler`, `assembly/durable-job`,
+  `assembly/http-job`, which calls `cancel/3`) make jobs only through
+  `changeset/4`; three tests of `assembly/durable-job` call
+  `Elzoo.Jobs.Worker.new/2` directly, with `queue:` equal to the
+  argument.
 - No Limit of the README or of `piece.json` says that the Oban instance
   must hold no other job with these two arguments.
 
