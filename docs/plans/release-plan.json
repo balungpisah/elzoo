@@ -5939,10 +5939,10 @@
       "id": "ELZ-185",
       "title": "ELZ-185 — The local full check stays inside the connection limit of the worker database",
       "kind": "published",
-      "release": "V1",
+      "release": "V1B",
       "stage": "pieces",
-      "dependencies": ["ELZ-033"],
-      "status": "published 2026-11-14",
+      "dependencies": ["ELZ-033", "ELZ-187"],
+      "status": "published 2026-11-14; amended 2026-11-14 (test files of Pieces allowed for the repair; depends on ELZ-187)",
       "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
       "paths": ["tasks/ELZ-185-local-full-check-connections.md"],
       "outputs": [],
@@ -5950,7 +5950,7 @@
       "product_aims": ["P06"],
       "issue": 403,
       "url": "https://github.com/balungpisah/elzoo/issues/403",
-      "issue_body_sha256": "22f062ef4b377f1dc7086c5089ca85314e95cc3cb8643a75ba816f596847012f"
+      "issue_body_sha256": "9b2fdfd25564d35a7892fbc7d417600ab2c62ee6a92add462d9a360a1d54fae2"
     },
     {
       "id": "ELZ-181",
@@ -6019,6 +6019,23 @@
       "issue": 412,
       "url": "https://github.com/balungpisah/elzoo/issues/412",
       "issue_body_sha256": "51e48c3a0132e028145a8fb6a6e6c968a3b8c2db846a488723d713ab3a000790"
+    },
+    {
+      "id": "ELZ-187",
+      "title": "ELZ-187 — The 64-entry sizing test of assembly/run-engine does not depend on host load",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-180"],
+      "status": "published 2026-11-14",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-187-run-engine-sizing-test.md"],
+      "outputs": [],
+      "acceptance": "Repair for issue #334 on assembly/run-engine: the first input of the 64-entry sizing test is measured, avoidable repeated work is removed so that the call stays far inside the 5 s call limit alone and beside the Piece suite, with unchanged assertions, journal records, fingerprints and replies; a limit operand is not added, and a case that needs one stops for a coordinator decision.",
+      "product_aims": ["P13"],
+      "issue": 415,
+      "url": "https://github.com/balungpisah/elzoo/issues/415",
+      "issue_body_sha256": "ef20cf0a66c753404d3fcb94f13fcd18e5069410d42a31d73880986e43be3e13"
     }
   ],
   "entries": [
