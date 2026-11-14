@@ -1210,9 +1210,9 @@ defmodule Elzoo.SkillTest do
 
       assert {_, accepted} = Enum.at(requests, 2)
       [system | rest] = messages(accepted)
+      assert List.last(rest) == tool_text("c1", notice("[declaration accepted]"))
       assert system == %{"role" => "system", "text" => @role <> "\n\n" <> "Alpha instructions\n"}
       assert String.ends_with?(system["text"], "\n\nAlpha instructions\n")
-      assert List.last(rest) == tool_text("c1", notice("[declaration accepted]"))
 
       # The body is outside every marked block.
       refute Enum.any?(rest, &String.contains?(&1["text"] || "", "Alpha instructions"))
