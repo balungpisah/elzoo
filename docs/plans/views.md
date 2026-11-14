@@ -247,7 +247,6 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-192](https://github.com/balungpisah/elzoo/issues/436) | V1B / pieces | ELZ-033, ELZ-191 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-193](https://github.com/balungpisah/elzoo/issues/439) | V1B / pieces | ELZ-009 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-194](https://github.com/balungpisah/elzoo/issues/443) | V1B / pieces | ELZ-182 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
-| [ELZ-195](https://github.com/balungpisah/elzoo/issues/444) | V1B / pieces | ELZ-163, ELZ-177, ELZ-188 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-196](https://github.com/balungpisah/elzoo/issues/445) | V1B / pieces | ELZ-168, ELZ-172 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-197](https://github.com/balungpisah/elzoo/issues/446) | V1B / pieces | ELZ-169 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-198](https://github.com/balungpisah/elzoo/issues/447) | V1B / pieces | ELZ-166 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
@@ -431,7 +430,7 @@ Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, EL
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189, ELZ-190, ELZ-191, ELZ-192, ELZ-193, ELZ-194, ELZ-195, ELZ-196, ELZ-197, ELZ-198, ELZ-199, ELZ-200, ELZ-201, ELZ-202, ELZ-203, ELZ-204, ELZ-205, ELZ-206, ELZ-207, ELZ-208.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189, ELZ-190, ELZ-191, ELZ-192, ELZ-193, ELZ-194, ELZ-196, ELZ-197, ELZ-198, ELZ-199, ELZ-200, ELZ-201, ELZ-202, ELZ-203, ELZ-204, ELZ-205, ELZ-206, ELZ-207, ELZ-208.
 
 ### V2-ACCEPT
 
@@ -3181,16 +3180,6 @@ Publication copy: [tasks/ELZ-194-skill-escaped-merge-key.md](../../tasks/ELZ-194
 **Product aims:** P13.
 
 **Acceptance:** Repair on workflow/skill, in place: a double-quoted scalar of the frontmatter with an escape that decodes to the less-than sign is refused as yaml_alias, so an escaped merge key cannot reach the reader; directed spellings in the differential test; ordinary escapes stay accepted.
-
-### ELZ-195
-
-ELZ-195 — The size check of the Lua sandbox input is bounded by `value_bytes` while it walks the term
-
-Publication copy: [tasks/ELZ-195-lua-sandbox-bounded-input-check.md](../../tasks/ELZ-195-lua-sandbox-bounded-input-check.md).
-
-**Product aims:** P13.
-
-**Acceptance:** Repair on runtime/lua-sandbox, in place: the input size check is bounded by value_bytes during the walk; the interned-name case is a stated Limit with a test; one README sentence on recorded values corrected; the stderr test fakes read the request first; the C host is unchanged.
 
 ### ELZ-196
 
