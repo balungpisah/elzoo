@@ -1039,8 +1039,9 @@
       "summary": "Run Lua with hard limits and no ambient access",
       "disposition": "adapt",
       "phase": "demand-led",
-      "status": "planned",
-      "reason": "Bot platform wave 3 (P13). Limits on steps and memory; no file, network, clock or random access unless given; a wall-time stop is a host outcome. Starts with a provider-fit probe of at least two Lua runtimes, one of them outside the process boundary of the VM; no runtime is chosen yet."
+      "status": "ready",
+      "reason": "Bot platform wave 3 (P13). Limits on steps and memory; no file, network, clock or random access unless given; a wall-time stop is a host outcome. Starts with a provider-fit probe of at least two Lua runtimes, one of them outside the process boundary of the VM; no runtime is chosen yet.",
+      "manifest": "pieces/runtime/lua-sandbox/piece.json"
     },
     {
       "id": "runtime/lua-stdlib",
