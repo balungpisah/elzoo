@@ -381,7 +381,8 @@ defmodule Elzoo.Skill do
   # `depth` is the number of open `[` and `{`. A `?` at a token start that a
   # space, a tab or the line end follows is the explicit-key indicator and is
   # `invalid_yaml`, before every alias of the line. A `&` or `*` at a token
-  # start (`:start` or `:close`), and a `<<` anywhere, is `yaml_alias`.
+  # start (`:start` or `:close`), and a `<<` anywhere, is `yaml_alias`; so is an
+  # escape of double-quoted text that decodes to `<` (see `lt_escape?/1`).
   defp flow_line(line, state) do
     case flow_bytes(line, state, true, String.contains?(line, "<<")) do
       {:ok, state, false} -> {:ok, state}
@@ -398,8 +399,13 @@ defmodule Elzoo.Skill do
   defp flow_bytes(<<"'", rest::binary>>, {_last, :single, depth}, _blank, alias?),
     do: flow_bytes(rest, {:quoted, nil, depth}, false, alias?)
 
-  defp flow_bytes(<<"\\", _, rest::binary>>, {_last, :double, _depth} = state, _blank, alias?),
-    do: flow_bytes(rest, state, false, alias?)
+  defp flow_bytes(
+         <<"\\", _, rest::binary>> = text,
+         {_last, :double, _depth} = state,
+         _blank,
+         alias?
+       ),
+       do: flow_bytes(rest, state, false, alias? or lt_escape?(text))
 
   defp flow_bytes(<<"\"", rest::binary>>, {_last, :double, depth}, _blank, alias?),
     do: flow_bytes(rest, {:quoted, nil, depth}, false, alias?)
@@ -558,7 +564,8 @@ defmodule Elzoo.Skill do
   # A quoted scalar ends on its line. Only blanks and the end of the line, a
   # comment (after a blank) or a `:` that a blank or the end of the line follows
   # may come after the closing quote; every other byte is `invalid_yaml`, so no
-  # text is glued on to a quoted scalar.
+  # text is glued on to a quoted scalar. A double-quoted scalar, key or value,
+  # with an escape that decodes to `<` is `yaml_alias`, as the key `<<` is.
   defp scan_quoted(<<q, body::binary>>, column, top?, seen) do
     case quote_end(q, body, 0) do
       nil ->
@@ -569,24 +576,50 @@ defmodule Elzoo.Skill do
         closing = binary_part(body, length + 1, byte_size(body) - length - 1)
         {spaces, after_quote} = drop_blanks(closing)
         key = if q == ?', do: String.replace(inner, "''", "'"), else: inner
+        escaped_lt? = q == ?" and double_lt_escape?(inner)
 
         case after_quote do
+          "" when escaped_lt? ->
+            {:error, :yaml_alias}
+
           "" ->
             {:ok, nil, seen}
+
+          "#" <> _ when spaces > 0 and escaped_lt? ->
+            {:error, :yaml_alias}
 
           "#" <> _ when spaces > 0 ->
             {:ok, nil, seen}
 
           ":" <> value when value == "" or binary_part(value, 0, 1) in [" ", "\t"] ->
-            {more, value} = drop_blanks(value)
-            value_at = column + length + 2 + spaces + 1 + more
-            key_value(key, value, value_at, column, top?, seen)
+            if escaped_lt? do
+              {:error, :yaml_alias}
+            else
+              {more, value} = drop_blanks(value)
+              value_at = column + length + 2 + spaces + 1 + more
+              key_value(key, value, value_at, column, top?, seen)
+            end
 
           _other ->
             {:error, :invalid_yaml}
         end
     end
   end
+
+  # Walks double-quoted text left to right, a `\` and the next byte as one pair,
+  # as `quote_end/3` does, so `\\x3c` is an escaped backslash and the text `x3c`.
+  defp double_lt_escape?(<<"\\", _, rest::binary>> = text),
+    do: lt_escape?(text) or double_lt_escape?(rest)
+
+  defp double_lt_escape?(<<_, rest::binary>>), do: double_lt_escape?(rest)
+  defp double_lt_escape?(""), do: false
+
+  # Whether text that starts at a `\` begins with an escape that the pinned
+  # reader decodes to `<`: `\x3c`, `\u003c` or `\U0000003c`, either case of `c`.
+  defp lt_escape?(<<"\\x3", c, _::binary>>) when c in [?c, ?C], do: true
+  defp lt_escape?(<<"\\u003", c, _::binary>>) when c in [?c, ?C], do: true
+  defp lt_escape?(<<"\\U0000003", c, _::binary>>) when c in [?c, ?C], do: true
+  defp lt_escape?(_text), do: false
 
   defp quote_end(?', <<"''", rest::binary>>, i), do: quote_end(?', rest, i + 2)
   defp quote_end(?', <<"'", _::binary>>, i), do: i

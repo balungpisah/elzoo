@@ -30,6 +30,30 @@ defmodule Elzoo.SkillDifferentialTest do
 
   @max_length 24
 
+  # The directed part: a fixed list built from templates, not from random bytes.
+  # The scalars are each spelling of an escape that decodes to `<`, each ordered
+  # pair of two spellings and four ordinary escapes; `S` of a template is a
+  # scalar. The random alphabets cannot spell these escapes.
+  @spellings ["\\x3c", "\\x3C", "\\u003c", "\\u003C", "\\U0000003c", "\\U0000003C"]
+  @ordinary ["a\\tb", "\\x41", "\\u00e9", "\\\\x3c\\\\x3c"]
+  @keyed_templates [
+    "\"S\": x",
+    "k:\n  \"S\": x",
+    "- \"S\": x",
+    "k: {\"S\": x}",
+    "{\"S\": x}",
+    "k: {a: b,\n  \"S\": x}"
+  ]
+  @templates @keyed_templates ++ ["k: [\"S\"]", "k: \"S\""]
+
+  defp directed_texts do
+    scalars = @spellings ++ for(a <- @spellings, b <- @spellings, do: a <> b) ++ @ordinary
+
+    for scalar <- scalars, template <- @templates do
+      template |> String.split("S") |> Enum.join(scalar)
+    end
+  end
+
   # The default run is a seeded sample. The full run, the sample of the Contract,
   # is `ELZOO_SCAN_DIFFERENTIAL=full mix test <this file>`. A skipped or excluded
   # test would lie outside every part of the full check (the partition test of
@@ -248,22 +272,34 @@ defmodule Elzoo.SkillDifferentialTest do
   end
 
   # Two seeded random parts (the whole alphabet and the dense alphabet, each of
-  # `random` texts of 1 to 24 bytes) and every text of up to `exhaustive_length`
-  # bytes over the small alphabet.
+  # `random` texts of 1 to 24 bytes), every text of up to `exhaustive_length`
+  # bytes over the small alphabet and the directed part.
   defp run_differential(%{random: random, exhaustive_length: exhaustive_length}) do
     assert {:ok, tokens} = oracle("a: &x b\n")
     assert :anchor in forbidden(tokens, "a: &x b\n")
+
+    # Positive control of the directed part: in each template with a key, the
+    # oracle must see a key `<<` behind `\x3c\x3c`.
+    for template <- @keyed_templates do
+      text = (template |> String.split("S") |> Enum.join("\\x3c\\x3c")) <> "\n"
+      assert {_status, tokens} = oracle(text)
+
+      assert :merge_key in forbidden(tokens, text),
+             "the oracle misses the merge key in #{inspect(text)}"
+    end
 
     {time, parts} =
       :timer.tc(fn ->
         [
           compare(random_texts(@alphabet, random, {1, 2, 3})),
           compare(random_texts(@dense, random, {4, 5, 6})),
-          compare(all_texts(@exhaustive, exhaustive_length))
+          compare(all_texts(@exhaustive, exhaustive_length)),
+          compare(directed_texts())
         ]
       end)
 
-    for {{generated, accepted, found}, part} <- Enum.zip(parts, ["random", "dense", "exhaustive"]) do
+    for {{generated, accepted, found}, part} <-
+          Enum.zip(parts, ["random", "dense", "exhaustive", "directed"]) do
       IO.puts(
         "scan_agrees_with_the_reader #{part}: generated #{generated}, accepted #{accepted}, " <>
           "disagreed #{length(found)}"

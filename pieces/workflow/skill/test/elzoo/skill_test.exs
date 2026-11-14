@@ -721,6 +721,64 @@ defmodule Elzoo.SkillTest do
                fm("m: [['a'], {'b': 'c'}]\n")
     end
 
+    test "2.25 escaped_merge_key_is_refused: a double-quoted scalar with an escape that decodes to < is yaml_alias, key or value" do
+      spellings = [
+        "\\x3c",
+        "\\x3C",
+        "\\u003c",
+        "\\u003C",
+        "\\U0000003c",
+        "\\U0000003C"
+      ]
+
+      scalars =
+        for s <- spellings, scalar <- [s, s <> s, "<" <> s, s <> "<"], do: scalar
+
+      for scalar <- scalars,
+          {place, frontmatter} <- [
+            {"top-level key", @p <> "\"#{scalar}\": x\n"},
+            {"nested key", @p <> "metadata:\n  \"#{scalar}\": x\n"},
+            {"key after a dash", @p <> "k:\n  - \"#{scalar}\": x\n"},
+            {"key of a flow mapping", @p <> "k: {\"#{scalar}\": x}\n"},
+            {"entry of a flow sequence", @p <> "k: [\"#{scalar}\"]\n"},
+            {"key on a later line of a flow region", @p <> "k: {a: b,\n  \"#{scalar}\": x}\n"},
+            {"value", @p <> "k: \"#{scalar}\"\n"}
+          ] do
+        assert fm(frontmatter) == {:error, :yaml_alias},
+               "#{place} #{inspect(scalar)} is not refused"
+      end
+    end
+
+    test "2.26 same_refusal_twice: the folder of the finding gives the same refusal on each read" do
+      files = %{"SKILL.md" => md(@p <> "metadata:\n  \"\\x3c\\x3c\": x\n", "body\n")}
+
+      first = Skill.read("s", "1", [], files)
+      second = Skill.read("s", "1", [], files)
+
+      assert first == {:error, :yaml_alias}
+      assert second == first
+    end
+
+    test "2.27 ordinary_escapes_are_accepted: other escapes and an escaped backslash are read as the reader reads them" do
+      keys = [
+        {"\"a\\tb\"", "a\tb"},
+        {"\"\\x41\"", "A"},
+        {"\"\\u00e9\"", "é"},
+        {"\"\\\\x3c\\\\x3c\"", "\\x3c\\x3c"}
+      ]
+
+      for {text, key} <- keys,
+          {frontmatter, keys_of} <- [
+            {@p <> text <> ": x\n", & &1},
+            {@p <> "k: {" <> text <> ": x}\n", & &1["k"]}
+          ] do
+        assert {:ok, %{entry: %{"frontmatter" => read}}} = fm(frontmatter)
+        assert {:ok, expected} = YamlElixir.read_from_string(frontmatter, [])
+        assert read == expected
+        assert keys_of.(read)[key] == "x"
+      end
+    end
+
     # Extra cases that pin a rule that a written case does not reach.
 
     test "a comment line does not end a flow region, and a block region ends at a comment line at its column" do
