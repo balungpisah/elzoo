@@ -1,6 +1,7 @@
 defmodule Elzoo.SkillTest do
   use ExUnit.Case, async: true
 
+  alias Elzoo.RecipePackage
   alias Elzoo.Skill
 
   @fm "name: s\ndescription: d\n"
@@ -10,6 +11,94 @@ defmodule Elzoo.SkillTest do
   defp folder(extra \\ %{}), do: Map.put(extra, "SKILL.md", md(@fm, "body\n"))
   defp read(files), do: Skill.read("s", "1", [], files)
   defp read_md(skill_md), do: read(%{"SKILL.md" => skill_md})
+
+  # The package of the checked example of `domain/recipe-package` (copied), with
+  # `entries` as its skills and the identity computed as that example does.
+  defp package(entries) do
+    typed = fn direction ->
+      %{
+        "port" => %{
+          "id" => direction,
+          "direction" => direction,
+          "schema_id" => "value",
+          "schema_version" => 1
+        },
+        "schema" => %{"type" => "object"}
+      }
+    end
+
+    package = %{
+      "format_version" => 1,
+      "name" => "example",
+      "version" => "opaque-revision",
+      "needs" => [],
+      "permissions" => [],
+      "skills" => entries,
+      "graph" => %{
+        "version" => 1,
+        "id" => "graph",
+        "revision" => 1,
+        "root" => "main",
+        "callables" => [
+          %{
+            "name" => "main",
+            "kind" => "graph",
+            "input" => typed.("input"),
+            "output" => typed.("output"),
+            "nodes" => [],
+            "links" => [],
+            "input_slots" => []
+          }
+        ],
+        "bindings" => [],
+        "rules" => []
+      },
+      "settings" => %{
+        "version" => 1,
+        "id" => "independent-settings",
+        "revision" => 1,
+        "port" => typed.("input")["port"],
+        "schema" => %{"type" => "object", "properties" => %{}, "additionalProperties" => false},
+        "secrets" => []
+      }
+    }
+
+    Map.put(package, "identity", identity(package))
+  end
+
+  # A package that holds bytes that are not UTF-8 has no canonical JSON; the
+  # package check refuses it as invalid_shape before it looks at the identity,
+  # so a zero digest stands for it.
+  defp identity(package) do
+    digest = :crypto.hash(:sha256, canonical(package))
+    "recipe-package-v1:sha256:" <> Base.encode16(digest, case: :lower)
+  rescue
+    Jason.EncodeError -> "recipe-package-v1:sha256:" <> String.duplicate("0", 64)
+  end
+
+  defp canonical(value) when is_map(value) do
+    fields = for {key, child} <- Enum.sort(value), do: [Jason.encode!(key), ?:, canonical(child)]
+    [?{, Enum.intersperse(fields, ?,), ?}]
+  end
+
+  defp canonical(value) when is_list(value),
+    do: [?[, Enum.intersperse(Enum.map(value, &canonical/1), ?,), ?]]
+
+  defp canonical(value), do: Jason.encode!(value)
+
+  defp decode(entries), do: RecipePackage.decode(package(entries))
+
+  # The entry of `read/4` for one literal folder; `read/4` itself must succeed.
+  defp entry!(name, frontmatter, body \\ "body\n") do
+    assert {:ok, %{entry: entry}} =
+             Skill.read(name, "1", [], %{"SKILL.md" => md(frontmatter, body)})
+
+    entry
+  end
+
+  # The result of the package check for a skill that `read/4` accepted.
+  defp checked(name, frontmatter, body \\ "body\n"),
+    do: decode([entry!(name, frontmatter, body)])
 
   # A frontmatter of exactly `size` bytes that holds one long plain value.
   defp frontmatter_of(size, eol) do
@@ -433,6 +522,90 @@ defmodule Elzoo.SkillTest do
       assert {:ok, _} = fm("\"a\\x41\": 1\naA: 2\n")
       assert {:ok, _} = fm(@p <> "k: x # a: 1\na: 2\n")
       assert {:error, :not_a_map} = fm("- a: 1\n- a: 2\n")
+    end
+  end
+
+  describe "package_checks_fields" do
+    test "an entry of read/4 passes the package check and encode/1 gives the package back" do
+      entry = entry!("s", @fm)
+      assert {:ok, checked} = decode([entry])
+      assert RecipePackage.encode(checked) == package([entry])
+
+      files = %{
+        "SKILL.md" =>
+          md(
+            "name: other-skill\ndescription: Use it\nlicense: MIT\ncompatibility: any\n" <>
+              "metadata:\n  k: v\nallowed-tools: a b\n",
+            "text\n"
+          )
+      }
+
+      assert {:ok, %{entry: other}} = Skill.read("other-skill", "v2", ["t1", "t2"], files)
+      assert {:ok, checked} = decode([entry, other])
+      assert RecipePackage.encode(checked) == package([entry, other])
+    end
+
+    test "a frontmatter name that differs from the folder name is invalid_skill" do
+      assert {:error, :invalid_skill} = checked("s", "name: t\ndescription: d\n")
+      assert {:error, :invalid_skill} = checked("s", "name: S\ndescription: d\n")
+    end
+
+    test "each name rule, with the same text as folder name and frontmatter name" do
+      for name <- ["Abc", "-a", "a-", "a--b"] do
+        assert {:error, :invalid_skill} = checked(name, "name: #{name}\ndescription: d\n"),
+               inspect(name)
+      end
+    end
+
+    test "a missing and an empty description are invalid_skill" do
+      assert {:error, :invalid_skill} = checked("s", "name: s\n")
+      assert {:error, :invalid_skill} = checked("s", "name: s\ndescription: \"\"\n")
+    end
+
+    test "an unknown field is invalid_skill" do
+      assert {:error, :invalid_skill} = checked("s", @fm <> "extra: x\n")
+    end
+
+    test "a description that YAML typed as true, 12 or null is invalid_skill" do
+      for value <- ["true", "12", "null"] do
+        assert {:error, :invalid_skill} = checked("s", "name: s\ndescription: " <> value <> "\n"),
+               value
+      end
+    end
+
+    test "1.5 as a metadata value is invalid_skill" do
+      assert {:error, :invalid_skill} = checked("s", @fm <> "metadata:\n  k: 1.5\n")
+    end
+
+    test "a value that is not UTF-8 and a key that is not a string are invalid_shape" do
+      entry = entry!("s", "name: s\ndescription: !!binary //4=\n")
+      assert entry["frontmatter"]["description"] == <<255, 254>>
+      assert {:error, :invalid_shape} = decode([entry])
+
+      entry = entry!("s", @fm <> "1: x\n")
+      assert %{1 => "x"} = entry["frontmatter"]
+      assert {:error, :invalid_shape} = decode([entry])
+    end
+
+    test "a 65-byte name is too_large and 64 bytes pass" do
+      name = String.duplicate("a", 65)
+      assert {:error, :too_large} = checked(name, "name: #{name}\ndescription: d\n")
+
+      name = String.duplicate("a", 64)
+      assert {:ok, _} = checked(name, "name: #{name}\ndescription: d\n")
+    end
+
+    test "a description of 1,025 code points is too_large and 1,024 pass, counted as code points" do
+      assert {:ok, _} =
+               checked("s", "name: s\ndescription: " <> String.duplicate("é", 1_024) <> "\n")
+
+      assert {:error, :too_large} =
+               checked("s", "name: s\ndescription: " <> String.duplicate("é", 1_025) <> "\n")
+    end
+
+    test "a body of 16,385 bytes is too_large and 16,384 pass" do
+      assert {:ok, _} = checked("s", @fm, String.duplicate("b", 16_384))
+      assert {:error, :too_large} = checked("s", @fm, String.duplicate("b", 16_385))
     end
   end
 end
