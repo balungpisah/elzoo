@@ -32,7 +32,10 @@ defmodule Elzoo.LuaSandboxPolicyTest do
              %{"name" => "object", "version" => 1},
              %{"name" => "text_split", "version" => 1},
              %{"name" => "text_trim", "version" => 1},
-             %{"name" => "text_utf8_len", "version" => 1}
+             %{"name" => "text_utf8_len", "version" => 1},
+             %{"name" => "time_iso8601", "version" => 1},
+             %{"name" => "time_parts", "version" => 1},
+             %{"name" => "time_unix_ms", "version" => 1}
            ]
 
     assert descriptor["bindings"] == %{}

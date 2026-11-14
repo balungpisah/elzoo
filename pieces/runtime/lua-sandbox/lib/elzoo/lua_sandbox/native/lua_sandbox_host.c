@@ -1112,6 +1112,121 @@ static int h_text_utf8_len(lua_State *L) {
   return 1;
 }
 
+/* Time helpers: integer-only proleptic Gregorian calendar (days from civil, civil
+** from days), UTC. No time.h function, no clock, no locale, no zone. */
+#define TIME_MAX_MS 253402300799999LL
+
+static long long days_from_civil(long long y, long long m, long long d) {
+  long long era, yoe, doy, doe;
+  if (m <= 2) y -= 1;
+  era = (y >= 0 ? y : y - 399) / 400;
+  yoe = y - era * 400;
+  doy = (153 * (m > 2 ? m - 3 : m + 9) + 2) / 5 + d - 1;
+  doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+  return era * 146097 + doe - 719468;
+}
+
+static void civil_from_days(long long z, long long *y, long long *m, long long *d) {
+  long long era, doe, yoe, doy, mp;
+  z += 719468;
+  era = (z >= 0 ? z : z - 146096) / 146097;
+  doe = z - era * 146097;
+  yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+  doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+  mp = (5 * doy + 2) / 153;
+  *d = doy - (153 * mp + 2) / 5 + 1;
+  *m = mp < 10 ? mp + 3 : mp - 9;
+  *y = yoe + era * 400 + (*m <= 2 ? 1 : 0);
+}
+
+static int is_leap_year(long long y) { return (y % 4 == 0 && y % 100 != 0) || y % 400 == 0; }
+
+/* The one argument of time_parts and time_iso8601: a Lua integer in 0..TIME_MAX_MS.
+** A float (also 1.0), a string, nil and a table are not integers (no coercion). */
+static int time_arg(lua_State *L, long long *ms) {
+  long long v;
+  if (lua_gettop(L) != 1 || lua_type(L, 1) != LUA_TNUMBER || !lua_isinteger(L, 1)) return 0;
+  v = (long long)lua_tointeger(L, 1);
+  if (v < 0 || v > TIME_MAX_MS) return 0;
+  *ms = v;
+  return 1;
+}
+
+/* The seven calendar fields of a millisecond value, and the weekday (1 = Monday). */
+static void time_split(long long ms, long long f[8]) {
+  long long days = ms / 86400000LL, rem = ms % 86400000LL;
+  civil_from_days(days, &f[0], &f[1], &f[2]);
+  f[3] = rem / 3600000LL;
+  f[4] = rem % 3600000LL / 60000LL;
+  f[5] = rem % 60000LL / 1000LL;
+  f[6] = rem % 1000LL;
+  f[7] = (days + 3) % 7 + 1; /* 1970-01-01 was a Thursday (4) */
+}
+
+static const char *const time_fields[8] = {"year", "month", "day", "hour", "minute", "second", "millisecond", "weekday"};
+
+/* helpers.time_parts(unix_ms): a table marked as an object with the eight integer fields. */
+static int h_time_parts(lua_State *L) {
+  long long ms, f[8];
+  int i;
+  if (!time_arg(L, &ms)) return luaL_error(L, "helpers.time_parts: expected an integer in range");
+  charge(L, 8);
+  time_split(ms, f);
+  luaL_checkstack(L, 3, "helpers");
+  lua_createtable(L, 0, 8);
+  for (i = 0; i < 8; i++) {
+    lua_pushinteger(L, (lua_Integer)f[i]);
+    lua_setfield(L, -2, time_fields[i]);
+  }
+  mark_kind(L, 2);
+  return 1;
+}
+
+/* helpers.time_unix_ms(parts): reads exactly the seven fields, with raw access. */
+static int h_time_unix_ms(lua_State *L) {
+  long long f[7], dim;
+  int i;
+  static const int mdays[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+  if (lua_gettop(L) != 1 || lua_type(L, 1) != LUA_TTABLE)
+    return luaL_error(L, "helpers.time_unix_ms: expected the parts of a real date and time");
+  charge(L, 7);
+  luaL_checkstack(L, 2, "helpers");
+  for (i = 0; i < 7; i++) {
+    lua_pushstring(L, time_fields[i]);
+    lua_rawget(L, 1);
+    if (lua_type(L, -1) != LUA_TNUMBER || !lua_isinteger(L, -1))
+      return luaL_error(L, "helpers.time_unix_ms: expected the parts of a real date and time");
+    f[i] = (long long)lua_tointeger(L, -1);
+    lua_pop(L, 1);
+  }
+  dim = (f[1] >= 1 && f[1] <= 12) ? mdays[f[1] - 1] + (f[1] == 2 && is_leap_year(f[0]) ? 1 : 0) : 0;
+  if (f[0] < 1970 || f[0] > 9999 || f[1] < 1 || f[1] > 12 || f[2] < 1 || f[2] > dim || f[3] < 0 || f[3] > 23 ||
+      f[4] < 0 || f[4] > 59 || f[5] < 0 || f[5] > 59 || f[6] < 0 || f[6] > 999)
+    return luaL_error(L, "helpers.time_unix_ms: expected the parts of a real date and time");
+  lua_pushinteger(L, (lua_Integer)(days_from_civil(f[0], f[1], f[2]) * 86400000LL + f[3] * 3600000LL +
+                                   f[4] * 60000LL + f[5] * 1000LL + f[6]));
+  return 1;
+}
+
+/* helpers.time_iso8601(unix_ms): YYYY-MM-DDTHH:MM:SS.mmmZ (24 bytes). */
+static int h_time_iso8601(lua_State *L) {
+  long long ms, f[8];
+  char out[32];
+  int n;
+  if (!time_arg(L, &ms)) return luaL_error(L, "helpers.time_iso8601: expected an integer in range");
+  charge(L, 24);
+  if (24 > G.value_bytes) {
+    set_sticky(STOP_VALUE);
+    return stop_raise(L);
+  }
+  time_split(ms, f);
+  n = snprintf(out, sizeof out, "%04d-%02d-%02dT%02d:%02d:%02d.%03dZ", (int)f[0], (int)f[1], (int)f[2], (int)f[3],
+               (int)f[4], (int)f[5], (int)f[6]);
+  if (n != 24) return luaL_error(L, "helpers.time_iso8601: expected an integer in range");
+  lua_pushlstring(L, out, 24);
+  return 1;
+}
+
 static int w_tostring(lua_State *L) {
   int t;
   luaL_checkany(L, 1);
@@ -1398,6 +1513,12 @@ static int init_env(lua_State *L) {
   lua_setfield(L, -2, "text_trim");
   lua_pushcfunction(L, h_text_utf8_len);
   lua_setfield(L, -2, "text_utf8_len");
+  lua_pushcfunction(L, h_time_iso8601);
+  lua_setfield(L, -2, "time_iso8601");
+  lua_pushcfunction(L, h_time_parts);
+  lua_setfield(L, -2, "time_parts");
+  lua_pushcfunction(L, h_time_unix_ms);
+  lua_setfield(L, -2, "time_unix_ms");
   set_unlisted_meta(L, lua_gettop(L), mt);
   lua_setfield(L, env, "helpers");
   lua_settop(L, mt);

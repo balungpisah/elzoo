@@ -44,7 +44,10 @@ defmodule Elzoo.LuaSandboxSurfaceTest do
     "object" => "function",
     "text_split" => "function",
     "text_trim" => "function",
-    "text_utf8_len" => "function"
+    "text_utf8_len" => "function",
+    "time_iso8601" => "function",
+    "time_parts" => "function",
+    "time_unix_ms" => "function"
   }
 
   # name => type of the value

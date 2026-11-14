@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule Elzoo.LuaSandboxHelpersTest do
   @moduledoc """
-  Groups `policy_v2_identity`, `helpers_surface`, `text_helpers`, `json_round_trip` and
-  `helpers_are_bounded` (the text and JSON scenarios so far) of the helper set (policy version 2).
+  Groups `policy_v2_identity`, `helpers_surface`, `text_helpers`, `json_round_trip`,
+  `helpers_are_bounded` and `time_values` of the helper set (policy version 2).
 
   The helper names of the contract are one module attribute (`@helpers`); each helper that
   the host gains is added there and the descriptor, the audit and the probes must agree.
@@ -21,8 +21,8 @@ defmodule Elzoo.LuaSandboxHelpersTest do
 
   @moduletag timeout: 180_000
 
-  # The helper names of the contract; each later helper is added here.
-  @helpers ~w(json_decode json_encode null object text_split text_trim text_utf8_len)
+  # The helper names of the contract.
+  @helpers ~w(json_decode json_encode null object text_split text_trim text_utf8_len time_iso8601 time_parts time_unix_ms)
 
   @valid "return function() return 1 end"
   @mismatch %{"status" => "refused", "reason" => "policy_mismatch"}
@@ -67,6 +67,10 @@ defmodule Elzoo.LuaSandboxHelpersTest do
 
       assert identity =~ ~r/\Apolicy-v2:sha256:[0-9a-f]{64}\z/
       assert identity == Descriptor.identity(descriptor)
+
+      # the exact ten names, as a literal, sorted
+      assert for(%{"name" => name} <- descriptor["helpers"], do: name) ==
+               ~w(json_decode json_encode null object text_split text_trim text_utf8_len time_iso8601 time_parts time_unix_ms)
     end
 
     test "a v1 identity and an identity with one helper removed are policy_mismatch", %{
@@ -1329,11 +1333,386 @@ defmodule Elzoo.LuaSandboxHelpersTest do
     end
   end
 
+  describe "time_values" do
+    @max_ms 253_402_300_799_999
+    @parts_error "helpers.time_parts: expected an integer in range"
+    @iso_error "helpers.time_iso8601: expected an integer in range"
+    @unix_error "helpers.time_unix_ms: expected the parts of a real date and time"
+    @fields ~w(year month day hour minute second millisecond)
+
+    # {unix_ms, {year, month, day, hour, minute, second, millisecond, weekday}, iso text}
+    @known [
+      {0, {1970, 1, 1, 0, 0, 0, 0, 4}, "1970-01-01T00:00:00.000Z"},
+      {946_684_799_999, {1999, 12, 31, 23, 59, 59, 999, 5}, "1999-12-31T23:59:59.999Z"},
+      {946_684_800_000, {2000, 1, 1, 0, 0, 0, 0, 6}, "2000-01-01T00:00:00.000Z"},
+      {951_782_400_000, {2000, 2, 29, 0, 0, 0, 0, 2}, "2000-02-29T00:00:00.000Z"},
+      {1_704_067_200_000, {2024, 1, 1, 0, 0, 0, 0, 1}, "2024-01-01T00:00:00.000Z"},
+      {4_107_456_000_000, {2100, 2, 28, 0, 0, 0, 0, 7}, "2100-02-28T00:00:00.000Z"},
+      {4_107_542_400_000, {2100, 3, 1, 0, 0, 0, 0, 1}, "2100-03-01T00:00:00.000Z"},
+      {@max_ms, {9999, 12, 31, 23, 59, 59, 999, 5}, "9999-12-31T23:59:59.999Z"}
+    ]
+
+    @valid_parts %{
+      "year" => 2000,
+      "month" => 2,
+      "day" => 29,
+      "hour" => 0,
+      "minute" => 0,
+      "second" => 0,
+      "millisecond" => 0
+    }
+
+    defp lua_value(value) when is_integer(value), do: Integer.to_string(value)
+    defp lua_value(value) when is_float(value), do: Float.to_string(value)
+    defp lua_value(value) when is_binary(value), do: inspect(value)
+    defp lua_value(raw) when is_atom(raw), do: Atom.to_string(raw)
+
+    defp lua_table(map) do
+      "{" <> Enum.map_join(map, ", ", fn {k, v} -> "#{k} = #{lua_value(v)}" end) <> "}"
+    end
+
+    defp parts_map({year, month, day, hour, minute, second, millisecond, weekday}) do
+      %{
+        "year" => year,
+        "month" => month,
+        "day" => day,
+        "hour" => hour,
+        "minute" => minute,
+        "second" => second,
+        "millisecond" => millisecond,
+        "weekday" => weekday
+      }
+    end
+
+    test "time_parts, time_unix_ms and time_iso8601 of the boundary values", %{executable: exe} do
+      for {ms, parts, iso} <- @known do
+        expected = parts_map(parts)
+        assert {:ok, %{value: ^expected}} = run(exe, "return helpers.time_parts(#{ms})"), "#{ms}"
+
+        assert {:ok, %{value: ^ms}} =
+                 run(exe, "return helpers.time_unix_ms(#{lua_table(expected)})"),
+               "#{ms}"
+
+        assert {:ok, %{value: ^iso}} = run(exe, "return helpers.time_iso8601(#{ms})"), "#{ms}"
+      end
+    end
+
+    test "the weekday of five known dates", %{executable: exe} do
+      for {ms, weekday} <- [
+            {0, 4},
+            {946_684_800_000, 6},
+            {951_782_400_000, 2},
+            {1_704_067_200_000, 1},
+            {@max_ms, 5}
+          ] do
+        assert {:ok, %{value: ^weekday}} = run(exe, "return helpers.time_parts(#{ms}).weekday"),
+               "#{ms}"
+      end
+    end
+
+    test "time_parts is an object table with exactly eight integer fields", %{executable: exe} do
+      source = ~S"""
+      local p = helpers.time_parts(86400000 * 365 + 5)
+      local n, ints = 0, true
+      for _, name in ipairs({"year", "month", "day", "hour", "minute", "second", "millisecond", "weekday"}) do
+        n = n + 1
+        ints = ints and math.type(p[name]) == "integer"
+      end
+      return {n, ints, helpers.json_encode(helpers.time_parts(0))}
+      """
+
+      assert {:ok,
+              %{
+                value: [
+                  8,
+                  true,
+                  ~s({"day":1,"hour":0,"millisecond":0,"minute":0,"month":1,"second":0,"weekday":4,"year":1970})
+                ]
+              }} = run(exe, source)
+
+      # an object, also when it is empty of nothing: it encodes as an object
+      assert {:ok, %{value: "{" <> _}} =
+               run(exe, "return helpers.json_encode(helpers.time_parts(1))")
+    end
+
+    test "an independent calendar (Elixir DateTime) agrees on 400 spread values", %{executable: exe} do
+      values = for k <- 0..399, do: k * 633_505_751_999 + rem(k * 7_919_113, 86_400_000)
+      assert Enum.all?(values, &(&1 in 0..@max_ms))
+
+      source =
+        "return function(list) local r = {} for i = 1, #list do r[i] = helpers.time_parts(list[i]) end return r end"
+
+      assert {:ok, %{value: results}} = Helper.run(exe, source, values, %{steps: 1_000_000})
+
+      for {ms, result} <- Enum.zip(values, results) do
+        dt = DateTime.from_unix!(ms, :millisecond)
+
+        assert result == %{
+                 "year" => dt.year,
+                 "month" => dt.month,
+                 "day" => dt.day,
+                 "hour" => dt.hour,
+                 "minute" => dt.minute,
+                 "second" => dt.second,
+                 "millisecond" => elem(dt.microsecond, 0) |> div(1000),
+                 "weekday" => Date.day_of_week(dt)
+               },
+               "#{ms}"
+
+        assert {:ok, %{value: iso}} = run(exe, "return helpers.time_iso8601(#{ms})")
+        assert iso == DateTime.to_iso8601(dt), "#{ms}"
+      end
+    end
+
+    test "the two are inverse for 10,000 values spread over the range", %{executable: exe} do
+      source = ~S"""
+      local bad = 0
+      for k = 0, 9999 do
+        local v = k * 25340230079 + k * 7919
+        if helpers.time_unix_ms(helpers.time_parts(v)) ~= v then bad = bad + 1 end
+      end
+      local top = 253402300799999
+      if helpers.time_unix_ms(helpers.time_parts(top)) ~= top then bad = bad + 1 end
+      return bad == 0
+      """
+
+      assert {:ok, %{value: true}} =
+               Helper.run(exe, Helper.function_source(source), nil, %{
+                 steps: 1_000_000
+               })
+    end
+
+    test "a value outside the range, a fraction, a string or no integer is an error", %{
+      executable: exe
+    } do
+      args = [
+        "-1",
+        "253402300800000",
+        "math.maxinteger",
+        "math.mininteger",
+        "0.5",
+        "1.0",
+        ~S|"0"|,
+        "nil",
+        "",
+        "{}",
+        "true",
+        "0, 0",
+        "helpers.null",
+        "math.huge"
+      ]
+
+      for {name, message} <- [{"time_parts", @parts_error}, {"time_iso8601", @iso_error}] do
+        entries =
+          Enum.map_join(
+            args,
+            ", ",
+            &"(select(2, pcall(helpers.#{name}#{if &1 == "", do: "", else: ", " <> &1})))"
+          )
+
+        assert {:ok, %{value: values}} = run(exe, "return {#{entries}}")
+        assert values == List.duplicate(message, length(args)), name
+
+        for arg <- args do
+          assert run(exe, "return helpers.#{name}(#{arg})") == {:refused, :lua_error},
+                 "#{name} #{arg}"
+        end
+      end
+    end
+
+    test "time_unix_ms: each wrong field or date is an error that pcall catches", %{executable: exe} do
+      missing = for f <- @fields, do: {"missing #{f}", Map.delete(@valid_parts, f)}
+
+      wrong =
+        for {label, field, value} <- [
+              {"float", "year", 2000.0},
+              {"float", "month", 2.0},
+              {"float", "day", 1.5},
+              {"float", "hour", 1.0},
+              {"float", "minute", 0.5},
+              {"float", "second", 1.0},
+              {"float", "millisecond", 0.5},
+              {"string", "year", "2000"},
+              {"string", "month", "2"},
+              {"string", "millisecond", "0"},
+              {"year", "year", 1969},
+              {"year", "year", 10_000},
+              {"year", "year", -2000},
+              {"month", "month", 0},
+              {"month", "month", 13},
+              {"day", "day", 0},
+              {"day", "day", 32},
+              {"hour", "hour", 24},
+              {"hour", "hour", -1},
+              {"minute", "minute", 60},
+              {"second", "second", 60},
+              {"millisecond", "millisecond", 1000},
+              {"millisecond", "millisecond", -1}
+            ],
+            do: {"#{label} #{field} #{value}", Map.put(@valid_parts, field, value)}
+
+      dates =
+        for {label, y, m, d} <- [
+              {"30 February", 2000, 2, 30},
+              {"29 February 2100", 2100, 2, 29},
+              {"29 February 2001", 2001, 2, 29},
+              {"31 April", 2000, 4, 31},
+              {"31 June", 2000, 6, 31},
+              {"31 September", 2000, 9, 31},
+              {"31 November", 2000, 11, 31}
+            ],
+            do: {label, Map.merge(@valid_parts, %{"year" => y, "month" => m, "day" => d})}
+
+      for {label, parts} <- missing ++ wrong ++ dates do
+        assert {:ok, %{value: @unix_error}} =
+                 run(exe, "return select(2, pcall(helpers.time_unix_ms, #{lua_table(parts)}))"),
+               label
+
+        assert run(exe, "return helpers.time_unix_ms(#{lua_table(parts)})") ==
+                 {:refused, :lua_error},
+               label
+      end
+
+      # the same date, valid
+      assert {:ok, %{value: 951_782_400_000}} =
+               run(exe, "return helpers.time_unix_ms(#{lua_table(@valid_parts)})")
+    end
+
+    test "time_unix_ms: a non-table argument or the wrong count is an error", %{executable: exe} do
+      for arg <- [
+            "1",
+            ~S|"2000"|,
+            "nil",
+            "",
+            "true",
+            "helpers.null",
+            "helpers.time_parts",
+            "{}, {}"
+          ] do
+        call = "helpers.time_unix_ms(#{arg})"
+
+        assert {:ok, %{value: @unix_error}} =
+                 run(
+                   exe,
+                   "return select(2, pcall(helpers.time_unix_ms#{if arg == "", do: "", else: ", " <> arg}))"
+                 ),
+               "#{arg}"
+
+        assert run(exe, "return " <> call) == {:refused, :lua_error}, "#{arg}"
+      end
+    end
+
+    test "time_unix_ms reads only the seven fields; weekday and extra fields are ignored", %{
+      executable: exe
+    } do
+      for extra <- [%{"weekday" => 99}, %{"extra" => "x"}, %{"weekday" => "no", "extra" => 1.5}] do
+        parts = lua_table(Map.merge(@valid_parts, extra))
+
+        assert {:ok, %{value: 951_782_400_000}} = run(exe, "return helpers.time_unix_ms(#{parts})"),
+               inspect(extra)
+      end
+    end
+
+    test "time_unix_ms of helpers or a library table is an error, not unlisted_name", %{
+      executable: exe
+    } do
+      for table <- ["helpers", "math", "string", "table"] do
+        assert {:ok, %{value: @unix_error}} =
+                 run(exe, "return select(2, pcall(helpers.time_unix_ms, #{table}))"),
+               table
+
+        assert run(exe, "return helpers.time_unix_ms(#{table})") == {:refused, :lua_error}, table
+      end
+    end
+
+    test "no helper result changes between two runs one second apart", %{executable: exe} do
+      source = ~S"""
+      return {
+        helpers.json_decode('{"a":[1,2,{"b":null}],"c":"d"}'),
+        helpers.json_encode({3, 2, 1, {x = "y"}}),
+        helpers.null,
+        helpers.json_encode(helpers.object()),
+        helpers.text_split("a,b,,c", ","),
+        helpers.text_trim("  \t x y \n"),
+        helpers.text_utf8_len("aé€😀"),
+        helpers.time_parts(951782400000),
+        helpers.time_unix_ms({year = 2100, month = 3, day = 1, hour = 0, minute = 0, second = 0, millisecond = 0}),
+        helpers.time_iso8601(253402300799999)
+      }
+      """
+
+      first = run(exe, source)
+
+      assert {:ok,
+              %{value: [_, _, nil, "{}", ["a", "b", "", "c"], "x y", 4, %{}, 4_107_542_400_000, _]}} =
+               first
+
+      Process.sleep(1_000)
+      assert run(exe, source) == first
+    end
+
+    test "the step cost of each time helper is a constant, exact on each side of its limit", %{
+      executable: exe
+    } do
+      # the same instruction shape on both sides, so the difference is the charge alone
+      base = min_steps(exe, ~S|type(helpers.text_utf8_len(x)) == "number"|, "")
+
+      cases = [
+        {"time_parts", ~S|type(helpers.time_parts(x)) == "table"|, 0, 8},
+        {"time_iso8601", ~S|type(helpers.time_iso8601(x)) == "string"|, 0, 24},
+        {"time_unix_ms", ~S|type(helpers.time_unix_ms(x)) == "number"|, @valid_parts, 7}
+      ]
+
+      for {name, call, input, charge} <- cases do
+        cost = min_steps(exe, call, input)
+        assert {name, cost - base} == {name, charge}
+
+        source = "return function(x) return #{call} end"
+        assert {:ok, %{value: true}} = Helper.run(exe, source, input, %{steps: cost}), name
+        assert Helper.run(exe, source, input, %{steps: cost - 1}) == {:refused, :steps}, name
+      end
+    end
+
+    test "1,000 calls of each time helper end under a steps limit that 1,000 type calls need", %{
+      executable: exe
+    } do
+      loop = fn call -> "for i = 1, 1000 do local _ = #{call} end return true" end
+      limit = fn call -> bisect_source(exe, Helper.function_source(loop.(call)), 1, 1_000_000) end
+
+      type_cost = limit.("type(i)")
+      assert type_cost > 0
+
+      # each call charges a constant: the limit grows by 1,000 times the charge
+      assert limit.("helpers.time_parts(i)") - type_cost >= 8_000
+      assert limit.("helpers.time_iso8601(i)") - type_cost >= 24_000
+    end
+
+    test "time_iso8601 under a value_bytes limit of 23 is value_size; 24 passes", %{executable: exe} do
+      # the length is taken inside the run, so only the helper can end it with value_size
+      source = Helper.function_source("return #helpers.time_iso8601(0)")
+      assert Helper.run(exe, source, nil, %{value_bytes: 23}) == {:refused, :value_size}
+      assert {:ok, %{value: 24}} = Helper.run(exe, source, nil, %{value_bytes: 24})
+
+      # as a result the text has two quotes more
+      result = Helper.function_source("return helpers.time_iso8601(0)")
+
+      assert {:ok, %{value: "1970-01-01T00:00:00.000Z"}} =
+               Helper.run(exe, result, nil, %{value_bytes: 26})
+
+      # a pcall around it does not continue
+      caught = Helper.function_source("local ok = pcall(helpers.time_iso8601, 0) return 'after'")
+      assert Helper.run(exe, caught, nil, %{value_bytes: 23}) == {:refused, :value_size}
+    end
+  end
+
   # the least `steps` limit under which `return function(x) return <call> end` finishes
   defp min_steps(exe, call, input) do
     source = "return function(x) return " <> call <> " end"
     bisect(exe, source, input, 1, 1_000_000)
   end
+
+  # the least `steps` limit under which the source (a chunk that returns a function) finishes
+  defp bisect_source(exe, source, low, high), do: bisect(exe, source, nil, low, high)
 
   defp bisect(_exe, _source, _input, low, high) when low >= high, do: low
 
