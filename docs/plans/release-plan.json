@@ -6862,11 +6862,11 @@
     {
       "id": "assembly/run-engine",
       "job": "ELZ-127",
-      "note": "One recorded pure pattern cycle and ordinary dispatcher per host Unit/Run: shared sealed request charge, schema/identity/committed host gate/Budget/authority/Approval checks, occurrence-first settlement, durable owner composition and explicit fail-stop recovery; charge exhaustion stops generation while retaining prior within-cap obligations, without new work or resend permission.",
+      "note": "One recorded pure pattern cycle and ordinary dispatcher per host Unit/Run: shared sealed request charge, schema/identity/committed host gate/Budget/authority/Approval checks, occurrence-first settlement, a nested callable's first admitted finish given to its parent, durable owner composition and explicit fail-stop recovery; charge exhaustion stops generation while retaining prior within-cap obligations, without new work or resend permission.",
       "baseline_status": "not in baseline (new row, RC-50)",
       "disposition": "ready-contract",
       "manifest": "pieces/assembly/run-engine/piece.json",
-      "manifest_sha256": "70a865431b5b26ae8a5cb7e0174f33f9cd37c0e786ed62c2f1b22dccfe0e657d",
+      "manifest_sha256": "1445531a06f9c96df406d4c2f6f988057ac2aec469e17b43bb3629356562c136",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
@@ -7124,10 +7124,12 @@
     {
       "id": "workflow/version-pin",
       "job": "ELZ-170",
-      "note": "Pure rule: a Run keeps the recipe version and the tool source set of its start; only one explicit input changes the version, and nothing changes the source set.",
+      "note": "Pure rule of the recipe version and the tool sources that one Run keeps: the pin captures a package identity and the id, kind and callable of each source at Run start, an explicit change-version input is the only input that changes the version, a published version, a settings change and a listing change nothing, a listing of an outside source is refused, and no input adds a source. No I/O, clock, process, storage or version check.",
       "baseline_status": "not in baseline (new row, RC-65)",
-      "disposition": "published-task; implementation pending",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/workflow/version-pin/piece.json",
+      "manifest_sha256": "f3a7ad8ad832bc5e2ebbe544fa64bf407702f11fbb662702e44b7ee80750d7bc"
     },
     {
       "id": "runtime/recipe-test",
