@@ -7895,7 +7895,7 @@
       "baseline_status": "not in baseline (new row, RC-57)",
       "disposition": "ready-contract",
       "manifest": "pieces/delivery/provider-stream/piece.json",
-      "manifest_sha256": "4bddebd9d18ad7774de2401e4b43c9d95abc51a51404295a137997d1237c67f7",
+      "manifest_sha256": "3c5c1c90b2168969b5d1a33f1cc73a8771168cda1248081d98c153b946881433",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
