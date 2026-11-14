@@ -338,15 +338,16 @@ defmodule Elzoo.Skill do
     line in ["---", "..."] or String.starts_with?(line, ["--- ", "---\t", "... ", "...\t"])
   end
 
-  # `region` is nil or `{:block | :flow, opening_column}`; `seen` holds the
-  # top-level keys of the earlier lines.
+  # `region` is nil, `{:block, opening_column}` or `{:flow, opening_column,
+  # state}`; `seen` holds the top-level keys of the earlier lines.
   defp scan_lines([], _region, _seen, text), do: {:ok, text}
 
   defp scan_lines([line | lines], region, seen, text) do
     {indent, rest} = drop_spaces(line)
 
     if region_line?(region, indent, rest) do
-      with :ok <- scan_region_line(region, line), do: scan_lines(lines, region, seen, text)
+      with {:ok, region} <- scan_region_line(region, line),
+           do: scan_lines(lines, region, seen, text)
     else
       case scan_line(indent, rest, seen) do
         {:ok, region, seen} -> scan_lines(lines, region, seen, text)
@@ -356,22 +357,105 @@ defmodule Elzoo.Skill do
   end
 
   defp region_line?(nil, _indent, _rest), do: false
+  defp region_line?({:block, column}, indent, rest), do: blank?(rest) or indent > column
 
-  defp region_line?({kind, column}, indent, rest) do
-    blank?(rest) or indent > column or (kind == :flow and comment?(rest))
+  # An open flow collection goes on at any indentation, as the reader allows.
+  defp region_line?({:flow, column, {_last, _quote, depth}}, indent, rest),
+    do: depth > 0 or blank?(rest) or indent > column or comment?(rest)
+
+  # Block text is not scanned. A flow region is scanned by `flow_line/2`, which
+  # carries its state from line to line.
+  defp scan_region_line({:block, _column} = region, _line), do: {:ok, region}
+
+  defp scan_region_line({:flow, column, state}, line) do
+    with {:ok, state} <- flow_line(line, state), do: {:ok, {:flow, column, state}}
   end
 
-  # Block text is not scanned. In a flow region `<<` is an alias anywhere, and
-  # so is `&` or `*` first on the line or after `[`, `{`, `,` or `:` and spaces
-  # or tabs. Quotes are not tracked.
-  defp scan_region_line({:block, _column}, _line), do: :ok
-  defp scan_region_line({:flow, _column}, line), do: flow_text(line)
-
-  defp flow_text(text) do
-    if Regex.match?(~r/<<|\A[ \t]*[&*]|[\[{,:][ \t]*[&*]/, text),
-      do: {:error, :yaml_alias},
-      else: :ok
+  # The scan of the text of a flow region, outside quoted text. `state` is
+  # `{last, quote, depth}`: `last` is `:start` after `{`, `[`, `,`, `:` or the
+  # end of a tag (a token can start here, after any blanks and line breaks) and
+  # `:other` after anything else; `quote` is nil, `:single` or `:double`;
+  # `depth` is the number of open `[` and `{`. A `?` at a token start that a
+  # space, a tab or the line end follows is the explicit-key indicator and is
+  # `invalid_yaml`, before every alias of the line. A `&` or `*` at a token
+  # start, and a `<<` anywhere, is `yaml_alias`.
+  defp flow_line(line, state) do
+    case flow_bytes(line, state, true, String.contains?(line, "<<")) do
+      {:ok, state, false} -> {:ok, state}
+      {:ok, _state, true} -> {:error, :yaml_alias}
+      {:error, _reason} = error -> error
+    end
   end
+
+  defp flow_bytes("", state, _blank, alias?), do: {:ok, state, alias?}
+
+  defp flow_bytes(<<"''", rest::binary>>, {_last, :single, _depth} = state, _blank, alias?),
+    do: flow_bytes(rest, state, false, alias?)
+
+  defp flow_bytes(<<"'", rest::binary>>, {_last, :single, depth}, _blank, alias?),
+    do: flow_bytes(rest, {:other, nil, depth}, false, alias?)
+
+  defp flow_bytes(<<"\\", _, rest::binary>>, {_last, :double, _depth} = state, _blank, alias?),
+    do: flow_bytes(rest, state, false, alias?)
+
+  defp flow_bytes(<<"\"", rest::binary>>, {_last, :double, depth}, _blank, alias?),
+    do: flow_bytes(rest, {:other, nil, depth}, false, alias?)
+
+  defp flow_bytes(<<_, rest::binary>>, {_last, quote, _depth} = state, _blank, alias?)
+       when quote != nil,
+       do: flow_bytes(rest, state, false, alias?)
+
+  defp flow_bytes(<<c, rest::binary>>, state, _blank, alias?) when c in [?\s, ?\t],
+    do: flow_bytes(rest, state, true, alias?)
+
+  defp flow_bytes(<<"#", _::binary>>, state, true, alias?), do: {:ok, state, alias?}
+
+  defp flow_bytes(<<"?", c, _::binary>>, {:start, _quote, _depth}, _blank, _alias?)
+       when c in [?\s, ?\t],
+       do: {:error, :invalid_yaml}
+
+  defp flow_bytes("?", {:start, _quote, _depth}, _blank, _alias?), do: {:error, :invalid_yaml}
+
+  defp flow_bytes(<<c, rest::binary>>, {_last, _quote, depth}, _blank, alias?)
+       when c in [?{, ?[],
+       do: flow_bytes(rest, {:start, nil, depth + 1}, false, alias?)
+
+  defp flow_bytes(<<c, rest::binary>>, {_last, _quote, depth}, _blank, alias?)
+       when c in [?,, ?:],
+       do: flow_bytes(rest, {:start, nil, depth}, false, alias?)
+
+  defp flow_bytes(<<c, rest::binary>>, {_last, _quote, depth}, _blank, alias?)
+       when c in [?}, ?]],
+       do: flow_bytes(rest, {:other, nil, max(depth - 1, 0)}, false, alias?)
+
+  defp flow_bytes(<<c, rest::binary>>, {:start, _quote, depth}, _blank, _alias?)
+       when c in [?&, ?*],
+       do: flow_bytes(rest, {:other, nil, depth}, false, true)
+
+  defp flow_bytes(<<"'", rest::binary>>, {:start, _quote, depth}, _blank, alias?),
+    do: flow_bytes(rest, {:other, :single, depth}, false, alias?)
+
+  defp flow_bytes(<<"\"", rest::binary>>, {:start, _quote, depth}, _blank, alias?),
+    do: flow_bytes(rest, {:other, :double, depth}, false, alias?)
+
+  defp flow_bytes(<<"!<", rest::binary>>, {:start, _quote, _depth} = state, _blank, alias?) do
+    case :binary.split(rest, ">") do
+      [_tag, more] -> flow_bytes(more, state, false, alias?)
+      [_tag] -> {:ok, state, alias?}
+    end
+  end
+
+  defp flow_bytes(<<"!", rest::binary>>, {:start, _quote, _depth} = state, _blank, alias?),
+    do: flow_bytes(drop_tag(rest), state, false, alias?)
+
+  defp flow_bytes(<<_, rest::binary>>, {_last, _quote, depth}, _blank, alias?),
+    do: flow_bytes(rest, {:other, nil, depth}, false, alias?)
+
+  # The rest of the text after the end of a tag: a tag ends at a space, a tab,
+  # the line end or one of `,`, `[`, `]`, `{`, `}`.
+  defp drop_tag(<<c, _::binary>> = rest) when c in [?\s, ?\t, ?,, ?[, ?], ?{, ?}], do: rest
+  defp drop_tag(<<_, rest::binary>>), do: drop_tag(rest)
+  defp drop_tag(""), do: ""
 
   defp scan_line(indent, rest, seen) do
     cond do
@@ -393,9 +477,10 @@ defmodule Elzoo.Skill do
   defp blank?(text), do: Regex.match?(~r/\A[ \t]*\z/, text)
   defp comment?(text), do: String.starts_with?(text, "#")
 
-  # Drops each leading `- `, `? ` or `: ` with its spaces and a last lone `-`;
-  # `indicator` is the column of the last one dropped.
-  defp drop_indicators(<<c, " ", more::binary>>, column, _indicator) when c in [?-, ??, ?:] do
+  # Drops each leading `- ` or `: ` with its spaces and a last lone `-`;
+  # `indicator` is the column of the last one dropped. A `? ` is not dropped:
+  # `scan_node/5` refuses it.
+  defp drop_indicators(<<c, " ", more::binary>>, column, _indicator) when c in [?-, ?:] do
     {spaces, rest} = drop_spaces(more)
     drop_indicators(rest, column + 2 + spaces, column)
   end
@@ -423,6 +508,13 @@ defmodule Elzoo.Skill do
   defp scan_node(<<c, _::binary>>, _column, _region, _top?, _seen) when c in [?&, ?*],
     do: {:error, :yaml_alias}
 
+  # The explicit-key indicator: a `?` that a space, a tab or the end of the
+  # text follows, where a node can start.
+  defp scan_node(<<??, c, _::binary>>, _column, _region, _top?, _seen) when c in [?\s, ?\t],
+    do: {:error, :invalid_yaml}
+
+  defp scan_node("?", _column, _region, _top?, _seen), do: {:error, :invalid_yaml}
+
   defp scan_node("!" <> _ = text, column, region, top?, seen) do
     case :binary.split(text, [" ", "\t"]) do
       [_tag] ->
@@ -435,7 +527,8 @@ defmodule Elzoo.Skill do
   end
 
   defp scan_node(<<c, _::binary>> = text, _column, region, _top?, seen) when c in [?[, ?{] do
-    with :ok <- flow_text(text), do: {:ok, {:flow, region}, seen}
+    with {:ok, state} <- flow_line(text, {:start, nil, 0}),
+         do: {:ok, {:flow, region, state}, seen}
   end
 
   defp scan_node(<<q, _::binary>> = text, column, _region, top?, seen) when q in [?', ?"] do

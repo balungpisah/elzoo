@@ -71,22 +71,33 @@ passes; the first refusal ends the scan.
 2. A line that is `---` or `...`, or begins with one of them and a space or a
    tab, is `not_a_map`. Every line is looked at before pass 3.
 3. Lines in order. A block region (`|` or `>` with at most two modifier bytes)
-   is not scanned. In a flow region (`[` or `{`) `<<` is `yaml_alias`, and so
-   is `&` or `*` first on a line or after `[`, `{`, `,` or `:` and spaces or
-   tabs. Spaces and tabs both separate a key from its `:`, a `:` from its value
-   and a tag from its node, because the reader accepts a tab there. Other
-   lines: a tab first after the indentation is `tab_indentation`; after the
-   indicators `- `, `? `, `: ` the node text is `yaml_alias` when it begins with
-   `&` or `*` (a tag is dropped first), and a key `<<` is `yaml_alias`. A key
-   at indentation 0 that an earlier line already had is `duplicate_key`; a key
-   is checked before its value.
+   is not scanned. A flow region (`[` or `{`) is scanned token by token, with
+   its state carried from line to line, until its brackets close: a `<<` is
+   `yaml_alias` anywhere in it; a `&` or `*` that starts a token (after `{`,
+   `[`, `,`, `:` or the end of a tag, with spaces, tabs and line breaks
+   between, or none) is `yaml_alias`; a `?` at a token start that a space, a
+   tab or the line end follows is `invalid_yaml`, and it is checked before an
+   alias of the same line. Quoted text (a quote opens only at a token start;
+   `''` and `\"` are the escapes) and a comment (`#` after a blank) hide
+   their `&` and `*`. Spaces and tabs both separate a key from its `:`, a `:`
+   from its value and a tag from its node, because the reader accepts a tab
+   there. Other lines: a tab first after the indentation is
+   `tab_indentation`; after the indicators `- ` and `: ` the node text is
+   `yaml_alias` when it begins with `&` or `*` (a tag is dropped first),
+   `invalid_yaml` when it begins with `?` and a space, a tab or the line end
+   (an explicit key, which can hide a key `<<`), and a key `<<` is
+   `yaml_alias`. A key at indentation 0 that an earlier line already had is
+   `duplicate_key`; a key is checked before its value.
 
 The scan refuses some texts that are not aliases (a continuation line that
-begins with `*`, a `*` after `: ` in a trailing comment, `&`, `*` or `<<` in
-quoted text of a flow collection). It does not refuse a duplicate key below the
-top level, one in a flow-style top level or with `?` keys, or two double-quoted
-keys equal only after their escapes: the reader keeps the first value. Text
-that is not an alias, such as `Use for *.xlsx files` or `R&D`, passes.
+begins with `*` or with `? `, a `*` after `: ` in a trailing comment, `<<` in
+quoted text or in a comment of a flow collection). `&` and `*` in quoted text
+of a flow collection are literal and are accepted. It does not refuse a
+duplicate key below the top level, one in a flow-style top level, or two
+double-quoted keys equal only after their escapes: the reader keeps the first
+value. A skill frontmatter needs no complex key, so `?` as an explicit key is
+refused; text that is not an alias or a key, such as `Use for *.xlsx files`,
+`R&D`, `what?` or `?x`, passes.
 
 ## `source/2`
 

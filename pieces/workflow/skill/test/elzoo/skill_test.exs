@@ -511,6 +511,106 @@ defmodule Elzoo.SkillTest do
       end
     end
 
+    test "2.17 an explicit key is invalid_yaml, where a node starts, and a ? that is text is read" do
+      # Each row of the review of the pull request, and probes of the pinned
+      # reader: each of these texts reads as a key, a merge key or an alias.
+      for frontmatter <- [
+            "? <<\n: v\n",
+            "? \"<<\"\n: v\n",
+            "?\t<<\n: v\n",
+            "? \t<<\n: v\n",
+            "k:\n  ? <<\n  : v\n",
+            "m: {? &a k : v, ? *a : w}\n",
+            "m: {k: !!str &x y, ? *x : w}\n",
+            "m: {?\t&a k: v, ? *a : w}\n",
+            "m: {a: 1,\n  ? &x k : v,\n  ? *x : w}\n",
+            "- ? a\n  : b\n",
+            "- - ? a\n",
+            "?\n",
+            "m:\n  ? a\n",
+            "m: {a: 1}\n? b\n",
+            "a: ? x\n",
+            "a: ?\n",
+            "m: {? a : b}\n",
+            "m: [? a : b]\n",
+            "m: [a,\n  ? b : c]\n",
+            "m: [{?\n a : b}]\n",
+            "m: {?\ta : b}\n",
+            "m: {k: ? x : v}\n",
+            "m: {!!str ? x : v}\n",
+            "m: [a,\nb, ? c : d]\n"
+          ] do
+        assert {:error, :invalid_yaml} = fm(frontmatter)
+      end
+    end
+
+    test "2.18 a ? that is not an indicator is text" do
+      assert {:ok, %{entry: %{"frontmatter" => %{"a" => "what?"}}}} = fm("a: what?\n")
+      assert {:ok, %{entry: %{"frontmatter" => %{"a" => "?x"}}}} = fm("a: ?x\n")
+      assert {:ok, %{entry: %{"frontmatter" => %{"a" => "? x"}}}} = fm("a: '? x'\n")
+      assert {:ok, %{entry: %{"frontmatter" => %{"a" => "? x"}}}} = fm("a: \"? x\"\n")
+      assert {:ok, %{entry: %{"frontmatter" => %{"a" => "? x\ny\n"}}}} = fm("a: |\n  ? x\n  y\n")
+
+      assert {:ok, %{entry: %{"frontmatter" => %{"m" => ["?a", "what?", "? x", "a ? b", "?"]}}}} =
+               fm("m: [?a, what?, '? x', a ? b, ?]\n")
+
+      assert {:ok, %{entry: %{"frontmatter" => %{"m" => %{"a ?" => "b"}}}}} =
+               fm("m: {a ? : b}\n")
+
+      # The scan does not know a plain scalar that goes on in the next line.
+      assert {:error, :invalid_yaml} = fm("a: foo\n  ? bar\n")
+    end
+
+    test "2.19 in a flow region an anchor or alias after a tag, a colon or a comma is yaml_alias" do
+      for frontmatter <- [
+            "m: {k: !!str &x y, z: *x}\n",
+            "m: [!!str *x]\n",
+            "m: [!!str\n  *x]\n",
+            "m: [!<tag:yaml.org,2002:str> *x]\n",
+            "m: [!!str,*x]\n",
+            "m: {\"a\":*x}\n",
+            "m: [a:*x]\n",
+            "m: {a: !!str\n  *x}\n",
+            "a: !!str\n  &x y\nb: *x\n",
+            "m: [a,\nb, &x c, *x]\n",
+            "m: [a,\n'b', &x c, *x]\n",
+            "m: [\na, &x b,\n*x]\n"
+          ] do
+        assert {:error, :yaml_alias} = fm(frontmatter)
+      end
+    end
+
+    test "2.20 in a flow region a quote opens only at a token start and a comment hides a quote" do
+      for frontmatter <- [
+            "m: [it's, *x]\n",
+            "m: [a, # it's\n  *x]\n",
+            "m: [a, 'b''c', *x]\n",
+            "m: [a, \"b\\\"\", *x]\n",
+            "m: [\"a\\\\\", *x]\n",
+            "m: ['a\n  b', *x]\n",
+            "m: [\"a #\", *x]\n",
+            "m: [a#b, *x]\n"
+          ] do
+        assert {:error, :yaml_alias} = fm(frontmatter)
+      end
+    end
+
+    test "2.21 in a flow region quoted and plain text with & or * is read, << is refused" do
+      assert {:ok, %{entry: %{"frontmatter" => %{"m" => ["&x", "*y"]}}}} =
+               fm("m: ['&x', \"*y\"]\n")
+
+      assert {:ok, %{entry: %{"frontmatter" => %{"m" => ["R&D", "a & b", "5 * 3"]}}}} =
+               fm("m: [R&D, a & b, 5 * 3]\n")
+
+      assert {:ok, %{entry: %{"frontmatter" => %{"m" => ["a *x"]}}}} = fm("m: [a\n  *x]\n")
+
+      assert {:ok, %{entry: %{"frontmatter" => %{"m" => ["a &x", "b"]}}}} =
+               fm("m: ['a\n  &x', b]\n")
+
+      assert {:error, :yaml_alias} = fm("m: [\"<<\"]\n")
+      assert {:error, :yaml_alias} = fm("m: [a, # <<\n b]\n")
+    end
+
     # Extra cases that pin a rule that a written case does not reach.
 
     test "a comment line does not end a flow region, and a block region ends at a comment line at its column" do
