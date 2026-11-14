@@ -1098,7 +1098,8 @@
       "summary": "Pattern step: decide the next nodes of a recipe graph",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/graph-run/piece.json",
       "reason": "Bot platform wave 3 (P13). Needs and gives set the order; branch, map and loop are bounded; a settled node never runs again. Ready workflow/dependency-graph gives the AND-join of acyclic needs and delivery/aggregation the status of a map; either-of joins, skipped branches and loops are written here."
     },
     {
@@ -1106,7 +1107,8 @@
       "summary": "Decide what follows a node that failed, was late or was refused",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/node-outcome/piece.json",
       "reason": "Bot platform wave 3 (P13). Each outcome follows its link or the Run fails explicitly. No automatic retry after an unknown outcome."
     },
     {
@@ -1114,7 +1116,8 @@
       "summary": "Check a recipe before it can run",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/recipe-check/piece.json",
       "reason": "Bot platform wave 3 (P13). Structure, needs, permissions, budgets and an upper cost limit, with located reasons."
     },
     {
