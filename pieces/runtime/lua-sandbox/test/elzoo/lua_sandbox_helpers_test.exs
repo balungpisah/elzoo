@@ -21,7 +21,7 @@ defmodule Elzoo.LuaSandboxHelpersTest do
   @moduletag timeout: 180_000
 
   # The helper names of the contract; each later helper is added here.
-  @helpers ~w(null object text_split text_trim)
+  @helpers ~w(null object text_split text_trim text_utf8_len)
 
   @valid "return function() return 1 end"
   @mismatch %{"status" => "refused", "reason" => "policy_mismatch"}
@@ -334,6 +334,59 @@ defmodule Elzoo.LuaSandboxHelpersTest do
         assert run(exe, "return " <> call) == {:refused, :lua_error}, call
       end
     end
+
+    test "utf8_len counts code points of ASCII, two-, three- and four-byte characters", %{
+      executable: exe
+    } do
+      source = ~S"""
+      return {
+        helpers.text_utf8_len(""),
+        helpers.text_utf8_len("abc"),
+        helpers.text_utf8_len("\xC3\xA9"),
+        helpers.text_utf8_len("\xE2\x82\xAC"),
+        helpers.text_utf8_len("\xF0\x9F\x98\x80"),
+        helpers.text_utf8_len("a\xC3\xA9\xE2\x82\xAC\xF0\x9F\x98\x80z"),
+        helpers.text_utf8_len("\0\0"),
+        helpers.text_utf8_len("\xC2\x80\xDF\xBF\xE0\xA0\x80\xED\x9F\xBF\xEE\x80\x80\xEF\xBF\xBF\xF0\x90\x80\x80\xF4\x8F\xBF\xBF"),
+        math.type(helpers.text_utf8_len("abc"))
+      }
+      """
+
+      assert {:ok, %{value: [0, 3, 1, 1, 1, 5, 2, 8, "integer"]}} = run(exe, source)
+    end
+
+    test "utf8_len: each invalid form is an error that pcall catches", %{executable: exe} do
+      invalid = ~w(
+        \\x80 \\xBF a\\x80 \\xC2 \\xC2a \\xE2\\x82 \\xE2\\x82a \\xF0\\x9F\\x98 \\xF0\\x9F\\x98a
+        \\xC0\\xAF \\xC1\\xBF \\xE0\\x80\\xAF \\xE0\\x9F\\xBF \\xF0\\x80\\x80\\xAF \\xF0\\x8F\\xBF\\xBF
+        \\xED\\xA0\\x80 \\xED\\xBF\\xBF \\xF4\\x90\\x80\\x80 \\xF5\\x80\\x80\\x80 \\xF8\\x88\\x80\\x80\\x80
+        \\xFF \\xFE \\xC2\\xC2 \\xE2\\x82\\xAC\\x80
+      )
+
+      for form <- invalid do
+        source = ~s|return {pcall(helpers.text_utf8_len, "#{form}")}|
+
+        assert {:ok, %{value: [false, "helpers.text_utf8_len: invalid UTF-8"]}} =
+                 run(exe, source),
+               form
+
+        assert run(exe, ~s|return helpers.text_utf8_len("#{form}")|) == {:refused, :lua_error},
+               form
+      end
+    end
+
+    test "utf8_len: wrong arguments are errors that pcall catches", %{executable: exe} do
+      assert {:ok, %{value: results}} =
+               run(exe, wrong_arguments("helpers.text_utf8_len", [~S|"a", "b"|, ~S|"a", nil|]))
+
+      assert results == List.duplicate(false, 7)
+
+      for call <-
+            ~w[helpers.text_utf8_len() helpers.text_utf8_len(1) helpers.text_utf8_len(nil)] ++
+              [~S|helpers.text_utf8_len("a", "b")|] do
+        assert run(exe, "return " <> call) == {:refused, :lua_error}, call
+      end
+    end
   end
 
   describe "helpers_are_bounded" do
@@ -374,7 +427,8 @@ defmodule Elzoo.LuaSandboxHelpersTest do
       # the cost of one call: the bytes read, the bytes given back, one for each table entry
       for {name, call, per_byte} <- [
             {"text_split", ~S|#helpers.text_split(x, ",")|, 2},
-            {"text_trim", ~S|#helpers.text_trim(x)|, 2}
+            {"text_trim", ~S|#helpers.text_trim(x)|, 2},
+            {"text_utf8_len", ~S|helpers.text_utf8_len(x)|, 1}
           ] do
         base = min_steps(exe, call, String.duplicate("a", 0))
         small = min_steps(exe, call, String.duplicate("a", 1_000))

@@ -19,7 +19,7 @@ defmodule Elzoo.LuaSandbox.Descriptor do
   @operators ~w(__add __div __idiv __mod __mul __pow __sub __unm)
 
   # The helpers that exist in the host: fields of the global `helpers`.
-  @helpers ~w(null object text_split text_trim)
+  @helpers ~w(null object text_split text_trim text_utf8_len)
 
   @bounds %{
     "steps" => 1_000_000,

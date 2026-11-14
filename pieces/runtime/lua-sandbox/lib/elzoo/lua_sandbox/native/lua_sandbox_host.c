@@ -811,6 +811,24 @@ static int h_text_split(lua_State *L) {
   return 1;
 }
 
+/* helpers.text_utf8_len(text): the number of code points of valid UTF-8 text. */
+static int h_text_utf8_len(lua_State *L) {
+  const char *s;
+  size_t len, i = 0;
+  lua_Integer count = 0;
+  if (lua_gettop(L) != 1 || (s = text_arg(L, 1, &len)) == NULL)
+    return luaL_error(L, "helpers.text_utf8_len: expected one string");
+  charge(L, (long long)len);
+  while (i < len) {
+    int l = utf8_len((const unsigned char *)s + i, len - i);
+    if (l == 0) return luaL_error(L, "helpers.text_utf8_len: invalid UTF-8");
+    i += (size_t)l;
+    count++;
+  }
+  lua_pushinteger(L, count);
+  return 1;
+}
+
 static int w_tostring(lua_State *L) {
   int t;
   luaL_checkany(L, 1);
@@ -1091,6 +1109,8 @@ static int init_env(lua_State *L) {
   lua_setfield(L, -2, "text_split");
   lua_pushcfunction(L, h_text_trim);
   lua_setfield(L, -2, "text_trim");
+  lua_pushcfunction(L, h_text_utf8_len);
+  lua_setfield(L, -2, "text_utf8_len");
   set_unlisted_meta(L, lua_gettop(L), mt);
   lua_setfield(L, env, "helpers");
   lua_settop(L, mt);
