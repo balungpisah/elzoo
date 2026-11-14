@@ -7071,10 +7071,12 @@
     {
       "id": "workflow/runtime-graph",
       "job": "ELZ-169",
-      "note": "Pure acceptance of a graph that a model gives as plain data: the load-time check plus the limits of its agent (allowed callables and tool sources, no new authority, a budget share, node and depth maxima), with reasons rendered as content for the model.",
+      "note": "Pure decision whether a graph that a model gave as plain data at run time may run: the graph is checked as data, held to the callables, tools, asks, node count and nesting that the agent may use, added to the recipe of the Run as one more graph callable, and checked as at load time with its upper cost against the budget share; the accepted recipe, callable and upper cost, or all refusal reasons in a fixed order, and a bounded text of the reasons for the model; no execution, grant, budget or storage.",
       "baseline_status": "not in baseline (new row, RC-64)",
-      "disposition": "published-task; implementation pending",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/workflow/runtime-graph/piece.json",
+      "manifest_sha256": "f6183749a90d7e669f4c15e2569c3b493ac02625a99a244b17bca42c1973b315"
     },
     {
       "id": "state/recipe-store",
