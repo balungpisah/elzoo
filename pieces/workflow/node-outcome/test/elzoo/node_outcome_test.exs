@@ -225,6 +225,20 @@ defmodule Elzoo.NodeOutcomeTest do
       end
     end
 
+    test "struct_operand_is_invalid_input" do
+      assert N.decide(1..2, "failed") == {:error, :invalid_input}
+      assert N.decide(~D[2026-01-01], "completed") == {:error, :invalid_input}
+      assert N.decide(MapSet.new(), "completed") == {:error, :invalid_input}
+
+      assert N.routes([outcome_link("a", "b", "failed")], ~D[2026-01-01]) ==
+               {:error, :invalid_input}
+
+      assert N.routes([~D[2026-01-01], 1..2, outcome_link("a", "b", "failed")], "a") ==
+               {:ok, %{"failed" => "b"}}
+
+      assert N.routes([~D[2026-01-01], 1..2], "a") == {:ok, %{}}
+    end
+
     test "a sentinel inside a refused value never appears in an error or a log" do
       long = String.duplicate("t", 129) <> @sentinel
 
