@@ -29,8 +29,10 @@ and comment on the issue):
   the per-ID consumers run Piece tests under this helper. The failure of
   issue #420 was there.
 - Count on `main` over `test/` and `pieces/` (a call counts as explicit
-  when it has a second argument): `assert_receive` 400 with no limit and
-  180 with one; `refute_receive` 71 with no limit and 146 with one. The
+  when it has a second argument): `assert_receive` about 400 with no limit and
+  about 180 with one; `refute_receive` about 71 with no limit and about
+  146 with one (two counts differ by a few; count again when you start
+  and record your numbers). The
   largest groups with no limit: `assembly/run-engine` 91,
   `delivery/effect-intent` 40, `runtime/async-work` 39,
   `runtime/durable-unit` 38, `runtime/dynamic-units` 28,

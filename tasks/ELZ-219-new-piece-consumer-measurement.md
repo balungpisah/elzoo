@@ -75,5 +75,5 @@ here is one run on one host, not a proof of the copy.
 
 A repair of any failure; a new per-ID consumer in the inventory; the
 300 s limit; a hosted run of these tests; the stale count in the comment
-of `test/export_test.exs:195` ("the other 61 IDs"), which is a `test/`
+of `test/export_test.exs` (about line 196) ("the other 61 IDs"), which is a `test/`
 change and belongs to the first repair task that touches that file.

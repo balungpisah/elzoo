@@ -39,7 +39,7 @@ unchanged: the plan job runs the guard there.
 Facts checked on `main`:
 
 - `scripts/check-roadmap.py:118` lists issues with `--limit 200`.
-- The repository has 218 issues (2026-11-14). `python3
+- The repository has more than 200 issues (2026-11-14). `python3
   scripts/check-roadmap.py --live` on `main` exits 1 with the whole
   message `ROADMAP CHECK FAILED: 1`: issue #1 (ELZ-001) is not in the
   newest 200, and the `KeyError` prints only the number.
