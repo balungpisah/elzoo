@@ -137,7 +137,9 @@ defmodule Elzoo.RunApprovalRelease do
   end
 
   # A death whose write failed with an error waits in the process state and is
-  # written after the next command, whatever its result.
+  # written after the next command, whether that command is applied, unchanged
+  # or refused; when the command's own write is indeterminate, the owner stops
+  # first and the kept death is lost.
   defp flush_deaths(reply, %{deaths: deaths} = s),
     do: flush_deaths(reply, %{s | deaths: []}, deaths, [])
 
