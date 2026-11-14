@@ -40,6 +40,9 @@ defmodule Elzoo.LuaSandbox do
   `:memory`, `:wall_time`, `:process_exit`, `:protocol_error`. Memory, wall time
   and abnormal exits are inputs to record, never deterministic replay decisions.
 
+  The host executable also carries the policy identity (a build-time define) and
+  answers `policy_mismatch` before it creates a Lua state when a frame names another.
+
   Request validation happens before any process starts. An input string or an
   input whose canonical encoding is over `value_bytes` is `:value_size`; any
   other input that is not plain data, or that nests deeper than 32 containers,
