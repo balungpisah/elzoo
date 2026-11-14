@@ -202,8 +202,7 @@ defmodule Elzoo.RecipeConfigTest do
       }
 
       for invalid <- [credential, %{ref: "k", scope: "s"}, Map.from_struct(credential)] do
-        assert {:error, reason} = RecipeConfig.check(checked, %{"key" => invalid})
-        assert reason in [:invalid_settings, :invalid_secret]
+        assert RecipeConfig.check(checked, %{"key" => invalid}) == {:error, :invalid_settings}
       end
     end
 
