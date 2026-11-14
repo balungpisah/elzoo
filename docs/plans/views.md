@@ -243,6 +243,8 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-186](https://github.com/balungpisah/elzoo/issues/412) | V1B / pieces | ELZ-033, ELZ-178 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-188](https://github.com/balungpisah/elzoo/issues/422) | V1B / pieces | ELZ-033, ELZ-177 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-189](https://github.com/balungpisah/elzoo/issues/423) | V1B / pieces | ELZ-033 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-191](https://github.com/balungpisah/elzoo/issues/435) | V1B / pieces | ELZ-033, ELZ-190 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-192](https://github.com/balungpisah/elzoo/issues/436) | V1B / pieces | ELZ-033, ELZ-191 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -413,7 +415,7 @@ Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, EL
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189, ELZ-190.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189, ELZ-190, ELZ-191, ELZ-192.
 
 ### V2-ACCEPT
 
@@ -3123,3 +3125,23 @@ Publication copy: [tasks/ELZ-190-run-engine-nested-lost-cost.md](../../tasks/ELZ
 **Product aims:** P13.
 
 **Acceptance:** Repair of assembly/run-engine, in place: a closed nested child whose slots are all settled, with one or more costs that are final unknown (a lost Effect), gives its parent the kept finish by the existing rules with an unknown actual; the parent share stays reserved and unknown is never zero; known costs stay exact; no second outcome, no input or option added; shown by eight named groups and two negative controls.
+
+### ELZ-191
+
+ELZ-191 — A change of Attempt closes every open slot of the older Attempt
+
+Publication copy: [tasks/ELZ-191-run-engine-attempt-change-closes-slots.md](../../tasks/ELZ-191-run-engine-attempt-change-closes-slots.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Repair for issue #433 on assembly/run-engine, in place: at a change of Attempt every unsettled slot of the older Attempt is settled in the fold; a slot with nothing sent is refused and released, a slot that may have sent keeps its reservation with an unknown cost; nested parents and children close; the new Attempt gets new work and the unit configures again; no resend, unknown is never zero; eight named groups and two negative controls.
+
+### ELZ-192
+
+ELZ-192 — A child finish is admitted only when the control state has room to keep it
+
+Publication copy: [tasks/ELZ-192-run-engine-kept-finish-fits.md](../../tasks/ELZ-192-run-engine-kept-finish-fits.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Repair for issue #383 on assembly/run-engine: a finish of a nested child is admitted only when the control state with that finish kept still satisfies its bound, with its bytes held in the reserve until it is kept; else it is refused as record_size and the engine goes on; five named groups and one negative control.
