@@ -16,6 +16,7 @@ defmodule Elzoo.SchedulerPostgresTest do
 
   setup_all do
     {:ok, _} = Application.ensure_all_started(:oban)
+    TestHelper.start_repo!()
     :ok
   end
 

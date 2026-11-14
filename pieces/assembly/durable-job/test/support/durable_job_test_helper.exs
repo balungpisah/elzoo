@@ -32,8 +32,20 @@ defmodule Elzoo.DurableJob.TestHelper do
 
   def setup_database! do
     case TestRepo.start_link(url: url!(), pool_size: 20, log: false) do
-      {:ok, repo} -> Process.unlink(repo)
-      {:error, {:already_started, _}} -> :ok
+      {:ok, repo} ->
+        Process.unlink(repo)
+        # The module that started the Repo stops it: an idle pool must not outlive its module.
+        # Stop by name: a test (DJ10) restarts the Repo, and the restarted one is the module's too.
+        on_exit(fn ->
+          try do
+            Supervisor.stop(TestRepo)
+          catch
+            :exit, _ -> :ok
+          end
+        end)
+
+      {:error, {:already_started, _}} ->
+        :ok
     end
 
     try do

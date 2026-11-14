@@ -202,6 +202,19 @@ Different on an arm64 host: the arm64 variant of the image and the arm64
 MinIO binary (both pinned), and vector distances can differ in the last bits
 of a float.
 
+Connection use: two local `mix check` runs (no flag) on a worker database
+server with `max_connections` 100 peaked at 29 and 36 rows of
+`pg_stat_activity` (measured for ELZ-185). The root test VM held at most 23
+connections, each copied consumer VM at most 23 and the Ash spike VM 24 in its
+own stage; no two of them held connections at the same time. A test module
+that starts a Repo, an Oban instance or a connection stops it when the module
+ends (`on_exit` of `setup_all`). PostgreSQL test modules are `async: false`,
+so one VM has only the pools of the running module open, and the consumers
+run one after another. The peak is about the largest pool set of one module
+(20) plus the server's background processes, not the sum of all modules. A
+test that leaves its pool running raises it again: before ELZ-185 the full
+check reached 103 and failed with `too_many_connections`.
+
 This command is for a developer host only. Its results are never merge
 evidence: the hosted check on the exact pull request head is.
 
