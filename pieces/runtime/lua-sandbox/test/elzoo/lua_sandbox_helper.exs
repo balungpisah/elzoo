@@ -97,4 +97,36 @@ defmodule Elzoo.LuaSandboxHelper do
       _ -> []
     end
   end
+
+  @doc "A copy of the executable under a unique path, so `pgrep -f` finds only its children."
+  def unique_exe!(executable, directory, name) do
+    path = Path.join(directory, "#{name}-#{System.unique_integer([:positive])}")
+    File.cp!(executable, path)
+    File.chmod!(path, 0o755)
+    path
+  end
+
+  @doc "The first pid of a process whose command line contains the path, or flunk."
+  def wait_for_pid(path, attempts \\ 300) do
+    case pids(path) do
+      [pid | _] ->
+        pid
+
+      [] when attempts > 0 ->
+        Process.sleep(10)
+        wait_for_pid(path, attempts - 1)
+
+      [] ->
+        flunk("no process of #{Path.basename(path)} appeared")
+    end
+  end
+
+  @doc "True when `kill -0` finds no process with this pid."
+  def gone?(pid) do
+    {_, status} = System.cmd("kill", ["-0", Integer.to_string(pid)], stderr_to_stdout: true)
+    status != 0
+  end
+
+  @doc "A Lua source whose function runs `body`; the chunk returns the function."
+  def function_source(body), do: "return function() " <> body <> " end"
 end
