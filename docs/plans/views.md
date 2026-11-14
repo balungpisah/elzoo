@@ -185,7 +185,9 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-167](https://github.com/balungpisah/elzoo/issues/365) | V1B / pieces | ELZ-033, ELZ-136, ELZ-161, ELZ-162, ELZ-164 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-169](https://github.com/balungpisah/elzoo/issues/370) | V1B / pieces | ELZ-033, ELZ-114, ELZ-136, ELZ-161, ELZ-167 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 | RC-64 | V1B / pieces | ELZ-033, RC-61, ELZ-136, ELZ-022, ELZ-024, ELZ-114, ELZ-167, ELZ-169 | both portions published: ELZ-167 recipe-check and ELZ-169 runtime-graph | one claimed task worker after admission |
-| RC-65 | V1B / pieces | ELZ-033, ELZ-096, ELZ-009, RC-61, RC-64, ELZ-116 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| [ELZ-170](https://github.com/balungpisah/elzoo/issues/373) | V1B / pieces | ELZ-033, ELZ-002, ELZ-136, ELZ-164 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-171](https://github.com/balungpisah/elzoo/issues/374) | V1B / pieces | ELZ-033, ELZ-009, ELZ-096, ELZ-164, ELZ-167 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| RC-65 | V1B / pieces | ELZ-033, ELZ-096, ELZ-009, RC-61, RC-64, ELZ-116, ELZ-170, ELZ-171 | both portions published: ELZ-170 version-pin and ELZ-171 recipe-store | one claimed task worker after admission |
 | [ELZ-141](https://github.com/balungpisah/elzoo/issues/287) | V1B / pieces | ELZ-033, ELZ-002, ELZ-115, ELZ-079, ELZ-114 | published 2026-11-13 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-142](https://github.com/balungpisah/elzoo/issues/301) | V1B / pieces | ELZ-033, ELZ-002, ELZ-079, ELZ-114, ELZ-136, ELZ-140, ELZ-139, ELZ-087 | published 2026-11-13 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-127](https://github.com/balungpisah/elzoo/issues/263) | V1B / pieces | ELZ-033, ELZ-114, ELZ-115, ELZ-117, ELZ-122, ELZ-118, ELZ-116, ELZ-124, ELZ-123, ELZ-002, ELZ-009, ELZ-022, ELZ-023, ELZ-024, ELZ-098, ELZ-003, ELZ-126 | published 2026-11-12 | one claimed task worker; coordinator owns independent review and merge queue |
@@ -370,8 +372,8 @@ Baseline status is immutable inventory history, not a current planning status. R
 | [workflow/node-outcome](../../pieces/workflow/node-outcome/piece.json) | not in baseline (new row, RC-63) | V1B / pieces | ELZ-166 / P13 | ready-contract: Pure rule for one settled graph node: the outcome routes of the node from decoded links, and follow, proceed or fail-the-Run for one of the nine action outcome classes; no execution, graph walk or retry. |
 | [workflow/recipe-check](../../pieces/workflow/recipe-check/piece.json) | not in baseline (new row, RC-64) | V1B / pieces | ELZ-167 / P13 | ready-contract: Pure load-time check of a recipe package, or of a recipe outside a package, against caller-supplied facts: structure by the ready validators located at its part, then every tool, declared need and permission and cost compared, with an exact upper cost against a cap; an ok verdict or all refusal reasons in a fixed order, no execution, grant or budget. |
 | workflow/runtime-graph | not in baseline (new row, RC-64) | V1B / pieces | ELZ-169 / P13 | published-task; implementation pending: Pure acceptance of a graph that a model gives as plain data: the load-time check plus the limits of its agent (allowed callables and tool sources, no new authority, a budget share, node and depth maxima), with reasons rendered as content for the model. |
-| state/recipe-store | not in baseline (new row, RC-65) | V1B / pieces | RC-65 / P13 | blocked-admission-proposal: Bot platform wave 3 (P13). Recipe bytes and versions in ready state/artifact; this adds the published pointer, the check gate and the pin records. Only a checked version can be published, and a version that a live Run pins is not deleted. |
-| workflow/version-pin | not in baseline (new row, RC-65) | V1B / pieces | RC-65 / P13 | blocked-admission-proposal: Bot platform wave 3 (P13). The pure rule of which version a Run uses: the one at its start. Publishing changes no running Run. The delete refusal belongs to state/recipe-store. |
+| state/recipe-store | not in baseline (new row, RC-65) | V1B / pieces | ELZ-171 / P13 | published-task; implementation pending: Immutable recipe versions per tenant with a check gate, a published pointer with go-back, pin records and delete marks in one stream per tenant; a pinned or published version is not deleted. |
+| workflow/version-pin | not in baseline (new row, RC-65) | V1B / pieces | ELZ-170 / P13 | published-task; implementation pending: Pure rule: a Run keeps the recipe version and the tool source set of its start; only one explicit input changes the version, and nothing changes the source set. |
 | runtime/recipe-test | not in baseline (new row, RC-66) | V1B / pieces | RC-66 / P13 | blocked-admission-proposal: Bot platform wave 3 (P13). No network and a controlled clock; an unscripted call fails the test. The way an author and a Piece worker test without a provider. |
 | workflow/skill | not in baseline (new row, RC-67) | V1B / pieces | RC-67 / P13 | blocked-admission-proposal: Bot platform wave 3 (P13). A skill is a tool source of the registry: loading is a recorded tool call and grants no authority; the tools of the skill still pass the checks of the engine. |
 
@@ -394,7 +396,7 @@ Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, EL
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171.
 
 ### V2-ACCEPT
 
@@ -2264,7 +2266,7 @@ Recipe versions and the pin of a running Run
 
 **Blockers:**
 
-- Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.
+- Both RC-65 portions are published: ELZ-170 version-pin and ELZ-171 recipe-store. No output remains pending admission in RC-65.
 - A platform release that changes pattern state is not covered here; that belongs to RC-01.
 
 ### RC-66
@@ -2908,3 +2910,23 @@ Publication copy: [tasks/ELZ-172-engine-nested-result.md](../../tasks/ELZ-172-en
 **Product aims:** P13.
 
 **Acceptance:** assembly/run-engine, changed in place by owner decision (no release yet, same Piece ID): the finish of a nested callable is kept in the durable record of the child, and the parent receives it as the completed outcome of its nested_callable action when its schema equals the declared result of the binding; another schema gives failed with nested_result_invalid; a child with no finish keeps nested_completed; the outcome survives a restart and the first finish counts. The root finish rule, the inputs of a pattern and the limits are unchanged.
+
+### ELZ-170
+
+ELZ-170 — The recipe version and source set that a Run keeps
+
+Publication copy: [tasks/ELZ-170-version-pin.md](../../tasks/ELZ-170-version-pin.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Pure rule of which recipe version and tool sources a Run uses: the version at its start, changed only by one explicit input; a publish and a change of settings change nothing in a running Run; the source set captured at the start never changes, a listing of an outside source is refused and no input adds a source. The step is a Cure function with three named laws.
+
+### ELZ-171
+
+ELZ-171 — Recipe versions of a tenant, with publish, pin and delete
+
+Publication copy: [tasks/ELZ-171-recipe-store.md](../../tasks/ELZ-171-recipe-store.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Immutable recipe versions of each tenant in state/artifact with access expiry and retention never; verdicts of workflow/recipe-check, the published pointer, pin records and delete marks in one stream per tenant under head-revision CAS. Only a checked version is published; go-back publishes an older version; two publishes and a pin with a delete each have one order; a pinned or published version is not deleted; the delete mark is committed before the Artifact delete; reap removes no recipe; a tenant cannot read another tenant.
