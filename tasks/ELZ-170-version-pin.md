@@ -57,8 +57,13 @@ opaque plain data. Inputs and results:
 | `{:published, identity}` | `:unchanged` | the same |
 | `:settings_changed` | `:unchanged` | the same |
 | `{:listing, source_id}` | `:known_source` when the set holds `source_id`, else `{:refused, :outside_source}` | the same |
-| `{:add_source, source}` | `{:refused, :source_set_closed}` | the same |
-| anything else, or a malformed operand | `{:refused, :invalid_input}` | the same |
+| `{:add_source, term}`, for every term | `{:refused, :source_set_closed}` | the same |
+| anything else | `{:refused, :invalid_input}` | the same |
+
+The operand is checked before the row applies: `{:change_version, x}` and
+`{:published, x}` with an `x` that is not an identity in the form above, and
+`{:listing, x}` with an `x` that is not a source ID in the form of ELZ-136,
+are `{:refused, :invalid_input}`.
 
 `{:change_version, identity}` is the one explicit input. The host gives it
 only for an action of an authorised operator, never from the content of a

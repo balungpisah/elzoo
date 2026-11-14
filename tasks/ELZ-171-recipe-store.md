@@ -47,7 +47,8 @@ Facts checked on main:
 `new(opts)` returns `{:ok, store}` or `{:error, {:invalid, field}}`. `opts`
 has exactly `artifact` (a handle of `Elzoo.Artifact.new/1`) and `log` (a
 ready Store `{module, opts}` whose fold holds `Elzoo.RecipeStore.kinds/0` at
-schema version 1). `kinds/0` gives the record kinds of this Piece.
+schema version 1). The Store of the artifact handle and `log` can be the
+same or different: no rule below needs them to be one. `kinds/0` gives the record kinds of this Piece.
 
 Every other function takes the store and a caller `%{tenant, principal,
 scopes}` in the form of `state/artifact`. The tenant of the caller selects
@@ -58,15 +59,23 @@ tenant. No function takes another tenant.
   ELZ-164. It must pass `RecipePackage.decode/1`. Its bytes (the compact
   JSON of the map with keys sorted by bytes) are written with
   `Artifact.put/5` under the `artifact_id` equal to the 64 hex characters of
-  its identity, with access expiry and retention `:never`. Returns
-  `{:ok, identity}`. The same package again returns `{:ok, identity}` and
-  writes no second version.
+  its identity, with access expiry and retention `:never`. After
+  that write it appends a `stored` record for the identity to the tenant
+  stream. Returns `{:ok, identity}`. A version exists for this Piece when
+  its `stored` record exists. The same package again, while it is stored
+  and not marked deleted, returns `{:ok, identity}` and writes nothing. When
+  the artifact was written and the `stored` record was not (a failed
+  append), a second `put/3` appends it and does not write the bytes again.
+  A package whose identity is marked deleted is `{:error, :deleted}`: an
+  identity is never stored a second time. So each recipe artifact holds
+  exactly one version, version 1.
 - `get(store, caller, identity)`: `{:ok, package}`: the stored map, after
   its identity was computed again from the bytes and compared.
 - `check(store, caller, identity, facts)`: reads the package, calls
   `RecipeCheck.check(package, facts)` and, for `{:ok, verdict}`, records the
   verdict for that identity in the tenant stream. Returns the result of
-  `check/2` unchanged. A refused package records nothing.
+  `check/2` unchanged, also `{:refused, reasons}` and
+  `{:error, :invalid_facts}`. A refused package records nothing.
 - `publish(store, caller, identity)`: sets the published pointer to a
   version that is stored, checked and not marked deleted. Returns
   `{:ok, %{published: identity, previous: identity | nil}}`. Go-back is
@@ -75,21 +84,31 @@ tenant. No function takes another tenant.
 - `published(store, caller)`: `{:ok, identity | nil}`.
 - `pin(store, caller, identity, run_id)`: records that the live Run `run_id`
   (text of 1 to 128 bytes) uses the version. The version must be stored and
-  not marked deleted. A second pin of the same pair changes nothing.
-- `unpin(store, caller, identity, run_id)`: removes that pin record. An
-  unknown pair changes nothing.
+  not marked deleted. Returns `{:ok, :pinned}`, also for a second pin of the same pair, which
+  appends nothing.
+- `unpin(store, caller, identity, run_id)`: removes that pin record.
+  Returns `{:ok, :unpinned}`, also for an unknown pair, which appends
+  nothing.
 - `delete(store, caller, identity)`: refused while a pin record of the
   version exists and while it is the published version. Otherwise it commits
-  a delete mark in the tenant stream and only then calls `Artifact.delete/4`.
-  Returns `{:ok, :deleted}`. When the mark is committed and the Artifact
-  delete did not complete, it returns `{:error, {:delete_incomplete, reason}}`;
-  the mark stays, and a second `delete/3` completes it.
+  a delete mark in the tenant stream and only then calls
+  `Artifact.delete/4` for version 1. The Artifact delete is complete when
+  that call returns `{:ok, _}` or `{:error, :deleted}`: then the result is
+  `{:ok, :deleted}`. The removal of the object bytes after that is the work
+  of `state/artifact` (its `reap/3` tries an object delete again); this
+  Piece does not read the `object` member. For each other `{:error, reason}`
+  of `Artifact.delete/4` the result is
+  `{:error, {:delete_incomplete, reason}}`: the mark stays. A `delete/3` of
+  a version that is already marked calls `Artifact.delete/4` again and
+  returns in the same way, so it completes an incomplete delete and returns
+  `{:ok, :deleted}` for a complete one.
 - `versions(store, caller)`: `{:ok, [%{identity, checked: boolean, pins:
-  count, published: boolean, deleted: boolean}]}` in the order of first
-  `put`.
+  count, published: boolean, deleted: boolean}]}` in the order of the
+  `stored` records, folded from the tenant stream only. It does not call
+  `Artifact.list/4`.
 
-**One stream per tenant.** The verdicts, the published pointer, the pin
-records and the delete marks of a tenant are records of the one stream
+**One stream per tenant.** The `stored` records, the verdicts, the
+published pointer, the pin records and the delete marks of a tenant are records of the one stream
 `recipe-store/<tenant>`. Each change reads the stream, decides on the folded
 state and appends one record with the expected head revision. On
 `{:conflict, _}` it reads again and decides again, at most 3 times, then
@@ -99,11 +118,16 @@ when the pin is first, the delete is refused as `:pinned`. Two publishes are
 in one order, and `published/2` gives the later one. An indeterminate append
 returns `{:error, :indeterminate}` and is never tried again by this Piece.
 
+When several refusals hold, the first of this order is given: `:not_found`,
+`:deleted`, `:not_checked`, `:pinned`, `:published`. (`delete/3` of a marked
+version is not a refusal, as above.)
+
 Reasons, as `{:error, reason}`: `:not_found` (no such version of this
 tenant, also for a version of another tenant), `:invalid_package`,
 `:not_checked`, `:deleted`, `:pinned`, `:published`, `:contended`,
 `:indeterminate`, `:stream_full`, `{:artifact, reason}` with the unchanged
-reason of `state/artifact`, `{:log, reason}` with a rejection of the Store,
+reason of `state/artifact`, `{:log, reason}` with a rejection of an append or an error of a read of the
+Store, unchanged,
 `{:delete_incomplete, reason}`, `:integrity_mismatch` and
 `{:invalid, field}`. No package content appears in an error, a log or a
 telemetry event.
@@ -143,7 +167,9 @@ skipped; each test uses a schema of its own. The order rules also run on the
 Memory Store.
 
 1. **`immutable_versions`**: `put` then `get` gives the same map; the same
-   package twice gives one version; a changed package gives another
+   package twice gives one version and one `stored` record; `put` of a
+   deleted identity is `:deleted`; a `put` whose `stored` append failed once
+   is completed by a second `put` with one artifact version; a changed package gives another
    identity and both stay readable; a malformed package is
    `:invalid_package`; the artifact has access expiry and retention `:never`.
 2. **`only_checked_is_published`**: `publish` of a stored, unchecked version
@@ -165,15 +191,19 @@ Memory Store.
    start together: exactly one succeeds, in both arrival orders on the
    Memory Store and in 20 concurrent rounds on PostgreSQL; the state after
    it agrees with the winner.
-7. **`delete_mark_before_artifact`**: with an object store that fails the
-   delete, the result is `{:delete_incomplete, _}`, the mark is in the
-   stream, the version reads as `:deleted`, and a second `delete/3`
-   completes; the stream never holds an Artifact delete without its mark.
+7. **`delete_mark_before_artifact`**: with a Store wrapper of the test that
+   refuses the append to the artifact stream once, `delete/3` gives
+   `{:delete_incomplete, _}`, the mark is in the tenant stream, the version
+   reads as `:deleted`, and a second `delete/3` gives `{:ok, :deleted}`; a
+   third gives `{:ok, :deleted}` too; in no run is the artifact record
+   deleted while the tenant stream holds no mark.
 8. **`reap_keeps_recipes`**: `Artifact.reap/3` on a recipe artifact, with
    the clock far in the future, removes no version.
 9. **`tenant_isolation`**: tenant B gets `:not_found` for each identity of
-   tenant A in `get`, `check`, `publish`, `pin`, `unpin` and `delete`, and an
-   empty `versions/2`; the published pointer of A is unchanged.
+   tenant A in `get`, `check`, `publish`, `pin` and `delete`, `{:ok,
+   :unpinned}` with no record for `unpin`, and an empty `versions/2`;
+   `versions/2` of tenant A lists its stored, checked, pinned, published and
+   deleted versions with the right members in `stored` order; the published pointer of A is unchanged.
 10. **`bounds_and_redaction`**: `:stream_full` at the bound (use a small
     injected bound only if the task can do it without a new option;
     otherwise write the 10,000 records on the Memory Store); a sentinel
