@@ -4396,9 +4396,7 @@
       "kind": "proposal",
       "release": "V1B",
       "stage": "pieces",
-      "outputs": [
-        "domain/recipe-package"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "ELZ-115",
@@ -4407,9 +4405,10 @@
         "ELZ-105",
         "ELZ-114",
         "ELZ-161",
-        "ELZ-162"
+        "ELZ-162",
+        "ELZ-164"
       ],
-      "status": "graph and config published as independent ELZ-161 and ELZ-162; recipe-package admission pending",
+      "status": "all three portions published: ELZ-161 recipe-graph, ELZ-162 recipe-config and ELZ-164 recipe-package",
       "contract": "The plain data that a recipe gives: named callables (a graph of nodes, an agent, a typed decision), each with a typed input and output; nodes that state what they need and give; links that add only order and branches; outcome links, each for one outcome class of RC-68; rules such as an approval on an action; bindings apart from the graphs. A rule can only add a requirement: it never relaxes the authorization policy of the consumer. Callables nest by name with a depth limit. A loop is a node that re-runs a nested callable (RC-63), never a back-edge, so a graph has no legal cycle. A package manifest gives name, version, needs, permissions and each skill that the recipe uses, with its version and tools; the public Agent Skills format has no tools field. Package checking refuses malformed skills before load, following RC-67. Tenant settings are checked against the schema that the package declares; a secret setting is a reference.",
       "acceptance": "Structural validation: unknown node kind, dangling name, a need with no giver, a decision node with a missing branch, any cycle, depth over the limit, a link to a missing outcome; malformed skill refused at package checking; each skill's version and tools declared in the package manifest; encode and decode round-trip is stable; a setting against the schema (wrong type, missing, extra, a secret given as a value is refused); version identity is explicit.",
       "reuse": "Ready workflow/dependency-graph: validate on the needs graph finds cycles and unknown dependencies within its bounds (1,000 nodes, 10,000 edges). It has no node kinds, depth limit or data types: those are written here. Readiness is a run-time question and is not in this job. Rules use the policy identity of domain/authorization and the binding of workflow/approval; a recipe defines no second rule format. RC-44 for payload types. Data and validation only; nothing executes here.",
@@ -4417,8 +4416,9 @@
         "pieces/domain/recipe-package/"
       ],
       "blockers": [
-        "Recipe-package remains unpublished and follows ELZ-161 and ELZ-162 in a later publication; coordinator must admit its exact API, Needs, failure cases, evidence and ownership.",
-        "Owner decisions, 2026-11-14: callable kinds graph, agent and typed decision; node kinds call, tool, ask, decision, map and loop. Map and loop are bounded re-runs of a named callable, never back-edges. The handle remains domain/recipe-graph. The independent graph and config tasks are published as ELZ-161 and ELZ-162."
+        "All three RC-61 portions are published: ELZ-161 recipe-graph, ELZ-162 recipe-config and ELZ-164 recipe-package. No output remains pending admission in RC-61.",
+        "Owner decisions, 2026-11-14: callable kinds graph, agent and typed decision; node kinds call, tool, ask, decision, map and loop. Map and loop are bounded re-runs of a named callable, never back-edges. The handle remains domain/recipe-graph. The independent graph and config tasks are published as ELZ-161 and ELZ-162.",
+        "Coordinator decision, 2026-11-14: ELZ-164 accepts decoded skill frontmatter plus Markdown body; raw YAML/SKILL.md syntax and folder provenance belong to the later reader (RC-67). Package identity digest, opaque versions, declarative needs/permissions, frontmatter fields and fixed bounds are admitted in the task."
       ],
       "owner_role": "one claimed task worker after admission",
       "product_aims": [
@@ -5637,6 +5637,23 @@
       "issue": 352,
       "url": "https://github.com/balungpisah/elzoo/issues/352",
       "issue_body_sha256": "7da9adc9d583766c17ad19d69d67b7d78f673701a59e736ad9918a8cdb3a941a"
+    },
+    {
+      "id": "ELZ-164",
+      "title": "ELZ-164 — Bounded recipe package manifest as plain data",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-115", "ELZ-161", "ELZ-162"],
+      "status": "published 2026-11-14",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-164-recipe-package.md"],
+      "outputs": ["domain/recipe-package"],
+      "acceptance": "Pure bounded package manifest with content-digest identity, opaque versions, declarative needs/permissions, RecipeGraph callable/root/binding validation and RecipeConfig settings descriptor validation. Decoded skill frontmatter plus Markdown body, explicit versions/tools, malformed-skill refusal before load, stable encode/decode and redacted errors. No file or raw YAML reader, Lua, secret resolution or store.",
+      "product_aims": ["P13"],
+      "issue": 357,
+      "url": "https://github.com/balungpisah/elzoo/issues/357",
+      "issue_body_sha256": "65d944dc3be29a953ffc1e241d7c82ce81c994d1323fa299056a5bbe77cf807c"
     }
   ],
   "entries": [
@@ -6887,10 +6904,10 @@
     },
     {
       "id": "domain/recipe-package",
-      "job": "RC-61",
-      "note": "Bot platform wave 3 (P13). What a recipe declares before it can be checked, stored or shared.",
+      "job": "ELZ-164",
+      "note": "Bot platform wave 3 (P13). Admitted bounded package manifest with content identity, graph/config validation and decoded skill declarations; implementation pending.",
       "baseline_status": "not in baseline (new row, RC-61)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "published-task; implementation pending",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
