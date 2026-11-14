@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule Elzoo.LuaSandboxHelpersTest do
   @moduledoc """
-  Groups `policy_v2_identity` and `helpers_surface` of the helper set (policy version 2).
+  Groups `policy_v2_identity`, `helpers_surface`, `text_helpers` and `helpers_are_bounded`
+  (the `text_split` scenario so far) of the helper set (policy version 2).
 
   The helper names of the contract are one module attribute (`@helpers`); each helper that
   the host gains is added there and the descriptor, the audit and the probes must agree.
@@ -20,7 +21,7 @@ defmodule Elzoo.LuaSandboxHelpersTest do
   @moduletag timeout: 180_000
 
   # The helper names of the contract; each later helper is added here.
-  @helpers ~w(null object)
+  @helpers ~w(null object text_trim)
 
   @valid "return function() return 1 end"
   @mismatch %{"status" => "refused", "reason" => "policy_mismatch"}
@@ -187,5 +188,73 @@ defmodule Elzoo.LuaSandboxHelpersTest do
       assert run(exe, "return helpers.object(1)") == {:refused, :lua_error}
       assert run(exe, "return helpers.object(nil)") == {:refused, :lua_error}
     end
+  end
+
+  describe "text_helpers" do
+    test "trim removes each of the six ASCII space characters at the start and at the end", %{
+      executable: exe
+    } do
+      source = ~S"""
+      local ok = true
+      for _, c in ipairs({"\x20", "\x09", "\x0A", "\x0B", "\x0C", "\x0D"}) do
+        ok = ok and helpers.text_trim(c .. "ab" .. c) == "ab"
+        ok = ok and helpers.text_trim(c .. c .. c .. "ab") == "ab"
+        ok = ok and helpers.text_trim("ab" .. c .. c .. c) == "ab"
+        ok = ok and helpers.text_trim(c) == ""
+      end
+      return ok
+      """
+
+      assert {:ok, %{value: true}} = run(exe, source)
+    end
+
+    test "trim: mixed runs, no space, all space, empty, inner space kept", %{executable: exe} do
+      assert {:ok, %{value: "a b\tc"}} =
+               run(exe, ~S|return helpers.text_trim(" \t\n\v\f\r a b\tc \r\f\v\n\t ")|)
+
+      assert {:ok, %{value: "abc"}} = run(exe, ~S|return helpers.text_trim("abc")|)
+      assert {:ok, %{value: ""}} = run(exe, ~S|return helpers.text_trim(" \t\n\v\f\r ")|)
+      assert {:ok, %{value: ""}} = run(exe, ~S|return helpers.text_trim("")|)
+      assert {:ok, %{value: "a  b"}} = run(exe, ~S|return helpers.text_trim("  a  b  ")|)
+    end
+
+    test "trim removes nothing else: not NUL, not 0xA0, not U+00A0", %{executable: exe} do
+      source = ~S"""
+      local nul, nbsp, latin, other = "\0", "\xC2\xA0", "\xA0", "\x1F\x7F"
+      return {
+        helpers.text_trim(nul .. "a" .. nul) == nul .. "a" .. nul,
+        helpers.text_trim(nbsp .. "a" .. nbsp) == nbsp .. "a" .. nbsp,
+        helpers.text_trim(" " .. latin .. "a" .. latin .. " ") == latin .. "a" .. latin,
+        helpers.text_trim(other .. "a" .. other) == other .. "a" .. other,
+        #helpers.text_trim(nul) == 1,
+        #helpers.text_trim(" " .. nbsp .. " ") == 2
+      }
+      """
+
+      assert {:ok, %{value: [true, true, true, true, true, true]}} = run(exe, source)
+    end
+
+    test "trim: wrong arguments are errors that pcall catches", %{executable: exe} do
+      assert {:ok, %{value: results}} =
+               run(exe, wrong_arguments("helpers.text_trim", [~S|"a", "b"|]))
+
+      assert results == List.duplicate(false, 6)
+
+      for call <- ~w[helpers.text_trim() helpers.text_trim(1) helpers.text_trim(nil)
+                     helpers.text_trim({})] ++ [~S|helpers.text_trim("a", "b")|] do
+        assert run(exe, "return " <> call) == {:refused, :lua_error}, call
+      end
+    end
+  end
+
+  # pcall of each wrong argument list: none, a number, a table, nil, a boolean and the extras;
+  # every entry is the first result of pcall
+  defp wrong_arguments(name, extras) do
+    calls = ["", "1", "{}", "nil", "true"] ++ extras
+
+    entries =
+      Enum.map_join(calls, ",\n", &"  (pcall(#{name}#{if &1 == "", do: "", else: ", " <> &1}))")
+
+    "return {\n" <> entries <> "\n}"
   end
 end

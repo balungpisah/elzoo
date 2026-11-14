@@ -736,6 +736,41 @@ static int h_object(lua_State *L) {
   return 1;
 }
 
+/* The text argument at index i, or NULL when it is not of Lua type string (no
+** coercion). A string is never over value_bytes (the allocator refuses it), so
+** its length converts to long long safely; the check makes that explicit. */
+static const char *text_arg(lua_State *L, int i, size_t *len) {
+  const char *s;
+  if (lua_type(L, i) != LUA_TSTRING) return NULL;
+  s = lua_tolstring(L, i, len);
+  if (*len > G.value_bytes) {
+    set_sticky(STOP_VALUE);
+    stop_raise(L);
+  }
+  return s;
+}
+
+/* helpers.text_trim(text): without leading and trailing ASCII white space
+** (0x20 and 0x09..0x0D). */
+static int h_text_trim(lua_State *L) {
+  const char *s;
+  size_t len, a, b;
+  if (lua_gettop(L) != 1 || (s = text_arg(L, 1, &len)) == NULL)
+    return luaL_error(L, "helpers.text_trim: expected one string");
+  charge(L, (long long)len);
+  a = 0;
+  b = len;
+  while (a < b && (s[a] == ' ' || (s[a] >= 0x09 && s[a] <= 0x0D))) a++;
+  while (b > a && (s[b - 1] == ' ' || (s[b - 1] >= 0x09 && s[b - 1] <= 0x0D))) b--;
+  charge(L, (long long)(b - a));
+  if (b - a > G.value_bytes) {
+    set_sticky(STOP_VALUE);
+    return stop_raise(L);
+  }
+  lua_pushlstring(L, s + a, b - a);
+  return 1;
+}
+
 static int w_tostring(lua_State *L) {
   int t;
   luaL_checkany(L, 1);
@@ -1012,6 +1047,8 @@ static int init_env(lua_State *L) {
   lua_setfield(L, -2, "null");
   lua_pushcfunction(L, h_object);
   lua_setfield(L, -2, "object");
+  lua_pushcfunction(L, h_text_trim);
+  lua_setfield(L, -2, "text_trim");
   set_unlisted_meta(L, lua_gettop(L), mt);
   lua_setfield(L, env, "helpers");
   lua_settop(L, mt);

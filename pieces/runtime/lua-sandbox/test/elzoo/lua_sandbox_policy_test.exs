@@ -27,7 +27,8 @@ defmodule Elzoo.LuaSandboxPolicyTest do
 
     assert descriptor["helpers"] == [
              %{"name" => "null", "version" => 1},
-             %{"name" => "object", "version" => 1}
+             %{"name" => "object", "version" => 1},
+             %{"name" => "text_trim", "version" => 1}
            ]
 
     assert descriptor["bindings"] == %{}
