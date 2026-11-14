@@ -322,7 +322,7 @@ defmodule Elzoo.RunEngineTest do
               base.nested.(a)
               | initial_state: %{
                   requests: [
-                    request([action("slow", "tool_call"), action("finish-child", "finish")])
+                    request([action("slow", "tool_call"), finish_action("finish-child")])
                   ]
                 }
             }
@@ -2662,6 +2662,342 @@ defmodule Elzoo.RunEngineTest do
         assert Enum.all?(rows(c), &(byte_size(&1.payload) <= 16_777_216))
         refute inspect(view(engine)) =~ "xxxx"
       end
+    end
+  end
+
+  defp flush_observer do
+    receive do
+      {:pattern_input, _, _} -> flush_observer()
+    after
+      0 -> :ok
+    end
+  end
+
+  defp outcome_records(c, action_id) do
+    for row <- rows(c),
+        row.kind == "input",
+        {1, {_id, %{kind: :protocol, input: %{"action_id" => ^action_id} = input}}} <-
+          [:erlang.binary_to_term(row.payload, [:safe])],
+        do: input
+  end
+
+  describe "nested_result_reaches_parent" do
+    test "the parent gets the finish of its child with the declared schema, exact payload and child actual" do
+      payload = %{"choice" => "approve", "score" => 3, "nested" => %{"list" => [1, 2.5, nil]}}
+
+      {c, bindings} =
+        nested_setup(%{
+          "nested" => [request([action("slow", "tool_call"), finish_action("done", payload)])]
+        })
+
+      engine = start(c, bindings: bindings)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, provider, _}
+      refute_receive {:pattern_input, "root", %{"action_id" => "nested"}}, 50
+
+      assert {:ok, :applied} =
+               RunEngine.input(
+                 engine,
+                 "child-actual",
+                 result("slow"),
+                 verified(%{occurrence: {2, 0}, actual: 7, dispatch: "dispatched"})
+               )
+
+      assert_receive {:pattern_input, "root", %{"action_id" => "nested"} = input}
+
+      assert %{
+               "kind" => "action_outcome",
+               "outcome" => "completed",
+               "schema_id" => "result",
+               "schema_version" => 1,
+               "payload" => ^payload
+             } = input
+
+      refute_receive {:pattern_input, "root", %{"action_id" => "nested"}}, 50
+      assert view(engine).slots[{1, 0}].outcome == "completed"
+      {:ok, unit} = DynamicUnits.find(c.directory, c.prefix)
+      control = DurableUnit.snapshot(unit).control
+
+      assert {:Transition, _, {:some, {:status, %{committed: 7, reserved: 0}}}} =
+               Elzoo.Budget.step(control.budgets["1:0"].state, {2_000, :status})
+
+      assert DurableUnit.snapshot(unit).slots[{1, 0}].actual == 7
+      send(provider, {:result, %{}})
+    end
+  end
+
+  describe "nested_result_wrong_schema" do
+    test "another schema ID or another version fails the parent action without the child payload" do
+      for {schema_id, version} <- [{"message", 1}, {"result", 2}] do
+        {c, bindings} =
+          nested_setup(%{
+            "nested" => [
+              request([finish_action("done", %{"secret" => "child-body"}, schema_id, version)])
+            ]
+          })
+
+        schemas = Map.put(c.opts[:schemas], {"result", 2}, c.opts[:schemas][{"result", 1}])
+        engine = start(c, bindings: bindings, schemas: schemas)
+        assert {:ok, :applied} = send_input(engine)
+        assert_receive {:pattern_input, "root", %{"action_id" => "nested"} = input}
+        assert input["outcome"] == "failed"
+        assert input["schema_id"] == "elzoo.run-engine.refusal"
+        assert input["payload"]["reason"] == "nested_result_invalid"
+        refute inspect(input) =~ "child-body"
+        refute_receive {:pattern_input, "root", %{"action_id" => "nested"}}, 50
+        assert view(engine).slots[{1, 0}].outcome == "failed"
+        GenServer.stop(engine)
+        Process.unregister(:run_engine_observer)
+      end
+    end
+  end
+
+  describe "nested_without_finish" do
+    test "a child whose actions settle without a finish keeps the nested_completed outcome" do
+      # A child without a finish ends only when generation closes: the cap is
+      # exactly used (root request, child request) and a wake closes it.
+      {c, bindings} =
+        nested_setup(%{"nested" => [request([action("work", "local_work")])]}, request_cap: 2)
+
+      gate = fn {:PatternStep, m}, _ ->
+        if hd(m["actions"])["kind"] == "nested_callable", do: :allow, else: {:deny, "restricted"}
+      end
+
+      engine = start(c, bindings: bindings, gate: %{id: "gate", version: 1, call: gate})
+      assert {:ok, :applied} = send_input(engine)
+      assert view(engine).slots[{2, 0}].outcome == "refused"
+      refute_receive {:pattern_input, "root", %{"action_id" => "nested"}}, 50
+      assert {:ok, :applied} = RunEngine.input(engine, "wake", wake(), verified())
+      assert view(engine).slots[{1, 0}].outcome == "completed"
+
+      # Generation is closed, so no pattern input follows: the committed outcome
+      # record of the parent action is the observation.
+      assert [input] = outcome_records(c, "nested")
+      assert input["outcome"] == "completed"
+      assert input["schema_id"] == "elzoo.run-engine.refusal"
+      assert input["payload"]["reason"] == "nested_completed"
+    end
+  end
+
+  describe "nested_result_bounds" do
+    test "a payload at the bound reaches the parent whole; one byte more is refused to the child" do
+      filler = fn size -> %{"x" => String.duplicate("x", size)} end
+      at_bound = filler.(65_528)
+      assert byte_size(Jason.encode!(at_bound)) == 65_536
+      over = filler.(65_529)
+      assert byte_size(Jason.encode!(over)) == 65_537
+
+      {c, bindings} =
+        nested_setup(%{"nested" => [{:finish_sized, "done", 65_528}]})
+
+      engine = start(c, bindings: bindings)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:pattern_input, "root", %{"action_id" => "nested"} = input}
+      assert input["outcome"] == "completed"
+      assert input["payload"] == at_bound
+      GenServer.stop(engine)
+      Process.unregister(:run_engine_observer)
+
+      {c, bindings} =
+        nested_setup(%{"nested" => [{:finish_sized, "done", 65_529}]})
+
+      engine = start(c, bindings: bindings)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:pattern_input, "nested", %{"action_id" => "done"} = refused}
+      assert refused["outcome"] == "refused"
+      assert refused["payload"]["reason"] == "payload_schema"
+      refute_receive {:pattern_input, "root", %{"action_id" => "nested"}}, 100
+      {:ok, unit} = DynamicUnits.find(c.directory, c.prefix)
+      assert DurableUnit.snapshot(unit).control.callables["1:0"].closed == false
+      assert view(engine).slots[{1, 0}].phase == :running
+    end
+  end
+
+  describe "nested_result_survives_restart" do
+    test "the kept finish is rebuilt after a restart; the parent gets one outcome and no action runs twice" do
+      payload = %{"choice" => "kept", "n" => [1, 2]}
+
+      # Sequence of the committed log (input/result pairs): 19/20 the continuation
+      # that closes the child and keeps its finish, 21/22 the outcome of the finish
+      # action, 23/24 the outcome of the parent action. The SQL dispatch seam loses
+      # the reply of the append at the target, after it is committed: 22 is after
+      # the child's finish and before the parent's outcome, 23 and 24 are inside
+      # and after the parent's outcome.
+      for target <- [22, 23, 24] do
+        {c, bindings} = nested_setup(%{"nested" => [request([finish_action("done", payload)])]})
+        {module, config} = c.store
+
+        store =
+          {module,
+           %{
+             config
+             | test_dispatch: fn op, request, run ->
+                 if op == :append and request.stream == c.prefix and request.target == target,
+                   do: PostgresHarness.hook(c.store, :inject, [:append, :reply_loss])
+
+                 config.test_dispatch.(op, request, run)
+               end
+           }}
+
+        unit_opts = Keyword.put(c.unit_opts, :store, store)
+
+        directory =
+          start_supervised!(%{
+            id: make_ref(),
+            restart: :temporary,
+            start:
+              {DynamicUnits, :start_link,
+               [
+                 [
+                   registry: Elzoo.RunEngine.UnitRegistry,
+                   supervisor: c.supervisor,
+                   idle_ms: 60_000,
+                   unit_options: fn _ -> unit_opts end
+                 ]
+               ]}
+          })
+
+        engine = start(c, store: store, directory: directory, bindings: bindings)
+        assert {:error, :storage_unknown} = send_input(engine)
+        GenServer.stop(engine)
+        assert :ok = DynamicUnits.stop(directory, c.prefix)
+
+        engine = start(c, store: store, directory: directory, bindings: bindings)
+        assert view(engine).slots[{1, 0}].outcome == "completed"
+        assert view(engine).joins[1].closed
+
+        assert [%{"outcome" => "completed", "schema_id" => "result", "payload" => ^payload}] =
+                 outcome_records(c, "nested")
+
+        # One outcome for the finish action and one for the parent action.
+        assert [_] = outcome_records(c, "done")
+        assert view(engine).request_count == 2
+        {:ok, unit} = DynamicUnits.find(directory, c.prefix)
+        assert DurableUnit.snapshot(unit).control.callables["1:0"].closed
+
+        # The counting pattern: the child saw only its start, the root saw its
+        # start and exactly one outcome for the parent action, across both engines.
+        assert_receive {:pattern_input, "nested", %{"kind" => "start"}}
+        refute_receive {:pattern_input, "nested", _}, 100
+        assert_receive {:pattern_input, "root", %{"kind" => "start"}}
+        assert_receive {:pattern_input, "root", %{"action_id" => "nested", "payload" => ^payload}}
+        refute_receive {:pattern_input, "root", _}, 100
+
+        Process.unregister(:run_engine_observer)
+        flush_observer()
+      end
+    end
+  end
+
+  describe "first_finish_only" do
+    test "a second finish of the same child does not replace the first payload" do
+      {c, bindings} =
+        nested_setup(%{
+          "nested" => [
+            request([
+              finish_action("first", %{"choice" => "first"}),
+              finish_action("second", %{"choice" => "second"})
+            ])
+          ]
+        })
+
+      engine = start(c, bindings: bindings)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:pattern_input, "root", %{"action_id" => "nested"} = input}
+      assert input["outcome"] == "completed"
+      assert input["payload"] == %{"choice" => "first"}
+      refute_receive {:pattern_input, "root", %{"action_id" => "nested"}}, 100
+      assert [%{"payload" => %{"choice" => "first"}}] = outcome_records(c, "nested")
+      assert view(engine).slots[{2, 1}].phase == :settled
+    end
+  end
+
+  describe "two_levels" do
+    test "a child of a child reaches its parent, which finishes with it for the root; charge and shares unchanged" do
+      payload = %{"choice" => "inner"}
+
+      {c, bindings} =
+        nested_setup(%{
+          "nested" => [request([action("inner", "nested_callable")]), {:finish_with_seen, "mid"}],
+          "inner" => [request([finish_action("inner-done", payload)])]
+        })
+
+      engine = start(c, bindings: bindings)
+      assert {:ok, :applied} = send_input(engine)
+
+      # The middle callable received the inner payload and used it in its finish.
+      assert_receive {:pattern_input, "nested", %{"action_id" => "inner"} = middle}
+      assert middle["outcome"] == "completed"
+      assert middle["schema_id"] == "result"
+      assert middle["payload"] == payload
+
+      # The root received what the middle callable finished with.
+      assert_receive {:pattern_input, "root", %{"action_id" => "nested"} = root}
+      assert root["outcome"] == "completed"
+      assert root["schema_id"] == "result"
+      assert root["payload"] == %{"seen" => payload}
+      refute_receive {:pattern_input, "root", %{"action_id" => "nested"}}, 100
+
+      # Shared charge count: root request, inner request, inner finish, middle finish.
+      view = wait_for(engine, &(&1.slots[{1, 0}].phase == :settled))
+      assert view.request_count == 4
+      assert view.generation_closed == false
+
+      {:ok, unit} = DynamicUnits.find(c.directory, c.prefix)
+      budgets = DurableUnit.snapshot(unit).control.budgets
+      assert Enum.sort(Map.keys(budgets)) == ["1:0", "2:0", "root"]
+      assert {budgets["1:0"].cap, budgets["2:0"].cap} == {10, 10}
+
+      for {id, committed, reserved} <- [{"root", 0, 0}, {"1:0", 0, 0}, {"2:0", 0, 0}] do
+        assert {:Transition, _, {:some, {:status, %{committed: ^committed, reserved: ^reserved}}}} =
+                 Elzoo.Budget.step(budgets[id].state, {2_000, :status})
+      end
+    end
+  end
+
+  describe "payload_not_exposed" do
+    @tag :capture_log
+    test "a sentinel in a child's finish payload reaches the parent only, not status, logs or telemetry" do
+      sentinel = "SENTINEL-6b1f0d52-child-finish-text"
+
+      {c, bindings} =
+        nested_setup(%{"nested" => [request([finish_action("done", %{"note" => sentinel})])]})
+
+      parent = self()
+      handler = "payload-not-exposed-#{System.unique_integer([:positive])}"
+
+      events =
+        for family <- [:job, :effect],
+            kind <- [:start, :stop, :exception],
+            do: [:elzoo, family, kind]
+
+      :telemetry.attach_many(
+        handler,
+        events,
+        fn event, measurements, metadata, _ ->
+          send(parent, {:telemetry, event, measurements, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler) end)
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          engine = start(c, bindings: bindings)
+          assert {:ok, :applied} = send_input(engine)
+
+          assert_receive {:pattern_input, "root", %{"action_id" => "nested"} = input}
+          assert input["payload"] == %{"note" => sentinel}
+
+          refute inspect(view(engine)) =~ sentinel
+          refute inspect(:sys.get_status(engine)) =~ sentinel
+          refute inspect(RunEngine.status(engine)) =~ sentinel
+          GenServer.stop(engine)
+        end)
+
+      refute log =~ sentinel
+      refute_received {:telemetry, _, _, _}
     end
   end
 end
