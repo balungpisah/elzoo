@@ -1115,7 +1115,8 @@
       "summary": "Check a recipe before it can run",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/recipe-check/piece.json",
       "reason": "Bot platform wave 3 (P13). Structure, needs, permissions, budgets and an upper cost limit, with located reasons."
     },
     {
