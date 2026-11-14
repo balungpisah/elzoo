@@ -71,7 +71,8 @@ defmodule Elzoo.RunApprovalRelease do
         model: snapshot.model,
         bindings: opts[:effect_intent],
         intents: %{},
-        monitors: %{}
+        monitors: %{},
+        deaths: []
       }
 
       case settle_pending(s) do
@@ -131,7 +132,22 @@ defmodule Elzoo.RunApprovalRelease do
 
     case reply do
       {:indeterminate, info} -> {:stop, {:shutdown, {:indeterminate, info}}, reply, next}
-      _ -> {:reply, reply, next}
+      _ -> flush_deaths(reply, next)
+    end
+  end
+
+  # A death whose write failed with an error waits in the process state and is
+  # written after the next command, whatever its result.
+  defp flush_deaths(reply, %{deaths: deaths} = s),
+    do: flush_deaths(reply, %{s | deaths: []}, deaths, [])
+
+  defp flush_deaths(reply, s, [], kept), do: {:reply, reply, %{s | deaths: kept}}
+
+  defp flush_deaths(reply, s, [{id, child} = death | rest], kept) do
+    case persist(s, {:child_dead, id, child}, child) do
+      {{:indeterminate, info}, next} -> {:stop, {:shutdown, {:indeterminate, info}}, reply, next}
+      {{:error, _}, next} -> flush_deaths(reply, next, rest, kept ++ [death])
+      {_, next} -> flush_deaths(reply, next, rest, kept)
     end
   end
 
@@ -235,7 +251,7 @@ defmodule Elzoo.RunApprovalRelease do
         end
 
       c.kind == :approval_evidence and Map.has_key?(c, :evidence) and
-          run.evidence[c.request_key] == c.evidence ->
+        Map.has_key?(run.evidence, c.request_key) and run.evidence[c.request_key] == c.evidence ->
         {:unchanged, :duplicate}
 
       c.kind == :attach_child and Map.has_key?(run.children, c.child_run_id) ->
@@ -791,6 +807,7 @@ defmodule Elzoo.RunApprovalRelease do
 
         case reply do
           {:indeterminate, info} -> {:stop, {:shutdown, {:indeterminate, info}}, s}
+          {:error, _} -> {:noreply, %{s | deaths: s.deaths ++ [{id, child}]}}
           _ -> {:noreply, s}
         end
     end
