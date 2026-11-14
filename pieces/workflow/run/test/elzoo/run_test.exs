@@ -362,6 +362,7 @@ defmodule Elzoo.RunTest do
                command(p, :begin_attempt, %{attempt_id: "x", expected_revision: 0})
 
       assert snapshot(p).children["child"].dead == true
+      assert snapshot(p).revision == revision + 1
     end
 
     test "an indeterminate write of a kept death stops the owner, the command still replies", c do
@@ -804,11 +805,21 @@ defmodule Elzoo.RunTest do
 
   # A write that fails with `{:error, _}`: the Store seam only yields
   # `:indeterminate`, so the shape check of the log tables fails instead.
-  defp break_schema(c),
-    do: SQL.query!(c.repo, "ALTER TABLE #{log_records(c)} ADD COLUMN probe text", [], log: false)
+  defp break_schema(c) do
+    # Registered after the setup callback, so it runs before the schema is
+    # dropped: the shape is restored even when the test fails.
+    on_exit(fn -> repair_schema(c) end)
+    SQL.query!(c.repo, "ALTER TABLE #{log_records(c)} ADD COLUMN probe text", [], log: false)
+  end
 
-  defp repair_schema(c),
-    do: SQL.query!(c.repo, "ALTER TABLE #{log_records(c)} DROP COLUMN probe", [], log: false)
+  defp repair_schema(c) do
+    SQL.query!(
+      c.repo,
+      "ALTER TABLE IF EXISTS #{log_records(c)} DROP COLUMN IF EXISTS probe",
+      [],
+      log: false
+    )
+  end
 
   defp log_records(c), do: Postgres.identifier(c.prefix) <> ".elzoo_log_records"
 
