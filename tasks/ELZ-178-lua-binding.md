@@ -43,8 +43,10 @@ ask):
   descriptor is exactly `{"trust": "untrusted", "name", "description",
   "annotations", "input_schema"}`; a name matches `[A-Za-z0-9_.-]{1,128}`;
   `snapshot/1` refuses more than 64 tools and two tools with one alias. The
-  alias is `id <> "_" <> name` when that is at most 64 bytes, else a cut
-  form with a hash. `resolve/2` takes an alias.
+  alias is `id <> "_" <> name` when that matches `[a-zA-Z0-9_-]{1,64}`, else
+  a cut form with a hash of the id and the name. `resolve/2` takes an alias,
+  and a resolved tool holds `source` (the id) and `tool` (the name).
+  `tools/1` lists the aliases.
 - No shared canonical-JSON function exists: `domain/recipe-package` has a
   private one (keys sorted by bytes, then `Jason`). Write a private one of
   the same form here.
@@ -135,8 +137,8 @@ one tool-registry source with the given `id` (1 to 32 bytes of
 `schema` of its `arguments`, `annotations` an empty object, `trust`
 `"untrusted"`. The caller puts this source into the source set of its Run
 and binds each alias to the real Adapter of the module. `source/2` calls
-`ToolRegistry.snapshot([source])` itself: any refusal of it (a bad `id`, two
-functions with one alias) is `{:error, :invalid_input}`.
+`ToolRegistry.snapshot([source])` itself: any refusal of it is
+`{:error, :invalid_input}`.
 
 No function of this Piece takes or returns a secret, and no reason, error or
 log holds an argument or a result value: a violation holds a path and a
@@ -199,16 +201,19 @@ thing they share, and group 6 shows that they agree.
    `ToolRegistry.snapshot/1`; for each `name` of `ToolRegistry.tools/1`,
    `resolve/2` is `{:resolved, tool}`, and `ToolRegistry.check/2` is `:ok`
    for arguments that `check_arguments/3` accepts; 64 functions pass and the
-   declaration bound refuses 65; an `id` that the registry refuses and two
-   functions whose aliases are equal are `:invalid_input`.
+   declaration bound refuses 65; a function with a name of 64 characters gets
+   a cut alias and still resolves; an `id` that the registry refuses is
+   `:invalid_input`.
 6. **`names_fit_the_sandbox`**: each name form that this Piece accepts
    matches `[a-z][a-z0-9_]{0,63}`, and each form that it refuses does not;
    `names/1` is sorted and unique. (No sandbox is run here.)
 7. **`bounds_and_redaction`**: each bound and bound plus 1; each malformed
    operand is `:invalid_input`; a sentinel text inside an argument, a result
    and a manifest description never appears in a reason, an error or a
-   captured log. Equal inputs give equal results. One small checked example
-   covers the public API.
+   captured log. `cost/2` gives the cost of the manifest and
+   `permissions/1` the sorted union, and both refuse an unresolved name or
+   value. Equal inputs give equal results. One small checked example covers
+   the public API.
 
 ## Evidence and gate
 

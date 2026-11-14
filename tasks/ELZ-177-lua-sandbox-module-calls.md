@@ -168,7 +168,8 @@ operand with the default mode `"none"`.
 1. **`request_shape`**: each malformed `calls` (a missing key, an unknown
    mode, a bad name, a duplicate name, 65 names, 257 records, a record whose
    name is not listed, names or records with mode `"none"`, records with mode
-   `"data"`, an argument over `value_bytes`) is `invalid_request` and no
+   `"data"`) is `invalid_request`, a recorded argument or result whose
+   canonical JSON is over `value_bytes` is `value_size`, and in each case no
    source runs; the policy identity is version 3 and a version 2 identity is
    `policy_mismatch`.
 2. **`none_is_version_2_surface`**: with mode `"none"`, `bindings` and

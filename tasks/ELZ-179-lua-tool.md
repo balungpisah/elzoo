@@ -37,13 +37,15 @@ ask):
   at most 256 recorded calls.
 - `runtime/lua-binding` (ELZ-178): `names/1`, `identity/1`,
   `check_arguments/3`, `check_result/3`, `source/2`.
-- `workflow/tool-registry` (ELZ-136): `snapshot/1`, `resolve/2`; a resolved
-  tool has `alias`, `source`, `tool`, `version`.
+- `workflow/tool-registry` (ELZ-136): `snapshot/1`, `tools/1` (the listed
+  aliases), `resolve/2` (by alias); a resolved tool has `alias`, `source`,
+  `tool`, `version`.
 - `assembly/run-engine` installs a callable state only when it is plain data
   of at most 65,536 bytes as
   `:erlang.term_to_binary(state, [:deterministic, {:minor_version, 2}])`,
-  and since ELZ-172 it gives the finish payload of a nested callable to its
-  parent when the schema equals the declared result of the binding.
+  and it requires plain data of each later state too; since ELZ-172 it
+  gives the finish payload of a nested callable to its parent when the
+  schema equals the declared result of the binding.
 
 ## Payloads
 
@@ -100,9 +102,12 @@ is `id <> ":c:" <> K`; the finish is `id <> ":finish"`.
   of `Elzoo.LuaBinding.source/2`; `{:error, {:sources, reason}}` holds its
   refusal.
 - `source_id`: the `id` that was given to `LuaBinding.source/2`. The
-  registry looks a tool up by its alias, `source_id <> "_" <> name`: for
-  each name of `LuaBinding.names(bindings)`, `ToolRegistry.resolve/2` of
-  that alias must give `{:resolved, tool}`, else
+  registry looks a tool up by its alias, and the alias of a long name is a
+  cut form, so the step does not build aliases itself: it resolves each
+  alias of `ToolRegistry.tools(snapshot)` with `resolve/2`, and keeps, for
+  the resolved tools whose `source` equals `source_id`, the tool under its
+  `tool` member (the binding name). Each name of
+  `LuaBinding.names(bindings)` must have such a tool, else
   `{:error, {:unbound_function, name}}`.
 - `max_calls`: 0 to 256, the largest number of module calls of one tool run.
 
@@ -131,6 +136,10 @@ the bound gives the finish `failed`, `state_over_bound`.
 | new, running, calling | `cancel`, `run_ended` | closed; no request |
 | any | each other input (a `message`, a `wake`, a `resource_event`, a `person_answer`, a second `start`, a `late` outcome, an outcome of an action that is not open, a map that `PatternStep.decode/1` refuses) | no change, no request |
 | closed | every input | no change, no request |
+
+An outcome is read as a run result or a module result only when its
+`schema_id` is the key named above with version 1; a completed outcome with
+another schema is "a completed payload in another form".
 
 **A pending call** `{"index", "name", "arguments"}`, the first rule that
 holds:
@@ -186,7 +195,7 @@ function of its own that turns the finish into the form of the parent, and
 gives that function to the engine as the nested callable. The ready engine
 has one binding for each action kind: a Run in which another pattern also
 makes tool calls needs the engine to choose a binding by the schema of the
-action (ELZ-180), or the module results arrive under the other pattern's
+action (a later task of `assembly/run-engine`), or the module results arrive under the other pattern's
 result schema and each module call ends as `module_call_not_completed`. A
 run payload whose JSON is over the payload bound of the engine is refused
 by the engine, which this step sees as `run_not_completed`. The tool is pure between
@@ -242,7 +251,10 @@ with the expected requests written by hand.
    with `max_calls` n, call n-1 is asked for and call n is `call_limit`;
    `state_over_bound` from a large start input, from large pending
    arguments and from a large module result; each refusal of
-   `new/1`; `cancel` and `run_ended` close the step; each input of the "no
+   `new/1`; a `start` in another form gives the finish `failed`,
+   `invalid_input`; a completed outcome under another schema is "another
+   form"; a binding name of 64 characters resolves through its cut alias;
+   `cancel` and `run_ended` close the step; each input of the "no
    change" row.
 9. **`forms_agree`**: the run payload that the step gives equals, member
    for member, a literal request in the form of ELZ-177 that the test writes
