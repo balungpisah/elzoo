@@ -1326,4 +1326,86 @@ defmodule Elzoo.GraphRunTest do
       assert last["actions"] |> hd() |> get_in(["payload", "status"]) == "completed"
     end
   end
+
+  describe "last_result_over_bound_fails" do
+    defp one_call, do: build([node("a", "call", ["x"], ["ga"])], [data("$input", "x", "a", "x")])
+
+    test "one call node whose result is 70,000 bytes finishes failed with state_over_bound" do
+      big = String.duplicate("x", 70_000)
+
+      {state, requests} =
+        fold(one_call(), [start(%{"x" => 1}), done("run:n:a", %{"ga" => big})])
+
+      assert requests == [req([call("a", %{"x" => 1})]), req([failed("state_over_bound", nil)])]
+      closed?(state)
+    end
+
+    test "two last nodes whose gives pass the bound only together fail at the second result" do
+      nodes = [node("a", "call", ["x"], ["ga"]), node("b", "call", ["x"], ["gb"])]
+      links = [data("$input", "x", "a", "x"), data("$input", "x", "b", "x")]
+      part = String.duplicate("y", 40_000)
+
+      {state, requests} =
+        fold(build(nodes, links), [
+          start(%{"x" => 1}),
+          done("run:n:a", %{"ga" => part}),
+          done("run:n:b", %{"gb" => part})
+        ])
+
+      assert requests == [
+               req([call("a", %{"x" => 1}), call("b", %{"x" => 1})]),
+               nil,
+               req([failed("state_over_bound", nil)])
+             ]
+
+      closed?(state)
+    end
+
+    test "a last result that keeps the state at or under the bound completes" do
+      value = String.duplicate("z", 60_000)
+
+      {state, requests} =
+        fold(one_call(), [start(%{"x" => 1}), done("run:n:a", %{"ga" => value})])
+
+      assert requests == [
+               req([call("a", %{"x" => 1})]),
+               req([completed("run:n:a", %{"ga" => value})])
+             ]
+
+      closed?(state)
+    end
+  end
+
+  describe "fail_fast_map_two_orders" do
+    # The set of actions of every non-nil request, sorted by id, and the finish of the run.
+    defp record(inputs) do
+      {state, requests} = fold(map_graph(:fail), inputs)
+      actions = for r <- requests, r != nil, a <- r["actions"], do: a
+      {Enum.sort_by(actions, & &1["id"]), List.last(requests), state}
+    end
+
+    test "item 2 is asked for only when item 0 completes before item 1 fails" do
+      three = start(%{"xs" => ~w(a b c), "tag" => "t"})
+
+      {set_a, finish_a, state_a} =
+        record([
+          three,
+          done("run:n:m:0", %{"v" => 0}),
+          outcome("run:n:m:1", "failed"),
+          done("run:n:m:2", %{"v" => 2})
+        ])
+
+      {set_b, finish_b, state_b} =
+        record([three, outcome("run:n:m:1", "failed"), done("run:n:m:0", %{"v" => 0})])
+
+      assert item(2, "c") in set_a
+      refute item(2, "c") in set_b
+      assert set_a -- set_b == [item(2, "c")]
+      assert set_b -- set_a == []
+      assert finish_a == req([failed("no_outcome_link", "m")])
+      assert finish_b == req([failed("no_outcome_link", "m")])
+      closed?(state_a)
+      closed?(state_b)
+    end
+  end
 end
