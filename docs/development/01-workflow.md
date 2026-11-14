@@ -187,7 +187,10 @@ the same worktree path for the next task to keep the build.
 Names derive from the worktree path, and each container, volume and network
 carries the label of its worktree. `down` removes only those, and the files
 that `up` wrote in `.elzoo-services/`; it refuses an `.elzoo-services` that is
-a symbolic link. `down --worktree PATH` takes the top level of a worktree, or
+a symbolic link. `up` and `down` of one worktree take one lock file for that
+worktree, below the cache directory of the script (`locks/`), which `down`
+never removes, so they never overlap, also when `.elzoo-services/` is absent.
+`down --worktree PATH` takes the top level of a worktree, or
 a path that is already removed; it refuses a path inside a worktree, and an
 existing directory that is not a Git worktree. When a removal fails, `down`
 still does the other removals, reports each failure and exits 1. The
