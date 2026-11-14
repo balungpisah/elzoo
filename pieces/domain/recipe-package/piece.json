@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "id": "domain/recipe-package",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["elixir", "jason", "otp", "telemetry"],
+  "dependencies": ["core/payload-schema", "domain/recipe-graph", "domain/recipe-config"],
+  "contract": "Pure bounded v1 recipe package as decoded plain JSON data: exact name, opaque version, canonical SHA-256 content identity, declarative needs and permissions, unchanged ready graph and settings descriptor, and bounded decoded skill frontmatter and Markdown. Encode returns the exact original map; fixed redacted refusals, no loading or authority.",
+  "limits": [
+    "Trusted source pinning and host-approved schema complexity remain host Needs; a matching content digest authenticates nobody and byte caps do not bound schema compiler work.",
+    "Decoded frontmatter only: no raw YAML or SKILL.md syntax validation, folder provenance, file/archive reader, script execution, registry lookup or bundled assets.",
+    "No settings values, secret resolution, authorization, approval, runtime trust assignment, prompt construction or claim that package bodies fit a loaded request.",
+    "Finite named scenarios, not a universal proof; forged checked internals are outside the interface. Telemetry is used only by tests."
+  ],
+  "files": ["lib/elzoo/recipe_package.ex", "test/elzoo/recipe_package_test.exs", "examples/recipe_package.exs"],
+  "grounding": [
+    {"kind": "test", "file": "test/elzoo/recipe_package_test.exs", "claim": "Named groups manifest_identity_and_roundtrip, ready_graph_and_settings_reuse, skill_refusal_before_load, trust_and_bounds and redaction_and_no_effects exercise content mutations, exact caps, actual ready API calls, fixed refusals, captured logs and traced effect absence, and the checked example. Temporary production mutations are negative controls; finite tests only."},
+    {"kind": "upstream", "provider": "jason", "reference": "https://hexdocs.pm/jason/1.4.5/Jason.html", "claim": "Pinned compact scalar JSON encoding; object keys are recursively sorted by UTF-8 binary order and list order is retained. Ready RecipeGraph and RecipeConfig interfaces own graph/schema validation unchanged."},
+    {"kind": "upstream", "provider": "otp", "reference": "https://www.erlang.org/doc/apps/crypto/crypto.html#hash/2", "claim": "OTP crypto.hash/2 supplies SHA-256 over canonical JSON iodata; no authentication is inferred."},
+    {"kind": "assumption", "claim": "The host independently resolves and pins a trusted package source, supplies approved schema complexity and secret-free declarations, and preserves caller-held checked values. Later loading owns total request bytes and runtime trust."
+    }
+  ],
+  "operations": {
+    "telemetry": {"status": "not_applicable", "contract": "Pure operands; no logs or telemetry emitted."},
+    "config": {"status": "not_applicable", "contract": "Intrinsic decoded data and fixed v1 bounds, no selectable settings."},
+    "control": {"status": "not_applicable", "contract": "No process, loading or lifecycle."}
+  }
+}
