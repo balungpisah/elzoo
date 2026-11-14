@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "id": "workflow/skill",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["elixir", "yaml_elixir", "yamerl"],
+  "dependencies": [
+    "domain/recipe-package",
+    "workflow/untrusted-content",
+    "workflow/tool-registry",
+    "workflow/tool-result-limit",
+    "workflow/agent-loop"
+  ],
+  "contract": "Pure reader of a skill folder given as a map of relative paths to bytes: read/4 checks the operands, the paths and the fixed folder bounds, splits SKILL.md at its frontmatter lines, reads the frontmatter with the pinned YAML reader and gives the skill entry of a recipe package and the other files of the folder, or a fixed refusal reason that holds no path, file byte, frontmatter value or body.",
+  "limits": [
+    "Reads no file system and stores nothing; the caller holds the bytes, and that the files belong to the pinned package version is a host Need.",
+    "read/4 checks nothing of the name, the version, the tools or the frontmatter fields; Elzoo.RecipePackage.decode/1 of the package that holds the entry does that.",
+    "No Markdown is parsed and no script is read as code; no option of the YAML reader is set.",
+    "Finite named scenarios, not a universal proof."
+  ],
+  "files": [
+    "lib/elzoo/skill.ex",
+    "test/elzoo/skill_test.exs"
+  ],
+  "grounding": [
+    {"kind": "test", "file": "test/elzoo/skill_test.exs", "claim": "Named groups skill_md_split (LF and CR LF files, the closing line rules, a byte-order mark, frontmatter of exactly 16,384 bytes and one more, invalid UTF-8, missing SKILL.md, empty body, blank and non-map frontmatter) and folder_bounds_and_paths (each invalid path, 1,024-byte path, 256 and 257 files, files of 1,048,576 bytes and one more, 8,388,608 bytes in all and one more, each operand rule and the order of the checks) are literal folders given to read/4. Finite scenarios, not a universal proof."},
+    {"kind": "upstream", "provider": "yaml_elixir", "reference": "https://hexdocs.pm/yaml_elixir/2.12.2/readme.html", "claim": "Pinned yaml_elixir 2.12.2 read_from_string/2 with the option list [] gives {:ok, term} or {:error, error} and raises on no input that ELZ-176 recorded; only that call is used."},
+    {"kind": "upstream", "provider": "yamerl", "reference": "https://hexdocs.pm/yamerl/0.10.0/", "claim": "Pinned yamerl 0.10.0 is the parser; the behaviours that ELZ-176 recorded in docs/dependencies.md (a tab inside a block scalar, !!binary, an unknown tag, an unterminated flow collection) hold as recorded there; no yamerl parameter is set."},
+    {"kind": "upstream", "provider": "elixir", "reference": "https://hexdocs.pm/elixir/1.20.4/", "claim": "Pinned Elixir binary pattern matching, :binary.split/2, String.valid?/1 and String.replace/3 give the byte checks; the Contracts of domain/recipe-package, workflow/untrusted-content, workflow/tool-registry, workflow/tool-result-limit and workflow/agent-loop are used unchanged."},
+    {"kind": "assumption", "claim": "The host puts each entry of read/4 into the recipe package and publishes only a package that RecipePackage.decode/1 accepts, pins the package of a Run and keeps the files of the same version, stores the skill files, leaves the yamerl parameter node_mods at [] and starts the yamerl application."}
+  ],
+  "operations": {
+    "telemetry": {"status": "not_applicable", "contract": "Pure functions over intrinsic operands and fixed bounds; no logs or telemetry emitted."},
+    "config": {"status": "not_applicable", "contract": "Pure functions over intrinsic operands and fixed bounds; no selectable settings."},
+    "control": {"status": "not_applicable", "contract": "Pure functions over intrinsic operands and fixed bounds; no process or lifecycle."}
+  }
+}
