@@ -13,7 +13,8 @@
     "No engine, scheduler, wait/pause policy, exactly-once send, physical cancellation, provider authentication, audit/outbox composition or cross-stream transaction.",
     "Host supplies authenticated evidence/current context, durable Store, clocks, supervision, retention and fencing of old owners and outstanding writes before replacement/activation.",
     "Whole guarded stream retained; no local pruning or aggregate history/memory bound. Individual events at most128KiB; Run identifiers at most200 UTF-8 bytes without NUL, provider references at most64 entries; ready Approval/EffectIntent limits unchanged.",
-    "Finite PostgreSQL/fake-Adapter scenarios, not universal proofs; Memory remains volatile; caller timeout and indeterminate writes are unknown, not repeat permission."
+    "Finite PostgreSQL/fake-Adapter scenarios, not universal proofs; Memory remains volatile; caller timeout and indeterminate writes are unknown, not repeat permission.",
+    "Child death is best effort: no pid is stored, so a death is not recorded when the owner restarts before or while the child ends, or when its write is fenced or rejected; a death whose write failed with an error is kept in the process and written after the next command."
   ],
   "files": [
     "lib/elzoo/run.ex",
@@ -22,10 +23,10 @@
     "test/support/run_test_helper.exs"
   ],
   "grounding": [
-    {"kind": "test", "file": "test/elzoo/run_test.exs", "claim": "Named restart/identity, children, open approval, before release commit, release before intent, zero attempts, reserved/send windows, individual bypass reasons and outcomes/example scenarios use private disposable PostgreSQL, real Approval/EffectIntent, recording Store and counting fake Adapter; release-barrier production mutation is a negative control."},
+    {"kind": "test", "file": "test/elzoo/run_test.exs", "claim": "Named restart/identity, children, open approval, before release commit, release before intent, zero attempts, reserved/send windows, individual bypass reasons and outcomes/example scenarios use private disposable PostgreSQL, real Approval/EffectIntent, recording Store and counting fake Adapter; release-barrier production mutation is a negative control. Groups missing_evidence_is_refused, failed_death_write_is_kept and death_is_best_effort are finite cases; mutations of the stored-evidence condition and of the kept deaths are negative controls."},
     {"kind": "upstream", "provider": "elixir", "reference": "https://hexdocs.pm/elixir/1.20.4/GenServer.html", "claim": "Pinned GenServer serialization and OTP monitoring/task execution; no local runtime soundness proof."},
     {"kind": "upstream", "provider": "otp", "reference": "https://www.erlang.org/doc/apps/erts/erl_ext_dist.html", "claim": "OTP29.1.2 canonical deterministic ETF safe decoding and crypto digests; ready Store/lease/approval/intent contracts remain unchanged."},
-    {"kind": "assumption", "claim": "Host authenticates identities/evidence/current context, supplies canonical arguments, durable Store, clocks, supervision and retention, reconciles pending writes and fences previous owners/providers before granting snapshot-bound activation. Test host authority is not production fencing evidence."}
+    {"kind": "assumption", "claim": "Host authenticates identities/evidence/current context, supplies canonical arguments, correlates the intent of dispatch_approved with the approved action (Run checks the request, the binding and that the intent of an action does not change, and nothing else), durable Store, clocks, supervision and retention, reconciles pending writes and fences previous owners/providers before granting snapshot-bound activation. Test host authority is not production fencing evidence."}
   ],
   "operations": {
     "telemetry": {"status": "inherited", "from": "otp", "contract": "OTP process/task diagnostics only; consumer redacts diagnostics. No custom exporter or payload telemetry."},

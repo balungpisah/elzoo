@@ -7501,7 +7501,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/workflow/run/piece.json",
-      "manifest_sha256": "da85b1d416e2546d6a6db7fbacda452c61c782c51b8a1f5b3ce5700dbe5c342b"
+      "manifest_sha256": "52666906d97cc5a6a2f04ef753bed8b6c221d14fd873b3b2c45ee88d0684050c"
     },
     {
       "id": "workflow/state-machine",
@@ -7598,7 +7598,7 @@
       "baseline_status": "not in baseline (new row, ELZ-126)",
       "disposition": "ready-contract",
       "manifest": "pieces/workflow/run-approval-release/piece.json",
-      "manifest_sha256": "dc5b0f8e51ceed9cede9c5ba87a80b62d1be5db4c0929561d9aa227f667ea19c",
+      "manifest_sha256": "737e954103bd21d87e573cb730287fd193d550d51a7b6c7a294e944bb04a9c30",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
