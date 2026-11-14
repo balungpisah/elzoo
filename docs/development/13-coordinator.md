@@ -20,7 +20,24 @@
   no worker is waiting to claim it. Independent review, exact-head hosted
   evidence, freeze rules and the queue are unchanged. Classify the actual
   paths using the decision tree in `AGENTS.md` section 1.
-- Publish a batch of tasks for workers in this order:
+- **Check the text before you publish it.** A task is built from its text
+  alone, and a fault in it costs a review pass and an amendment, or a worker
+  that meets a clause which cannot hold. Before an issue is created:
+  - For each statement of the task about a ready Piece (a function, a return
+    shape, a bound, a reason), open the code on `main` and confirm it. Do not
+    write a shape from memory.
+  - Work each acceptance group through by hand. A case that cannot occur, or
+    that the Piece cannot test, is a fault of the task.
+  - Faults that happened: `{:error, reason}` written as a bare reason; a
+    result that only another arity of a function gives; a non-finite number
+    as a case of a decoded term; a group that asks for every reason at once
+    when one reason suppresses another; "exactly one version" over a store
+    whose put always adds a version; a failure that the reused Piece reports
+    inside a success result; a size case that an earlier check refuses.
+- Publish a level of tasks as one pull request, in this order. Only one
+  publication is open at one time: two of them conflict in
+  `docs/plans/release-plan.json` and in the generated views. Do not open one
+  in the middle of a burst of Piece merges: it goes stale after each merge.
   1. Write each `tasks/ELZ-###-<slug>.md`. It must hold one line
      `- Dependencies: ELZ-..., ELZ-...`.
   2. Create each issue from its file, without the label `task`:
@@ -87,12 +104,28 @@
   small gate, and the queue does not wait for the full check of `main` between
   two such merges. At the end of each level, wait until the third command of
   step 3 above prints `completed success` for the current `main`. Only then
-  publish the next level, or add the label `task` to its issues. If the run is
+  publish the next level as one pull request. A task that a later level
+  needs can be in an earlier publication: its `- Dependencies:` line keeps it
+  not ready. If the run is
   red, do the repair below first. Wave 1 exception: a level-2 task may be
   published after its own prerequisites merge and current `main` is green,
   without waiting for every level-1 job. The serial merge queue, independent
   review, the queue's limit of four outstanding first-parent commits before a
   small-gate merge and red-`main` rules remain in force.
+- **One queue run for the ready pull requests.** When more than one pull
+  request is ready, give all of them to the queue in one run, in dependency
+  order: `python3 scripts/merge-queue.py <PR> <PR> ...`. Each merge changes
+  the index and generated files, so a pull request that waits goes stale. A
+  worker merges `main` and runs step 3 of the index files immediately before
+  it marks its pull request ready, and marks it ready only when GitHub shows
+  it mergeable.
+- **Reviewer by risk.** For a Piece that runs untrusted input, holds native
+  code or keeps durable state, the reviewer is the strongest reasoning model
+  of another family that is available, and it finds the code and a test for
+  each rule of the issue body. When only a weaker model is available, do not
+  hold the merge: record on the hand-over issue of the wave that a second
+  review is owed, do it when the stronger model is available, and make each
+  finding its own task.
 - **Repair of a red `main`.** The full check on `main` is the evidence of the
   small-gate merges. When it is red:
   1. Classify the red run on issue #98, as the

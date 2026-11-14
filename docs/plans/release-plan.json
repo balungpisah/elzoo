@@ -4617,7 +4617,8 @@
         "RC-65",
         "RC-66",
         "RC-61",
-        "ELZ-139"
+        "ELZ-139",
+        "ELZ-176"
       ],
       "status": "blocked: unpublished admission proposal",
       "contract": "A skill follows the public Agent Skills format (https://agentskills.io/specification, accessed 2026-11-12; no spec version): a folder with SKILL.md, YAML frontmatter and Markdown instructions. Required name is 1–64 lowercase alphanumeric or hyphen characters, has no leading, trailing or consecutive hyphens, and matches the folder; required description is 1–1024 characters. Malformed skills are refused at package checking, not load. V1 skills come only from the recipe package; MCP io.modelcontextprotocol/skills is out of scope, and future use requires person approval of the exact digest. A model sees only descriptions until it asks for one. A skill is a registry tool source (RC-52); asking is a recorded tool call whose result holds instructions and the tools declared by the pinned package manifest, using RC-56's declaration shape. Trust comes from the pinned package manifest source, never the path or result shape. Named instructions rank with recipe role instructions, RC-54 builds them as instructions and never drops them, and RC-51 does not mark them; other tool results remain marked content. RC-56 accepts them only for the resolved pinned-package skill source kind, owns the 64-tool and total loaded-instruction byte bounds and named refusals, refuses an instruction-overbound load without adding instructions, and adds nothing for a repeat loaded skill. A load exceeding 64 tools gives the instructions and named tool refusal if the instruction bound permits. Instructions are never cut; RC-69 may cut skill files, not the SKILL.md body. A skill grants no authority, including through allowed-tools frontmatter; tools still pass engine checks. Scripts are stored and read but never executed in v1. RC-61's package manifest names each skill with its version and tools; the pinned recipe fixes skill versions.",
@@ -5796,6 +5797,57 @@
       "issue": 388,
       "url": "https://github.com/balungpisah/elzoo/issues/388",
       "issue_body_sha256": "5eb5cfac4d0c3187e583d530eb80c1c162a40dff857858e39c7b719748576eb2"
+    },
+    {
+      "id": "ELZ-173",
+      "title": "ELZ-173 — AGENTS.md: before the first release a ready Piece is extended in place",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033"],
+      "status": "published 2026-11-14",
+      "owner_role": "coordinator; one-PR path for a non-Piece change; independent review and merge queue",
+      "paths": ["tasks/ELZ-173-extend-pieces-before-release.md"],
+      "outputs": [],
+      "acceptance": "AGENTS.md states the owner decision of 2026-11-14 in section 4 and in the flow table of section 1: before the first release a ready Piece that lacks something which clearly belongs to it is extended, refactored or cut clean in place with the same Piece ID; the new-ID rule applies from the first release. No other document changes.",
+      "product_aims": ["P13"],
+      "issue": 386,
+      "url": "https://github.com/balungpisah/elzoo/issues/386",
+      "issue_body_sha256": "24ae25d92d725d24cc111072e10f191b70e06a928b5c573972634144497dafca"
+    },
+    {
+      "id": "ELZ-175",
+      "title": "ELZ-175 — Coordinator guide: four guardrails from wave 3 of the bot platform track",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033"],
+      "status": "published 2026-11-14",
+      "owner_role": "coordinator; one-PR path for a non-Piece change; independent review and merge queue",
+      "paths": ["tasks/ELZ-175-coordinator-flow-guardrails.md"],
+      "outputs": [],
+      "acceptance": "The coordinator guide holds four rules by owner decision of 2026-11-14: check a task text against the code before it is published; one publication pull request for each level and only one open at a time; one queue run for all ready pull requests, with main merged before a pull request is marked ready; and the reviewer chosen by the risk of the Piece, with an owed second review recorded when only a weaker model is available. No other document changes.",
+      "product_aims": ["P13"],
+      "issue": 390,
+      "url": "https://github.com/balungpisah/elzoo/issues/390",
+      "issue_body_sha256": "dec3e870117115a3476cd9b0e08aa190aa6752cf90c7d48d1535553a7c4545a3"
+    },
+    {
+      "id": "ELZ-176",
+      "title": "ELZ-176 — Pin and exercise a YAML reader for skill frontmatter",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033"],
+      "status": "published 2026-11-14",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-176-yaml-provider.md"],
+      "outputs": [],
+      "acceptance": "Provider prerequisite for RC-67 by owner decision (adopt a maintained library): yaml_elixir 2.12.2 and yamerl 0.10.0 pinned in mix.exs, mix.lock and registry/providers.json with an entry in the dependency register, and one root test that records on the pinned versions what the skill reader will rely on: plain frontmatter with block scalars, the terms of typed scalars, aliases and merge keys, documents that are not one plain map, no new atoms, bounded time. Full local and hosted check. No Piece and no public API.",
+      "product_aims": ["P13"],
+      "issue": 392,
+      "url": "https://github.com/balungpisah/elzoo/issues/392",
+      "issue_body_sha256": "d1c7e44c0294e621063a2c9a9ce74a9b5a649dff4d79cefe1384a286a18ea3f2"
     }
   ],
   "entries": [
@@ -7117,10 +7169,12 @@
     {
       "id": "state/recipe-store",
       "job": "ELZ-171",
-      "note": "Immutable recipe versions per tenant with a check gate, a published pointer with go-back, pin records and delete marks in one stream per tenant; a pinned or published version is not deleted.",
+      "note": "Immutable recipe versions of a tenant over the ready Pieces: the bytes of each version are an artifact of state/artifact, and the stored records, check verdicts, published pointer, pin records and delete marks are records of the one stream recipe-store/<tenant> of the ready Store, each change read, decided by the pure Cure table over the folded state and appended at the head revision (at most 3 tries, then contended; an indeterminate append is never tried again). Only a stored, checked, live version is published (go-back is a publish of an older version); a version that a pin record holds or that is published is not deleted; the delete mark is committed before any artifact delete. Refusal order not_found, deleted, not_checked, pinned, published.",
       "baseline_status": "not in baseline (new row, RC-65)",
-      "disposition": "published-task; implementation pending",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/state/recipe-store/piece.json",
+      "manifest_sha256": "d785fa9fc9621001f91a083ef306f78567ae224f78998d53b86cee05a7714954"
     },
     {
       "id": "workflow/version-pin",

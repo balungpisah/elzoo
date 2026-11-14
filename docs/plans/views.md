@@ -194,7 +194,8 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-127](https://github.com/balungpisah/elzoo/issues/263) | V1B / pieces | ELZ-033, ELZ-114, ELZ-115, ELZ-117, ELZ-122, ELZ-118, ELZ-116, ELZ-124, ELZ-123, ELZ-002, ELZ-009, ELZ-022, ELZ-023, ELZ-024, ELZ-098, ELZ-003, ELZ-126 | published 2026-11-12 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-172](https://github.com/balungpisah/elzoo/issues/377) | V1B / pieces | ELZ-033, ELZ-114, ELZ-127 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 | RC-66 | V1B / pieces | ELZ-033, RC-50, ELZ-136, ELZ-141, ELZ-142, RC-60, RC-61, RC-62, RC-63, RC-64, ELZ-079, ELZ-114, ELZ-172 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-67 | V1B / pieces | ELZ-033, ELZ-096, ELZ-136, ELZ-140, ELZ-142, RC-65, RC-66, RC-61, ELZ-139 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| [ELZ-176](https://github.com/balungpisah/elzoo/issues/392) | V1B / pieces | ELZ-033 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| RC-67 | V1B / pieces | ELZ-033, ELZ-096, ELZ-136, ELZ-140, ELZ-142, RC-65, RC-66, RC-61, ELZ-139, ELZ-176 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-68 | V1B / pieces | ELZ-033, ELZ-002, ELZ-006, ELZ-023 | superseded for workflow/pattern-step by published ELZ-114; output moved | one claimed task worker after admission |
 | RC-69 | V1B / pieces | ELZ-033, ELZ-096, ELZ-137, ELZ-114, ELZ-023, ELZ-009 | superseded for workflow/tool-result-limit by published ELZ-139; output moved | one claimed task worker after admission |
 | RC-70 | V1B / pieces | ELZ-033, ELZ-114 | superseded for workflow/stall-detect by published ELZ-145; output moved | one claimed task worker after admission |
@@ -226,6 +227,8 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-156](https://github.com/balungpisah/elzoo/issues/336) | V1B / pieces | ELZ-143 | published 2026-11-13 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-157](https://github.com/balungpisah/elzoo/issues/342) | V1 / pieces | none | published 2026-11-13 | one claimed provider worker; coordinator owns independent review and merge |
 | [ELZ-158](https://github.com/balungpisah/elzoo/issues/345) | V1 / pieces | none | published 2026-11-14 | coordinator owns implementation, independent review and merge |
+| [ELZ-173](https://github.com/balungpisah/elzoo/issues/386) | V1B / pieces | ELZ-033 | published 2026-11-14 | coordinator; one-PR path for a non-Piece change; independent review and merge queue |
+| [ELZ-175](https://github.com/balungpisah/elzoo/issues/390) | V1B / pieces | ELZ-033 | published 2026-11-14 | coordinator; one-PR path for a non-Piece change; independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -372,7 +375,7 @@ Baseline status is immutable inventory history, not a current planning status. R
 | [workflow/node-outcome](../../pieces/workflow/node-outcome/piece.json) | not in baseline (new row, RC-63) | V1B / pieces | ELZ-166 / P13 | ready-contract: Pure rule for one settled graph node: the outcome routes of the node from decoded links, and follow, proceed or fail-the-Run for one of the nine action outcome classes; no execution, graph walk or retry. |
 | [workflow/recipe-check](../../pieces/workflow/recipe-check/piece.json) | not in baseline (new row, RC-64) | V1B / pieces | ELZ-167 / P13 | ready-contract: Pure load-time check of a recipe package, or of a recipe outside a package, against caller-supplied facts: structure by the ready validators located at its part, then every tool, declared need and permission and cost compared, with an exact upper cost against a cap; an ok verdict or all refusal reasons in a fixed order, no execution, grant or budget. |
 | [workflow/runtime-graph](../../pieces/workflow/runtime-graph/piece.json) | not in baseline (new row, RC-64) | V1B / pieces | ELZ-169 / P13 | ready-contract: Pure decision whether a graph that a model gave as plain data at run time may run: the graph is checked as data, held to the callables, tools, asks, node count and nesting that the agent may use, added to the recipe of the Run as one more graph callable, and checked as at load time with its upper cost against the budget share; the accepted recipe, callable and upper cost, or all refusal reasons in a fixed order, and a bounded text of the reasons for the model; no execution, grant, budget or storage. |
-| state/recipe-store | not in baseline (new row, RC-65) | V1B / pieces | ELZ-171 / P13 | published-task; implementation pending: Immutable recipe versions per tenant with a check gate, a published pointer with go-back, pin records and delete marks in one stream per tenant; a pinned or published version is not deleted. |
+| [state/recipe-store](../../pieces/state/recipe-store/piece.json) | not in baseline (new row, RC-65) | V1B / pieces | ELZ-171 / P13 | ready-contract: Immutable recipe versions of a tenant over the ready Pieces: the bytes of each version are an artifact of state/artifact, and the stored records, check verdicts, published pointer, pin records and delete marks are records of the one stream recipe-store/<tenant> of the ready Store, each change read, decided by the pure Cure table over the folded state and appended at the head revision (at most 3 tries, then contended; an indeterminate append is never tried again). Only a stored, checked, live version is published (go-back is a publish of an older version); a version that a pin record holds or that is published is not deleted; the delete mark is committed before any artifact delete. Refusal order not_found, deleted, not_checked, pinned, published. |
 | [workflow/version-pin](../../pieces/workflow/version-pin/piece.json) | not in baseline (new row, RC-65) | V1B / pieces | ELZ-170 / P13 | ready-contract: Pure rule of the recipe version and the tool sources that one Run keeps: the pin captures a package identity and the id, kind and callable of each source at Run start, an explicit change-version input is the only input that changes the version, a published version, a settings change and a listing change nothing, a listing of an outside source is refused, and no input adds a source. No I/O, clock, process, storage or version check. |
 | runtime/recipe-test | not in baseline (new row, RC-66) | V1B / pieces | RC-66 / P13 | blocked-admission-proposal: Bot platform wave 3 (P13). No network and a controlled clock; an unscripted call fails the test. The way an author and a Piece worker test without a provider. |
 | workflow/skill | not in baseline (new row, RC-67) | V1B / pieces | RC-67 / P13 | blocked-admission-proposal: Bot platform wave 3 (P13). A skill is a tool source of the registry: loading is a recorded tool call and grants no authority; the tools of the skill still pass the checks of the engine. |
@@ -396,7 +399,7 @@ Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, EL
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176.
 
 ### V2-ACCEPT
 
@@ -2935,3 +2938,33 @@ Publication copy: [tasks/ELZ-174-lua-sandbox-helpers.md](../../tasks/ELZ-174-lua
 **Product aims:** P13.
 
 **Acceptance:** runtime/lua-sandbox, changed in place by owner decision (no release yet, same Piece ID): policy version 2 with the identity policy-v2:sha256: and ten helpers under the global helpers table: null, object, json_encode, json_decode, text_trim, text_split, text_utf8_len, time_parts, time_unix_ms and time_iso8601. Helpers are C functions of the one host, charge steps for their work, keep every limit as a sticky stop and read no clock. The planned ID runtime/lua-stdlib is removed with the index commit. This completes RC-60.
+
+### ELZ-173
+
+ELZ-173 — AGENTS.md: before the first release a ready Piece is extended in place
+
+Publication copy: [tasks/ELZ-173-extend-pieces-before-release.md](../../tasks/ELZ-173-extend-pieces-before-release.md).
+
+**Product aims:** P13.
+
+**Acceptance:** AGENTS.md states the owner decision of 2026-11-14 in section 4 and in the flow table of section 1: before the first release a ready Piece that lacks something which clearly belongs to it is extended, refactored or cut clean in place with the same Piece ID; the new-ID rule applies from the first release. No other document changes.
+
+### ELZ-175
+
+ELZ-175 — Coordinator guide: four guardrails from wave 3 of the bot platform track
+
+Publication copy: [tasks/ELZ-175-coordinator-flow-guardrails.md](../../tasks/ELZ-175-coordinator-flow-guardrails.md).
+
+**Product aims:** P13.
+
+**Acceptance:** The coordinator guide holds four rules by owner decision of 2026-11-14: check a task text against the code before it is published; one publication pull request for each level and only one open at a time; one queue run for all ready pull requests, with main merged before a pull request is marked ready; and the reviewer chosen by the risk of the Piece, with an owed second review recorded when only a weaker model is available. No other document changes.
+
+### ELZ-176
+
+ELZ-176 — Pin and exercise a YAML reader for skill frontmatter
+
+Publication copy: [tasks/ELZ-176-yaml-provider.md](../../tasks/ELZ-176-yaml-provider.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Provider prerequisite for RC-67 by owner decision (adopt a maintained library): yaml_elixir 2.12.2 and yamerl 0.10.0 pinned in mix.exs, mix.lock and registry/providers.json with an entry in the dependency register, and one root test that records on the pinned versions what the skill reader will rely on: plain frontmatter with block scalars, the terms of typed scalars, aliases and merge keys, documents that are not one plain map, no new atoms, bounded time. Full local and hosted check. No Piece and no public API.
