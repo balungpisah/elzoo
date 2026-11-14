@@ -511,6 +511,8 @@ defmodule Elzoo.RecipeConfigTest do
       {results, calls, logs} =
         observe(fn ->
           {:ok, checked} = RecipeConfig.build(descriptor(schema, ["key"]))
+          # Test-only forged validator root, to induce an upstream validation fault.
+          faulty = put_elem(checked, 4, put_elem(elem(checked, 4), 4, {:fault, secret, key}))
 
           [
             RecipeConfig.build(descriptor(object(%{declared => %{"pattern" => value <> "("}}))),
@@ -524,11 +526,13 @@ defmodule Elzoo.RecipeConfigTest do
             RecipeConfig.check(checked, %{"key" => ref(secret), declared => 1, key => value}),
             RecipeConfig.check(checked, %{"key" => ref(secret)}),
             RecipeConfig.check(checked, %{"key" => ref(secret), declared => [value, self()]}),
-            RecipeConfig.check(checked, %{key => String.duplicate(value, 7_000)})
+            RecipeConfig.check(checked, %{key => String.duplicate(value, 7_000)}),
+            RecipeConfig.check(faulty, %{"key" => ref(secret), declared => 1})
           ]
         end)
 
       assert Enum.all?(results, &match?({:error, reason} when is_atom(reason), &1))
+      assert List.last(results) == {:error, :validation_failed}
       for sentinel <- [secret, value, key, declared], do: refute(inspect(results) =~ sentinel)
       assert calls == []
       assert logs == ""
