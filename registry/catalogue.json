@@ -1106,7 +1106,8 @@
       "summary": "Decide what follows a node that failed, was late or was refused",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/node-outcome/piece.json",
       "reason": "Bot platform wave 3 (P13). Each outcome follows its link or the Run fails explicitly. No automatic retry after an unknown outcome."
     },
     {
