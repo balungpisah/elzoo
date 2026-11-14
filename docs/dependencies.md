@@ -89,8 +89,11 @@ frontmatter of a `SKILL.md` file. Both are pinned exactly in `mix.exs`.
 `yamerl` is named although it is transitive, because it is the parser: its
 version decides what a document means. No Piece, wrapper, writer or public
 Elzoo API is added. The root test `test/elz176_yaml_provider_test.exs` is the
-adoption check; it uses only `YamlElixir.read_from_string/2` (and
-`read_all_from_string/2` once, to show the second document).
+adoption check. It calls `YamlElixir.read_from_string/2` (the RC-67 call);
+`YamlElixir.read_all_from_string/2` once, to show the dropped first document;
+and `:yamerl_app.get_param/1` and `:yamerl_app.set_param/2` in group 5 only,
+to observe the global `node_mods` default and, in the control, to turn the
+code-evaluating node module on and back off.
 
 **Upstream contract, quoted.** `yaml_elixir` 2.12.2 has no `@doc` text; its
 README is the whole documented contract. It says: "This is a wrapper for
@@ -112,7 +115,15 @@ and the last occurence of a key will prevail", and `{ignore_unrecognized_tags,
 boolean()}` "When `false` (the default), a node with an unrecognized tag can't
 be constructed". `yaml_elixir` fixes `detailed_constr`, `str_node_as_binary`
 and `keep_duplicate_keys` itself; `merge_anchors`, `atoms` and
-`maps_as_keywords` are its own options.
+`maps_as_keywords` are its own options. Of the other calls in the test, the
+`yaml_elixir` README documents turning a node module on with
+`:yamerl_app.set_param(:node_mods, [:yamerl_node_erlang_atom])` ("Support for
+atoms") and `:yamerl_app.set_param(:node_mods, [YamlElixir.Node.KeywordList])`
+("Support for keyword lists"). `read_all_from_string/2` is public but has no
+documented text in 2.12.2: no `@doc` and no README mention. `yamerl_app` is
+marked `@private` upstream, and `get_param/1` has no documented contract in
+either package; the test uses it only to observe a setting, and RC-67 must not
+call `yamerl_app` at all.
 
 **Test results** (literal documents; options `[]` unless stated; each line is
 asserted by the root test):
