@@ -3753,4 +3753,155 @@ defmodule Elzoo.RunEngineTest do
       assert control_ms > 5_000
     end
   end
+
+  defp journal(c) do
+    for row <- rows(c), row.kind == "input" do
+      {1, {_id, rec}} = :erlang.binary_to_term(row.payload, [:safe])
+
+      case rec do
+        %{kind: :protocol, input: input, correlation: correlation} ->
+          reason = if is_map(input["payload"]), do: input["payload"]["reason"]
+
+          {:protocol, input["kind"], input["action_id"], input["outcome"], input["at_ms"],
+           correlation[:actual], correlation[:occurrence], reason}
+
+        %{kind: kind} ->
+          {kind, rec[:occurrence], rec[:actual], rec[:at_ms], rec[:phase]}
+      end
+    end
+  end
+
+  describe "known_costs_are_exact" do
+    # The expectations below are literal rows read from the journal of the engine
+    # before ELZ-190 (the clock is fixed); the repair must leave them as they were.
+    test "a child with no loss gives its parent the committed amount, with the rows of main" do
+      {c, bindings} =
+        nested_setup(%{
+          "nested" => [request([action("slow", "tool_call"), finish_action("done")])]
+        })
+
+      engine = start(c, bindings: bindings)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, provider, _}
+
+      assert {:ok, :applied} =
+               RunEngine.input(
+                 engine,
+                 "child-actual",
+                 result("slow"),
+                 verified(%{occurrence: {2, 0}, actual: 7, dispatch: "dispatched"})
+               )
+
+      assert journal(c) == [
+               {:configure, nil, nil, nil, nil},
+               {:protocol, "start", nil, nil, 2000, nil, nil, nil},
+               {:gate, nil, nil, 2000, nil},
+               {:admission, {1, 0}, nil, 2000, nil},
+               {:authorization, {1, 0}, nil, 2000, nil},
+               {:nested, {1, 0}, nil, 2000, nil},
+               {:gate, nil, nil, 2000, nil},
+               {:admission, {2, 0}, nil, 2000, nil},
+               {:authorization, {2, 0}, nil, 2000, nil},
+               {:continuation, {2, 0}, nil, nil, :running},
+               {:admission, {2, 1}, nil, 2000, nil},
+               {:authorization, {2, 1}, nil, 2000, nil},
+               {:continuation, {2, 1}, nil, nil, :running},
+               {:protocol, "action_outcome", "done", "completed", 2000, 0, {2, 1}, "finished"},
+               {:protocol, "action_outcome", "slow", "completed", 2000, 7, {2, 0}, nil},
+               {:protocol, "action_outcome", "nested", "completed", 2000, 7, {1, 0}, nil}
+             ]
+
+      {:ok, unit} = DynamicUnits.find(c.directory, c.prefix)
+      assert DurableUnit.snapshot(unit).slots[{1, 0}].actual == 7
+      send(provider, {:result, %{}})
+    end
+
+    test "a refused parent slot still gets its later actual, with the rows of main" do
+      c =
+        fixture(
+          pattern:
+            {TestPattern, :step, %{requests: [request([action("nested", "nested_callable")])]}},
+          request_cap: 2,
+          budget: %{cap: 5, unit: "credits", id: "budget", incarnation: "sealed"}
+        )
+
+      base = c.opts[:bindings]["nested_callable"]
+
+      nested = %{
+        base
+        | facts: fn a -> %{base.facts.(a) | estimate: 5} end,
+          nested: fn a ->
+            %{
+              base.nested.(a)
+              | initial_state: %{
+                  requests: [
+                    request([action("slow", "tool_call"), action("person", "ask_person")]),
+                    request([action("excess")])
+                  ]
+                }
+            }
+          end
+      }
+
+      engine = start(c, bindings: Map.put(c.opts[:bindings], "nested_callable", nested))
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, provider, _}
+
+      answer = %{
+        "type" => "input",
+        "version" => 1,
+        "kind" => "person_answer",
+        "action_id" => "person",
+        "person_id" => "person",
+        "schema_id" => "message",
+        "schema_version" => 1,
+        "payload" => %{}
+      }
+
+      assert {:ok, :applied} =
+               RunEngine.input(
+                 engine,
+                 "person-answer",
+                 answer,
+                 verified(%{occurrence: {2, 1}, verified_person: "person", actual: 0})
+               )
+
+      assert view(engine).slots[{1, 0}].outcome == "out_of_budget"
+
+      assert {:ok, :applied} =
+               RunEngine.input(
+                 engine,
+                 "child-actual",
+                 result("slow"),
+                 verified(%{occurrence: {2, 0}, actual: 7, dispatch: "dispatched"})
+               )
+
+      assert journal(c) == [
+               {:configure, nil, nil, nil, nil},
+               {:protocol, "start", nil, nil, 2000, nil, nil, nil},
+               {:gate, nil, nil, 2000, nil},
+               {:admission, {1, 0}, nil, 2000, nil},
+               {:authorization, {1, 0}, nil, 2000, nil},
+               {:nested, {1, 0}, nil, 2000, nil},
+               {:gate, nil, nil, 2000, nil},
+               {:admission, {2, 0}, nil, 2000, nil},
+               {:authorization, {2, 0}, nil, 2000, nil},
+               {:continuation, {2, 0}, nil, nil, :running},
+               {:admission, {2, 1}, nil, 2000, nil},
+               {:authorization, {2, 1}, nil, 2000, nil},
+               {:continuation, {2, 1}, nil, nil, :waiting},
+               {:protocol, "action_outcome", "person", "unknown", 2000, 0, {2, 1},
+                "invalid_outcome"},
+               {:run_view, nil, nil, nil, nil},
+               {:protocol, "action_outcome", "nested", "out_of_budget", 2000, nil, {1, 0},
+                "out_of_budget"},
+               {:protocol, "action_outcome", "slow", "completed", 2000, 7, {2, 0}, nil},
+               {:nested_actual, {1, 0}, 7, 2000, nil}
+             ]
+
+      {:ok, unit} = DynamicUnits.find(c.directory, c.prefix)
+      assert DurableUnit.snapshot(unit).slots[{1, 0}].actual == 7
+      send(provider, {:result, %{}})
+    end
+  end
 end
