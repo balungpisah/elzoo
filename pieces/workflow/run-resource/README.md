@@ -85,7 +85,9 @@ Lease renewal occurs at startup, before commands and after dispatch returns,
 and halfway through the initial TTL. Microsecond lease stamps yield TTL in
 milliseconds; each returned fence replaces the previous one. Revision fencing
 alone does not detect lease expiry. Delegated-clock sampling commits expiry
-before new admission/dispatch even when timer delivery or command time is old.
+before new admission/dispatch even when timer delivery or command time is old;
+the deadline of an intent is compared with the same sample at admission and at
+dispatch.
 Timers use ordinary Process.send_after; no clock, delivery-latency or mailbox
 bound is claimed. Byte-identical receipt replay does not renew or dispatch.
 

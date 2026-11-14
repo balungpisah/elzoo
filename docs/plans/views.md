@@ -269,6 +269,17 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-215](https://github.com/balungpisah/elzoo/issues/468) | V1B / pieces | ELZ-033, ELZ-192, ELZ-214 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-216](https://github.com/balungpisah/elzoo/issues/469) | V1B / pieces | ELZ-033, ELZ-192, ELZ-215 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-217](https://github.com/balungpisah/elzoo/issues/470) | V1B / pieces | ELZ-033, ELZ-192, ELZ-216 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-218](https://github.com/balungpisah/elzoo/issues/475) | V1B / pieces | ELZ-033 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-219](https://github.com/balungpisah/elzoo/issues/476) | V1B / pieces | ELZ-033 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-220](https://github.com/balungpisah/elzoo/issues/477) | V1B / pieces | ELZ-033 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-221](https://github.com/balungpisah/elzoo/issues/478) | V1B / pieces | ELZ-033 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-223](https://github.com/balungpisah/elzoo/issues/480) | V1B / pieces | ELZ-033 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-224](https://github.com/balungpisah/elzoo/issues/481) | V1B / pieces | ELZ-033 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-227](https://github.com/balungpisah/elzoo/issues/482) | V1B / pieces | ELZ-033 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-229](https://github.com/balungpisah/elzoo/issues/483) | V1B / pieces | ELZ-033 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-230](https://github.com/balungpisah/elzoo/issues/484) | V1B / pieces | ELZ-033 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-222](https://github.com/balungpisah/elzoo/issues/479) | V1B / pieces | ELZ-033, ELZ-223 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-231](https://github.com/balungpisah/elzoo/issues/489) | V1B / pieces | ELZ-122, ELZ-189 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -439,7 +450,7 @@ Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, EL
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189, ELZ-190, ELZ-191, ELZ-192, ELZ-193, ELZ-194, ELZ-195, ELZ-196, ELZ-197, ELZ-198, ELZ-199, ELZ-200, ELZ-201, ELZ-202, ELZ-203, ELZ-204, ELZ-205, ELZ-206, ELZ-207, ELZ-208, ELZ-210, ELZ-211, ELZ-212, ELZ-213, ELZ-214, ELZ-215, ELZ-216, ELZ-217.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189, ELZ-190, ELZ-191, ELZ-192, ELZ-193, ELZ-194, ELZ-195, ELZ-196, ELZ-197, ELZ-198, ELZ-199, ELZ-200, ELZ-201, ELZ-202, ELZ-203, ELZ-204, ELZ-205, ELZ-206, ELZ-207, ELZ-208, ELZ-210, ELZ-211, ELZ-212, ELZ-213, ELZ-214, ELZ-215, ELZ-216, ELZ-217, ELZ-218, ELZ-219, ELZ-220, ELZ-221, ELZ-223, ELZ-224, ELZ-227, ELZ-229, ELZ-230, ELZ-222, ELZ-231.
 
 ### V2-ACCEPT
 
@@ -3409,3 +3420,113 @@ Publication copy: [tasks/ELZ-217-run-engine-step-cost.md](../../tasks/ELZ-217-ru
 **Product aims:** P13.
 
 **Acceptance:** Cost task for issue #431 on assembly/run-engine, Contract unchanged: one read of the unit state per commit, the drain stops by whether a record was appended, one request decode per round, and the size check encodes each part once, with the old size check kept as a test oracle; acceptance by counts, never wall time.
+
+### ELZ-218
+
+ELZ-218 — `assert_receive` with no limit waits 5,000 ms in the root suite and in the copied consumers
+
+Publication copy: [tasks/ELZ-218-assert-receive-limit.md](../../tasks/ELZ-218-assert-receive-limit.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Root harness repair: the suite and the generated helper of the copied consumers set an explicit assert_receive limit of 5,000 ms; refute_receive is unchanged; the count of assert_receive calls with no limit is recorded before and after; full check.
+
+### ELZ-219
+
+ELZ-219 — Each ready Piece with no fixed consumer has run once in a copied consumer of its own
+
+Publication copy: [tasks/ELZ-219-new-piece-consumer-measurement.md](../../tasks/ELZ-219-new-piece-consumer-measurement.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Measurement: the excluded new_piece_consumer tests run once for every ready Piece that has no fixed consumer; each result is recorded in the pull request body, each failure becomes its own issue; one paragraph in the CI guide; no limit is changed.
+
+### ELZ-220
+
+ELZ-220 — `state/audit-log` claims as tested only what the checks exercise
+
+Publication copy: [tasks/ELZ-220-audit-log-role-grounding.md](../../tasks/ELZ-220-audit-log-role-grounding.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Change on state/audit-log, in place: the grounding of the two role tests says what is exercised with the documented test role and what is not; the tests stay.
+
+### ELZ-221
+
+ELZ-221 — The root suite has run with three other seeds, and the time of the `integration/ai-text` consumer is recorded against its limit
+
+Publication copy: [tasks/ELZ-221-seeds-and-ai-text-consumer-time.md](../../tasks/ELZ-221-seeds-and-ai-text-consumer-time.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Measurement: the root suite runs with three other seeds and the hosted time of the ai-text consumer is read from recent green runs; results recorded; a failure becomes its own issue; one paragraph in the CI guide.
+
+### ELZ-223
+
+ELZ-223 — The hosted check runs the tests of `worker-services.py`, and `down` always holds a lock
+
+Publication copy: [tasks/ELZ-223-worker-services-test-and-lock.md](../../tasks/ELZ-223-worker-services-test-and-lock.md).
+
+**Product aims:** P13.
+
+**Acceptance:** CI repair: the worker-services test runs in the hosted check, and worker-services down takes its lock outside the removable state directory; full check.
+
+### ELZ-224
+
+ELZ-224 — Four small gaps of the gate tools are closed: the small gate runs the classifier guard, `--live` reads every issue, the queue names its `gh` need, and recorded `.sse` files pass `git diff --check`
+
+Publication copy: [tasks/ELZ-224-gate-tool-gaps.md](../../tasks/ELZ-224-gate-tool-gaps.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Harness repair: the local small gate runs the change-class guard test; check-roadmap --live lists every issue; a .gitattributes entry lets git diff --check pass for the recorded .sse fixtures; the flags of gh that the merge queue needs are documented; full check.
+
+### ELZ-227
+
+ELZ-227 — The root README, the dependency register, the bot platform plan and one production record say what is true on `main`
+
+Publication copy: [tasks/ELZ-227-stale-documents.md](../../tasks/ELZ-227-stale-documents.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Documents: the root README says what the repository is today; docs/dependencies.md lists every direct dependency with its use, with the test-only use of the YAML parser; two stale sentences in plan and work documents corrected.
+
+### ELZ-229
+
+ELZ-229 — Each ready Piece has `"status": "ready"` in its catalogue row
+
+Publication copy: [tasks/ELZ-229-catalogue-ready-status.md](../../tasks/ELZ-229-catalogue-ready-status.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Index repair: every catalogue row with a manifest states status ready, as AGENTS.md section 3 names it; full check.
+
+### ELZ-230
+
+ELZ-230 — The consuming guide no longer says that the repository is private
+
+Publication copy: [tasks/ELZ-230-consuming-guide-public-repository.md](../../tasks/ELZ-230-consuming-guide-public-repository.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Shared document: docs/consuming.md no longer says the repository is private; full check, because the export copies the file.
+
+### ELZ-222
+
+ELZ-222 — The push run accepts a pull request run as evidence only when GitHub says that its pull request targets `main` and never changed its base
+
+Publication copy: [tasks/ELZ-222-skip-decision-pr-base.md](../../tasks/ELZ-222-skip-decision-pr-base.md).
+
+**Product aims:** P13.
+
+**Acceptance:** CI evidence rule: the push run accepts a pull request run only when the API shows exactly one pull request for the head, into main, with no base change; any other outcome runs the full check; guard tests and full check.
+
+### ELZ-231
+
+ELZ-231 — A call of `runtime/dynamic-units` waits long enough for a unit that replays a large journal
+
+Publication copy: [tasks/ELZ-231-dynamic-units-start-limit.md](../../tasks/ELZ-231-dynamic-units-start-limit.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Piece runtime/dynamic-units in place: its four calls use a stated fixed limit of 60,000 ms; a start held past 5 s succeeds; small gate.

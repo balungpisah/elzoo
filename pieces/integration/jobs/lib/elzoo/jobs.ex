@@ -52,10 +52,16 @@ defmodule Elzoo.Jobs do
     :exit, _ -> {:error, :exit}
   end
 
-  @doc "Query for the job of `(queue, job_key)` (any state)."
+  @worker Oban.Worker.to_string(Elzoo.Jobs.Worker)
+
+  @doc """
+  Query for the job of `(queue, job_key)` (any state); it matches only jobs of
+  this Piece's worker in that Oban queue.
+  """
   def query(queue, job_key),
     do:
       Oban.Job
+      |> where([j], j.queue == ^queue and j.worker == @worker)
       |> where([j], fragment("? @> ?", j.args, ^%{"queue" => queue, "job_key" => job_key}))
 
   @doc "Current Oban state of the job, or `:absent`."
