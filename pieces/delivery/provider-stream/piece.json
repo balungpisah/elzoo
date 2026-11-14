@@ -22,6 +22,7 @@
     "One provider and one wire surface. Two recorded streams came through OpenRouter's Anthropic-compatible endpoint, routed to Anthropic. One recorded stream came from Anthropic's own endpoint: one model, one day, text only, one ping, spaces before the last brace of six data lines, received over HTTP/2. No test shows, from Anthropic's own endpoint, another model, a second call, a tool call, thinking, an error event or a cut stream, and no test shows HTTP/1.1, the transport of this Piece, on the live endpoint.",
     "No thinking blocks, structured output, cache hint, stop sequences, sampling, server tools, retry, reconnect, remote cancellation, replay, delivery durability or billing claim. Provider work and charges after a local close are unknown.",
     "No memory claim beyond the retained raw block (65536 bytes), the current receive chunk and the assembled result. Tool arguments are not checked against the tool's schema.",
+    "The total deadline bounds each wait of the call. It is not compared once more when the stream ends: a block or the end of the stream that the call has already received when total_timeout_ms ends is still handled, so a call can return complete, or another fixed result, shortly after the deadline. Nothing waits for the peer or for the sink after the deadline.",
     "The caller holds the effect-intent custody; this Piece keeps no intent or outcome record and cannot stop a caller that calls it twice. Tests are finite loopback scenarios; no Cure law."
   ],
   "files": [
