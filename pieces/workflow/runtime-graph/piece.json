@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "id": "workflow/runtime-graph",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["elixir", "jason"],
+  "dependencies": ["workflow/recipe-check", "domain/recipe-graph", "workflow/tool-registry"],
+  "contract": "Pure decision whether a graph that a model gave as plain data at run time may run: the graph is checked as data, held to the callables, tools, asks, node count and nesting that the agent may use, added to the recipe of the Run as one more graph callable, and checked as at load time with its upper cost against the budget share; the accepted recipe, callable and upper cost, or all refusal reasons in a fixed order, and a bounded text of the reasons for the model; no execution, grant, budget or storage.",
+  "limits": [
+    "Finite named scenarios only; no new Cure law selected, and reused Piece Contracts stay scoped to those Pieces.",
+    "The verdict is about data: runs no graph, reserves no budget, grants no permission and approves no action; the engine still checks authority, approval and budget for every action of the new graph. The graph can call the callables that the host lists, also the agent that gave it; depth and the budget share bound that, not this check alone.",
+    "Schemas of the proposal are checked as domain/recipe-graph checks them; no claim that the graph does what the model intends. Agent and decision bindings are opaque.",
+    "No I/O, clock, process or storage."
+  ],
+  "files": ["lib/elzoo/runtime_graph.ex", "test/elzoo/runtime_graph_test.exs", "examples/runtime_graph.exs"],
+  "grounding": [
+    {"kind": "test", "file": "test/elzoo/runtime_graph_test.exs", "claim": "Named groups accepted_graph, outside_the_agent, no_new_authority_and_budget, node_and_depth_maximum, data_only, reasons_as_content and same_input_same_verdict exercise the accepted recipe and sum, the limits of the agent, tool requirements and the budget share, the node and nesting maxima, proposals that are not plain data, rendered reasons and malformed contexts, redaction with captured logs, repeated and cross-process results, and the checked example; finite listed scenarios pass. Two temporary production mutations (skip the comparison with callables; leave the root of the new recipe unchanged) are negative controls that make the outside_the_agent and no_new_authority_and_budget groups fail, never shipped."},
+    {"kind": "upstream", "provider": "jason", "reference": "https://hexdocs.pm/jason/1.4.5/Jason.html", "claim": "Compact JSON encoding of a value that the proposal scan already found to be plain data supplies the byte count of the proposal; the ready RecipeCheck, RecipeGraph and ToolRegistry Contracts are reused unchanged."},
+    {"kind": "assumption", "claim": "A host that supplies the recipe that the Run pinned, the true callables and tool sources of the agent, the true depth, truthful requirements, grants and cost estimates that are upper limits in one unit, and a budget share that it then reserves; that records the proposal and the verdict before use, gives render/1 to the model as marked content and never as an instruction, and runs only accepted.callable of accepted.recipe. A snapshot not made by ToolRegistry.snapshot/1 or refresh/3 is outside the interface."}
+  ],
+  "operations": {
+    "telemetry": {"status": "not_applicable", "contract": "Pure functions emit no logs or observations."},
+    "config": {"status": "not_applicable", "contract": "Intrinsic operands and fixed bounds; no ambient settings."},
+    "control": {"status": "not_applicable", "contract": "No process or independent lifecycle."}
+  }
+}

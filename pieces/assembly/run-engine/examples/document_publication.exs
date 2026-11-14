@@ -35,7 +35,7 @@ defmodule Elzoo.RunEngine.DocumentPublication do
     do: output(:finish, "validated", "local_work", document)
 
   def validation(:finish, %{"action_id" => "validated", "outcome" => "completed"}),
-    do: output(:done, "validation_finished", "finish", %{"action_id" => "validated"})
+    do: output(:done, "validation_finished", "finish", %{"action_id" => "validated"}, "result")
 
   def validation(state, _), do: {:Transition, state, :none}
 
@@ -45,7 +45,7 @@ defmodule Elzoo.RunEngine.DocumentPublication do
       else: :allow
   end
 
-  defp output(state, id, kind, payload) do
+  defp output(state, id, kind, payload, schema_id \\ "action") do
     {:Transition, state,
      {:some,
       %{
@@ -55,7 +55,7 @@ defmodule Elzoo.RunEngine.DocumentPublication do
           %{
             "id" => id,
             "kind" => kind,
-            "schema_id" => "action",
+            "schema_id" => schema_id,
             "schema_version" => 1,
             "payload" => payload
           }

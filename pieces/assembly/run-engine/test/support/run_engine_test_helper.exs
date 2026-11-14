@@ -22,6 +22,41 @@ defmodule Elzoo.RunEngine.TestPattern do
 
   def step(%{requests: []} = state, _input), do: {:Transition, state, :none}
 
+  # Scripted callable: every input is sent to the test process registered as
+  # :run_engine_observer (a counting pattern); each input answers with the next
+  # scripted request. {:finish_with_seen, id} finishes with the payload it saw; {:finish_sized, id, n} with a payload of n filler bytes.
+  def scripted(%{name: name, script: script} = state, input) do
+    if observer = Process.whereis(:run_engine_observer),
+      do: send(observer, {:pattern_input, name, input})
+
+    case script do
+      [] ->
+        {:Transition, state, :none}
+
+      [{:finish_with_seen, id} | rest] ->
+        scripted_finish(state, rest, id, %{"seen" => input["payload"]})
+
+      [{:finish_sized, id, size} | rest] ->
+        scripted_finish(state, rest, id, %{"x" => String.duplicate("x", size)})
+
+      [request | rest] ->
+        {:Transition, %{state | script: rest}, {:some, request}}
+    end
+  end
+
+  defp scripted_finish(state, rest, id, payload) do
+    action = %{
+      "id" => id,
+      "kind" => "finish",
+      "schema_id" => "result",
+      "schema_version" => 1,
+      "payload" => payload
+    }
+
+    {:Transition, %{state | script: rest},
+     {:some, %{"type" => "request", "version" => 1, "actions" => [action]}}}
+  end
+
   def resource_step({:open, request}, _), do: {:Transition, :waiting, {:some, request}}
 
   def resource_step(:waiting, %{"kind" => "resource_event"}),
@@ -520,6 +555,37 @@ defmodule Elzoo.RunEngine.TestHelper do
       "schema_version" => 1,
       "payload" => payload
     }
+
+  def finish_action(id, payload \\ %{"value" => 7}, schema_id \\ "result", version \\ 1),
+    do: %{action(id, "finish", payload) | "schema_id" => schema_id, "schema_version" => version}
+
+  # Root asks one nested_callable "nested"; `children` maps each nested action id
+  # to the script of its callable. Registers the test process as the observer.
+  def nested_setup(children, overrides \\ []) do
+    Process.register(self(), :run_engine_observer)
+    root = [request([action("nested", "nested_callable")])]
+
+    c =
+      fixture(
+        Keyword.merge([pattern: {TestPattern, :scripted, %{name: "root", script: root}}], overrides)
+      )
+
+    base = c.opts[:bindings]["nested_callable"]
+
+    nested = %{
+      base
+      | facts: fn a -> %{base.facts.(a) | estimate: 10} end,
+        nested: fn a ->
+          %{
+            base.nested.(a)
+            | mfa: {TestPattern, :scripted},
+              initial_state: %{name: a["id"], script: Map.fetch!(children, a["id"])}
+          }
+        end
+    }
+
+    {c, Map.put(c.opts[:bindings], "nested_callable", nested)}
+  end
 
   def request(actions), do: %{"type" => "request", "version" => 1, "actions" => actions}
 

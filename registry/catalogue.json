@@ -1126,7 +1126,8 @@
       "summary": "Check and accept a graph that a model gives at run time",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/runtime-graph/piece.json",
       "reason": "Bot platform wave 3 (P13). The same check as at load time plus limits: only the callables and tool sources of its agent node, no new authority, a budget share, a node and depth maximum, data only."
     },
     {

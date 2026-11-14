@@ -51,6 +51,17 @@ defmodule Elzoo.RunEngine do
 
     next = %{next | slots: slots}
 
+    # A kept finish is dropped once its parent action is settled: the parent
+    # outcome carries it, and kept payloads must not accumulate in control.
+    callables =
+      Map.new(next.control.callables, fn {id, node} ->
+        if node[:finish] && next.slots[node.parent].phase == :settled,
+          do: {id, Map.delete(node, :finish)},
+          else: {id, node}
+      end)
+
+    next = put_in(next.control.callables, callables)
+
     requests =
       Map.reject(next.requests, fn {ordinal, _} ->
         next.slots
@@ -254,11 +265,18 @@ defmodule Elzoo.RunEngine do
     slot = Map.fetch!(state.slots, key)
 
     if slot.phase in [:approval, :ready, :opening, :running, :reconcile] do
+      {finish, facts} = Map.pop(facts, :finish)
       state = put_in(state.slots[key], Map.merge(slot, Map.put(facts, :phase, phase)))
 
       state =
         if facts[:finish_callable],
           do: put_in(state.control.callables[facts.finish_callable].closed, true),
+          else: state
+
+      # Only the first admitted finish of a child is kept.
+      state =
+        if finish && is_nil(state.control.callables[facts.finish_callable][:finish]),
+          do: put_in(state.control.callables[facts.finish_callable][:finish], finish),
           else: state
 
       wait_kind =
@@ -1459,9 +1477,7 @@ defmodule Elzoo.RunEngine do
                 at_ms: s.opts.clock.()
               })
             else
-              internal_outcome(s, child.parent, "completed", "nested_completed", %{
-                actual: status.committed
-              })
+              nested_outcome(s, state, child, %{actual: status.committed})
             end
 
           with {:ok, s} <- result,
@@ -1753,7 +1769,16 @@ defmodule Elzoo.RunEngine do
              do: internal_outcome(s, key, "refused", "completion_evidence", %{actual: 0})
       end
     else
-      with {:ok, s} <- continuation(s, key, :running, %{finish_callable: slot.callable}),
+      action = action(snapshot(s), key)
+
+      finish = %{
+        schema_id: action["schema_id"],
+        schema_version: action["schema_version"],
+        payload: action["payload"]
+      }
+
+      with {:ok, s} <-
+             continuation(s, key, :running, %{finish_callable: slot.callable, finish: finish}),
            do: internal_outcome(s, key, "completed", "finished", %{actual: 0})
     end
   end
@@ -1909,14 +1934,34 @@ defmodule Elzoo.RunEngine do
     })
   end
 
-  defp internal_outcome(s, key, class, reason, correlation) do
+  # The parent of a finished child gets the child's kept finish when its schema
+  # is the declared result of the parent's binding.
+  defp nested_outcome(s, state, child, correlation) do
+    parent = child.parent
+
+    case child[:finish] do
+      nil ->
+        internal_outcome(s, parent, "completed", "nested_completed", correlation)
+
+      %{schema_id: id, schema_version: version} = finish ->
+        if {id, version} == s.opts.bindings[state.slots[parent].kind].result,
+          do: internal_outcome(s, parent, "completed", nil, correlation, finish),
+          else:
+            internal_outcome(s, parent, "failed", "nested_result_invalid", %{
+              actual: correlation.actual,
+              dispatch: "dispatched"
+            })
+    end
+  end
+
+  defp internal_outcome(s, key, class, reason, correlation, result \\ nil) do
     state = snapshot(s)
     slot = Map.fetch!(state.slots, key)
 
     if class in ["refused", "out_of_budget"] and
          slot.phase in [:ready, :approval, :running, :opening] do
       with {:ok, s} <- continuation(s, key, :refusing, %{refusal: reason}),
-           do: internal_outcome(s, key, class, reason, correlation)
+           do: internal_outcome(s, key, class, reason, correlation, result)
     else
       id =
         stable_id(
@@ -1930,20 +1975,21 @@ defmodule Elzoo.RunEngine do
         id: id,
         run_id: state.control.run_id,
         attempt_id: slot.attempt_id,
-        input:
-          outcome(
-            slot.action_id,
-            class,
-            @refusal_schema,
-            refusal(state, key, reason),
-            s.opts.clock.()
-          ),
+        input: internal_input(state, key, slot, class, reason, result, s.opts.clock.()),
         correlation: Map.put(correlation, :occurrence, key),
         context: Map.take(s.opts.context.(), [:pause_deadline])
       }
 
       commit(s, id, record)
     end
+  end
+
+  defp internal_input(state, key, slot, class, reason, nil, at),
+    do: outcome(slot.action_id, class, @refusal_schema, refusal(state, key, reason), at)
+
+  defp internal_input(_state, _key, slot, class, _reason, finish, at) do
+    outcome(slot.action_id, class, finish.schema_id, finish.payload, at)
+    |> Map.put("schema_version", finish.schema_version)
   end
 
   defp finish_run(s, result, key) do

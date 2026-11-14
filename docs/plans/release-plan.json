@@ -6862,11 +6862,11 @@
     {
       "id": "assembly/run-engine",
       "job": "ELZ-127",
-      "note": "One recorded pure pattern cycle and ordinary dispatcher per host Unit/Run: shared sealed request charge, schema/identity/committed host gate/Budget/authority/Approval checks, occurrence-first settlement, durable owner composition and explicit fail-stop recovery; charge exhaustion stops generation while retaining prior within-cap obligations, without new work or resend permission.",
+      "note": "One recorded pure pattern cycle and ordinary dispatcher per host Unit/Run: shared sealed request charge, schema/identity/committed host gate/Budget/authority/Approval checks, occurrence-first settlement, a nested callable's first admitted finish given to its parent, durable owner composition and explicit fail-stop recovery; charge exhaustion stops generation while retaining prior within-cap obligations, without new work or resend permission.",
       "baseline_status": "not in baseline (new row, RC-50)",
       "disposition": "ready-contract",
       "manifest": "pieces/assembly/run-engine/piece.json",
-      "manifest_sha256": "70a865431b5b26ae8a5cb7e0174f33f9cd37c0e786ed62c2f1b22dccfe0e657d",
+      "manifest_sha256": "1445531a06f9c96df406d4c2f6f988057ac2aec469e17b43bb3629356562c136",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
@@ -7106,10 +7106,12 @@
     {
       "id": "workflow/runtime-graph",
       "job": "ELZ-169",
-      "note": "Pure acceptance of a graph that a model gives as plain data: the load-time check plus the limits of its agent (allowed callables and tool sources, no new authority, a budget share, node and depth maxima), with reasons rendered as content for the model.",
+      "note": "Pure decision whether a graph that a model gave as plain data at run time may run: the graph is checked as data, held to the callables, tools, asks, node count and nesting that the agent may use, added to the recipe of the Run as one more graph callable, and checked as at load time with its upper cost against the budget share; the accepted recipe, callable and upper cost, or all refusal reasons in a fixed order, and a bounded text of the reasons for the model; no execution, grant, budget or storage.",
       "baseline_status": "not in baseline (new row, RC-64)",
-      "disposition": "published-task; implementation pending",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/workflow/runtime-graph/piece.json",
+      "manifest_sha256": "f6183749a90d7e669f4c15e2569c3b493ac02625a99a244b17bca42c1973b315"
     },
     {
       "id": "state/recipe-store",
