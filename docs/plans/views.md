@@ -215,6 +215,7 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-156](https://github.com/balungpisah/elzoo/issues/336) | V1B / pieces | ELZ-143 | published 2026-11-13 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-157](https://github.com/balungpisah/elzoo/issues/342) | V1 / pieces | none | published 2026-11-13 | one claimed provider worker; coordinator owns independent review and merge |
 | [ELZ-158](https://github.com/balungpisah/elzoo/issues/345) | V1 / pieces | none | published 2026-11-14 | coordinator owns implementation, independent review and merge |
+| [ELZ-165](https://github.com/balungpisah/elzoo/issues/359) | V1B / pieces | ELZ-160 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -386,7 +387,7 @@ Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, EL
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-161, ELZ-162.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162.
 
 ### V2-ACCEPT
 
@@ -2797,6 +2798,16 @@ Publication copy: [tasks/ELZ-160-lua-provider.md](../../tasks/ELZ-160-lua-provid
 **Product aims:** P13.
 
 **Acceptance:** Pin the official Lua 5.4.9 mirror commit 312b9efaa1061c2c4cad08554dbc1351c3270eef as a source-only Mix dependency, record its MIT provider identity and narrow adoption, and exercise static-library compilation and a trivial Port host with success, empty and failure cases in the full hosted check. No vendored Lua, build helper, Piece or CI change; full local mix check.
+
+### ELZ-165
+
+ELZ-165 — Carry source-only providers into copied consumers
+
+Publication copy: [tasks/ELZ-165-source-only-provider-consumer.md](../../tasks/ELZ-165-source-only-provider-consumer.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Validate source-only compile/app metadata, preserve exact pinned dependency options in install instructions, and reuse selected installed checkouts as temporary copied-consumer path dependencies. Synthetic root native tests exercise cc/ar and owned C success, empty and error paths in ordinary and only-own-tests consumers; negative controls reject missing metadata, checkout plumbing and incorrect native output. No new Piece, pin, sandbox, c_src role or CI change; full affected local and full hosted gates.
 
 ### ELZ-161
 

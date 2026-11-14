@@ -5588,6 +5588,23 @@
       "issue_body_sha256": "b3ced20f9a62c1ed45fd0fb318c37e7dfa4c1e9e54a02524dcadabf0601bce18"
     },
     {
+      "id": "ELZ-165",
+      "title": "ELZ-165 — Carry source-only providers into copied consumers",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-160"],
+      "status": "published 2026-11-14",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-165-source-only-provider-consumer.md"],
+      "outputs": [],
+      "acceptance": "Validate source-only compile/app metadata, preserve exact pinned dependency options in install instructions, and reuse selected installed checkouts as temporary copied-consumer path dependencies. Synthetic root native tests exercise cc/ar and owned C success, empty and error paths in ordinary and only-own-tests consumers; negative controls reject missing metadata, checkout plumbing and incorrect native output. No new Piece, pin, sandbox, c_src role or CI change; full affected local and full hosted gates.",
+      "product_aims": ["P13"],
+      "issue": 359,
+      "url": "https://github.com/balungpisah/elzoo/issues/359",
+      "issue_body_sha256": "e11a136008b33f9d1011baede12649fcdf3d81306099f9f05d28f55f37b3edaa"
+    },
+    {
       "id": "ELZ-161",
       "title": "ELZ-161 — Versioned recipe callables as plain data",
       "kind": "published",

@@ -45,6 +45,52 @@ defmodule Elzoo.RegistryTest do
     end
   end
 
+  test "source-only provider flags are optional booleans and preserve lock validation" do
+    root = fixture()
+    file = "registry/providers.json"
+    original = File.read!(Path.join(root, file))
+
+    for flags <- [
+          %{},
+          %{"compile" => false, "app" => false},
+          %{"compile" => true, "app" => true},
+          %{"compile" => false},
+          %{"app" => false}
+        ] do
+      File.write!(Path.join(root, file), original)
+
+      change_json(root, file, fn data ->
+        update_in(data, ["providers", "lua_source"], fn provider ->
+          provider |> Map.drop(~w(compile app)) |> Map.merge(flags)
+        end)
+      end)
+
+      provider = Elzoo.Registry.load!(root).providers["lua_source"]
+      assert Map.take(provider, ~w(compile app)) == flags
+    end
+
+    for option <- ~w(compile app), value <- [nil, "false", "make", 0, []] do
+      File.write!(Path.join(root, file), original)
+      change_json(root, file, &put_in(&1, ["providers", "lua_source", option], value))
+
+      assert_raise ArgumentError, ~r/provider #{option}: lua_source/, fn ->
+        Elzoo.Registry.load!(root)
+      end
+    end
+
+    File.write!(Path.join(root, file), original)
+
+    change_json(
+      root,
+      file,
+      &put_in(&1, ["providers", "lua_source", "revision"], String.duplicate("0", 40))
+    )
+
+    assert_raise ArgumentError, ~r/provider lock mismatch: lua_source/, fn ->
+      Elzoo.Registry.load!(root)
+    end
+  end
+
   test "missing source, unlisted source and fake proof cannot become ready metadata" do
     root = fixture()
     file = Path.join(root, "pieces/core/operator/cure/elzoo/composition.cure")

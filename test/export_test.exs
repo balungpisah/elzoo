@@ -48,6 +48,44 @@ defmodule Elzoo.ExportTest do
     refute jason_instructions =~ ~s({:jason, "~> 1.4.5", runtime: false})
   end
 
+  test "install guidance retains explicit compile and app flags", ctx do
+    registry =
+      put_in(ctx.registry, [:entries, "integration/json", "providers"], ["lua_source"])
+
+    plan = Elzoo.Export.plan!(registry, ["integration/json"], ctx.destination)
+    provider = registry.providers["lua_source"]
+
+    assert plan.files[plan.instructions] =~
+             ~s({:lua_source, git: "#{provider["url"]}", ref: "#{provider["revision"]}", compile: false, app: false})
+
+    refute plan.files[plan.instructions] =~ "depth:"
+    assert Jason.decode!(plan.files[plan.receipt])["providers"]["lua_source"] == provider
+
+    ordinary = Elzoo.Export.plan!(ctx.registry, ["integration/json"], ctx.destination)
+    refute ordinary.files[ordinary.instructions] =~ "lua_source"
+
+    hex = put_in(ctx.registry, [:providers, "jason", "compile"], false)
+    hex = put_in(hex, [:providers, "jason", "app"], false)
+    hex_plan = Elzoo.Export.plan!(hex, ["integration/json"], ctx.destination)
+
+    assert hex_plan.files[hex_plan.instructions] =~
+             ~s({:jason, "~> 1.4.5", compile: false, app: false})
+
+    for flags <- [%{}, %{"compile" => true}, %{"app" => false}] do
+      changed =
+        put_in(
+          registry,
+          [:providers, "lua_source"],
+          Map.merge(Map.drop(provider, ~w(compile app)), flags)
+        )
+
+      rendered = Elzoo.Export.plan!(changed, ["integration/json"], ctx.destination)
+      text = rendered.files[rendered.instructions]
+      assert text =~ "depth: 1"
+      for {option, value} <- flags, do: assert(text =~ "#{option}: #{value}")
+    end
+  end
+
   test "a conflict found late in the selection writes nothing", ctx do
     file = Path.join(ctx.destination, "test/elzoo/json_recipe_test.exs")
     File.mkdir_p!(Path.dirname(file))

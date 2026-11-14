@@ -224,14 +224,26 @@ defmodule Elzoo.Export do
       providers
       |> Enum.sort()
       |> Enum.flat_map(fn {id, provider} ->
+        options =
+          Enum.map_join(~w(compile app), fn option ->
+            if Map.has_key?(provider, option), do: ", #{option}: #{provider[option]}", else: ""
+          end)
+
         case provider["source"] do
           "hex" ->
             runtime = if provider["runtime"] == false, do: ", runtime: false", else: ""
-            ["{:#{provider["package"]}, \"~> #{provider["version"]}\"#{runtime}}"]
+            ["{:#{provider["package"]}, \"~> #{provider["version"]}\"#{runtime}#{options}}"]
 
           "git" ->
+            depth =
+              if provider["compile"] == false and provider["app"] == false,
+                do: "",
+                else: ", depth: 1"
+
+            runtime = if id == "cure", do: ", runtime: false", else: ""
+
             [
-              "{:#{provider["package"]}, git: #{inspect(provider["url"])}, ref: #{inspect(provider["revision"])}, depth: 1#{if id == "cure", do: ", runtime: false", else: ""}}"
+              "{:#{provider["package"]}, git: #{inspect(provider["url"])}, ref: #{inspect(provider["revision"])}#{depth}#{runtime}#{options}}"
             ]
 
           "platform" ->

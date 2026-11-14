@@ -142,7 +142,11 @@ defmodule Elzoo.CureConsumerCase do
 
     File.write!(
       Path.join(ctx.destination, "mix.exs"),
-      project(consumer_applications(plan), Map.has_key?(plan.providers, "cure"))
+      project(
+        consumer_applications(plan),
+        Map.has_key?(plan.providers, "cure"),
+        source_dependencies!(plan, Mix.Project.deps_paths())
+      )
     )
 
     # ELZ-091: the merged install configuration of the selection, written as the generated install
@@ -568,7 +572,11 @@ defmodule Elzoo.CureConsumerCase do
 
   defp consumer_applications(plan) do
     providers =
-      for {_, p} <- plan.providers, p["source"] == "hex", p["runtime"] != false, do: p["package"]
+      for {_, p} <- plan.providers,
+          p["source"] == "hex",
+          p["runtime"] != false,
+          p["app"] != false,
+          do: p["package"]
 
     applications = Enum.flat_map(plan.pieces, &Map.get(&1, "applications", []))
     [:logger | Enum.map(Enum.uniq(providers ++ applications), &String.to_existing_atom/1)]
@@ -588,7 +596,22 @@ defmodule Elzoo.CureConsumerCase do
     end
   end
 
-  def project(applications, cure?) do
+  def source_dependencies!(plan, dependency_paths) do
+    for {id, provider} <- Enum.sort(plan.providers),
+        provider["source"] != "platform",
+        provider["compile"] == false,
+        provider["app"] == false do
+      package = String.to_existing_atom(provider["package"])
+      path = dependency_paths[package]
+
+      unless is_binary(path) and File.dir?(path),
+        do: raise(ArgumentError, "source-only provider checkout unavailable: #{id}")
+
+      {package, [path: Path.expand(path), compile: false, app: false]}
+    end
+  end
+
+  def project(applications, cure?, dependencies \\ []) do
     compilers =
       if cure?,
         do: "cure_paths: [\"cure\"], compilers: (Mix.compilers() -- [:app]) ++ [:cure, :app],",
@@ -597,7 +620,7 @@ defmodule Elzoo.CureConsumerCase do
     """
     defmodule Consumer.MixProject do
       use Mix.Project
-      def project, do: [app: :consumer, version: "0.1.0", prune_code_paths: false, test_ignore_filters: [~r/test_helper.exs$/], #{compilers} deps: []]
+      def project, do: [app: :consumer, version: "0.1.0", prune_code_paths: false, test_ignore_filters: [~r/test_helper.exs$/], #{compilers} deps: #{inspect(dependencies, limit: :infinity)}]
       def application, do: [extra_applications: #{inspect(applications)}]
     end
     """

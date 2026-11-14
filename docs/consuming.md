@@ -7,6 +7,22 @@ contain examples/tests and dependency instructions without a wrapper module.
 
 ## Find and inspect
 
+Source-only providers declare `compile: false, app: false` in provider metadata.
+Generated install instructions preserve those Mix options and the pinned Git
+URL/revision: merge the tuple into your own project's dependencies and fetch
+with Mix. Piece manifests name the provider ID, not a dependency tuple. Owned
+C/header files can live under `lib/.../native/` and must be listed in `files`;
+`c_src/` is not a supported source role. Native tests must declare their tools
+and compile in disposable output directories, not in the installed checkout.
+
+The copied-consumer test harness reuses only selected source-only checkouts
+from the outer `Mix.Project.deps_paths()` as temporary path dependencies, also
+with `compile: false, app: false`. Tests can find them using the inner
+`Mix.Project.deps_paths()` without a network fetch or application startup.
+Missing checkouts fail. This is checkout-reuse evidence, not a cold-install
+or production native-artifact packaging guarantee; export planning remains
+read-only and never vendors provider sources.
+
 Start with [LEDGER.md](https://github.com/balungpisah/elzoo/blob/main/LEDGER.md).
 Each ready row links to a README with its contract, limits, dependency IDs
 and grounding. The adjacent piece.json lists source files and exact claim
