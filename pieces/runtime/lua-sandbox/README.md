@@ -24,7 +24,8 @@ pending-call reply. Helpers charge counted steps for their work and their limits
 sticky stops. A step, depth, size or unlisted-name stop is sticky and cannot be caught
 or continued from Lua. A refusal is a fixed atom; memory, wall time, abnormal exit
 and protocol failure are recorded host outcomes; the child is reaped on every return
-path, including the death of the caller. The full Contract text is in `piece.json`.
+path, including the death of the caller, except that an owner killed from outside leaves
+the child to its own backstops. The full Contract text is in `piece.json`.
 
 **Not OS security isolation.** There is no container, seccomp, namespace, network or
 filesystem confinement, and Port separation does not protect against a vulnerability
@@ -114,10 +115,12 @@ duplicate keys, trailing bytes or a second reply are `protocol_error`. The child
 stderr goes to `/dev/null`, its environment is empty and no source or input is on argv.
 The caller holds the absolute deadline. At the deadline, on any protocol error and when
 the caller dies, the owner kills the child by OS pid and reaps it before `run/2`
-returns. An exit of the Port, such as a write into a closed child input, is a host
-outcome and never an exit signal to the caller, whose links, monitors, flags and mailbox
-are unchanged (a host `setitimer` backstop and a stdin-hangup poll end the child if the
-owner cannot).
+returns. If the owner itself is killed from outside, `run/2` returns `process_exit`
+and the child is not killed by OS pid: the Port closes with the owner and the child
+ends by its own backstops. An exit of the Port, such as a write into a closed child
+input, is a host outcome and never an exit signal to the caller, whose links, monitors,
+flags and mailbox are unchanged (a host `setitimer` backstop and a stdin-hangup poll
+end the child if the owner cannot).
 
 ## Policy version 3
 

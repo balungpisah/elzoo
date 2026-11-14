@@ -18,8 +18,23 @@ defmodule Elzoo.LuaSandbox.Child do
   def exchange(executable, frame, deadline) do
     caller = self()
     ref = make_ref()
-    {owner, monitor} = spawn_monitor(fn -> own(caller, ref, executable, frame) end)
 
+    case start_owner(fn -> own(caller, ref, executable, frame) end) do
+      {:ok, owner, monitor} -> await_owner(owner, monitor, ref, deadline)
+      :error -> {:host_outcome, :process_exit}
+    end
+  end
+
+  # The start of the owner is the start of the child: its failure is a host outcome,
+  # as a failed `Port.open` is.
+  defp start_owner(fun) do
+    {owner, monitor} = spawn_monitor(fun)
+    {:ok, owner, monitor}
+  rescue
+    SystemLimitError -> :error
+  end
+
+  defp await_owner(owner, monitor, ref, deadline) do
     {outcome, down?} =
       receive do
         {^ref, result} -> {result, false}
@@ -124,24 +139,28 @@ defmodule Elzoo.LuaSandbox.Child do
   defp exited(0, acc, nil) when byte_size(acc) > 0, do: {:host_outcome, :protocol_error}
   defp exited(_status, _acc, nil), do: {:host_outcome, :process_exit}
 
-  # Kill by OS pid and wait until the child is gone.
+  # Kill by OS pid and wait until the child is gone. One absolute deadline bounds the
+  # whole reap to `@reap_ms`.
   defp reap(port, os_pid) do
+    until = System.monotonic_time(:millisecond) + @reap_ms
+
     case {Process.get(:port_end), Port.info(port)} do
       {:reported, _} ->
         :ok
 
       {_, nil} ->
         kill(os_pid)
-        wait_gone(os_pid)
+        wait_gone(os_pid, until)
 
       {_, _} ->
         kill(os_pid)
 
         receive do
           {^port, {:exit_status, _}} -> :ok
-          {:EXIT, ^port, _} -> wait_gone(os_pid)
+          {:EXIT, ^port, _} -> wait_gone(os_pid, until)
         after
-          @reap_ms -> if Port.info(port), do: Port.close(port)
+          max(0, until - System.monotonic_time(:millisecond)) ->
+            if Port.info(port), do: Port.close(port)
         end
     end
   end
@@ -151,10 +170,7 @@ defmodule Elzoo.LuaSandbox.Child do
   end
 
   # A Port that ended with no exit report cannot say when the child is reaped.
-  defp wait_gone(os_pid) do
-    until = System.monotonic_time(:millisecond) + @reap_ms
-    poll_gone(Integer.to_string(os_pid), until)
-  end
+  defp wait_gone(os_pid, until), do: poll_gone(Integer.to_string(os_pid), until)
 
   defp poll_gone(os_pid, until) do
     case System.cmd("kill", ["-0", os_pid], stderr_to_stdout: true) do

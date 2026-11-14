@@ -109,11 +109,14 @@ defmodule Elzoo.LuaSandbox do
 
   Each `run/2` starts one owner process for the Port. It is not linked to the
   calling process, traps exits and monitors the caller. The caller holds the
-  absolute deadline and waits for the end of the owner. On every return path the
-  child is killed by OS pid and reaped before `run/2` returns, so no child and no
-  process of the Piece outlives it. An exit of the Port, for example a write into
-  a closed child input, is a message to the owner and a host outcome
-  (`process_exit`, or `protocol_error` when bytes that are not one reply frame were
+  absolute deadline and waits for the end of the owner. On every return path where
+  the owner ends by itself the child is killed by OS pid and reaped before `run/2`
+  returns, so no child and no process of the Piece outlives it. If the owner is
+  killed from outside, `run/2` returns `{:host_outcome, :process_exit}` and the
+  child is not killed by OS pid: the Port closes with the owner and the child ends
+  by its own backstops (below). An exit of the Port, for example a write into a
+  closed child input, is a message to the owner and a host outcome (`process_exit`,
+  or `protocol_error` when bytes that are not one reply frame were
   read), never an exit signal to the caller. The caller's links, monitors, flags
   and mailbox are the same after `run/2` as before it. If the calling process
   dies, the owner sees it, kills the child by OS pid and reaps it; the child also
