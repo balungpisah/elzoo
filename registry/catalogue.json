@@ -1135,7 +1135,8 @@
       "summary": "Immutable recipe versions per tenant, with publish and go-back",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/state/recipe-store/piece.json",
       "reason": "Bot platform wave 3 (P13). Recipe bytes and versions in ready state/artifact; this adds the published pointer, the check gate and the pin records. Only a checked version can be published, and a version that a live Run pins is not deleted."
     },
     {

@@ -1,0 +1,112 @@
+# SPDX-License-Identifier: Apache-2.0
+# state/recipe-store (ELZ-171): the pure decision over the folded state of one
+# recipe version. The shell folds the tenant stream into five facts about the
+# version (stored, marked deleted, checked, has a pin record, is the published
+# version) and asks for one verdict before it appends anything. The verdict
+# gives the first refusal of the fixed order
+#
+#   not found, deleted, not checked, pinned, published
+#
+# and no refusal that does not apply to the operation (a pin needs no check, a
+# delete needs no check). A delete of a marked version is no refusal: it is
+# the resumption of an incomplete delete. No I/O here.
+mod Elzoo.RecipeStore
+  type Op = OpGet | OpCheck | OpPin | OpPublish | OpDelete
+  type Verdict = Allow | Resume | NotFound | Deleted | NotChecked | Pinned | Published
+
+  # get, check and pin read a stored, live version.
+  @total true
+  @reducible
+  fn live_only(deleted: Bool) -> Verdict =
+    pickup
+      deleted -> Deleted()
+      else -> Allow()
+
+  # publish needs a stored, checked, live version.
+  @total true
+  @reducible
+  fn publishable(deleted: Bool, checked: Bool) -> Verdict =
+    pickup
+      deleted -> Deleted()
+      not checked -> NotChecked()
+      else -> Allow()
+
+  # delete: a marked version resumes; a pin, then the published pointer, refuse.
+  @total true
+  @reducible
+  fn deletable(deleted: Bool, pinned: Bool, published: Bool) -> Verdict =
+    pickup
+      deleted -> Resume()
+      pinned -> Pinned()
+      published -> Published()
+      else -> Allow()
+
+  @total true
+  @reducible
+  fn decide(op: Op, exists: Bool, deleted: Bool, checked: Bool, pinned: Bool, published: Bool) -> Verdict =
+    pickup
+      not exists -> NotFound()
+      else ->
+        match op
+          OpGet() -> live_only(deleted)
+          OpCheck() -> live_only(deleted)
+          OpPin() -> live_only(deleted)
+          OpPublish() -> publishable(deleted, checked)
+          OpDelete() -> deletable(deleted, pinned, published)
+
+  # ── laws ─────────────────────────────────────────────────────────────
+
+  # R1: a delete is never allowed while a pin record exists, whatever the
+  # check and the published pointer say.
+  fn delete_refused_while_pinned(checked: Bool, published: Bool) -> Equivalent(Verdict, decide(OpDelete(), True(), False(), checked, True(), published), Pinned()) =
+    reflexive(Pinned())
+
+  # R2: a delete is never allowed for the published version.
+  fn delete_refused_while_published(checked: Bool) -> Equivalent(Verdict, decide(OpDelete(), True(), False(), checked, False(), True()), Published()) =
+    reflexive(Published())
+
+  # R3: the pin comes before the published pointer in the refusal order.
+  fn pinned_before_published(checked: Bool) -> Equivalent(Verdict, decide(OpDelete(), True(), False(), checked, True(), True()), Pinned()) =
+    reflexive(Pinned())
+
+  # R4: publish is never allowed for an unchecked version.
+  fn publish_refused_unchecked(pinned: Bool, published: Bool) -> Equivalent(Verdict, decide(OpPublish(), True(), False(), False(), pinned, published), NotChecked()) =
+    reflexive(NotChecked())
+
+  # R5: a deleted version admits no pin, no check, no read and no publish.
+  fn deleted_admits_no_pin(checked: Bool, pinned: Bool, published: Bool) -> Equivalent(Verdict, decide(OpPin(), True(), True(), checked, pinned, published), Deleted()) =
+    reflexive(Deleted())
+
+  fn deleted_admits_no_check(checked: Bool, pinned: Bool, published: Bool) -> Equivalent(Verdict, decide(OpCheck(), True(), True(), checked, pinned, published), Deleted()) =
+    reflexive(Deleted())
+
+  fn deleted_admits_no_get(checked: Bool, pinned: Bool, published: Bool) -> Equivalent(Verdict, decide(OpGet(), True(), True(), checked, pinned, published), Deleted()) =
+    reflexive(Deleted())
+
+  fn deleted_admits_no_publish(checked: Bool, pinned: Bool, published: Bool) -> Equivalent(Verdict, decide(OpPublish(), True(), True(), checked, pinned, published), Deleted()) =
+    reflexive(Deleted())
+
+  # R6: the deleted refusal comes before the unchecked refusal.
+  fn deleted_before_not_checked(pinned: Bool, published: Bool) -> Equivalent(Verdict, decide(OpPublish(), True(), True(), False(), pinned, published), Deleted()) =
+    reflexive(Deleted())
+
+  # R7: an unknown version is refused as not found, for every operation.
+  fn unknown_is_not_found(op: Op, deleted: Bool, checked: Bool, pinned: Bool, published: Bool) -> Equivalent(Verdict, decide(op, False(), deleted, checked, pinned, published), NotFound()) =
+    reflexive(NotFound())
+
+  # R8: a delete of a marked version resumes, whatever else holds.
+  fn marked_delete_resumes(checked: Bool, pinned: Bool, published: Bool) -> Equivalent(Verdict, decide(OpDelete(), True(), True(), checked, pinned, published), Resume()) =
+    reflexive(Resume())
+
+  # R9: a stored, live version is allowed a pin without a check, and a delete
+  # when it has no pin and is not published, with or without a check.
+  fn live_unchecked_may_be_pinned(pinned: Bool, published: Bool) -> Equivalent(Verdict, decide(OpPin(), True(), False(), False(), pinned, published), Allow()) =
+    reflexive(Allow())
+
+  fn free_version_may_be_deleted(checked: Bool) -> Equivalent(Verdict, decide(OpDelete(), True(), False(), checked, False(), False()), Allow()) =
+    reflexive(Allow())
+
+  # R10: a checked, live version may be published, also when it is pinned.
+  fn checked_live_may_be_published(pinned: Bool, published: Bool) -> Equivalent(Verdict, decide(OpPublish(), True(), False(), True(), pinned, published), Allow()) =
+    reflexive(Allow())
+end
