@@ -735,4 +735,67 @@ defmodule Elzoo.LuaBindingTest do
              alias: "lua_issues_count"
            }
   end
+
+  test "bindings_are_plain" do
+    three = [manifest("alpha"), manifest("beta", 2), manifest("gamma")]
+    declaration = declare([{"alpha", 1}, {"beta", 2}, {"gamma", 1}])
+    assert {:ok, bindings} = LuaBinding.resolve(declaration, three)
+
+    # Acceptance 1: no struct anywhere, and a small size for the state of a pattern.
+    assert plain?(bindings)
+    refute plain?(%{schema: %URI{}})
+
+    form = fn value ->
+      byte_size(:erlang.term_to_binary(value, [:deterministic, {:minor_version, 2}]))
+    end
+
+    assert form.(bindings) < form.(three) + 1_024
+
+    # Acceptance 2, same_results: the identity of the resolve_at_load declaration, recorded on the base.
+    five = three ++ [manifest("delta"), manifest("epsilon")]
+    assert {:ok, loaded} = LuaBinding.resolve(declaration, five)
+
+    assert LuaBinding.identity(loaded) ==
+             "lua-binding-v1:sha256:d56a3d9bf5f39f3e6764a360314e34f6eca8c7fbf2c7518210ba9d82d9302668"
+
+    # Acceptance 3, checks_still_check: the same results on every one of 1,000 calls.
+    # The order of violations is not fixed, so each is compared sorted.
+    refusal = fn name, result ->
+      assert {:refused, %{name: ^name, violations: violations}} = result
+      Enum.sort(violations)
+    end
+
+    expected_arguments = [
+      %{path: [], code: :schema_mismatch},
+      %{path: [:key], code: :schema_mismatch}
+    ]
+
+    expected_result = [%{path: [], code: :schema_mismatch}]
+
+    for _ <- 1..1_000 do
+      assert LuaBinding.check_arguments(bindings, "alpha", %{"query" => "x"}) == :ok
+
+      assert refusal.("alpha", LuaBinding.check_arguments(bindings, "alpha", %{"query" => 5})) ==
+               expected_arguments
+
+      assert LuaBinding.check_result(bindings, "alpha", %{"count" => 3}) == :ok
+
+      assert refusal.("alpha", LuaBinding.check_result(bindings, "alpha", %{})) ==
+               expected_result
+    end
+  end
+
+  # Atoms, numbers, binaries, lists, tuples and maps that are not structs, all the way down.
+  defp plain?(value) when is_atom(value) or is_number(value) or is_binary(value), do: true
+  defp plain?(value) when is_list(value), do: plain_list?(value)
+  defp plain?(value) when is_tuple(value), do: value |> Tuple.to_list() |> Enum.all?(&plain?/1)
+
+  defp plain?(value) when is_map(value) and not is_struct(value),
+    do: Enum.all?(value, fn {key, child} -> plain?(key) and plain?(child) end)
+
+  defp plain?(_), do: false
+
+  defp plain_list?([]), do: true
+  defp plain_list?([head | tail]), do: plain?(head) and plain_list?(tail)
+  defp plain_list?(_), do: false
 end

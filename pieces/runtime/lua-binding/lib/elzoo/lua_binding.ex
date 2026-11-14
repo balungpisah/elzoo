@@ -103,13 +103,14 @@ defmodule Elzoo.LuaBinding do
 
   defp check({:LuaBinding, entries}, name, side, value) when is_map(entries) do
     case entries do
-      %{^name => %{manifest: manifest} = entry} ->
-        port = manifest[Atom.to_string(side)]["port"]
+      %{^name => %{manifest: manifest}} ->
+        %{"port" => port, "schema" => schema} = manifest[Atom.to_string(side)]
 
-        case PayloadSchema.check(Map.fetch!(entry, side), port, value) do
-          :ok ->
-            :ok
-
+        # The schema is built here, not kept: bindings stay plain data.
+        with {:ok, built} <- PayloadSchema.build(port, schema),
+             :ok <- PayloadSchema.check(built, port, value) do
+          :ok
+        else
           {:error, {:violations, violations}} ->
             {:refused, %{name: name, violations: violations}}
 
@@ -179,10 +180,10 @@ defmodule Elzoo.LuaBinding do
          true <- text?(manifest["description"], 1_024),
          true <- cost?(manifest["cost"]),
          true <- permissions?(manifest["permissions"]),
-         {:ok, arguments} <- operand(manifest["arguments"], "input"),
-         {:ok, result} <- operand(manifest["result"], "output"),
+         :ok <- operand(manifest["arguments"], "input"),
+         :ok <- operand(manifest["result"], "output"),
          true <- object_schema?(manifest["arguments"]["schema"]) do
-      {:ok, %{manifest: manifest, arguments: arguments, result: result}}
+      {:ok, %{manifest: manifest}}
     else
       _ -> :error
     end
@@ -191,8 +192,8 @@ defmodule Elzoo.LuaBinding do
   defp operand(%{"port" => port, "schema" => schema} = operand, direction)
        when map_size(operand) == 2 and is_map(port) and not is_struct(port) do
     with true <- Map.get(port, "direction") == direction,
-         {:ok, checked} <- PayloadSchema.build(port, schema) do
-      {:ok, checked}
+         {:ok, _built} <- PayloadSchema.build(port, schema) do
+      :ok
     else
       _ -> :error
     end

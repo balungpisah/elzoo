@@ -75,8 +75,11 @@ call. The source holds the descriptions of the manifests, as the registry
 needs them.
 
 Bindings are the plain term `{:LuaBinding, entries}`: each resolved manifest as
-given with its two checked schemas. A pattern can keep it in its state; a value
-not made by `resolve/2` is outside the Contract.
+given, and nothing built from it. `resolve/2` builds both schemas of each
+declared manifest only to decide `:invalid_manifest` and keeps none of them;
+each `check_arguments/3` and `check_result/3` builds the schema of its side
+from the kept manifest. The term holds no struct, so a pattern can keep it in
+its state; a value not made by `resolve/2` is outside the Contract.
 
 Fixed bounds: 64 declared functions, 256 manifests, 64 permissions for each
 function, 1,024 bytes of description; the bounds of `core/payload-schema` for
@@ -94,9 +97,10 @@ manifest into `tool_requirements` (`%{alias => %{"needs" => [], "permissions"
 `tool` node that names the alias; the unit of the manifest must equal the unit
 of that check.
 
-Limits: no call, no Lua, no registry of modules and no discovery. A schema
-check says that a value has the declared form, not that a call is allowed or
-that it succeeded. The cost is an estimate that the manifest states. The
+Limits: each checked call builds one schema (the bindings keep none, and the
+Piece caches none). No call, no Lua, no registry of modules and no discovery.
+A schema check says that a value has the declared form, not that a call is
+allowed or that it succeeded. The cost is an estimate that the manifest states. The
 identity is stable for the pinned Jason and OTP; it is not RFC 8785. The
 Piece does not depend on `runtime/lua-sandbox`: the binding-name form is the
 only thing they share, and the group `names_fit_the_sandbox` shows that the
@@ -110,12 +114,15 @@ over intrinsic operands.
   a pure decision with a law worth proving.
 - Type: none; no Cure type check applies to this Piece. Elixir typespecs would
   be documentation only.
-- Test: `mix test pieces/runtime/lua-binding/test` runs seven named groups:
+- Test: `mix test pieces/runtime/lua-binding/test` runs eight named groups:
   `resolve_at_load`, `arguments_located`, `results_checked_before_return`,
   `identity_changes_with_the_manifest`, `registry_source`,
-  `names_fit_the_sandbox`, `bounds_and_redaction`. Two temporary negative
-  controls (accept a wrong version; skip the result check) make the groups
-  `resolve_at_load` and `results_checked_before_return` fail. Finite
+  `names_fit_the_sandbox`, `bounds_and_redaction`, `bindings_are_plain`
+  (no struct in the bindings and a small size, the recorded identity of the
+  `resolve_at_load` declaration, the same results of 1,000 checks). Three
+  temporary negative controls (accept a wrong version; skip the result check;
+  keep a built schema in an entry) make the groups `resolve_at_load`,
+  `results_checked_before_return` and `bindings_are_plain` fail. Finite
   scenarios, not a universal proof.
 - Monitor: none.
 - Upstream: JSV 0.27.0 through `core/payload-schema`; `workflow/tool-registry`
