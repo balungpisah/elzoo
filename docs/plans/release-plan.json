@@ -4469,8 +4469,7 @@
       "release": "V1B",
       "stage": "pieces",
       "outputs": [
-        "workflow/graph-run",
-        "workflow/node-outcome"
+        "workflow/graph-run"
       ],
       "dependencies": [
         "ELZ-033",
@@ -4480,15 +4479,15 @@
         "ELZ-026",
         "ELZ-098",
         "ELZ-003",
-        "ELZ-006"
+        "ELZ-006",
+        "ELZ-166"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "node-outcome published as ELZ-166; graph-run remains an unpublished admission proposal",
       "contract": "The graph pattern as a pure step of RC-68: from the recipe graph, the recorded results and one input, decide which nodes are ready and give one request with their actions. Needs and gives set the data order; links add order and branches; map runs one node per item with a maximum count, a concurrency bound and a part-failure rule, and map items are not graph nodes; loop is a bounded re-run of a nested callable, never a back-edge. Each node outcome class of RC-68 follows its outcome link, or the Run fails. A node with a recorded result does not run again. No automatic retry after an unknown outcome.",
       "acceptance": "Recorded-trace tests: a graph with needs and gives only; a decision in the middle selects a branch; a join after a decision becomes ready when the taken branch completes, and the branch that was not taken is skipped, not waited for; map over N items with a bound and one failed item under each part-failure rule; loop at its maximum; each outcome link; a missing outcome link fails the Run explicitly; replay after restart does not run a settled node again; results in any arrival order give the same decision; a nested graph gets only its typed input.",
       "reuse": "Ready workflow/dependency-graph: validate and readiness give the AND-join of acyclic needs only. Map a completed node to its completed lifecycle, never to a fact (a model-declared fact never satisfies). A cancelled or closed target never satisfies, there is no join policy beyond 'every blocking prerequisite satisfied', and every blocking cycle is an issue: thus either-of joins after a decision, skipped branches and loops are written here. Its bounds are 1,000 nodes and 10,000 edges. readiness takes a now value: the step passes the recorded time of its input. Ready delivery/aggregation: decision/2 is pure and gives the completion status of a map (all, partial, failed). accept/2 and mark_lost/3 read the clock function that the join map holds (aggregation.ex), and accept takes a core/envelope result (README); core/envelope (ELZ-003) comes through delivery/aggregation. So the step keeps the join without its now function, binds a constant clock from the recorded time of its input before each call, and maps each RC-68 outcome class to an Envelope result or a loss kind by a declared table. It stores a digest, not the payload, so map result values come from the recorded results. delivery/retry-timeout gives the retry words. Candidate Cure laws: no node runs twice, and every declared item appears in the map result.",
       "paths": [
-        "pieces/workflow/graph-run/",
-        "pieces/workflow/node-outcome/"
+        "pieces/workflow/graph-run/"
       ],
       "blockers": [
         "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID."
@@ -4506,7 +4505,6 @@
       "release": "V1B",
       "stage": "pieces",
       "outputs": [
-        "workflow/recipe-check",
         "workflow/runtime-graph"
       ],
       "dependencies": [
@@ -4515,14 +4513,14 @@
         "ELZ-136",
         "ELZ-022",
         "ELZ-024",
-        "ELZ-114"
+        "ELZ-114",
+        "ELZ-167"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "recipe-check published as ELZ-167; runtime-graph remains an unpublished admission proposal",
       "contract": "Check a recipe before it can run: structure, the needs of each node, permissions, budgets, an upper cost limit from node budgets and map and loop maxima, and tool sources that exist. A pure checker. The same check accepts a graph that a model gives at run time as plain data, carried by the nested-callable action of RC-68, with added limits: only the callables and tool sources of its agent node, no new authority, a budget share, a node and depth maximum, data only. A refused graph returns its reasons as content for the model.",
       "acceptance": "Each structural fault of RC-61 refused with a located reason; a permission that the recipe does not declare; a budget over a tenant cap that the caller supplies; an unbounded map; a model graph that names a callable outside the sources of its agent, asks for more budget, exceeds the node or depth maximum, or carries code; the same input gives the same verdict.",
       "reuse": "The validation of RC-61; the registry snapshot of RC-52 for tool sources; ready workflow/budget for the units, with one cap per budget identity, which is not a tenant quota (a quota is RC-08); its critical_path_waves is a pure worst-case time check that assumes wave barriers and has no identity and no cap; domain/authorization for permissions. One checker for load time and run time. That a recorded model graph is read again after a restart, and the model is not asked again, belongs to the engine and is tested in RC-66.",
       "paths": [
-        "pieces/workflow/recipe-check/",
         "pieces/workflow/runtime-graph/"
       ],
       "blockers": [
@@ -5670,6 +5668,40 @@
       "issue": 357,
       "url": "https://github.com/balungpisah/elzoo/issues/357",
       "issue_body_sha256": "65d944dc3be29a953ffc1e241d7c82ce81c994d1323fa299056a5bbe77cf807c"
+    },
+    {
+      "id": "ELZ-166",
+      "title": "ELZ-166 — What follows the outcome of a graph node",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-114", "ELZ-161"],
+      "status": "published 2026-11-14",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-166-node-outcome.md"],
+      "outputs": ["workflow/node-outcome"],
+      "acceptance": "Pure rule for one settled graph node: the outcome routes of a node from the links of ELZ-161, and a total decision over the nine outcome classes of pattern-step: follow the route of that class, proceed after completed with no route, or fail the Run explicitly. No fallback between classes and no retry member, also for unknown. The decision is a Cure function with three named laws. No graph walk, join, map or loop rule: those belong to workflow/graph-run.",
+      "product_aims": ["P13"],
+      "issue": 364,
+      "url": "https://github.com/balungpisah/elzoo/issues/364",
+      "issue_body_sha256": "416da734339123bef2deabf964f3d2df62fb825501f87663572e939906cc4e90"
+    },
+    {
+      "id": "ELZ-167",
+      "title": "ELZ-167 — Check a recipe package before it can run",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-136", "ELZ-161", "ELZ-162", "ELZ-164"],
+      "status": "published 2026-11-14",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-167-recipe-check.md"],
+      "outputs": ["workflow/recipe-check"],
+      "acceptance": "Pure load-time check of a recipe package against facts that the caller supplies: a structural fault of ELZ-164 or ELZ-161 is refused with its reason atom at its part; then every tool resolves in the registry snapshot, each requirement of a tool is declared, each declared need is provided and each declared permission is granted, each cost is stated, and the exact upper cost of the root (sums, with map and loop maxima as factors) is at most the cap. Reasons are located path and code pairs in a fixed order; the same input gives the same verdict. It grants nothing and reserves nothing. The run-time portion follows as workflow/runtime-graph.",
+      "product_aims": ["P13"],
+      "issue": 365,
+      "url": "https://github.com/balungpisah/elzoo/issues/365",
+      "issue_body_sha256": "958d06d99dc92719f44eaeabc69d645085f942e9d967b81936f3950b89b8f0bf"
     }
   ],
   "entries": [
@@ -6964,18 +6996,18 @@
     },
     {
       "id": "workflow/node-outcome",
-      "job": "RC-63",
-      "note": "Bot platform wave 3 (P13). Each outcome follows its link or the Run fails explicitly. No automatic retry after an unknown outcome.",
+      "job": "ELZ-166",
+      "note": "Pure rule for one settled graph node: each of the nine outcome classes follows its own outcome link, completed with no link proceeds, and each other class with no link fails the Run explicitly. No fallback between classes and no retry, also after an unknown outcome.",
       "baseline_status": "not in baseline (new row, RC-63)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "published-task; implementation pending",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
       "id": "workflow/recipe-check",
-      "job": "RC-64",
-      "note": "Bot platform wave 3 (P13). Structure, needs, permissions, budgets and an upper cost limit, with located reasons.",
+      "job": "ELZ-167",
+      "note": "Pure load-time check of a recipe package against caller-supplied facts: structure, tools that resolve, declared and provided needs, declared and granted permissions, stated costs and an exact upper cost under a cap, with located reasons in a fixed order. It grants nothing and reserves nothing.",
       "baseline_status": "not in baseline (new row, RC-64)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "published-task; implementation pending",
       "catalogue_reference": "registry/catalogue.json"
     },
     {

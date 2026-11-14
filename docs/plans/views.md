@@ -179,8 +179,10 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-164](https://github.com/balungpisah/elzoo/issues/357) | V1B / pieces | ELZ-033, ELZ-115, ELZ-161, ELZ-162 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 | RC-61 | V1B / pieces | ELZ-033, ELZ-115, ELZ-026, ELZ-024, ELZ-105, ELZ-114, ELZ-161, ELZ-162, ELZ-164 | all three portions published: ELZ-161 recipe-graph, ELZ-162 recipe-config and ELZ-164 recipe-package | one claimed task worker after admission |
 | RC-62 | V1B / pieces | ELZ-033, RC-60, ELZ-115, ELZ-002, ELZ-136, RC-61, ELZ-114, ELZ-022 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-63 | V1B / pieces | ELZ-033, ELZ-002, ELZ-114, RC-61, ELZ-026, ELZ-098, ELZ-003, ELZ-006 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-64 | V1B / pieces | ELZ-033, RC-61, ELZ-136, ELZ-022, ELZ-024, ELZ-114 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| [ELZ-166](https://github.com/balungpisah/elzoo/issues/364) | V1B / pieces | ELZ-033, ELZ-114, ELZ-161 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| RC-63 | V1B / pieces | ELZ-033, ELZ-002, ELZ-114, RC-61, ELZ-026, ELZ-098, ELZ-003, ELZ-006, ELZ-166 | node-outcome published as ELZ-166; graph-run remains an unpublished admission proposal | one claimed task worker after admission |
+| [ELZ-167](https://github.com/balungpisah/elzoo/issues/365) | V1B / pieces | ELZ-033, ELZ-136, ELZ-161, ELZ-162, ELZ-164 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| RC-64 | V1B / pieces | ELZ-033, RC-61, ELZ-136, ELZ-022, ELZ-024, ELZ-114, ELZ-167 | recipe-check published as ELZ-167; runtime-graph remains an unpublished admission proposal | one claimed task worker after admission |
 | RC-65 | V1B / pieces | ELZ-033, ELZ-096, ELZ-009, RC-61, RC-64, ELZ-116 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | [ELZ-141](https://github.com/balungpisah/elzoo/issues/287) | V1B / pieces | ELZ-033, ELZ-002, ELZ-115, ELZ-079, ELZ-114 | published 2026-11-13 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-142](https://github.com/balungpisah/elzoo/issues/301) | V1B / pieces | ELZ-033, ELZ-002, ELZ-079, ELZ-114, ELZ-136, ELZ-140, ELZ-139, ELZ-087 | published 2026-11-13 | one claimed task worker; coordinator owns independent review and merge queue |
@@ -362,8 +364,8 @@ Baseline status is immutable inventory history, not a current planning status. R
 | runtime/lua-binding | not in baseline (new row, RC-62) | V1B / pieces | RC-62 / P13 | blocked-admission-proposal: Bot platform wave 3 (P13). Built from a function manifest that this Piece defines and the caller supplies; no run-time discovery. A binding call at load time builds data and performs no Effect. |
 | workflow/lua-tool | not in baseline (new row, RC-62) | V1B / pieces | RC-62 / P13 | blocked-admission-proposal: Bot platform wave 3 (P13). Registered like any other tool. Each module call becomes a request for the engine, and the tool runs again from the start with the recorded results; sandbox state is never persisted. |
 | workflow/graph-run | not in baseline (new row, RC-63) | V1B / pieces | RC-63 / P13 | blocked-admission-proposal: Bot platform wave 3 (P13). Needs and gives set the order; branch, map and loop are bounded; a settled node never runs again. Ready workflow/dependency-graph gives the AND-join of acyclic needs and delivery/aggregation the status of a map; either-of joins, skipped branches and loops are written here. |
-| workflow/node-outcome | not in baseline (new row, RC-63) | V1B / pieces | RC-63 / P13 | blocked-admission-proposal: Bot platform wave 3 (P13). Each outcome follows its link or the Run fails explicitly. No automatic retry after an unknown outcome. |
-| workflow/recipe-check | not in baseline (new row, RC-64) | V1B / pieces | RC-64 / P13 | blocked-admission-proposal: Bot platform wave 3 (P13). Structure, needs, permissions, budgets and an upper cost limit, with located reasons. |
+| workflow/node-outcome | not in baseline (new row, RC-63) | V1B / pieces | ELZ-166 / P13 | published-task; implementation pending: Pure rule for one settled graph node: each of the nine outcome classes follows its own outcome link, completed with no link proceeds, and each other class with no link fails the Run explicitly. No fallback between classes and no retry, also after an unknown outcome. |
+| workflow/recipe-check | not in baseline (new row, RC-64) | V1B / pieces | ELZ-167 / P13 | published-task; implementation pending: Pure load-time check of a recipe package against caller-supplied facts: structure, tools that resolve, declared and provided needs, declared and granted permissions, stated costs and an exact upper cost under a cap, with located reasons in a fixed order. It grants nothing and reserves nothing. |
 | workflow/runtime-graph | not in baseline (new row, RC-64) | V1B / pieces | RC-64 / P13 | blocked-admission-proposal: Bot platform wave 3 (P13). The same check as at load time plus limits: only the callables and tool sources of its agent node, no new authority, a budget share, a node and depth maximum, data only. |
 | state/recipe-store | not in baseline (new row, RC-65) | V1B / pieces | RC-65 / P13 | blocked-admission-proposal: Bot platform wave 3 (P13). Recipe bytes and versions in ready state/artifact; this adds the published pointer, the check gate and the pin records. Only a checked version can be published, and a version that a live Run pins is not deleted. |
 | workflow/version-pin | not in baseline (new row, RC-65) | V1B / pieces | RC-65 / P13 | blocked-admission-proposal: Bot platform wave 3 (P13). The pure rule of which version a Run uses: the one at its start. Publishing changes no running Run. The delete refusal belongs to state/recipe-store. |
@@ -389,7 +391,7 @@ Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, EL
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167.
 
 ### V2-ACCEPT
 
@@ -2851,3 +2853,23 @@ Publication copy: [tasks/ELZ-164-recipe-package.md](../../tasks/ELZ-164-recipe-p
 **Product aims:** P13.
 
 **Acceptance:** Pure bounded package manifest with content-digest identity, opaque versions, declarative needs/permissions, RecipeGraph callable/root/binding validation and RecipeConfig settings descriptor validation. Decoded skill frontmatter plus Markdown body, explicit versions/tools, malformed-skill refusal before load, stable encode/decode and redacted errors. No file or raw YAML reader, Lua, secret resolution or store.
+
+### ELZ-166
+
+ELZ-166 — What follows the outcome of a graph node
+
+Publication copy: [tasks/ELZ-166-node-outcome.md](../../tasks/ELZ-166-node-outcome.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Pure rule for one settled graph node: the outcome routes of a node from the links of ELZ-161, and a total decision over the nine outcome classes of pattern-step: follow the route of that class, proceed after completed with no route, or fail the Run explicitly. No fallback between classes and no retry member, also for unknown. The decision is a Cure function with three named laws. No graph walk, join, map or loop rule: those belong to workflow/graph-run.
+
+### ELZ-167
+
+ELZ-167 — Check a recipe package before it can run
+
+Publication copy: [tasks/ELZ-167-recipe-check.md](../../tasks/ELZ-167-recipe-check.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Pure load-time check of a recipe package against facts that the caller supplies: a structural fault of ELZ-164 or ELZ-161 is refused with its reason atom at its part; then every tool resolves in the registry snapshot, each requirement of a tool is declared, each declared need is provided and each declared permission is granted, each cost is stated, and the exact upper cost of the root (sums, with map and loop maxima as factors) is at most the cap. Reasons are located path and code pairs in a fixed order; the same input gives the same verdict. It grants nothing and reserves nothing. The run-time portion follows as workflow/runtime-graph.
