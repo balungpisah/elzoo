@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule Elzoo.LuaSandbox do
   @moduledoc """
-  Bounded Lua evaluation outside the VM (policy version 1, no helpers).
+  Bounded Lua evaluation outside the VM (policy version 2, with the safe helper set).
 
   A trusted host builds the executable once with `build/2` from the installed
   pinned `lua_source` checkout and an owned C host. Each `run/2` starts one fresh
@@ -11,7 +11,7 @@ defmodule Elzoo.LuaSandbox do
   * `build(source_directory, build_directory)` ->
     `{:ok, executable} | {:error, :build_failed}`. Both operands are trusted
     host-supplied paths, never Lua input.
-  * `policy()` -> `%{identity: "policy-v1:sha256:<hex>", descriptor: map}`.
+  * `policy()` -> `%{identity: "policy-v2:sha256:<hex>", descriptor: map}`.
   * `run(executable, request)` -> `{:ok, %{value: v, identity: i, runtime: r}}`,
     `{:refused, reason}` or `{:host_outcome, reason}`.
 
@@ -31,7 +31,8 @@ defmodule Elzoo.LuaSandbox do
   keep their kind in a host-private record, so an empty array and an empty object
   round-trip distinctly. An unrecorded table with keys exactly `1..n` is an array,
   with only string keys an object, and an empty unrecorded table is an empty
-  array: a version 1 source cannot build a fresh empty object (declared limit).
+  array; a source builds a fresh empty object with `helpers.object()` and reaches null as
+  `helpers.null`.
 
   ## Outcomes
 

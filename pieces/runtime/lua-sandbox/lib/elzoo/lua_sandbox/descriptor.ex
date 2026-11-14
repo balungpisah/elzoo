@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule Elzoo.LuaSandbox.Descriptor do
   @moduledoc false
-  # Policy version 1 as immutable plain data (maps with string keys, integer and
+  # Policy version 2 as immutable plain data (maps with string keys, integer and
   # string leaves). The identity is the SHA-256 of its canonical JSON.
 
   alias Elzoo.LuaSandbox.Json
@@ -17,6 +17,9 @@ defmodule Elzoo.LuaSandbox.Descriptor do
     "math.pi" => "3.1415926535897931"
   }
   @operators ~w(__add __div __idiv __mod __mul __pow __sub __unm)
+
+  # The helpers that exist in the host: fields of the global `helpers`.
+  @helpers ~w(null object)
 
   @bounds %{
     "steps" => 1_000_000,
@@ -47,7 +50,7 @@ defmodule Elzoo.LuaSandbox.Descriptor do
 
   def descriptor do
     %{
-      "policy_version" => 1,
+      "policy_version" => 2,
       "names" => %{
         "functions" => function_names(),
         "libraries" => library_names(),
@@ -92,7 +95,7 @@ defmodule Elzoo.LuaSandbox.Descriptor do
       "data" => %{
         "array" => "dense table with keys 1..n, or a decoded array",
         "empty_array" => "decoded empty array, or an unrecorded empty table",
-        "empty_object" => "decoded empty object only",
+        "empty_object" => "decoded empty object, or helpers.object()",
         "float" => "finite binary64",
         "integer" => "signed 64-bit",
         "null" => "single light userdata sentinel, compares equal with ==, tostring refuses it",
@@ -106,13 +109,13 @@ defmodule Elzoo.LuaSandbox.Descriptor do
         "length" => "unsigned 32-bit little-endian",
         "version" => 1
       },
-      "helpers" => [],
+      "helpers" => Enum.map(Enum.sort(@helpers), &%{"name" => &1, "version" => 1}),
       "bindings" => %{}
     }
   end
 
   def identity(descriptor) do
-    "policy-v1:sha256:" <>
+    "policy-v2:sha256:" <>
       Base.encode16(:crypto.hash(:sha256, Json.encode(descriptor)), case: :lower)
   end
 end

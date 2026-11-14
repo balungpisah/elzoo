@@ -369,7 +369,7 @@ defmodule Elzoo.LuaSandboxReplayTest do
 
       # a changed descriptor is a changed identity
       %{descriptor: descriptor, identity: identity} = LuaSandbox.policy()
-      changed = put_in(descriptor, ["helpers"], ["json.encode"])
+      changed = put_in(descriptor, ["helpers"], tl(descriptor["helpers"]))
       refute LuaSandbox.Descriptor.identity(changed) == identity
     end
 

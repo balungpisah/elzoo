@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
-** Owned C host of the Elzoo Lua sandbox (policy version 1).
+** Owned C host of the Elzoo Lua sandbox (policy version 2).
 **
 ** One process runs one request: it reads one frame (u32 little-endian
 ** length, then UTF-8 JSON) from stdin, builds one Lua state with a fresh
@@ -694,7 +694,7 @@ static void charge(lua_State *L, long long n) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Wrappers (policy version 1)                                           */
+/* Wrappers (policy version 2)                                           */
 /* ------------------------------------------------------------------ */
 
 static int unlisted(lua_State *L) {
@@ -717,6 +717,23 @@ static int w_pcall(lua_State *L) {
   lua_pushboolean(L, 1);
   lua_insert(L, 1);
   return lua_gettop(L);
+}
+
+/* ------------------------------------------------------------------ */
+/* Helpers (policy version 2): fields of the global `helpers`            */
+/* ------------------------------------------------------------------ */
+
+/* helpers.object(): a fresh empty table that encodes as a JSON object. */
+static int h_object(lua_State *L) {
+  if (lua_gettop(L) != 0) return luaL_error(L, "helpers.object: takes no argument");
+  charge(L, 1);
+  lua_createtable(L, 0, 0);
+  lua_getfield(L, LUA_REGISTRYINDEX, "elzoo.kinds");
+  lua_pushvalue(L, -2);
+  lua_pushinteger(L, 2);
+  lua_rawset(L, -3);
+  lua_pop(L, 1);
+  return 1;
 }
 
 static int w_tostring(lua_State *L) {
@@ -863,7 +880,7 @@ static int string_index(lua_State *L) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Environment (policy version 1)                                         */
+/* Environment (policy version 2)                                         */
 /* ------------------------------------------------------------------ */
 
 static const char *const string_names[] = {"byte", "char", "find", "format", "gmatch", "gsub", "len",
@@ -987,6 +1004,16 @@ static int init_env(lua_State *L) {
   copy_library(L, "math", math_names);
   set_unlisted_meta(L, lua_gettop(L), mt);
   lua_setfield(L, env, "math");
+  lua_settop(L, mt);
+
+  /* helpers: a fresh table with the same strict lookup as the libraries */
+  lua_newtable(L);
+  lua_pushlightuserdata(L, &null_sentinel);
+  lua_setfield(L, -2, "null");
+  lua_pushcfunction(L, h_object);
+  lua_setfield(L, -2, "object");
+  set_unlisted_meta(L, lua_gettop(L), mt);
+  lua_setfield(L, env, "helpers");
   lua_settop(L, mt);
 
   /* the environment itself: strict missing-global lookup */
@@ -1312,11 +1339,11 @@ static int audit_cf(lua_State *L) {
   buf out = {0, 0, 0, 1u << 20}, consts = {0, 0, 0, 1u << 20}, names = {0, 0, 0, 1u << 20};
   int cfirst = 1, first = 1, env;
   size_t i;
-  const char *libs[] = {"string", "table", "math"};
+  const char *libs[] = {"string", "table", "math", "helpers"};
   lua_rawgeti(L, LUA_REGISTRYINDEX, LUA_RIDX_GLOBALS);
   env = lua_gettop(L);
   audit_table(L, env, "", &consts, &cfirst);
-  for (i = 0; i < 3; i++) {
+  for (i = 0; i < 4; i++) {
     char prefix[16];
     lua_getfield(L, env, libs[i]);
     snprintf(prefix, sizeof prefix, "%s.", libs[i]);
@@ -1333,6 +1360,11 @@ static int audit_cf(lua_State *L) {
   lua_getmetatable(L, env);
   audit_keys(L, -1, &out);
   lua_pop(L, 1);
+  PUT(&out, ",\"helpers_metatable\":");
+  lua_getfield(L, env, "helpers");
+  lua_getmetatable(L, -1);
+  audit_keys(L, -1, &out);
+  lua_pop(L, 2);
   PUT(&out, ",\"library_metatable\":");
   lua_getfield(L, env, "string");
   lua_getmetatable(L, -1);
