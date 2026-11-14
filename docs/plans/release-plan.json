@@ -7116,10 +7116,12 @@
     {
       "id": "state/recipe-store",
       "job": "ELZ-171",
-      "note": "Immutable recipe versions per tenant with a check gate, a published pointer with go-back, pin records and delete marks in one stream per tenant; a pinned or published version is not deleted.",
+      "note": "Immutable recipe versions of a tenant over the ready Pieces: the bytes of each version are an artifact of state/artifact, and the stored records, check verdicts, published pointer, pin records and delete marks are records of the one stream recipe-store/<tenant> of the ready Store, each change read, decided by the pure Cure table over the folded state and appended at the head revision (at most 3 tries, then contended; an indeterminate append is never tried again). Only a stored, checked, live version is published (go-back is a publish of an older version); a version that a pin record holds or that is published is not deleted; the delete mark is committed before any artifact delete. Refusal order not_found, deleted, not_checked, pinned, published.",
       "baseline_status": "not in baseline (new row, RC-65)",
-      "disposition": "published-task; implementation pending",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/state/recipe-store/piece.json",
+      "manifest_sha256": "d785fa9fc9621001f91a083ef306f78567ae224f78998d53b86cee05a7714954"
     },
     {
       "id": "workflow/version-pin",
