@@ -3904,4 +3904,359 @@ defmodule Elzoo.RunEngineTest do
       send(provider, {:result, %{}})
     end
   end
+
+  # ELZ-190 helpers.
+  defp restart(c, engine, overrides) do
+    GenServer.stop(engine)
+    assert :ok = DynamicUnits.stop(c.directory, c.prefix)
+    Agent.update(c.host_mode, fn _ -> :recover end)
+    start(c, overrides)
+  end
+
+  defp unit_state(c) do
+    {:ok, unit} = DynamicUnits.find(c.directory, c.prefix)
+    DurableUnit.snapshot(unit)
+  end
+
+  defp budget_status(c, id, at \\ 2_000) do
+    {:Transition, _, {:some, {:status, status}}} =
+      Elzoo.Budget.step(unit_state(c).control.budgets[id].state, {at, :status})
+
+    Map.take(status, [:committed, :reserved])
+  end
+
+  # The root asks one nested callable and then runs `after_nested`; the child runs `script`.
+  defp lost_setup(
+         script,
+         after_nested \\ [request([finish_action("root-done", %{"action_id" => "nested"})])],
+         overrides \\ []
+       ) do
+    root = [request([action("nested", "nested_callable")]) | after_nested]
+
+    nested_setup(
+      %{"nested" => script},
+      Keyword.merge([pattern: {TestPattern, :scripted, %{name: "root", script: root}}], overrides)
+    )
+  end
+
+  defp lost_child(payload),
+    do: [request([action("lost", "tool_call"), finish_action("done", payload)])]
+
+  describe "nested_lost_effect_reaches_parent" do
+    test "a child with a lost Effect finishes; the parent gets the finish with no actual and the Run finishes" do
+      payload = %{"choice" => "kept"}
+      {c, bindings} = lost_setup(lost_child(payload))
+      engine = start(c, bindings: bindings)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, _lost, _}
+      assert view(engine).slots[{1, 0}].phase == :running
+      refute_receive {:pattern_input, "root", %{"action_id" => "nested"}}, 50
+
+      engine = restart(c, engine, bindings: bindings)
+      assert view(engine).slots[{2, 0}].outcome == "unknown"
+      # A bounded wait: the parent must settle, it must not stay running.
+      wait_for(engine, &(&1.slots[{1, 0}].phase == :settled))
+      assert_receive {:pattern_input, "root", %{"action_id" => "nested"} = input}
+      assert %{"outcome" => "completed", "schema_id" => "result", "payload" => ^payload} = input
+      assert view(engine).slots[{1, 0}].outcome == "completed"
+      assert unit_state(c).slots[{1, 0}][:actual] == nil
+      assert unit_state(c).slots[{2, 0}][:actual] == nil
+      assert wait_for(engine, &(&1.outcome == :completed)).outcome == :completed
+      assert [_] = outcome_records(c, "nested")
+      refute Enum.any?(journal(c), &match?({:nested_actual, _, _, _, _}, &1))
+    end
+  end
+
+  describe "unknown_is_not_zero" do
+    test "the lost reservation and the parent share stay held, nothing is committed, and the next action is out of budget" do
+      payload = %{"choice" => "kept"}
+
+      {c, bindings} =
+        lost_setup(lost_child(payload), [request([action("next", "local_work")])],
+          budget: %{cap: 10, unit: "credits", id: "budget", incarnation: "sealed"}
+        )
+
+      engine = start(c, bindings: bindings)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, _lost, _}
+      assert budget_status(c, "root") == %{committed: 0, reserved: 10}
+      assert budget_status(c, "1:0") == %{committed: 0, reserved: 1}
+
+      engine = restart(c, engine, bindings: bindings)
+      wait_for(engine, &(&1.slots[{1, 0}].phase == :settled))
+      assert unit_state(c).slots[{1, 0}][:actual] == nil
+      # The child Budget still holds the lost action, the parent Budget the share.
+      assert budget_status(c, "1:0") == %{committed: 0, reserved: 1}
+      assert budget_status(c, "root") == %{committed: 0, reserved: 10}
+      # No room beside the share: the next action is refused as with a known cost of that size.
+      assert wait_for(engine, &(&1.slots[{3, 0}] != nil)).slots[{3, 0}].outcome == "out_of_budget"
+    end
+  end
+
+  defp bounded(fun, ms \\ 3_000) do
+    task = Task.async(fun)
+
+    case Task.yield(task, ms) || Task.shutdown(task, :brutal_kill) do
+      {:ok, reply} -> reply
+      _ -> flunk("the call did not return in #{ms} ms")
+    end
+  end
+
+  defp settled?(view, action_id),
+    do: Enum.any?(view.slots, fn {_, s} -> s.action_id == action_id and s.phase == :settled end)
+
+  defp slot_by(view, action_id),
+    do: Enum.find_value(view.slots, fn {_, s} -> if s.action_id == action_id, do: s end)
+
+  describe "no_second_outcome" do
+    test "inputs and a second restart write no further outcome or actual for the parent" do
+      payload = %{"choice" => "kept"}
+      chain = for n <- 1..4, do: request([action("a#{n}", "local_work")])
+      {c, bindings} = lost_setup(lost_child(payload), chain)
+      engine = start(c, bindings: bindings)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, _lost, _}
+      engine = restart(c, engine, bindings: bindings)
+      wait_for(engine, &(&1.slots[{1, 0}].phase == :settled))
+      # Open slots of the Run make progress in the drain that settled the parent.
+      wait_for(engine, &settled?(&1, "a4"))
+      assert [_] = outcome_records(c, "nested")
+
+      for n <- 1..3,
+          do: assert({:ok, :applied} = RunEngine.input(engine, "wake-#{n}", wake(), verified()))
+
+      assert [_] = outcome_records(c, "nested")
+      refute Enum.any?(journal(c), &match?({:nested_actual, _, _, _, _}, &1))
+
+      before = %{
+        view: view(engine),
+        root: budget_status(c, "root"),
+        child: budget_status(c, "1:0"),
+        records: length(rows(c)),
+        slot: unit_state(c).slots[{1, 0}]
+      }
+
+      engine = restart(c, engine, bindings: bindings)
+
+      assert %{
+               view: view(engine),
+               root: budget_status(c, "root"),
+               child: budget_status(c, "1:0"),
+               records: length(rows(c)),
+               slot: unit_state(c).slots[{1, 0}]
+             } == before
+
+      assert [_] = outcome_records(c, "nested")
+      refute Enum.any?(journal(c), &match?({:nested_actual, _, _, _, _}, &1))
+    end
+  end
+
+  describe "loss_two_levels_down" do
+    test "a lost Effect in a grandchild gives an unknown actual at each level, and each level keeps its reservation" do
+      payload = %{"choice" => "inner"}
+
+      {c, bindings} =
+        nested_setup(
+          %{
+            "nested" => [
+              request([action("inner", "nested_callable")]),
+              {:finish_with_seen, "mid"}
+            ],
+            "inner" => lost_child(payload)
+          },
+          pattern:
+            {TestPattern, :scripted,
+             %{
+               name: "root",
+               script: [
+                 request([action("nested", "nested_callable")]),
+                 request([finish_action("root-done", %{"action_id" => "nested"})])
+               ]
+             }}
+        )
+
+      bindings =
+        Map.update!(bindings, "nested_callable", fn binding ->
+          %{
+            binding
+            | facts: fn a ->
+                facts = binding.facts.(a)
+                if a["id"] == "inner", do: %{facts | estimate: 5}, else: facts
+              end
+          }
+        end)
+
+      engine = start(c, bindings: bindings)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, _lost, _}
+      engine = restart(c, engine, bindings: bindings)
+      wait_for(engine, &(&1.slots[{1, 0}].phase == :settled))
+      view = wait_for(engine, &(&1.outcome == :completed))
+
+      # The slot of the grandchild's parent, inside the child, and the slot of the child, in the root.
+      assert view.slots[{2, 0}].outcome == "completed"
+      assert view.slots[{1, 0}].outcome == "completed"
+      state = unit_state(c)
+      assert state.slots[{2, 0}][:actual] == nil
+      assert state.slots[{1, 0}][:actual] == nil
+      assert budget_status(c, "2:0") == %{committed: 0, reserved: 1}
+      assert budget_status(c, "1:0") == %{committed: 0, reserved: 5}
+      assert budget_status(c, "root") == %{committed: 0, reserved: 10}
+      refute Enum.any?(journal(c), &match?({:nested_actual, _, _, _, _}, &1))
+    end
+  end
+
+  describe "still_waits_for_a_cost_that_can_come" do
+    test "a child with a slot still open does not settle its parent; the result then gives the exact amount" do
+      {c, bindings} =
+        lost_setup([request([action("slow", "tool_call"), finish_action("done")])], [])
+
+      engine = start(c, bindings: bindings)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, provider, _}
+      assert unit_state(c).control.callables["1:0"].closed
+      refute_receive {:pattern_input, "root", %{"action_id" => "nested"}}, 100
+      assert view(engine).slots[{1, 0}].phase == :running
+
+      assert {:ok, :applied} =
+               RunEngine.input(
+                 engine,
+                 "child-actual",
+                 result("slow"),
+                 verified(%{occurrence: {2, 0}, actual: 5, dispatch: "dispatched"})
+               )
+
+      assert_receive {:pattern_input, "root", %{"action_id" => "nested", "outcome" => "completed"}}
+      assert unit_state(c).slots[{1, 0}].actual == 5
+      assert budget_status(c, "root") == %{committed: 5, reserved: 0}
+      send(provider, {:result, %{}})
+    end
+
+    test "a settled Resource action whose cost the cursor has not settled keeps the parent waiting" do
+      open =
+        action("open", "resource_open", %{
+          "run_id" => "run",
+          "resource_name" => "document",
+          "data" => %{}
+        })
+
+      c =
+        fixture(
+          pattern:
+            {TestPattern, :step, %{requests: [request([action("nested", "nested_callable")])]}}
+        )
+
+      {owner, bindings} =
+        resource(c, :stay, %{
+          budget_id: "nested-nested",
+          unit: "credits",
+          cost_ref: "2:0",
+          generation: {"sealed", 1}
+        })
+
+      base = bindings["nested_callable"]
+
+      bindings =
+        Map.put(bindings, "nested_callable", %{
+          base
+          | facts: fn a -> %{base.facts.(a) | estimate: 5, deadline_ms: 55_000} end,
+            nested: fn a ->
+              %{
+                base.nested.(a)
+                | initial_state: %{requests: [request([open, finish_action("done")])]}
+              }
+            end
+        })
+
+      engine = start(c, resources: %{"document" => owner}, bindings: bindings)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, opening, _}
+
+      assert {:ok, _} =
+               Elzoo.RunResource.command(owner, %{
+                 id: "opened",
+                 at_ms: 2_000,
+                 body:
+                   {:observed, ["tenant", "account", "effect", "publish", "open"],
+                    {:completed, %{opened_at_ms: 2_000}}}
+               })
+
+      assert {:ok, :applied} = RunEngine.input(engine, "consume-open", wake(), verified())
+      # The child is closed and its Resource action settled; the cost is not settled yet.
+      assert unit_state(c).control.callables["1:0"].closed
+      assert slot_by(view(engine), "open").phase == :settled
+      assert unit_state(c).slots[{2, 0}][:actual] == nil
+      assert view(engine).slots[{1, 0}].phase == :running
+      assert {:ok, _} = Elzoo.RunResource.command(owner, %{id: "close", at_ms: 3_000, body: :pause})
+      Agent.update(c.clock, fn _ -> 40_000 end)
+
+      assert {:ok, _} =
+               Elzoo.RunResource.command(owner, %{id: "expiry", at_ms: 40_000, body: :tick})
+
+      assert {:ok, :applied} = RunEngine.input(engine, "consume-close", wake(), verified())
+      assert_receive {:effect_started, closing, _}
+      assert view(engine).slots[{1, 0}].phase == :running
+
+      assert {:ok, _} =
+               Elzoo.RunResource.command(owner, %{
+                 id: "closed",
+                 at_ms: 40_000,
+                 body:
+                   {:observed, ["tenant", "account", "effect", "publish", "cleanup"],
+                    {:completed, %{opened_at_ms: 2_000, closed_at_ms: 40_000}}}
+               })
+
+      assert {:ok, :applied} = RunEngine.input(engine, "consume-actual", wake(), verified())
+      assert budget_status(c, "1:0", 40_000) == %{committed: 1, reserved: 0}
+      assert view(engine).slots[{1, 0}].phase == :settled
+      assert unit_state(c).slots[{1, 0}].actual == 1
+      send(opening, {:result, %{}})
+      send(closing, {:result, %{}})
+    end
+  end
+
+  describe "finish_rules_hold" do
+    test "a finish in another schema gives nested_result_invalid with an unknown actual" do
+      {c, bindings} =
+        lost_setup(
+          [
+            request([
+              action("lost", "tool_call"),
+              finish_action("done", %{"secret" => "child-body"}, "message", 1)
+            ])
+          ],
+          []
+        )
+
+      engine = start(c, bindings: bindings)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, _lost, _}
+      engine = restart(c, engine, bindings: bindings)
+      wait_for(engine, &(&1.slots[{1, 0}].phase == :settled))
+      assert_receive {:pattern_input, "root", %{"action_id" => "nested"} = input}
+      assert input["outcome"] == "failed"
+      assert input["payload"]["reason"] == "nested_result_invalid"
+      refute inspect(input) =~ "child-body"
+      assert view(engine).slots[{1, 0}].outcome == "failed"
+      assert unit_state(c).slots[{1, 0}][:actual] == nil
+      assert budget_status(c, "root") == %{committed: 0, reserved: 10}
+    end
+
+    test "a child that settles with no admitted finish gives nested_completed with an unknown actual" do
+      {c, bindings} =
+        lost_setup([request([action("lost", "tool_call")])], [], request_cap: 2)
+
+      engine = start(c, bindings: bindings)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, _lost, _}
+      engine = restart(c, engine, bindings: bindings)
+      assert {:ok, :applied} = RunEngine.input(engine, "wake", wake(), verified())
+      wait_for(engine, &(&1.slots[{1, 0}].phase == :settled))
+      assert view(engine).slots[{1, 0}].outcome == "completed"
+      assert [input] = outcome_records(c, "nested")
+      assert input["payload"]["reason"] == "nested_completed"
+      assert unit_state(c).slots[{1, 0}][:actual] == nil
+      assert budget_status(c, "root") == %{committed: 0, reserved: 10}
+    end
+  end
 end
