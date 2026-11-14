@@ -127,9 +127,8 @@ completed action that settled last, so with several last nodes it follows the
 arrival order of their outcomes. Every other part of the finish and the set of
 actions asked for do not depend on the arrival order for a Run in which no node
 fails the Run, the state stays within its bound and every item of a map with
-`on_item_failure` `:fail` completes. Otherwise a node or an item is asked for
-only when it was ready and had a seat before the first such result arrived, so
-the set of actions and the finish can depend on the arrival order.
+`on_item_failure` `:fail` completes. Otherwise the set of actions and the
+finish can depend on the arrival order.
 
 ## State form
 

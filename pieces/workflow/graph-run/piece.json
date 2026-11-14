@@ -16,7 +16,7 @@
   "limits": [
     "One graph callable and one recorded input at a time; fixed bounds of 64 open actions, 64 concurrent map items, 256 items or iterations and 65,536 bytes of state; the reasons are fixed atoms and no input fragment appears in an error.",
     "No retry, timeout rule, engine code, agent or decision logic, Lua, budget or authority check, person verification, schema validation of arguments or inputs, clock, I/O, process or storage.",
-    "Results in another arrival order give the same set of actions and the same finish, except the action_id of the finish (the completed action that settled last), for a Run in which no node fails the Run, the state stays within its bound and every item of a map with on_item_failure :fail completes. Otherwise a node or an item is asked for only when it was ready and had a seat before the first such result arrived, so the set of actions and the finish can depend on the arrival order; a nested graph is another instance of this step that the host binds."
+    "Results in another arrival order give the same set of actions and the same finish, except the action_id of the finish (the completed action that settled last), for a Run in which no node fails the Run, the state stays within its bound and every item of a map with on_item_failure :fail completes. Otherwise the set of actions and the finish can depend on the arrival order; a nested graph is another instance of this step that the host binds."
   ],
   "files": [
     "cure/elzoo/graph_run.cure",
