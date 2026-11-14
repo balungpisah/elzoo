@@ -12,12 +12,14 @@
     "jason"
   ],
   "dependencies": [],
-  "contract": "Evaluate one pure Lua function of one plain input in a fresh PUC Lua 5.4.9 process outside the VM, over a caller-held OTP Port with length-framed JSON, under policy version 1 (a fixed helper-free allow-list) and exact positive limits on counted steps, call depth, value bytes, live Lua memory and wall time; a refusal is a fixed atom, memory, wall time, abnormal exit and protocol failure are host outcomes, and the child is reaped on every return path.",
+  "contract": "Evaluate one pure Lua function of one plain input in a fresh PUC Lua 5.4.9 process outside the VM, started by a caller-held OTP Port from an executable that build/2 compiles from the installed pinned lua_source checkout and an owned C host, over length-framed JSON (unsigned 32-bit little-endian length, at most 1,048,576 bytes) under helper-free policy version 1, whose fixed allow-list has a canonical identity and refuses every other name as unlisted_name; exact positive limits on counted steps, call depth, value bytes, live Lua memory and wall time apply, and a step, depth, size or unlisted-name stop is sticky and cannot be caught or continued from Lua; input and result are plain data (null sentinel, booleans, UTF-8 strings, signed 64-bit integers, finite floats, dense arrays, string-keyed maps, at most 32 nested containers), a refusal is a fixed atom, memory, wall time, abnormal exit and protocol failure are recorded host outcomes, and the child is reaped on every return path including the death of the caller.",
   "limits": [
-    "Not OS security isolation: no container, seccomp, namespace, network or filesystem confinement; Port separation does not protect against a native-runtime vulnerability. Policy version 1 grants no helpers, bindings, callbacks, clocks, random or I/O.",
-    "The string guard reads the private TString layout and allocation tag of the pinned Lua checkout; the build verifies the exact upstream bytes and a different revision is refused, but the coupling must be re-audited with each upstream change.",
-    "Memory, wall time and abnormal exit depend on allocator timing, scheduling and the operating system, so they are recorded outcomes and never replay decisions; no cross-build replay claim: operators keep the pinned runtime's semantics.",
-    "A fresh empty object cannot be built by a version 1 source; a decoded empty object round-trips. Tables made by table.pack carry an n key and are not dense arrays."
+    "Not OS security isolation: no container, seccomp, namespace, network or filesystem confinement; Port separation does not protect against a vulnerability in the native runtime. Policy version 1 grants no helpers, bindings, callbacks, clocks, random or I/O, and this Piece adds no pooling or service.",
+    "Private-layout maintenance limitation: the allocator string guard reads offsetof(TString, contents) and the string allocation tag of the pinned internal lobject.h of the lua_source checkout. The build verifies the exact upstream bytes and refuses a different revision, but a new Lua revision needs a new review of that coupling before the pin moves.",
+    "No cross-build replay claim: results of pure sources are compared across fresh calls and fresh BEAM processes of one build and one policy identity only; operators keep the pinned runtime's semantics. Memory, wall time and abnormal exit depend on allocator timing, scheduling and the operating system, so they are recorded outcomes and never replay decisions.",
+    "A version 1 source cannot build a fresh empty object (a decoded empty object round-trips); tables made by table.pack carry an n key and are not dense arrays; a value_bytes limit below 4 is refused as value_size and a memory_bytes limit below the initialization baseline is a memory host outcome.",
+    "The C host assumes a Linux host: it is compiled with -DLUA_USE_LINUX and uses poll, setitimer and /dev/null. The build is not run per evaluation; the consumer owns the production build and install of the executable, and the copied-consumer test compiles into a disposable directory only.",
+    "No stdlib helpers, caller bindings, recipe engine, in-VM execution or pooling; the next policy version and the separate runtime/lua-stdlib Piece own helpers."
   ],
   "files": [
     "examples/elzoo/lua_sandbox.exs",
@@ -30,60 +32,94 @@
     "lib/elzoo/lua_sandbox/source_identity.ex",
     "test/elzoo/lua_sandbox_build_test.exs",
     "test/elzoo/lua_sandbox_helper.exs",
+    "test/elzoo/lua_sandbox_limits_test.exs",
     "test/elzoo/lua_sandbox_policy_test.exs",
-    "test/elzoo/lua_sandbox_protocol_test.exs"
+    "test/elzoo/lua_sandbox_protocol_test.exs",
+    "test/elzoo/lua_sandbox_replay_test.exs",
+    "test/elzoo/lua_sandbox_sticky_test.exs",
+    "test/elzoo/lua_sandbox_surface_test.exs"
   ],
   "grounding": [
     {
       "kind": "test",
       "file": "test/elzoo/lua_sandbox_build_test.exs",
-      "claim": "Fresh build from the installed pinned checkout, 42 from a pure function, missing compiler and archiver, wrong revision, extra header and failed compile refuse, no write into the source checkout; listed scenarios pass."
+      "claim": "Group native_build_and_copy: a fresh build from the installed pinned checkout with plain cc and ar returns 42 from a pure function, the output directory is removed, the source checkout is not written, a missing compiler or archiver, a wrong source revision, an extra header and a failed compile refuse; negative control: none beyond the refusals. Listed scenarios pass; the same file runs in the copied consumer."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/lua_sandbox_limits_test.exs",
+      "claim": "Group counted_sticky_limits: exact boundary and boundary + 1 for counted steps and call depth of known sources (chunk work included, tail calls, callbacks), string.rep, concatenation, string.pack, string.format and gsub bombs ending in value_size or the named memory outcome, value size at the cap and cap + 1, budgets below initialization, syntax error, parser and allocation failures; negative controls: an off-by-one step comparison (step boundary tests fail) and removal of the scoped allocation cap and rep pre-check (bomb tests fail). Listed scenarios pass."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/lua_sandbox_sticky_test.exs",
+      "claim": "Group no_catching_or_continuation: for steps, call_depth, value_size, memory, unlisted_name and wall_time, nested pcall, an error inside the handler path, repeated catches and sort and gsub callbacks never return a post-stop marker; a second stop reports the first; xpcall and coroutine are unreachable on every lookup path; a SIGSTOP'd real child and a sleeping fake end at the wall deadline independent of the instruction budget; negative control: disabling the whole sticky guard makes ten tests fail with a post-stop marker. Listed scenarios pass."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/lua_sandbox_surface_test.exs",
+      "claim": "Group exact_capability_surface: the sandbox enumeration, the C-host audit of environment, libraries and string metatable, and fixed-name probes of 131 names agree with the policy descriptor; load, require, os, io, debug, _G, _ENV, raw access, catchers, helper names and helper_echo end in unlisted_name directly and indirectly; tostring and string.format refuse heap identity; host-side probes of a function, pid, reference, tuple, port and atom input start no process; negative control: granting print fails the surface and audit tests. Listed scenarios pass."
     },
     {
       "kind": "test",
       "file": "test/elzoo/lua_sandbox_protocol_test.exs",
-      "claim": "Plain-data round trips, bounds at the cap and cap + 1, malformed frames driven by fake executables, child crash and stderr text, and one smoke scenario for each limit mechanism; listed scenarios pass."
+      "claim": "Group plain_data_and_protocol: every scalar type, empty array and empty object, nesting at depth 32 and refusal at 33, byte limits at the cap and cap + 1, non-plain results, request shape and policy checked before a process starts, malformed frames from fake executables (zero and overbound length, partial header and body, EOF, invalid JSON, duplicate keys, trailing bytes, a second reply, oversize output), a crashing child, and a synthetic private marker on stderr absent from every return value; negative control: a zero length no longer a protocol error fails the zero-length test. Listed scenarios pass."
     },
     {
       "kind": "test",
       "file": "test/elzoo/lua_sandbox_policy_test.exs",
-      "claim": "Policy identity is canonical and the audit of the fresh environment equals the descriptor; listed scenarios pass."
+      "claim": "The policy identity is canonical, the descriptor is immutable plain data with empty helper and binding descriptors, and the audit of the fresh environment equals the descriptor; negative control: granting print fails the audit test. Listed scenarios pass."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/lua_sandbox_replay_test.exs",
+      "claim": "Group replay_and_survival: 82 pure arithmetic, string, pattern, array, map, numeric-boundary, sparse-length and identity-formatting cases, each run in 20 fresh calls and in two fresh BEAM processes, return equal encoded terms or equal deterministic refusals including counted steps, depth and size; memory and wall time are recorded, not compared; a changed policy identity is refused in Elixir and in the host; after 30 adverse real-host cases, 10 fake-child cases and a wall-time stop the BEAM is alive, the OS child is reaped and a valid call succeeds; killing the caller leaves no live child; negative controls: removing the host policy comparison and removing the setitimer backstop and stdin poll fail the policy and caller-death tests. Finite real-process tests; listed scenarios pass."
     },
     {
       "kind": "upstream",
       "provider": "lua_source",
       "reference": "https://github.com/lua/lua/tree/312b9efaa1061c2c4cad08554dbc1351c3270eef",
-      "claim": "Relies on the pinned Lua 5.4.9 checkout: the public C API, the count/call/return hooks, lua_Alloc and the private TString layout; the build verifies the exact bytes."
+      "claim": "Relies on the pinned PUC Lua 5.4.9 checkout: the public C API, the count, call and return hooks, the lua_Alloc contract, luaL_loadbufferx text mode, the string library semantics and the private TString layout named in the limits; the build verifies the exact upstream bytes it reads."
     },
     {
       "kind": "upstream",
       "provider": "otp",
       "reference": "https://www.erlang.org/doc/apps/erts/erlang.html",
-      "claim": "Relies on Port semantics: spawn_executable, exit_status, environment unset, and exit reports after the child is reaped."
+      "claim": "Relies on Port semantics: open_port with spawn_executable, exit_status, environment variables unset, the link between a Port and its owner, and exit reports delivered after the child is reaped."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Relies on pinned Elixir semantics for System.cmd, Process.monitor, File and the monotonic time functions that the build and the caller-held Port owner use."
     },
     {
       "kind": "upstream",
       "provider": "jason",
       "reference": "https://hexdocs.pm/jason/1.4.5/Jason.html",
-      "claim": "Relies on Jason 1.4.5 strict decoding with ordered objects so duplicate keys are detected."
+      "claim": "Relies on Jason 1.4.5 strict decoding with ordered objects so that duplicate keys are detected; the canonical encoder of the policy identity and the frames is the Piece's own."
     },
     {
       "kind": "assumption",
-      "claim": "cc, ar and kill exist on the host; the OS delivers SIGKILL to the child; the compiler honors the fixed defines; policy-only sources behave identically across fresh processes of one build (part of the later replay group)."
+      "claim": "The OS terminates and reaps a child on SIGKILL by its pid; the pinned numeric and build semantics (binary64, two's-complement integers, C locale at process start, the fixed hash seed and sort pivot defines) hold on the host compiler; cc, ar, kill and pgrep exist on the host; the C host runs on Linux. These are not verified by the Piece and are named so that the tests are read as finite observations."
     }
   ],
   "operations": {
     "telemetry": {
       "status": "not_applicable",
-      "contract": "No event, log or measurement is emitted and no observation payload exists; nothing carries source, input or result outside the return value."
+      "contract": "No event, log or measurement is emitted and no observation channel carries evaluation data: the source, the input, the result and the Lua message appear only in the return value of the call that owns them. Needs: an executable built by build/2, an OS process spawn, a monotonic timer and no ambient authority."
     },
     "config": {
-      "status": "not_applicable",
-      "contract": "Limits are exact per-request operands and the policy is fixed by its identity; there is no ambient or hot Config."
+      "status": "supported",
+      "contract": "The five limits steps, call_depth, value_bytes, memory_bytes and wall_ms are exact positive per-call operands with inclusive maxima 1000000, 64, 65536, 16777216 and 1000 and no defaults; a missing, extra, zero, negative or oversized key is invalid_request. The policy is fixed by its identity and cannot be replaced by a request. There is no ambient Config and no hot update: a change needs a new call.",
+      "evidence": [
+        "test/elzoo/lua_sandbox_limits_test.exs",
+        "test/elzoo/lua_sandbox_protocol_test.exs"
+      ]
     },
     "control": {
       "status": "not_applicable",
-      "contract": "No independent Control API: a run ends by its own limits or by the caller's deadline, and the caller-held Port reaps the child."
+      "contract": "No independent Control API: an evaluation ends by its own limits, by the wall deadline or when the caller exits, and the caller-held Port reaps the child; there is no pause, drain, cancel or pool."
     }
   }
 }
