@@ -1040,16 +1040,8 @@
       "disposition": "adapt",
       "phase": "demand-led",
       "status": "ready",
-      "reason": "Bot platform wave 3 (P13). Limits on steps and memory; no file, network, clock or random access unless given; a wall-time stop is a host outcome. Starts with a provider-fit probe of at least two Lua runtimes, one of them outside the process boundary of the VM; no runtime is chosen yet.",
+      "reason": "Bot platform wave 3 (P13). Reference PUC Lua 5.4.9 runs outside the VM over a Port with an owned C host; hard limits on counted steps, call depth, value bytes, live memory and wall time; capability policy version 2 with the safe helper set (JSON, text and time values passed in) and no file, network, clock or random access.",
       "manifest": "pieces/runtime/lua-sandbox/piece.json"
-    },
-    {
-      "id": "runtime/lua-stdlib",
-      "summary": "The safe helper set that a recipe can call in Lua",
-      "disposition": "adapt",
-      "phase": "demand-led",
-      "status": "planned",
-      "reason": "Bot platform wave 3 (P13). JSON and text helpers and time values passed in. Nothing else is reachable from the sandbox."
     },
     {
       "id": "domain/recipe-graph",
