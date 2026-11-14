@@ -381,6 +381,19 @@ defmodule Elzoo.SkillTest do
       assert :persistent_term.get(:elz_skill, :absent) == :absent
     end
 
+    test "2.16 a tab separates a value from its colon, its tag or a flow indicator like a space" do
+      for frontmatter <- [
+            "b:\t&a x\nc:\t*a\n",
+            "b: \t&a x\nc: \t*a\n",
+            "b:\t&a x\nc: [y,\t*a]\n",
+            "b:\t&a x\nc: {k:\t*a}\n",
+            "b:\t&a x\nc: [\t*a]\n",
+            "b: !!str\t&a x\nc: !!str\t*a\n"
+          ] do
+        assert {:error, :yaml_alias} = fm(frontmatter)
+      end
+    end
+
     # Extra cases that pin a rule that a written case does not reach.
 
     test "a comment line does not end a flow region, and a block region ends at a comment line at its column" do
@@ -397,6 +410,20 @@ defmodule Elzoo.SkillTest do
       assert {:ok, _} = fm(@p <> "a: \"x\" # *y\n")
       assert {:error, :yaml_alias} = fm("\"a\\\"b\": *c\n")
       assert {:error, :yaml_alias} = fm("'it''s': *c\n")
+    end
+
+    test "spaces and tabs separate a key from its colon, and a tab separates an alias from its indicator" do
+      # Probes of the pinned reader: each of these text reads as an alias or as a
+      # key equal to an earlier key, and each is refused.
+      assert {:error, :yaml_alias} = fm("\"c\" \t:\t*a\n")
+      assert {:error, :yaml_alias} = fm("c\t: *a\n")
+      assert {:error, :yaml_alias} = fm("c: {k\t: *a}\n")
+      assert {:error, :yaml_alias} = fm("c: [k\n  ,\t*a]\n")
+      assert {:error, :yaml_alias} = fm("c: [k,\n  \t*a]\n")
+      assert {:error, :duplicate_key} = fm("b: 1\nb\t: 2\n")
+      assert {:error, :duplicate_key} = fm("b: 1\nb \t: 2\n")
+      assert {:error, :duplicate_key} = fm("b: 1\n\"b\"\t: 2\n")
+      assert {:error, :duplicate_key} = fm("'b': 1\n'b' \t:\t2\n")
     end
 
     test "top-level keys: quotes are read, a later key and an indicator key are not top-level" do

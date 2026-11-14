@@ -181,13 +181,15 @@ defmodule Elzoo.Skill do
   end
 
   # Block text is not scanned. In a flow region `<<` is an alias anywhere, and
-  # so is `&` or `*` first on the line or after `[`, `{`, `,` or `:` and spaces.
-  # Quotes are not tracked.
+  # so is `&` or `*` first on the line or after `[`, `{`, `,` or `:` and spaces
+  # or tabs. Quotes are not tracked.
   defp scan_region_line({:block, _column}, _line), do: :ok
   defp scan_region_line({:flow, _column}, line), do: flow_text(line)
 
   defp flow_text(text) do
-    if Regex.match?(~r/<<|\A *[&*]|[\[{,:] *[&*]/, text), do: {:error, :yaml_alias}, else: :ok
+    if Regex.match?(~r/<<|\A[ \t]*[&*]|[\[{,:][ \t]*[&*]/, text),
+      do: {:error, :yaml_alias},
+      else: :ok
   end
 
   defp scan_line(indent, rest, seen) do
@@ -224,6 +226,14 @@ defmodule Elzoo.Skill do
   defp drop_spaces(<<" ", rest::binary>>, count), do: drop_spaces(rest, count + 1)
   defp drop_spaces(rest, count), do: {count, rest}
 
+  # Spaces and tabs: the separation around a `:` and after a tag.
+  defp drop_blanks(text), do: drop_blanks(text, 0)
+
+  defp drop_blanks(<<c, rest::binary>>, count) when c in [?\s, ?\t],
+    do: drop_blanks(rest, count + 1)
+
+  defp drop_blanks(rest, count), do: {count, rest}
+
   # Scans the node text `text`, which starts at `column`. `region` is the
   # opening column of a region that starts here, `top?` tells that a key found
   # here is a top-level key.
@@ -233,13 +243,13 @@ defmodule Elzoo.Skill do
     do: {:error, :yaml_alias}
 
   defp scan_node("!" <> _ = text, column, region, top?, seen) do
-    case :binary.split(text, " ") do
+    case :binary.split(text, [" ", "\t"]) do
       [_tag] ->
         {:ok, nil, seen}
 
       [tag, more] ->
-        {spaces, rest} = drop_spaces(more)
-        scan_node(rest, column + byte_size(tag) + 1 + spaces, region, top?, seen)
+        {blanks, rest} = drop_blanks(more)
+        scan_node(rest, column + byte_size(tag) + 1 + blanks, region, top?, seen)
     end
   end
 
@@ -269,12 +279,12 @@ defmodule Elzoo.Skill do
       length ->
         inner = binary_part(body, 0, length)
         closing = binary_part(body, length + 1, byte_size(body) - length - 1)
-        {spaces, after_quote} = drop_spaces(closing)
+        {spaces, after_quote} = drop_blanks(closing)
         key = if q == ?', do: String.replace(inner, "''", "'"), else: inner
 
         case after_quote do
           ":" <> value when value == "" or binary_part(value, 0, 1) in [" ", "\t"] ->
-            {more, value} = drop_spaces(value)
+            {more, value} = drop_blanks(value)
             value_at = column + length + 2 + spaces + 1 + more
             key_value(key, value, value_at, column, top?, seen)
 
@@ -297,9 +307,9 @@ defmodule Elzoo.Skill do
         {:ok, nil, seen}
 
       length ->
-        key = text |> binary_part(0, length) |> String.trim_trailing(" ")
-        {spaces, value} = drop_spaces(binary_part(text, length + 1, byte_size(text) - length - 1))
-        key_value(key, value, column + length + 1 + spaces, column, top?, seen)
+        key = text |> binary_part(0, length) |> String.replace(~r/[ \t]+\z/, "")
+        {blanks, value} = drop_blanks(binary_part(text, length + 1, byte_size(text) - length - 1))
+        key_value(key, value, column + length + 1 + blanks, column, top?, seen)
     end
   end
 

@@ -62,7 +62,9 @@ passes; the first refusal ends the scan.
    tab, is `not_a_map`. Every line is looked at before pass 3.
 3. Lines in order. A block region (`|` or `>` with at most two modifier bytes)
    is not scanned. In a flow region (`[` or `{`) `<<` is `yaml_alias`, and so
-   is `&` or `*` first on a line or after `[`, `{`, `,` or `:` and spaces. Other
+   is `&` or `*` first on a line or after `[`, `{`, `,` or `:` and spaces or
+   tabs. Spaces and tabs both separate a key from its `:`, a `:` from its value
+   and a tag from its node, because the reader accepts a tab there. Other
    lines: a tab first after the indentation is `tab_indentation`; after the
    indicators `- `, `? `, `: ` the node text is `yaml_alias` when it begins with
    `&` or `*` (a tag is dropped first), and a key `<<` is `yaml_alias`. A key
