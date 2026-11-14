@@ -330,6 +330,20 @@
       "version": "0.28.4",
       "reference": "https://hexdocs.pm/tz/0.28.4/",
       "license": "Apache-2.0"
+    },
+    "yaml_elixir": {
+      "source": "hex",
+      "package": "yaml_elixir",
+      "version": "2.12.2",
+      "reference": "https://hexdocs.pm/yaml_elixir/2.12.2/YamlElixir.html",
+      "license": "MIT"
+    },
+    "yamerl": {
+      "source": "hex",
+      "package": "yamerl",
+      "version": "0.10.0",
+      "reference": "https://hexdocs.pm/yamerl/0.10.0/",
+      "license": "BSD-2-Clause"
     }
   }
 }
