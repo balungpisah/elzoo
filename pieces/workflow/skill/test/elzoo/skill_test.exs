@@ -1,8 +1,7 @@
 defmodule Elzoo.SkillTest do
   use ExUnit.Case, async: true
 
-  alias Elzoo.RecipePackage
-  alias Elzoo.Skill
+  alias Elzoo.{AgentLoop, RecipePackage, Skill, ToolRegistry, ToolResultLimit, UntrustedContent}
 
   @fm "name: s\ndescription: d\n"
   @max_file 1_048_576
@@ -105,6 +104,35 @@ defmodule Elzoo.SkillTest do
     head = "name: s" <> eol <> "description: "
     pad = size - byte_size(head) - byte_size(eol)
     head <> :binary.copy("a", pad) <> eol
+  end
+
+  # One skill of a package: the entry and the other files, both from `read/4`.
+  defp skill!(name, opts \\ []) do
+    description = Keyword.get(opts, :description, "Use " <> name)
+    body = Keyword.get(opts, :body, "Instructions of " <> name <> "\n")
+    frontmatter = "name: #{name}\ndescription: #{description}\n" <> Keyword.get(opts, :extra, "")
+    files = Map.put(Keyword.get(opts, :files, %{}), "SKILL.md", md(frontmatter, body))
+
+    assert {:ok, %{entry: entry, files: rest}} =
+             Skill.read(
+               name,
+               Keyword.get(opts, :version, "1"),
+               Keyword.get(opts, :tools, []),
+               files
+             )
+
+    {entry, rest}
+  end
+
+  # The checked package and the files by skill name of the given skills.
+  defp pinned!(skills) do
+    assert {:ok, checked} = decode(Enum.map(skills, &elem(&1, 0)))
+    {checked, Map.new(skills, fn {entry, rest} -> {entry["name"], rest} end)}
+  end
+
+  defp source!(id, checked) do
+    assert {:ok, source} = Skill.source(id, checked)
+    source
   end
 
   describe "skill_md_split" do
@@ -606,6 +634,721 @@ defmodule Elzoo.SkillTest do
     test "a body of 16,385 bytes is too_large and 16,384 pass" do
       assert {:ok, _} = checked("s", @fm, String.duplicate("b", 16_384))
       assert {:error, :too_large} = checked("s", @fm, String.duplicate("b", 16_385))
+    end
+  end
+
+  describe "pinned_skill_source" do
+    @secret_tools ["tool-identity-alpha", "tool-identity-beta"]
+
+    test "the source equals the literal map for a package with two skills" do
+      {checked, _files} =
+        pinned!([
+          skill!("alpha", description: "Alpha does a"),
+          skill!("beta", description: "Beta does b")
+        ])
+
+      listing = "alpha: Alpha does a\nbeta: Beta does b"
+
+      assert Skill.source("sk", checked) ==
+               {:ok,
+                %{
+                  "id" => "sk",
+                  "kind" => "pinned_skill",
+                  "callable" => "adapter",
+                  "tools" => [
+                    %{
+                      "trust" => "untrusted",
+                      "name" => "load_skill",
+                      "description" => "Load the instructions of one skill by its name.",
+                      "annotations" => nil,
+                      "input_schema" => %{
+                        "type" => "object",
+                        "properties" => %{
+                          "name" => %{
+                            "type" => "string",
+                            "enum" => ["alpha", "beta"],
+                            "description" => listing
+                          }
+                        },
+                        "required" => ["name"],
+                        "additionalProperties" => false
+                      }
+                    },
+                    %{
+                      "trust" => "untrusted",
+                      "name" => "read_skill_file",
+                      "description" => "Read one file of a skill by its relative path.",
+                      "annotations" => nil,
+                      "input_schema" => %{
+                        "type" => "object",
+                        "properties" => %{
+                          "skill" => %{"type" => "string", "enum" => ["alpha", "beta"]},
+                          "path" => %{"type" => "string", "minLength" => 1}
+                        },
+                        "required" => ["skill", "path"],
+                        "additionalProperties" => false
+                      }
+                    }
+                  ]
+                }}
+    end
+
+    test "the registry accepts the source and lists both aliases with the whole descriptions" do
+      {checked, _files} =
+        pinned!([skill!("beta", description: "Beta b"), skill!("alpha", description: "Alpha a")])
+
+      assert {:ok, snapshot} = ToolRegistry.snapshot([source!("sk", checked)])
+      assert [load, read] = ToolRegistry.tools(snapshot)
+      assert load["name"] == "sk_load_skill"
+      assert read["name"] == "sk_read_skill_file"
+      assert load["description"] == "Load the instructions of one skill by its name."
+
+      # The names are in the order of the package, not sorted.
+      assert load["input_schema"]["properties"]["name"]["enum"] == ["beta", "alpha"]
+      assert read["input_schema"]["properties"]["skill"]["enum"] == ["beta", "alpha"]
+
+      assert load["input_schema"]["properties"]["name"]["description"] ==
+               "beta: Beta b\nalpha: Alpha a"
+    end
+
+    test "a description of 1,024 four-byte code points is kept whole in the input schema" do
+      long = String.duplicate("\u{1D11E}", 1_024)
+      assert byte_size(long) == 4_096
+
+      {checked, _files} = pinned!([skill!("alpha", description: ~s("#{long}"))])
+      assert {:ok, snapshot} = ToolRegistry.snapshot([source!("sk", checked)])
+      assert [load, _read] = ToolRegistry.tools(snapshot)
+      assert load["input_schema"]["properties"]["name"]["description"] == "alpha: " <> long
+    end
+
+    test "a package with no skill is no_skills" do
+      {checked, _files} = pinned!([])
+      assert Skill.source("sk", checked) == {:error, :no_skills}
+    end
+
+    test "an id of 1 to 32 bytes of the id characters passes; 33 bytes, a dot or no text do not" do
+      {checked, _files} = pinned!([skill!("alpha")])
+
+      for id <- ["a", "A_b-9", String.duplicate("a", 32)],
+          do: assert({:ok, %{"id" => ^id}} = Skill.source(id, checked))
+
+      for id <- [String.duplicate("a", 33), "a.b", "", "a b", "a\n", :sk, nil, 1],
+          do: assert(Skill.source(id, checked) == {:error, :invalid_input}, inspect(id))
+
+      assert Skill.source("a.b", pinned!([]) |> elem(0)) == {:error, :invalid_input}
+    end
+
+    test "the source holds no allowed-tools text and no tool identity of a skill" do
+      {checked, _files} =
+        pinned!([
+          skill!("alpha",
+            tools: @secret_tools,
+            extra: "allowed-tools: Bash(secret-grant:*) Read\n"
+          ),
+          skill!("beta", tools: ["tool-identity-gamma"], extra: "allowed-tools: Write\n")
+        ])
+
+      source = source!("sk", checked)
+      encoded = :erlang.term_to_binary(source) <> inspect(source, limit: :infinity)
+
+      for text <- @secret_tools ++ ["tool-identity-gamma", "allowed-tools", "secret-grant", "Bash"],
+          do: refute(String.contains?(encoded, text), text)
+    end
+  end
+
+  describe "load_gives_declaration" do
+    test "the payload equals the literal form for each skill of the package" do
+      body = "# Alpha\n\nDo a.\r\n---\nkeep\n"
+      {checked, _files} = pinned!([skill!("alpha", body: body), skill!("beta-two")])
+
+      assert Skill.load(checked, %{"name" => "alpha"}) ==
+               {:ok,
+                %{
+                  "declaration" => %{
+                    "skill" => %{"name" => "alpha", "instructions" => body},
+                    "listing" => nil
+                  }
+                }}
+
+      assert Skill.load(checked, %{"name" => "beta-two"}) ==
+               {:ok,
+                %{
+                  "declaration" => %{
+                    "skill" => %{
+                      "name" => "beta-two",
+                      "instructions" => "Instructions of beta-two\n"
+                    },
+                    "listing" => nil
+                  }
+                }}
+    end
+
+    test "an unknown skill is unknown_skill" do
+      {checked, _files} = pinned!([skill!("alpha")])
+      assert Skill.load(checked, %{"name" => "gamma"}) == {:error, :unknown_skill}
+      assert Skill.load(checked, %{"name" => "Alpha"}) == {:error, :unknown_skill}
+      assert Skill.load(pinned!([]) |> elem(0), %{"name" => "alpha"}) == {:error, :unknown_skill}
+    end
+
+    test "a missing key, an extra key and a non-text name are invalid_arguments" do
+      {checked, _files} = pinned!([skill!("alpha")])
+
+      for arguments <- [
+            %{},
+            %{"skill" => "alpha"},
+            %{"name" => "alpha", "path" => "x"},
+            %{"name" => 1},
+            %{"name" => nil},
+            %{"name" => ["alpha"]},
+            %{name: "alpha"},
+            nil,
+            "alpha",
+            [%{"name" => "alpha"}]
+          ],
+          do:
+            assert(
+              Skill.load(checked, arguments) == {:error, :invalid_arguments},
+              inspect(arguments)
+            )
+    end
+
+    test "an invalid_arguments is given before an unknown skill" do
+      {checked, _files} = pinned!([skill!("alpha")])
+      assert Skill.load(checked, %{"name" => "gamma", "x" => 1}) == {:error, :invalid_arguments}
+    end
+
+    test "a package entry with an empty body is empty_body" do
+      {entry, _rest} = skill!("alpha")
+      assert {:ok, checked} = decode([%{entry | "body" => ""}])
+      assert Skill.load(checked, %{"name" => "alpha"}) == {:error, :empty_body}
+    end
+  end
+
+  describe "file_read_is_marked_content" do
+    @limits %{max_bytes: 1_024, artifact_max_bytes: 1_048_576}
+
+    defp pinned_files(files) do
+      {checked, by_name} = pinned!([skill!("alpha", files: files)])
+      {checked, by_name}
+    end
+
+    test "a text file gives text/plain, utf8 and a marked map that decode/1 accepts" do
+      {checked, by_name} = pinned_files(%{"notes/a.md" => "héllo\n", "empty" => ""})
+      args = fn path -> %{"skill" => "alpha", "path" => path} end
+
+      assert {:ok,
+              %{"media_type" => "text/plain", "encoding" => "utf8", "content" => content} = result} =
+               Skill.read_file(checked, by_name, args.("notes/a.md"))
+
+      assert content == %{
+               "schema_id" => "elzoo.untrusted-content.marked",
+               "schema_version" => 1,
+               "sources" => ["skill:alpha"],
+               "trust" => "untrusted",
+               "max_bytes" => byte_size("héllo\n"),
+               "content" => "héllo\n"
+             }
+
+      assert Map.keys(result) |> Enum.sort() == ["content", "encoding", "media_type"]
+      assert {:ok, marked} = UntrustedContent.decode(content)
+      assert UntrustedContent.encode(marked) == content
+    end
+
+    test "a binary file gives application/octet-stream, base64 and the padded text" do
+      {checked, by_name} = pinned_files(%{"bin" => <<255, 254, 0, 1>>, "pad" => <<255>>})
+
+      assert {:ok,
+              %{
+                "media_type" => "application/octet-stream",
+                "encoding" => "base64",
+                "content" => %{"content" => text, "max_bytes" => max, "sources" => ["skill:alpha"]}
+              }} = Skill.read_file(checked, by_name, %{"skill" => "alpha", "path" => "bin"})
+
+      assert text == Base.encode64(<<255, 254, 0, 1>>)
+      assert max == byte_size(text)
+
+      assert {:ok, %{"content" => %{"content" => "/w=="}}} =
+               Skill.read_file(checked, by_name, %{"skill" => "alpha", "path" => "pad"})
+    end
+
+    test "an empty file gives max_bytes 1 and decode/1 accepts it" do
+      {checked, by_name} = pinned_files(%{"empty" => ""})
+
+      assert {:ok,
+              %{"encoding" => "utf8", "content" => %{"max_bytes" => 1, "content" => ""} = content}} =
+               Skill.read_file(checked, by_name, %{"skill" => "alpha", "path" => "empty"})
+
+      assert {:ok, _marked} = UntrustedContent.decode(content)
+    end
+
+    test "decide/3 stores a text file of 2,000 bytes and passes one of 1,000 bytes" do
+      {checked, by_name} =
+        pinned_files(%{
+          "big" => String.duplicate("x", 2_000),
+          "small" => String.duplicate("y", 1_000)
+        })
+
+      assert {:ok, big} = Skill.read_file(checked, by_name, %{"skill" => "alpha", "path" => "big"})
+      assert {:store, _pending, _payload} = ToolResultLimit.decide(big, @limits, "action-1")
+
+      assert {:ok, small} =
+               Skill.read_file(checked, by_name, %{"skill" => "alpha", "path" => "small"})
+
+      assert {:ok, %{"cut" => nil, "content" => content}} =
+               ToolResultLimit.decide(small, @limits, "action-1")
+
+      assert content == small["content"]
+    end
+
+    test "decide/3 of a result whose content is the body text is unmarked" do
+      {checked, _by_name} = pinned!([skill!("alpha")])
+
+      assert {:ok, %{"declaration" => %{"skill" => %{"instructions" => body}}}} =
+               Skill.load(checked, %{"name" => "alpha"})
+
+      result = %{"content" => body, "media_type" => "text/plain", "encoding" => "utf8"}
+      assert ToolResultLimit.decide(result, @limits, "action-1") == {:error, :unmarked}
+    end
+
+    test "SKILL.md, an unknown path and a skill missing from files are unknown_file" do
+      {checked, by_name} = pinned_files(%{"a.txt" => "a"})
+      args = fn skill, path -> %{"skill" => skill, "path" => path} end
+
+      assert Skill.read_file(checked, by_name, args.("alpha", "SKILL.md")) ==
+               {:error, :unknown_file}
+
+      assert Skill.read_file(checked, by_name, args.("alpha", "b.txt")) == {:error, :unknown_file}
+      assert Skill.read_file(checked, by_name, args.("alpha", "A.txt")) == {:error, :unknown_file}
+      assert Skill.read_file(checked, by_name, args.("alpha", "./a.txt")) == {:error, :unknown_file}
+      assert Skill.read_file(checked, %{}, args.("alpha", "a.txt")) == {:error, :unknown_file}
+
+      assert Skill.read_file(checked, %{"alpha" => %{}}, args.("alpha", "a.txt")) ==
+               {:error, :unknown_file}
+    end
+
+    test "each refusal in its order" do
+      {checked, _by_name} = pinned_files(%{})
+      good = %{"skill" => "alpha", "path" => "a"}
+      big = String.duplicate("z", 1_048_577)
+
+      # 1: arguments come first, before a files value that is wrong too.
+      for bad <- [
+            %{},
+            %{"skill" => "alpha"},
+            Map.put(good, "x", 1),
+            %{good | "path" => 1},
+            %{good | "skill" => nil},
+            nil,
+            "alpha"
+          ],
+          do: assert(Skill.read_file(checked, :nope, bad) == {:error, :invalid_arguments})
+
+      # 2: the skill, before SKILL.md and before the files operand.
+      unknown = %{good | "skill" => "gamma", "path" => "SKILL.md"}
+      assert Skill.read_file(checked, :nope, unknown) == {:error, :unknown_skill}
+
+      # 3: SKILL.md, before the files operand.
+      assert Skill.read_file(checked, :nope, %{good | "path" => "SKILL.md"}) ==
+               {:error, :unknown_file}
+
+      # 4: the files operand, before a missing file.
+      assert Skill.read_file(checked, :nope, good) == {:error, :invalid_input}
+      assert Skill.read_file(checked, %{"alpha" => "text"}, good) == {:error, :invalid_input}
+      assert Skill.read_file(checked, %{"alpha" => %{"a" => 1}}, good) == {:error, :invalid_input}
+      assert Skill.read_file(checked, %{"alpha" => %{"a" => nil}}, good) == {:error, :invalid_input}
+
+      # 5: a missing file.
+      assert Skill.read_file(checked, %{"alpha" => %{"b" => "x"}}, good) == {:error, :unknown_file}
+
+      # 6: the size; 1,048,576 bytes pass.
+      assert Skill.read_file(checked, %{"alpha" => %{"a" => big}}, good) ==
+               {:error, :file_too_large}
+
+      assert {:ok, _} =
+               Skill.read_file(
+                 checked,
+                 %{"alpha" => %{"a" => binary_part(big, 0, 1_048_576)}},
+                 good
+               )
+    end
+  end
+
+  describe "scripts_never_run" do
+    test "read/4 and read_file/3 give the bytes of a script unchanged and run nothing" do
+      unique = System.unique_integer([:positive])
+      sentinel = Path.join(System.tmp_dir!(), "elz_skill_sentinel_#{unique}")
+      key = {:elz_skill_ran, unique}
+      on_exit(fn -> File.rm(sentinel) end)
+
+      sh = "#!/bin/sh\necho ran > #{sentinel}\n"
+
+      exs =
+        "File.write!(#{inspect(sentinel)}, \"ran\")\n:persistent_term.put(#{inspect(key)}, true)\n"
+
+      files = %{"SKILL.md" => md(@fm, "body\n"), "scripts/run.sh" => sh, "scripts/run.exs" => exs}
+
+      assert {:ok, %{entry: entry, files: rest}} = Skill.read("s", "1", [], files)
+      assert rest == %{"scripts/run.sh" => sh, "scripts/run.exs" => exs}
+      refute File.exists?(sentinel)
+      assert :persistent_term.get(key, :unset) == :unset
+
+      assert {:ok, checked} = decode([entry])
+      by_name = %{"s" => rest}
+
+      for {path, text} <- [{"scripts/run.sh", sh}, {"scripts/run.exs", exs}] do
+        assert {:ok, %{"media_type" => "text/plain", "content" => %{"content" => ^text}}} =
+                 Skill.read_file(checked, by_name, %{"skill" => "s", "path" => path})
+      end
+
+      refute File.exists?(sentinel)
+      assert :persistent_term.get(key, :unset) == :unset
+    end
+  end
+
+  describe "agent_loop_accepts" do
+    @model "claude-sonnet-4-5"
+    @role "You are a test agent."
+    @loop_window %{
+      provider_id: "test",
+      model_id: "test",
+      size: 1_000_000,
+      unit: :tokens,
+      estimator_id: "bytes",
+      estimator_version: 1
+    }
+
+    # The input forms of the tests of workflow/agent-loop, as small builders.
+    defp loop_input(kind, fields),
+      do: Map.merge(%{"type" => "input", "version" => 1, "kind" => kind, "at_ms" => 1}, fields)
+
+    defp start_input do
+      loop_input("start", %{
+        "schema_id" => "elzoo.agent-loop.message",
+        "schema_version" => 1,
+        "payload" => %{"text" => "go"}
+      })
+    end
+
+    defp outcome(id, class, schema, payload),
+      do:
+        loop_input("action_outcome", %{
+          "action_id" => id,
+          "outcome" => class,
+          "schema_id" => schema,
+          "schema_version" => 1,
+          "payload" => payload
+        })
+
+    defp model_outcome(n, proposals),
+      do:
+        outcome("run:m:#{n}", "completed", "elzoo.ai-text.result", %{
+          "content" => "",
+          "finish" => "tool_calls",
+          "tool_proposals" => proposals,
+          "structured" => nil,
+          "usage" => %{"input_tokens" => 1, "output_tokens" => 1},
+          "provenance" => %{"response_id" => "r"}
+        })
+
+    defp proposal(id, name, arguments),
+      do: %{
+        "id" => id,
+        "name" => name,
+        "raw_arguments" => "{}",
+        "arguments" => arguments,
+        "malformed" => nil
+      }
+
+    defp tool_result_outcome(id, payload),
+      do: outcome(id, "completed", "elzoo.agent-loop.tool-result", payload)
+
+    defp estimate(bytes),
+      do:
+        {:ok,
+         %{
+           size: byte_size(bytes),
+           unit: :tokens,
+           direction: :upper_bound,
+           estimator_id: "bytes",
+           estimator_version: 1
+         }}
+
+    defp loop_state(source) do
+      assert {:ok, state} =
+               AgentLoop.new(%{
+                 id: "run",
+                 model: @model,
+                 max_output_tokens: 256,
+                 role_instructions: [@role],
+                 window: @loop_window,
+                 max_request_bytes: 65_536,
+                 max_image_refs: 4,
+                 sources: [source],
+                 result_limits: %{max_bytes: 1_024, artifact_max_bytes: 1_000_000},
+                 ask: nil,
+                 turn_limit: 12
+               })
+
+      state
+    end
+
+    defp block(sources, text, max_bytes) do
+      assert {:ok, marked} =
+               UntrustedContent.decode(%{
+                 "schema_id" => "elzoo.untrusted-content.marked",
+                 "schema_version" => 1,
+                 "sources" => sources,
+                 "trust" => "untrusted",
+                 "max_bytes" => max_bytes,
+                 "content" => text
+               })
+
+      assert {:ok, rendered} = UntrustedContent.render(marked)
+      rendered
+    end
+
+    defp notice(text), do: block(["agent-loop"], text, 65_536)
+    defp tool_text(id, text), do: %{"role" => "tool_result", "tool_use_id" => id, "text" => text}
+    defp messages(%{"actions" => [%{"kind" => "model_call", "payload" => p}]}), do: p["messages"]
+    defp request_tools(%{"actions" => [%{"payload" => p}]}), do: p["tools"]
+
+    defp trace_scenario do
+      big_a = String.duplicate("a", 10_000)
+      big_b = String.duplicate("b", 8_000)
+
+      {checked, files} =
+        pinned!([
+          skill!("alpha", body: "Alpha instructions\n", files: %{"notes.txt" => "Alpha notes\n"}),
+          skill!("tooly",
+            body: "Tooly instructions\n",
+            tools: ["tool-identity-one", "tool-identity-two"],
+            extra: "allowed-tools: Bash(git:*) Read\n"
+          ),
+          skill!("big-a", body: big_a),
+          skill!("big-b", body: big_b)
+        ])
+
+      source = source!("sk", checked)
+      {:ok, snapshot} = ToolRegistry.snapshot([source])
+      {:resolved, load_tool} = ToolRegistry.resolve(snapshot, "sk_load_skill")
+      {:resolved, read_tool} = ToolRegistry.resolve(snapshot, "sk_read_skill_file")
+      payload = fn name -> elem(Skill.load(checked, %{"name" => name}), 1) end
+      {:error, unknown} = Skill.load(checked, %{"name" => "gamma"})
+      assert unknown == :unknown_skill
+
+      read_payload =
+        elem(Skill.read_file(checked, files, %{"skill" => "alpha", "path" => "notes.txt"}), 1)
+
+      inputs = [
+        start_input(),
+        model_outcome(1, [proposal("c1", "sk_load_skill", %{"name" => "alpha"})]),
+        tool_result_outcome("run:t:1:1", payload.("alpha")),
+        model_outcome(2, [proposal("c2", "sk_load_skill", %{"name" => "alpha"})]),
+        tool_result_outcome("run:t:2:1", payload.("alpha")),
+        model_outcome(3, [proposal("c3", "sk_load_skill", %{"name" => "big-a"})]),
+        tool_result_outcome("run:t:3:1", payload.("big-a")),
+        model_outcome(4, [proposal("c4", "sk_load_skill", %{"name" => "big-b"})]),
+        tool_result_outcome("run:t:4:1", payload.("big-b")),
+        model_outcome(5, [
+          proposal("c5", "sk_read_skill_file", %{"skill" => "alpha", "path" => "notes.txt"})
+        ]),
+        tool_result_outcome("run:t:5:1", read_payload),
+        model_outcome(6, [
+          proposal("c6", "sk_read_skill_file", %{"skill" => "alpha", "path" => "x"})
+        ]),
+        # The host binds `{:error, reason}` of the tool to a refused outcome (here, as
+        # for a pin that no longer holds the skill).
+        outcome("run:t:6:1", "refused", "elzoo.run-engine.refusal", %{
+          "reason" => Atom.to_string(unknown)
+        }),
+        model_outcome(7, [proposal("c7", "sk_load_skill", %{"name" => "tooly"})]),
+        tool_result_outcome("run:t:7:1", payload.("tooly"))
+      ]
+
+      %{
+        source: source,
+        snapshot: snapshot,
+        load_tool: load_tool,
+        read_tool: read_tool,
+        inputs: inputs,
+        read_payload: read_payload,
+        bodies: %{"big-a" => big_a, "big-b" => big_b}
+      }
+    end
+
+    defp tool_call(id, tool, source_tool, arguments),
+      do: %{
+        "id" => id,
+        "kind" => "tool_call",
+        "schema_id" => "elzoo.agent-loop.tool-call",
+        "schema_version" => 1,
+        "payload" => %{
+          "alias" => "sk_" <> source_tool,
+          "source" => "sk",
+          "tool" => source_tool,
+          "version" => tool.version,
+          "arguments" => arguments
+        }
+      }
+
+    # The request after input `n` (0-based), where `n` indexes the trace.
+    defp requests(scenario) do
+      Enum.scan(scenario.inputs, {loop_state(scenario.source), nil}, fn input, {state, _} ->
+        assert {:Transition, next, {:some, request}} = AgentLoop.step(state, input, &estimate/1)
+        {next, request}
+      end)
+    end
+
+    test "a load is one tool action; its payload is accepted and the body is in the system message" do
+      scenario = trace_scenario()
+      requests = requests(scenario)
+
+      assert {_, %{"actions" => [action]}} = Enum.at(requests, 1)
+
+      assert action ==
+               tool_call("run:t:1:1", scenario.load_tool, "load_skill", %{"name" => "alpha"})
+
+      assert {_, accepted} = Enum.at(requests, 2)
+      [system | rest] = messages(accepted)
+      assert system == %{"role" => "system", "text" => @role <> "\n\n" <> "Alpha instructions\n"}
+      assert String.ends_with?(system["text"], "\n\nAlpha instructions\n")
+      assert List.last(rest) == tool_text("c1", notice("[declaration accepted]"))
+
+      # The body is outside every marked block.
+      refute Enum.any?(rest, &String.contains?(&1["text"] || "", "Alpha instructions"))
+    end
+
+    test "a second load is refused as already_loaded and the body stays in the system message once" do
+      scenario = trace_scenario()
+      requests = requests(scenario)
+
+      assert {_, again} = Enum.at(requests, 4)
+      [system | rest] = messages(again)
+      assert system == %{"role" => "system", "text" => @role <> "\n\n" <> "Alpha instructions\n"}
+      assert length(String.split(system["text"], "Alpha instructions")) == 2
+      assert List.last(rest) == tool_text("c2", notice("[declaration refused: already_loaded]"))
+    end
+
+    test "a load past 16,384 bytes of instructions is refused and changes nothing" do
+      scenario = trace_scenario()
+      requests = requests(scenario)
+
+      assert {before_state, accepted} = Enum.at(requests, 6)
+      [system | _] = messages(accepted)
+      assert system["text"] == @role <> "\n\nAlpha instructions\n\n\n" <> scenario.bodies["big-a"]
+
+      assert {refused_state, refused} = Enum.at(requests, 8)
+
+      assert List.last(messages(refused)) ==
+               tool_text("c4", notice("[declaration refused: instructions_over_bound]"))
+
+      assert hd(messages(refused)) == system
+      assert refused_state.skills == before_state.skills
+      refute String.contains?(inspect(refused_state, limit: :infinity), "bbbbbbbbbb")
+    end
+
+    test "a read_skill_file outcome is a tool result inside a marked block" do
+      scenario = trace_scenario()
+      assert {_, action_request} = Enum.at(requests(scenario), 9)
+
+      assert %{"actions" => [action]} = action_request
+
+      assert action ==
+               tool_call("run:t:5:1", scenario.read_tool, "read_skill_file", %{
+                 "skill" => "alpha",
+                 "path" => "notes.txt"
+               })
+
+      assert {_, read} = Enum.at(requests(scenario), 10)
+
+      assert List.last(messages(read)) ==
+               tool_text("c5", block(["skill:alpha"], "Alpha notes\n", byte_size("Alpha notes\n")))
+    end
+
+    test "a refused outcome with unknown_skill is a notice" do
+      scenario = trace_scenario()
+      assert {_, refused} = Enum.at(requests(scenario), 12)
+
+      assert List.last(messages(refused)) ==
+               tool_text("c6", notice("[tool call not completed: refused: unknown_skill]"))
+    end
+
+    test "the tools of each model request are the same before and after a load of a skill with tools" do
+      scenario = trace_scenario()
+      requests = requests(scenario)
+      expected = ToolRegistry.tools(scenario.snapshot)
+
+      model_requests =
+        for {_, %{"actions" => [%{"kind" => "model_call"}]} = request} <- requests,
+            do: request_tools(request)
+
+      assert length(model_requests) == 8
+      assert Enum.all?(model_requests, &(&1 == expected))
+
+      # Before the load of "tooly" (input 13 asks for it), and after it (input 14).
+      assert {_, %{"actions" => [%{"kind" => "model_call"}]} = after_load} = Enum.at(requests, 14)
+      [system | _] = messages(after_load)
+      assert String.contains?(system["text"], "Tooly instructions")
+      assert request_tools(after_load) == expected
+      refute String.contains?(Jason.encode!(request_tools(after_load)), "tool-identity")
+      refute String.contains?(Jason.encode!(request_tools(after_load)), "allowed-tools")
+    end
+
+    test "the trace cut after each input and folded again gives the same states and requests" do
+      scenario = trace_scenario()
+      full = requests(scenario)
+
+      for n <- 1..length(scenario.inputs) do
+        cut = requests(%{scenario | inputs: Enum.take(scenario.inputs, n)})
+        assert cut == Enum.take(full, n)
+      end
+
+      # The load action identity appears in one request only.
+      requested = for {_, request} <- full, do: Jason.encode!(request)
+      assert Enum.count(requested, &String.contains?(&1, ~s("run:t:1:1"))) == 1
+    end
+  end
+
+  describe "pinned_version_answers" do
+    test "load/2 and read_file/3 given P1 and its files answer P1 after P2 exists" do
+      one = [
+        skill!("alpha", body: "Old body\n", version: "1", files: %{"a.txt" => "old bytes"}),
+        skill!("beta")
+      ]
+
+      two = [
+        skill!("alpha", body: "New body\n", version: "2", files: %{"a.txt" => "new bytes"}),
+        skill!("beta")
+      ]
+
+      {p1, files1} = pinned!(one)
+      {p2, files2} = pinned!(two)
+
+      assert RecipePackage.encode(p1)["identity"] != RecipePackage.encode(p2)["identity"]
+      assert RecipePackage.encode(p1)["skills"] != RecipePackage.encode(p2)["skills"]
+
+      assert {:ok, %{"declaration" => %{"skill" => %{"instructions" => "Old body\n"}}}} =
+               Skill.load(p1, %{"name" => "alpha"})
+
+      assert {:ok, %{"declaration" => %{"skill" => %{"instructions" => "New body\n"}}}} =
+               Skill.load(p2, %{"name" => "alpha"})
+
+      args = %{"skill" => "alpha", "path" => "a.txt"}
+      assert {:ok, %{"content" => %{"content" => "old bytes"}}} = Skill.read_file(p1, files1, args)
+      assert {:ok, %{"content" => %{"content" => "new bytes"}}} = Skill.read_file(p2, files2, args)
+
+      # The sources of the two packages differ only where a skill differs: none here.
+      assert Skill.source("sk", p1) == Skill.source("sk", p2)
+    end
+
+    test "the checked example reads a folder, builds a package and answers a load and a file read" do
+      {result, _binding} =
+        Code.eval_file(Path.expand("../../examples/skill.exs", __DIR__))
+
+      assert %{text: "Amounts match to the cent.\n", identity: "recipe-package-v1:sha256:" <> hex} =
+               result
+
+      assert byte_size(hex) == 64
     end
   end
 end

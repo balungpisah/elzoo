@@ -5,9 +5,13 @@ defmodule Elzoo.Skill do
   `read/4` turns a map of relative paths to file bytes into the skill entry of a
   recipe package and the other files of the folder. It reads no file system,
   starts no process and checks nothing of the entry that `Elzoo.RecipePackage`
-  checks. Refusals are fixed atoms that hold no path, file byte, frontmatter
-  value or body.
+  checks. `source/2` gives the tool-registry source of the skills of a checked
+  package, and `load/2` and `read_file/3` answer one call of each of its tools.
+  Refusals are fixed atoms that hold no path, file byte, frontmatter value or
+  body.
   """
+
+  alias Elzoo.{RecipePackage, UntrustedContent}
 
   @max_files 256
   @max_file_bytes 1_048_576
@@ -29,6 +33,15 @@ defmodule Elzoo.Skill do
           | :yaml_alias
           | :duplicate_key
           | :empty_body
+
+  @type call_reason ::
+          :invalid_input
+          | :no_skills
+          | :invalid_arguments
+          | :unknown_skill
+          | :unknown_file
+          | :empty_body
+          | :file_too_large
 
   @doc """
   Reads the skill folder `files` (relative path to bytes) of the skill `name`.
@@ -66,6 +79,174 @@ defmodule Elzoo.Skill do
       {:ok, %{entry: entry, files: Map.delete(files, "SKILL.md")}}
     end
   end
+
+  @doc """
+  The tool-registry source of kind `pinned_skill` for the skills of the checked
+  `package`, with the tools `load_skill` and `read_skill_file`.
+
+  `id` is 1 to 32 bytes of `[a-zA-Z0-9_-]`, else `{:error, :invalid_input}`; a
+  package with no skill is `{:error, :no_skills}`. The description of each skill
+  is in the input schema of `load_skill`; the source names no tool of a skill and
+  no `allowed-tools` text.
+  """
+  @spec source(term(), term()) ::
+          {:ok, %{optional(String.t()) => term()}} | {:error, :invalid_input | :no_skills}
+  def source(id, package) do
+    with :ok <- check_id(id), {:ok, skills} <- skills(package) do
+      names = Enum.map(skills, & &1["name"])
+
+      listing =
+        Enum.map_join(skills, "\n", &(&1["name"] <> ": " <> &1["frontmatter"]["description"]))
+
+      load = %{
+        "trust" => "untrusted",
+        "name" => "load_skill",
+        "description" => "Load the instructions of one skill by its name.",
+        "annotations" => nil,
+        "input_schema" => %{
+          "type" => "object",
+          "properties" => %{
+            "name" => %{"type" => "string", "enum" => names, "description" => listing}
+          },
+          "required" => ["name"],
+          "additionalProperties" => false
+        }
+      }
+
+      read_file = %{
+        "trust" => "untrusted",
+        "name" => "read_skill_file",
+        "description" => "Read one file of a skill by its relative path.",
+        "annotations" => nil,
+        "input_schema" => %{
+          "type" => "object",
+          "properties" => %{
+            "skill" => %{"type" => "string", "enum" => names},
+            "path" => %{"type" => "string", "minLength" => 1}
+          },
+          "required" => ["skill", "path"],
+          "additionalProperties" => false
+        }
+      }
+
+      {:ok,
+       %{
+         "id" => id,
+         "kind" => "pinned_skill",
+         "callable" => "adapter",
+         "tools" => [load, read_file]
+       }}
+    end
+  end
+
+  @doc """
+  Answers one call of `load_skill` over the checked `package`.
+
+  `arguments` is the `arguments` member of the tool call. Gives the payload of a
+  completed outcome that carries a declaration with the body of the skill, byte
+  for byte, and no listing, or `{:error, reason}`: `:invalid_arguments`,
+  `:unknown_skill` or `:empty_body`.
+  """
+  @spec load(term(), term()) ::
+          {:ok, %{optional(String.t()) => term()}}
+          | {:error, :invalid_arguments | :unknown_skill | :empty_body}
+  def load(package, arguments) do
+    with {:ok, name} <- load_arguments(arguments),
+         {:ok, skill} <- find_skill(package, name),
+         :ok <- if(skill["body"] == "", do: {:error, :empty_body}, else: :ok) do
+      {:ok,
+       %{
+         "declaration" => %{
+           "skill" => %{"name" => name, "instructions" => skill["body"]},
+           "listing" => nil
+         }
+       }}
+    end
+  end
+
+  @doc """
+  Answers one call of `read_skill_file` over the checked `package`.
+
+  `files` maps a skill name to the `files` value that `read/4` gave for that
+  skill. Gives a tool result with the bytes of the file as marked content, or
+  `{:error, reason}`; the checks are in the order of the Contract.
+  """
+  @spec read_file(term(), term(), term()) ::
+          {:ok, %{optional(String.t()) => term()}} | {:error, call_reason()}
+  def read_file(package, files, arguments) do
+    with {:ok, skill, path} <- file_arguments(arguments),
+         {:ok, _skill} <- find_skill(package, skill),
+         :ok <- if(path == "SKILL.md", do: {:error, :unknown_file}, else: :ok),
+         {:ok, bytes} <- fetch_file(files, skill, path),
+         :ok <- if(byte_size(bytes) > @max_file_bytes, do: {:error, :file_too_large}, else: :ok) do
+      {media_type, encoding, text} =
+        if String.valid?(bytes),
+          do: {"text/plain", "utf8", bytes},
+          else: {"application/octet-stream", "base64", Base.encode64(bytes)}
+
+      {:ok, marked} =
+        UntrustedContent.decode(%{
+          "schema_id" => "elzoo.untrusted-content.marked",
+          "schema_version" => 1,
+          "sources" => ["skill:" <> skill],
+          "trust" => "untrusted",
+          "max_bytes" => max(1, byte_size(text)),
+          "content" => text
+        })
+
+      {:ok,
+       %{
+         "content" => UntrustedContent.encode(marked),
+         "media_type" => media_type,
+         "encoding" => encoding
+       }}
+    end
+  end
+
+  defp check_id(id) when is_binary(id) do
+    if Regex.match?(~r/\A[a-zA-Z0-9_-]{1,32}\z/, id), do: :ok, else: {:error, :invalid_input}
+  end
+
+  defp check_id(_id), do: {:error, :invalid_input}
+
+  defp skills(package) do
+    case RecipePackage.encode(package) do
+      %{"skills" => [_ | _] = skills} -> {:ok, skills}
+      _other -> {:error, :no_skills}
+    end
+  end
+
+  defp find_skill(package, name) do
+    case Enum.find(RecipePackage.encode(package)["skills"], &(&1["name"] == name)) do
+      nil -> {:error, :unknown_skill}
+      skill -> {:ok, skill}
+    end
+  end
+
+  defp load_arguments(%{"name" => name} = arguments)
+       when map_size(arguments) == 1 and is_binary(name),
+       do: {:ok, name}
+
+  defp load_arguments(_arguments), do: {:error, :invalid_arguments}
+
+  defp file_arguments(%{"skill" => skill, "path" => path} = arguments)
+       when map_size(arguments) == 2 and is_binary(skill) and is_binary(path),
+       do: {:ok, skill, path}
+
+  defp file_arguments(_arguments), do: {:error, :invalid_arguments}
+
+  defp fetch_file(files, _skill, _path) when not is_map(files), do: {:error, :invalid_input}
+
+  defp fetch_file(files, skill, path) do
+    with {:ok, folder} <- Map.fetch(files, skill) |> found(),
+         true <- is_map(folder) || {:error, :invalid_input},
+         {:ok, bytes} <- Map.fetch(folder, path) |> found() do
+      if is_binary(bytes), do: {:ok, bytes}, else: {:error, :invalid_input}
+    end
+  end
+
+  defp found({:ok, _value} = found), do: found
+  defp found(:error), do: {:error, :unknown_file}
 
   defp check_input(name, version, tools, files)
        when is_binary(name) and is_binary(version) and is_list(tools) and is_map(files) do
