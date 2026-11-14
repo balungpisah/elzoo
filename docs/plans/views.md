@@ -174,7 +174,8 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | RC-60 | V1B / pieces | ELZ-033, ELZ-160 | provider prerequisite published as ELZ-160; runtime Piece admission pending | one claimed task worker after admission |
 | [ELZ-161](https://github.com/balungpisah/elzoo/issues/351) | V1B / pieces | ELZ-033, ELZ-115, ELZ-026, ELZ-024, ELZ-114 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-162](https://github.com/balungpisah/elzoo/issues/352) | V1B / pieces | ELZ-033, ELZ-115, ELZ-105 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
-| RC-61 | V1B / pieces | ELZ-033, ELZ-115, ELZ-026, ELZ-024, ELZ-105, ELZ-114, ELZ-161, ELZ-162 | graph and config published as independent ELZ-161 and ELZ-162; recipe-package admission pending | one claimed task worker after admission |
+| [ELZ-164](https://github.com/balungpisah/elzoo/issues/357) | V1B / pieces | ELZ-033, ELZ-115, ELZ-161, ELZ-162 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| RC-61 | V1B / pieces | ELZ-033, ELZ-115, ELZ-026, ELZ-024, ELZ-105, ELZ-114, ELZ-161, ELZ-162, ELZ-164 | all three portions published: ELZ-161 recipe-graph, ELZ-162 recipe-config and ELZ-164 recipe-package | one claimed task worker after admission |
 | RC-62 | V1B / pieces | ELZ-033, RC-60, ELZ-115, ELZ-002, ELZ-136, RC-61, ELZ-114, ELZ-022 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-63 | V1B / pieces | ELZ-033, ELZ-002, ELZ-114, RC-61, ELZ-026, ELZ-098, ELZ-003, ELZ-006 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-64 | V1B / pieces | ELZ-033, RC-61, ELZ-136, ELZ-022, ELZ-024, ELZ-114 | blocked: unpublished admission proposal | one claimed task worker after admission |
@@ -354,7 +355,7 @@ Baseline status is immutable inventory history, not a current planning status. R
 | runtime/lua-sandbox | not in baseline (new row, RC-60) | V1B / pieces | RC-60 / P13 | blocked-admission-proposal: Bot platform wave 3 (P13). Limits on steps and memory; no file, network, clock or random access unless given; a wall-time stop is a host outcome. Starts with a provider-fit probe of at least two Lua runtimes, one of them outside the process boundary of the VM; no runtime is chosen yet. |
 | runtime/lua-stdlib | not in baseline (new row, RC-60) | V1B / pieces | RC-60 / P13 | blocked-admission-proposal: Bot platform wave 3 (P13). JSON and text helpers and time values passed in. Nothing else is reachable from the sandbox. |
 | [domain/recipe-graph](../../pieces/domain/recipe-graph/piece.json) | not in baseline (new row, RC-61) | V1B / pieces | ELZ-161 / P13 | ready-contract: Pure bounded v1 recipe callables as plain data: exact graph, agent and typed-decision declarations, six node kinds, typed slots, acyclic dependency and named-call graphs, explicit identity, bounded nesting and requirement-only rules. Encode preserves the original map; no execution or authority. |
-| domain/recipe-package | not in baseline (new row, RC-61) | V1B / pieces | RC-61 / P13 | blocked-admission-proposal: Bot platform wave 3 (P13). What a recipe declares before it can be checked, stored or shared. |
+| domain/recipe-package | not in baseline (new row, RC-61) | V1B / pieces | ELZ-164 / P13 | published-task; implementation pending: Bot platform wave 3 (P13). Admitted bounded package manifest with content identity, graph/config validation and decoded skill declarations; implementation pending. |
 | [domain/recipe-config](../../pieces/domain/recipe-config/piece.json) | not in baseline (new row, RC-61) | V1B / pieces | ELZ-162 / P13 | ready-contract: Pure check of tenant settings against a caller-supplied version 1 descriptor (id, revision, input Port, closed-object draft 2020-12 schema, at most 64 secret names) through the ready core/payload-schema; a secret setting is only an exact 1..128-byte ref/scope reference, never resolved. Success returns the original settings; fixed bounds and fixed redacted failures; no defaults, coercion, store or resolver. |
 | runtime/lua-binding | not in baseline (new row, RC-62) | V1B / pieces | RC-62 / P13 | blocked-admission-proposal: Bot platform wave 3 (P13). Built from a function manifest that this Piece defines and the caller supplies; no run-time discovery. A binding call at load time builds data and performs no Effect. |
 | workflow/lua-tool | not in baseline (new row, RC-62) | V1B / pieces | RC-62 / P13 | blocked-admission-proposal: Bot platform wave 3 (P13). Registered like any other tool. Each module call becomes a request for the engine, and the tool runs again from the start with the recorded results; sandbox state is never persisted. |
@@ -386,7 +387,7 @@ Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, EL
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-161, ELZ-162.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-161, ELZ-162, ELZ-164.
 
 ### V2-ACCEPT
 
@@ -2188,8 +2189,9 @@ Recipe data: callables, package and tenant settings
 
 **Blockers:**
 
-- Recipe-package remains unpublished and follows ELZ-161 and ELZ-162 in a later publication; coordinator must admit its exact API, Needs, failure cases, evidence and ownership.
+- All three RC-61 portions are published: ELZ-161 recipe-graph, ELZ-162 recipe-config and ELZ-164 recipe-package. No output remains pending admission in RC-61.
 - Owner decisions, 2026-11-14: callable kinds graph, agent and typed decision; node kinds call, tool, ask, decision, map and loop. Map and loop are bounded re-runs of a named callable, never back-edges. The handle remains domain/recipe-graph. The independent graph and config tasks are published as ELZ-161 and ELZ-162.
+- Coordinator decision, 2026-11-14: ELZ-164 accepts decoded skill frontmatter plus Markdown body; raw YAML/SKILL.md syntax and folder provenance belong to the later reader (RC-67). Package identity digest, opaque versions, declarative needs/permissions, frontmatter fields and fixed bounds are admitted in the task.
 
 ### RC-62
 
@@ -2817,3 +2819,13 @@ Publication copy: [tasks/ELZ-162-recipe-config.md](../../tasks/ELZ-162-recipe-co
 **Product aims:** P13.
 
 **Acceptance:** Pure tenant-settings checking against the caller's versioned package-form schema descriptor using payload-schema. Wrong type, missing and extra fields and raw secret values are refused; secret settings are exact credential references only. Fixed bounds, unchanged successful values and redacted errors; no resolver; independent of ELZ-161; recipe-package follows later.
+
+### ELZ-164
+
+ELZ-164 — Bounded recipe package manifest as plain data
+
+Publication copy: [tasks/ELZ-164-recipe-package.md](../../tasks/ELZ-164-recipe-package.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Pure bounded package manifest with content-digest identity, opaque versions, declarative needs/permissions, RecipeGraph callable/root/binding validation and RecipeConfig settings descriptor validation. Decoded skill frontmatter plus Markdown body, explicit versions/tools, malformed-skill refusal before load, stable encode/decode and redacted errors. No file or raw YAML reader, Lua, secret resolution or store.
