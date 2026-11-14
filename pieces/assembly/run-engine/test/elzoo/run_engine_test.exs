@@ -3563,6 +3563,17 @@ defmodule Elzoo.RunEngineTest do
         assert {:error, :incompatible_recovery} = RunEngine.start_link(opts)
       end
 
+      # A binding replaced by a schema map holding that binding is incompatible too.
+      nested = c.opts[:bindings]["nested_callable"]
+
+      opts =
+        Keyword.merge(c.opts,
+          bindings: Map.put(bindings, "nested_callable", %{"message" => nested}),
+          schemas: schemas
+        )
+
+      assert {:error, :incompatible_recovery} = RunEngine.start_link(opts)
+
       engine = start(c, bindings: bindings, schemas: schemas)
 
       assert Enum.all?(view(engine).slots, fn {_, slot} -> slot.phase == :approval end)
