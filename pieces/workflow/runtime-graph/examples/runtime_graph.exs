@@ -56,7 +56,7 @@ end
 
 listing = fn names ->
   %{
-    "id" => "docs",
+    "id" => "library",
     "kind" => "host_listing",
     "callable" => "adapter",
     "tools" => Enum.map(names, tool)
@@ -86,7 +86,7 @@ context = %{
     # the budget share of this graph
     "cap" => 100
   },
-  "tool_costs" => %{"docs_search" => 20, "docs_export" => 10},
+  "tool_costs" => %{"library_search" => 20, "library_export" => 10},
   "ask_cost" => nil,
   "max_nodes" => 8,
   "max_depth" => 4,
@@ -111,7 +111,7 @@ end
 good =
   proposal.(
     [
-      node.("find", "tool", %{"tool" => "docs_search"}),
+      node.("find", "tool", %{"tool" => "library_search"}),
       node.("short", "call", %{"callable" => "summarize"})
     ],
     [%{"from" => "find", "to" => "short", "kind" => "order"}]
@@ -125,12 +125,12 @@ good =
 "plan-1" = List.last(recipe2["callables"])["name"]
 {:ok, _checked} = Elzoo.RecipeGraph.decode(recipe2)
 
-# The agent may not call "translate", use "docs_export" or ask a person.
+# The agent may not call "translate", use "library_export" or ask a person.
 bad =
   proposal.(
     [
       node.("copy", "call", %{"callable" => "translate"}),
-      node.("save", "tool", %{"tool" => "docs_export"}),
+      node.("save", "tool", %{"tool" => "library_export"}),
       node.("check", "ask", %{})
     ],
     []
