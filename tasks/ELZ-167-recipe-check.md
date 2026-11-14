@@ -77,7 +77,10 @@ these keys:
   accepts for one run of the root, in `unit`.
 
 A `facts` value in another shape is `{:error, :invalid_facts}`; it is an error
-of the caller, not a verdict on the recipe. A sentinel text inside it never
+of the caller, not a verdict on the recipe. The operands of the caller
+(`facts`, and `declared` of `check_graph/3`) are checked first: with a
+malformed operand the result is `{:error, :invalid_facts}` also when the
+recipe has a fault. A sentinel text inside it never
 appears in the error.
 
 A reason is exactly `%{path: path, code: code}`: the violation form of
@@ -216,8 +219,11 @@ dependencies `domain/recipe-package`, `domain/recipe-graph` and
    process, give equal results for one passing and one refused package; the
    package map is not changed; a sentinel text in a package value, a tool
    name, a need or a fact never appears in a reason, an error or a captured
-   log. `{:error, :invalid_facts}` for each malformed member of `facts`, and
-   for each bound plus 1. For one passing and one refused recipe,
+   log. `{:error, :invalid_facts}` for each malformed member of `facts`, for
+   each bound plus 1, for a malformed `declared` of `check_graph/3` (a wrong
+   key, a value that is not a list, a duplicate, 65 entries, a text of 129
+   bytes) and for a malformed operand together with a recipe that has a
+   structural fault. For one passing and one refused recipe,
    `check_graph/3` on the `graph` member and `check/2` on the package give
    the same verdict and the same reasons, apart from the leading `"graph"`
    and the identity. One small checked example covers the public API.
