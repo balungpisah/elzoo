@@ -14,14 +14,17 @@ defmodule Elzoo.RunEngine do
   @slot_bytes 131_072
   @empty %{version: 1, control: nil, slots: %{}, requests: %{}}
   @refusal_schema "elzoo.run-engine.refusal"
+  @call_limit 60_000
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, Keyword.take(opts, [:name]))
-  def input(engine, id, input, context), do: GenServer.call(engine, {:input, id, input, context})
+
+  def input(engine, id, input, context),
+    do: GenServer.call(engine, {:input, id, input, context}, @call_limit)
 
   def control(engine, id, command, context),
-    do: GenServer.call(engine, {:control, id, command, context})
+    do: GenServer.call(engine, {:control, id, command, context}, @call_limit)
 
-  def status(engine), do: GenServer.call(engine, :status)
+  def status(engine), do: GenServer.call(engine, :status, @call_limit)
 
   @impl true
   def format_status(status), do: Map.merge(status, %{state: :redacted, message: :redacted})
