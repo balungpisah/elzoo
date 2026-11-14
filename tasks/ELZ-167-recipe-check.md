@@ -22,21 +22,23 @@ maps in tests.
 Facts checked on main. They decide what this check can read:
 
 - `domain/recipe-package` (ELZ-164): `Elzoo.RecipePackage.decode/1` gives
-  `{:ok, checked}` or one bare reason atom, the first fault only, with no
-  location. A package holds `needs` and `permissions`: each at most 64 unique
+  `{:ok, checked}` or `{:error, reason}` with one reason atom, the first
+  fault only, with no location. A package holds `needs` and `permissions`: each at most 64 unique
   opaque strings of 1 to 128 bytes, declarations only. It holds `identity`
   (`recipe-package-v1:sha256:<hex>`), `graph`, `settings` and `skills`. A graph
   fault of any kind is `:invalid_graph`.
-- `domain/recipe-graph` (ELZ-161): `Elzoo.RecipeGraph.decode/1` gives one bare
-  reason atom, the first fault only. A callable has no budget, cost, authority
+- `domain/recipe-graph` (ELZ-161): `Elzoo.RecipeGraph.decode/1` gives
+  `{:ok, checked}` or `{:error, reason}` with one reason atom, the first
+  fault only. A callable has no budget, cost, authority
   or permission member. A `tool` node holds `tool`, an opaque text of at most
   128 bytes. An `agent` callable holds only `binding`. `max_iterations` of a
   `map` or `loop` node is 1 to 256, so valid recipe data holds no unbounded
   map: a missing, zero or larger value is the structural fault
   `:invalid_shape`.
 - `workflow/tool-registry` (ELZ-136): `resolve(snapshot, name)` gives
-  `{:resolved, tool}`, `{:changed, version}`, `:removed`, `{:ambiguous, _}` or
-  `:unknown`.
+  `{:resolved, tool}`, `:removed`, `{:ambiguous, _}` or `:unknown`. Only
+  `resolve/3`, with a held version, can give `{:changed, version}`; this check
+  holds no version and does not call it.
 - `workflow/budget` (ELZ-022): a unit is an opaque nonempty UTF-8 string and a
   cap is a positive integer of one budget identity. It is not a tenant quota.
   No function of it is called here.
@@ -88,12 +90,13 @@ The check runs in two stages.
 
 **Stage 1, structure.** One reason, the first fault, then stop:
 
-1. `Elzoo.RecipePackage.decode(package)`. A reason other than
-   `:invalid_graph` gives `%{path: [], code: reason}`, except
+1. `Elzoo.RecipePackage.decode(package)`. An `{:error, reason}` with a
+   reason other than `:invalid_graph` gives `%{path: [], code: reason}`, except
    `:invalid_settings_descriptor` with the path `["settings"]` and
    `:invalid_skill` with the path `["skills"]`.
 2. For `:invalid_graph`, call `Elzoo.RecipeGraph.decode/1` on the `graph`
-   member and give `%{path: ["graph"], code: reason}` with its reason atom.
+   member and give `%{path: ["graph"], code: reason}` with the reason atom of its
+   `{:error, reason}`.
 
 This task does not write a second structural validator. The two ready
 validators stop at their first fault and give no path, so a structural fault
@@ -173,8 +176,8 @@ dependencies `domain/recipe-package`, `domain/recipe-graph` and
    one reason under `["graph"]` and the atom of ELZ-161; a malformed skill
    under `["skills"]`; a malformed settings descriptor under `["settings"]`; a
    wrong package shape under `[]`. No stage 2 reason appears with them.
-2. **`tools_exist`**: a tool that resolves passes; an unknown, a removed, an
-   ambiguous and a changed-only name each give `:unknown_tool` at the node;
+2. **`tools_exist`**: a tool that resolves passes; an unknown, a removed and an
+   ambiguous name each give `:unknown_tool` at the node;
    two such nodes give two reasons in path order.
 3. **`needs_and_permissions`**: a requirement that the recipe does not declare
    (need, then permission); a declared need that the host does not provide; a
