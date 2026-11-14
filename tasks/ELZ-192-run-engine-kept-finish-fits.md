@@ -42,9 +42,20 @@ between can take the room. When there is no room, the finish is refused
 with the existing reason `record_size`: the child pattern gets an ordinary
 refusal, the parent action is not completed by it, and the engine goes on.
 The child callable stays open after the refusal. A child that never sends
-a finish that fits leaves its parent action waiting until an existing rule
-settles it: the deadline of the parent action, a change of Attempt
-(ELZ-191) or the end of the Run. The README states this as a Limit.
+a finish that fits leaves its parent action waiting. Two existing rules
+can settle that parent, and no other:
+
+- its deadline, but only when an input of the current Attempt reaches the
+  engine at or after the deadline while the Run is not terminal (the
+  engine has no timer for the deadline of a slot);
+- a change of Attempt, which closes every open slot of the older Attempt
+  (ELZ-191).
+
+The end of the Run does not settle it. A terminal view closes only running
+local work, and in a terminal Run an expiry is classified late and changes
+nothing. So when the Run ends first, the parent stays open in the control
+state, and a new Run cannot be configured on that unit while it is open.
+This task does not change that. The README states all of it as a Limit.
 
 A Run that was recorded before this repair, with a finish that was
 admitted and not yet kept, can meet the refusal on replay where the old
@@ -63,6 +74,11 @@ The README states the rule beside the existing text on the kept finish.
    payload bound: the finish that would pass the bound is refused with
    `record_size`; every earlier one is kept; the engine answers the next
    input; `fits?` holds after every step. Record how many finishes fit.
+   The parent of the refused finish is still open after the refusal. A
+   later input of the same Attempt, at or after the deadline of the
+   parent and while the Run is not terminal, settles it by the existing
+   expiry; if an existing test already shows that expiry for a nested
+   parent, name that test instead of a new case.
 2. **`room_comes_back`**: after one parent settles, a finish of the size
    that was refused is admitted.
 3. **`smaller_finish_fits`**: after the refusal a finish with a small
@@ -83,7 +99,8 @@ Run `mix test pieces/assembly/run-engine/test`, then
 
 ## Not in scope
 
-The growth of the joins in the control state through settled payloads
+The settlement of an open nested parent when the Run is terminal (its own
+task). The growth of the joins in the control state through settled payloads
 (name it in the pull request body under `Limits:` with the lines, as an
 observation), the bound itself, the journal write path, and any other
 Piece.
