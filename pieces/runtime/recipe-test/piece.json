@@ -53,7 +53,7 @@
     {
       "kind": "test",
       "file": "test/elzoo/recipe_test_lua_test.exs",
-      "claim": "Listed scenarios of the groups tool_start_refusals (no Run starts), lua_tool_module_call, model_graph_refused and same_lua_spec_same_record pass. The groups after tool_start_refusals run on PostgreSQL through ELZOO_TEST_DATABASE_URL and fail closed when it is missing; none is skipped. The module builds the sandbox once in setup_all. One negative control: a completed module call that is given its raw value instead of {\"result\": value} fails lua_tool_module_call with module_call_not_completed. Finite scenarios, not a universal proof."
+      "claim": "Listed scenarios of the groups tool_start_refusals (no Run starts), lua_tool_module_call, model_graph_after_restart, model_graph_refused and same_lua_spec_same_record pass. The groups after tool_start_refusals run on PostgreSQL through ELZOO_TEST_DATABASE_URL and fail closed when it is missing; none is skipped. The module builds the sandbox once in setup_all. Two negative controls: a completed module call that is given its raw value instead of {\"result\": value} fails lua_tool_module_call with module_call_not_completed, and held calls that are delivered after the restart fail model_graph_after_restart. Finite scenarios, not a universal proof."
     },
     {
       "kind": "test",

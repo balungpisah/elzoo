@@ -270,8 +270,9 @@ estimator_id: "recipe-test-bytes", estimator_version: 1}}`.
 - A restart drops every call and Lua run in flight: an Effect becomes `unknown` and a Lua run
   `failed` with `local_restart`. It shows that the record is read again and that no recorded
   call is asked again, not a restart without loss. A dropped call's task waits until the test
-  ends. The engine keeps the Budget reservation of an `unknown` Effect, so a nested child with
-  such an Effect in flight does not finish its parent (observed, not part of this Contract).
+  ends. The engine keeps the Budget reservation of an `unknown` Effect, and a nested child
+  whose slots are all settled with such an Effect still gives its finish to its parent, with
+  no actual; the group `model_graph_after_restart` shows it.
 - The harness does not reserve the `upper_cost` of an accepted graph: the child's Budget is the
   depth rule of the engine. A `:graph` tool reached from a graph node gets
   `{"failed": "graph_tool_in_graph"}`.
