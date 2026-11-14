@@ -109,7 +109,10 @@ owner then stays read-only.
 - **TRUNCATE** is not captured (row triggers only): a role holding TRUNCATE on the Store tables
   removes records without an audit row. **Privileged bypass**: the table owner can disable the
   triggers, a superuser can set `session_replication_role = replica`, and the audit owner can
-  edit audit rows. These are disclosed limits shown by tests, not detected.
+  edit audit rows. These are disclosed limits, not detected: tests show TRUNCATE and the table-owner
+  trigger disable, but the `session_replication_role` bypass and the application-role boundary run
+  only under a superuser or role-creating test role, which no check of this repository uses (the tests
+  print `NOT EXERCISED`), and audit-owner edits are not shown by a test.
 - No universal tamper-proof, completeness or non-repudiation claim; no telemetry or metering.
 - Carbonite's `insert_transaction/3`, outbox and purge APIs are not used; Carbonite's outbox is
   not a second `state/outbox`.
