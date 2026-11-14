@@ -6036,6 +6036,40 @@
       "issue": 415,
       "url": "https://github.com/balungpisah/elzoo/issues/415",
       "issue_body_sha256": "9c788de1acc3daaafe95a9faea3cea40fabd5d1cb766ac106317f61b206e3b3b"
+    },
+    {
+      "id": "ELZ-188",
+      "title": "ELZ-188 — A child of the Lua sandbox that dies early gives a host outcome and never ends its caller",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-177"],
+      "status": "published 2026-11-14",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-188-lua-sandbox-early-child-exit.md"],
+      "outputs": [],
+      "acceptance": "Repair for issue #418 on runtime/lua-sandbox that restores its Contract: no exit of the Port reaches the caller of run/2 as an exit signal; a child that exits or closes its input before the request is written gives a host outcome; the caller keeps its flags, links, monitors and mailbox; deadline, reaping and no-orphan guarantees stay; shown by a certain test and a negative control.",
+      "product_aims": ["P13"],
+      "issue": 422,
+      "url": "https://github.com/balungpisah/elzoo/issues/422",
+      "issue_body_sha256": "4b6c0f735c6ffee738e55df3fc03ba18eefec362b632712c90ede4338fdcdb13"
+    },
+    {
+      "id": "ELZ-189",
+      "title": "ELZ-189 — The dynamic-units tests wait for a process exit without a 100 ms limit",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033"],
+      "status": "published 2026-11-14",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-189-dynamic-units-shutdown-wait.md"],
+      "outputs": [],
+      "acceptance": "Repair for issue #420 on the tests of runtime/dynamic-units: each assert_receive that waits for a DOWN message gets an explicit limit of 5,000 ms; no pattern, reason or other assertion changes; 20 runs alone and 5 beside other suites pass; a negative control shows that the line still waits.",
+      "product_aims": ["P13"],
+      "issue": 423,
+      "url": "https://github.com/balungpisah/elzoo/issues/423",
+      "issue_body_sha256": "7faf31eb9cc99053a696964fc6d370d3eac9fd04c78bfc129a725c26f9aeb617"
     }
   ],
   "entries": [
