@@ -21,7 +21,7 @@
     "No provider is called: each test input is a literal neutral map; that the providers accept the refusal rule is shown on Request.decode/2 and the pure translate/2 of the two ready providers only.",
     "A model call or a tool call that did not complete is never tried again; no rule for a second Attempt; no memory, compaction or member message.",
     "The step verifies no person: an applied person_answer is read as it is and is content with no authority; marking is no claim against prompt injection.",
-    "answered says that the model gave an answer, not that the work is done; no engine claim (the ready run engine refuses a stopped root finish and gives no result of a nested callable).",
+    "answered says that the model gave an answer, not that the work is done; no engine claim (the ready run engine refuses a stopped root finish and gives the finish of a nested callable to its parent only under the result schema of the binding).",
     "Selected Cure laws cover the two decisions over supplied classifications only; the step table, history, notices, bounds and each call into the composed Pieces have finite tests only."
   ],
   "files": [

@@ -238,8 +238,11 @@ again; no rule for a second Attempt. `answered` is not evidence that the work is
 done. No engine claim: the ready `assembly/run-engine` completes a Run with a root
 `finish` only when it names a completed action (a `stopped` finish comes back
 refused), gives a pattern no `cancel`, late outcome or `message` while an action is
-open, and holds no child result in a nested callable outcome (that call gets `[tool
-result not readable]`). A result over the outcome bound of the engine never arrives.
+open, and gives the first admitted finish of a nested callable to the parent action
+only when its schema key equals the `result` of the parent's `nested_callable`
+binding (a completed outcome under another schema than
+`elzoo.agent-loop.tool-result` version 1 gets `[tool result not readable]`). A
+result over the outcome bound of the engine never arrives.
 No claim that marking prevents prompt injection.
 
 Telemetry, Config and Control are not applicable: pure functions over intrinsic
