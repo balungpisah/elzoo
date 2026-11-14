@@ -476,4 +476,294 @@ defmodule Elzoo.LuaSandboxBindingsTest do
       end
     end
   end
+
+  @data %{mode: "data", names: ["fetch", "store"], recorded: []}
+
+  defp data(exe, source, input \\ nil, limits \\ %{}, calls \\ @data),
+    do: Helper.run(exe, source, input, limits, calls)
+
+  defp call(binding, arguments), do: %{"binding" => binding, "arguments" => arguments}
+
+  # The least `steps` budget at which the source runs to the end on this input.
+  defp least_steps(exe, source, input) do
+    least_steps(exe, source, input, 1, 200_000)
+  end
+
+  defp least_steps(_exe, _source, _input, low, high) when low == high, do: low
+
+  defp least_steps(exe, source, input, low, high) do
+    middle = div(low + high, 2)
+
+    case data(exe, source, input, %{steps: middle}) do
+      {:ok, _} -> least_steps(exe, source, input, low, middle)
+      {:refused, :steps} -> least_steps(exe, source, input, middle + 1, high)
+    end
+  end
+
+  describe "data_mode_builds_data" do
+    test "two bindings build two objects in place, one nested in the other", %{executable: exe} do
+      source = """
+      return function()
+        local a = bindings.fetch({id = 1})
+        local b = bindings.store(helpers.object())
+        local c = bindings.store(bindings.fetch({id = 2}))
+        return {a = a, b = b, c = c}
+      end
+      """
+
+      assert {:ok, %{value: value, identity: identity}} = data(exe, source)
+      assert identity == LuaSandbox.policy().identity
+
+      assert value == %{
+               "a" => call("fetch", %{"id" => 1}),
+               "b" => call("store", %{}),
+               "c" => call("store", call("fetch", %{"id" => 2}))
+             }
+    end
+
+    test "nil is null, an empty object stays an object and an empty array stays an array",
+         %{executable: exe} do
+      source = """
+      return function(x)
+        return {
+          n = bindings.fetch(nil),
+          z = bindings.fetch(helpers.null),
+          o = bindings.fetch(helpers.object()),
+          a = bindings.fetch({}),
+          io = bindings.fetch(x.o),
+          ia = bindings.fetch(x.a),
+          s = bindings.store("text"),
+          f = bindings.store(1.5),
+          t = bindings.store(true)
+        }
+      end
+      """
+
+      assert {:ok, %{value: value}} = data(exe, source, %{"o" => %{}, "a" => []})
+
+      assert value == %{
+               "n" => call("fetch", nil),
+               "z" => call("fetch", nil),
+               "o" => call("fetch", %{}),
+               "a" => call("fetch", []),
+               "io" => call("fetch", %{}),
+               "ia" => call("fetch", []),
+               "s" => call("store", "text"),
+               "f" => call("store", 1.5),
+               "t" => call("store", true)
+             }
+    end
+
+    test "the arguments are a copy: a change after the call does not reach the object",
+         %{executable: exe} do
+      source = """
+      return function()
+        local t = {x = 1, list = {1, 2}}
+        local r = bindings.fetch(t)
+        t.x = 2
+        t.list[1] = 99
+        t.extra = true
+        r.arguments.x = 5
+        r.arguments.list[2] = 7
+        return {r = r, t = t}
+      end
+      """
+
+      assert {:ok, %{value: value}} = data(exe, source)
+
+      assert value == %{
+               "r" => call("fetch", %{"x" => 5, "list" => [1, 7]}),
+               "t" => %{"x" => 2, "list" => [99, 2], "extra" => true}
+             }
+
+      # a copy that is not shared: two calls on one table give two tables
+      shared = """
+      return function()
+        local t = {x = 1}
+        local a = bindings.fetch(t)
+        local b = bindings.fetch(t)
+        a.arguments.x = 2
+        return {a = a, b = b, same = a.arguments == b.arguments, t = t}
+      end
+      """
+
+      assert {:ok, %{value: value}} = data(exe, shared)
+
+      assert value == %{
+               "a" => call("fetch", %{"x" => 2}),
+               "b" => call("fetch", %{"x" => 1}),
+               "same" => false,
+               "t" => %{"x" => 1}
+             }
+    end
+
+    test "1,000 calls in a loop record nothing and the reply holds only the value",
+         %{executable: exe} do
+      source = """
+      return function()
+        local last
+        for i = 1, 1000 do last = bindings.fetch(i) end
+        return last
+      end
+      """
+
+      first = data(exe, source)
+      assert {:ok, reply} = first
+      assert reply.value == call("fetch", 1000)
+      assert Enum.sort(Map.keys(reply)) == [:identity, :runtime, :value]
+      assert data(exe, source) == first
+    end
+
+    test "bindings.unknown is unlisted_name, called or not and inside pcall", %{executable: exe} do
+      for source <- [
+            "return function() return bindings.unknown end",
+            "return function() return bindings.unknown(1) end",
+            "return function() local ok = pcall(function() return bindings.unknown end) return 1 end",
+            "return function() local ok = pcall(function() return bindings.unknown(1) end) return 1 end",
+            "return function() local ok = pcall(bindings.unknown, 1) return 1 end",
+            "return function() return bindings.Fetch end",
+            "return function() return bindings[1] end"
+          ] do
+        assert data(exe, source) == {:refused, :unlisted_name}, source
+      end
+    end
+
+    test "a wrong argument count or a non-plain argument is an error that pcall catches",
+         %{executable: exe} do
+      count = "bindings: expected one value"
+      plain = "bindings: value is not plain data"
+
+      cases = [
+        {"pcall(bindings.fetch)", count},
+        {"pcall(bindings.fetch, 1, 2)", count},
+        {"pcall(bindings.fetch, nil, nil)", count},
+        # called from Lua, the message carries the position of the caller
+        {"pcall(function() return bindings.fetch() end)", "lua:1: " <> count},
+        {"pcall(bindings.fetch, function() end)", plain},
+        {"pcall(bindings.fetch, {f = function() end})", plain},
+        {"pcall(bindings.fetch, (function() local t = {} t.t = t return t end)())", plain},
+        {"pcall(bindings.fetch, {1, a = 2})", plain},
+        {"pcall(bindings.fetch, {[1] = 1, [3] = 3})", plain},
+        {"pcall(bindings.fetch, {[0] = 1})", plain},
+        {"pcall(bindings.fetch, 0 / 0)", plain},
+        {"pcall(bindings.fetch, 1 / 0)", plain},
+        {"pcall(bindings.fetch, -1 / 0)", plain},
+        {"pcall(bindings.fetch, (function() local t = 1 for i = 1, 33 do t = {t} end return t end)())",
+         plain}
+      ]
+
+      for {call, message} <- cases do
+        source = "return function() local ok, msg = #{call} return {ok, msg, \"marker\"} end"
+        assert data(exe, source) == data_ok([false, message, "marker"], exe), call
+      end
+
+      # a good call after the errors still works, and 32 nested containers are plain data
+      source = """
+      return function()
+        pcall(bindings.fetch)
+        pcall(bindings.fetch, 1, 2)
+        local t = 1
+        for i = 1, 32 do t = {t} end
+        local ok = pcall(bindings.fetch, t)
+        return {ok, bindings.store(2)}
+      end
+      """
+
+      assert {:ok, %{value: [true, value]}} = data(exe, source)
+      assert value == call("store", 2)
+    end
+
+    # The reply that a source with no binding object gets for this value.
+    defp data_ok(value, exe) do
+      assert {:ok, reply} = Helper.run(exe, "return function() return nil end")
+      {:ok, %{reply | value: value}}
+    end
+
+    test "an argument over value_bytes is the value_size stop and pcall does not continue",
+         %{executable: exe} do
+      limits = %{value_bytes: 100}
+      # the canonical JSON of a binary is its length plus two quotes
+      over =
+        "return function() local ok = pcall(bindings.fetch, string.rep('x', 99)) return 'marker' end"
+
+      direct = "return function() return bindings.fetch(string.rep('x', 99)) end"
+
+      table =
+        "return function() local ok = pcall(bindings.fetch, {k = string.rep('x', 96)}) return 'marker' end"
+
+      for source <- [over, direct, table] do
+        assert data(exe, source, nil, limits) == {:refused, :value_size}, source
+      end
+
+      # at the bound the call goes through (the object is not returned: it is larger)
+      fits = "return function() local r = bindings.fetch(string.rep('x', 98)) return 1 end"
+      assert {:ok, %{value: 1}} = data(exe, fits, nil, limits)
+    end
+
+    test "each byte of the argument and of the returned value costs one step",
+         %{executable: exe} do
+      source = "return function(s) local r = bindings.fetch(s) return 1 end"
+      small = String.duplicate("x", 10)
+      large = String.duplicate("x", 2_010)
+
+      least_small = least_steps(exe, source, small)
+      least_large = least_steps(exe, source, large)
+
+      # 2,000 more bytes: one step each for the argument and one each for the returned object
+      assert least_large - least_small == 4_000
+
+      # the budget that is enough for the small argument is not for the large one
+      assert {:ok, %{value: 1}} = data(exe, source, small, %{steps: least_small})
+      assert data(exe, source, small, %{steps: least_small - 1}) == {:refused, :steps}
+      assert data(exe, source, large, %{steps: least_small}) == {:refused, :steps}
+      assert {:ok, %{value: 1}} = data(exe, source, large, %{steps: least_large})
+      assert data(exe, source, large, %{steps: least_large - 1}) == {:refused, :steps}
+
+      # reached while the argument is charged, inside pcall: still the sticky steps stop
+      caught = "return function(s) local ok = pcall(bindings.fetch, s) return 'marker' end"
+      assert data(exe, caught, large, %{steps: 1_000}) == {:refused, :steps}
+    end
+
+    test "a source that assigns bindings.fetch uses its own value, the next run has the binding",
+         %{executable: exe} do
+      own = """
+      return function()
+        bindings.fetch = function(x) return "own" end
+        return bindings.fetch(1)
+      end
+      """
+
+      assert {:ok, %{value: "own"}} = data(exe, own)
+
+      again = "return function() return bindings.fetch(1) end"
+      assert {:ok, %{value: value}} = data(exe, again)
+      assert value == call("fetch", 1)
+
+      # another name is untouched by the assignment, and a new field is the source's own
+      mixed = """
+      return function()
+        bindings.fetch = 1
+        bindings.extra = 2
+        return {bindings.fetch, bindings.extra, bindings.store(3)}
+      end
+      """
+
+      assert {:ok, %{value: [1, 2, value]}} = data(exe, mixed)
+      assert value == call("store", 3)
+    end
+
+    test "mode data with no names has a bindings table and every field is unlisted_name",
+         %{executable: exe} do
+      none = %{mode: "data", names: [], recorded: []}
+
+      assert {:ok, %{value: "table"}} =
+               data(exe, "return function() return type(bindings) end", nil, %{}, none)
+
+      assert data(exe, "return function() return bindings.a end", nil, %{}, none) ==
+               {:refused, :unlisted_name}
+
+      assert data(exe, "return function() return bindings.a(1) end", nil, %{}, none) ==
+               {:refused, :unlisted_name}
+    end
+  end
 end
