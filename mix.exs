@@ -104,7 +104,12 @@ defmodule Elzoo.MixProject do
       # rejected: it is @moduledoc false (not public API) and carries no
       # ambiguity semantics for the DST contract.
       {:crontab, "== 1.2.1"},
-      {:tz, "== 0.28.4"}
+      {:tz, "== 0.28.4"},
+      # ELZ-176 provider prerequisite for the RC-67 skill frontmatter reader:
+      # yaml_elixir (MIT) is the call surface; yamerl (BSD-2-Clause) is named
+      # and pinned because it is the parser that decides what a document means.
+      {:yaml_elixir, "== 2.12.2"},
+      {:yamerl, "== 0.10.0"}
     ]
   end
 
