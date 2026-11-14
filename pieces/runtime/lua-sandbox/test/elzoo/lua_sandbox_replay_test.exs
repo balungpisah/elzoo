@@ -17,6 +17,12 @@ defmodule Elzoo.LuaSandboxReplayTest do
   the host itself, before it creates a Lua state); two builds of the same bytes have equal
   runtime identity maps.
 
+  Group `replay_and_survival_with_helpers`: the same shape with sources that use each of the
+  ten helpers (policy version 2): a list of pure cases and deterministic refusals, 20 fresh
+  calls and two fresh BEAM processes with the same mechanism; after each adverse case with a
+  helper the owning BEAM is alive, no child remains and a next valid call that uses a helper
+  succeeds.
+
   Survival: after each adverse case of groups 2 to 5 the owning BEAM is alive, no child of
   the executable remains (`pgrep -f` on a unique path, `kill -0` on the observed pid) and a
   following valid call returns 42. A caller killed while its child runs leaves no live
@@ -369,7 +375,7 @@ defmodule Elzoo.LuaSandboxReplayTest do
 
       # a changed descriptor is a changed identity
       %{descriptor: descriptor, identity: identity} = LuaSandbox.policy()
-      changed = put_in(descriptor, ["helpers"], ["json.encode"])
+      changed = put_in(descriptor, ["helpers"], tl(descriptor["helpers"]))
       refute LuaSandbox.Descriptor.identity(changed) == identity
     end
 
@@ -469,6 +475,213 @@ defmodule Elzoo.LuaSandboxReplayTest do
       assert first_runtime.build_options =~ "-Dluai_makeseed(L)=0x4c5a5eedu"
       assert first_runtime.build_options =~ "-Dl_randomizePivot()=0u"
       assert first_runtime.lua_release == "Lua 5.4.9"
+    end
+  end
+
+  # ---- group `replay_and_survival_with_helpers` ----
+
+  # {name, source, input, limits}: pure cases that use each helper, combinations, and
+  # deterministic refusals (a value or the same refusal in every call and every BEAM)
+  defp helper_cases do
+    [
+      {"null", fun("return {helpers.null, 1, helpers.null == helpers.null}"), nil, %{}},
+      {"object", fun("local o = helpers.object() return {o, helpers.json_encode(o)}"), nil, %{}},
+      {"object filled", fun("local o = helpers.object() o.b = 2 o.a = {1, 2} return o"), nil, %{}},
+      {"json_encode scalars",
+       fun(
+         ~S|return {helpers.json_encode(1), helpers.json_encode(1.5), helpers.json_encode('a"b\n'), helpers.json_encode(true), helpers.json_encode(helpers.null), helpers.json_encode({}), helpers.json_encode({b = 1, a = {1, 2}})}|
+       ), nil, %{}},
+      {"json_decode document",
+       fun(~S|return helpers.json_decode('{"a":[1,2.5,"x",null,true],"b":{"c":{}}}')|), nil, %{}},
+      {"json_decode empty containers",
+       fun("return {helpers.json_decode('{}'), helpers.json_decode('[]')}"), nil, %{}},
+      {"json_decode of the input", "return function(x) return helpers.json_decode(x) end",
+       ~s({"k":[1,2,3],"s":"é"}), %{}},
+      {"json round trip",
+       fun(
+         ~S|local v = helpers.json_decode('{"z":[1,{"y":null}],"a":"t"}') return helpers.json_encode(v)|
+       ), nil, %{}},
+      {"text_trim", fun(~S|return {helpers.text_trim(" \t\r\n\f\va b\n "), helpers.text_trim("")}|),
+       nil, %{}},
+      {"text_split",
+       fun(~S|return {helpers.text_split(",a,,b,", ","), helpers.text_split("x", "yy")}|), nil,
+       %{}},
+      {"text_utf8_len", fun(~S|return {helpers.text_utf8_len("aé€😀"), helpers.text_utf8_len("")}|),
+       nil, %{}},
+      {"time_parts", fun("return helpers.time_parts(951782400000)"), nil, %{}},
+      {"time_unix_ms",
+       fun(
+         "return helpers.time_unix_ms({year = 2100, month = 3, day = 1, hour = 0, minute = 0, second = 0, millisecond = 0})"
+       ), nil, %{}},
+      {"time_iso8601",
+       fun("return {helpers.time_iso8601(0), helpers.time_iso8601(253402300799999)}"), nil, %{}},
+      {"time of the input", "return function(x) return helpers.time_iso8601(x) end",
+       1_700_000_000_123, %{}},
+      {"split, trim and decode",
+       fun(
+         "local out = {} for i, p in ipairs(helpers.text_split(' 1 ,2, [3] ', ',')) do out[i] = helpers.json_decode(helpers.text_trim(p)) end return out"
+       ), nil, %{}},
+      {"encode the time parts", fun("return helpers.json_encode(helpers.time_parts(86400000))"),
+       nil, %{}},
+      {"decode the time parts, unix ms",
+       fun(
+         "return helpers.time_unix_ms(helpers.json_decode(helpers.json_encode(helpers.time_parts(1700000000123))))"
+       ), nil, %{}},
+      {"code points of an encoded text",
+       fun(~S|return helpers.text_utf8_len(helpers.json_decode(helpers.json_encode("é€😀")))|), nil,
+       %{}},
+      {"split of an encoded array",
+       fun("return helpers.text_split(helpers.json_encode({1, 2, 3}), ',')"), nil, %{}},
+      {"sorted time parts",
+       fun(
+         "local t = {} for i = 1, 40 do t[i] = helpers.time_parts(i * 86400000 * 37) end table.sort(t, function(a, b) return a.weekday < b.weekday end) local r = {} for i = 1, 40 do r[i] = t[i].weekday end return r"
+       ), nil, %{}},
+      # deterministic refusals
+      {"json_encode of a function, caught by pcall",
+       fun("local ok, e = pcall(helpers.json_encode, type) return {ok, e}"), nil, %{}},
+      {"time_parts error, caught by pcall",
+       fun("local ok, e = pcall(helpers.time_parts, -1) return {ok, e}"), nil, %{}},
+      {"text_split with an empty separator, uncaught", fun("return helpers.text_split('abc', '')"),
+       nil, %{}},
+      {"json_decode of invalid JSON, uncaught", fun("return helpers.json_decode('{')"), nil, %{}},
+      {"time_unix_ms of an unreal date, uncaught",
+       fun(
+         "return helpers.time_unix_ms({year = 2100, month = 2, day = 29, hour = 0, minute = 0, second = 0, millisecond = 0})"
+       ), nil, %{}},
+      {"steps: a split under a small limit",
+       fun(~S|return helpers.text_split(string.rep(",", 65536), ",")|), nil, %{steps: 10_000}},
+      {"value_size: an encode over value_bytes",
+       fun(
+         ~S|local t = {} for i = 1, 40 do t[i] = "abcdefghij" end return #helpers.json_encode(t)|
+       ), nil, %{value_bytes: 200}},
+      {"value_size: time_iso8601 under 24 bytes", fun("return #helpers.time_iso8601(0)"), nil,
+       %{value_bytes: 23}},
+      {"unlisted_name: helpers.x", fun("return helpers.x"), nil, %{}},
+      {"unlisted_name: helpers.json", fun("return pcall(function() return helpers.json end)"), nil,
+       %{}}
+    ]
+  end
+
+  # {label, source, input, limits, expected} of the adverse cases with a helper
+  defp helper_adverse_cases do
+    deep = ~S|string.rep("[", 32) .. string.rep("]", 32)|
+    bomb = ~S|"[" .. string.rep("{},", 20000) .. "{}]"|
+
+    [
+      {"decode memory bomb", fun("return #helpers.json_decode(#{bomb})"), nil,
+       %{memory_bytes: 300_000}, {:host_outcome, :memory}},
+      {"deep json_decode loop", fun("local d = #{deep} while true do helpers.json_decode(d) end"),
+       nil, %{}, {:refused, :steps}},
+      {"steps stop inside a helper inside pcall",
+       fun(~S|pcall(helpers.text_split, string.rep(",", 65536), ",") return "after"|), nil,
+       %{steps: 10_000}, {:refused, :steps}},
+      {"value_size stop in json_encode",
+       fun(
+         ~S|local t = {} for i = 1, 40 do t[i] = "abcdefghij" end pcall(helpers.json_encode, t) return "after"|
+       ), nil, %{value_bytes: 200}, {:refused, :value_size}},
+      {"invalid UTF-8 decode, uncaught", fun(~S|return helpers.json_decode('"' .. "\xff" .. '"')|),
+       nil, %{}, {:refused, :lua_error}},
+      {"time_parts out of range, uncaught", fun("return helpers.time_parts(253402300800000)"), nil,
+       %{}, {:refused, :lua_error}},
+      {"helpers.x", fun("return helpers.x"), nil, %{}, {:refused, :unlisted_name}}
+    ]
+  end
+
+  describe "replay_and_survival_with_helpers: replay" do
+    test "20 fresh calls of each helper case return one encoded term", %{executable: exe} do
+      for {name, _, _, _} = replay <- helper_cases() do
+        first = run_case(exe, replay)
+        encoded = :erlang.term_to_binary(first, [:deterministic])
+
+        for call <- 2..20 do
+          again = :erlang.term_to_binary(run_case(exe, replay), [:deterministic])
+          assert again == encoded, "#{name}: call #{call} differs from the first"
+        end
+      end
+    end
+
+    test "the cases are what they claim to be", %{executable: exe} do
+      by_name = Map.new(helper_cases(), fn {name, _, _, _} = r -> {name, run_case(exe, r)} end)
+
+      assert {:ok, %{value: [nil, 1, true]}} = by_name["null"]
+      assert {:ok, %{value: [%{}, "{}"]}} = by_name["object"]
+      assert {:ok, %{value: %{"a" => [1, 2], "b" => 2}}} = by_name["object filled"]
+      assert {:ok, %{value: %{"k" => [1, 2, 3], "s" => "é"}}} = by_name["json_decode of the input"]
+      assert {:ok, %{value: [%{}, []]}} = by_name["json_decode empty containers"]
+      assert {:ok, %{value: ~s({"a":"t","z":[1,{"y":null}]})}} = by_name["json round trip"]
+
+      assert {:ok, %{value: [["", "a", "", "b", ""], ["x"]]}} = by_name["text_split"]
+      assert {:ok, %{value: ["a b", ""]}} = by_name["text_trim"]
+      assert {:ok, %{value: [4, 0]}} = by_name["text_utf8_len"]
+      assert {:ok, %{value: 4_107_542_400_000}} = by_name["time_unix_ms"]
+
+      assert {:ok, %{value: ["1970-01-01T00:00:00.000Z", "9999-12-31T23:59:59.999Z"]}} =
+               by_name["time_iso8601"]
+
+      assert {:ok, %{value: "2023-11-14T22:13:20.123Z"}} = by_name["time of the input"]
+      assert {:ok, %{value: 1_700_000_000_123}} = by_name["decode the time parts, unix ms"]
+      assert {:ok, %{value: [1, 2, [3]]}} = by_name["split, trim and decode"]
+
+      assert {:ok, %{value: [false, "helpers.json_encode: value is not plain data"]}} =
+               by_name["json_encode of a function, caught by pcall"]
+
+      assert {:refused, :lua_error} = by_name["text_split with an empty separator, uncaught"]
+      assert {:refused, :lua_error} = by_name["json_decode of invalid JSON, uncaught"]
+      assert {:refused, :lua_error} = by_name["time_unix_ms of an unreal date, uncaught"]
+      assert {:refused, :steps} = by_name["steps: a split under a small limit"]
+      assert {:refused, :value_size} = by_name["value_size: an encode over value_bytes"]
+      assert {:refused, :value_size} = by_name["value_size: time_iso8601 under 24 bytes"]
+      assert {:refused, :unlisted_name} = by_name["unlisted_name: helpers.x"]
+      assert {:refused, :unlisted_name} = by_name["unlisted_name: helpers.json"]
+    end
+
+    test "two fresh BEAM processes return the same encoded terms", %{
+      executable: exe,
+      directory: directory
+    } do
+      cases = helper_cases()
+      parent = for {name, _, _, _} = c <- cases, do: {name, run_case(exe, c)}
+
+      tasks =
+        for label <- ["helpers-a", "helpers-b"] do
+          Task.async(fn -> other_beam!(exe, cases, directory, label) end)
+        end
+
+      [first, second] = Task.await_many(tasks, 120_000)
+
+      assert length(first) == length(cases)
+
+      assert :erlang.term_to_binary(first, [:deterministic]) ==
+               :erlang.term_to_binary(second, [:deterministic])
+
+      for {{name, mine}, {name, theirs}} <- Enum.zip(parent, first) do
+        assert :erlang.term_to_binary(mine, [:deterministic]) ==
+                 :erlang.term_to_binary(theirs, [:deterministic]),
+               "#{name}: this process and a fresh BEAM disagree"
+      end
+    end
+  end
+
+  describe "replay_and_survival_with_helpers: survival" do
+    test "after each adverse case with a helper the child is reaped and the next call works", %{
+      executable: exe,
+      directory: directory
+    } do
+      unique = Helper.unique_exe!(exe, directory, "survival-helpers")
+      next = fun("return helpers.text_utf8_len('aé€') + helpers.time_parts(0).weekday")
+
+      for {label, source, input, limits, expected} <- helper_adverse_cases() do
+        assert Helper.run(unique, source, input, limits) == expected, label
+
+        assert Process.alive?(self())
+        assert Helper.pids(unique) == [], "#{label}: a child of the executable is still alive"
+
+        assert {:ok, %{value: 7}} = Helper.run(unique, next),
+               "#{label}: the next helper call failed"
+
+        assert Helper.pids(unique) == []
+        assert_survived(unique, label)
+      end
     end
   end
 

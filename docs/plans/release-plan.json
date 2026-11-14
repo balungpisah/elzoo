@@ -4360,29 +4360,20 @@
       "kind": "proposal",
       "release": "V1B",
       "stage": "pieces",
-      "outputs": [
-        "runtime/lua-stdlib"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "ELZ-160",
         "ELZ-163",
         "ELZ-174"
       ],
-      "status": "sandbox published as ELZ-163; the helper set is published as ELZ-174, inside runtime/lua-sandbox; the runtime/lua-stdlib row is removed when ELZ-174 merges",
+      "status": "all portions published: ELZ-163 sandbox and ELZ-174 helper set, inside runtime/lua-sandbox",
       "contract": "Run Lua source with hard limits on steps, memory, call depth and value size, and with no file, network, clock, random or process access unless a function is given explicitly. Two uses: load a recipe file one time and return plain data; run a small pure function during a Run, where the same input gives the same output. Inside a Run only a limit that the runtime counts deterministically (steps, call depth, value size, and memory only if it is counted for each allocation inside the runtime) decides a result; each of a wall-time stop and a memory stop that depends on garbage-collection timing is a host outcome that is recorded as an input and never computed again on replay. The capability policy is an allow-list with a version identity: by any path (a global, the environment table, a function or a table of functions that a listed function returns, a method or a metatable of a value), a source reaches the runtime function behind a name only if the policy lists that name; a use of an unlisted name ends in the outcome that the admission fixes and never reaches a runtime function. A function that a listed function returns without a name of its own, such as the iterator of ipairs, is covered by the listing of that function. The policy lists the only library names that a source can use. Owner decision (option A), 2026-11-14: ELZ-163 policy version 1 is helper-free and refuses every helper name as unlisted_name, an exception to the every-policy-version helper requirement; runtime/lua-stdlib adds the safe JSON/text/time helper set as the next policy version. RC-62 and RC-66 depend on lua-stdlib and never use helper-free version 1. The policy, not the standard library of the chosen runtime, is the contract toward the author of a source. A source cannot catch a limit stop: a step, memory, call-depth, value-size or wall-time stop ends the evaluation.",
       "acceptance": "Provider-fit probe first: an infinite loop, deep recursion, a large allocation and a string bomb end in a named refusal within the bound; each escape path of the library surface of the candidate runtime (load, require, os, io, debug, metatables on shared values) never reaches a runtime function and ends in the outcome that the admission fixes for an unlisted name; the host process survives each case. The same pure function and input give the same output across runs and restarts when a limit that the runtime counts deterministically decides. Returned data is plain: no function or reference leaks. Errors carry no host paths. Against the allow-list: for each candidate the probe records the names that a source reaches by each path of the contract, found from inside the sandbox, from the host side through the interface of the runtime (the environment table and each shared metatable) and by probing a fixed list of standard-library names through values, and each difference from the policy; the chosen runtime reaches exactly the policy on all three; for each catching function that the runtime supplies (pcall, xpcall, coroutine.resume, coroutine.wrap), the probe shows that it is not reachable or that a source that uses it does not continue after a step, memory, call-depth, value-size or wall-time stop.",
       "reuse": "Owner decision, 2026-11-14: use reference PUC Lua 5.4.9 outside the VM over a Port with a small C host, following the completed ELZ-159 fit record. ELZ-160 is the separate provider prerequisite: mix.exs, mix.lock, registry/providers.json, the dependency register and a narrow runtime adoption check with full local and hosted checks. The official mirror commit is accepted for its byte-identical library sources; the absent luac.c is not needed. No Lua provider is adopted by this publication. runtime/os-isolation is not security isolation (its README). Author only the limit and capability policy in the later Piece task, using ELZ-159's policy answers as admission input; those answers are not finalized by ELZ-160. A fork follows docs/development/08-upstream-and-forks.md and is not assumed. The alternative in-VM path still requires the explicit exception decision and named integration test of docs/architecture.md (OTP lifecycle and isolation); the owner selected the outside-VM path.",
-      "paths": [
-        "pieces/runtime/lua-stdlib/"
-      ],
+      "paths": [],
       "blockers": [
-        "Remaining lua-stdlib portion is not published; admit its exact helper API, Needs, failure cases, evidence and next policy version before assigning an ELZ ID.",
-        "Sandbox ownership moves to ELZ-163. Owner decision (option A), 2026-11-14: helper-free policy version 1 refuses all helper names as unlisted_name; runtime/lua-stdlib adds safe JSON/text/time helpers as the next policy version. RC-62 and RC-66 retain their dependency on this remaining lua-stdlib portion, so recipes never use helper-free version 1.",
-        "A step limit must be enforceable inside the runtime; if no candidate supports it without a fork, stop and report.",
-        "Only one provider-adoption task edits mix.exs, mix.lock and registry/providers.json at a time.",
-        "ELZ-163 fixes the helper-free base allow-list, policy-v1:sha256: identity, unlisted_name refusal and sticky pcall stops. lua-stdlib must version its helper additions separately. Caller module bindings and their schemas/replay classification remain RC-62 work.",
-        "The probe records, for a source that uses only policy names, each difference that it observes between candidates and across restarts, including table traversal order, tostring of tables and functions, error message text, the length of a table with holes, number formatting, integer and float arithmetic and string patterns. Lua does not fix traversal order, and RC-62 replays a Lua tool by its recorded call order, so an order that changes fails a replay. The admission decides whether a difference narrows the policy, for example to an ordered traversal only."
+        "Both portions are published and merged: ELZ-163 sandbox and ELZ-174 helper set; the helper set is part of runtime/lua-sandbox."
       ],
       "owner_role": "one claimed task worker after admission",
       "product_aims": [
@@ -4432,10 +4423,7 @@
       "kind": "proposal",
       "release": "V1B",
       "stage": "pieces",
-      "outputs": [
-        "runtime/lua-binding",
-        "workflow/lua-tool"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "RC-60",
@@ -4444,9 +4432,12 @@
         "ELZ-136",
         "RC-61",
         "ELZ-114",
-        "ELZ-022"
+        "ELZ-022",
+        "ELZ-177",
+        "ELZ-178",
+        "ELZ-179"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "all portions published: ELZ-177 sandbox module calls, ELZ-178 lua-binding and ELZ-179 lua-tool",
       "contract": "Expose the declared functions of a module to Lua from a function manifest that this job defines: name, version, argument and result schema (RC-44), cost in a workflow/budget unit, and permissions. Bindings resolve against a list of manifests that the caller supplies; there is no run-time discovery. Arguments are checked before the call and results before return. At load time a binding call builds data and performs no Effect. A tool written in Lua is a pure sandboxed function with a schema. The registry (RC-52) resolves its name to a nested callable, and it runs through the nested-callable action of RC-68, not as one Effect: only a pattern step gives a request. workflow/lua-tool is that step. It asks for one local-work action that runs the function in the sandbox from the start, with the recorded module results replayed in call order. That run ends in a completed outcome whose payload is the final result or the first module call that has no recorded result. Each module function of the manifest list is an entry of the tool registry (RC-52) with an Adapter binding that the caller supplies. For a module call the step asks for one tool-call action by the registry alias of that function, keeps its recorded result, and asks for the run again. Sandbox state is never persisted.",
       "acceptance": "A wrong argument type or count is refused with the function and field named; a binding for a missing or wrong-version module is refused at load; no Effect happens at load time (a recording Adapter stays empty); a Lua tool that loops is cut by the sandbox bound and reports a tool failure; a Lua tool cannot reach a module that its recipe did not declare; a Lua tool with two module calls gives its two module-call actions one at a time, in order, each after a sandbox run, and the same final result after a restart between them; a replay whose call order differs from the record is an explicit failure.",
       "reuse": "RC-60, RC-44, RC-52 and the package declarations of RC-61; workflow/budget (ELZ-022) for the cost unit. The engine performs the sandbox run as local work through RC-47; this job needs only the RC-68 shape of that action and tests the step on recorded traces. runtime/faces (RC-04) is the operations face (config, control, readiness) and has no function manifest: it is not a prerequisite. docs/capability-model.md keeps run-time discovery out of the kernel. No code-generation framework is assumed.",
@@ -4455,7 +4446,8 @@
         "pieces/workflow/lua-tool/"
       ],
       "blockers": [
-        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID."
+        "All RC-62 portions are published: ELZ-177 (module calls in runtime/lua-sandbox, in place), ELZ-178 runtime/lua-binding and ELZ-179 workflow/lua-tool.",
+        "Coordinator decisions, 2026-11-14: the sandbox answers a binding call itself (data at load time, a replay of recorded results at run time), so there is no callback into the caller; a refused argument is located by the function name and the structural path of core/payload-schema, which hides member names, and no second validator is written; the ready engine has one binding for each action kind, so a Run that mixes patterns needs the engine to choose a binding by the schema of the action (a later task), and a nested child is wrapped by the host so that its finish has the form of its parent."
       ],
       "owner_role": "one claimed task worker after admission",
       "product_aims": [
@@ -5857,6 +5849,57 @@
       "issue": 392,
       "url": "https://github.com/balungpisah/elzoo/issues/392",
       "issue_body_sha256": "d1c7e44c0294e621063a2c9a9ce74a9b5a649dff4d79cefe1384a286a18ea3f2"
+    },
+    {
+      "id": "ELZ-177",
+      "title": "ELZ-177 — The Lua sandbox carries module calls as data and as a replay",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-163", "ELZ-174"],
+      "status": "published 2026-11-14",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-177-lua-sandbox-module-calls.md"],
+      "outputs": [],
+      "acceptance": "runtime/lua-sandbox, changed in place (same Piece ID), policy version 3: a request names up to 64 binding functions; at load time a call returns data that describes the call; at run time a call returns the result that the caller recorded for it, in order, a call with no record ends the run with a pending-call reply, and a call that differs from the record is call_mismatch. No callback into the caller and no state between runs. First portion of RC-62.",
+      "product_aims": ["P13"],
+      "issue": 396,
+      "url": "https://github.com/balungpisah/elzoo/issues/396",
+      "issue_body_sha256": "08faa66bfaa564de8fcd922f3baf3590c677db5c0e63dbe528e79e895ab777ce"
+    },
+    {
+      "id": "ELZ-178",
+      "title": "ELZ-178 — Declared module functions for Lua, with checked arguments and results",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-022", "ELZ-115", "ELZ-136"],
+      "status": "published 2026-11-14",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-178-lua-binding.md"],
+      "outputs": ["runtime/lua-binding"],
+      "acceptance": "Pure function manifests (name, version, argument and result schema of core/payload-schema, cost, permissions) and a resolution of the declaration of a recipe against the manifests that the caller supplies: a missing function, a wrong version and an invalid manifest are refused at load with the function named; arguments are checked before a call and results before return, located by the structural path of core/payload-schema; a content identity; the names for the sandbox and one tool-registry source. No call, no Lua, no discovery.",
+      "product_aims": ["P13"],
+      "issue": 397,
+      "url": "https://github.com/balungpisah/elzoo/issues/397",
+      "issue_body_sha256": "ed8eb3ef07254f901c658dd9176af7a6348d2ad7572b462ab48c09e5e1dd08d7"
+    },
+    {
+      "id": "ELZ-179",
+      "title": "ELZ-179 — A tool written in Lua, as one pure pattern step",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-002", "ELZ-114", "ELZ-136", "ELZ-177", "ELZ-178"],
+      "status": "published 2026-11-14",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-179-lua-tool.md"],
+      "outputs": ["workflow/lua-tool"],
+      "acceptance": "Pure pattern step for a tool written in Lua: one local-work action runs the function in the sandbox from the start with the recorded module results; a pending call becomes one tool-call action by the registry alias after its arguments pass the binding check; its checked result is recorded and the run is asked for again; a call order that differs from the record, a sandbox stop and a module call that did not complete are explicit failures; no action is asked for twice and sandbox state is never kept. Tested on recorded traces.",
+      "product_aims": ["P13"],
+      "issue": 398,
+      "url": "https://github.com/balungpisah/elzoo/issues/398",
+      "issue_body_sha256": "a24e7d0ace57d8b4a55a04dbbf3a9a003ae7c91ef1c9b54b1acda0340443bf57"
     }
   ],
   "entries": [
@@ -7082,20 +7125,12 @@
     {
       "id": "runtime/lua-sandbox",
       "job": "ELZ-163",
-      "note": "Evaluate one pure Lua function of one plain input in a fresh PUC Lua 5.4.9 process outside the VM, started by a caller-held OTP Port from an executable that build/2 compiles from the installed pinned lua_source checkout and an owned C host, over length-framed JSON (unsigned 32-bit little-endian length, at most 1,048,576 bytes) under helper-free policy version 1, whose fixed allow-list has a canonical identity and refuses every other name as unlisted_name; exact positive limits on counted steps, call depth, value bytes, live Lua memory and wall time apply, and a step, depth, size or unlisted-name stop is sticky and cannot be caught or continued from Lua; input and result are plain data (null sentinel, booleans, UTF-8 strings, signed 64-bit integers, finite floats, dense arrays, string-keyed maps, at most 32 nested containers), a refusal is a fixed atom, memory, wall time, abnormal exit and protocol failure are recorded host outcomes, and the child is reaped on every return path including the death of the caller.",
+      "note": "Evaluate one pure Lua function of one plain input in a fresh PUC Lua 5.4.9 process outside the VM, started by a caller-held OTP Port from an executable that build/2 compiles from the installed pinned lua_source checkout and an owned C host, over length-framed JSON (unsigned 32-bit little-endian length, at most 1,048,576 bytes) under capability policy version 2, whose fixed allow-list of names and safe helper set (ten C helpers under the global helpers, each version 1, for JSON null and empty object, canonical JSON encode and decode, ASCII trim, plain split, UTF-8 code-point count and UTC time values that the caller passes in) has a canonical identity and refuses every other name as unlisted_name; helpers charge counted steps for their work and their limits are the same sticky stops; exact positive limits on counted steps, call depth, value bytes, live Lua memory and wall time apply, and a step, depth, size or unlisted-name stop is sticky and cannot be caught or continued from Lua; input and result are plain data (null sentinel, booleans, UTF-8 strings, signed 64-bit integers, finite floats, dense arrays, string-keyed maps, at most 32 nested containers), a refusal is a fixed atom, memory, wall time, abnormal exit and protocol failure are recorded host outcomes, and the child is reaped on every return path including the death of the caller.",
       "baseline_status": "not in baseline (new row, RC-60)",
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/runtime/lua-sandbox/piece.json",
-      "manifest_sha256": "3d620abdb3d9917fa21d02b88fa8748a6b66c1e239b406165d7bdbd66fcd9310"
-    },
-    {
-      "id": "runtime/lua-stdlib",
-      "job": "RC-60",
-      "note": "Bot platform wave 3 (P13). JSON and text helpers and time values passed in. Nothing else is reachable from the sandbox.",
-      "baseline_status": "not in baseline (new row, RC-60)",
-      "disposition": "blocked-admission-proposal",
-      "catalogue_reference": "registry/catalogue.json"
+      "manifest_sha256": "e8e521d89caaf7f7c33d53fca90f15bab107e6d4dfd927ffe4d57b1bce8f9648"
     },
     {
       "id": "domain/recipe-graph",
@@ -7129,18 +7164,18 @@
     },
     {
       "id": "runtime/lua-binding",
-      "job": "RC-62",
-      "note": "Bot platform wave 3 (P13). Built from a function manifest that this Piece defines and the caller supplies; no run-time discovery. A binding call at load time builds data and performs no Effect.",
+      "job": "ELZ-178",
+      "note": "Pure function manifests and their resolution against a declaration of a recipe; arguments checked before a call and results before return; the names for the sandbox and one tool-registry source. No call and no discovery.",
       "baseline_status": "not in baseline (new row, RC-62)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "published-task; implementation pending",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
       "id": "workflow/lua-tool",
-      "job": "RC-62",
-      "note": "Bot platform wave 3 (P13). Registered like any other tool. Each module call becomes a request for the engine, and the tool runs again from the start with the recorded results; sandbox state is never persisted.",
+      "job": "ELZ-179",
+      "note": "Pure pattern step for a tool written in Lua: sandbox runs from the start with recorded module results, one tool-call action for each pending module call, explicit failure on a call order that differs from the record.",
       "baseline_status": "not in baseline (new row, RC-62)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "published-task; implementation pending",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
