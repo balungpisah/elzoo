@@ -1,0 +1,36 @@
+# SPDX-License-Identifier: Apache-2.0
+mod Elzoo.GraphRun
+  type Left = LeftOpen | LeftDone | LeftSkipped
+  type NodeState = NodePending | NodeLeft(Left)
+  type Move = MoveHold | MoveStart | MoveSkip
+
+  # The transition of one node state. decided: every incoming link of the node is live,
+  # dead or void; ready: the readiness rule holds over those links; seat: fewer than
+  # max_open actions are open. Only a pending node moves: it starts, is skipped, or waits.
+  @total true
+  @reducible
+  fn move(state: NodeState, decided: Bool, ready: Bool, seat: Bool) -> Move =
+    match state
+      NodeLeft(_) -> MoveHold()
+      NodePending() ->
+        match decided
+          False() -> MoveHold()
+          True() ->
+            match ready
+              False() -> MoveSkip()
+              True() ->
+                match seat
+                  True() -> MoveStart()
+                  False() -> MoveHold()
+
+  @total true
+  @reducible
+  fn starts(decision: Move) -> Bool =
+    match decision
+      MoveStart() -> True()
+      _ -> False()
+
+  # A node that is open, done or skipped gets no start, whatever the three Booleans are.
+  fn left_pending_never_starts(left: Left, decided: Bool, ready: Bool, seat: Bool) -> Equivalent(Bool, starts(move(NodeLeft(left), decided, ready, seat)), False()) =
+    reflexive(False())
+end

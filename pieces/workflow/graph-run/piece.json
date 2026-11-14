@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "id": "workflow/graph-run",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["cure", "elixir"],
+  "dependencies": [
+    "domain/recipe-graph",
+    "workflow/pattern-step",
+    "workflow/node-outcome",
+    "workflow/tool-registry"
+  ],
+  "contract": "Pure pattern step for one graph callable: needs, gives and links set the order, a join does not wait for a skipped branch, map and loop are bounded, each outcome follows its link or fails the Run, and a settled node never runs again.",
+  "limits": [
+    "One graph callable and one recorded input at a time; fixed bounds of 64 open actions, 64 concurrent map items, 256 items or iterations and 65,536 bytes of state; the reasons are fixed atoms and no input fragment appears in an error.",
+    "No retry, timeout rule, engine code, agent or decision logic, Lua, budget or authority check, person verification, schema validation of arguments or inputs, clock, I/O, process or storage.",
+    "Results in a different arrival order give the same set of actions and the same finish except the action_id of the finish, which names the completed action that settled last; a nested graph is another instance of this step that the host binds."
+  ],
+  "files": [
+    "cure/elzoo/graph_run.cure",
+    "examples/elzoo/graph_run.exs",
+    "lib/elzoo/graph_run.ex",
+    "test/elzoo/graph_run_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/graph_run.cure",
+      "symbol": "left_pending_never_starts",
+      "claim": "The production node transition gives no start to a node that is open, done or skipped, for each value of the three Boolean operands; excludes the derivation of those operands from the links, and the items of a map and the iterations of a loop."
+    },
+    {
+      "kind": "type",
+      "file": "cure/elzoo/graph_run.cure",
+      "claim": "The pinned Cure compiler checks the total pure transition over four node states and three Booleans, its three-member result type and the named law."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/graph_run_test.exs",
+      "claim": "Listed scenarios of the groups needs_and_gives_only, decision_branch_and_join, map_bounds_and_part_failure, loop_bounded, each_outcome_link, missing_outcome_link_fails_run, settled_node_never_runs_again, arrival_order, nested_graph_gets_only_its_input and new_refusals_and_closed pass, with two negative controls; finite tests, not a universal proof."
+    },
+    {
+      "kind": "upstream",
+      "provider": "cure",
+      "reference": "https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89",
+      "claim": "Relies on pinned Cure compilation, Boolean decisions and equality checking; compiler soundness is not locally proved."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The engine records each input before the step reads it, keeps the Run-wide id unique, binds each nested callable to the recipe it came from, and checks payload, budget, authority and approval for each action; the recipe has no need named item, index, iteration or previous on a map or loop node."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "Pure step emits no observations; the engine owns instrumentation."
+    },
+    "config": {
+      "status": "not_applicable",
+      "contract": "Intrinsic spec operands and fixed bounds; no ambient settings."
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No independent process, lifecycle or operational commands; cancel and run_ended are pattern inputs."
+    }
+  }
+}
