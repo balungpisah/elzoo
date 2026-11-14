@@ -56,13 +56,22 @@ defmodule Elzoo.JobsTest do
     args = %{"v" => 1, "queue" => "q", "job_key" => "k"}
     {:ok, %Oban.Job{id: other_queue}} = Oban.insert(o, ForeignWorker.new(args, queue: "other_q"))
     {:ok, %Oban.Job{id: same_queue}} = Oban.insert(o, ForeignWorker.new(args, queue: "q"))
-    foreign = [other_queue, same_queue]
+
+    {:ok, %Oban.Job{id: own_worker_other_queue}} =
+      Oban.insert(o, Worker.new(args, queue: "other_q"))
+
+    foreign = [other_queue, same_queue, own_worker_other_queue]
 
     foreign_states = fn ->
       for id <- foreign, do: Jobs.state_by_id(o, id)
     end
 
-    available = [{:ok, {other_queue, "available"}}, {:ok, {same_queue, "available"}}]
+    available = [
+      {:ok, {other_queue, "available"}},
+      {:ok, {same_queue, "available"}},
+      {:ok, {own_worker_other_queue, "available"}}
+    ]
+
     assert foreign_states.() == available
 
     # no job of the Piece: the foreign jobs are not reported nor cancelled
