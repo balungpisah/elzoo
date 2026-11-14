@@ -624,4 +624,56 @@ defmodule Elzoo.DynamicUnitsTest do
     assert DynamicUnits.find(fresh.directory, "owned") == :not_found
     assert {:ok, _} = DynamicUnits.start(fresh.directory, "owned")
   end
+
+  defp timed_call(name, fun) do
+    observer = self()
+
+    spawn(fn ->
+      started = System.monotonic_time(:millisecond)
+      result = fun.()
+      send(observer, {:timed, name, result, System.monotonic_time(:millisecond) - started})
+    end)
+  end
+
+  test "DY8 start_waits_past_the_default and every_call_waits_behind_a_start", ctx do
+    p = pool(Map.put(ctx, :observer, self()))
+    d = p.directory
+    probe(%{callback: :block})
+    timed_call(:first, fn -> DynamicUnits.start(d, "held") end)
+    assert_receive {:starting, "held", controller}, 5_000
+    timed_call(:second, fn -> DynamicUnits.start(d, "held") end)
+    timed_call(:find, fn -> DynamicUnits.find(d, "other") end)
+    timed_call(:stop, fn -> DynamicUnits.stop(d, "other") end)
+    refute_receive {:timed, _, _, _}, 5_500
+    probe(%{callback: :ok})
+    send(controller, :continue)
+    assert_receive {:timed, :first, {:ok, pid}, first_ms}, 5_000
+    assert_receive {:timed, :second, {:ok, ^pid}, second_ms}, 5_000
+    assert_receive {:timed, :find, :not_found, find_ms}, 5_000
+    assert_receive {:timed, :stop, :ok, stop_ms}, 5_000
+    assert first_ms > 5_000
+    assert second_ms > 5_000
+    assert find_ms > 5_000
+    assert stop_ms > 5_000
+    assert {:ok, ^pid} = DynamicUnits.find(d, "held")
+    assert DynamicSupervisor.count_children(p.supervisor).active == 1
+    assert Registry.lookup(p.registry, "held") == [{pid, nil}]
+  end
+
+  test "DY9 route_wake_waits_past_the_default", ctx do
+    p = pool(Map.put(ctx, :observer, self()))
+    d = p.directory
+    probe(%{callback: :block})
+    timed_call(:route, fn -> DynamicUnits.route(d, "woken", {:durable_unit_input, "in", 4}) end)
+    assert_receive {:starting, "woken", controller}, 5_000
+    refute_receive {:timed, _, _, _}, 5_500
+    probe(%{callback: :ok})
+    send(controller, :continue)
+    assert_receive {:timed, :route, {:ok, :routed}, route_ms}, 5_000
+    assert route_ms > 5_000
+    {:ok, pid} = DynamicUnits.find(d, "woken")
+    assert_receive {:evaluated, ^pid, _, 4}, 1_000
+    refute_receive {:evaluated, _, _, _}, 100
+    assert DurableUnit.snapshot(pid) == 10
+  end
 end
