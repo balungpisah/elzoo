@@ -5992,8 +5992,8 @@
       "kind": "published",
       "release": "V1B",
       "stage": "pieces",
-      "dependencies": ["ELZ-033", "ELZ-169", "ELZ-177", "ELZ-178", "ELZ-179", "ELZ-180", "ELZ-181"],
-      "status": "published 2026-11-14",
+      "dependencies": ["ELZ-033", "ELZ-169", "ELZ-177", "ELZ-178", "ELZ-179", "ELZ-180", "ELZ-181", "ELZ-190"],
+      "status": "published 2026-11-14; amended 2026-11-14 (depends on the engine repair ELZ-190)",
       "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
       "paths": ["tasks/ELZ-183-recipe-test-lua-and-model-graph.md"],
       "outputs": [],
@@ -6001,7 +6001,7 @@
       "product_aims": ["P13"],
       "issue": 408,
       "url": "https://github.com/balungpisah/elzoo/issues/408",
-      "issue_body_sha256": "794b07814052b13241d615775908dbb9111a20d8212f3ba0ef3a620e9cf77240"
+      "issue_body_sha256": "cd79bb221f335948fe8206081399cb1c1244373c852dadd24a4e6d0a1883f3ba"
     },
     {
       "id": "ELZ-186",
@@ -6022,20 +6022,20 @@
     },
     {
       "id": "ELZ-187",
-      "title": "ELZ-187 — The 64-entry sizing test of assembly/run-engine does not depend on host load",
+      "title": "ELZ-187 — A call of assembly/run-engine waits long enough for an input at the bounds of the Piece",
       "kind": "published",
       "release": "V1B",
       "stage": "pieces",
       "dependencies": ["ELZ-033", "ELZ-180"],
-      "status": "published 2026-11-14",
+      "status": "published 2026-11-14; amended 2026-11-14 (fixed call limit after the measurement)",
       "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
       "paths": ["tasks/ELZ-187-run-engine-sizing-test.md"],
       "outputs": [],
-      "acceptance": "Repair for issue #334 on assembly/run-engine: the first input of the 64-entry sizing test is measured, avoidable repeated work is removed so that the call stays far inside the 5 s call limit alone and beside the Piece suite, with unchanged assertions, journal records, fingerprints and replies; a limit operand is not added, and a case that needs one stops for a coordinator decision.",
+      "acceptance": "Repair for issue #334 on assembly/run-engine, in place: input/4, control/4 and status/1 call the engine with one fixed limit of 60,000 ms, with no operand or option, because a measured input at the bounds of the Piece needs about 4.5 s; README and piece.json state the limit and what a caller knows after it; a certain test shows an input slower than 5 s; the sizing test and every engine record stay unchanged.",
       "product_aims": ["P13"],
       "issue": 415,
       "url": "https://github.com/balungpisah/elzoo/issues/415",
-      "issue_body_sha256": "9c788de1acc3daaafe95a9faea3cea40fabd5d1cb766ac106317f61b206e3b3b"
+      "issue_body_sha256": "9bc40113f7e218bf4808b2b47d3eb9ec69ecc592883049c14bf20bc8ec1972c9"
     },
     {
       "id": "ELZ-188",
@@ -6070,6 +6070,23 @@
       "issue": 423,
       "url": "https://github.com/balungpisah/elzoo/issues/423",
       "issue_body_sha256": "7faf31eb9cc99053a696964fc6d370d3eac9fd04c78bfc129a725c26f9aeb617"
+    },
+    {
+      "id": "ELZ-190",
+      "title": "ELZ-190 — A nested Run with a lost Effect still gives its finish to its parent",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-187"],
+      "status": "published 2026-11-14",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-190-run-engine-nested-lost-cost.md"],
+      "outputs": [],
+      "acceptance": "Repair of assembly/run-engine, in place: a closed nested child whose slots are all settled, with one or more costs that are final unknown (a lost Effect), gives its parent the kept finish by the existing rules with an unknown actual; the parent share stays reserved and unknown is never zero; known costs stay exact; no second outcome, no input or option added; shown by eight named groups and two negative controls.",
+      "product_aims": ["P13"],
+      "issue": 426,
+      "url": "https://github.com/balungpisah/elzoo/issues/426",
+      "issue_body_sha256": "193d356f52708f383b538bc66f13622e05b98088e338fa49f2c37738b294f900"
     }
   ],
   "entries": [
@@ -7145,11 +7162,11 @@
     {
       "id": "assembly/run-engine",
       "job": "ELZ-127",
-      "note": "One recorded pure pattern cycle and ordinary dispatcher per host Unit/Run: shared sealed request charge, the binding of each action chosen by its action kind and, for a schema map, its schema ID, schema/identity/committed host gate/Budget/authority/Approval checks, occurrence-first settlement, a nested callable's first admitted finish given to its parent, durable owner composition and explicit fail-stop recovery; charge exhaustion stops generation while retaining prior within-cap obligations, without new work or resend permission.",
+      "note": "One recorded pure pattern cycle and ordinary dispatcher per host Unit/Run: shared sealed request charge, the binding of each action chosen by its action kind and, for a schema map, its schema ID, schema/identity/committed host gate/Budget/authority/Approval checks, occurrence-first settlement, a nested callable's first admitted finish given to its parent once each child cost is known or final unknown (the committed child amount when all are known, no actual when one is final unknown), durable owner composition and explicit fail-stop recovery; charge exhaustion stops generation while retaining prior within-cap obligations, without new work or resend permission; `input/4`, `control/4` and `status/1` each wait for the engine at most 60,000 ms.",
       "baseline_status": "not in baseline (new row, RC-50)",
       "disposition": "ready-contract",
       "manifest": "pieces/assembly/run-engine/piece.json",
-      "manifest_sha256": "48f9f8fdbcc0aaf9d20582883265d4c13cfe58cd7a131aa40edd6bbe8a96b87c",
+      "manifest_sha256": "cd9abd1bab93e6b39c14c9e4d0cacc8181f405d1fe313efe1ab81b283b788668",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
@@ -7295,12 +7312,12 @@
     {
       "id": "runtime/lua-sandbox",
       "job": "ELZ-163",
-      "note": "Evaluate one pure Lua function of one plain input in a fresh PUC Lua 5.4.9 process outside the VM, started by a caller-held OTP Port from an executable that build/2 compiles from the installed pinned lua_source checkout and an owned C host, over length-framed JSON (unsigned 32-bit little-endian length, at most 1,048,576 bytes) under capability policy version 3, whose fixed allow-list of names and safe helper set (ten C helpers under the global helpers, each version 1, for JSON null and empty object, canonical JSON encode and decode, ASCII trim, plain split, UTF-8 code-point count and UTC time values that the caller passes in) has a canonical identity and refuses every other name as unlisted_name; for each declared name a function bindings.<name> is answered by the sandbox itself, as data (mode data) or as a replay of the results that the caller recorded, in order, ending at the first unrecorded call with a pending-call reply (mode replay), and a recorded call that the source does not repeat is call_mismatch; helpers charge counted steps for their work and their limits are the same sticky stops; exact positive limits on counted steps, call depth, value bytes, live Lua memory and wall time apply, and a step, depth, size or unlisted-name stop is sticky and cannot be caught or continued from Lua; input and result are plain data (null sentinel, booleans, UTF-8 strings, signed 64-bit integers, finite floats, dense arrays, string-keyed maps, at most 32 nested containers), a refusal is a fixed atom, memory, wall time, abnormal exit and protocol failure are recorded host outcomes, and the child is reaped on every return path including the death of the caller.",
+      "note": "Evaluate one pure Lua function of one plain input in a fresh PUC Lua 5.4.9 process outside the VM, started by an OTP Port from an executable that build/2 compiles from the installed pinned lua_source checkout and an owned C host, over length-framed JSON (unsigned 32-bit little-endian length, at most 1,048,576 bytes) under capability policy version 3, whose fixed allow-list of names and safe helper set (ten C helpers under the global helpers, each version 1, for JSON null and empty object, canonical JSON encode and decode, ASCII trim, plain split, UTF-8 code-point count and UTC time values that the caller passes in) has a canonical identity and refuses every other name as unlisted_name; for each declared name a function bindings.<name> is answered by the sandbox itself, as data (mode data) or as a replay of the results that the caller recorded, in order, ending at the first unrecorded call with a pending-call reply (mode replay), and a recorded call that the source does not repeat is call_mismatch; helpers charge counted steps for their work and their limits are the same sticky stops; exact positive limits on counted steps, call depth, value bytes, live Lua memory and wall time apply, and a step, depth, size or unlisted-name stop is sticky and cannot be caught or continued from Lua; input and result are plain data (null sentinel, booleans, UTF-8 strings, signed 64-bit integers, finite floats, dense arrays, string-keyed maps, at most 32 nested containers), a refusal is a fixed atom, memory, wall time, abnormal exit and protocol failure are recorded host outcomes, and the child is reaped on every return path including the death of the caller, except that an owner killed from outside leaves the child to its own backstops.",
       "baseline_status": "not in baseline (new row, RC-60)",
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/runtime/lua-sandbox/piece.json",
-      "manifest_sha256": "babf2cac2f504a7c3446157b5c54cddcada8f759164ebc3d31950f533d73f7ea"
+      "manifest_sha256": "2a41f438e2e6f95fc36a2432abd8b5687a9781bad28648ce302fe9309974a7a4"
     },
     {
       "id": "domain/recipe-graph",
@@ -7425,9 +7442,11 @@
     {
       "id": "workflow/skill",
       "job": "ELZ-182",
-      "note": "Pure reader of a skill folder and one pinned_skill tool source: SKILL.md frontmatter and body, a load that gives the instructions as a declaration, files read as marked content, scripts never run.",
+      "note": "Pure functions over a skill folder given as data and over a checked recipe package: read/4 checks the operands, the paths and the fixed folder bounds, splits SKILL.md at its frontmatter lines, scans and reads the frontmatter with the pinned YAML reader and gives the skill entry of a recipe package and the other files of the folder; source/2 gives the one pinned_skill tool-registry source of the skills of a package, with the tools load_skill and read_skill_file; load/2 gives the declaration payload with the body of one skill byte for byte and no listing; read_file/3 gives one other file of a skill as marked untrusted content; each refusal is a fixed reason that holds no path, file byte, frontmatter value or body.",
       "baseline_status": "not in baseline (new row, RC-67)",
-      "disposition": "published-task; implementation pending",
+      "disposition": "ready-contract",
+      "manifest": "pieces/workflow/skill/piece.json",
+      "manifest_sha256": "1ed520e8d51e060ced7644b9c02b101437f06d807a5b357f514b5b78b188f088",
       "catalogue_reference": "registry/catalogue.json"
     }
   ],
