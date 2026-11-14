@@ -5787,6 +5787,23 @@
       "issue": 374,
       "url": "https://github.com/balungpisah/elzoo/issues/374",
       "issue_body_sha256": "5339b66fcbb32fe037ecf34ff7ff109b8d80d461de36c1f3aaefbb0aa4fbbed9"
+    },
+    {
+      "id": "ELZ-175",
+      "title": "ELZ-175 — Coordinator guide: four guardrails from wave 3 of the bot platform track",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033"],
+      "status": "published 2026-11-14",
+      "owner_role": "coordinator; one-PR path for a non-Piece change; independent review and merge queue",
+      "paths": ["tasks/ELZ-175-coordinator-flow-guardrails.md"],
+      "outputs": [],
+      "acceptance": "The coordinator guide holds four rules by owner decision of 2026-11-14: check a task text against the code before it is published; one publication pull request for each level and only one open at a time; one queue run for all ready pull requests, with main merged before a pull request is marked ready; and the reviewer chosen by the risk of the Piece, with an owed second review recorded when only a weaker model is available. No other document changes.",
+      "product_aims": ["P13"],
+      "issue": 390,
+      "url": "https://github.com/balungpisah/elzoo/issues/390",
+      "issue_body_sha256": "dec3e870117115a3476cd9b0e08aa190aa6752cf90c7d48d1535553a7c4545a3"
     }
   ],
   "entries": [
