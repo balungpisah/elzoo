@@ -4626,7 +4626,8 @@
         "RC-65",
         "RC-66",
         "RC-61",
-        "ELZ-139"
+        "ELZ-139",
+        "ELZ-176"
       ],
       "status": "blocked: unpublished admission proposal",
       "contract": "A skill follows the public Agent Skills format (https://agentskills.io/specification, accessed 2026-11-12; no spec version): a folder with SKILL.md, YAML frontmatter and Markdown instructions. Required name is 1–64 lowercase alphanumeric or hyphen characters, has no leading, trailing or consecutive hyphens, and matches the folder; required description is 1–1024 characters. Malformed skills are refused at package checking, not load. V1 skills come only from the recipe package; MCP io.modelcontextprotocol/skills is out of scope, and future use requires person approval of the exact digest. A model sees only descriptions until it asks for one. A skill is a registry tool source (RC-52); asking is a recorded tool call whose result holds instructions and the tools declared by the pinned package manifest, using RC-56's declaration shape. Trust comes from the pinned package manifest source, never the path or result shape. Named instructions rank with recipe role instructions, RC-54 builds them as instructions and never drops them, and RC-51 does not mark them; other tool results remain marked content. RC-56 accepts them only for the resolved pinned-package skill source kind, owns the 64-tool and total loaded-instruction byte bounds and named refusals, refuses an instruction-overbound load without adding instructions, and adds nothing for a repeat loaded skill. A load exceeding 64 tools gives the instructions and named tool refusal if the instruction bound permits. Instructions are never cut; RC-69 may cut skill files, not the SKILL.md body. A skill grants no authority, including through allowed-tools frontmatter; tools still pass engine checks. Scripts are stored and read but never executed in v1. RC-61's package manifest names each skill with its version and tools; the pinned recipe fixes skill versions.",
@@ -5839,6 +5840,23 @@
       "issue": 390,
       "url": "https://github.com/balungpisah/elzoo/issues/390",
       "issue_body_sha256": "dec3e870117115a3476cd9b0e08aa190aa6752cf90c7d48d1535553a7c4545a3"
+    },
+    {
+      "id": "ELZ-176",
+      "title": "ELZ-176 — Pin and exercise a YAML reader for skill frontmatter",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033"],
+      "status": "published 2026-11-14",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-176-yaml-provider.md"],
+      "outputs": [],
+      "acceptance": "Provider prerequisite for RC-67 by owner decision (adopt a maintained library): yaml_elixir 2.12.2 and yamerl 0.10.0 pinned in mix.exs, mix.lock and registry/providers.json with an entry in the dependency register, and one root test that records on the pinned versions what the skill reader will rely on: plain frontmatter with block scalars, the terms of typed scalars, aliases and merge keys, documents that are not one plain map, no new atoms, bounded time. Full local and hosted check. No Piece and no public API.",
+      "product_aims": ["P13"],
+      "issue": 392,
+      "url": "https://github.com/balungpisah/elzoo/issues/392",
+      "issue_body_sha256": "d1c7e44c0294e621063a2c9a9ce74a9b5a649dff4d79cefe1384a286a18ea3f2"
     }
   ],
   "entries": [
