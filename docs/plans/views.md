@@ -194,7 +194,8 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-127](https://github.com/balungpisah/elzoo/issues/263) | V1B / pieces | ELZ-033, ELZ-114, ELZ-115, ELZ-117, ELZ-122, ELZ-118, ELZ-116, ELZ-124, ELZ-123, ELZ-002, ELZ-009, ELZ-022, ELZ-023, ELZ-024, ELZ-098, ELZ-003, ELZ-126 | published 2026-11-12 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-172](https://github.com/balungpisah/elzoo/issues/377) | V1B / pieces | ELZ-033, ELZ-114, ELZ-127 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 | RC-66 | V1B / pieces | ELZ-033, RC-50, ELZ-136, ELZ-141, ELZ-142, RC-60, RC-61, RC-62, RC-63, RC-64, ELZ-079, ELZ-114, ELZ-172 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-67 | V1B / pieces | ELZ-033, ELZ-096, ELZ-136, ELZ-140, ELZ-142, RC-65, RC-66, RC-61, ELZ-139 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| [ELZ-176](https://github.com/balungpisah/elzoo/issues/392) | V1B / pieces | ELZ-033 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| RC-67 | V1B / pieces | ELZ-033, ELZ-096, ELZ-136, ELZ-140, ELZ-142, RC-65, RC-66, RC-61, ELZ-139, ELZ-176 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-68 | V1B / pieces | ELZ-033, ELZ-002, ELZ-006, ELZ-023 | superseded for workflow/pattern-step by published ELZ-114; output moved | one claimed task worker after admission |
 | RC-69 | V1B / pieces | ELZ-033, ELZ-096, ELZ-137, ELZ-114, ELZ-023, ELZ-009 | superseded for workflow/tool-result-limit by published ELZ-139; output moved | one claimed task worker after admission |
 | RC-70 | V1B / pieces | ELZ-033, ELZ-114 | superseded for workflow/stall-detect by published ELZ-145; output moved | one claimed task worker after admission |
@@ -399,7 +400,7 @@ Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, EL
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176.
 
 ### V2-ACCEPT
 
@@ -2963,3 +2964,13 @@ Publication copy: [tasks/ELZ-175-coordinator-flow-guardrails.md](../../tasks/ELZ
 **Product aims:** P13.
 
 **Acceptance:** The coordinator guide holds four rules by owner decision of 2026-11-14: check a task text against the code before it is published; one publication pull request for each level and only one open at a time; one queue run for all ready pull requests, with main merged before a pull request is marked ready; and the reviewer chosen by the risk of the Piece, with an owed second review recorded when only a weaker model is available. No other document changes.
+
+### ELZ-176
+
+ELZ-176 — Pin and exercise a YAML reader for skill frontmatter
+
+Publication copy: [tasks/ELZ-176-yaml-provider.md](../../tasks/ELZ-176-yaml-provider.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Provider prerequisite for RC-67 by owner decision (adopt a maintained library): yaml_elixir 2.12.2 and yamerl 0.10.0 pinned in mix.exs, mix.lock and registry/providers.json with an entry in the dependency register, and one root test that records on the pinned versions what the skill reader will rely on: plain frontmatter with block scalars, the terms of typed scalars, aliases and merge keys, documents that are not one plain map, no new atoms, bounded time. Full local and hosted check. No Piece and no public API.
