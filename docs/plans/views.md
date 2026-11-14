@@ -238,6 +238,7 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-175](https://github.com/balungpisah/elzoo/issues/390) | V1B / pieces | ELZ-033 | published 2026-11-14 | coordinator; one-PR path for a non-Piece change; independent review and merge queue |
 | [ELZ-184](https://github.com/balungpisah/elzoo/issues/402) | V1 / pieces | ELZ-033 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-185](https://github.com/balungpisah/elzoo/issues/403) | V1 / pieces | ELZ-033 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-186](https://github.com/balungpisah/elzoo/issues/412) | V1B / pieces | ELZ-033, ELZ-178 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -408,7 +409,7 @@ Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, EL
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186.
 
 ### V2-ACCEPT
 
@@ -3068,3 +3069,13 @@ Publication copy: [tasks/ELZ-183-recipe-test-lua-and-model-graph.md](../../tasks
 **Product aims:** P13.
 
 **Acceptance:** runtime/recipe-test, changed in place (same Piece ID): a tool written in Lua runs through workflow/lua-tool, runtime/lua-binding and the real sandbox as local work, with its module calls scripted; a graph that a model gives is accepted by workflow/runtime-graph and run as a nested callable; a restart in the middle reads the recorded results and the recorded graph and does not ask the model again. Second and last portion of RC-66.
+
+### ELZ-186
+
+ELZ-186 — The resolved bindings of runtime/lua-binding are plain data
+
+Publication copy: [tasks/ELZ-186-lua-binding-plain-bindings.md](../../tasks/ELZ-186-lua-binding-plain-bindings.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Repair of runtime/lua-binding that restores its Contract: the value of resolve/2 holds only the resolved manifests and no built schema, so it is plain data that a pattern can keep in the state of a callable of assembly/run-engine; each check builds its schema; no function, return form, reason, bound or identity changes.
