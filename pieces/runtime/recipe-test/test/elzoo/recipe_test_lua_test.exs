@@ -496,6 +496,64 @@ defmodule Elzoo.RecipeTestLuaTest do
     end
   end
 
+  ## Group 3
+
+  describe "model_graph_after_restart" do
+    test "the second node runs from the recorded graph after one restart" do
+      a = node("a", "tool", [], [], %{"tool" => "files_read"})
+      b = node("b", "tool", [], [], %{"tool" => "files_read"})
+      unknown = %{"from" => "a", "to" => "b", "kind" => "outcome", "outcome" => "unknown"}
+      graph = %{typed_graph([a, b]) | "links" => [unknown]}
+      arguments = %{"graph" => graph, "input" => %{}}
+
+      script = %{
+        {:model, "scripted-model"} => [tool_turn("grph_run", arguments), answer("Done.")],
+        {:tool, "files_read"} => [{:completed, %{}}]
+      }
+
+      spec =
+        base_spec(
+          package(recipe([callable("main", "agent", %{"binding" => "worker"})])),
+          facts([cost("main", 5)]),
+          [files(["read"]), nested_source("grph", ["run"])],
+          script,
+          "Go.",
+          nil,
+          %{"grph_run" => graph_entry()}
+        )
+
+      assert {:ok, record} = RecipeTest.run(%{spec | restart_after: 1})
+      assert record.restarted == true
+      assert record.outcome == :completed
+      assert record.unused == %{}
+      assert record.asked == %{{:model, "scripted-model"} => 2, {:tool, "files_read"} => 2}
+
+      child = child_id(2, "d1:t:1:1")
+      actions = actions(record)
+
+      # Both node actions were asked for; the first was dropped at the restart and is `unknown`
+      assert %{"kind" => "tool_call"} = actions[child <> ":n:a"]
+      assert %{"kind" => "tool_call"} = actions[child <> ":n:b"]
+
+      outcomes =
+        for %{step: :input, input: %{"kind" => "action_outcome", "action_id" => id} = input} <-
+              record.steps,
+            do: {id, input["outcome"]}
+
+      assert {child <> ":n:a", "unknown"} in outcomes
+      assert {child <> ":n:b", "completed"} in outcomes
+      assert Enum.count(outcomes, fn {id, _} -> id == "d1:m:1" end) == 1
+
+      # The graph was decided once: one nested step for it, never a second one after the restart
+      assert [%{schema_id: "elzoo.graph-run.input", payload: %{"input" => %{}}}] =
+               for(%{step: :nested} = step <- record.steps, do: step)
+
+      # The agent answered on turn 2, and its model call 2 is the last one asked
+      assert %{"status" => "answered", "turns" => 2, "action_id" => "d1:m:2"} =
+               actions["d1:finish"]["payload"]
+    end
+  end
+
   ## Group 4
 
   describe "model_graph_refused" do
