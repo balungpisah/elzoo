@@ -105,18 +105,19 @@ before any recursive traversal.
 
 ## Framing and process
 
-One fresh process and Lua state per call; a short-lived owner process, not linked to the caller, holds the
-Port for one call, so no service or pool exists. The request and the reply are each one frame: an unsigned
-32-bit little-endian length followed by UTF-8 JSON, at most 1_048_576 bytes (OTP
-`{packet, 4}` is not used). A zero or overbound length is decided before the body is
-read. A partial header or body, EOF, invalid JSON, duplicate keys, trailing bytes or a
-second reply are `protocol_error`. The child's stderr goes to `/dev/null`, its
-environment is empty and no source or input is on argv. The caller holds the absolute deadline. At the
-deadline, on any protocol error and when the caller dies, the owner kills the child by OS
-pid and reaps it before `run/2` returns. An exit of the Port, such as a write into a
-closed child input, is a host outcome and never an exit signal to the caller, whose links,
-monitors, flags and mailbox are unchanged (a host `setitimer` backstop and a stdin-hangup
-poll end the child if the owner cannot).
+One fresh process and Lua state per call; a short-lived owner process, not linked to the
+caller, holds the Port for one call, so no service or pool exists. The request and the
+reply are each one frame: an unsigned 32-bit little-endian length followed by UTF-8
+JSON, at most 1_048_576 bytes (OTP `{packet, 4}` is not used). A zero or overbound
+length is decided before the body is read. A partial header or body, EOF, invalid JSON,
+duplicate keys, trailing bytes or a second reply are `protocol_error`. The child's
+stderr goes to `/dev/null`, its environment is empty and no source or input is on argv.
+The caller holds the absolute deadline. At the deadline, on any protocol error and when
+the caller dies, the owner kills the child by OS pid and reaps it before `run/2`
+returns. An exit of the Port, such as a write into a closed child input, is a host
+outcome and never an exit signal to the caller, whose links, monitors, flags and mailbox
+are unchanged (a host `setitimer` backstop and a stdin-hangup poll end the child if the
+owner cannot).
 
 ## Policy version 3
 

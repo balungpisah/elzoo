@@ -3,10 +3,11 @@ defmodule Elzoo.LuaSandbox do
   @moduledoc """
   Bounded Lua evaluation outside the VM (policy version 3: the safe helper set and module-call bindings).
 
-  A trusted host builds the executable once with `build/2` from the installed
-  pinned `lua_source` checkout and an owned C host. Each `run/2` starts one fresh
-  OS process over an OTP Port that a short-lived owner process holds, sends one request frame, reads one reply frame and
-  reaps the process. There is no pool, no service and no shared state.
+  A trusted host builds the executable once with `build/2` from the installed pinned
+  `lua_source` checkout and an owned C host. Each `run/2` starts one fresh OS
+  process over an OTP Port that a short-lived owner process holds, sends one request
+  frame, reads one reply frame and reaps the process. There is no pool, no service
+  and no shared state.
 
   * `build(source_directory, build_directory)` ->
     `{:ok, executable} | {:error, :build_failed}`. Both operands are trusted
