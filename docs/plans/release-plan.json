@@ -6082,11 +6082,11 @@
       "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
       "paths": ["tasks/ELZ-190-run-engine-nested-lost-cost.md"],
       "outputs": [],
-      "acceptance": "Repair of assembly/run-engine, in place: a closed nested child whose slots are all settled, with one or more costs that are final unknown (a lost Effect), gives its parent the kept finish by the existing rules with an unknown actual; the parent share stays reserved and unknown is never zero; known costs stay exact; no second outcome, no input or option added; shown by seven named groups and two negative controls.",
+      "acceptance": "Repair of assembly/run-engine, in place: a closed nested child whose slots are all settled, with one or more costs that are final unknown (a lost Effect), gives its parent the kept finish by the existing rules with an unknown actual; the parent share stays reserved and unknown is never zero; known costs stay exact; no second outcome, no input or option added; shown by eight named groups and two negative controls.",
       "product_aims": ["P13"],
       "issue": 426,
       "url": "https://github.com/balungpisah/elzoo/issues/426",
-      "issue_body_sha256": "2f8c1693c31067f288769c9d0236fcf53a928f9f91b57bb70d9c0acb7a6f547d"
+      "issue_body_sha256": "193d356f52708f383b538bc66f13622e05b98088e338fa49f2c37738b294f900"
     }
   ],
   "entries": [

@@ -3122,4 +3122,4 @@ Publication copy: [tasks/ELZ-190-run-engine-nested-lost-cost.md](../../tasks/ELZ
 
 **Product aims:** P13.
 
-**Acceptance:** Repair of assembly/run-engine, in place: a closed nested child whose slots are all settled, with one or more costs that are final unknown (a lost Effect), gives its parent the kept finish by the existing rules with an unknown actual; the parent share stays reserved and unknown is never zero; known costs stay exact; no second outcome, no input or option added; shown by seven named groups and two negative controls.
+**Acceptance:** Repair of assembly/run-engine, in place: a closed nested child whose slots are all settled, with one or more costs that are final unknown (a lost Effect), gives its parent the kept finish by the existing rules with an unknown actual; the parent share stays reserved and unknown is never zero; known costs stay exact; no second outcome, no input or option added; shown by eight named groups and two negative controls.

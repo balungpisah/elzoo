@@ -39,8 +39,14 @@ writing; confirm each when you start, and if one differs, stop and ask):
 
 ## The changed Contract
 
-A settled slot has a **final unknown cost** when it holds a reservation,
-has no actual, and no later record can give it one:
+A settled slot has a **final unknown cost** when the Budget of its
+callable still counts a reservation for it, it has no actual, and no later
+record can give it one. "Counts a reservation" is decided by the Budget and
+not by a field of the slot: one path is known in which the two differ
+(`close_local`, about lines 686 to 712, settles a running local work as
+failed with no Budget step and rebuilds the slot without its reservation
+field, while the Budget still holds the entry). Such a slot is final
+unknown too. The cases:
 
 - a slot of a kind whose cost only its own outcome settles (an Effect, an
   ask, a local work: list the kinds from the code and say for each, with
@@ -69,18 +75,29 @@ again, and no input, option, control command or public function is added.
 ## Task
 
 1. Before you design, write to the evidence directory, for each action
-   kind of the engine, whether a settled slot with a reservation and no
-   actual can get an actual later, with file and line. If a kind is
-   unclear, stop and ask.
-2. Change `finished_child` and its branch to the rule above. A child that
-   was handed to its parent with an unknown actual must not match again:
-   `drain/1` must go on to the next work in the same call.
+   kind of the engine and for each path that settles a slot (an outcome, a
+   refusal, an expiry, a recovery after a restart, `close_local` at a
+   cancel or a change of Attempt), whether the Budget can still count a
+   reservation for the settled slot, and whether a later record can settle
+   it, with file and line. If a kind or a path is unclear, stop and ask.
+2. Change `finished_child` and its branch to the rule above. A closed
+   child whose costs are all known or final unknown, with one or more
+   final unknown, must not match again once its parent slot is settled,
+   however that parent was settled: handed by this rule, or settled
+   earlier as expired or refused with no actual. No `:nested_actual` can
+   ever follow for it, so `drain/1` must go on to the next work in the same
+   call. The finality of the child costs in the durable state tells this
+   case from the existing one in which the actual still comes; add no new
+   marker to the state unless you show that this is not enough, and then
+   stop and ask.
 3. The fold must give the same state from the same records: a restart
    after the parent was settled this way changes nothing and writes no
    second outcome.
 4. Update the README sentences on child finish and `actual`, and the
-   Contract and Limits texts of `piece.json`, to the rule above. Index row
-   in the last commit before the pull request is opened.
+   Contract and Limits texts of `piece.json`, to the rule above. Add the
+   eight groups below to the list of named groups in the README and to the
+   test claim of `piece.json` that lists the groups. Index row in the last
+   commit before the pull request is opened.
 
 ## Named acceptance groups
 
@@ -109,8 +126,8 @@ unchanged; if one must change, stop and ask.
 4. **`no_second_outcome`**: after group 1, three more inputs and a second
    restart write no further outcome and no `:nested_actual` for that
    parent; another open slot of the Run makes progress in the same
-   `drain`; the view and the fingerprint are equal before and after the
-   second restart.
+   `drain`; the view, the Budget status of each callable and the count of
+   journal records are equal before and after the second restart.
 5. **`loss_two_levels_down`**: a grandchild with a lost Effect: its
    parent slot (inside the child) gets an unknown actual, and so does the
    slot of the child in the root. Each level keeps its reservation.
@@ -118,7 +135,16 @@ unchanged; if one must change, stop and ask.
    Resource action whose cost is not yet settled by the cursor, and a
    child with one slot still open: the parent is not settled early; when
    the cost arrives, the parent gets the exact committed amount.
-7. **`finish_rules_hold`**: with a lost Effect in the child, a finish in
+7. **`local_work_closed_without_a_budget_step`**: a child whose running
+   local work is closed by a cancel or a change of Attempt (the
+   `close_local` path), then finishes: the parent is settled with an
+   unknown actual and the next work of the Run goes on. An expired parent
+   slot whose child later closes with a lost cost stays as it was settled,
+   gets no second record, and does not stop the next work.
+   If the engine cannot reach one of these two states (for example
+   because a cancel also closes the child for good), show that with file
+   and line and ask the coordinator before you drop the case.
+8. **`finish_rules_hold`**: with a lost Effect in the child, a finish in
    another schema gives the parent `nested_result_invalid`, and a child
    that settles with no admitted finish gives `nested_completed`, both
    with an unknown actual.
