@@ -1147,8 +1147,9 @@
       "summary": "Run a recipe through the real engine with scripted models and tools",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
-      "reason": "Bot platform wave 3 (P13). No network and a controlled clock; an unscripted call fails the test. The way an author and a Piece worker test without a provider."
+      "status": "ready",
+      "reason": "Bot platform wave 3 (P13). No network and a controlled clock; an unscripted call fails the test. The way an author and a Piece worker test without a provider.",
+      "manifest": "pieces/runtime/recipe-test/piece.json"
     },
     {
       "id": "workflow/skill",

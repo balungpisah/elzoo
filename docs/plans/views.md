@@ -239,7 +239,9 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-184](https://github.com/balungpisah/elzoo/issues/402) | V1 / pieces | ELZ-033 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-185](https://github.com/balungpisah/elzoo/issues/403) | V1 / pieces | ELZ-033 | published 2026-11-14; amended 2026-11-14 (test files of Pieces allowed for the repair) | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-186](https://github.com/balungpisah/elzoo/issues/412) | V1B / pieces | ELZ-033, ELZ-178 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
-| [ELZ-187](https://github.com/balungpisah/elzoo/issues/415) | V1B / pieces | ELZ-033, ELZ-180 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-187](https://github.com/balungpisah/elzoo/issues/415) | V1B / pieces | ELZ-033, ELZ-180 | published 2026-11-14; amended 2026-11-14 (fixed call limit after the measurement) | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-188](https://github.com/balungpisah/elzoo/issues/422) | V1B / pieces | ELZ-033, ELZ-177 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-189](https://github.com/balungpisah/elzoo/issues/423) | V1B / pieces | ELZ-033 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -388,7 +390,7 @@ Baseline status is immutable inventory history, not a current planning status. R
 | [workflow/runtime-graph](../../pieces/workflow/runtime-graph/piece.json) | not in baseline (new row, RC-64) | V1B / pieces | ELZ-169 / P13 | ready-contract: Pure decision whether a graph that a model gave as plain data at run time may run: the graph is checked as data, held to the callables, tools, asks, node count and nesting that the agent may use, added to the recipe of the Run as one more graph callable, and checked as at load time with its upper cost against the budget share; the accepted recipe, callable and upper cost, or all refusal reasons in a fixed order, and a bounded text of the reasons for the model; no execution, grant, budget or storage. |
 | [state/recipe-store](../../pieces/state/recipe-store/piece.json) | not in baseline (new row, RC-65) | V1B / pieces | ELZ-171 / P13 | ready-contract: Immutable recipe versions of a tenant over the ready Pieces: the bytes of each version are an artifact of state/artifact, and the stored records, check verdicts, published pointer, pin records and delete marks are records of the one stream recipe-store/<tenant> of the ready Store, each change read, decided by the pure Cure table over the folded state and appended at the head revision (at most 3 tries, then contended; an indeterminate append is never tried again). Only a stored, checked, live version is published (go-back is a publish of an older version); a version that a pin record holds or that is published is not deleted; the delete mark is committed before any artifact delete. Refusal order not_found, deleted, not_checked, pinned, published. |
 | [workflow/version-pin](../../pieces/workflow/version-pin/piece.json) | not in baseline (new row, RC-65) | V1B / pieces | ELZ-170 / P13 | ready-contract: Pure rule of the recipe version and the tool sources that one Run keeps: the pin captures a package identity and the id, kind and callable of each source at Run start, an explicit change-version input is the only input that changes the version, a published version, a settings change and a listing change nothing, a listing of an outside source is refused, and no input adds a source. No I/O, clock, process, storage or version check. |
-| runtime/recipe-test | not in baseline (new row, RC-66) | V1B / pieces | ELZ-181 / P13 | published-task; implementation pending: Test harness that runs a recipe package through the real engine and patterns with scripted model and tool Adapters, a controlled clock and a full step record. |
+| [runtime/recipe-test](../../pieces/runtime/recipe-test/piece.json) | not in baseline (new row, RC-66) | V1B / pieces | ELZ-181 / P13 | ready-contract: An ExUnit helper that checks a recipe package, runs it end to end through the real Run engine and the real agent, graph and decision pattern Pieces on disposable PostgreSQL with scripted model and tool results from allowed Adapters only, no network and a clock that does not move, and gives back the record of every step, with an explicit failure for a call that the script does not name. |
 | workflow/skill | not in baseline (new row, RC-67) | V1B / pieces | ELZ-182 / P13 | published-task; implementation pending: Pure reader of a skill folder and one pinned_skill tool source: SKILL.md frontmatter and body, a load that gives the instructions as a declaration, files read as marked content, scripts never run. |
 
 ## Separate candidate gaps
@@ -410,7 +412,7 @@ Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, EL
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189.
 
 ### V2-ACCEPT
 
@@ -3083,10 +3085,30 @@ Publication copy: [tasks/ELZ-186-lua-binding-plain-bindings.md](../../tasks/ELZ-
 
 ### ELZ-187
 
-ELZ-187 — The 64-entry sizing test of assembly/run-engine does not depend on host load
+ELZ-187 — A call of assembly/run-engine waits long enough for an input at the bounds of the Piece
 
 Publication copy: [tasks/ELZ-187-run-engine-sizing-test.md](../../tasks/ELZ-187-run-engine-sizing-test.md).
 
 **Product aims:** P13.
 
-**Acceptance:** Repair for issue #334 on assembly/run-engine: the first input of the 64-entry sizing test is measured, avoidable repeated work is removed so that the call stays far inside the 5 s call limit alone and beside the Piece suite, with unchanged assertions, journal records, fingerprints and replies; a limit operand is not added, and a case that needs one stops for a coordinator decision.
+**Acceptance:** Repair for issue #334 on assembly/run-engine, in place: input/4, control/4 and status/1 call the engine with one fixed limit of 60,000 ms, with no operand or option, because a measured input at the bounds of the Piece needs about 4.5 s; README and piece.json state the limit and what a caller knows after it; a certain test shows an input slower than 5 s; the sizing test and every engine record stay unchanged.
+
+### ELZ-188
+
+ELZ-188 — A child of the Lua sandbox that dies early gives a host outcome and never ends its caller
+
+Publication copy: [tasks/ELZ-188-lua-sandbox-early-child-exit.md](../../tasks/ELZ-188-lua-sandbox-early-child-exit.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Repair for issue #418 on runtime/lua-sandbox that restores its Contract: no exit of the Port reaches the caller of run/2 as an exit signal; a child that exits or closes its input before the request is written gives a host outcome; the caller keeps its flags, links, monitors and mailbox; deadline, reaping and no-orphan guarantees stay; shown by a certain test and a negative control.
+
+### ELZ-189
+
+ELZ-189 — The dynamic-units tests wait for a process exit without a 100 ms limit
+
+Publication copy: [tasks/ELZ-189-dynamic-units-shutdown-wait.md](../../tasks/ELZ-189-dynamic-units-shutdown-wait.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Repair for issue #420 on the tests of runtime/dynamic-units: each assert_receive that waits for a DOWN message gets an explicit limit of 5,000 ms; no pattern, reason or other assertion changes; 20 runs alone and 5 beside other suites pass; a negative control shows that the line still waits.
