@@ -27,7 +27,7 @@ The first check that holds is the result, in this order.
 | 5 | `invalid_utf8` | `SKILL.md` is not valid UTF-8 |
 | 6 | `missing_frontmatter` | `SKILL.md` does not start with the line `---`, or no later line is exactly `---` |
 | 7 | `frontmatter_too_large` | the frontmatter is over 16,384 bytes |
-| 8 | `invalid_yaml` | a CR is left after each CR LF became LF |
+| 8 | `invalid_yaml`, `not_a_map`, `tab_indentation`, `yaml_alias`, `duplicate_key` | the frontmatter scan below |
 | 9 | `not_a_map` | the frontmatter holds only spaces, tabs and LF |
 | 10 | `invalid_yaml` | the YAML reader gives an error |
 | 11 | `not_a_map` | the YAML reader gives a term that is not a map |
@@ -46,6 +46,36 @@ list `[]`, the only call of the reader. A value that YAML typed (a Boolean, a
 number, `nil`, a list, a map where text is due) is not refused here; the package
 check refuses it.
 
+## The frontmatter scan
+
+The pinned reader expands an alias with no marker, keeps a merge key as an
+unstable `"<<N"`, keeps the first of two equal keys, reads a second document
+over the first and reads a tab-indented line as a top-level key, all with no
+error, and no option refuses an alias. So `read/4` scans the frontmatter before
+it calls the reader. The scan is not a YAML reader: it finds the places where a
+node can begin and refuses more than YAML requires where it cannot tell. Three
+passes; the first refusal ends the scan.
+
+1. Each CR LF becomes LF (this is the text `T`); a CR that is left is
+   `invalid_yaml`.
+2. A line that is `---` or `...`, or begins with one of them and a space or a
+   tab, is `not_a_map`. Every line is looked at before pass 3.
+3. Lines in order. A block region (`|` or `>` with at most two modifier bytes)
+   is not scanned. In a flow region (`[` or `{`) `<<` is `yaml_alias`, and so
+   is `&` or `*` first on a line or after `[`, `{`, `,` or `:` and spaces. Other
+   lines: a tab first after the indentation is `tab_indentation`; after the
+   indicators `- `, `? `, `: ` the node text is `yaml_alias` when it begins with
+   `&` or `*` (a tag is dropped first), and a key `<<` is `yaml_alias`. A key
+   at indentation 0 that an earlier line already had is `duplicate_key`; a key
+   is checked before its value.
+
+The scan refuses some texts that are not aliases (a continuation line that
+begins with `*`, a `*` after `: ` in a trailing comment, `&`, `*` or `<<` in
+quoted text of a flow collection). It does not refuse a duplicate key below the
+top level, one in a flow-style top level or with `?` keys, or two double-quoted
+keys equal only after their escapes: the reader keeps the first value. Text
+that is not an alias, such as `Use for *.xlsx files` or `R&D`, passes.
+
 ## Needs and limits
 
 Fixed bounds, not Config: 256 files, 1,048,576 bytes for a file, 8,388,608 bytes
@@ -60,6 +90,6 @@ operands and fixed bounds.
 
 ## Evidence
 
-The named test groups are `skill_md_split` and `folder_bounds_and_paths`, with
+The named test groups are `skill_md_split`, `yaml_refusals` and `folder_bounds_and_paths`, with
 literal folders in `test/elzoo/skill_test.exs`. They are finite scenarios, not a
 universal proof.

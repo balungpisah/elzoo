@@ -283,4 +283,129 @@ defmodule Elzoo.SkillTest do
                read(%{"SKILL.md" => <<255>>, "b" => :binary.copy("a", @max_file + 1)})
     end
   end
+
+  describe "yaml_refusals" do
+    @p "name: s\ndescription: d\n"
+
+    defp fm(frontmatter), do: read_md(md(frontmatter, "body\n"))
+
+    test "2.1 an anchor in a value" do
+      assert {:error, :yaml_alias} = fm("base: &b\n  x: 1\nuse: *b\n")
+    end
+
+    test "2.2 an alias after a sequence indicator" do
+      assert {:error, :yaml_alias} = fm("- *b\n")
+    end
+
+    test "2.3 a node text that begins with an anchor" do
+      assert {:error, :yaml_alias} = fm("&k name: x\n")
+    end
+
+    test "2.4 the tag is dropped before the node text is scanned" do
+      assert {:error, :yaml_alias} = fm("a: !!str &x y\n")
+    end
+
+    test "2.5 an alias after a comma in a flow region" do
+      assert {:error, :yaml_alias} = fm("b: x\na: [c, *b]\n")
+    end
+
+    test "2.6 an alias on a later line of a flow region" do
+      assert {:error, :yaml_alias} = fm("metadata: {k: v,\n  j: *b}\n")
+    end
+
+    test "2.7 the key <<, plain, in a flow region and quoted" do
+      assert {:error, :yaml_alias} = fm("<<: x\n")
+      assert {:error, :yaml_alias} = fm("m: {<<: x}\n")
+      assert {:error, :yaml_alias} = fm("\"<<\": x\n")
+    end
+
+    test "2.8 a block region opened after an indicator ends at an equal indentation" do
+      assert {:error, :yaml_alias} = fm("- a: |\n    t\n  b: *x\n")
+    end
+
+    test "2.9 texts that are not aliases read" do
+      assert {:ok, %{entry: %{"frontmatter" => %{"license" => "MIT"}}}} =
+               fm(@p <> "license: MIT # see: name\n")
+
+      assert {:ok, _} = fm("name: s\ndescription: Use for *.xlsx files, R&D, a & b, 5 * 3\n")
+
+      assert {:ok, _} =
+               fm(@p <> "license: '*x'\ncompatibility: \"&x\"\nallowed-tools: \"<<\"\n")
+
+      assert {:ok, %{entry: %{"frontmatter" => %{"metadata" => %{"k" => "a"}}}}} =
+               fm(@p <> "metadata:\n  k: a\n  k: b\n")
+
+      for indicator <- ["|", ">"] do
+        assert {:ok, %{entry: %{"frontmatter" => %{"license" => "x"}}}} =
+                 fm(
+                   "name: s\ndescription: " <>
+                     indicator <> "\n  * one\n  & two\n  \tthree\n# c\nlicense: x\n"
+                 )
+      end
+    end
+
+    test "2.10 a top-level key twice; the key is checked before its value" do
+      assert {:error, :duplicate_key} = fm("name: a\nname: b\n")
+      assert {:error, :duplicate_key} = fm("name: a\n'name': b\n")
+      assert {:error, :duplicate_key} = fm("name: a\nname: *x\n")
+      assert {:error, :yaml_alias} = fm("name: *x\nname: y\n")
+    end
+
+    test "2.11 a tab where the indentation is" do
+      assert {:error, :tab_indentation} = fm("a:\n\tb: 1\n")
+    end
+
+    test "2.12 a document marker is checked in pass 2, before a duplicate of the first document" do
+      assert {:error, :not_a_map} = fm("name: a\n...\nname: b\n")
+      assert {:error, :not_a_map} = fm(@p <> "--- # c\n")
+      assert {:error, :not_a_map} = fm(@p <> "--- x\n")
+    end
+
+    test "2.13 a lone CR" do
+      assert {:error, :invalid_yaml} = fm("name: a\rdescription: b\n")
+    end
+
+    test "2.14 blank and non-map frontmatter" do
+      assert {:error, :not_a_map} = fm("  \n")
+      assert {:error, :not_a_map} = fm("- a\n- b\n")
+      assert {:error, :not_a_map} = fm("just text\n")
+    end
+
+    test "2.15 an unreadable text is invalid_yaml and runs nothing" do
+      assert {:error, :invalid_yaml} = fm("a: [\n")
+      assert {:error, :invalid_yaml} = fm("a: !ruby/object:Foo {x: 1}\n")
+
+      assert {:error, :invalid_yaml} =
+               fm("a: !<tag:yamerl,2012:fun> persistent_term:put(elz_skill, ran).\n")
+
+      assert :persistent_term.get(:elz_skill, :absent) == :absent
+    end
+
+    # Extra cases that pin a rule that a written case does not reach.
+
+    test "a comment line does not end a flow region, and a block region ends at a comment line at its column" do
+      assert {:error, :yaml_alias} = fm("m: [a,\n# c\n  , *x]\n")
+      assert {:ok, _} = fm(@p <> "k: |+\n  *x\n# c\nl: >2- # c\n  &x\n")
+    end
+
+    test "a region that follows an indicator opens at the column of that indicator" do
+      assert {:ok, _} = fm("k:\n  - |\n    *x\n  - b: 1\n")
+      assert {:error, :yaml_alias} = fm("k:\n  - |\n    *x\n  - *y\n")
+    end
+
+    test "a quoted scalar that is not followed by a colon scans nothing more" do
+      assert {:ok, _} = fm(@p <> "a: \"x\" # *y\n")
+      assert {:error, :yaml_alias} = fm("\"a\\\"b\": *c\n")
+      assert {:error, :yaml_alias} = fm("'it''s': *c\n")
+    end
+
+    test "top-level keys: quotes are read, a later key and an indicator key are not top-level" do
+      assert {:error, :duplicate_key} = fm("a'b: 1\n'a''b': 2\n")
+      assert {:error, :duplicate_key} = fm("\"a\\nb\": 1\n\"a\\nb\": 2\n")
+      # Double-quoted keys are compared as written: the escape is not decoded.
+      assert {:ok, _} = fm("\"a\\x41\": 1\naA: 2\n")
+      assert {:ok, _} = fm(@p <> "k: x # a: 1\na: 2\n")
+      assert {:error, :not_a_map} = fm("- a: 1\n- a: 2\n")
+    end
+  end
 end
