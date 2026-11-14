@@ -138,6 +138,9 @@ defmodule Elzoo.JobRunTest do
   test "retry decisions come from the unchanged ELZ-006 policy" do
     {:ok, policy} = Elzoo.RetryTimeout.policy(max_attempts: 2)
     assert JobRun.retry_decision(policy, 0, :retryable) == {:ok, :retry}
+    assert JobRun.retry_decision(policy, 0, :permanent) == {:ok, :retry}
+    assert JobRun.retry_decision(policy, 0, :dispatched) == {:error, :invalid_class}
+    assert JobRun.retry_decision(policy, 0, nil) == {:error, :invalid_class}
     assert JobRun.retry_decision(policy, 1, :retryable) == {:ok, :retry}
     assert JobRun.retry_decision(policy, 2, :retryable) == {:ok, :exhausted}
     assert JobRun.retry_decision(policy, 1, :permanent) == {:ok, :permanent}
