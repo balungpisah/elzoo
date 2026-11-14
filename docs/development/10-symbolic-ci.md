@@ -259,7 +259,9 @@ and test partitioning remain separate work.
 
 Run `python3 scripts/merge-queue.py <PR>...` from a checkout of this repository
 with `origin` pointing at `balungpisah/elzoo`. It uses the coordinator's own
-`gh` authentication, not CI credentials. Obtain independent review first.
+`gh` authentication, not CI credentials. That `gh` must list `--allow-escape-sequences` and `--slurp` in
+`gh api --help`, because the queue calls `gh api` with both; checked with 2.103.3 and 2.104.0 (ELZ-224). Obtain
+independent review first.
 No workflow, job, runner, label or token is added; CI keeps `contents: read`.
 The queue only handles same-repository, open, non-draft, mergeable PRs targeting
 `main` with an exact `task/ELZ-###` branch. Unknown mergeability is polled for
