@@ -240,7 +240,7 @@ defmodule Elzoo.SkillTest do
       assert {:error, :missing_skill_md} = read(%{})
       assert {:error, :missing_skill_md} = read(%{"skill.md" => md(@fm, "b\n")})
       assert {:error, :missing_skill_md} = read(%{"Skill.md" => md(@fm, "b\n")})
-      assert {:error, :missing_skill_md} = read(%{"docs/SKILL.md" => md(@fm, "b\n")})
+      assert {:error, :missing_skill_md} = read(%{"sub/SKILL.md" => md(@fm, "b\n")})
       assert {:error, :missing_skill_md} = read(%{"SKILL.md " => md(@fm, "b\n")})
     end
 
