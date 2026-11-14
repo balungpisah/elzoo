@@ -60,7 +60,7 @@
     {
       "kind": "test",
       "file": "test/elzoo/lua_sandbox_surface_test.exs",
-      "claim": "Group exact_capability_surface: the sandbox enumeration, the C-host audit of environment, libraries and string metatable, and fixed-name probes of 146 names (the ten helpers included) agree with the policy descriptor; load, require, os, io, debug, _G, _ENV, raw access, catchers, unlisted helper names such as helpers.x and helpers.json, and helper_echo end in unlisted_name directly and indirectly; tostring and string.format refuse heap identity; host-side probes of a function, pid, reference, tuple, port and atom input start no process; negative controls: granting print and granting one more helper field fail the surface and audit tests. Listed scenarios pass."
+      "claim": "Group exact_capability_surface: the sandbox enumeration, the C-host audit of environment, libraries and string metatable, and fixed-name probes of 146 names (the ten helpers included) agree with the policy descriptor; load, require, os, io, debug, _G, _ENV, raw access, catchers, unlisted helper names such as helpers.x and helpers.json, and helper_echo end in unlisted_name directly and indirectly; tostring and string.format refuse heap identity; host-side probes of a function, pid, reference, tuple, port and atom input start no process; negative control: granting print fails the surface and audit tests. Listed scenarios pass."
     },
     {
       "kind": "test",
