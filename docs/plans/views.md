@@ -240,6 +240,8 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-185](https://github.com/balungpisah/elzoo/issues/403) | V1 / pieces | ELZ-033 | published 2026-11-14; amended 2026-11-14 (test files of Pieces allowed for the repair) | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-186](https://github.com/balungpisah/elzoo/issues/412) | V1B / pieces | ELZ-033, ELZ-178 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-187](https://github.com/balungpisah/elzoo/issues/415) | V1B / pieces | ELZ-033, ELZ-180 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-188](https://github.com/balungpisah/elzoo/issues/422) | V1B / pieces | ELZ-033, ELZ-177 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-189](https://github.com/balungpisah/elzoo/issues/423) | V1B / pieces | ELZ-033 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -410,7 +412,7 @@ Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, EL
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189.
 
 ### V2-ACCEPT
 
@@ -3090,3 +3092,23 @@ Publication copy: [tasks/ELZ-187-run-engine-sizing-test.md](../../tasks/ELZ-187-
 **Product aims:** P13.
 
 **Acceptance:** Repair for issue #334 on assembly/run-engine: the first input of the 64-entry sizing test is measured, avoidable repeated work is removed so that the call stays far inside the 5 s call limit alone and beside the Piece suite, with unchanged assertions, journal records, fingerprints and replies; a limit operand is not added, and a case that needs one stops for a coordinator decision.
+
+### ELZ-188
+
+ELZ-188 — A child of the Lua sandbox that dies early gives a host outcome and never ends its caller
+
+Publication copy: [tasks/ELZ-188-lua-sandbox-early-child-exit.md](../../tasks/ELZ-188-lua-sandbox-early-child-exit.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Repair for issue #418 on runtime/lua-sandbox that restores its Contract: no exit of the Port reaches the caller of run/2 as an exit signal; a child that exits or closes its input before the request is written gives a host outcome; the caller keeps its flags, links, monitors and mailbox; deadline, reaping and no-orphan guarantees stay; shown by a certain test and a negative control.
+
+### ELZ-189
+
+ELZ-189 — The dynamic-units tests wait for a process exit without a 100 ms limit
+
+Publication copy: [tasks/ELZ-189-dynamic-units-shutdown-wait.md](../../tasks/ELZ-189-dynamic-units-shutdown-wait.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Repair for issue #420 on the tests of runtime/dynamic-units: each assert_receive that waits for a DOWN message gets an explicit limit of 5,000 ms; no pattern, reason or other assertion changes; 20 runs alone and 5 beside other suites pass; a negative control shows that the line still waits.
