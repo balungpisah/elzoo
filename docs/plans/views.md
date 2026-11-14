@@ -261,6 +261,14 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-206](https://github.com/balungpisah/elzoo/issues/455) | V1B / pieces | ELZ-116, ELZ-126 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-207](https://github.com/balungpisah/elzoo/issues/456) | V1B / pieces | ELZ-123 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-208](https://github.com/balungpisah/elzoo/issues/457) | V1B / pieces | ELZ-171, ELZ-162, ELZ-101, ELZ-155, ELZ-140, ELZ-141, ELZ-142, ELZ-009, ELZ-172, ELZ-193 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-210](https://github.com/balungpisah/elzoo/issues/463) | V1B / pieces | ELZ-033, ELZ-192 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-211](https://github.com/balungpisah/elzoo/issues/464) | V1B / pieces | ELZ-033, ELZ-192, ELZ-210 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-212](https://github.com/balungpisah/elzoo/issues/465) | V1B / pieces | ELZ-033, ELZ-192, ELZ-211 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-213](https://github.com/balungpisah/elzoo/issues/466) | V1B / pieces | ELZ-033, ELZ-192, ELZ-212 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-214](https://github.com/balungpisah/elzoo/issues/467) | V1B / pieces | ELZ-033, ELZ-192, ELZ-213 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-215](https://github.com/balungpisah/elzoo/issues/468) | V1B / pieces | ELZ-033, ELZ-192, ELZ-214 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-216](https://github.com/balungpisah/elzoo/issues/469) | V1B / pieces | ELZ-033, ELZ-192, ELZ-215 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-217](https://github.com/balungpisah/elzoo/issues/470) | V1B / pieces | ELZ-033, ELZ-192, ELZ-216 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -431,7 +439,7 @@ Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, EL
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189, ELZ-190, ELZ-191, ELZ-192, ELZ-193, ELZ-194, ELZ-195, ELZ-196, ELZ-197, ELZ-198, ELZ-199, ELZ-200, ELZ-201, ELZ-202, ELZ-203, ELZ-204, ELZ-205, ELZ-206, ELZ-207, ELZ-208.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189, ELZ-190, ELZ-191, ELZ-192, ELZ-193, ELZ-194, ELZ-195, ELZ-196, ELZ-197, ELZ-198, ELZ-199, ELZ-200, ELZ-201, ELZ-202, ELZ-203, ELZ-204, ELZ-205, ELZ-206, ELZ-207, ELZ-208, ELZ-210, ELZ-211, ELZ-212, ELZ-213, ELZ-214, ELZ-215, ELZ-216, ELZ-217.
 
 ### V2-ACCEPT
 
@@ -3321,3 +3329,83 @@ Publication copy: [tasks/ELZ-208-piece-readme-corrections.md](../../tasks/ELZ-20
 **Product aims:** P13.
 
 **Acceptance:** Corrections of sentences in the documents of seven ready Pieces (recipe-store, recipe-config, data-stream, context-compaction, typed-decision, agent-loop, sql) to what the code and the engine do today; piece.json changes for agent-loop and sql only.
+
+### ELZ-210
+
+ELZ-210 — A drain ends when a round changes nothing, and a parent past its deadline in a terminal request-cap Run is not selected again
+
+Publication copy: [tasks/ELZ-210-run-engine-drain-ends.md](../../tasks/ELZ-210-run-engine-drain-ends.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Repair on assembly/run-engine, in place: every branch of the drain stops when a round changed nothing, and a parent past its deadline in a terminal request-cap Run is not selected again as the parent of a finished child; the engine answers and a restart returns.
+
+### ELZ-211
+
+ELZ-211 — A refusal over the cap never turns a settled parent back into a refusing slot
+
+Publication copy: [tasks/ELZ-211-run-engine-settled-parent-stays-settled.md](../../tasks/ELZ-211-run-engine-settled-parent-stays-settled.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Repair for issue #441 on assembly/run-engine, in place: a refusal over the cap denies its parent only when the parent is not settled; a settled parent keeps its first settlement; the closer fallback of ELZ-191 stays for recorded Runs.
+
+### ELZ-212
+
+ELZ-212 — A control drains before it replies, and a control ID that a protocol input holds is a conflict
+
+Publication copy: [tasks/ELZ-212-run-engine-control-drains.md](../../tasks/ELZ-212-run-engine-control-drains.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Repair on assembly/run-engine, in place: the approval_evidence and begin_attempt controls drain before they reply, so an approved finish ends the Run or reaches its parent; a pause or continue control whose ID a protocol input holds gives input_id_conflict and does not raise.
+
+### ELZ-213
+
+ELZ-213 — An approval request that the Run already holds is waited for, and an uncertain reply of the Run is no refusal
+
+Publication copy: [tasks/ELZ-213-run-engine-approval-request-recovery.md](../../tasks/ELZ-213-run-engine-approval-request-recovery.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Repair on assembly/run-engine, in place: after a reply of the Run that is not ok, the engine reads the Run view; a request that the Run already holds is waited for with its key, an uncertain reply writes nothing and is asked again, only a definite refusal refuses.
+
+### ELZ-214
+
+ELZ-214 — A retried outcome that was recorded as `invalid_outcome` is a duplicate after settlement too
+
+Publication copy: [tasks/ELZ-214-run-engine-normalised-outcome-retry.md](../../tasks/ELZ-214-run-engine-normalised-outcome-retry.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Repair on assembly/run-engine, Contract restored: a retried outcome that was recorded as invalid_outcome under a schema-map binding is a duplicate after settlement too, found from the admission record; no new durable field.
+
+### ELZ-215
+
+ELZ-215 — A terminal Run keeps open only what a request-cap stop retains, and only until its deadline
+
+Publication copy: [tasks/ELZ-215-run-engine-terminal-run-closes-slots.md](../../tasks/ELZ-215-run-engine-terminal-run-closes-slots.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Repair on assembly/run-engine, in place: in a terminal Run a slot stays open only while a request-cap stop retains it and its deadline has not passed; every other open slot is settled by a stated rule (unknown is not zero), so the unit can take a new Run; step 1 is a table sent to the coordinator before the build.
+
+### ELZ-216
+
+ELZ-216 — A Resource that refuses a dispatch as closing does not halt the engine
+
+Publication copy: [tasks/ELZ-216-run-engine-resource-closing-refusal.md](../../tasks/ELZ-216-run-engine-resource-closing-refusal.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Repair on assembly/run-engine: a closing refusal from a Resource dispatch is taken like not_open and paused and does not halt the engine.
+
+### ELZ-217
+
+ELZ-217 — The engine reads the unit state once per commit and encodes each part of the state once per size check
+
+Publication copy: [tasks/ELZ-217-run-engine-step-cost.md](../../tasks/ELZ-217-run-engine-step-cost.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Cost task for issue #431 on assembly/run-engine, Contract unchanged: one read of the unit state per commit, the drain stops by whether a record was appended, one request decode per round, and the size check encodes each part once, with the old size check kept as a test oracle; acceptance by counts, never wall time.
