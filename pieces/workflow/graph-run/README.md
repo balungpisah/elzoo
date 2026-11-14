@@ -125,10 +125,11 @@ The `gives` of a completed graph is one object with the declared gives of each
 nodes hold is `ambiguous_output`. The `action_id` of that finish is the
 completed action that settled last, so with several last nodes it follows the
 arrival order of their outcomes. Every other part of the finish and the set of
-actions asked for do not depend on the arrival order, except for a map with
-`on_item_failure` `:fail` that has more items than its concurrency: there a
-later item is asked for only when a result arrives before the first item that is
-not `completed`.
+actions asked for do not depend on the arrival order for a Run in which no node
+fails the Run, the state stays within its bound and every item of a map with
+`on_item_failure` `:fail` completes. Otherwise a node or an item is asked for
+only when it was ready and had a seat before the first such result arrived, so
+the set of actions and the finish can depend on the arrival order.
 
 ## State form
 
@@ -177,11 +178,12 @@ Type. The pinned Cure compiler checks the total function, its three result and
 four state members and the law.
 
 Test. `mix test pieces/workflow/graph-run/test` runs the listed scenarios of the
-twelve groups `needs_and_gives_only`, `decision_branch_and_join`,
+thirteen groups `needs_and_gives_only`, `decision_branch_and_join`,
 `map_bounds_and_part_failure`, `loop_bounded`, `each_outcome_link`,
 `missing_outcome_link_fails_run`, `settled_node_never_runs_again`,
 `arrival_order`, `nested_graph_gets_only_its_input`, `new_refusals_and_closed`,
-`last_result_over_bound_fails` and `fail_fast_map_two_orders`, each over recorded
+`last_result_over_bound_fails`, `fail_fast_map_two_orders` and
+`failed_run_two_orders`, each over recorded
 literal inputs with hand-written requests. Three negative controls were run by a
 temporary edit and not shipped: a void `order` link that counts as dead fails
 `decision_branch_and_join`; a done node that starts again fails the Cure law, and

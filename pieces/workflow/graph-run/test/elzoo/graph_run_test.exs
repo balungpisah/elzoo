@@ -341,7 +341,7 @@ defmodule Elzoo.GraphRunTest do
 
   defp fan_start, do: req([call("p", %{"x" => 1}), call("q", %{"x" => 1}), call("r", %{"x" => 1})])
 
-  ## The ten groups
+  ## The groups
 
   describe "needs_and_gives_only" do
     test "four nodes with data links run in data order and finish with the gives of the last node" do
@@ -1404,6 +1404,104 @@ defmodule Elzoo.GraphRunTest do
       assert set_b -- set_a == []
       assert finish_a == req([failed("no_outcome_link", "m")])
       assert finish_b == req([failed("no_outcome_link", "m")])
+      closed?(state_a)
+      closed?(state_b)
+    end
+  end
+
+  describe "failed_run_two_orders" do
+    test "w is asked for only when r completes before q fails" do
+      order_a = [
+        start(%{"x" => 1}),
+        done("run:n:r", %{"gr" => 3}),
+        outcome("run:n:q", "failed"),
+        done("run:n:p", %{"gp" => 1}),
+        done("run:n:w", %{"gw" => 4})
+      ]
+
+      order_b = [
+        start(%{"x" => 1}),
+        outcome("run:n:q", "failed"),
+        done("run:n:r", %{"gr" => 3}),
+        done("run:n:p", %{"gp" => 1})
+      ]
+
+      {state_a, requests_a} = fold(fan(), order_a)
+      {state_b, requests_b} = fold(fan(), order_b)
+
+      assert requests_a == [
+               fan_start(),
+               req([call("w", %{"gr" => 3})]),
+               nil,
+               nil,
+               req([failed("no_outcome_link", "q")])
+             ]
+
+      assert requests_b == [fan_start(), nil, nil, req([failed("no_outcome_link", "q")])]
+      assert requests_a != requests_b
+      closed?(state_a)
+      closed?(state_b)
+    end
+
+    test "item 2 is asked for only when item 0 completes before item 1 fails, with seats for two" do
+      nodes = [node("m", "map", ["items", "tag"], ["items"], %{"max_iterations" => 5})]
+      links = [data("$input", "xs", "m", "items"), data("$input", "tag", "m", "tag")]
+      maps = %{"m" => %{concurrency: 3, on_item_failure: :fail}}
+      graph = fn -> build(nodes, links, ["xs", "tag"], %{maps: maps, max_open: 2}) end
+      three = start(%{"xs" => ~w(a b c), "tag" => "t"})
+
+      order_a = [
+        three,
+        done("run:n:m:0", %{"v" => 0}),
+        outcome("run:n:m:1", "failed"),
+        done("run:n:m:2", %{"v" => 2})
+      ]
+
+      order_b = [three, outcome("run:n:m:1", "failed"), done("run:n:m:0", %{"v" => 0})]
+
+      {state_a, requests_a} = fold(graph.(), order_a)
+      {state_b, requests_b} = fold(graph.(), order_b)
+      finish = req([failed("no_outcome_link", "m")])
+
+      assert requests_a == [
+               req([item(0, "a"), item(1, "b")]),
+               req([item(2, "c")]),
+               nil,
+               finish
+             ]
+
+      assert requests_b == [req([item(0, "a"), item(1, "b")]), nil, finish]
+      assert requests_a != requests_b
+      closed?(state_a)
+      closed?(state_b)
+    end
+
+    test "c is asked for only when b completes before the result of a passes the state bound" do
+      nodes = [
+        node("a", "call", ["x"], ["ga"]),
+        node("b", "call", ["x"], ["gb"]),
+        node("c", "call", ["gb"], ["gc"])
+      ]
+
+      links = [
+        data("$input", "x", "a", "x"),
+        data("$input", "x", "b", "x"),
+        data("b", "gb", "c", "gb")
+      ]
+
+      big = String.duplicate("x", 70_000)
+      first = req([call("a", %{"x" => 1}), call("b", %{"x" => 1})])
+      over = req([failed("state_over_bound", nil)])
+
+      order_a = [start(%{"x" => 1}), done("run:n:b", %{"gb" => 5}), done("run:n:a", %{"ga" => big})]
+      order_b = [start(%{"x" => 1}), done("run:n:a", %{"ga" => big})]
+
+      {state_a, requests_a} = fold(build(nodes, links), order_a)
+      {state_b, requests_b} = fold(build(nodes, links), order_b)
+
+      assert requests_a == [first, req([call("c", %{"gb" => 5})]), over]
+      assert requests_b == [first, over]
+      assert requests_a != requests_b
       closed?(state_a)
       closed?(state_b)
     end
