@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "id": "domain/recipe-graph",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["elixir", "jason", "telemetry"],
+  "dependencies": ["workflow/dependency-graph", "core/payload-schema", "core/port", "domain/authorization", "workflow/approval", "workflow/pattern-step"],
+  "contract": "Pure bounded v1 recipe callables as plain data: exact graph, agent and typed-decision declarations, six node kinds, typed slots, acyclic dependency and named-call graphs, explicit identity, bounded nesting and requirement-only rules. Encode preserves the original map; no execution or authority.",
+  "limits": [
+    "Finite validation/composition scenarios only; no new Cure law selected, and reused proofs do not prove the recipe data format.",
+    "Host-approved schemas and truthful immutable schema, policy and binding identities; static checks cannot authenticate hashes or pre-bind runtime actions.",
+    "Accepted-data bounds do not bound schema compilation CPU or memory. Host must exclude secrets.",
+    "No I/O, clock, persistence, execution, scheduling, tool availability, schema subtyping, runtime readiness or authorization grant; agent and decision behavior remains elsewhere."
+  ],
+  "files": ["lib/elzoo/recipe_graph.ex", "test/elzoo/recipe_graph_test.exs", "examples/recipe_graph.exs"],
+  "grounding": [
+    {"kind": "test", "file": "test/elzoo/recipe_graph_test.exs", "claim": "Named groups three_callable_six_node_kinds, dependencies_and_data_slots, branches_and_outcomes, bounded_named_nesting, requirements_never_grant and stable_data_and_redaction exercise exact shapes, bounds, cycles, round-trip data, fixed errors, captured logs, actual authorization/approval composition and the checked example; finite scenarios, not a universal proof."},
+    {"kind": "upstream", "provider": "jason", "reference": "https://hexdocs.pm/jason/1.4.5/Jason.html", "claim": "Compact scalar JSON encoding supplies byte counts after plain representation/depth checks; the ready DependencyGraph, PayloadSchema, Port, Authorization, Approval and PatternStep Contracts are reused unchanged."},
+    {"kind": "assumption", "claim": "Host-approved schema complexity, truthful identities, secret-free data and immutable revisions; consumers preserve checked values and invoke authorization/approval with trusted current exact-action context. Forged checked representations are outside the interface."}
+  ],
+  "operations": {
+    "telemetry": {"status": "not_applicable", "contract": "Pure validation emits no logs or observations."},
+    "config": {"status": "not_applicable", "contract": "Intrinsic data operands and fixed v1 bounds; no ambient settings."},
+    "control": {"status": "not_applicable", "contract": "No process or independent lifecycle."}
+  }
+}
