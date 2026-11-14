@@ -209,14 +209,16 @@ defmodule Elzoo.ObjectStoreTest do
     secret: sk
   } do
     assert %{status: :committed} = OS.put(c, "#{p}/pre", "presigned body")
-    assert {:ok, pre} = OS.presign(c, "#{p}/pre", expires_s: 1)
+    assert {:ok, pre} = OS.presign(c, "#{p}/pre", expires_s: 60)
     assert %{status: 200, body: "presigned body"} = Req.get!(pre.url, retry: false)
     assert String.contains?(pre.url, ak)
     refute String.contains?(pre.url, sk)
     refute String.contains?(inspect(pre), ak)
     refute String.contains?(inspect(pre), "X-Amz")
+
+    assert {:ok, short} = OS.presign(c, "#{p}/pre", expires_s: 1)
     Process.sleep(2_100)
-    assert %{status: 403} = Req.get!(pre.url, retry: false)
+    assert %{status: 403} = Req.get!(short.url, retry: false)
 
     assert {:ok, up} = OS.presign(c, "#{p}/up", method: :put, expires_s: 60)
     assert %{status: 200} = Req.put!(up.url, body: "via presign", retry: false)
