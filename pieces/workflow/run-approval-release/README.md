@@ -52,8 +52,12 @@ atom-keyed maps with `kind`, `run_id`, `expected_revision` and, except `create`,
 
 The inherited serialized lifecycle preserves stable Run/operation/provider
 identity, explicit execution Attempts, reciprocal atomic child attachment and
-durable settlement. `DOWN` is death, never completion. Restoration creates no
-Attempt. Stale cancellation does not cancel a newer Attempt. Completion needs
+durable settlement. `DOWN` is death, never completion.
+`dead` is best effort: no pid is stored, so a death is not recorded when the
+owner restarts before or while the child ends, or when its write is fenced or
+rejected. A death whose write failed with an error is kept in the process and
+written after the next command, whatever its result. `status` writes nothing.
+Restoration creates no Attempt. Stale cancellation does not cancel a newer Attempt. Completion needs
 authenticated committed evidence correlating Run, operation, Attempt and action.
 The five immutable outcomes remain `completed`, `failed`, `cancelled`,
 `out_of_budget`, `out_of_time`; waiting/paused are not outcomes.
@@ -148,7 +152,12 @@ Baseline source preservation is checked by diff, not a source-hash test.
 
 Two temporary mutations of this new production owner bypass respectively the
 release-event commit and existing-release revalidation; the named release and
-authority cases must fail before restoration. These finite scenarios are tests,
+authority cases must fail before restoration. Repair groups
+`missing_evidence_is_refused`, `failed_death_write_is_kept` and `death_is_best_effort`
+add finite cases; the Store fault seam gives only an indeterminate write, so a write
+that fails with an error is made by a temporary change of the log table shape. Two
+temporary mutations (the stored evidence condition and the kept deaths) fail their
+groups, then are restored. These finite scenarios are tests,
 not universal no-send/durability/cancellation proofs or production monitoring.
 Approval owns its unchanged pure laws; no new law is claimed here.
 
