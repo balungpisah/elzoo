@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: Apache-2.0
+mod Elzoo.NodeOutcome
+  type OutcomeDecision = OutcomeFollow | OutcomeProceed | OutcomeFail
+
+  @total true
+  @reducible
+  fn decide(completed: Bool, routed: Bool) -> OutcomeDecision =
+    pickup
+      routed -> OutcomeFollow()
+      completed -> OutcomeProceed()
+      else -> OutcomeFail()
+
+  # A route is followed whether or not the class is completed.
+  fn route_is_followed(completed: Bool) -> Equivalent(OutcomeDecision, decide(completed, True()), OutcomeFollow()) =
+    match completed
+      True() -> reflexive(OutcomeFollow())
+      False() -> reflexive(OutcomeFollow())
+
+  fn uncompleted_without_route_fails() -> Equivalent(OutcomeDecision, decide(False(), False()), OutcomeFail()) =
+    reflexive(OutcomeFail())
+
+  fn completed_without_route_proceeds() -> Equivalent(OutcomeDecision, decide(True(), False()), OutcomeProceed()) =
+    reflexive(OutcomeProceed())
+end
