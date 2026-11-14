@@ -173,7 +173,8 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-160](https://github.com/balungpisah/elzoo/issues/350) | V1B / pieces | ELZ-033, ELZ-159 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-165](https://github.com/balungpisah/elzoo/issues/359) | V1B / pieces | ELZ-160 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-163](https://github.com/balungpisah/elzoo/issues/362) | V1B / pieces | ELZ-033, ELZ-159, ELZ-160, ELZ-165 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
-| RC-60 | V1B / pieces | ELZ-033, ELZ-160, ELZ-163 | sandbox published as ELZ-163; lua-stdlib remains an unpublished admission proposal | one claimed task worker after admission |
+| [ELZ-174](https://github.com/balungpisah/elzoo/issues/388) | V1B / pieces | ELZ-033, ELZ-163 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| RC-60 | V1B / pieces | ELZ-033, ELZ-160, ELZ-163, ELZ-174 | sandbox published as ELZ-163; the helper set is published as ELZ-174, inside runtime/lua-sandbox; the runtime/lua-stdlib row is removed when ELZ-174 merges | one claimed task worker after admission |
 | [ELZ-161](https://github.com/balungpisah/elzoo/issues/351) | V1B / pieces | ELZ-033, ELZ-115, ELZ-026, ELZ-024, ELZ-114 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-162](https://github.com/balungpisah/elzoo/issues/352) | V1B / pieces | ELZ-033, ELZ-115, ELZ-105 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-164](https://github.com/balungpisah/elzoo/issues/357) | V1B / pieces | ELZ-033, ELZ-115, ELZ-161, ELZ-162 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
@@ -374,7 +375,7 @@ Baseline status is immutable inventory history, not a current planning status. R
 | [workflow/recipe-check](../../pieces/workflow/recipe-check/piece.json) | not in baseline (new row, RC-64) | V1B / pieces | ELZ-167 / P13 | ready-contract: Pure load-time check of a recipe package, or of a recipe outside a package, against caller-supplied facts: structure by the ready validators located at its part, then every tool, declared need and permission and cost compared, with an exact upper cost against a cap; an ok verdict or all refusal reasons in a fixed order, no execution, grant or budget. |
 | [workflow/runtime-graph](../../pieces/workflow/runtime-graph/piece.json) | not in baseline (new row, RC-64) | V1B / pieces | ELZ-169 / P13 | ready-contract: Pure decision whether a graph that a model gave as plain data at run time may run: the graph is checked as data, held to the callables, tools, asks, node count and nesting that the agent may use, added to the recipe of the Run as one more graph callable, and checked as at load time with its upper cost against the budget share; the accepted recipe, callable and upper cost, or all refusal reasons in a fixed order, and a bounded text of the reasons for the model; no execution, grant, budget or storage. |
 | state/recipe-store | not in baseline (new row, RC-65) | V1B / pieces | ELZ-171 / P13 | published-task; implementation pending: Immutable recipe versions per tenant with a check gate, a published pointer with go-back, pin records and delete marks in one stream per tenant; a pinned or published version is not deleted. |
-| workflow/version-pin | not in baseline (new row, RC-65) | V1B / pieces | ELZ-170 / P13 | published-task; implementation pending: Pure rule: a Run keeps the recipe version and the tool source set of its start; only one explicit input changes the version, and nothing changes the source set. |
+| [workflow/version-pin](../../pieces/workflow/version-pin/piece.json) | not in baseline (new row, RC-65) | V1B / pieces | ELZ-170 / P13 | ready-contract: Pure rule of the recipe version and the tool sources that one Run keeps: the pin captures a package identity and the id, kind and callable of each source at Run start, an explicit change-version input is the only input that changes the version, a published version, a settings change and a listing change nothing, a listing of an outside source is refused, and no input adds a source. No I/O, clock, process, storage or version check. |
 | runtime/recipe-test | not in baseline (new row, RC-66) | V1B / pieces | RC-66 / P13 | blocked-admission-proposal: Bot platform wave 3 (P13). No network and a controlled clock; an unscripted call fails the test. The way an author and a Piece worker test without a provider. |
 | workflow/skill | not in baseline (new row, RC-67) | V1B / pieces | RC-67 / P13 | blocked-admission-proposal: Bot platform wave 3 (P13). A skill is a tool source of the registry: loading is a recorded tool call and grants no authority; the tools of the skill still pass the checks of the engine. |
 
@@ -397,7 +398,7 @@ Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, EL
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-173.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173.
 
 ### V2-ACCEPT
 
@@ -2931,6 +2932,16 @@ Publication copy: [tasks/ELZ-171-recipe-store.md](../../tasks/ELZ-171-recipe-sto
 **Product aims:** P13.
 
 **Acceptance:** Immutable recipe versions of each tenant in state/artifact with access expiry and retention never; verdicts of workflow/recipe-check, the published pointer, pin records and delete marks in one stream per tenant under head-revision CAS. Only a checked version is published; go-back publishes an older version; two publishes and a pin with a delete each have one order; a pinned or published version is not deleted; the delete mark is committed before the Artifact delete; reap removes no recipe; a tenant cannot read another tenant.
+
+### ELZ-174
+
+ELZ-174 — The Lua sandbox gets the safe helper set as policy version 2
+
+Publication copy: [tasks/ELZ-174-lua-sandbox-helpers.md](../../tasks/ELZ-174-lua-sandbox-helpers.md).
+
+**Product aims:** P13.
+
+**Acceptance:** runtime/lua-sandbox, changed in place by owner decision (no release yet, same Piece ID): policy version 2 with the identity policy-v2:sha256: and ten helpers under the global helpers table: null, object, json_encode, json_decode, text_trim, text_split, text_utf8_len, time_parts, time_unix_ms and time_iso8601. Helpers are C functions of the one host, charge steps for their work, keep every limit as a sticky stop and read no clock. The planned ID runtime/lua-stdlib is removed with the index commit. This completes RC-60.
 
 ### ELZ-173
 

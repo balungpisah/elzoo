@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "id": "workflow/version-pin",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["cure", "elixir"],
+  "dependencies": ["workflow/tool-registry"],
+  "contract": "Pure rule of the recipe version and the tool sources that one Run keeps: the pin captures a package identity and the id, kind and callable of each source at Run start, an explicit change-version input is the only input that changes the version, a published version, a settings change and a listing change nothing, a listing of an outside source is refused, and no input adds a source. No I/O, clock, process, storage or version check.",
+  "limits": [
+    "The pin does not check that a version exists, is checked or is published, and it verifies no operator; the host gives a change-version input only for an authorised, recorded action.",
+    "It captures no tool list: the tool list of a known source may change during the Run, and a refusal of a source list by workflow/tool-registry is reported as invalid_input without its reason.",
+    "Selected Cure laws cover the supplied input classes only; operand checks (identity form, source ID form, membership), source validation and the host Needs are finite-test grounded or assumed.",
+    "No Telemetry, Config or Control; no store, no pointer to a published version and no tenant settings: state/recipe-store and the host own them."
+  ],
+  "files": [
+    "cure/elzoo/version_pin.cure",
+    "lib/elzoo/version_pin.ex",
+    "test/elzoo/version_pin_test.exs",
+    "examples/version_pin.exs"
+  ],
+  "grounding": [
+    {"kind": "proof", "file": "cure/elzoo/version_pin.cure", "symbol": "publish_keeps_version", "claim": "For every version and offered identity, a published input leaves the pinned version unchanged; the class is supplied by Elixir."},
+    {"kind": "proof", "file": "cure/elzoo/version_pin.cure", "symbol": "only_explicit_change_changes_version", "claim": "For every version, offered identity and input class other than the explicit change to another identity, the version after the step equals the version before; the class is supplied by Elixir."},
+    {"kind": "proof", "file": "cure/elzoo/version_pin.cure", "symbol": "source_set_is_fixed", "claim": "For every source list, offered source and input class, the source list after the step equals the list before; the class is supplied by Elixir."},
+    {"kind": "type", "file": "cure/elzoo/version_pin.cure", "claim": "Pinned Cure checks types and totality of the decision table and of the next-version and next-sources functions; the source audit reports no axiom, hole, unresolved, unaudited, opaque or unproved-total definition and zero absurd."},
+    {"kind": "test", "file": "test/elzoo/version_pin_test.exs", "claim": "Named groups pin_at_start, publish_changes_no_running_run, explicit_change_only, settings_affect_next_run, source_set_closed and total_and_redacted (more than 40 inputs, redacted sentinel, equal inputs equal results), the Cure law/audit and the checked example pass; letting a published input change the version makes publish_keeps_version, publish_changes_no_running_run and explicit_change_only fail, and letting an add_source input add a member makes source_set_is_fixed and source_set_closed fail (negative controls). Finite scenarios."},
+    {"kind": "upstream", "provider": "cure", "reference": "https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89", "claim": "Pinned Cure compilation, reduction checking and BEAM decision semantics; compiler soundness not locally proved."},
+    {"kind": "upstream", "provider": "elixir", "reference": "https://hexdocs.pm/elixir/1.20.4/", "claim": "Pinned Elixir immutable maps, lists and binaries; ready workflow/tool-registry snapshot/1 is reused unchanged as the one check of the source list."},
+    {"kind": "assumption", "claim": "The host builds the source list truthfully at Run start from the pinned recipe and the tenant settings, keeps the pin in the durable state of the Run, asks {:listing, id} before it takes a new tool listing of a source, starts a model graph or a tool only from a known source, and gives {:change_version, _} only on an authorised, recorded action with an identity that state/recipe-store holds as checked."}
+  ],
+  "operations": {
+    "telemetry": {"status": "not_applicable", "contract": "Pure functions emit no observations and no logs; the host owns instrumentation."},
+    "config": {"status": "not_applicable", "contract": "Intrinsic operands and fixed bounds (identity 89 bytes, the bounds of workflow/tool-registry snapshot/1); no ambient settings."},
+    "control": {"status": "not_applicable", "contract": "No process or lifecycle; the change-version input is a data operand that the host gives under its own authorisation."}
+  }
+}
