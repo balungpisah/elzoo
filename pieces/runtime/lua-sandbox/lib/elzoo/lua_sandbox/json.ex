@@ -102,64 +102,75 @@ defmodule Elzoo.LuaSandbox.Json do
   Check a term as plain data within `value_bytes`.
 
   Returns `:ok`, `:invalid` (not plain data, or more than 32 nested containers)
-  or `:size` (a string or the canonical encoding is over `value_bytes`).
+  or `:size` (the canonical encoding is over `value_bytes`).
+
+  The walk carries a budget of `value_bytes`. Each node takes at most its size in
+  the canonical encoding (a string its bytes and two quotes, a number or a literal
+  one byte, a container two bytes), so the walk stops with `:size` as soon as the
+  budget is used up and its work is bounded by `value_bytes`, not by the count of
+  references to shared subterms. Where a term is both over the size and not plain
+  data, the answer is the one that the walk meets first. `encode/1` runs only on a
+  term that the walk passed, and its size is compared exactly.
   """
   def check(term, value_bytes) do
-    case walk(term, value_bytes, 0, false) do
+    case walk(term, value_bytes, 0) do
       :invalid -> :invalid
-      {:ok, true} -> :size
-      {:ok, false} -> if byte_size(encode(term)) > value_bytes, do: :size, else: :ok
+      :size -> :size
+      {:ok, _left} -> if byte_size(encode(term)) > value_bytes, do: :size, else: :ok
     end
   end
 
-  # Returns :invalid or {:ok, oversize_string_seen?}
-  defp walk(nil, _, _, big), do: {:ok, big}
-  defp walk(bool, _, _, big) when is_boolean(bool), do: {:ok, big}
+  # Returns :invalid, :size or {:ok, budget left}.
+  defp walk(nil, left, _), do: take(left, 1)
+  defp walk(bool, left, _) when is_boolean(bool), do: take(left, 1)
 
-  defp walk(int, _, _, big) when is_integer(int) and int >= @int_min and int <= @int_max,
-    do: {:ok, big}
+  defp walk(int, left, _) when is_integer(int) and int >= @int_min and int <= @int_max,
+    do: take(left, 1)
 
-  defp walk(float, _, _, big) when is_float(float), do: {:ok, big}
+  defp walk(float, left, _) when is_float(float), do: take(left, 1)
 
-  defp walk(text, limit, _, big) when is_binary(text) do
-    if String.valid?(text), do: {:ok, big or byte_size(text) > limit}, else: :invalid
+  defp walk(text, left, _) when is_binary(text) do
+    case take(left, byte_size(text) + 2) do
+      {:ok, _} = ok -> if String.valid?(text), do: ok, else: :invalid
+      :size -> :size
+    end
   end
 
-  defp walk(list, limit, depth, big) when is_list(list) and depth < @max_containers do
-    walk_all(list, limit, depth + 1, big)
+  defp walk(list, left, depth) when is_list(list) and depth < @max_containers do
+    with {:ok, left} <- take(left, 2), do: walk_all(list, left, depth + 1)
   end
 
-  defp walk(map, limit, depth, big)
+  defp walk(map, left, depth)
        when is_map(map) and not is_struct(map) and depth < @max_containers do
-    Enum.reduce_while(map, {:ok, big}, fn {key, value}, {:ok, acc} ->
-      with true <- is_binary(key),
-           {:ok, acc} <- walk(key, limit, depth + 1, acc),
-           {:ok, acc} <- walk(value, limit, depth + 1, acc) do
-        {:cont, {:ok, acc}}
-      else
-        _ -> {:halt, :invalid}
-      end
-    end)
-  end
-
-  defp walk(_, _, _, _), do: :invalid
-
-  defp walk_all(list, limit, depth, big) do
-    if proper?(list) do
-      Enum.reduce_while(list, {:ok, big}, fn item, {:ok, acc} ->
-        case walk(item, limit, depth, acc) do
-          :invalid -> {:halt, :invalid}
-          ok -> {:cont, ok}
+    with {:ok, left} <- take(left, 2) do
+      Enum.reduce_while(map, {:ok, left}, fn {key, value}, {:ok, acc} ->
+        with true <- is_binary(key),
+             {:ok, acc} <- walk(key, acc, depth + 1),
+             {:ok, acc} <- walk(value, acc, depth + 1) do
+          {:cont, {:ok, acc}}
+        else
+          :size -> {:halt, :size}
+          _ -> {:halt, :invalid}
         end
       end)
-    else
-      :invalid
     end
   end
 
-  defp proper?([]), do: true
-  defp proper?([_ | tail]), do: proper?(tail)
-  defp proper?(_), do: false
+  defp walk(_, _, _), do: :invalid
+
+  defp walk_all([], left, _depth), do: {:ok, left}
+
+  defp walk_all([item | tail], left, depth) do
+    case walk(item, left, depth) do
+      {:ok, left} -> walk_all(tail, left, depth)
+      other -> other
+    end
+  end
+
+  defp walk_all(_improper, _left, _depth), do: :invalid
+
+  defp take(left, cost) when cost <= left, do: {:ok, left - cost}
+  defp take(_left, _cost), do: :size
 
   @doc """
   Strict decode: valid JSON, no duplicate object keys, no trailing bytes.

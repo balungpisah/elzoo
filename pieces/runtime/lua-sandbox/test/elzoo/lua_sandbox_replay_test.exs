@@ -406,7 +406,7 @@ defmodule Elzoo.LuaSandboxReplayTest do
         Helper.fake!(
           Helper.tmp_dir!("mismatch"),
           "mismatch-host",
-          Helper.printf(Helper.frame(Jason.encode!(mismatch)))
+          "head -c 4 >/dev/null\n" <> Helper.printf(Helper.frame(Jason.encode!(mismatch)))
         )
 
       assert LuaSandbox.run(path, Helper.request(@valid)) == {:refused, :policy_mismatch}
