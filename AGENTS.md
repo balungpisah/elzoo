@@ -44,7 +44,7 @@ Separate publication PRs keep the coordinator merge path (section 9).
 
 | Change | Publication and claim | Local gate → hosted check |
 | --- | --- | --- |
-| New or changed Piece Contract | Coordinator publishes the new Piece ID first; then claim (sections 2–4, 9) | Piece gate below; never reuse an old ID for a new Contract |
+| New or changed Piece Contract | New capability: coordinator publishes the new Piece ID first; then claim (sections 2–4, 9). Changed Contract of a ready Piece before the first release: a published task on the same ID (section 4) | Piece gate below; from the first release never reuse an old ID for a new Contract |
 | Piece-only implementation | Published task, claim, implementation PR (sections 2–3) | Small gate (section 5) → `check-piece`; full check on main covers omitted tests |
 | Documents only | Published task or coordinator one-PR path below; claim | Roadmap/claims checks and diff check → docs-only check; no executable inputs changed |
 | Spike only, including dependencies or pins confined to the spike's own files (`mix.exs`, `mix.lock`, etc.) | Own task; published or coordinator one-PR path; claim | Changed spike's own checks and roadmap/diff checks → `check-spike` and Gleam when applicable; root tests do not consume spike contents, full check on main |
@@ -168,9 +168,15 @@ agent writes in a worktree at a time.
   `README.md` and `piece.json`. `piece.json` owns the source list, the
   dependencies, the grounding of each claim and the Telemetry, Config and
   Control declarations.
-- A ready Piece ID is a stable Contract. A change of accepted inputs, outputs,
-  state, delivery, failure guarantees or Needs gets a **new Piece ID**. The old
-  ID stays usable. A bug fix that restores the Contract keeps the ID.
+- Elzoo is not released yet. Until the first release, when a ready Piece
+  lacks something that clearly belongs to it, extend, refactor or cut it clean
+  in place: same Piece ID, no second Piece for the same job. The task body
+  states the changed Contract, and `piece.json`, the README and the index
+  rows follow it. A separate capability still gets its own Piece.
+- From the first release, a ready Piece ID is a stable Contract. A change of
+  accepted inputs, outputs, state, delivery, failure guarantees or Needs gets
+  a **new Piece ID**. The old ID stays usable. A bug fix that restores the
+  Contract keeps the ID.
 - The toolchain pins are in `.tool-versions` and `mix.exs`. Do not change them
   in a Piece task.
 - The repository is public. Write no hostname, address, local path, database
