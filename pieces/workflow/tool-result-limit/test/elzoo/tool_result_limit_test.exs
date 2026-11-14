@@ -276,6 +276,22 @@ defmodule Elzoo.ToolResultLimitTest do
     assert {:store, p, _} = ToolResultLimit.decide(text(euro), @limits, "act-3")
     assert p["content"]["content"] == String.duplicate("a", 510)
 
+    # the preview is a copy: it refers to no byte beyond itself, also when the
+    # cut goes back to a code point boundary
+    wide = %{@limits | artifact_max_bytes: 2_000_000}
+    mebibyte = String.duplicate("a", 1_048_576)
+    assert {:store, whole_cut, _} = ToolResultLimit.decide(text(mebibyte), wide, "act-copy-1")
+    whole_cut_preview = whole_cut["content"]["content"]
+    assert byte_size(whole_cut_preview) == @max - 512
+    assert :binary.referenced_byte_size(whole_cut_preview) == byte_size(whole_cut_preview)
+
+    boundary_text = String.duplicate("a", 510) <> "€" <> String.duplicate("c", 1_048_576 - 513)
+    assert byte_size(boundary_text) == 1_048_576
+    assert {:store, back_cut, _} = ToolResultLimit.decide(text(boundary_text), wide, "act-copy-2")
+    back_cut_preview = back_cut["content"]["content"]
+    assert back_cut_preview == String.duplicate("a", 510)
+    assert :binary.referenced_byte_size(back_cut_preview) == byte_size(back_cut_preview)
+
     # a result of 60,000 bytes: small intent arguments, whole bytes in the Artifact
     big = String.duplicate("0123456789", 6_000)
     assert {:store, p, payload} = ToolResultLimit.decide(text(big), @limits, "act-4")
