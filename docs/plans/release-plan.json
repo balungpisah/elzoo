@@ -6036,6 +6036,40 @@
       "issue": 415,
       "url": "https://github.com/balungpisah/elzoo/issues/415",
       "issue_body_sha256": "9bc40113f7e218bf4808b2b47d3eb9ec69ecc592883049c14bf20bc8ec1972c9"
+    },
+    {
+      "id": "ELZ-188",
+      "title": "ELZ-188 — A child of the Lua sandbox that dies early gives a host outcome and never ends its caller",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-177"],
+      "status": "published 2026-11-14",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-188-lua-sandbox-early-child-exit.md"],
+      "outputs": [],
+      "acceptance": "Repair for issue #418 on runtime/lua-sandbox that restores its Contract: no exit of the Port reaches the caller of run/2 as an exit signal; a child that exits or closes its input before the request is written gives a host outcome; the caller keeps its flags, links, monitors and mailbox; deadline, reaping and no-orphan guarantees stay; shown by a certain test and a negative control.",
+      "product_aims": ["P13"],
+      "issue": 422,
+      "url": "https://github.com/balungpisah/elzoo/issues/422",
+      "issue_body_sha256": "4b6c0f735c6ffee738e55df3fc03ba18eefec362b632712c90ede4338fdcdb13"
+    },
+    {
+      "id": "ELZ-189",
+      "title": "ELZ-189 — The dynamic-units tests wait for a process exit without a 100 ms limit",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033"],
+      "status": "published 2026-11-14",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-189-dynamic-units-shutdown-wait.md"],
+      "outputs": [],
+      "acceptance": "Repair for issue #420 on the tests of runtime/dynamic-units: each assert_receive that waits for a DOWN message gets an explicit limit of 5,000 ms; no pattern, reason or other assertion changes; 20 runs alone and 5 beside other suites pass; a negative control shows that the line still waits.",
+      "product_aims": ["P13"],
+      "issue": 423,
+      "url": "https://github.com/balungpisah/elzoo/issues/423",
+      "issue_body_sha256": "7faf31eb9cc99053a696964fc6d370d3eac9fd04c78bfc129a725c26f9aeb617"
     }
   ],
   "entries": [
@@ -7381,10 +7415,12 @@
     {
       "id": "runtime/recipe-test",
       "job": "ELZ-181",
-      "note": "Test harness that runs a recipe package through the real engine and patterns with scripted model and tool Adapters, a controlled clock and a full step record.",
+      "note": "An ExUnit helper that checks a recipe package, runs it end to end through the real Run engine and the real agent, graph and decision pattern Pieces on disposable PostgreSQL with scripted model and tool results from allowed Adapters only, no network and a clock that does not move, and gives back the record of every step, with an explicit failure for a call that the script does not name.",
       "baseline_status": "not in baseline (new row, RC-66)",
-      "disposition": "published-task; implementation pending",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/runtime/recipe-test/piece.json",
+      "manifest_sha256": "e9f03fdcb7a1a4bf5e780fbdb669049be12dd968b999a6ce828886ea0a559dc1"
     },
     {
       "id": "workflow/skill",
