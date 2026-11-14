@@ -6682,6 +6682,40 @@
       "issue": 484,
       "url": "https://github.com/balungpisah/elzoo/issues/484",
       "issue_body_sha256": "090bd6c7681c6f10f2528d02eb0192b3a11612fd3402acb885f662a409166ea2"
+    },
+    {
+      "id": "ELZ-222",
+      "title": "ELZ-222 — The push run accepts a pull request run as evidence only when GitHub says that its pull request targets `main` and never changed its base",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-223"],
+      "status": "published 2026-11-14",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-222-skip-decision-pr-base.md"],
+      "outputs": [],
+      "acceptance": "CI evidence rule: the push run accepts a pull request run only when the API shows exactly one pull request for the head, into main, with no base change; any other outcome runs the full check; guard tests and full check.",
+      "product_aims": ["P13"],
+      "issue": 479,
+      "url": "https://github.com/balungpisah/elzoo/issues/479",
+      "issue_body_sha256": "41e6e2c1c6e8b55b86740ebfdeced349123a81d79edcf815441181eb09a19ff0"
+    },
+    {
+      "id": "ELZ-231",
+      "title": "ELZ-231 — A call of `runtime/dynamic-units` waits long enough for a unit that replays a large journal",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-122", "ELZ-189"],
+      "status": "published 2026-11-14",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-231-dynamic-units-start-limit.md"],
+      "outputs": [],
+      "acceptance": "Piece runtime/dynamic-units in place: its four calls use a stated fixed limit of 60,000 ms; a start held past 5 s succeeds; small gate.",
+      "product_aims": ["P13"],
+      "issue": 489,
+      "url": "https://github.com/balungpisah/elzoo/issues/489",
+      "issue_body_sha256": "09e2b3d35a8949dd662bcb3454c270eef2972d17d4aacac6e0ed943046285fb0"
     }
   ],
   "entries": [
