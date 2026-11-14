@@ -512,7 +512,14 @@ defmodule Elzoo.GraphRun do
       else: done(state)
   end
 
+  # The running state is measured before any finish: a last result over the bound fails the run.
   defp done(state) do
+    if size(state) > @state_bound,
+      do: finish(state, "failed", "state_over_bound", nil),
+      else: complete(state)
+  end
+
+  defp complete(state) do
     sinks = Enum.filter(state.sinks, &(state.status[&1] == {:done, "completed"}))
     names = Enum.flat_map(sinks, &state.nodes[&1].gives)
 
