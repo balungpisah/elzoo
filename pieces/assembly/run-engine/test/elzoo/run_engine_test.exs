@@ -4259,4 +4259,210 @@ defmodule Elzoo.RunEngineTest do
       assert budget_status(c, "root") == %{committed: 0, reserved: 10}
     end
   end
+
+  describe "local_work_closed_without_a_budget_step" do
+    test "a child whose local work is closed at an Attempt change gives its parent no outcome" do
+      parent = self()
+      script = [request([action("work", "local_work"), finish_action("done")])]
+      {c, bindings} = lost_setup(script, [])
+
+      bindings =
+        Map.update!(
+          bindings,
+          "local_work",
+          &Map.put(&1, :work, fn a -> {TestPattern, :blocked, [parent, a["payload"]]} end)
+        )
+
+      engine = start(c, bindings: bindings)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:local_started, task}
+      assert unit_state(c).control.callables["1:0"].closed
+
+      assert {:ok, :applied} =
+               bounded(fn ->
+                 RunEngine.control(
+                   engine,
+                   "attempt-change",
+                   %{kind: :begin_attempt, attempt_id: "second"},
+                   verified()
+                 )
+               end)
+
+      view = view(engine)
+      assert view.attempt_id == "second"
+      assert view.slots[{2, 0}].outcome == "failed"
+      # close_local settled the slot with no Budget step: no reservation field, no actual,
+      # and the Budget of the child still holds the entry.
+      state = unit_state(c)
+      refute Map.has_key?(state.slots[{2, 0}], :reservation)
+      refute Map.has_key?(state.slots[{2, 0}], :actual)
+      assert budget_status(c, "1:0") == %{committed: 0, reserved: 1}
+      # The parent of the old Attempt takes no outcome: no record is written for it.
+      assert view.slots[{1, 0}].phase == :running
+      assert outcome_records(c, "nested") == []
+      count = length(rows(c))
+
+      engine = restart(c, engine, bindings: bindings)
+      assert view(engine).slots[{1, 0}].phase == :running
+      assert outcome_records(c, "nested") == []
+      assert length(rows(c)) == count
+      send(task, :finish)
+    end
+
+    test "an expired parent whose child later closes with a lost cost stays as settled and the Run goes on" do
+      payload = %{"choice" => "late"}
+
+      script = [request([action("lost", "tool_call")]), request([finish_action("done", payload)])]
+
+      {c, bindings} = lost_setup(script, [request([action("after", "local_work")])])
+
+      bindings =
+        Map.update!(bindings, "nested_callable", fn binding ->
+          %{binding | facts: fn a -> %{binding.facts.(a) | deadline_ms: 10_000} end}
+        end)
+
+      engine = start(c, bindings: bindings)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, _lost, _}
+      Agent.update(c.clock, fn _ -> 10_000 end)
+      assert {:ok, :applied} = RunEngine.input(engine, "expire", wake(), verified())
+      assert view(engine).slots[{1, 0}].outcome == "expired"
+      expired = unit_state(c).slots[{1, 0}]
+      assert expired[:actual] == nil
+
+      engine = restart(c, engine, bindings: bindings)
+      wait_for(engine, &(&1.slots[{2, 0}].phase == :settled))
+      wait_for(engine, &settled?(&1, "done"))
+      assert unit_state(c).control.callables["1:0"].closed
+      assert view(engine).slots[{1, 0}].outcome == "expired"
+      assert unit_state(c).slots[{1, 0}] == expired
+      assert outcome_records(c, "nested") == []
+      refute Enum.any?(journal(c), &match?({:nested_actual, _, _, _, _}, &1))
+      # The next work of the Run goes on: the root asks for it and it settles.
+      assert {:ok, :applied} = RunEngine.input(engine, "wake-after", wake(), verified())
+      wait_for(engine, &settled?(&1, "after"))
+      assert unit_state(c).slots[{1, 0}] == expired
+      assert outcome_records(c, "nested") == []
+    end
+  end
+
+  describe "expired_reservation_is_still_unknown" do
+    test "a lost Effect whose deadline passed before the child finished gives the parent no actual, at any clock" do
+      payload = %{"choice" => "kept"}
+      {c, bindings} = lost_setup(lost_child(payload), [])
+
+      bindings =
+        bindings
+        |> Map.update!("nested_callable", fn binding ->
+          %{binding | facts: fn a -> %{binding.facts.(a) | deadline_ms: 55_000} end}
+        end)
+        |> Map.update!("tool_call", fn binding ->
+          %{
+            binding
+            | facts: fn a ->
+                facts = binding.facts.(a)
+                %{facts | deadline_ms: 20_000, intent: %{facts.intent | deadline_ms: 20_000}}
+              end
+          }
+        end)
+
+      engine = start(c, bindings: bindings)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, _lost, _}
+      Agent.update(c.clock, fn _ -> 25_000 end)
+      engine = restart(c, engine, bindings: bindings)
+      wait_for(engine, &(&1.slots[{1, 0}].phase == :settled))
+      assert view(engine).slots[{1, 0}].outcome == "completed"
+      assert unit_state(c).slots[{1, 0}][:actual] == nil
+      # The lost entry is Expired: it left `reserved` and nothing was committed for it.
+      assert budget_status(c, "1:0", 25_000) == %{committed: 0, reserved: 0}
+      assert budget_status(c, "root", 25_000) == %{committed: 0, reserved: 10}
+
+      record = fn engine ->
+        %{
+          view: view(engine),
+          slot: unit_state(c).slots[{1, 0}],
+          records: length(rows(c)),
+          budgets: for(id <- ["root", "1:0"], into: %{}, do: {id, budget_status(c, id)})
+        }
+      end
+
+      first = record.(engine)
+      Agent.update(c.clock, fn _ -> 58_000 end)
+      engine = restart(c, engine, bindings: bindings)
+      assert record.(engine) == first
+      assert [_] = outcome_records(c, "nested")
+      refute Enum.any?(journal(c), &match?({:nested_actual, _, _, _, _}, &1))
+    end
+  end
+
+  describe "no_loop_for_a_parent_that_cannot_settle" do
+    # The root finishes in the same request that starts the child: the Run is terminal
+    # and the parent slot, still running, can no longer take an outcome.
+    defp finishing_root(child_script) do
+      root = [
+        request([action("src", "local_work")]),
+        request([
+          action("nested", "nested_callable"),
+          finish_action("root-done", %{"action_id" => "src"})
+        ])
+      ]
+
+      nested_setup(%{"nested" => child_script},
+        pattern: {TestPattern, :scripted, %{name: "root", script: root}}
+      )
+    end
+
+    test "a child with a known cost: the call returns and no record is written for the parent" do
+      {c, bindings} = finishing_root([])
+      engine = start(c, bindings: bindings)
+      assert {:ok, :applied} = bounded(fn -> send_input(engine) end)
+      view = wait_for(engine, &(&1.outcome == :completed))
+      assert slot_by(view, "nested").phase == :running
+      assert outcome_records(c, "nested") == []
+
+      assert {:ok, :applied} =
+               bounded(fn -> RunEngine.input(engine, "wake", wake(), verified()) end)
+
+      assert outcome_records(c, "nested") == []
+    end
+
+    test "a child with an unknown cost: the call returns and no record is written for the parent" do
+      parent = self()
+      script = [request([action("work", "local_work"), finish_action("done")])]
+      {c, bindings} = lost_setup(script, [])
+
+      bindings =
+        Map.update!(
+          bindings,
+          "local_work",
+          &Map.put(&1, :work, fn a -> {TestPattern, :blocked, [parent, a["payload"]]} end)
+        )
+
+      engine = start(c, bindings: bindings)
+      assert {:ok, :applied} = bounded(fn -> send_input(engine) end)
+      assert_receive {:local_started, task}
+
+      assert {:ok, :applied} =
+               bounded(fn ->
+                 RunEngine.control(
+                   engine,
+                   "attempt-change",
+                   %{kind: :begin_attempt, attempt_id: "second"},
+                   verified()
+                 )
+               end)
+
+      assert slot_by(view(engine), "work").outcome == "failed"
+      assert slot_by(view(engine), "nested").phase == :running
+
+      assert {:ok, :applied} =
+               bounded(fn ->
+                 RunEngine.input(engine, "wake", wake(), verified(%{attempt_id: "second"}))
+               end)
+
+      assert outcome_records(c, "nested") == []
+      send(task, :finish)
+    end
+  end
 end
