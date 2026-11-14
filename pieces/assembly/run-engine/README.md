@@ -198,6 +198,14 @@ finish is durable and replays after
 restart. The payload is recipe content within the existing payload bounds: the
 engine neither validates nor interprets it, and `status/1` does not expose it.
 The kept finish leaves the durable control state once the parent action settles.
+A nested callable's first finish is admitted only when control, with that finish
+placed in it, still satisfies the bound (the control bytes, the receipt and active
+reserves, at most 2,097,152): the bytes of the finish are held in the reserve from
+its admission until the continuation keeps it, so no other admission between the
+two can take that room. With no room, the finish is refused with the reason
+`record_size`: the child pattern gets an ordinary refusal, the parent action is not
+completed by it, and the child callable stays open. A root finish and every other
+action kind are admitted as before.
 Paused accepted results retain their pattern input until
 continue, without dispatch while paused; monetary exhaustion still takes
 lifecycle precedence below the request-count cap.
@@ -343,7 +351,20 @@ Budget of its action, also inside a nested child, and the parent actual follows)
 `replay_is_equal` (a restart after the change gives an equal view, equal Budgets
 and an equal count of journal records, and writes nothing more) and
 `first_settlement_wins` (an outcome with the old Attempt, one with the new
-Attempt and an expiry leave a closed slot as settled), with disposable PostgreSQL, existing ready owners,
+Attempt and an expiry leave a closed slot as settled), and the four groups of the
+room of a child finish: `finish_without_room_is_refused` (28 parents are open
+together, each with a child that holds an open tool cost and finishes with a payload of
+65,536 JSON bytes: 26 of the finishes are kept and the other 2 are refused with
+`record_size`, each child gets the refusal, its parent stays open and its callable
+stays open, the engine answers the next input, the bound is recomputed from the unit
+state and holds after each input, and an input at the deadline of the parents settles
+each open parent as `expired`), `room_comes_back` (after one parent settles, a finish
+of the size that was refused is admitted and kept whole), `smaller_finish_fits`
+(after the refusal a small finish of the same child is admitted and reaches the parent
+once the child cost is known) and `replay_is_equal (finish without room)` (a restart
+gives an equal view and an equal count of journal records, and the refused finish is
+not asked again); every earlier test of the Piece passes unchanged. The tests run
+with disposable PostgreSQL, existing ready owners,
 ordinary OTP barriers and counting fake providers. Actual temporary engine
 mutations bypassing the committed gate boundary and first settlement, giving a
 finished child the old `nested_completed` outcome and skipping the result
@@ -362,7 +383,11 @@ Run is refused as `:incompatible_recovery`) are negative controls; so are a
 refused slot that keeps its reservation (`unsent_slot_is_released` fails),
 callables closed shallowest first (`nested_parent_and_child_close` fails: the
 parent has no actual) and a hard match in the fallback of the closer
-(`first_settlement_wins` fails: the new engine does not start). These finite scenarios are not a universal proof, production monitor,
+(`first_settlement_wins` fails: the new engine does not start). For the room of a
+child finish, the admission without the room check (`finish_without_room_is_refused`
+fails: the step of the kept finish raises, the durable unit stops, and the wait for the
+28 finishes ends in the test time-out) and the reserve without the bytes of the
+pending finishes (`finish_without_room_is_refused` fails in the same way) are negative controls. These finite scenarios are not a universal proof, production monitor,
 physical no-send guarantee or proof of arbitrary callbacks/providers. Reused
 Cure laws retain their dependency-local scope; no new Cure proof is claimed.
 
@@ -384,3 +409,15 @@ its first settlement untouched (no Budget step, no join change); the deny itself
 is not repaired here. Some rows cannot be held by a test: a running child finish
 and ready for local work, `ask_person`, nested callable and finish are covered by
 the code path only.
+
+Limits of the room of a child finish. A child that never sends a finish that fits
+leaves its parent action waiting. Two existing rules settle that parent and no other:
+its deadline, only when an input of the current Attempt reaches the engine at or after
+the deadline while the Run is not terminal (the engine has no timer for the deadline
+of a slot), and a change of Attempt. The end of the Run does not settle it: a terminal
+view closes only running local work, and in a terminal Run an expiry is classified
+late and changes nothing. A parent that is open when the Run ends therefore stays open
+in the control state, and a new Run cannot be configured on that unit while it is open.
+This is not repaired here. A Run recorded before this repair, with a finish that was
+admitted and not yet kept, can meet the refusal on replay where the old code had none
+(Elzoo is not released).
