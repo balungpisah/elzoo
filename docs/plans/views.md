@@ -246,6 +246,20 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-191](https://github.com/balungpisah/elzoo/issues/435) | V1B / pieces | ELZ-033, ELZ-190 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-192](https://github.com/balungpisah/elzoo/issues/436) | V1B / pieces | ELZ-033, ELZ-191 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-193](https://github.com/balungpisah/elzoo/issues/439) | V1B / pieces | ELZ-009 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-194](https://github.com/balungpisah/elzoo/issues/443) | V1B / pieces | ELZ-182 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-196](https://github.com/balungpisah/elzoo/issues/445) | V1B / pieces | ELZ-168, ELZ-172 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-197](https://github.com/balungpisah/elzoo/issues/446) | V1B / pieces | ELZ-169 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-198](https://github.com/balungpisah/elzoo/issues/447) | V1B / pieces | ELZ-166 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-199](https://github.com/balungpisah/elzoo/issues/448) | V1B / pieces | ELZ-181, ELZ-183 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-200](https://github.com/balungpisah/elzoo/issues/449) | V1B / pieces | ELZ-139 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-201](https://github.com/balungpisah/elzoo/issues/450) | V1B / pieces | ELZ-010 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-202](https://github.com/balungpisah/elzoo/issues/451) | V1B / pieces | ELZ-010 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-203](https://github.com/balungpisah/elzoo/issues/452) | V1B / pieces | ELZ-143, ELZ-156 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-204](https://github.com/balungpisah/elzoo/issues/453) | V1B / pieces | ELZ-007, ELZ-112 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-205](https://github.com/balungpisah/elzoo/issues/454) | V1B / pieces | ELZ-010 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-206](https://github.com/balungpisah/elzoo/issues/455) | V1B / pieces | ELZ-116, ELZ-126 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-207](https://github.com/balungpisah/elzoo/issues/456) | V1B / pieces | ELZ-123 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-208](https://github.com/balungpisah/elzoo/issues/457) | V1B / pieces | ELZ-171, ELZ-162, ELZ-101, ELZ-155, ELZ-140, ELZ-141, ELZ-142, ELZ-009, ELZ-172, ELZ-193 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -416,7 +430,7 @@ Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, EL
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189, ELZ-190, ELZ-191, ELZ-192, ELZ-193.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189, ELZ-190, ELZ-191, ELZ-192, ELZ-193, ELZ-194, ELZ-196, ELZ-197, ELZ-198, ELZ-199, ELZ-200, ELZ-201, ELZ-202, ELZ-203, ELZ-204, ELZ-205, ELZ-206, ELZ-207, ELZ-208.
 
 ### V2-ACCEPT
 
@@ -3156,3 +3170,143 @@ Publication copy: [tasks/ELZ-193-sql-single-statement-read.md](../../tasks/ELZ-1
 **Product aims:** P13.
 
 **Acceptance:** First small task for issue #431 on integration/sql, Contract unchanged: a read callback of one statement sends it with no transaction wrapper (one round trip instead of four); reads of more than one statement keep one repeatable-read snapshot; refusals, hook, timeout and error values unchanged; a process that holds a Repo connection keeps the wrapper, so the raw-BEGIN Limit holds; the direct statement carries the store timeout; five named groups counted by Repo query events and two negative controls; no wall-time claim.
+
+### ELZ-194
+
+ELZ-194 — An escape that decodes to `<` in a double-quoted scalar of a skill frontmatter is refused
+
+Publication copy: [tasks/ELZ-194-skill-escaped-merge-key.md](../../tasks/ELZ-194-skill-escaped-merge-key.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Repair on workflow/skill, in place: a double-quoted scalar of the frontmatter with an escape that decodes to the less-than sign is refused as yaml_alias, so an escaped merge key cannot reach the reader; directed spellings in the differential test; ordinary escapes stay accepted.
+
+### ELZ-196
+
+ELZ-196 — A graph whose last result passes the state bound finishes `failed` with `state_over_bound`
+
+Publication copy: [tasks/ELZ-196-graph-run-terminal-state-bound.md](../../tasks/ELZ-196-graph-run-terminal-state-bound.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Repair on workflow/graph-run, in place: a last result that passes the state bound finishes failed with state_over_bound; the arrival-order claim is narrowed for a fail-fast map with a test of both orders; the stale sentence on nested results is corrected.
+
+### ELZ-197
+
+ELZ-197 — The proposal scan of the runtime graph charges two bytes for each object
+
+Publication copy: [tasks/ELZ-197-runtime-graph-object-charge.md](../../tasks/ELZ-197-runtime-graph-object-charge.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Repair on workflow/runtime-graph, Contract unchanged: the proposal scan charges two bytes for each object, so many empty objects reach the bound in the scan.
+
+### ELZ-198
+
+ELZ-198 — `NodeOutcome.decide/2` gives `{:error, :invalid_input}` for a struct operand
+
+Publication copy: [tasks/ELZ-198-node-outcome-struct-operand.md](../../tasks/ELZ-198-node-outcome-struct-operand.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Repair on workflow/node-outcome, Contract restored: decide/2 gives invalid_input for a struct operand and does not raise.
+
+### ELZ-199
+
+ELZ-199 — The recipe test refuses each invalid script key and runs more than four held Lua runs
+
+Publication copy: [tasks/ELZ-199-recipe-test-script-keys-and-lua-capacity.md](../../tasks/ELZ-199-recipe-test-script-keys-and-lua-capacity.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Repair on runtime/recipe-test, Contract unchanged: check_script/1 refuses a nil key and each later invalid key; the harness runs more than four held Lua runs at once.
+
+### ELZ-200
+
+ELZ-200 — The kept preview of a bounded tool result is a copy, not a part of the whole result
+
+Publication copy: [tasks/ELZ-200-tool-result-limit-preview-copy.md](../../tasks/ELZ-200-tool-result-limit-preview-copy.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Repair on workflow/tool-result-limit, Contract unchanged: the kept preview is a copy and holds no reference to the whole result.
+
+### ELZ-201
+
+ELZ-201 — `Elzoo.Jobs.query/2` matches only jobs of its own queue and worker
+
+Publication copy: [tasks/ELZ-201-jobs-query-queue-and-worker.md](../../tasks/ELZ-201-jobs-query-queue-and-worker.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Repair on integration/jobs, Contract unchanged: query/2 matches the Oban queue and the worker beside the args, so cancel and state never reach a foreign job.
+
+### ELZ-202
+
+ELZ-202 — `JobRun.retry_decision/3` refuses an unknown class also at attempt 0
+
+Publication copy: [tasks/ELZ-202-state-machine-retry-class-at-zero.md](../../tasks/ELZ-202-state-machine-retry-class-at-zero.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Repair on workflow/state-machine, Contract restored: retry_decision/3 refuses an unknown class also at attempt 0.
+
+### ELZ-203
+
+ELZ-203 — The provider stream states that a completion already received can return just after the total deadline
+
+Publication copy: [tasks/ELZ-203-provider-stream-completion-after-deadline.md](../../tasks/ELZ-203-provider-stream-completion-after-deadline.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Change on delivery/provider-stream, in place: a stated Limit that a completion already received can return just after the total deadline, with its bound.
+
+### ELZ-204
+
+ELZ-204 — The test of the implicit correlation of a transformation asserts the whole envelope
+
+Publication copy: [tasks/ELZ-204-transformation-implicit-correlation-test.md](../../tasks/ELZ-204-transformation-implicit-correlation-test.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Test repair on delivery/transformation: the implicit-correlation test asserts the whole envelope.
+
+### ELZ-205
+
+ELZ-205 — An identical retry of a stored submission gets the stored answer also after its deadline
+
+Publication copy: [tasks/ELZ-205-durable-job-late-identical-retry.md](../../tasks/ELZ-205-durable-job-late-identical-retry.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Change on assembly/durable-job, in place: an identical retry of a stored submission gets the stored answer also after its deadline; a new key after the deadline is refused as before; the order of the two checks is stated and tested.
+
+### ELZ-206
+
+ELZ-206 — Run refuses missing approval evidence and keeps a child death whose write failed
+
+Publication copy: [tasks/ELZ-206-run-evidence-refusal-and-child-death.md](../../tasks/ELZ-206-run-evidence-refusal-and-child-death.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Repair on workflow/run and its source copy workflow/run-approval-release, in place: missing or unknown approval evidence is refused, not reported as a duplicate; a child death whose write failed is kept and written with the next command; dead is stated as best effort; the host Need to correlate intent and approved action is stated.
+
+### ELZ-207
+
+ELZ-207 — The deadline of an intent of a Run resource is compared with the sampled clock
+
+Publication copy: [tasks/ELZ-207-run-resource-intent-deadline-sampled-clock.md](../../tasks/ELZ-207-run-resource-intent-deadline-sampled-clock.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Repair on workflow/run-resource: the deadline of an intent is compared with the later of the sampled clock and the command time, so an expired intent takes no slot; recovery is unchanged.
+
+### ELZ-208
+
+ELZ-208 — Seven sentences in Piece documents say what the code and the engine do today
+
+Publication copy: [tasks/ELZ-208-piece-readme-corrections.md](../../tasks/ELZ-208-piece-readme-corrections.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Corrections of sentences in the documents of seven ready Pieces (recipe-store, recipe-config, data-stream, context-compaction, typed-decision, agent-loop, sql) to what the code and the engine do today; piece.json changes for agent-loop and sql only.
