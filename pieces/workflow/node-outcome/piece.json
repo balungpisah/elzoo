@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "id": "workflow/node-outcome",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["cure", "elixir"],
+  "dependencies": ["workflow/pattern-step"],
+  "contract": "Pure rule for one settled graph node: the outcome routes of the node from decoded links, and follow, proceed or fail-the-Run for one of the nine action outcome classes; no execution, graph walk or retry.",
+  "limits": [
+    "One node and one outcome at a time; fixed bounds of 10,000 links, nine routes and 128-byte IDs; the only error is invalid_input.",
+    "No graph walk, skip rule, join, map or loop rule, or rule for the successors after proceed or after a route target completes; no retry, time, I/O, clock, process or storage.",
+    "Link targets are not checked to exist and a followed route is not claimed to repair anything; a step that settles through PatternStep.accept/2 never applies a late outcome in pattern-step version 1."
+  ],
+  "files": [
+    "cure/elzoo/node_outcome.cure",
+    "examples/elzoo/node_outcome.exs",
+    "lib/elzoo/node_outcome.ex",
+    "test/elzoo/node_outcome_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/node_outcome.cure",
+      "symbol": "route_is_followed",
+      "claim": "The production decision returns follow whenever a route exists, for both values of the completed operand; excludes class and route derivation in Elixir."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/node_outcome.cure",
+      "symbol": "uncompleted_without_route_fails",
+      "claim": "The production decision returns fail when the class is not completed and no route exists."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/node_outcome.cure",
+      "symbol": "completed_without_route_proceeds",
+      "claim": "The production decision returns proceed when the class is completed and no route exists."
+    },
+    {
+      "kind": "type",
+      "file": "cure/elzoo/node_outcome.cure",
+      "claim": "The pinned Cure compiler checks the total pure decision over two Booleans, its three-member result type and the three named laws."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/node_outcome_test.exs",
+      "claim": "Listed scenarios of the groups routes_of_one_node, nine_classes_total, no_fallback_between_classes, unknown_is_never_retried, class_names_match_pattern_step and invalid_input_and_redaction pass, with two negative controls; finite tests, not a universal proof."
+    },
+    {
+      "kind": "upstream",
+      "provider": "cure",
+      "reference": "https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89",
+      "claim": "Relies on pinned Cure compilation, Boolean decisions and equality checking; compiler soundness is not locally proved."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The host passes links that Elzoo.RecipeGraph.decode/1 accepted and an outcome class that the engine recorded for the node, and ends the Run on a fail_run decision without running any node again because of this Piece."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "Pure functions over intrinsic operands emit no observations; callers own instrumentation."
+    },
+    "config": {
+      "status": "not_applicable",
+      "contract": "Intrinsic data operands and fixed bounds; no ambient settings or selectable policy."
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No independent process, lifecycle or operational commands."
+    }
+  }
+}
