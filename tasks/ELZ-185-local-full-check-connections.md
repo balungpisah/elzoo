@@ -2,7 +2,7 @@
 
 - Dependencies: ELZ-033
 - Output: none. A harness repair; no Piece Contract changes.
-- Change class: non-Piece root/shared harness repair; full local gate and full hosted check.
+- Change class: `scripts/ci-change-class.py` decides it on the final diff. With a file under `test/**`, `lib/` or a Mix task file it is the non-Piece root/shared harness repair (full hosted check). With only test files of Pieces and the document it is Piece-only (hosted `check-piece`; the full check is the push run of `main` after the merge). In both classes the local gate is the full `mix check` of the acceptance, not the small gate alone.
 - Allowed implementation path: `test/**`, `lib/elzoo/check*.ex` and the Mix task files of the check, `docs/development/01-workflow.md`, and, for the repair of step 2 only, files under `pieces/*/*/test/**` that start a database Repo or connection (test files and test helpers). No other file under `pieces/` (no `lib/`, `cure/`, `examples/`, `piece.json` or README of a Piece), no CI workflow, no change of `runs-on`, and no change of `scripts/worker-services.py`.
 
 Evidence, from the pull request of ELZ-176 (#395, lines `Local gate:` and
@@ -81,7 +81,10 @@ and say so in the pull request body.
   run of this task and say so.
 - The pull request body lists each changed file under `pieces/` with the
   holder that it stops, and the tests of each changed Piece pass.
-- The hosted full check is green on the exact head.
+- The hosted check of the class of the final diff is green on the exact
+  head. For the Piece-only class also run the small gate locally (exit 0),
+  and say in the pull request body that the full hosted check is the push
+  run of `main` after the merge.
 - `docs/development/01-workflow.md` states the measured peak and what
   bounds it.
 - One independent review.

@@ -8,9 +8,10 @@
 Issue #334 records the failure. The test `64-entry gate batches and 256
 lifetime actions leave refusal capacity, then refuse the next request`
 (`pieces/assembly/run-engine/test/elzoo/run_engine_test.exs`, describe
-`Sizing and sanitized evidence`) failed four times on unchanged engine
-code: one hosted run on 2026-11-13, and on 2026-11-14 two local small gates
-and one local full check, each on a host with other work. Each time the
+`Sizing and sanitized evidence`) failed four times, on code that does not explain it: one hosted run on 2026-11-13, and on 2026-11-14 two local small gates
+and one local full check, each on a host with other work. The two small
+gates ran on the branch of ELZ-180, which changed the engine; the same
+failure was then reproduced there with the run-engine files of `main`. Each time the
 first `send_input(engine)` of the test ended with
 
     ** (exit) exited in: GenServer.call(#PID<...>, {:input, "start", ...}, 5000)
