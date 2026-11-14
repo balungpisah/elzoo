@@ -38,7 +38,9 @@ defmodule Elzoo.LuaSandbox do
   ## Outcomes
 
   Refusals: `:invalid_request`, `:policy_mismatch`, `:invalid_result`, `:steps`,
-  `:call_depth`, `:value_size`, `:unlisted_name`, `:lua_error`. Host outcomes:
+  `:call_depth`, `:value_size`, `:unlisted_name`, `:lua_error`, `:call_mismatch`. A fourth
+  reply form, `{:pending_call, %{index: k, name: name, arguments: plain}}`, answers a mode
+  `"replay"` request whose source made a binding call that has no recorded result. Host outcomes:
   `:memory`, `:wall_time`, `:process_exit`, `:protocol_error`. Memory, wall time
   and abnormal exits are inputs to record, never deterministic replay decisions.
 
@@ -101,7 +103,8 @@ defmodule Elzoo.LuaSandbox do
     "call_depth" => :call_depth,
     "value_size" => :value_size,
     "unlisted_name" => :unlisted_name,
-    "lua_error" => :lua_error
+    "lua_error" => :lua_error,
+    "call_mismatch" => :call_mismatch
   }
   @runtime_keys %{
     "build_options" => :build_options,
@@ -120,6 +123,7 @@ defmodule Elzoo.LuaSandbox do
           | :value_size
           | :unlisted_name
           | :lua_error
+          | :call_mismatch
   @type host_outcome :: :memory | :wall_time | :process_exit | :protocol_error
 
   @spec build(Path.t(), Path.t()) :: {:ok, Path.t()} | {:error, :build_failed}
@@ -132,15 +136,16 @@ defmodule Elzoo.LuaSandbox do
           {:ok, %{value: term(), identity: String.t(), runtime: map()}}
           | {:refused, refusal()}
           | {:host_outcome, host_outcome()}
+          | {:pending_call, %{index: non_neg_integer(), name: String.t(), arguments: term()}}
   def run(executable, request) when is_binary(executable) do
     started = System.monotonic_time(:millisecond)
 
     case validate(request) do
-      {:ok, frame, limits} ->
+      {:ok, frame, limits, calls} ->
         deadline = started + limits.wall_ms
 
         case Child.exchange(executable, Json.frame(frame), deadline) do
-          {:frame, body} -> interpret(body, limits)
+          {:frame, body} -> interpret(body, limits, calls)
           {:host_outcome, _} = outcome -> outcome
         end
 
@@ -168,7 +173,7 @@ defmodule Elzoo.LuaSandbox do
         })
 
       if byte_size(frame) <= Json.frame_max(),
-        do: {:ok, frame, limits},
+        do: {:ok, frame, limits, calls},
         else: {:refused, :invalid_request}
     else
       {:policy, false} -> {:refused, :policy_mismatch}
@@ -265,7 +270,7 @@ defmodule Elzoo.LuaSandbox do
 
   defp stringify(limits), do: Map.new(limits, fn {key, value} -> {Atom.to_string(key), value} end)
 
-  defp interpret(body, limits) do
+  defp interpret(body, limits, calls) do
     case Json.decode(body) do
       {:ok, %{"status" => "ok", "runtime" => runtime, "value" => value} = reply}
       when map_size(reply) == 3 ->
@@ -283,10 +288,29 @@ defmodule Elzoo.LuaSandbox do
       {:ok, %{"status" => "memory"} = reply} when map_size(reply) == 1 ->
         {:host_outcome, :memory}
 
+      {:ok, %{"status" => "pending", "call" => call} = reply} when map_size(reply) == 2 ->
+        pending_call(call, limits, calls)
+
       _ ->
         {:host_outcome, :protocol_error}
     end
   end
+
+  defp pending_call(
+         %{"index" => index, "name" => name, "arguments" => arguments} = call,
+         limits,
+         %{"mode" => "replay", "names" => names, "recorded" => recorded}
+       )
+       when map_size(call) == 3 do
+    if is_integer(index) and index == length(recorded) and name in names and
+         Json.check(arguments, limits.value_bytes) == :ok do
+      {:pending_call, %{index: index, name: name, arguments: arguments}}
+    else
+      {:host_outcome, :protocol_error}
+    end
+  end
+
+  defp pending_call(_, _, _), do: {:host_outcome, :protocol_error}
 
   defp runtime_map(%{} = runtime) do
     if Enum.sort(Map.keys(runtime)) == Enum.sort(Map.keys(@runtime_keys)) and

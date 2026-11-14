@@ -53,7 +53,7 @@
 #define MAX_MEMORY 16777216
 #define MAX_WALL 1000
 
-enum stop { STOP_NONE = 0, STOP_STEPS, STOP_DEPTH, STOP_VALUE, STOP_MEMORY, STOP_UNLISTED };
+enum stop { STOP_NONE = 0, STOP_STEPS, STOP_DEPTH, STOP_VALUE, STOP_MEMORY, STOP_UNLISTED, STOP_MISMATCH, STOP_PENDING };
 
 static struct {
   int sticky;
@@ -115,6 +115,7 @@ static const char *stop_name(int s) {
     case STOP_DEPTH: return "call_depth";
     case STOP_VALUE: return "value_size";
     case STOP_UNLISTED: return "unlisted_name";
+    case STOP_MISMATCH: return "call_mismatch";
     default: return "lua_error";
   }
 }
@@ -127,8 +128,11 @@ __attribute__((noreturn)) static void reply_refused(const char *reason) {
 
 __attribute__((noreturn)) static void reply_memory(void) { reply_text("{\"status\":\"memory\"}"); }
 
+__attribute__((noreturn)) static void reply_pending(void);
+
 __attribute__((noreturn)) static void reply_sticky(void) {
   if (G.sticky == STOP_MEMORY) reply_memory();
+  if (G.sticky == STOP_PENDING) reply_pending();
   reply_refused(stop_name(G.sticky));
 }
 
@@ -1959,6 +1963,8 @@ static long field_node(long obj, const char *name) {
 enum { MODE_NONE, MODE_DATA, MODE_REPLAY };
 static int calls_mode;
 static long calls_names; /* node index of the `names` array */
+static long calls_recorded; /* node index of the `recorded` array */
+static long nrecorded;
 
 static int node_is(long id, const char *s) {
   return (size_t)strlen(s) == nodes[id].slen && memcmp(sarena + nodes[id].soff, s, nodes[id].slen) == 0;
@@ -1981,6 +1987,18 @@ static int name_listed(long names, long id) {
   return 0;
 }
 
+/* The number of nested containers of the node (0 for a scalar); the parser bounds the nesting. */
+static int node_depth(long id) {
+  long c;
+  int d, best = 0;
+  if (nodes[id].type != T_ARR && nodes[id].type != T_OBJ) return 0;
+  for (c = nodes[id].first; c >= 0; c = nodes[c].next) {
+    d = node_depth(c);
+    if (d > best) best = d;
+  }
+  return best + 1;
+}
+
 /* The shape of `calls` (0 valid, -1 invalid); reads only the node arena, by index. */
 static int check_calls(long calls) {
   long mode, names, rec, c, d;
@@ -1996,6 +2014,8 @@ static int check_calls(long calls) {
   else if (node_is(mode, "replay")) calls_mode = MODE_REPLAY;
   else return -1;
   calls_names = names;
+  calls_recorded = rec;
+  nrecorded = (long)nodes[rec].count;
   for (c = nodes[names].first; c >= 0; c = nodes[c].next) {
     if (!valid_name(c)) return -1;
     for (d = nodes[names].first; d != c; d = nodes[d].next)
@@ -2011,6 +2031,7 @@ static int check_calls(long calls) {
     ar = field_node(c, "arguments");
     re = field_node(c, "result");
     if (nm < 0 || ar < 0 || re < 0 || nodes[nm].type != T_STR || !name_listed(names, nm)) return -1;
+    if (node_depth(ar) > MAX_CONTAINERS || node_depth(re) > MAX_CONTAINERS) return -1;
   }
   return 0;
 }
@@ -2023,7 +2044,27 @@ static int check_calls(long calls) {
 ** and stay valid for the whole run; they are never freed and never raise). The
 ** argument of a call is encoded into argbuf (limit value_bytes); the measure of the
 ** value that a call returns goes into retbuf (no limit). Neither is outbuf. */
-static buf argbuf, retbuf;
+static buf argbuf, retbuf, cmpbuf, pendbuf;
+static long call_count;  /* binding calls so far, over the chunk and the function */
+static long next_record; /* node index of the record that the next call must match */
+static long pending_index;
+static long pending_name; /* node index of the name of the pending call */
+
+/* The reply of the pending stop: the call that has no recorded result. Sorted keys. */
+__attribute__((noreturn)) static void reply_pending(void) {
+  buf r = {0, 0, 0, SIZE_MAX, NULL};
+  char tmp[32];
+  int n = snprintf(tmp, sizeof tmp, "%ld", pending_index);
+  PUT(&r, "{\"call\":{\"arguments\":");
+  buf_put(&r, pendbuf.b ? pendbuf.b : "null", pendbuf.n);
+  PUT(&r, ",\"index\":");
+  buf_put(&r, tmp, (size_t)n);
+  PUT(&r, ",\"name\":\"");
+  buf_put(&r, sarena + nodes[pending_name].soff, nodes[pending_name].slen);
+  PUT(&r, "\"},\"status\":\"pending\"}");
+  write_frame(r.b, r.n);
+  _exit(0);
+}
 
 /* Push a deep copy of the plain value at idx. The value already encoded without an
 ** error, so it holds only nil, booleans, numbers, strings, the null sentinel and
@@ -2066,6 +2107,7 @@ static void copy_plain(lua_State *L, int idx) {
 static int b_call(lua_State *L) {
   long id = (long)lua_tointeger(L, lua_upvalueindex(1));
   int rc;
+  if (G.sticky) return stop_raise(L);
   if (lua_gettop(L) != 1) return luaL_error(L, "bindings: expected one value");
   argbuf.n = 0;
   argbuf.limit = G.value_bytes;
@@ -2076,7 +2118,47 @@ static int b_call(lua_State *L) {
   }
   if (rc != E_OK) return luaL_error(L, "bindings: value is not plain data");
   charge(L, (long long)argbuf.n); /* one step for each byte; argbuf.n is at most value_bytes */
-  /* mode data (mode replay behaves alike until the replay part) */
+  if (calls_mode == MODE_REPLAY) {
+    long nm, ar, re;
+    if (call_count >= nrecorded) {
+      /* no recorded result: keep the call and end the run (the first stop wins) */
+      pending_index = call_count;
+      pending_name = id;
+      pendbuf.n = 0;
+      pendbuf.limit = SIZE_MAX;
+      buf_put(&pendbuf, argbuf.b ? argbuf.b : "", argbuf.n);
+      set_sticky(STOP_PENDING);
+      return stop_raise(L);
+    }
+    nm = field_node(next_record, "name");
+    ar = field_node(next_record, "arguments");
+    re = field_node(next_record, "result");
+    if (nodes[nm].slen != nodes[id].slen || memcmp(sarena + nodes[nm].soff, sarena + nodes[id].soff, nodes[id].slen) != 0) {
+      set_sticky(STOP_MISMATCH);
+      return stop_raise(L);
+    }
+    /* the compare rule: push the recorded argument as a Lua value, encode it with the
+    ** one canonical writer, and compare the bytes with the encoding of this call */
+    cmpbuf.n = 0;
+    cmpbuf.limit = SIZE_MAX;
+    push_node(L, ar);
+    rc = enc_value(L, lua_gettop(L), 0, &cmpbuf);
+    lua_pop(L, 1);
+    if (rc != E_OK || cmpbuf.n != argbuf.n || (argbuf.n > 0 && memcmp(cmpbuf.b, argbuf.b, argbuf.n) != 0)) {
+      set_sticky(STOP_MISMATCH);
+      return stop_raise(L);
+    }
+    call_count++;
+    next_record = nodes[next_record].next;
+    push_node(L, re);
+    retbuf.n = 0;
+    retbuf.limit = SIZE_MAX;
+    rc = enc_value(L, lua_gettop(L), 0, &retbuf);
+    if (rc != E_OK) return luaL_error(L, "bindings: value is not plain data");
+    charge(L, (long long)retbuf.n);
+    return 1;
+  }
+  /* mode data */
   lua_createtable(L, 0, 2);
   mark_kind(L, 2);
   lua_pushliteral(L, "arguments");
@@ -2198,6 +2280,7 @@ int main(int argc, char **argv) {
   L = new_state();
   init_state(L);
   if (calls_mode != MODE_NONE) init_bindings(L);
+  if (calls_mode == MODE_REPLAY) next_record = nodes[calls_recorded].first;
   base = lua_gettop(L);
 
   /* arm the limits: no user code has run yet */
@@ -2223,6 +2306,8 @@ int main(int argc, char **argv) {
   if (G.sticky) reply_sticky();
   if (st != LUA_OK) reply_refused("lua_error");
   if (lua_gettop(L) != base + 1) reply_refused("invalid_result");
+  /* a record that the source did not ask for is a different run */
+  if (calls_mode == MODE_REPLAY && call_count < nrecorded) reply_refused("call_mismatch");
 
   outbuf.limit = G.value_bytes;
   lua_pushcfunction(L, encode_cf);
