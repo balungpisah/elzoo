@@ -30,10 +30,12 @@ Facts checked on main (`lib/elzoo/run_engine.ex`, README, the test helper):
   "request", "index"}`.
 - Each binding declares `result: {schema_id, version}`. For a
   `nested_callable` binding nothing is checked against it today.
-- An outcome payload is at most 65,536 bytes of JSON and 32 levels; a larger
-  one is recorded as `unknown` with the reason `outcome_too_large`.
-- `workflow/agent-loop` and the published tasks ELZ-168 and ELZ-169 state
-  this limit of the ready engine in their Limits.
+- The payload of every action, a `finish` included, is checked before
+  admission against the payload bounds (65,536 bytes of JSON, 32 levels). A
+  larger finish is refused to the child as `payload_schema`, as any other
+  action, and does not close the child.
+- `workflow/agent-loop` and the published task ELZ-168 state this limit of
+  the ready engine in their Limits.
 
 Implement only what is below. Change nothing else of the engine: not the
 finish rule of the root callable, not the inputs that a pattern gets, not the
@@ -53,13 +55,12 @@ path, pin or CI file. No fixtures directory is needed.
    parent's `nested_callable` action is:
    - class `completed`, with `schema_id`, `schema_version` and `payload` of
      the child's finish, when that schema equals the `result` of the
-     `nested_callable` binding of the parent's action and the payload is
-     within the outcome bounds;
+     `nested_callable` binding of the parent's action;
    - class `failed` with the engine's refusal schema and the reason
      `nested_result_invalid`, when the schema differs from the declared
-     `result`;
-   - the existing handling of a payload over the outcome bounds
-     (`outcome_too_large`), unchanged.
+     `result`.
+   An admitted finish is always within the outcome bounds, because the
+   admission check above has the same bounds: no new size rule is needed.
    The `actual` cost of the outcome stays the committed amount of the child
    Budget, as today.
 3. **A child that ends with no finish.** A child whose slots are all settled
@@ -82,7 +83,7 @@ pattern reads it.
 
 Update `README.md` and `piece.json` (`contract`, `limits`, `grounding`) so
 that they state the new behaviour and the three cases of point 2 and 3.
-Remove the statement that the parent gets no result. Name the new test
+Name the new test
 groups in `grounding`. The `note` of the Piece row in
 `docs/plans/release-plan.json` equals `contract` in `piece.json`, and
 `manifest_sha256` is computed again, in the one last commit of the index
@@ -92,10 +93,13 @@ files.
 
 Add these to the existing suite, on the ready PostgreSQL fixture of the
 Piece, with the scripted test pattern and the clock of the helper. Each
-existing group stays green without a change of its assertions, except an
-assertion that fixes the old parent outcome of a finished child: change that
-assertion to the new outcome and name each such change in the pull request
-body.
+existing group stays green without a change of its assertions, with two
+exceptions, each named in the pull request body: an assertion that fixes
+the old parent outcome of a finished child changes to the new outcome; and
+a test or example of this Piece whose child finishes with a schema other
+than the declared `result` of its `nested_callable` binding (the document
+publication flow does) gets a binding or a finish that agree, so that the
+flow still completes.
 
 1. **`nested_result_reaches_parent`**: a child finishes with the declared
    result schema and a payload; the parent pattern receives one
@@ -108,8 +112,10 @@ body.
 3. **`nested_without_finish`**: a child whose actions all settle and that
    gives no finish: the parent gets `completed` with `nested_completed`, as
    before.
-4. **`nested_result_bounds`**: a payload at the outcome bound arrives; one
-   byte more gives the existing `outcome_too_large` handling.
+4. **`nested_result_bounds`**: a finish payload at the payload bound
+   reaches the parent whole; a finish with one byte more is refused to the
+   child as today, the child stays open, and the parent gets no outcome
+   from it.
 5. **`nested_result_survives_restart`**: stop the engine after the child's
    finish is committed and before the parent's outcome is applied; after
    the restart the parent gets the same outcome once, the child pattern is
@@ -146,4 +152,5 @@ A finish of the root callable that reports a failure; `cancel`, `message`
 or `late` inputs while an action is open; a nesting depth limit; the limits
 of open and lifetime actions; `workflow/agent-loop`, `workflow/graph-run`
 and their READMEs (their Limits lines are corrected in their own small
-tasks after this merges); any other Piece.
+tasks after this merges; the text of a published task file such as ELZ-168
+is a record of its time and is not edited); any other Piece.
