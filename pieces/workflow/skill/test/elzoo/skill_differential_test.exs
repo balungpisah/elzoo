@@ -30,19 +30,12 @@ defmodule Elzoo.SkillDifferentialTest do
 
   @max_length 24
 
-  # The default run is a seeded sample; the full run (tag `scan_differential_full`,
-  # run with `--include scan_differential_full`) is the sample of the Contract.
+  # The default run is a seeded sample. The full run, the sample of the Contract,
+  # is `ELZOO_SCAN_DIFFERENTIAL=full mix test <this file>`. A skipped or excluded
+  # test would lie outside every part of the full check (the partition test of
+  # the root suite), so one test reads the size from the environment.
   @default_run %{random: 20_000, exhaustive_length: 5}
   @full_run %{random: 200_000, exhaustive_length: 6}
-
-  # The full run is skipped unless `--include scan_differential_full` (or
-  # `--only`) asks for it; the test helper of the repository has no module-level
-  # exclusion, and the include list is already set when this file loads.
-  @full_skip (if :scan_differential_full in ExUnit.configuration()[:include] do
-                false
-              else
-                "run with --include scan_differential_full"
-              end)
 
   # The oracle: the tokens that the parser emits for `text`, in order, and
   # whether it raised. The `yamerl` application must be started.
@@ -244,15 +237,13 @@ defmodule Elzoo.SkillDifferentialTest do
       end
     end
 
-    test "the scan and the reader agree on a seeded sample" do
-      run_differential(@default_run)
-    end
-
-    @tag :scan_differential_full
     @tag timeout: :infinity
-    @tag skip: @full_skip
-    test "the scan and the reader agree on the full seeded sample" do
-      run_differential(@full_run)
+    test "the scan and the reader agree on seeded random and exhaustive texts" do
+      if System.get_env("ELZOO_SCAN_DIFFERENTIAL") == "full" do
+        run_differential(@full_run)
+      else
+        run_differential(@default_run)
+      end
     end
   end
 
