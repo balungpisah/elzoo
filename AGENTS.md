@@ -203,7 +203,8 @@ local gate. For a Piece task, the local gate is the small gate:
 
 A Piece task changes only files in Piece directories, the index and generated
 files of section 3, and documents. `scripts/ci-change-class.py` decides this.
-The small gate runs format, compile, the ledger and Registry checks, the tests
+The small gate runs format, compile, the ledger and Registry checks, the
+classifier guard `scripts/test-ci-change-class.py`, the tests
 of each changed Piece and of each ready Piece that depends on it, the root
 tests that read the index, and the per-ID consumers of those IDs. One of the
 root tests plans the export of every ready Piece together. A ready Piece that

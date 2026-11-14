@@ -530,7 +530,10 @@ gets the short check, not the small gate.
 `BASE` (commits, working tree and untracked files) and refuses with a non-zero exit, before any stage, when a path is
 outside the class, when the list is empty, when the working tree has a symlink or a directory at a changed path, or
 when `BASE` is not a commit. It never falls back to a narrower or a wider run. It runs `format`, `compile`,
-`ledger` and the registry load with the consumer-inventory validation, as the full check does. Then one `mix test`
+`ledger` and the registry load with the consumer-inventory validation, as the full check does. Then it runs the
+classifier guard `python3 scripts/test-ci-change-class.py` as the stage `classifier_guard` (ELZ-224), which prints its
+output and fails the gate before the test stage when the guard exits non-zero or `python3` is missing; the full check,
+`--affected` and `--part` do not run it, because the plan job runs the same guard for every pull request. Then one `mix test`
 run with these paths: the `test` directory of each changed Piece; the `test` directory of each ready Piece that
 depends on a changed ready ID (transitive, as in affected mode); the root tests of
 `Elzoo.CheckSelection.piece_root_tests/0`, which read the index and generated files or each Piece directory
