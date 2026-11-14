@@ -1169,9 +1169,10 @@ defmodule Elzoo.RunEngineTest do
           }
         )
 
-      caller = Task.async(fn -> catch_exit(send_input(engine)) end)
+      caller = Task.async(fn -> send_input(engine) end)
       assert_receive {:gate_barrier, ^engine}
-      assert {:timeout, _} = Task.await(caller, 6_000)
+      assert Task.yield(caller, 1_000) == nil
+      assert Task.shutdown(caller, :brutal_kill) == nil
       {:ok, unit} = DynamicUnits.find(c.directory, c.prefix)
       assert Process.alive?(unit)
       assert DurableUnit.snapshot(unit).control.count == 1
@@ -3695,6 +3696,61 @@ defmodule Elzoo.RunEngineTest do
       assert %{"publish" => _} = run.effects
       refute inspect(run) =~ "intent_binding"
       send(provider, {:result, %{}})
+    end
+  end
+
+  describe "call_waits_past_the_default" do
+    @tag timeout: 30_000
+    test "every_call_waits: an input slower than 5 s returns applied; control/4 and status/1 sent during it reply after it" do
+      c =
+        fixture(
+          pattern: {TestPattern, :step, %{requests: [request([action("ask", "ask_person")])]}}
+        )
+
+      parent = self()
+      first_call = :atomics.new(1, [])
+
+      engine =
+        start(c,
+          gate: %{
+            id: "gate",
+            version: 1,
+            call: fn _, _ ->
+              if :atomics.add_get(first_call, 1, 1) == 1 do
+                send(parent, {:gate_barrier, self()})
+                Process.sleep(5_500)
+              end
+
+              :allow
+            end
+          }
+        )
+
+      timed = fn call ->
+        Task.async(fn ->
+          sent = System.monotonic_time(:millisecond)
+          reply = call.()
+          {reply, System.monotonic_time(:millisecond) - sent}
+        end)
+      end
+
+      input = timed.(fn -> send_input(engine) end)
+      assert_receive {:gate_barrier, ^engine}
+      status = timed.(fn -> RunEngine.status(engine) end)
+
+      control =
+        timed.(fn ->
+          RunEngine.control(engine, "pause", %{kind: :pause, pause_deadline: 50_000}, verified())
+        end)
+
+      assert {{:ok, :applied}, input_ms} = Task.await(input, 20_000)
+      assert input_ms > 5_000
+      assert {{:ok, view}, status_ms} = Task.await(status, 20_000)
+      assert status_ms > 5_000
+      assert view.request_count == 1
+      assert view.slots[{1, 0}].phase == :waiting
+      assert {{:ok, :applied}, control_ms} = Task.await(control, 20_000)
+      assert control_ms > 5_000
     end
   end
 end
