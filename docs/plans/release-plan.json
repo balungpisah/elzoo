@@ -5992,8 +5992,8 @@
       "kind": "published",
       "release": "V1B",
       "stage": "pieces",
-      "dependencies": ["ELZ-033", "ELZ-169", "ELZ-177", "ELZ-178", "ELZ-179", "ELZ-180", "ELZ-181"],
-      "status": "published 2026-11-14",
+      "dependencies": ["ELZ-033", "ELZ-169", "ELZ-177", "ELZ-178", "ELZ-179", "ELZ-180", "ELZ-181", "ELZ-190"],
+      "status": "published 2026-11-14; amended 2026-11-14 (depends on the engine repair ELZ-190)",
       "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
       "paths": ["tasks/ELZ-183-recipe-test-lua-and-model-graph.md"],
       "outputs": [],
@@ -6001,7 +6001,7 @@
       "product_aims": ["P13"],
       "issue": 408,
       "url": "https://github.com/balungpisah/elzoo/issues/408",
-      "issue_body_sha256": "794b07814052b13241d615775908dbb9111a20d8212f3ba0ef3a620e9cf77240"
+      "issue_body_sha256": "cd79bb221f335948fe8206081399cb1c1244373c852dadd24a4e6d0a1883f3ba"
     },
     {
       "id": "ELZ-186",
@@ -6070,6 +6070,23 @@
       "issue": 423,
       "url": "https://github.com/balungpisah/elzoo/issues/423",
       "issue_body_sha256": "7faf31eb9cc99053a696964fc6d370d3eac9fd04c78bfc129a725c26f9aeb617"
+    },
+    {
+      "id": "ELZ-190",
+      "title": "ELZ-190 — A nested Run with a lost Effect still gives its finish to its parent",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-187"],
+      "status": "published 2026-11-14",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-190-run-engine-nested-lost-cost.md"],
+      "outputs": [],
+      "acceptance": "Repair of assembly/run-engine, in place: a closed nested child whose slots are all settled, with one or more costs that are final unknown (a lost Effect), gives its parent the kept finish by the existing rules with an unknown actual; the parent share stays reserved and unknown is never zero; known costs stay exact; no second outcome, no input or option added; shown by eight named groups and two negative controls.",
+      "product_aims": ["P13"],
+      "issue": 426,
+      "url": "https://github.com/balungpisah/elzoo/issues/426",
+      "issue_body_sha256": "193d356f52708f383b538bc66f13622e05b98088e338fa49f2c37738b294f900"
     }
   ],
   "entries": [
