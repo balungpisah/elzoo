@@ -12,7 +12,7 @@
     "jason"
   ],
   "dependencies": [],
-  "contract": "Evaluate one pure Lua function of one plain input in a fresh PUC Lua 5.4.9 process outside the VM, started by a caller-held OTP Port from an executable that build/2 compiles from the installed pinned lua_source checkout and an owned C host, over length-framed JSON (unsigned 32-bit little-endian length, at most 1,048,576 bytes) under capability policy version 3, whose fixed allow-list of names and safe helper set (ten C helpers under the global helpers, each version 1, for JSON null and empty object, canonical JSON encode and decode, ASCII trim, plain split, UTF-8 code-point count and UTC time values that the caller passes in) has a canonical identity and refuses every other name as unlisted_name; for each declared name a function bindings.<name> is answered by the sandbox itself, as data (mode data) or as a replay of the results that the caller recorded, in order, ending at the first unrecorded call with a pending-call reply (mode replay), and a recorded call that the source does not repeat is call_mismatch; helpers charge counted steps for their work and their limits are the same sticky stops; exact positive limits on counted steps, call depth, value bytes, live Lua memory and wall time apply, and a step, depth, size or unlisted-name stop is sticky and cannot be caught or continued from Lua; input and result are plain data (null sentinel, booleans, UTF-8 strings, signed 64-bit integers, finite floats, dense arrays, string-keyed maps, at most 32 nested containers), a refusal is a fixed atom, memory, wall time, abnormal exit and protocol failure are recorded host outcomes, and the child is reaped on every return path including the death of the caller.",
+  "contract": "Evaluate one pure Lua function of one plain input in a fresh PUC Lua 5.4.9 process outside the VM, started by an OTP Port from an executable that build/2 compiles from the installed pinned lua_source checkout and an owned C host, over length-framed JSON (unsigned 32-bit little-endian length, at most 1,048,576 bytes) under capability policy version 3, whose fixed allow-list of names and safe helper set (ten C helpers under the global helpers, each version 1, for JSON null and empty object, canonical JSON encode and decode, ASCII trim, plain split, UTF-8 code-point count and UTC time values that the caller passes in) has a canonical identity and refuses every other name as unlisted_name; for each declared name a function bindings.<name> is answered by the sandbox itself, as data (mode data) or as a replay of the results that the caller recorded, in order, ending at the first unrecorded call with a pending-call reply (mode replay), and a recorded call that the source does not repeat is call_mismatch; helpers charge counted steps for their work and their limits are the same sticky stops; exact positive limits on counted steps, call depth, value bytes, live Lua memory and wall time apply, and a step, depth, size or unlisted-name stop is sticky and cannot be caught or continued from Lua; input and result are plain data (null sentinel, booleans, UTF-8 strings, signed 64-bit integers, finite floats, dense arrays, string-keyed maps, at most 32 nested containers), a refusal is a fixed atom, memory, wall time, abnormal exit and protocol failure are recorded host outcomes, and the child is reaped on every return path including the death of the caller.",
   "limits": [
     "Not OS security isolation: no container, seccomp, namespace, network or filesystem confinement; Port separation does not protect against a vulnerability in the native runtime. Policy version 3 grants the ten listed helpers and the bindings mechanism and no callbacks, clocks, random or I/O, and this Piece adds no pooling or service.",
     "Private-layout maintenance limitation: the allocator string guard reads offsetof(TString, contents) and the string allocation tag of the pinned internal lobject.h of the lua_source checkout. The build verifies the exact upstream bytes and refuses a different revision, but a new Lua revision needs a new review of that coupling before the pin moves.",
@@ -99,13 +99,13 @@
       "kind": "upstream",
       "provider": "otp",
       "reference": "https://www.erlang.org/doc/apps/erts/erlang.html",
-      "claim": "Relies on Port semantics: open_port with spawn_executable, exit_status, environment variables unset, the link between a Port and its owner, and exit reports delivered after the child is reaped."
+      "claim": "Relies on Port semantics: open_port with spawn_executable, exit_status, environment variables unset, the link between a Port and its owner, that an owner that traps exits receives a Port exit as a message, and exit reports delivered after the child is reaped."
     },
     {
       "kind": "upstream",
       "provider": "elixir",
       "reference": "https://hexdocs.pm/elixir/1.20.4/",
-      "claim": "Relies on pinned Elixir semantics for System.cmd, Process.monitor, File and the monotonic time functions that the build and the caller-held Port owner use."
+      "claim": "Relies on pinned Elixir semantics for System.cmd, Process.monitor, File and the monotonic time functions that the build and the per-call Port owner use."
     },
     {
       "kind": "upstream",
@@ -133,7 +133,7 @@
     },
     "control": {
       "status": "not_applicable",
-      "contract": "No independent Control API: an evaluation ends by its own limits, by the wall deadline or when the caller exits, and the caller-held Port reaps the child; there is no pause, drain, cancel or pool."
+      "contract": "No independent Control API: an evaluation ends by its own limits, by the wall deadline or when the caller exits, and the Port owner reaps the child; there is no pause, drain, cancel or pool."
     }
   }
 }
