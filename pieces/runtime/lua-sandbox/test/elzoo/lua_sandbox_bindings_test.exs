@@ -218,6 +218,72 @@ defmodule Elzoo.LuaSandboxBindingsTest do
       refute File.exists?(marker)
     end
 
+    test "a recorded argument and a recorded result at 32 nested containers replay, at 33 they are invalid_request",
+         %{executable: exe, fake: fake, marker: marker} do
+      # the source builds the same 32-deep argument and returns the 32-deep result it got back
+      asking = """
+      return function()
+        local t = 1
+        for _ = 1, 32 do t = {t} end
+        return bindings.a(t)
+      end
+      """
+
+      calls = fn arguments, result ->
+        %{
+          mode: "replay",
+          names: ["a"],
+          recorded: [%{name: "a", arguments: arguments, result: result}]
+        }
+      end
+
+      assert {:ok, %{value: value}} =
+               Helper.run(exe, asking, nil, %{}, calls.(nested(32), nested(32)))
+
+      assert value == nested(32)
+
+      for over <- [calls.(nested(33), nil), calls.(nil, nested(33)), calls.(nested(33), nested(33))] do
+        assert LuaSandbox.run(fake, Helper.request(@valid, nil, %{}, over)) ==
+                 {:refused, :invalid_request}
+      end
+
+      refute File.exists?(marker)
+
+      raw = fn arguments, result ->
+        %{
+          "mode" => "replay",
+          "names" => ["a"],
+          "recorded" => [%{"name" => "a", "arguments" => arguments, "result" => result}]
+        }
+        |> raw_base()
+        |> Map.put("source", asking)
+        |> Jason.encode!()
+        |> Helper.frame()
+      end
+
+      for {arguments, result} <- [{nested(33), nil}, {nil, nested(33)}, {nested(33), nested(33)}] do
+        {output, 0} = Helper.raw_exchange(exe, raw.(arguments, result))
+        assert Helper.decode_frame!(output) == @invalid
+      end
+
+      {output, 0} = Helper.raw_exchange(exe, raw.(nested(32), nested(32)))
+      assert %{"status" => "ok", "value" => ^value} = Helper.decode_frame!(output)
+    end
+
+    test "the host accepts an input at 32 nested containers and refuses 33 to 36",
+         %{executable: exe} do
+      none = %{"mode" => "none", "names" => [], "recorded" => []}
+      good = raw_base(none) |> Map.put("input", nested(32))
+      {output, 0} = Helper.raw_exchange(exe, Helper.frame(Jason.encode!(good)))
+      assert %{"status" => "ok", "value" => 1} = Helper.decode_frame!(output)
+
+      for depth <- 33..36 do
+        bad = raw_base(none) |> Map.put("input", nested(depth))
+        {output, 0} = Helper.raw_exchange(exe, Helper.frame(Jason.encode!(bad)))
+        assert Helper.decode_frame!(output) == @invalid, "input at #{depth} containers"
+      end
+    end
+
     test "a frame over the frame bound is invalid_request before any process starts", ctx do
       big = String.duplicate("x", 60_000)
       records = for _ <- 1..20, do: %{name: "a", arguments: big, result: big}

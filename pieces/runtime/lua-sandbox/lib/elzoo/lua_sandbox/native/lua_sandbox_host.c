@@ -47,6 +47,10 @@
 #define FRAME_MAX 1048576u
 #define MAX_SOURCE 65536u
 #define MAX_CONTAINERS 32
+/* The frame nests the deepest plain value (a recorded argument or result) at depth 5:
+** root 1, calls 2, recorded 3, record 4. A container at depth d holds its children at
+** d + 1, so 32 nested containers from depth 5 occupy depths 5..36. */
+#define PARSE_DEPTH_MAX (4 + MAX_CONTAINERS)
 #define MAX_STEPS 1000000
 #define MAX_DEPTH 64
 #define MAX_VALUE 65536
@@ -546,7 +550,7 @@ static long parse_value(int depth) {
       return id;
     }
     case '[': {
-      if (depth >= 34) return -1;
+      if (depth > PARSE_DEPTH_MAX) return -1;
       jp++;
       id = new_node(T_ARR);
       ws();
@@ -572,7 +576,7 @@ static long parse_value(int depth) {
       }
     }
     case '{': {
-      if (depth >= 34) return -1;
+      if (depth > PARSE_DEPTH_MAX) return -1;
       jp++;
       id = new_node(T_OBJ);
       ws();
@@ -745,7 +749,7 @@ static void charge(lua_State *L, long long n) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Wrappers (policy version 2)                                           */
+/* Wrappers (policy version 3)                                           */
 /* ------------------------------------------------------------------ */
 
 static int unlisted(lua_State *L) {
@@ -771,7 +775,7 @@ static int w_pcall(lua_State *L) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Helpers (policy version 2): fields of the global `helpers`            */
+/* Helpers (policy version 3): fields of the global `helpers`            */
 /* ------------------------------------------------------------------ */
 
 /* Record the table at the top of the stack as an array (kind 1) or an object (kind 2)
@@ -1376,7 +1380,7 @@ static int string_index(lua_State *L) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Environment (policy version 2)                                         */
+/* Environment (policy version 3)                                         */
 /* ------------------------------------------------------------------ */
 
 static const char *const string_names[] = {"byte", "char", "find", "format", "gmatch", "gsub", "len",
@@ -2264,7 +2268,7 @@ int main(int argc, char **argv) {
       field_int(lim, "value_bytes", MAX_VALUE, &value) || field_int(lim, "memory_bytes", MAX_MEMORY, &memory) ||
       field_int(lim, "wall_ms", MAX_WALL, &wall))
     reply_refused("invalid_request");
-  if (check_calls(cal) < 0) reply_refused("invalid_request");
+  if (check_calls(cal) < 0 || node_depth(inp) > MAX_CONTAINERS) reply_refused("invalid_request");
 
   G.mem_limit = (size_t)memory;
   G.value_bytes = (size_t)value;

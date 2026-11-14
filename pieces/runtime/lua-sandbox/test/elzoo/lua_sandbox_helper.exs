@@ -45,8 +45,6 @@ defmodule Elzoo.LuaSandboxHelper do
 
   @none %{mode: "none", names: [], recorded: []}
 
-  def none_calls, do: @none
-
   def request(source, input \\ nil, limits \\ %{}, calls \\ @none) do
     %{
       source: source,

@@ -304,12 +304,15 @@ observations of listed scenarios, not a proof and not a security claim.
 The bindings add eight groups in `lua_sandbox_bindings_test.exs` (and 5 tests of the exact
 pending reply of the Elixir decoder):
 
-14. **`request_shape`** (12 tests): each malformed `calls`, and a request without it or with
+14. **`request_shape`** (14 tests): each malformed `calls`, and a request without it or with
     an extra key, is `invalid_request` and no source runs; an argument or a result over
-    `value_bytes` is `value_size`; the bounds 64 and 256 are inclusive; the host refuses the
+    `value_bytes` is `value_size`; the bounds 64 and 256 are inclusive; a recorded argument
+    and a recorded result at 32 nested containers replay and at 33 are `invalid_request`; the
+    host accepts an input at 32 nested containers and refuses 33 to 36; the host refuses the
     same shapes in a raw frame; the identity is version 3 and a version 2 identity is
     `policy_mismatch`. Negative controls: the host `calls` check made to accept every shape,
-    and the Elixir mode rule made to accept names with mode `"none"` (each fails this group).
+    the Elixir mode rule made to accept names with mode `"none"`, and the host input depth
+    check removed (each fails this group).
 15. **`none_is_version_2_surface`** (2 tests): with mode `"none"`, `bindings` and
     `bindings.x` are `unlisted_name`, also inside `pcall`; the other modes change nothing else.
 16. **`data_mode_builds_data`** (10 tests): two bindings build two objects in place; null,

@@ -15,6 +15,7 @@ try do
       source: "return function(x) return x + 1 end",
       input: 41,
       policy: Elzoo.LuaSandbox.policy().identity,
+      calls: %{mode: "none", names: [], recorded: []},
       limits: %{
         steps: 10_000,
         call_depth: 8,
