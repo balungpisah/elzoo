@@ -1958,6 +1958,7 @@ static long field_node(long obj, const char *name) {
 
 enum { MODE_NONE, MODE_DATA, MODE_REPLAY };
 static int calls_mode;
+static long calls_names; /* node index of the `names` array */
 
 static int node_is(long id, const char *s) {
   return (size_t)strlen(s) == nodes[id].slen && memcmp(sarena + nodes[id].soff, s, nodes[id].slen) == 0;
@@ -1994,6 +1995,7 @@ static int check_calls(long calls) {
   else if (node_is(mode, "data")) calls_mode = MODE_DATA;
   else if (node_is(mode, "replay")) calls_mode = MODE_REPLAY;
   else return -1;
+  calls_names = names;
   for (c = nodes[names].first; c >= 0; c = nodes[c].next) {
     if (!valid_name(c)) return -1;
     for (d = nodes[names].first; d != c; d = nodes[d].next)
@@ -2011,6 +2013,121 @@ static int check_calls(long calls) {
     if (nm < 0 || ar < 0 || re < 0 || nodes[nm].type != T_STR || !name_listed(names, nm)) return -1;
   }
   return 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Bindings: the global `bindings` of the modes data and replay          */
+/* ------------------------------------------------------------------ */
+
+/* Two host buffers of their own (L == NULL: they grow by realloc, charge nothing,
+** and stay valid for the whole run; they are never freed and never raise). The
+** argument of a call is encoded into argbuf (limit value_bytes); the measure of the
+** value that a call returns goes into retbuf (no limit). Neither is outbuf. */
+static buf argbuf, retbuf;
+
+/* Push a deep copy of the plain value at idx. The value already encoded without an
+** error, so it holds only nil, booleans, numbers, strings, the null sentinel and
+** tables of at most 32 nested containers. Tables are read with lua_next and written
+** with lua_rawset only; the kind record (array or object) moves to the copy. */
+static void copy_plain(lua_State *L, int idx) {
+  idx = lua_absindex(L, idx);
+  luaL_checkstack(L, 8, "bindings");
+  switch (lua_type(L, idx)) {
+    case LUA_TNIL: lua_pushlightuserdata(L, &null_sentinel); return;
+    case LUA_TTABLE: {
+      int dst;
+      lua_createtable(L, 0, 0);
+      dst = lua_gettop(L);
+      lua_getfield(L, LUA_REGISTRYINDEX, "elzoo.kinds");
+      lua_pushvalue(L, idx);
+      lua_rawget(L, -2);
+      if (lua_isnil(L, -1)) {
+        lua_pop(L, 1);
+      } else {
+        lua_pushvalue(L, dst);
+        lua_insert(L, -2);
+        lua_rawset(L, -3);
+      }
+      lua_pop(L, 1);
+      lua_pushnil(L);
+      while (lua_next(L, idx)) {
+        lua_pushvalue(L, -2);
+        copy_plain(L, -2);
+        lua_rawset(L, dst);
+        lua_pop(L, 1);
+      }
+      return;
+    }
+    default: lua_pushvalue(L, idx); return;
+  }
+}
+
+/* bindings.<name>(value): the upvalue is the node index of the name. */
+static int b_call(lua_State *L) {
+  long id = (long)lua_tointeger(L, lua_upvalueindex(1));
+  int rc;
+  if (lua_gettop(L) != 1) return luaL_error(L, "bindings: expected one value");
+  argbuf.n = 0;
+  argbuf.limit = G.value_bytes;
+  rc = enc_value(L, 1, 0, &argbuf);
+  if (rc == E_SIZE) {
+    set_sticky(STOP_VALUE);
+    return stop_raise(L);
+  }
+  if (rc != E_OK) return luaL_error(L, "bindings: value is not plain data");
+  charge(L, (long long)argbuf.n); /* one step for each byte; argbuf.n is at most value_bytes */
+  /* mode data (mode replay behaves alike until the replay part) */
+  lua_createtable(L, 0, 2);
+  mark_kind(L, 2);
+  lua_pushliteral(L, "arguments");
+  copy_plain(L, 1);
+  lua_rawset(L, -3);
+  lua_pushliteral(L, "binding");
+  lua_pushlstring(L, sarena + nodes[id].soff, nodes[id].slen);
+  lua_rawset(L, -3);
+  /* the returned value is charged one step for each byte of its canonical JSON; it
+  ** wraps an argument of up to 32 containers, so the measure starts one level up */
+  retbuf.n = 0;
+  retbuf.limit = SIZE_MAX;
+  rc = enc_value(L, lua_gettop(L), -1, &retbuf);
+  if (rc != E_OK) return luaL_error(L, "bindings: value is not plain data");
+  charge(L, (long long)retbuf.n);
+  return 1;
+}
+
+/* Build the global `bindings` in the environment table (the registry global table):
+** a fresh table with one closure for each name and the strict lookup of the library
+** tables (the metatable of `helpers`). Raw access only. */
+static int bindings_cf(lua_State *L) {
+  long c;
+  int tbl, env;
+  luaL_checkstack(L, 8, "bindings");
+  lua_rawgeti(L, LUA_REGISTRYINDEX, LUA_RIDX_GLOBALS);
+  env = lua_gettop(L);
+  lua_createtable(L, 0, (int)nodes[calls_names].count);
+  tbl = lua_gettop(L);
+  for (c = nodes[calls_names].first; c >= 0; c = nodes[c].next) {
+    lua_pushlstring(L, sarena + nodes[c].soff, nodes[c].slen);
+    lua_pushinteger(L, (lua_Integer)c);
+    lua_pushcclosure(L, b_call, 1);
+    lua_rawset(L, tbl);
+  }
+  lua_pushliteral(L, "helpers");
+  lua_rawget(L, env);
+  if (!lua_getmetatable(L, -1)) return luaL_error(L, "bindings: no strict lookup");
+  lua_setmetatable(L, tbl);
+  lua_pushliteral(L, "bindings");
+  lua_pushvalue(L, tbl);
+  lua_rawset(L, env);
+  return 0;
+}
+
+static void init_bindings(lua_State *L) {
+  lua_pushcfunction(L, bindings_cf);
+  if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
+    if (G.sticky) reply_sticky();
+    _exit(70);
+  }
 }
 
 int main(int argc, char **argv) {
@@ -2080,6 +2197,7 @@ int main(int argc, char **argv) {
 
   L = new_state();
   init_state(L);
+  if (calls_mode != MODE_NONE) init_bindings(L);
   base = lua_gettop(L);
 
   /* arm the limits: no user code has run yet */
