@@ -1143,7 +1143,8 @@
       "summary": "A Run stays on the recipe version that it started with",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/version-pin/piece.json",
       "reason": "Bot platform wave 3 (P13). The pure rule of which version a Run uses: the one at its start. Publishing changes no running Run. The delete refusal belongs to state/recipe-store."
     },
     {
