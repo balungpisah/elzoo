@@ -6436,7 +6436,7 @@
       "disposition": "merged-ready-contract; task acceptance separate",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/assembly/durable-job/piece.json",
-      "manifest_sha256": "ffd52090da4b98e93bc59feeae6fa40cb3b045edd6dddce766774edb9364237a"
+      "manifest_sha256": "5716b11e17c7ccdf3c0913c876e64263f483ee93b75af2ebcc2a949dce1d8056"
     },
     {
       "id": "assembly/http-job",
