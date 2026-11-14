@@ -13,7 +13,7 @@ defmodule Elzoo.LuaSandboxSurfaceTest do
     name and no frame can reach it.
   * (c) the descriptor of `Elzoo.LuaSandbox.policy/0`, and fixed probes of constants.
 
-  The expected lists below are copied from the contract (Policy version 1), not from the
+  The expected lists below are copied from the contract (Policy version 2), not from the
   descriptor, so a change of any one source fails here.
 
   Negative control (recorded in the pull request, never committed): granting `print` in
@@ -36,9 +36,29 @@ defmodule Elzoo.LuaSandboxSurfaceTest do
   @math_constants ~w(huge maxinteger mininteger pi)
   @libraries ~w(math string table)
   @operator_metamethods ~w(__add __div __idiv __mod __mul __pow __sub __unm)
+  # The helpers of policy version 2: name => type of the value (each part adds its names).
+  @helpers %{
+    "json_decode" => "function",
+    "json_encode" => "function",
+    "null" => "userdata",
+    "object" => "function",
+    "text_split" => "function",
+    "text_trim" => "function",
+    "text_utf8_len" => "function",
+    "time_iso8601" => "function",
+    "time_parts" => "function",
+    "time_unix_ms" => "function"
+  }
 
   # name => type of the value
   defp expected_surface do
+    core_surface()
+    |> Map.put("helpers", "table")
+    |> Map.merge(Map.new(@helpers, fn {name, type} -> {"helpers.#{name}", type} end))
+  end
+
+  # the names of the descriptor's `names` map: the libraries and the globals of version 1
+  defp core_surface do
     functions =
       @globals ++
         Enum.map(@string, &"string.#{&1}") ++
@@ -60,6 +80,7 @@ defmodule Elzoo.LuaSandboxSurfaceTest do
                     mininteger modf pi rad random randomseed sin sqrt tan tointeger type ult)
   @upstream_libraries ~w(coroutine debug io math os package string table utf8)
   @excluded_extra ~w(loadstring json text time clock now helper_echo bindings
+                     helpers.x helpers.json helpers.now helpers.__index
                      json.encode json.decode text.upper time.now os.time os.clock os.getenv os.date
                      io.open io.write io.read debug.getinfo debug.sethook package.loaded
                      package.path coroutine.create coroutine.resume coroutine.wrap coroutine.yield
@@ -72,7 +93,9 @@ defmodule Elzoo.LuaSandboxSurfaceTest do
       @upstream_base ++
         Enum.map(@upstream_string, &"string.#{&1}") ++
         Enum.map(@upstream_table, &"table.#{&1}") ++
-        Enum.map(@upstream_math, &"math.#{&1}") ++ @upstream_libraries ++ @excluded_extra
+        Enum.map(@upstream_math, &"math.#{&1}") ++
+        @upstream_libraries ++
+        ["helpers" | Enum.map(Map.keys(@helpers), &"helpers.#{&1}")] ++ @excluded_extra
     )
   end
 
@@ -107,7 +130,7 @@ defmodule Elzoo.LuaSandboxSurfaceTest do
 
       # no name of the universe gave any other outcome than a type or `unlisted_name`
       for name <- universe() do
-        assert type_of(exe, name) in [:unlisted, "function", "table", "number"], name
+        assert type_of(exe, name) in [:unlisted, "function", "table", "number", "userdata"], name
       end
     end
 
@@ -118,7 +141,7 @@ defmodule Elzoo.LuaSandboxSurfaceTest do
       assert audit["names"] == expected
 
       assert Enum.sort(Map.keys(audit)) ==
-               ~w(constants environment_metatable library_metatable names string_metatable)
+               ~w(constants environment_metatable helpers_metatable library_metatable names string_metatable)
 
       # the audit constants are the declared constants, as exact decimal text
       assert audit["constants"] == %{
@@ -130,6 +153,7 @@ defmodule Elzoo.LuaSandboxSurfaceTest do
 
       # the environment and the library tables answer a missing name with the host's refusal
       assert audit["environment_metatable"] == ["__index"]
+      assert audit["helpers_metatable"] == ["__index"]
       assert audit["library_metatable"] == ["__index"]
 
       # the one shared string metatable: the strict method lookup and the operators
@@ -139,15 +163,22 @@ defmodule Elzoo.LuaSandboxSurfaceTest do
     test "(c) the descriptor of policy/0 and the probes of constants", %{executable: exe} do
       %{descriptor: descriptor} = LuaSandbox.policy()
       expected = expected_surface()
+      core = core_surface()
       names = descriptor["names"]
 
-      functions = for {name, "function"} <- expected, do: name
-      constants = for {name, "number"} <- expected, do: name
+      functions = for {name, "function"} <- core, do: name
+      constants = for {name, "number"} <- core, do: name
 
       assert names["functions"] == Enum.sort(functions)
       assert names["libraries"] == @libraries
       assert Enum.sort(Map.keys(names["constants"])) == Enum.sort(constants)
-      assert descriptor["helpers"] == []
+
+      assert descriptor["helpers"] ==
+               for(name <- Enum.sort(Map.keys(@helpers)), do: %{"name" => name, "version" => 1})
+
+      assert for({"helpers." <> name, _} <- expected, do: name) |> Enum.sort() ==
+               Enum.sort(Map.keys(@helpers))
+
       assert descriptor["bindings"] == %{}
 
       assert descriptor["string_metatable"]["keys"] ==
@@ -187,6 +218,7 @@ defmodule Elzoo.LuaSandboxSurfaceTest do
       assert audit["names"]
              |> Enum.filter(&match?({_, "function"}, &1))
              |> Enum.map(&elem(&1, 0))
+             |> Enum.reject(&String.starts_with?(&1, "helpers."))
              |> Enum.sort() ==
                names["functions"]
     end

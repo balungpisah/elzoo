@@ -114,7 +114,7 @@ A recipe in Lua: a Lua file gives callables as data, the engine runs a graph, an
 
 | Job | Outputs | Prerequisites | Level | Jobs that wait for it |
 | --- | --- | --- | --- | --- |
-| RC-60 | `runtime/lua-sandbox`, `runtime/lua-stdlib` | none | 1 | 3 |
+| RC-60 | `runtime/lua-sandbox` | none | 1 | 3 |
 | RC-61 | `domain/recipe-graph`, `domain/recipe-package`, `domain/recipe-config` | RC-44, ELZ-026, ELZ-024, ELZ-105, RC-68 | 2 | 6 |
 | RC-62 | `runtime/lua-binding`, `workflow/lua-tool` | RC-60, RC-44, ELZ-002, RC-52, RC-61, RC-68, ELZ-022 | 3 | 2 |
 | RC-63 | `workflow/graph-run`, `workflow/node-outcome` | ELZ-002, RC-68, RC-61, ELZ-026, ELZ-098, ELZ-003, ELZ-006 | 3 | 2 |
