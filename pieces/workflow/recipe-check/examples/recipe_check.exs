@@ -24,7 +24,13 @@ recipe = %{
       "output" => typed.("output"),
       "input_slots" => [],
       "nodes" => [
-        %{"id" => "fetch", "kind" => "tool", "tool" => "docs_search", "needs" => [], "gives" => []},
+        %{
+          "id" => "fetch",
+          "kind" => "tool",
+          "tool" => "listing_search",
+          "needs" => [],
+          "gives" => []
+        },
         %{"id" => "review", "kind" => "ask", "needs" => [], "gives" => []}
       ],
       "links" => []
@@ -87,7 +93,7 @@ tool = %{
 
 {:ok, tools} =
   Elzoo.ToolRegistry.snapshot([
-    %{"id" => "docs", "kind" => "host_listing", "callable" => "adapter", "tools" => [tool]}
+    %{"id" => "listing", "kind" => "host_listing", "callable" => "adapter", "tools" => [tool]}
   ])
 
 facts = %{
@@ -95,7 +101,7 @@ facts = %{
   "provided_needs" => ["search-index"],
   "granted_permissions" => ["read-docs"],
   "tool_requirements" => %{
-    "docs_search" => %{"needs" => ["search-index"], "permissions" => ["read-docs"]}
+    "listing_search" => %{"needs" => ["search-index"], "permissions" => ["read-docs"]}
   },
   "unit" => "token",
   "costs" => [
