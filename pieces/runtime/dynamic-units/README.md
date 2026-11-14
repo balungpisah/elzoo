@@ -124,14 +124,18 @@ An append returning `{:conflict, observed}` causes RC-45 to stop with `{:shutdow
 
 ## Grounding and operations
 
-The seven named tests DY1–DY7 cover concurrent/independent identity admission
+The nine named tests DY1–DY9 cover concurrent/independent identity admission
 and validation; route/stop/expiry and death interleavings with opaque snapshots;
 capacity through startup/termination/recovery barriers; abnormal recovery and
 named shutdown/intensity; sleep/wake and idle refresh; independent local domains
-contending through Store CAS; and bounded binary lifecycle/infrastructure reset.
+contending through Store CAS; bounded binary lifecycle/infrastructure reset; and
+calls that wait past the 5,000 ms default behind a held start (DY8: a start, a
+second start of the same identity, a find and a stop) and behind a held route
+wake (DY9).
 They use real OTP infrastructure, DurableUnit, volatile Memory and Piece-local
 barriers. The negative control temporarily bypasses the route processing barrier
-in the actual production file; DY2 must fail, then the edit is reverted.
+in the actual production file; DY2 must fail, then the edit is reverted. With the
+default limit restored on `start/2`, `find/2` or `route/3`, DY8 or DY9 fails.
 Finite scenario results are tests, not universal recovery or exactly-once proofs.
 Same-sender ordering, Registry, supervisor capacity/transient restart/intensity
 and monotonic timers are upstream contracts, not locally proved laws.
