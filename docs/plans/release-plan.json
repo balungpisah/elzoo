@@ -5939,10 +5939,10 @@
       "id": "ELZ-185",
       "title": "ELZ-185 — The local full check stays inside the connection limit of the worker database",
       "kind": "published",
-      "release": "V1B",
+      "release": "V1",
       "stage": "pieces",
-      "dependencies": ["ELZ-033", "ELZ-187"],
-      "status": "published 2026-11-14; amended 2026-11-14 (test files of Pieces allowed for the repair; depends on ELZ-187)",
+      "dependencies": ["ELZ-033"],
+      "status": "published 2026-11-14; amended 2026-11-14 (test files of Pieces allowed for the repair)",
       "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
       "paths": ["tasks/ELZ-185-local-full-check-connections.md"],
       "outputs": [],
@@ -5950,7 +5950,7 @@
       "product_aims": ["P06"],
       "issue": 403,
       "url": "https://github.com/balungpisah/elzoo/issues/403",
-      "issue_body_sha256": "9b2fdfd25564d35a7892fbc7d417600ab2c62ee6a92add462d9a360a1d54fae2"
+      "issue_body_sha256": "baaaedcd34631cc885ad5743ea4e14c546344779103a98c9c9bac3abea4cb882"
     },
     {
       "id": "ELZ-181",

@@ -1,6 +1,6 @@
 # ELZ-185 — The local full check stays inside the connection limit of the worker database
 
-- Dependencies: ELZ-033, ELZ-187
+- Dependencies: ELZ-033
 - Output: none. A harness repair; no Piece Contract changes.
 - Change class: non-Piece root/shared harness repair; full local gate and full hosted check.
 - Allowed implementation path: `test/**`, `lib/elzoo/check*.ex` and the Mix task files of the check, `docs/development/01-workflow.md`, and, for the repair of step 2 only, files under `pieces/*/*/test/**` that start a database Repo or connection (test files and test helpers). No other file under `pieces/` (no `lib/`, `cure/`, `examples/`, `piece.json` or README of a Piece), no CI workflow, no change of `runs-on`, and no change of `scripts/worker-services.py`.
@@ -33,8 +33,10 @@ live until the test process exits. Found by reading: the helpers of
 tests in its own process and holds connections in the same way. ExUnit
 gives no synchronous hook between two test modules, so the harness alone
 cannot release them. So the allowed paths now include the test files and
-test helpers of Pieces, for this repair only, and the task depends on
-ELZ-187, which changes files of `assembly/run-engine`.
+test helpers of Pieces, for this repair only. ELZ-187 changes files of
+`assembly/run-engine`: change a file under `pieces/assembly/run-engine/`
+only when ELZ-187 is merged on `main`; before that, leave that Piece out
+and say so in the pull request body.
 
 ## Task
 
