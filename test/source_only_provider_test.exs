@@ -12,11 +12,15 @@ defmodule Elzoo.SourceOnlyProviderTest do
     root = Path.join(ctx.destination, "source")
     File.mkdir!(root)
 
-    for file <- ~w(mix.lock .tool-versions LICENSE NOTICE docs/consuming.md registry/providers.json) do
+    for file <- ~w(mix.lock .tool-versions LICENSE NOTICE registry/providers.json) do
       target = Path.join(root, file)
       File.mkdir_p!(Path.dirname(target))
       File.cp!(Path.join(@root, file), target)
     end
+
+    guide = Path.join(root, "docs/consuming.md")
+    File.mkdir_p!(Path.dirname(guide))
+    File.write!(guide, "# Synthetic consumer guide\n")
 
     template = ctx.registry.entries["integration/json"]
 

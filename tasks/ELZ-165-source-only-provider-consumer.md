@@ -5,7 +5,7 @@
 - Dependencies: ELZ-160
 - Output: none; non-Piece harness prerequisite for native Pieces, release V1B.
 - Change class: non-Piece shared harness; full affected local and full hosted check.
-- Owned paths: `registry/providers.json`, `lib/elzoo/registry.ex`, `lib/elzoo/export.ex`, `test/support/cure_consumer_case_test_helper.exs`, `test/registry_test.exs`, `test/export_test.exs`, `test/source_only_provider_test.exs`, `test/fixtures/elz165_source_only_provider/**`, `docs/consuming.md`, this task file, and its publication row/generated planning views under AGENTS.md section 3.
+- Owned paths: `registry/providers.json`, `lib/elzoo/registry.ex`, `lib/elzoo/export.ex`, `test/support/cure_consumer_case_test_helper.exs`, `test/registry_test.exs`, `test/export_test.exs`, `test/source_only_provider_test.exs`, `test/fixtures/elz165_source_only_provider/**`, `docs/consuming.md`, `scripts/test-ci-change-class.py`, this task file, and its publication row/generated planning views under AGENTS.md section 3.
 
 Coordinator one-PR path: publish and implement this non-Piece change together.
 No reusable Piece ID or ready Piece Contract changes. Reuse the installed

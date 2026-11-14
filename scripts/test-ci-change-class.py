@@ -475,6 +475,14 @@ PIECE_README = "README.md of a piece directory (pieces/**), not the root README.
 MIX_TASK = "path of a Mix task source file (lib/mix/tasks/), not a read of tasks/"
 FIXTURE = "string in a selection or export fixture, not a read"
 REVIEWED = {
+    ("test/source_only_provider_test.exs", 'guide = Path.join(root, "docs/consuming.md")'):
+        "writes synthetic export input in the temporary source root; does not read the repository guide",
+    ("test/source_only_provider_test.exs", 'Path.join([root, directory, "README.md"]),'):
+        "writes a synthetic Piece README in the temporary source root, not the root README",
+    ("test/source_only_provider_test.exs", 'assert File.ls!(ctx.destination) |> Enum.sort() == ["mix.exs", "source"]'):
+        "lists the temporary consumer destination to check read-only planning, not the repository root",
+    ("test/source_only_provider_test.exs", 'File.write!(Path.join([registry.root, directory, "README.md"]), "# Dependency fixture\\n")'):
+        "writes a dependency Piece README in the temporary source root, not repository documentation",
     ("pieces/delivery/data-stream/test/elzoo/data_stream_copy_test.exs", 'compiler = "lib/mix/tasks/compile_cure.ex"'): MIX_TASK,
     ("lib/elzoo/export.ex", '{".elzoo/docs/consuming.md", "docs/consuming.md"}'):
         "READ: the export copies it into every bundle; docs/consuming.md is not in the allowlist (READ_BY_CODE)",
