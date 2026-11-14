@@ -191,6 +191,16 @@ defmodule Elzoo.RecipeTestTest do
   defp answer(text),
     do: {:completed, %{"content" => text, "finish" => "stop", "tool_proposals" => []}}
 
+  defp decided(member),
+    do:
+      {:completed,
+       %{
+         "content" => Jason.encode!(%{"answer" => member}),
+         "finish" => "stop",
+         "tool_proposals" => [],
+         "structured" => %{"valid" => %{"answer" => member}}
+       }}
+
   defp base_spec(package, facts, sources, script, input),
     do: %{
       package: package,
@@ -239,7 +249,7 @@ defmodule Elzoo.RecipeTestTest do
 
     script = %{
       {:model, "scripted-model"} => [answer("hello")],
-      {:model, "scripted-decider"} => [answer("{\"answer\":\"yes\"}")],
+      {:model, "scripted-decider"} => [decided("yes")],
       {:tool, "files_read"} => [{:completed, %{"yes_result" => "r"}}]
     }
 
@@ -413,6 +423,23 @@ defmodule Elzoo.RecipeTestTest do
       refused(graph_spec(decision_give: "other"), {:invalid_callable, "main", :gives})
     end
 
+    test "a graph that GraphRun refuses is invalid_callable" do
+      # A map node must take the need `items`; the recipe check does not read that.
+      map =
+        node("m", "map", ["tag"], ["items"], %{"callable" => "agent", "max_iterations" => 3})
+
+      main =
+        callable("main", "graph", %{
+          "nodes" => [map],
+          "links" => [data("$input", "tag", "m", "tag")],
+          "input_slots" => [slot("tag")]
+        })
+
+      graph = recipe([main, callable("agent", "agent", %{"binding" => "worker"})])
+      spec = base_spec(package(graph), facts([cost("agent", 5)]), [], %{}, %{"tag" => "t"})
+      refused(spec, {:invalid_callable, "main", :invalid_spec})
+    end
+
     test "a nested tool is unsupported_tool" do
       spec = graph_spec()
 
@@ -523,6 +550,211 @@ defmodule Elzoo.RecipeTestTest do
                {:tool, "files_list"} => 1,
                {:tool, "files_stat"} => 1
              }
+    end
+  end
+
+  ## Group 4
+
+  describe "decision_repair" do
+    defp decision_spec(script) do
+      graph =
+        recipe([
+          callable("choice", "decision", %{"binding" => "judge", "choices" => ["yes", "no"]})
+        ])
+
+      base_spec(package(graph), facts([cost("choice", 3)]), [], script, %{})
+    end
+
+    test "a schema mismatch is repaired once and the decision is decided" do
+      maybe =
+        {:completed,
+         %{
+           "content" => ~s({"answer":"maybe"}),
+           "finish" => "stop",
+           "tool_proposals" => [],
+           "structured" => %{"invalid" => "schema_mismatch"}
+         }}
+
+      script = %{{:model, "scripted-decider"} => [maybe, decided("yes")]}
+      assert {:ok, record} = RecipeTest.run(decision_spec(script))
+      assert record.outcome == :completed
+      assert record.unused == %{}
+      assert record.asked == %{{:model, "scripted-decider"} => 2}
+
+      actions =
+        for %{step: :action, action: action} <- record.steps, into: %{}, do: {action["id"], action}
+
+      assert %{"status" => "decided", "value" => "yes", "repairs" => 1} =
+               actions["d1:finish"]["payload"]
+
+      first = actions["d1:call:0"]["payload"]["messages"]
+      second = actions["d1:call:1"]["payload"]["messages"]
+      assert length(second) == length(first) + 2
+
+      assert [
+               %{"role" => "assistant", "text" => ~s({"answer":"maybe"})},
+               %{"role" => "user", "text" => repair}
+             ] = Enum.take(second, -2)
+
+      assert repair != ""
+      assert Enum.take(second, length(first)) == first
+    end
+  end
+
+  ## Group 5
+
+  describe "graph_with_children" do
+    defp child_id(depth, parent_action_id) do
+      hex = :crypto.hash(:sha256, parent_action_id) |> Base.encode16(case: :lower)
+      "d#{depth}x" <> binary_part(hex, 0, 24)
+    end
+
+    test "an agent child, a decision child and a tool node run in one graph" do
+      assert {:ok, record} = RecipeTest.run(graph_spec())
+      assert %{outcome: :completed} = record
+      assert record.unused == %{}
+
+      assert record.asked == %{
+               {:model, "scripted-model"} => 1,
+               {:model, "scripted-decider"} => 1,
+               {:tool, "files_read"} => 1
+             }
+
+      agent = child_id(2, "d1:n:a")
+      decision = child_id(2, "d1:n:d")
+      assert agent != decision
+
+      actions =
+        for %{step: :action, action: action} <- record.steps, into: %{}, do: {action["id"], action}
+
+      # The children carry the ids of the rule; the root's own actions are d1:n:<node>.
+      assert Map.keys(actions) |> Enum.sort() ==
+               Enum.sort([
+                 "d1:n:a",
+                 "d1:n:d",
+                 "d1:n:t_yes",
+                 "d1:finish",
+                 agent <> ":m:1",
+                 agent <> ":finish",
+                 decision <> ":call:0",
+                 decision <> ":finish"
+               ])
+
+      refute Map.has_key?(actions, "d1:n:t_no")
+
+      nested = for %{step: :nested} = step <- record.steps, do: Map.delete(step, :step)
+
+      assert nested == [
+               %{
+                 occurrence: {1, 0},
+                 schema_id: "elzoo.agent-loop.message",
+                 schema_version: 1,
+                 payload: %{"text" => canonical(%{"x" => "hi"})}
+               },
+               %{
+                 occurrence: {4, 0},
+                 schema_id: "elzoo.recipe-test.input",
+                 schema_version: 1,
+                 payload: %{"input" => %{"text" => "hello"}}
+               }
+             ]
+
+      # The agent child's answer is the give `text` that the decision child receives.
+      [_, %{"role" => "user", "text" => received}] =
+        actions[decision <> ":call:0"]["payload"]["messages"]
+
+      assert received == canonical(%{"text" => "hello"})
+
+      outcomes =
+        for %{step: :input, input: %{"kind" => "action_outcome"} = input} <- record.steps,
+            into: %{},
+            do: {input["action_id"], input}
+
+      assert %{
+               "outcome" => "completed",
+               "schema_id" => "elzoo.graph-run.node-result",
+               "payload" => %{"gives" => %{"text" => "hello"}}
+             } = outcomes["d1:n:a"]
+
+      assert %{
+               "outcome" => "completed",
+               "payload" => %{"choice" => "yes", "gives" => %{"value" => "yes"}}
+             } = outcomes["d1:n:d"]
+
+      assert %{
+               "outcome" => "completed",
+               "payload" => %{"gives" => %{"yes_result" => "r"}}
+             } = outcomes["d1:n:t_yes"]
+
+      assert %{"kind" => "finish", "schema_id" => "elzoo.graph-run.result", "payload" => finish} =
+               actions["d1:finish"]
+
+      assert %{"status" => "completed", "gives" => %{"yes_result" => "r"}} = finish
+      assert finish["action_id"] == "d1:n:t_yes"
+    end
+  end
+
+  ## Group 6
+
+  describe "same_spec_same_record" do
+    test "the spec of the agent with tools gives two equal records" do
+      assert {:ok, first} = RecipeTest.run(agent_tools_spec())
+      assert {:ok, second} = RecipeTest.run(agent_tools_spec())
+      assert first.outcome == :completed
+      assert first == second
+    end
+  end
+
+  ## Group 7
+
+  describe "unscripted_call" do
+    defp one_tool_turn do
+      {:completed,
+       %{
+         "content" => "",
+         "finish" => "tool_calls",
+         "tool_proposals" => [proposal("c1", "files_read")]
+       }}
+    end
+
+    test "a tool without an entry stops the run with the tool action and no outcome for it" do
+      spec = agent_spec(%{{:model, "scripted-model"} => [one_tool_turn()]})
+
+      assert {:error, {:unscripted_call, {:tool, "files_read"}, record}} = RecipeTest.run(spec)
+
+      actions = for %{step: :action, action: action} <- record.steps, do: action["id"]
+      assert "d1:t:1:1" in actions
+
+      answered =
+        for %{step: :input, input: %{"kind" => "action_outcome", "action_id" => id}} <- record.steps,
+            do: id
+
+      refute "d1:t:1:1" in answered
+      assert record.asked == %{{:model, "scripted-model"} => 1, {:tool, "files_read"} => 1}
+      assert record.outcome == nil
+    end
+
+    test "a model key with one entry and a second model call stops the run" do
+      script = %{
+        {:model, "scripted-model"} => [one_tool_turn()],
+        {:tool, "files_read"} => [{:completed, "contents"}]
+      }
+
+      assert {:error, {:unscripted_call, {:model, "scripted-model"}, record}} =
+               RecipeTest.run(agent_spec(script))
+
+      assert record.asked == %{{:model, "scripted-model"} => 2, {:tool, "files_read"} => 1}
+      assert record.outcome == nil
+      refute Enum.any?(record.steps, &match?(%{step: :action, action: %{"id" => "d1:finish"}}, &1))
+    end
+
+    test "an entry that no call used is counted in unused and is not an error" do
+      script = %{{:model, "scripted-model"} => [answer("one"), answer("two")]}
+
+      assert {:ok, record} = RecipeTest.run(agent_spec(script))
+      assert record.outcome == :completed
+      assert record.unused == %{{:model, "scripted-model"} => 1}
+      assert record.asked == %{{:model, "scripted-model"} => 1}
     end
   end
 end
