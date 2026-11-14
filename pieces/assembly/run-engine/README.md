@@ -35,7 +35,8 @@ status polling is not a concurrency fence.
   `PayloadSchema.build/2` returned `{:ok, compiled_token}`.
   Only schema identities/digests, not compiled schemas, enter durable state.
 - `gate: %{id: utf8_no_nul_1_to_128_bytes, version: positive_int32, call: arity2}`;
-  `bindings`: fixed v1 action-kind map described below.
+  `bindings`: map from action kind to a binding or to a schema map, described
+  below.
 - `async_work`, `resources`: name-to-owner map (may be empty), `effect_intent`:
   binding-reference-to-ready-startup-options map (may be empty).
 - `request_cap`: sealed integer 1..256; `budget`: ready Budget construction
@@ -53,6 +54,24 @@ The directory's Unit options use
 callback that only sends each Outbox.Item to the dispatcher and returns `:ok`.
 Call `DurableUnit.fold/1` and `limits/1` to construct that Store. Never run gate,
 DU calls or outbox acknowledgement inside the offer callback or transition.
+
+A `bindings` entry for an action kind is either a binding, or a schema map from
+`schema_id` (UTF-8 text of 1 to 200 bytes, no NUL) to a binding, with at least
+one entry. A binding is a map with the atom key `:id` and no binary key. A start
+with any other entry value returns `{:error, :invalid_options_or_recovery}` and
+starts no Unit. The engine chooses the binding of an action by its kind and,
+for a schema map, by the `schema_id` of the action alone, never by
+`schema_version`, payload or callable: a binding entry serves every action of
+its kind, and a schema map has no default entry, so an action whose `schema_id`
+is not a key is refused with `missing_binding` (after `payload_schema` and
+`invalid_identity`). Every read of the binding of an occurrence, including the
+expected `result` of an outcome or answer and the result that a nested finish
+must match, uses the binding chosen for that action. The restart fingerprint
+holds `{id, version}` of a binding entry and, for a schema map, the map from
+each `schema_id` to `{id, version}`, so a changed schema map is an incompatible
+restart. The test helper's `fixture/1` takes `effect_bindings`, a map from
+binding reference to `{binding_module, adapter_context}` merged into the default
+`"effect"` entry, and gives the same map to the engine and to the Run owner.
 
 Each binding has stable `id`/`version`, trusted `effect_class`, `result:
 {schema_id, version}`, `facts.(action)` and `proposal.(action)`. Facts supply
@@ -91,6 +110,21 @@ Run allocation/start coordination stays with the host. No reset, rearm, retry,
 generic router or child-Run action exists. `status/1` exposes committed phase,
 charge count, occurrence classifications/joins and reconciliation, not payloads,
 credentials, raw consent or opaque work references.
+
+`input/4`, `control/4` and `status/1` each wait for the engine process for at most
+60,000 ms (one fixed limit; the functions take no limit operand or option).
+`status/1` is a call to the same process, so it replies only after an input that
+the engine is working on. An input at the bounds of this Piece (64 active, 256
+lifetime actions) took about 4.2 to 5.0 s alone and beside the Piece suite in 10
+runs each on a shared worker host, most of it the journal write path of the
+owners below this Piece, so the 5,000 ms default of `GenServer.call/2` would be
+too near for any caller. A caller that needs a shorter wait runs the call in a
+process of its own and gives up the wait there (`Task.async/1`, then
+`Task.yield/2` and `Task.shutdown/2`). When a call ends by the limit, or its
+caller stops waiting, the exit says nothing about whether the input was applied,
+and the engine goes on with it. The existing rule above is the only guidance:
+send the same ID again, never another; `{:ok, :applied}` or `{:ok, :duplicate}`
+means the result committed, and changed bytes are `{:error, :input_id_conflict}`.
 
 The pure `step/2` is exported only for the directory's fixed Operator binding.
 Its tagged version-1 plain records distinguish protocol, configuration, gate,
@@ -182,6 +216,12 @@ reopens a halted engine. Repeated rejection stops again. Unknown append/timeout,
 uncertain stop/start or ownership conflict require write confirmation and
 fencing, never blind append/resampling. Transition defect/oversize needs repair,
 not a skip or a storage-only retry. A live caller timeout keeps the same ID.
+The 60,000 ms call limit is fixed and not a bound on the work: a call that ends
+by it, or a caller that stops waiting earlier, leaves the engine working on the
+input. This Piece states no other way to learn what happened to the first call
+than sending the same ID again, no bound on how long the engine then continues,
+and no time guarantee: the measured 4.2 to 5.0 s of an input at the bounds is one
+observation on one shared worker host, not a bound.
 
 Payload/outcome JSON <=65536 bytes and depth <=32; ingress <=262144 bytes;
 DU record/output <=16777216 bytes; complete active slot <=131072 bytes;
@@ -210,11 +250,16 @@ view of the version-1 plain data; runtime additionally enforces UTF-8 byte bound
 groups and the eight nested-result groups `nested_result_reaches_parent`,
 `nested_result_wrong_schema`, `nested_without_finish`, `nested_result_bounds`,
 `nested_result_survives_restart`, `first_finish_only`, `two_levels` and
-`payload_not_exposed` with disposable PostgreSQL, existing ready owners,
+`payload_not_exposed`, and the group `call_waits_past_the_default` (its test
+`every_call_waits`: an input that sleeps 5,500 ms once in the gate returns
+`{:ok, :applied}`, and `status/1` and `control/4` sent during it each reply after
+it, more than 5,000 ms after they were sent), with disposable PostgreSQL, existing ready owners,
 ordinary OTP barriers and counting fake providers. Actual temporary engine
 mutations bypassing the committed gate boundary and first settlement, giving a
 finished child the old `nested_completed` outcome and skipping the result
-schema comparison are negative controls, never shipped. These finite scenarios are not a universal proof, production monitor,
+schema comparison are negative controls, never shipped; so is the default
+5,000 ms limit of the three calls (`call_waits_past_the_default` ends with the
+time-out exit). These finite scenarios are not a universal proof, production monitor,
 physical no-send guarantee or proof of arbitrary callbacks/providers. Reused
 Cure laws retain their dependency-local scope; no new Cure proof is claimed.
 

@@ -226,6 +226,7 @@ defmodule Elzoo.RunEngine.TestHelper do
   end
 
   def fixture(overrides \\ []) do
+    {effect_bindings, overrides} = Keyword.pop(overrides, :effect_bindings, %{})
     prefix = "engine_" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
 
     Ecto.Adapters.SQL.query!(TestRepo, "CREATE SCHEMA #{Postgres.identifier(prefix)}", [],
@@ -292,22 +293,20 @@ defmodule Elzoo.RunEngine.TestHelper do
     {:ok, lease} = Lease.new(store: run_store, clock: :store)
     {:held, held} = Lease.claim(lease, "runs", "owner", 3_600_000)
 
-    intent_store =
-      Postgres.store(TestRepo,
-        prefix: prefix,
-        fold: Elzoo.EffectIntent.fold(TestBinding),
-        limits: Elzoo.EffectIntent.limits()
-      )
-
     host_store =
       Postgres.store(TestRepo, prefix: prefix, fold: StoreHost.fold(), limits: StoreHost.limits())
 
     host_mode = ExUnit.Callbacks.start_supervised!({Agent, fn -> :fresh end}, id: make_ref())
 
-    intents = %{
-      "effect" => [
-        binding: TestBinding,
-        store: intent_store,
+    startup = fn module, adapter_context ->
+      [
+        binding: module,
+        store:
+          Postgres.store(TestRepo,
+            prefix: prefix,
+            fold: Elzoo.EffectIntent.fold(module),
+            limits: Elzoo.EffectIntent.limits()
+          ),
         clock: now,
         host:
           {StoreHost,
@@ -322,9 +321,16 @@ defmodule Elzoo.RunEngine.TestHelper do
              end
            }},
         task_supervisor: task_supervisor,
-        adapter_context: self()
+        adapter_context: adapter_context
       ]
-    }
+    end
+
+    intents =
+      %{"effect" => {TestBinding, self()}}
+      |> Map.merge(effect_bindings)
+      |> Map.new(fn {ref, {module, adapter_context}} ->
+        {ref, startup.(module, adapter_context)}
+      end)
 
     {:ok, run} = Run.start_link(store: run_store, lease: lease, held: held, effect_intent: intents)
     Process.unlink(run)

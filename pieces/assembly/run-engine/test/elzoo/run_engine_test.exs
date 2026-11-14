@@ -2,11 +2,22 @@
 Code.require_file("../support/run_engine_test_helper.exs", __DIR__)
 Code.require_file("../../examples/document_publication.exs", __DIR__)
 
+defmodule Elzoo.RunEngineTest.Work do
+  # Work of a schema-map binding: it reports which binding's work ran, with the
+  # payload of the action, and completes with that payload.
+  def run(parent, tag, payload) do
+    send(parent, {:work_ran, tag, payload})
+    payload
+  end
+end
+
 defmodule Elzoo.RunEngineTest do
   use ExUnit.Case, async: false
   import Elzoo.RunEngine.TestHelper
-  alias Elzoo.{DurableUnit, DynamicUnits, RunEngine}
-  alias Elzoo.RunEngine.TestPattern
+  alias Elzoo.{DurableUnit, DynamicUnits, PayloadSchema, RunEngine}
+  alias Elzoo.EffectIntent.Binding
+  alias Elzoo.RunEngine.{ChangedAccountBinding, TestBinding, TestPattern}
+  alias Elzoo.RunEngineTest.Work
   alias Elzoo.RunEngine.DocumentPublication
   alias Elzoo.RunApprovalRelease, as: Run
   alias Elzoo.DurableLog.PostgresHarness
@@ -1158,9 +1169,10 @@ defmodule Elzoo.RunEngineTest do
           }
         )
 
-      caller = Task.async(fn -> catch_exit(send_input(engine)) end)
+      caller = Task.async(fn -> send_input(engine) end)
       assert_receive {:gate_barrier, ^engine}
-      assert {:timeout, _} = Task.await(caller, 6_000)
+      assert Task.yield(caller, 1_000) == nil
+      assert Task.shutdown(caller, :brutal_kill) == nil
       {:ok, unit} = DynamicUnits.find(c.directory, c.prefix)
       assert Process.alive?(unit)
       assert DurableUnit.snapshot(unit).control.count == 1
@@ -2998,6 +3010,747 @@ defmodule Elzoo.RunEngineTest do
 
       refute log =~ sentinel
       refute_received {:telemetry, _, _, _}
+    end
+  end
+
+  # Helpers of the schema-map groups. The helper has no schema-entry builder, no
+  # counting gate, no reporting work, no schema-map nested setup and no view of
+  # state.requests, so they live here.
+
+  defp schema_entry(id, schema) do
+    port = %{"id" => id, "direction" => "input", "schema_id" => id, "schema_version" => 1}
+    {:ok, compiled} = PayloadSchema.build(port, schema)
+
+    {{id, 1},
+     %{port: port, compiled: compiled, digest: :crypto.hash(:sha256, Jason.encode!(schema))}}
+  end
+
+  # The fixture's schemas plus the given action schemas (objects) and result schemas.
+  defp add_schemas(c, actions, results) do
+    entries =
+      Enum.map(actions, &schema_entry(&1, %{"type" => "object"})) ++
+        Enum.map(results, &schema_entry(&1, %{}))
+
+    Map.merge(c.opts[:schemas], Map.new(entries))
+  end
+
+  defp act(id, kind, schema_id, payload \\ %{"value" => 7}),
+    do: %{action(id, kind, payload) | "schema_id" => schema_id}
+
+  # The binding of the fixture for `kind`, with changes.
+  defp variant(c, kind, changes), do: Map.merge(c.opts[:bindings][kind], Map.new(changes))
+
+  defp scripted_root(actions),
+    do: {TestPattern, :scripted, %{name: "root", script: [request(actions)]}}
+
+  defp reporting(parent, tag),
+    do: fn a -> {Work, :run, [parent, tag, a["payload"]]} end
+
+  # A gate that reports each call with its context and allows.
+  defp counting_gate(parent) do
+    %{
+      id: "gate",
+      version: 1,
+      call: fn {:PatternStep, map}, context ->
+        [a] = map["actions"]
+        send(parent, {:gate, a["id"], context})
+        :allow
+      end
+    }
+  end
+
+  defp gated(acc \\ []) do
+    receive do
+      {:gate, id, _} -> gated([id | acc])
+    after
+      100 -> Enum.sort(acc)
+    end
+  end
+
+  defp snap(c) do
+    {:ok, unit} = DynamicUnits.find(c.directory, c.prefix)
+    DurableUnit.snapshot(unit)
+  end
+
+  defp requests(c), do: snap(c).requests
+
+  # The committed admission facts of each occurrence.
+  defp admissions(c) do
+    for row <- rows(c),
+        row.kind == "input",
+        {1, {_id, %{kind: :admission} = record}} <- [:erlang.binary_to_term(row.payload, [:safe])],
+        into: %{},
+        do: {record.occurrence, record.facts}
+  end
+
+  defp outcome_for(id) do
+    assert_receive {:pattern_input, "root", %{"action_id" => ^id} = input}
+    input
+  end
+
+  defp provider_input(id, schema_id),
+    do: Map.put(result(id), "schema_id", schema_id)
+
+  defp forwarder do
+    parent = self()
+
+    start_supervised!(%{
+      id: make_ref(),
+      restart: :temporary,
+      start: {Task, :start_link, [fn -> forward(parent) end]}
+    })
+  end
+
+  defp forward(parent) do
+    receive do
+      message ->
+        send(parent, {:forwarded, message})
+        forward(parent)
+    end
+  end
+
+  # The tool_call binding with an intent for the "other" startup entry.
+  defp other_bindings(c) do
+    {:ok, loaded} = Binding.load(ChangedAccountBinding)
+
+    Map.update!(c.opts[:bindings], "tool_call", fn base ->
+      Map.put(base, :facts, fn action ->
+        Map.update!(base.facts.(action), :intent, fn intent ->
+          %{
+            intent
+            | identity: ["tenant", "changed-account", "effect", "publish", action["id"]],
+              binding: "other",
+              binding_digest: loaded.digest
+          }
+        end)
+      end)
+    end)
+  end
+
+  describe "binding_by_schema" do
+    test "each action of one request runs the work and gets the result of the binding of its own schema" do
+      Process.register(self(), :run_engine_observer)
+      parent = self()
+
+      c =
+        fixture(
+          pattern:
+            scripted_root([
+              act("a1", "local_work", "a.work", %{"v" => 1}),
+              act("b1", "local_work", "b.work", %{"v" => 2})
+            ])
+        )
+
+      a =
+        variant(c, "local_work",
+          id: "bind-a",
+          version: 3,
+          result: {"a.result", 1},
+          work: reporting(parent, "A")
+        )
+
+      b =
+        variant(c, "local_work",
+          id: "bind-b",
+          version: 5,
+          result: {"b.result", 1},
+          work: reporting(parent, "B")
+        )
+
+      bindings = Map.put(c.opts[:bindings], "local_work", %{"a.work" => a, "b.work" => b})
+      schemas = add_schemas(c, ["a.work", "b.work"], ["a.result", "b.result"])
+      engine = start(c, bindings: bindings, schemas: schemas)
+      assert {:ok, :applied} = send_input(engine)
+
+      # The work of A ran once for the A action only, that of B once for the B action only.
+      assert_receive {:work_ran, "A", %{"v" => 1}}
+      assert_receive {:work_ran, "B", %{"v" => 2}}
+      refute_receive {:work_ran, _, _}, 100
+
+      assert %{"outcome" => "completed", "schema_id" => "a.result", "schema_version" => 1} =
+               outcome_for("a1")
+
+      assert %{"outcome" => "completed", "schema_id" => "b.result", "schema_version" => 1} =
+               outcome_for("b1")
+
+      refute_receive {:pattern_input, "root", %{"action_id" => _}}, 50
+
+      admitted = admissions(c)
+      assert %{binding_id: "bind-a", binding_version: 3} = admitted[{1, 0}]
+      assert %{binding_id: "bind-b", binding_version: 5} = admitted[{1, 1}]
+    end
+  end
+
+  describe "outcome_schema_by_binding" do
+    test "an outcome is checked against the result of the binding of its own occurrence" do
+      Process.register(self(), :run_engine_observer)
+
+      c =
+        fixture(
+          pattern:
+            scripted_root([
+              act("a1", "tool_call", "a.call"),
+              act("b1", "tool_call", "b.call"),
+              act("b2", "tool_call", "b.call")
+            ])
+        )
+
+      a = variant(c, "tool_call", id: "bind-a", version: 3)
+      b = variant(c, "tool_call", id: "bind-b", version: 5, result: {"b.result", 1})
+      bindings = Map.put(c.opts[:bindings], "tool_call", %{"a.call" => a, "b.call" => b})
+      schemas = add_schemas(c, ["a.call", "b.call"], ["b.result"])
+      engine = start(c, bindings: bindings, schemas: schemas)
+      assert {:ok, :applied} = send_input(engine)
+
+      providers =
+        for _ <- 1..3,
+            do:
+              (
+                assert_receive {:effect_started, p, _}
+                p
+              )
+
+      give = fn id, key, schema_id ->
+        assert {:ok, :applied} =
+                 RunEngine.input(
+                   engine,
+                   "outcome-#{id}-#{schema_id}",
+                   provider_input(id, schema_id),
+                   verified(%{occurrence: key, actual: 1, dispatch: "dispatched"})
+                 )
+      end
+
+      # The B occurrence expects b.result: the schema of A is invalid for it.
+      give.("b1", {1, 1}, "result")
+
+      assert %{
+               "outcome" => "unknown",
+               "schema_id" => "elzoo.run-engine.refusal",
+               "payload" => %{"reason" => "invalid_outcome"}
+             } = outcome_for("b1")
+
+      give.("b2", {1, 2}, "b.result")
+      assert %{"outcome" => "completed", "schema_id" => "b.result"} = outcome_for("b2")
+      give.("a1", {1, 0}, "result")
+      assert %{"outcome" => "completed", "schema_id" => "result"} = outcome_for("a1")
+
+      slots = view(engine).slots
+      assert slots[{1, 0}].outcome == "completed"
+      assert slots[{1, 1}].outcome == "unknown"
+      assert slots[{1, 2}].outcome == "completed"
+      for provider <- providers, do: send(provider, {:result, %{}})
+    end
+  end
+
+  describe "unbound_schema_refused" do
+    test "a schema or kind with no binding is refused before the gate and any reservation" do
+      Process.register(self(), :run_engine_observer)
+      parent = self()
+
+      c =
+        fixture(
+          pattern:
+            scripted_root([
+              act("u1", "tool_call", "u.call"),
+              act("n1", "model_call", "action"),
+              act("p1", "tool_call", "nowhere"),
+              act("s1", "tool_call", "a.call")
+            ])
+        )
+
+      tool = variant(c, "tool_call", id: "bind-a", version: 3)
+
+      bindings =
+        c.opts[:bindings]
+        |> Map.put("tool_call", %{"a.call" => tool})
+        |> Map.delete("model_call")
+
+      schemas = add_schemas(c, ["a.call", "u.call"], [])
+      engine = start(c, bindings: bindings, schemas: schemas, gate: counting_gate(parent))
+      assert {:ok, :applied} = send_input(engine)
+
+      # The sibling of a mapped schema is gated and runs; nothing else is.
+      assert_receive {:effect_started, provider, _}
+      assert gated() == ["s1"]
+
+      for {id, reason} <- [
+            {"u1", "missing_binding"},
+            {"n1", "missing_binding"},
+            {"p1", "payload_schema"}
+          ] do
+        assert %{
+                 "outcome" => "refused",
+                 "schema_id" => "elzoo.run-engine.refusal",
+                 "payload" => %{"reason" => ^reason}
+               } = outcome_for(id)
+      end
+
+      state = snap(c)
+
+      for key <- [{1, 0}, {1, 1}, {1, 2}] do
+        refute Map.has_key?(state.slots[key], :reservation)
+        refute Map.has_key?(state.slots[key], :action)
+      end
+
+      assert Map.has_key?(state.slots[{1, 3}], :reservation)
+
+      # Only the sibling holds its estimate.
+      assert {:Transition, _, {:some, {:status, %{committed: 0, reserved: 1}}}} =
+               Elzoo.Budget.step(state.control.budgets["root"].state, {2_000, :status})
+
+      # The request has left state.requests; a late outcome changes nothing.
+      assert requests(c) == %{}
+      before = view(engine).slots
+
+      for {id, key} <- [{"u1", {1, 0}}, {"n1", {1, 1}}, {"p1", {1, 2}}] do
+        reply =
+          RunEngine.input(
+            engine,
+            "late-#{id}",
+            result(id),
+            verified(%{occurrence: key, actual: 0, dispatch: "dispatched"})
+          )
+
+        assert match?({:ok, _}, reply)
+        assert Process.alive?(engine)
+        assert view(engine).slots == before
+      end
+
+      send(provider, {:result, %{}})
+    end
+  end
+
+  describe "nested_binding_by_schema" do
+    test "each nested action starts the child of its own binding and meets the result of its own binding" do
+      Process.register(self(), :run_engine_observer)
+
+      c =
+        fixture(
+          pattern:
+            scripted_root([
+              act("na", "nested_callable", "a.call", %{"child" => "a"}),
+              act("nb", "nested_callable", "b.call", %{"child" => "b"})
+            ])
+        )
+
+      base = c.opts[:bindings]["nested_callable"]
+
+      nested = fn id, version, result, name ->
+        %{
+          base
+          | id: id,
+            version: version,
+            result: {result, 1},
+            facts: fn a -> %{base.facts.(a) | estimate: 10} end,
+            nested: fn a ->
+              %{
+                base.nested.(a)
+                | mfa: {TestPattern, :scripted},
+                  initial_state: %{
+                    name: name,
+                    script: [
+                      request([finish_action("fin-" <> name, %{"from" => name}, "a.result")])
+                    ]
+                  }
+              }
+            end
+        }
+      end
+
+      bindings =
+        Map.put(c.opts[:bindings], "nested_callable", %{
+          "a.call" => nested.("bind-na", 3, "a.result", "child-a"),
+          "b.call" => nested.("bind-nb", 5, "b.result", "child-b")
+        })
+
+      schemas = add_schemas(c, ["a.call", "b.call"], ["a.result", "b.result"])
+      engine = start(c, bindings: bindings, schemas: schemas)
+      assert {:ok, :applied} = send_input(engine)
+
+      # The counting pattern: each child got the start input of its own action.
+      assert_receive {:pattern_input, "child-a",
+                      %{"kind" => "start", "payload" => %{"child" => "a"}}}
+
+      assert_receive {:pattern_input, "child-b",
+                      %{"kind" => "start", "payload" => %{"child" => "b"}}}
+
+      refute_receive {:pattern_input, "child-a", %{"kind" => "start"}}, 100
+      refute_receive {:pattern_input, "child-b", %{"kind" => "start"}}, 100
+
+      # NA: the child finishes with a.result, the result of its parent's binding.
+      assert %{
+               "outcome" => "completed",
+               "schema_id" => "a.result",
+               "payload" => %{"from" => "child-a"}
+             } = outcome_for("na")
+
+      # NB: the child finishes with a.result, not b.result.
+      assert %{
+               "outcome" => "failed",
+               "schema_id" => "elzoo.run-engine.refusal",
+               "payload" => %{"reason" => "nested_result_invalid"}
+             } = outcome_for("nb")
+
+      slots = view(engine).slots
+      assert slots[{1, 0}].outcome == "completed"
+      assert slots[{1, 1}].outcome == "failed"
+    end
+  end
+
+  describe "person_and_authority_by_schema" do
+    test "each ask settles only on the verified answer of the person of its own binding" do
+      Process.register(self(), :run_engine_observer)
+
+      c =
+        fixture(
+          pattern:
+            scripted_root([act("pa", "ask_person", "p.ask"), act("pb", "ask_person", "q.ask")])
+        )
+
+      alice = variant(c, "ask_person", id: "bind-a", version: 3, person: fn _ -> "alice" end)
+      bob = variant(c, "ask_person", id: "bind-b", version: 5, person: fn _ -> "bob" end)
+      bindings = Map.put(c.opts[:bindings], "ask_person", %{"p.ask" => alice, "q.ask" => bob})
+      engine = start(c, bindings: bindings, schemas: add_schemas(c, ["p.ask", "q.ask"], []))
+      assert {:ok, :applied} = send_input(engine)
+
+      wait_for(engine, fn v ->
+        map_size(v.slots) == 2 and Enum.all?(v.slots, fn {_, s} -> s.phase == :waiting end)
+      end)
+
+      answer = fn id, key, person ->
+        input =
+          result(id)
+          |> Map.delete("outcome")
+          |> Map.merge(%{"kind" => "person_answer", "person_id" => person})
+
+        RunEngine.input(
+          engine,
+          "answer-#{id}-#{person}",
+          input,
+          verified(%{occurrence: key, verified_person: person})
+        )
+      end
+
+      # The person of the other binding cannot settle either action.
+      answer.("pa", {1, 0}, "bob")
+      answer.("pb", {1, 1}, "alice")
+      assert view(engine).slots[{1, 0}].phase == :waiting
+      assert view(engine).slots[{1, 1}].phase == :waiting
+      refute_receive {:pattern_input, "root", %{"action_id" => _}}, 50
+
+      assert {:ok, :applied} = answer.("pa", {1, 0}, "alice")
+      assert %{"kind" => "person_answer", "person_id" => "alice"} = outcome_for("pa")
+      assert view(engine).slots[{1, 0}].outcome == "completed"
+      assert view(engine).slots[{1, 1}].phase == :waiting
+      assert {:ok, :applied} = answer.("pb", {1, 1}, "bob")
+      assert %{"kind" => "person_answer", "person_id" => "bob"} = outcome_for("pb")
+      assert view(engine).slots[{1, 1}].outcome == "completed"
+    end
+
+    test "the gate and the authority see the effect class of the binding of each action" do
+      Process.register(self(), :run_engine_observer)
+      parent = self()
+
+      c =
+        fixture(
+          pattern:
+            scripted_root([
+              act("c1", "tool_call", "c.call"),
+              act("p1", "tool_call", "p.call")
+            ])
+        )
+
+      # The context policy has a rule for compute only.
+      Agent.update(c.context, fn ctx ->
+        %{ctx | policy: %{ctx.policy | rules: [hd(ctx.policy.rules)]}}
+      end)
+
+      compute = variant(c, "tool_call", id: "bind-c", version: 3, effect_class: "compute")
+      publish = variant(c, "tool_call", id: "bind-p", version: 5)
+
+      bindings =
+        Map.put(c.opts[:bindings], "tool_call", %{"c.call" => compute, "p.call" => publish})
+
+      engine =
+        start(c,
+          bindings: bindings,
+          schemas: add_schemas(c, ["c.call", "p.call"], []),
+          gate: counting_gate(parent)
+        )
+
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:gate, "c1", %{effect_class: "compute"}}
+      assert_receive {:gate, "p1", %{effect_class: "publish"}}
+
+      assert %{
+               "outcome" => "refused",
+               "schema_id" => "elzoo.run-engine.refusal",
+               "payload" => %{"reason" => "authority"}
+             } = outcome_for("p1")
+
+      # The compute action is allowed and runs; the publish action never reaches the Adapter.
+      assert_receive {:effect_started, provider, _}
+      refute_receive {:effect_started, _, _}, 100
+      assert view(engine).slots[{1, 0}].phase == :running
+      assert view(engine).slots[{1, 1}].outcome == "refused"
+      send(provider, {:result, %{}})
+    end
+  end
+
+  describe "restart_keeps_choice" do
+    test "a restart with the same schema maps keeps each action on its own binding and starts no work twice" do
+      Process.register(self(), :run_engine_observer)
+      parent = self()
+
+      c =
+        fixture(
+          pattern:
+            scripted_root([
+              act("a1", "local_work", "a.work", %{"v" => 1}),
+              act("b1", "local_work", "b.work", %{"v" => 2})
+            ])
+        )
+
+      require_approval(c)
+
+      a =
+        variant(c, "local_work",
+          id: "bind-a",
+          version: 3,
+          effect_class: "publish",
+          result: {"a.result", 1},
+          work: reporting(parent, "A")
+        )
+
+      b =
+        variant(c, "local_work",
+          id: "bind-b",
+          version: 5,
+          effect_class: "publish",
+          result: {"b.result", 1},
+          work: reporting(parent, "B")
+        )
+
+      map = %{"a.work" => a, "b.work" => b}
+      bindings = Map.put(c.opts[:bindings], "local_work", map)
+      schemas = add_schemas(c, ["a.work", "b.work"], ["a.result", "b.result"])
+      engine = start(c, bindings: bindings, schemas: schemas)
+      assert {:ok, :applied} = send_input(engine)
+
+      # Both actions are admitted and wait for consent: no work yet.
+      wait_for(engine, fn v ->
+        map_size(v.slots) == 2 and Enum.all?(v.slots, fn {_, s} -> s.phase == :approval end)
+      end)
+
+      refute_receive {:work_ran, _, _}, 50
+      GenServer.stop(engine)
+
+      # A changed schema map is an incompatible restart, whatever the change.
+      changed = [
+        Map.put(map, "c.work", a),
+        %{map | "b.work" => %{b | version: 6}},
+        %{map | "b.work" => %{b | id: "bind-c"}},
+        Map.delete(map, "b.work"),
+        a
+      ]
+
+      for entry <- changed do
+        opts =
+          Keyword.merge(c.opts,
+            bindings: Map.put(c.opts[:bindings], "local_work", entry),
+            schemas: schemas
+          )
+
+        assert {:error, :incompatible_recovery} = RunEngine.start_link(opts)
+      end
+
+      # A binding replaced by a schema map holding that binding is incompatible too.
+      nested = c.opts[:bindings]["nested_callable"]
+
+      opts =
+        Keyword.merge(c.opts,
+          bindings: Map.put(bindings, "nested_callable", %{"message" => nested}),
+          schemas: schemas
+        )
+
+      assert {:error, :incompatible_recovery} = RunEngine.start_link(opts)
+
+      engine = start(c, bindings: bindings, schemas: schemas)
+
+      assert Enum.all?(view(engine).slots, fn {_, slot} -> slot.phase == :approval end)
+      {:ok, run} = Run.status(c.run, "run")
+      assert [_, _] = run.approvals
+
+      for %{request_key: key} <- run.approvals do
+        assert {:ok, :applied} =
+                 RunEngine.control(
+                   engine,
+                   "consent-#{inspect(key)}",
+                   %{
+                     kind: :approval_evidence,
+                     request_key: key,
+                     evidence: Map.put(consent(key), :evidence_id, "consent-" <> elem(key, 1))
+                   },
+                   verified()
+                 )
+      end
+
+      assert_receive {:work_ran, "A", %{"v" => 1}}
+      assert_receive {:work_ran, "B", %{"v" => 2}}
+      refute_receive {:work_ran, _, _}, 100
+      assert %{"outcome" => "completed", "schema_id" => "a.result"} = outcome_for("a1")
+      assert %{"outcome" => "completed", "schema_id" => "b.result"} = outcome_for("b1")
+      refute_receive {:pattern_input, "root", %{"action_id" => _}}, 50
+      assert view(engine).joins[1].outcome == :all
+    end
+
+    test "a value of neither form is refused at start and starts no Unit" do
+      c = fixture()
+      binding = c.opts[:bindings]["local_work"]
+
+      for entry <- [
+            %{},
+            %{"" => binding},
+            %{String.duplicate("k", 201) => binding},
+            %{1 => binding},
+            %{"a\0b" => binding},
+            %{"a.work" => %{version: 1}},
+            %{version: 1},
+            Map.put(binding, "a.work", binding)
+          ] do
+        opts = Keyword.put(c.opts, :bindings, Map.put(c.opts[:bindings], "local_work", entry))
+        assert {:error, :invalid_options_or_recovery} = RunEngine.start_link(opts)
+      end
+
+      assert DynamicUnits.find(c.directory, c.prefix) == :not_found
+
+      # The bound itself is valid: a key of 200 bytes starts the engine.
+      bindings = Map.put(c.opts[:bindings], "local_work", %{String.duplicate("k", 200) => binding})
+      assert is_pid(start(c, bindings: bindings))
+    end
+  end
+
+  describe "effect_bindings_override" do
+    test "no override gives the one effect entry; a given map adds its entries and is no engine option" do
+      c = fixture()
+      assert Map.keys(c.opts[:effect_intent]) == ["effect"]
+      assert c.opts[:effect_intent]["effect"][:binding] == TestBinding
+      assert c.opts[:effect_intent]["effect"][:adapter_context] == self()
+      refute Keyword.has_key?(c.opts, :effect_bindings)
+
+      forwarder = forwarder()
+      c = fixture(effect_bindings: %{"other" => {ChangedAccountBinding, forwarder}})
+      assert Enum.sort(Map.keys(c.opts[:effect_intent])) == ["effect", "other"]
+      assert c.opts[:effect_intent]["effect"][:binding] == TestBinding
+      assert c.opts[:effect_intent]["effect"][:adapter_context] == self()
+      assert c.opts[:effect_intent]["other"][:binding] == ChangedAccountBinding
+      assert c.opts[:effect_intent]["other"][:adapter_context] == forwarder
+      refute Keyword.has_key?(c.opts, :effect_bindings)
+    end
+
+    test "a tool_call with an intent for the other entry is dispatched through that entry" do
+      forwarder = forwarder()
+
+      c =
+        fixture(
+          effect_bindings: %{"other" => {ChangedAccountBinding, forwarder}},
+          pattern: {TestPattern, :step, %{requests: [request([action("publish", "tool_call")])]}}
+        )
+
+      engine = start(c, bindings: other_bindings(c))
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:forwarded, {:effect_started, provider, _}}
+      refute_received {:effect_started, _, _}
+      send(provider, {:result, %{}})
+    end
+
+    test "after consent the Run owner dispatches through the other entry, with no refused intent binding" do
+      forwarder = forwarder()
+
+      c =
+        fixture(
+          effect_bindings: %{"other" => {ChangedAccountBinding, forwarder}},
+          pattern: {TestPattern, :step, %{requests: [request([action("publish", "tool_call")])]}}
+        )
+
+      require_approval(c)
+      engine = start(c, bindings: other_bindings(c))
+      assert {:ok, :applied} = send_input(engine)
+      assert view(engine).slots[{1, 0}].phase == :approval
+      refute_receive {:forwarded, _}, 50
+      {:ok, run} = Run.status(c.run, "run")
+      [%{request_key: key}] = run.approvals
+
+      assert {:ok, :applied} =
+               RunEngine.control(
+                 engine,
+                 "consent",
+                 %{kind: :approval_evidence, request_key: key, evidence: consent(key)},
+                 verified()
+               )
+
+      assert_receive {:forwarded, {:effect_started, provider, _}}
+      refute_received {:effect_started, _, _}
+      assert view(engine).slots[{1, 0}].phase == :running
+      {:ok, run} = Run.status(c.run, "run")
+      assert %{"publish" => _} = run.effects
+      refute inspect(run) =~ "intent_binding"
+      send(provider, {:result, %{}})
+    end
+  end
+
+  describe "call_waits_past_the_default" do
+    @tag timeout: 30_000
+    test "every_call_waits: an input slower than 5 s returns applied; control/4 and status/1 sent during it reply after it" do
+      c =
+        fixture(
+          pattern: {TestPattern, :step, %{requests: [request([action("ask", "ask_person")])]}}
+        )
+
+      parent = self()
+      first_call = :atomics.new(1, [])
+
+      engine =
+        start(c,
+          gate: %{
+            id: "gate",
+            version: 1,
+            call: fn _, _ ->
+              if :atomics.add_get(first_call, 1, 1) == 1 do
+                send(parent, {:gate_barrier, self()})
+                Process.sleep(5_500)
+              end
+
+              :allow
+            end
+          }
+        )
+
+      timed = fn call ->
+        Task.async(fn ->
+          sent = System.monotonic_time(:millisecond)
+          reply = call.()
+          {reply, System.monotonic_time(:millisecond) - sent}
+        end)
+      end
+
+      input = timed.(fn -> send_input(engine) end)
+      assert_receive {:gate_barrier, ^engine}
+      status = timed.(fn -> RunEngine.status(engine) end)
+
+      control =
+        timed.(fn ->
+          RunEngine.control(engine, "pause", %{kind: :pause, pause_deadline: 50_000}, verified())
+        end)
+
+      assert {{:ok, :applied}, input_ms} = Task.await(input, 20_000)
+      assert input_ms > 5_000
+      assert {{:ok, view}, status_ms} = Task.await(status, 20_000)
+      assert status_ms > 5_000
+      assert view.request_count == 1
+      assert view.slots[{1, 0}].phase == :waiting
+      assert {{:ok, :applied}, control_ms} = Task.await(control, 20_000)
+      assert control_ms > 5_000
     end
   end
 end

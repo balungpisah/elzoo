@@ -14,14 +14,17 @@ defmodule Elzoo.RunEngine do
   @slot_bytes 131_072
   @empty %{version: 1, control: nil, slots: %{}, requests: %{}}
   @refusal_schema "elzoo.run-engine.refusal"
+  @call_limit 60_000
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, Keyword.take(opts, [:name]))
-  def input(engine, id, input, context), do: GenServer.call(engine, {:input, id, input, context})
+
+  def input(engine, id, input, context),
+    do: GenServer.call(engine, {:input, id, input, context}, @call_limit)
 
   def control(engine, id, command, context),
-    do: GenServer.call(engine, {:control, id, command, context})
+    do: GenServer.call(engine, {:control, id, command, context}, @call_limit)
 
-  def status(engine), do: GenServer.call(engine, :status)
+  def status(engine), do: GenServer.call(engine, :status, @call_limit)
 
   @impl true
   def format_status(status), do: Map.merge(status, %{state: :redacted, message: :redacted})
@@ -1002,6 +1005,7 @@ defmodule Elzoo.RunEngine do
          true <- text?(gate_id, 128) and is_integer(version) and version in 1..2_147_483_647,
          true <- is_function(call, 2) and is_function(opts[:clock], 0),
          true <- is_function(opts[:context], 0) and is_map(opts[:bindings]),
+         true <- bindings?(opts[:bindings]),
          true <-
            is_map(opts[:schemas]) and is_map(opts[:resources]) and is_map(opts[:effect_intent]),
          true <- text?(opts[:tenant], 200) and text?(opts[:principal], 200),
@@ -1231,7 +1235,8 @@ defmodule Elzoo.RunEngine do
   defp checked_ingress(s, input, context) do
     correlation = Map.take(context, [:occurrence, :actual, :dispatch, :loss, :resource])
     key = context[:occurrence]
-    slot = snapshot(s).slots[key]
+    state = snapshot(s)
+    slot = state.slots[key]
 
     expected =
       cond do
@@ -1240,7 +1245,10 @@ defmodule Elzoo.RunEngine do
           {@refusal_schema, 1}
 
         slot ->
-          s.opts.bindings[slot.kind][:result]
+          choose(s, slot.kind, fn ->
+            if slot[:action] || Map.has_key?(state.requests, elem(key, 0)),
+              do: action(state, key)
+          end)[:result]
 
         true ->
           nil
@@ -1512,7 +1520,7 @@ defmodule Elzoo.RunEngine do
         cond do
           check_payload(s, action) != :ok -> {key, "payload_schema"}
           not action_ids?(action) -> {key, "invalid_identity"}
-          not Map.has_key?(s.opts.bindings, action["kind"]) -> {key, "missing_binding"}
+          choose(s, action["kind"], fn -> action end) == nil -> {key, "missing_binding"}
           true -> nil
         end
       end)
@@ -1577,9 +1585,9 @@ defmodule Elzoo.RunEngine do
   end
 
   defp progress(s, key, %{phase: :allowed} = slot) do
-    binding = s.opts.bindings[slot.kind]
     state = snapshot(s)
     action = action(state, key)
+    binding = choose(s, slot.kind, fn -> action end)
     facts = binding.facts.(action)
 
     facts =
@@ -1655,8 +1663,9 @@ defmodule Elzoo.RunEngine do
   end
 
   defp dispatch(s, key, %{kind: "local_work"} = slot) do
-    binding = s.opts.bindings[slot.kind]
-    {module, function, args} = binding.work.(action(snapshot(s), key))
+    action = action(snapshot(s), key)
+    binding = choose(s, slot.kind, fn -> action end)
+    {module, function, args} = binding.work.(action)
     at = s.opts.clock.()
     clock = s.opts.clock
     c = snapshot(s).control
@@ -1714,12 +1723,13 @@ defmodule Elzoo.RunEngine do
 
   defp dispatch(s, key, %{kind: "ask_person"} = slot) do
     action = action(snapshot(s), key)
-    binding = s.opts.bindings[slot.kind]
+    binding = choose(s, slot.kind, fn -> action end)
     continuation(s, key, :waiting, %{person_id: binding.person.(action)})
   end
 
   defp dispatch(s, key, %{kind: "nested_callable"} = slot) do
-    facts = s.opts.bindings[slot.kind].nested.(action(snapshot(s), key))
+    action = action(snapshot(s), key)
+    facts = choose(s, slot.kind, fn -> action end).nested.(action)
 
     if bytes(facts.initial_state) <= 65_536 and
          check_payload(
@@ -1944,13 +1954,14 @@ defmodule Elzoo.RunEngine do
         internal_outcome(s, parent, "completed", "nested_completed", correlation)
 
       %{schema_id: id, schema_version: version} = finish ->
-        if {id, version} == s.opts.bindings[state.slots[parent].kind].result,
-          do: internal_outcome(s, parent, "completed", nil, correlation, finish),
-          else:
-            internal_outcome(s, parent, "failed", "nested_result_invalid", %{
-              actual: correlation.actual,
-              dispatch: "dispatched"
-            })
+        if {id, version} ==
+             choose(s, state.slots[parent].kind, fn -> action(state, parent) end).result,
+           do: internal_outcome(s, parent, "completed", nil, correlation, finish),
+           else:
+             internal_outcome(s, parent, "failed", "nested_result_invalid", %{
+               actual: correlation.actual,
+               dispatch: "dispatched"
+             })
     end
   end
 
@@ -2401,12 +2412,13 @@ defmodule Elzoo.RunEngine do
   defp action_context(s, key, overrides) do
     state = snapshot(s)
     slot = state.slots[key]
-    binding = s.opts.bindings[slot.kind]
+    action = action(state, key)
+    binding = choose(s, slot.kind, fn -> action end)
     context = Map.merge(s.opts.context.(), overrides)
 
     Map.merge(context, %{
       now: s.opts.clock.(),
-      proposal: Map.put(binding.proposal.(action(state, key)), :tenant, s.opts.tenant),
+      proposal: Map.put(binding.proposal.(action), :tenant, s.opts.tenant),
       authority: %{
         proposer: s.opts.principal,
         effect_class: binding.effect_class,
@@ -2563,7 +2575,7 @@ defmodule Elzoo.RunEngine do
   end
 
   defp sample_gate(s, action) do
-    binding = s.opts.bindings[action["kind"]]
+    binding = choose(s, action["kind"], fn -> action end)
 
     try do
       {:ok, checked} =
@@ -2616,7 +2628,42 @@ defmodule Elzoo.RunEngine do
     do: Map.new(schemas, fn {key, value} -> {key, {value.port, value.digest}} end)
 
   defp binding_identities(bindings),
-    do: Map.new(bindings, fn {key, value} -> {key, {value.id, value.version}} end)
+    do: Map.new(bindings, fn {key, value} -> {key, binding_identity(value)} end)
+
+  defp binding_identity(%{id: id} = binding), do: {id, binding.version}
+
+  defp binding_identity(by_schema),
+    do: Map.new(by_schema, fn {schema_id, b} -> {schema_id, {b.id, b.version}} end)
+
+  # An entry of `bindings` is a binding or a schema map from schema_id to binding.
+  defp bindings?(bindings), do: Enum.all?(bindings, fn {_kind, entry} -> entry?(entry) end)
+
+  defp entry?(entry),
+    do:
+      binding?(entry) or
+        (is_map(entry) and map_size(entry) > 0 and
+           Enum.all?(entry, fn {schema_id, b} -> text?(schema_id, 200) and binding?(b) end))
+
+  defp binding?(entry),
+    do: is_map(entry) and Map.has_key?(entry, :id) and not Enum.any?(Map.keys(entry), &is_binary/1)
+
+  # The binding of an action: the entry of its kind, or, for a schema map, the
+  # binding of its schema_id. The action is read only for a schema map.
+  defp choose(s, kind, action_fun) do
+    case s.opts.bindings[kind] do
+      %{id: _} = binding ->
+        binding
+
+      by_schema when is_map(by_schema) ->
+        case action_fun.() do
+          %{"schema_id" => schema_id} -> Map.get(by_schema, schema_id)
+          _ -> nil
+        end
+
+      nil ->
+        nil
+    end
+  end
 
   defp snapshot(s) do
     if Process.alive?(s.unit) do

@@ -1084,7 +1084,8 @@
       "summary": "A tool that a recipe defines as a sandboxed Lua function",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/workflow/lua-tool/piece.json",
       "reason": "Bot platform wave 3 (P13). Registered like any other tool. Each module call becomes a request for the engine, and the tool runs again from the start with the recorded results; sandbox state is never persisted."
     },
     {
@@ -1146,8 +1147,9 @@
       "summary": "Run a recipe through the real engine with scripted models and tools",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
-      "reason": "Bot platform wave 3 (P13). No network and a controlled clock; an unscripted call fails the test. The way an author and a Piece worker test without a provider."
+      "status": "ready",
+      "reason": "Bot platform wave 3 (P13). No network and a controlled clock; an unscripted call fails the test. The way an author and a Piece worker test without a provider.",
+      "manifest": "pieces/runtime/recipe-test/piece.json"
     },
     {
       "id": "workflow/skill",
