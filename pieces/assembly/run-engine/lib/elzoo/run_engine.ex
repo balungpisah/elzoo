@@ -364,7 +364,16 @@ defmodule Elzoo.RunEngine do
   defp transition(state, %{kind: :run_view, view: view}) do
     c = state.control
     true = c.run_id == view.id
-    state = if view.current_attempt != c.attempt_id, do: close_local(state, view.at_ms), else: state
+
+    state =
+      if view.current_attempt != c.attempt_id do
+        state
+        |> close_local(view.at_ms)
+        |> close_attempt(view.current_attempt, view.at_ms)
+      else
+        state
+      end
+
     state = put_in(state.control.attempt_id, view.current_attempt)
     state = put_in(state.control.run_revision, view.revision)
     state = put_in(state.control.operation_id, view.operation_id)
@@ -712,6 +721,122 @@ defmodule Elzoo.RunEngine do
         acc
       end
     end)
+  end
+
+  # A change of Attempt settles every open slot of an older Attempt, in the same
+  # fold step, at the time of the view. Nothing is read from a clock or a process.
+  # A slot that nothing can have left is refused (its reservation is released);
+  # a slot that may have been sent gets the outcome unknown and keeps its entry.
+  # Callables go deepest first, so a nested parent reads its closed child.
+  defp close_attempt(state, current, at) do
+    state =
+      update_in(state.control.callables, fn callables ->
+        Map.new(callables, fn
+          {"root", node} -> {"root", node}
+          {id, node} -> {id, %{node | closed: true}}
+        end)
+      end)
+
+    state.slots
+    |> Enum.reject(fn {_, slot} -> slot.phase == :settled or slot.attempt_id == current end)
+    |> Enum.sort_by(fn {key, slot} -> {-state.control.callables[slot.callable].depth, key} end)
+    |> Enum.reduce(state, fn {key, _}, acc -> close_slot(acc, key, at) end)
+  end
+
+  defp close_slot(acc, key, at) do
+    slot = acc.slots[key]
+    sent? = may_have_sent?(acc, key, slot)
+    parent? = slot.kind == "nested_callable" and sent?
+    class = if sent?, do: "unknown", else: "refused"
+    input = outcome(slot.action_id, class, @refusal_schema, refusal(acc, key, "attempt_closed"), at)
+    {:ok, checked} = PatternStep.decode(input)
+
+    case PatternStep.accept(acc.control.trackers[elem(key, 0)].tracker, checked) do
+      {:applied, tracker} ->
+        correlation =
+          cond do
+            parent? -> %{dispatch: "dispatched"}
+            sent? -> %{dispatch: "unknown"}
+            true -> %{}
+          end
+
+        acc = put_in(acc.control.trackers[elem(key, 0)].tracker, tracker)
+        acc = settle_join(acc, key, input, correlation)
+
+        {acc, actual} =
+          cond do
+            not sent? -> {settle_budget(acc, key, 0, at), 0}
+            parent? -> closed_parent_actual(acc, key, at)
+            true -> {acc, nil}
+          end
+
+        acc = update_in(acc.control.lifecycle.waits, &Map.delete(&1, slot.action_id))
+
+        kept =
+          Map.take(slot, [
+            :action_id,
+            :kind,
+            :attempt_id,
+            :callable,
+            :verdict,
+            :reservation,
+            :decision,
+            :person_id,
+            :deadline_ms,
+            :resource_name,
+            :intent_digest,
+            :request_key
+          ])
+
+        put_in(
+          acc.slots[key],
+          Map.merge(kept, %{phase: :settled, outcome: class, actual: actual})
+        )
+
+      _ ->
+        # The tracker settled this action before (a slot that `deny` turned back
+        # to refusing): its first settlement stands.
+        put_in(acc.slots[key].phase, :settled)
+    end
+  end
+
+  # The committed amount of the closed child when every child cost is known.
+  defp closed_parent_actual(acc, key, at) do
+    id = occurrence_id(key)
+
+    case child_cost(acc, id) do
+      :known ->
+        {:Transition, _, {:some, {:status, status}}} =
+          Budget.step(acc.control.budgets[id].state, {at, :status})
+
+        {settle_budget(acc, key, status.committed, at), status.committed}
+
+      _ ->
+        {acc, nil}
+    end
+  end
+
+  defp may_have_sent?(state, key, %{kind: kind, phase: phase} = slot) do
+    cond do
+      kind in ["model_call", "tool_call"] and phase == :approval ->
+        slot[:request_key] != nil
+
+      kind in ["resource_open", "resource_use", "resource_close"] ->
+        phase in [:ready, :running, :reconcile]
+
+      kind in ["model_call", "tool_call"] ->
+        phase in [:running, :reconcile]
+
+      kind == "ask_person" ->
+        phase == :waiting
+
+      kind == "nested_callable" ->
+        phase == :running or
+          (phase == :refusing and state.control.callables[occurrence_id(key)] != nil)
+
+      true ->
+        false
+    end
   end
 
   defp invoke(state, record, callable) do

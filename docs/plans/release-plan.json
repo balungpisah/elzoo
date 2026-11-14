@@ -7213,11 +7213,11 @@
     {
       "id": "assembly/run-engine",
       "job": "ELZ-127",
-      "note": "One recorded pure pattern cycle and ordinary dispatcher per host Unit/Run: shared sealed request charge, the binding of each action chosen by its action kind and, for a schema map, its schema ID, schema/identity/committed host gate/Budget/authority/Approval checks, occurrence-first settlement, a nested callable's first admitted finish given to its parent once each child cost is known or final unknown (the committed child amount when all are known, no actual when one is final unknown), durable owner composition and explicit fail-stop recovery; charge exhaustion stops generation while retaining prior within-cap obligations, without new work or resend permission; `input/4`, `control/4` and `status/1` each wait for the engine at most 60,000 ms.",
+      "note": "One recorded pure pattern cycle and ordinary dispatcher per host Unit/Run: shared sealed request charge, the binding of each action chosen by its action kind and, for a schema map, its schema ID, schema/identity/committed host gate/Budget/authority/Approval checks, occurrence-first settlement, a nested callable's first admitted finish given to its parent once each child cost is known or final unknown (the committed child amount when all are known, no actual when one is final unknown), a change of Attempt settling every open slot of the older Attempt in the same fold step (refused with actual 0 when nothing can have been sent, `unknown` with the reservation held when something may have been sent, running local work `local_closed`), so no older-Attempt slot stays open, durable owner composition and explicit fail-stop recovery; charge exhaustion stops generation while retaining prior within-cap obligations, without new work or resend permission; `input/4`, `control/4` and `status/1` each wait for the engine at most 60,000 ms.",
       "baseline_status": "not in baseline (new row, RC-50)",
       "disposition": "ready-contract",
       "manifest": "pieces/assembly/run-engine/piece.json",
-      "manifest_sha256": "cd9abd1bab93e6b39c14c9e4d0cacc8181f405d1fe313efe1ab81b283b788668",
+      "manifest_sha256": "84a8f1506e3ba23d78fc4bb0d7ebf8a4c92d8f4179662594dc99f4c46c6d2fea",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
