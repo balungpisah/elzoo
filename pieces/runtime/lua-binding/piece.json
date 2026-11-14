@@ -15,6 +15,7 @@
     "The cost is an estimate that the manifest states; the Piece neither measures nor enforces it.",
     "No bound on schema complexity or validation time beyond core/payload-schema; no check that a schema suits the module.",
     "The identity is stable for the pinned Jason and OTP; it is not RFC 8785. Bindings are opaque plain data that only resolve/2 makes; a value from elsewhere is outside the Contract.",
+    "Each checked call builds one schema: the bindings keep the resolved manifests and no built schema, and the Piece caches none.",
     "No Cure law is selected: the classification of a declared name is a restatement of lookups; lookup, bounds, canonical encoding and source form are finite tests."
   ],
   "files": [
@@ -23,7 +24,7 @@
     "examples/elzoo/lua_binding.exs"
   ],
   "grounding": [
-    {"kind": "test", "file": "test/elzoo/lua_binding_test.exs", "claim": "Seven named groups: resolve_at_load, arguments_located, results_checked_before_return, identity_changes_with_the_manifest, registry_source, names_fit_the_sandbox, bounds_and_redaction; temporary acceptance of a wrong version and a temporary skipped result check are negative controls (groups resolve_at_load and results_checked_before_return fail). Finite scenarios, not a universal proof."},
+    {"kind": "test", "file": "test/elzoo/lua_binding_test.exs", "claim": "Eight named groups: resolve_at_load, arguments_located, results_checked_before_return, identity_changes_with_the_manifest, registry_source, names_fit_the_sandbox, bounds_and_redaction, bindings_are_plain; temporary acceptance of a wrong version, a temporary skipped result check and a temporary built schema kept in an entry are negative controls (groups resolve_at_load, results_checked_before_return and bindings_are_plain fail). Finite scenarios, not a universal proof."},
     {"kind": "upstream", "provider": "jsv", "reference": "https://hexdocs.pm/jsv/0.27.0/JSV.html", "claim": "Schema and argument or result checks reuse ready core/payload-schema with pinned JSV 0.27.0, draft 2020-12, no casting; the source reuses ready workflow/tool-registry unchanged."},
     {"kind": "upstream", "provider": "jason", "reference": "https://hexdocs.pm/jason/1.4.5/Jason.html", "claim": "Scalar and string encoding inside the private canonical JSON (keys sorted by bytes) of the identity."},
     {"kind": "upstream", "provider": "otp", "reference": "https://www.erlang.org/doc/apps/crypto/crypto.html", "claim": "SHA-256 of OTP crypto for the identity."},
