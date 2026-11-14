@@ -129,4 +129,32 @@ defmodule Elzoo.LuaSandboxHelper do
 
   @doc "A Lua source whose function runs `body`; the chunk returns the function."
   def function_source(body), do: "return function() " <> body <> " end"
+
+  @doc """
+  A test-only Port: send one raw frame (bytes, header included) to the real executable
+  and collect everything it writes until it exits. Returns `{output, exit_status}`.
+  """
+  def raw_exchange(executable, frame_bytes, args \\ []) do
+    port = Port.open({:spawn_executable, executable}, [:binary, :exit_status, args: args])
+    send(port, {self(), {:command, frame_bytes}})
+    collect(port, <<>>)
+  end
+
+  defp collect(port, acc) do
+    receive do
+      {^port, {:data, data}} -> collect(port, acc <> data)
+      {^port, {:exit_status, status}} -> {acc, status}
+    after
+      10_000 ->
+        Port.close(port)
+        flunk("the executable did not finish")
+    end
+  end
+
+  @doc "Decode one reply frame from raw output."
+  def decode_frame!(output) do
+    <<length::unsigned-little-32, body::binary>> = output
+    assert byte_size(body) == length
+    Jason.decode!(body)
+  end
 end
