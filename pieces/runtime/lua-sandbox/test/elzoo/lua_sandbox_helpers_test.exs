@@ -2,7 +2,7 @@
 defmodule Elzoo.LuaSandboxHelpersTest do
   @moduledoc """
   Groups `policy_v2_identity`, `helpers_surface`, `text_helpers`, `json_round_trip`,
-  `helpers_are_bounded` and `time_values` of the helper set (policy version 2).
+  `helpers_are_bounded` and `time_values` of the helper set (policy version 3).
 
   The helper names of the contract are one module attribute (`@helpers`); each helper that
   the host gains is added there and the descriptor, the audit and the probes must agree.
@@ -49,7 +49,8 @@ defmodule Elzoo.LuaSandboxHelpersTest do
           "value_bytes" => 1000,
           "memory_bytes" => 16_777_216,
           "wall_ms" => 500
-        }
+        },
+        "calls" => %{"mode" => "none", "names" => [], "recorded" => []}
       })
     )
   end
@@ -57,15 +58,15 @@ defmodule Elzoo.LuaSandboxHelpersTest do
   defp run(exe, body), do: Helper.run(exe, Helper.function_source(body))
 
   describe "policy_v2_identity" do
-    test "the descriptor names version 2 and the sorted helpers, with the v2 identity" do
+    test "the descriptor names version 3 and the sorted helpers, with the v3 identity" do
       %{identity: identity, descriptor: descriptor} = LuaSandbox.policy()
 
-      assert descriptor["policy_version"] == 2
+      assert descriptor["policy_version"] == 3
 
       assert descriptor["helpers"] ==
                for(name <- Enum.sort(@helpers), do: %{"name" => name, "version" => 1})
 
-      assert identity =~ ~r/\Apolicy-v2:sha256:[0-9a-f]{64}\z/
+      assert identity =~ ~r/\Apolicy-v3:sha256:[0-9a-f]{64}\z/
       assert identity == Descriptor.identity(descriptor)
 
       # the exact ten names, as a literal, sorted
@@ -77,12 +78,12 @@ defmodule Elzoo.LuaSandboxHelpersTest do
       executable: exe
     } do
       %{identity: identity, descriptor: descriptor} = LuaSandbox.policy()
-      "policy-v2:sha256:" <> digest = identity
+      "policy-v3:sha256:" <> digest = identity
       v1 = "policy-v1:sha256:" <> digest
       removed = Descriptor.identity(put_in(descriptor, ["helpers"], tl(descriptor["helpers"])))
 
       refute removed == identity
-      assert removed =~ ~r/\Apolicy-v2:sha256:[0-9a-f]{64}\z/
+      assert removed =~ ~r/\Apolicy-v3:sha256:[0-9a-f]{64}\z/
 
       # the same source succeeds under the right identity
       assert {:ok, %{value: 1}} = Helper.run(exe, @valid)

@@ -13,7 +13,7 @@ defmodule Elzoo.LuaSandboxSurfaceTest do
     name and no frame can reach it.
   * (c) the descriptor of `Elzoo.LuaSandbox.policy/0`, and fixed probes of constants.
 
-  The expected lists below are copied from the contract (Policy version 2), not from the
+  The expected lists below are copied from the contract (Policy version 3), not from the
   descriptor, so a change of any one source fails here.
 
   Negative control (recorded in the pull request, never committed): granting `print` in
@@ -36,7 +36,7 @@ defmodule Elzoo.LuaSandboxSurfaceTest do
   @math_constants ~w(huge maxinteger mininteger pi)
   @libraries ~w(math string table)
   @operator_metamethods ~w(__add __div __idiv __mod __mul __pow __sub __unm)
-  # The helpers of policy version 2: name => type of the value (each part adds its names).
+  # The helpers of policy version 3: name => type of the value (each part adds its names).
   @helpers %{
     "json_decode" => "function",
     "json_encode" => "function",
@@ -179,7 +179,11 @@ defmodule Elzoo.LuaSandboxSurfaceTest do
       assert for({"helpers." <> name, _} <- expected, do: name) |> Enum.sort() ==
                Enum.sort(Map.keys(@helpers))
 
-      assert descriptor["bindings"] == %{}
+      assert descriptor["bindings"] == %{
+               "mechanism_version" => 1,
+               "max_names" => 64,
+               "max_recorded" => 256
+             }
 
       assert descriptor["string_metatable"]["keys"] ==
                Enum.sort(["__index" | @operator_metamethods])
@@ -418,7 +422,8 @@ defmodule Elzoo.LuaSandboxSurfaceTest do
         "source" => "return function() return 1 end",
         "input" => nil,
         "policy" => LuaSandbox.policy().identity,
-        "limits" => Map.new(Helper.default_limits(), fn {k, v} -> {Atom.to_string(k), v} end)
+        "limits" => Map.new(Helper.default_limits(), fn {k, v} -> {Atom.to_string(k), v} end),
+        "calls" => %{"mode" => "none", "names" => [], "recorded" => []}
       }
 
       {output, 0} = Helper.raw_exchange(exe, Helper.frame(Jason.encode!(good)))

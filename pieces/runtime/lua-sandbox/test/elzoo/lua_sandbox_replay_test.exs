@@ -18,7 +18,7 @@ defmodule Elzoo.LuaSandboxReplayTest do
   runtime identity maps.
 
   Group `replay_and_survival_with_helpers`: the same shape with sources that use each of the
-  ten helpers (policy version 2): a list of pure cases and deterministic refusals, 20 fresh
+  ten helpers (policy version 3): a list of pure cases and deterministic refusals, 20 fresh
   calls and two fresh BEAM processes with the same mechanism; after each adverse case with a
   helper the owning BEAM is alive, no child remains and a next valid call that uses a helper
   succeeds.
@@ -396,7 +396,8 @@ defmodule Elzoo.LuaSandboxReplayTest do
             "source" => source,
             "input" => nil,
             "policy" => policy,
-            "limits" => limits.(memory)
+            "limits" => limits.(memory),
+            "calls" => %{"mode" => "none", "names" => [], "recorded" => []}
           })
         )
       end

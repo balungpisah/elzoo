@@ -43,17 +43,22 @@ defmodule Elzoo.LuaSandboxHelper do
     {executable, directory}
   end
 
-  def request(source, input \\ nil, limits \\ %{}) do
+  @none %{mode: "none", names: [], recorded: []}
+
+  def none_calls, do: @none
+
+  def request(source, input \\ nil, limits \\ %{}, calls \\ @none) do
     %{
       source: source,
       input: input,
       policy: LuaSandbox.policy().identity,
-      limits: Map.merge(@default_limits, Map.new(limits))
+      limits: Map.merge(@default_limits, Map.new(limits)),
+      calls: calls
     }
   end
 
-  def run(executable, source, input \\ nil, limits \\ %{}) do
-    LuaSandbox.run(executable, request(source, input, limits))
+  def run(executable, source, input \\ nil, limits \\ %{}, calls \\ @none) do
+    LuaSandbox.run(executable, request(source, input, limits, calls))
   end
 
   def identity_function(executable, input, limits \\ %{}) do
