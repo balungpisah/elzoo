@@ -100,9 +100,20 @@ passes; the first refusal ends the scan.
    continuation line of a plain scalar that begins with a quote follows the
    same rule.
 
+   A double-quoted scalar with an escape that the reader decodes to `<` is
+   `yaml_alias`: `\x3c`, `\u003c` or `\U0000003c`, with the hex letter `c` in
+   either case. The reader would decode the key `"\x3c\x3c"` to `<<`, and then
+   name it with a counter, so two reads of one file would give two keys. The
+   scan does not decide which scalar becomes a key, so the rule holds for a key
+   and for a value, in block style and in flow style. Escapes are read from left
+   to right: in `"\\x3c"` the first `\` escapes the second, and `x3c` is text, so
+   it is accepted. A single-quoted scalar has no escapes. No other escape is
+   decoded or refused.
+
 The scan refuses some texts that are not aliases (a continuation line that
 begins with `*` or with `? `, a `*` after `: ` in a trailing comment, `<<` in
-quoted text or in a comment of a flow collection). `&` and `*` in quoted text
+quoted text or in a comment of a flow collection, a double-quoted scalar with an
+escape that decodes to `<`). `&` and `*` in quoted text
 of a flow collection are literal and are accepted. It does not refuse a
 duplicate key below the top level, one in a flow-style top level, or two
 double-quoted keys equal only after their escapes: the reader keeps the first
@@ -208,6 +219,7 @@ Eleven named test groups: ten in `test/elzoo/skill_test.exs`: `skill_md_split`,
 eleventh, `scan_agrees_with_the_reader` in
 `test/elzoo/skill_differential_test.exs`, feeds seeded random texts and every
 short text to `read/4` and asks the token stream of the pinned parser about
-each accepted text (no anchor, alias, other tag, key `<<` or explicit key); and
+each accepted text (no anchor, alias, other tag, key `<<` or explicit key),
+and a fixed directed list of texts with the escapes that decode to `<`; and
 the checked example `examples/skill.exs`. They are finite scenarios and a finite
 sample, not a universal proof; no Cure law is selected.
