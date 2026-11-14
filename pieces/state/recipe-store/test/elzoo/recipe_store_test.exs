@@ -19,7 +19,10 @@ defmodule Elzoo.RecipeStoreTest do
   @moduletag backend: :memory
 
   setup_all do
-    {:ok, _} = TestRepo.start_link(url: H.url!())
+    {:ok, repo} = TestRepo.start_link(url: H.url!())
+    Process.unlink(repo)
+    # The module that started the Repo stops it: an idle pool must not outlive its module.
+    on_exit(fn -> Supervisor.stop(repo) end)
     H.database_guard!(TestRepo)
     H.object_store!()
     :ok
