@@ -197,9 +197,12 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-127](https://github.com/balungpisah/elzoo/issues/263) | V1B / pieces | ELZ-033, ELZ-114, ELZ-115, ELZ-117, ELZ-122, ELZ-118, ELZ-116, ELZ-124, ELZ-123, ELZ-002, ELZ-009, ELZ-022, ELZ-023, ELZ-024, ELZ-098, ELZ-003, ELZ-126 | published 2026-11-12 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-172](https://github.com/balungpisah/elzoo/issues/377) | V1B / pieces | ELZ-033, ELZ-114, ELZ-127 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-180](https://github.com/balungpisah/elzoo/issues/401) | V1B / pieces | ELZ-033, ELZ-127, ELZ-172 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
-| RC-66 | V1B / pieces | ELZ-033, RC-50, ELZ-136, ELZ-141, ELZ-142, RC-60, RC-61, RC-62, RC-63, RC-64, ELZ-079, ELZ-114, ELZ-172, ELZ-180 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| [ELZ-181](https://github.com/balungpisah/elzoo/issues/406) | V1B / pieces | ELZ-033, ELZ-114, ELZ-127, ELZ-136, ELZ-137, ELZ-139, ELZ-141, ELZ-142, ELZ-161, ELZ-164, ELZ-167, ELZ-168, ELZ-172, ELZ-180 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-183](https://github.com/balungpisah/elzoo/issues/408) | V1B / pieces | ELZ-033, ELZ-169, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| RC-66 | V1B / pieces | ELZ-033, RC-50, ELZ-136, ELZ-141, ELZ-142, RC-60, RC-61, RC-62, RC-63, RC-64, ELZ-079, ELZ-114, ELZ-172, ELZ-180, ELZ-181, ELZ-183 | both portions published: ELZ-181 recipe-test and ELZ-183 Lua tools, model graphs and restart | one claimed task worker after admission |
 | [ELZ-176](https://github.com/balungpisah/elzoo/issues/392) | V1B / pieces | ELZ-033 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
-| RC-67 | V1B / pieces | ELZ-033, ELZ-096, ELZ-136, ELZ-140, ELZ-142, RC-65, RC-66, RC-61, ELZ-139, ELZ-176 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| [ELZ-182](https://github.com/balungpisah/elzoo/issues/407) | V1B / pieces | ELZ-033, ELZ-136, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-161, ELZ-164, ELZ-170, ELZ-176 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| RC-67 | V1B / pieces | ELZ-033, ELZ-096, ELZ-136, ELZ-140, ELZ-142, RC-65, RC-66, RC-61, ELZ-139, ELZ-176, ELZ-182 | published as ELZ-182 workflow/skill | one claimed task worker after admission |
 | RC-68 | V1B / pieces | ELZ-033, ELZ-002, ELZ-006, ELZ-023 | superseded for workflow/pattern-step by published ELZ-114; output moved | one claimed task worker after admission |
 | RC-69 | V1B / pieces | ELZ-033, ELZ-096, ELZ-137, ELZ-114, ELZ-023, ELZ-009 | superseded for workflow/tool-result-limit by published ELZ-139; output moved | one claimed task worker after admission |
 | RC-70 | V1B / pieces | ELZ-033, ELZ-114 | superseded for workflow/stall-detect by published ELZ-145; output moved | one claimed task worker after admission |
@@ -383,8 +386,8 @@ Baseline status is immutable inventory history, not a current planning status. R
 | [workflow/runtime-graph](../../pieces/workflow/runtime-graph/piece.json) | not in baseline (new row, RC-64) | V1B / pieces | ELZ-169 / P13 | ready-contract: Pure decision whether a graph that a model gave as plain data at run time may run: the graph is checked as data, held to the callables, tools, asks, node count and nesting that the agent may use, added to the recipe of the Run as one more graph callable, and checked as at load time with its upper cost against the budget share; the accepted recipe, callable and upper cost, or all refusal reasons in a fixed order, and a bounded text of the reasons for the model; no execution, grant, budget or storage. |
 | [state/recipe-store](../../pieces/state/recipe-store/piece.json) | not in baseline (new row, RC-65) | V1B / pieces | ELZ-171 / P13 | ready-contract: Immutable recipe versions of a tenant over the ready Pieces: the bytes of each version are an artifact of state/artifact, and the stored records, check verdicts, published pointer, pin records and delete marks are records of the one stream recipe-store/<tenant> of the ready Store, each change read, decided by the pure Cure table over the folded state and appended at the head revision (at most 3 tries, then contended; an indeterminate append is never tried again). Only a stored, checked, live version is published (go-back is a publish of an older version); a version that a pin record holds or that is published is not deleted; the delete mark is committed before any artifact delete. Refusal order not_found, deleted, not_checked, pinned, published. |
 | [workflow/version-pin](../../pieces/workflow/version-pin/piece.json) | not in baseline (new row, RC-65) | V1B / pieces | ELZ-170 / P13 | ready-contract: Pure rule of the recipe version and the tool sources that one Run keeps: the pin captures a package identity and the id, kind and callable of each source at Run start, an explicit change-version input is the only input that changes the version, a published version, a settings change and a listing change nothing, a listing of an outside source is refused, and no input adds a source. No I/O, clock, process, storage or version check. |
-| runtime/recipe-test | not in baseline (new row, RC-66) | V1B / pieces | RC-66 / P13 | blocked-admission-proposal: Bot platform wave 3 (P13). No network and a controlled clock; an unscripted call fails the test. The way an author and a Piece worker test without a provider. |
-| workflow/skill | not in baseline (new row, RC-67) | V1B / pieces | RC-67 / P13 | blocked-admission-proposal: Bot platform wave 3 (P13). A skill is a tool source of the registry: loading is a recorded tool call and grants no authority; the tools of the skill still pass the checks of the engine. |
+| runtime/recipe-test | not in baseline (new row, RC-66) | V1B / pieces | ELZ-181 / P13 | published-task; implementation pending: Test harness that runs a recipe package through the real engine and patterns with scripted model and tool Adapters, a controlled clock and a full step record. |
+| workflow/skill | not in baseline (new row, RC-67) | V1B / pieces | ELZ-182 / P13 | published-task; implementation pending: Pure reader of a skill folder and one pinned_skill tool source: SKILL.md frontmatter and body, a load that gives the instructions as a declaration, files read as marked content, scripts never run. |
 
 ## Separate candidate gaps
 
@@ -405,7 +408,7 @@ Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, EL
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183.
 
 ### V2-ACCEPT
 
@@ -2288,7 +2291,7 @@ Run a recipe against scripted models and tools
 
 **Blockers:**
 
-- Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.
+- Both RC-66 portions are published: ELZ-181 and ELZ-183 (in place on runtime/recipe-test). The harness ships the glue that turns the finish of a nested child into the form of its parent, and it needs the engine changes ELZ-172 and ELZ-180.
 
 ### RC-67
 
@@ -2304,7 +2307,7 @@ Skill: instructions and files loaded on demand
 
 **Blockers:**
 
-- Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.
+- RC-67 is published as ELZ-182. Coordinator decisions, 2026-11-14: the YAML frontmatter is read with the adopted library (ELZ-176) behind a scan that refuses aliases, merge keys, document markers, duplicate top-level keys and tabs; a load lists no tool, so the acceptance case of a load that would pass 64 tools is not met by this task and needs a change of workflow/agent-loop; the Piece stores nothing, the caller holds the bytes of the files.
 
 ### RC-68
 
@@ -3035,3 +3038,33 @@ Publication copy: [tasks/ELZ-185-local-full-check-connections.md](../../tasks/EL
 **Product aims:** P06.
 
 **Acceptance:** Harness repair: one local full check on a fresh worker database with max_connections 100 passes twice with a recorded peak of at most 80 connections, with the same test set, no raised limit and no skipped or weakened test; the cause of the 103-connection peak is found and repaired in the test harness. Full local and hosted check.
+
+### ELZ-181
+
+ELZ-181 — Run a recipe against scripted models and tools, through the real engine
+
+Publication copy: [tasks/ELZ-181-recipe-test.md](../../tasks/ELZ-181-recipe-test.md).
+
+**Product aims:** P13.
+
+**Acceptance:** A test harness that runs a recipe package end to end through the real assembly/run-engine and the ready pattern Pieces, with a compiled scripted Adapter, a caller allow-list of Adapters, a controlled clock and a driver that delivers scripted results in occurrence order; it gives the full step record. Agent, typed decision and graph callables with the glue that turns the finish of a nested child into the form of its parent; an unscripted call and an Adapter outside the allow-list are explicit failures; the same script gives the same record. First portion of RC-66; Lua tools, model graphs and restart follow in ELZ-183.
+
+### ELZ-182
+
+ELZ-182 — Skill: instructions and files of a skill folder, loaded on demand
+
+Publication copy: [tasks/ELZ-182-skill.md](../../tasks/ELZ-182-skill.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Pure reader of a skill folder given as data: SKILL.md is split into YAML frontmatter and body, the frontmatter is scanned (aliases, merge keys, document markers, duplicate top-level keys and tabs refused) and read with the adopted YAML library, and the result is the skill entry of domain/recipe-package or a fixed refusal. One tool-registry source of kind pinned_skill with a load tool, whose answer is the declaration that workflow/agent-loop accepts, and a read-file tool, whose answer is marked content; the SKILL.md body is never marked or cut and scripts are bytes that are read, never run. A load lists no tool (coordinator decision).
+
+### ELZ-183
+
+ELZ-183 — The recipe test runs Lua tools and graphs that a model gives, and restarts
+
+Publication copy: [tasks/ELZ-183-recipe-test-lua-and-model-graph.md](../../tasks/ELZ-183-recipe-test-lua-and-model-graph.md).
+
+**Product aims:** P13.
+
+**Acceptance:** runtime/recipe-test, changed in place (same Piece ID): a tool written in Lua runs through workflow/lua-tool, runtime/lua-binding and the real sandbox as local work, with its module calls scripted; a graph that a model gives is accepted by workflow/runtime-graph and run as a nested callable; a restart in the middle reads the recorded results and the recorded graph and does not ask the model again. Second and last portion of RC-66.
