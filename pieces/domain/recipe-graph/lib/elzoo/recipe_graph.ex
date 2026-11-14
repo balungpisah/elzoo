@@ -10,7 +10,7 @@ defmodule Elzoo.RecipeGraph do
     try do
       plain(map, 0, 0)
       exact(map, ~w(version id revision root callables bindings rules))
-      require!(map["version"] == 1, :unsupported_version)
+      require!(map["version"] === 1, :unsupported_version)
       identity(map["id"])
       version(map["revision"])
       identity(map["root"])

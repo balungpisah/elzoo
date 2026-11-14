@@ -103,6 +103,36 @@ defmodule Elzoo.RecipeGraphTest do
       end
 
       refused(Map.put(base, "version", 2), :unsupported_version)
+      refused(Map.put(base, "version", 1.0), :unsupported_version)
+      refused(Map.put(base, "revision", 1.0), :invalid_shape)
+
+      refused(
+        recipe([put_in(callable(), ["input", "port", "schema_version"], 1.0)]),
+        :invalid_schema
+      )
+
+      refused(
+        recipe([graph([node("a", "ask", %{"gives" => [Map.put(slot(), "schema_version", 1.0)]})])]),
+        :invalid_shape
+      )
+
+      for kind <- ~w(map loop) do
+        refused(
+          recipe([
+            graph([node("a", kind, %{"callable" => "agent", "max_iterations" => 1.0})]),
+            callable("agent", "agent")
+          ]),
+          :invalid_shape
+        )
+      end
+
+      for field <- ~w(policy requirement) do
+        refused(
+          Map.put(recipe([graph([node("a")])]), "rules", [put_in(rule(), [field, "version"], 1.0)]),
+          :invalid_rule
+        )
+      end
+
       refused(Map.put(base, "root", "missing"), :unknown_name)
       refused(recipe([Map.put(callable(), "kind", "unknown")]), :invalid_shape)
 
