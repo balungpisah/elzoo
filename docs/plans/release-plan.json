@@ -6157,6 +6157,23 @@
       "issue_body_sha256": "0d7f607b9d5efb605750d634636b1421365caacc1ba863bee02972fa2d3037d8"
     },
     {
+      "id": "ELZ-195",
+      "title": "ELZ-195 — The size check of the Lua sandbox input is bounded by `value_bytes` while it walks the term",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-163", "ELZ-177", "ELZ-188"],
+      "status": "published 2026-11-14",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-195-lua-sandbox-bounded-input-check.md"],
+      "outputs": [],
+      "acceptance": "Repair on runtime/lua-sandbox, in place: the input size check is bounded by value_bytes during the walk; a stated Limit says that value_bytes measures only strings the run allocates, with the bound of the gap read from the pinned Lua source; one README sentence on recorded values corrected; every fake child of the tests reads the request first; the C host is unchanged.",
+      "product_aims": ["P13"],
+      "issue": 444,
+      "url": "https://github.com/balungpisah/elzoo/issues/444",
+      "issue_body_sha256": "e41eee6f7d5811592f0c44f5cac7baa355551801bfa0428687e641e1ee888ea1"
+    },
+    {
       "id": "ELZ-196",
       "title": "ELZ-196 — A graph whose last result passes the state bound finishes `failed` with `state_over_bound`",
       "kind": "published",
