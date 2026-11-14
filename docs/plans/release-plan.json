@@ -6121,6 +6121,23 @@
       "issue": 436,
       "url": "https://github.com/balungpisah/elzoo/issues/436",
       "issue_body_sha256": "c508e4897fce4f4741a44c4bdff58302e22600a8db5e18f411545dca2b1da32f"
+    },
+    {
+      "id": "ELZ-193",
+      "title": "ELZ-193 — A read of one statement in the PostgreSQL log store is one round trip",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-009"],
+      "status": "published 2026-11-15",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-193-sql-single-statement-read.md"],
+      "outputs": [],
+      "acceptance": "First small task for issue #431 on integration/sql, Contract unchanged: a read callback of one statement sends it with no transaction wrapper (one round trip instead of four); reads of more than one statement keep one repeatable-read snapshot; refusals, hook, timeout and error values unchanged; four named groups counted by Repo query events and one negative control; no wall-time claim.",
+      "product_aims": ["P13"],
+      "issue": 439,
+      "url": "https://github.com/balungpisah/elzoo/issues/439",
+      "issue_body_sha256": "02ffd7363e6cf39864e1a46b843b6e15851336e4dd5209ce613e5429bb8f47ef"
     }
   ],
   "entries": [
