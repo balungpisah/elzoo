@@ -84,9 +84,11 @@ stop and ask):
    out-of-memory message). State in the README Limits and in `limits` of
    `piece.json`:
    - `value_bytes` is enforced for a string when the run allocates it. A
-     string whose content equals a string that the Lua state already
-     holds when the limits are armed is not allocated and so is not
-     measured. Such strings come from the Lua runtime, from the
+     short string (at most the length of the next bullet) whose content
+     equals a string that the Lua state already holds when the limits
+     are armed is not allocated and so is not measured. A longer string
+     is always allocated and measured, also when the state holds an
+     equal one. Such held strings come from the Lua runtime, from the
      libraries, from the names that the host puts into the state, and
      from the names of recorded calls; the Limit gives these as examples
      and does not claim that the list is complete.
@@ -107,7 +109,9 @@ stop and ask):
    starts; before the Lua state exists the host checks the shape, the
    names, the counts and the depth of `calls` and does not measure the
    size of a recorded value again; a single string over `value_bytes` in a
-   record is still stopped by the allocator when the record is pushed.
+   record is stopped by the allocator when the record is pushed, with the
+   one exception that the Limit of step 2 states (a short string equal to
+   one that the state already holds is not allocated, in a record too).
 4. **Test fakes (finding of #429).** Each such fake reads the request
    from its input (at least the four bytes of the frame header) before it
    writes and exits. The expected results stay as they
@@ -142,8 +146,11 @@ sentence is unchanged.
    two refusals and the test names which one for each of two orders.
 3. **`held_string_limit`**: with `value_bytes` 4, (a) the source
    `return function() return #'string' end` gives the value 6; (b) with
-   one recorded call whose name is longer than 4 bytes, a source that
-   returns the length of a literal equal to that name gives that length;
+   one recorded call whose name has 5 bytes or more and at most the
+   short-string length of step 2, a source that returns the length of a
+   literal equal to that name gives that length, and with a recorded
+   call name longer than that length (and inside the bound of a name)
+   the equal literal gives `value_size`;
    (c) a literal of the same length that the state does not hold gives
    `value_size`; (d) a literal one byte longer than the longest string
    that the pinned Lua keeps in its table of short strings gives
