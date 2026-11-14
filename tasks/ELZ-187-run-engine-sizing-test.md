@@ -63,7 +63,10 @@ this task forbade a limit operand; that stays.
 3. State the limit in the README (Limits and the description of the three
    calls) and in the Contract text of `piece.json`: the value; the measured
    time of an input at the bounds, with the host named by role; that a
-   caller which needs a shorter wait imposes it itself; and what a caller
+   caller which needs a shorter wait runs the call in a process of its own
+   and gives up the wait there (for example `Task.async/1`, then
+   `Task.yield/2` and `Task.shutdown/2`), because the functions take no
+   limit; and what a caller
    knows when the call ends by the limit: the exit says nothing about
    whether the input was applied, and the engine goes on with it. Say what
    the Contract of the Piece already says about sending the same input id
@@ -71,6 +74,20 @@ this task forbade a limit operand; that stays.
    Limit. Write no new guarantee.
 4. Do not change the sizing test. Do not tag or skip it, and do not reduce
    64 or 256.
+5. One existing test depends on the old limit and changes with it: `live
+   caller timeout reuses committed bytes, and eviction never repeats a
+   logical invocation` (describe `Append rejection/uncertainty`). Its
+   caller is a task that catches the exit of `send_input(engine)` while a
+   gate blocks, and the test asserts `{:timeout, _} = Task.await(caller,
+   6_000)`: the exit of the call after 5 s. With the new limit the caller
+   gives up in the way that step 3 names: the task runs
+   `send_input(engine)`; the test asserts that `Task.yield(caller, 1_000)`
+   is `nil` and then `Task.shutdown(caller, :brutal_kill)` is `nil`. Every
+   later line of the test stays as it is: the unit is alive, the control
+   count is 1, the gate is released, the slot waits, the same input is
+   `:duplicate`, and the eviction part. So the test still shows that a
+   caller that stopped waiting meets committed bytes. Change no other
+   existing test. If another one fails with the new limit, stop and ask.
 
 ## Acceptance
 
@@ -80,19 +97,22 @@ this task forbade a limit operand; that stays.
   sleeps 5,500 ms once. A `status/1` call that is sent while that input
   runs returns its view after the input. The test is tagged with a timeout
   that fits, and it is not excluded from the suite.
-- `limit_is_one_value`: a test reads the three public functions and shows
-  that each uses the same limit (for example by a slow engine process of
-  the test that answers after 5,500 ms to each of the three calls); no
-  call of the engine process with the default limit is left in `lib/`.
+- `every_call_waits`: in the same slow input, a `control/4` call and a
+  `status/1` call that are sent while the input runs each return their
+  normal reply after it, more than 5,000 ms after they were sent. The
+  three public functions use the one module attribute, and no call of the
+  engine process without it is left in `lib/` (the reviewer checks this in
+  the source).
 - The sizing test passes unchanged; the diff of its body is empty.
-- Every other test of the Piece passes unchanged.
+- Every other test of the Piece passes unchanged, except the one test of
+  step 5, whose diff is only the lines that step 5 names.
 - Negative control: restore the default limit by a temporary edit;
   `call_waits_past_the_default` must end with the time-out exit. Revert it.
 - The README and `piece.json` hold the texts of step 3, and the index row
   follows (`manifest_sha256`, `note`).
-- The small gate exits 0 three times in a row, and the copied consumer of
-  the Piece stays inside its existing 300 s (the new tests add about 25 s;
-  if the limit is passed, stop and report the measured time).
+- The small gate exits 0 three times in a row. Record the time of
+  `mix test pieces/assembly/run-engine/test` before and after (the new
+  test adds about 6 s, and the test of step 5 becomes about 4 s shorter).
 - The pull request closes this task and issue #334.
 - One independent review.
 
