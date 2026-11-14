@@ -420,13 +420,18 @@ defmodule Elzoo.RunResourceTest do
     assert {:ok, %{disposition: :accepted}} =
              use_receipt = RunResource.command(replay.owner, replay_use)
 
+    # The dispatch carries an older time than the clock, so the sample differs from the stored at_ms.
+    at(replay, 95)
+
     replay_send = %{
       id: "send-replay",
       at_ms: 90,
       body: {:dispatch, replay_intent.identity, replay_owner}
     }
 
-    send_receipt = RunResource.command(replay.owner, replay_send)
+    assert {:ok, %{disposition: :accepted}} =
+             send_receipt = RunResource.command(replay.owner, replay_send)
+
     assert_receive {:provider_call, replay_worker, _}, 1000
 
     finish(
