@@ -41,6 +41,15 @@ finish, its bytes are held in the reserve, so that no other admission in
 between can take the room. When there is no room, the finish is refused
 with the existing reason `record_size`: the child pattern gets an ordinary
 refusal, the parent action is not completed by it, and the engine goes on.
+The child callable stays open after the refusal. A child that never sends
+a finish that fits leaves its parent action waiting until an existing rule
+settles it: the deadline of the parent action, a change of Attempt
+(ELZ-191) or the end of the Run. The README states this as a Limit.
+
+A Run that was recorded before this repair, with a finish that was
+admitted and not yet kept, can meet the refusal on replay where the old
+code had none. Elzoo is not released, so this is accepted; the README
+states it as a Limit.
 
 Nothing else changes: only the first admitted finish is kept; its payload
 is exact; a root finish and every other action kind are admitted as today;

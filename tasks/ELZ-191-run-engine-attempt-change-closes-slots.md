@@ -59,7 +59,10 @@ change no slot of an older Attempt is open.
 - A slot for which something may have been sent, or whose cost a recorded
   action may already hold, is settled with no actual and the reason
   `attempt_closed`, and its reservation stays held: unknown is not zero.
-  Its cost is final unknown by the rule of ELZ-190.
+  Its cost is final unknown by the rule of ELZ-190. Its outcome class is
+  not `refused`: the join records a refusal as not dispatched, which would
+  be false here. The table of step 1 proposes the class, from the existing
+  outcome vocabulary.
 - Running local work keeps its existing rule (`failed`, `local_closed`).
 - A `nested_callable` slot is settled with the reason `attempt_closed`.
   The finish that its child kept, if any, is not given to the pattern (the
@@ -74,7 +77,15 @@ change no slot of an older Attempt is open.
 
 Which phase and which action kind falls under "nothing sent" and which
 under "may have been sent" is decided from the code, phase by phase (step 1
-below). When in doubt a slot is "may have been sent".
+below). The class follows from the kind and the phase together, not from
+the phase alone. At least these are "may have been sent": a
+`nested_callable` slot whose child was dispatched, also when the slot is
+being refused (the refusal over the cap, about line 783); a slot waiting
+for an approval that holds a request key, because the Run may have
+dispatched it already (about 2421 to 2440); a `resource_open` or
+`resource_use` slot that is ready, because a resource command may already
+be recorded (about 1881 to 1884). When in doubt a slot is "may have been
+sent".
 
 A Run that was recorded before this repair, with a change of Attempt and
 open slots, folds to another state after it. Elzoo is not released, so
@@ -108,7 +119,9 @@ field is added.
    then a change of Attempt: the slot is settled with no actual and the
    reason `attempt_closed`; the Budget still holds its reservation and the
    committed amount did not move (asserted as numbers); after a restart no
-   second dispatch happens; a late result with an actual changes nothing.
+   second dispatch happens; a late result with an actual changes nothing. The same holds
+   for a slot in reconcile and for a waiting slot of a kind that may have
+   been sent.
 2. **`unsent_slot_is_released`**: for each phase of the table in which
    nothing was sent, a slot in that phase at the change is `refused` with
    `attempt_closed`, and its reservation is released.
@@ -119,14 +132,18 @@ field is added.
    every child cost is known and unknown when one is not.
 4. **`new_attempt_works`**: after the change, a wake in the new Attempt
    makes the pattern ask a new request, and that request runs to its
-   outcome; the 64 open places are all free again.
+   outcome; the 64 open places are all free again. A second change of
+   Attempt directly after the first closes what the second Attempt opened
+   and leaves the earlier settlements as they were.
 5. **`run_ends_and_unit_configures`**: after the change the Run reaches a
    terminal state, and a new Run with another run id configures on the
    same unit. Negative control: with the old `close_local` the configure is
    refused as `:incompatible_recovery`.
 6. **`resource_cost_still_arrives`**: a resource action open at the
    change, then its cursor: the Budget of that action is settled by the
-   cursor and nothing fails.
+   cursor and nothing fails. The same with the
+   resource action inside a nested child: the cursor settles the child
+   Budget, and the actual of the parent follows by the rule of ELZ-190.
 7. **`replay_is_equal`**: for the runs of groups 1, 3 and 6, a restart
    after the change gives an equal view, equal Budget states of every
    callable and an equal count of journal records, and writes nothing
