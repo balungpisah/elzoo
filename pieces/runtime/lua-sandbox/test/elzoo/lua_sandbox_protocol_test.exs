@@ -514,6 +514,24 @@ defmodule Elzoo.LuaSandboxProtocolTest do
 
       inside = "return function() local ok = pcall(function() while true do end end) return 1 end"
       assert {:refused, :steps} = Helper.run(exe, inside)
+
+      # a stop that does not use up the step budget must not be continued either
+      assert {:refused, :unlisted_name} =
+               Helper.run(exe, "pcall(function() return os end) return function() return 1 end")
+
+      assert {:refused, :call_depth} =
+               Helper.run(
+                 exe,
+                 "local function f() return 1 + f() end pcall(f) return function() return 1 end"
+               )
+
+      assert {:refused, :value_size} =
+               Helper.run(
+                 exe,
+                 "pcall(string.rep, 'x', 5000) return function() return 1 end",
+                 nil,
+                 %{value_bytes: 100}
+               )
     end
 
     test "memory: a table allocation loop under a small budget", %{executable: exe} do
