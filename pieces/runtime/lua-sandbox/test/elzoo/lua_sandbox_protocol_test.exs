@@ -260,6 +260,7 @@ defmodule Elzoo.LuaSandboxProtocolTest do
       for bad <- [
             %{},
             Map.delete(good, :input),
+            Map.delete(good, :calls),
             Map.put(good, :extra, 1),
             Map.put(good, "source", "x"),
             %{good | source: 1},

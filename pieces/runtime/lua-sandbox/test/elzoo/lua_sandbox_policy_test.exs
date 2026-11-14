@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule Elzoo.LuaSandboxPolicyTest do
   @moduledoc """
-  The identity and the descriptor of policy version 2, and a first comparison of the
+  The identity and the descriptor of policy version 3, and a first comparison of the
   descriptor with the audit of the host's fresh environment (no Lua path to the audit).
   """
   use ExUnit.Case, async: false
@@ -21,7 +21,7 @@ defmodule Elzoo.LuaSandboxPolicyTest do
 
   test "policy is immutable plain data with a canonical identity" do
     %{identity: identity, descriptor: descriptor} = LuaSandbox.policy()
-    assert identity =~ ~r/\Apolicy-v2:sha256:[0-9a-f]{64}\z/
+    assert identity =~ ~r/\Apolicy-v3:sha256:[0-9a-f]{64}\z/
     assert identity == Descriptor.identity(descriptor)
     assert LuaSandbox.policy() == LuaSandbox.policy()
 
@@ -38,7 +38,12 @@ defmodule Elzoo.LuaSandboxPolicyTest do
              %{"name" => "time_unix_ms", "version" => 1}
            ]
 
-    assert descriptor["bindings"] == %{}
+    assert descriptor["bindings"] == %{
+             "mechanism_version" => 1,
+             "max_names" => 64,
+             "max_recorded" => 256
+           }
+
     assert descriptor["framing"]["version"] == 1
     assert descriptor["bounds"]["steps"] == 1_000_000
     assert leaves_are_plain?(descriptor)

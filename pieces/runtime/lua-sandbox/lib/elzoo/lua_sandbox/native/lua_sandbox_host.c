@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
-** Owned C host of the Elzoo Lua sandbox (policy version 2).
+** Owned C host of the Elzoo Lua sandbox (policy version 3: the safe helper set and
+** module-call bindings).
 **
 ** One process runs one request: it reads one frame (u32 little-endian
 ** length, then UTF-8 JSON) from stdin, builds one Lua state with a fresh
@@ -46,13 +47,17 @@
 #define FRAME_MAX 1048576u
 #define MAX_SOURCE 65536u
 #define MAX_CONTAINERS 32
+/* The frame nests the deepest plain value (a recorded argument or result) at depth 5:
+** root 1, calls 2, recorded 3, record 4. A container at depth d holds its children at
+** d + 1, so 32 nested containers from depth 5 occupy depths 5..36. */
+#define PARSE_DEPTH_MAX (4 + MAX_CONTAINERS)
 #define MAX_STEPS 1000000
 #define MAX_DEPTH 64
 #define MAX_VALUE 65536
 #define MAX_MEMORY 16777216
 #define MAX_WALL 1000
 
-enum stop { STOP_NONE = 0, STOP_STEPS, STOP_DEPTH, STOP_VALUE, STOP_MEMORY, STOP_UNLISTED };
+enum stop { STOP_NONE = 0, STOP_STEPS, STOP_DEPTH, STOP_VALUE, STOP_MEMORY, STOP_UNLISTED, STOP_MISMATCH, STOP_PENDING };
 
 static struct {
   int sticky;
@@ -114,6 +119,7 @@ static const char *stop_name(int s) {
     case STOP_DEPTH: return "call_depth";
     case STOP_VALUE: return "value_size";
     case STOP_UNLISTED: return "unlisted_name";
+    case STOP_MISMATCH: return "call_mismatch";
     default: return "lua_error";
   }
 }
@@ -126,8 +132,11 @@ __attribute__((noreturn)) static void reply_refused(const char *reason) {
 
 __attribute__((noreturn)) static void reply_memory(void) { reply_text("{\"status\":\"memory\"}"); }
 
+__attribute__((noreturn)) static void reply_pending(void);
+
 __attribute__((noreturn)) static void reply_sticky(void) {
   if (G.sticky == STOP_MEMORY) reply_memory();
+  if (G.sticky == STOP_PENDING) reply_pending();
   reply_refused(stop_name(G.sticky));
 }
 
@@ -541,7 +550,7 @@ static long parse_value(int depth) {
       return id;
     }
     case '[': {
-      if (depth >= 34) return -1;
+      if (depth > PARSE_DEPTH_MAX) return -1;
       jp++;
       id = new_node(T_ARR);
       ws();
@@ -567,7 +576,7 @@ static long parse_value(int depth) {
       }
     }
     case '{': {
-      if (depth >= 34) return -1;
+      if (depth > PARSE_DEPTH_MAX) return -1;
       jp++;
       id = new_node(T_OBJ);
       ws();
@@ -740,7 +749,7 @@ static void charge(lua_State *L, long long n) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Wrappers (policy version 2)                                           */
+/* Wrappers (policy version 3)                                           */
 /* ------------------------------------------------------------------ */
 
 static int unlisted(lua_State *L) {
@@ -766,7 +775,7 @@ static int w_pcall(lua_State *L) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Helpers (policy version 2): fields of the global `helpers`            */
+/* Helpers (policy version 3): fields of the global `helpers`            */
 /* ------------------------------------------------------------------ */
 
 /* Record the table at the top of the stack as an array (kind 1) or an object (kind 2)
@@ -1371,7 +1380,7 @@ static int string_index(lua_State *L) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Environment (policy version 2)                                         */
+/* Environment (policy version 3)                                         */
 /* ------------------------------------------------------------------ */
 
 static const char *const string_names[] = {"byte", "char", "find", "format", "gmatch", "gsub", "len",
@@ -1955,11 +1964,263 @@ static long field_node(long obj, const char *name) {
   return -1;
 }
 
+enum { MODE_NONE, MODE_DATA, MODE_REPLAY };
+static int calls_mode;
+static long calls_names; /* node index of the `names` array */
+static long calls_recorded; /* node index of the `recorded` array */
+static long nrecorded;
+
+static int node_is(long id, const char *s) {
+  return (size_t)strlen(s) == nodes[id].slen && memcmp(sarena + nodes[id].soff, s, nodes[id].slen) == 0;
+}
+
+static int valid_name(long id) {
+  size_t i, n = nodes[id].slen;
+  const char *p = sarena + nodes[id].soff;
+  if (nodes[id].type != T_STR || n < 1 || n > 64 || p[0] < 'a' || p[0] > 'z') return 0;
+  for (i = 1; i < n; i++)
+    if (!((p[i] >= 'a' && p[i] <= 'z') || (p[i] >= '0' && p[i] <= '9') || p[i] == '_')) return 0;
+  return 1;
+}
+
+static int name_listed(long names, long id) {
+  long c;
+  for (c = nodes[names].first; c >= 0; c = nodes[c].next)
+    if (nodes[c].slen == nodes[id].slen && memcmp(sarena + nodes[c].soff, sarena + nodes[id].soff, nodes[id].slen) == 0)
+      return 1;
+  return 0;
+}
+
+/* The number of nested containers of the node (0 for a scalar); the parser bounds the nesting. */
+static int node_depth(long id) {
+  long c;
+  int d, best = 0;
+  if (nodes[id].type != T_ARR && nodes[id].type != T_OBJ) return 0;
+  for (c = nodes[id].first; c >= 0; c = nodes[c].next) {
+    d = node_depth(c);
+    if (d > best) best = d;
+  }
+  return best + 1;
+}
+
+/* The shape of `calls` (0 valid, -1 invalid); reads only the node arena, by index. */
+static int check_calls(long calls) {
+  long mode, names, rec, c, d;
+  if (calls < 0 || nodes[calls].type != T_OBJ || nodes[calls].count != 3) return -1;
+  mode = field_node(calls, "mode");
+  names = field_node(calls, "names");
+  rec = field_node(calls, "recorded");
+  if (mode < 0 || names < 0 || rec < 0 || nodes[mode].type != T_STR || nodes[names].type != T_ARR ||
+      nodes[rec].type != T_ARR || nodes[names].count > 64 || nodes[rec].count > 256)
+    return -1;
+  if (node_is(mode, "none")) calls_mode = MODE_NONE;
+  else if (node_is(mode, "data")) calls_mode = MODE_DATA;
+  else if (node_is(mode, "replay")) calls_mode = MODE_REPLAY;
+  else return -1;
+  calls_names = names;
+  calls_recorded = rec;
+  nrecorded = (long)nodes[rec].count;
+  for (c = nodes[names].first; c >= 0; c = nodes[c].next) {
+    if (!valid_name(c)) return -1;
+    for (d = nodes[names].first; d != c; d = nodes[d].next)
+      if (nodes[d].slen == nodes[c].slen && memcmp(sarena + nodes[d].soff, sarena + nodes[c].soff, nodes[c].slen) == 0)
+        return -1;
+  }
+  if (calls_mode == MODE_NONE && (nodes[names].count != 0 || nodes[rec].count != 0)) return -1;
+  if (calls_mode == MODE_DATA && nodes[rec].count != 0) return -1;
+  for (c = nodes[rec].first; c >= 0; c = nodes[c].next) {
+    long nm, ar, re;
+    if (nodes[c].type != T_OBJ || nodes[c].count != 3) return -1;
+    nm = field_node(c, "name");
+    ar = field_node(c, "arguments");
+    re = field_node(c, "result");
+    if (nm < 0 || ar < 0 || re < 0 || nodes[nm].type != T_STR || !name_listed(names, nm)) return -1;
+    if (node_depth(ar) > MAX_CONTAINERS || node_depth(re) > MAX_CONTAINERS) return -1;
+  }
+  return 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Bindings: the global `bindings` of the modes data and replay          */
+/* ------------------------------------------------------------------ */
+
+/* Two host buffers of their own (L == NULL: they grow by realloc, charge nothing,
+** and stay valid for the whole run; they are never freed and never raise). The
+** argument of a call is encoded into argbuf (limit value_bytes); the measure of the
+** value that a call returns goes into retbuf (no limit). Neither is outbuf. */
+static buf argbuf, retbuf, cmpbuf, pendbuf;
+static long call_count;  /* binding calls so far, over the chunk and the function */
+static long next_record; /* node index of the record that the next call must match */
+static long pending_index;
+static long pending_name; /* node index of the name of the pending call */
+
+/* The reply of the pending stop: the call that has no recorded result. Sorted keys. */
+__attribute__((noreturn)) static void reply_pending(void) {
+  buf r = {0, 0, 0, SIZE_MAX, NULL};
+  char tmp[32];
+  int n = snprintf(tmp, sizeof tmp, "%ld", pending_index);
+  PUT(&r, "{\"call\":{\"arguments\":");
+  buf_put(&r, pendbuf.b ? pendbuf.b : "null", pendbuf.n);
+  PUT(&r, ",\"index\":");
+  buf_put(&r, tmp, (size_t)n);
+  PUT(&r, ",\"name\":\"");
+  buf_put(&r, sarena + nodes[pending_name].soff, nodes[pending_name].slen);
+  PUT(&r, "\"},\"status\":\"pending\"}");
+  write_frame(r.b, r.n);
+  _exit(0);
+}
+
+/* Push a deep copy of the plain value at idx. The value already encoded without an
+** error, so it holds only nil, booleans, numbers, strings, the null sentinel and
+** tables of at most 32 nested containers. Tables are read with lua_next and written
+** with lua_rawset only; the kind record (array or object) moves to the copy. */
+static void copy_plain(lua_State *L, int idx) {
+  idx = lua_absindex(L, idx);
+  luaL_checkstack(L, 8, "bindings");
+  switch (lua_type(L, idx)) {
+    case LUA_TNIL: lua_pushlightuserdata(L, &null_sentinel); return;
+    case LUA_TTABLE: {
+      int dst;
+      lua_createtable(L, 0, 0);
+      dst = lua_gettop(L);
+      lua_getfield(L, LUA_REGISTRYINDEX, "elzoo.kinds");
+      lua_pushvalue(L, idx);
+      lua_rawget(L, -2);
+      if (lua_isnil(L, -1)) {
+        lua_pop(L, 1);
+      } else {
+        lua_pushvalue(L, dst);
+        lua_insert(L, -2);
+        lua_rawset(L, -3);
+      }
+      lua_pop(L, 1);
+      lua_pushnil(L);
+      while (lua_next(L, idx)) {
+        lua_pushvalue(L, -2);
+        copy_plain(L, -2);
+        lua_rawset(L, dst);
+        lua_pop(L, 1);
+      }
+      return;
+    }
+    default: lua_pushvalue(L, idx); return;
+  }
+}
+
+/* bindings.<name>(value): the upvalue is the node index of the name. */
+static int b_call(lua_State *L) {
+  long id = (long)lua_tointeger(L, lua_upvalueindex(1));
+  int rc;
+  if (G.sticky) return stop_raise(L);
+  if (lua_gettop(L) != 1) return luaL_error(L, "bindings: expected one value");
+  argbuf.n = 0;
+  argbuf.limit = G.value_bytes;
+  rc = enc_value(L, 1, 0, &argbuf);
+  if (rc == E_SIZE) {
+    set_sticky(STOP_VALUE);
+    return stop_raise(L);
+  }
+  if (rc != E_OK) return luaL_error(L, "bindings: value is not plain data");
+  charge(L, (long long)argbuf.n); /* one step for each byte; argbuf.n is at most value_bytes */
+  if (calls_mode == MODE_REPLAY) {
+    long nm, ar, re;
+    if (call_count >= nrecorded) {
+      /* no recorded result: keep the call and end the run (the first stop wins) */
+      pending_index = call_count;
+      pending_name = id;
+      pendbuf.n = 0;
+      pendbuf.limit = SIZE_MAX;
+      buf_put(&pendbuf, argbuf.b ? argbuf.b : "", argbuf.n);
+      set_sticky(STOP_PENDING);
+      return stop_raise(L);
+    }
+    nm = field_node(next_record, "name");
+    ar = field_node(next_record, "arguments");
+    re = field_node(next_record, "result");
+    if (nodes[nm].slen != nodes[id].slen || memcmp(sarena + nodes[nm].soff, sarena + nodes[id].soff, nodes[id].slen) != 0) {
+      set_sticky(STOP_MISMATCH);
+      return stop_raise(L);
+    }
+    /* the compare rule: push the recorded argument as a Lua value, encode it with the
+    ** one canonical writer, and compare the bytes with the encoding of this call */
+    cmpbuf.n = 0;
+    cmpbuf.limit = SIZE_MAX;
+    push_node(L, ar);
+    rc = enc_value(L, lua_gettop(L), 0, &cmpbuf);
+    lua_pop(L, 1);
+    if (rc != E_OK || cmpbuf.n != argbuf.n || (argbuf.n > 0 && memcmp(cmpbuf.b, argbuf.b, argbuf.n) != 0)) {
+      set_sticky(STOP_MISMATCH);
+      return stop_raise(L);
+    }
+    call_count++;
+    next_record = nodes[next_record].next;
+    push_node(L, re);
+    retbuf.n = 0;
+    retbuf.limit = SIZE_MAX;
+    rc = enc_value(L, lua_gettop(L), 0, &retbuf);
+    if (rc != E_OK) return luaL_error(L, "bindings: value is not plain data");
+    charge(L, (long long)retbuf.n);
+    return 1;
+  }
+  /* mode data */
+  lua_createtable(L, 0, 2);
+  mark_kind(L, 2);
+  lua_pushliteral(L, "arguments");
+  copy_plain(L, 1);
+  lua_rawset(L, -3);
+  lua_pushliteral(L, "binding");
+  lua_pushlstring(L, sarena + nodes[id].soff, nodes[id].slen);
+  lua_rawset(L, -3);
+  /* the returned value is charged one step for each byte of its canonical JSON; it
+  ** wraps an argument of up to 32 containers, so the measure starts one level up */
+  retbuf.n = 0;
+  retbuf.limit = SIZE_MAX;
+  rc = enc_value(L, lua_gettop(L), -1, &retbuf);
+  if (rc != E_OK) return luaL_error(L, "bindings: value is not plain data");
+  charge(L, (long long)retbuf.n);
+  return 1;
+}
+
+/* Build the global `bindings` in the environment table (the registry global table):
+** a fresh table with one closure for each name and the strict lookup of the library
+** tables (the metatable of `helpers`). Raw access only. */
+static int bindings_cf(lua_State *L) {
+  long c;
+  int tbl, env;
+  luaL_checkstack(L, 8, "bindings");
+  lua_rawgeti(L, LUA_REGISTRYINDEX, LUA_RIDX_GLOBALS);
+  env = lua_gettop(L);
+  lua_createtable(L, 0, (int)nodes[calls_names].count);
+  tbl = lua_gettop(L);
+  for (c = nodes[calls_names].first; c >= 0; c = nodes[c].next) {
+    lua_pushlstring(L, sarena + nodes[c].soff, nodes[c].slen);
+    lua_pushinteger(L, (lua_Integer)c);
+    lua_pushcclosure(L, b_call, 1);
+    lua_rawset(L, tbl);
+  }
+  lua_pushliteral(L, "helpers");
+  lua_rawget(L, env);
+  if (!lua_getmetatable(L, -1)) return luaL_error(L, "bindings: no strict lookup");
+  lua_setmetatable(L, tbl);
+  lua_pushliteral(L, "bindings");
+  lua_pushvalue(L, tbl);
+  lua_rawset(L, env);
+  return 0;
+}
+
+static void init_bindings(lua_State *L) {
+  lua_pushcfunction(L, bindings_cf);
+  if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
+    if (G.sticky) reply_sticky();
+    _exit(70);
+  }
+}
+
 int main(int argc, char **argv) {
   int dn = open("/dev/null", O_WRONLY);
   unsigned char hdr[4], *body;
   size_t len;
-  long root, src, inp, pol, lim;
+  long root, src, inp, pol, lim, cal;
   long long steps, depth, value, memory, wall;
   lua_State *L;
   int st, base;
@@ -1991,12 +2252,13 @@ int main(int argc, char **argv) {
   if (read_full(0, body, len) != len) _exit(65);
 
   root = parse_document(body, len);
-  if (root < 0 || nodes[root].type != T_OBJ || nodes[root].count != 4) reply_refused("invalid_request");
+  if (root < 0 || nodes[root].type != T_OBJ || nodes[root].count != 5) reply_refused("invalid_request");
   src = field_node(root, "source");
   inp = field_node(root, "input");
   pol = field_node(root, "policy");
   lim = field_node(root, "limits");
-  if (src < 0 || inp < 0 || pol < 0 || lim < 0 || nodes[src].type != T_STR || nodes[pol].type != T_STR ||
+  cal = field_node(root, "calls");
+  if (src < 0 || inp < 0 || pol < 0 || lim < 0 || cal < 0 || nodes[src].type != T_STR || nodes[pol].type != T_STR ||
       nodes[lim].type != T_OBJ || nodes[lim].count != 5 || nodes[src].slen > MAX_SOURCE)
     reply_refused("invalid_request");
   if (nodes[pol].slen != strlen(ELZ_POLICY_IDENTITY) ||
@@ -2006,6 +2268,7 @@ int main(int argc, char **argv) {
       field_int(lim, "value_bytes", MAX_VALUE, &value) || field_int(lim, "memory_bytes", MAX_MEMORY, &memory) ||
       field_int(lim, "wall_ms", MAX_WALL, &wall))
     reply_refused("invalid_request");
+  if (check_calls(cal) < 0 || node_depth(inp) > MAX_CONTAINERS) reply_refused("invalid_request");
 
   G.mem_limit = (size_t)memory;
   G.value_bytes = (size_t)value;
@@ -2020,6 +2283,8 @@ int main(int argc, char **argv) {
 
   L = new_state();
   init_state(L);
+  if (calls_mode != MODE_NONE) init_bindings(L);
+  if (calls_mode == MODE_REPLAY) next_record = nodes[calls_recorded].first;
   base = lua_gettop(L);
 
   /* arm the limits: no user code has run yet */
@@ -2045,6 +2310,8 @@ int main(int argc, char **argv) {
   if (G.sticky) reply_sticky();
   if (st != LUA_OK) reply_refused("lua_error");
   if (lua_gettop(L) != base + 1) reply_refused("invalid_result");
+  /* a record that the source did not ask for is a different run */
+  if (calls_mode == MODE_REPLAY && call_count < nrecorded) reply_refused("call_mismatch");
 
   outbuf.limit = G.value_bytes;
   lua_pushcfunction(L, encode_cf);
