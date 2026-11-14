@@ -63,12 +63,18 @@ tenant. No function takes another tenant.
   that write it appends a `stored` record for the identity to the tenant
   stream. Returns `{:ok, identity}`. A version exists for this Piece when
   its `stored` record exists. The same package again, while it is stored
-  and not marked deleted, returns `{:ok, identity}` and writes nothing. When
-  the artifact was written and the `stored` record was not (a failed
-  append), a second `put/3` appends it and does not write the bytes again.
+  and not marked deleted, returns `{:ok, identity}` and writes nothing.
+  `Artifact.put/5` has no content test and always adds a version, so two
+  concurrent `put/3` of one package, or a `put/3` after an interrupted one,
+  can leave more than one artifact version. All versions of a recipe
+  artifact hold equal bytes, because the artifact ID is the digest of those
+  bytes; the stream holds one `stored` record. This is accepted: `get/3`
+  reads the head, and `delete/3` deletes every version.
   A package whose identity is marked deleted is `{:error, :deleted}`: an
-  identity is never stored a second time. So each recipe artifact holds
-  exactly one version, version 1.
+  identity is never stored a second time. When the `stored` append meets a
+  conflict and the stream read again shows a delete mark, `put/3` deletes
+  the versions that the artifact holds, as `delete/3` does, before it
+  returns `{:error, :deleted}`.
 - `get(store, caller, identity)`: `{:ok, package}`: the stored map, after
   its identity was computed again from the bytes and compared.
 - `check(store, caller, identity, facts)`: reads the package, calls
@@ -92,14 +98,15 @@ tenant. No function takes another tenant.
 - `delete(store, caller, identity)`: refused while a pin record of the
   version exists and while it is the published version. Otherwise it commits
   a delete mark in the tenant stream and only then calls
-  `Artifact.delete/4` for version 1. The Artifact delete is complete when
-  that call returns `{:ok, _}` or `{:error, :deleted}`: then the result is
+  `Artifact.delete/4` for each version that `Artifact.versions/3` lists. The
+  Artifact delete is complete when each call returned `{:ok, _}` or
+  `{:error, :deleted}`, or no version exists: then the result is
   `{:ok, :deleted}`. The removal of the object bytes after that is the work
   of `state/artifact` (its `reap/3` tries an object delete again); this
   Piece does not read the `object` member. For each other `{:error, reason}`
-  of `Artifact.delete/4` the result is
+  of `Artifact.versions/3` or `Artifact.delete/4` the result is
   `{:error, {:delete_incomplete, reason}}`: the mark stays. A `delete/3` of
-  a version that is already marked calls `Artifact.delete/4` again and
+  a version that is already marked runs the Artifact delete again and
   returns in the same way, so it completes an incomplete delete and returns
   `{:ok, :deleted}` for a complete one.
 - `versions(store, caller)`: `{:ok, [%{identity, checked: boolean, pins:
@@ -148,7 +155,9 @@ the pin rule, and this Piece cannot prevent it.
 
 Limits: no transaction across the tenant stream and an artifact: between the
 delete mark and the Artifact delete the bytes exist and `get/3` already
-gives `:deleted`. A pin record is a record, not a lease: a Run that never
+gives `:deleted`. A `put/3` that is interrupted after the artifact write and
+before the `stored` record leaves bytes that no function lists; a later
+`put/3` of the same package adopts them, and nothing else removes them. A pin record is a record, not a lease: a Run that never
 unpins keeps the version. The check verdict is that of the facts given then;
 a later change of the facts is not seen. No listing across tenants, no
 search, no settings. Publishing changes no running Run: which version a Run
@@ -169,7 +178,10 @@ Memory Store.
 1. **`immutable_versions`**: `put` then `get` gives the same map; the same
    package twice gives one version and one `stored` record; `put` of a
    deleted identity is `:deleted`; a `put` whose `stored` append failed once
-   is completed by a second `put` with one artifact version; a changed package gives another
+   is completed by a second `put`; two concurrent `put` of one package give
+   one `stored` record, and `get` gives the map whatever number of artifact
+   versions exists; a `put` that loses against a concurrent `delete` returns
+   `:deleted` and leaves no committed artifact version; a changed package gives another
    identity and both stay readable; a malformed package is
    `:invalid_package`; the artifact has access expiry and retention `:never`.
 2. **`only_checked_is_published`**: `publish` of a stored, unchecked version
@@ -195,7 +207,8 @@ Memory Store.
    refuses the append to the artifact stream once, `delete/3` gives
    `{:delete_incomplete, _}`, the mark is in the tenant stream, the version
    reads as `:deleted`, and a second `delete/3` gives `{:ok, :deleted}`; a
-   third gives `{:ok, :deleted}` too; in no run is the artifact record
+   third gives `{:ok, :deleted}` too; a recipe artifact with two versions
+   has none committed after one `delete/3`; in no run is the artifact record
    deleted while the tenant stream holds no mark.
 8. **`reap_keeps_recipes`**: `Artifact.reap/3` on a recipe artifact, with
    the clock far in the future, removes no version.
