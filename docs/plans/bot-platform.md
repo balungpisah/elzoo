@@ -365,7 +365,7 @@ Resolved on 2026-11-12; these decisions are also in the corresponding job Contra
 
 Resolved on 2026-11-14; these decisions are also recorded in `release-plan.json` and the published tasks:
 
-- **RC-60:** reference PUC Lua 5.4.9 runs outside the VM over a Port with a small C host, following ELZ-159. ELZ-160 adopts the official mirror commit with byte-identical library sources; the absent `luac.c` is not needed. The v1 capability names, `policy-v1:sha256:` identity and `unlisted_name` outcome remain input to later Piece admission, not decisions of the provider prerequisite.
+- **RC-60:** reference PUC Lua 5.4.9 runs outside the VM over a Port with a small C host, following ELZ-159. ELZ-160 adopts the official mirror commit with byte-identical library sources; the absent `luac.c` is not needed. The provider prerequisite does not decide capability policy. Owner decision (option A), 2026-11-14: ELZ-163 ships policy version 1 without helpers and refuses every helper name as `unlisted_name`, an exception to RC-60's every-policy-version helper requirement. The separate `runtime/lua-stdlib` Piece adds safe JSON/text/time helpers in the next policy version. RC-62 and RC-66 retain their dependency on RC-60's remaining lua-stdlib portion, so recipes never use the helper-free version.
 - **RC-61:** callable kinds v1 are graph, agent and typed decision. Node kinds v1 are `call`, `tool`, `ask`, `decision`, `map` and `loop`. Map and loop are bounded re-runs of a named callable and never a back-edge. The handle remains `domain/recipe-graph` even for an agent or decision root. ELZ-161 and ELZ-162 are independent; recipe-package follows in a later publication.
 
 | Decision | Job |
