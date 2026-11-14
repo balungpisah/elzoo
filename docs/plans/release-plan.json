@@ -5787,6 +5787,23 @@
       "issue": 374,
       "url": "https://github.com/balungpisah/elzoo/issues/374",
       "issue_body_sha256": "5339b66fcbb32fe037ecf34ff7ff109b8d80d461de36c1f3aaefbb0aa4fbbed9"
+    },
+    {
+      "id": "ELZ-173",
+      "title": "ELZ-173 — AGENTS.md: before the first release a ready Piece is extended in place",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033"],
+      "status": "published 2026-11-14",
+      "owner_role": "coordinator; one-PR path for a non-Piece change; independent review and merge queue",
+      "paths": ["tasks/ELZ-173-extend-pieces-before-release.md"],
+      "outputs": [],
+      "acceptance": "AGENTS.md states the owner decision of 2026-11-14 in section 4 and in the flow table of section 1: before the first release a ready Piece that lacks something which clearly belongs to it is extended, refactored or cut clean in place with the same Piece ID; the new-ID rule applies from the first release. No other document changes.",
+      "product_aims": ["P13"],
+      "issue": 386,
+      "url": "https://github.com/balungpisah/elzoo/issues/386",
+      "issue_body_sha256": "24ae25d92d725d24cc111072e10f191b70e06a928b5c573972634144497dafca"
     }
   ],
   "entries": [

@@ -225,6 +225,7 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-156](https://github.com/balungpisah/elzoo/issues/336) | V1B / pieces | ELZ-143 | published 2026-11-13 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-157](https://github.com/balungpisah/elzoo/issues/342) | V1 / pieces | none | published 2026-11-13 | one claimed provider worker; coordinator owns independent review and merge |
 | [ELZ-158](https://github.com/balungpisah/elzoo/issues/345) | V1 / pieces | none | published 2026-11-14 | coordinator owns implementation, independent review and merge |
+| [ELZ-173](https://github.com/balungpisah/elzoo/issues/386) | V1B / pieces | ELZ-033 | published 2026-11-14 | coordinator; one-PR path for a non-Piece change; independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -396,7 +397,7 @@ Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, EL
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-173.
 
 ### V2-ACCEPT
 
@@ -2930,3 +2931,13 @@ Publication copy: [tasks/ELZ-171-recipe-store.md](../../tasks/ELZ-171-recipe-sto
 **Product aims:** P13.
 
 **Acceptance:** Immutable recipe versions of each tenant in state/artifact with access expiry and retention never; verdicts of workflow/recipe-check, the published pointer, pin records and delete marks in one stream per tenant under head-revision CAS. Only a checked version is published; go-back publishes an older version; two publishes and a pin with a delete each have one order; a pinned or published version is not deleted; the delete mark is committed before the Artifact delete; reap removes no recipe; a tenant cannot read another tenant.
+
+### ELZ-173
+
+ELZ-173 — AGENTS.md: before the first release a ready Piece is extended in place
+
+Publication copy: [tasks/ELZ-173-extend-pieces-before-release.md](../../tasks/ELZ-173-extend-pieces-before-release.md).
+
+**Product aims:** P13.
+
+**Acceptance:** AGENTS.md states the owner decision of 2026-11-14 in section 4 and in the flow table of section 1: before the first release a ready Piece that lacks something which clearly belongs to it is extended, refactored or cut clean in place with the same Piece ID; the new-ID rule applies from the first release. No other document changes.
