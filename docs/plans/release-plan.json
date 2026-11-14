@@ -7100,7 +7100,7 @@
       "disposition": "retained-ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/sql/piece.json",
-      "manifest_sha256": "9760b7895757ed597db3ac22fe1efe57bb2e2b30e9ec9e774e93e1826f90430c"
+      "manifest_sha256": "15d52f118e8f90816d40c7c7d4355b6eb6f02e7b468c6bcde331bcc2efeb2184"
     },
     {
       "id": "integration/text-chunking",
