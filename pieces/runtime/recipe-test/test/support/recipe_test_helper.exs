@@ -34,6 +34,7 @@ defmodule Elzoo.RecipeTest do
     TypedDecision
   }
 
+  alias Elzoo.DynamicUnits
   alias Elzoo.EffectIntent.Binding
   alias Elzoo.RecipeTest.Glue
   alias Elzoo.RunEngine.TestHelper
@@ -418,19 +419,21 @@ defmodule Elzoo.RecipeTest do
         }
       )
 
-    engine =
-      TestHelper.start(c,
-        pattern: {Glue, :step, state},
-        schemas: Map.merge(c.opts[:schemas], Map.new(@extra_schemas, &schema_entry/1)),
-        bindings: bindings(spec, host, c.opts[:bindings]["finish"], descriptors),
-        request_cap: 256,
-        budget: %{
-          cap: Integer.pow(2, @budget_exponent),
-          unit: "credits",
-          id: "budget",
-          incarnation: "sealed"
-        }
-      )
+    # The overrides of every start of the engine, the one after a restart included.
+    overrides = [
+      pattern: {Glue, :step, state},
+      schemas: Map.merge(c.opts[:schemas], Map.new(@extra_schemas, &schema_entry/1)),
+      bindings: bindings(spec, host, c.opts[:bindings]["finish"], descriptors),
+      request_cap: 256,
+      budget: %{
+        cap: Integer.pow(2, @budget_exponent),
+        unit: "credits",
+        id: "budget",
+        incarnation: "sealed"
+      }
+    ]
+
+    engine = TestHelper.start(c, overrides)
 
     start = %{
       "type" => "input",
@@ -441,7 +444,17 @@ defmodule Elzoo.RecipeTest do
       "payload" => payload
     }
 
-    st = %{engine: engine, c: c, script: spec.script, asked: %{}, held: %{}, deliveries: 0}
+    st = %{
+      engine: engine,
+      c: c,
+      overrides: overrides,
+      script: spec.script,
+      asked: %{},
+      held: %{},
+      deliveries: 0,
+      restart_after: spec.restart_after,
+      restarted: false
+    }
 
     case RunEngine.input(engine, "rt:start", start, TestHelper.verified()) do
       {:ok, :applied} -> loop(st, 0)
@@ -740,6 +753,9 @@ defmodule Elzoo.RecipeTest do
       view.reconciliation != nil ->
         {:error, {:halted, view.reconciliation, record(st)}}
 
+      stable?(view, st, occurrences) and restart?(st) ->
+        restart(st)
+
       stable?(view, st, occurrences) and done?(view, st) ->
         {:ok, record(st)}
 
@@ -777,6 +793,21 @@ defmodule Elzoo.RecipeTest do
       slot.phase == :settled or (slot.kind == "nested_callable" and slot.phase == :running) or
         Map.has_key?(st.held, slot.action_id)
     end) and Enum.all?(st.held, fn {id, _} -> Map.has_key?(occurrences, id) end)
+  end
+
+  # At the first stable point after `restart_after` deliveries at which a call or a Lua run is held.
+  defp restart?(st),
+    do:
+      st.restart_after != nil and not st.restarted and st.deliveries >= st.restart_after and
+        st.held != %{}
+
+  # Every held call and Lua run is dropped and never answered; the engine records it as lost.
+  defp restart(st) do
+    GenServer.stop(st.engine)
+    :ok = DynamicUnits.stop(st.c.directory, st.c.prefix)
+    Agent.update(st.c.host_mode, fn _ -> :recover end)
+    engine = TestHelper.start(st.c, st.overrides)
+    loop(%{st | engine: engine, held: %{}, restarted: true}, 0)
   end
 
   defp done?(view, st) do
@@ -905,7 +936,7 @@ defmodule Elzoo.RecipeTest do
       steps: steps(st, 1, []),
       asked: st.asked,
       unused: for({key, [_ | _] = left} <- st.script, into: %{}, do: {key, length(left)}),
-      restarted: false
+      restarted: st.restarted
     }
   end
 
