@@ -395,14 +395,24 @@ defmodule Elzoo.RecipeTestLuaTest do
   describe "lua_tool_module_call" do
     test "an agent calls the Lua tool, which makes one module call", %{executable: executable} do
       assert {:ok, record} = RecipeTest.run(lua_agent_spec(executable))
-      assert record.outcome == :completed
-      assert record.unused == %{}
-      assert record.restarted == false
-
       assert record.asked == %{{:model, "scripted-model"} => 2, {:tool, "calc_add"} => 1}
 
       child = child_id(2, "d1:t:1:1")
       actions = actions(record)
+
+      value = %{"total" => 3}
+
+      assert %{
+               "kind" => "finish",
+               "schema_id" => "elzoo.agent-loop.tool-result",
+               "payload" => %{"content" => %{"content" => content}}
+             } = actions[child <> ":finish"]
+
+      assert content == canonical(value)
+      assert Jason.encode!(actions["d1:m:2"]["payload"]) =~ in_json(canonical(value))
+      assert record.outcome == :completed
+      assert record.unused == %{}
+      assert record.restarted == false
 
       assert actions |> Map.keys() |> Enum.sort() ==
                Enum.sort([
@@ -440,17 +450,6 @@ defmodule Elzoo.RecipeTestLuaTest do
                }
              ] = nested
 
-      value = %{"total" => 3}
-
-      assert %{
-               "kind" => "finish",
-               "schema_id" => "elzoo.agent-loop.tool-result",
-               "payload" => %{"content" => %{"content" => content}}
-             } = actions[child <> ":finish"]
-
-      assert content == canonical(value)
-      assert Jason.encode!(actions["d1:m:2"]["payload"]) =~ in_json(canonical(value))
-
       modules =
         for %{step: :input, input: %{"kind" => "action_outcome", "action_id" => id} = input} <-
               record.steps,
@@ -462,12 +461,17 @@ defmodule Elzoo.RecipeTestLuaTest do
 
     test "a root graph tool node gives the object of the Lua tool", %{executable: executable} do
       assert {:ok, record} = RecipeTest.run(lua_graph_spec(executable))
-      assert record.outcome == :completed
-      assert record.unused == %{}
       assert record.asked == %{{:tool, "calc_add"} => 1}
 
       child = child_id(2, "d1:n:t")
       actions = actions(record)
+
+      assert %{"schema_id" => "elzoo.graph-run.node-result", "payload" => finish} =
+               actions[child <> ":finish"]
+
+      assert finish == %{"gives" => %{"total" => 3}}
+      assert record.outcome == :completed
+      assert record.unused == %{}
 
       assert actions |> Map.keys() |> Enum.sort() ==
                Enum.sort([

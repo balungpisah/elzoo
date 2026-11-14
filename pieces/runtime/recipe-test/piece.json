@@ -5,7 +5,7 @@
   "coverage": "subset",
   "license": "Apache-2.0",
   "kind": "owned",
-  "providers": ["elixir", "otp", "jason"],
+  "providers": ["elixir", "otp", "jason", "lua_source"],
   "dependencies": [
     "assembly/run-engine",
     "workflow/agent-loop",
@@ -16,7 +16,11 @@
     "workflow/pattern-step",
     "delivery/effect-intent",
     "state/event-log",
-    "integration/sql"
+    "integration/sql",
+    "workflow/lua-tool",
+    "runtime/lua-binding",
+    "runtime/lua-sandbox",
+    "workflow/runtime-graph"
   ],
   "applications": ["crypto"],
   "contract": "An ExUnit helper that checks a recipe package, runs it end to end through the real Run engine and the real agent, graph and decision pattern Pieces on disposable PostgreSQL with scripted model and tool results from allowed Adapters only, no network and a clock that does not move, and gives back the record of every step, with an explicit failure for a call that the script does not name.",
@@ -35,6 +39,7 @@
     "lib/elzoo/recipe_test/tool_binding.ex",
     "test/support/recipe_test_helper.exs",
     "test/elzoo/recipe_test_test.exs",
+    "test/elzoo/recipe_test_lua_test.exs",
     "test/elzoo/recipe_test/glue_test.exs"
   ],
   "grounding": [
