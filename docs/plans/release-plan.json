@@ -7312,12 +7312,12 @@
     {
       "id": "runtime/lua-sandbox",
       "job": "ELZ-163",
-      "note": "Evaluate one pure Lua function of one plain input in a fresh PUC Lua 5.4.9 process outside the VM, started by a caller-held OTP Port from an executable that build/2 compiles from the installed pinned lua_source checkout and an owned C host, over length-framed JSON (unsigned 32-bit little-endian length, at most 1,048,576 bytes) under capability policy version 3, whose fixed allow-list of names and safe helper set (ten C helpers under the global helpers, each version 1, for JSON null and empty object, canonical JSON encode and decode, ASCII trim, plain split, UTF-8 code-point count and UTC time values that the caller passes in) has a canonical identity and refuses every other name as unlisted_name; for each declared name a function bindings.<name> is answered by the sandbox itself, as data (mode data) or as a replay of the results that the caller recorded, in order, ending at the first unrecorded call with a pending-call reply (mode replay), and a recorded call that the source does not repeat is call_mismatch; helpers charge counted steps for their work and their limits are the same sticky stops; exact positive limits on counted steps, call depth, value bytes, live Lua memory and wall time apply, and a step, depth, size or unlisted-name stop is sticky and cannot be caught or continued from Lua; input and result are plain data (null sentinel, booleans, UTF-8 strings, signed 64-bit integers, finite floats, dense arrays, string-keyed maps, at most 32 nested containers), a refusal is a fixed atom, memory, wall time, abnormal exit and protocol failure are recorded host outcomes, and the child is reaped on every return path including the death of the caller.",
+      "note": "Evaluate one pure Lua function of one plain input in a fresh PUC Lua 5.4.9 process outside the VM, started by an OTP Port from an executable that build/2 compiles from the installed pinned lua_source checkout and an owned C host, over length-framed JSON (unsigned 32-bit little-endian length, at most 1,048,576 bytes) under capability policy version 3, whose fixed allow-list of names and safe helper set (ten C helpers under the global helpers, each version 1, for JSON null and empty object, canonical JSON encode and decode, ASCII trim, plain split, UTF-8 code-point count and UTC time values that the caller passes in) has a canonical identity and refuses every other name as unlisted_name; for each declared name a function bindings.<name> is answered by the sandbox itself, as data (mode data) or as a replay of the results that the caller recorded, in order, ending at the first unrecorded call with a pending-call reply (mode replay), and a recorded call that the source does not repeat is call_mismatch; helpers charge counted steps for their work and their limits are the same sticky stops; exact positive limits on counted steps, call depth, value bytes, live Lua memory and wall time apply, and a step, depth, size or unlisted-name stop is sticky and cannot be caught or continued from Lua; input and result are plain data (null sentinel, booleans, UTF-8 strings, signed 64-bit integers, finite floats, dense arrays, string-keyed maps, at most 32 nested containers), a refusal is a fixed atom, memory, wall time, abnormal exit and protocol failure are recorded host outcomes, and the child is reaped on every return path including the death of the caller, except that an owner killed from outside leaves the child to its own backstops.",
       "baseline_status": "not in baseline (new row, RC-60)",
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/runtime/lua-sandbox/piece.json",
-      "manifest_sha256": "babf2cac2f504a7c3446157b5c54cddcada8f759164ebc3d31950f533d73f7ea"
+      "manifest_sha256": "2a41f438e2e6f95fc36a2432abd8b5687a9781bad28648ce302fe9309974a7a4"
     },
     {
       "id": "domain/recipe-graph",
@@ -7442,9 +7442,11 @@
     {
       "id": "workflow/skill",
       "job": "ELZ-182",
-      "note": "Pure reader of a skill folder and one pinned_skill tool source: SKILL.md frontmatter and body, a load that gives the instructions as a declaration, files read as marked content, scripts never run.",
+      "note": "Pure functions over a skill folder given as data and over a checked recipe package: read/4 checks the operands, the paths and the fixed folder bounds, splits SKILL.md at its frontmatter lines, scans and reads the frontmatter with the pinned YAML reader and gives the skill entry of a recipe package and the other files of the folder; source/2 gives the one pinned_skill tool-registry source of the skills of a package, with the tools load_skill and read_skill_file; load/2 gives the declaration payload with the body of one skill byte for byte and no listing; read_file/3 gives one other file of a skill as marked untrusted content; each refusal is a fixed reason that holds no path, file byte, frontmatter value or body.",
       "baseline_status": "not in baseline (new row, RC-67)",
-      "disposition": "published-task; implementation pending",
+      "disposition": "ready-contract",
+      "manifest": "pieces/workflow/skill/piece.json",
+      "manifest_sha256": "1ed520e8d51e060ced7644b9c02b101437f06d807a5b357f514b5b78b188f088",
       "catalogue_reference": "registry/catalogue.json"
     }
   ],
