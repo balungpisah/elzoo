@@ -372,13 +372,14 @@ defmodule Elzoo.Skill do
   end
 
   # The scan of the text of a flow region, outside quoted text. `state` is
-  # `{last, quote, depth}`: `last` is `:start` after `{`, `[`, `,`, `:` or the
-  # end of a tag (a token can start here, after any blanks and line breaks) and
-  # `:other` after anything else; `quote` is nil, `:single` or `:double`;
+  # `{last, quote, depth}`: `last` is `:start` after `{`, `[`, `,`, `:`, a
+  # comment or the end of a tag (a token can start here, after any blanks and
+  # line breaks), `:close` after `]` or `}` (a `&` or `*` can start a token
+  # here, a `?` cannot) and `:other` after anything else; `quote` is nil, `:single` or `:double`;
   # `depth` is the number of open `[` and `{`. A `?` at a token start that a
   # space, a tab or the line end follows is the explicit-key indicator and is
   # `invalid_yaml`, before every alias of the line. A `&` or `*` at a token
-  # start, and a `<<` anywhere, is `yaml_alias`.
+  # start (`:start` or `:close`), and a `<<` anywhere, is `yaml_alias`.
   defp flow_line(line, state) do
     case flow_bytes(line, state, true, String.contains?(line, "<<")) do
       {:ok, state, false} -> {:ok, state}
@@ -408,7 +409,9 @@ defmodule Elzoo.Skill do
   defp flow_bytes(<<c, rest::binary>>, state, _blank, alias?) when c in [?\s, ?\t],
     do: flow_bytes(rest, state, true, alias?)
 
-  defp flow_bytes(<<"#", _::binary>>, state, true, alias?), do: {:ok, state, alias?}
+  # A comment ends the token: the next byte that is not blank starts a new one.
+  defp flow_bytes(<<"#", _::binary>>, {_last, quote, depth}, true, alias?),
+    do: {:ok, {:start, quote, depth}, alias?}
 
   defp flow_bytes(<<"?", c, _::binary>>, {:start, _quote, _depth}, _blank, _alias?)
        when c in [?\s, ?\t],
@@ -426,10 +429,10 @@ defmodule Elzoo.Skill do
 
   defp flow_bytes(<<c, rest::binary>>, {_last, _quote, depth}, _blank, alias?)
        when c in [?}, ?]],
-       do: flow_bytes(rest, {:other, nil, max(depth - 1, 0)}, false, alias?)
+       do: flow_bytes(rest, {:close, nil, max(depth - 1, 0)}, false, alias?)
 
-  defp flow_bytes(<<c, rest::binary>>, {:start, _quote, depth}, _blank, _alias?)
-       when c in [?&, ?*],
+  defp flow_bytes(<<c, rest::binary>>, {last, _quote, depth}, _blank, _alias?)
+       when last in [:start, :close] and c in [?&, ?*],
        do: flow_bytes(rest, {:other, nil, depth}, false, true)
 
   defp flow_bytes(<<"'", rest::binary>>, {:start, _quote, depth}, _blank, alias?),

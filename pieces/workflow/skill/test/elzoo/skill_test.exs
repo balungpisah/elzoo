@@ -611,6 +611,44 @@ defmodule Elzoo.SkillTest do
       assert {:error, :yaml_alias} = fm("m: [a, # <<\n b]\n")
     end
 
+    test "2.22 in a flow region an anchor or alias after a closing bracket or a comment is yaml_alias" do
+      for frontmatter <- [
+            "b: [x] &y\nc: [a # c\n  *y]\n",
+            "b: [x] &y\n",
+            "b: [x]&y\n",
+            "c: [a # c\n  *y]\n",
+            "c: {a: x # c\n  *y}\n",
+            "b: {k: v} *y\n",
+            "b: [x] *y\n",
+            "b: [[x]&y]\n",
+            "m: [[a]\n &y b]\n",
+            "m: [{a: b} &y]\n",
+            "m: {a: [b] *y}\n",
+            "m: {k: v}&y\n",
+            "c: [a # c\n  &y b]\n",
+            "c: [\"a\" # c\n  *y]\n",
+            "c: [a # c\n  # d\n  *y]\n"
+          ] do
+        assert {:error, :yaml_alias} = fm(frontmatter)
+      end
+
+      # A comment ends the token, so a ? that follows it is an explicit key;
+      # a ? after a closing bracket is text or a reader error.
+      for frontmatter <- ["c: {a: x # c\n  ? k : v}\n", "c: [a, # c\n  ? b : d]\n"] do
+        assert {:error, :invalid_yaml} = fm(frontmatter)
+      end
+
+      assert {:error, :invalid_yaml} = fm("m: [{a: b} ? c]\n")
+
+      assert {:ok, %{entry: %{"frontmatter" => %{"m" => ["R&D", "a & b", "5 * 3"]}}}} =
+               fm("m: [R&D, a & b, 5 * 3]\n")
+
+      assert {:ok, %{entry: %{"frontmatter" => %{"m" => ["&x", "*y"]}}}} =
+               fm("m: ['&x', \"*y\"]\n")
+
+      assert {:ok, %{entry: %{"frontmatter" => %{"c" => ["a#c *y"]}}}} = fm("c: [a#c\n  *y]\n")
+    end
+
     # Extra cases that pin a rule that a written case does not reach.
 
     test "a comment line does not end a flow region, and a block region ends at a comment line at its column" do

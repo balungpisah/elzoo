@@ -74,10 +74,11 @@ passes; the first refusal ends the scan.
    is not scanned. A flow region (`[` or `{`) is scanned token by token, with
    its state carried from line to line, until its brackets close: a `<<` is
    `yaml_alias` anywhere in it; a `&` or `*` that starts a token (after `{`,
-   `[`, `,`, `:` or the end of a tag, with spaces, tabs and line breaks
-   between, or none) is `yaml_alias`; a `?` at a token start that a space, a
-   tab or the line end follows is `invalid_yaml`, and it is checked before an
-   alias of the same line. Quoted text (a quote opens only at a token start;
+   `[`, `,`, `:`, `]`, `}`, a comment or the end of a tag, with spaces, tabs and
+   line breaks between, or none) is `yaml_alias`, also after a flow collection
+   that closes on its line; a `?` at a token start (not after `]` or `}`) that
+   a space, a tab or the line end follows is `invalid_yaml`, and it is checked
+   before an alias of the same line. Quoted text (a quote opens only at a token start;
    `''` and `\"` are the escapes) and a comment (`#` after a blank) hide
    their `&` and `*`. Spaces and tabs both separate a key from its `:`, a `:`
    from its value and a tag from its node, because the reader accepts a tab
