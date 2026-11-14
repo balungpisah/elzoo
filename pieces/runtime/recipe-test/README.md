@@ -72,7 +72,7 @@ finds either.
 | `adapters` | the allow-list: a list of Adapter modules |
 | `input` | the input of the Run: an object for a `graph` or `decision` root, non-empty text for an `agent` root |
 | `tools` | a map from the alias of each nested tool of the snapshot to its entry (below); `%{}` when there is none |
-| `executable` | the path of a sandbox executable of `LuaSandbox.build/2`, or `nil` when `tools` has no `:lua` entry |
+| `executable` | the path of a sandbox executable of `LuaSandbox.build/2`; it must be text when `tools` has a `:lua` entry, and it can be `nil` or text otherwise (the harness does not use it then) |
 | `restart_after` | `nil`, or a positive integer: the number of deliveries after which the engine restarts once (below) |
 
 An entry of `tools` is exactly one of:
@@ -267,6 +267,8 @@ estimator_id: "recipe-test-bytes", estimator_version: 1}}`.
   because no wrapper gives `continue`.
 - A Lua run is real: its `wall_ms` is real time, not the clock of the harness. At most 256
   module calls of a Lua tool in a Run, and one restart.
+- The harness accepts a text `executable` also when `tools` has no `:lua` entry and does not use
+  it then; the spec form names `nil` for that case.
 - A restart drops every call and Lua run in flight: an Effect becomes `unknown` and a Lua run
   `failed` with `local_restart`. It shows that the record is read again and that no recorded
   call is asked again, not a restart without loss. A dropped call's task waits until the test
