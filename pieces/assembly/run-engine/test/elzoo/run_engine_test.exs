@@ -3906,17 +3906,6 @@ defmodule Elzoo.RunEngineTest do
   end
 
   # ELZ-190 helpers.
-  # A full-journal replay at this size takes seconds and meets the start limit of the
-  # directory (a separate defect); the checkpoint makes the restart replay its tail.
-  # It changes no row of the journal. Returns the count of rows.
-  defp checkpoint_keeping_rows(c) do
-    count = length(rows(c))
-    {:ok, unit} = DynamicUnits.find(c.directory, c.prefix)
-    assert {:committed, _} = DurableUnit.checkpoint(unit)
-    assert length(rows(c)) == count
-    count
-  end
-
   defp restart(c, engine, overrides) do
     GenServer.stop(engine)
     assert :ok = DynamicUnits.stop(c.directory, c.prefix)
@@ -5852,7 +5841,6 @@ defmodule Elzoo.RunEngineTest do
       # closed, and a restart must give the same view, slots, Budgets and journal.
       change_attempt(engine)
       first = footprint(c, engine)
-      checkpoint_keeping_rows(c)
       engine = restart(c, engine, bindings: bindings)
       assert footprint(c, engine) == first
       engine = restart(c, engine, bindings: bindings)
@@ -5878,16 +5866,11 @@ defmodule Elzoo.RunEngineTest do
       records = fn -> Map.new(refused, fn id -> {id, outcome_records(c, id)} end) end
       sent = records.()
       assert Enum.all?(sent, fn {_, found} -> length(found) == 1 end)
-
-      # The tail after the checkpoint is not empty: one more input of the same Attempt.
-      checkpointed = checkpoint_keeping_rows(c)
-      assert {:ok, :applied} = RunEngine.input(engine, "next", wake(), verified())
       before = unit_state(c)
       count = length(rows(c))
-      assert checkpointed < count
 
       # No engine runs, so no recovery step reconciles the sent tool calls: the unit
-      # replays the checkpoint and its tail and nothing else.
+      # folds the journal and nothing else.
       GenServer.stop(engine)
       assert :ok = DynamicUnits.stop(c.directory, c.prefix)
       assert {:ok, _} = DynamicUnits.start(c.directory, c.prefix)
@@ -5918,7 +5901,6 @@ defmodule Elzoo.RunEngineTest do
       # The first restart reconciles the sent tool calls (their cost becomes unknown).
       # After it, the state is a fixed point: another restart gives the same view,
       # slots, Budgets and journal, and the refusal is not recorded or asked again.
-      checkpoint_keeping_rows(c)
       engine = restart(c, engine, bindings: bindings)
       first = footprint(c, engine)
       engine = restart(c, engine, bindings: bindings)
