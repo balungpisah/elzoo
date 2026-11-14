@@ -20,7 +20,7 @@ second cost sum. Add no engine code, no agent logic, no options, behaviours
 or hooks. Edit no ready Piece, shared path, pin or CI file. No fixtures
 directory is needed: each test input is a literal neutral map.
 
-Facts checked on main:
+Facts checked on main, and for ELZ-167 in its published task:
 
 - `workflow/recipe-check` (ELZ-167): `check_graph(recipe, declared, facts)`
   checks every callable of a recipe map, gives located reasons relative to
@@ -74,7 +74,9 @@ A reason is `%{path: path, code: code}` as in ELZ-167. Paths are relative to
 runs only when the stage before it gave no reason.
 
 **Stage 1, the proposal as data.** Reasons with the path `[]`:
-`:invalid_shape` when `proposal` is not a map with exactly the five keys or
+`:invalid_shape` when `proposal` is not a map with exactly the five keys,
+when `nodes`, `links` or `input_slots` is not a list, when an entry of
+`nodes` is not a map with a string `kind`, or when it
 holds a value that is not plain JSON data (a function, a tuple, an atom other
 than a boolean or `nil`, a number that is not finite); `:too_large` when its
 compact JSON is over 65,536 bytes; `:too_many_nodes` when `nodes` holds more
@@ -95,7 +97,8 @@ one more callable `{name, kind: "graph"}` plus the five members of
 `proposal`, added at the end of `callables`, and with `root` set to `name`.
 Build `facts2`: `facts` with one more cost entry for each `tool` node (its
 tool cost) and each `ask` node (`ask_cost`) of the new callable. Call
-`RecipeCheck.check_graph(recipe2, declared, facts2)`.
+`RecipeCheck.check_graph(recipe2, declared, facts2)`. Its
+`{:error, :invalid_facts}` is `{:error, :invalid_context}` here.
 
 - Its reasons come back with these paths: a path into the new callable
   becomes the path into `proposal` (the leading `"callables"` and its index
@@ -166,8 +169,8 @@ Piece dependencies `workflow/recipe-check`, `domain/recipe-graph` and
    256 iterations over a costly callable is `:over_cap`.
 4. **`node_and_depth_maximum`**: `max_nodes` nodes pass and one more is
    `:too_many_nodes`; nesting plus `depth` at `max_depth` passes and one more
-   is `:depth_exceeded`; a graph that names itself is refused with the
-   reason of ELZ-161.
+   is `:depth_exceeded`; a node that names the new callable itself is
+   `:callable_not_allowed`, because `name` is never in `callables`.
 5. **`data_only`**: a proposal with a sixth key, with a key `code` inside a
    node, with a function, with a tuple and with an over-long text is
    refused; a structural fault of ELZ-161 (a need with no giver, a cycle, a

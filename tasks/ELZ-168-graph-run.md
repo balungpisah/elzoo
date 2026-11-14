@@ -22,7 +22,7 @@ rule, no engine code, no agent or decision logic, no Lua. Edit no ready Piece,
 shared path, pin or CI file. No fixtures directory is needed: each test input
 is a literal neutral map. Ask the coordinator before any expansion.
 
-Facts checked on main:
+Facts checked on main, and for ELZ-166 in its published task:
 
 - `domain/recipe-graph` (ELZ-161) validates a recipe and refuses every cycle.
   A `map` or `loop` node holds only `callable` and `max_iterations` (1 to
@@ -56,7 +56,9 @@ shapes; the host builds the payload schemas of its engine from them.
 - **Node result.** `elzoo.graph-run.node-result` is the one result key of
   every action of a node. A completed payload is an object with `"gives"`: an
   object that holds each give name of the node (other members of `gives` are
-  not read). A decision action also has `"choice"`: one declared choice name.
+  not read). A map item is the exception: its `gives` is any object and is kept
+  whole. A loop iteration holds each give name of the loop node. A decision
+  action also has `"choice"`: one declared choice name.
   A loop action also has `"continue"`: a boolean. An outcome that is not
   completed can have any key: the step reads only its class.
 - **Call action.** Kind `nested_callable`, key `elzoo.graph-run.call`, payload
@@ -75,7 +77,8 @@ shapes; the host builds the payload schemas of its engine from them.
 - **Finish.** Kind `finish`, key `elzoo.graph-run.result`, payload exactly
   `{"status", "reason", "node", "action_id", "gives"}`. `completed` has
   `reason` and `node` `null`, the `gives` of the graph (below) and the
-  identity of the completed action that settled last. `failed` has `gives`
+  identity of the completed action that settled last, or `null` when no
+  action completed (a graph with no node, or with every node skipped). `failed` has `gives`
   and `action_id` `null`, a reason from the table below and the node ID, or
   `null` when no node is at fault.
 
@@ -146,8 +149,8 @@ A link is live, dead or not yet decided, from the state of its source:
 | `choice` | source `done` `completed` with this choice | source `skipped`, `done` with another class, or `completed` with another choice |
 | `outcome` | source `done` with this class | source `skipped`, or `done` with another class |
 
-An `order` link whose source is `skipped` is void: it is neither live nor
-dead.
+An `order` link whose source is `skipped` is void: it is decided, and it
+is neither live nor dead.
 
 A pending node whose incoming links are all decided is **ready** when each
 `data` link is live, no `order` link is dead, and, if it has an `order`,
@@ -245,8 +248,11 @@ same set of actions and the same finish; the grouping of actions into
 requests can differ. No engine claim: the ready `assembly/run-engine` holds
 no result of the child in its outcome of a nested callable, so with that
 engine a `call`, `decision`, `map` or `loop` node settles as `done` `failed`;
-it allows 256 lifetime actions for each Unit; and a request that it does not
-admit gets no outcome. A model graph at run time is `workflow/runtime-graph`.
+it allows 256 lifetime actions for each Unit; a request that it does not
+admit gets no outcome; and it completes a Run on a root `finish` only when
+that names a completed action, so a `failed` finish of a root graph, or a
+finish with `action_id` `null`, comes back refused and the Run ends by its
+cancel or deadline. A model graph at run time is `workflow/runtime-graph`.
 Telemetry, Config and Control are not applicable: pure functions over
 intrinsic operands.
 
