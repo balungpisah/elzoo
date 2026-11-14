@@ -7432,12 +7432,12 @@
     {
       "id": "runtime/recipe-test",
       "job": "ELZ-181",
-      "note": "An ExUnit helper that checks a recipe package, runs it end to end through the real Run engine and the real agent, graph and decision pattern Pieces on disposable PostgreSQL with scripted model and tool results from allowed Adapters only, no network and a clock that does not move, and gives back the record of every step, with an explicit failure for a call that the script does not name.",
+      "note": "An ExUnit helper that checks a recipe package, runs it end to end through the real Run engine and the real agent, graph and decision pattern Pieces on disposable PostgreSQL with scripted model and tool results from allowed Adapters only, tools written in Lua whose module calls are scripted, graphs that the scripted model gives, one restart of the engine, no network and a clock that does not move, and gives back the record of every step, with an explicit failure for a call that the script does not name.",
       "baseline_status": "not in baseline (new row, RC-66)",
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/runtime/recipe-test/piece.json",
-      "manifest_sha256": "e9f03fdcb7a1a4bf5e780fbdb669049be12dd968b999a6ce828886ea0a559dc1"
+      "manifest_sha256": "8d566a403c4875344c5c3fef1e359a629f2a014fb7923c089f39523026baffce"
     },
     {
       "id": "workflow/skill",
