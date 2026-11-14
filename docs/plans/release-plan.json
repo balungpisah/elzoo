@@ -4589,7 +4589,8 @@
         "RC-63",
         "RC-64",
         "ELZ-079",
-        "ELZ-114"
+        "ELZ-114",
+        "ELZ-172"
       ],
       "status": "blocked: unpublished admission proposal",
       "contract": "Run a recipe end to end through the real engine and patterns with scripted model and tool Adapters, no network and a controlled clock. The harness takes only Adapter modules from an allow-list that the caller supplies; any other Adapter is refused at start. The result is the full record of steps. This harness is how a recipe author and a Piece worker test without a provider.",
@@ -5736,6 +5737,23 @@
       "issue": 370,
       "url": "https://github.com/balungpisah/elzoo/issues/370",
       "issue_body_sha256": "b059d5e9c161fb6bc7f375a122f0408bff46c045886b225b85cf452801f0a47b"
+    },
+    {
+      "id": "ELZ-172",
+      "title": "ELZ-172 — The run engine gives the result of a nested callable to its parent",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-114", "ELZ-127"],
+      "status": "published 2026-11-14",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-172-engine-nested-result.md"],
+      "outputs": [],
+      "acceptance": "assembly/run-engine, changed in place by owner decision (no release yet, same Piece ID): the finish of a nested callable is kept in the durable record of the child, and the parent receives it as the completed outcome of its nested_callable action when its schema equals the declared result of the binding; another schema gives failed with nested_result_invalid; a child with no finish keeps nested_completed; the outcome survives a restart and the first finish counts. The root finish rule, the inputs of a pattern and the limits are unchanged.",
+      "product_aims": ["P13"],
+      "issue": 377,
+      "url": "https://github.com/balungpisah/elzoo/issues/377",
+      "issue_body_sha256": "c42673ee702f3e61e8dcfb7b145af89ccdc40d2826a600264875b6b35f258979"
     }
   ],
   "entries": [
