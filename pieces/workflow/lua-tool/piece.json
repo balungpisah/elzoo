@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "id": "workflow/lua-tool",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["elixir"],
+  "dependencies": ["workflow/pattern-step", "workflow/tool-registry", "runtime/lua-binding"],
+  "contract": "A tool written in Lua as one pure pattern step over PatternStep v1 neutral maps: for the start input it asks for one local-work run action that replays the function from the start with the record of earlier module calls as a sandbox request (calls mode replay), and ends with the final value or with the first module call that has no record; for such a call it checks the name and index against the record and the bindings, the call limit and the arguments (LuaBinding.check_arguments/3), asks for one tool-call action, checks the result (LuaBinding.check_result/3), adds the call to the record and asks for the run again; one finish, completed with the value and the identity of the run action, or failed with a named reason. One action in each request; no action is asked for twice and no outcome starts a second try. State within 65,536 bytes. It runs no Lua and calls no module; no sandbox state is kept, only the record.",
+  "limits": [
+    "The step runs no Lua and calls no module: each test input is a literal neutral map, no sandbox is run and the Piece does not depend on runtime/lua-sandbox; the form of the run payload and of the four run-result forms is shown against literal forms of the sandbox, not against its code.",
+    "No ready parent reads elzoo.lua-tool.result: the host wraps the step in a function of its own that turns the finish into the form of the parent; a Run in which another pattern also makes tool calls gives the engine a schema map for the tool_call kind, with an entry for elzoo.lua-tool.module-call; with one binding for the kind, the module results arrive under the other pattern's result schema and each module call ends as module_call_not_completed.",
+    "A run or a module call that did not complete ends the tool as failed and is never repeated; a replay whose call order differs from the record is a failure, never a repair; each module call costs one more sandbox run from the start, so a tool with n calls runs n + 1 times; a memory or wall-time stop is a host outcome and ends the tool as failed.",
+    "No Cure law is selected: the decisions of the step table have finite recorded-trace tests only; no universal claim."
+  ],
+  "files": [
+    "examples/lua_tool.exs",
+    "lib/elzoo/lua_tool.ex",
+    "test/elzoo/lua_tool_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/lua_tool_test.exs",
+      "claim": "Nine named recorded-trace groups pass: no_module_call, two_module_calls_in_order, restart_between_calls, call_order_differs, undeclared_and_wrong_arguments, sandbox_stops_are_tool_failures, module_call_not_completed, limits_and_closed and forms_agree; plus the checked example of one module call. Each request passes PatternStep.decode/1. Negative controls: skipping the index test of a pending call fails call_order_differs; starting a second run after a failed run fails sandbox_stops_are_tool_failures. state_is_plain_data: the state is plain data (no struct) within 65,536 bytes after every transition of the trace of two_module_calls_in_order, by the measure of the ready run engine. Finite scenarios, not a universal proof."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Pinned Elixir immutable maps and lists; the ready Contracts of workflow/pattern-step, workflow/tool-registry and runtime/lua-binding are reused unchanged; the state bound is measured as the byte size of :erlang.term_to_binary(state, [:deterministic, {:minor_version, 2}]), the measure of the ready run engine."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The host supplies an engine that records each input before the step reads it and checks payload, budget, authority and approval for every action; a local_work binding that runs exactly the given request with the sandbox on an executable that the host built and returns the run-result form; a tool_call binding for each alias of the binding source that calls the real Adapter of the module and returns the module-result form; a recipe whose functions and permissions passed workflow/recipe-check; a Run-wide unique id; and results small enough for the state bound."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "Pure step emits no observations; the engine owns instrumentation."
+    },
+    "config": {
+      "status": "not_applicable",
+      "contract": "Intrinsic spec operands and fixed bounds (state 65,536 bytes, 256 module calls); no ambient or hot settings."
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No independent process; cancel and run_ended are pattern inputs, not operational commands."
+    }
+  }
+}
