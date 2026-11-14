@@ -1,0 +1,77 @@
+# SPDX-License-Identifier: Apache-2.0
+mod Elzoo.VersionPin
+  # Elixir checks the operands and gives one class; Cure owns what each class does to the pin.
+  # ChangeDifferent: an explicit change to another identity. The other classes keep the version.
+  type PinInput = ChangeDifferent | KeepsVersion(KeepInput)
+  type KeepInput = ChangeSame | PublishedInput | SettingsInput | ListingKnown | ListingUnknown | AddSourceInput | RefusedInput
+  type PinResult = PinChanged | PinUnchanged | PinKnown | PinOutside | PinClosed | PinInvalid
+
+  @total true
+  @reducible
+  fn decide_kept(input: KeepInput) -> PinResult =
+    match input
+      ChangeSame() -> PinUnchanged()
+      PublishedInput() -> PinUnchanged()
+      SettingsInput() -> PinUnchanged()
+      ListingKnown() -> PinKnown()
+      ListingUnknown() -> PinOutside()
+      AddSourceInput() -> PinClosed()
+      RefusedInput() -> PinInvalid()
+
+  @total true
+  @reducible
+  fn decide(input: PinInput) -> PinResult =
+    match input
+      ChangeDifferent() -> PinChanged()
+      KeepsVersion(kept) -> decide_kept(kept)
+
+  # The version of the pin after a result: only a change takes the offered identity.
+  @total true
+  @reducible
+  fn next_version({a: Type}, old: a, offered: a, result: PinResult) -> a =
+    match result
+      PinChanged() -> offered
+      PinUnchanged() -> old
+      PinKnown() -> old
+      PinOutside() -> old
+      PinClosed() -> old
+      PinInvalid() -> old
+
+  # The source set of the pin after a result: no result changes it; `offered` is a source that an input asks to add.
+  @total true
+  @reducible
+  fn next_sources({s: Type}, sources: List(s), offered: s, result: PinResult) -> List(s) =
+    match result
+      PinChanged() -> sources
+      PinUnchanged() -> sources
+      PinKnown() -> sources
+      PinOutside() -> sources
+      PinClosed() -> sources
+      PinInvalid() -> sources
+
+  fn publish_keeps_version({a: Type}, old: a, offered: a) -> Equivalent(a, next_version(old, offered, decide(KeepsVersion(PublishedInput()))), old) =
+    reflexive(old)
+
+  fn only_explicit_change_changes_version({a: Type}, old: a, offered: a, kept: KeepInput) -> Equivalent(a, next_version(old, offered, decide(KeepsVersion(kept))), old) =
+    match kept
+      ChangeSame() -> reflexive(old)
+      PublishedInput() -> reflexive(old)
+      SettingsInput() -> reflexive(old)
+      ListingKnown() -> reflexive(old)
+      ListingUnknown() -> reflexive(old)
+      AddSourceInput() -> reflexive(old)
+      RefusedInput() -> reflexive(old)
+
+  fn source_set_is_fixed({s: Type}, sources: List(s), offered: s, input: PinInput) -> Equivalent(List(s), next_sources(sources, offered, decide(input)), sources) =
+    match input
+      ChangeDifferent() -> reflexive(sources)
+      KeepsVersion(kept) ->
+        match kept
+          ChangeSame() -> reflexive(sources)
+          PublishedInput() -> reflexive(sources)
+          SettingsInput() -> reflexive(sources)
+          ListingKnown() -> reflexive(sources)
+          ListingUnknown() -> reflexive(sources)
+          AddSourceInput() -> reflexive(sources)
+          RefusedInput() -> reflexive(sources)
+end

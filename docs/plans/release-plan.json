@@ -7124,10 +7124,12 @@
     {
       "id": "workflow/version-pin",
       "job": "ELZ-170",
-      "note": "Pure rule: a Run keeps the recipe version and the tool source set of its start; only one explicit input changes the version, and nothing changes the source set.",
+      "note": "Pure rule of the recipe version and the tool sources that one Run keeps: the pin captures a package identity and the id, kind and callable of each source at Run start, an explicit change-version input is the only input that changes the version, a published version, a settings change and a listing change nothing, a listing of an outside source is refused, and no input adds a source. No I/O, clock, process, storage or version check.",
       "baseline_status": "not in baseline (new row, RC-65)",
-      "disposition": "published-task; implementation pending",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/workflow/version-pin/piece.json",
+      "manifest_sha256": "f3a7ad8ad832bc5e2ebbe544fa64bf407702f11fbb662702e44b7ee80750d7bc"
     },
     {
       "id": "runtime/recipe-test",
