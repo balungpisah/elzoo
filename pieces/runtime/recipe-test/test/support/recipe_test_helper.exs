@@ -46,6 +46,8 @@ defmodule Elzoo.RecipeTest do
   @graph_keys Enum.sort(~w(kind sources callables tool_costs max_nodes max_depth cap)a)
   @max_polls 2_000
   @budget_exponent 62
+  # 64 active occurrences before the one restart plus 64 after it: a dropped task keeps its place.
+  @lua_capacity 128
   @extra_schemas ~w(elzoo/ai-text-request elzoo.ai-text.result elzoo.agent-loop.message
     elzoo.agent-loop.tool-call elzoo.agent-loop.tool-result elzoo.agent-loop.result
     elzoo.graph-run.input elzoo.graph-run.call elzoo.graph-run.tool-call
@@ -127,13 +129,13 @@ defmodule Elzoo.RecipeTest do
   end
 
   defp check_script(script) do
-    invalid =
-      script
-      |> Map.keys()
-      |> Enum.sort()
-      |> Enum.find(fn key -> not valid_entries?(key, Map.fetch!(script, key)) end)
-
-    if invalid == nil, do: :ok, else: {:error, {:invalid_script, invalid}}
+    # Find the pair, not the key: the key `nil` is a key that `Enum.find/2` cannot tell from "none".
+    case script
+         |> Enum.sort()
+         |> Enum.find(fn {key, entries} -> not valid_entries?(key, entries) end) do
+      nil -> :ok
+      {key, _} -> {:error, {:invalid_script, key}}
+    end
   end
 
   defp valid_entries?({kind, name} = key, entries)
@@ -419,8 +421,20 @@ defmodule Elzoo.RecipeTest do
         }
       )
 
+    # The fixture's own AsyncWork holds 4 places; this run's holds @lua_capacity.
+    name = {:via, Registry, {Elzoo.RunEngine.TestRegistry, c.prefix}}
+    task_supervisor = ExUnit.Callbacks.start_supervised!({Task.Supervisor, []}, id: make_ref())
+
+    async_work =
+      ExUnit.Callbacks.start_supervised!(
+        {Elzoo.AsyncWork,
+         owner: name, task_supervisor: task_supervisor, max_concurrency: @lua_capacity},
+        id: make_ref()
+      )
+
     # The overrides of every start of the engine, the one after a restart included.
     overrides = [
+      async_work: async_work,
       pattern: {Glue, :step, state},
       schemas: Map.merge(c.opts[:schemas], Map.new(@extra_schemas, &schema_entry/1)),
       bindings: bindings(spec, host, c.opts[:bindings]["finish"], descriptors),
