@@ -160,15 +160,40 @@ per-request PatternStep trackers classify before Aggregation's bounded joins.
 Only first applied compatible settlement contributes; losses use `mark_lost`.
 Monetary Budget state/generations persist; known zero releases, positive actual
 settles once, unknown is not zero. Estimates are not provider-enforced charges.
-Child finish does not settle the parent's share until outstanding child actual
-costs are known. Only a nested callable's first admitted `finish` is kept in
+A settled action has a final unknown cost when the Budget of its callable
+still holds its entry (open, or expired at its deadline) with no settle or
+release, the action has no actual, and no later record can give it one. These
+are a model call, tool call, person ask, local work or finish settled with no
+actual (no later outcome settles a settled action), and a nested callable
+settled with no actual whose child is closed, has every action settled and has
+a final unknown cost. A Resource action (its cursor can still settle the cost)
+and a nested callable whose child can still give a known total are not final:
+the engine waits for them as before. A local work closed by a cancel or an
+Attempt change keeps its Budget entry and is final unknown. Child finish does
+not settle the parent's share while a child cost can still come. When the child
+is closed, every child action is settled and each cost is known or final
+unknown: if all are known, `actual` is the committed child Budget amount, as
+before (and a parent settled earlier with no actual gets it later); if one or
+more is final unknown, the parent gets its outcome by the same finish rules and
+reasons with no actual, nothing of its share is released or committed, and no
+later actual follows for it. The Budget then keeps the share reserved in the
+parent Budget until the deadline of the parent action; from that deadline on
+the Budget no longer counts it in `reserved` (each Budget step first sweeps
+open entries whose expiry has passed to expired), and nothing is ever committed
+for it. The same holds for each entry of the child Budget. Unknown is not zero
+at every level: nothing releases it as zero. A parent that can no longer take
+an outcome is not handed one: a parent action of an older Attempt, or any
+parent once the Run is terminal (unless the request-cap stop retains it). No
+record is written for it, and `drain` goes on. This also covers a child whose
+costs are all known; before, the engine could repeat that hand-over without
+end. Only a nested callable's first admitted `finish` is kept in
 its closing continuation record and given to the parent when the child settles:
 a finish whose `{schema_id, schema_version}` equals the `result` of the parent's
 `nested_callable` binding completes the parent action with that schema and the
 exact payload; any other schema fails it with the refusal schema and reason
 `nested_result_invalid`, without the child payload; a child that settles with no
-admitted finish keeps `completed` with reason `nested_completed`. `actual` stays
-the committed child Budget amount. The kept finish is durable and replays after
+admitted finish keeps `completed` with reason `nested_completed`. The kept
+finish is durable and replays after
 restart. The payload is recipe content within the existing payload bounds: the
 engine neither validates nor interprets it, and `status/1` does not expose it.
 The kept finish leaves the durable control state once the parent action settles.
@@ -253,11 +278,32 @@ groups and the eight nested-result groups `nested_result_reaches_parent`,
 `payload_not_exposed`, and the group `call_waits_past_the_default` (its test
 `every_call_waits`: an input that sleeps 5,500 ms once in the gate returns
 `{:ok, :applied}`, and `status/1` and `control/4` sent during it each reply after
-it, more than 5,000 ms after they were sent), with disposable PostgreSQL, existing ready owners,
+it, more than 5,000 ms after they were sent), and the ten nested-cost groups
+`nested_lost_effect_reaches_parent` (a lost Effect in a child: the parent gets
+the finish with no actual and the root finishes), `unknown_is_not_zero` (both
+Budgets keep their entries, committed amounts do not move, a parent with no room
+refuses the next action), `known_costs_are_exact` (journal rows with no loss and
+with a refused parent equal rows recorded on the unrepaired engine),
+`no_second_outcome` (more inputs and a second restart write no second outcome),
+`loss_two_levels_down` (a lost cost two levels down reaches both parents),
+`still_waits_for_a_cost_that_can_come` (a Resource action or an open child slot
+holds the parent), `local_work_closed_without_a_budget_step` (a closed running
+local work is final unknown, and a late or expired parent gets no record and
+`drain` goes on), `finish_rules_hold` (`nested_result_invalid` and
+`nested_completed` with no actual), `expired_reservation_is_still_unknown` (an
+entry swept to expired still counts as unknown at two clock values) and
+`no_loop_for_a_parent_that_cannot_settle` (a parent of an older Attempt or of a
+terminal Run is not handed an outcome and the call returns), with disposable PostgreSQL, existing ready owners,
 ordinary OTP barriers and counting fake providers. Actual temporary engine
 mutations bypassing the committed gate boundary and first settlement, giving a
 finished child the old `nested_completed` outcome and skipping the result
-schema comparison are negative controls, never shipped; so is the default
+schema comparison are negative controls, never shipped; so are the old
+selector that skips a closed child with a lost cost (`nested_lost_effect_reaches_parent`
+fails by the stall), an unknown cost handed to the parent as actual 0
+(`unknown_is_not_zero` fails), a count of open entries only
+(`expired_reservation_is_still_unknown` fails) and the selector without the
+Attempt and terminal condition (`no_loop_for_a_parent_that_cannot_settle`
+fails: the call does not return); so is the default
 5,000 ms limit of the three calls (`call_waits_past_the_default` ends with the
 time-out exit). These finite scenarios are not a universal proof, production monitor,
 physical no-send guarantee or proof of arbitrary callbacks/providers. Reused

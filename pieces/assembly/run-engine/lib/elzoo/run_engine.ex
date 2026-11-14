@@ -1431,15 +1431,8 @@ defmodule Elzoo.RunEngine do
       |> Enum.min_by(fn {_, slot} -> slot.pending_input.order end, fn -> nil end)
 
     finished_child =
-      Enum.find(state.control.callables, fn {_, child} ->
-        child.parent && (child.closed or state.control.generation_closed) &&
-          (state.slots[child.parent].phase == :running or
-             (state.slots[child.parent].phase == :settled and
-                is_nil(state.slots[child.parent][:actual]))) &&
-          Enum.all?(state.slots, fn {_, slot} ->
-            slot.callable != occurrence_id(child.parent) or
-              (slot.phase == :settled and (slot[:reservation] == nil or is_integer(slot[:actual])))
-          end)
+      Enum.find_value(state.control.callables, fn {id, child} ->
+        due_child(s, state, id, child)
       end)
 
     next =
@@ -1468,15 +1461,14 @@ defmodule Elzoo.RunEngine do
              do: drain(s)
 
       finished_child != nil ->
-        {id, child} = finished_child
-        budget = state.control.budgets[id]
+        {child, class, status} = finished_child
 
-        {:Transition, _, {:some, {:status, status}}} =
-          Budget.step(budget.state, {s.opts.clock.(), :status})
+        result =
+          cond do
+            class == :unknown ->
+              nested_outcome(s, state, child, %{actual: nil})
 
-        if status.reserved == 0 do
-          result =
-            if state.slots[child.parent].phase == :settled do
+            state.slots[child.parent].phase == :settled ->
               commit(s, stable_id("nested-actual:", {s.opts.run_id, child.parent}), %{
                 version: 1,
                 kind: :nested_actual,
@@ -1484,15 +1476,13 @@ defmodule Elzoo.RunEngine do
                 actual: status.committed,
                 at_ms: s.opts.clock.()
               })
-            else
-              nested_outcome(s, state, child, %{actual: status.committed})
-            end
 
-          with {:ok, s} <- result,
-               do: drain(s)
-        else
-          {:ok, s}
-        end
+            true ->
+              nested_outcome(s, state, child, %{actual: status.committed})
+          end
+
+        with {:ok, s} <- result,
+             do: drain(s)
 
       next == nil ->
         {:ok, s}
@@ -1505,6 +1495,84 @@ defmodule Elzoo.RunEngine do
           if snapshot(s) == before, do: {:ok, s}, else: drain(s)
         end
     end
+  end
+
+  # A closed child whose every slot cost is known or final unknown gives its parent
+  # an outcome, once. Unknown is not zero: the parent gets no actual and the
+  # reservations stay held. A parent that cannot take the outcome is skipped.
+  defp due_child(s, state, id, child) do
+    parent = child.parent
+    class = parent && child_cost(state, id)
+
+    if class in [:known, :unknown] do
+      slot = state.slots[parent]
+
+      running? =
+        slot.phase == :running and slot.attempt_id == state.control.attempt_id and
+          (state.control.lifecycle.phase != :terminal or retained?(state.control))
+
+      cond do
+        not running? and not (slot.phase == :settled and is_nil(slot[:actual]) and class == :known) ->
+          nil
+
+        class == :unknown ->
+          {child, :unknown, nil}
+
+        true ->
+          {:Transition, _, {:some, {:status, status}}} =
+            Budget.step(state.control.budgets[id].state, {s.opts.clock.(), :status})
+
+          if status.reserved == 0, do: {child, :known, status}
+      end
+    end
+  end
+
+  defp retained?(c),
+    do: c.generation_closed and c.charge_stopped and is_nil(c.cancelled_attempt)
+
+  # The cost of a child, from the durable state only.
+  defp child_cost(state, id) do
+    if state.control.callables[id].closed or state.control.generation_closed do
+      costs =
+        for {key, slot} <- state.slots, slot.callable == id, do: cost(state, key)
+
+      cond do
+        :open in costs -> :open
+        :unknown in costs -> :unknown
+        true -> :known
+      end
+    else
+      :open
+    end
+  end
+
+  defp cost(state, key) do
+    slot = state.slots[key]
+    id = occurrence_id(key)
+
+    cond do
+      slot.phase != :settled -> :open
+      is_integer(slot[:actual]) -> :known
+      not held?(state, slot.callable, id) -> :known
+      slot.kind in ["resource_open", "resource_use", "resource_close"] -> :open
+      slot.kind != "nested_callable" -> :unknown
+      state.control.callables[id] == nil -> :unknown
+      child_cost(state, id) == :unknown -> :unknown
+      true -> :open
+    end
+  end
+
+  # The Budget of the callable counts the entry of the action: Open, or Expired
+  # (it left `reserved` at its deadline, and nothing was committed for it).
+  defp held?(state, callable, id) do
+    {:BudgetState, _, _, _, _, _, _, entries} = state.control.budgets[callable].state
+    ref = {:String, String.to_charlist(id)}
+
+    Enum.any?(entries, fn
+      {:EntryRow, ^ref, {:Open, _, _}} -> true
+      {:EntryRow, ^ref, {:Expired, _}} -> true
+      _ -> false
+    end)
   end
 
   defp progress(s, {request, _}, %{phase: :checking}) do
