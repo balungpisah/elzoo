@@ -321,23 +321,32 @@ defmodule Elzoo.DurableJobTest do
   test "late_new_key_is_refused: a deadline that is not an integer never reaches the Submitter",
        %{prefix: prefix} do
     f = late_flow(prefix, :memory)
-    submitter = :"Elixir.Elzoo.DurableJob.submitter.#{f.queue}"
-    :ok = :sys.suspend(submitter)
+    pid = Process.whereis(:"Elixir.Elzoo.DurableJob.submitter.#{f.queue}")
+    assert is_pid(pid)
+    :ok = :sys.suspend(pid)
 
     try do
       for bad <- ["soon", 1.5, nil, :infinity] do
         call = Task.async(fn -> DurableJob.submit(f.queue, "k205d", [1], fast(), bad) end)
+        result = Task.yield(call, 2_000) || Task.shutdown(call, :brutal_kill)
+        assert result == {:ok, {:error, {:invalid, :deadline_ms}}}
 
-        assert {:ok, {:error, {:invalid, :deadline_ms}}} == Task.yield(call, 2_000) ||
-                 Task.shutdown(call, :brutal_kill)
+        # the Submitter is suspended: a message sent to it would stay in its mailbox
+        assert Process.info(pid, :message_queue_len) == {:message_queue_len, 0}
       end
 
-      # control: the Submitter is suspended, so a call that does reach it does not return
-      call = Task.async(fn -> DurableJob.submit(f.queue, "k205d", [1], fast(), 2_000_000) end)
-      assert Task.yield(call, 300) == nil
-      Task.shutdown(call, :brutal_kill)
+      # control: a new key with a deadline that is not later than the clock
+      # reaches the Submitter, which is suspended, so the call does not return
+      late = Task.async(fn -> DurableJob.submit(f.queue, "k205d", [1], fast(), 1_000_000) end)
+      assert Task.yield(late, 300) == nil
+      poll(fn -> Process.info(pid, :message_queue_len) == {:message_queue_len, 1} end)
+
+      :ok = :sys.resume(pid)
+      assert Task.await(late) == {:error, {:invalid, :deadline_ms}}
     after
-      :sys.resume(submitter)
+      # resume is idempotent for a running process; a failed assertion above
+      # must not leave the Submitter suspended
+      :sys.resume(pid)
     end
 
     assert kinds(f.store, Run.submission_stream(f.queue)) == []
