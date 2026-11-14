@@ -5855,6 +5855,39 @@ defmodule Elzoo.RunEngineTest do
     end
 
     @tag timeout: 240_000
+    test "the unit alone replays an equal state and journal right after the refusal" do
+      {c, engine, bindings} = room_run(&big_script/1)
+      state = unit_state(c)
+      parents = parent_numbers(state)
+      open = open_children(state)
+      assert open != []
+      for id <- open, do: refusal_to_child(parents[id])
+      refused = for id <- open, do: "done-#{parents[id]}"
+      records = fn -> Map.new(refused, fn id -> {id, outcome_records(c, id)} end) end
+      sent = records.()
+      assert Enum.all?(sent, fn {_, found} -> length(found) == 1 end)
+      before = unit_state(c)
+      count = length(rows(c))
+
+      # No engine runs, so no recovery step reconciles the sent tool calls: the unit
+      # folds the journal and nothing else.
+      GenServer.stop(engine)
+      assert :ok = DynamicUnits.stop(c.directory, c.prefix)
+      assert {:ok, _} = DynamicUnits.start(c.directory, c.prefix)
+      assert unit_state(c) == before
+      assert length(rows(c)) == count
+      bound_holds!(c)
+
+      # The engine then recovers on that state and does not ask the refused finish again.
+      assert :ok = DynamicUnits.stop(c.directory, c.prefix)
+      Agent.update(c.host_mode, fn _ -> :recover end)
+      start(c, bindings: bindings)
+      assert records.() == sent
+      refute_receive {:pattern_input, "n" <> _, %{"outcome" => "refused"}}, 300
+      bound_holds!(c)
+    end
+
+    @tag timeout: 240_000
     test "a restart with the refusal in place changes nothing a second restart would change" do
       {c, engine, bindings} = room_run(&big_script/1)
       state = unit_state(c)
