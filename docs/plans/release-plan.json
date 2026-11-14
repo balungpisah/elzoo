@@ -6997,10 +6997,12 @@
     {
       "id": "workflow/node-outcome",
       "job": "ELZ-166",
-      "note": "Pure rule for one settled graph node: each of the nine outcome classes follows its own outcome link, completed with no link proceeds, and each other class with no link fails the Run explicitly. No fallback between classes and no retry, also after an unknown outcome.",
+      "note": "Pure rule for one settled graph node: the outcome routes of the node from decoded links, and follow, proceed or fail-the-Run for one of the nine action outcome classes; no execution, graph walk or retry.",
       "baseline_status": "not in baseline (new row, RC-63)",
-      "disposition": "published-task; implementation pending",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/workflow/node-outcome/piece.json",
+      "manifest_sha256": "d652f40a7fe97d9255bd4573ff9aecf8cf206eaa990e072a75d246258c26f830"
     },
     {
       "id": "workflow/recipe-check",
