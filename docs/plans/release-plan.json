@@ -4538,19 +4538,18 @@
       "kind": "proposal",
       "release": "V1B",
       "stage": "pieces",
-      "outputs": [
-        "state/recipe-store",
-        "workflow/version-pin"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "ELZ-096",
         "ELZ-009",
         "RC-61",
         "RC-64",
-        "ELZ-116"
+        "ELZ-116",
+        "ELZ-170",
+        "ELZ-171"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "both portions published: ELZ-170 version-pin and ELZ-171 recipe-store",
       "contract": "Keep immutable recipe versions per tenant with publish and go-back; only a checked version can be published. state/recipe-store holds the versions, the published pointer, the check gate and the pin records, and owns the one rule that needs them together: a version that a live Run pins is not deleted. state/artifact has no cross-stream transaction, so the pin records, the published pointer and a delete mark live in one stream per tenant that recipe-store owns, under head-revision CAS: a pin and a delete are put in one order there, and the Artifact delete happens only after its delete mark is committed. Recipe versions are written with access expiry and retention set to never, and only recipe-store calls delete or reap on them. workflow/version-pin is the pure rule of which version a Run uses: the version at its start, changed only by an explicit input. At startup version-pin captures the Run source set from that pinned recipe and the then-read tenant settings. No model, tool or person adds sources; settings changes affect the next Run, and even an explicit version-pin change does not expand or change the captured source set. Publishing a new version changes no running Run.",
       "acceptance": "Publish of an unchecked version refused; go-back selects an older immutable version; two concurrent publishes give a defined order; a Run started before a publish finishes on its own version; settings changes affect the next Run, not the captured source set, and an explicit version-pin change leaves that set unchanged; deleting a version that a live Run pins is refused; a pin and a delete of one version at the same time give one defined winner; reap does not remove a recipe version; tenant A cannot read the versions of tenant B.",
       "reuse": "Ready state/artifact (ELZ-096) is already tenant-owned and versioned, with tenant-scoped streams and head-revision checks on concurrent appends: keep the recipe bytes and immutable versions there. Its head is the highest committed non-deleted version, so go-back needs the separate published pointer that this job writes. Artifact says 'No cross-stream transaction', its delete is a public call, and reap deletes a version past access_expires_at_unix_ms or retain_until_unix_ms; both fields accept :never (README). state/event-log (ELZ-009) gives the CAS stream of recipe-store. A consumer that deletes in the Artifact scope of recipes directly breaks the pin rule, and the Contract says so. integration/sql is Store-only and gives no general SQL API. The check of RC-64.",
@@ -4559,7 +4558,7 @@
         "pieces/workflow/version-pin/"
       ],
       "blockers": [
-        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
+        "Both RC-65 portions are published: ELZ-170 version-pin and ELZ-171 recipe-store. No output remains pending admission in RC-65.",
         "A platform release that changes pattern state is not covered here; that belongs to RC-01."
       ],
       "owner_role": "one claimed task worker after admission",
@@ -5736,6 +5735,40 @@
       "issue": 370,
       "url": "https://github.com/balungpisah/elzoo/issues/370",
       "issue_body_sha256": "b059d5e9c161fb6bc7f375a122f0408bff46c045886b225b85cf452801f0a47b"
+    },
+    {
+      "id": "ELZ-170",
+      "title": "ELZ-170 — The recipe version and source set that a Run keeps",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-002", "ELZ-136", "ELZ-164"],
+      "status": "published 2026-11-14",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-170-version-pin.md"],
+      "outputs": ["workflow/version-pin"],
+      "acceptance": "Pure rule of which recipe version and tool sources a Run uses: the version at its start, changed only by one explicit input; a publish and a change of settings change nothing in a running Run; the source set captured at the start never changes, a listing of an outside source is refused and no input adds a source. The step is a Cure function with three named laws.",
+      "product_aims": ["P13"],
+      "issue": 373,
+      "url": "https://github.com/balungpisah/elzoo/issues/373",
+      "issue_body_sha256": "db855cebb0cf2af28f01b336788136915d5c8012baa8edcf8ed670d174be2334"
+    },
+    {
+      "id": "ELZ-171",
+      "title": "ELZ-171 — Recipe versions of a tenant, with publish, pin and delete",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-009", "ELZ-096", "ELZ-164", "ELZ-167"],
+      "status": "published 2026-11-14",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-171-recipe-store.md"],
+      "outputs": ["state/recipe-store"],
+      "acceptance": "Immutable recipe versions of each tenant in state/artifact with access expiry and retention never; verdicts of workflow/recipe-check, the published pointer, pin records and delete marks in one stream per tenant under head-revision CAS. Only a checked version is published; go-back publishes an older version; two publishes and a pin with a delete each have one order; a pinned or published version is not deleted; the delete mark is committed before the Artifact delete; reap removes no recipe; a tenant cannot read another tenant.",
+      "product_aims": ["P13"],
+      "issue": 374,
+      "url": "https://github.com/balungpisah/elzoo/issues/374",
+      "issue_body_sha256": "e62aa8b0b9a4f0682fb22d971dac0a88af31f9d61771d6dbba70a3622c1347bc"
     }
   ],
   "entries": [
@@ -7058,18 +7091,18 @@
     },
     {
       "id": "state/recipe-store",
-      "job": "RC-65",
-      "note": "Bot platform wave 3 (P13). Recipe bytes and versions in ready state/artifact; this adds the published pointer, the check gate and the pin records. Only a checked version can be published, and a version that a live Run pins is not deleted.",
+      "job": "ELZ-171",
+      "note": "Immutable recipe versions per tenant with a check gate, a published pointer with go-back, pin records and delete marks in one stream per tenant; a pinned or published version is not deleted.",
       "baseline_status": "not in baseline (new row, RC-65)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "published-task; implementation pending",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
       "id": "workflow/version-pin",
-      "job": "RC-65",
-      "note": "Bot platform wave 3 (P13). The pure rule of which version a Run uses: the one at its start. Publishing changes no running Run. The delete refusal belongs to state/recipe-store.",
+      "job": "ELZ-170",
+      "note": "Pure rule: a Run keeps the recipe version and the tool source set of its start; only one explicit input changes the version, and nothing changes the source set.",
       "baseline_status": "not in baseline (new row, RC-65)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "published-task; implementation pending",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
