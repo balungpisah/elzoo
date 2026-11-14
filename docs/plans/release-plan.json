@@ -6002,6 +6002,23 @@
       "issue": 408,
       "url": "https://github.com/balungpisah/elzoo/issues/408",
       "issue_body_sha256": "794b07814052b13241d615775908dbb9111a20d8212f3ba0ef3a620e9cf77240"
+    },
+    {
+      "id": "ELZ-186",
+      "title": "ELZ-186 — The resolved bindings of runtime/lua-binding are plain data",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-178"],
+      "status": "published 2026-11-14",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-186-lua-binding-plain-bindings.md"],
+      "outputs": [],
+      "acceptance": "Repair of runtime/lua-binding that restores its Contract: the value of resolve/2 holds only the resolved manifests and no built schema, so it is plain data that a pattern can keep in the state of a callable of assembly/run-engine; each check builds its schema; no function, return form, reason, bound or identity changes.",
+      "product_aims": ["P13"],
+      "issue": 412,
+      "url": "https://github.com/balungpisah/elzoo/issues/412",
+      "issue_body_sha256": "51e48c3a0132e028145a8fb6a6e6c968a3b8c2db846a488723d713ab3a000790"
     }
   ],
   "entries": [
@@ -7077,11 +7094,11 @@
     {
       "id": "assembly/run-engine",
       "job": "ELZ-127",
-      "note": "One recorded pure pattern cycle and ordinary dispatcher per host Unit/Run: shared sealed request charge, schema/identity/committed host gate/Budget/authority/Approval checks, occurrence-first settlement, a nested callable's first admitted finish given to its parent, durable owner composition and explicit fail-stop recovery; charge exhaustion stops generation while retaining prior within-cap obligations, without new work or resend permission.",
+      "note": "One recorded pure pattern cycle and ordinary dispatcher per host Unit/Run: shared sealed request charge, the binding of each action chosen by its action kind and, for a schema map, its schema ID, schema/identity/committed host gate/Budget/authority/Approval checks, occurrence-first settlement, a nested callable's first admitted finish given to its parent, durable owner composition and explicit fail-stop recovery; charge exhaustion stops generation while retaining prior within-cap obligations, without new work or resend permission.",
       "baseline_status": "not in baseline (new row, RC-50)",
       "disposition": "ready-contract",
       "manifest": "pieces/assembly/run-engine/piece.json",
-      "manifest_sha256": "1445531a06f9c96df406d4c2f6f988057ac2aec469e17b43bb3629356562c136",
+      "manifest_sha256": "48f9f8fdbcc0aaf9d20582883265d4c13cfe58cd7a131aa40edd6bbe8a96b87c",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
@@ -7272,7 +7289,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/runtime/lua-binding/piece.json",
-      "manifest_sha256": "e100f1c2f38114c40eb5332f65b209350ef38e5dd7edc5202249ea79933bd892"
+      "manifest_sha256": "35c56e342267608a01daa256248ceefaaf237e47bd85ffbedcf37e1b83822ec1"
     },
     {
       "id": "workflow/lua-tool",
