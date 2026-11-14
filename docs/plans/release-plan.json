@@ -5942,7 +5942,7 @@
       "release": "V1",
       "stage": "pieces",
       "dependencies": ["ELZ-033"],
-      "status": "published 2026-11-14",
+      "status": "published 2026-11-14; amended 2026-11-14 (test files of Pieces allowed for the repair)",
       "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
       "paths": ["tasks/ELZ-185-local-full-check-connections.md"],
       "outputs": [],
@@ -5950,7 +5950,7 @@
       "product_aims": ["P06"],
       "issue": 403,
       "url": "https://github.com/balungpisah/elzoo/issues/403",
-      "issue_body_sha256": "22f062ef4b377f1dc7086c5089ca85314e95cc3cb8643a75ba816f596847012f"
+      "issue_body_sha256": "59df6b1ed8d6c8f6c151cab92c817bec97b0e3df13dd1d8e5662f6ee25932bd8"
     },
     {
       "id": "ELZ-181",
@@ -6019,6 +6019,57 @@
       "issue": 412,
       "url": "https://github.com/balungpisah/elzoo/issues/412",
       "issue_body_sha256": "51e48c3a0132e028145a8fb6a6e6c968a3b8c2db846a488723d713ab3a000790"
+    },
+    {
+      "id": "ELZ-187",
+      "title": "ELZ-187 — The 64-entry sizing test of assembly/run-engine does not depend on host load",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-180"],
+      "status": "published 2026-11-14",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-187-run-engine-sizing-test.md"],
+      "outputs": [],
+      "acceptance": "Repair for issue #334 on assembly/run-engine: the first input of the 64-entry sizing test is measured, avoidable repeated work is removed so that the call stays far inside the 5 s call limit alone and beside the Piece suite, with unchanged assertions, journal records, fingerprints and replies; a limit operand is not added, and a case that needs one stops for a coordinator decision.",
+      "product_aims": ["P13"],
+      "issue": 415,
+      "url": "https://github.com/balungpisah/elzoo/issues/415",
+      "issue_body_sha256": "9c788de1acc3daaafe95a9faea3cea40fabd5d1cb766ac106317f61b206e3b3b"
+    },
+    {
+      "id": "ELZ-188",
+      "title": "ELZ-188 — A child of the Lua sandbox that dies early gives a host outcome and never ends its caller",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-177"],
+      "status": "published 2026-11-14",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-188-lua-sandbox-early-child-exit.md"],
+      "outputs": [],
+      "acceptance": "Repair for issue #418 on runtime/lua-sandbox that restores its Contract: no exit of the Port reaches the caller of run/2 as an exit signal; a child that exits or closes its input before the request is written gives a host outcome; the caller keeps its flags, links, monitors and mailbox; deadline, reaping and no-orphan guarantees stay; shown by a certain test and a negative control.",
+      "product_aims": ["P13"],
+      "issue": 422,
+      "url": "https://github.com/balungpisah/elzoo/issues/422",
+      "issue_body_sha256": "4b6c0f735c6ffee738e55df3fc03ba18eefec362b632712c90ede4338fdcdb13"
+    },
+    {
+      "id": "ELZ-189",
+      "title": "ELZ-189 — The dynamic-units tests wait for a process exit without a 100 ms limit",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033"],
+      "status": "published 2026-11-14",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-189-dynamic-units-shutdown-wait.md"],
+      "outputs": [],
+      "acceptance": "Repair for issue #420 on the tests of runtime/dynamic-units: each assert_receive that waits for a DOWN message gets an explicit limit of 5,000 ms; no pattern, reason or other assertion changes; 20 runs alone and 5 beside other suites pass; a negative control shows that the line still waits.",
+      "product_aims": ["P13"],
+      "issue": 423,
+      "url": "https://github.com/balungpisah/elzoo/issues/423",
+      "issue_body_sha256": "7faf31eb9cc99053a696964fc6d370d3eac9fd04c78bfc129a725c26f9aeb617"
     }
   ],
   "entries": [
@@ -7289,15 +7340,17 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/runtime/lua-binding/piece.json",
-      "manifest_sha256": "e100f1c2f38114c40eb5332f65b209350ef38e5dd7edc5202249ea79933bd892"
+      "manifest_sha256": "35c56e342267608a01daa256248ceefaaf237e47bd85ffbedcf37e1b83822ec1"
     },
     {
       "id": "workflow/lua-tool",
       "job": "ELZ-179",
-      "note": "Pure pattern step for a tool written in Lua: sandbox runs from the start with recorded module results, one tool-call action for each pending module call, explicit failure on a call order that differs from the record.",
+      "note": "A tool written in Lua as one pure pattern step over PatternStep v1 neutral maps: for the start input it asks for one local-work run action that replays the function from the start with the record of earlier module calls as a sandbox request (calls mode replay), and ends with the final value or with the first module call that has no record; for such a call it checks the name and index against the record and the bindings, the call limit and the arguments (LuaBinding.check_arguments/3), asks for one tool-call action, checks the result (LuaBinding.check_result/3), adds the call to the record and asks for the run again; one finish, completed with the value and the identity of the run action, or failed with a named reason. One action in each request; no action is asked for twice and no outcome starts a second try. State within 65,536 bytes. It runs no Lua and calls no module; no sandbox state is kept, only the record.",
       "baseline_status": "not in baseline (new row, RC-62)",
-      "disposition": "published-task; implementation pending",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/workflow/lua-tool/piece.json",
+      "manifest_sha256": "66200c218a39f2f2568965202e09d7ee9a9f3e609ca9f82d4737fe66f64ffd43"
     },
     {
       "id": "workflow/graph-run",
