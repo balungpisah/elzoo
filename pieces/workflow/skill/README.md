@@ -1,5 +1,15 @@
 # workflow/skill
 
+`Elzoo.Skill` is four pure functions over a skill folder that the caller gives
+as data (the public Agent Skills format: a folder with `SKILL.md`, which holds
+YAML frontmatter and a Markdown body, and other files): `read/4` reads the
+folder, `source/2` gives the tool source of the skills of a checked package, and
+`load/2` and `read_file/3` answer one call of each tool. Every refusal is
+`{:error, reason}` with a fixed atom that holds no path, file byte, frontmatter
+value or body.
+
+## `read/4`
+
 `Elzoo.Skill.read(name, version, tools, files)` reads a skill folder that the
 caller gives as data. `files` maps a relative path to the bytes of that file.
 It gives `{:ok, %{entry: entry, files: rest}}` or `{:error, reason}`. It reads no
@@ -78,20 +88,97 @@ top level, one in a flow-style top level or with `?` keys, or two double-quoted
 keys equal only after their escapes: the reader keeps the first value. Text
 that is not an alias, such as `Use for *.xlsx files` or `R&D`, passes.
 
+## `source/2`
+
+`Elzoo.Skill.source(id, package)` takes `id` (1 to 32 bytes of `[a-zA-Z0-9_-]`,
+else `invalid_input`) and a package that `RecipePackage.decode/1` gave (no skill
+is `no_skills`). It gives the source `%{"id", "kind" => "pinned_skill",
+"callable" => "adapter", "tools" => [load_skill, read_skill_file]}`. The model
+sees the aliases `<id>_load_skill` and `<id>_read_skill_file`. The names of the
+skills (in the order of the package) and the line `name: description` of each
+skill are in the input schema of `load_skill`, which the registry does not cut.
+The source holds no `allowed-tools` text and no tool identity of a skill.
+
+## `load/2`
+
+`Elzoo.Skill.load(package, arguments)`: `arguments` is the `arguments` member of
+the call, a map with exactly `"name"` (a binary). Refusals in order:
+`invalid_arguments`, `unknown_skill`, `empty_body`. Otherwise the payload of a
+completed outcome:
+
+    %{"declaration" => %{"skill" => %{"name" => name, "instructions" => body},
+                         "listing" => nil}}
+
+`body` is the body of the package entry byte for byte: no frontmatter, no mark,
+no cut. A load lists no tool, so `workflow/agent-loop` applies the instructions
+and refuses nothing for a tool count.
+
+## `read_file/3`
+
+`Elzoo.Skill.read_file(package, files, arguments)`: `files` maps a skill name to
+the `files` value of `read/4` for that skill; `arguments` is a map with exactly
+`"skill"` and `"path"` (binaries). Refusals in order: `invalid_arguments`,
+`unknown_skill`, `unknown_file` (the path `SKILL.md`), `invalid_input` (`files`
+is not a map, `files[skill]` is not a map, or the file is not a binary),
+`unknown_file` (no such skill in `files` or no such path, exact bytes),
+`file_too_large` (over 1,048,576 bytes, as in `read/4`). Otherwise the result of
+`workflow/tool-result-limit`:
+
+    %{"content" => marked, "media_type" => media_type, "encoding" => encoding}
+
+Valid UTF-8 bytes give `text/plain`, `utf8` and the bytes; other bytes give
+`application/octet-stream`, `base64` and `Base.encode64/1` of them. `marked` is
+the neutral map of `workflow/untrusted-content` with the source `skill:<name>`,
+trust `untrusted` and `max_bytes` of `max(1, byte_size(text))`. `SKILL.md` is
+never read here: the body is an instruction, not marked content, and
+`ToolResultLimit.decide/3` refuses it as `unmarked`.
+
 ## Needs and limits
 
 Fixed bounds, not Config: 256 files, 1,048,576 bytes for a file, 8,388,608 bytes
-for a folder, paths of 1 to 1,024 bytes and 16,384 bytes of frontmatter. Needs: a
-host that puts each entry into the recipe package and publishes only a package
-that `RecipePackage.decode/1` accepts; stores the skill files; leaves the
-`yamerl` parameter `node_mods` at `[]`; and starts the `yamerl` application,
-which `yaml_elixir` starts. No Markdown is parsed and no script is run.
+for a folder, paths of 1 to 1,024 bytes and 16,384 bytes of frontmatter. The
+bounds of the recipe package (16 skills, a body of 16,384 bytes, 32,768 in all)
+and of the agent loop (16,384 bytes of loaded instructions, `already_loaded`, a
+state of 65,536 bytes) are theirs and are not checked again.
+
+Needs: a host that
+
+- puts each entry of `read/4` into the recipe package and publishes only a
+  package that `RecipePackage.decode/1` accepts;
+- pins the package of a Run (`workflow/version-pin`) and gives `source/2`,
+  `load/2` and `read_file/3` that package and the files of the same version;
+- stores the skill files (this Piece stores nothing);
+- binds `{:adapter, id, "load_skill"}` to `load/2` and
+  `{:adapter, id, "read_skill_file"}` to `read_file/3`, gives `{:ok, payload}`
+  as a completed outcome under `elzoo.agent-loop.tool-result` version 1 and
+  `{:error, reason}` as a `refused` outcome with the payload `{"reason":
+  reason}`;
+- keeps skill descriptions short enough for the state bound of the agent loop;
+- leaves the `yamerl` parameter `node_mods` at `[]` and starts the `yamerl`
+  application, which `yaml_elixir` starts.
+
+Limits: trust is the host's pin of the package; a matching identity
+authenticates nobody. The other files are not in the package identity. A load
+lists no tool: `allowed-tools` grants nothing and the declared `tools` of a
+skill are package declarations only. RC-67 "a load that would pass 64 tools
+gives the instructions and the named refusal" is not met, and four sentences
+are met in part: the refusal of a tool that is not permitted is at use, in the
+engine and the registry; scripts are read and never executed, but storing them
+is a host Need; a changed version does not change a running Run through
+`workflow/version-pin` and the host's pin, shown here only by pure functions
+over the given package; and the restart case is shown by folding the agent loop
+again over a cut trace, not with the harness of RC-66. A file read is not tied
+to a loaded skill. The media type is never guessed from the path. No Markdown is
+parsed and no script is read as code, compiled, evaluated or run.
 
 Telemetry, Config and Control are not applicable: pure functions over intrinsic
 operands and fixed bounds.
 
 ## Evidence
 
-The named test groups are `skill_md_split`, `yaml_refusals` and `folder_bounds_and_paths`, with
-literal folders in `test/elzoo/skill_test.exs`. They are finite scenarios, not a
-universal proof.
+Ten named test groups in `test/elzoo/skill_test.exs`: `skill_md_split`,
+`yaml_refusals`, `package_checks_fields`, `folder_bounds_and_paths`,
+`pinned_skill_source`, `load_gives_declaration`, `file_read_is_marked_content`,
+`scripts_never_run`, `agent_loop_accepts` and `pinned_version_answers`, and the
+checked example `examples/skill.exs`. They are finite scenarios, not a universal
+proof; no Cure law is selected.
