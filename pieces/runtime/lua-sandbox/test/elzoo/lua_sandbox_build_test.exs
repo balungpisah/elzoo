@@ -83,8 +83,8 @@ defmodule Elzoo.LuaSandboxBuildTest do
     source = Helper.source_directory()
     copy = Helper.tmp_dir!("wrong-revision")
 
-    for name <- File.ls!(source), String.ends_with?(name, [".c", ".h"]) do
-      File.cp!(Path.join(source, name), Path.join(copy, name))
+    for path <- Path.wildcard(Path.join(source, "*.{c,h}"), match_dot: true) do
+      File.cp!(path, Path.join(copy, Path.basename(path)))
     end
 
     # a compiler that would record any use proves the identity check comes first

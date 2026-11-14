@@ -84,7 +84,13 @@ defmodule Elzoo.LuaSandbox.SourceIdentity do
 
   @doc "True when the directory holds exactly the pinned files."
   def verify(directory) do
-    headers = directory |> File.ls!() |> Enum.filter(&String.ends_with?(&1, ".h")) |> Enum.sort()
+    headers =
+      directory
+      |> Path.join("*.h")
+      |> Path.wildcard(match_dot: true)
+      |> Enum.map(&Path.basename/1)
+      |> Enum.sort()
+
     expected_headers = @h_files |> Enum.map(&elem(&1, 0)) |> Enum.sort()
 
     headers == expected_headers and
