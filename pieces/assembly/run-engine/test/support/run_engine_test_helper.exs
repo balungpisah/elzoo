@@ -57,6 +57,74 @@ defmodule Elzoo.RunEngine.TestPattern do
      {:some, %{"type" => "request", "version" => 1, "actions" => [action]}}}
   end
 
+  # As scripted/2, with more script elements. :wait takes one input and answers
+  # nothing (a child that waits for its next outcome). {:tool_finish, tool_id, id, tag}
+  # asks a tool call and a finish of 65,536 JSON bytes in one request;
+  # {:finish_tagged, id, tag} a finish of that size alone; {:finish_with, id, payload} a finish with the given payload. The payloads are built here, so
+  # that the script (the initial state of the callable) stays small.
+  def waiting(%{script: [:wait | rest]} = state, input) do
+    if observer = Process.whereis(:run_engine_observer),
+      do: send(observer, {:pattern_input, state.name, input})
+
+    {:Transition, %{state | script: rest}, :none}
+  end
+
+  def waiting(%{script: [{:tool_finish, tool_id, id, tag} | rest]} = state, input) do
+    if observer = Process.whereis(:run_engine_observer),
+      do: send(observer, {:pattern_input, state.name, input})
+
+    tool = %{
+      "id" => tool_id,
+      "kind" => "tool_call",
+      "schema_id" => "action",
+      "schema_version" => 1,
+      "payload" => %{"value" => 7}
+    }
+
+    {:Transition, %{state | script: rest},
+     {:some, %{"type" => "request", "version" => 1, "actions" => [tool, sized_finish(id, tag)]}}}
+  end
+
+  def waiting(%{script: [{:finish_tagged, id, tag} | rest]} = state, input) do
+    if observer = Process.whereis(:run_engine_observer),
+      do: send(observer, {:pattern_input, state.name, input})
+
+    {:Transition, %{state | script: rest},
+     {:some, %{"type" => "request", "version" => 1, "actions" => [sized_finish(id, tag)]}}}
+  end
+
+  def waiting(%{script: [{:finish_with, id, payload} | rest]} = state, input) do
+    if observer = Process.whereis(:run_engine_observer),
+      do: send(observer, {:pattern_input, state.name, input})
+
+    action = %{
+      "id" => id,
+      "kind" => "finish",
+      "schema_id" => "result",
+      "schema_version" => 1,
+      "payload" => payload
+    }
+
+    {:Transition, %{state | script: rest},
+     {:some, %{"type" => "request", "version" => 1, "actions" => [action]}}}
+  end
+
+  def waiting(state, input), do: scripted(state, input)
+
+  # A finish whose payload is 65,536 bytes of JSON and names `tag`.
+  def sized_payload(tag),
+    do: %{"x" => String.pad_leading("#{tag}", 16, "0") <> String.duplicate("x", 65_528 - 16)}
+
+  defp sized_finish(id, tag) do
+    %{
+      "id" => id,
+      "kind" => "finish",
+      "schema_id" => "result",
+      "schema_version" => 1,
+      "payload" => sized_payload(tag)
+    }
+  end
+
   def resource_step({:open, request}, _), do: {:Transition, :waiting, {:some, request}}
 
   def resource_step(:waiting, %{"kind" => "resource_event"}),
@@ -748,5 +816,43 @@ defmodule Elzoo.RunEngine.TestHelper do
       end)
 
     {owner, Map.merge(c.opts[:bindings], bindings)}
+  end
+
+  # ELZ-192: the bound of the control state, recomputed from a unit state alone and
+  # without the engine's own functions. Returns the bytes that are left of 2,097,152
+  # after the encoded control (with each admitted, not yet kept finish of a child
+  # placed in it), the receipt reserve (1,024 for each receipt that can still come)
+  # and 4,096 for each active slot. A negative value is a broken bound.
+  def control_headroom(state) do
+    c = state.control
+
+    placed =
+      Enum.reduce(state.slots, c, fn {_, slot}, acc ->
+        node = acc.callables[slot.callable]
+
+        if slot.kind == "finish" and slot.callable != "root" and
+             slot.phase in [:authorizing, :approval, :ready] and node.closed == false and
+             is_nil(node[:finish]) do
+          action = slot.action
+
+          kept = %{
+            schema_id: action["schema_id"],
+            schema_version: action["schema_version"],
+            payload: action["payload"]
+          }
+
+          put_in(acc.callables[slot.callable][:finish], kept)
+        else
+          acc
+        end
+      end)
+
+    active =
+      Enum.count(state.slots, fn {_, s} -> s.phase != :settled or s[:pending_input] != nil end)
+
+    reserve = (c.cap + 1 - map_size(c.receipts)) * 1_024 + active * 4_096
+
+    2_097_152 -
+      (byte_size(:erlang.term_to_binary(placed, [:deterministic, {:minor_version, 2}])) + reserve)
   end
 end
