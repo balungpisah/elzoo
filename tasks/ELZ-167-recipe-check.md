@@ -140,6 +140,25 @@ not reported.
 with the `identity` member of the package. The same `package` and `facts` give
 the same result, also in another process.
 
+**The same check for a recipe that is not in a package.**
+`check_graph(recipe, declared, facts)` returns the same three forms. `recipe`
+is the neutral recipe map of ELZ-161. `declared` is exactly
+`{"needs": [text], "permissions": [text]}`, each list in the form of the
+package member of that name (at most 64 unique strings of 1 to 128 bytes); a
+`declared` in another shape is `{:error, :invalid_facts}`. `facts` is as
+above. Stage 1 is only `Elzoo.RecipeGraph.decode(recipe)`, and its reason has
+the path `[]`. Stage 2 is the table above with every path relative to
+`recipe`: a node path starts with `"callables"`, `:unknown_cost_target` and
+`:over_cap` have the path `[]`, and `["needs", index]` and
+`["permissions", index]` point into `declared`. The verdict holds
+`identity: {id, revision, version}` of the recipe. `workflow/runtime-graph`
+calls this function.
+
+`check/2` is `check_graph/3` on the `graph` member of a decoded package with
+its `needs` and `permissions`: it puts `"graph"` before each path that points
+into the recipe and replaces the identity. There is one implementation of
+stage 2.
+
 ## Host Needs and Limits
 
 Fixed bounds: those of ELZ-164 and ELZ-161 for the package; 256 provided
@@ -198,7 +217,10 @@ dependencies `domain/recipe-package`, `domain/recipe-graph` and
    package map is not changed; a sentinel text in a package value, a tool
    name, a need or a fact never appears in a reason, an error or a captured
    log. `{:error, :invalid_facts}` for each malformed member of `facts`, and
-   for each bound plus 1. One small checked example covers the public API.
+   for each bound plus 1. For one passing and one refused recipe,
+   `check_graph/3` on the `graph` member and `check/2` on the package give
+   the same verdict and the same reasons, apart from the leading `"graph"`
+   and the identity. One small checked example covers the public API.
 
 ## Evidence and gate
 
