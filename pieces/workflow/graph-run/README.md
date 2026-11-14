@@ -124,8 +124,11 @@ The `gives` of a completed graph is one object with the declared gives of each
 `done` `completed` node that no link names as `from`; a give name that two such
 nodes hold is `ambiguous_output`. The `action_id` of that finish is the
 completed action that settled last, so with several last nodes it follows the
-arrival order of their outcomes; every other part of the finish and the set of
-actions asked for do not.
+arrival order of their outcomes. Every other part of the finish and the set of
+actions asked for do not depend on the arrival order for a Run in which no node
+fails the Run, the state stays within its bound and every item of a map with
+`on_item_failure` `:fail` completes. Otherwise the set of actions and the
+finish can depend on the arrival order.
 
 ## State form
 
@@ -174,16 +177,20 @@ Type. The pinned Cure compiler checks the total function, its three result and
 four state members and the law.
 
 Test. `mix test pieces/workflow/graph-run/test` runs the listed scenarios of the
-ten groups `needs_and_gives_only`, `decision_branch_and_join`,
+thirteen groups `needs_and_gives_only`, `decision_branch_and_join`,
 `map_bounds_and_part_failure`, `loop_bounded`, `each_outcome_link`,
 `missing_outcome_link_fails_run`, `settled_node_never_runs_again`,
-`arrival_order`, `nested_graph_gets_only_its_input` and
-`new_refusals_and_closed`, each over recorded literal inputs with hand-written
-requests. Two negative controls were run by a temporary edit and not shipped: a
-void `order` link that counts as dead fails `decision_branch_and_join`; a done
-node that starts again fails the Cure law, and (with the law removed) the groups
-`missing_outcome_link_fails_run` and `settled_node_never_runs_again`. These are
-finite tests, not a universal proof. There is no monitored runtime claim.
+`arrival_order`, `nested_graph_gets_only_its_input`, `new_refusals_and_closed`,
+`last_result_over_bound_fails`, `fail_fast_map_two_orders` and
+`failed_run_two_orders`, each over recorded
+literal inputs with hand-written requests. Three negative controls were run by a
+temporary edit and not shipped: a void `order` link that counts as dead fails
+`decision_branch_and_join`; a done node that starts again fails the Cure law, and
+(with the law removed) the groups `missing_outcome_link_fails_run` and
+`settled_node_never_runs_again`; with the measure removed from `done/1`, the
+first case of `last_result_over_bound_fails` gives a `completed` finish and
+fails. These are finite tests, not a universal proof. There is no monitored
+runtime claim.
 
 Upstream. The Cure compiler (pinned in `mix.exs`) for the law and the check; the
 public functions of `domain/recipe-graph`, `workflow/pattern-step`,
@@ -224,9 +231,12 @@ storage, process or I/O. Telemetry, Config and Control are not applicable: pure
 functions over intrinsic operands. No input fragment appears in an error, a log
 or a telemetry event; the only reasons are fixed atoms.
 
-No engine claim. The ready `assembly/run-engine` holds no result of the child in
-its outcome of a nested callable, so with that engine a `call`, `decision`, `map`
-or `loop` node settles as `failed`; it allows 256 lifetime actions for each
+No engine claim. The ready `assembly/run-engine` gives the first admitted finish
+of a nested callable to the parent action when the `{schema_id, schema_version}`
+of that finish equals the `result` of the parent's `nested_callable` binding,
+fails the parent action with `nested_result_invalid` for another schema, and
+settles it `completed` (reason `nested_completed`) with no result when the child
+gave no admitted finish; it allows 256 lifetime actions for each
 Unit; a request that it does not admit gets no outcome; and it completes a Run on
 a root `finish` only when that names a completed action, so a `failed` finish of
 a root graph, or a finish with `action_id` `null`, comes back refused and the Run

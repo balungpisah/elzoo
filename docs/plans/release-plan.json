@@ -8006,7 +8006,7 @@
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/workflow/graph-run/piece.json",
-      "manifest_sha256": "4f568e6f95b666188e705e3f4689882ad6d2b13bcb7a23c209a2c7eb7a16020b"
+      "manifest_sha256": "b4e5bff41c81503cdf539e94e6349f243bffcf0095d1fafb2315dd2fe69f4f49"
     },
     {
       "id": "workflow/node-outcome",
