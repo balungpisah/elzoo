@@ -523,4 +523,257 @@ defmodule Elzoo.DurableLog.PostgresTest do
 
     assert PostgresHarness.hook(s, :snapshot, []) == before
   end
+
+  # ELZ-193: a read of one statement is one round trip; the rest keep the transaction.
+  @query_event [:elzoo, :durable_log, :test_repo, :query]
+  @set_snapshot "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"
+
+  # The query events of the Repo that the calling process causes while `fun` runs.
+  defp queries(fun) do
+    ref = make_ref()
+    me = self()
+    id = {__MODULE__, ref}
+
+    :telemetry.attach(
+      id,
+      @query_event,
+      &__MODULE__.handle_query/4,
+      {me, ref}
+    )
+
+    try do
+      result = fun.()
+      {result, drain_queries(ref, [])}
+    after
+      :telemetry.detach(id)
+    end
+  end
+
+  def handle_query(_event, _measurements, meta, {me, ref}) do
+    if self() == me, do: send(me, {ref, meta.query})
+  end
+
+  defp drain_queries(ref, acc) do
+    receive do
+      {^ref, query} -> drain_queries(ref, [query | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
+
+  defp seed_reads(s) do
+    %{items: items} = seeded = seed_caller_transaction(s)
+    assert {:committed, 1} = Postgres.retain(s, "pg", 0, 1, <<8::128>>)
+    Map.put(seeded, :calls, one_statement_calls(s, items))
+  end
+
+  defp one_statement_calls(s, items) do
+    [
+      head: fn -> Postgres.head(s, "pg") end,
+      latest_checkpoint: fn -> Postgres.latest_checkpoint(s, "pg", 1) end,
+      read_checkpoint: fn -> Postgres.read_checkpoint(s, "pg", 1, 1) end,
+      pending: fn -> Postgres.pending(s, "pg", 10) end,
+      read_ack: fn -> Postgres.read_ack(s, hd(items).idempotency_key) end,
+      read_maintenance: fn -> Postgres.read_maintenance(s, "pg", :retain) end
+    ]
+  end
+
+  defp one_statement_tables,
+    do: [
+      head: "elzoo_log_heads",
+      latest_checkpoint: "elzoo_checkpoints",
+      read_checkpoint: "elzoo_checkpoints",
+      pending: "elzoo_outbox",
+      read_ack: "elzoo_outbox",
+      read_maintenance: "elzoo_log_heads"
+    ]
+
+  test "one_statement_reads_are_one_query: each changed read sends one SELECT, no transaction",
+       %{store: s} do
+    %{calls: calls} = seed_reads(s)
+
+    for {name, call} <- calls do
+      {result, events} = queries(call)
+      assert {name, match?([<<"SELECT ", _::binary>>], events)} == {name, true}
+      refute Enum.any?(events, &(&1 in ["begin", "commit", @set_snapshot]))
+
+      # the same call on a held connection runs in the wrapper and reads the same value
+      {wrapped, wrapped_events} = queries(fn -> TestRepo.checkout(call) end)
+      assert {name, wrapped} == {name, result}
+      assert {name, length(wrapped_events)} == {name, 4}
+    end
+
+    assert {:ok, %{revision: 2, low_water: 1}} = Postgres.head(s, "pg")
+    assert {:ok, [_]} = Postgres.pending(s, "pg", 10)
+    assert {:ok, %{sequence: 1}} = Postgres.latest_checkpoint(s, "pg", 1)
+  end
+
+  test "one_statement_reads_are_one_query: a consumer key named like the internal key changes nothing",
+       %{store: s, prefix: prefix} do
+    seed_reads(s)
+
+    odd =
+      Postgres.store(TestRepo,
+        prefix: String.trim(prefix, "\""),
+        fold: fold(),
+        limits: @limits,
+        direct_read_timeout: 1
+      )
+
+    assert {:committed, 3} = Postgres.append(odd, "pg", 2, [row(3, <<7::128>>)], [])
+    assert {:ok, %{revision: 3}} = Postgres.head(odd, "pg")
+    assert {:ok, [_, _], _} = Postgres.read(odd, "pg", 2, 10)
+    assert {:ok, [_]} = Postgres.pending(odd, "pg", 10)
+  end
+
+  test "multi_statement_reads_keep_one_snapshot: read and read_at stay in one repeatable-read transaction",
+       %{store: s} do
+    seed_caller_transaction(s)
+
+    for call <- [
+          fn -> Postgres.read(s, "pg", 1, 10) end,
+          fn -> Postgres.read_at(s, "pg", 2) end
+        ] do
+      {result, events} = queries(call)
+      assert {:ok, _, %{revision: 2}} = result
+
+      assert [
+               "begin",
+               @set_snapshot,
+               "SELECT revision" <> _,
+               "SELECT stream, sequence" <> _,
+               "commit"
+             ] = events
+    end
+  end
+
+  @tag capture_log: true
+  test "refusals_are_unchanged: caller transaction, test_read hook, unavailable Repo", %{
+    store: s
+  } do
+    %{calls: calls, items: items} = seed_reads(s)
+
+    assert {:ok, {results, []}} =
+             TestRepo.transaction(fn ->
+               queries(fn -> for {name, call} <- calls, do: {name, call.()} end)
+             end)
+
+    for {name, result} <- results,
+        do: assert({name, result} == {name, {:error, :caller_transaction}})
+
+    for {mode, expected} <- [unavailable: {:error, :unavailable}, malformed: {:error, :malformed}],
+        {name, call} <- calls do
+      PostgresHarness.hook(s, :inject, [name, mode])
+      assert {{^name, ^expected}, []} = queries(fn -> {name, call.()} end)
+    end
+
+    url = @url |> URI.parse() |> Map.put(:port, 1) |> URI.to_string()
+
+    start_supervised!(
+      {UnreachableRepo,
+       url: url,
+       pool_size: 1,
+       connect_timeout: 100,
+       timeout: 150,
+       queue_target: 10,
+       queue_interval: 50,
+       backoff_min: 100,
+       backoff_max: 100,
+       log: false}
+    )
+
+    bad = Postgres.store(UnreachableRepo, fold: fold(), limits: @limits, timeout: 150)
+
+    for {name, call} <- one_statement_calls(bad, items) do
+      assert {name, call.()} == {name, {:error, :unavailable}}
+    end
+  end
+
+  @tag capture_log: true
+  test "refusals_are_unchanged: a statement that passes the store timeout is unavailable", %{
+    store: s,
+    prefix: prefix
+  } do
+    %{items: items} = seed_reads(s)
+
+    short =
+      Postgres.store(TestRepo,
+        prefix: String.trim(prefix, "\""),
+        fold: fold(),
+        limits: @limits,
+        timeout: 200
+      )
+
+    for {name, call} <- one_statement_calls(short, items) do
+      table = Keyword.fetch!(one_statement_tables(), name)
+      parent = self()
+
+      locker =
+        Task.async(fn ->
+          TestRepo.transaction(
+            fn ->
+              SQL.query!(
+                TestRepo,
+                "LOCK TABLE #{prefix}.#{table} IN ACCESS EXCLUSIVE MODE",
+                [],
+                log: false
+              )
+
+              send(parent, {:locked, name})
+
+              receive do
+                :release -> :ok
+              after
+                10_000 -> :timeout
+              end
+            end,
+            timeout: 30_000
+          )
+        end)
+
+      assert_receive {:locked, ^name}, 5_000
+      {elapsed, result} = :timer.tc(call)
+      send(locker.pid, :release)
+      assert {:ok, :ok} = Task.await(locker, 10_000)
+
+      assert {name, result} == {name, {:error, :unavailable}}
+      # bounded by the store timeout (200 ms), far below the Repo timeout (15 s)
+      assert {name, elapsed >= 150_000 and elapsed < 3_000_000} == {name, true}
+      assert {name, match?({:ok, _}, call.())} == {name, true}
+    end
+  end
+
+  test "held_connection_keeps_the_wrapper: inside checkout each changed read runs in the wrapper",
+       %{store: s} do
+    %{calls: calls} = seed_reads(s)
+
+    for {name, call} <- calls do
+      {direct, _} = queries(call)
+      {held, events} = queries(fn -> TestRepo.checkout(call) end)
+      assert {name, held} == {name, direct}
+
+      assert {name, match?(["begin", @set_snapshot, "SELECT " <> _, "commit"], events)} ==
+               {name, true}
+    end
+  end
+
+  @tag capture_log: true
+  test "held_connection_keeps_the_wrapper: after a raw BEGIN inside checkout a read is unavailable",
+       %{store: s} do
+    %{calls: calls} = seed_reads(s)
+
+    for {name, call} <- calls do
+      outcome =
+        try do
+          TestRepo.checkout(fn ->
+            SQL.query!(TestRepo, "BEGIN", [], log: false)
+            call.()
+          end)
+        rescue
+          e -> {:raised, e.__struct__}
+        end
+
+      assert {name, outcome} == {name, {:error, :unavailable}}
+    end
+  end
 end
