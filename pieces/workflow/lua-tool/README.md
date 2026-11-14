@@ -10,7 +10,7 @@ with the first module call that has no recorded result. For such a call the
 step asks for one `tool_call` action, keeps its result, and asks for the run
 again. The state of the sandbox is never kept: only the record is.
 
-Reused unchanged: `workflow/pattern-step` (decode, open, accept),
+Reused unchanged: `workflow/pattern-step` (decode, encode, open, accept),
 `workflow/tool-registry` (snapshot, tools, resolve) and `runtime/lua-binding`
 (names, check_arguments, check_result). The Piece does not depend on
 `runtime/lua-sandbox`: it holds only the request and reply forms.
