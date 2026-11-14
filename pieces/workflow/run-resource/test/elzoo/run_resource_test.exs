@@ -450,19 +450,32 @@ defmodule Elzoo.RunResourceTest do
     assert snapshot(replay) == before_replay
     refute_receive {:provider_call, _, _}, 200
 
-    # The sample never enters the stored records: recovery replays them unchanged and adds only
-    # its own record (an open resource is lost on recovery). Effect lists follow the recovered
+    # The sample never enters the stored records. Recovery of an opening, open or closing resource
+    # is the behaviour of main: it adds its own recovery record. Effect lists follow the recovered
     # model, so the stored receipts, inputs and command ids are compared.
     stored = fn e -> Map.delete(e, :effects) end
 
-    for fx <- [admit, reserve, late, late_dispatch, replay] do
+    for {fx, lost_inputs} <- [
+          {admit, ["lost"]},
+          {reserve, ["lost", "resource_lost"]},
+          {late, ["lost"]},
+          {late_dispatch, ["lost", "resource_lost"]},
+          {replay, ["lost"]}
+        ] do
       before = snapshot(fx)
       recovered = snapshot(restart(fx))
       count = length(before.entries)
+      assert before.state.phase == :open
       assert length(recovered.entries) == count + 1
 
       assert Enum.map(Enum.take(recovered.entries, count), stored) ==
                Enum.map(before.entries, stored)
+
+      added = List.last(recovered.entries)
+      assert added.seq > List.last(before.entries).seq
+      assert added.command_id == {:control, ["internal", added.seq]}
+      assert Enum.map(added.inputs, & &1["payload"]["reason"]) == lost_inputs
+      assert recovered.state.phase == :closing
     end
 
     restarted = restart(replay)
