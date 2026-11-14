@@ -142,9 +142,10 @@ Run-wide unique `id`; results small enough for the state bound.
 
 Limits: the step runs no Lua and calls no module. No ready parent reads
 `elzoo.lua-tool.result`, so the host wraps the step in a function of its own that
-turns the finish into the form of the parent. The ready engine has one binding
-for each action kind: a Run in which another pattern also makes tool calls needs
-the engine to choose a binding by the schema of the action, else each module call
+turns the finish into the form of the parent. A Run in which another pattern
+also makes tool calls gives the engine a schema map for the `tool_call` kind, with
+an entry for `elzoo.lua-tool.module-call`; with one binding for the kind, the
+module results arrive under the other pattern's result schema and each module call
 ends as `module_call_not_completed`. A run payload over the payload bound of the
 engine is refused by the engine, which the step sees as `run_not_completed`. A
 memory or wall-time stop is a host outcome and ends the tool as failed. Each
