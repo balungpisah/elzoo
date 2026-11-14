@@ -245,7 +245,7 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-189](https://github.com/balungpisah/elzoo/issues/423) | V1B / pieces | ELZ-033 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-191](https://github.com/balungpisah/elzoo/issues/435) | V1B / pieces | ELZ-033, ELZ-190 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-192](https://github.com/balungpisah/elzoo/issues/436) | V1B / pieces | ELZ-033, ELZ-191 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
-| [ELZ-193](https://github.com/balungpisah/elzoo/issues/439) | V1B / pieces | ELZ-009 | published 2026-11-15 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-193](https://github.com/balungpisah/elzoo/issues/439) | V1B / pieces | ELZ-009 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -3155,4 +3155,4 @@ Publication copy: [tasks/ELZ-193-sql-single-statement-read.md](../../tasks/ELZ-1
 
 **Product aims:** P13.
 
-**Acceptance:** First small task for issue #431 on integration/sql, Contract unchanged: a read callback of one statement sends it with no transaction wrapper (one round trip instead of four); reads of more than one statement keep one repeatable-read snapshot; refusals, hook, timeout and error values unchanged; four named groups counted by Repo query events and one negative control; no wall-time claim.
+**Acceptance:** First small task for issue #431 on integration/sql, Contract unchanged: a read callback of one statement sends it with no transaction wrapper (one round trip instead of four); reads of more than one statement keep one repeatable-read snapshot; refusals, hook, timeout and error values unchanged; a process that holds a Repo connection keeps the wrapper, so the raw-BEGIN Limit holds; the direct statement carries the store timeout; five named groups counted by Repo query events and two negative controls; no wall-time claim.

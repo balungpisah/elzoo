@@ -6129,15 +6129,15 @@
       "release": "V1B",
       "stage": "pieces",
       "dependencies": ["ELZ-009"],
-      "status": "published 2026-11-15",
+      "status": "published 2026-11-14",
       "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
       "paths": ["tasks/ELZ-193-sql-single-statement-read.md"],
       "outputs": [],
-      "acceptance": "First small task for issue #431 on integration/sql, Contract unchanged: a read callback of one statement sends it with no transaction wrapper (one round trip instead of four); reads of more than one statement keep one repeatable-read snapshot; refusals, hook, timeout and error values unchanged; four named groups counted by Repo query events and one negative control; no wall-time claim.",
+      "acceptance": "First small task for issue #431 on integration/sql, Contract unchanged: a read callback of one statement sends it with no transaction wrapper (one round trip instead of four); reads of more than one statement keep one repeatable-read snapshot; refusals, hook, timeout and error values unchanged; a process that holds a Repo connection keeps the wrapper, so the raw-BEGIN Limit holds; the direct statement carries the store timeout; five named groups counted by Repo query events and two negative controls; no wall-time claim.",
       "product_aims": ["P13"],
       "issue": 439,
       "url": "https://github.com/balungpisah/elzoo/issues/439",
-      "issue_body_sha256": "02ffd7363e6cf39864e1a46b843b6e15851336e4dd5209ce613e5429bb8f47ef"
+      "issue_body_sha256": "817116e3bddcc59614f1d2785e28ba737e220cb0301c951ca2ed6f2ddb2f7d19"
     }
   ],
   "entries": [
