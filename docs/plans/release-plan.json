@@ -6087,6 +6087,40 @@
       "issue": 426,
       "url": "https://github.com/balungpisah/elzoo/issues/426",
       "issue_body_sha256": "193d356f52708f383b538bc66f13622e05b98088e338fa49f2c37738b294f900"
+    },
+    {
+      "id": "ELZ-191",
+      "title": "ELZ-191 — A change of Attempt closes every open slot of the older Attempt",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-190"],
+      "status": "published 2026-11-14",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-191-run-engine-attempt-change-closes-slots.md"],
+      "outputs": [],
+      "acceptance": "Repair for issue #433 on assembly/run-engine, in place: at a change of Attempt every unsettled slot of the older Attempt is settled in the fold; a slot with nothing sent is refused and released, a slot that may have sent keeps its reservation with an unknown cost; nested parents and children close; the new Attempt gets new work and the unit configures again; no resend, unknown is never zero; eight named groups and two negative controls.",
+      "product_aims": ["P13"],
+      "issue": 435,
+      "url": "https://github.com/balungpisah/elzoo/issues/435",
+      "issue_body_sha256": "3127883e375ff0d5f6e9b6b696592e654d311b8091c9285aa6a77edc05f8d8ed"
+    },
+    {
+      "id": "ELZ-192",
+      "title": "ELZ-192 — A child finish is admitted only when the control state has room to keep it",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-191"],
+      "status": "published 2026-11-14",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-192-run-engine-kept-finish-fits.md"],
+      "outputs": [],
+      "acceptance": "Repair for issue #383 on assembly/run-engine: a finish of a nested child is admitted only when the control state with that finish kept still satisfies its bound, with its bytes held in the reserve until it is kept; else it is refused as record_size and the engine goes on; five named groups and one negative control.",
+      "product_aims": ["P13"],
+      "issue": 436,
+      "url": "https://github.com/balungpisah/elzoo/issues/436",
+      "issue_body_sha256": "c508e4897fce4f4741a44c4bdff58302e22600a8db5e18f411545dca2b1da32f"
     }
   ],
   "entries": [
