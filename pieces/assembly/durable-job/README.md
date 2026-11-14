@@ -24,6 +24,20 @@ Stale results and stale starts snooze; a duplicate job yields `{:cancel, :duplic
 `cancel` also works before the relay ran (it writes `cancelled` as the first Run
 record and the relay acks it without a job).
 
+> A submit of a stored job key is answered from the stored request,
+> whatever the clock says: `{:duplicate, status}` for the same request
+> and `{:error, :job_key_conflict}` for another, also after the deadline
+> of the request. A submit of a job key that is not stored, with a
+> deadline that is not later than the clock, is
+> `{:error, {:invalid, :deadline_ms}}` and stores nothing.
+
+Every other field and a `deadline_ms` that is not an integer are checked before
+the Submitter is asked; the comparison of `deadline_ms` with the clock happens
+only for a key that is not stored. So a late submit reaches the Submitter and can
+get the results of that call (`{:error, :unavailable}` and other Submitter errors,
+and `{:indeterminate, info}` when the call exits), although a late submit of a new
+key appends nothing.
+
 ## Boundary and limits
 
 - **Schema evolution is deferred.** Only `schema_version` 1 exists. Any other record version is refused as damaged (`{:cancel, :damaged}`, `status/2` → `{:error, :damaged}`) and any other job-args version is refused with `{:cancel, :unsupported_version}`; nothing is upcast. `state/schema-evolution` stays planned. The first format change must meet ELZ-010's R6/R9 requirements in full under a new task (golden corpora written by each version, pinned bytes, mix check failing on missing/changed/unpinned corpora, a frozen older reader, `unwritable_version`), and changed accepted inputs follow the Piece-ID evolution rule. Mixed-version rolling deploys are unsupported.
