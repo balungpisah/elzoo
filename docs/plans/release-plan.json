@@ -4365,7 +4365,8 @@
         "runtime/lua-stdlib"
       ],
       "dependencies": [
-        "ELZ-033"
+        "ELZ-033",
+        "ELZ-160"
       ],
       "status": "provider prerequisite published as ELZ-160; runtime Piece admission pending",
       "contract": "Run Lua source with hard limits on steps, memory, call depth and value size, and with no file, network, clock, random or process access unless a function is given explicitly. Two uses: load a recipe file one time and return plain data; run a small pure function during a Run, where the same input gives the same output. Inside a Run only a limit that the runtime counts deterministically (steps, call depth, value size, and memory only if it is counted for each allocation inside the runtime) decides a result; each of a wall-time stop and a memory stop that depends on garbage-collection timing is a host outcome that is recorded as an input and never computed again on replay. The capability policy is an allow-list with a version identity: by any path (a global, the environment table, a function or a table of functions that a listed function returns, a method or a metatable of a value), a source reaches the runtime function behind a name only if the policy lists that name; a use of an unlisted name ends in the outcome that the admission fixes and never reaches a runtime function. A function that a listed function returns without a name of its own, such as the iterator of ipairs, is covered by the listing of that function. The policy lists the only library names that a source can use, and a safe helper set (JSON, text, time values passed in) is part of every policy version. The policy, not the standard library of the chosen runtime, is the contract toward the author of a source. A source cannot catch a limit stop: a step, memory, call-depth, value-size or wall-time stop ends the evaluation.",
@@ -4404,7 +4405,9 @@
         "ELZ-026",
         "ELZ-024",
         "ELZ-105",
-        "ELZ-114"
+        "ELZ-114",
+        "ELZ-161",
+        "ELZ-162"
       ],
       "status": "graph and config published as independent ELZ-161 and ELZ-162; recipe-package admission pending",
       "contract": "The plain data that a recipe gives: named callables (a graph of nodes, an agent, a typed decision), each with a typed input and output; nodes that state what they need and give; links that add only order and branches; outcome links, each for one outcome class of RC-68; rules such as an approval on an action; bindings apart from the graphs. A rule can only add a requirement: it never relaxes the authorization policy of the consumer. Callables nest by name with a depth limit. A loop is a node that re-runs a nested callable (RC-63), never a back-edge, so a graph has no legal cycle. A package manifest gives name, version, needs, permissions and each skill that the recipe uses, with its version and tools; the public Agent Skills format has no tools field. Package checking refuses malformed skills before load, following RC-67. Tenant settings are checked against the schema that the package declares; a secret setting is a reference.",

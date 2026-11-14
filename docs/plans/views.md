@@ -169,8 +169,12 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | RC-57 | V1B / pieces | ELZ-033, ELZ-101, ELZ-079 | superseded for delivery/provider-stream by published ELZ-143; output moved | one claimed task worker after admission |
 | RC-58 | V1B / pieces | ELZ-033, ELZ-116, ELZ-124, ELZ-114 | superseded for workflow/wait-for-person and workflow/mid-run-input by published ELZ-146; output moved | one claimed task worker after admission |
 | RC-59 | V1B / pieces | ELZ-033, ELZ-083, ELZ-105 | superseded for integration/mcp-multi by published ELZ-144; output moved | one claimed task worker after admission |
-| RC-60 | V1B / pieces | ELZ-033 | provider prerequisite published as ELZ-160; runtime Piece admission pending | one claimed task worker after admission |
-| RC-61 | V1B / pieces | ELZ-033, ELZ-115, ELZ-026, ELZ-024, ELZ-105, ELZ-114 | graph and config published as independent ELZ-161 and ELZ-162; recipe-package admission pending | one claimed task worker after admission |
+| [ELZ-159](https://github.com/balungpisah/elzoo/issues/347) | V1B / pieces | ELZ-033 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-160](https://github.com/balungpisah/elzoo/issues/350) | V1B / pieces | ELZ-033, ELZ-159 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| RC-60 | V1B / pieces | ELZ-033, ELZ-160 | provider prerequisite published as ELZ-160; runtime Piece admission pending | one claimed task worker after admission |
+| [ELZ-161](https://github.com/balungpisah/elzoo/issues/351) | V1B / pieces | ELZ-033, ELZ-115, ELZ-026, ELZ-024, ELZ-114 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-162](https://github.com/balungpisah/elzoo/issues/352) | V1B / pieces | ELZ-033, ELZ-115, ELZ-105 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| RC-61 | V1B / pieces | ELZ-033, ELZ-115, ELZ-026, ELZ-024, ELZ-105, ELZ-114, ELZ-161, ELZ-162 | graph and config published as independent ELZ-161 and ELZ-162; recipe-package admission pending | one claimed task worker after admission |
 | RC-62 | V1B / pieces | ELZ-033, RC-60, ELZ-115, ELZ-002, ELZ-136, RC-61, ELZ-114, ELZ-022 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-63 | V1B / pieces | ELZ-033, ELZ-002, ELZ-114, RC-61, ELZ-026, ELZ-098, ELZ-003, ELZ-006 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-64 | V1B / pieces | ELZ-033, RC-61, ELZ-136, ELZ-022, ELZ-024, ELZ-114 | blocked: unpublished admission proposal | one claimed task worker after admission |
@@ -211,10 +215,6 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-156](https://github.com/balungpisah/elzoo/issues/336) | V1B / pieces | ELZ-143 | published 2026-11-13 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-157](https://github.com/balungpisah/elzoo/issues/342) | V1 / pieces | none | published 2026-11-13 | one claimed provider worker; coordinator owns independent review and merge |
 | [ELZ-158](https://github.com/balungpisah/elzoo/issues/345) | V1 / pieces | none | published 2026-11-14 | coordinator owns implementation, independent review and merge |
-| [ELZ-159](https://github.com/balungpisah/elzoo/issues/347) | V1B / pieces | ELZ-033 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
-| [ELZ-160](https://github.com/balungpisah/elzoo/issues/350) | V1B / pieces | ELZ-033, ELZ-159 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
-| [ELZ-161](https://github.com/balungpisah/elzoo/issues/351) | V1B / pieces | ELZ-033, ELZ-115, ELZ-026, ELZ-024, ELZ-114 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
-| [ELZ-162](https://github.com/balungpisah/elzoo/issues/352) | V1B / pieces | ELZ-033, ELZ-115, ELZ-105 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 
 ## Catalogue accounting
 
