@@ -4423,10 +4423,7 @@
       "kind": "proposal",
       "release": "V1B",
       "stage": "pieces",
-      "outputs": [
-        "runtime/lua-binding",
-        "workflow/lua-tool"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "RC-60",
@@ -4435,9 +4432,12 @@
         "ELZ-136",
         "RC-61",
         "ELZ-114",
-        "ELZ-022"
+        "ELZ-022",
+        "ELZ-177",
+        "ELZ-178",
+        "ELZ-179"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "all portions published: ELZ-177 sandbox module calls, ELZ-178 lua-binding and ELZ-179 lua-tool",
       "contract": "Expose the declared functions of a module to Lua from a function manifest that this job defines: name, version, argument and result schema (RC-44), cost in a workflow/budget unit, and permissions. Bindings resolve against a list of manifests that the caller supplies; there is no run-time discovery. Arguments are checked before the call and results before return. At load time a binding call builds data and performs no Effect. A tool written in Lua is a pure sandboxed function with a schema. The registry (RC-52) resolves its name to a nested callable, and it runs through the nested-callable action of RC-68, not as one Effect: only a pattern step gives a request. workflow/lua-tool is that step. It asks for one local-work action that runs the function in the sandbox from the start, with the recorded module results replayed in call order. That run ends in a completed outcome whose payload is the final result or the first module call that has no recorded result. Each module function of the manifest list is an entry of the tool registry (RC-52) with an Adapter binding that the caller supplies. For a module call the step asks for one tool-call action by the registry alias of that function, keeps its recorded result, and asks for the run again. Sandbox state is never persisted.",
       "acceptance": "A wrong argument type or count is refused with the function and field named; a binding for a missing or wrong-version module is refused at load; no Effect happens at load time (a recording Adapter stays empty); a Lua tool that loops is cut by the sandbox bound and reports a tool failure; a Lua tool cannot reach a module that its recipe did not declare; a Lua tool with two module calls gives its two module-call actions one at a time, in order, each after a sandbox run, and the same final result after a restart between them; a replay whose call order differs from the record is an explicit failure.",
       "reuse": "RC-60, RC-44, RC-52 and the package declarations of RC-61; workflow/budget (ELZ-022) for the cost unit. The engine performs the sandbox run as local work through RC-47; this job needs only the RC-68 shape of that action and tests the step on recorded traces. runtime/faces (RC-04) is the operations face (config, control, readiness) and has no function manifest: it is not a prerequisite. docs/capability-model.md keeps run-time discovery out of the kernel. No code-generation framework is assumed.",
@@ -4446,7 +4446,8 @@
         "pieces/workflow/lua-tool/"
       ],
       "blockers": [
-        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID."
+        "All RC-62 portions are published: ELZ-177 (module calls in runtime/lua-sandbox, in place), ELZ-178 runtime/lua-binding and ELZ-179 workflow/lua-tool.",
+        "Coordinator decisions, 2026-11-14: the sandbox answers a binding call itself (data at load time, a replay of recorded results at run time), so there is no callback into the caller; a refused argument is located by the function name and the structural path of core/payload-schema, which hides member names, and no second validator is written; the ready engine has one binding for each action kind, so a Run that mixes patterns needs the engine to choose a binding by the schema of the action (a later task), and a nested child is wrapped by the host so that its finish has the form of its parent."
       ],
       "owner_role": "one claimed task worker after admission",
       "product_aims": [
@@ -5848,6 +5849,57 @@
       "issue": 392,
       "url": "https://github.com/balungpisah/elzoo/issues/392",
       "issue_body_sha256": "d1c7e44c0294e621063a2c9a9ce74a9b5a649dff4d79cefe1384a286a18ea3f2"
+    },
+    {
+      "id": "ELZ-177",
+      "title": "ELZ-177 — The Lua sandbox carries module calls as data and as a replay",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-163", "ELZ-174"],
+      "status": "published 2026-11-14",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-177-lua-sandbox-module-calls.md"],
+      "outputs": [],
+      "acceptance": "runtime/lua-sandbox, changed in place (same Piece ID), policy version 3: a request names up to 64 binding functions; at load time a call returns data that describes the call; at run time a call returns the result that the caller recorded for it, in order, a call with no record ends the run with a pending-call reply, and a call that differs from the record is call_mismatch. No callback into the caller and no state between runs. First portion of RC-62.",
+      "product_aims": ["P13"],
+      "issue": 396,
+      "url": "https://github.com/balungpisah/elzoo/issues/396",
+      "issue_body_sha256": "08faa66bfaa564de8fcd922f3baf3590c677db5c0e63dbe528e79e895ab777ce"
+    },
+    {
+      "id": "ELZ-178",
+      "title": "ELZ-178 — Declared module functions for Lua, with checked arguments and results",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-022", "ELZ-115", "ELZ-136"],
+      "status": "published 2026-11-14",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-178-lua-binding.md"],
+      "outputs": ["runtime/lua-binding"],
+      "acceptance": "Pure function manifests (name, version, argument and result schema of core/payload-schema, cost, permissions) and a resolution of the declaration of a recipe against the manifests that the caller supplies: a missing function, a wrong version and an invalid manifest are refused at load with the function named; arguments are checked before a call and results before return, located by the structural path of core/payload-schema; a content identity; the names for the sandbox and one tool-registry source. No call, no Lua, no discovery.",
+      "product_aims": ["P13"],
+      "issue": 397,
+      "url": "https://github.com/balungpisah/elzoo/issues/397",
+      "issue_body_sha256": "ed8eb3ef07254f901c658dd9176af7a6348d2ad7572b462ab48c09e5e1dd08d7"
+    },
+    {
+      "id": "ELZ-179",
+      "title": "ELZ-179 — A tool written in Lua, as one pure pattern step",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-002", "ELZ-114", "ELZ-136", "ELZ-177", "ELZ-178"],
+      "status": "published 2026-11-14",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-179-lua-tool.md"],
+      "outputs": ["workflow/lua-tool"],
+      "acceptance": "Pure pattern step for a tool written in Lua: one local-work action runs the function in the sandbox from the start with the recorded module results; a pending call becomes one tool-call action by the registry alias after its arguments pass the binding check; its checked result is recorded and the run is asked for again; a call order that differs from the record, a sandbox stop and a module call that did not complete are explicit failures; no action is asked for twice and sandbox state is never kept. Tested on recorded traces.",
+      "product_aims": ["P13"],
+      "issue": 398,
+      "url": "https://github.com/balungpisah/elzoo/issues/398",
+      "issue_body_sha256": "a24e7d0ace57d8b4a55a04dbbf3a9a003ae7c91ef1c9b54b1acda0340443bf57"
     }
   ],
   "entries": [
@@ -7112,18 +7164,18 @@
     },
     {
       "id": "runtime/lua-binding",
-      "job": "RC-62",
-      "note": "Bot platform wave 3 (P13). Built from a function manifest that this Piece defines and the caller supplies; no run-time discovery. A binding call at load time builds data and performs no Effect.",
+      "job": "ELZ-178",
+      "note": "Pure function manifests and their resolution against a declaration of a recipe; arguments checked before a call and results before return; the names for the sandbox and one tool-registry source. No call and no discovery.",
       "baseline_status": "not in baseline (new row, RC-62)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "published-task; implementation pending",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
       "id": "workflow/lua-tool",
-      "job": "RC-62",
-      "note": "Bot platform wave 3 (P13). Registered like any other tool. Each module call becomes a request for the engine, and the tool runs again from the start with the recorded results; sandbox state is never persisted.",
+      "job": "ELZ-179",
+      "note": "Pure pattern step for a tool written in Lua: sandbox runs from the start with recorded module results, one tool-call action for each pending module call, explicit failure on a call order that differs from the record.",
       "baseline_status": "not in baseline (new row, RC-62)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "published-task; implementation pending",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
