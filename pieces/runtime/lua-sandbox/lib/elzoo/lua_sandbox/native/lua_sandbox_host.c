@@ -140,9 +140,16 @@ __attribute__((noreturn)) static void reply_sticky(void) {
 /* Growable byte buffer with a limit                                    */
 /* ------------------------------------------------------------------ */
 
+static void charge(lua_State *L, long long n);
+
+/* The reply writer uses a buf with L == NULL: it grows by realloc and charges
+** nothing. helpers.json_encode uses a buf whose storage is one Lua userdata of
+** exactly `limit` bytes (cap == limit, so it never grows) and L set: each put
+** charges its bytes before it writes them. */
 typedef struct {
   char *b;
   size_t n, cap, limit;
+  lua_State *L;
 } buf;
 
 enum { E_OK = 0, E_INVALID = 1, E_SIZE = 2 };
@@ -154,6 +161,7 @@ static void *xrealloc(void *p, size_t n) {
 }
 
 static int buf_put(buf *B, const char *s, size_t n) {
+  if (B->L) charge(B->L, (long long)n);
   if (n > B->limit - B->n) return E_SIZE;
   if (B->n + n > B->cap) {
     size_t c = B->cap ? B->cap : 256;
@@ -812,6 +820,31 @@ static int h_text_split(lua_State *L) {
   return 1;
 }
 
+static int enc_value(lua_State *L, int idx, int depth, buf *B);
+
+/* helpers.json_encode(value): the canonical JSON text of a plain value, by the
+** rules of the reply writer (the same functions). The output is written into one
+** userdata of value_bytes bytes (Lua memory, so memory_bytes counts it and an error
+** frees it); each put charges its bytes first. A text over value_bytes is the
+** value_size stop. */
+static int h_json_encode(lua_State *L) {
+  buf B;
+  int rc;
+  if (lua_gettop(L) != 1) return luaL_error(L, "helpers.json_encode: expected one value");
+  memset(&B, 0, sizeof B);
+  B.cap = B.limit = G.value_bytes;
+  B.L = L;
+  B.b = (char *)lua_newuserdatauv(L, G.value_bytes, 0);
+  rc = enc_value(L, 1, 0, &B);
+  if (rc == E_SIZE) {
+    set_sticky(STOP_VALUE);
+    return stop_raise(L);
+  }
+  if (rc != E_OK) return luaL_error(L, "helpers.json_encode: value is not plain data");
+  lua_pushlstring(L, B.b, B.n);
+  return 1;
+}
+
 /* helpers.text_utf8_len(text): the number of code points of valid UTF-8 text. */
 static int h_text_utf8_len(lua_State *L) {
   const char *s;
@@ -1104,6 +1137,8 @@ static int init_env(lua_State *L) {
   lua_newtable(L);
   lua_pushlightuserdata(L, &null_sentinel);
   lua_setfield(L, -2, "null");
+  lua_pushcfunction(L, h_json_encode);
+  lua_setfield(L, -2, "json_encode");
   lua_pushcfunction(L, h_object);
   lua_setfield(L, -2, "object");
   lua_pushcfunction(L, h_text_split);
@@ -1185,6 +1220,26 @@ static int push_input_cf(lua_State *L) {
 
 static int enc_status;
 
+/* The JSON text of one ASCII byte (c < 0x80) in e (at least 8 bytes); its length. */
+static size_t esc_byte(unsigned char c, char *e) {
+  switch (c) {
+    case '"': memcpy(e, "\\\"", 2); return 2;
+    case '\\': memcpy(e, "\\\\", 2); return 2;
+    case '\b': memcpy(e, "\\b", 2); return 2;
+    case '\f': memcpy(e, "\\f", 2); return 2;
+    case '\n': memcpy(e, "\\n", 2); return 2;
+    case '\r': memcpy(e, "\\r", 2); return 2;
+    case '\t': memcpy(e, "\\t", 2); return 2;
+    default:
+      if (c < 0x20) {
+        snprintf(e, 8, "\\u%04x", c);
+        return 6;
+      }
+      e[0] = (char)c;
+      return 1;
+  }
+}
+
 static int enc_string(buf *B, const char *s, size_t n) {
   size_t i = 0;
   int rc;
@@ -1193,23 +1248,7 @@ static int enc_string(buf *B, const char *s, size_t n) {
     unsigned char c = (unsigned char)s[i];
     if (c < 0x80) {
       char e[8];
-      size_t el = 1;
-      switch (c) {
-        case '"': memcpy(e, "\\\"", 2); el = 2; break;
-        case '\\': memcpy(e, "\\\\", 2); el = 2; break;
-        case '\b': memcpy(e, "\\b", 2); el = 2; break;
-        case '\f': memcpy(e, "\\f", 2); el = 2; break;
-        case '\n': memcpy(e, "\\n", 2); el = 2; break;
-        case '\r': memcpy(e, "\\r", 2); el = 2; break;
-        case '\t': memcpy(e, "\\t", 2); el = 2; break;
-        default:
-          if (c < 0x20) {
-            snprintf(e, sizeof e, "\\u%04x", c);
-            el = 6;
-          } else {
-            e[0] = (char)c;
-          }
-      }
+      size_t el = esc_byte(c, e);
       if ((rc = buf_put(B, e, el)) != E_OK) return rc;
       i++;
     } else {
@@ -1252,8 +1291,11 @@ static int enc_table(lua_State *L, int idx, int depth, buf *B) {
   lua_pop(L, 2);
   lua_pushnil(L);
   while (lua_next(L, idx)) {
+    /* helper mode: one step for each entry, and the bytes of a string key (value_bytes at most) */
+    if (B->L) charge(L, 1);
     if (lua_type(L, -2) == LUA_TSTRING) {
       nstr++;
+      if (B->L) charge(L, (long long)lua_rawlen(L, -2));
     } else if (lua_isinteger(L, -2)) {
       lua_Integer key = lua_tointeger(L, -2);
       if (key < 1) {
@@ -1295,7 +1337,11 @@ static int enc_table(lua_State *L, int idx, int depth, buf *B) {
   }
   /* object: at least 5 bytes per member, so more members than that cannot fit */
   if (nstr > (B->limit / 5) + 1) return E_SIZE;
-  keys = (keyref *)xrealloc(NULL, (nstr ? nstr : 1) * sizeof(keyref));
+  /* helper mode: the sorted keys live in a userdata (Lua memory, freed by an error too) */
+  if (B->L)
+    keys = (keyref *)lua_newuserdatauv(L, (nstr ? nstr : 1) * sizeof(keyref), 0);
+  else
+    keys = (keyref *)xrealloc(NULL, (nstr ? nstr : 1) * sizeof(keyref));
   lua_pushnil(L);
   while (lua_next(L, idx)) {
     keys[k].p = lua_tolstring(L, -2, &keys[k].n);
@@ -1313,7 +1359,10 @@ static int enc_table(lua_State *L, int idx, int depth, buf *B) {
     rc = enc_value(L, lua_gettop(L), depth + 1, B);
     lua_pop(L, 1);
   }
-  free(keys);
+  if (B->L)
+    lua_pop(L, 1);
+  else
+    free(keys);
   if (rc != E_OK) return rc;
   return PUT(B, "}");
 }
@@ -1335,6 +1384,7 @@ static int enc_value(lua_State *L, int idx, int depth, buf *B) {
     case LUA_TSTRING: {
       size_t n;
       const char *s = lua_tolstring(L, idx, &n);
+      if (B->L) charge(B->L, (long long)n); /* n is at most value_bytes */
       return enc_string(B, s, n);
     }
     case LUA_TTABLE: return enc_table(L, idx, depth, B);
@@ -1436,7 +1486,7 @@ static void audit_keys(lua_State *L, int idx, buf *B) {
 }
 
 static int audit_cf(lua_State *L) {
-  buf out = {0, 0, 0, 1u << 20}, consts = {0, 0, 0, 1u << 20}, names = {0, 0, 0, 1u << 20};
+  buf out = {0, 0, 0, 1u << 20, NULL}, consts = {0, 0, 0, 1u << 20, NULL}, names = {0, 0, 0, 1u << 20, NULL};
   int cfirst = 1, first = 1, env;
   size_t i;
   const char *libs[] = {"string", "table", "math", "helpers"};
@@ -1637,7 +1687,7 @@ int main(int argc, char **argv) {
   if (enc_status == E_SIZE) reply_refused("value_size");
   if (enc_status != E_OK) reply_refused("invalid_result");
   {
-    buf r = {0, 0, 0, SIZE_MAX};
+    buf r = {0, 0, 0, SIZE_MAX, NULL};
     PUT(&r, "{\"runtime\":" RUNTIME_JSON ",\"status\":\"ok\",\"value\":");
     buf_put(&r, outbuf.b ? outbuf.b : "null", outbuf.n);
     PUT(&r, "}");

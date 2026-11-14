@@ -26,6 +26,7 @@ defmodule Elzoo.LuaSandboxPolicyTest do
     assert LuaSandbox.policy() == LuaSandbox.policy()
 
     assert descriptor["helpers"] == [
+             %{"name" => "json_encode", "version" => 1},
              %{"name" => "null", "version" => 1},
              %{"name" => "object", "version" => 1},
              %{"name" => "text_split", "version" => 1},
