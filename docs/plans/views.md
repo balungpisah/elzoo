@@ -196,7 +196,8 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-142](https://github.com/balungpisah/elzoo/issues/301) | V1B / pieces | ELZ-033, ELZ-002, ELZ-079, ELZ-114, ELZ-136, ELZ-140, ELZ-139, ELZ-087 | published 2026-11-13 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-127](https://github.com/balungpisah/elzoo/issues/263) | V1B / pieces | ELZ-033, ELZ-114, ELZ-115, ELZ-117, ELZ-122, ELZ-118, ELZ-116, ELZ-124, ELZ-123, ELZ-002, ELZ-009, ELZ-022, ELZ-023, ELZ-024, ELZ-098, ELZ-003, ELZ-126 | published 2026-11-12 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-172](https://github.com/balungpisah/elzoo/issues/377) | V1B / pieces | ELZ-033, ELZ-114, ELZ-127 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
-| RC-66 | V1B / pieces | ELZ-033, RC-50, ELZ-136, ELZ-141, ELZ-142, RC-60, RC-61, RC-62, RC-63, RC-64, ELZ-079, ELZ-114, ELZ-172 | blocked: unpublished admission proposal | one claimed task worker after admission |
+| [ELZ-180](https://github.com/balungpisah/elzoo/issues/401) | V1B / pieces | ELZ-033, ELZ-127, ELZ-172 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| RC-66 | V1B / pieces | ELZ-033, RC-50, ELZ-136, ELZ-141, ELZ-142, RC-60, RC-61, RC-62, RC-63, RC-64, ELZ-079, ELZ-114, ELZ-172, ELZ-180 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | [ELZ-176](https://github.com/balungpisah/elzoo/issues/392) | V1B / pieces | ELZ-033 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 | RC-67 | V1B / pieces | ELZ-033, ELZ-096, ELZ-136, ELZ-140, ELZ-142, RC-65, RC-66, RC-61, ELZ-139, ELZ-176 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-68 | V1B / pieces | ELZ-033, ELZ-002, ELZ-006, ELZ-023 | superseded for workflow/pattern-step by published ELZ-114; output moved | one claimed task worker after admission |
@@ -232,6 +233,8 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-158](https://github.com/balungpisah/elzoo/issues/345) | V1 / pieces | none | published 2026-11-14 | coordinator owns implementation, independent review and merge |
 | [ELZ-173](https://github.com/balungpisah/elzoo/issues/386) | V1B / pieces | ELZ-033 | published 2026-11-14 | coordinator; one-PR path for a non-Piece change; independent review and merge queue |
 | [ELZ-175](https://github.com/balungpisah/elzoo/issues/390) | V1B / pieces | ELZ-033 | published 2026-11-14 | coordinator; one-PR path for a non-Piece change; independent review and merge queue |
+| [ELZ-184](https://github.com/balungpisah/elzoo/issues/402) | V1 / pieces | ELZ-033 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-185](https://github.com/balungpisah/elzoo/issues/403) | V1 / pieces | ELZ-033 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -396,13 +399,13 @@ Derived from selectors in the manifest; changing the selected scope changes the 
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; integrated pinned mix check, source-copy/namespace/schema/provider compatibility and claim-level evidence. No future release acceptance follows from ELZ-012.
 
-Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, ELZ-008, ELZ-009, ELZ-010, ELZ-011, ELZ-012, ELZ-013, ELZ-014, ELZ-015, ELZ-016, ELZ-017, ELZ-018, ELZ-019, ELZ-020, ELZ-021, ELZ-022, ELZ-023, ELZ-024, ELZ-025, ELZ-026, ELZ-027, ELZ-028, ELZ-029, ELZ-030, ELZ-032, ELZ-033, ELZ-050, ELZ-052, ELZ-053, ELZ-054, ELZ-055, ELZ-083, ELZ-081, ELZ-084, ELZ-087, ELZ-079, ELZ-080, ELZ-085, ELZ-091, ELZ-092, ELZ-097, RC-01, RC-02, RC-03, RC-04, RC-05, RC-06, RC-07, RC-08, RC-09, RC-10, RC-11, RC-12, RC-13, RC-14, RC-15, RC-16, RC-17, RC-18, RC-19, RC-26, RC-32, RC-42, RC-43, ELZ-094, ELZ-093, ELZ-095, ELZ-082, ELZ-096, ELZ-098, ELZ-099, ELZ-100, ELZ-101, ELZ-104, ELZ-103, ELZ-105, ELZ-107, ELZ-106, ELZ-108, ELZ-109, ELZ-110, ELZ-111, ELZ-112, ELZ-113, ELZ-116, ELZ-119, ELZ-120, ELZ-121, ELZ-128, ELZ-129, ELZ-130, ELZ-131, ELZ-132, ELZ-133, ELZ-134, ELZ-135, ELZ-149, ELZ-151, ELZ-152, ELZ-153, ELZ-154, ELZ-155, ELZ-157, ELZ-158.
+Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, ELZ-008, ELZ-009, ELZ-010, ELZ-011, ELZ-012, ELZ-013, ELZ-014, ELZ-015, ELZ-016, ELZ-017, ELZ-018, ELZ-019, ELZ-020, ELZ-021, ELZ-022, ELZ-023, ELZ-024, ELZ-025, ELZ-026, ELZ-027, ELZ-028, ELZ-029, ELZ-030, ELZ-032, ELZ-033, ELZ-050, ELZ-052, ELZ-053, ELZ-054, ELZ-055, ELZ-083, ELZ-081, ELZ-084, ELZ-087, ELZ-079, ELZ-080, ELZ-085, ELZ-091, ELZ-092, ELZ-097, RC-01, RC-02, RC-03, RC-04, RC-05, RC-06, RC-07, RC-08, RC-09, RC-10, RC-11, RC-12, RC-13, RC-14, RC-15, RC-16, RC-17, RC-18, RC-19, RC-26, RC-32, RC-42, RC-43, ELZ-094, ELZ-093, ELZ-095, ELZ-082, ELZ-096, ELZ-098, ELZ-099, ELZ-100, ELZ-101, ELZ-104, ELZ-103, ELZ-105, ELZ-107, ELZ-106, ELZ-108, ELZ-109, ELZ-110, ELZ-111, ELZ-112, ELZ-113, ELZ-116, ELZ-119, ELZ-120, ELZ-121, ELZ-128, ELZ-129, ELZ-130, ELZ-131, ELZ-132, ELZ-133, ELZ-134, ELZ-135, ELZ-149, ELZ-151, ELZ-152, ELZ-153, ELZ-154, ELZ-155, ELZ-157, ELZ-158, ELZ-184, ELZ-185.
 
 ### V1B-ACCEPT
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180.
 
 ### V2-ACCEPT
 
@@ -3002,3 +3005,33 @@ Publication copy: [tasks/ELZ-179-lua-tool.md](../../tasks/ELZ-179-lua-tool.md).
 **Product aims:** P13.
 
 **Acceptance:** Pure pattern step for a tool written in Lua: one local-work action runs the function in the sandbox from the start with the recorded module results; a pending call becomes one tool-call action by the registry alias after its arguments pass the binding check; its checked result is recorded and the run is asked for again; a call order that differs from the record, a sandbox stop and a module call that did not complete are explicit failures; no action is asked for twice and sandbox state is never kept. Tested on recorded traces.
+
+### ELZ-180
+
+ELZ-180 — The run engine chooses a binding by the schema of the action
+
+Publication copy: [tasks/ELZ-180-engine-bindings-by-schema.md](../../tasks/ELZ-180-engine-bindings-by-schema.md).
+
+**Product aims:** P13.
+
+**Acceptance:** assembly/run-engine, changed in place (same Piece ID): for an action kind the host gives one binding, as before, or a map from the schema ID of the action to a binding, and the engine uses the chosen binding at each of its reads; an action whose schema ID has no entry is refused as missing_binding; existing hosts and tests are unchanged. The test fixture of the Piece gets an effect_bindings override so that another Piece can register its own Effect bindings. Prerequisite of RC-66.
+
+### ELZ-184
+
+ELZ-184 — The presign test of integration/object-store reads its URL before it can expire
+
+Publication copy: [tasks/ELZ-184-object-store-presign-test.md](../../tasks/ELZ-184-object-store-presign-test.md).
+
+**Product aims:** P06.
+
+**Acceptance:** Repair of one flaky test of integration/object-store (issue 381): the works-before-expiry claim uses a URL with a long life and the refused-after claim a second URL with a short life that is read only after it expired. No change of the Piece Contract.
+
+### ELZ-185
+
+ELZ-185 — The local full check stays inside the connection limit of the worker database
+
+Publication copy: [tasks/ELZ-185-local-full-check-connections.md](../../tasks/ELZ-185-local-full-check-connections.md).
+
+**Product aims:** P06.
+
+**Acceptance:** Harness repair: one local full check on a fresh worker database with max_connections 100 passes twice with a recorded peak of at most 80 connections, with the same test set, no raised limit and no skipped or weakened test; the cause of the 103-connection peak is found and repaired in the test harness. Full local and hosted check.
