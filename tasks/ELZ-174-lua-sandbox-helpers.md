@@ -31,8 +31,12 @@ Facts checked on main (`pieces/runtime/lua-sandbox`):
   and `"bindings" => %{}`; the identity is `policy-v1:sha256:` plus the
   SHA-256 of its canonical JSON, with the prefix as a literal. `run/2`
   refuses every other identity as `policy_mismatch`.
-- The capability lists exist in the C host, in `Descriptor` and in the tests,
-  and the `--audit` mode of the host compares them.
+- The capability lists exist in the C host, in `Descriptor` and in the tests.
+  The `--audit` mode of the host gives the surface of the host, and the tests
+  compare it with the descriptor and with fixed-name probes.
+- A library table is an ordinary fresh table of one run with a strict lookup
+  for missing names. A source can assign a field of it; the state of a run
+  is not kept, so the next run is not changed.
 
 Implement only what is below. Add no module binding, no callback to the
 caller, no clock, no random source, no Unicode tables, no second host file,
@@ -42,8 +46,9 @@ Piece, shared path, pin or CI file. No fixtures directory is needed.
 ## Policy version 2
 
 The Piece has one policy, version 2. Its descriptor has
-`"policy_version" => 2`, and `"helpers"` is the sorted list of exactly
-`{"name": name, "version": 1}` for each helper below. The identity is
+`"policy_version" => 2`, and `"helpers"` is the list of exactly
+`{"name": name, "version": 1}` for each helper below, sorted by name, where
+`name` is the field name without `helpers.`, for example `"json_encode"`. The identity is
 `policy-v2:sha256:` plus the SHA-256 of the canonical JSON of the descriptor.
 A request with a `policy-v1:` identity, or any other, is `policy_mismatch`
 before any source runs, as today. Everything else of version 1 is unchanged:
@@ -52,13 +57,17 @@ outcomes.
 
 A source reaches the helpers as fields of the global `helpers`: a fresh
 table with the same strict lookup as the libraries, so `helpers.x` for a name
-that is not listed is `unlisted_name`. The bare names `json`, `text`, `time`,
+that is not listed is `unlisted_name`. As for a library table, a source can
+assign a field of `helpers` in its own run, also a listed one; that changes
+only that run, and the next run has every helper again. The bare names `json`, `text`, `time`,
 `clock`, `now` and `helper_echo` stay `unlisted_name`.
 
 Every helper is a C function of the host. It takes plain values and gives
 plain values. It reads no clock, no environment and no file. It charges
-steps for its work with `charge`: one step for each input or output byte it
-handles, and one for each table entry it visits. A limit that it reaches
+steps for its work with `charge`: one step for each byte of text that it
+reads, one for each byte of text that it gives back, and one for each table
+entry that it visits or makes. A helper that reads and writes text charges
+both. A limit that it reaches
 (`steps`, `value_bytes`, `memory_bytes`) is a sticky stop with the existing
 refusal or host outcome. Wrong arguments and bad data are an ordinary Lua
 error with a fixed message that holds no data; a source can catch it with
@@ -74,7 +83,7 @@ error with a fixed message that holds no data; a source can catch it with
 | `helpers.text_split(text, separator)` | A dense array of the parts of `text` between occurrences of the plain, non-empty `separator`, in order; `n` occurrences give `n + 1` parts, and empty parts are kept. An empty separator is an error. |
 | `helpers.text_utf8_len(text)` | The number of code points of valid UTF-8 text. Invalid UTF-8 (also an overlong form, a surrogate, a value above U+10FFFF) is an error. |
 | `helpers.time_parts(unix_ms)` | For an integer of milliseconds since 1970-01-01T00:00:00Z from 0 to 253402300799999: a table marked as an object with the integers `year`, `month`, `day`, `hour`, `minute`, `second`, `millisecond` and `weekday` (1 for Monday to 7 for Sunday), in UTC, proleptic Gregorian. Another argument is an error. |
-| `helpers.time_unix_ms(parts)` | The inverse for a table with `year` (1970 to 9999), `month`, `day`, `hour`, `minute`, `second` and `millisecond` as integers of a real date and time; `weekday` is not read. Another value is an error. |
+| `helpers.time_unix_ms(parts)` | The inverse for a table with `year` (1970 to 9999), `month`, `day`, `hour`, `minute`, `second` and `millisecond` as integers of a real date and time; `weekday` and any other field are not read. A missing or wrong field of the seven is an error. |
 | `helpers.time_iso8601(unix_ms)` | The text `YYYY-MM-DDTHH:MM:SS.mmmZ` for the same range. |
 
 Time is a value that the caller puts in the input. No helper gives the
@@ -104,10 +113,12 @@ In the one last commit, beside the usual step 3 for `runtime/lua-sandbox`
   and set its `status` to "all portions
   published: ELZ-163 sandbox and ELZ-174 helper set, inside
   runtime/lua-sandbox". Change no other job.
+- In that same RC-60 job replace the `blockers` list by one line: the two
+  portions are published and merged, and the helper set is part of
+  `runtime/lua-sandbox`. Leave its `contract`, `acceptance` and `reuse` as
+  they are: they are the record of the proposal.
 - `docs/plans/bot-platform.md`: in the Wave 3 table, the RC-60 row names
-  only `runtime/lua-sandbox`; in the decisions of 2026-11-14 add one line
-  that the helper set is part of `runtime/lua-sandbox` as policy version 2
-  and that `runtime/lua-stdlib` is not a Piece.
+  only `runtime/lua-sandbox`. The decision line is already there.
 - Then `mix elzoo.ledger`, `python3 scripts/check-roadmap.py --write` and
   `python3 scripts/check-roadmap.py`. If one of them refuses the removal of
   the ID, stop and ask the coordinator; do not keep a placeholder row.
@@ -127,18 +138,21 @@ body.
    negative control that grants one more helper fails the audit.
 2. **`helpers_surface`**: each listed helper is reachable; `helpers.x`,
    `helpers.json`, `json`, `text`, `time`, `clock`, `now` and `helper_echo`
-   are `unlisted_name`; the `helpers` table cannot be changed by a source,
-   has no reachable metatable, and a helper function prints as no address.
+   are `unlisted_name`; a source that assigns `helpers.json_encode` and a new
+   field sees them in that run, and the next run has the helpers of the
+   policy and no new field; the `helpers` table has no reachable metatable,
+   and `tostring` of a helper function is the `lua_error` of version 1.
 3. **`json_round_trip`**: each scalar type, `null`, an empty array, an empty
    object, nested containers at depth 32; depth 33, a function, a cycle,
    mixed keys, a hole and a non-finite number are errors that `pcall`
-   catches; duplicate keys, trailing bytes and invalid UTF-8 in a decode are
+   catches (the helpers refuse 33 nested containers in both directions,
+   whatever the reader of the request does); duplicate keys, trailing bytes and invalid UTF-8 in a decode are
    errors; a decode inside the function of a request whose input holds the
    same document leaves the input unchanged; 1,000 encode and decode calls
    in one run give equal results.
 4. **`helpers_are_bounded`**: an encode whose text is over `value_bytes`, a
-   split with a million parts, a decode of a document near the bound in a
-   loop: each ends in the named sticky stop (`value_size`, `steps` or the
+   split of a text of 65,536 separator bytes under a `steps` limit of
+   10,000, a decode of a document near the bound in a loop: each ends in the named sticky stop (`value_size`, `steps` or the
    `memory` host outcome), a `pcall` around it does not continue, and the
    step count of one helper call grows with its input size.
 5. **`text_helpers`**: trim of each ASCII space character and of none;
