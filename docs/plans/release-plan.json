@@ -4566,9 +4566,7 @@
       "kind": "proposal",
       "release": "V1B",
       "stage": "pieces",
-      "outputs": [
-        "runtime/recipe-test"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "RC-50",
@@ -4583,9 +4581,11 @@
         "ELZ-079",
         "ELZ-114",
         "ELZ-172",
-        "ELZ-180"
+        "ELZ-180",
+        "ELZ-181",
+        "ELZ-183"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "both portions published: ELZ-181 recipe-test and ELZ-183 Lua tools, model graphs and restart",
       "contract": "Run a recipe end to end through the real engine and patterns with scripted model and tool Adapters, no network and a controlled clock. The harness takes only Adapter modules from an allow-list that the caller supplies; any other Adapter is refused at start. The result is the full record of steps. This harness is how a recipe author and a Piece worker test without a provider.",
       "acceptance": "A scripted model that gives tool calls, a wrong-schema answer and a final answer; a tool that fails, times out (unknown) and is refused; a Lua tool with a module call; a graph that the scripted model gives is recorded, and after a restart it is read again and the model is not asked again; the run is deterministic and repeatable; an unscripted call fails the test explicitly; an Adapter outside the allow-list is refused at start.",
       "reuse": "The engine (RC-50), the patterns (RC-55, RC-56, RC-63), the registry (RC-52), the check (RC-64) and the Lua layer (RC-60, RC-62); ExUnit. The fakes of the ready Pieces are .exs test helpers (for example test/support/ai_text_test_helper.exs, which the piece.json of integration/ai-text lists); mix elzoo.take copies them as tests and they are not compiled modules. integration/ai-text also ships the scenario kit Elzoo.AiText.Conformance in lib. This harness ships compiled scripted Adapters, modelled on both.",
@@ -4593,7 +4593,7 @@
         "pieces/runtime/recipe-test/"
       ],
       "blockers": [
-        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID."
+        "Both RC-66 portions are published: ELZ-181 and ELZ-183 (in place on runtime/recipe-test). The harness ships the glue that turns the finish of a nested child into the form of its parent, and it needs the engine changes ELZ-172 and ELZ-180."
       ],
       "owner_role": "one claimed task worker after admission",
       "product_aims": [
@@ -4607,9 +4607,7 @@
       "kind": "proposal",
       "release": "V1B",
       "stage": "pieces",
-      "outputs": [
-        "workflow/skill"
-      ],
+      "outputs": [],
       "dependencies": [
         "ELZ-033",
         "ELZ-096",
@@ -4620,9 +4618,10 @@
         "RC-66",
         "RC-61",
         "ELZ-139",
-        "ELZ-176"
+        "ELZ-176",
+        "ELZ-182"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "published as ELZ-182 workflow/skill",
       "contract": "A skill follows the public Agent Skills format (https://agentskills.io/specification, accessed 2026-11-12; no spec version): a folder with SKILL.md, YAML frontmatter and Markdown instructions. Required name is 1–64 lowercase alphanumeric or hyphen characters, has no leading, trailing or consecutive hyphens, and matches the folder; required description is 1–1024 characters. Malformed skills are refused at package checking, not load. V1 skills come only from the recipe package; MCP io.modelcontextprotocol/skills is out of scope, and future use requires person approval of the exact digest. A model sees only descriptions until it asks for one. A skill is a registry tool source (RC-52); asking is a recorded tool call whose result holds instructions and the tools declared by the pinned package manifest, using RC-56's declaration shape. Trust comes from the pinned package manifest source, never the path or result shape. Named instructions rank with recipe role instructions, RC-54 builds them as instructions and never drops them, and RC-51 does not mark them; other tool results remain marked content. RC-56 accepts them only for the resolved pinned-package skill source kind, owns the 64-tool and total loaded-instruction byte bounds and named refusals, refuses an instruction-overbound load without adding instructions, and adds nothing for a repeat loaded skill. A load exceeding 64 tools gives the instructions and named tool refusal if the instruction bound permits. Instructions are never cut; RC-69 may cut skill files, not the SKILL.md body. A skill grants no authority, including through allowed-tools frontmatter; tools still pass engine checks. Scripts are stored and read but never executed in v1. RC-61's package manifest names each skill with its version and tools; the pinned recipe fixes skill versions.",
       "acceptance": "Malformed folder or SKILL.md frontmatter refused at package checking, including name and description limits; unknown skill; a skill whose declared tool is not permitted for the principal (the instructions load, the tool is refused at use); a skill file over the bound of RC-69 is cut to a reference but the SKILL.md body is never cut; a load that would pass 64 tools gives the instructions and the named refusal of RC-56 when within the instruction bound; an instruction-overbound load adds no instruction and repeat load adds nothing; allowed-tools grants no authority; scripts are stored and read, never executed; a changed skill version does not change a running Run; with the harness of RC-66, a load survives a restart and is not done again.",
       "reuse": "Public Agent Skills specification, https://agentskills.io/specification, accessed 2026-11-12 (no spec version); state/artifact for files; RC-52, RC-54 and RC-56; the package manifest of RC-61; the cut rule of RC-69; the pin of RC-65; the harness of RC-66.",
@@ -4630,7 +4629,7 @@
         "pieces/workflow/skill/"
       ],
       "blockers": [
-        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID."
+        "RC-67 is published as ELZ-182. Coordinator decisions, 2026-11-14: the YAML frontmatter is read with the adopted library (ELZ-176) behind a scan that refuses aliases, merge keys, document markers, duplicate top-level keys and tabs; a load lists no tool, so the acceptance case of a load that would pass 64 tools is not met by this task and needs a change of workflow/agent-loop; the Piece stores nothing, the caller holds the bytes of the files."
       ],
       "owner_role": "one claimed task worker after admission",
       "product_aims": [
@@ -5952,6 +5951,57 @@
       "issue": 403,
       "url": "https://github.com/balungpisah/elzoo/issues/403",
       "issue_body_sha256": "22f062ef4b377f1dc7086c5089ca85314e95cc3cb8643a75ba816f596847012f"
+    },
+    {
+      "id": "ELZ-181",
+      "title": "ELZ-181 — Run a recipe against scripted models and tools, through the real engine",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-114", "ELZ-127", "ELZ-136", "ELZ-137", "ELZ-139", "ELZ-141", "ELZ-142", "ELZ-161", "ELZ-164", "ELZ-167", "ELZ-168", "ELZ-172", "ELZ-180"],
+      "status": "published 2026-11-14",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-181-recipe-test.md"],
+      "outputs": ["runtime/recipe-test"],
+      "acceptance": "A test harness that runs a recipe package end to end through the real assembly/run-engine and the ready pattern Pieces, with a compiled scripted Adapter, a caller allow-list of Adapters, a controlled clock and a driver that delivers scripted results in occurrence order; it gives the full step record. Agent, typed decision and graph callables with the glue that turns the finish of a nested child into the form of its parent; an unscripted call and an Adapter outside the allow-list are explicit failures; the same script gives the same record. First portion of RC-66; Lua tools, model graphs and restart follow in ELZ-183.",
+      "product_aims": ["P13"],
+      "issue": 406,
+      "url": "https://github.com/balungpisah/elzoo/issues/406",
+      "issue_body_sha256": "a1a2c54afc9eb6b4da2851daad3a75f3d7823887fd306aee4410dc9205230228"
+    },
+    {
+      "id": "ELZ-182",
+      "title": "ELZ-182 — Skill: instructions and files of a skill folder, loaded on demand",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-136", "ELZ-137", "ELZ-139", "ELZ-140", "ELZ-142", "ELZ-161", "ELZ-164", "ELZ-170", "ELZ-176"],
+      "status": "published 2026-11-14",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-182-skill.md"],
+      "outputs": ["workflow/skill"],
+      "acceptance": "Pure reader of a skill folder given as data: SKILL.md is split into YAML frontmatter and body, the frontmatter is scanned (aliases, merge keys, document markers, duplicate top-level keys and tabs refused) and read with the adopted YAML library, and the result is the skill entry of domain/recipe-package or a fixed refusal. One tool-registry source of kind pinned_skill with a load tool, whose answer is the declaration that workflow/agent-loop accepts, and a read-file tool, whose answer is marked content; the SKILL.md body is never marked or cut and scripts are bytes that are read, never run. A load lists no tool (coordinator decision).",
+      "product_aims": ["P13"],
+      "issue": 407,
+      "url": "https://github.com/balungpisah/elzoo/issues/407",
+      "issue_body_sha256": "ea273875b13f564a431dfeea0618b43a58d81d212fb6f7f70f33df3687548457"
+    },
+    {
+      "id": "ELZ-183",
+      "title": "ELZ-183 — The recipe test runs Lua tools and graphs that a model gives, and restarts",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-169", "ELZ-177", "ELZ-178", "ELZ-179", "ELZ-180", "ELZ-181"],
+      "status": "published 2026-11-14",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-183-recipe-test-lua-and-model-graph.md"],
+      "outputs": [],
+      "acceptance": "runtime/recipe-test, changed in place (same Piece ID): a tool written in Lua runs through workflow/lua-tool, runtime/lua-binding and the real sandbox as local work, with its module calls scripted; a graph that a model gives is accepted by workflow/runtime-graph and run as a nested callable; a restart in the middle reads the recorded results and the recorded graph and does not ask the model again. Second and last portion of RC-66.",
+      "product_aims": ["P13"],
+      "issue": 408,
+      "url": "https://github.com/balungpisah/elzoo/issues/408",
+      "issue_body_sha256": "794b07814052b13241d615775908dbb9111a20d8212f3ba0ef3a620e9cf77240"
     }
   ],
   "entries": [
@@ -7177,12 +7227,12 @@
     {
       "id": "runtime/lua-sandbox",
       "job": "ELZ-163",
-      "note": "Evaluate one pure Lua function of one plain input in a fresh PUC Lua 5.4.9 process outside the VM, started by a caller-held OTP Port from an executable that build/2 compiles from the installed pinned lua_source checkout and an owned C host, over length-framed JSON (unsigned 32-bit little-endian length, at most 1,048,576 bytes) under capability policy version 2, whose fixed allow-list of names and safe helper set (ten C helpers under the global helpers, each version 1, for JSON null and empty object, canonical JSON encode and decode, ASCII trim, plain split, UTF-8 code-point count and UTC time values that the caller passes in) has a canonical identity and refuses every other name as unlisted_name; helpers charge counted steps for their work and their limits are the same sticky stops; exact positive limits on counted steps, call depth, value bytes, live Lua memory and wall time apply, and a step, depth, size or unlisted-name stop is sticky and cannot be caught or continued from Lua; input and result are plain data (null sentinel, booleans, UTF-8 strings, signed 64-bit integers, finite floats, dense arrays, string-keyed maps, at most 32 nested containers), a refusal is a fixed atom, memory, wall time, abnormal exit and protocol failure are recorded host outcomes, and the child is reaped on every return path including the death of the caller.",
+      "note": "Evaluate one pure Lua function of one plain input in a fresh PUC Lua 5.4.9 process outside the VM, started by a caller-held OTP Port from an executable that build/2 compiles from the installed pinned lua_source checkout and an owned C host, over length-framed JSON (unsigned 32-bit little-endian length, at most 1,048,576 bytes) under capability policy version 3, whose fixed allow-list of names and safe helper set (ten C helpers under the global helpers, each version 1, for JSON null and empty object, canonical JSON encode and decode, ASCII trim, plain split, UTF-8 code-point count and UTC time values that the caller passes in) has a canonical identity and refuses every other name as unlisted_name; for each declared name a function bindings.<name> is answered by the sandbox itself, as data (mode data) or as a replay of the results that the caller recorded, in order, ending at the first unrecorded call with a pending-call reply (mode replay), and a recorded call that the source does not repeat is call_mismatch; helpers charge counted steps for their work and their limits are the same sticky stops; exact positive limits on counted steps, call depth, value bytes, live Lua memory and wall time apply, and a step, depth, size or unlisted-name stop is sticky and cannot be caught or continued from Lua; input and result are plain data (null sentinel, booleans, UTF-8 strings, signed 64-bit integers, finite floats, dense arrays, string-keyed maps, at most 32 nested containers), a refusal is a fixed atom, memory, wall time, abnormal exit and protocol failure are recorded host outcomes, and the child is reaped on every return path including the death of the caller.",
       "baseline_status": "not in baseline (new row, RC-60)",
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/runtime/lua-sandbox/piece.json",
-      "manifest_sha256": "e8e521d89caaf7f7c33d53fca90f15bab107e6d4dfd927ffe4d57b1bce8f9648"
+      "manifest_sha256": "babf2cac2f504a7c3446157b5c54cddcada8f759164ebc3d31950f533d73f7ea"
     },
     {
       "id": "domain/recipe-graph",
@@ -7294,18 +7344,18 @@
     },
     {
       "id": "runtime/recipe-test",
-      "job": "RC-66",
-      "note": "Bot platform wave 3 (P13). No network and a controlled clock; an unscripted call fails the test. The way an author and a Piece worker test without a provider.",
+      "job": "ELZ-181",
+      "note": "Test harness that runs a recipe package through the real engine and patterns with scripted model and tool Adapters, a controlled clock and a full step record.",
       "baseline_status": "not in baseline (new row, RC-66)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "published-task; implementation pending",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
       "id": "workflow/skill",
-      "job": "RC-67",
-      "note": "Bot platform wave 3 (P13). A skill is a tool source of the registry: loading is a recorded tool call and grants no authority; the tools of the skill still pass the checks of the engine.",
+      "job": "ELZ-182",
+      "note": "Pure reader of a skill folder and one pinned_skill tool source: SKILL.md frontmatter and body, a load that gives the instructions as a declaration, files read as marked content, scripts never run.",
       "baseline_status": "not in baseline (new row, RC-67)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "published-task; implementation pending",
       "catalogue_reference": "registry/catalogue.json"
     }
   ],

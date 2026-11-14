@@ -1040,7 +1040,7 @@
       "disposition": "adapt",
       "phase": "demand-led",
       "status": "ready",
-      "reason": "Bot platform wave 3 (P13). Reference PUC Lua 5.4.9 runs outside the VM over a Port with an owned C host; hard limits on counted steps, call depth, value bytes, live memory and wall time; capability policy version 2 with the safe helper set (JSON, text and time values passed in) and no file, network, clock or random access.",
+      "reason": "Bot platform wave 3 (P13). Reference PUC Lua 5.4.9 runs outside the VM over a Port with an owned C host; hard limits on counted steps, call depth, value bytes, live memory and wall time; capability policy version 3 with the safe helper set (JSON, text and time values passed in), module-call bindings answered as data or as a replay of recorded results, and no file, network, clock or random access.",
       "manifest": "pieces/runtime/lua-sandbox/piece.json"
     },
     {
