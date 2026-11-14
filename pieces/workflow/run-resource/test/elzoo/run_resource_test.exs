@@ -202,6 +202,13 @@ defmodule Elzoo.RunResourceTest do
     }
   end
 
+  # A resource use whose intent has the given deadline and whose command has the given at_ms.
+  defp intent_use(f, id, deadline, at_ms) do
+    command = action(f, id, "resource_use")
+    {:action, map, context, _} = command.body
+    %{command | at_ms: at_ms, body: {:action, map, context, intent(id, "resource_use", deadline)}}
+  end
+
   defp time(f), do: Agent.get(f.clock, & &1)
   defp at(f, time), do: Agent.update(f.clock, fn _ -> time end)
   defp cmd(f, id, body), do: RunResource.command(f.owner, %{id: id, at_ms: time(f), body: body})
@@ -331,6 +338,132 @@ defmodule Elzoo.RunResourceTest do
     other = fixture() |> open()
     assert {:ok, _} = RunResource.command(other.owner, action(other, "independent", "resource_use"))
     assert snapshot(other).state.active_action_id == "independent"
+
+    # The deadline of an intent is compared with the sampled clock, not only with the command time.
+    # Group expired_intent_is_not_admitted: clock 150, intent deadline 100, command at_ms 50.
+    admit = fixture() |> open()
+    at(admit, 150)
+    before_admit = snapshot(admit)
+    stale = intent_use(admit, "stale", 100, 50)
+    assert {:refused, :invalid_input} = RunResource.command(admit.owner, stale)
+    assert snapshot(admit) == before_admit
+    assert snapshot(admit).state.active_action_id == nil
+
+    fresh = intent_use(admit, "fresh", 400, 150)
+    assert {:ok, %{disposition: :accepted}} = RunResource.command(admit.owner, fresh)
+    assert snapshot(admit).state.active_action_id == "fresh"
+    fresh_intent = intent("fresh", "resource_use", 400)
+    fresh_owner = effect(admit, fresh_intent)
+
+    assert {:ok, %{disposition: :accepted}} =
+             dispatch(admit, "send-fresh", fresh_intent, fresh_owner)
+
+    assert_receive {:provider_call, fresh_worker, _}, 1000
+
+    finish(
+      admit,
+      fresh_intent,
+      fresh_owner,
+      fresh_worker,
+      {:completed, %{"value" => 1}},
+      "fresh-done"
+    )
+
+    assert snapshot(admit).state.active_action_id == nil
+
+    # Group expired_intent_is_not_reserved: admitted at 90, dispatched at clock 150 with at_ms 95.
+    reserve = fixture() |> open()
+    at(reserve, 90)
+    soon = intent("soon", "resource_use", 100)
+    soon_owner = effect(reserve, soon)
+    soon_action = intent_use(reserve, "soon", 100, 90)
+    assert {:ok, %{disposition: :accepted}} = RunResource.command(reserve.owner, soon_action)
+    assert snapshot(reserve).state.active_action_id == "soon"
+    at(reserve, 150)
+    before_reserve = snapshot(reserve)
+    owner_status = EffectIntent.status(soon_owner)
+    assert Enum.any?(effects(reserve), &(&1.identity == soon.identity))
+    soon_send = %{id: "send-soon", at_ms: 95, body: {:dispatch, soon.identity, soon_owner}}
+    assert {:refused, :closing} = RunResource.command(reserve.owner, soon_send)
+    assert snapshot(reserve) == before_reserve
+    assert Enum.any?(effects(reserve), &(&1.identity == soon.identity))
+    assert EffectIntent.status(soon_owner) == owner_status
+    refute_receive {:provider_call, _, _}, 200
+
+    # Group command_time_still_counts: the command time later than the deadline refuses as before.
+    late = fixture() |> open()
+    at(late, 50)
+    before_late = snapshot(late)
+    late_use = intent_use(late, "late", 100, 150)
+    assert {:refused, :invalid_input} = RunResource.command(late.owner, late_use)
+    assert snapshot(late) == before_late
+
+    late_dispatch = fixture() |> open()
+    at(late_dispatch, 50)
+    near = intent("near", "resource_use", 100)
+    near_owner = effect(late_dispatch, near)
+    near_use = intent_use(late_dispatch, "near", 100, 50)
+    assert {:ok, %{disposition: :accepted}} = RunResource.command(late_dispatch.owner, near_use)
+    before_near = snapshot(late_dispatch)
+    near_send = %{id: "send-near", at_ms: 150, body: {:dispatch, near.identity, near_owner}}
+    assert {:refused, :closing} = RunResource.command(late_dispatch.owner, near_send)
+    assert snapshot(late_dispatch) == before_near
+    refute_receive {:provider_call, _, _}, 200
+
+    # Group replay_is_equal: a retry of a stored command after the deadline gets the stored receipt.
+    replay = fixture() |> open()
+    at(replay, 90)
+    replay_intent = intent("replay", "resource_use", 100)
+    replay_owner = effect(replay, replay_intent)
+    replay_use = intent_use(replay, "replay", 100, 90)
+
+    assert {:ok, %{disposition: :accepted}} =
+             use_receipt = RunResource.command(replay.owner, replay_use)
+
+    replay_send = %{
+      id: "send-replay",
+      at_ms: 90,
+      body: {:dispatch, replay_intent.identity, replay_owner}
+    }
+
+    send_receipt = RunResource.command(replay.owner, replay_send)
+    assert_receive {:provider_call, replay_worker, _}, 1000
+
+    finish(
+      replay,
+      replay_intent,
+      replay_owner,
+      replay_worker,
+      {:completed, %{"value" => 2}},
+      "replay-done"
+    )
+
+    at(replay, 150)
+    before_replay = snapshot(replay)
+    assert RunResource.command(replay.owner, replay_use) == use_receipt
+    assert RunResource.command(replay.owner, replay_send) == send_receipt
+    assert snapshot(replay) == before_replay
+    refute_receive {:provider_call, _, _}, 200
+
+    # The sample never enters the stored records: recovery replays them unchanged and adds only
+    # its own record (an open resource is lost on recovery). Effect lists follow the recovered
+    # model, so the stored receipts, inputs and command ids are compared.
+    stored = fn e -> Map.delete(e, :effects) end
+
+    for fx <- [admit, reserve, late, late_dispatch, replay] do
+      before = snapshot(fx)
+      recovered = snapshot(restart(fx))
+      count = length(before.entries)
+      assert length(recovered.entries) == count + 1
+
+      assert Enum.map(Enum.take(recovered.entries, count), stored) ==
+               Enum.map(before.entries, stored)
+    end
+
+    restarted = restart(replay)
+    assert RunResource.command(restarted.owner, replay_use) == use_receipt
+    assert RunResource.command(restarted.owner, replay_send) == send_receipt
+    refute_receive {:provider_call, _, _}, 200
   end
 
   test "same_run_typed_name_grant" do
