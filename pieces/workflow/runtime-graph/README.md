@@ -48,7 +48,9 @@ map with a string `kind`, or when a value is not plain JSON data (a function, a
 tuple, an atom other than a boolean or `nil`, a struct, a key that is not a
 string, an improper list, invalid UTF-8); `:too_large` when the compact JSON is
 over 65,536 bytes; `:too_many_nodes` when `nodes` holds more than `max_nodes`
-entries.
+entries. A number that is not finite cannot occur as a decoded term on the BEAM
+(every Elixir float is finite and Jason decodes no NaN or infinity), so stage 1
+has no check for it and no test covers it.
 
 **Stage 2, the limits of the agent.** All reasons, sorted by path and then by
 code:
