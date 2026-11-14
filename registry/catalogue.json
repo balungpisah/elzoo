@@ -1064,7 +1064,8 @@
       "summary": "Recipe manifest: name, version, needs and permissions",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/domain/recipe-package/piece.json",
       "reason": "Bot platform wave 3 (P13). What a recipe declares before it can be checked, stored or shared."
     },
     {

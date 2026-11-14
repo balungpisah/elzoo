@@ -6905,10 +6905,12 @@
     {
       "id": "domain/recipe-package",
       "job": "ELZ-164",
-      "note": "Bot platform wave 3 (P13). Admitted bounded package manifest with content identity, graph/config validation and decoded skill declarations; implementation pending.",
+      "note": "Pure bounded v1 recipe package as decoded plain JSON data: exact name, opaque version, canonical SHA-256 content identity, declarative needs and permissions, unchanged ready graph and settings descriptor, and bounded decoded skill frontmatter and Markdown. Encode returns the exact original map; fixed redacted refusals, no loading or authority.",
       "baseline_status": "not in baseline (new row, RC-61)",
-      "disposition": "published-task; implementation pending",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/domain/recipe-package/piece.json",
+      "manifest_sha256": "1c026244dbc854ce6cfedf4912156a6a2437e998b84d2ba926a42357d881347e"
     },
     {
       "id": "domain/recipe-config",
