@@ -4508,4 +4508,1050 @@ defmodule Elzoo.RunEngineTest do
       send(task, :finish)
     end
   end
+
+  # ELZ-191 helpers.
+  defp change_attempt(engine, attempt \\ "second") do
+    assert {:ok, :applied} =
+             bounded(fn ->
+               RunEngine.control(
+                 engine,
+                 "attempt-" <> attempt,
+                 %{kind: :begin_attempt, attempt_id: attempt},
+                 verified()
+               )
+             end)
+  end
+
+  defp tool_run(overrides \\ []) do
+    fixture(
+      Keyword.merge(
+        [pattern: {TestPattern, :step, %{requests: [request([action("publish", "tool_call")])]}}],
+        overrides
+      )
+    )
+  end
+
+  defp wait_unit(c, predicate, left \\ 400)
+
+  defp wait_unit(c, _, 0),
+    do: flunk("the durable state did not reach the expected phase: #{inspect(unit_state(c).slots)}")
+
+  defp wait_unit(c, predicate, left) do
+    if predicate.(unit_state(c)),
+      do: :ok,
+      else:
+        (
+          Process.sleep(5)
+          wait_unit(c, predicate, left - 1)
+        )
+  end
+
+  # A context function that stops the engine at its n-th call: it blocks (:block) or
+  # suspends the Run owner and goes on (:suspend_run). The durable state is what the
+  # engine had committed before.
+  defp trap_context(c, at_call, mode) do
+    parent = self()
+    calls = start_supervised!({Agent, fn -> 0 end}, id: make_ref())
+
+    fn ->
+      if Agent.get_and_update(calls, &{&1 + 1, &1 + 1}) == at_call do
+        case mode do
+          :block ->
+            send(parent, {:trapped, self()})
+
+            receive do
+              :release -> :ok
+            after
+              30_000 -> :ok
+            end
+
+          :suspend_run ->
+            :sys.suspend(c.run)
+            send(parent, {:trapped, self()})
+        end
+      end
+
+      Agent.get(c.context, & &1)
+    end
+  end
+
+  # The engine process dies where it stands; the unit restarts as after a crash.
+  defp halt_engine(c, engine) do
+    ref = Process.monitor(engine)
+    Process.exit(engine, :kill)
+    assert_receive {:DOWN, ^ref, :process, ^engine, _}, 5_000
+    assert :ok = DynamicUnits.stop(c.directory, c.prefix)
+    Agent.update(c.host_mode, fn _ -> :recover end)
+  end
+
+  defp change_attempt_down(c, attempt \\ "second") do
+    {:ok, run} = Run.status(c.run, "run")
+
+    assert {:ok, _, _} =
+             Run.command(c.run, %{
+               kind: :begin_attempt,
+               run_id: "run",
+               attempt_id: attempt,
+               expected_revision: run.revision
+             })
+  end
+
+  defp send_async(engine, id \\ "start") do
+    spawn(fn ->
+      try do
+        RunEngine.input(engine, id, start_input(), verified())
+      catch
+        :exit, _ -> :ok
+      end
+    end)
+  end
+
+  defp budgets(c),
+    do: for({id, _} <- unit_state(c).control.budgets, into: %{}, do: {id, budget_status(c, id)})
+
+  defp footprint(c, engine),
+    do: %{
+      view: view(engine),
+      slots: unit_state(c).slots,
+      budgets: budgets(c),
+      records: length(rows(c))
+    }
+
+  # A late result for the slot, with the Attempt of the slot and with the new one.
+  defp late_results(engine, key, id) do
+    for {attempt, tag} <- [{"attempt", "old"}, {"second", "new"}] do
+      assert {:ok, _} =
+               RunEngine.input(
+                 engine,
+                 "late-#{tag}-#{id}",
+                 result(id),
+                 verified(%{
+                   attempt_id: attempt,
+                   occurrence: key,
+                   actual: 1,
+                   dispatch: "dispatched"
+                 })
+               )
+    end
+  end
+
+  describe "sent_slot_becomes_unknown" do
+    test "a dispatched tool action becomes unknown, keeps its reservation and is never sent again" do
+      c = tool_run()
+      engine = start(c)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, task, _}, 5_000
+      before = budget_status(c, "root")
+      assert before == %{committed: 0, reserved: 1}
+      reservation = unit_state(c).slots[{1, 0}].reservation
+
+      change_attempt(engine)
+      assert view(engine).slots[{1, 0}].phase == :settled
+      assert view(engine).slots[{1, 0}].outcome == "unknown"
+      slot = unit_state(c).slots[{1, 0}]
+      assert slot[:actual] == nil
+      assert slot.reservation == reservation
+      assert budget_status(c, "root") == before
+      assert view(engine).joins[1].closed
+
+      engine = restart(c, engine, [])
+      refute_receive {:effect_started, _, _}, 300
+      assert unit_state(c).slots[{1, 0}] == slot
+      assert budget_status(c, "root") == before
+
+      late_results(engine, {1, 0}, "publish")
+      assert unit_state(c).slots[{1, 0}] == slot
+      assert budget_status(c, "root") == before
+      refute_receive {:effect_started, _, _}, 300
+      send(task, {:result, %{}})
+    end
+
+    test "a slot in reconcile becomes unknown with its reservation held" do
+      c = tool_run()
+      Agent.update(c.host_mode, fn _ -> :read_only end)
+      engine = start(c)
+      assert {:ok, :applied} = send_input(engine)
+      assert %{phase: :reconcile, reconciliation: :read_only} = view(engine).slots[{1, 0}]
+      before = budget_status(c, "root")
+      assert before == %{committed: 0, reserved: 1}
+
+      change_attempt(engine)
+      assert view(engine).slots[{1, 0}].phase == :settled
+      assert view(engine).slots[{1, 0}].outcome == "unknown"
+      slot = unit_state(c).slots[{1, 0}]
+      assert slot[:actual] == nil
+      assert budget_status(c, "root") == before
+
+      Agent.update(c.host_mode, fn _ -> :fresh end)
+      engine = restart(c, engine, [])
+      refute_receive {:effect_started, _, _}, 300
+      assert unit_state(c).slots[{1, 0}] == slot
+      late_results(engine, {1, 0}, "publish")
+      assert unit_state(c).slots[{1, 0}] == slot
+      assert budget_status(c, "root") == before
+      refute_receive {:effect_started, _, _}, 300
+    end
+
+    test "a waiting ask_person becomes unknown and a late answer changes nothing" do
+      c =
+        fixture(
+          pattern: {TestPattern, :step, %{requests: [request([action("ask", "ask_person")])]}}
+        )
+
+      engine = start(c)
+      assert {:ok, :applied} = send_input(engine)
+      assert view(engine).slots[{1, 0}].phase == :waiting
+      before = budget_status(c, "root")
+      assert before == %{committed: 0, reserved: 1}
+
+      change_attempt(engine)
+      assert view(engine).slots[{1, 0}].phase == :settled
+      assert view(engine).slots[{1, 0}].outcome == "unknown"
+      slot = unit_state(c).slots[{1, 0}]
+      assert slot[:actual] == nil
+      assert budget_status(c, "root") == before
+
+      engine = restart(c, engine, [])
+
+      answer = %{
+        "type" => "input",
+        "version" => 1,
+        "kind" => "person_answer",
+        "action_id" => "ask",
+        "person_id" => "person",
+        "schema_id" => "message",
+        "schema_version" => 1,
+        "payload" => %{}
+      }
+
+      for {attempt, tag} <- [{"attempt", "old"}, {"second", "new"}] do
+        assert {:ok, _} =
+                 RunEngine.input(
+                   engine,
+                   "late-answer-#{tag}",
+                   answer,
+                   verified(%{
+                     attempt_id: attempt,
+                     occurrence: {1, 0},
+                     verified_person: "person",
+                     actual: 1
+                   })
+                 )
+      end
+
+      assert unit_state(c).slots[{1, 0}] == slot
+      assert budget_status(c, "root") == before
+    end
+
+    test "a tool action that waits for approval with a request key may have been sent: unknown, held, never sent" do
+      c = tool_run()
+      require_approval(c)
+      engine = start(c)
+      assert {:ok, :applied} = send_input(engine)
+      assert view(engine).slots[{1, 0}].phase == :approval
+      assert is_tuple(unit_state(c).slots[{1, 0}].request_key)
+      {:ok, run} = Run.status(c.run, "run")
+      [%{request_key: key}] = run.approvals
+      before = budget_status(c, "root")
+      assert before == %{committed: 0, reserved: 1}
+
+      change_attempt(engine)
+      assert view(engine).slots[{1, 0}].outcome == "unknown"
+      slot = unit_state(c).slots[{1, 0}]
+      assert slot[:actual] == nil
+      assert budget_status(c, "root") == before
+
+      # The Run no longer knows the approval request of the older Attempt.
+      assert {:error, {:run_control, {:refused, :unknown_request}}} =
+               RunEngine.control(
+                 engine,
+                 "consent",
+                 %{kind: :approval_evidence, request_key: key, evidence: consent(key)},
+                 verified()
+               )
+
+      refute_receive {:effect_started, _, _}, 300
+      engine = restart(c, engine, [])
+      refute_receive {:effect_started, _, _}, 300
+      assert unit_state(c).slots[{1, 0}] == slot
+      assert budget_status(c, "root") == before
+      assert view(engine).slots[{1, 0}].outcome == "unknown"
+    end
+  end
+
+  describe "unsent_slot_is_released" do
+    # Held by stopping the engine process where it stands: the slot keeps the phase of its
+    # last committed record; the Attempt changes while the engine is down; a new engine
+    # folds the view record at its start.
+    defp unsent_case(c, trap_opts, phase, reserved_before) do
+      engine = start(c, trap_opts)
+      send_async(engine)
+      assert_receive {:trapped, _}, 5_000
+      wait_unit(c, &(&1.slots[{1, 0}] != nil and &1.slots[{1, 0}].phase == phase))
+      assert budget_status(c, "root") == %{committed: 0, reserved: reserved_before}
+      halt_engine(c, engine)
+      if trap_opts[:resume_run], do: :sys.resume(c.run)
+      change_attempt_down(c)
+      engine = start(c)
+      assert view(engine).slots[{1, 0}].phase == :settled
+      assert view(engine).slots[{1, 0}].outcome == "refused"
+      slot = unit_state(c).slots[{1, 0}]
+      assert slot.actual == 0
+      assert budget_status(c, "root") == %{committed: 0, reserved: 0}
+      refute_receive {:effect_started, _, _}, 300
+      engine = restart(c, engine, [])
+      refute_receive {:effect_started, _, _}, 300
+      assert unit_state(c).slots[{1, 0}] == slot
+      assert budget_status(c, "root") == %{committed: 0, reserved: 0}
+      assert view(engine).slots[{1, 0}].outcome == "refused"
+    end
+
+    test "a slot in checking is refused with nothing held" do
+      c = tool_run()
+      parent = self()
+
+      gate = %{
+        id: "gate",
+        version: 1,
+        call: fn _, _ ->
+          send(parent, {:trapped, self()})
+
+          receive do
+            :release -> :allow
+          after
+            30_000 -> :allow
+          end
+        end
+      }
+
+      unsent_case(c, [gate: gate], :checking, 0)
+    end
+
+    test "a slot in allowed is refused with nothing held" do
+      c = tool_run()
+      parent = self()
+      armed = start_supervised!({Agent, fn -> true end}, id: make_ref())
+      base = c.opts[:bindings]["tool_call"]
+
+      bindings =
+        Map.put(c.opts[:bindings], "tool_call", %{
+          base
+          | facts: fn a ->
+              if Agent.get_and_update(armed, &{&1, false}) do
+                send(parent, {:trapped, self()})
+
+                receive do
+                  :release -> :ok
+                after
+                  30_000 -> :ok
+                end
+              end
+
+              base.facts.(a)
+            end
+        })
+
+      unsent_case(c, [bindings: bindings], :allowed, 0)
+    end
+
+    test "a slot in authorizing is refused and its reservation is released" do
+      c = tool_run()
+      unsent_case(c, [context: trap_context(c, 1, :block)], :authorizing, 1)
+    end
+
+    test "a slot in refusing is refused" do
+      c = tool_run()
+      gate = %{id: "gate", version: 1, call: fn _, _ -> {:deny, "restricted"} end}
+      unsent_case(c, [gate: gate, context: trap_context(c, 1, :block)], :refusing, 0)
+    end
+
+    test "a slot waiting for approval with no request key is refused and its reservation is released" do
+      c = tool_run()
+      require_approval(c)
+      unsent_case(c, [context: trap_context(c, 1, :suspend_run), resume_run: true], :approval, 1)
+    end
+
+    test "a ready tool or model slot is refused, released, and never sent, also after a restart" do
+      for kind <- ["tool_call", "model_call"] do
+        c =
+          fixture(pattern: {TestPattern, :step, %{requests: [request([action("publish", kind)])]}})
+
+        unsent_case(c, [context: trap_context(c, 2, :block)], :ready, 1)
+      end
+    end
+
+    test "a non-intent slot waiting for approval with a request key is refused and released" do
+      c =
+        fixture(
+          pattern: {TestPattern, :step, %{requests: [request([action("work", "local_work")])]}}
+        )
+
+      require_approval(c)
+      bindings = Map.update!(c.opts[:bindings], "local_work", &%{&1 | effect_class: "publish"})
+      engine = start(c, bindings: bindings)
+      assert {:ok, :applied} = send_input(engine)
+      assert view(engine).slots[{1, 0}].phase == :approval
+      assert is_tuple(unit_state(c).slots[{1, 0}].request_key)
+      {:ok, run} = Run.status(c.run, "run")
+      [%{request_key: key}] = run.approvals
+      assert budget_status(c, "root") == %{committed: 0, reserved: 1}
+
+      change_attempt(engine)
+      assert view(engine).slots[{1, 0}].outcome == "refused"
+      slot = unit_state(c).slots[{1, 0}]
+      assert slot.actual == 0
+      assert budget_status(c, "root") == %{committed: 0, reserved: 0}
+
+      # The Run no longer knows the approval request of the older Attempt.
+      assert {:error, {:run_control, {:refused, :unknown_request}}} =
+               RunEngine.control(
+                 engine,
+                 "consent",
+                 %{kind: :approval_evidence, request_key: key, evidence: consent(key)},
+                 verified()
+               )
+
+      engine = restart(c, engine, bindings: bindings)
+      assert unit_state(c).slots[{1, 0}] == slot
+      assert view(engine).slots[{1, 0}].outcome == "refused"
+      assert budget_status(c, "root") == %{committed: 0, reserved: 0}
+    end
+  end
+
+  # A nested parent whose child asks `a` (a tool whose cost is known when it is settled) and
+  # then `w`, an action that waits for approval: the child cannot finish before the change.
+  defp known_cost_child do
+    {c, bindings} =
+      lost_setup(
+        [
+          request([action("a", "tool_call")]),
+          request([action("w", "local_work"), finish_action("done")])
+        ],
+        []
+      )
+
+    require_approval(c)
+
+    bindings =
+      bindings
+      |> Map.update!("local_work", &%{&1 | effect_class: "publish"})
+      |> Map.update!("tool_call", &%{&1 | effect_class: "compute"})
+
+    {c, bindings}
+  end
+
+  describe "nested_parent_and_child_close" do
+    test "a child with a kept finish and only known costs: the parent gets the committed amount, the finish is dropped" do
+      {c, bindings} = known_cost_child()
+      engine = start(c, bindings: bindings)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, task, _}, 5_000
+
+      assert {:ok, :applied} =
+               RunEngine.input(
+                 engine,
+                 "a-result",
+                 result("a"),
+                 verified(%{occurrence: {2, 0}, actual: 5, dispatch: "dispatched"})
+               )
+
+      assert slot_by(view(engine), "w").phase == :approval
+      assert slot_by(view(engine), "done").phase == :settled
+      assert unit_state(c).control.callables["1:0"][:finish] != nil
+      assert view(engine).slots[{1, 0}].phase == :running
+      assert budget_status(c, "1:0") == %{committed: 5, reserved: 1}
+      assert budget_status(c, "root") == %{committed: 0, reserved: 10}
+
+      change_attempt(engine)
+      view = view(engine)
+      assert Enum.all?(view.slots, fn {_, s} -> s.phase == :settled end)
+      assert slot_by(view, "w").outcome == "refused"
+      assert view.slots[{1, 0}].outcome == "unknown"
+      state = unit_state(c)
+      assert state.slots[{1, 0}].actual === 5
+      assert state.slots[{3, 0}].actual === 0
+      assert state.control.callables["1:0"].closed
+      refute Map.has_key?(state.control.callables["1:0"], :finish)
+      assert budget_status(c, "1:0") == %{committed: 5, reserved: 0}
+      assert budget_status(c, "root") == %{committed: 5, reserved: 0}
+      refute_receive {:pattern_input, "root", %{"action_id" => "nested"}}, 300
+      assert outcome_records(c, "nested") == []
+
+      engine = restart(c, engine, bindings: bindings)
+      assert unit_state(c).slots[{1, 0}] == state.slots[{1, 0}]
+      refute_receive {:pattern_input, "root", %{"action_id" => "nested"}}, 300
+      assert view(engine).slots[{1, 0}].outcome == "unknown"
+      send(task, {:result, %{}})
+    end
+
+    test "a child with a sent action: the parent is settled with no actual, its share stays held, the finish is dropped" do
+      {c, bindings} =
+        lost_setup([request([action("slow", "tool_call"), finish_action("done")])], [])
+
+      engine = start(c, bindings: bindings)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, provider, _}, 5_000
+      assert unit_state(c).control.callables["1:0"][:finish] != nil
+      assert view(engine).slots[{1, 0}].phase == :running
+
+      change_attempt(engine)
+      view = view(engine)
+      assert Enum.all?(view.slots, fn {_, s} -> s.phase == :settled end)
+      assert slot_by(view, "slow").outcome == "unknown"
+      assert view.slots[{1, 0}].outcome == "unknown"
+      state = unit_state(c)
+      assert state.slots[{1, 0}][:actual] == nil
+      assert state.control.callables["1:0"].closed
+      refute Map.has_key?(state.control.callables["1:0"], :finish)
+      assert budget_status(c, "1:0") == %{committed: 0, reserved: 1}
+      assert budget_status(c, "root") == %{committed: 0, reserved: 10}
+      refute_receive {:pattern_input, "root", %{"action_id" => "nested"}}, 300
+      assert outcome_records(c, "nested") == []
+      send(provider, {:result, %{}})
+    end
+
+    test "two levels close deepest first: every level reads its closed child" do
+      {c, bindings} =
+        nested_setup(
+          %{
+            "nested" => [request([action("inner", "nested_callable")])],
+            "inner" => [
+              request([action("a", "tool_call")]),
+              request([action("w", "local_work")])
+            ]
+          },
+          pattern:
+            {TestPattern, :scripted,
+             %{name: "root", script: [request([action("nested", "nested_callable")])]}}
+        )
+
+      require_approval(c)
+
+      bindings =
+        bindings
+        |> Map.update!("local_work", &%{&1 | effect_class: "publish"})
+        |> Map.update!("tool_call", &%{&1 | effect_class: "compute"})
+
+      engine = start(c, bindings: bindings)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, task, _}, 5_000
+
+      assert {:ok, :applied} =
+               RunEngine.input(
+                 engine,
+                 "a-result",
+                 result("a"),
+                 verified(%{occurrence: {3, 0}, actual: 4, dispatch: "dispatched"})
+               )
+
+      assert slot_by(view(engine), "w").phase == :approval
+      change_attempt(engine)
+      view = view(engine)
+      assert Enum.all?(view.slots, fn {_, s} -> s.phase == :settled end)
+      state = unit_state(c)
+      # The grandchild settled first: its parent read a known cost, and so did the root slot.
+      assert state.slots[{2, 0}].actual === 4
+      assert state.slots[{1, 0}].actual === 4
+      assert budget_status(c, "2:0") == %{committed: 4, reserved: 0}
+      assert budget_status(c, "1:0") == %{committed: 4, reserved: 0}
+      assert budget_status(c, "root") == %{committed: 4, reserved: 0}
+      send(task, {:result, %{}})
+    end
+
+    test "two levels with a sent action: every level is unknown and keeps its reservation" do
+      {c, bindings} =
+        nested_setup(
+          %{
+            "nested" => [request([action("inner", "nested_callable")])],
+            "inner" => [request([action("slow", "tool_call")])]
+          },
+          pattern:
+            {TestPattern, :scripted,
+             %{name: "root", script: [request([action("nested", "nested_callable")])]}}
+        )
+
+      engine = start(c, bindings: bindings)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, task, _}, 5_000
+      change_attempt(engine)
+      view = view(engine)
+      assert Enum.all?(view.slots, fn {_, s} -> s.phase == :settled and s.outcome == "unknown" end)
+      state = unit_state(c)
+      assert Enum.all?(state.slots, fn {_, s} -> s[:actual] == nil end)
+      assert budget_status(c, "2:0") == %{committed: 0, reserved: 1}
+      assert budget_status(c, "1:0") == %{committed: 0, reserved: 10}
+      assert budget_status(c, "root") == %{committed: 0, reserved: 10}
+      send(task, {:result, %{}})
+    end
+  end
+
+  describe "new_attempt_works" do
+    test "a wake in the new Attempt asks a new request that runs to its outcome, with no open slot left" do
+      c =
+        tool_run(
+          pattern:
+            {TestPattern, :step,
+             %{requests: [request([action("publish", "tool_call")]), request([action("next")])]}}
+        )
+
+      engine = start(c)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, task, _}, 5_000
+      change_attempt(engine)
+      state = unit_state(c)
+
+      assert Enum.all?(state.slots, fn {_, s} ->
+               s.phase == :settled and not is_map_key(s, :pending_input)
+             end)
+
+      assert view(engine).phase == :active
+      old = state.slots[{1, 0}]
+
+      assert {:ok, :applied} =
+               bounded(fn ->
+                 RunEngine.input(engine, "wake-second", wake(), verified(%{attempt_id: "second"}))
+               end)
+
+      view = wait_for(engine, &settled?(&1, "next"), 1_000)
+      assert slot_by(view, "next").outcome == "completed"
+      assert slot_by(view, "next").phase == :settled
+      assert unit_state(c).slots[{1, 0}] == old
+      assert budget_status(c, "root") == %{committed: 1, reserved: 1}
+      send(task, {:result, %{}})
+    end
+
+    test "a second change closes what the second Attempt opened and leaves the first settlements as they were" do
+      c =
+        tool_run(
+          pattern:
+            {TestPattern, :step,
+             %{
+               requests: [
+                 request([action("publish", "tool_call")]),
+                 request([action("again", "tool_call")])
+               ]
+             }}
+        )
+
+      engine = start(c)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, first, _}, 5_000
+      change_attempt(engine)
+      closed = unit_state(c).slots[{1, 0}]
+
+      assert {:ok, :applied} =
+               bounded(fn ->
+                 RunEngine.input(engine, "wake-second", wake(), verified(%{attempt_id: "second"}))
+               end)
+
+      assert_receive {:effect_started, second, _}, 5_000
+      assert view(engine).slots[{2, 0}].phase == :running
+      assert unit_state(c).slots[{2, 0}].attempt_id == "second"
+      assert budget_status(c, "root") == %{committed: 0, reserved: 2}
+
+      change_attempt(engine, "third")
+      assert view(engine).slots[{2, 0}].phase == :settled
+      assert view(engine).slots[{2, 0}].outcome == "unknown"
+      assert unit_state(c).slots[{1, 0}] == closed
+      assert budget_status(c, "root") == %{committed: 0, reserved: 2}
+      engine = restart(c, engine, [])
+      refute_receive {:effect_started, _, _}, 300
+      assert unit_state(c).slots[{1, 0}] == closed
+      assert view(engine).attempt_id == "third"
+      send(first, {:result, %{}})
+      send(second, {:result, %{}})
+    end
+  end
+
+  describe "run_ends_and_unit_configures" do
+    test "after the change the Run ends and a new Run with another id configures on the same unit" do
+      c = tool_run()
+      engine = start(c)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, task, _}, 5_000
+      change_attempt(engine)
+      {:ok, run} = Run.status(c.run, "run")
+
+      assert {:ok, _, _} =
+               Run.command(c.run, %{
+                 kind: :complete,
+                 run_id: "run",
+                 attempt_id: "second",
+                 outcome: :failed,
+                 reason: "test",
+                 evidence_ref: nil,
+                 expected_revision: run.revision
+               })
+
+      engine = restart(c, engine, [])
+      assert view(engine).phase == :terminal
+      assert view(engine).outcome == :failed
+      GenServer.stop(engine)
+      {:ok, ended} = Run.status(c.run, "run")
+
+      assert {:ok, revision, _} =
+               Run.command(c.run, %{
+                 kind: :create,
+                 run_id: "period-two",
+                 operation_id: "operation-two",
+                 provider_refs: %{},
+                 expected_revision: ended.revision
+               })
+
+      assert {:ok, _, _} =
+               Run.command(c.run, %{
+                 kind: :begin_attempt,
+                 run_id: "period-two",
+                 attempt_id: "third",
+                 expected_revision: revision
+               })
+
+      next = {TestPattern, :step, %{requests: [request([action("again")])]}}
+      engine = start(c, run_id: "period-two", pattern: next)
+      assert view(engine).run_id == "period-two"
+      assert view(engine).slots == %{}
+      context = verified(%{run_id: "period-two", attempt_id: "third"})
+      assert {:ok, :applied} = RunEngine.input(engine, "period-two-input", start_input(), context)
+      assert wait_for(engine, &settled?(&1, "again"), 1_000).phase == :active
+      send(task, {:result, %{}})
+    end
+  end
+
+  describe "resource_cost_still_arrives" do
+    defp resource_open_action,
+      do:
+        action("open", "resource_open", %{
+          "run_id" => "run",
+          "resource_name" => "document",
+          "data" => %{}
+        })
+
+    # The open action is sent, the Attempt changes, then the Resource observes the open,
+    # the close and the final cost: the cursor settles the Budget of the action.
+    defp resource_cursor(c, engine, owner) do
+      second = verified(%{attempt_id: "second"})
+
+      assert {:ok, _} =
+               Elzoo.RunResource.command(owner, %{
+                 id: "opened",
+                 at_ms: 2_000,
+                 body:
+                   {:observed, ["tenant", "account", "effect", "publish", "open"],
+                    {:completed, %{opened_at_ms: 2_000}}}
+               })
+
+      assert {:ok, :applied} = RunEngine.input(engine, "consume-open", wake(), second)
+      assert {:ok, _} = Elzoo.RunResource.command(owner, %{id: "close", at_ms: 3_000, body: :pause})
+      Agent.update(c.clock, fn _ -> 40_000 end)
+
+      assert {:ok, _} =
+               Elzoo.RunResource.command(owner, %{id: "expiry", at_ms: 40_000, body: :tick})
+
+      assert {:ok, :applied} = RunEngine.input(engine, "consume-close", wake(), second)
+      assert_receive {:effect_started, closing, _}, 5_000
+
+      assert {:ok, _} =
+               Elzoo.RunResource.command(owner, %{
+                 id: "closed",
+                 at_ms: 40_000,
+                 body:
+                   {:observed, ["tenant", "account", "effect", "publish", "cleanup"],
+                    {:completed, %{opened_at_ms: 2_000, closed_at_ms: 40_000}}}
+               })
+
+      assert {:ok, :applied} = RunEngine.input(engine, "consume-actual", wake(), second)
+      closing
+    end
+
+    test "a root Resource action open at the change: the cursor settles its Budget and nothing fails" do
+      c = fixture(pattern: {TestPattern, :step, %{requests: [request([resource_open_action()])]}})
+      {owner, bindings} = resource(c)
+      engine = start(c, resources: %{"document" => owner}, bindings: bindings)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, opening, _}, 5_000
+
+      change_attempt(engine)
+      assert slot_by(view(engine), "open").phase == :settled
+      assert slot_by(view(engine), "open").outcome == "unknown"
+      assert unit_state(c).slots[{1, 0}][:actual] == nil
+      assert budget_status(c, "root") == %{committed: 0, reserved: 1}
+
+      closing = resource_cursor(c, engine, owner)
+      assert budget_status(c, "root", 40_000) == %{committed: 1, reserved: 0}
+      assert unit_state(c).slots[{1, 0}].actual == 1
+      assert view(engine).reconciliation == nil
+      assert {:ok, %{state: _}} = Elzoo.RunResource.read(owner, 0)
+
+      engine = restart(c, engine, resources: %{"document" => owner}, bindings: bindings)
+      assert view(engine).reconciliation == nil
+      assert budget_status(c, "root", 40_000) == %{committed: 1, reserved: 0}
+      send(opening, {:result, %{}})
+      send(closing, {:result, %{}})
+    end
+
+    defp nested_resource_run do
+      c =
+        fixture(
+          pattern:
+            {TestPattern, :step, %{requests: [request([action("nested", "nested_callable")])]}}
+        )
+
+      {owner, bindings} =
+        resource(c, :stay, %{
+          budget_id: "nested-nested",
+          unit: "credits",
+          cost_ref: "2:0",
+          generation: {"sealed", 1}
+        })
+
+      base = bindings["nested_callable"]
+
+      bindings =
+        Map.put(bindings, "nested_callable", %{
+          base
+          | facts: fn a -> %{base.facts.(a) | estimate: 5, deadline_ms: 55_000} end,
+            nested: fn a ->
+              %{
+                base.nested.(a)
+                | initial_state: %{
+                    requests: [request([resource_open_action(), finish_action("done")])]
+                  }
+              }
+            end
+        })
+
+      {c, owner, bindings}
+    end
+
+    test "a Resource action inside a child at the change: the cursor settles the child Budget and the parent gets its actual" do
+      {c, owner, bindings} = nested_resource_run()
+      engine = start(c, resources: %{"document" => owner}, bindings: bindings)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, opening, _}, 5_000
+      assert unit_state(c).control.callables["1:0"][:finish] != nil
+
+      change_attempt(engine)
+      assert view(engine).slots[{1, 0}].phase == :settled
+      assert view(engine).slots[{1, 0}].outcome == "unknown"
+      assert slot_by(view(engine), "open").outcome == "unknown"
+      assert unit_state(c).slots[{1, 0}][:actual] == nil
+      refute Map.has_key?(unit_state(c).control.callables["1:0"], :finish)
+      # The cost can still come: the child Budget and the share stay held.
+      assert budget_status(c, "1:0") == %{committed: 0, reserved: 1}
+      assert budget_status(c, "root") == %{committed: 0, reserved: 5}
+
+      closing = resource_cursor(c, engine, owner)
+      assert budget_status(c, "1:0", 40_000) == %{committed: 1, reserved: 0}
+      assert unit_state(c).slots[{1, 0}].actual == 1
+      assert budget_status(c, "root", 40_000) == %{committed: 1, reserved: 0}
+      assert Enum.any?(journal(c), &match?({:nested_actual, {1, 0}, 1, _, _}, &1))
+      assert outcome_records(c, "nested") == []
+      assert view(engine).reconciliation == nil
+      send(opening, {:result, %{}})
+      send(closing, {:result, %{}})
+    end
+  end
+
+  describe "replay_is_equal" do
+    test "a sent tool action: a restart after the change gives the same view, Budgets and journal" do
+      c = tool_run()
+      engine = start(c)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, task, _}, 5_000
+      change_attempt(engine)
+      first = footprint(c, engine)
+      assert first.budgets == %{"root" => %{committed: 0, reserved: 1}}
+      engine = restart(c, engine, [])
+      assert footprint(c, engine) == first
+      refute_receive {:effect_started, _, _}, 300
+      engine = restart(c, engine, [])
+      assert footprint(c, engine) == first
+      send(task, {:result, %{}})
+    end
+
+    test "a nested parent and its child: a restart after the change gives the same view, Budgets and journal" do
+      {c, bindings} = known_cost_child()
+      engine = start(c, bindings: bindings)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, task, _}, 5_000
+
+      assert {:ok, :applied} =
+               RunEngine.input(
+                 engine,
+                 "a-result",
+                 result("a"),
+                 verified(%{occurrence: {2, 0}, actual: 5, dispatch: "dispatched"})
+               )
+
+      change_attempt(engine)
+      first = footprint(c, engine)
+      assert first.budgets["root"] == %{committed: 5, reserved: 0}
+      assert first.budgets["1:0"] == %{committed: 5, reserved: 0}
+      engine = restart(c, engine, bindings: bindings)
+      assert footprint(c, engine) == first
+      send(task, {:result, %{}})
+    end
+
+    test "a Resource action in a child: a restart after the change and after the cursor gives the same state" do
+      {c, owner, bindings} = nested_resource_run()
+      overrides = [resources: %{"document" => owner}, bindings: bindings]
+      engine = start(c, overrides)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, opening, _}, 5_000
+      change_attempt(engine)
+      first = footprint(c, engine)
+      engine = restart(c, engine, overrides)
+      assert footprint(c, engine) == first
+
+      closing = resource_cursor(c, engine, owner)
+      settled = footprint(c, engine)
+      assert settled.budgets["1:0"] == budget_status(c, "1:0", 2_000)
+      engine = restart(c, engine, overrides)
+      assert footprint(c, engine) == settled
+      send(opening, {:result, %{}})
+      send(closing, {:result, %{}})
+    end
+  end
+
+  describe "first_settlement_wins" do
+    test "an outcome of either Attempt and an expiry leave a closed tool slot as it was" do
+      c = tool_run()
+      engine = start(c)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, task, _}, 5_000
+      change_attempt(engine)
+      slot = unit_state(c).slots[{1, 0}]
+      before = budgets(c)
+
+      late_results(engine, {1, 0}, "publish")
+      assert unit_state(c).slots[{1, 0}] == slot
+      assert budgets(c) == before
+
+      # The clock passes the deadline of the action; an input of the new Attempt arrives.
+      Agent.update(c.clock, fn _ -> 41_000 end)
+
+      assert {:ok, :applied} =
+               RunEngine.input(engine, "expire", wake(), verified(%{attempt_id: "second"}))
+
+      assert unit_state(c).slots[{1, 0}] == slot
+      assert view(engine).slots[{1, 0}].outcome == "unknown"
+      assert budgets(c) == before
+      send(task, {:result, %{}})
+    end
+
+    test "an outcome of either Attempt and an expiry leave a closed nested parent as it was" do
+      {c, bindings} =
+        lost_setup([request([action("slow", "tool_call"), finish_action("done")])], [])
+
+      engine = start(c, bindings: bindings)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, provider, _}, 5_000
+      change_attempt(engine)
+      slot = unit_state(c).slots[{1, 0}]
+      child = unit_state(c).slots[{2, 0}]
+      before = budgets(c)
+
+      for {attempt, tag} <- [{"attempt", "old"}, {"second", "new"}] do
+        assert {:ok, _} =
+                 RunEngine.input(
+                   engine,
+                   "late-nested-#{tag}",
+                   result("nested"),
+                   verified(%{
+                     attempt_id: attempt,
+                     occurrence: {1, 0},
+                     actual: 3,
+                     dispatch: "dispatched"
+                   })
+                 )
+      end
+
+      late_results(engine, {2, 0}, "slow")
+      Agent.update(c.clock, fn _ -> 41_000 end)
+
+      assert {:ok, :applied} =
+               RunEngine.input(engine, "expire", wake(), verified(%{attempt_id: "second"}))
+
+      assert unit_state(c).slots[{1, 0}] == slot
+      assert unit_state(c).slots[{2, 0}] == child
+      assert budgets(c) == before
+      send(provider, {:result, %{}})
+    end
+
+    test "a settled parent turned back to refusing by an over-cap child is settled again at the change, first outcome kept" do
+      {c, bindings} =
+        lost_setup(
+          [request([action("slow", "tool_call")]), request([action("excess")])],
+          [],
+          request_cap: 2
+        )
+
+      bindings =
+        Map.update!(bindings, "nested_callable", fn binding ->
+          %{binding | facts: fn a -> %{binding.facts.(a) | deadline_ms: 10_000} end}
+        end)
+
+      # The engine stops where it stands after the over-cap record, before the Run ends:
+      # the clock function suspends the Run owner once, when armed.
+      armed = start_supervised!({Agent, fn -> false end}, id: make_ref())
+      parent = self()
+
+      clock = fn ->
+        if Agent.get_and_update(armed, &{&1, false}) do
+          :sys.suspend(c.run)
+          send(parent, {:trapped, self()})
+        end
+
+        Agent.get(c.clock, & &1)
+      end
+
+      engine = start(c, bindings: bindings, clock: clock)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, provider, _}, 5_000
+      Agent.update(c.clock, fn _ -> 10_000 end)
+      # Not a wake: a wake would close the generation at the cap.
+      assert {:ok, :applied} = RunEngine.input(engine, "expire", start_input(), verified())
+      assert view(engine).slots[{1, 0}].outcome == "expired"
+      expired = unit_state(c).slots[{1, 0}]
+      assert expired[:actual] == nil
+      before = budgets(c)
+
+      # The child goes on: its next request is over the shared cap and denies its parent.
+      Agent.update(armed, fn _ -> true end)
+
+      spawn(fn ->
+        try do
+          RunEngine.input(
+            engine,
+            "child-result",
+            Map.put(result("slow"), "outcome", "unknown"),
+            verified(%{occurrence: {2, 0}, dispatch: "dispatched"})
+          )
+        catch
+          :exit, _ -> :ok
+        end
+      end)
+
+      assert_receive {:trapped, _}, 5_000
+      wait_unit(c, &(&1.slots[{1, 0}].phase == :refusing and &1.control.stop_pending != nil))
+      assert unit_state(c).slots[{1, 0}].outcome == "expired"
+      halt_engine(c, engine)
+      :sys.resume(c.run)
+      change_attempt_down(c)
+
+      engine = start(c, bindings: bindings)
+      assert view(engine).slots[{1, 0}].phase == :settled
+      assert view(engine).slots[{1, 0}].outcome == "expired"
+      assert unit_state(c).slots[{1, 0}][:actual] == nil
+
+      assert Map.take(unit_state(c).slots[{1, 0}], [:outcome, :actual, :reservation]) ==
+               Map.take(expired, [:outcome, :actual, :reservation])
+
+      assert budgets(c) == before
+      engine = restart(c, engine, bindings: bindings)
+      assert view(engine).slots[{1, 0}].phase == :settled
+      assert budgets(c) == before
+      send(provider, {:result, %{}})
+    end
+  end
 end
