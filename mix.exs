@@ -38,6 +38,12 @@ defmodule Elzoo.MixProject do
       # Keep Cure on the exact release commit. The release also has a branch
       # with the same name, so a tag/version-only ref is not reproducible.
       {:cure, git: "https://github.com/balungpisah/cure-lang.git", ref: @cure_revision, depth: 1},
+      # ELZ-160 outside-VM Lua provider (MIT), source only.
+      {:lua_source,
+       git: "https://github.com/lua/lua.git",
+       ref: "312b9efaa1061c2c4cad08554dbc1351c3270eef",
+       compile: false,
+       app: false},
       # Jason is deliberately an external implementation at the adapter edge.
       {:jason, "~> 1.4"},
       {:req, "== 0.7.5"},
