@@ -532,6 +532,7 @@ defmodule Elzoo.RecipeTestLuaTest do
 
     test "five_lua_runs_together: five held Lua runs all complete", %{executable: executable} do
       assert {:ok, record} = RecipeTest.run(lua_runs_spec(executable, 5))
+      refute_local_unavailable(record)
       assert record.outcome == :completed
       assert record.restarted == false
       assert record.unused == %{}
@@ -542,7 +543,6 @@ defmodule Elzoo.RecipeTestLuaTest do
       end
 
       assert for({id, %{"outcome" => "failed"}} <- outcomes(record), do: id) == []
-      refute_local_unavailable(record)
     end
 
     test "lua_runs_after_restart: a dropped Lua run keeps its place and four later ones complete",
@@ -562,6 +562,7 @@ defmodule Elzoo.RecipeTestLuaTest do
       # only one held at the next quiet point, so the restart drops exactly that run.
       spec = %{lua_agent_spec(executable, script) | restart_after: 1}
       assert {:ok, record} = RecipeTest.run(spec)
+      refute_local_unavailable(record)
       assert record.outcome == :completed
       assert record.restarted == true
       assert record.unused == %{}
@@ -581,8 +582,6 @@ defmodule Elzoo.RecipeTestLuaTest do
       for i <- 1..4 do
         assert tool_result(record, "d1:t:2:#{i}") == {"completed", canonical(%{"total" => 3})}
       end
-
-      refute_local_unavailable(record)
     end
   end
 
