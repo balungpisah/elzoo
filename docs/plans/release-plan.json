@@ -7442,9 +7442,11 @@
     {
       "id": "workflow/skill",
       "job": "ELZ-182",
-      "note": "Pure reader of a skill folder and one pinned_skill tool source: SKILL.md frontmatter and body, a load that gives the instructions as a declaration, files read as marked content, scripts never run.",
+      "note": "Pure functions over a skill folder given as data and over a checked recipe package: read/4 checks the operands, the paths and the fixed folder bounds, splits SKILL.md at its frontmatter lines, scans and reads the frontmatter with the pinned YAML reader and gives the skill entry of a recipe package and the other files of the folder; source/2 gives the one pinned_skill tool-registry source of the skills of a package, with the tools load_skill and read_skill_file; load/2 gives the declaration payload with the body of one skill byte for byte and no listing; read_file/3 gives one other file of a skill as marked untrusted content; each refusal is a fixed reason that holds no path, file byte, frontmatter value or body.",
       "baseline_status": "not in baseline (new row, RC-67)",
-      "disposition": "published-task; implementation pending",
+      "disposition": "ready-contract",
+      "manifest": "pieces/workflow/skill/piece.json",
+      "manifest_sha256": "1ed520e8d51e060ced7644b9c02b101437f06d807a5b357f514b5b78b188f088",
       "catalogue_reference": "registry/catalogue.json"
     }
   ],
