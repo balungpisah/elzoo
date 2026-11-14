@@ -6877,9 +6877,11 @@
     {
       "id": "domain/recipe-config",
       "job": "ELZ-162",
-      "note": "Bot platform wave 3 (P13). A secret setting is a credential reference, never a value.",
+      "note": "Pure check of tenant settings against a caller-supplied version 1 descriptor (id, revision, input Port, closed-object draft 2020-12 schema, at most 64 secret names) through the ready core/payload-schema; a secret setting is only an exact 1..128-byte ref/scope reference, never resolved. Success returns the original settings; fixed bounds and fixed redacted failures; no defaults, coercion, store or resolver.",
       "baseline_status": "not in baseline (new row, RC-61)",
-      "disposition": "blocked-admission-proposal",
+      "disposition": "ready-contract",
+      "manifest": "pieces/domain/recipe-config/piece.json",
+      "manifest_sha256": "fb61ce4dccb71d917bbb67c914d1e6097eb29096dc78b15cbfd9a714c2a5d5d7",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
