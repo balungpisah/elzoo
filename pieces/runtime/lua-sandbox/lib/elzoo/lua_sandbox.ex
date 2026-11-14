@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 defmodule Elzoo.LuaSandbox do
   @moduledoc """
-  Bounded Lua evaluation outside the VM (policy version 2, with the safe helper set).
+  Bounded Lua evaluation outside the VM (policy version 3: the safe helper set and module-call bindings).
 
   A trusted host builds the executable once with `build/2` from the installed
   pinned `lua_source` checkout and an owned C host. Each `run/2` starts one fresh
@@ -11,12 +11,13 @@ defmodule Elzoo.LuaSandbox do
   * `build(source_directory, build_directory)` ->
     `{:ok, executable} | {:error, :build_failed}`. Both operands are trusted
     host-supplied paths, never Lua input.
-  * `policy()` -> `%{identity: "policy-v2:sha256:<hex>", descriptor: map}`.
+  * `policy()` -> `%{identity: "policy-v3:sha256:<hex>", descriptor: map}`.
   * `run(executable, request)` -> `{:ok, %{value: v, identity: i, runtime: r}}`,
     `{:refused, reason}` or `{:host_outcome, reason}`.
 
-  The request has exactly `source`, `input`, `policy` and `limits`
-  (`steps call_depth value_bytes memory_bytes wall_ms`, positive integers with
+  The request has exactly `source`, `input`, `policy`, `limits` and `calls`
+  (`calls` is `%{mode: "none" | "data" | "replay", names: [...], recorded: [...]}`;
+  `limits` is `steps call_depth value_bytes memory_bytes wall_ms`, positive integers with
   the inclusive maxima 1_000_000, 64, 65_536, 16_777_216 and 1_000).
   The source is UTF-8 Lua text of at most 65_536 bytes: a chunk that returns
   exactly one function; the function takes the plain input and returns exactly
@@ -86,6 +87,12 @@ defmodule Elzoo.LuaSandbox do
     wall_ms: 1_000
   }
   @source_max 65_536
+  @calls_keys [:mode, :names, :recorded]
+  @record_keys [:arguments, :name, :result]
+  @modes ~w(none data replay)
+  @name_pattern ~r/\A[a-z][a-z0-9_]{0,63}\z/
+  @max_names 64
+  @max_recorded 256
   @child_refusals %{
     "invalid_request" => :invalid_request,
     "policy_mismatch" => :policy_mismatch,
@@ -143,19 +150,21 @@ defmodule Elzoo.LuaSandbox do
   end
 
   defp validate(%{} = request) when not is_struct(request) do
-    with true <- Enum.sort(Map.keys(request)) == [:input, :limits, :policy, :source],
-         %{source: source, input: input, policy: policy, limits: limits} = request,
+    with true <- Enum.sort(Map.keys(request)) == [:calls, :input, :limits, :policy, :source],
+         %{source: source, input: input, policy: policy, limits: limits, calls: calls} = request,
          true <- is_binary(policy),
          {:policy, true} <- {:policy, policy == @policy.identity},
          {:ok, limits} <- check_limits(limits),
          true <- is_binary(source) and byte_size(source) <= @source_max and String.valid?(source),
-         :ok <- check_input(input, limits.value_bytes) do
+         :ok <- check_input(input, limits.value_bytes),
+         {:ok, calls} <- check_calls(calls, limits.value_bytes) do
       frame =
         Json.encode(%{
           "source" => source,
           "input" => input,
           "policy" => policy,
-          "limits" => stringify(limits)
+          "limits" => stringify(limits),
+          "calls" => calls
         })
 
       if byte_size(frame) <= Json.frame_max(),
@@ -190,6 +199,69 @@ defmodule Elzoo.LuaSandbox do
       :invalid -> {:refused, :invalid_request}
     end
   end
+
+  defp check_calls(%{} = calls, value_bytes) when not is_struct(calls) do
+    with true <- Enum.sort(Map.keys(calls)) == @calls_keys,
+         %{mode: mode, names: names, recorded: recorded} = calls,
+         true <- mode in @modes,
+         true <- valid_names?(names),
+         true <- is_list(recorded) and length_at_most?(recorded, @max_recorded),
+         true <- mode_shape?(mode, names, recorded),
+         {:ok, records} <- check_records(recorded, names, value_bytes) do
+      {:ok, %{"mode" => mode, "names" => names, "recorded" => records}}
+    else
+      {:refused, _} = refusal -> refusal
+      _ -> {:refused, :invalid_request}
+    end
+  end
+
+  defp check_calls(_, _), do: {:refused, :invalid_request}
+
+  defp length_at_most?(list, max), do: length_at_most?(list, max, 0)
+  defp length_at_most?([], _max, _count), do: true
+
+  defp length_at_most?([_ | rest], max, count) when count < max,
+    do: length_at_most?(rest, max, count + 1)
+
+  defp length_at_most?(_, _max, _count), do: false
+
+  defp valid_names?(names) do
+    is_list(names) and length_at_most?(names, @max_names) and
+      Enum.all?(names, &(is_binary(&1) and Regex.match?(@name_pattern, &1))) and
+      length(Enum.uniq(names)) == length(names)
+  end
+
+  defp mode_shape?("none", names, recorded), do: names == [] and recorded == []
+  defp mode_shape?("data", _names, recorded), do: recorded == []
+  defp mode_shape?("replay", _names, _recorded), do: true
+
+  defp check_records(recorded, names, value_bytes) do
+    Enum.reduce_while(recorded, {:ok, []}, fn record, {:ok, acc} ->
+      case check_record(record, names, value_bytes) do
+        {:ok, checked} -> {:cont, {:ok, [checked | acc]}}
+        {:refused, _} = refusal -> {:halt, refusal}
+      end
+    end)
+    |> case do
+      {:ok, acc} -> {:ok, Enum.reverse(acc)}
+      other -> other
+    end
+  end
+
+  defp check_record(%{} = record, names, value_bytes) when not is_struct(record) do
+    with true <- Enum.sort(Map.keys(record)) == @record_keys,
+         %{name: name, arguments: arguments, result: result} = record,
+         true <- name in names,
+         :ok <- check_input(arguments, value_bytes),
+         :ok <- check_input(result, value_bytes) do
+      {:ok, %{"name" => name, "arguments" => arguments, "result" => result}}
+    else
+      {:refused, _} = refusal -> refusal
+      _ -> {:refused, :invalid_request}
+    end
+  end
+
+  defp check_record(_, _, _), do: {:refused, :invalid_request}
 
   defp stringify(limits), do: Map.new(limits, fn {key, value} -> {Atom.to_string(key), value} end)
 

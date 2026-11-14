@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
-** Owned C host of the Elzoo Lua sandbox (policy version 2).
+** Owned C host of the Elzoo Lua sandbox (policy version 3: the safe helper set and
+** module-call bindings).
 **
 ** One process runs one request: it reads one frame (u32 little-endian
 ** length, then UTF-8 JSON) from stdin, builds one Lua state with a fresh
@@ -1955,11 +1956,68 @@ static long field_node(long obj, const char *name) {
   return -1;
 }
 
+enum { MODE_NONE, MODE_DATA, MODE_REPLAY };
+static int calls_mode;
+
+static int node_is(long id, const char *s) {
+  return (size_t)strlen(s) == nodes[id].slen && memcmp(sarena + nodes[id].soff, s, nodes[id].slen) == 0;
+}
+
+static int valid_name(long id) {
+  size_t i, n = nodes[id].slen;
+  const char *p = sarena + nodes[id].soff;
+  if (nodes[id].type != T_STR || n < 1 || n > 64 || p[0] < 'a' || p[0] > 'z') return 0;
+  for (i = 1; i < n; i++)
+    if (!((p[i] >= 'a' && p[i] <= 'z') || (p[i] >= '0' && p[i] <= '9') || p[i] == '_')) return 0;
+  return 1;
+}
+
+static int name_listed(long names, long id) {
+  long c;
+  for (c = nodes[names].first; c >= 0; c = nodes[c].next)
+    if (nodes[c].slen == nodes[id].slen && memcmp(sarena + nodes[c].soff, sarena + nodes[id].soff, nodes[id].slen) == 0)
+      return 1;
+  return 0;
+}
+
+/* The shape of `calls` (0 valid, -1 invalid); reads only the node arena, by index. */
+static int check_calls(long calls) {
+  long mode, names, rec, c, d;
+  if (calls < 0 || nodes[calls].type != T_OBJ || nodes[calls].count != 3) return -1;
+  mode = field_node(calls, "mode");
+  names = field_node(calls, "names");
+  rec = field_node(calls, "recorded");
+  if (mode < 0 || names < 0 || rec < 0 || nodes[mode].type != T_STR || nodes[names].type != T_ARR ||
+      nodes[rec].type != T_ARR || nodes[names].count > 64 || nodes[rec].count > 256)
+    return -1;
+  if (node_is(mode, "none")) calls_mode = MODE_NONE;
+  else if (node_is(mode, "data")) calls_mode = MODE_DATA;
+  else if (node_is(mode, "replay")) calls_mode = MODE_REPLAY;
+  else return -1;
+  for (c = nodes[names].first; c >= 0; c = nodes[c].next) {
+    if (!valid_name(c)) return -1;
+    for (d = nodes[names].first; d != c; d = nodes[d].next)
+      if (nodes[d].slen == nodes[c].slen && memcmp(sarena + nodes[d].soff, sarena + nodes[c].soff, nodes[c].slen) == 0)
+        return -1;
+  }
+  if (calls_mode == MODE_NONE && (nodes[names].count != 0 || nodes[rec].count != 0)) return -1;
+  if (calls_mode == MODE_DATA && nodes[rec].count != 0) return -1;
+  for (c = nodes[rec].first; c >= 0; c = nodes[c].next) {
+    long nm, ar, re;
+    if (nodes[c].type != T_OBJ || nodes[c].count != 3) return -1;
+    nm = field_node(c, "name");
+    ar = field_node(c, "arguments");
+    re = field_node(c, "result");
+    if (nm < 0 || ar < 0 || re < 0 || nodes[nm].type != T_STR || !name_listed(names, nm)) return -1;
+  }
+  return 0;
+}
+
 int main(int argc, char **argv) {
   int dn = open("/dev/null", O_WRONLY);
   unsigned char hdr[4], *body;
   size_t len;
-  long root, src, inp, pol, lim;
+  long root, src, inp, pol, lim, cal;
   long long steps, depth, value, memory, wall;
   lua_State *L;
   int st, base;
@@ -1991,12 +2049,13 @@ int main(int argc, char **argv) {
   if (read_full(0, body, len) != len) _exit(65);
 
   root = parse_document(body, len);
-  if (root < 0 || nodes[root].type != T_OBJ || nodes[root].count != 4) reply_refused("invalid_request");
+  if (root < 0 || nodes[root].type != T_OBJ || nodes[root].count != 5) reply_refused("invalid_request");
   src = field_node(root, "source");
   inp = field_node(root, "input");
   pol = field_node(root, "policy");
   lim = field_node(root, "limits");
-  if (src < 0 || inp < 0 || pol < 0 || lim < 0 || nodes[src].type != T_STR || nodes[pol].type != T_STR ||
+  cal = field_node(root, "calls");
+  if (src < 0 || inp < 0 || pol < 0 || lim < 0 || cal < 0 || nodes[src].type != T_STR || nodes[pol].type != T_STR ||
       nodes[lim].type != T_OBJ || nodes[lim].count != 5 || nodes[src].slen > MAX_SOURCE)
     reply_refused("invalid_request");
   if (nodes[pol].slen != strlen(ELZ_POLICY_IDENTITY) ||
@@ -2006,6 +2065,7 @@ int main(int argc, char **argv) {
       field_int(lim, "value_bytes", MAX_VALUE, &value) || field_int(lim, "memory_bytes", MAX_MEMORY, &memory) ||
       field_int(lim, "wall_ms", MAX_WALL, &wall))
     reply_refused("invalid_request");
+  if (check_calls(cal) < 0) reply_refused("invalid_request");
 
   G.mem_limit = (size_t)memory;
   G.value_bytes = (size_t)value;
