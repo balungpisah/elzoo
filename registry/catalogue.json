@@ -1055,7 +1055,8 @@
       "summary": "The callables that a recipe gives as plain data",
       "disposition": "own",
       "phase": "demand-led",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/domain/recipe-graph/piece.json",
       "reason": "Bot platform wave 3 (P13). Graphs, agents and typed decisions with typed input and output, needs and gives, links, outcome links, rules and bindings; callables nest by name with a depth limit. A rule can only add a requirement. Data and validation only."
     },
     {
