@@ -39,7 +39,7 @@
     {
       "kind": "test",
       "file": "test/elzoo/graph_run_test.exs",
-      "claim": "Listed scenarios of the groups needs_and_gives_only, decision_branch_and_join, map_bounds_and_part_failure, loop_bounded, each_outcome_link, missing_outcome_link_fails_run, settled_node_never_runs_again, arrival_order, nested_graph_gets_only_its_input and new_refusals_and_closed, last_result_over_bound_fails and fail_fast_map_two_orders pass, with three negative controls; finite tests, not a universal proof."
+      "claim": "Listed scenarios of the groups needs_and_gives_only, decision_branch_and_join, map_bounds_and_part_failure, loop_bounded, each_outcome_link, missing_outcome_link_fails_run, settled_node_never_runs_again, arrival_order, nested_graph_gets_only_its_input, new_refusals_and_closed, last_result_over_bound_fails and fail_fast_map_two_orders pass, with three negative controls; finite tests, not a universal proof."
     },
     {
       "kind": "upstream",

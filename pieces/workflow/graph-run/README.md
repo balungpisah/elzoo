@@ -188,7 +188,8 @@ temporary edit and not shipped: a void `order` link that counts as dead fails
 (with the law removed) the groups `missing_outcome_link_fails_run` and
 `settled_node_never_runs_again`; with the measure removed from `done/1`, the
 first case of `last_result_over_bound_fails` gives a `completed` finish and
-fails. These are finite tests, not a universal proof. There is no monitored runtime claim.
+fails. These are finite tests, not a universal proof. There is no monitored
+runtime claim.
 
 Upstream. The Cure compiler (pinned in `mix.exs`) for the law and the check; the
 public functions of `domain/recipe-graph`, `workflow/pattern-step`,
