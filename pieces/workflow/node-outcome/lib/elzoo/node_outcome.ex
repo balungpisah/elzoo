@@ -16,7 +16,8 @@ defmodule Elzoo.NodeOutcome do
           | :proceed
           | {:fail_run, :no_outcome_link}
           | {:error, :invalid_input}
-  def decide(routes, outcome) when is_map(routes) and outcome in @classes do
+  def decide(routes, outcome)
+      when is_map(routes) and not is_struct(routes) and outcome in @classes do
     if map_size(routes) <= @max_routes and
          Enum.all?(routes, fn {class, target} -> class in @classes and text?(target) end) do
       target = Map.get(routes, outcome)

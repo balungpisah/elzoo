@@ -89,8 +89,9 @@ defmodule Elzoo.ToolResultLimit do
   defp limits(_), do: {:error, :invalid_input}
 
   # The longest prefix of at most `limit` bytes that ends at a code point boundary.
+  # A cut is copied: a part of a large binary keeps the whole binary alive.
   defp preview(text, limit) when byte_size(text) <= limit, do: text
-  defp preview(text, limit), do: binary_part(text, 0, boundary(text, limit))
+  defp preview(text, limit), do: :binary.copy(binary_part(text, 0, boundary(text, limit)))
 
   defp boundary(_text, 0), do: 0
 

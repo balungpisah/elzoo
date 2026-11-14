@@ -245,6 +245,148 @@ defmodule Elzoo.DurableJobTest do
     assert kinds(g.store, run_stream(g, "k7b")) == ~w(accepted attempt_started expired)
   end
 
+  # ELZ-205: `submit/5` compares `deadline_ms` with the clock only for a job key
+  # that is not stored; a stored key is answered from the stored request.
+  defp late_flow(prefix, backend) do
+    {:ok, clock} = Agent.start_link(fn -> 1_000_000 end)
+    f = flow(prefix, backend, now_ms: fn -> Agent.get(clock, & &1) end)
+    Map.put(f, :clock, clock)
+  end
+
+  defp pass_deadline(f), do: Agent.update(f.clock, fn _ -> 2_000_001 end)
+
+  for backend <- [:memory, :postgres] do
+    @tag backend: backend
+    test "late_identical_retry_is_duplicate #{backend}: the stored answer after the deadline", %{
+      prefix: prefix
+    } do
+      f = late_flow(prefix, unquote(backend))
+
+      assert DurableJob.submit(f.queue, "k205a", [1, 2], fast(), 2_000_000) ==
+               {:ok, %{phase: :submitted}}
+
+      pass_deadline(f)
+      stored = DurableJob.status(f.queue, "k205a")
+      assert {:ok, %{phase: :submitted}} = stored
+
+      assert DurableJob.submit(f.queue, "k205a", [1, 2], fast(), 2_000_000) ==
+               {:duplicate, stored}
+
+      assert kinds(f.store, Run.submission_stream(f.queue)) == ~w(requested)
+    end
+
+    @tag backend: backend
+    test "late_conflict_is_conflict #{backend}: another input or deadline after the deadline",
+         %{prefix: prefix} do
+      f = late_flow(prefix, unquote(backend))
+      {:ok, _} = DurableJob.submit(f.queue, "k205b", [1, 2], fast(), 2_000_000)
+      pass_deadline(f)
+      before = records(f.store, Run.submission_stream(f.queue))
+      assert [{"requested", _}] = before
+
+      assert DurableJob.submit(f.queue, "k205b", [9], fast(), 2_000_000) ==
+               {:error, :job_key_conflict}
+
+      assert DurableJob.submit(f.queue, "k205b", [1, 2], fast(), 2_000_001) ==
+               {:error, :job_key_conflict}
+
+      assert DurableJob.submit(f.queue, "k205b", [1, 2], fast(), 3_000_000) ==
+               {:error, :job_key_conflict}
+
+      assert records(f.store, Run.submission_stream(f.queue)) == before
+    end
+
+    @tag backend: backend
+    test "late_new_key_is_refused #{backend}: nothing is stored, no Oban job", %{prefix: prefix} do
+      f = late_flow(prefix, unquote(backend))
+      pass_deadline(f)
+
+      assert DurableJob.submit(f.queue, "k205c", [1], fast(), 2_000_000) ==
+               {:error, {:invalid, :deadline_ms}}
+
+      assert DurableJob.submit(f.queue, "k205c", [1], fast(), 2_000_001) ==
+               {:error, {:invalid, :deadline_ms}}
+
+      assert kinds(f.store, Run.submission_stream(f.queue)) == []
+      assert {:ok, %{acked: [], skipped: []}} = relay!(f.queue)
+      assert oban_state(f, "k205c") == :absent
+      assert DurableJob.status(f.queue, "k205c") == {:error, :not_found}
+
+      # a deadline after the clock is stored again under the same key
+      assert DurableJob.submit(f.queue, "k205c", [1], fast(), 2_000_002) ==
+               {:ok, %{phase: :submitted}}
+    end
+  end
+
+  test "late_new_key_is_refused: a deadline that is not an integer never reaches the Submitter",
+       %{prefix: prefix} do
+    f = late_flow(prefix, :memory)
+    pid = Process.whereis(:"Elixir.Elzoo.DurableJob.submitter.#{f.queue}")
+    assert is_pid(pid)
+    :ok = :sys.suspend(pid)
+
+    try do
+      for bad <- ["soon", 1.5, nil, :infinity] do
+        call = Task.async(fn -> DurableJob.submit(f.queue, "k205d", [1], fast(), bad) end)
+        result = Task.yield(call, 2_000) || Task.shutdown(call, :brutal_kill)
+        assert result == {:ok, {:error, {:invalid, :deadline_ms}}}
+
+        # the Submitter is suspended: a message sent to it would stay in its mailbox
+        assert Process.info(pid, :message_queue_len) == {:message_queue_len, 0}
+      end
+
+      # control: a new key with a deadline that is not later than the clock
+      # reaches the Submitter, which is suspended, so the call does not return
+      late = Task.async(fn -> DurableJob.submit(f.queue, "k205d", [1], fast(), 1_000_000) end)
+      assert Task.yield(late, 300) == nil
+      poll(fn -> Process.info(pid, :message_queue_len) == {:message_queue_len, 1} end)
+
+      :ok = :sys.resume(pid)
+      assert Task.await(late) == {:error, {:invalid, :deadline_ms}}
+    after
+      # resume is idempotent for a running process; a failed assertion above
+      # must not leave the Submitter suspended
+      :sys.resume(pid)
+    end
+
+    assert kinds(f.store, Run.submission_stream(f.queue)) == []
+  end
+
+  test "late_submit_reaches_submitter: a late new key against an unreachable store is :unavailable",
+       %{prefix: prefix} do
+    {:ok, repo} =
+      Elzoo.DurableJob.UnreachableRepo.start_link(
+        url: "ecto://nobody:nobody@localhost:1/none",
+        pool_size: 1,
+        queue_target: 50,
+        queue_interval: 100,
+        backoff_type: :stop,
+        log: false
+      )
+
+    Process.unlink(repo)
+
+    on_exit(fn ->
+      try do
+        Supervisor.stop(repo)
+      catch
+        :exit, _ -> :ok
+      end
+    end)
+
+    store =
+      Elzoo.DurableLog.Postgres.store(Elzoo.DurableJob.UnreachableRepo,
+        fold: Run.store_fold(),
+        limits: Run.limits()
+      )
+
+    {:ok, clock} = Agent.start_link(fn -> 2_000_001 end)
+    f = flow(prefix, :postgres, store: store, now_ms: fn -> Agent.get(clock, & &1) end)
+
+    assert DurableJob.submit(f.queue, "k205e", [1], fast(), 2_000_000) ==
+             {:error, :unavailable}
+  end
+
   test "DJ8 cancel while waiting, while active, after success", %{prefix: prefix} do
     f = flow(prefix, :postgres, handler: fn _ -> {:error, :transient} end)
 
@@ -573,6 +715,15 @@ defmodule Elzoo.DurableJobTest do
       )
 
     Process.unlink(repo)
+
+    # backoff_type: :stop can end the pool by itself: the Repo may already be gone.
+    on_exit(fn ->
+      try do
+        Supervisor.stop(repo)
+      catch
+        :exit, _ -> :ok
+      end
+    end)
 
     store =
       Elzoo.DurableLog.Postgres.store(Elzoo.DurableJob.UnreachableRepo,

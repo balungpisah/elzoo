@@ -142,9 +142,11 @@ defmodule Elzoo.RunResource do
   end
 
   defp execute_new(s, command, key, normalized) do
+    # One clock sample decides expiry and intent deadlines; it is never stored.
     with {:ok, s} <- renew(s),
-         {:ok, s} <- expire_first(s, now(s)) do
-      case transition(s.model, normalized) do
+         sample = now(s),
+         {:ok, s} <- expire_first(s, sample) do
+      case transition(s.model, normalized, sample) do
         {:refused, reason} ->
           {{:refused, reason}, s}
 
@@ -511,7 +513,7 @@ defmodule Elzoo.RunResource do
     true = e["budget_command"] == nil or e["budget_command"] == m["budget"]
   end
 
-  defp transition(m, [at, ["action", request, context, intent]]) do
+  defp transition(m, [at, ["action", request, context, intent]], sample) do
     action = hd(request["actions"])
     id = action["id"]
     kind = action["kind"]
@@ -549,7 +551,8 @@ defmodule Elzoo.RunResource do
         {:refused, :queue_full}
 
       intent != nil and
-          (intent["deadline_ms"] <= at or intent["identity"] == resource["close_intent"]["identity"] or
+          (intent["deadline_ms"] <= max(sample, at) or
+             intent["identity"] == resource["close_intent"]["identity"] or
              Map.has_key?(m["intents"], intent_key(intent))) ->
         {:refused, :invalid_input}
 
@@ -584,7 +587,7 @@ defmodule Elzoo.RunResource do
     end
   end
 
-  defp transition(m, [at, ["input", input]]) do
+  defp transition(m, [at, ["input", input]], _sample) do
     if input["payload"]["run_id"] != m["resource"]["run_id"] do
       {:refused, :wrong_run}
     else
@@ -593,7 +596,7 @@ defmodule Elzoo.RunResource do
     end
   end
 
-  defp transition(m, [at, ["pause"]]) do
+  defp transition(m, [at, ["pause"]], _sample) do
     m = Map.put(m, "paused", true)
 
     if m["resource"]["pause_policy"] == "close" do
@@ -604,14 +607,14 @@ defmodule Elzoo.RunResource do
     end
   end
 
-  defp transition(m, [at, ["continue"]]) do
+  defp transition(m, [at, ["continue"]], _sample) do
     {m, effects} = dequeue(Map.put(m, "paused", false))
     {usage(m, at), "applied", effects, [], nil}
   end
 
-  defp transition(m, [at, ["tick"]]), do: {usage(m, at), "applied", [], [], nil}
+  defp transition(m, [at, ["tick"]], _sample), do: {usage(m, at), "applied", [], [], nil}
 
-  defp transition(m, [at, ["dispatch", identity]]) do
+  defp transition(m, [at, ["dispatch", identity]], sample) do
     key = Jason.encode!(identity)
 
     case m["intents"][key] do
@@ -622,13 +625,13 @@ defmodule Elzoo.RunResource do
         cond do
           record["status"] != "ready" -> {m, "late", [], [], nil}
           not dispatchable?(m, key) -> {:refused, dispatch_refusal(m)}
-          record["descriptor"]["deadline_ms"] <= at -> {:refused, :closing}
+          record["descriptor"]["deadline_ms"] <= max(sample, at) -> {:refused, :closing}
           true -> {put_in(m, ["intents", key, "status"], "reserved"), "accepted", [], [], nil}
         end
     end
   end
 
-  defp transition(m, [at, ["observed", identity, observation]]) do
+  defp transition(m, [at, ["observed", identity, observation]], _sample) do
     key = Jason.encode!(identity)
 
     case m["intents"][key] do
@@ -645,7 +648,7 @@ defmodule Elzoo.RunResource do
     end
   end
 
-  defp transition(m, [at, ["event", id, data]]) do
+  defp transition(m, [at, ["event", id, data]], _sample) do
     if m["run_ended"],
       do: {m, "late", [], [], nil},
       else: {usage(m, at), "applied", [], [event(m, at, "provider_event", data, id)], nil}

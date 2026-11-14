@@ -23,10 +23,15 @@ defmodule Elzoo.DynamicUnits do
     ArgumentError -> {:error, :invalid_options}
   end
 
-  def start(server, identity), do: GenServer.call(server, {:start, identity})
-  def find(server, identity), do: GenServer.call(server, {:find, identity})
-  def stop(server, identity), do: GenServer.call(server, {:stop, identity})
-  def route(server, identity, message), do: GenServer.call(server, {:route, identity, message})
+  # A start can hold the directory while a unit replays its journal; every call waits behind it.
+  @call_limit 60_000
+
+  def start(server, identity), do: GenServer.call(server, {:start, identity}, @call_limit)
+  def find(server, identity), do: GenServer.call(server, {:find, identity}, @call_limit)
+  def stop(server, identity), do: GenServer.call(server, {:stop, identity}, @call_limit)
+
+  def route(server, identity, message),
+    do: GenServer.call(server, {:route, identity, message}, @call_limit)
 
   @doc false
   # Only the start MFA changes; OTP retains DurableUnit's transient/shutdown policy.

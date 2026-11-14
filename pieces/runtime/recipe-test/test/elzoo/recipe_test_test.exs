@@ -368,6 +368,28 @@ defmodule Elzoo.RecipeTestTest do
       refused(%{spec | script: two}, {:invalid_script, {:model, "a"}})
     end
 
+    test "each_invalid_script_key: the key nil is invalid_script, and no later invalid key hides it" do
+      spec = graph_spec()
+      script = spec.script
+
+      # nil is the first key in term order (an atom sorts before a tuple)
+      refused(%{spec | script: Map.put(script, nil, [])}, {:invalid_script, nil})
+      refused(%{spec | script: %{nil => 1, {:bogus, 1} => 2}}, {:invalid_script, nil})
+
+      refused(
+        %{spec | script: Map.merge(script, %{nil => [], {:bogus, 1} => 2})},
+        {:invalid_script, nil}
+      )
+
+      # an invalid key that sorts last, behind every valid key, is reported with itself
+      last = {:zzz, "last"}
+      assert Enum.max([last | Map.keys(script)]) == last
+      refused(%{spec | script: Map.put(script, last, [])}, {:invalid_script, last})
+
+      # a valid script is not refused with invalid_script
+      assert {:ok, _record} = RecipeTest.run(spec)
+    end
+
     test "a source that the registry refuses is sources" do
       spec = graph_spec()
       {:error, reason} = Elzoo.ToolRegistry.snapshot([:bad])

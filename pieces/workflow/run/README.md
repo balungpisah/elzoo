@@ -90,6 +90,13 @@ parent Attempt. Startup applies pending current-parent settlements, recovering
 lost wakeups. `DOWN` records death only, never success. Child spawning remains a
 host-dispatched Effect; an unknown spawn does not permit replacement or retry.
 
+`dead` is best effort: no pid is stored, so a death is not recorded when the
+owner restarts before or while the child ends, or when its write is fenced or
+rejected. A death whose write failed with an error is kept in the process and
+written after the next command, whether that command is applied, unchanged
+or refused; when the command's own write is indeterminate, the owner stops
+first and the kept death is lost. `status` writes nothing.
+
 Completion requires a committed Store record, not process success or a bare
 reference. Evidence references are `%{stream: text, sequence: integer}`. The
 record's canonical ETF map must correlate `run_id`, `attempt_id`, `operation_id`
@@ -134,8 +141,13 @@ the Store's recording/fault seam, snapshot-bound activation and a counting fake
 Adapter exercise release, admission, reservation-before-launch and restart
 windows. The checked example only requests completion with durable evidence.
 The release-before-intent scenario is also run against a temporary production
-mutation that bypasses the release barrier, then restored. These are finite
-tests, not universal proofs; no new Cure law is claimed.
+mutation that bypasses the release barrier, then restored. Repair groups
+`missing_evidence_is_refused`, `failed_death_write_is_kept` and
+`death_is_best_effort` add finite cases. The Store fault seam gives only an
+indeterminate write, so a write that fails with an error is made by a temporary
+change of the log table shape. Two temporary production mutations (the stored
+evidence condition and the kept deaths) fail their groups, then are restored.
+These are finite tests, not universal proofs; no new Cure law is claimed.
 
 ## Operations, Needs and limits
 
@@ -146,7 +158,9 @@ tests, not universal proofs; no new Cure law is claimed.
 - **Control:** supported, the named commands above, with applied, unchanged,
   refused, failed and indeterminate results. Status grants no dispatch authority.
 - **Needs:** authenticated host identities, evidence and current policy/authority;
-  canonical arguments; durable Store and PostgreSQL settings; trusted clocks;
+  canonical arguments; correlating the intent of `dispatch_approved` with the approved
+  action (Run checks the request, the binding and that the intent of an action does
+  not change, and nothing else); durable Store and PostgreSQL settings; trusted clocks;
   supervision; retention; old-owner/provider fencing and reconciliation of all
   outstanding writes before activation. Test host grants simulate these Needs,
   not establish real authentication or physical-send fencing.

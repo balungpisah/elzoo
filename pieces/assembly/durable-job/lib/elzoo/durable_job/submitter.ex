@@ -81,6 +81,12 @@ defmodule Elzoo.DurableJob.Submitter do
           do: {{:duplicate, key}, state},
           else: {{:error, :job_key_conflict}, state}
 
+      # A key that is not stored is the only case that compares the deadline
+      # with the clock reading of the submit; a stored key is answered above.
+      :error
+      when :erlang.map_get("deadline_ms", request) <= :erlang.map_get("submitted_ms", request) ->
+        {{:error, {:invalid, :deadline_ms}}, state}
+
       :error ->
         payload = Run.encode(request)
 

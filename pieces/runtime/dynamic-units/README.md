@@ -62,8 +62,20 @@ Callback or child-init failure is `{:error, :start_failed}`, without arbitrary
 provider diagnostics. Lost infrastructure is `{:error, :unavailable}` and needs
 a fresh caller-owned subtree. No child is stolen or failed recovery retried.
 These pre-send errors refuse without delivery; after a send, barrier failure
-is indeterminate, not safe rejection. Ordinary GenServer timeouts remain
-uncertain for any mutating operation, including waiting in the controller mailbox.
+is indeterminate, not safe rejection.
+
+`start/2`, `find/2`, `stop/2` and `route/3` wait up to 60,000 ms for the
+directory. They take no limit operand or option. A start can hold the directory
+while its Unit replays its journal, and every other call waits behind it. One
+observation, not a bound: on a worker host, a restart of a Unit near the control
+bound of `assembly/run-engine` (834 journal rows) took 3.0 to 4.9 s inside one
+start. No bound on the time of a replay is claimed. A caller that needs a shorter
+wait runs the call in a process of its own and gives up the wait there
+(`Task.async/1`, then `Task.yield/2` and `Task.shutdown/2`). When a call ends by
+the limit, or the caller stops waiting, the caller knows nothing about whether the
+operation was done, and the directory goes on with it. After a start that
+succeeded, a later `find/2` or `start/2` returns the Unit. The outcome of `stop`
+and `route` stays uncertain.
 
 The processing barrier uses OTP same-sender ordering, not application acceptance.
 A Unit-rejected input may still be routed; only synchronous DurableUnit step's
@@ -79,8 +91,9 @@ Callers needing sleep coordination must route through this directory. Timers
 use monotonic deadlines and per-incarnation/admission tokens; stale idle, DOWN
 and startup notifications cannot remove a replacement. If stop/expiry wins,
 route wakes only after confirmed termination or refuses before send. Slow
-recovery, transition or termination may block this small directory; there is
-no throughput or exact wall-clock sleep guarantee.
+recovery, transition or termination may block this small directory, and each call
+waits behind it for at most its 60,000 ms limit; there is no throughput or exact
+wall-clock sleep guarantee.
 
 The one Piece-local child-start seam calls published DurableUnit.start_link
 and announces each successful PID. Only the child spec's start MFA changes;
@@ -111,14 +124,18 @@ An append returning `{:conflict, observed}` causes RC-45 to stop with `{:shutdow
 
 ## Grounding and operations
 
-The seven named tests DY1–DY7 cover concurrent/independent identity admission
+The nine named tests DY1–DY9 cover concurrent/independent identity admission
 and validation; route/stop/expiry and death interleavings with opaque snapshots;
 capacity through startup/termination/recovery barriers; abnormal recovery and
 named shutdown/intensity; sleep/wake and idle refresh; independent local domains
-contending through Store CAS; and bounded binary lifecycle/infrastructure reset.
+contending through Store CAS; bounded binary lifecycle/infrastructure reset; and
+calls that wait past the 5,000 ms default behind a held start (DY8: a start, a
+second start of the same identity, a find and a stop) and behind a held route
+wake (DY9).
 They use real OTP infrastructure, DurableUnit, volatile Memory and Piece-local
 barriers. The negative control temporarily bypasses the route processing barrier
-in the actual production file; DY2 must fail, then the edit is reverted.
+in the actual production file; DY2 must fail, then the edit is reverted. With the
+default limit restored on `start/2`, `find/2` or `route/3`, DY8 or DY9 fails.
 Finite scenario results are tests, not universal recovery or exactly-once proofs.
 Same-sender ordering, Registry, supervisor capacity/transient restart/intensity
 and monotonic timers are upstream contracts, not locally proved laws.
