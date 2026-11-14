@@ -498,6 +498,15 @@ defmodule Elzoo.RecipeGraphTest do
   end
 
   describe "stable_data_and_redaction" do
+    test "improper lists in declaration fields and nested values are not plain data" do
+      refused(Map.put(recipe(), "callables", [callable() | :invalid_tail]), :invalid_shape)
+
+      refused(
+        recipe([put_in(callable(), ["input", "schema", "const"], %{"items" => [1 | 2]})]),
+        :invalid_shape
+      )
+    end
+
     test "equal independent plain values agree without list reordering" do
       map =
         put_in(recipe(), ["callables"], [

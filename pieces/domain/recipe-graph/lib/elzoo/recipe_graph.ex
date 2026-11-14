@@ -76,10 +76,14 @@ defmodule Elzoo.RecipeGraph do
     do: require!(is_integer(value) and value in 1..@max_version, reason)
 
   defp bounded(list, max, min \\ 0) do
-    require!(is_list(list), :invalid_shape)
-    require!(length(list) <= max, :too_large)
-    require!(length(list) >= min, :invalid_shape)
+    count = list_length(list, 0)
+    require!(count <= max, :too_large)
+    require!(count >= min, :invalid_shape)
   end
+
+  defp list_length([], count), do: count
+  defp list_length([_ | tail], count), do: list_length(tail, count + 1)
+  defp list_length(_, _), do: require!(false, :invalid_shape)
 
   defp unique(list, key, reason \\ :invalid_shape) do
     names =
@@ -104,7 +108,7 @@ defmodule Elzoo.RecipeGraph do
 
   defp plain(value, depth, bytes) when is_list(value) do
     require!(depth < 32, :depth_exceeded)
-    Enum.reduce(value, add(bytes, 2 + max(length(value) - 1, 0)), &plain(&1, depth + 1, &2))
+    Enum.reduce(value, add(bytes, 2 + max(list_length(value, 0) - 1, 0)), &plain(&1, depth + 1, &2))
   end
 
   defp plain(value, _, bytes) when is_binary(value) do
