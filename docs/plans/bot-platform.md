@@ -363,10 +363,13 @@ Resolved on 2026-11-12; these decisions are also in the corresponding job Contra
 - **RC-67:** use the [Agent Skills specification](https://agentskills.io/specification), accessed 2026-11-12 (no spec version): a folder with SKILL.md, required YAML frontmatter and Markdown body; name is 1–64 characters, lowercase alphanumeric or hyphens, no leading, trailing or consecutive hyphens, and matches the folder; description is 1–1024 characters. Malformed skills are refused at package checking. V1 uses only the recipe package; MCP io.modelcontextprotocol/skills is out of scope, and future use requires person approval of the exact digest. `allowed-tools` grants no authority; scripts are stored and read, never executed in v1.
 - **Skill trust and bounds:** the pinned package manifest source, not the path or result shape, establishes trust. Named skill instructions rank with recipe role instructions; RC-54 builds them as instructions and never drops them, and RC-51 does not mark them. Other tool results stay marked content. RC-56 accepts declarations only from the resolved source kind in the registry snapshot: pinned-package skill instructions or host listing tools. It owns a total loaded-instruction byte bound and named refusal alongside the 64-tool bound; admission proposes the number considering ai-text's 65,536 canonical-byte request cap. An overbound load adds no instruction, instructions are never cut, and reloading an already loaded skill adds nothing. RC-69 may cut skill files, never the SKILL.md body. RC-61's package manifest declares each skill's version and tools; the public format has no tools field.
 
+Resolved on 2026-11-14; these decisions are also recorded in `release-plan.json` and the published tasks:
+
+- **RC-60:** reference PUC Lua 5.4.9 runs outside the VM over a Port with a small C host, following ELZ-159. ELZ-160 adopts the official mirror commit with byte-identical library sources; the absent `luac.c` is not needed. The v1 capability names, `policy-v1:sha256:` identity and `unlisted_name` outcome remain input to later Piece admission, not decisions of the provider prerequisite.
+- **RC-61:** callable kinds v1 are graph, agent and typed decision. Node kinds v1 are `call`, `tool`, `ask`, `decision`, `map` and `loop`. Map and loop are bounded re-runs of a named callable and never a back-edge. The handle remains `domain/recipe-graph` even for an agent or decision root. ELZ-161 and ELZ-162 are independent; recipe-package follows in a later publication.
+
 | Decision | Job |
 | --- | --- |
-| Which Lua runtime, and if it runs inside the VM | RC-60 |
-| The final node list, and the name of the recipe data handle | RC-61 |
 | The language of model-written code | not registered (wave 9) |
 | The turn policies of a room | not registered (wave 8) |
 | What a room does when its Unit reaches the 256 lifetime actions of `assembly/run-engine`. Wave 8 is not registered before this is decided | not registered (wave 8) |

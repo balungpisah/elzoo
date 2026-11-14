@@ -4365,19 +4365,20 @@
         "runtime/lua-stdlib"
       ],
       "dependencies": [
-        "ELZ-033"
+        "ELZ-033",
+        "ELZ-160"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "provider prerequisite published as ELZ-160; runtime Piece admission pending",
       "contract": "Run Lua source with hard limits on steps, memory, call depth and value size, and with no file, network, clock, random or process access unless a function is given explicitly. Two uses: load a recipe file one time and return plain data; run a small pure function during a Run, where the same input gives the same output. Inside a Run only a limit that the runtime counts deterministically (steps, call depth, value size, and memory only if it is counted for each allocation inside the runtime) decides a result; each of a wall-time stop and a memory stop that depends on garbage-collection timing is a host outcome that is recorded as an input and never computed again on replay. The capability policy is an allow-list with a version identity: by any path (a global, the environment table, a function or a table of functions that a listed function returns, a method or a metatable of a value), a source reaches the runtime function behind a name only if the policy lists that name; a use of an unlisted name ends in the outcome that the admission fixes and never reaches a runtime function. A function that a listed function returns without a name of its own, such as the iterator of ipairs, is covered by the listing of that function. The policy lists the only library names that a source can use, and a safe helper set (JSON, text, time values passed in) is part of every policy version. The policy, not the standard library of the chosen runtime, is the contract toward the author of a source. A source cannot catch a limit stop: a step, memory, call-depth, value-size or wall-time stop ends the evaluation.",
       "acceptance": "Provider-fit probe first: an infinite loop, deep recursion, a large allocation and a string bomb end in a named refusal within the bound; each escape path of the library surface of the candidate runtime (load, require, os, io, debug, metatables on shared values) never reaches a runtime function and ends in the outcome that the admission fixes for an unlisted name; the host process survives each case. The same pure function and input give the same output across runs and restarts when a limit that the runtime counts deterministically decides. Returned data is plain: no function or reference leaks. Errors carry no host paths. Against the allow-list: for each candidate the probe records the names that a source reaches by each path of the contract, found from inside the sandbox, from the host side through the interface of the runtime (the environment table and each shared metatable) and by probing a fixed list of standard-library names through values, and each difference from the policy; the chosen runtime reaches exactly the policy on all three; for each catching function that the runtime supplies (pcall, xpcall, coroutine.resume, coroutine.wrap), the probe shows that it is not reachable or that a source that uses it does not continue after a step, memory, call-depth, value-size or wall-time stop.",
-      "reuse": "No runtime is chosen, and mix.exs and mix.lock hold no Lua library. The probe compares at least two Lua runtimes, at least one of them outside the process boundary of the VM, and records the explicit decision and the integration test that docs/architecture.md (OTP lifecycle and isolation) requires before a runtime inside the VM is accepted for hostile input. runtime/os-isolation is not security isolation (its README) and is not a ready answer. Adopting the runtime is a separate provider-prerequisite task, as ELZ-099 was (merged as PR #188): mix.exs, mix.lock, registry/providers.json and a local full mix check. Author only the limit and capability policy. A fork follows docs/development/08-upstream-and-forks.md and is not assumed. Candidates that run inside the BEAM, read from their public pages on 2026-11-13 and not run: lua 1.0.2 (Hex, Apache-2.0; a Lua 5.3 interpreter in Elixir with no dependency; its default sandbox is a block-list of standard-library paths; it has an instruction budget, a call-depth bound and a string-size bound; its sandboxing guide states that the instruction budget and the call-depth bound default to unlimited and the string-size ceiling to about 256 MiB, that the budget is counted at loop back-edges and call boundaries and never per opcode, that a source can catch each of these limit errors with pcall, that elapsed time and the total memory of the host process are not limited by the package and are for the caller to enforce around the call, and that a heap-size limit of the calling process is checked at garbage collection, which makes the outcome timing-dependent) and luerl 1.5.1 (Hex, Apache-2.0; Lua in Erlang; luerl_sandbox bounds reductions and time). Neither is outside the process boundary of the VM, so neither is the outside candidate that the probe requires.",
+      "reuse": "Owner decision, 2026-11-14: use reference PUC Lua 5.4.9 outside the VM over a Port with a small C host, following the completed ELZ-159 fit record. ELZ-160 is the separate provider prerequisite: mix.exs, mix.lock, registry/providers.json, the dependency register and a narrow runtime adoption check with full local and hosted checks. The official mirror commit is accepted for its byte-identical library sources; the absent luac.c is not needed. No Lua provider is adopted by this publication. runtime/os-isolation is not security isolation (its README). Author only the limit and capability policy in the later Piece task, using ELZ-159's policy answers as admission input; those answers are not finalized by ELZ-160. A fork follows docs/development/08-upstream-and-forks.md and is not assumed. The alternative in-VM path still requires the explicit exception decision and named integration test of docs/architecture.md (OTP lifecycle and isolation); the owner selected the outside-VM path.",
       "paths": [
         "pieces/runtime/lua-sandbox/",
         "pieces/runtime/lua-stdlib/"
       ],
       "blockers": [
         "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
-        "The first deliverable is the provider-fit record, not the Piece.",
+        "ELZ-159 completed the provider-fit record. Owner decision, 2026-11-14: PUC Lua 5.4.9 outside the VM over a Port with a small C host; provider prerequisite published as ELZ-160. The proposed policy answers remain input to later Piece admission.",
         "A step limit must be enforceable inside the runtime; if no candidate supports it without a fork, stop and report.",
         "Only one provider-adoption task edits mix.exs, mix.lock and registry/providers.json at a time.",
         "Allow-list (consumer decision of the bot platform track, 2026-11-13): the admission fixes who supplies the policy; how a function that a caller gives (a module binding of RC-62) enters the policy and its version identity, where a caller can add only such functions; the names of the first policy version; the form of the version identity; and the outcome of a use of an unlisted name. Consumer draft of version 1, not final: string, table and math without math.random, math.randomseed and string.dump; pairs, ipairs, next, select, type, tostring, tonumber, error and assert; the helper set; no coroutine library; no getmetatable, setmetatable, rawget, rawset or rawequal, and a method of a string reaches only the listed string names. pcall is in the policy only if a limit stop stays uncatchable.",
@@ -4396,9 +4397,7 @@
       "release": "V1B",
       "stage": "pieces",
       "outputs": [
-        "domain/recipe-graph",
-        "domain/recipe-package",
-        "domain/recipe-config"
+        "domain/recipe-package"
       ],
       "dependencies": [
         "ELZ-033",
@@ -4406,20 +4405,20 @@
         "ELZ-026",
         "ELZ-024",
         "ELZ-105",
-        "ELZ-114"
+        "ELZ-114",
+        "ELZ-161",
+        "ELZ-162"
       ],
-      "status": "blocked: unpublished admission proposal",
+      "status": "graph and config published as independent ELZ-161 and ELZ-162; recipe-package admission pending",
       "contract": "The plain data that a recipe gives: named callables (a graph of nodes, an agent, a typed decision), each with a typed input and output; nodes that state what they need and give; links that add only order and branches; outcome links, each for one outcome class of RC-68; rules such as an approval on an action; bindings apart from the graphs. A rule can only add a requirement: it never relaxes the authorization policy of the consumer. Callables nest by name with a depth limit. A loop is a node that re-runs a nested callable (RC-63), never a back-edge, so a graph has no legal cycle. A package manifest gives name, version, needs, permissions and each skill that the recipe uses, with its version and tools; the public Agent Skills format has no tools field. Package checking refuses malformed skills before load, following RC-67. Tenant settings are checked against the schema that the package declares; a secret setting is a reference.",
       "acceptance": "Structural validation: unknown node kind, dangling name, a need with no giver, a decision node with a missing branch, any cycle, depth over the limit, a link to a missing outcome; malformed skill refused at package checking; each skill's version and tools declared in the package manifest; encode and decode round-trip is stable; a setting against the schema (wrong type, missing, extra, a secret given as a value is refused); version identity is explicit.",
       "reuse": "Ready workflow/dependency-graph: validate on the needs graph finds cycles and unknown dependencies within its bounds (1,000 nodes, 10,000 edges). It has no node kinds, depth limit or data types: those are written here. Readiness is a run-time question and is not in this job. Rules use the policy identity of domain/authorization and the binding of workflow/approval; a recipe defines no second rule format. RC-44 for payload types. Data and validation only; nothing executes here.",
       "paths": [
-        "pieces/domain/recipe-graph/",
-        "pieces/domain/recipe-package/",
-        "pieces/domain/recipe-config/"
+        "pieces/domain/recipe-package/"
       ],
       "blockers": [
-        "Not published; coordinator must admit exact API, Needs, failure cases, evidence and ownership before assigning an ELZ ID.",
-        "Product owner decisions pending: the final node list, and whether the handle keeps the name recipe-graph when the root callable is not a graph."
+        "Recipe-package remains unpublished and follows ELZ-161 and ELZ-162 in a later publication; coordinator must admit its exact API, Needs, failure cases, evidence and ownership.",
+        "Owner decisions, 2026-11-14: callable kinds graph, agent and typed decision; node kinds call, tool, ask, decision, map and loop. Map and loop are bounded re-runs of a named callable, never back-edges. The handle remains domain/recipe-graph. The independent graph and config tasks are published as ELZ-161 and ELZ-162."
       ],
       "owner_role": "one claimed task worker after admission",
       "product_aims": [
@@ -5570,6 +5569,57 @@
       "issue": 347,
       "url": "https://github.com/balungpisah/elzoo/issues/347",
       "issue_body_sha256": "ef94fff18e8486bd322c5c3544a0e59e2ea013f54fa8c41e153c3d66502085b8"
+    },
+    {
+      "id": "ELZ-160",
+      "title": "ELZ-160 — Pin and exercise the outside-VM Lua provider",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-159"],
+      "status": "published 2026-11-14",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-160-lua-provider.md"],
+      "outputs": [],
+      "acceptance": "Pin the official Lua 5.4.9 mirror commit 312b9efaa1061c2c4cad08554dbc1351c3270eef as a source-only Mix dependency, record its MIT provider identity and narrow adoption, and exercise static-library compilation and a trivial Port host with success, empty and failure cases in the full hosted check. No vendored Lua, build helper, Piece or CI change; full local mix check.",
+      "product_aims": ["P13"],
+      "issue": 350,
+      "url": "https://github.com/balungpisah/elzoo/issues/350",
+      "issue_body_sha256": "b3ced20f9a62c1ed45fd0fb318c37e7dfa4c1e9e54a02524dcadabf0601bce18"
+    },
+    {
+      "id": "ELZ-161",
+      "title": "ELZ-161 — Versioned recipe callables as plain data",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-115", "ELZ-026", "ELZ-024", "ELZ-114"],
+      "status": "published 2026-11-14",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-161-recipe-graph.md"],
+      "outputs": ["domain/recipe-graph"],
+      "acceptance": "Pure versioned graph, agent and typed-decision callable data with six node kinds, bounded named nesting, needs/gives, cycle and name validation through dependency-graph, complete decision branches, v1 outcome links, separate bindings and additive approval requirements. Stable encode/decode, fixed bounds and redacted failures; independent of ELZ-162; recipe-package follows later.",
+      "product_aims": ["P13"],
+      "issue": 351,
+      "url": "https://github.com/balungpisah/elzoo/issues/351",
+      "issue_body_sha256": "deacebc02d3795d4af520af964c91cb16a9f37da8e9275010b343ce01802b1fa"
+    },
+    {
+      "id": "ELZ-162",
+      "title": "ELZ-162 — Schema-checked tenant settings with credential references",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-115", "ELZ-105"],
+      "status": "published 2026-11-14",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-162-recipe-config.md"],
+      "outputs": ["domain/recipe-config"],
+      "acceptance": "Pure tenant-settings checking against the caller's versioned package-form schema descriptor using payload-schema. Wrong type, missing and extra fields and raw secret values are refused; secret settings are exact credential references only. Fixed bounds, unchanged successful values and redacted errors; no resolver; independent of ELZ-161; recipe-package follows later.",
+      "product_aims": ["P13"],
+      "issue": 352,
+      "url": "https://github.com/balungpisah/elzoo/issues/352",
+      "issue_body_sha256": "7da9adc9d583766c17ad19d69d67b7d78f673701a59e736ad9918a8cdb3a941a"
     }
   ],
   "entries": [
@@ -6810,7 +6860,7 @@
     },
     {
       "id": "domain/recipe-graph",
-      "job": "RC-61",
+      "job": "ELZ-161",
       "note": "Bot platform wave 3 (P13). Graphs, agents and typed decisions with typed input and output, needs and gives, links, outcome links, rules and bindings; callables nest by name with a depth limit. A rule can only add a requirement. Data and validation only.",
       "baseline_status": "not in baseline (new row, RC-61)",
       "disposition": "blocked-admission-proposal",
@@ -6826,7 +6876,7 @@
     },
     {
       "id": "domain/recipe-config",
-      "job": "RC-61",
+      "job": "ELZ-162",
       "note": "Bot platform wave 3 (P13). A secret setting is a credential reference, never a value.",
       "baseline_status": "not in baseline (new row, RC-61)",
       "disposition": "blocked-admission-proposal",
