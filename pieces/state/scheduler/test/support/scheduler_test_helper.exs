@@ -119,11 +119,28 @@ defmodule Elzoo.Scheduler.TestHelper do
       raise "ELZOO_TEST_DATABASE_URL is required: PostgreSQL tests fail closed (never skipped)"
   end
 
-  def setup_database! do
+  # Called in `setup_all`: the module that starts the Repo stops it when the module ends, so
+  # an idle pool does not outlive its module. `setup_database!/0` runs once for each test.
+  def start_repo! do
     case TestRepo.start_link(url: url!(), pool_size: 10, log: false) do
-      {:ok, repo} -> Process.unlink(repo)
-      {:error, {:already_started, _}} -> :ok
+      {:ok, repo} ->
+        Process.unlink(repo)
+
+        ExUnit.Callbacks.on_exit(fn ->
+          try do
+            Supervisor.stop(TestRepo)
+          catch
+            :exit, _ -> :ok
+          end
+        end)
+
+      {:error, {:already_started, _}} ->
+        :ok
     end
+  end
+
+  def setup_database! do
+    start_repo!()
 
     TestRepo.query!("select 1", [], log: false)
 
