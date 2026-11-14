@@ -5,7 +5,7 @@ defmodule Elzoo.LuaSandbox.Build do
   # source with the explicit recipe, archive them, compile the owned host.
   # Argument lists only: no shell, no expansion, no build helper.
 
-  alias Elzoo.LuaSandbox.SourceIdentity
+  alias Elzoo.LuaSandbox.{Descriptor, SourceIdentity}
 
   @host_path Path.join([__DIR__, "native", "lua_sandbox_host.c"])
   @external_resource @host_path
@@ -23,6 +23,9 @@ defmodule Elzoo.LuaSandbox.Build do
     "-Dl_randomizePivot()=0u"
   ]
   @scrub ~w(CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH LIBRARY_PATH COMPILER_PATH GCC_EXEC_PREFIX)
+
+  # Computed from the descriptor module (no dependency on the public module).
+  def policy_identity, do: Descriptor.identity(Descriptor.descriptor())
 
   def host_sha256, do: @host_sha256
   def seed, do: @seed
@@ -108,7 +111,8 @@ defmodule Elzoo.LuaSandbox.Build do
       ~s(-DELZ_LUA_REVISION="#{SourceIdentity.revision()}"),
       ~s(-DELZ_HOST_SHA256="#{@host_sha256}"),
       ~s(-DELZ_BUILD_OPTIONS="#{build_options()}"),
-      ~s(-DELZ_SEED="#{@seed}")
+      ~s(-DELZ_SEED="#{@seed}"),
+      ~s(-DELZ_POLICY_IDENTITY="#{policy_identity()}")
     ]
 
     run(

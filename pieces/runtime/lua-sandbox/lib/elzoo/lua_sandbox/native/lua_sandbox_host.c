@@ -14,7 +14,9 @@
 ** The build verifies the exact upstream bytes before it compiles this file.
 **
 ** Build identity arrives as -D macros: ELZ_LUA_RELEASE, ELZ_LUA_REVISION,
-** ELZ_HOST_SHA256, ELZ_BUILD_OPTIONS and ELZ_SEED (each a string literal).
+** ELZ_HOST_SHA256, ELZ_BUILD_OPTIONS, ELZ_SEED and ELZ_POLICY_IDENTITY (each a
+** string literal). A request whose policy differs from ELZ_POLICY_IDENTITY is
+** answered with `policy_mismatch` before a Lua state exists.
 */
 #include <errno.h>
 #include <fcntl.h>
@@ -36,7 +38,8 @@
 #include "lobject.h" /* TString layout: private, see the note above */
 
 #if !defined(ELZ_LUA_RELEASE) || !defined(ELZ_LUA_REVISION) || \
-    !defined(ELZ_HOST_SHA256) || !defined(ELZ_BUILD_OPTIONS) || !defined(ELZ_SEED)
+    !defined(ELZ_HOST_SHA256) || !defined(ELZ_BUILD_OPTIONS) || !defined(ELZ_SEED) || \
+    !defined(ELZ_POLICY_IDENTITY)
 #error "build identity macros are required"
 #endif
 
@@ -1446,6 +1449,9 @@ int main(int argc, char **argv) {
   if (src < 0 || inp < 0 || pol < 0 || lim < 0 || nodes[src].type != T_STR || nodes[pol].type != T_STR ||
       nodes[lim].type != T_OBJ || nodes[lim].count != 5 || nodes[src].slen > MAX_SOURCE)
     reply_refused("invalid_request");
+  if (nodes[pol].slen != strlen(ELZ_POLICY_IDENTITY) ||
+      memcmp(sarena + nodes[pol].soff, ELZ_POLICY_IDENTITY, nodes[pol].slen) != 0)
+    reply_refused("policy_mismatch");
   if (field_int(lim, "steps", MAX_STEPS, &steps) || field_int(lim, "call_depth", MAX_DEPTH, &depth) ||
       field_int(lim, "value_bytes", MAX_VALUE, &value) || field_int(lim, "memory_bytes", MAX_MEMORY, &memory) ||
       field_int(lim, "wall_ms", MAX_WALL, &wall))

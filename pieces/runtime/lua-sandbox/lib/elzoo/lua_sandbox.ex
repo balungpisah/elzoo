@@ -84,6 +84,7 @@ defmodule Elzoo.LuaSandbox do
   @source_max 65_536
   @child_refusals %{
     "invalid_request" => :invalid_request,
+    "policy_mismatch" => :policy_mismatch,
     "invalid_result" => :invalid_result,
     "steps" => :steps,
     "call_depth" => :call_depth,

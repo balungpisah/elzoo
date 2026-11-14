@@ -377,7 +377,7 @@ defmodule Elzoo.LuaSandboxProtocolTest do
         {"duplicate-keys", ~s({"status":"ok","status":"ok","value":1,"runtime":{}})},
         {"duplicate-nested", String.replace(valid, ~s("value":1), ~s("value":{"a":1,"a":2}))},
         {"missing-status", ~s({"value":1})},
-        {"unknown-reason", ~s({"status":"refused","reason":"policy_mismatch"})},
+        {"unknown-reason", ~s({"status":"refused","reason":"no_such_reason"})},
         {"extra-key", String.replace(valid, ~s("status":"ok"), ~s("status":"ok","extra":1))},
         {"runtime-missing-key", ~s({"status":"ok","value":1,"runtime":{}})},
         {"value-not-plain-int",
