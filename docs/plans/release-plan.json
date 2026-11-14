@@ -6022,20 +6022,20 @@
     },
     {
       "id": "ELZ-187",
-      "title": "ELZ-187 — The 64-entry sizing test of assembly/run-engine does not depend on host load",
+      "title": "ELZ-187 — A call of assembly/run-engine waits long enough for an input at the bounds of the Piece",
       "kind": "published",
       "release": "V1B",
       "stage": "pieces",
       "dependencies": ["ELZ-033", "ELZ-180"],
-      "status": "published 2026-11-14",
+      "status": "published 2026-11-14; amended 2026-11-14 (fixed call limit after the measurement)",
       "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
       "paths": ["tasks/ELZ-187-run-engine-sizing-test.md"],
       "outputs": [],
-      "acceptance": "Repair for issue #334 on assembly/run-engine: the first input of the 64-entry sizing test is measured, avoidable repeated work is removed so that the call stays far inside the 5 s call limit alone and beside the Piece suite, with unchanged assertions, journal records, fingerprints and replies; a limit operand is not added, and a case that needs one stops for a coordinator decision.",
+      "acceptance": "Repair for issue #334 on assembly/run-engine, in place: input/4, control/4 and status/1 call the engine with one fixed limit of 60,000 ms, with no operand or option, because a measured input at the bounds of the Piece needs about 4.5 s; README and piece.json state the limit and what a caller knows after it; a certain test shows an input slower than 5 s; the sizing test and every engine record stay unchanged.",
       "product_aims": ["P13"],
       "issue": 415,
       "url": "https://github.com/balungpisah/elzoo/issues/415",
-      "issue_body_sha256": "9c788de1acc3daaafe95a9faea3cea40fabd5d1cb766ac106317f61b206e3b3b"
+      "issue_body_sha256": "eab6214457d18c0fe46ee5cdc9e2d3edb7b4c24ccb2ec90bf18cd8a2550ce8bd"
     }
   ],
   "entries": [
