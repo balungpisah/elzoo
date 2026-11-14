@@ -35,7 +35,8 @@ status polling is not a concurrency fence.
   `PayloadSchema.build/2` returned `{:ok, compiled_token}`.
   Only schema identities/digests, not compiled schemas, enter durable state.
 - `gate: %{id: utf8_no_nul_1_to_128_bytes, version: positive_int32, call: arity2}`;
-  `bindings`: fixed v1 action-kind map described below.
+  `bindings`: map from action kind to a binding or to a schema map, described
+  below.
 - `async_work`, `resources`: name-to-owner map (may be empty), `effect_intent`:
   binding-reference-to-ready-startup-options map (may be empty).
 - `request_cap`: sealed integer 1..256; `budget`: ready Budget construction
@@ -53,6 +54,24 @@ The directory's Unit options use
 callback that only sends each Outbox.Item to the dispatcher and returns `:ok`.
 Call `DurableUnit.fold/1` and `limits/1` to construct that Store. Never run gate,
 DU calls or outbox acknowledgement inside the offer callback or transition.
+
+A `bindings` entry for an action kind is either a binding, or a schema map from
+`schema_id` (UTF-8 text of 1 to 200 bytes, no NUL) to a binding, with at least
+one entry. A binding is a map with the atom key `:id` and no binary key. A start
+with any other entry value returns `{:error, :invalid_options_or_recovery}` and
+starts no Unit. The engine chooses the binding of an action by its kind and,
+for a schema map, by the `schema_id` of the action alone, never by
+`schema_version`, payload or callable: a binding entry serves every action of
+its kind, and a schema map has no default entry, so an action whose `schema_id`
+is not a key is refused with `missing_binding` (after `payload_schema` and
+`invalid_identity`). Every read of the binding of an occurrence, including the
+expected `result` of an outcome or answer and the result that a nested finish
+must match, uses the binding chosen for that action. The restart fingerprint
+holds `{id, version}` of a binding entry and, for a schema map, the map from
+each `schema_id` to `{id, version}`, so a changed schema map is an incompatible
+restart. The test helper's `fixture/1` takes `effect_bindings`, a map from
+binding reference to `{binding_module, adapter_context}` merged into the default
+`"effect"` entry, and gives the same map to the engine and to the Run owner.
 
 Each binding has stable `id`/`version`, trusted `effect_class`, `result:
 {schema_id, version}`, `facts.(action)` and `proposal.(action)`. Facts supply
