@@ -211,7 +211,10 @@ defmodule Elzoo.RecipeTestTest do
       script: script,
       effects: %{model: ModelBinding, tool: ToolBinding},
       adapters: [ScriptedAdapter],
-      input: input
+      input: input,
+      tools: %{},
+      executable: nil,
+      restart_after: nil
     }
 
   # A graph root that calls an agent callable and a decision callable, and has two adapter
@@ -438,19 +441,6 @@ defmodule Elzoo.RecipeTestTest do
       graph = recipe([main, callable("agent", "agent", %{"binding" => "worker"})])
       spec = base_spec(package(graph), facts([cost("agent", 5)]), [], %{}, %{"tag" => "t"})
       refused(spec, {:invalid_callable, "main", :invalid_spec})
-    end
-
-    test "a nested tool is unsupported_tool" do
-      spec = graph_spec()
-
-      nested = %{
-        "id" => "sub",
-        "kind" => "other",
-        "callable" => "nested",
-        "tools" => [tool("plan")]
-      }
-
-      refused(%{spec | sources: spec.sources ++ [nested]}, {:unsupported_tool, "sub_plan"})
     end
 
     test "an input in another form than the root kind is invalid_input" do

@@ -23,9 +23,13 @@ defmodule Elzoo.RecipeTest do
   alias Elzoo.{
     AgentLoop,
     GraphRun,
+    LuaBinding,
+    LuaSandbox,
+    LuaTool,
     PayloadSchema,
     RecipeCheck,
     RunEngine,
+    RuntimeGraph,
     ToolRegistry,
     TypedDecision
   }
@@ -34,17 +38,23 @@ defmodule Elzoo.RecipeTest do
   alias Elzoo.RecipeTest.Glue
   alias Elzoo.RunEngine.TestHelper
 
-  @keys Enum.sort(~w(package facts sources agents decisions script effects adapters input)a)
+  @keys Enum.sort(
+          ~w(package facts sources agents decisions script effects adapters input tools executable restart_after)a
+        )
+  @lua_keys Enum.sort(~w(kind source limits declaration manifests source_id max_calls)a)
+  @graph_keys Enum.sort(~w(kind sources callables tool_costs max_nodes max_depth cap)a)
   @max_polls 2_000
   @budget_exponent 62
   @extra_schemas ~w(elzoo/ai-text-request elzoo.ai-text.result elzoo.agent-loop.message
     elzoo.agent-loop.tool-call elzoo.agent-loop.tool-result elzoo.agent-loop.result
     elzoo.graph-run.input elzoo.graph-run.call elzoo.graph-run.tool-call
     elzoo.graph-run.node-result elzoo.graph-run.result elzoo.typed-decision.result
-    elzoo.recipe-test.input)
+    elzoo.recipe-test.input elzoo.lua-tool.input elzoo.lua-tool.run elzoo.lua-tool.run-result
+    elzoo.lua-tool.module-call elzoo.lua-tool.module-result elzoo.lua-tool.result)
   @tool_results %{
     "elzoo.agent-loop.tool-call" => "elzoo.agent-loop.tool-result",
-    "elzoo.graph-run.tool-call" => "elzoo.graph-run.node-result"
+    "elzoo.graph-run.tool-call" => "elzoo.graph-run.node-result",
+    "elzoo.lua-tool.module-call" => "elzoo.lua-tool.module-result"
   }
 
   @doc "Run the recipe of `spec`; `{:ok, record}` or `{:error, reason}`."
@@ -55,9 +65,9 @@ defmodule Elzoo.RecipeTest do
          {:ok, snapshot} <- check_sources(spec.sources),
          :ok <- check_recipe(spec, snapshot),
          :ok <- check_callables(spec),
-         :ok <- check_tools(snapshot),
+         :ok <- check_tools(spec, snapshot),
          :ok <- check_input(spec) do
-      execute(spec, descriptors)
+      execute(spec, descriptors, snapshot)
     end
   end
 
@@ -71,12 +81,35 @@ defmodule Elzoo.RecipeTest do
         is_list(spec.sources) and maps_of_maps?(spec.agents) and maps_of_maps?(spec.decisions) and
         is_map(spec.script) and is_map(effects) and Enum.sort(Map.keys(effects)) == [:model, :tool] and
         is_atom(effects.model) and is_atom(effects.tool) and is_list(spec.adapters) and
-        Enum.all?(spec.adapters, &is_atom/1)
+        Enum.all?(spec.adapters, &is_atom/1) and tools?(spec.tools) and
+        executable?(spec.executable, spec.tools) and restart_after?(spec.restart_after)
 
     if valid?, do: :ok, else: {:error, :invalid_spec}
   end
 
   defp check_shape(_), do: {:error, :invalid_spec}
+
+  defp tools?(tools) when is_map(tools) and not is_struct(tools),
+    do: Enum.all?(tools, fn {name, entry} -> is_binary(name) and tool_entry?(entry) end)
+
+  defp tools?(_), do: false
+
+  defp tool_entry?(%{kind: :lua} = entry) when not is_struct(entry),
+    do: Enum.sort(Map.keys(entry)) == @lua_keys
+
+  defp tool_entry?(%{kind: :graph} = entry) when not is_struct(entry),
+    do: Enum.sort(Map.keys(entry)) == @graph_keys
+
+  defp tool_entry?(_), do: false
+
+  defp executable?(executable, tools) do
+    if Enum.any?(tools, &match?({_, %{kind: :lua}}, &1)),
+      do: is_binary(executable),
+      else: is_nil(executable) or is_binary(executable)
+  end
+
+  defp restart_after?(nil), do: true
+  defp restart_after?(n), do: is_integer(n) and n > 0
 
   defp maps_of_maps?(map), do: is_map(map) and Enum.all?(map, fn {_, v} -> is_map(v) end)
 
@@ -181,18 +214,76 @@ defmodule Elzoo.RecipeTest do
     if wrong?, do: {:invalid, :gives}, else: :ok
   end
 
-  defp check_tools(snapshot) do
-    nested =
-      snapshot
-      |> ToolRegistry.tools()
-      |> Enum.map(& &1["name"])
-      |> Enum.sort()
-      |> Enum.find(fn name ->
-        match?({:resolved, %{callable: {:nested, _, _}}}, ToolRegistry.resolve(snapshot, name))
-      end)
+  # The aliases of the nested tools of the snapshot and the keys of `tools`, ascending; the
+  # first alias that has no entry, names no nested tool or has an invalid entry decides.
+  defp check_tools(spec, snapshot) do
+    nested = nested_aliases(snapshot)
 
-    if nested == nil, do: :ok, else: {:error, {:unsupported_tool, nested}}
+    nested
+    |> Enum.concat(Map.keys(spec.tools))
+    |> Enum.uniq()
+    |> Enum.sort()
+    |> Enum.find_value(:ok, fn name ->
+      case check_tool(spec, name, name in nested) do
+        :ok -> nil
+        error -> {:error, error}
+      end
+    end)
   end
+
+  defp nested_aliases(snapshot) do
+    snapshot
+    |> ToolRegistry.tools()
+    |> Enum.map(& &1["name"])
+    |> Enum.filter(fn name ->
+      match?({:resolved, %{callable: {:nested, _, _}}}, ToolRegistry.resolve(snapshot, name))
+    end)
+  end
+
+  defp check_tool(spec, name, nested?) do
+    case {nested?, Map.fetch(spec.tools, name)} do
+      {true, {:ok, entry}} -> check_entry(entry, name)
+      _ -> {:unbound_tool, name}
+    end
+  end
+
+  defp check_entry(%{kind: :lua} = entry, name) do
+    case lua_tool(entry, "d1") do
+      {:ok, _} -> :ok
+      {:error, reason} -> {:invalid_tool, name, reason}
+    end
+  end
+
+  defp check_entry(%{kind: :graph} = entry, name) do
+    case ToolRegistry.snapshot(entry.sources) do
+      {:ok, _} -> :ok
+      {:error, reason} -> {:invalid_tool, name, {:sources, reason}}
+    end
+  end
+
+  # The Lua tool state of an entry; an error is the whole result of the call that failed.
+  defp lua_tool(entry, id) do
+    with {:ok, bindings} <- plain_ok(LuaBinding.resolve(entry.declaration, entry.manifests)),
+         {:ok, source} <- plain_ok(LuaBinding.source(bindings, entry.source_id)),
+         {:ok, state} <-
+           plain_ok(
+             LuaTool.new(%{
+               id: id,
+               source: entry.source,
+               policy: LuaSandbox.policy().identity,
+               limits: entry.limits,
+               bindings: bindings,
+               sources: [source],
+               source_id: entry.source_id,
+               max_calls: entry.max_calls
+             })
+           ) do
+      {:ok, state}
+    end
+  end
+
+  defp plain_ok({:ok, value}), do: {:ok, value}
+  defp plain_ok(other), do: {:error, other}
 
   defp check_input(spec) do
     valid? =
@@ -247,24 +338,27 @@ defmodule Elzoo.RecipeTest do
   end
 
   defp build(spec, %{"kind" => "graph", "name" => name, "nodes" => nodes}, id, to, _input) do
-    maps =
-      for %{"kind" => "map", "id" => node} <- nodes,
-          into: %{},
-          do: {node, %{concurrency: 1, on_item_failure: :fail}}
-
-    spec = %{
+    run = %{
       id: id,
       recipe: spec.package["graph"],
       callable: name,
       sources: spec.sources,
-      maps: maps,
+      maps: maps_of(nodes),
       max_open: 64
     }
 
-    with {:ok, inner} <- invalid(GraphRun.new(spec)) do
+    with {:ok, inner} <- invalid(GraphRun.new(run)) do
       {:ok, %{kind: :graph, to: to, inner: inner}}
     end
   end
+
+  defp maps_of(nodes),
+    do:
+      for(
+        %{"kind" => "map", "id" => node} <- nodes,
+        into: %{},
+        do: {node, %{concurrency: 1, on_item_failure: :fail}}
+      )
 
   defp configured(configs, target) do
     case Map.fetch(configs, target) do
@@ -309,10 +403,12 @@ defmodule Elzoo.RecipeTest do
 
   ## The host
 
-  defp execute(spec, descriptors) do
+  defp execute(spec, descriptors, snapshot) do
     root = root(spec)
     {:ok, state} = build(spec, root, "d1", :root, {:input, spec.input})
     {schema_id, payload} = start_form(root, :root, spec.input)
+
+    host = %{driver: self(), snapshot: snapshot}
 
     c =
       TestHelper.fixture(
@@ -326,7 +422,7 @@ defmodule Elzoo.RecipeTest do
       TestHelper.start(c,
         pattern: {Glue, :step, state},
         schemas: Map.merge(c.opts[:schemas], Map.new(@extra_schemas, &schema_entry/1)),
-        bindings: bindings(spec, c.opts[:bindings]["finish"], descriptors),
+        bindings: bindings(spec, host, c.opts[:bindings]["finish"], descriptors),
         request_cap: 256,
         budget: %{
           cap: Integer.pow(2, @budget_exponent),
@@ -345,7 +441,7 @@ defmodule Elzoo.RecipeTest do
       "payload" => payload
     }
 
-    st = %{engine: engine, c: c, script: spec.script, asked: %{}, held: %{}}
+    st = %{engine: engine, c: c, script: spec.script, asked: %{}, held: %{}, deliveries: 0}
 
     case RunEngine.input(engine, "rt:start", start, TestHelper.verified()) do
       {:ok, :applied} -> loop(st, 0)
@@ -362,7 +458,7 @@ defmodule Elzoo.RecipeTest do
      %{port: port, compiled: compiled, digest: :crypto.hash(:sha256, Jason.encode!(schema))}}
   end
 
-  defp bindings(spec, finish, descriptors) do
+  defp bindings(spec, host, finish, descriptors) do
     base = %{version: 1, proposal: finish.proposal}
 
     effect = fn id, result, which, reference ->
@@ -374,15 +470,27 @@ defmodule Elzoo.RecipeTest do
       })
     end
 
-    nested =
+    nested = fn id, result, start ->
       Map.merge(base, %{
-        id: "recipe-test.nested.call",
+        id: id,
         effect_class: "compute",
-        result: {"elzoo.graph-run.node-result", 1},
+        result: {result, 1},
         facts: fn action ->
           %{estimate: nested_estimate(action["id"]), unit: "credits", deadline_ms: 40_000}
         end,
-        nested: &nested(spec, &1)
+        nested: start
+      })
+    end
+
+    lua_run =
+      Map.merge(base, %{
+        id: "recipe-test.lua-run",
+        effect_class: "compute",
+        result: {"elzoo.lua-tool.run-result", 1},
+        facts: fn _action -> %{estimate: 1, unit: "credits", deadline_ms: 40_000} end,
+        work: fn action ->
+          {Glue, :lua_run, [host.driver, spec.executable, action["id"], action["payload"]]}
+        end
       })
 
     %{
@@ -403,9 +511,32 @@ defmodule Elzoo.RecipeTest do
             "elzoo.graph-run.node-result",
             :tool,
             "recipe-test-tool"
+          ),
+        "elzoo.lua-tool.module-call" =>
+          effect.(
+            "recipe-test.tool.lua",
+            "elzoo.lua-tool.module-result",
+            :tool,
+            "recipe-test-tool"
           )
       },
-      "nested_callable" => %{"elzoo.graph-run.call" => nested}
+      "nested_callable" => %{
+        "elzoo.graph-run.call" =>
+          nested.("recipe-test.nested.call", "elzoo.graph-run.node-result", &nested(spec, &1)),
+        "elzoo.graph-run.tool-call" =>
+          nested.(
+            "recipe-test.nested.graph-tool",
+            "elzoo.graph-run.node-result",
+            &nested_tool(spec, host, &1)
+          ),
+        "elzoo.agent-loop.tool-call" =>
+          nested.(
+            "recipe-test.nested.agent-tool",
+            "elzoo.agent-loop.tool-result",
+            &nested_tool(spec, host, &1)
+          )
+      },
+      "local_work" => lua_run
     }
   end
 
@@ -468,6 +599,133 @@ defmodule Elzoo.RecipeTest do
     }
   end
 
+  # The start of the child of a nested tool call, by the entry of `tools` for its alias.
+  defp nested_tool(spec, host, action) do
+    hex = digest(action["id"], 24)
+    id = "d#{depth(action["id"]) + 1}x" <> hex
+    to = if action["schema_id"] == "elzoo.graph-run.tool-call", do: :node, else: :tool
+    entry = Map.fetch!(spec.tools, action["payload"]["alias"])
+    arguments = action["payload"]["arguments"]
+    {state, schema_id, payload} = tool_child(spec, host, entry, to, {id, hex, action}, arguments)
+
+    %{
+      budget_id: "b" <> hex,
+      incarnation: "sealed",
+      mfa: {Glue, :step},
+      initial_state: state,
+      schema_id: schema_id,
+      schema_version: 1,
+      payload: payload
+    }
+  end
+
+  defp tool_child(_spec, _host, %{kind: :lua} = entry, to, {id, _, _}, arguments) do
+    {:ok, inner} = lua_tool(entry, id)
+    {%{kind: :lua, to: to, inner: inner}, "elzoo.lua-tool.input", %{"input" => arguments}}
+  end
+
+  defp tool_child(_spec, _host, %{kind: :graph}, :node, {id, _, _}, arguments) do
+    refused = %{
+      kind: :refused,
+      id: id,
+      schema_id: "elzoo.graph-run.node-result",
+      payload: %{"failed" => "graph_tool_in_graph"}
+    }
+
+    {refused, "elzoo.graph-run.input", %{"input" => arguments}}
+  end
+
+  defp tool_child(spec, host, %{kind: :graph} = entry, :tool, {id, hex, action}, arguments) do
+    case model_graph(spec, host, entry, {id, hex, action}, arguments) do
+      {:ok, inner, input} ->
+        {%{kind: :graph, to: :tool, inner: inner}, "elzoo.graph-run.input", %{"input" => input}}
+
+      {:refused, content} ->
+        refused = %{
+          kind: :refused,
+          id: id,
+          schema_id: "elzoo.agent-loop.tool-result",
+          payload: graph_content(content)
+        }
+
+        {refused, "elzoo.graph-run.input", %{"input" => arguments}}
+    end
+  end
+
+  # The arguments of a graph tool are exactly `graph` and `input`; RuntimeGraph decides the graph.
+  defp model_graph(spec, host, entry, {id, hex, action}, arguments) do
+    with {:ok, proposal, input} <- graph_arguments(arguments),
+         {:ok, agent_tools} <- ToolRegistry.snapshot(entry.sources),
+         context = %{
+           "recipe" => spec.package["graph"],
+           "name" => "model-graph-" <> hex,
+           "callables" => entry.callables,
+           "agent_tools" => agent_tools,
+           "declared" => Map.take(spec.package, ["needs", "permissions"]),
+           "facts" => spec.facts |> Map.put("tools", host.snapshot) |> Map.put("cap", entry.cap),
+           "tool_costs" => entry.tool_costs,
+           "ask_cost" => nil,
+           "max_nodes" => entry.max_nodes,
+           "max_depth" => entry.max_depth,
+           "depth" => depth(action["id"])
+         },
+         {:ok, accepted} <- accepted(RuntimeGraph.accept(proposal, context)),
+         {:ok, inner} <- run_graph(entry, id, accepted) do
+      {:ok, inner, input}
+    else
+      {:reasons, reasons} -> {:refused, RuntimeGraph.render(reasons)}
+      {:not_run, reason} -> {:refused, "[graph not run: #{reason}]"}
+    end
+  end
+
+  defp graph_arguments(%{"graph" => proposal, "input" => input} = arguments)
+       when map_size(arguments) == 2 and is_map(input),
+       do: {:ok, proposal, input}
+
+  defp graph_arguments(_), do: {:not_run, "invalid_arguments"}
+
+  defp accepted({:ok, accepted}), do: {:ok, accepted}
+  defp accepted({:refused, reasons}), do: {:reasons, reasons}
+  defp accepted({:error, :invalid_context}), do: {:not_run, "invalid_context"}
+
+  defp run_graph(entry, id, accepted) do
+    nodes =
+      Enum.find_value(accepted.recipe["callables"], fn callable ->
+        if callable["name"] == accepted.callable, do: callable["nodes"]
+      end)
+
+    run = %{
+      id: id,
+      recipe: accepted.recipe,
+      callable: accepted.callable,
+      sources: entry.sources,
+      maps: maps_of(nodes),
+      max_open: 64
+    }
+
+    case GraphRun.new(run) do
+      {:ok, inner} -> {:ok, inner}
+      {:error, reason} when is_atom(reason) -> {:not_run, Atom.to_string(reason)}
+      {:error, reason} -> {:not_run, inspect(reason)}
+    end
+  end
+
+  # The tool result that the agent reads for a refused graph.
+  defp graph_content(text) do
+    %{
+      "content" => %{
+        "schema_id" => "elzoo.untrusted-content.marked",
+        "schema_version" => 1,
+        "sources" => ["recipe-test:graph"],
+        "trust" => "untrusted",
+        "max_bytes" => 16_777_216,
+        "content" => text
+      },
+      "media_type" => "text/plain",
+      "encoding" => "utf8"
+    }
+  end
+
   defp digest(text, length),
     do: :crypto.hash(:sha256, text) |> Base.encode16(case: :lower) |> binary_part(0, length)
 
@@ -486,7 +744,7 @@ defmodule Elzoo.RecipeTest do
         {:ok, record(st)}
 
       stable?(view, st, occurrences) and st.held != %{} ->
-        deliver(st, occurrences)
+        deliver(st, occurrences, polls)
 
       polls >= @max_polls ->
         {:error, {:stalled, record(st)}}
@@ -506,6 +764,9 @@ defmodule Elzoo.RecipeTest do
         key = {if(kind == "model", do: :model, else: :tool), name}
         held = Map.put(st.held, id, %{adapter: adapter, key: key, schema_id: schema_id})
         drain(%{st | held: held, asked: Map.update(st.asked, key, 1, &(&1 + 1))})
+
+      {:recipe_test_work, task, id} ->
+        drain(%{st | held: Map.put(st.held, id, %{task: task})})
     after
       0 -> st
     end
@@ -523,18 +784,50 @@ defmodule Elzoo.RecipeTest do
       (st.held == %{} and Enum.all?(view.slots, fn {_, slot} -> slot.phase == :settled end))
   end
 
-  defp deliver(st, occurrences) do
+  # Releases the held call or Lua run with the smallest occurrence.
+  defp deliver(st, occurrences, polls) do
     {id, held} = Enum.min_by(st.held, fn {id, _} -> Map.fetch!(occurrences, id) end)
+    st = %{st | held: Map.delete(st.held, id), deliveries: st.deliveries + 1}
 
+    case held do
+      %{task: task} -> run_lua(st, id, task, polls)
+      call -> answer(st, id, call, occurrences[id])
+    end
+  end
+
+  # A Lua run uses no script entry; its result arrives through AsyncWork, so the loop waits
+  # until its slot is settled.
+  defp run_lua(st, id, task, polls) do
+    send(task, :recipe_test_go)
+    settled(st, id, polls)
+  end
+
+  defp settled(st, id, polls) do
+    {:ok, view} = RunEngine.status(st.engine)
+
+    cond do
+      Enum.any?(view.slots, fn {_, slot} -> slot.action_id == id and slot.phase == :settled end) ->
+        loop(st, polls)
+
+      polls >= @max_polls ->
+        {:error, {:stalled, record(st)}}
+
+      true ->
+        Process.sleep(5)
+        settled(st, id, polls + 1)
+    end
+  end
+
+  defp answer(st, id, held, occurrence) do
     case Map.get(st.script, held.key, []) do
       [] ->
         {:error, {:unscripted_call, held.key, record(st)}}
 
       [entry | rest] ->
         {class, dispatch} = classes(entry)
-        context = TestHelper.verified(%{occurrence: occurrences[id], actual: 0, dispatch: dispatch})
+        context = TestHelper.verified(%{occurrence: occurrence, actual: 0, dispatch: dispatch})
         input = outcome(id, held, entry, class)
-        st = %{st | script: Map.put(st.script, held.key, rest), held: Map.delete(st.held, id)}
+        st = %{st | script: Map.put(st.script, held.key, rest)}
 
         case RunEngine.input(st.engine, "rt:" <> digest(id, 32), input, context) do
           {:ok, :applied} ->
@@ -580,6 +873,9 @@ defmodule Elzoo.RecipeTest do
   defp payload({:completed, value}, %{schema_id: "elzoo.graph-run.tool-call"}),
     do: %{"gives" => value}
 
+  defp payload({:completed, value}, %{schema_id: "elzoo.lua-tool.module-call"}),
+    do: %{"result" => value}
+
   defp payload({:completed, value}, _held) do
     text = if is_binary(value), do: value, else: canonical(value)
 
@@ -608,7 +904,8 @@ defmodule Elzoo.RecipeTest do
       outcome: view.outcome,
       steps: steps(st, 1, []),
       asked: st.asked,
-      unused: for({key, [_ | _] = left} <- st.script, into: %{}, do: {key, length(left)})
+      unused: for({key, [_ | _] = left} <- st.script, into: %{}, do: {key, length(left)}),
+      restarted: false
     }
   end
 
