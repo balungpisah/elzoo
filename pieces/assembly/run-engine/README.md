@@ -127,7 +127,18 @@ Only first applied compatible settlement contributes; losses use `mark_lost`.
 Monetary Budget state/generations persist; known zero releases, positive actual
 settles once, unknown is not zero. Estimates are not provider-enforced charges.
 Child finish does not settle the parent's share until outstanding child actual
-costs are known. Paused accepted results retain their pattern input until
+costs are known. Only a nested callable's first admitted `finish` is kept in
+its closing continuation record and given to the parent when the child settles:
+a finish whose `{schema_id, schema_version}` equals the `result` of the parent's
+`nested_callable` binding completes the parent action with that schema and the
+exact payload; any other schema fails it with the refusal schema and reason
+`nested_result_invalid`, without the child payload; a child that settles with no
+admitted finish keeps `completed` with reason `nested_completed`. `actual` stays
+the committed child Budget amount. The kept finish is durable and replays after
+restart. The payload is recipe content within the existing payload bounds: the
+engine neither validates nor interprets it, and `status/1` does not expose it.
+The kept finish leaves the durable control state once the parent action settles.
+Paused accepted results retain their pattern input until
 continue, without dispatch while paused; monetary exhaustion still takes
 lifecycle precedence below the request-count cap.
 
@@ -196,10 +207,14 @@ view of the version-1 plain data; runtime additionally enforces UTF-8 byte bound
 ## Grounding and limits
 
 `mix test pieces/assembly/run-engine/test` exercises the published 13 named
-groups with disposable PostgreSQL, existing ready owners, ordinary OTP barriers
-and counting fake providers. Actual temporary engine mutations bypassing the
-committed gate boundary and first settlement are negative controls, never
-shipped. These finite scenarios are not a universal proof, production monitor,
+groups and the eight nested-result groups `nested_result_reaches_parent`,
+`nested_result_wrong_schema`, `nested_without_finish`, `nested_result_bounds`,
+`nested_result_survives_restart`, `first_finish_only`, `two_levels` and
+`payload_not_exposed` with disposable PostgreSQL, existing ready owners,
+ordinary OTP barriers and counting fake providers. Actual temporary engine
+mutations bypassing the committed gate boundary and first settlement, giving a
+finished child the old `nested_completed` outcome and skipping the result
+schema comparison are negative controls, never shipped. These finite scenarios are not a universal proof, production monitor,
 physical no-send guarantee or proof of arbitrary callbacks/providers. Reused
 Cure laws retain their dependency-local scope; no new Cure proof is claimed.
 
