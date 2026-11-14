@@ -115,16 +115,19 @@ def check(d, live=False):
         require(a['review'] and a['acceptance'] and a['merge_checks'], 'missing acceptance references')
         require(all(c['conclusion'] == 'success' for c in a['merge_checks']), 'unsuccessful recorded prerequisite check')
     if live:
-        rows = json.loads(subprocess.check_output(['gh', 'issue', 'list', '-R', 'balungpisah/elzoo', '--state', 'all', '--limit', '200', '--json', 'number,body'], text=True))
-        by_number = {r['number']: r for r in rows}
+        # ELZ-224: every page of the issue listing (the REST list also holds pull requests; they are dropped).
+        pages = json.loads(subprocess.check_output(['gh', 'api', '--paginate', '--slurp', 'repos/balungpisah/elzoo/issues?state=all&per_page=100'], text=True))
+        by_number = {r['number']: r for page in pages for r in page if 'pull_request' not in r}
         for j in jobs.values():
             if j['kind'] != 'published':
                 continue
-            body = by_number[j['issue']]['body']
+            require(j['issue'] in by_number, f"{j['id']}: live issue #{j['issue']} is not in the issue listing; reconcile")
+            body = by_number[j['issue']]['body'] or ''
             require(hashlib.sha256(body.encode()).hexdigest() == j['issue_body_sha256'], f"{j['id']}: live task changed; reconcile")
             require(set(dependencies(body)) == set(j['dependencies']), f"{j['id']}: live dependencies differ")
         task = ROOT / jobs['ELZ-033']['paths'][0]
-        require(task.read_text() == by_number[55]['body'], 'ELZ-033 must exactly match live #55 body')
+        require(55 in by_number, 'ELZ-033: live issue #55 is not in the issue listing; reconcile')
+        require(task.read_text() == (by_number[55]['body'] or ''), 'ELZ-033 must exactly match live #55 body')
     return jobs, entries, candidates, products, order
 
 
