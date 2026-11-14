@@ -794,6 +794,7 @@ static int h_text_split(lua_State *L) {
       while (scan <= last) {
         scan = (const char *)memchr(scan, (unsigned char)sep[0], (size_t)(last - scan) + 1);
         if (scan == NULL) break;
+        charge(L, (long long)seplen - 1); /* the bytes that memcmp can read after the first */
         if (memcmp(scan, sep, seplen) == 0) {
           q = scan;
           break;

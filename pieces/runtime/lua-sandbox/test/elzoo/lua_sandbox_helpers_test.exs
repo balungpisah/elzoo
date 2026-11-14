@@ -423,6 +423,30 @@ defmodule Elzoo.LuaSandboxHelpersTest do
       end
     end
 
+    test "split charges the compare work: a near-match separator is the steps stop", %{
+      executable: exe
+    } do
+      # the separator nearly matches at about 35,000 positions: without a charge for each compare
+      # the helper would read about 10^9 bytes under a limit of 10^6 steps
+      call = ~S|helpers.text_split(string.rep("a", 65536), string.rep("a", 30000) .. "b")|
+      limits = %{steps: 1_000_000}
+
+      sources = [
+        "return " <> call,
+        "return pcall(function() return " <> call <> " end)",
+        ~s|local ok = pcall(helpers.text_split, string.rep("a", 65536), string.rep("a", 30000) .. "b") return "marker"|
+      ]
+
+      for body <- sources do
+        assert Helper.run(exe, Helper.function_source(body), nil, limits) == {:refused, :steps},
+               body
+      end
+
+      # a smaller near-match fits the same limit and gives one part
+      small = ~S|return #helpers.text_split(string.rep("a", 200), string.rep("a", 50) .. "b")|
+      assert {:ok, %{value: 1}} = Helper.run(exe, Helper.function_source(small), nil, limits)
+    end
+
     test "the step count grows with the size of the input of each text helper", %{executable: exe} do
       # the cost of one call: the bytes read, the bytes given back, one for each table entry
       for {name, call, per_byte} <- [
