@@ -67,8 +67,20 @@ defmodule Elzoo.AuditLog.Harness do
 
     pid =
       case repo.start_link([url: url, pool_size: pool_size, log: false] ++ extra) do
-        {:ok, pid} -> pid
-        {:error, {:already_started, pid}} -> pid
+        {:ok, pid} ->
+          # The module (or test) that started the Repo stops it: an idle pool must not outlive it.
+          ExUnit.Callbacks.on_exit(fn ->
+            try do
+              Supervisor.stop(repo)
+            catch
+              :exit, _ -> :ok
+            end
+          end)
+
+          pid
+
+        {:error, {:already_started, pid}} ->
+          pid
       end
 
     Process.unlink(pid)
