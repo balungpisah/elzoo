@@ -84,7 +84,8 @@ defmodule Elzoo.JobRun do
   end
 
   @doc "Retry decision for `class` after `attempts_made` attempts (ELZ-006 policy, unchanged)."
-  def retry_decision(_policy, 0, _class), do: {:ok, :retry}
+  def retry_decision(_policy, 0, class) when class in [:retryable, :permanent],
+    do: {:ok, :retry}
 
   def retry_decision(policy, attempts_made, class) when class in [:retryable, :permanent],
     do: Elzoo.RetryTimeout.decide(policy, attempts_made, class)
