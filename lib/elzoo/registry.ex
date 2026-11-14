@@ -429,10 +429,12 @@ defmodule Elzoo.Registry do
     nonempty!(provider["version"], "provider version: #{id}")
     nonempty!(provider["license"], "provider license: #{id}")
 
-    ensure!(
-      not Map.has_key?(provider, "runtime") or is_boolean(provider["runtime"]),
-      "provider runtime: #{id}"
-    )
+    for option <- ~w(runtime compile app) do
+      ensure!(
+        not Map.has_key?(provider, option) or is_boolean(provider[option]),
+        "provider #{option}: #{id}"
+      )
+    end
 
     ensure!(
       String.starts_with?(provider["reference"] || "", "https://"),

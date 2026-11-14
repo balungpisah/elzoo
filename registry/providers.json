@@ -4,6 +4,8 @@
     "lua_source": {
       "source": "git",
       "package": "lua_source",
+      "compile": false,
+      "app": false,
       "version": "5.4.9",
       "revision": "312b9efaa1061c2c4cad08554dbc1351c3270eef",
       "url": "https://github.com/lua/lua.git",

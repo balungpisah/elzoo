@@ -1,0 +1,79 @@
+# SPDX-License-Identifier: Apache-2.0
+defmodule Elzoo.SourceOnlyNativeFixtureTest do
+  use ExUnit.Case, async: false
+
+  @sources ~w(lapi lcode lctype ldebug ldo ldump lfunc lgc llex lmem lobject
+    lopcodes lparser lstate lstring ltable ltm lundump lvm lzio lauxlib lbaselib
+    lcorolib ldblib liolib lmathlib loadlib loslib lstrlib ltablib lutf8lib linit)
+  @tag timeout: 125_000
+  test "source-only checkout builds an owned host without a provider application" do
+    source = Mix.Project.deps_paths()[:lua_source]
+    assert is_binary(source), "source-only dependency missing from inner deps_paths"
+    assert File.regular?(Path.join(source, "lua.h"))
+    assert :code.which(Elzoo.Registry) == :non_existing
+    assert :code.which(Elzoo.Application) == :non_existing
+    refute Enum.any?(Application.started_applications(), &(elem(&1, 0) == :lua_source))
+    refute File.exists?("mix.lock")
+    refute File.exists?("deps")
+
+    directory = Path.join(System.tmp_dir!(), "elz165-native-#{System.unique_integer([:positive])}")
+    File.mkdir!(directory)
+    on_exit(fn -> File.rm_rf!(directory) end)
+    deadline = System.monotonic_time(:millisecond) + 120_000
+    flags = ["-std=gnu99", "-O2", "-Wall", "-Wextra", "-DLUA_USE_LINUX", "-I", source]
+
+    objects =
+      for name <- @sources do
+        object = Path.join(directory, name <> ".o")
+        run("cc", flags ++ ["-c", Path.join(source, name <> ".c"), "-o", object], deadline)
+        object
+      end
+
+    archive = Path.join(directory, "liblua.a")
+    run("ar", ["rcs", archive | objects], deadline)
+    host = Path.join(directory, "host")
+    owned = Path.expand("../lib/elzoo/source_only_probe/native/host.c", __DIR__)
+    run("cc", flags ++ ["-Werror", owned, archive, "-lm", "-ldl", "-o", host], deadline)
+
+    for {chunk, expected} <- [
+          {"return 42", "integer 42\n"},
+          {"", "results 0\n"},
+          {"return (", "load_error\n"},
+          {"error('probe')", "call_error\n"}
+        ] do
+      assert run(host, [chunk], deadline) == expected
+    end
+    IO.puts("ELZ-165: copied checkout, cc/ar, owned host success/empty/error passed")
+  end
+
+  defp run(command, args, deadline) do
+    executable = System.find_executable(command)
+    assert executable, "required tool unavailable: #{command}"
+    port = Port.open({:spawn_executable, executable}, [:binary, :exit_status, :stderr_to_stdout, args: args])
+    {:os_pid, pid} = Port.info(port, :os_pid)
+    try do
+      collect(port, "", deadline)
+    after
+      if Port.info(port) do
+        System.cmd("kill", ["-KILL", Integer.to_string(pid)], stderr_to_stdout: true)
+        receive do
+          {^port, {:exit_status, _}} -> :ok
+        after
+          1_000 -> if Port.info(port), do: Port.close(port)
+        end
+      end
+    end
+  end
+
+  defp collect(port, output, deadline) do
+    receive do
+      {^port, {:data, bytes}} -> collect(port, output <> bytes, deadline)
+      {^port, {:exit_status, status}} ->
+        assert status == 0, output
+        output
+    after
+      max(0, deadline - System.monotonic_time(:millisecond)) ->
+        flunk("source-only native build/run exceeded 120 seconds")
+    end
+  end
+end
