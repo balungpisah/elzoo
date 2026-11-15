@@ -5554,4 +5554,361 @@ defmodule Elzoo.RunEngineTest do
       send(provider, {:result, %{}})
     end
   end
+
+  # ELZ-192: a child finish is admitted only when control has room to keep it.
+  #
+  # Twenty-eight parents are open together. Each has a child whose tool cost stays open
+  # (so its parent cannot settle at the finish) and whose finish has a payload at the
+  # payload bound (65,536 JSON bytes). A parent and the tool call of its child hold two
+  # of the 64 active slots each: 28 parents leave room for the request of the next
+  # child at any order of the engine's own steps (30 reached the bound by chance); the
+  # request cap is 100.
+  @parents 28
+
+  # `script.(i)` is the script of the child of parent "n<i>". The parents expire at
+  # 20,000 ms; their tool costs at 40,000 ms.
+  defp room_run(script) do
+    ids = Enum.to_list(1..@parents)
+    children = Map.new(ids, fn i -> {"n#{i}", script.(i)} end)
+
+    # One parent and one quick local action in each request of the root: the root asks
+    # the next parent when the quick action of the last one is done, so that the finish
+    # of a child settles before the next parent is asked.
+    root =
+      for i <- ids,
+          do: request([action("n#{i}", "nested_callable"), action("q#{i}", "local_work")])
+
+    {c, bindings} =
+      nested_setup(children,
+        pattern: {TestPattern, :scripted, %{name: "root", script: root}},
+        request_cap: 100,
+        budget: %{cap: 10_000, unit: "credits", id: "budget", incarnation: "sealed"}
+      )
+
+    bindings =
+      Map.update!(bindings, "nested_callable", fn binding ->
+        %{
+          binding
+          | facts: fn a -> %{binding.facts.(a) | deadline_ms: 20_000} end,
+            nested: fn a -> %{binding.nested.(a) | mfa: {TestPattern, :waiting}} end
+        }
+      end)
+
+    engine = start(c, bindings: bindings)
+    assert {:ok, :applied} = send_input(engine)
+    wait_for(engine, &Enum.all?(ids, fn i -> settled?(&1, "done-#{i}") end), 20_000)
+
+    {c, engine, bindings}
+  end
+
+  defp big_script(i), do: [{:tool_finish, "slow-#{i}", "done-#{i}", i}]
+
+  # The callable of a parent is named by the key of its slot. Returns id => number i of
+  # the parent "n<i>".
+  defp parent_numbers(state) do
+    for {{request, index}, slot} <- state.slots, slot.kind == "nested_callable", into: %{} do
+      {"#{request}:#{index}", String.to_integer(String.trim_leading(slot.action_id, "n"))}
+    end
+  end
+
+  defp kept_finishes(state) do
+    for {id, node} <- state.control.callables, id != "root", node[:finish] != nil, into: %{} do
+      {id, node.finish}
+    end
+  end
+
+  defp open_children(state) do
+    for {id, node} <- state.control.callables,
+        id != "root",
+        node[:finish] == nil,
+        node.closed == false,
+        do: id
+  end
+
+  defp slot_key(c, action_id) do
+    Enum.find_value(unit_state(c).slots, fn {key, slot} ->
+      if slot.action_id == action_id, do: key
+    end)
+  end
+
+  # The bound holds in the form that control_headroom/1 recomputes from the unit state.
+  defp bound_holds!(c), do: assert(control_headroom(unit_state(c)) >= 0)
+
+  defp cost_known(c, engine, tool_id) do
+    RunEngine.input(
+      engine,
+      "cost-" <> tool_id,
+      result(tool_id),
+      verified(%{occurrence: slot_key(c, tool_id), actual: 1, dispatch: "dispatched"})
+    )
+  end
+
+  defp refusal_to_child(i) do
+    name = "n#{i}"
+    done = "done-#{i}"
+
+    assert_receive {:pattern_input, ^name,
+                    %{
+                      "action_id" => ^done,
+                      "outcome" => "refused",
+                      "payload" => %{"reason" => "record_size"}
+                    }},
+                   5_000
+  end
+
+  describe "finish_without_room_is_refused" do
+    @tag timeout: 240_000
+    test "the finish that would pass the bound is refused with record_size, the earlier ones are kept, and the parent expires later" do
+      {c, engine, _} = room_run(&big_script/1)
+      state = unit_state(c)
+      parents = parent_numbers(state)
+      bound_holds!(c)
+
+      kept = kept_finishes(state)
+      open = open_children(state)
+
+      # How many finishes of 65,536 JSON bytes fit beside 28 open parents is printed
+      # below; the test needs only that some fit and some do not.
+      IO.puts("ELZ-192: #{map_size(kept)} of #{@parents} finishes fit, #{length(open)} refused")
+      assert map_size(kept) + length(open) == @parents
+      assert map_size(kept) >= 1
+      assert open != []
+
+      # No finish fits now: a refusal was a lack of room, not a refusal in advance.
+      assert control_headroom(state) < 65_536
+
+      # Every kept finish is exact; every refused child got the ordinary refusal.
+      for {id, finish} <- kept do
+        assert finish == %{
+                 schema_id: "result",
+                 schema_version: 1,
+                 payload: TestPattern.sized_payload(parents[id])
+               }
+      end
+
+      for id <- open, do: refusal_to_child(parents[id])
+
+      # The parent of a refused finish is not completed by it: its slot is open and its
+      # child callable is open.
+      view = view(engine)
+
+      for id <- open do
+        i = parents[id]
+        assert slot_by(view, "done-#{i}").outcome == "refused"
+        parent = slot_by(view, "n#{i}")
+        assert parent.phase == :running
+        refute Map.has_key?(parent, :outcome)
+        assert state.control.callables[id].closed == false
+      end
+
+      # The engine answers the next input, and the bound still holds.
+      assert {:ok, :applied} = RunEngine.input(engine, "next", wake(), verified())
+      bound_holds!(c)
+      state = unit_state(c)
+      assert kept_finishes(state) == kept
+      assert Enum.sort(open_children(state)) == Enum.sort(open)
+
+      # The deadline of the parents passes. An input of the same Attempt at or after it,
+      # with the Run not terminal, settles each open parent by the existing expiry.
+      Agent.update(c.clock, fn _ -> 20_000 end)
+      assert {:ok, :applied} = RunEngine.input(engine, "expire", wake(), verified())
+      view = view(engine)
+      state = unit_state(c)
+
+      for id <- open do
+        i = parents[id]
+        parent = slot_by(view, "n#{i}")
+        assert parent.phase == :settled
+        assert parent.outcome == "expired"
+        assert state.slots[slot_key(c, "n#{i}")][:actual] == nil
+      end
+
+      bound_holds!(c)
+      assert {:ok, :applied} = RunEngine.input(engine, "after-expiry", wake(), verified())
+      bound_holds!(c)
+    end
+  end
+
+  describe "room_comes_back" do
+    @tag timeout: 240_000
+    test "after one parent settles, a finish of the size that was refused is admitted and kept" do
+      script = fn i ->
+        big_script(i) ++ [:wait, {:tool_finish, "second-#{i}", "again-#{i}", "again-#{i}"}]
+      end
+
+      {c, engine, _} = room_run(script)
+      state = unit_state(c)
+      parents = parent_numbers(state)
+      kept = kept_finishes(state)
+      refused = open_children(state) |> Enum.sort() |> hd()
+      settling = Map.keys(kept) |> Enum.sort() |> hd()
+      refused_i = parents[refused]
+      settling_i = parents[settling]
+      refusal_to_child(refused_i)
+
+      # One parent settles: its cost is known, so its outcome carries the kept finish
+      # and the finish leaves control.
+      assert {:ok, :applied} = cost_known(c, engine, "slow-#{settling_i}")
+      wait_for(engine, &settled?(&1, "n#{settling_i}"))
+      assert slot_by(view(engine), "n#{settling_i}").outcome == "completed"
+      refute Map.has_key?(unit_state(c).control.callables[settling], :finish)
+      bound_holds!(c)
+
+      # The refused child asks again, on its next outcome, with a finish of the size that
+      # was refused. There is room now: it is admitted and kept, whole.
+      assert {:ok, :applied} = cost_known(c, engine, "slow-#{refused_i}")
+      wait_unit(c, &(&1.control.callables[refused][:finish] != nil), 2_000)
+      node = unit_state(c).control.callables[refused]
+      assert node.closed
+
+      assert node[:finish] == %{
+               schema_id: "result",
+               schema_version: 1,
+               payload: TestPattern.sized_payload("again-#{refused_i}")
+             }
+
+      bound_holds!(c)
+
+      # Its second tool call still holds the cost open: the finish stays in control
+      # until that cost is known, then the parent gets it whole.
+      assert slot_by(view(engine), "n#{refused_i}").phase == :running
+      assert {:ok, :applied} = cost_known(c, engine, "second-#{refused_i}")
+      wait_for(engine, &settled?(&1, "n#{refused_i}"))
+      assert slot_by(view(engine), "n#{refused_i}").outcome == "completed"
+      name = "n#{refused_i}"
+      payload = TestPattern.sized_payload("again-#{refused_i}")
+
+      assert_receive {:pattern_input, "root",
+                      %{"action_id" => ^name, "outcome" => "completed", "payload" => ^payload}},
+                     5_000
+
+      bound_holds!(c)
+    end
+  end
+
+  describe "smaller_finish_fits" do
+    @tag timeout: 240_000
+    test "after the refusal a finish with a small payload of the same child is admitted and reaches the parent" do
+      small = %{"choice" => "small"}
+      {c, engine, _} = room_run(fn i -> big_script(i) ++ [{:finish_with, "small-#{i}", small}] end)
+      state = unit_state(c)
+      parents = parent_numbers(state)
+
+      # Each refused child sends its small finish at once, on its refusal; it is kept.
+      assert open_children(state) == []
+      kept = kept_finishes(state)
+      assert map_size(kept) == @parents
+      smalls = for {id, %{payload: ^small}} <- kept, do: id
+      assert smalls != []
+      assert length(smalls) < @parents
+      bound_holds!(c)
+
+      small_id = hd(smalls)
+      i = parents[small_id]
+      refusal_to_child(i)
+      assert slot_by(view(engine), "done-#{i}").outcome == "refused"
+      assert slot_by(view(engine), "small-#{i}").outcome == "completed"
+      assert unit_state(c).control.callables[small_id].closed
+
+      # The cost of the child becomes known: the parent gets the small finish by the
+      # existing rules.
+      assert {:ok, :applied} = cost_known(c, engine, "slow-#{i}")
+      wait_for(engine, &settled?(&1, "n#{i}"))
+      assert slot_by(view(engine), "n#{i}").outcome == "completed"
+
+      assert_receive {:pattern_input, "root", %{"action_id" => "n" <> _, "payload" => ^small}},
+                     5_000
+
+      bound_holds!(c)
+    end
+  end
+
+  describe "replay_is_equal (finish without room)" do
+    @tag timeout: 240_000
+    test "a restart after the refusal gives an equal view and journal, and the refused finish is not asked again" do
+      {c, engine, bindings} = room_run(&big_script/1)
+      state = unit_state(c)
+      parents = parent_numbers(state)
+      open = open_children(state)
+      assert open != []
+      for id <- open, do: refusal_to_child(parents[id])
+      refused = for id <- open, do: "done-#{parents[id]}"
+      records = fn -> Map.new(refused, fn id -> {id, outcome_records(c, id)} end) end
+      before = records.()
+      assert Enum.all?(before, fn {_, found} -> length(found) == 1 end)
+
+      # As in the other replay tests, the Attempt changes first: every open slot is
+      # closed, and a restart must give the same view, slots, Budgets and journal.
+      change_attempt(engine)
+      first = footprint(c, engine)
+      engine = restart(c, engine, bindings: bindings)
+      assert footprint(c, engine) == first
+      engine = restart(c, engine, bindings: bindings)
+      assert footprint(c, engine) == first
+      bound_holds!(c)
+
+      # The refused finish is not asked again: one record each and none new, and no
+      # child pattern got a second refusal.
+      assert records.() == before
+      refute_receive {:pattern_input, "n" <> _, %{"outcome" => "refused"}}, 300
+      assert length(rows(c)) == first.records
+    end
+
+    @tag timeout: 240_000
+    test "the unit alone replays an equal state and journal right after the refusal" do
+      {c, engine, bindings} = room_run(&big_script/1)
+      state = unit_state(c)
+      parents = parent_numbers(state)
+      open = open_children(state)
+      assert open != []
+      for id <- open, do: refusal_to_child(parents[id])
+      refused = for id <- open, do: "done-#{parents[id]}"
+      records = fn -> Map.new(refused, fn id -> {id, outcome_records(c, id)} end) end
+      sent = records.()
+      assert Enum.all?(sent, fn {_, found} -> length(found) == 1 end)
+      before = unit_state(c)
+      count = length(rows(c))
+
+      # No engine runs, so no recovery step reconciles the sent tool calls: the unit
+      # folds the journal and nothing else.
+      GenServer.stop(engine)
+      assert :ok = DynamicUnits.stop(c.directory, c.prefix)
+      assert {:ok, _} = DynamicUnits.start(c.directory, c.prefix)
+      assert unit_state(c) == before
+      assert length(rows(c)) == count
+      bound_holds!(c)
+
+      # The engine then recovers on that state and does not ask the refused finish again.
+      assert :ok = DynamicUnits.stop(c.directory, c.prefix)
+      Agent.update(c.host_mode, fn _ -> :recover end)
+      start(c, bindings: bindings)
+      assert records.() == sent
+      refute_receive {:pattern_input, "n" <> _, %{"outcome" => "refused"}}, 300
+      bound_holds!(c)
+    end
+
+    @tag timeout: 240_000
+    test "a restart with the refusal in place changes nothing a second restart would change" do
+      {c, engine, bindings} = room_run(&big_script/1)
+      state = unit_state(c)
+      parents = parent_numbers(state)
+      open = open_children(state)
+      for id <- open, do: refusal_to_child(parents[id])
+      refused = for id <- open, do: "done-#{parents[id]}"
+      records = fn -> Map.new(refused, fn id -> {id, outcome_records(c, id)} end) end
+      before = records.()
+
+      # The first restart reconciles the sent tool calls (their cost becomes unknown).
+      # After it, the state is a fixed point: another restart gives the same view,
+      # slots, Budgets and journal, and the refusal is not recorded or asked again.
+      engine = restart(c, engine, bindings: bindings)
+      first = footprint(c, engine)
+      engine = restart(c, engine, bindings: bindings)
+      assert footprint(c, engine) == first
+      assert records.() == before
+      refute_receive {:pattern_input, "n" <> _, %{"outcome" => "refused"}}, 300
+      assert length(rows(c)) == first.records
+      bound_holds!(c)
+    end
+  end
 end
