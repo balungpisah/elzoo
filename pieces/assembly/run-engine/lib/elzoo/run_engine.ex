@@ -1843,11 +1843,22 @@ defmodule Elzoo.RunEngine do
     else
       case run_command(s, :approval_request, %{decision: slot.decision}) do
         {:ok, _, request_key} when is_tuple(request_key) ->
-          with {:ok, s} <- continuation(s, key, :approval, %{request_key: request_key}),
-               do: release_waiting(s, "retained", %{})
+          hold_request(s, key, request_key)
 
-        _ ->
-          internal_outcome(s, key, "refused", "approval_refused", %{actual: 0})
+        # Any other reply: (1) the Run already lists this request, so hold its
+        # key; (2) the Run did not decide, so write nothing and ask at the next
+        # drain; (3) the Run refused, so settle the slot as refused.
+        reply ->
+          case listed_request(s, slot) do
+            {:ok, request_key} ->
+              hold_request(s, key, request_key)
+
+            :none ->
+              if match?({:refused, :conflict}, reply) or match?({:error, :unavailable}, reply) or
+                   match?({:indeterminate, _}, reply),
+                 do: {:ok, s},
+                 else: internal_outcome(s, key, "refused", "approval_refused", %{actual: 0})
+          end
       end
     end
   end
@@ -2701,6 +2712,29 @@ defmodule Elzoo.RunEngine do
         do: {:cont, {:ok, acc}},
         else: {:halt, {:error, :resource_control_unknown, acc}}
     end)
+  end
+
+  defp hold_request(s, key, request_key) do
+    with {:ok, s} <- continuation(s, key, :approval, %{request_key: request_key}),
+         do: release_waiting(s, "retained", %{})
+  end
+
+  defp listed_request(s, slot) do
+    %{action: %{action_id: action_id}, requirement: %{name: name, version: version}} = slot.decision
+
+    with {:ok, view} <- Run.status(s.opts.run_owner, s.opts.run_id),
+         %{request_key: request_key} <-
+           Enum.find(view.approvals, fn
+             %{request_key: {run_id, ^action_id, ^name, ^version, _}, status: status} ->
+               run_id == s.opts.run_id and status != :superseded
+
+             _ ->
+               false
+           end) do
+      {:ok, request_key}
+    else
+      _ -> :none
+    end
   end
 
   defp run_command(s, kind, fields) do
