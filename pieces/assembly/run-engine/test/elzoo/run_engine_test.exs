@@ -3082,6 +3082,868 @@ defmodule Elzoo.RunEngineTest do
         refute inspect(view(engine)) =~ "xxxx"
       end
     end
+
+    # ELZ-217 Named acceptance groups 1-5
+
+    defp elz217_sizing_setup do
+      c = fixture(pattern: {TestPattern, :batches, {0, 0}}, request_cap: 6)
+
+      gate = %{
+        id: String.duplicate("g", 128),
+        version: 2_147_483_647,
+        call: fn _, _ -> {:deny, String.duplicate("d", 64)} end
+      }
+
+      {c, gate}
+    end
+
+    defp elz217_with_process_trace(pid, patterns, fun) do
+      parent = self()
+
+      tracer =
+        spawn_link(fn ->
+          loop = fn loop, events ->
+            receive do
+              {:dump, ref} ->
+                send(parent, {ref, Enum.reverse(events)})
+
+              msg ->
+                loop.(loop, [msg | events])
+            end
+          end
+
+          loop.(loop, [])
+        end)
+
+      try do
+        :erlang.trace(pid, true, [:call, {:tracer, tracer}])
+
+        for {mfa, match_spec} <- patterns do
+          :erlang.trace_pattern(mfa, match_spec, [:local])
+        end
+
+        result = fun.()
+        Process.sleep(25)
+        ref = make_ref()
+        send(tracer, {:dump, ref})
+
+        events =
+          receive do
+            {^ref, list} -> list
+          after
+            2_000 -> flunk("tracer did not dump events")
+          end
+
+        {result, events}
+      after
+        :erlang.trace(pid, false, [:call])
+
+        for {mfa, _} <- patterns do
+          :erlang.trace_pattern(mfa, false, [:local])
+        end
+
+        if Process.alive?(tracer), do: Process.unlink(tracer)
+      end
+    end
+
+    defp elz217_count_engine_calls(events, pid) do
+      Enum.reduce(
+        events,
+        %{snapshot: 0, jason_decode: 0, du_applied: 0},
+        fn
+          {:trace, ^pid, :call, {DurableUnit, :snapshot, _}}, acc ->
+            %{acc | snapshot: acc.snapshot + 1}
+
+          {:trace, ^pid, :call, {Jason, :decode!, _}}, acc ->
+            %{acc | jason_decode: acc.jason_decode + 1}
+
+          {:trace, ^pid, :return_from, {DurableUnit, :step, 3}, {:ok, :applied}}, acc ->
+            %{acc | du_applied: acc.du_applied + 1}
+
+          _, acc ->
+            acc
+        end
+      )
+    end
+
+    defp elz217_oracle_binary(term),
+      do: :erlang.term_to_binary(term, [:deterministic, {:minor_version, 2}])
+
+    defp elz217_oracle_bytes(term), do: byte_size(elz217_oracle_binary(term))
+
+    defp elz217_oracle_plain?(x) when is_atom(x) or is_number(x) or is_binary(x), do: true
+    defp elz217_oracle_plain?(x) when is_list(x), do: Enum.all?(x, &elz217_oracle_plain?/1)
+
+    defp elz217_oracle_plain?(x) when is_tuple(x),
+      do: x |> Tuple.to_list() |> Enum.all?(&elz217_oracle_plain?/1)
+
+    defp elz217_oracle_plain?(x) when is_map(x) and not is_struct(x),
+      do: Enum.all?(x, fn {k, v} -> elz217_oracle_plain?(k) and elz217_oracle_plain?(v) end)
+
+    defp elz217_oracle_plain?(_), do: false
+
+    defp elz217_oracle_active_count(state),
+      do: Enum.count(state.slots, fn {_, s} -> s.phase != :settled or s[:pending_input] != nil end)
+
+    defp elz217_oracle_slot_fits?(slot), do: elz217_oracle_bytes(slot) <= 131_072
+
+    defp elz217_oracle_kept_finish(action) do
+      %{
+        schema_id: action["schema_id"],
+        schema_version: action["schema_version"],
+        payload: action["payload"]
+      }
+    end
+
+    defp elz217_oracle_keeps_first_finish?(c, slot) do
+      node = c.callables[slot.callable]
+
+      slot.kind == "finish" and slot.callable != "root" and node.closed == false and
+        is_nil(node[:finish])
+    end
+
+    defp elz217_oracle_pending_finish_bytes(state) do
+      c = state.control
+
+      Enum.reduce(state.slots, 0, fn {_, slot}, sum ->
+        if slot.phase in [:authorizing, :approval, :ready] and
+             elz217_oracle_keeps_first_finish?(c, slot),
+           do:
+             sum + elz217_oracle_bytes(%{finish: elz217_oracle_kept_finish(slot.action)}) -
+               elz217_oracle_bytes(%{}),
+           else: sum
+      end)
+    end
+
+    defp elz217_oracle_control_plus_reserve(state) do
+      c = state.control
+
+      reserved =
+        (c.cap + 1 - map_size(c.receipts)) * 1_024 + elz217_oracle_active_count(state) * 4_096 +
+          elz217_oracle_pending_finish_bytes(state) +
+          Enum.reduce(c.callables, 0, fn {_, node}, sum ->
+            if node.closed,
+              do: sum,
+              else:
+                sum + max(0, Map.get(node, :state_bytes, 65_536) - elz217_oracle_bytes(node.state))
+          end)
+
+      elz217_oracle_bytes(c) + reserved
+    end
+
+    defp elz217_oracle_fits?(state) do
+      elz217_oracle_plain?(state) and elz217_oracle_control_plus_reserve(state) <= 2_097_152 and
+        Enum.all?(state.slots, fn {_, slot} -> elz217_oracle_slot_fits?(slot) end) and
+        elz217_oracle_bytes(state.slots) <= 8_388_608 and
+        elz217_oracle_bytes(state.requests) <= 4_456_448 and
+        elz217_oracle_bytes({1, {String.duplicate("i", 160), state}}) <= 16_777_216
+    end
+
+    defp elz217_noop_record do
+      %{
+        version: 1,
+        kind: :resource_cursor,
+        resource: "__none__",
+        sequence: 0,
+        budget_owner: nil,
+        budget_command: nil,
+        at_ms: 2_000
+      }
+    end
+
+    defp elz217_checking_slot(attempt_id, pad_len \\ 0, callable \\ "root") do
+      %{
+        action_id: "act",
+        kind: "tool_call",
+        callable: callable,
+        attempt_id: attempt_id,
+        phase: :checking,
+        verdict: nil,
+        deadline_ms: 50_000,
+        action: %{
+          "id" => "act",
+          "schema_id" => "message",
+          "schema_version" => 1,
+          "payload" => %{"p" => String.duplicate("x", pad_len)}
+        }
+      }
+    end
+
+    defp elz217_settled_slot(attempt_id, pad_len) do
+      %{
+        action_id: "done",
+        kind: "tool_call",
+        callable: "root",
+        attempt_id: attempt_id,
+        phase: :settled,
+        outcome: "completed",
+        verdict: %{verdict: :allow, reason: nil, gate_id: "g", gate_version: 1},
+        action: %{"payload" => %{"p" => String.duplicate("s", pad_len)}}
+      }
+    end
+
+    defp elz217_pad_exact(target, measure_fn, build_fn) do
+      base = measure_fn.(build_fn.(0))
+      pad_len = target - base
+      assert pad_len >= 0
+      built = build_fn.(pad_len)
+      assert measure_fn.(built) == target
+      built
+    end
+
+    defp elz217_assert_boundary(state, oracle_expected) do
+      noop = elz217_noop_record()
+      assert elz217_oracle_fits?(state) == oracle_expected
+
+      if oracle_expected do
+        assert {:Transition, ^state, :none} = RunEngine.step(state, noop)
+      else
+        assert_raise MatchError, fn -> RunEngine.step(state, noop) end
+      end
+    end
+
+    test "one_state_read_per_commit: snapshot calls per input stay within applied records plus 2" do
+      patterns = [
+        {{DurableUnit, :snapshot, 1}, [{:_, [], []}]},
+        {{DurableUnit, :step, 3}, [{:_, [], [{:return_trace}]}]}
+      ]
+
+      # 1. Sizing input (261 applied commits -> at most 261 + 2 snapshot calls).
+      {c, gate} = elz217_sizing_setup()
+      engine = start(c, gate: gate)
+
+      {{:ok, :applied}, events} =
+        elz217_with_process_trace(engine, patterns, fn -> send_input(engine) end)
+
+      counts = elz217_count_engine_calls(events, engine)
+      assert counts.du_applied == 261
+      assert counts.snapshot <= counts.du_applied + 2
+
+      # 2. Empty drain / duplicate wake after completion (1 applied for new wake, 0 for duplicate).
+      {{:ok, :applied}, wake_events} =
+        elz217_with_process_trace(engine, patterns, fn ->
+          RunEngine.input(engine, "wake-empty", wake(), verified())
+        end)
+
+      wake_counts = elz217_count_engine_calls(wake_events, engine)
+      assert wake_counts.snapshot <= wake_counts.du_applied + 2
+
+      {{:ok, :duplicate}, dup_events} =
+        elz217_with_process_trace(engine, patterns, fn ->
+          send_input(engine)
+        end)
+
+      dup_counts = elz217_count_engine_calls(dup_events, engine)
+      assert dup_counts.du_applied == 0
+      assert dup_counts.snapshot <= dup_counts.du_applied + 2
+
+      # 3. Small Run with one nested child.
+      {c2, bindings2} =
+        nested_setup(%{
+          "nested" => [request([action("slow", "tool_call"), finish_action("done")])]
+        })
+
+      e2 = start(c2, bindings: bindings2)
+
+      {{:ok, :applied}, nested_events} =
+        elz217_with_process_trace(e2, patterns, fn -> send_input(e2) end)
+
+      assert_receive {:effect_started, provider, _}
+      nested_counts = elz217_count_engine_calls(nested_events, e2)
+      assert nested_counts.du_applied > 0
+      assert nested_counts.snapshot <= nested_counts.du_applied + 2
+      send(provider, {:result, %{}})
+    end
+
+    test "one_decode_per_round: Jason.decode!/1 calls in engine stay within 1 per request in a round" do
+      patterns = [
+        {{Jason, :decode!, 1}, [{:_, [], []}]},
+        {{DurableUnit, :step, 3}, [{:_, [], [{:return_trace}]}]}
+      ]
+
+      # 1. Sizing input: 4 requests -> 4 decodes (<= applied + 2, and <= 4).
+      {c, gate} = elz217_sizing_setup()
+      engine = start(c, gate: gate)
+
+      {{:ok, :applied}, events} =
+        elz217_with_process_trace(engine, patterns, fn -> send_input(engine) end)
+
+      counts = elz217_count_engine_calls(events, engine)
+      assert counts.du_applied == 261
+      assert counts.jason_decode <= counts.du_applied + 2
+      assert counts.jason_decode <= 4
+
+      # 2. 64-action request that passes gate and admits -> 1 decode in engine process.
+      req64 = request(for n <- 0..63, do: action("person-#{n}", "ask_person"))
+      c2 = fixture(pattern: {TestPattern, :step, %{requests: [req64]}})
+      e2 = start(c2)
+
+      {{:ok, :applied}, events2} =
+        elz217_with_process_trace(e2, patterns, fn -> send_input(e2) end)
+
+      counts2 = elz217_count_engine_calls(events2, e2)
+      assert counts2.jason_decode <= 1
+    end
+
+    test "journal_is_equal: sizing, publication, and Attempt-change replay journals match main baseline" do
+      # 1. Sizing input (262 rows).
+      {c1, gate1} = elz217_sizing_setup()
+      e1 = start(c1, gate: gate1)
+      assert {:ok, :applied} = send_input(e1)
+
+      deny_reason = String.duplicate("d", 64)
+
+      expected_sizing =
+        [
+          {:configure, nil, nil, nil, nil},
+          {:protocol, "start", nil, nil, 2000, nil, nil, nil}
+        ] ++
+          Enum.flat_map(1..4, fn r ->
+            [{:gate, nil, nil, 2000, nil}] ++
+              for i <- 0..63 do
+                {:protocol, "action_outcome", "#{r - 1}-#{i}", "refused", 2000, 0, {r, i},
+                 deny_reason}
+              end
+          end)
+
+      assert journal(c1) == expected_sizing
+
+      # 2. Document publication (36 rows).
+      document = %{"target" => "public", "title" => "Checked document"}
+      c2 = fixture(pattern: {DocumentPublication, :step, %{stage: :validate, document: document}})
+      require_approval(c2)
+
+      bindings2 =
+        Map.update!(c2.opts[:bindings], "nested_callable", fn binding ->
+          binding =
+            Map.put(binding, :facts, fn action -> Map.put(binding.facts.(action), :estimate, 2) end)
+
+          Map.put(binding, :nested, fn action ->
+            %{
+              budget_id: "validation",
+              incarnation: "sealed",
+              mfa: {DocumentPublication, :validation},
+              initial_state: :start,
+              schema_id: "message",
+              schema_version: 1,
+              payload: action["payload"]
+            }
+          end)
+        end)
+
+      e2 =
+        start(c2,
+          bindings: bindings2,
+          gate: %{id: "publication", version: 1, call: &DocumentPublication.gate/2}
+        )
+
+      assert {:ok, :applied} = send_input(e2)
+
+      waiting =
+        wait_for(e2, fn v ->
+          Enum.any?(v.slots, fn {_, s} -> s.action_id == "material" and s.phase == :waiting end)
+        end)
+
+      {person_key, _} = Enum.find(waiting.slots, fn {_, s} -> s.action_id == "material" end)
+
+      answer =
+        result("material", %{"citation" => "reviewed"})
+        |> Map.delete("outcome")
+        |> Map.merge(%{"kind" => "person_answer", "person_id" => "person"})
+
+      assert {:ok, :applied} =
+               RunEngine.input(
+                 e2,
+                 "material",
+                 answer,
+                 verified(%{occurrence: person_key, verified_person: "person"})
+               )
+
+      {:ok, run} = Run.status(c2.run, "run")
+      [%{request_key: key}] = run.approvals
+
+      assert {:ok, :applied} =
+               RunEngine.control(
+                 e2,
+                 "approve",
+                 %{kind: :approval_evidence, request_key: key, evidence: consent(key)},
+                 verified()
+               )
+
+      assert_receive {:effect_started, provider, _req}
+
+      {publication_key, _} =
+        Enum.find(view(e2).slots, fn {_, s} -> s.action_id == "publication" end)
+
+      assert {:ok, :applied} =
+               RunEngine.input(
+                 e2,
+                 "publication-result",
+                 result("publication", %{"published" => true}),
+                 verified(%{occurrence: publication_key, actual: 1, dispatch: "dispatched"})
+               )
+
+      send(provider, {:result, %{"published" => true}})
+      assert view(e2).outcome == :completed
+
+      assert journal(c2) == [
+               {:configure, nil, nil, nil, nil},
+               {:protocol, "start", nil, nil, 2000, nil, nil, nil},
+               {:gate, nil, nil, 2000, nil},
+               {:admission, {1, 0}, nil, 2000, nil},
+               {:authorization, {1, 0}, nil, 2000, nil},
+               {:nested, {1, 0}, nil, 2000, nil},
+               {:gate, nil, nil, 2000, nil},
+               {:admission, {2, 0}, nil, 2000, nil},
+               {:authorization, {2, 0}, nil, 2000, nil},
+               {:continuation, {2, 0}, nil, nil, :running},
+               {:protocol, "action_outcome", "validated", "completed", 2000, 1, {2, 0}, nil},
+               {:gate, nil, nil, 2000, nil},
+               {:admission, {3, 0}, nil, 2000, nil},
+               {:authorization, {3, 0}, nil, 2000, nil},
+               {:continuation, {3, 0}, nil, nil, :running},
+               {:protocol, "action_outcome", "validation_finished", "completed", 2000, 0, {3, 0},
+                "finished"},
+               {:protocol, "action_outcome", "validation", "completed", 2000, 1, {1, 0}, nil},
+               {:gate, nil, nil, 2000, nil},
+               {:admission, {4, 0}, nil, 2000, nil},
+               {:authorization, {4, 0}, nil, 2000, nil},
+               {:continuation, {4, 0}, nil, nil, :waiting},
+               {:protocol, "person_answer", "material", nil, 2000, nil, {4, 0}, nil},
+               {:gate, nil, nil, 2000, nil},
+               {:admission, {5, 0}, nil, 2000, nil},
+               {:authorization, {5, 0}, nil, 2000, nil},
+               {:continuation, {5, 0}, nil, nil, :approval},
+               {:run_view, nil, nil, nil, nil},
+               {:run_view, nil, nil, nil, nil},
+               {:continuation, {5, 0}, nil, nil, :running},
+               {:run_view, nil, nil, nil, nil},
+               {:protocol, "action_outcome", "publication", "completed", 2000, 1, {5, 0}, nil},
+               {:gate, nil, nil, 2000, nil},
+               {:admission, {6, 0}, nil, 2000, nil},
+               {:authorization, {6, 0}, nil, 2000, nil},
+               {:finish, {6, 0}, nil, 2000, nil},
+               {:run_view, nil, nil, nil, nil}
+             ]
+
+      # 3. replay_is_equal (Attempt change): tool, nested, and resource flows.
+      c3 = tool_run()
+      e3 = start(c3)
+      assert {:ok, :applied} = send_input(e3)
+      assert_receive {:effect_started, task3, _}, 5_000
+      change_attempt(e3)
+      e3 = restart(c3, e3, [])
+      _ = restart(c3, e3, [])
+      send(task3, {:result, %{}})
+
+      assert journal(c3) == [
+               {:configure, nil, nil, nil, nil},
+               {:protocol, "start", nil, nil, 2000, nil, nil, nil},
+               {:gate, nil, nil, 2000, nil},
+               {:admission, {1, 0}, nil, 2000, nil},
+               {:authorization, {1, 0}, nil, 2000, nil},
+               {:continuation, {1, 0}, nil, nil, :running},
+               {:run_view, nil, nil, nil, nil}
+             ]
+
+      {c4, bindings4} = known_cost_child()
+      e4 = start(c4, bindings: bindings4)
+      assert {:ok, :applied} = send_input(e4)
+      assert_receive {:effect_started, task4, _}, 5_000
+
+      assert {:ok, :applied} =
+               RunEngine.input(
+                 e4,
+                 "a-result",
+                 result("a"),
+                 verified(%{occurrence: {2, 0}, actual: 5, dispatch: "dispatched"})
+               )
+
+      change_attempt(e4)
+      _ = restart(c4, e4, bindings: bindings4)
+      send(task4, {:result, %{}})
+
+      assert journal(c4) == [
+               {:configure, nil, nil, nil, nil},
+               {:protocol, "start", nil, nil, 2000, nil, nil, nil},
+               {:gate, nil, nil, 2000, nil},
+               {:admission, {1, 0}, nil, 2000, nil},
+               {:authorization, {1, 0}, nil, 2000, nil},
+               {:nested, {1, 0}, nil, 2000, nil},
+               {:gate, nil, nil, 2000, nil},
+               {:admission, {2, 0}, nil, 2000, nil},
+               {:authorization, {2, 0}, nil, 2000, nil},
+               {:continuation, {2, 0}, nil, nil, :running},
+               {:protocol, "action_outcome", "a", "completed", 2000, 5, {2, 0}, nil},
+               {:gate, nil, nil, 2000, nil},
+               {:admission, {3, 0}, nil, 2000, nil},
+               {:authorization, {3, 0}, nil, 2000, nil},
+               {:continuation, {3, 0}, nil, nil, :approval},
+               {:admission, {3, 1}, nil, 2000, nil},
+               {:authorization, {3, 1}, nil, 2000, nil},
+               {:run_view, nil, nil, nil, nil},
+               {:continuation, {3, 1}, nil, nil, :running},
+               {:protocol, "action_outcome", "done", "completed", 2000, 0, {3, 1}, "finished"},
+               {:run_view, nil, nil, nil, nil}
+             ]
+
+      {c5, owner5, bindings5} = nested_resource_run()
+      overrides5 = [resources: %{"document" => owner5}, bindings: bindings5]
+      e5 = start(c5, overrides5)
+      assert {:ok, :applied} = send_input(e5)
+      assert_receive {:effect_started, opening5, _}, 5_000
+      change_attempt(e5)
+      e5 = restart(c5, e5, overrides5)
+      closing5 = resource_cursor(c5, e5, owner5)
+      _ = restart(c5, e5, overrides5)
+      send(opening5, {:result, %{}})
+      send(closing5, {:result, %{}})
+
+      assert journal(c5) == [
+               {:configure, nil, nil, nil, nil},
+               {:resource_cursor, nil, nil, 2000, nil},
+               {:protocol, "start", nil, nil, 2000, nil, nil, nil},
+               {:gate, nil, nil, 2000, nil},
+               {:admission, {1, 0}, nil, 2000, nil},
+               {:authorization, {1, 0}, nil, 2000, nil},
+               {:nested, {1, 0}, nil, 2000, nil},
+               {:gate, nil, nil, 2000, nil},
+               {:admission, {2, 0}, nil, 2000, nil},
+               {:authorization, {2, 0}, nil, 2000, nil},
+               {:continuation, {2, 0}, nil, nil, :running},
+               {:admission, {2, 1}, nil, 2000, nil},
+               {:authorization, {2, 1}, nil, 2000, nil},
+               {:continuation, {2, 1}, nil, nil, :running},
+               {:protocol, "action_outcome", "done", "completed", 2000, 0, {2, 1}, "finished"},
+               {:resource_cursor, nil, nil, 2000, nil},
+               {:resource_cursor, nil, nil, 2000, nil},
+               {:resource_cursor, nil, nil, 2000, nil},
+               {:run_view, nil, nil, nil, nil},
+               {:protocol, "action_outcome", "open", "completed", 2000, nil, {2, 0}, "completed"},
+               {:resource_cursor, nil, nil, 2000, nil},
+               {:protocol, "wake", nil, nil, 2000, nil, nil, nil},
+               {:resource_cursor, nil, nil, 40000, nil},
+               {:protocol, "resource_event", nil, nil, 40000, nil, nil, "expired"},
+               {:resource_cursor, nil, nil, 40000, nil},
+               {:resource_cursor, nil, nil, 40000, nil},
+               {:protocol, "wake", nil, nil, 40000, nil, nil, nil},
+               {:resource_cursor, nil, nil, 40000, nil},
+               {:resource_cursor, nil, nil, 40000, nil},
+               {:protocol, "resource_event", nil, nil, 40000, nil, nil, "closed"},
+               {:resource_cursor, nil, nil, 40000, nil},
+               {:protocol, "wake", nil, nil, 40000, nil, nil, nil},
+               {:nested_actual, {1, 0}, 1, 40000, nil}
+             ]
+    end
+
+    test "size_check_agrees_with_the_old_one: exact byte bounds match oracle across control, reserves, slots, requests, configure, and record" do
+      # Frame arithmetic proof: the record bound (16_777_216) is unreachable when the
+      # control (2_097_152), slot map (8_388_608), and request map (4_456_448) bounds pass.
+      base_record_overhead =
+        elz217_oracle_bytes(%{version: 1, control: %{}, slots: %{}, requests: %{}}) - 18
+
+      outer_record_overhead =
+        elz217_oracle_bytes({1, {String.duplicate("i", 160), %{}}}) - elz217_oracle_bytes(%{})
+
+      assert base_record_overhead == 40
+      assert outer_record_overhead == 171
+
+      assert 2_097_152 + 8_388_608 + 4_456_448 + base_record_overhead + outer_record_overhead ==
+               14_942_419
+
+      assert 14_942_419 < 16_777_216
+
+      c = fixture(pattern: {TestPattern, :step, %{requests: []}})
+      _engine = start(c)
+      base = unit_state(c)
+      attempt_id = base.control.attempt_id
+
+      # 1. Control bound (2_097_152) with ELZ-232 callable cases + pending finish + :configure.
+      control_scenarios = [
+        # (a) Open callable whose stored state is smaller than its state_bytes bound.
+        fn pad ->
+          s =
+            put_in(base.control.callables["1:0"], %{
+              closed: false,
+              parent: {1, 0},
+              state: "",
+              state_bytes: 1_000
+            })
+
+          s = put_in(s.slots[{1, 0}], elz217_checking_slot(attempt_id, 0, "1:0"))
+          s = put_in(s.requests[1], "{}")
+          put_in(s.control.gate.id, String.duplicate("g", pad))
+        end,
+        # (b) Open callable whose stored state is exactly its state_bytes bound.
+        fn pad ->
+          s =
+            put_in(base.control.callables["1:0"], %{
+              closed: false,
+              parent: {1, 0},
+              state: String.duplicate("s", 994),
+              state_bytes: 1_000
+            })
+
+          s = put_in(s.slots[{1, 0}], elz217_checking_slot(attempt_id, 0, "1:0"))
+          s = put_in(s.requests[1], "{}")
+          put_in(s.control.gate.id, String.duplicate("g", pad))
+        end,
+        # (c) Open callable whose node has no :state_bytes (default 65_536), small & exact.
+        fn pad ->
+          s = put_in(base.control.callables["1:0"], %{closed: false, parent: {1, 0}, state: ""})
+          s = put_in(s.slots[{1, 0}], elz217_checking_slot(attempt_id, 0, "1:0"))
+          s = put_in(s.requests[1], "{}")
+          put_in(s.control.gate.id, String.duplicate("g", pad))
+        end,
+        fn pad ->
+          s =
+            put_in(base.control.callables["1:0"], %{
+              closed: false,
+              parent: {1, 0},
+              state: String.duplicate("s", 65_530)
+            })
+
+          s = put_in(s.slots[{1, 0}], elz217_checking_slot(attempt_id, 0, "1:0"))
+          s = put_in(s.requests[1], "{}")
+          put_in(s.control.gate.id, String.duplicate("g", pad))
+        end,
+        # (d) Closed callable with no :state key.
+        fn pad ->
+          s = put_in(base.control.callables["1:0"], %{closed: true, parent: {1, 0}})
+          s = put_in(s.slots[{1, 0}], elz217_settled_slot(attempt_id, 0))
+          put_in(s.control.gate.id, String.duplicate("g", pad))
+        end,
+        # (e) Admitted pending finish not yet kept in control (pending_finish_bytes reserve).
+        fn pad ->
+          parent_slot = elz217_checking_slot(attempt_id, 0, "root")
+
+          finish_slot = %{
+            action_id: "done",
+            kind: "finish",
+            callable: "1:0",
+            attempt_id: attempt_id,
+            phase: :ready,
+            verdict: %{verdict: :allow, reason: nil, gate_id: "g", gate_version: 1},
+            deadline_ms: 50_000,
+            action: %{
+              "id" => "done",
+              "kind" => "finish",
+              "schema_id" => "result",
+              "schema_version" => 1,
+              "payload" => %{"ok" => true}
+            }
+          }
+
+          s =
+            put_in(base.control.callables["1:0"], %{
+              closed: false,
+              parent: {1, 0},
+              state: "",
+              state_bytes: 2_000
+            })
+
+          s = %{
+            s
+            | slots: %{{1, 0} => parent_slot, {2, 0} => finish_slot},
+              requests: %{1 => "{}", 2 => "{}"}
+          }
+
+          put_in(s.control.gate.id, String.duplicate("g", pad))
+        end
+      ]
+
+      for build_fn <- control_scenarios do
+        for {target, expected} <- [{2_097_151, true}, {2_097_152, true}, {2_097_153, false}] do
+          state = elz217_pad_exact(target, &elz217_oracle_control_plus_reserve/1, build_fn)
+          elz217_assert_boundary(state, expected)
+        end
+      end
+
+      # Also cover the :configure step at 2_097_151 / 2_097_152 / 2_097_153.
+      empty = %{version: 1, control: nil, slots: %{}, requests: %{}}
+
+      for {target, expected} <- [{2_097_151, true}, {2_097_152, true}, {2_097_153, false}] do
+        state =
+          elz217_pad_exact(target, &elz217_oracle_control_plus_reserve/1, fn pad ->
+            s = put_in(base.control.callables["1:0"], %{closed: false, parent: {1, 0}, state: ""})
+            put_in(s.control.gate.id, String.duplicate("g", pad))
+          end)
+
+        assert elz217_oracle_fits?(state) == expected
+        record = %{version: 1, kind: :configure, control: state.control}
+
+        if expected do
+          assert {:Transition, ^state, :none} = RunEngine.step(empty, record)
+        else
+          assert_raise MatchError, fn -> RunEngine.step(empty, record) end
+        end
+      end
+
+      # 2. One slot bound (131_072).
+      one_slot_build = fn pad ->
+        %{base | slots: %{{1, 0} => elz217_checking_slot(attempt_id, pad)}, requests: %{1 => "{}"}}
+      end
+
+      for {target, expected} <- [{131_071, true}, {131_072, true}, {131_073, false}] do
+        state =
+          elz217_pad_exact(target, fn s -> elz217_oracle_bytes(s.slots[{1, 0}]) end, one_slot_build)
+
+        elz217_assert_boundary(state, expected)
+      end
+
+      # 3. Slot map bound (8_388_608), including a key above 255 ({300, 0}) for multi-byte key encoding.
+      heavy_slots =
+        for i <- 0..64, into: %{{300, 0} => elz217_settled_slot(attempt_id, 126_500)} do
+          {{1, i}, elz217_settled_slot(attempt_id, 126_500)}
+        end
+
+      slot_map_build = fn pad ->
+        %{
+          base
+          | slots: Map.put(heavy_slots, {2, 0}, elz217_checking_slot(attempt_id, pad)),
+            requests: %{2 => "{}"}
+        }
+      end
+
+      for {target, expected} <- [{8_388_607, true}, {8_388_608, true}, {8_388_609, false}] do
+        state =
+          elz217_pad_exact(target, fn s -> elz217_oracle_bytes(s.slots) end, slot_map_build)
+
+        elz217_assert_boundary(state, expected)
+      end
+
+      # 4. Request map bound (4_456_448).
+      req_map_build = fn pad ->
+        %{
+          base
+          | slots: %{{1, 0} => elz217_checking_slot(attempt_id)},
+            requests: %{1 => String.duplicate("r", pad)}
+        }
+      end
+
+      for {target, expected} <- [{4_456_447, true}, {4_456_448, true}, {4_456_449, false}] do
+        state =
+          elz217_pad_exact(target, fn s -> elz217_oracle_bytes(s.requests) end, req_map_build)
+
+        elz217_assert_boundary(state, expected)
+      end
+
+      # 5. Combined near-max state: control, slot map, and request map simultaneously at/over bounds
+      # (exercises the record bound check alongside all other bounds).
+      max_control_state =
+        elz217_pad_exact(2_097_152, &elz217_oracle_control_plus_reserve/1, fn pad ->
+          s =
+            %{
+              base
+              | slots: heavy_slots,
+                requests: %{}
+            }
+
+          s = put_in(s.control.callables["1:0"], %{closed: false, parent: {1, 0}, state: ""})
+          put_in(s.control.gate.id, String.duplicate("g", pad))
+        end)
+
+      max_slots_base =
+        elz217_pad_exact(8_388_608, fn s -> elz217_oracle_bytes(s.slots) end, fn pad ->
+          %{
+            max_control_state
+            | slots: Map.put(heavy_slots, {2, 0}, elz217_checking_slot(attempt_id, pad)),
+              requests: %{2 => "{}"}
+          }
+        end)
+
+      # Note: adding {2, 0} checking slot adds 4_096 to active_count reserve, so adjust control pad by -4_096.
+      for {req_target, expected} <- [{4_456_447, true}, {4_456_448, true}, {4_456_449, false}] do
+        combined =
+          elz217_pad_exact(req_target, fn s -> elz217_oracle_bytes(s.requests) end, fn pad ->
+            s = %{max_slots_base | requests: %{2 => String.duplicate("r", pad)}}
+
+            pad_len =
+              byte_size(s.control.gate.id) -
+                (elz217_oracle_control_plus_reserve(s) - 2_097_152)
+
+            put_in(s.control.gate.id, String.duplicate("g", pad_len))
+          end)
+
+        assert elz217_oracle_bytes({1, {String.duplicate("i", 160), combined}}) <= 16_777_216
+        elz217_assert_boundary(combined, expected)
+      end
+    end
+
+    test "each_part_is_encoded_once: term_to_binary bytes inside step/2 stay within one encoding of each part plus 1_024" do
+      patterns = [{{:erlang, :term_to_binary, 2}, [{:_, [], [{:return_trace}]}]}]
+      noop = elz217_noop_record()
+
+      # 1. State of the shape of the sizing input.
+      {c, gate} = elz217_sizing_setup()
+      engine = start(c, gate: gate)
+      assert {:ok, :applied} = send_input(engine)
+      sizing_state = unit_state(c)
+
+      {{:Transition, ^sizing_state, :none}, events1} =
+        elz217_with_process_trace(self(), patterns, fn -> RunEngine.step(sizing_state, noop) end)
+
+      self_pid = self()
+
+      bytes1 =
+        Enum.reduce(events1, 0, fn
+          {:trace, ^self_pid, :return_from, {:erlang, :term_to_binary, 2}, bin}, sum ->
+            sum + byte_size(bin)
+
+          _, sum ->
+            sum
+        end)
+
+      one_pass1 =
+        elz217_oracle_bytes(sizing_state.control) + elz217_oracle_bytes(sizing_state.slots) +
+          elz217_oracle_bytes(sizing_state.requests)
+
+      assert bytes1 <= one_pass1 + 1_024
+
+      # 2. State with multiple open nested callables holding large stored states.
+      attempt_id = sizing_state.control.attempt_id
+
+      {callables, extra_slots, extra_requests} =
+        Enum.reduce(1..8, {sizing_state.control.callables, %{}, %{}}, fn n, {cs, ss, rs} ->
+          key = {10 + n, 0}
+
+          node = %{
+            closed: false,
+            parent: key,
+            state: String.duplicate("n", 50_000),
+            state_bytes: 65_536
+          }
+
+          {Map.put(cs, "#{10 + n}:0", node),
+           Map.put(ss, key, elz217_checking_slot(attempt_id, 0, "#{10 + n}:0")),
+           Map.put(rs, 10 + n, "{}")}
+        end)
+
+      nested_state = %{
+        version: 1,
+        control: %{sizing_state.control | callables: callables},
+        slots: extra_slots,
+        requests: extra_requests
+      }
+
+      {{:Transition, ^nested_state, :none}, events2} =
+        elz217_with_process_trace(self(), patterns, fn -> RunEngine.step(nested_state, noop) end)
+
+      bytes2 =
+        Enum.reduce(events2, 0, fn
+          {:trace, ^self_pid, :return_from, {:erlang, :term_to_binary, 2}, bin}, sum ->
+            sum + byte_size(bin)
+
+          _, sum ->
+            sum
+        end)
+
+      one_pass2 =
+        elz217_oracle_bytes(nested_state.control) + elz217_oracle_bytes(nested_state.slots) +
+          elz217_oracle_bytes(nested_state.requests)
+
+      assert bytes2 <= one_pass2 + 1_024
+    end
   end
 
   defp flush_observer do
