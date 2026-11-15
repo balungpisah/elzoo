@@ -1,6 +1,6 @@
 # ELZ-217 — The engine reads the unit state once per commit and encodes each part of the state once per size check
 
-- Dependencies: ELZ-033, ELZ-192, ELZ-216, ELZ-232
+- Dependencies: ELZ-033, ELZ-192, ELZ-216, ELZ-232, ELZ-234
 - Output: none. A cost repair of the ready Piece `assembly/run-engine`. The Contract, every record, every reply and every bound stay as they are. The Piece ID stays.
 - Change class: Piece-only implementation, in place on a ready Piece; small local gate and hosted `check-piece`.
 - Allowed implementation path: `pieces/assembly/run-engine/lib/**` and `pieces/assembly/run-engine/test/**` only. No `README.md`, no `piece.json`, no index file.
@@ -52,7 +52,9 @@ stops to `drain/1`: read both first.
   each slot (`slot_fits?/1`), encodes the slot map again, encodes
   the requests, and encodes the whole state again with an ID of 160
   bytes. Each slot is encoded three times. After ELZ-232 the fold of
-  a `:nested` record calls it once more, and its reserve holds one
+  a `:nested` record calls it once more, after ELZ-234 the fold of a
+  `:protocol` record calls it once more for an input that settles no
+  slot, and its reserve holds one
   more term: for each callable that is not closed, the state bound
   of the callable (`state_bytes` of its node, 65,536 when the node
   has none) minus the bytes of its stored state, and never less
