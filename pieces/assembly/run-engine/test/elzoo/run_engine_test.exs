@@ -5984,12 +5984,12 @@ defmodule Elzoo.RunEngineTest do
     assert view(engine).phase == :terminal
   end
 
-  defp bounded_start(c, overrides) do
+  defp bounded_start(c, overrides \\ []) do
     opts = Keyword.merge(c.opts, overrides)
 
     case GenServer.start(RunEngine, opts, Keyword.take(opts, [:name]) ++ [timeout: 60_000]) do
       {:ok, engine} ->
-        on_exit(fn -> if Process.alive?(engine), do: GenServer.stop(engine) end)
+        on_exit(fn -> if Process.alive?(engine), do: GenServer.stop(engine, :normal, 60_000) end)
         engine
 
       other ->
@@ -6007,6 +6007,20 @@ defmodule Elzoo.RunEngineTest do
   end
 
   defp no_more_effects, do: refute_receive({:effect_started, _, _}, 300)
+
+  # Waits, with a limit of `left` polls of 5 ms, until the durable journal holds a protocol
+  # record for the action.
+  defp wait_record(c, action_id, 0),
+    do: flunk("no record for #{action_id} reached the journal: #{inspect(journal(c))}")
+
+  defp wait_record(c, action_id, left) do
+    if outcome_records(c, action_id) == [] do
+      Process.sleep(5)
+      wait_record(c, action_id, left - 1)
+    else
+      :ok
+    end
+  end
 
   # The root asks a nested parent and a blocked local action "src"; the child asks one tool
   # call "a" that stays open (or, with `child_actual`, gets that actual before the root
@@ -6031,7 +6045,7 @@ defmodule Elzoo.RunEngineTest do
         &Map.put(&1, :work, fn a -> {TestPattern, :blocked, [test_pid, a["payload"]]} end)
       )
 
-    engine = start(c, bindings: bindings)
+    engine = bounded_start(c, bindings: bindings)
     assert {:ok, :applied} = bounded(fn -> send_input(engine) end, 20_000)
     assert_receive {:effect_started, tool, _}, 5_000
     assert_receive {:local_started, src}, 5_000
@@ -6046,7 +6060,7 @@ defmodule Elzoo.RunEngineTest do
 
   # A new Run with another id configures on the unit of the ended Run and runs one action.
   defp new_run_runs_one_action(c, engine, bindings) do
-    GenServer.stop(engine)
+    GenServer.stop(engine, :normal, 60_000)
     {:ok, ended} = Run.status(c.run, "run")
 
     assert {:ok, revision, _} =
@@ -6119,7 +6133,7 @@ defmodule Elzoo.RunEngineTest do
       end
     }
 
-    engine = start(c, bindings: bindings, gate: gate)
+    engine = bounded_start(c, bindings: bindings, gate: gate)
     assert {:ok, :applied} = bounded(fn -> send_input(engine) end, 20_000)
     {c, bindings, gate, engine}
   end
@@ -6134,6 +6148,7 @@ defmodule Elzoo.RunEngineTest do
       assert slot_by(view, "a").outcome == "completed"
       assert unit_state(c).slots[parent].actual == 5
       assert unit_state(c).slots[key_of(view, "a")].actual == 5
+      # The close wrote no outcome record for the parent (the child has its own result).
       assert outcome_records(c, "nested") == []
       # The child amount 5 and the local action "src" (1); the share of the parent is released.
       assert budget_status(c, "root") == %{committed: 6, reserved: 0}
@@ -6150,7 +6165,9 @@ defmodule Elzoo.RunEngineTest do
       assert slot_by(view, "a").outcome == "unknown"
       assert unit_state(c).slots[parent][:actual] == nil
       assert unit_state(c).slots[key_of(view, "a")][:actual] == nil
+      # The close wrote no outcome record for the parent or for its child.
       assert outcome_records(c, "nested") == []
+      assert outcome_records(c, "a") == []
       # "src" committed 1; the share of the parent (10) stays held.
       assert budget_status(c, "root") == %{committed: 1, reserved: 10}
       assert Enum.all?(Map.values(view(engine).joins), & &1.closed)
@@ -6161,7 +6178,7 @@ defmodule Elzoo.RunEngineTest do
   describe "sent_slot_becomes_unknown_at_the_end" do
     test "a dispatched tool action becomes unknown, keeps its reservation and is never sent again" do
       c = tool_run()
-      engine = start(c)
+      engine = bounded_start(c)
       assert {:ok, :applied} = send_input(engine)
       assert_receive {:effect_started, task, _}, 5_000
       before = budget_status(c, "root")
@@ -6178,11 +6195,14 @@ defmodule Elzoo.RunEngineTest do
       assert budget_status(c, "root") == before
       assert view(engine).joins[1].closed
       assert %{"outcome" => "unknown", "dispatch" => "unknown"} = joined(c, {1, 0}, "publish")
+      # The close writes no outcome record: a drain would have written one.
+      assert outcome_records(c, "publish") == []
 
       engine = bounded_restart(c, engine, [])
       no_more_effects()
       assert unit_state(c).slots[{1, 0}] == slot
       assert budget_status(c, "root") == before
+      assert outcome_records(c, "publish") == []
 
       late_results(engine, {1, 0}, "publish")
       assert unit_state(c).slots[{1, 0}] == slot
@@ -6194,7 +6214,7 @@ defmodule Elzoo.RunEngineTest do
     test "a slot in reconcile becomes unknown with its reservation held" do
       c = tool_run()
       Agent.update(c.host_mode, fn _ -> :read_only end)
-      engine = start(c)
+      engine = bounded_start(c)
       assert {:ok, :applied} = send_input(engine)
       assert %{phase: :reconcile, reconciliation: :read_only} = view(engine).slots[{1, 0}]
       before = budget_status(c, "root")
@@ -6207,11 +6227,13 @@ defmodule Elzoo.RunEngineTest do
       slot = unit_state(c).slots[{1, 0}]
       assert slot[:actual] == nil
       assert budget_status(c, "root") == before
+      assert outcome_records(c, "publish") == []
 
-      Agent.update(c.host_mode, fn _ -> :fresh end)
+      # `bounded_restart` sets the host mode back to `:recover`, so no reset is needed here.
       engine = bounded_restart(c, engine, [])
       no_more_effects()
       assert unit_state(c).slots[{1, 0}] == slot
+      assert outcome_records(c, "publish") == []
       late_results(engine, {1, 0}, "publish")
       assert unit_state(c).slots[{1, 0}] == slot
       assert budget_status(c, "root") == before
@@ -6224,7 +6246,7 @@ defmodule Elzoo.RunEngineTest do
           pattern: {TestPattern, :step, %{requests: [request([action("ask", "ask_person")])]}}
         )
 
-      engine = start(c)
+      engine = bounded_start(c)
       assert {:ok, :applied} = send_input(engine)
       assert view(engine).slots[{1, 0}].phase == :waiting
       before = budget_status(c, "root")
@@ -6237,8 +6259,10 @@ defmodule Elzoo.RunEngineTest do
       slot = unit_state(c).slots[{1, 0}]
       assert slot[:actual] == nil
       assert budget_status(c, "root") == before
+      assert outcome_records(c, "ask") == []
 
       engine = bounded_restart(c, engine, [])
+      assert outcome_records(c, "ask") == []
 
       answer = %{
         "type" => "input",
@@ -6268,12 +6292,25 @@ defmodule Elzoo.RunEngineTest do
     # Held as in `unsent_slot_is_released`: the engine stops where it stands, the Run ends
     # while it is down, and a new engine folds the terminal view at its start. The gate of
     # the new engine counts its calls.
-    defp unsent_end(c, trap_opts, phase, reserved_before) do
+    #
+    # The phases checking and allowed hold no reservation (`reserved_before` is 0); the
+    # release is shown by the phases authorizing, approval and ready (`reserved_before` is 1,
+    # then 0). The close writes no outcome record, where a drain writes one for each of
+    # these slots: that is what the empty `outcome_records` shows. With `check_gate?` the
+    # test also shows that the gate is not asked again (a slot in checking is the one that
+    # asks it).
+    defp unsent_end(c, trap_opts, phase, reserved_before, check_gate? \\ false) do
       parent = self()
-      engine = start(c, trap_opts)
+      engine = bounded_start(c, trap_opts)
       send_async(engine)
       assert_receive {:trapped, _}, 5_000
-      wait_unit(c, &(&1.slots[{1, 0}] != nil and &1.slots[{1, 0}].phase == phase))
+
+      wait_unit(
+        c,
+        &(&1.slots[{1, 0}] != nil and &1.slots[{1, 0}].phase == phase),
+        1_000
+      )
+
       assert budget_status(c, "root") == %{committed: 0, reserved: reserved_before}
       halt_engine(c, engine)
       if trap_opts[:resume_run], do: :sys.resume(c.run)
@@ -6300,12 +6337,14 @@ defmodule Elzoo.RunEngineTest do
       assert %{"outcome" => "rejected", "dispatch" => "not_dispatched"} =
                joined(c, {1, 0}, slot.action_id)
 
-      refute_receive {:gate_asked, _}, 300
+      assert outcome_records(c, slot.action_id) == []
+      if check_gate?, do: refute_receive({:gate_asked, _}, 300)
       no_more_effects()
 
       engine = bounded_restart(c, engine, gate: gate)
-      refute_receive {:gate_asked, _}, 300
+      if check_gate?, do: refute_receive({:gate_asked, _}, 300)
       no_more_effects()
+      assert outcome_records(c, slot.action_id) == []
       assert unit_state(c).slots[{1, 0}] == slot
       assert budget_status(c, "root") == %{committed: 0, reserved: 0}
       assert view(engine).slots[{1, 0}].outcome == "refused"
@@ -6329,13 +6368,13 @@ defmodule Elzoo.RunEngineTest do
         end
       }
 
-      unsent_end(c, [gate: gate], :checking, 0)
+      unsent_end(c, [gate: gate], :checking, 0, true)
     end
 
     test "a slot in allowed is refused with nothing held" do
       c = tool_run()
       parent = self()
-      armed = start_supervised!({Agent, fn -> true end}, id: make_ref())
+      {:ok, armed} = Agent.start_link(fn -> true end, timeout: 5_000)
       base = c.opts[:bindings]["tool_call"]
 
       bindings =
@@ -6364,7 +6403,7 @@ defmodule Elzoo.RunEngineTest do
       unsent_end(c, [context: trap_context(c, 1, :block)], :authorizing, 1)
     end
 
-    test "a slot in refusing is refused with the reason of the end, not its own" do
+    test "a slot in refusing is settled by the close: refused, actual 0, no outcome record" do
       c = tool_run()
       gate = %{id: "gate", version: 1, call: fn _, _ -> {:deny, "restricted"} end}
       unsent_end(c, [gate: gate, context: trap_context(c, 1, :block)], :refusing, 0)
@@ -6441,11 +6480,17 @@ defmodule Elzoo.RunEngineTest do
       assert slot_by(view(engine), "slow").outcome == "failed"
       slot = unit_state(c).slots[key]
       assert slot[:actual] == nil
+      assert outcome_records(c, "slow") == []
+      held = budgets(c)
 
+      # The late result is committed as a protocol input classified late; it changes nothing.
       send(task, :finish)
-      refute_receive :never_sent, 300
+      wait_record(c, "slow", 1_000)
+      assert unit_state(c).slots[key] == slot
+      assert budgets(c) == held
       wake_as(engine, "wake-after")
       assert unit_state(c).slots[key] == slot
+      assert budgets(c) == held
       assert slot_by(view(engine), "slow").outcome == "failed"
     end
 
@@ -6467,7 +6512,7 @@ defmodule Elzoo.RunEngineTest do
         end
       }
 
-      engine = start(c, gate: gate)
+      engine = bounded_start(c, gate: gate)
       assert {:ok, :applied} = bounded(fn -> send_input(engine) end, 20_000)
       assert_receive {:effect_started, task, _}, 5_000
       before = view(engine)
@@ -6484,6 +6529,7 @@ defmodule Elzoo.RunEngineTest do
       slot = unit_state(c).slots[key]
       assert slot[:actual] == nil
       assert budget_status(c, "root") == held
+      assert outcome_records(c, "pub") == []
 
       late_results(engine, key, "pub")
       assert unit_state(c).slots[key] == slot
@@ -6510,6 +6556,7 @@ defmodule Elzoo.RunEngineTest do
       assert budget_status(c, "root") == held
       assert budget_status(c, "1:0") == %{committed: 0, reserved: 1}
       assert outcome_records(c, "nested") == []
+      assert outcome_records(c, "tool-nested") == []
 
       assert {:ok, _} = child_result(engine, before, "tool-nested", 5)
       assert unit_state(c).slots == slots
@@ -6535,7 +6582,7 @@ defmodule Elzoo.RunEngineTest do
 
   describe "child_keeps_its_own_deadline" do
     test "a parent past its deadline closes alone; the child result later gives the parent its actual once" do
-      {c, _bindings, engine, before} = retained_run(%{"nested" => 10_000})
+      {c, bindings, engine, before} = retained_run(%{"nested" => 10_000})
       parent = key_of(before, "nested")
       tool = key_of(before, "tool-nested")
       Agent.update(c.clock, fn _ -> 15_000 end)
@@ -6546,9 +6593,10 @@ defmodule Elzoo.RunEngineTest do
       assert slot_by(view, "nested").outcome == "unknown"
       assert unit_state(c).slots[parent][:actual] == nil
       assert slot_by(view, "tool-nested").phase == :running
+      assert outcome_records(c, "nested") == []
 
       assert {:ok, :applied} = child_result(engine, before, "tool-nested", 5)
-      wait_unit(c, &(&1.slots[parent][:actual] == 5))
+      wait_unit(c, &(&1.slots[parent][:actual] == 5), 1_000)
       assert unit_state(c).slots[tool].actual == 5
       assert slot_by(view(engine), "tool-nested").outcome == "completed"
       assert slot_by(view(engine), "nested").outcome == "unknown"
@@ -6557,6 +6605,14 @@ defmodule Elzoo.RunEngineTest do
       # The child committed 5; the root also holds the 1 of its local action "src".
       assert budget_status(c, "1:0", 15_000) == %{committed: 5, reserved: 0}
       assert budget_status(c, "root", 15_000) == %{committed: 6, reserved: 0}
+
+      # One more wake and one restart: still one `nested_actual` record, and actual 5.
+      wake_as(engine, "wake-after")
+      engine = bounded_restart(c, engine, bindings: bindings)
+      wake_as(engine, "wake-after-restart")
+      assert unit_state(c).slots[parent].actual == 5
+      assert Enum.count(journal(c), &match?({:nested_actual, ^parent, _, _, _}, &1)) == 1
+      assert outcome_records(c, "nested") == []
     end
   end
 
@@ -6582,7 +6638,7 @@ defmodule Elzoo.RunEngineTest do
     test "a root Resource action open at the end of the Run: the cursor settles its Budget and nothing fails" do
       c = fixture(pattern: {TestPattern, :step, %{requests: [request([resource_open_action()])]}})
       {owner, bindings} = resource(c)
-      engine = start(c, resources: %{"document" => owner}, bindings: bindings)
+      engine = bounded_start(c, resources: %{"document" => owner}, bindings: bindings)
       assert {:ok, :applied} = send_input(engine)
       assert_receive {:effect_started, opening, _}, 5_000
 
@@ -6630,7 +6686,7 @@ defmodule Elzoo.RunEngineTest do
 
     test "a sent tool action: a restart after the end gives the same view, Budgets and journal" do
       c = tool_run()
-      engine = start(c)
+      engine = bounded_start(c)
       assert {:ok, :applied} = send_input(engine)
       assert_receive {:effect_started, task, _}, 5_000
       end_run(c)
