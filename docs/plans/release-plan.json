@@ -6519,7 +6519,7 @@
       "kind": "published",
       "release": "V1B",
       "stage": "pieces",
-      "dependencies": ["ELZ-033", "ELZ-192", "ELZ-216", "ELZ-232"],
+      "dependencies": ["ELZ-033", "ELZ-192", "ELZ-216", "ELZ-232", "ELZ-234"],
       "status": "published 2026-11-14",
       "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
       "paths": ["tasks/ELZ-217-run-engine-step-cost.md"],
@@ -6528,7 +6528,7 @@
       "product_aims": ["P13"],
       "issue": 470,
       "url": "https://github.com/balungpisah/elzoo/issues/470",
-      "issue_body_sha256": "cb7b7c85d5a17d1504e87d18d07603e8b1a248281fb7af9014278a98ab76e19a"
+      "issue_body_sha256": "cec6688ea1cc27b0bfad086df3fba6d7cd31672c50c91e66347d4349cdb92a12"
     },
     {
       "id": "ELZ-218",
@@ -6733,6 +6733,40 @@
       "issue": 503,
       "url": "https://github.com/balungpisah/elzoo/issues/503",
       "issue_body_sha256": "82da000eb02f71dfe36dabbf392b9e4791f082ffbeec68f1c83b4bf010b2f1e1"
+    },
+    {
+      "id": "ELZ-233",
+      "title": "ELZ-233 — Three small repairs: the SQL grounding names a page for each part, the engine fixture stops its intents before it drops the schema, and the provider-stream helper waits for the frame or the end of the run",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-009", "ELZ-033", "ELZ-143"],
+      "status": "published 2026-11-15",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-233-three-small-repairs.md"],
+      "outputs": [],
+      "acceptance": "Three small Piece repairs in one pull request: two upstream groundings for integration/sql, the engine test fixture stops its intents before it drops the schema, the provider-stream test helper waits for the frame or the end of the run; small gate.",
+      "product_aims": ["P13"],
+      "issue": 515,
+      "url": "https://github.com/balungpisah/elzoo/issues/515",
+      "issue_body_sha256": "87aab307afb2d307eb2a49501116a9ae132c450c3e0b89b03f1d47138d04ee76"
+    },
+    {
+      "id": "ELZ-234",
+      "title": "ELZ-234 — An input that settles no slot is given to a pattern only when control has room for its invocation entry",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-192", "ELZ-232"],
+      "status": "published 2026-11-15",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-234-input-without-slot-needs-room.md"],
+      "outputs": [],
+      "acceptance": "Piece assembly/run-engine in place: an input that settles no slot is given to a pattern only when control has room for its invocation entry; else record_size and nothing kept; small gate.",
+      "product_aims": ["P13"],
+      "issue": 516,
+      "url": "https://github.com/balungpisah/elzoo/issues/516",
+      "issue_body_sha256": "19ed8439c2780104c4ccbec5794955013aa6c8fc7680fceb781b7cacf8216ebe"
     }
   ],
   "entries": [
@@ -7812,7 +7846,7 @@
       "baseline_status": "not in baseline (new row, RC-50)",
       "disposition": "ready-contract",
       "manifest": "pieces/assembly/run-engine/piece.json",
-      "manifest_sha256": "94b23bca22e061558b023387e10b3d34a7e9b92026c659a37774f16c1f1e0793",
+      "manifest_sha256": "c9aa9adcb32e5d57a280929f3b6c3794b194aaf827896d18a960adf4c693370f",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
