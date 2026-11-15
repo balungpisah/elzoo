@@ -448,7 +448,7 @@ change of Attempt and open slots, folds to another state after it (Elzoo is not
 released). The settlement is part of the `run_view` fold step: it writes no
 protocol record, and the reason `attempt_closed` is in the outcome given to the
 request tracker and the join, not in a separate journal record. A Run recorded
-before this repair that already holds such a slot (a settled parent that an over-cap
+before the repair of the over-cap deny that already holds such a slot (a settled parent that an over-cap
 deny turned back to refusing) keeps it until a change of Attempt sets it settled
 again with its first settlement untouched (no Budget step, no join change); Elzoo is
 not released. Some rows cannot be held by a test: a running child finish
