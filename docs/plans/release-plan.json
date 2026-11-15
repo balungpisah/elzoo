@@ -8190,11 +8190,11 @@
     {
       "id": "workflow/skill",
       "job": "ELZ-182",
-      "note": "Pure functions over a skill folder given as data and over a checked recipe package: read/4 checks the operands, the paths and the fixed folder bounds, splits SKILL.md at its frontmatter lines, scans and reads the frontmatter with the pinned YAML reader and gives the skill entry of a recipe package and the other files of the folder; source/2 gives the one pinned_skill tool-registry source of the skills of a package, with the tools load_skill and read_skill_file; load/2 gives the declaration payload with the body of one skill byte for byte and no listing; read_file/3 gives one other file of a skill as marked untrusted content; each refusal is a fixed reason that holds no path, file byte, frontmatter value or body.",
+      "note": "Pure functions over a skill folder given as data and over a checked recipe package: read/4 checks the operands, the paths and the fixed folder bounds, splits SKILL.md at its frontmatter lines, scans and reads the frontmatter with the pinned YAML reader and gives the skill entry of a recipe package and the other files of the folder; sources/3 gives the one pinned_skill tool-registry source of the skills of a package, with the tools load_skill and read_skill_file, and one empty source of kind other for each skill that declares a tool, after it checks that the host descriptors name each declared tool once; load/4 gives the declaration payload with the body of one skill byte for byte and a listing of the host descriptors of its declared tools for its own source, or no listing for a skill without tools; read_file/3 gives one other file of a skill as marked untrusted content; each refusal is a fixed reason that holds no path, file byte, frontmatter value or body.",
       "baseline_status": "not in baseline (new row, RC-67)",
       "disposition": "ready-contract",
       "manifest": "pieces/workflow/skill/piece.json",
-      "manifest_sha256": "d7b277327bd14caa33fa32050e8498fdb5636357b467f38062893c81914db704",
+      "manifest_sha256": "85768c2b32bbd3dea99c308a770f84a99b387f90a123e10e717420dc86a6346c",
       "catalogue_reference": "registry/catalogue.json"
     }
   ],

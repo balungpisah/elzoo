@@ -5,8 +5,9 @@ defmodule Elzoo.Skill do
   `read/4` turns a map of relative paths to file bytes into the skill entry of a
   recipe package and the other files of the folder. It reads no file system,
   starts no process and checks nothing of the entry that `Elzoo.RecipePackage`
-  checks. `source/2` gives the tool-registry source of the skills of a checked
-  package, and `load/2` and `read_file/3` answer one call of each of its tools.
+  checks. `sources/3` gives the tool-registry sources of the skills of a checked
+  package and the host descriptors of the tools that they declare, and `load/4`
+  and `read_file/3` answer one call of each of its tools.
   Refusals are fixed atoms that hold no path, file byte, frontmatter value or
   body.
   """
@@ -42,6 +43,7 @@ defmodule Elzoo.Skill do
           | :unknown_file
           | :empty_body
           | :file_too_large
+          | :undescribed_tool
 
   @doc """
   Reads the skill folder `files` (relative path to bytes) of the skill `name`.
@@ -81,84 +83,126 @@ defmodule Elzoo.Skill do
   end
 
   @doc """
-  The tool-registry source of kind `pinned_skill` for the skills of the checked
-  `package`, with the tools `load_skill` and `read_skill_file`.
+  The tool-registry sources for the skills of the checked `package`.
 
+  Gives `{:ok, sources}`. The first source is of kind `pinned_skill`, with the
+  tools `load_skill` and `read_skill_file`; the description of each skill is in
+  the input schema of `load_skill`, and it names no tool of a skill and no
+  `allowed-tools` text. Then, for the skill at 1-based position `k` that declares
+  at least one tool, in package order, comes one source `id <> "-" <> k` of kind
+  `other`, callable `adapter`, with no tool: the load of the skill fills it.
+
+  `descriptors` are the tool descriptors that the host gives; the package says
+  only which tools a skill brings. The first failing check is the result:
   `id` is 1 to 32 bytes of `[a-zA-Z0-9_-]`, else `{:error, :invalid_input}`; a
-  package with no skill is `{:error, :no_skills}`. The description of each skill
-  is in the input schema of `load_skill`; the source names no tool of a skill and
-  no `allowed-tools` text.
+  package with no skill is `{:error, :no_skills}`; `descriptors` is a proper list
+  of maps that are not structs, else `:invalid_input`; the longest source id is
+  at most 32 bytes, else `:invalid_input`; each declared tool has exactly one
+  descriptor with that `"name"`, in the order of the skills and their tools: none
+  is `:undescribed_tool`, two or more are `:invalid_input`. A descriptor that no
+  skill declares is ignored, and no other part of a descriptor is checked here.
   """
-  @spec source(term(), term()) ::
-          {:ok, %{optional(String.t()) => term()}} | {:error, :invalid_input | :no_skills}
-  def source(id, package) do
-    with :ok <- check_id(id), {:ok, skills} <- skills(package) do
-      names = Enum.map(skills, & &1["name"])
+  @spec sources(term(), term(), term()) ::
+          {:ok, [%{optional(String.t()) => term()}]}
+          | {:error, :invalid_input | :no_skills | :undescribed_tool}
+  def sources(id, package, descriptors) do
+    with :ok <- check_id(id),
+         {:ok, skills} <- skills(package),
+         :ok <- check_descriptors(descriptors),
+         :ok <- check_source_ids(id, skills),
+         :ok <- check_described(skills, descriptors) do
+      per_skill =
+        for {skill, k} <- Enum.with_index(skills, 1), skill["tools"] != [] do
+          %{"id" => source_id(id, k), "kind" => "other", "callable" => "adapter", "tools" => []}
+        end
 
-      listing =
-        Enum.map_join(skills, "\n", &(&1["name"] <> ": " <> &1["frontmatter"]["description"]))
-
-      load = %{
-        "trust" => "untrusted",
-        "name" => "load_skill",
-        "description" => "Load the instructions of one skill by its name.",
-        "annotations" => nil,
-        "input_schema" => %{
-          "type" => "object",
-          "properties" => %{
-            "name" => %{"type" => "string", "enum" => names, "description" => listing}
-          },
-          "required" => ["name"],
-          "additionalProperties" => false
-        }
-      }
-
-      read_file = %{
-        "trust" => "untrusted",
-        "name" => "read_skill_file",
-        "description" => "Read one file of a skill by its relative path.",
-        "annotations" => nil,
-        "input_schema" => %{
-          "type" => "object",
-          "properties" => %{
-            "skill" => %{"type" => "string", "enum" => names},
-            "path" => %{"type" => "string", "minLength" => 1}
-          },
-          "required" => ["skill", "path"],
-          "additionalProperties" => false
-        }
-      }
-
-      {:ok,
-       %{
-         "id" => id,
-         "kind" => "pinned_skill",
-         "callable" => "adapter",
-         "tools" => [load, read_file]
-       }}
+      {:ok, [pinned_source(id, skills) | per_skill]}
     end
+  end
+
+  defp pinned_source(id, skills) do
+    names = Enum.map(skills, & &1["name"])
+
+    listing =
+      Enum.map_join(skills, "\n", &(&1["name"] <> ": " <> &1["frontmatter"]["description"]))
+
+    load = %{
+      "trust" => "untrusted",
+      "name" => "load_skill",
+      "description" => "Load the instructions of one skill by its name.",
+      "annotations" => nil,
+      "input_schema" => %{
+        "type" => "object",
+        "properties" => %{
+          "name" => %{"type" => "string", "enum" => names, "description" => listing}
+        },
+        "required" => ["name"],
+        "additionalProperties" => false
+      }
+    }
+
+    read_file = %{
+      "trust" => "untrusted",
+      "name" => "read_skill_file",
+      "description" => "Read one file of a skill by its relative path.",
+      "annotations" => nil,
+      "input_schema" => %{
+        "type" => "object",
+        "properties" => %{
+          "skill" => %{"type" => "string", "enum" => names},
+          "path" => %{"type" => "string", "minLength" => 1}
+        },
+        "required" => ["skill", "path"],
+        "additionalProperties" => false
+      }
+    }
+
+    %{
+      "id" => id,
+      "kind" => "pinned_skill",
+      "callable" => "adapter",
+      "tools" => [load, read_file]
+    }
   end
 
   @doc """
   Answers one call of `load_skill` over the checked `package`.
 
-  `arguments` is the `arguments` member of the tool call. Gives the payload of a
-  completed outcome that carries a declaration with the body of the skill, byte
-  for byte, and no listing, or `{:error, reason}`: `:invalid_arguments`,
-  `:unknown_skill` or `:empty_body`.
+  `id` and `descriptors` are the operands of `sources/3`. `arguments` is the
+  `arguments` member of the tool call. Gives the payload of a completed outcome
+  that carries a declaration with the body of the skill, byte for byte, and a
+  listing: for a skill that declares tools, the source `id <> "-" <> k` of the
+  skill and the one descriptor of each declared tool, in the order of the
+  skill's `tools` and as the host gave it; for a skill with no tool, no listing.
+  Otherwise `{:error, reason}`, the first failing check being the result:
+  `:invalid_input` for the `id`, the `descriptors` or the source id bound, as in
+  `sources/3`; then `:invalid_arguments`, `:unknown_skill` or `:empty_body`; then,
+  for the asked skill only, `:undescribed_tool` or `:invalid_input`.
   """
-  @spec load(term(), term()) ::
+  @spec load(term(), term(), term(), term()) ::
           {:ok, %{optional(String.t()) => term()}}
-          | {:error, :invalid_arguments | :unknown_skill | :empty_body}
-  def load(package, arguments) do
-    with {:ok, name} <- load_arguments(arguments),
-         {:ok, skill} <- find_skill(package, name),
-         :ok <- if(skill["body"] == "", do: {:error, :empty_body}, else: :ok) do
+          | {:error,
+             :invalid_input
+             | :invalid_arguments
+             | :unknown_skill
+             | :empty_body
+             | :undescribed_tool}
+  def load(id, package, descriptors, arguments) do
+    with :ok <- check_id(id),
+         :ok <- check_descriptors(descriptors),
+         :ok <- check_source_ids(id, package_skills(package)),
+         {:ok, name} <- load_arguments(arguments),
+         {:ok, skill, k} <- find_skill(package, name),
+         :ok <- if(skill["body"] == "", do: {:error, :empty_body}, else: :ok),
+         {:ok, tools} <- describe(skill, descriptors) do
+      listing =
+        if tools == [], do: nil, else: %{"source" => source_id(id, k), "tools" => tools}
+
       {:ok,
        %{
          "declaration" => %{
            "skill" => %{"name" => name, "instructions" => skill["body"]},
-           "listing" => nil
+           "listing" => listing
          }
        }}
     end
@@ -175,7 +219,7 @@ defmodule Elzoo.Skill do
           {:ok, %{optional(String.t()) => term()}} | {:error, call_reason()}
   def read_file(package, files, arguments) do
     with {:ok, skill, path} <- file_arguments(arguments),
-         {:ok, _skill} <- find_skill(package, skill),
+         {:ok, _skill, _k} <- find_skill(package, skill),
          :ok <- if(path == "SKILL.md", do: {:error, :unknown_file}, else: :ok),
          {:ok, bytes} <- fetch_file(files, skill, path),
          :ok <- if(byte_size(bytes) > @max_file_bytes, do: {:error, :file_too_large}, else: :ok) do
@@ -209,17 +253,76 @@ defmodule Elzoo.Skill do
 
   defp check_id(_id), do: {:error, :invalid_input}
 
+  defp package_skills(package), do: RecipePackage.encode(package)["skills"]
+
   defp skills(package) do
-    case RecipePackage.encode(package) do
-      %{"skills" => [_ | _] = skills} -> {:ok, skills}
+    case package_skills(package) do
+      [_ | _] = skills -> {:ok, skills}
       _other -> {:error, :no_skills}
     end
   end
 
   defp find_skill(package, name) do
-    case Enum.find(RecipePackage.encode(package)["skills"], &(&1["name"] == name)) do
+    case package
+         |> package_skills()
+         |> Enum.with_index(1)
+         |> Enum.find(&(elem(&1, 0)["name"] == name)) do
       nil -> {:error, :unknown_skill}
-      skill -> {:ok, skill}
+      {skill, k} -> {:ok, skill, k}
+    end
+  end
+
+  defp source_id(id, k), do: id <> "-" <> Integer.to_string(k)
+
+  defp check_descriptors(descriptors),
+    do: if(descriptor_list?(descriptors), do: :ok, else: {:error, :invalid_input})
+
+  defp descriptor_list?([]), do: true
+
+  defp descriptor_list?([descriptor | rest]) when is_map(descriptor) and not is_struct(descriptor),
+    do: descriptor_list?(rest)
+
+  defp descriptor_list?(_other), do: false
+
+  # The longest source id is that of the last skill that declares a tool.
+  defp check_source_ids(id, skills) do
+    last =
+      skills
+      |> Enum.with_index(1)
+      |> Enum.filter(fn {skill, _k} -> skill["tools"] != [] end)
+      |> List.last()
+
+    case last do
+      nil ->
+        :ok
+
+      {_skill, k} ->
+        if byte_size(source_id(id, k)) <= 32, do: :ok, else: {:error, :invalid_input}
+    end
+  end
+
+  defp check_described(skills, descriptors) do
+    Enum.reduce_while(skills, :ok, fn skill, :ok ->
+      case describe(skill, descriptors) do
+        {:ok, _tools} -> {:cont, :ok}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  # The one descriptor of each tool that the skill declares, in the order of the
+  # skill's `tools`; the first identity with none or with several is the result.
+  defp describe(skill, descriptors) do
+    Enum.reduce_while(skill["tools"], {:ok, []}, fn identity, {:ok, found} ->
+      case Enum.filter(descriptors, &(Map.get(&1, "name") == identity)) do
+        [descriptor] -> {:cont, {:ok, [descriptor | found]}}
+        [] -> {:halt, {:error, :undescribed_tool}}
+        _several -> {:halt, {:error, :invalid_input}}
+      end
+    end)
+    |> case do
+      {:ok, found} -> {:ok, Enum.reverse(found)}
+      error -> error
     end
   end
 
