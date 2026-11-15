@@ -108,13 +108,19 @@ The check is on the result of the fold, and not on the state before
 `invoke/3`, for two reasons that the facts above give. The start adds
 an invocation entry that no reserve covers. And the first state of the
 child can be much larger than its initial state. One check of the
-result covers both, and it is the same value that `step/2` asserts,
-because the work after the fold only removes.
+result covers both. The work of `step/2` after the fold only removes,
+so a result that fits here also passes the assertion of `step/2`. The
+check can be stricter than that assertion by the bytes that the same
+step removes later; that is the safe side.
 
 The decision is a pure function of the stored state and the record. A
 replay gives the same state. A journal that was recorded before this
-repair folds as before where the step passed. Where the step failed,
-the input is still pending, and it now folds to the refusal.
+repair folds as before where the result of the fold fitted. Where the
+step failed, the input is still pending, and it now folds to the
+refusal. One case differs: a `:nested` record whose result did not fit
+and whose step still passed, because the same step removed enough
+afterwards, now folds to the refusal. Elzoo is not released, so no
+stored journal has to be kept equal; name the case under `Limits:`.
 
 The evaluation of the child pattern for a refused start leaves no
 trace: no charge, no receipt. The child was not started. The README
@@ -181,7 +187,9 @@ their helpers: `nested_setup/2`, `unit_state/1`, `control_headroom/1`,
 2. **`first_state_counts`**: with the control state near the bound, a
    child with a small initial state whose `start` returns a state near
    65,536 bytes is refused in the same way, with the same view as in
-   group 1.
+   group 1. No existing test pattern grows its state on `start`: add
+   one small clause for it to the test support file of the Piece, and
+   nothing else there.
 3. **`smaller_start_fits`**: after the refusal of group 1, a nested
    start with a small initial state and a small first state is kept
    and its child runs. So the refusal is a lack of room and no refusal
