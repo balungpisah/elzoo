@@ -115,9 +115,11 @@ defmodule Elzoo.ProviderStream.Fixture do
 
   # Releases n held frames one by one. While a frame is held, no other frame
   # may be offered within `window.(frame)` milliseconds.
-  def release(0, _window), do: []
+  def release(_task, 0, _window), do: []
 
-  def release(n, window) do
+  def release(%Task{ref: ref} = task, n, window) do
+    # No time of its own here: the run ends by its own `total_timeout_ms`, so this
+    # wait ends on an event, the next held frame or the reply of the run.
     receive do
       {:held, frame, pid} ->
         receive do
@@ -126,9 +128,10 @@ defmodule Elzoo.ProviderStream.Fixture do
           window.(frame) -> send(pid, :release)
         end
 
-        [frame | release(n - 1, window)]
-    after
-      2_000 -> raise "frame missing"
+        [frame | release(task, n - 1, window)]
+
+      {^ref, result} ->
+        raise "run ended with #{inspect(result)} while #{n} frames were still wanted"
     end
   end
 

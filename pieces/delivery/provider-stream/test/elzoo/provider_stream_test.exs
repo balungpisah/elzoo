@@ -32,7 +32,7 @@ defmodule Elzoo.ProviderStreamTest do
           origin
         )
 
-      frames = Fixture.release(25, fn _ -> 20 end)
+      frames = Fixture.release(task, 25, fn _ -> 20 end)
       assert {:complete, result} = Task.await(task)
 
       assert_receive {:request, ^origin, head, body}
@@ -161,6 +161,44 @@ defmodule Elzoo.ProviderStreamTest do
                }
              ]
     end
+
+    test "a first frame later than two seconds is collected" do
+      origin =
+        Peer.start(fn s ->
+          Process.sleep(2_500)
+          Fixture.whole(Fixture.read("text.sse")).(s)
+        end)
+
+      task =
+        Fixture.run(
+          Fixture.read("text.ai-text.json"),
+          Fixture.holding_sink(),
+          Fixture.settings(total_timeout_ms: 30_000, receive_timeout_ms: 10_000),
+          origin
+        )
+
+      frames = Fixture.release(task, 25, fn _ -> 20 end)
+      assert Enum.map(frames, & &1.seq) == Enum.to_list(0..24)
+      assert {:complete, _} = Task.await(task)
+    end
+
+    test "a run that ends before the wanted frames is named" do
+      origin =
+        Peer.start(fn s ->
+          :gen_tcp.send(s, "HTTP/1.1 529 Overloaded\r\ncontent-length: 0\r\n\r\n")
+        end)
+
+      task =
+        Fixture.run(
+          Fixture.read("text.ai-text.json"),
+          Fixture.holding_sink(),
+          Fixture.settings(),
+          origin
+        )
+
+      error = assert_raise RuntimeError, fn -> Fixture.release(task, 1, fn _ -> 20 end) end
+      assert error.message =~ "{:refused, :overloaded}"
+    end
   end
 
   describe "tool_call_split" do
@@ -186,7 +224,7 @@ defmodule Elzoo.ProviderStreamTest do
         )
 
       # The tool_start frame is held longest: no delta may be offered meanwhile.
-      frames = Fixture.release(14, &if(&1.chunk.kind == :tool_start, do: 400, else: 20))
+      frames = Fixture.release(task, 14, &if(&1.chunk.kind == :tool_start, do: 400, else: 20))
       assert {:complete, result} = Task.await(task)
       assert_receive {:request, ^origin, _, body}
       assert Jason.decode!(body) == Fixture.upstream("tool")
@@ -480,7 +518,7 @@ defmodule Elzoo.ProviderStreamTest do
           })
 
         task = Fixture.run(payload, Fixture.holding_sink(), Fixture.settings(), origin)
-        frames = Fixture.release(2, fn _ -> 20 end)
+        frames = Fixture.release(task, 2, fn _ -> 20 end)
         assert {:complete, result} = Task.await(task)
         refute_received {:held, _, _}
 
