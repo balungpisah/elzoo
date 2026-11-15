@@ -12,8 +12,8 @@ deadlock in its teardown. Issue #511: a test of
 `delivery/provider-stream` failed twice in the full local check at a
 fixed 2,000 ms window of its helper. The three share one task because
 each is low risk, none changes a Contract, and they take one gate: the
-small gate for `integration/sql` already selects the other two Pieces as
-dependants.
+small gate. It selects `assembly/run-engine` as a dependant of
+`integration/sql` and `delivery/provider-stream` as a changed Piece.
 
 Each part below is complete in itself. Make one commit for each part, so
 that a part can be reverted alone.
