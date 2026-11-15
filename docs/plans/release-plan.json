@@ -6528,7 +6528,7 @@
       "product_aims": ["P13"],
       "issue": 470,
       "url": "https://github.com/balungpisah/elzoo/issues/470",
-      "issue_body_sha256": "abfd640059beafab2a3a70f577fc6816f11c7a63c25f3b71be38af50dc13861d"
+      "issue_body_sha256": "8c91077292dc78c77270636d29894f0a7ea44da93c467c742faa579c1e4d1e3d"
     },
     {
       "id": "ELZ-218",
@@ -6719,20 +6719,20 @@
     },
     {
       "id": "ELZ-232",
-      "title": "ELZ-232 — A nested start is kept only when the control state has room for the child",
+      "title": "ELZ-232 — Each callable has a state bound that control reserves while the callable is open, and a nested start is kept only when there is room for it",
       "kind": "published",
       "release": "V1B",
       "stage": "pieces",
       "dependencies": ["ELZ-033", "ELZ-192", "ELZ-216"],
       "status": "published 2026-11-15",
       "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
-      "paths": ["tasks/ELZ-232-nested-start-room.md"],
+      "paths": ["tasks/ELZ-232-callable-state-bound.md"],
       "outputs": [],
-      "acceptance": "Piece assembly/run-engine in place: a nested start without room in the control state is refused with record_size and leaves no trace of the child; replay is equal; small gate.",
+      "acceptance": "Piece assembly/run-engine in place: each callable has a state bound that control reserves while it is open; a nested start without room is refused with record_size; the state of a closed callable leaves control; a state that grows after the start never fails a step; replay is equal; small gate.",
       "product_aims": ["P13"],
       "issue": 503,
       "url": "https://github.com/balungpisah/elzoo/issues/503",
-      "issue_body_sha256": "9a15271fd022fd95948c2e761d44acdacef22b7b50f20c28ff748e02c2de698b"
+      "issue_body_sha256": "b47dfd05d815afd908894135dd7b3215216a4d3acca171e5a4036c04d09934e6"
     }
   ],
   "entries": [

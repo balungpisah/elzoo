@@ -51,7 +51,13 @@ stops to `drain/1`: read both first.
   walks the state (`plain?/1`), encodes the control state, encodes
   each slot (`slot_fits?/1`), encodes the slot map again, encodes
   the requests, and encodes the whole state again with an ID of 160
-  bytes. Each slot is encoded three times.
+  bytes. Each slot is encoded three times. After ELZ-232 the fold of
+  a `:nested` record calls it once more, and its reserve holds one
+  more term: for each callable that is not closed, the state bound
+  of the callable (`state_bytes` of its node, 65,536 when the node
+  has none) minus the bytes of its stored state, and never less
+  than 0. So the state of each open callable is encoded once more,
+  beside its encoding inside the control state.
 - `binary/1` (about line 2922) uses the external term format with
   `:deterministic` and minor version 2, with no compression. So the
   size of a map is one tag byte, four bytes of arity and the sizes
@@ -96,7 +102,12 @@ Four changes. None changes a record, a reply, a view or a bound.
    a request is decoded at most once, also for a gate batch of 64
    entries.
 4. **`fits?/1` encodes each part once.** The control state, the
-   requests and each slot are encoded once. The size of the slot map
+   requests and each slot are encoded once. The state of each
+   callable that is not closed is encoded once, apart from the rest
+   of the control state: the control state is encoded without those
+   states, and its size comes by addition of the size of each such
+   state and of its key. The reserve term of ELZ-232 uses the same
+   sizes. The size of the slot map
    and of the whole record come by addition of those sizes, the key
    sizes and the fixed frame. The answer is equal to the answer of
    the old function for every state, at the exact byte of each
@@ -135,13 +146,19 @@ count. No test asserts a time.
    that changes nothing passes where the oracle says true and fails
    where it says false. Cover the control bound with its reserve
    (also through the `:configure` step), one slot, the slot map and
-   the request map. For the record bound show by numbers that the
-   other bounds keep it out of reach, and compare on states that
-   pass it together with another bound. Use states that the step
-   leaves as they are (no pending input, no kept finish, each
-   request with a slot that keeps it).
+   the request map. For the reserve of the callables (ELZ-232),
+   cover at the control bound: an open callable whose stored state
+   is smaller than its state bound, one whose stored state is
+   exactly its bound, one whose node has no `state_bytes`, and a
+   closed callable with no state. For the record bound show by
+   numbers that the other bounds keep it out of reach, and compare
+   on states that pass it together with another bound. Use states
+   that the step leaves as they are (no pending input, no kept
+   finish, each request with a slot that keeps it).
 5. **`each_part_is_encoded_once`**: for one step that changes
-   nothing, on a state of the shape of the sizing input, the bytes
+   nothing, on a state of the shape of the sizing input, and on one
+   more state with open nested callables whose stored states are
+   large, the bytes
    that `:erlang.term_to_binary/2` returns inside `step/2`, summed by
    return tracing in the test process, are at most the bytes of one
    encoding of the control state, the slots and the requests plus a
