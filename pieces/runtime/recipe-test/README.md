@@ -13,6 +13,7 @@ calls scripted. A graph that the scripted model gives is checked by `workflow/ru
 and run by `workflow/graph-run`. One restart of the engine can be asked for. With the spec
 member `skills`, the two tools of the skill source are answered by `workflow/skill`, so a skill
 load reaches the agent as a declaration, and a graph node can start an agent with a skill.
+With the spec member `gate`, a test gives the gate of the engine, so the engine can refuse a call.
 
 Compiled modules: `Elzoo.RecipeTest.ScriptedAdapter`, `Elzoo.RecipeTest.ModelBinding`,
 `Elzoo.RecipeTest.ToolBinding` and `Elzoo.RecipeTest.Glue`. `run/1` itself is in the
@@ -77,6 +78,7 @@ finds either.
 | `executable` | the path of a sandbox executable of `LuaSandbox.build/2`; it must be text when `tools` has a `:lua` entry, and it can be `nil` or text otherwise (the harness does not use it then) |
 | `restart_after` | `nil`, or a positive integer: the number of deliveries after which the engine restarts once (below) |
 | `skills` | `nil`, or exactly `%{id: id, files: files, descriptors: descriptors}`: `id` a text, `files` a map from a skill name to the `files` that `Skill.read/4` gave, `descriptors` a list (see "Skills") |
+| `gate` | `nil`, or a function of arity 2: the gate of the engine (see "The engine gate") |
 
 An entry of `tools` is exactly one of:
 
@@ -171,8 +173,34 @@ not asked again. The group `skill_load_after_restart` shows it with `restart_aft
 the restart falls while the call of a declared skill tool is held: one load action and one load
 outcome, `asked` holds the load once, the dropped call of the skill tool is `unknown`, and the
 model call after the restart holds the instructions in its system message and the skill tool in
-its tools. A refusal of a declared tool at use is only scripted here
-(`declared_tool_refused_at_use`).
+its tools. A refusal of a declared tool at use is scripted with a `{:refused, reason}` entry
+(`declared_tool_refused_at_use`), or comes from the gate of the engine (next section,
+`declared_tool_denied_by_gate`).
+
+## The engine gate
+
+With `gate: nil` the engine runs with the gate of the engine test helper, which allows every
+action, and a Run gives the same record as it did before this member existed.
+
+With `gate: f` (`f` of arity 2), every start of the engine, the one after the restart included,
+gets `gate: %{id: "recipe-test", version: 1, call: f}`. The harness passes `f` on unchanged: it
+does not call it, wrap it or read its result. The engine calls it as the README of
+`assembly/run-engine` says: for each checked action of a request, before Budget, Authorization
+and Approval, with the checked action (`{:PatternStep, %{"actions" => [action]}}`) and
+`%{proposer: principal, effect_class: class, tenant: tenant}`. The principal is the one of the
+engine test helper, `"principal"`; the spec has no member for it. Every agent tool call has one
+binding here, with the effect class `publish`, so the gate tells one tool from another by the
+alias in the payload of the action, and one principal from another by `proposer`.
+
+A denial `{:deny, reason}` is a `refused` outcome of the engine for that action: its schema is
+`elzoo.run-engine.refusal` and its payload holds the `reason` of the gate and the `gate_id`
+`"recipe-test"` and `gate_version` `1`. The call never reaches the harness: it uses no script
+entry and is not counted in `asked`. An agent reads it as
+`[tool call not completed: refused: reason]`. The group `declared_tool_denied_by_gate` shows it
+for a declared skill tool: the instructions of the skill stay in the system message and the tool
+stays in the tools, the call is refused by the gate for the principal `"principal"`, and the same
+rule for another principal lets the tool run and complete. The Authorization step of the engine
+is not what refuses here: the gate is.
 
 ## Start errors
 
@@ -180,7 +208,7 @@ Before any process starts, in this order; the first that fails is the result.
 
 | Error | When |
 | --- | --- |
-| `:invalid_spec` | `spec` is in another shape, an `executable` that is not text while `tools` has a `:lua` entry, an entry of `tools` in another form, a `restart_after` that is neither `nil` nor a positive integer, or `skills` in another form |
+| `:invalid_spec` | `spec` is in another shape, an `executable` that is not text while `tools` has a `:lua` entry, an entry of `tools` in another form, a `restart_after` that is neither `nil` nor a positive integer, `skills` in another form, or a `gate` that is neither `nil` nor a function of arity 2 (a spec with no `gate` key is in another shape) |
 | `{:invalid_binding, :model \| :tool}` | `Binding.load/1` of the module is not `{:ok, _}`; model first |
 | `{:adapter_not_allowed, :model \| :tool}` | the `adapter` of the binding is not in `adapters`; model first |
 | `{:invalid_script, key}` | the first key, in ascending term order, that is not a key of the form above, whose list holds an entry of another form, or whose entry holds a value that is not JSON data |
@@ -314,9 +342,12 @@ estimator_id: "recipe-test-bytes", estimator_version: 1}}`.
 - No `ask_person`, no approval, no resource, no store of a cut tool result (an agent tool
   result over its `max_bytes` gets the note `store_refused`). A skill load is answered by
   `Elzoo.Skill` and reaches the agent as a declaration, but only for an agent, only for the two
-  tools of the `skills.id` source, and a root agent does not start with a skill. A declared tool
-  that is refused at use is a scripted `refused` entry, not a policy refusal of the engine or the
-  registry. A file read is not tied to a loaded skill. A `loop` node fails at its first iteration,
+  tools of the `skills.id` source, and a root agent does not start with a skill. A `{:refused, reason}`
+  entry for a declared tool is a scripted refusal. With `gate`, a refusal of a declared tool at use
+  is the refusal of the engine gate that the test gives, for the principal of the engine test
+  helper: it is not a refusal by the Authorization step, by effect class, by a policy of the
+  context or by the registry, and the harness checks nothing about the gate. A file read is not
+  tied to a loaded skill. A `loop` node fails at its first iteration,
   because no wrapper gives `continue`.
 - A Lua run is real: its `wall_ms` is real time, not the clock of the harness. At most 256
   module calls of a Lua tool in a Run, and one restart.

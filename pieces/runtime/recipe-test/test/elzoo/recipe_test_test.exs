@@ -215,7 +215,8 @@ defmodule Elzoo.RecipeTestTest do
       tools: %{},
       executable: nil,
       restart_after: nil,
-      skills: nil
+      skills: nil,
+      gate: nil
     }
 
   # A graph root that calls an agent callable and a decision callable, and has two adapter
@@ -1040,6 +1041,89 @@ defmodule Elzoo.RecipeTestTest do
 
       assert system_text(third) == @system_alpha
       assert tool_names(third) == [@alpha_tool | @plain_tools]
+    end
+  end
+
+  describe "gate_shape" do
+    test "the member gate is nil or a function of arity 2" do
+      spec = skill_agent_spec(skill_script([{:completed, "tool value"}]))
+      refused(%{spec | gate: :nope}, :invalid_spec)
+      refused(%{spec | gate: %{}}, :invalid_spec)
+      refused(%{spec | gate: "gate"}, :invalid_spec)
+      refused(%{spec | gate: fn _ -> :allow end}, :invalid_spec)
+      refused(%{spec | gate: fn _, _, _ -> :allow end}, :invalid_spec)
+      refused(Map.delete(spec, :gate), :invalid_spec)
+    end
+  end
+
+  # The gate of the engine: it denies a call of the skill tool when the proposer is `proposer`.
+  defp deny_skill_tool_for(proposer) do
+    fn
+      {:PatternStep,
+       %{"actions" => [%{"kind" => "tool_call", "payload" => %{"alias" => @alpha_tool}}]}},
+      %{proposer: ^proposer} ->
+        {:deny, "not_permitted"}
+
+      _checked, _context ->
+        :allow
+    end
+  end
+
+  describe "declared_tool_denied_by_gate" do
+    test "the engine gate refuses the declared tool for the principal; the harness never sees it" do
+      spec = %{skill_agent_spec(skill_script([])) | gate: deny_skill_tool_for("principal")}
+      assert {:ok, record} = RecipeTest.run(spec)
+      assert record.outcome == :completed
+      assert record.unused == %{}
+
+      # The skill tool never reached the harness, so no script entry was needed or counted.
+      assert record.asked == %{{:model, "scripted-model"} => 3, @load_alpha => 1}
+
+      assert [load] = record_outcomes(record, "d1:t:1:1")
+      assert load["outcome"] == "completed"
+
+      assert load["payload"] == %{
+               "declaration" => %{
+                 "skill" => %{"name" => "alpha", "instructions" => "Alpha instructions\n"},
+                 "listing" => %{"source" => "sk-1", "tools" => [tool("tool-identity-one")]}
+               }
+             }
+
+      # The refusal is the engine's: its schema, the reason of the gate, and the gate that refused.
+      assert [refused] = record_outcomes(record, "d1:t:2:1")
+      assert refused["outcome"] == "refused"
+      assert refused["schema_id"] == "elzoo.run-engine.refusal"
+
+      assert %{"reason" => "not_permitted", "gate_id" => "recipe-test", "gate_version" => 1} =
+               refused["payload"]
+
+      third = record_actions(record)["d1:m:3"]["payload"]
+
+      assert result_of(third, "c2") ==
+               {"agent-loop", "[tool call not completed: refused: not_permitted]"}
+
+      assert system_text(third) == @system_alpha
+      assert tool_names(third) == [@alpha_tool | @plain_tools]
+    end
+
+    test "the same gate does not refuse the tool for another principal" do
+      script = skill_script([{:completed, "tool value"}])
+      spec = %{skill_agent_spec(script) | gate: deny_skill_tool_for("another-principal")}
+      assert {:ok, record} = RecipeTest.run(spec)
+      assert record.outcome == :completed
+      assert record.unused == %{}
+
+      assert record.asked == %{
+               {:model, "scripted-model"} => 3,
+               @load_alpha => 1,
+               {:tool, @alpha_tool} => 1
+             }
+
+      assert [done] = record_outcomes(record, "d1:t:2:1")
+      assert done["outcome"] == "completed"
+
+      third = record_actions(record)["d1:m:3"]["payload"]
+      assert result_of(third, "c2") == {"recipe-test:tool", "tool value"}
     end
   end
 
