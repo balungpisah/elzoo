@@ -1342,8 +1342,6 @@ defmodule Elzoo.AgentLoopTest do
       {result("run:t:0:1", "Skill file text."), "[skill not loaded: not_a_declaration]"}
     ]
 
-    assert length(cases) == 5
-
     for {answer, line} <- cases do
       {state, [_, output]} = skill_trace([skill_start(), answer])
 

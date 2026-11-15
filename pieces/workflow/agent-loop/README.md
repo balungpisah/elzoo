@@ -70,8 +70,9 @@ is `id:t:N:I`, its store action `id:s:N:I`; the start load (see "Start load") is
 action `id:t:0:1`; the finish is `id:finish`. History
 entries (ELZ-140) use the same: the `:assistant` entry of turn `N` is `id:m:N`, the
 `:tool_result` entry of proposal `I` is `id:t:N:I`, the note of turn `N` is
-`id:n:N`, the note of the start load is `id:n:0`, and `:user` entry `K` (in order of arrival over the Run, the start is 1)
-is `id:u:K`. An entry that changes its kind keeps its `id`.
+`id:n:N`, the note of the start load is `id:n:0`, and `:user` entry `K` (in order of
+arrival over the Run, the start is 1) is `id:u:K`. An entry that changes its kind keeps
+its `id`.
 
 ## Step table
 
@@ -80,7 +81,8 @@ is `id:u:K`. An entry that changes its kind keeps its `id`.
 | new | `start` | one `:user` entry; model call 1 |
 | new | `start` that names a skill | one `:user` entry; "Start load": one tool action `id:t:0:1`, or a notice and model call 1 |
 | model | outcome of the open model call | "One model result" |
-| tools | outcome of the open start load, or of an open tool or ask action; `person_answer` of an open ask | "One turn", step 3 |
+| tools | outcome of an open tool or ask action; `person_answer` of an open ask | "One turn", step 3 |
+| tools | outcome of the open start load `id:t:0:1` | "Start load" |
 | stores | outcome of an open store action | "One turn", step 4 |
 | model, tools, stores | `message` | the text waits; no request |
 | new, model, tools, stores | `cancel`, `run_ended` | closed; no request |
@@ -248,8 +250,8 @@ not make are outside the Contract.
 - Upstream: the Contracts of `workflow/tool-registry`, `workflow/tool-result-limit`,
   `workflow/prompt-assembly`, `workflow/pattern-step`, `workflow/untrusted-content`
   and `integration/ai-text`; the pure `translate/2` of `integration/ai-text-anthropic`
-  and `integration/ai-text-openai` (used by `engine_refusal_as_content` only, which
-  is why they are dependencies); OTP `term_to_binary`.
+  and `integration/ai-text-openai` (used by `engine_refusal_as_content` and
+  `start_loads_skill` only, which is why they are dependencies); OTP `term_to_binary`.
 
 ## Needs and limits
 
