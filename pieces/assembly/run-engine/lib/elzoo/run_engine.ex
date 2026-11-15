@@ -287,7 +287,11 @@ defmodule Elzoo.RunEngine do
 
       state =
         if facts[:finish_callable],
-          do: put_in(state.control.callables[facts.finish_callable].closed, true),
+          do:
+            update_in(
+              state.control.callables[facts.finish_callable],
+              &(&1 |> Map.put(:closed, true) |> Map.delete(:state))
+            ),
           else: state
 
       # Only the first admitted finish of a child is kept.
@@ -325,7 +329,8 @@ defmodule Elzoo.RunEngine do
     end
   end
 
-  defp transition(state, %{kind: :nested, occurrence: key, facts: facts, at_ms: at} = record) do
+  defp transition(received, %{kind: :nested, occurrence: key, facts: facts, at_ms: at} = record) do
+    state = received
     slot = Map.fetch!(state.slots, key)
 
     if slot.phase == :ready and permitted?(state, slot, at) do
@@ -338,7 +343,8 @@ defmodule Elzoo.RunEngine do
         closed: false,
         parent: key,
         authority: slot.decision.permitted,
-        depth: state.control.callables[slot.callable].depth + 1
+        depth: state.control.callables[slot.callable].depth + 1,
+        state_bytes: Map.get(facts, :state_bytes, 65_536)
       }
 
       state = put_in(state.control.callables[callable], child)
@@ -362,14 +368,19 @@ defmodule Elzoo.RunEngine do
         "payload" => facts.payload
       }
 
-      invoke(
-        state,
-        Map.merge(record, %{
-          input: input,
-          correlation: %{occurrence: key}
-        }),
-        callable
-      )
+      {next, output} =
+        invoke(
+          state,
+          Map.merge(record, %{
+            input: input,
+            correlation: %{occurrence: key}
+          }),
+          callable
+        )
+
+      if fits?(next),
+        do: {next, output},
+        else: {release_and_deny(received, key, at, "record_size"), :none}
     else
       {state, :none}
     end
@@ -762,7 +773,7 @@ defmodule Elzoo.RunEngine do
       update_in(state.control.callables, fn callables ->
         Map.new(callables, fn
           {"root", node} -> {"root", node}
-          {id, node} -> {id, %{node | closed: true}}
+          {id, node} -> {id, node |> Map.put(:closed, true) |> Map.delete(:state)}
         end)
       end)
 
@@ -872,6 +883,7 @@ defmodule Elzoo.RunEngine do
     c = state.control
     node = Map.fetch!(c.callables, callable)
     {module, function} = node.mfa
+    bound = Map.get(node, :state_bytes, 65_536)
     {:ok, _} = PatternStep.decode(record.input)
     {:Transition, next_pattern, output} = apply(module, function, [node.state, record.input])
     true = output == :none or match?({:some, _}, output)
@@ -880,7 +892,7 @@ defmodule Elzoo.RunEngine do
 
     case output do
       :none ->
-        if bytes(next_pattern) <= 65_536 and plain?(next_pattern),
+        if bytes(next_pattern) <= bound and plain?(next_pattern),
           do: {put_in(state.control.callables[callable].state, next_pattern), :none},
           else: {classify(state, :invalid_pattern_state), :none}
 
@@ -902,7 +914,7 @@ defmodule Elzoo.RunEngine do
         cond do
           ordinal > c.cap ->
             state =
-              if bytes(next_pattern) <= 65_536 and plain?(next_pattern),
+              if bytes(next_pattern) <= bound and plain?(next_pattern),
                 do: put_in(state.control.callables[callable].state, next_pattern),
                 else: state
 
@@ -942,7 +954,7 @@ defmodule Elzoo.RunEngine do
 
             {classify(state, :over_cap), :none}
 
-          bytes(next_pattern) > 65_536 or not plain?(next_pattern) ->
+          bytes(next_pattern) > bound or not plain?(next_pattern) ->
             {classify(state, :invalid_pattern_state), :none}
 
           true ->
@@ -1207,7 +1219,8 @@ defmodule Elzoo.RunEngine do
             closed: false,
             parent: nil,
             authority: :none,
-            depth: 0
+            depth: 0,
+            state_bytes: 65_536
           }
         },
         lifecycle: %{
@@ -2009,7 +2022,10 @@ defmodule Elzoo.RunEngine do
     action = action(snapshot(s), key)
     facts = choose(s, slot.kind, fn -> action end).nested.(action)
 
-    if bytes(facts.initial_state) <= 65_536 and
+    bound = Map.get(facts, :state_bytes, 65_536)
+
+    if is_integer(bound) and bound >= 1 and bound <= 65_536 and
+         bytes(facts.initial_state) <= bound and
          check_payload(
            s,
            %{
@@ -3042,7 +3058,12 @@ defmodule Elzoo.RunEngine do
 
     reserved =
       (c.cap + 1 - map_size(c.receipts)) * 1_024 + active_count(state) * 4_096 +
-        pending_finish_bytes(state)
+        pending_finish_bytes(state) +
+        Enum.reduce(c.callables, 0, fn {_, node}, sum ->
+          if node.closed,
+            do: sum,
+            else: sum + max(0, Map.get(node, :state_bytes, 65_536) - bytes(node.state))
+        end)
 
     plain?(state) and bytes(c) + reserved <= @control_bytes and
       Enum.all?(state.slots, fn {_, slot} -> slot_fits?(slot) end) and
