@@ -2456,6 +2456,196 @@ defmodule Elzoo.RunEngineTest do
         refute_receive {:effect_started, _, _}
       end
     end
+
+    # ELZ-216: a Resource that refuses a dispatch as closing or closed leaves the action with
+    # the Resource; the engine goes on. Use B is queued behind use A. B's intent deadline
+    # (`intent_ms`) and slot deadline (`slot_ms`) are set by the caller.
+    defp queued_use(intent_ms, slot_ms, resource_owner \\ nil) do
+      payload = %{"run_id" => "run", "resource_name" => "document", "data" => %{}}
+
+      c =
+        fixture(
+          pattern:
+            {TestPattern, :step,
+             %{
+               requests: [
+                 request([action("open", "resource_open", payload)]),
+                 request([
+                   action("using", "resource_use", payload),
+                   action("queued", "resource_use", payload)
+                 ])
+               ]
+             }}
+        )
+
+      {owner, bindings} = resource(c)
+      owner = resource_owner || owner
+
+      use_binding = bindings["resource_use"]
+
+      bindings =
+        Map.put(bindings, "resource_use", %{
+          use_binding
+          | facts: fn a ->
+              facts = use_binding.facts.(a)
+
+              if a["id"] == "queued",
+                do: %{
+                  facts
+                  | deadline_ms: slot_ms,
+                    intent: %{facts.intent | deadline_ms: intent_ms}
+                },
+                else: facts
+            end
+        })
+
+      engine = start(c, resources: %{"document" => owner}, bindings: bindings)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, opening, _}, 5_000
+
+      assert {:ok, _} =
+               Elzoo.RunResource.command(owner, %{
+                 id: "opened",
+                 at_ms: 2_000,
+                 body:
+                   {:observed, ["tenant", "account", "effect", "publish", "open"],
+                    {:completed, %{opened_at_ms: 2_000}}}
+               })
+
+      assert {:ok, :applied} = RunEngine.input(engine, "opened", wake(), verified())
+      assert_receive {:effect_started, using, _}, 5_000
+      refute_receive {:effect_started, _, _}, 200
+
+      %{
+        c: c,
+        owner: owner,
+        bindings: bindings,
+        engine: engine,
+        opening: opening,
+        using: using
+      }
+    end
+
+    defp observe_use(owner, id, at_ms, observation) do
+      assert {:ok, _} =
+               Elzoo.RunResource.command(owner, %{
+                 id: "observed-" <> id,
+                 at_ms: at_ms,
+                 body: {:observed, ["tenant", "account", "effect", "publish", id], observation}
+               })
+    end
+
+    # B is active in the Resource, its intent expired, and the engine has read the cursor.
+    defp expired_intent(intent_ms \\ 10_000) do
+      t = queued_use(intent_ms, 40_000)
+      Agent.update(t.c.clock, fn _ -> intent_ms end)
+      observe_use(t.owner, "using", intent_ms, {:completed, %{}})
+      assert {:ok, :applied} = RunEngine.input(t.engine, "consume-use", wake(), verified())
+      refute_receive {:effect_started, _, _}, 300
+      t
+    end
+
+    test "expired_intent_does_not_halt" do
+      t = queued_use(10_000, 40_000)
+      %{c: c, owner: owner, engine: engine} = t
+      reservation = unit_state(c).slots[{2, 1}].reservation
+      assert budget_status(c, "root", 10_001) == %{committed: 0, reserved: 3}
+      Agent.update(c.clock, fn _ -> 10_000 end)
+      observe_use(owner, "using", 10_000, {:completed, %{}})
+      assert {:ok, :applied} = RunEngine.input(engine, "consume-use", wake(), verified())
+      refute_receive {:effect_started, _, _}, 300
+      v = view(engine)
+      assert v.reconciliation == nil
+      assert v.slots[{2, 0}].phase == :settled
+      assert %{phase: :running} = v.slots[{2, 1}]
+      refute Map.has_key?(v.slots[{2, 1}], :outcome)
+      assert unit_state(c).slots[{2, 1}].reservation == reservation
+      assert budget_status(c, "root", 10_001) == %{committed: 0, reserved: 3}
+
+      assert {:ok, %{state: %{phase: :open, active_action_id: "queued"}}} =
+               Elzoo.RunResource.read(owner, 0)
+
+      # A further input is applied and leaves B as it was.
+      assert {:ok, :applied} = RunEngine.input(engine, "again", wake(), verified())
+      refute_receive {:effect_started, _, _}, 300
+      v = view(engine)
+      assert v.reconciliation == nil
+      assert %{phase: :running} = v.slots[{2, 1}]
+      refute Map.has_key?(v.slots[{2, 1}], :outcome)
+      assert unit_state(c).slots[{2, 1}].reservation == reservation
+      assert budget_status(c, "root", 10_001) == %{committed: 0, reserved: 3}
+
+      send(t.opening, {:result, %{}})
+      send(t.using, {:result, %{}})
+    end
+
+    test "resource_outcome_settles_the_action" do
+      %{c: c, owner: owner, engine: engine} = expired_intent()
+      reservation = unit_state(c).slots[{2, 1}].reservation
+      assert budget_status(c, "root", 10_001) == %{committed: 0, reserved: 3}
+
+      observe_use(
+        owner,
+        "queued",
+        10_000,
+        {:failed, :not_dispatched, %{"reason" => "not_dispatched"}}
+      )
+
+      assert {:ok, :applied} = RunEngine.input(engine, "consume-failed", wake(), verified())
+      v = view(engine)
+      assert v.reconciliation == nil
+      assert %{phase: :settled, outcome: "failed"} = v.slots[{2, 1}]
+
+      assert [%{"outcome" => "failed", "payload" => %{"reason" => "failed"}}] =
+               outcome_records(c, "queued")
+
+      # The Resource gives no actual for a failed use: the engine keeps the reservation and
+      # the Budget is not released as zero.
+      slot = unit_state(c).slots[{2, 1}]
+      assert slot.actual == nil
+      assert slot.reservation == reservation
+      assert budget_status(c, "root", 10_001) == %{committed: 0, reserved: 3}
+    end
+
+    test "closing_resource_does_not_halt" do
+      t = queued_use(50_000, 50_000)
+      %{c: c, owner: owner, engine: engine} = t
+      observe_use(owner, "using", 3_000, {:completed, %{}})
+      Agent.update(c.clock, fn _ -> 40_000 end)
+      assert {:ok, :applied} = RunEngine.input(engine, "consume-use", wake(), verified())
+      refute_receive {:effect_started, _, _}, 300
+      v = view(engine)
+      assert v.reconciliation == nil
+      assert %{phase: :running} = v.slots[{2, 1}]
+      refute Map.has_key?(v.slots[{2, 1}], :outcome)
+      assert %{reservation: _} = unit_state(c).slots[{2, 1}]
+
+      assert {:ok, %{state: %{phase: :closing, active_action_id: "queued"}}} =
+               Elzoo.RunResource.read(owner, 0)
+
+      # The cleanup was committed by the same dispatch command, after the engine read the
+      # cursor: the engine starts it at its next input.
+      assert {:ok, :applied} = RunEngine.input(engine, "start-cleanup", wake(), verified())
+      assert_receive {:effect_started, cleanup, _}, 5_000
+      assert view(engine).slots[{2, 1}].phase == :running
+
+      assert {:ok, _} =
+               Elzoo.RunResource.command(owner, %{
+                 id: "cleaned",
+                 at_ms: 40_000,
+                 body:
+                   {:observed, ["tenant", "account", "effect", "publish", "cleanup"],
+                    {:completed, %{opened_at_ms: 2_000, closed_at_ms: 40_000}}}
+               })
+
+      assert {:ok, :applied} = RunEngine.input(engine, "consume-cleanup", wake(), verified())
+      v = view(engine)
+      assert v.reconciliation == nil
+      assert %{phase: :settled, outcome: "resource_lost"} = v.slots[{2, 1}]
+      send(cleanup, {:result, %{}})
+      send(t.opening, {:result, %{}})
+      send(t.using, {:result, %{}})
+    end
   end
 
   describe "Sizing and sanitized evidence" do
