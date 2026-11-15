@@ -111,6 +111,16 @@ generic router or child-Run action exists. `status/1` exposes committed phase,
 charge count, occurrence classifications/joins and reconciliation, not payloads,
 credentials, raw consent or opaque work references.
 
+A begin-Attempt or Approval-evidence control whose Run command is applied runs
+the release and then drains the engine, as `input/4` and pause/continue do, and
+replies only after that drain. So an approved root `finish` with a completed
+source ends the Run before the reply, and an approved `finish` of a nested child
+gives its parent the outcome before the reply. When the drain ends in a halt, the
+control replies with that error, as `input/4` does. A control whose Run command is
+refused or unchanged replies `{:error, {:run_control, _}}` and does not drain. A
+pause or continue control whose ID is the ID of a recorded input of another kind
+gives `{:error, :input_id_conflict}`, commits nothing, and the engine goes on.
+
 `input/4`, `control/4` and `status/1` each wait for the engine process for at most
 60,000 ms (one fixed limit; the functions take no limit operand or option).
 `status/1` is a call to the same process, so it replies only after an input that
@@ -396,7 +406,20 @@ of the size that was refused is admitted and kept whole), `smaller_finish_fits`
 (after the refusal a small finish of the same child is admitted and reaches the parent
 once the child cost is known) and `replay_is_equal (finish without room)` (a restart
 gives an equal view and an equal count of journal records, and the refused finish is
-not asked again); every earlier test of the Piece passes unchanged. The tests run
+not asked again), and the four groups of the control path:
+`approved_root_finish_ends_the_run` (an approved root `finish` with a completed source:
+the consent control replies `{:ok, :applied}`, and with no further input the view is
+`:terminal` with outcome `:completed` and no pending stop, and the Run has the outcome
+`completed`), `approved_child_finish_reaches_its_parent` (an approved `finish` of a
+nested child: after the reply the parent slot is settled `completed` with the payload
+of the finish and its actual), `begin_attempt_leaves_nothing_to_drain` (the three
+tests of `replay_is_equal` pass unchanged with the drain in place: a restart after the
+change of Attempt gives an equal view, slots, Budgets and count of journal records) and
+`control_id_of_a_protocol_input_is_a_conflict` (a pause and then a continue control
+with the ID of an applied input each give `{:error, :input_id_conflict}`; the engine
+is the same process, the count of journal records and the phase do not move and the
+next input is applied; a pause control sent twice with equal bytes gives
+`{:ok, :applied}` twice); every earlier test of the Piece passes unchanged. The tests run
 with disposable PostgreSQL, existing ready owners,
 ordinary OTP barriers and counting fake providers. Actual temporary engine
 mutations bypassing the committed gate boundary and first settlement, giving a
@@ -432,7 +455,13 @@ fail on the same slot). For the room of a
 child finish, the admission without the room check (`finish_without_room_is_refused`
 fails: the step of the kept finish raises, the durable unit stops, and the wait for the
 28 finishes ends in the test time-out) and the reserve without the bytes of the
-pending finishes (`finish_without_room_is_refused` fails in the same way) are negative controls. These finite scenarios are not a universal proof, production monitor,
+pending finishes (`finish_without_room_is_refused` fails in the same way) are negative controls. For the control path, the control without the drain after the
+release is a negative control (`approved_root_finish_ends_the_run` fails: the view has
+no outcome after the reply; `approved_child_finish_reaches_its_parent` fails: the parent
+slot is still running; the three tests of `replay_is_equal` pass), and so is the
+protocol clause of the original-record match without the guard on the kind of the
+candidate (`control_id_of_a_protocol_input_is_a_conflict` fails: the control call ends
+with an exit and the engine process is gone). These finite scenarios are not a universal proof, production monitor,
 physical no-send guarantee or proof of arbitrary callbacks/providers. Reused
 Cure laws retain their dependency-local scope; no new Cure proof is claimed.
 

@@ -7846,7 +7846,7 @@
       "baseline_status": "not in baseline (new row, RC-50)",
       "disposition": "ready-contract",
       "manifest": "pieces/assembly/run-engine/piece.json",
-      "manifest_sha256": "c9aa9adcb32e5d57a280929f3b6c3794b194aaf827896d18a960adf4c693370f",
+      "manifest_sha256": "75f077c8b6ec7cd05958e9729386f468270b79ae6e273f5bd6b9a576bb7e5a13",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
