@@ -54,6 +54,7 @@
       "summary": "Bootstrap exemplar",
       "disposition": "own",
       "phase": "P0",
+      "status": "ready",
       "manifest": "pieces/assembly/ingest-dedup-accumulate/piece.json"
     },
     {
@@ -61,6 +62,7 @@
       "summary": "Volatile JSON ingress through supervised dedup/accumulate Units",
       "disposition": "own",
       "phase": "P0",
+      "status": "ready",
       "manifest": "pieces/assembly/ingest-json-unit/piece.json"
     },
     {
@@ -100,6 +102,7 @@
       "summary": "Nested composition behind an outer port contract",
       "disposition": "own",
       "phase": "P0",
+      "status": "ready",
       "manifest": "pieces/core/assembly/piece.json"
     },
     {
@@ -107,6 +110,7 @@
       "summary": "Fused versus hop placement and delivery class",
       "disposition": "own",
       "phase": "P0",
+      "status": "ready",
       "manifest": "pieces/core/edge/piece.json"
     },
     {
@@ -122,6 +126,7 @@
       "summary": "Message/command/document/event envelope, correlation, return address, format indicator",
       "disposition": "own",
       "phase": "P0\u2192P1",
+      "status": "ready",
       "manifest": "pieces/core/envelope/piece.json"
     },
     {
@@ -137,6 +142,7 @@
       "summary": "Pure state transition; old operators, Rx transforms, EIP routing pieces",
       "disposition": "own",
       "phase": "P0",
+      "status": "ready",
       "manifest": "pieces/core/operator/piece.json"
     },
     {
@@ -144,6 +150,7 @@
       "summary": "Named typed input/output face; datatype channels and message endpoints",
       "disposition": "own",
       "phase": "P0\u2192P1",
+      "status": "ready",
       "manifest": "pieces/core/port/piece.json"
     },
     {
@@ -151,6 +158,7 @@
       "summary": "Pure compatible-interface and delivery selection by explicit rank",
       "disposition": "own",
       "phase": "P1",
+      "status": "ready",
       "manifest": "pieces/core/selection/piece.json"
     },
     {
@@ -158,6 +166,7 @@
       "summary": "Unit/port/edge declaration, compatibility and required-route checks",
       "disposition": "own",
       "phase": "P0\u2192P1",
+      "status": "ready",
       "manifest": "pieces/core/wiring/piece.json"
     },
     {
@@ -205,6 +214,7 @@
       "summary": "Idempotent Receiver/Consumer; duplicate delivery handling",
       "disposition": "own",
       "phase": "P0\u2192P1",
+      "status": "ready",
       "manifest": "pieces/delivery/idempotency/piece.json"
     },
     {
@@ -212,6 +222,7 @@
       "summary": "Dispatched external effect intent and unknown-outcome recovery",
       "disposition": "own",
       "phase": "demand-led",
+      "status": "ready",
       "manifest": "pieces/delivery/effect-intent/piece.json"
     },
     {
@@ -235,6 +246,7 @@
       "summary": "Stateless request/result correlation and named reply-wrapper validation",
       "disposition": "own",
       "phase": "P1",
+      "status": "ready",
       "manifest": "pieces/delivery/request-reply/piece.json"
     },
     {
@@ -258,6 +270,7 @@
       "summary": "Pure Envelope metadata filtering among declared Wiring edges",
       "disposition": "own",
       "phase": "P1",
+      "status": "ready",
       "manifest": "pieces/delivery/routing/piece.json"
     },
     {
@@ -265,6 +278,7 @@
       "summary": "Selected Map/Filter/Scan/Reduce/Window/Combine/Select/Errors",
       "disposition": "reuse",
       "phase": "P1",
+      "status": "ready",
       "manifest": "pieces/delivery/stream-combinators/piece.json"
     },
     {
@@ -272,6 +286,7 @@
       "summary": "Timer/interval/debounce/delay/timestamp and clock port",
       "disposition": "adapt",
       "phase": "P1",
+      "status": "ready",
       "manifest": "pieces/delivery/time/piece.json"
     },
     {
@@ -279,6 +294,7 @@
       "summary": "Pure caller-supplied payload transformation into an explicit output Envelope",
       "disposition": "own",
       "phase": "P1",
+      "status": "ready",
       "manifest": "pieces/delivery/transformation/piece.json"
     },
     {
@@ -486,6 +502,7 @@
       "summary": "Hash/HMAC/signature/password/TLS/compression",
       "disposition": "adapt",
       "phase": "P3\u2192P4",
+      "status": "ready",
       "manifest": "pieces/integration/crypto/piece.json"
     },
     {
@@ -493,6 +510,7 @@
       "summary": "Optional typed Cure-to-Jason string bridge",
       "disposition": "adapt",
       "phase": "P0",
+      "status": "ready",
       "manifest": "pieces/integration/cure-json/piece.json"
     },
     {
@@ -500,6 +518,7 @@
       "summary": "HTTP client/server, URL/cookies, WebSocket/SSE, webhook",
       "disposition": "adapt",
       "phase": "P3",
+      "status": "ready",
       "manifest": "pieces/integration/http/piece.json"
     },
     {
@@ -523,6 +542,7 @@
       "summary": "JSON codec and AI/schema parsing boundary",
       "disposition": "adapt",
       "phase": "P0",
+      "status": "ready",
       "manifest": "pieces/integration/json/piece.json"
     },
     {
@@ -620,6 +640,7 @@
       "summary": "Service/channel/process adapter boundary and result translation",
       "disposition": "own",
       "phase": "P0\u2192P1",
+      "status": "ready",
       "manifest": "pieces/runtime/adapter/piece.json"
     },
     {
@@ -635,6 +656,7 @@
       "summary": "Host/application start and effect dispatch; old engine host",
       "disposition": "adapt",
       "phase": "P0",
+      "status": "ready",
       "manifest": "pieces/runtime/host/piece.json"
     },
     {
@@ -650,6 +672,7 @@
       "summary": "Registered names, local process groups and service discovery",
       "disposition": "reuse",
       "phase": "P2\u2192P4",
+      "status": "ready",
       "manifest": "pieces/runtime/registry/piece.json"
     },
     {
@@ -657,6 +680,7 @@
       "summary": "Supervisor/tree, let-it-crash, restart policy",
       "disposition": "reuse",
       "phase": "P0",
+      "status": "ready",
       "manifest": "pieces/runtime/supervision/piece.json"
     },
     {
@@ -672,6 +696,7 @@
       "summary": "Unit shell, state ownership and mailbox; old gen_server, singular update queue",
       "disposition": "adapt",
       "phase": "P0",
+      "status": "ready",
       "manifest": "pieces/runtime/unit/piece.json"
     },
     {

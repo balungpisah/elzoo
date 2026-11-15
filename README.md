@@ -32,7 +32,7 @@ See [consuming pieces](docs/consuming.md) for composition, updates and limits.
 
 Install Elixir **1.20.4**, Erlang/OTP **29.1.2** (also pinned in
 `.tool-versions`) and Git. To join from another machine, install GitHub CLI
-and authenticate an account with access to the private repository:
+and authenticate an account that may push task branches:
 
 ```sh
 gh repo clone balungpisah/elzoo
@@ -73,12 +73,13 @@ gh issue list --repo balungpisah/elzoo --state open
 Agents push progress on their claimed task branches; reviewed merges update
 `main` for everyone. Each machine keeps its own checkout and build artifacts.
 GitHub issues and remote branches hold the shared coordination state.
-CI runs on pushes and PRs. The current GitHub plan does not support protected
-branches for this private repository, so agents must observe the documented
-review/check requirements before merging.
+CI runs on pushes and PRs. `main` is a protected branch: it requires the checks
+`check-hosted` and `gleam-hosted` and refuses a force push. The review rule and
+the merge queue are in [AGENTS.md](AGENTS.md), sections 6 and 7.
 
-The bootstrap harness (ELZ-001) is accepted. The first open task is
-[ELZ-002: contracts and typed composition](https://github.com/balungpisah/elzoo/issues/2).
+The bootstrap harness (ELZ-001) is accepted. Open tasks are the GitHub
+issues with the label `task`; [AGENTS.md](AGENTS.md) section 2 shows how to pick
+one.
 
 Work follows the task dependencies and working-assembly milestones. The old
 Zoo's custom task engine and proof-first gate cycle are not prerequisites here.
@@ -106,7 +107,7 @@ External libraries remain upstream implementations. Elzoo owns the correctness
 of its wrappers, declared assumptions and composition. Use a library directly
 when its existing contract is enough; add an adapter only for a real boundary.
 
-Private development repository: <https://github.com/balungpisah/elzoo>.
+Development repository: <https://github.com/balungpisah/elzoo>.
 
 Elzoo-owned code is [Apache-2.0](LICENSE). Upstream libraries retain their own
-licenses. The private repository’s access permissions are unchanged.
+licenses.

@@ -192,9 +192,9 @@ class ServicesCase(unittest.TestCase):
         shutil.copy(ROOT / ws.WORKFLOW, root / ws.WORKFLOW)
         return root
 
-    def services(self, root, **kw):
+    def services(self, root, runner=None, **kw):
         clock = Clock()
-        return ws.Services(root, runner=self.docker, env={"HOME": str(self.tmp)}, out=self.lines.append,
+        return ws.Services(root, runner=runner or self.docker, env={"HOME": str(self.tmp)}, out=self.lines.append,
                            sleep=clock.sleep, clock=clock, wait_s3=lambda base: None,
                            check_s3=lambda base, a, s: self.s3_checks.append((base, a, s)),
                            obtain=lambda arch: (BINARY, "cache"), query=self.docker.pg_query, **kw)
@@ -317,8 +317,8 @@ class Up(ServicesCase):
         self.assertEqual(("elzoo-test", "us-east-1"), (values["ELZOO_TEST_S3_BUCKET"], values["ELZOO_TEST_S3_REGION"]))
         self.assertEqual([(values["ELZOO_TEST_S3_URL"], values["ELZOO_TEST_S3_ACCESS_KEY_ID"],
                            values["ELZOO_TEST_S3_SECRET_ACCESS_KEY"])], self.s3_checks)
-        # the temporary Docker env files are gone; only the env file and the lock stay
-        self.assertEqual({"env.sh", "lock"}, {p.name for p in (root / ws.STATE_DIR).iterdir()})
+        # the temporary Docker env files are gone; only the env file stays (the lock is outside the directory)
+        self.assertEqual({"env.sh"}, {p.name for p in (root / ws.STATE_DIR).iterdir()})
 
     def test_the_credentials_never_appear_in_argv_or_in_the_output(self):
         root = self.worktree()
@@ -775,11 +775,11 @@ class Hardening(ServicesCase):
             with real(path) as handle:
                 calls.append(path)
                 if len(calls) == 1:
-                    # A new directory (new inode) that holds the same lock file (same inode, moved).
-                    old = path.parent.with_name("old-state")
-                    path.parent.rename(old)
-                    path.parent.mkdir()
-                    (old / "lock").rename(path)
+                    # A new state directory (new inode); the lock file (outside it) is the same file.
+                    state = root / ws.STATE_DIR
+                    old = state.with_name("old-state")
+                    state.rename(old)
+                    state.mkdir()
                     old.rmdir()
                 yield handle
         ws.lock = replacing
@@ -789,26 +789,29 @@ class Hardening(ServicesCase):
 
     def test_a_lock_file_that_is_a_symbolic_link_is_not_followed(self):
         root = self.worktree()
-        (root / ws.STATE_DIR).mkdir(mode=0o700)
+        services = self.services(root)
+        services.lock_path.parent.mkdir(mode=0o700, parents=True)
         target = self.tmp / "elsewhere-lock"
-        (root / ws.STATE_DIR / "lock").symlink_to(target)
-        with self.assertRaises(OSError):
-            self.services(root).up()
+        services.lock_path.symlink_to(target)
+        for command in ("up", "down"):
+            with self.subTest(command=command), self.assertRaises(OSError):
+                getattr(self.services(root), command)()
         self.assertFalse(os.path.lexists(target))
         self.assertEqual({}, self.docker.containers)
 
-    def racing_lock(self, rounds):
+    def racing_lock(self, root, rounds):
         """ws.lock, but a parallel `down` removes the state directory while the first `rounds` callers wait."""
         real, calls = ws.lock, []
+        state = root / ws.STATE_DIR
 
         @contextlib.contextmanager
         def racing(path):
             with real(path) as handle:
                 calls.append(path)
                 if len(calls) <= rounds:
-                    for child in path.parent.iterdir():
+                    for child in state.iterdir():
                         child.unlink()
-                    path.parent.rmdir()
+                    state.rmdir()
                 yield handle
         ws.lock = racing
         self.addCleanup(setattr, ws, "lock", real)
@@ -816,14 +819,14 @@ class Hardening(ServicesCase):
 
     def test_up_takes_the_lock_again_when_down_removed_the_directory_meanwhile(self):
         root = self.worktree()
-        calls = self.racing_lock(1)
+        calls = self.racing_lock(root, 1)
         self.assertEqual(0, self.services(root).up())
         self.assertEqual(2, len(calls))
         self.assertTrue(ws.read_env(root / ws.STATE_DIR / ws.ENV_FILE))
 
     def test_up_stops_with_a_clear_message_when_the_directory_keeps_changing(self):
         root = self.worktree()
-        self.racing_lock(99)
+        self.racing_lock(root, 99)
         with self.assertRaisesRegex(ws.Stop, "removed or replaced while this command waited"):
             self.services(root).up()
 
@@ -901,6 +904,116 @@ class Down(ServicesCase):
         self.services(root).down()
         self.assertEqual(["notes.txt"], [p.name for p in (root / ws.STATE_DIR).iterdir()])
 
+    def test_down_twice_is_harmless(self):
+        root = self.worktree()
+        self.services(root).up()
+        for round_ in ("first", "second"):
+            with self.subTest(round=round_):
+                self.lines.clear()
+                self.assertEqual(0, self.services(root).down())
+                self.assertFalse((root / ws.STATE_DIR).exists())
+                self.assertEqual({}, self.docker.containers)
+        self.assertTrue(any("removed=nothing" in line for line in self.lines), self.lines)
+        self.assertTrue(self.services(root).lock_path.is_file())
+
+    def test_down_removes_an_old_lock_file_left_in_the_state_directory(self):
+        root = self.worktree()
+        (root / ws.STATE_DIR).mkdir(mode=0o700)
+        (root / ws.STATE_DIR / "lock").write_text("")
+        self.assertEqual(0, self.services(root).down())
+        self.assertFalse((root / ws.STATE_DIR).exists())
+
+    def test_the_lock_is_one_private_file_for_each_worktree_outside_the_state_directory(self):
+        a, b = self.worktree("a"), self.worktree("b")
+        lock_a, lock_b = self.services(a).lock_path, self.services(b).lock_path
+        self.assertEqual(ws.cache_dir({"HOME": str(self.tmp)}) / "locks" / f"{ws.identity(a)[0]}.lock", lock_a)
+        self.assertNotEqual(lock_a, lock_b)
+        self.services(a).up()
+        self.assertTrue(lock_a.is_file())
+        self.assertEqual(0o600, stat.S_IMODE(lock_a.stat().st_mode))
+        self.assertEqual(0o700, stat.S_IMODE(lock_a.parent.stat().st_mode))
+        self.assertNotIn(lock_a.name, [p.name for p in (a / ws.STATE_DIR).iterdir()])
+        self.services(a).down()
+        self.assertTrue(lock_a.is_file())      # down never removes it
+
+    def start(self, call):
+        """Run call() in a thread: (thread, result box). The box holds `rc` or `error` when it ended."""
+        box = {}
+
+        def target():
+            try:
+                box["rc"] = call()
+            except BaseException as error:  # noqa: BLE001 - reported to the test
+                box["error"] = error
+        thread = threading.Thread(target=target, daemon=True)
+        thread.start()
+        return thread, box
+
+    def removals(self):
+        return (self.docker.argv_of("docker", "rm") + self.docker.argv_of("docker", "network", "rm")
+                + self.docker.argv_of("docker", "volume", "rm"))
+
+    def test_down_without_a_state_directory_holds_the_lock(self):
+        root = self.worktree()
+        self.services(root).up()
+        shutil.rmtree(root / ws.STATE_DIR)         # the services run on; only the state directory is gone
+        lock_path = self.services(root).lock_path
+        self.docker.calls.clear()
+        with ws.lock(lock_path):                   # a real second holder: another open file description
+            thread, box = self.start(self.services(root).down)
+            thread.join(0.3)
+            self.assertTrue(thread.is_alive(), box)
+            self.assertEqual([], self.removals())
+            self.assertEqual(2, len(self.docker.containers))
+        thread.join(5)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual({"rc": 0}, box)
+        self.assertEqual({}, self.docker.containers)
+        self.assertEqual({}, {k: v for k, v in self.docker.volumes.items() if v.get(ws.LABEL_ID)})
+
+    def test_up_and_down_of_one_worktree_do_not_overlap(self):
+        root = self.worktree()
+        self.services(root).up()
+        self.docker.calls.clear()
+        in_down, release = threading.Event(), threading.Event()
+
+        def pausing(argv, **kw):                   # `down` stops at its first removal until released
+            if argv[:2] == ["docker", "rm"] and not in_down.is_set():
+                in_down.set()
+                self.assertTrue(release.wait(5))
+            return self.docker(argv, **kw)
+        down, down_box = self.start(self.services(root, runner=pausing).down)
+        self.assertTrue(in_down.wait(5))
+        up, up_box = self.start(self.services(root).up)
+        up.join(0.3)
+        self.assertTrue(up.is_alive(), up_box)     # up waits for the running down
+        self.assertEqual([], self.docker.argv_of("docker", "volume", "create"))
+        release.set()
+        down.join(5)
+        up.join(5)
+        self.assertFalse(down.is_alive() or up.is_alive())
+        self.assertEqual({"rc": 0}, down_box)
+        self.assertEqual({"rc": 0}, up_box)        # no "removed or replaced while this command waited"
+        order = [c["argv"][:3] for c in self.docker.calls]
+        last_removal = max(i for i, argv in enumerate(order) if argv[:2] == ["docker", "rm"]
+                           or argv[:3] in (["docker", "volume", "rm"], ["docker", "network", "rm"]))
+        first_create = min(i for i, argv in enumerate(order) if argv[:3] == ["docker", "volume", "create"])
+        self.assertLess(last_removal, first_create)
+        self.assertEqual(2, len(self.docker.containers))
+        self.assertTrue(ws.read_env(root / ws.STATE_DIR / ws.ENV_FILE))
+
+    def test_two_worktrees_do_not_share_a_lock(self):
+        a, b = self.worktree("a"), self.worktree("b")
+        self.assertNotEqual(self.services(a).lock_path, self.services(b).lock_path)
+        with ws.lock(self.services(a).lock_path):
+            for command in ("up", "down"):
+                with self.subTest(command=command):
+                    thread, box = self.start(getattr(self.services(b), command))
+                    thread.join(5)
+                    self.assertFalse(thread.is_alive())
+                    self.assertEqual({"rc": 0}, box)
+            self.assertEqual({}, self.docker.containers)
+
     def test_two_worktrees_get_two_servers_on_two_ports(self):
         a, b = self.worktree("a"), self.worktree("b")
         self.services(a).up()
@@ -947,7 +1060,8 @@ class CommandLine(unittest.TestCase):
         ident = ws.identity(gone.resolve())[0]
         docker.containers["left"] = {"labels": {ws.LABEL_ID: ident}, "image": IMAGE, "running": True}
         lines = []
-        self.assertEqual(0, ws.main(["down", "--worktree", str(gone)], runner=docker, out=lines.append, env={}))
+        self.assertEqual(0, ws.main(["down", "--worktree", str(gone)], runner=docker, out=lines.append,
+                                    env={"HOME": str(tmp)}))
         self.assertEqual({}, docker.containers)
 
     def test_down_of_a_path_inside_a_worktree_never_resolves_to_the_enclosing_checkout(self):
@@ -960,10 +1074,11 @@ class CommandLine(unittest.TestCase):
         docker.containers["enclosing"] = {"labels": {ws.LABEL_ID: ws.identity(top)[0]}, "image": IMAGE,
                                           "running": True}
         lines = []
-        self.assertEqual(1, ws.main(["down", "--worktree", str(inner)], runner=docker, out=lines.append, env={}))
+        env = {"HOME": str(tmp)}
+        self.assertEqual(1, ws.main(["down", "--worktree", str(inner)], runner=docker, out=lines.append, env=env))
         self.assertIn("enclosing", docker.containers)
         self.assertIn("not its top level", lines[-1])
-        self.assertEqual(0, ws.main(["down", "--worktree", str(top)], runner=docker, out=lines.append, env={}))
+        self.assertEqual(0, ws.main(["down", "--worktree", str(top)], runner=docker, out=lines.append, env=env))
         self.assertEqual({}, docker.containers)
 
     def test_an_os_error_is_reported_with_exit_1_and_no_traceback(self):

@@ -55,6 +55,14 @@ defmodule Elzoo.CureConsumerCase do
   def consumer_test_modules, do: @consumer_test_modules
   def postgres_providers, do: ~w(postgrex ecto_sql oban)
 
+  # ELZ-218: the text of the `test/test_helper.exs` of a copied consumer, in one place. A default
+  # `assert_receive` asserts that a message arrives, not a time, so the consumer gets 5,000 ms as
+  # test/test_helper.exs does (ELZ-189 chose that value). `refute_receive` keeps its default.
+  def consumer_test_helper({:ok, ms}),
+    do: "ExUnit.start(seed: 0, timeout: #{ms}, assert_receive_timeout: 5_000)\n"
+
+  def consumer_test_helper(:error), do: "ExUnit.start(seed: 0, assert_receive_timeout: 5_000)\n"
+
   using do
     quote do
       import Elzoo.CureConsumerCase,
@@ -165,11 +173,7 @@ defmodule Elzoo.CureConsumerCase do
     ai_text_only? = ids == [@ai_text_id]
     if ai_text_only?, do: assert_no_ai_text_provider!(plan)
 
-    helper =
-      case Keyword.fetch(opts, :inner_timeout) do
-        {:ok, ms} -> "ExUnit.start(seed: 0, timeout: #{ms})\n"
-        :error -> "ExUnit.start(seed: 0)\n"
-      end
+    helper = consumer_test_helper(Keyword.fetch(opts, :inner_timeout))
 
     File.write!(Path.join(ctx.destination, "test/test_helper.exs"), helper)
 

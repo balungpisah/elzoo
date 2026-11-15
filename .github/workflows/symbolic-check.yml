@@ -57,6 +57,7 @@ jobs:
       - run: python3 scripts/test-merge-queue.py
       - run: python3 scripts/test-ci-minio.py
       - run: python3 scripts/test-ci-change-class.py
+      - run: python3 scripts/test-worker-services.py
       - run: python3 scripts/test-ci-skip.py
       - name: Decide whether the full check is redundant
         id: skip

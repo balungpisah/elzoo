@@ -3534,10 +3534,10 @@ Publication copy: [tasks/ELZ-231-dynamic-units-start-limit.md](../../tasks/ELZ-2
 
 ### ELZ-232
 
-ELZ-232 — A nested start is kept only when the control state has room for the child
+ELZ-232 — Each callable has a state bound that control reserves while the callable is open, and a nested start is kept only when there is room for it
 
-Publication copy: [tasks/ELZ-232-nested-start-room.md](../../tasks/ELZ-232-nested-start-room.md).
+Publication copy: [tasks/ELZ-232-callable-state-bound.md](../../tasks/ELZ-232-callable-state-bound.md).
 
 **Product aims:** P13.
 
-**Acceptance:** Piece assembly/run-engine in place: a nested start without room in the control state is refused with record_size and leaves no trace of the child; replay is equal; small gate.
+**Acceptance:** Piece assembly/run-engine in place: each callable has a state bound that control reserves while it is open; a nested start without room is refused with record_size; the state of a closed callable leaves control; a state that grows after the start never fails a step; replay is equal; small gate.
