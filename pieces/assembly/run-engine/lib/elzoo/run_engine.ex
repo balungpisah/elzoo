@@ -2619,8 +2619,10 @@ defmodule Elzoo.RunEngine do
                        do: dispatch(acc, key, %{slot | phase: :ready})
                      )
 
-              with {:ok, acc} <- result,
-                   do: {:cont, {:ok, acc}}
+              case result do
+                {:ok, acc} -> {:cont, {:ok, acc}}
+                other -> {:halt, other}
+              end
 
             {:ok, _, %{approval: :waiting}} ->
               {:cont, {:ok, acc}}
