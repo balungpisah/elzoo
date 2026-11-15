@@ -6767,6 +6767,23 @@
       "issue": 516,
       "url": "https://github.com/balungpisah/elzoo/issues/516",
       "issue_body_sha256": "19ed8439c2780104c4ccbec5794955013aa6c8fc7680fceb781b7cacf8216ebe"
+    },
+    {
+      "id": "ELZ-225",
+      "title": "ELZ-225 — The number of VM launches of one full `mix check` and their share of the time are recorded, and `AGENTS.md` names the one-launch way to repeat a test",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033"],
+      "status": "published 2026-11-15",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-225-check-launch-count.md"],
+      "outputs": [],
+      "acceptance": "A measurement and one sentence, documents only: one full mix check counted by launches of the VM, the count by group, the two medians, the share and the decision line in the CI guide; AGENTS.md section 4 names the one-launch way to repeat a test; roadmap checks and the docs-only hosted check.",
+      "product_aims": ["P13"],
+      "issue": 523,
+      "url": "https://github.com/balungpisah/elzoo/issues/523",
+      "issue_body_sha256": "e18f2a8820eba96a6287804080ae085a19794c655029b48ddfb0e3c77187ea1e"
     }
   ],
   "entries": [

@@ -185,8 +185,10 @@ agent writes in a worktree at a time.
 - Write a file under `docs/work/` only when the task body names that file as a
   deliverable. The pull request body is the record of the task.
 - Test named Contract boundaries adversarially; a first green run alone is not
-  enough. Make a negative control by a temporary edit in the worktree, run the
-  test, record the failure, then revert the edit. Never commit the edit. A
+  enough. To repeat a test, use one launch: `mix test <path>
+  --repeat-until-failure <n>`, not a shell loop. Make a negative control by a
+  temporary edit in the worktree, run the test, record the failure, then revert
+  the edit. Never commit the edit. A
   scratch copy does not work when the test finds the file by its path.
 
 ## 5. Local gate, then pull request
