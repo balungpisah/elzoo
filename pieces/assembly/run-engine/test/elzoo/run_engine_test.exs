@@ -6398,4 +6398,172 @@ defmodule Elzoo.RunEngineTest do
       bound_holds!(c)
     end
   end
+
+  # ELZ-212. A control that applies its Run command drains before it replies.
+  defp finish_under_ask(c) do
+    require_approval(c)
+    Map.update!(c.opts[:bindings], "finish", &%{&1 | effect_class: "publish"})
+  end
+
+  defp approval_key(c, view, action_id) do
+    assert slot_by(view, action_id).phase == :approval
+    {:ok, run} = Run.status(c.run, "run")
+    assert [%{request_key: key}] = run.approvals
+    key
+  end
+
+  defp consent_control(engine, key) do
+    bounded(
+      fn ->
+        RunEngine.control(
+          engine,
+          "consent",
+          %{kind: :approval_evidence, request_key: key, evidence: consent(key)},
+          verified()
+        )
+      end,
+      60_000
+    )
+  end
+
+  describe "approved_root_finish_ends_the_run" do
+    test "the consent control replies after the drain: the Run is completed with no further input" do
+      root = [
+        request([action("src", "local_work")]),
+        request([finish_action("root-done", %{"action_id" => "src"})])
+      ]
+
+      c = fixture(pattern: {TestPattern, :scripted, %{name: "root", script: root}})
+      bindings = finish_under_ask(c)
+      engine = start(c, bindings: bindings)
+      assert {:ok, :applied} = bounded(fn -> send_input(engine) end, 60_000)
+
+      view =
+        wait_for(
+          engine,
+          &(slot_by(&1, "root-done") |> then(fn s -> s && s.phase == :approval end)),
+          2_000
+        )
+
+      assert view.outcome == nil
+      assert slot_by(view, "src").phase == :settled
+      key = approval_key(c, view, "root-done")
+
+      assert {:ok, :applied} = consent_control(engine, key)
+
+      # No wait and no further input: the reply came after the drain.
+      view = view(engine)
+      assert view.outcome == :completed
+      assert view.phase == :terminal
+      assert view.stop_pending == nil
+      assert {:ok, %{outcome: :completed}} = Run.status(c.run, "run")
+    end
+  end
+
+  describe "approved_child_finish_reaches_its_parent" do
+    test "the consent control for the finish of a child replies after the parent got the outcome" do
+      payload = %{"choice" => "approve", "score" => 3}
+
+      {c, bindings} =
+        nested_setup(%{
+          "nested" => [
+            request([action("work", "local_work")]),
+            request([finish_action("done", payload)])
+          ]
+        })
+
+      bindings = Map.update!(bindings, "finish", &%{&1 | effect_class: "publish"})
+      require_approval(c)
+      engine = start(c, bindings: bindings)
+      assert {:ok, :applied} = bounded(fn -> send_input(engine) end, 60_000)
+
+      # The finish of the child waits for consent; the parent is still running.
+      wait_unit(
+        c,
+        fn _ -> match?({:ok, %{approvals: [_ | _]}}, Run.status(c.run, "run")) end,
+        2_000
+      )
+
+      assert slot_by(view(engine), "nested").phase == :running
+      {:ok, run} = Run.status(c.run, "run")
+      assert [%{request_key: key}] = run.approvals
+      refute_receive {:pattern_input, "root", %{"action_id" => "nested"}}, 50
+
+      assert {:ok, :applied} = consent_control(engine, key)
+
+      # No wait and no further input: the reply came after the drain.
+      parent = slot_by(view(engine), "nested")
+      assert parent.phase == :settled
+      assert parent.outcome == "completed"
+
+      assert_receive {:pattern_input, "root", %{"action_id" => "nested"} = input}, 1_000
+
+      assert %{
+               "kind" => "action_outcome",
+               "outcome" => "completed",
+               "schema_id" => "result",
+               "schema_version" => 1,
+               "payload" => ^payload
+             } = input
+
+      # The child's one local_work step was the only cost: it reached the parent.
+      assert unit_state(c).slots[{1, 0}].actual == 1
+      assert %{committed: 1, reserved: 0} = budget_status(c, "1:0")
+    end
+  end
+
+  describe "control_id_of_a_protocol_input_is_a_conflict" do
+    test "a pause or continue control with the ID of an applied input is refused and the engine goes on" do
+      c = fixture(pattern: {TestPattern, :step, %{requests: [request([action("a")])]}})
+      engine = start(c, bindings: c.opts[:bindings])
+      assert {:ok, :applied} = bounded(fn -> send_input(engine, "x") end, 60_000)
+      assert [{^engine, _}] = Registry.lookup(Elzoo.RunEngine.TestRegistry, c.prefix)
+
+      # The local work of the input settles first, so that no record is still coming.
+      view = wait_for(engine, &settled?(&1, "a"), 2_000)
+      count = length(rows(c))
+      phase = view.phase
+
+      controls = [
+        {%{kind: :pause, pause_deadline: 50_000}, verified()},
+        {%{kind: :continue, person_id: "person", run_deadline: 60_000},
+         verified(%{verified_person: "person"})}
+      ]
+
+      for {command, context} <- controls do
+        assert {:error, :input_id_conflict} =
+                 bounded(fn -> RunEngine.control(engine, "x", command, context) end, 60_000)
+
+        assert Process.alive?(engine)
+        assert [{^engine, _}] = Registry.lookup(Elzoo.RunEngine.TestRegistry, c.prefix)
+        assert length(rows(c)) == count
+        assert view(engine).phase == phase
+      end
+
+      assert {:ok, :applied} =
+               bounded(fn -> RunEngine.input(engine, "next", wake(), verified()) end, 60_000)
+
+      assert Process.alive?(engine)
+    end
+
+    test "the same control ID sent twice with equal bytes is applied twice" do
+      c = fixture(pattern: {TestPattern, :step, %{requests: [request([action("a")])]}})
+      engine = start(c, bindings: c.opts[:bindings])
+      assert {:ok, :applied} = bounded(fn -> send_input(engine) end, 60_000)
+      command = %{kind: :pause, pause_deadline: 50_000}
+
+      assert {:ok, :applied} =
+               bounded(fn -> RunEngine.control(engine, "p", command, verified()) end, 60_000)
+
+      assert view(engine).phase == :paused
+      count = length(rows(c))
+      Agent.update(c.clock, &(&1 + 1))
+
+      assert {:ok, :applied} =
+               bounded(fn -> RunEngine.control(engine, "p", command, verified()) end, 60_000)
+
+      assert length(rows(c)) == count
+      assert view(engine).phase == :paused
+    end
+  end
 end

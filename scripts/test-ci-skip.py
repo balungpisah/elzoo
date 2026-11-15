@@ -116,6 +116,14 @@ class FakeApi:
         self.first_parent_runs = None      # None: one completed successful push run on the first parent
         self.first_parent_error = False
         self.first_parent_body = None      # a raw body instead of the listing
+        # ELZ-222: the pull request of the run's head. The default is one pull request of the second parent into main.
+        self.pull_number = 474
+        self.pulls_body = ...              # a raw body for `pulls?head=` (None is JSON null) instead of the generated listing
+        self.pull_changes = {}             # changes of the generated pull request
+        self.pulls_extra = []              # entries that are added after the generated pull request
+        self.timeline_pages = None         # a list of page bodies; None: one page without a base change
+        self.pulls_error = False           # the listing read fails (status 500)
+        self.timeline_error = False
 
     def build_jobs(self):
         gate = {"name": "Verify the GitHub-hosted runner", "conclusion": "success"}
@@ -143,6 +151,23 @@ class FakeApi:
         self.calls.append(path)
         if self.fail and self.fail in path:
             raise skip.Full(f"API {path} answered HTTP 500")
+        if path.startswith("pulls?"):
+            if self.pulls_error:
+                raise skip.Full(f"API {path.split('?')[0]} answered HTTP 500")
+            if self.pulls_body is not ...:
+                return copy.deepcopy(self.pulls_body)
+            branch = urllib.parse.parse_qs(path.split("?", 1)[1])["head"][0].split(":", 1)[1]
+            pull = dict(number=self.pull_number, state="closed",
+                        head=dict(ref=branch, sha=self.second, repo=dict(full_name="balungpisah/elzoo")),
+                        base=dict(ref="main", repo=dict(full_name="balungpisah/elzoo")))
+            pull.update(copy.deepcopy(self.pull_changes))
+            return [pull] + copy.deepcopy(self.pulls_extra)
+        if path.startswith("issues/") and "/timeline?" in path:
+            if self.timeline_error:
+                raise skip.Full(f"API {path.split('?')[0]} answered HTTP 500")
+            page = int(urllib.parse.parse_qs(path.split("?", 1)[1])["page"][0])
+            pages = self.timeline_pages if self.timeline_pages is not None else [[dict(event="commented"), dict(event="merged")]]
+            return copy.deepcopy(pages[page - 1]) if page <= len(pages) else []
         if "event=push" in path and "head_sha=" in path:     # ELZ-071: the push run of the first parent
             if self.first_parent_error:
                 raise skip.Full(f"API {path} answered HTTP 500")
@@ -773,6 +798,221 @@ class HttpTest(unittest.TestCase):
                 self.assertFalse(skip.redirect_allowed(location))
 
 
+class PullRequestBaseRule(unittest.TestCase):
+    """ELZ-222: the head of a pull_request run is evidence only when GitHub says that its one pull request targets main
+    and never changed its base."""
+
+    REPO = "balungpisah/elzoo"
+    PR_RUN = dict(event="pull_request", head_repository={"full_name": REPO})
+    COMMENTS = [dict(event="commented")] * 100
+
+    def scenario(self, name="merge"):
+        path = tempfile.mkdtemp(prefix="elzoo-skip-pr-")
+        self.addCleanup(shutil.rmtree, path, True)
+        repo, head, second = make_repo(path, name)
+        env = {"GITHUB_EVENT_NAME": "push", "GITHUB_REF": "refs/heads/main", "GITHUB_SHA": head,
+               "GITHUB_REPOSITORY": self.REPO, "GITHUB_TOKEN": "token"}
+        return env, (lambda *argv: sh(repo, *argv)), second
+
+    def api(self, second, **run):
+        api = FakeApi(second)
+        api.run.update(self.PR_RUN, **run)
+        return api
+
+    def pull(self, second, number=475, base="main", sha=None):
+        return dict(number=number, head=dict(ref="proposal/checked-command", sha=sha or second,
+                                             repo=dict(full_name=self.REPO)),
+                    base=dict(ref=base, repo=dict(full_name=self.REPO)))
+
+    def decide(self, api, env, run_git):
+        return skip.decide(env, run_git, api)
+
+    def full(self, api, env, run_git, pattern):
+        """The rule refuses with a reason that matches, and main() prints skip=false, writes it and returns 0."""
+        with self.assertRaisesRegex(skip.Full, pattern):
+            skip.decide(env, run_git, api)
+        output = pathlib.Path(tempfile.mkdtemp(prefix="elzoo-skip-out-")) / "github_output"
+        self.addCleanup(shutil.rmtree, output.parent, True)
+        lines = []
+        self.assertEqual(0, skip.main(dict(env, GITHUB_OUTPUT=str(output)), run_git, api, out=lines.append))
+        self.assertEqual("skip=false\n", output.read_text())
+        self.assertTrue(lines[0].startswith("ELZOO PUSH CHECK DECISION: full check runs ("), lines[0])
+
+    def test_pull_request_evidence_with_base_main_skips(self):
+        env, run_git, second = self.scenario()
+        api = self.api(second)
+        verdict, _reason, details = self.decide(api, env, run_git)
+        self.assertTrue(verdict)
+        self.assertEqual(900, details["run"])
+        pulls = [c for c in api.calls if c.startswith("pulls")]
+        self.assertEqual(["pulls?head=balungpisah%3Aproposal%2Fchecked-command&state=all&per_page=100"], pulls)
+        self.assertEqual(["issues/474/timeline?per_page=100&page=1"], [c for c in api.calls if "timeline" in c])
+        # the lookup follows the head branch of the run
+        api = self.api(second, head_branch="task/ELZ-222")
+        self.decide(api, env, run_git)
+        self.assertEqual(["pulls?head=balungpisah%3Atask%2FELZ-222&state=all&per_page=100"],
+                         [c for c in api.calls if c.startswith("pulls")])
+        # a timeline that ends on a short second page is read to its end
+        api = self.api(second)
+        api.timeline_pages = [self.COMMENTS, [dict(event="merged")]]
+        self.assertTrue(self.decide(api, env, run_git)[0])
+        self.assertEqual(["issues/474/timeline?per_page=100&page=1", "issues/474/timeline?per_page=100&page=2"],
+                         [c for c in api.calls if "timeline" in c])
+        # ten full pages are one too many only when the tenth is full: nine full pages and a short tenth skip
+        api = self.api(second)
+        api.timeline_pages = [self.COMMENTS] * 9 + [[dict(event="merged")]]
+        self.assertTrue(self.decide(api, env, run_git)[0])
+
+    def test_another_base_runs_the_full_check(self):
+        other = dict(full_name="someone/elzoo")
+        cases = {
+            "release": ({"base": dict(ref="release", repo=dict(full_name=self.REPO))}, "another base: 'release'"),
+            "main-like": ({"base": dict(ref="main2", repo=dict(full_name=self.REPO))}, "another base: 'main2'"),
+            "no base": ({"base": None}, "another base: None"),
+            "base repo": ({"base": dict(ref="main", repo=other)}, "base is another repository"),
+            "no base repo": ({"base": dict(ref="main")}, "base is another repository"),
+            "head repo": ({"head": dict(ref="b", sha="@second", repo=other)}, "head is another repository"),
+            "no head repo": ({"head": dict(ref="b", sha="@second")}, "head is another repository"),
+        }
+        for name, (changes, pattern) in cases.items():
+            with self.subTest(case=name):
+                env, run_git, second = self.scenario()
+                api = self.api(second)
+                api.pull_changes = json.loads(json.dumps(changes).replace("@second", second))
+                self.full(api, env, run_git, pattern)
+                self.assertEqual([], [c for c in api.calls if "timeline" in c])
+
+    def test_a_changed_base_runs_the_full_check(self):
+        for name in skip.BASE_CHANGES:
+            for when in ("2026-11-08T11:00:00Z", "2026-11-08T13:00:00Z"):    # before and after run_started_at
+                with self.subTest(event=name, created_at=when):
+                    env, run_git, second = self.scenario()
+                    api = self.api(second)
+                    api.timeline_pages = [[dict(event="commented"), dict(event=name, created_at=when)]]
+                    self.full(api, env, run_git, "base of the pull request changed")
+        with self.subTest(event="on the second page"):
+            env, run_git, second = self.scenario()
+            api = self.api(second)
+            api.timeline_pages = [self.COMMENTS, [dict(event="base_ref_changed")]]
+            self.full(api, env, run_git, "base of the pull request changed")
+            self.assertEqual(4, len([c for c in api.calls if "timeline" in c]))    # two reads in decide, two in main
+
+    def test_an_empty_or_failed_lookup_runs_the_full_check(self):
+        env, run_git, second = self.scenario()
+
+        def listing(body, pattern):
+            api = self.api(second)
+            api.pulls_body = body
+            self.full(api, env, run_git, pattern)
+            self.assertEqual([], [c for c in api.calls if "timeline" in c])
+        with self.subTest(case="empty listing"):
+            listing([], "no pull request")
+        with self.subTest(case="another head.sha"):
+            listing([self.pull(second, sha="0" * 40), self.pull(second, number=476, sha="1" * 40)], "no pull request")
+        with self.subTest(case="listing is an object"):
+            listing({"number": 474}, "listing malformed")
+        with self.subTest(case="listing is null"):
+            listing(None, "listing malformed")
+        for entry in (None, "x", 7, [], dict(number=474), dict(number=474, head=None), dict(number=474, head="x"),
+                      dict(number=474, head=dict(ref="b")), dict(number=474, head=dict(sha=None))):
+            with self.subTest(case="malformed entry", entry=entry):
+                listing([self.pull(second), entry], "listing malformed")
+        for number in (None, True, 0, -1, "474", 4.5):
+            with self.subTest(case="number", number=number):
+                listing([dict(self.pull(second), number=number)], "number malformed")
+        for branch in (None, "", 5, ["b"]):
+            with self.subTest(case="head_branch", branch=branch):
+                api = self.api(second, head_branch=branch)
+                self.full(api, env, run_git, "no head branch")
+                self.assertEqual([], [c for c in api.calls if c.startswith("pulls") or "timeline" in c])
+        with self.subTest(case="100 entries"):
+            listing([self.pull(second)] + [self.pull(second, number=500 + n, sha="2" * 40) for n in range(99)], "listing is full")
+        with self.subTest(case="99 entries still read"):
+            api = self.api(second)
+            api.pulls_extra = [self.pull(second, number=500 + n, sha="2" * 40) for n in range(98)]
+            self.assertTrue(skip.decide(env, run_git, api)[0])
+        for name, pages in {"timeline is an object": [{"event": "x"}], "page is null": [None],
+                            "entry is not an object": [[dict(event="commented"), "x"]],
+                            "more than 100 entries": [[dict(event="commented")] * 101]}.items():
+            with self.subTest(case=name):
+                api = self.api(second)
+                api.timeline_pages = pages
+                self.full(api, env, run_git, "timeline malformed")
+        with self.subTest(case="eleventh page"):
+            api = self.api(second)
+            api.timeline_pages = [self.COMMENTS] * 11
+            self.full(api, env, run_git, "more than 10 pages")
+            self.assertEqual([f"issues/474/timeline?per_page=100&page={n}" for n in range(1, 11)] * 2,
+                             [c for c in api.calls if "timeline" in c])
+        with self.subTest(case="fake read errors"):
+            for attr in ("pulls_error", "timeline_error"):
+                api = self.api(second)
+                setattr(api, attr, True)
+                self.full(api, env, run_git, "HTTP 500")
+        # The real Api turns every status but 200 and every invalid body into Full.
+        answers = {"status 500": (500, {}, b"{}"), "status 403": (403, {}, b'{"message": "Resource not accessible"}'),
+                   "status 404": (404, {}, b"{}"), "invalid JSON": (200, {}, b"<html>")}
+        for read in ("pulls?", "issues/"):
+            for name, answer in answers.items():
+                with self.subTest(case="real Api", read=read, answer=name):
+                    fake = self.api(second)
+
+                    def get(url, headers, fake=fake, read=read, answer=answer):
+                        path = url[len(f"{skip.API_ROOT}/repos/{self.REPO}/"):]
+                        if path.startswith(read):
+                            return answer
+                        return 200, {}, json.dumps(fake.json(path)).encode()
+                    expected = {"status 500": "HTTP 500", "status 403": "HTTP 403", "status 404": "HTTP 404",
+                                "invalid JSON": "invalid JSON"}[name]
+                    self.full(skip.Api(self.REPO, "token", get=get), env, run_git, expected)
+
+    def test_two_pull_requests_for_one_head_run_the_full_check(self):
+        env, run_git, second = self.scenario()
+        for name, other in {"both main": self.pull(second, base="main"), "one release": self.pull(second, base="release")}.items():
+            with self.subTest(case=name):
+                api = self.api(second)
+                api.pulls_extra = [other]
+                self.full(api, env, run_git, "more than one pull request")
+                self.assertEqual([], [c for c in api.calls if "timeline" in c])
+        with self.subTest(case="same branch, another head.sha"):
+            api = self.api(second)
+            api.pulls_extra = [self.pull(second, sha="0" * 40), self.pull(second, number=476, base="release", sha="1" * 40)]
+            self.assertTrue(skip.decide(env, run_git, api)[0])
+            self.assertEqual(["issues/474/timeline?per_page=100&page=1"], [c for c in api.calls if "timeline" in c])
+
+    def test_dispatch_and_fork_evidence_make_no_lookup(self):
+        env, run_git, second = self.scenario()
+        api = FakeApi(second)                        # a workflow_dispatch run
+        self.assertTrue(skip.decide(env, run_git, api)[0])
+        self.assertEqual([], [c for c in api.calls if c.startswith("pulls") or "timeline" in c])
+        for repo in ({"full_name": "someone/elzoo"}, {}, None):
+            with self.subTest(repo=repo):
+                api = FakeApi(second)
+                api.run.update(event="pull_request", head_repository=repo)
+                with self.assertRaisesRegex(skip.Full, "no queue run"):
+                    skip.decide(env, run_git, api)
+                self.assertEqual([], [c for c in api.calls if c.startswith("pulls") or "timeline" in c])
+        # a dispatch run is accepted even when the pull request answers would refuse
+        api = FakeApi(second)
+        api.pulls_error = api.timeline_error = True
+        self.assertTrue(skip.decide(env, run_git, api)[0])
+
+    def test_base_change_names_match_the_queue(self):
+        queue_spec = importlib.util.spec_from_file_location("merge_queue", ROOT / "scripts/merge-queue.py")
+        queue = importlib.util.module_from_spec(queue_spec)
+        queue_spec.loader.exec_module(queue)
+        self.assertEqual(tuple(queue.BASE_CHANGES), skip.BASE_CHANGES)
+        self.assertEqual(("base_ref_changed", "automatic_base_change_succeeded", "automatic_base_change_failed"),
+                         skip.BASE_CHANGES)
+
+    def test_existing_behaviour_the_default_answer_keeps_the_pull_request_run_a_skip(self):
+        # The default fake answer is one pull request of the second parent into main with a quiet timeline: the
+        # pull_request evidence of the older tests still skips, and the dispatch fallback needs no such answer.
+        env, run_git, second = self.scenario()
+        self.assertTrue(skip.decide(env, run_git, self.api(second))[0])
+        self.assertTrue(skip.decide(env, run_git, FakeApi(second))[0])
+
+
 class SmallGateDecision(unittest.TestCase):
     """Small gate: a run in which check-piece ran (mix check --piece) is never the evidence of a push run on main."""
 
@@ -925,6 +1165,21 @@ class DocsOnlyDecision(unittest.TestCase):
                 api.run["head_repository"] = repo
                 with self.assertRaises(skip.Full):
                     skip.decide(env, run_git, api)
+
+    def test_the_short_check_needs_the_same_base(self):
+        # ELZ-222: the short check of a documentation-only merge goes through the same pull request rule.
+        (verdict, _reason, details), second = self.decide()
+        self.assertTrue(verdict)
+        self.assertEqual("docs-only", details["mode"])
+        env, run_git, second = self.scenario("docs")
+        api = self.api(second)
+        api.pull_changes = {"base": dict(ref="release", repo=dict(full_name="balungpisah/elzoo"))}
+        with self.assertRaisesRegex(skip.Full, "another base: 'release'"):
+            skip.decide(env, run_git, api)
+        api = self.api(second)
+        api.timeline_pages = [[dict(event="base_ref_changed")]]
+        with self.assertRaisesRegex(skip.Full, "base of the pull request changed"):
+            skip.decide(env, run_git, api)
 
     def test_every_step_of_the_short_check_must_be_green_once(self):
         def shape(classify="success", docs="success", extra=()):
