@@ -842,8 +842,10 @@ defmodule Elzoo.RunEngine.TestHelper do
   # ELZ-192: the bound of the control state, recomputed from a unit state alone and
   # without the engine's own functions. Returns the bytes that are left of 2,097,152
   # after the encoded control (with each admitted, not yet kept finish of a child
-  # placed in it), the receipt reserve (1,024 for each receipt that can still come)
-  # and 4,096 for each active slot. A negative value is a broken bound.
+  # placed in it), the receipt reserve (1,024 for each receipt that can still come),
+  # 4,096 for each active slot, and for each callable that is not closed the room that
+  # is left of its state bound (`state_bytes`, 65,536 when absent) after its stored
+  # state. A negative value is a broken bound.
   def control_headroom(state) do
     c = state.control
 
@@ -871,7 +873,22 @@ defmodule Elzoo.RunEngine.TestHelper do
     active =
       Enum.count(state.slots, fn {_, s} -> s.phase != :settled or s[:pending_input] != nil end)
 
-    reserve = (c.cap + 1 - map_size(c.receipts)) * 1_024 + active * 4_096
+    open_reserve =
+      Enum.reduce(c.callables, 0, fn {_, node}, sum ->
+        if node.closed,
+          do: sum,
+          else:
+            sum +
+              max(
+                0,
+                Map.get(node, :state_bytes, 65_536) -
+                  byte_size(
+                    :erlang.term_to_binary(node.state, [:deterministic, {:minor_version, 2}])
+                  )
+              )
+      end)
+
+    reserve = (c.cap + 1 - map_size(c.receipts)) * 1_024 + active * 4_096 + open_reserve
 
     2_097_152 -
       (byte_size(:erlang.term_to_binary(placed, [:deterministic, {:minor_version, 2}])) + reserve)

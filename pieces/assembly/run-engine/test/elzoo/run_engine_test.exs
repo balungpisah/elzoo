@@ -7359,7 +7359,9 @@ defmodule Elzoo.RunEngineTest do
         %{
           binding
           | facts: fn a -> %{binding.facts.(a) | deadline_ms: 20_000} end,
-            nested: fn a -> %{binding.nested.(a) | mfa: {TestPattern, :waiting}} end
+            nested: fn a ->
+              Map.put(%{binding.nested.(a) | mfa: {TestPattern, :waiting}}, :state_bytes, 1_024)
+            end
         }
       end)
 
