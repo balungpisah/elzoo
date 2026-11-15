@@ -12,7 +12,7 @@ HOSTED_GLEAM_GATE = """    if: ${{ github.event_name != 'pull_request' || github
 # below runs-on are pinned exactly: token permissions, time limit, environment and the database service.
 HOSTED_LABEL = "runs-on: ubuntu-24.04"
 # ELZ-129: the backend workflow has eight jobs. `check-plan` runs the guards, the classification and the push-skip
-# decision once (it is the only job with `actions: read` and the decision token) and says through its output `run`
+# decision once (it is the only job with `actions: read`, `pull-requests: read` and the decision token) and says through its output `run`
 # whether the five work jobs run; the work jobs run the five parts of `mix check`; `check-hosted` (the name that
 # branch protection requires) aggregates them and fails explicitly when a job it needs is not as planned.
 # Small gate: `check-piece` runs `mix check --piece` for a Piece-only pull request (plan output `piece`)
@@ -20,6 +20,7 @@ HOSTED_LABEL = "runs-on: ubuntu-24.04"
 HOSTED_PLAN_HEADER = """    permissions:
       actions: read
       contents: read
+      pull-requests: read
     timeout-minutes: 20
     outputs:
       run: ${{ steps.plan.outputs.run }}
@@ -776,14 +777,14 @@ for file in files:
             errors.append(f'{file}: the pinned Gleam setup step is missing or changed, or the token appears elsewhere')
     elif token_lines != pinned_tokens:
         errors.append(f'{file}: github.token and secrets are not allowed in this workflow outside the pinned decision and S3 test server steps')
-    # Token permissions: one top-level contents: read block, plus actions: read on check-hosted only; never write.
+    # Token permissions: one top-level contents: read block, plus actions: read and pull-requests: read on check-plan only; never write.
     perm_lines = [i for i, line in enumerate(lines) if re.match(r'\s*permissions\s*:', line)]
     expected_perms = ['permissions:'] + (['    permissions:'] * len(spec) if file.name == 'symbolic-check.yml' else [])
     top = perm_lines[0] if perm_lines else None
     if ([lines[i] for i in perm_lines] != expected_perms or top is None or lines[top:top + 2] != ['permissions:', '  contents: read']
             or (top + 2 < len(lines) and lines[top + 2].strip() and lines[top + 2][0] == ' ')
             or any(re.search(r':\s*write(?:-all)?\b|permissions\s*:\s*\S', line) for line in yaml_lines)):
-        errors.append(f'{file}: token permissions must be exactly the reviewed ones (contents: read; actions: read on check-plan only; no write)')
+        errors.append(f'{file}: token permissions must be exactly the reviewed ones (contents: read; actions: read and pull-requests: read on check-plan only; no write)')
     if file.name == 'symbolic-check.yml' and any(
             re.match(r'\s*(?:-\s+)?(?:defaults|shell|continue-on-error)\s*:', line) for line in yaml_lines):
         errors.append(f'{file}: defaults:, shell: and continue-on-error: could disable the runner identity gate')

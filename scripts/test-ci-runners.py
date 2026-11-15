@@ -501,7 +501,7 @@ class RunnerPolicyTest(unittest.TestCase):
           GITHUB_TOKEN: ${{ github.token }}
         run: python3 scripts/ci-skip-decision.py
 """
-    ANY_PERMS = "    permissions:\n      actions: read\n      contents: read\n"
+    ANY_PERMS = "    permissions:\n      actions: read\n      contents: read\n      pull-requests: read\n"
 
     def source(self):
         return (self.root / ".github" / "workflows" / "symbolic-check.yml").read_text()
@@ -510,13 +510,18 @@ class RunnerPolicyTest(unittest.TestCase):
         source = self.source()
         self.assertEqual(1, source.count(self.DECISION))
         self.assertEqual(1, source.count(self.ANY_PERMS))
+        # ELZ-222: the pinned header of the plan job holds the three permission lines, in this order
+        self.assertIn('HOSTED_PLAN_HEADER = """    permissions:\n      actions: read\n      contents: read\n      pull-requests: read\n    timeout-minutes: 20\n',
+                      GUARD.read_text())
+        self.assertEqual(1, source.count("pull-requests:"))
         self.assertEqual(7, source.count("github.token"))  # the decision step and the S3 test server step of each work job and of check-piece
         self.assertEqual(10, source.count("permissions:"))  # top level and the eight jobs
         self.check(0)
 
     def test_write_permissions_rejected(self):
-        for old, new in ((self.ANY_PERMS, "    permissions:\n      actions: write\n      contents: read\n"),
-                         (self.ANY_PERMS, "    permissions:\n      actions: read\n      contents: write\n"),
+        for old, new in ((self.ANY_PERMS, "    permissions:\n      actions: write\n      contents: read\n      pull-requests: read\n"),
+                         (self.ANY_PERMS, "    permissions:\n      actions: read\n      contents: write\n      pull-requests: read\n"),
+                         (self.ANY_PERMS, "    permissions:\n      actions: read\n      contents: read\n      pull-requests: write\n"),
                          (self.ANY_PERMS, "    permissions: write-all\n"),
                          ("permissions:\n  contents: read\n", "permissions:\n  contents: write\n"),
                          ("permissions:\n  contents: read\n", "permissions: write-all\n"),
@@ -529,8 +534,10 @@ class RunnerPolicyTest(unittest.TestCase):
 
     def test_check_any_permissions_removed_or_widened_rejected(self):
         for new in ("", "    permissions:\n      contents: read\n",
-                    "    permissions:\n      actions: read\n      contents: read\n      checks: read\n",
-                    "    permissions:\n      contents: read\n      actions: read\n"):
+                    # ELZ-222: the workflow without pull-requests: read is refused
+                    "    permissions:\n      actions: read\n      contents: read\n",
+                    "    permissions:\n      actions: read\n      contents: read\n      pull-requests: read\n      checks: read\n",
+                    "    permissions:\n      contents: read\n      actions: read\n      pull-requests: read\n"):
             with self.subTest(new=new):
                 self.change("symbolic-check.yml", self.ANY_PERMS, new)
                 self.assertIn("job header lines below runs-on changed", self.check(1).stderr)
@@ -756,10 +763,12 @@ class RunnerPolicyTest(unittest.TestCase):
                 ("symbolic-check.yml", "check-consumers", "pgvector/pgvector:0.8.7-pg16-bookworm@sha256:0dd3149a06e4579a0d70d8fef9945636cd514005e7237deb27f9b67886f8dc4f", "pgvector/pgvector:0.8.7-pg16-bookworm"),
                 ("symbolic-check.yml", "check-root", "          - 5432:5432\n", "          - 5432:5432\n          - 22:22\n"),
                 ("symbolic-check.yml", "check-consumers-db", "    services:\n", "    outputs:\n      x: y\n    services:\n"),
-                # the plan job: the token permission (actions: read) is its own, with the output and the time limit
+                # the plan job: the token permissions (actions: read, pull-requests: read) are its own, with the output and the time limit
                 ("symbolic-check.yml", "check-plan", "timeout-minutes: 20", "timeout-minutes: 360"),
                 ("symbolic-check.yml", "check-plan", "      actions: read\n", "      actions: write\n"),
                 ("symbolic-check.yml", "check-plan", "      contents: read\n", "      contents: write\n"),
+                ("symbolic-check.yml", "check-plan", "      pull-requests: read\n", "      pull-requests: write\n"),
+                ("symbolic-check.yml", "check-plan", "      pull-requests: read\n", ""),
                 ("symbolic-check.yml", "check-plan", "      run: ${{ steps.plan.outputs.run }}\n", "      run: true\n"),
                 ("symbolic-check.yml", "check-plan", "    outputs:\n      run: ${{ steps.plan.outputs.run }}\n",
                  "    outputs:\n      run: ${{ steps.plan.outputs.run }}\n      other: ${{ steps.plan.outputs.run }}\n"),
@@ -767,6 +776,10 @@ class RunnerPolicyTest(unittest.TestCase):
                 ("symbolic-check.yml", "check-hosted", "timeout-minutes: 10", "timeout-minutes: 360"),
                 ("symbolic-check.yml", "check-hosted", "      contents: read\n", "      contents: write\n"),
                 ("symbolic-check.yml", "check-hosted", "      contents: read\n", "      contents: read\n      actions: read\n"),
+                # ELZ-222: pull-requests: read belongs to the plan job only
+                ("symbolic-check.yml", "check-hosted", "      contents: read\n", "      contents: read\n      pull-requests: read\n"),
+                ("symbolic-check.yml", "check-root", "      contents: read\n", "      contents: read\n      pull-requests: read\n"),
+                ("symbolic-check.yml", "check-consumers", "      contents: read\n", "      contents: read\n      pull-requests: read\n"),
                 ("symbolic-gleam.yml", "gleam-hosted", "timeout-minutes: 30", "timeout-minutes: 360"),
                 ("symbolic-gleam.yml", "gleam-hosted", "working-directory: spikes/gleam_ui", "working-directory: ."),
                 ("symbolic-gleam.yml", "gleam-hosted", "    steps:\n", "    permissions:\n      contents: write\n    steps:\n")):
