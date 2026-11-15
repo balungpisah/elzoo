@@ -273,6 +273,20 @@ values become unknown, not a fabricated completion. The trusted Adapter/host
 sink routes the full outcome through `input/4` and acknowledges only after its
 applied reply; EffectIntent status is not a replayable raw outcome mailbox.
 
+A reply of the Run to an approval request that is not `{:ok, _, key}` is followed by
+one read of the status view of the Run, and the engine decides in this order. (1) The
+view lists a request of this Run for the action of the slot, with the name and version
+of the requirement of its decision, that is not superseded: the engine records that
+key as after `ok` and goes on as after `ok`. This covers a `duplicate` after a death
+between the commit of the Run and the continuation of the engine, and a reply lost
+after the Run wrote the request. (2) The reply was `{:refused, :conflict}`,
+`{:error, :unavailable}` or `{:indeterminate, _}` and the view lists no such request:
+the engine writes nothing, the slot stays in approval with no key and its reservation
+held, and the next drain asks again; the same drain does not ask again and the engine
+does not halt. (3) Every other reply settles the slot `refused` with reason
+`approval_refused` and actual 0, and releases its reservation. The Run derives the
+request from the decision, so a second ask makes no second request.
+
 AsyncWork wraps exact `{:durable_unit_input, stable_id, record}` messages to the
 registered dispatcher. Startup/replacement records ordinary local loss before
 queued results; late completion cannot settle again. Resources retain their
@@ -419,7 +433,23 @@ change of Attempt gives an equal view, slots, Budgets and count of journal recor
 with the ID of an applied input each give `{:error, :input_id_conflict}`; the engine
 is the same process, the count of journal records and the phase do not move and the
 next input is applied; a pause control sent twice with equal bytes gives
-`{:ok, :applied}` twice); every earlier test of the Piece passes unchanged. The tests run
+`{:ok, :applied}` twice), and the five groups of the replies to an approval request:
+`request_survives_a_death` (the engine dies after the Run wrote the request and before
+its continuation: after the restart the slot is in approval with the key that the Run
+lists, no outcome record exists, the Run holds one request, and consent dispatches the
+action once and its result settles it `completed`), `lost_reply_is_recovered` (the Run
+wrote the request and the reply was replaced by `{:error, :unavailable}`: the slot
+holds the key in the same input), `uncertain_reply_is_no_refusal` (a reply
+`{:refused, :conflict}` or `{:error, :unavailable}` that the Run never received: the
+input is applied, the slot is in approval with no key, no outcome record exists and
+the reservation is held; the next input asks again and the slot holds the key),
+`definite_refusal_still_refuses` (a reply `{:refused, :intent_mismatch}` settles the
+slot `refused` with reason `approval_refused`, actual 0, and releases its reservation)
+and `replay_is_equal (approval request)` (after a death the first restart adds only
+the Run view record and the result row that a restart of an uninterrupted Run adds,
+with an equal view, and the next restart adds nothing; a restart after the second ask
+gives an equal view and an equal count of journal records; the Run still holds one
+request); every earlier test of the Piece passes unchanged. The tests run
 with disposable PostgreSQL, existing ready owners,
 ordinary OTP barriers and counting fake providers. Actual temporary engine
 mutations bypassing the committed gate boundary and first settlement, giving a
@@ -461,7 +491,11 @@ no outcome after the reply; `approved_child_finish_reaches_its_parent` fails: th
 slot is still running; the three tests of `replay_is_equal` pass), and so is the
 protocol clause of the original-record match without the guard on the kind of the
 candidate (`control_id_of_a_protocol_input_is_a_conflict` fails: the control call ends
-with an exit and the engine process is gone). These finite scenarios are not a universal proof, production monitor,
+with an exit and the engine process is gone). For the replies to an approval request,
+the old clause that refuses every reply other than `ok` is a negative control
+(`request_survives_a_death`, `lost_reply_is_recovered` and
+`uncertain_reply_is_no_refusal` fail: the slot is settled where it should wait;
+`definite_refusal_still_refuses` passes). These finite scenarios are not a universal proof, production monitor,
 physical no-send guarantee or proof of arbitrary callbacks/providers. Reused
 Cure laws retain their dependency-local scope; no new Cure proof is claimed.
 
@@ -495,3 +529,13 @@ in the control state, and a new Run cannot be configured on that unit while it i
 This is not repaired here. A Run recorded before this repair, with a finish that was
 admitted and not yet kept, can meet the refusal on replay where the old code had none
 (Elzoo is not released).
+
+Limits of the replies to an approval request. While the Run gives a reply of case (2),
+each drain ends at that slot, so slots after it in the order of the drain wait for the
+next drain; a slot whose Run never answers stays open until its deadline (reached by
+an input, as above) or a change of Attempt. Case (1) is tried for every reply that is
+not `ok`; a key read from the view is used only through `release_approved` and
+`dispatch_approved`, which the Run accepts only for a request of its current Attempt.
+When the Run owner stops after an indeterminate write, the read of the view exits, as
+each other call of the engine to a gone owner does. A Run recorded before this repair
+that already holds the false refusal keeps it (Elzoo is not released).
