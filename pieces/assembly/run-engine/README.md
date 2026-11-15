@@ -701,7 +701,7 @@ is kept, so a finish needs its own room beside the reserve of its child. The las
 of the bound are not reserved for small growth: every refusal adds its reason to its
 slot, so a slot within a few bytes of its own bound of 131,072 can pass it; and the
 refusal of a nested start releases the reservation of the parent, which turns its
-Budget entry from the open form (13 bytes encoded for an expiry up to 255, 16 bytes
+Budget entry from the open form (13 bytes encoded for an expiry up to 255, at least 16 bytes
 above it) into the released form (15 bytes), so control becomes 2 bytes larger only
 when the expiry of the parent is below 256 ms, and smaller otherwise; such a refusal can
 pass the bound only when control is within 2 bytes of it. A Run recorded before this
