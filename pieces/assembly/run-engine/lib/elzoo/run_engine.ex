@@ -1580,7 +1580,7 @@ defmodule Elzoo.RunEngine do
     cond do
       state.control.stop_pending != nil ->
         with {:ok, s} <- finish_run(s, state.control.stop_pending, state.control.completion),
-             do: drain(s)
+             do: again(s, state)
 
       pending != nil and state.control.lifecycle.phase not in [:paused, :terminal] and
           not state.control.generation_closed ->
@@ -1592,7 +1592,7 @@ defmodule Elzoo.RunEngine do
                  kind: :resume_input,
                  occurrence: key
                }),
-             do: drain(s)
+             do: again(s, state)
 
       finished_child != nil ->
         {child, class, status} = finished_child
@@ -1616,24 +1616,27 @@ defmodule Elzoo.RunEngine do
           end
 
         with {:ok, s} <- result,
-             do: drain(s)
+             do: again(s, state)
 
       next == nil ->
         {:ok, s}
 
       true ->
         {key, slot} = next
-        before = state
 
-        with {:ok, s} <- progress(s, key, slot) do
-          if snapshot(s) == before, do: {:ok, s}, else: drain(s)
-        end
+        with {:ok, s} <- progress(s, key, slot),
+             do: again(s, state)
     end
   end
 
+  # A round that changed no durable state ends the drain.
+  defp again(s, before), do: if(snapshot(s) == before, do: {:ok, s}, else: drain(s))
+
   # A closed child whose every slot cost is known or final unknown gives its parent
   # an outcome, once. Unknown is not zero: the parent gets no actual and the
-  # reservations stay held. A parent that cannot take the outcome is skipped.
+  # reservations stay held. A parent that cannot take the outcome is skipped: in a
+  # terminal Run that is any parent the request-cap stop does not retain, and a
+  # retained one at or after its deadline (the fold would classify the record late).
   defp due_child(s, state, id, child) do
     parent = child.parent
     class = parent && child_cost(state, id)
@@ -1643,7 +1646,9 @@ defmodule Elzoo.RunEngine do
 
       running? =
         slot.phase == :running and slot.attempt_id == state.control.attempt_id and
-          (state.control.lifecycle.phase != :terminal or retained?(state.control))
+          (state.control.lifecycle.phase != :terminal or
+             (retained?(state.control) and
+                (slot[:deadline_ms] == nil or s.opts.clock.() < slot.deadline_ms)))
 
       cond do
         not running? and not (slot.phase == :settled and is_nil(slot[:actual]) and class == :known) ->
