@@ -1983,11 +1983,12 @@ defmodule Elzoo.SkillTest do
     # The run of "tooly" loaded, then the model asks for one tool of it (call c2).
     defp tooly_call_run(outcome_input, descriptors \\ tooly_descriptors()) do
       skill_run([skill!("alpha"), tooly()], descriptors, fn checked ->
+        # The alias that the model sees after the load: the source of the listing.
+        assert {:ok, payload} = Skill.load("sk", checked, descriptors, %{"name" => "tooly"})
+        alias_name = payload["declaration"]["listing"]["source"] <> "_tool-identity-one"
+
         load_inputs(1, checked, descriptors, "tooly") ++
-          [
-            model_outcome(2, [proposal("c2", "sk-2_tool-identity-one", %{})]),
-            outcome_input
-          ]
+          [model_outcome(2, [proposal("c2", alias_name, %{})]), outcome_input]
       end)
     end
 
@@ -2002,6 +2003,9 @@ defmodule Elzoo.SkillTest do
       run = tooly_call_run(tool_result_outcome("run:t:2:1", declaration))
       assert [_, _, loaded, called, refused] = run.requests
 
+      assert List.last(messages(refused)) ==
+               tool_text("c2", notice("[declaration refused: declaration_not_permitted]"))
+
       assert called["actions"] ==
                [
                  source_tool_call(
@@ -2013,10 +2017,6 @@ defmodule Elzoo.SkillTest do
                ]
 
       assert tooly_tool("tool-identity-one").source_kind == "other"
-
-      assert List.last(messages(refused)) ==
-               tool_text("c2", notice("[declaration refused: declaration_not_permitted]"))
-
       assert system(refused) == system(loaded)
       refute String.contains?(system(refused)["text"], "Evil")
       assert request_tools(refused) == request_tools(loaded)
@@ -2074,7 +2074,7 @@ defmodule Elzoo.SkillTest do
   end
 
   describe "pinned_version_answers" do
-    test "load/2 and read_file/3 given P1 and its files answer P1 after P2 exists" do
+    test "load/4 and read_file/3 given P1 and its files answer P1 after P2 exists" do
       one = [
         skill!("alpha", body: "Old body\n", version: "1", files: %{"a.txt" => "old bytes"}),
         skill!("beta")

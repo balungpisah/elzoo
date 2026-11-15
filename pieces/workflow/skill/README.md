@@ -250,7 +250,7 @@ a skill is an Adapter call, and a nested callable (a Lua tool, a graph) as a
 skill tool is not part of this Piece. `allowed-tools` grants nothing, and a
 listed tool still passes the engine checks at use. A declared identity outside
 the registry name grammar can be described, but its load is refused by the
-registry. Three sentences of RC-67 are met in part: the refusal of a tool that is
+registry. Four sentences of RC-67 are met in part: the refusal of a tool that is
 not permitted is at use, in the engine and the registry, and the test shows only a
 recorded `refused` outcome of a listed tool; scripts are read and never executed,
 but storing them is a host Need; a changed version does not change a running Run
