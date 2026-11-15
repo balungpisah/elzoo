@@ -96,6 +96,15 @@ avoid hostile allocation; byte bounds are not a sandbox. A receiver-only
 restart keeps its AsyncWork controller; replacing that controller requires
 tearing down the predecessor task subtree first.
 
+An Effect intent process is started unlinked and has no supervisor, so it
+outlives the engine and can still append its result or `Lost` to its store
+after the engine is gone. The engine has no `terminate/2` that would stop
+its intents, and stopping them there would not run on a kill anyway. A new
+start begins with no intent process and can start a second owner for the
+same identity while the old one is still alive. The host fences the old
+engine and its intent owners before a new start, as it already must for the
+engine itself.
+
 ## Input and controls
 
 `input(engine, stable_id, neutral_input_without_at_ms, verified_context)` reads
