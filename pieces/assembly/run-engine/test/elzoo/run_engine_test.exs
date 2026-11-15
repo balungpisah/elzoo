@@ -1555,6 +1555,45 @@ defmodule Elzoo.RunEngineTest do
 
       assert view(engine).slots[{1, 0}].outcome == "unknown"
     end
+
+    # ELZ-242: an intent process is unlinked and has no supervisor, so it outlives
+    # the engine; a new start begins with no intent process and can start a second
+    # owner for the same identity. The host fences the old engine and its intent
+    # owners before a new start.
+    test "intent_owner_outlives_the_engine" do
+      c =
+        fixture(
+          pattern: {TestPattern, :step, %{requests: [request([action("publish", "tool_call")])]}}
+        )
+
+      engine = start(c)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, task, _req}
+
+      assert [intent] = Map.values(:sys.get_state(engine).intents)
+      assert Process.alive?(intent)
+
+      GenServer.stop(engine)
+
+      # The engine is gone; its intent owner is not.
+      assert Process.alive?(intent)
+
+      Agent.update(c.host_mode, fn _ -> :recover end)
+      engine = start(c)
+
+      # The new start sees a second owner for the same identity: the old pid is
+      # still alive and the engine's map holds a different pid.
+      assert [intent2] = Map.values(:sys.get_state(engine).intents)
+      assert intent2 != intent
+      assert Process.alive?(intent)
+      assert Process.alive?(intent2)
+
+      # The engine behaves as the existing recovery records: the slot settles
+      # unknown and no second send happens.
+      assert view(engine).slots[{1, 0}].outcome == "unknown"
+      refute_receive {:effect_started, _, _}
+      send(task, {:result, %{}})
+    end
   end
 
   describe "Concurrent request and Attempt routing" do
