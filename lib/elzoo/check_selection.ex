@@ -305,6 +305,17 @@ defmodule Elzoo.CheckSelection do
 
   defp piece_verdict(_), do: {:error, "malformed answer of the Piece-only classifier"}
 
+  @doc """
+  The guard stages that run before the test stage, as `{stage name, command, arguments}`. Only the small gate has
+  one: the hosted job `check-plan` runs scripts/test-ci-change-class.py for every pull request, and a Piece task
+  would see its failure only after a push. The full check, the affected check and the parts run no guard here (the
+  plan job runs it for them).
+  """
+  def guards(%{mode: :piece}),
+    do: [{"classifier_guard", "python3", ["scripts/test-ci-change-class.py"]}]
+
+  def guards(_selection), do: []
+
   def test_args(%{mode: :full}), do: ["--warnings-as-errors"]
 
   # An include wins over the default exclusion of test/test_helper.exs, for the named IDs only.
@@ -387,6 +398,10 @@ defmodule Elzoo.CheckSelection do
       "Test paths: #{inspect(selection.test_paths, limit: :infinity)}",
       "Aggregate consumer: not run in piece mode",
       "Ash spike: not run in piece mode",
+      "Guard before the tests: " <>
+        Enum.map_join(guards(selection), "; ", fn {name, command, args} ->
+          "#{name} (#{Enum.join([command | args], " ")})"
+        end),
       "LIMIT: a selected check, not the full check: only the test paths above run (unselected per-ID consumers " <>
         "excluded; the consumer of an added Piece runs the tests of that Piece only; a changed Piece that was " <>
         "ready at the base gets no such consumer); the aggregate consumer, the other root tests and the Ash " <>

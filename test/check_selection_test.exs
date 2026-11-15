@@ -476,6 +476,27 @@ defmodule Elzoo.CheckSelectionTest do
       end
     end
 
+    # ELZ-224: the hosted job check-plan runs this guard for every pull request; only the small gate runs it
+    # beside the tests, so a Piece task sees a failure before a push.
+    test "small_gate_runs_the_classifier_guard: the stage is in piece mode and in no other mode",
+         ctx do
+      guard = {"classifier_guard", "python3", ["scripts/test-ci-change-class.py"]}
+      assert File.regular?("scripts/test-ci-change-class.py")
+
+      piece = Selection.piece(ctx.registry, %{pieces: ["core/port"]}, piece_tree([]))
+      assert Selection.guards(piece) == [guard]
+
+      assert Selection.report(piece) =~
+               "Guard before the tests: classifier_guard (python3 scripts/test-ci-change-class.py)"
+
+      others =
+        [Selection.full(ctx.registry), select(ctx.registry, ["pieces/core/port/README.md"])] ++
+          Enum.map(Selection.parts(), &Selection.part/1)
+
+      assert length(others) == 7
+      for other <- others, do: assert(Selection.guards(other) == [], inspect(other.mode))
+    end
+
     test "the aggregate consumer never runs, also when an affected ID has no per-ID consumer",
          ctx do
       root = piece_tree(["workflow/approval"])

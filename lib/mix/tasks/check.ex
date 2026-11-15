@@ -4,7 +4,7 @@ defmodule Mix.Tasks.Check do
   can affect, and `--part root-a|root-b|aggregate|consumers-db|consumers` runs one of five disjoint parts of
   the full check, so that CI can run them at the same time. The five parts together run exactly the
   tests of the full check. `--piece BASE` is the small gate of a Piece-only change: format, compile,
-  ledger, the Registry, and the tests of the changed Pieces, their dependants, the root tests that read
+  ledger, the Registry, the classifier guard `scripts/test-ci-change-class.py` (ELZ-224), and the tests of the changed Pieces, their dependants, the root tests that read
   the index and the per-ID consumers of the affected ready IDs. One of the root tests plans the export
   of every ready Piece into one destination. A ready Piece that the change adds and that has no per-ID
   consumer runs its own tests once in a copied consumer of its own. It refuses any other change.
@@ -95,9 +95,26 @@ defmodule Mix.Tasks.Check do
       if status == 0, do: Mix.shell().info(Elzoo.CheckSelection.success_marker(selection))
     end)
 
+    for {name, command, args} <- Elzoo.CheckSelection.guards(selection),
+        do: stage(started, name, fn -> run_guard(name, command, args) end)
+
     stage(started, if(piece_changes, do: "piece_suite", else: "root_suite"), fn ->
       Mix.Task.run("test", Elzoo.CheckSelection.test_args(selection))
     end)
+  end
+
+  # ELZ-224: a guard prints its output and fails the check when it exits non-zero or cannot start.
+  defp run_guard(name, command, args) do
+    case System.cmd(command, args, stderr_to_stdout: true, into: IO.stream()) do
+      {_, 0} ->
+        :ok
+
+      {_, status} ->
+        Mix.raise("#{name} failed: #{command} #{Enum.join(args, " ")} exited #{status}")
+    end
+  rescue
+    error in ErlangError ->
+      Mix.raise("#{name} failed: #{command} could not start: #{inspect(error.original)}")
   end
 
   # ELZ-045: observation only. A stamp before and after each stage, UTC time plus

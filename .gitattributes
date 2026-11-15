@@ -1,0 +1,2 @@
+# A recorded server-sent-events file ends with an empty line that ends its last event; do not flag it.
+*.sse whitespace=-blank-at-eof

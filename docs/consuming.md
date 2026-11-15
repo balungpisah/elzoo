@@ -176,5 +176,4 @@ Elzoo-owned code is Apache-2.0, as requested by the project owner. Copied files
 retain SPDX identifiers and carry `licenses/elzoo/LICENSE` and NOTICE. This
 does not change the license of your whole project. Upstream libraries retain
 their own licenses; provider metadata identifies them, and Mix fetches their
-original packages. The repository is private; source licensing does not
-change GitHub access permissions.
+original packages.
