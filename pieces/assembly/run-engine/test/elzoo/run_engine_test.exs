@@ -2646,6 +2646,62 @@ defmodule Elzoo.RunEngineTest do
       send(t.opening, {:result, %{}})
       send(t.using, {:result, %{}})
     end
+
+    # A stand-in for the Resource that the engine calls: it passes every call on and, before the
+    # first dispatch command, runs `before_dispatch`. It gives the host a deterministic turn
+    # between the action command and its dispatch.
+    defp resource_proxy(owner, before_dispatch) do
+      spawn_link(fn -> proxy_loop(owner, before_dispatch) end)
+    end
+
+    defp proxy_loop(owner, before_dispatch) do
+      receive do
+        {:"$gen_call", from, {:command, %{body: {:dispatch, _, _}}} = call} ->
+          before_dispatch.()
+          GenServer.reply(from, GenServer.call(owner, call))
+
+        {:"$gen_call", from, call} ->
+          GenServer.reply(from, GenServer.call(owner, call))
+      end
+
+      proxy_loop(owner, before_dispatch)
+    end
+
+    test "closed_resource_does_not_halt" do
+      payload = %{"run_id" => "run", "resource_name" => "document", "data" => %{}}
+
+      c =
+        fixture(
+          pattern:
+            {TestPattern, :step, %{requests: [request([action("open", "resource_open", payload)])]}}
+        )
+
+      {owner, bindings} = resource(c)
+
+      proxy =
+        resource_proxy(owner, fn ->
+          observe_use(
+            owner,
+            "open",
+            2_000,
+            {:failed, :not_dispatched, %{"reason" => "not_dispatched"}}
+          )
+        end)
+
+      engine = start(c, resources: %{"document" => proxy}, bindings: bindings)
+      assert {:ok, :applied} = send_input(engine)
+      refute_receive {:effect_started, _, _}, 300
+      assert {:ok, %{state: %{phase: :closed}}} = Elzoo.RunResource.read(owner, 0)
+      v = view(engine)
+      assert v.reconciliation == nil
+      assert %{phase: :running} = v.slots[{1, 0}]
+      refute Map.has_key?(v.slots[{1, 0}], :outcome)
+
+      assert {:ok, :applied} = RunEngine.input(engine, "after-closed", wake(), verified())
+      v = view(engine)
+      assert v.reconciliation == nil
+      assert %{phase: :settled, outcome: "failed"} = v.slots[{1, 0}]
+    end
   end
 
   describe "Sizing and sanitized evidence" do
