@@ -367,7 +367,24 @@ Budget of its action, also inside a nested child, and the parent actual follows)
 `replay_is_equal` (a restart after the change gives an equal view, equal Budgets
 and an equal count of journal records, and writes nothing more) and
 `first_settlement_wins` (an outcome with the old Attempt, one with the new
-Attempt and an expiry leave a closed slot as settled), and the four groups of the
+Attempt and an expiry leave a closed slot as settled), the six groups of a settled
+parent whose child asks over the request cap: `settled_parent_stays_settled` (the
+parent settled `expired` stays equal term for term, no outcome record is written
+for it, the Budgets do not move and the Run stops), `unit_configures_after_the_stop`
+(the stop ends the Run with no open slot, and a new Run with another run id
+configures on the same unit and runs one action), `running_parent_is_still_refused`
+(the two existing tests `charge-stopped child propagates later actual without
+changing its settled parent outcome` and `nested denial chain uses shared charge and
+settles its previously admitted parent` pass unchanged: a running parent is refused
+`out_of_budget`), `later_actual_reaches_the_settled_parent` (a child cost that is
+still open at the stop reaches the parent once as `nested_actual`, its outcome
+`expired` is kept and the root Budget commits the amount),
+`replay_is_equal (settled parent over the cap)` (two restarts after the stop give an
+equal view, equal slots, equal Budgets and an equal count of journal records, and
+start no Effect) and `recorded_defect_is_closed_at_a_change` (a state that already
+holds a refusing parent, as the unrepaired engine recorded it, is settled again by
+`step/2` at a change of Attempt with its first outcome, actual and reservation, and
+the Budgets stay equal), and the four groups of the
 room of a child finish: `finish_without_room_is_refused` (28 parents are open
 together, each with a child that holds an open tool cost and finishes with a payload of
 65,536 JSON bytes: 26 of the finishes are kept and the other 2 are refused with
@@ -405,7 +422,13 @@ Run is refused as `:incompatible_recovery`) are negative controls; so are a
 refused slot that keeps its reservation (`unsent_slot_is_released` fails),
 callables closed shallowest first (`nested_parent_and_child_close` fails: the
 parent has no actual) and a hard match in the fallback of the closer
-(`first_settlement_wins` fails: the new engine does not start). For the room of a
+(`recorded_defect_is_closed_at_a_change` fails in `step/2`). For the over-cap request
+of a child, the deny with no look at the phase of the parent is a negative control
+(`settled_parent_stays_settled` fails: the slot is refusing;
+`unit_configures_after_the_stop` fails: the slot of the stopped Run stays refusing and
+the start of a new Run is refused as `:incompatible_recovery`;
+`later_actual_reaches_the_settled_parent` and `recorded_defect_is_closed_at_a_change`
+fail on the same slot). For the room of a
 child finish, the admission without the room check (`finish_without_room_is_refused`
 fails: the step of the kept finish raises, the durable unit stops, and the wait for the
 28 finishes ends in the test time-out) and the reserve without the bytes of the
@@ -424,11 +447,11 @@ Limits of the change of Attempt. A Run recorded before this repair, with a
 change of Attempt and open slots, folds to another state after it (Elzoo is not
 released). The settlement is part of the `run_view` fold step: it writes no
 protocol record, and the reason `attempt_closed` is in the outcome given to the
-request tracker and the join, not in a separate journal record. A slot that an
-over-cap deny turned from settled back to refusing (a known defect outside this
-Piece version's Contract, filed separately) is set settled again at a change with
-its first settlement untouched (no Budget step, no join change); the deny itself
-is not repaired here. Some rows cannot be held by a test: a running child finish
+request tracker and the join, not in a separate journal record. A Run recorded
+before this repair that already holds such a slot (a settled parent that an over-cap
+deny turned back to refusing) keeps it until a change of Attempt sets it settled
+again with its first settlement untouched (no Budget step, no join change); Elzoo is
+not released. Some rows cannot be held by a test: a running child finish
 and ready for local work, `ask_person`, nested callable and finish are covered by
 the code path only.
 
