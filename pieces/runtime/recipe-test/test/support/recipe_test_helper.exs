@@ -29,7 +29,9 @@ defmodule Elzoo.RecipeTest do
     PayloadSchema,
     RecipeCheck,
     RunEngine,
+    RecipePackage,
     RuntimeGraph,
+    Skill,
     ToolRegistry,
     TypedDecision
   }
@@ -40,8 +42,9 @@ defmodule Elzoo.RecipeTest do
   alias Elzoo.RunEngine.TestHelper
 
   @keys Enum.sort(
-          ~w(package facts sources agents decisions script effects adapters input tools executable restart_after)a
+          ~w(package facts sources agents decisions script effects adapters input tools executable restart_after skills)a
         )
+  @skills_keys Enum.sort(~w(id files descriptors)a)
   @lua_keys Enum.sort(~w(kind source limits declaration manifests source_id max_calls)a)
   @graph_keys Enum.sort(~w(kind sources callables tool_costs max_nodes max_depth cap)a)
   @max_polls 2_000
@@ -85,7 +88,8 @@ defmodule Elzoo.RecipeTest do
         is_map(spec.script) and is_map(effects) and Enum.sort(Map.keys(effects)) == [:model, :tool] and
         is_atom(effects.model) and is_atom(effects.tool) and is_list(spec.adapters) and
         Enum.all?(spec.adapters, &is_atom/1) and tools?(spec.tools) and
-        executable?(spec.executable, spec.tools) and restart_after?(spec.restart_after)
+        executable?(spec.executable, spec.tools) and restart_after?(spec.restart_after) and
+        skills?(spec.skills)
 
     if valid?, do: :ok, else: {:error, :invalid_spec}
   end
@@ -113,6 +117,16 @@ defmodule Elzoo.RecipeTest do
 
   defp restart_after?(nil), do: true
   defp restart_after?(n), do: is_integer(n) and n > 0
+
+  # `nil`, or exactly the id, the files by skill name and the descriptors of one skill set.
+  defp skills?(nil), do: true
+
+  defp skills?(skills) when is_map(skills) and not is_struct(skills),
+    do:
+      Enum.sort(Map.keys(skills)) == @skills_keys and is_binary(skills.id) and
+        is_map(skills.files) and not is_struct(skills.files) and is_list(skills.descriptors)
+
+  defp skills?(_), do: false
 
   defp maps_of_maps?(map), do: is_map(map) and Enum.all?(map, fn {_, v} -> is_map(v) end)
 
@@ -381,16 +395,26 @@ defmodule Elzoo.RecipeTest do
 
   defp decision_request(request, _), do: request
 
-  defp start_form(%{"kind" => "graph"}, _to, input),
+  defp start_form(_spec, %{"kind" => "graph"}, _to, input),
     do: {"elzoo.graph-run.input", %{"input" => input}}
 
-  defp start_form(%{"kind" => "agent"}, :root, input),
+  defp start_form(_spec, %{"kind" => "agent"}, :root, input),
     do: {"elzoo.agent-loop.message", %{"text" => input}}
 
-  defp start_form(%{"kind" => "agent"}, :node, input),
+  # With skills, an input that names a skill starts the agent with that skill loaded.
+  defp start_form(%{skills: %{id: id}}, %{"kind" => "agent"}, :node, %{"skill" => name} = input)
+       when is_binary(name) do
+    {"elzoo.agent-loop.message",
+     %{
+       "text" => canonical(input),
+       "skill" => %{"tool" => id <> "_load_skill", "name" => name}
+     }}
+  end
+
+  defp start_form(_spec, %{"kind" => "agent"}, :node, input),
     do: {"elzoo.agent-loop.message", %{"text" => canonical(input)}}
 
-  defp start_form(%{"kind" => "decision"}, _to, input),
+  defp start_form(_spec, %{"kind" => "decision"}, _to, input),
     do: {"elzoo.recipe-test.input", %{"input" => input}}
 
   # Compact JSON with object keys in byte order.
@@ -409,7 +433,7 @@ defmodule Elzoo.RecipeTest do
   defp execute(spec, descriptors, snapshot) do
     root = root(spec)
     {:ok, state} = build(spec, root, "d1", :root, {:input, spec.input})
-    {schema_id, payload} = start_form(root, :root, spec.input)
+    {schema_id, payload} = start_form(spec, root, :root, spec.input)
 
     host = %{driver: self(), snapshot: snapshot}
 
@@ -460,6 +484,7 @@ defmodule Elzoo.RecipeTest do
 
     st = %{
       engine: engine,
+      skills: skills_state(spec),
       c: c,
       overrides: overrides,
       script: spec.script,
@@ -474,6 +499,14 @@ defmodule Elzoo.RecipeTest do
       {:ok, :applied} -> loop(st, 0)
       reply -> {:error, {:input_refused, reply, record(st)}}
     end
+  end
+
+  # `check_recipe/2` passed, and `RecipeCheck.check/2` refuses a package that `decode/1` refuses.
+  defp skills_state(%{skills: nil}), do: nil
+
+  defp skills_state(%{skills: skills, package: package}) do
+    {:ok, checked} = RecipePackage.decode(package)
+    Map.put(skills, :package, checked)
   end
 
   defp schema_entry(id) do
@@ -493,7 +526,7 @@ defmodule Elzoo.RecipeTest do
         id: id,
         effect_class: "publish",
         result: {result, 1},
-        facts: &effect_facts(&1, which, reference, descriptors[which])
+        facts: &effect_facts(&1, which, reference, descriptors[which], spec.skills)
       })
     end
 
@@ -567,7 +600,7 @@ defmodule Elzoo.RecipeTest do
     }
   end
 
-  defp effect_facts(action, which, reference, descriptor) do
+  defp effect_facts(action, which, reference, descriptor, skills) do
     key =
       case which do
         :model -> ["model", action["payload"]["model"]]
@@ -586,18 +619,41 @@ defmodule Elzoo.RecipeTest do
           descriptor.operation,
           action["id"]
         ],
-        arguments:
-          Jason.encode!(%{
-            "action_id" => action["id"],
-            "key" => key,
-            "schema_id" => action["schema_id"]
-          }),
+        arguments: Jason.encode!(arguments(action, key, skills)),
         binding: reference,
         binding_digest: descriptor.digest,
         deadline_ms: 40_000
       }
     }
   end
+
+  # The arguments of a skill call (the two tools of the skill source) are carried to the driver.
+  defp arguments(action, key, skills) do
+    base = %{"action_id" => action["id"], "key" => key, "schema_id" => action["schema_id"]}
+
+    case key do
+      ["tool", name] when skills != nil ->
+        if skill_call(skills, {:tool, name}, action["schema_id"]) != nil,
+          do: Map.put(base, "arguments", action["payload"]["arguments"]),
+          else: base
+
+      _ ->
+        base
+    end
+  end
+
+  # The one place that tells a skill call from every other call.
+  defp skill_call(nil, _key, _schema_id), do: nil
+
+  defp skill_call(%{id: id}, {:tool, name}, "elzoo.agent-loop.tool-call") do
+    cond do
+      name == id <> "_load_skill" -> :load
+      name == id <> "_read_skill_file" -> :read_file
+      true -> nil
+    end
+  end
+
+  defp skill_call(_skills, _key, _schema_id), do: nil
 
   # The depth of a callable is the number after "d" in the ids of its actions.
   defp depth(action_id) do
@@ -613,7 +669,7 @@ defmodule Elzoo.RecipeTest do
     child = callable(spec, action["payload"]["callable"])
     input = action["payload"]["input"]
     {:ok, state} = build(spec, child, "d#{depth(action["id"]) + 1}x" <> hex, :node, {:input, input})
-    {schema_id, payload} = start_form(child, :node, input)
+    {schema_id, payload} = start_form(spec, child, :node, input)
 
     %{
       budget_id: "b" <> hex,
@@ -788,11 +844,19 @@ defmodule Elzoo.RecipeTest do
   defp drain(st) do
     receive do
       {:recipe_test_call, adapter, request} ->
-        %{"action_id" => id, "key" => [kind, name], "schema_id" => schema_id} =
-          Jason.decode!(request.arguments)
+        decoded = Jason.decode!(request.arguments)
+        %{"action_id" => id, "key" => [kind, name], "schema_id" => schema_id} = decoded
 
         key = {if(kind == "model", do: :model, else: :tool), name}
-        held = Map.put(st.held, id, %{adapter: adapter, key: key, schema_id: schema_id})
+
+        held =
+          Map.put(st.held, id, %{
+            adapter: adapter,
+            key: key,
+            schema_id: schema_id,
+            arguments: Map.get(decoded, "arguments")
+          })
+
         drain(%{st | held: held, asked: Map.update(st.asked, key, 1, &(&1 + 1))})
 
       {:recipe_test_work, task, id} ->
@@ -863,29 +927,57 @@ defmodule Elzoo.RecipeTest do
     end
   end
 
+  # A call of the two tools of the skill source is answered by `Elzoo.Skill` and uses no script
+  # entry; every other call takes the next entry of its key.
   defp answer(st, id, held, occurrence) do
+    case skill_answer(st.skills, held) do
+      nil -> scripted(st, id, held, occurrence)
+      {class, dispatch, payload} -> respond(st, id, held, occurrence, class, dispatch, payload)
+    end
+  end
+
+  defp skill_answer(skills, held) do
+    result =
+      case skill_call(skills, held.key, held.schema_id) do
+        nil -> nil
+        :load -> Skill.load(skills.id, skills.package, skills.descriptors, held.arguments)
+        :read_file -> Skill.read_file(skills.package, skills.files, held.arguments)
+      end
+
+    case result do
+      nil -> nil
+      {:ok, payload} -> {"completed", "dispatched", payload}
+      {:error, reason} -> {"refused", "not_dispatched", %{"reason" => Atom.to_string(reason)}}
+    end
+  end
+
+  defp scripted(st, id, held, occurrence) do
     case Map.get(st.script, held.key, []) do
       [] ->
         {:error, {:unscripted_call, held.key, record(st)}}
 
       [entry | rest] ->
         {class, dispatch} = classes(entry)
-        context = TestHelper.verified(%{occurrence: occurrence, actual: 0, dispatch: dispatch})
-        input = outcome(id, held, entry, class)
         st = %{st | script: Map.put(st.script, held.key, rest)}
+        respond(st, id, held, occurrence, class, dispatch, payload(entry, held))
+    end
+  end
 
-        case RunEngine.input(st.engine, "rt:" <> digest(id, 32), input, context) do
-          {:ok, :applied} ->
-            send(
-              held.adapter,
-              {:recipe_test_reply, if(class == "completed", do: :completed, else: :other)}
-            )
+  defp respond(st, id, held, occurrence, class, dispatch, payload) do
+    context = TestHelper.verified(%{occurrence: occurrence, actual: 0, dispatch: dispatch})
+    input = outcome(id, held, class, payload)
 
-            loop(st, 0)
+    case RunEngine.input(st.engine, "rt:" <> digest(id, 32), input, context) do
+      {:ok, :applied} ->
+        send(
+          held.adapter,
+          {:recipe_test_reply, if(class == "completed", do: :completed, else: :other)}
+        )
 
-          reply ->
-            {:error, {:input_refused, reply, record(st)}}
-        end
+        loop(st, 0)
+
+      reply ->
+        {:error, {:input_refused, reply, record(st)}}
     end
   end
 
@@ -894,7 +986,7 @@ defmodule Elzoo.RecipeTest do
   defp classes({:refused, _}), do: {"refused", "not_dispatched"}
   defp classes({:unknown, _}), do: {"unknown", "unknown"}
 
-  defp outcome(action_id, held, entry, class) do
+  defp outcome(action_id, held, class, payload) do
     schema_id =
       case held.key do
         {:model, _} -> "elzoo.ai-text.result"
@@ -909,7 +1001,7 @@ defmodule Elzoo.RecipeTest do
       "outcome" => class,
       "schema_id" => schema_id,
       "schema_version" => 1,
-      "payload" => payload(entry, held)
+      "payload" => payload
     }
   end
 

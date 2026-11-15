@@ -88,7 +88,7 @@ defmodule Elzoo.RecipeTestTest do
   defp ordered(value) when is_list(value), do: Enum.map(value, &ordered/1)
   defp ordered(value), do: value
 
-  defp package(graph) do
+  defp package(graph, skills \\ []) do
     package = %{
       "format_version" => 1,
       "name" => "package",
@@ -104,7 +104,7 @@ defmodule Elzoo.RecipeTestTest do
         "secrets" => [],
         "schema" => %{"type" => "object", "properties" => %{}, "additionalProperties" => false}
       },
-      "skills" => []
+      "skills" => skills
     }
 
     hash = :crypto.hash(:sha256, canonical(package))
@@ -214,7 +214,8 @@ defmodule Elzoo.RecipeTestTest do
       input: input,
       tools: %{},
       executable: nil,
-      restart_after: nil
+      restart_after: nil,
+      skills: nil
     }
 
   # A graph root that calls an agent callable and a decision callable, and has two adapter
@@ -767,6 +768,408 @@ defmodule Elzoo.RecipeTestTest do
       assert record.outcome == :completed
       assert record.unused == %{{:model, "scripted-model"} => 1}
       assert record.asked == %{{:model, "scripted-model"} => 1}
+    end
+  end
+
+  ## Skills
+
+  defp skill_entry(name, tools, body, files \\ %{}) do
+    markdown = "---\nname: #{name}\ndescription: Use #{name}\n---\n" <> body
+
+    assert {:ok, %{entry: entry, files: rest}} =
+             Elzoo.Skill.read(name, "1", tools, Map.put(files, "SKILL.md", markdown))
+
+    {entry, rest}
+  end
+
+  # `alpha` declares one tool, `beta` none; the host describes the one tool.
+  defp skill_set do
+    {alpha, alpha_files} =
+      skill_entry("alpha", ["tool-identity-one"], "Alpha instructions\n", %{
+        "notes.txt" => "Alpha notes\n"
+      })
+
+    {beta, beta_files} = skill_entry("beta", [], "Beta instructions\n")
+
+    {[alpha, beta],
+     %{
+       id: "sk",
+       files: %{"alpha" => alpha_files, "beta" => beta_files},
+       descriptors: [tool("tool-identity-one")]
+     }}
+  end
+
+  # The spec of a recipe whose package holds the two skills; `sources` are the other sources.
+  defp skill_spec(graph, sources, facts, script, input) do
+    {entries, skills} = skill_set()
+    package = package(graph, entries)
+    assert {:ok, checked} = Elzoo.RecipePackage.decode(package)
+    assert {:ok, skill_sources} = Elzoo.Skill.sources("sk", checked, skills.descriptors)
+    %{base_spec(package, facts, sources ++ skill_sources, script, input) | skills: skills}
+  end
+
+  defp tool_turn(id, name, arguments),
+    do:
+      {:completed,
+       %{
+         "content" => "",
+         "finish" => "tool_calls",
+         "tool_proposals" => [
+           %{"id" => id, "name" => name, "arguments" => arguments, "malformed" => nil}
+         ]
+       }}
+
+  @load_alpha {:tool, "sk_load_skill"}
+  @alpha_tool "sk-1_tool-identity-one"
+
+  defp skill_agent_spec(script) do
+    graph = recipe([callable("main", "agent", %{"binding" => "worker"})])
+    skill_spec(graph, [], facts([cost("main", 5)]), script, "Do it.")
+  end
+
+  defp skill_script(tool_entries) do
+    %{
+      {:model, "scripted-model"} => [
+        tool_turn("c1", "sk_load_skill", %{"name" => "alpha"}),
+        tool_turn("c2", @alpha_tool, %{}),
+        answer("Done.")
+      ],
+      {:tool, @alpha_tool} => tool_entries
+    }
+  end
+
+  defp record_actions(record),
+    do: for(%{step: :action, action: action} <- record.steps, into: %{}, do: {action["id"], action})
+
+  defp record_outcomes(record, id),
+    do:
+      for(
+        %{step: :input, input: %{"kind" => "action_outcome", "action_id" => ^id} = input} <-
+          record.steps,
+        do: input
+      )
+
+  # The text between the marks of a marked tool result: its sources and its content.
+  defp marked(text) do
+    pattern =
+      ~r/\A<<<untrusted-content [0-9a-f]+ trust=untrusted bytes=\d+ sources=(.*)>>>\n(.*)\n<<<end untrusted-content [0-9a-f]+>>>\z/s
+
+    assert [_, sources, content] = Regex.run(pattern, text)
+    {sources, content}
+  end
+
+  defp system_text(payload) do
+    assert [%{"role" => "system", "text" => text} | _] = payload["messages"]
+    text
+  end
+
+  defp tool_names(payload), do: payload["tools"] |> Enum.map(& &1["name"]) |> Enum.sort()
+
+  defp result_of(payload, id) do
+    assert %{"role" => "tool_result", "text" => text} =
+             Enum.find(payload["messages"], &(&1["tool_use_id"] == id))
+
+    marked(text)
+  end
+
+  @plain_tools ["sk_load_skill", "sk_read_skill_file"]
+  @system_plain "Answer."
+  @system_alpha "Answer.\n\nAlpha instructions\n"
+
+  describe "skill_load_through_engine" do
+    test "a load reaches the agent as a declaration, and the skill tool is called once" do
+      script = skill_script([{:completed, "tool value"}])
+      assert {:ok, record} = RecipeTest.run(skill_agent_spec(script))
+      assert record.outcome == :completed
+      assert record.unused == %{}
+
+      assert record.asked == %{
+               {:model, "scripted-model"} => 3,
+               @load_alpha => 1,
+               {:tool, @alpha_tool} => 1
+             }
+
+      actions = record_actions(record)
+
+      assert %{
+               "kind" => "tool_call",
+               "schema_id" => "elzoo.agent-loop.tool-call",
+               "payload" => %{"alias" => "sk_load_skill", "arguments" => %{"name" => "alpha"}}
+             } = actions["d1:t:1:1"]
+
+      assert [load] = record_outcomes(record, "d1:t:1:1")
+      assert load["outcome"] == "completed"
+      assert load["schema_id"] == "elzoo.agent-loop.tool-result"
+
+      # The declaration of `Skill.load/4`, not marked text.
+      assert load["payload"] == %{
+               "declaration" => %{
+                 "skill" => %{"name" => "alpha", "instructions" => "Alpha instructions\n"},
+                 "listing" => %{"source" => "sk-1", "tools" => [tool("tool-identity-one")]}
+               }
+             }
+
+      [first, second, third] = for id <- ~w(d1:m:1 d1:m:2 d1:m:3), do: actions[id]["payload"]
+      assert system_text(first) == @system_plain
+      assert tool_names(first) == @plain_tools
+      assert system_text(second) == @system_alpha
+      assert tool_names(second) == [@alpha_tool | @plain_tools]
+      assert result_of(second, "c1") == {"agent-loop", "[declaration accepted]"}
+
+      assert system_text(third) == @system_alpha
+      assert result_of(third, "c2") == {"recipe-test:tool", "tool value"}
+      assert [done] = record_outcomes(record, "d1:t:2:1")
+      assert done["outcome"] == "completed"
+    end
+
+    test "the second skill tool answers a file read with Skill.read_file/3" do
+      script = %{
+        {:model, "scripted-model"} => [
+          tool_turn("c1", "sk_read_skill_file", %{"skill" => "alpha", "path" => "notes.txt"}),
+          tool_turn("c2", "sk_read_skill_file", %{"skill" => "alpha", "path" => "SKILL.md"}),
+          answer("Done.")
+        ]
+      }
+
+      assert {:ok, record} = RecipeTest.run(skill_agent_spec(script))
+      assert record.outcome == :completed
+      assert record.unused == %{}
+      assert record.asked == %{{:model, "scripted-model"} => 3, {:tool, "sk_read_skill_file"} => 2}
+
+      assert [read] = record_outcomes(record, "d1:t:1:1")
+      assert read["outcome"] == "completed"
+      assert read["payload"]["media_type"] == "text/plain"
+      assert read["payload"]["encoding"] == "utf8"
+      assert read["payload"]["content"]["sources"] == ["skill:alpha"]
+      assert read["payload"]["content"]["content"] == "Alpha notes\n"
+
+      # SKILL.md is never a file read: a refusal of Skill, with its reason.
+      assert [refused] = record_outcomes(record, "d1:t:2:1")
+      assert refused["outcome"] == "refused"
+      assert refused["payload"] == %{"reason" => "unknown_file"}
+    end
+
+    test "a script entry for a skill tool is never used and stays in unused" do
+      script =
+        Map.put(skill_script([{:completed, "tool value"}]), @load_alpha, [{:completed, "marked"}])
+
+      assert {:ok, record} = RecipeTest.run(skill_agent_spec(script))
+      assert record.unused == %{@load_alpha => 1}
+      assert [load] = record_outcomes(record, "d1:t:1:1")
+      assert Map.keys(load["payload"]) == ["declaration"]
+    end
+  end
+
+  describe "skills_shape" do
+    test "skills is nil or exactly id, files and descriptors; another value is invalid_spec" do
+      spec = skill_agent_spec(skill_script([{:completed, "tool value"}]))
+      skills = spec.skills
+
+      for bad <- [
+            :nope,
+            %{},
+            Map.delete(skills, :id),
+            Map.put(skills, :extra, 1),
+            %{skills | id: :sk},
+            %{skills | files: [{"alpha", %{}}]},
+            %{skills | descriptors: %{}},
+            Map.put(skills, :__struct__, Elzoo.RecipeTestTest)
+          ] do
+        assert RecipeTest.run(%{spec | skills: bad}) == {:error, :invalid_spec}
+      end
+
+      assert RecipeTest.run(Map.delete(spec, :skills)) == {:error, :invalid_spec}
+    end
+  end
+
+  describe "skill_load_after_restart" do
+    test "a restart while the skill tool is held: the load is recorded once and not asked again" do
+      script = skill_script([{:completed, "tool value"}])
+      spec = %{skill_agent_spec(script) | restart_after: 3}
+      assert {:ok, record} = RecipeTest.run(spec)
+      assert record.restarted == true
+      assert record.outcome == :completed
+
+      assert record.asked == %{
+               {:model, "scripted-model"} => 3,
+               @load_alpha => 1,
+               {:tool, @alpha_tool} => 1
+             }
+
+      # The dropped call used no entry.
+      assert record.unused == %{{:tool, @alpha_tool} => 1}
+
+      load_actions = for %{step: :action, action: %{"id" => "d1:t:1:1"}} <- record.steps, do: 1
+      assert length(load_actions) == 1
+      assert [load] = record_outcomes(record, "d1:t:1:1")
+      assert load["outcome"] == "completed"
+      assert Map.keys(load["payload"]) == ["declaration"]
+
+      assert [dropped] = record_outcomes(record, "d1:t:2:1")
+      assert dropped["outcome"] == "unknown"
+
+      model_calls =
+        for %{step: :action, action: %{"kind" => "model_call"} = a} <- record.steps, do: a["id"]
+
+      assert model_calls == ["d1:m:1", "d1:m:2", "d1:m:3"]
+
+      # The declaration is applied again from the record: the model call after the restart.
+      third = record_actions(record)["d1:m:3"]["payload"]
+      assert system_text(third) == @system_alpha
+      assert tool_names(third) == [@alpha_tool | @plain_tools]
+      assert result_of(third, "c1") == {"agent-loop", "[declaration accepted]"}
+      assert {"agent-loop", "[tool call not completed: unknown" <> _} = result_of(third, "c2")
+    end
+  end
+
+  describe "declared_tool_refused_at_use" do
+    test "a scripted refusal of the declared tool is a notice and the instructions stay" do
+      script = skill_script([{:refused, "not_permitted"}])
+      assert {:ok, record} = RecipeTest.run(skill_agent_spec(script))
+      assert record.outcome == :completed
+      assert record.unused == %{}
+
+      assert [refused] = record_outcomes(record, "d1:t:2:1")
+      assert refused["outcome"] == "refused"
+      assert refused["payload"] == %{"reason" => "not_permitted"}
+
+      third = record_actions(record)["d1:m:3"]["payload"]
+
+      assert result_of(third, "c2") ==
+               {"agent-loop", "[tool call not completed: refused: not_permitted]"}
+
+      assert system_text(third) == @system_alpha
+      assert tool_names(third) == [@alpha_tool | @plain_tools]
+    end
+  end
+
+  # A root graph with a `call` node into the agent, and a node that gives it `skill`.
+  defp skill_graph(nodes, links, slots, costs, script, input) do
+    main = callable("main", "graph", %{"nodes" => nodes, "links" => links, "input_slots" => slots})
+
+    graph =
+      recipe([
+        main,
+        callable("agent", "agent", %{"binding" => "worker"}),
+        callable("choice", "decision", %{"binding" => "judge", "choices" => ["alpha", "beta"]})
+      ])
+
+    skill_spec(
+      graph,
+      [files(["read"])],
+      facts([cost("agent", 5), cost("choice", 3) | costs]),
+      script,
+      input
+    )
+  end
+
+  # The checks of groups 4 and 5: the agent child of the node `a` starts with the load.
+  defp assert_child_loads_alpha(record) do
+    child = child_id(2, "d1:n:a")
+
+    assert [start] =
+             for(
+               %{step: :nested, schema_id: "elzoo.agent-loop.message"} = step <- record.steps,
+               do: step.payload
+             )
+
+    assert start == %{
+             "text" => canonical(%{"skill" => "alpha"}),
+             "skill" => %{"tool" => "sk_load_skill", "name" => "alpha"}
+           }
+
+    # The load comes first: no model call of the child before it.
+    ids =
+      for %{step: :action, action: %{"id" => id}} <- record.steps,
+          String.starts_with?(id, child <> ":"),
+          do: String.replace_prefix(id, child, "")
+
+    assert ids == [":t:0:1", ":m:1", ":finish"]
+    actions = record_actions(record)
+
+    assert %{"payload" => %{"alias" => "sk_load_skill", "arguments" => %{"name" => "alpha"}}} =
+             actions[child <> ":t:0:1"]
+
+    assert [load] = record_outcomes(record, child <> ":t:0:1")
+    assert load["outcome"] == "completed"
+    assert get_in(load, ["payload", "declaration", "skill", "name"]) == "alpha"
+    assert system_text(actions[child <> ":m:1"]["payload"]) == @system_alpha
+
+    assert tool_names(actions[child <> ":m:1"]["payload"]) ==
+             ["files_read", @alpha_tool | @plain_tools]
+  end
+
+  describe "decision_chooses_skill" do
+    test "the choice of a decision node is the skill that the agent child starts with" do
+      nodes = [
+        node("d", "decision", ["x"], ["value"], %{"callable" => "choice"}),
+        node("a", "call", ["skill"], ["text"], %{"callable" => "agent"}),
+        node("b", "tool", [], ["b_result"], %{"tool" => "files_read"})
+      ]
+
+      links = [
+        data("$input", "x", "d", "x"),
+        data("d", "value", "a", "skill"),
+        choice("d", "a", "alpha"),
+        choice("d", "b", "beta")
+      ]
+
+      script = %{
+        {:model, "scripted-decider"} => [decided("alpha")],
+        {:model, "scripted-model"} => [answer("Done.")]
+      }
+
+      spec =
+        skill_graph(nodes, links, [slot("x")], [cost("main", "b", 2)], script, %{"x" => "hi"})
+
+      assert {:ok, record} = RecipeTest.run(spec)
+      assert record.outcome == :completed
+      assert record.unused == %{}
+
+      assert record.asked == %{
+               {:model, "scripted-decider"} => 1,
+               {:model, "scripted-model"} => 1,
+               @load_alpha => 1
+             }
+
+      assert_child_loads_alpha(record)
+      refute Map.has_key?(record_actions(record), "d1:n:b")
+    end
+  end
+
+  describe "tool_result_chooses_skill" do
+    test "the value of a tool node is the skill that the agent child starts with" do
+      nodes = [
+        node("t", "tool", [], ["skill"], %{"tool" => "files_read"}),
+        node("a", "call", ["skill"], ["text"], %{"callable" => "agent"})
+      ]
+
+      script = %{
+        {:tool, "files_read"} => [{:completed, %{"skill" => "alpha"}}],
+        {:model, "scripted-model"} => [answer("Done.")]
+      }
+
+      spec =
+        skill_graph(
+          nodes,
+          [data("t", "skill", "a", "skill")],
+          [],
+          [cost("main", "t", 2)],
+          script,
+          %{}
+        )
+
+      assert {:ok, record} = RecipeTest.run(spec)
+      assert record.outcome == :completed
+      assert record.unused == %{}
+
+      assert record.asked == %{
+               {:tool, "files_read"} => 1,
+               {:model, "scripted-model"} => 1,
+               @load_alpha => 1
+             }
+
+      assert_child_loads_alpha(record)
     end
   end
 end

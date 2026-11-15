@@ -199,7 +199,8 @@ defmodule Elzoo.RecipeTestLuaTest do
       input: input,
       tools: tools,
       executable: executable,
-      restart_after: nil
+      restart_after: nil,
+      skills: nil
     }
 
   ## The Lua tool: one module function `add`, offered by the source `calc`
