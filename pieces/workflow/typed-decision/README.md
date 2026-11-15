@@ -95,9 +95,11 @@ Limits: an answer that matches the schema is not a correct answer. A call that
 did not complete is never tried again here; a repair request over a bound of
 ai-text or of the engine comes back refused and ends as `call_not_completed`.
 No provider is called or tested. No tools. A `failed` finish is not evidence of
-completion. No engine claim: with the ready `assembly/run-engine`, a nested
-callable outcome does not carry the child finish payload, so a parent pattern
-that needs the value calls `step/2` inside its own step. Telemetry, Config and
+completion. No engine claim: the ready `assembly/run-engine` gives
+the first admitted finish of a nested callable to the parent action only when
+its schema key equals the `result` of the parent's `nested_callable` binding,
+and this Piece tests nothing with the engine. A parent pattern can also call
+`step/2` inside its own step and read the finish request. Telemetry, Config and
 Control are not applicable.
 
 Module application-owned under `Elzoo.TypedDecision`. Apache-2.0; no new

@@ -23,7 +23,7 @@
     "Opt-in: only where the migration is installed; bind/2 does no I/O and verify/3 reports a missing, disabled or unsecured installation.",
     "Attribution is per binding (session): opaque shape-validated actor reference and the session's initiating business action, not per command; actor truthfulness is a host Need until domain/principal exists.",
     "Audited surface is elzoo_log_records INSERT/DELETE only; checkpoints, heads, outbox state, denied actions and no-mutation decisions are not captured.",
-    "TRUNCATE, table-owner trigger disable, superuser session_replication_role and audit-owner edits bypass capture (disclosed, tested); no tamper-proof, completeness or non-repudiation claim.",
+    "TRUNCATE, table-owner trigger disable, superuser session_replication_role and audit-owner edits bypass capture (disclosed); tests show TRUNCATE and the table-owner trigger disable, the session_replication_role bypass is shown only when the test role is a superuser and no check of this repository runs with such a role, and audit-owner edits are not shown by a test; no tamper-proof, completeness or non-repudiation claim.",
     "Requires DBConnection.ConnectionPool (Sandbox/Ownership pools and dynamic repos refused or unsupported), a dedicated non-superuser audit owner and an application role without audit-schema privileges or TRUNCATE.",
     "Retention only selects expired transaction IDs; deletion, jobs and scheduling are the consumer's; changing exclusions is a new migration."
   ],
@@ -47,7 +47,7 @@
     {
       "kind": "test",
       "file": "test/elzoo/audit_log_postgres_test.exs",
-      "claim": "Own disposable PostgreSQL database behind a fail-closed target guard: commit pairing, rollback on CAS conflict and injected failure, refusal of uncovered/override/update writes, exclusions, 16 concurrent actors, six held connections clean, killed holder on commit and rollback paths, retention delete and query, TRUNCATE and trigger-disable limits, opt-in without migration, definer functions with fixed search_path owned by the named non-superuser owner after every migration path, application-role boundary and reader-role reads where roles can be created, checkout failure returning the conservative Store result."
+      "claim": "Own disposable PostgreSQL database behind a fail-closed target guard: commit pairing, rollback on CAS conflict and injected failure, refusal of uncovered/override/update writes, exclusions, 16 concurrent actors, six held connections clean, killed holder on commit and rollback paths, retention delete and query, TRUNCATE and trigger-disable limits, opt-in without migration, definer functions with fixed search_path owned by the named non-superuser owner after every migration path, checkout failure returning the conservative Store result. The application-role boundary and the reader-role reads run only when the test role may create roles; the hosted check and the worker database give a role that may not, and there the test prints NOT EXERCISED."
     },
     {
       "kind": "test",
@@ -77,6 +77,10 @@
       "provider": "elixir",
       "reference": "https://hexdocs.pm/elixir/1.20.4/",
       "claim": "Elixir validation and BEAM process exit semantics; the DBConnection 2.10.2 ConnectionPool disconnect of a connection whose holder process exited is upstream behavior (observed in the killed-holder tests)."
+    },
+    {
+      "kind": "assumption",
+      "claim": "No check of this repository runs the boundary of the application role (no audit-schema privilege; direct audit DML, TRUNCATE, trigger configuration and schema creation refused; reader-role reads) or the session_replication_role bypass: both rest on the PostgreSQL privilege and trigger contracts and on a run by a developer with a role that may create roles or is a superuser, where a pull request body records one."
     },
     {
       "kind": "assumption",

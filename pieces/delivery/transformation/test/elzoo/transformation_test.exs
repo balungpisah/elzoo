@@ -175,9 +175,21 @@ defmodule Elzoo.TransformationTest do
                 "payload" => {:invoice, %{"total" => 5}}
               }}
 
-    assert {:ok, implicit} = result.implicit_correlation
-    assert implicit["correlation_id"] == "source-1"
-    assert implicit["causation_id"] == "source-1"
+    assert result.implicit_correlation ==
+             {:ok,
+              %{
+                "version" => 1,
+                "message_id" => "translated-1",
+                "schema_id" => "example/invoice",
+                "schema_version" => 2,
+                "kind" => "event",
+                "producer" => %{"unit_id" => "billing", "port_id" => "out"},
+                "correlation_id" => "source-1",
+                "causation_id" => "source-1",
+                "idempotency_key" => "dedup-1",
+                "payload" => {:invoice, %{"total" => 5}}
+              }}
+
     assert result.input_port == {:error, {:target, :invalid_direction}}
     assert result.extra_key == {:error, {:target, :invalid_shape}}
   end

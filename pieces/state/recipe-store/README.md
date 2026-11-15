@@ -41,7 +41,7 @@ caller = %{tenant: "acme", principal: "publisher", scopes: []}
 {:ok, ^identity} = Elzoo.RecipeStore.published(recipes, caller)
 {:ok, :pinned}   = Elzoo.RecipeStore.pin(recipes, caller, identity, run_id)
 {:ok, :unpinned} = Elzoo.RecipeStore.unpin(recipes, caller, identity, run_id)
-{:ok, :deleted}  = Elzoo.RecipeStore.delete(recipes, caller, identity)
+{:error, :published} = Elzoo.RecipeStore.delete(recipes, caller, identity)  # refused while published
 {:ok, versions}  = Elzoo.RecipeStore.versions(recipes, caller)
 ```
 
