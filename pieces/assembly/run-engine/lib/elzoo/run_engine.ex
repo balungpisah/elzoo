@@ -101,7 +101,14 @@ defmodule Elzoo.RunEngine do
         if accepted and not state.control.generation_closed and
              is_nil(state.control.stop_pending) and state.control.lifecycle.phase != :paused and
              not state.control.callables[callable].closed do
-          invoke(state, record, callable)
+          if input["kind"] in ["action_outcome", "person_answer"] or
+               fits?(
+                 put_in(state.control.invocations[record.id], digest({input, record.correlation}))
+               ) do
+            invoke(state, record, callable)
+          else
+            {classify(state, :record_size), :none}
+          end
         else
           if accepted and state.control.lifecycle.phase == :paused and
                not state.control.generation_closed and is_nil(state.control.stop_pending) and

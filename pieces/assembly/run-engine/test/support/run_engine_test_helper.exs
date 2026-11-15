@@ -908,4 +908,46 @@ defmodule Elzoo.RunEngine.TestHelper do
     2_097_152 -
       (byte_size(:erlang.term_to_binary(placed, [:deterministic, {:minor_version, 2}])) + reserve)
   end
+
+  def protocol_record(id, input, opts \\ []) do
+    %{
+      version: 1,
+      kind: :protocol,
+      id: id,
+      run_id: Keyword.get(opts, :run_id, "run"),
+      attempt_id: Keyword.get(opts, :attempt_id, "attempt"),
+      input: Map.put_new(input, "at_ms", 2_000),
+      correlation: Keyword.get(opts, :correlation, %{}),
+      context: Keyword.get(opts, :context, %{})
+    }
+  end
+
+  def pad_invocations(state, target_headroom) do
+    remaining = control_headroom(state) - target_headroom
+    true = remaining == 0 or remaining >= 43
+    padded = do_pad_invocations(state, remaining, map_size(state.control.invocations))
+    ^target_headroom = control_headroom(padded)
+    padded
+  end
+
+  defp do_pad_invocations(state, 0, _index), do: state
+
+  defp do_pad_invocations(state, remaining, index) when remaining >= 8_142 do
+    prefix = "pad-#{index}-"
+    id = prefix <> String.duplicate("p", 8_000 - byte_size(prefix))
+    next = put_in(state.control.invocations[id], :crypto.hash(:sha256, id))
+    do_pad_invocations(next, remaining - 8_042, index + 1)
+  end
+
+  defp do_pad_invocations(state, remaining, index) do
+    len = remaining - 42
+    prefix = "pad-#{index}-"
+
+    id =
+      if len > byte_size(prefix),
+        do: prefix <> String.duplicate("p", len - byte_size(prefix)),
+        else: String.duplicate("p", len)
+
+    put_in(state.control.invocations[id], :crypto.hash(:sha256, id))
+  end
 end
