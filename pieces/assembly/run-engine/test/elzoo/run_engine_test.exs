@@ -6693,9 +6693,22 @@ defmodule Elzoo.RunEngineTest do
       engine = start(c)
       assert unit_state(c).slots[{1, 0}].request_key == key
 
-      # The first restart of any Run records the Run's new view once; the replay
-      # is compared from the state after it.
+      # A restart records the Run's newer view once, in an uninterrupted Run too;
+      # after it, a restart writes nothing.
+      state_view = view(engine)
+      state_rows = rows(c)
+
       engine = restart(c, engine, [])
+      assert view(engine) == state_view
+      added = Enum.drop(rows(c), length(state_rows))
+      assert Enum.map(added, & &1.kind) == ["input", "result"]
+
+      assert [{1, {_id, %{kind: :run_view}}}] =
+               for(
+                 %{kind: "input"} = row <- added,
+                 do: :erlang.binary_to_term(row.payload, [:safe])
+               )
+
       before_view = view(engine)
       before_rows = length(rows(c))
 
