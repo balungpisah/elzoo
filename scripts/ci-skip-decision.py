@@ -26,6 +26,12 @@ evidence here, whatever the classification of the merge says. The small gate is 
 is the full check of the merged content (owner decision), so it always runs after a small-gate merge.
 The same rule applies to an executed `check-spike`; a skipped `check-spike` is neutral in a full or docs-only unit.
 
+ELZ-222: the head of a pull_request run is evidence only when GitHub says that its one pull request targets main and
+never changed its base. The script reads the pull requests of the run's head branch (`pulls?head=`) and the timeline of
+the one pull request whose head is the second parent. It refuses another base, another repository, no pull request,
+more than one, a base change at any time (the rule of scripts/merge-queue.py: no date compare) and every read that is
+not a clean answer. A workflow_dispatch run has no base and makes no such read.
+
 Fail closed: every other case, and every error, prints skip=false (a full run). The script never
 exits non-zero because it cannot decide. It writes skip=true|false to $GITHUB_OUTPUT.
 """
@@ -73,6 +79,8 @@ HOST = re.compile(r"[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])
 # The job-log endpoint answers with a redirect to GitHub's Actions results storage (observed 2026-11-08:
 # productionresultssa9.blob.core.windows.net, path /actions-results/...). Only that shape is accepted.
 RESULTS_HOST = re.compile(r"productionresultssa[0-9]+\.blob\.core\.windows\.net")
+# ELZ-222: the same tuple as BASE_CHANGES in scripts/merge-queue.py (the scripts share no module; a test compares them).
+BASE_CHANGES = ("base_ref_changed", "automatic_base_change_succeeded", "automatic_base_change_failed")
 
 
 class Full(Exception):
@@ -221,6 +229,41 @@ def evidence_event(run, repo):
     return event == "pull_request" and isinstance(source, dict) and source.get("full_name") == repo
 
 
+def pull_request_of_run(api, run, second, repo):
+    """ELZ-222: raise Full unless the one pull request of the run's head targets main and never changed its base.
+    Every value comes from an API answer. No retry, no second way to find the pull request."""
+    branch = run.get("head_branch")
+    need(isinstance(branch, str) and branch, "the pull_request run has no head branch")
+    query = urllib.parse.urlencode({"head": f"{repo.split('/')[0]}:{branch}", "state": "all", "per_page": 100})
+    listing = api.json(f"pulls?{query}")
+    need(isinstance(listing, list), "pull request listing malformed")
+    for entry in listing:
+        need(isinstance(entry, dict) and isinstance(entry.get("head"), dict)
+             and isinstance(entry["head"].get("sha"), str), "pull request listing malformed")
+    need(len(listing) < 100, "pull request listing is full: 100 pull requests for the head branch")
+    matches = [entry for entry in listing if entry["head"]["sha"] == second]
+    need(matches, "GitHub knows no pull request for the evidence head")
+    need(len(matches) == 1, "more than one pull request for the evidence head")
+    pull = matches[0]
+    base = pull.get("base")
+    need(isinstance(base, dict) and base.get("ref") == "main",
+         f"the pull request targets another base: {base.get('ref') if isinstance(base, dict) else base!r}")
+    base_repo, head_repo = base.get("repo"), pull["head"].get("repo")
+    need(isinstance(base_repo, dict) and base_repo.get("full_name") == repo, "the pull request base is another repository")
+    need(isinstance(head_repo, dict) and head_repo.get("full_name") == repo, "the pull request head is another repository")
+    number = pull.get("number")
+    need(isinstance(number, int) and not isinstance(number, bool) and number > 0, "pull request number malformed")
+    # A base change at any time refuses the skip (the rule of the queue): a run can have tested the old base.
+    for page in range(1, 11):
+        events = api.json(f"issues/{number}/timeline?per_page=100&page={page}")
+        need(isinstance(events, list) and len(events) <= 100 and all(isinstance(e, dict) for e in events),
+             "pull request timeline malformed")
+        need(not any(e.get("event") in BASE_CHANGES for e in events), "the base of the pull request changed")
+        if len(events) < 100:
+            return
+    raise Full("the pull request timeline has more than 10 pages")
+
+
 def decide(env, run_git=git, api=None):
     """Return (skip, reason, details). Raises Full for every reason to run the full check."""
     need(env.get("GITHUB_EVENT_NAME") == "push" and env.get("GITHUB_REF") == "refs/heads/main",
@@ -257,6 +300,7 @@ def decide(env, run_git=git, api=None):
         # No commit of the first parent is outside the head: rev-list lists none.
         ancestor = run_git("rev-list", "--count", f"{second}..{parents[1]}") == "0"
         need(ancestor, "the pull_request run may have tested another tree: the head does not hold the first parent")
+        pull_request_of_run(api, run, second, repo)
     need(run.get("status") == "completed" and run.get("conclusion") == "success"
          and isinstance(attempt, int) and attempt > 0,
          f"latest run {run_id} is not a completed success")
