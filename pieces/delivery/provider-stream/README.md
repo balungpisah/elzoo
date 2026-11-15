@@ -116,6 +116,8 @@ disconnects or fails closes the request the same way, and so does the end of
 `total_timeout_ms`. No remote cancellation is claimed: provider work and
 charges after the close are unknown.
 
+The total deadline bounds each wait of the call. It is not compared once more when the stream ends: a block or the end of the stream that the call has already received when `total_timeout_ms` ends is still handled, so a call can return `complete`, or another fixed result, shortly after the deadline. Nothing waits for the peer or for the sink after the deadline.
+
 ## Needs
 
 The caller holds the `delivery/effect-intent` custody of the call; `run/3` is
