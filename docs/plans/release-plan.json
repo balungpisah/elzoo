@@ -6835,6 +6835,40 @@
       "issue": 530,
       "url": "https://github.com/balungpisah/elzoo/issues/530",
       "issue_body_sha256": "4fede653c16efbdb480cd2a5b636eead5112e5114961639f0e5c99e3589f8da5"
+    },
+    {
+      "id": "ELZ-238",
+      "title": "ELZ-238 — The recipe harness takes an engine gate, so a declared skill tool that the principal may not use is refused by the engine",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-181", "ELZ-183", "ELZ-199", "ELZ-182", "ELZ-235", "ELZ-236", "ELZ-237"],
+      "status": "published 2026-11-15",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-238-harness-engine-gate.md"],
+      "outputs": [],
+      "acceptance": "Piece runtime/recipe-test in place: the harness takes an engine gate, and a declared skill tool that the principal may not use is refused by the engine at use while the instructions stay loaded; small gate.",
+      "product_aims": ["P13"],
+      "issue": 536,
+      "url": "https://github.com/balungpisah/elzoo/issues/536",
+      "issue_body_sha256": "884c671728fc9dd8a6e2d95993f0a37f80a50b55dff748d3dbf31e61f072fddb"
+    },
+    {
+      "id": "ELZ-239",
+      "title": "ELZ-239 — The skill Piece names where each RC-67 sentence that rests on another Piece is shown",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-182", "ELZ-235", "ELZ-237", "ELZ-238"],
+      "status": "published 2026-11-15",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-239-skill-names-its-evidence.md"],
+      "outputs": [],
+      "acceptance": "Piece workflow/skill in place, text only: each RC-67 sentence that rests on another Piece or on the host names where it is shown; no sentence says met in part without its evidence; small gate.",
+      "product_aims": ["P13"],
+      "issue": 537,
+      "url": "https://github.com/balungpisah/elzoo/issues/537",
+      "issue_body_sha256": "c036a61ac5fd228440840d31e973b6c9f98e8ddfa3fffe79bdbb09746cda1b92"
     }
   ],
   "entries": [
