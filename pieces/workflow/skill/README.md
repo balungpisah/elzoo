@@ -3,8 +3,8 @@
 `Elzoo.Skill` is four pure functions over a skill folder that the caller gives
 as data (the public Agent Skills format: a folder with `SKILL.md`, which holds
 YAML frontmatter and a Markdown body, and other files): `read/4` reads the
-folder, `source/2` gives the tool source of the skills of a checked package, and
-`load/2` and `read_file/3` answer one call of each tool. Every refusal is
+folder, `sources/3` gives the tool sources of the skills of a checked package,
+and `load/4` and `read_file/3` answer one call of each tool. Every refusal is
 `{:error, reason}` with a fixed atom that holds no path, file byte, frontmatter
 value or body.
 
@@ -121,30 +121,78 @@ value. A skill frontmatter needs no complex key, so `?` as an explicit key is
 refused; text that is not an alias or a key, such as `Use for *.xlsx files`,
 `R&D`, `what?` or `?x`, passes.
 
-## `source/2`
+## `sources/3`
 
-`Elzoo.Skill.source(id, package)` takes `id` (1 to 32 bytes of `[a-zA-Z0-9_-]`,
-else `invalid_input`) and a package that `RecipePackage.decode/1` gave (no skill
-is `no_skills`). It gives the source `%{"id", "kind" => "pinned_skill",
-"callable" => "adapter", "tools" => [load_skill, read_skill_file]}`. The model
-sees the aliases `<id>_load_skill` and `<id>_read_skill_file`. The names of the
-skills (in the order of the package) and the line `name: description` of each
-skill are in the input schema of `load_skill`, which the registry does not cut.
-The source holds no `allowed-tools` text and no tool identity of a skill.
+`Elzoo.Skill.sources(id, package, descriptors)` takes `id` (1 to 32 bytes of
+`[a-zA-Z0-9_-]`), a package that `RecipePackage.decode/1` gave and the tool
+descriptors that the host gives. The package says only *which* tools a skill
+brings (a list of identity texts); the descriptors are a host fact, as they are
+for every other tool of a Run. It gives `{:ok, sources}`:
 
-## `load/2`
+- first, the source `%{"id", "kind" => "pinned_skill", "callable" => "adapter",
+  "tools" => [load_skill, read_skill_file]}`. The model sees the aliases
+  `<id>_load_skill` and `<id>_read_skill_file`. The names of the skills (in the
+  order of the package) and the line `name: description` of each skill are in the
+  input schema of `load_skill`, which the registry does not cut. This source holds
+  no `allowed-tools` text, no tool identity of a skill and no descriptor;
+- then, for each skill at 1-based position `k` that declares at least one tool, in
+  package order, one source `%{"id" => id <> "-" <> k, "kind" => "other",
+  "callable" => "adapter", "tools" => []}`. It is empty at the start of a Run;
+  the load of its skill fills it.
 
-`Elzoo.Skill.load(package, arguments)`: `arguments` is the `arguments` member of
-the call, a map with exactly `"name"` (a binary). Refusals in order:
-`invalid_arguments`, `unknown_skill`, `empty_body`. Otherwise the payload of a
-completed outcome:
+The first failing check is the result:
+
+1. `id` is not 1 to 32 bytes of `[a-zA-Z0-9_-]`: `invalid_input`.
+2. the package has no skill: `no_skills`.
+3. `descriptors` is not a proper list of maps that are not structs:
+   `invalid_input`.
+4. the longest source id would pass the 32 bytes of the registry: `invalid_input`.
+   A package whose skills declare no tool has no per-skill source, so only the
+   rule of check 1 holds for it. With a skill that declares a tool at position 1
+   to 9, `id` may have 30 bytes; at position 10 to 16, 29 bytes.
+5. for each skill in package order and each declared identity in its order, the
+   descriptors whose `"name"` equals the identity are counted: none is
+   `undescribed_tool`, two or more are `invalid_input`. The first such identity
+   decides.
+
+A descriptor whose name no skill declares is ignored, so the host cannot add a
+tool to a skill. One descriptor serves each skill that declares its name.
+`sources/3` checks no other part of a descriptor: the registry checks the form
+when a load lists it.
+
+## `load/4`
+
+`Elzoo.Skill.load(id, package, descriptors, arguments)`: `id` and `descriptors`
+are those of `sources/3` and `arguments` is the `arguments` member of the call, a
+map with exactly `"name"` (a binary). It keeps no state. Refusals in order:
+checks 1, 3 and 4 of `sources/3` (`invalid_input`); `invalid_arguments`,
+`unknown_skill` (a package with no skill is `unknown_skill`), `empty_body`; then
+check 5 for the asked skill only, `undescribed_tool` or `invalid_input`: a
+missing descriptor of another skill does not refuse this load. Otherwise the
+payload of a completed outcome:
 
     %{"declaration" => %{"skill" => %{"name" => name, "instructions" => body},
-                         "listing" => nil}}
+                         "listing" => listing}}
 
 `body` is the body of the package entry byte for byte: no frontmatter, no mark,
-no cut. A load lists no tool, so `workflow/agent-loop` applies the instructions
-and refuses nothing for a tool count.
+no cut. `listing` is `nil` for a skill that declares no tool. For a skill at
+position `k` that declares tools it is `%{"source" => id <> "-" <> k, "tools" =>
+tools}`, where `tools` is the one descriptor of each declared identity, in the
+order of the `tools` of the skill, each as the host gave it.
+
+`workflow/agent-loop` then applies the instructions and the listing in one step,
+with no change of that Piece: the load refreshes the source of the skill, the
+next model request lists the aliases of its tools (`<id>-<k>_<name>`, or the cut
+form that the registry gives for a name outside its alias text), and a repeat
+load is `already_loaded` before any refresh. A listing that would pass 64 tools in
+all sources together (`load_skill` and `read_skill_file` included) is refused
+whole with `too_many_tools`, and a descriptor that the registry refuses is
+refused whole with its reason (for example `invalid_descriptor`); neither
+instructions nor tools are added. A tool that two skills declare is listed in the
+source of each skill and counts once for each loaded skill. The result of a listed
+tool comes from a source of kind `other`, so it is never a declaration. The agent
+loop does not check that a listing of a `pinned_skill` result targets a source of
+that skill.
 
 ## `read_file/3`
 
@@ -178,11 +226,16 @@ Needs: a host that
 
 - puts each entry of `read/4` into the recipe package and publishes only a
   package that `RecipePackage.decode/1` accepts;
-- pins the package of a Run (`workflow/version-pin`) and gives `source/2`,
-  `load/2` and `read_file/3` that package and the files of the same version;
+- pins the package of a Run (`workflow/version-pin`) and gives `sources/3`,
+  `load/4` and `read_file/3` that package and the files of the same version;
+- gives the same descriptors to `sources/3` and to each `load/4`, and puts every
+  source of `sources/3` into the source set of the Run at its start (a listing
+  for a source that is not in the snapshot is `unknown_source`);
 - stores the skill files (this Piece stores nothing);
-- binds `{:adapter, id, "load_skill"}` to `load/2` and
-  `{:adapter, id, "read_skill_file"}` to `read_file/3`, gives `{:ok, payload}`
+- binds `{:adapter, id, "load_skill"}` to `load/4`,
+  `{:adapter, id, "read_skill_file"}` to `read_file/3` and
+  `{:adapter, id <> "-" <> k, name}` to the real Adapter of each listed tool, gives
+  `{:ok, payload}`
   as a completed outcome under `elzoo.agent-loop.tool-result` version 1 and
   `{:error, reason}` as a `refused` outcome with the payload `{"reason":
   reason}`;
@@ -191,21 +244,24 @@ Needs: a host that
   application, which `yaml_elixir` starts.
 
 Limits: trust is the host's pin of the package; a matching identity
-authenticates nobody. The other files are not in the package identity. A load
-lists no tool: `allowed-tools` grants nothing and the declared `tools` of a
-skill are package declarations only. RC-67 "a load that would pass 64 tools
-gives the instructions and the named refusal" is not met, and four sentences
-are met in part: the refusal of a tool that is not permitted is at use, in the
-engine and the registry; scripts are read and never executed, but storing them
-is a host Need; a changed version does not change a running Run through
-`workflow/version-pin` and the host's pin, shown here only by pure functions
-over the given package; and the restart case is shown by folding the agent loop
-again over a cut trace, not with the harness of RC-66. A file read is not tied
-to a loaded skill. The media type is never guessed from the path. No Markdown is
-parsed and no script is read as code, compiled, evaluated or run. The test
-`scan_agrees_with_the_reader` calls the parser of the pinned `yamerl` directly,
-in test files only, with an option that the pinned docs do not expand; no file
-of `lib/` does, and the test opens with a positive control of that oracle.
+authenticates nobody. The other files are not in the package identity. The
+package says which tools a skill brings and the host says what each is; a tool of
+a skill is an Adapter call, and a nested callable (a Lua tool, a graph) as a
+skill tool is not part of this Piece. `allowed-tools` grants nothing, and a
+listed tool still passes the engine checks at use. A declared identity outside
+the registry name grammar can be described, but its load is refused by the
+registry. Three sentences of RC-67 are met in part: the refusal of a tool that is
+not permitted is at use, in the engine and the registry, and the test shows only a
+recorded `refused` outcome of a listed tool; scripts are read and never executed,
+but storing them is a host Need; a changed version does not change a running Run
+through `workflow/version-pin` and the host's pin, shown here only by pure
+functions over the given package; and the restart case is shown by folding the
+agent loop again over a cut trace, not with the harness of RC-66. A file read is
+not tied to a loaded skill. The media type is never guessed from the path. No
+Markdown is parsed and no script is read as code, compiled, evaluated or run. The
+test `scan_agrees_with_the_reader` calls the parser of the pinned `yamerl`
+directly, in test files only, with an option that the pinned docs do not expand;
+no file of `lib/` does, and the test opens with a positive control of that oracle.
 
 Telemetry, Config and Control are not applicable: pure functions over intrinsic
 operands and fixed bounds.
@@ -221,5 +277,19 @@ eleventh, `scan_agrees_with_the_reader` in
 short text to `read/4` and asks the token stream of the pinned parser about
 each accepted text (no anchor, alias, other tag, key `<<` or explicit key),
 and a fixed directed list of texts with the escapes that decode to `<`; and
-the checked example `examples/skill.exs`. They are finite scenarios and a finite
-sample, not a universal proof; no Cure law is selected.
+the checked example `examples/skill.exs`. The cases of the listing are in the
+same groups: `sources_literal_list`, `source_id_bound` and
+`start_check_of_descriptors` in `pinned_skill_source`; `load_lists_declared_tools`
+and `load_refusal_order` in `load_gives_declaration`; and in `agent_loop_accepts`,
+folded over recorded traces, `skill_tools_listed_after_load`,
+`repeat_load_adds_nothing`, `load_over_64_refused_whole`,
+`two_skills_keep_their_tools`, `listed_tool_result_is_not_a_declaration`,
+`declared_tool_refused_at_use` and `bad_descriptor_refused_whole`. Each of five
+temporary edits that were reverted makes its test fail: a listing that names the
+`pinned_skill` source instead of the source of the skill fails
+`listed_tool_result_is_not_a_declaration`; a `load/4` that skips a declared tool
+with no descriptor fails `load_refusal_order`; one shared source `<id>-1` for
+every skill fails `two_skills_keep_their_tools`; a `sources/3` that skips check 5
+fails `start_check_of_descriptors`; and a bound that checks only the 32 bytes of
+`id` fails `source_id_bound`. They are finite scenarios and a finite sample, not a
+universal proof; no Cure law is selected.
