@@ -3280,6 +3280,207 @@ defmodule Elzoo.RunEngineTest do
       assert slots[{1, 2}].outcome == "completed"
       for provider <- providers, do: send(provider, {:result, %{}})
     end
+
+    # Groups retry_after_settlement_is_a_duplicate, retry_after_a_restart_is_a_duplicate,
+    # changed_bytes_are_still_a_conflict (request gone) and valid_retry_is_unchanged.
+    test "a retried outcome is a duplicate after settlement and after a restart" do
+      Process.register(self(), :run_engine_observer)
+
+      c =
+        fixture(
+          pattern:
+            scripted_root([
+              act("a1", "tool_call", "a.call"),
+              act("b1", "tool_call", "b.call"),
+              act("b2", "tool_call", "b.call")
+            ])
+        )
+
+      a = variant(c, "tool_call", id: "bind-a", version: 3)
+      b = variant(c, "tool_call", id: "bind-b", version: 5, result: {"b.result", 1})
+      bindings = Map.put(c.opts[:bindings], "tool_call", %{"a.call" => a, "b.call" => b})
+      schemas = add_schemas(c, ["a.call", "b.call"], ["b.result"])
+      engine = start(c, bindings: bindings, schemas: schemas)
+      assert {:ok, :applied} = send_input(engine)
+
+      providers =
+        for _ <- 1..3,
+            do:
+              (
+                assert_receive {:effect_started, p, _}, 5_000
+                p
+              )
+
+      send_outcome = fn engine, id, key, input ->
+        RunEngine.input(
+          engine,
+          id,
+          input,
+          verified(%{occurrence: key, actual: 1, dispatch: "dispatched"})
+        )
+      end
+
+      assert {:ok, :applied} =
+               send_outcome.(engine, "outcome-b1-result", {1, 1}, provider_input("b1", "result"))
+
+      assert %{"outcome" => "unknown", "payload" => %{"reason" => "invalid_outcome"}} =
+               outcome_for("b1")
+
+      assert {:ok, :applied} =
+               send_outcome.(
+                 engine,
+                 "outcome-b2-b.result",
+                 {1, 2},
+                 provider_input("b2", "b.result")
+               )
+
+      assert %{"outcome" => "completed", "schema_id" => "b.result"} = outcome_for("b2")
+
+      assert {:ok, :applied} =
+               send_outcome.(engine, "outcome-a1-result", {1, 0}, provider_input("a1", "result"))
+
+      assert %{"outcome" => "completed"} = outcome_for("a1")
+
+      retries = fn engine ->
+        # Every occurrence settled: the request has left the state.
+        assert requests(c) == %{}
+        before = journal(c)
+        slot = view(engine).slots[{1, 1}]
+        assert slot.outcome == "unknown"
+
+        # retry_after_settlement_is_a_duplicate / retry_after_a_restart_is_a_duplicate
+        assert {:ok, :duplicate} =
+                 send_outcome.(
+                   engine,
+                   "outcome-b1-result",
+                   {1, 1},
+                   provider_input("b1", "result")
+                 )
+
+        assert journal(c) == before
+        assert view(engine).slots[{1, 1}] == slot
+
+        # changed_bytes_are_still_a_conflict: the schema that the binding expects.
+        assert {:error, :input_id_conflict} =
+                 send_outcome.(
+                   engine,
+                   "outcome-b1-result",
+                   {1, 1},
+                   provider_input("b1", "b.result")
+                 )
+
+        assert journal(c) == before
+        assert view(engine).slots[{1, 1}] == slot
+
+        # valid_retry_is_unchanged: same bytes a duplicate, another payload a conflict.
+        assert {:ok, :duplicate} =
+                 send_outcome.(
+                   engine,
+                   "outcome-b2-b.result",
+                   {1, 2},
+                   provider_input("b2", "b.result")
+                 )
+
+        other = %{provider_input("b2", "b.result") | "payload" => %{"accepted" => false}}
+
+        assert {:error, :input_id_conflict} =
+                 send_outcome.(engine, "outcome-b2-b.result", {1, 2}, other)
+
+        assert journal(c) == before
+        assert view(engine).slots[{1, 1}] == slot
+      end
+
+      retries.(engine)
+
+      engine = restart(c, engine, bindings: bindings, schemas: schemas)
+      assert view(engine).slots[{1, 1}].outcome == "unknown"
+      retries.(engine)
+
+      for provider <- providers, do: send(provider, {:result, %{}})
+    end
+
+    # changed_bytes_are_still_a_conflict and retry_after_settlement_is_a_duplicate, request
+    # still in the state (a sibling is held in approval) and then gone (the sibling released).
+    test "a retried outcome is the same before and after the request leaves the state" do
+      Process.register(self(), :run_engine_observer)
+
+      c =
+        fixture(
+          pattern: scripted_root([act("b1", "tool_call", "b.call"), action("held", "local_work")])
+        )
+
+      require_approval(c)
+
+      b =
+        variant(c, "tool_call",
+          id: "bind-b",
+          version: 5,
+          effect_class: "compute",
+          result: {"b.result", 1}
+        )
+
+      bindings =
+        c.opts[:bindings]
+        |> Map.put("tool_call", %{"b.call" => b})
+        |> Map.update!("local_work", &%{&1 | effect_class: "publish"})
+
+      schemas = add_schemas(c, ["b.call"], ["b.result"])
+      engine = start(c, bindings: bindings, schemas: schemas)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, provider, _}, 5_000
+      {:ok, run} = Run.status(c.run, "run")
+      [%{request_key: key}] = run.approvals
+
+      send_outcome = fn input ->
+        RunEngine.input(
+          engine,
+          "outcome-b1-result",
+          input,
+          verified(%{occurrence: {1, 0}, actual: 1, dispatch: "dispatched"})
+        )
+      end
+
+      assert {:ok, :applied} = send_outcome.(provider_input("b1", "result"))
+
+      assert %{"outcome" => "unknown", "payload" => %{"reason" => "invalid_outcome"}} =
+               outcome_for("b1")
+
+      retries = fn ->
+        before = journal(c)
+        slot = view(engine).slots[{1, 0}]
+        assert slot.outcome == "unknown"
+        assert {:ok, :duplicate} = send_outcome.(provider_input("b1", "result"))
+        assert {:error, :input_id_conflict} = send_outcome.(provider_input("b1", "b.result"))
+        assert journal(c) == before
+        assert view(engine).slots[{1, 0}] == slot
+      end
+
+      # The held sibling keeps the request in the state.
+      assert Map.has_key?(requests(c), 1)
+      assert view(engine).slots[{1, 1}].phase == :approval
+      retries.()
+
+      assert {:ok, :applied} =
+               RunEngine.control(
+                 engine,
+                 "consent",
+                 %{kind: :approval_evidence, request_key: key, evidence: consent(key)},
+                 verified()
+               )
+
+      # The request leaves the state while the released action still runs: wait for both.
+      wait_for(
+        engine,
+        fn view ->
+          not Map.has_key?(requests(c), 1) and view.slots[{1, 1}].phase == :settled
+        end,
+        2_000
+      )
+
+      assert view(engine).slots[{1, 1}].outcome == "completed"
+      retries.()
+      send(provider, {:result, %{}})
+    end
   end
 
   describe "unbound_schema_refused" do
