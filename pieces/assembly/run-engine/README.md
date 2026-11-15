@@ -611,10 +611,10 @@ for local work, `ask_person`, nested callable and finish, a ready Resource slot,
 refusing nested parent that has a child, and a running child finish.
 
 Limits of the room of a child finish. A child that never sends a finish that fits
-leaves its parent action waiting. Two existing rules settle that parent: its deadline,
+leaves its parent action waiting. Three rules settle that parent: its deadline,
 only when an input of the current Attempt reaches the engine at or after the deadline
-while the Run is not terminal (the engine has no timer for the deadline of a slot), and
-a change of Attempt. The end of the Run settles it with the other open slots (above).
+while the Run is not terminal (the engine has no timer for the deadline of a slot), a
+change of Attempt, and the end of the Run with the other open slots (above).
 A Run recorded before this repair, with a finish that was
 admitted and not yet kept, can meet the refusal on replay where the old code had none
 (Elzoo is not released).
