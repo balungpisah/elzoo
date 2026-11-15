@@ -2886,6 +2886,15 @@ defmodule Elzoo.RunEngine do
     end)
   end
 
+  # A :reconcile Resource slot that carried reconciliation :read_only while its
+  # intent was inactive carries :active once the intent is active again, so the
+  # view does not report a stale read-only reconciliation.
+  defp reactivate_reconcile(acc, key, %{phase: :reconcile, reconciliation: :read_only}) do
+    continuation(acc, key, :reconcile, %{reconciliation: :active})
+  end
+
+  defp reactivate_reconcile(acc, _key, _slot), do: {:ok, acc}
+
   defp action_context(s, key, overrides) do
     {state, s} = read_state(s)
     slot = state.slots[key]
@@ -2928,8 +2937,13 @@ defmodule Elzoo.RunEngine do
                 # and open for its cursor; an untried active intent gets only
                 # the {:dispatch, ...} under its deterministic ID; an inactive
                 # one moves to :reconcile with read_only. The slot keeps its
-                # phase so drain/1 does not select it and resend the action.
-                dispatch_resource(acc, key, slot)
+                # phase so drain/1 does not select it and resend the action; a
+                # :reconcile slot whose intent is active again carries
+                # reconciliation :active, not the stale :read_only.
+                with {:ok, acc} <- dispatch_resource(acc, key, slot),
+                     {:ok, acc} <- reactivate_reconcile(acc, key, slot) do
+                  {:ok, acc}
+                end
 
               view.attempts > 0 ->
                 internal_outcome(acc, key, "unknown", "lost_outcome", %{dispatch: "unknown"})
