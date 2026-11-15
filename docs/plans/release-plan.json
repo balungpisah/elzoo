@@ -4622,14 +4622,14 @@
         "ELZ-182"
       ],
       "status": "published as ELZ-182 workflow/skill",
-      "contract": "A skill follows the public Agent Skills format (https://agentskills.io/specification, accessed 2026-11-12; no spec version): a folder with SKILL.md, YAML frontmatter and Markdown instructions. Required name is 1–64 lowercase alphanumeric or hyphen characters, has no leading, trailing or consecutive hyphens, and matches the folder; required description is 1–1024 characters. Malformed skills are refused at package checking, not load. V1 skills come only from the recipe package; MCP io.modelcontextprotocol/skills is out of scope, and future use requires person approval of the exact digest. A model sees only descriptions until it asks for one. A skill is a registry tool source (RC-52); asking is a recorded tool call whose result holds instructions and the tools declared by the pinned package manifest, using RC-56's declaration shape. Trust comes from the pinned package manifest source, never the path or result shape. Named instructions rank with recipe role instructions, RC-54 builds them as instructions and never drops them, and RC-51 does not mark them; other tool results remain marked content. RC-56 accepts them only for the resolved pinned-package skill source kind, owns the 64-tool and total loaded-instruction byte bounds and named refusals, refuses an instruction-overbound load without adding instructions, and adds nothing for a repeat loaded skill. A load exceeding 64 tools gives the instructions and named tool refusal if the instruction bound permits. Instructions are never cut; RC-69 may cut skill files, not the SKILL.md body. A skill grants no authority, including through allowed-tools frontmatter; tools still pass engine checks. Scripts are stored and read but never executed in v1. RC-61's package manifest names each skill with its version and tools; the pinned recipe fixes skill versions.",
-      "acceptance": "Malformed folder or SKILL.md frontmatter refused at package checking, including name and description limits; unknown skill; a skill whose declared tool is not permitted for the principal (the instructions load, the tool is refused at use); a skill file over the bound of RC-69 is cut to a reference but the SKILL.md body is never cut; a load that would pass 64 tools gives the instructions and the named refusal of RC-56 when within the instruction bound; an instruction-overbound load adds no instruction and repeat load adds nothing; allowed-tools grants no authority; scripts are stored and read, never executed; a changed skill version does not change a running Run; with the harness of RC-66, a load survives a restart and is not done again.",
+      "contract": "A skill follows the public Agent Skills format (https://agentskills.io/specification, accessed 2026-11-12; no spec version): a folder with SKILL.md, YAML frontmatter and Markdown instructions. Required name is 1–64 lowercase alphanumeric or hyphen characters, has no leading, trailing or consecutive hyphens, and matches the folder; required description is 1–1024 characters. Malformed skills are refused at package checking, not load. V1 skills come only from the recipe package; MCP io.modelcontextprotocol/skills is out of scope, and future use requires person approval of the exact digest. A model sees only descriptions until it asks for one. A skill is a registry tool source (RC-52); asking is a recorded tool call whose result holds instructions and the tools declared by the pinned package manifest, using RC-56's declaration shape. Trust comes from the pinned package manifest source, never the path or result shape. Named instructions rank with recipe role instructions, RC-54 builds them as instructions and never drops them, and RC-51 does not mark them; other tool results remain marked content. RC-56 accepts them only for the resolved pinned-package skill source kind, owns the 64-tool and total loaded-instruction byte bounds and named refusals, refuses an instruction-overbound load without adding instructions, and adds nothing for a repeat loaded skill. A load whose tools would pass 64 is refused whole with RC-56's named refusal: it adds neither instructions nor tools. The package manifest names which tools a skill brings; the host gives their descriptors as a fact, as for every other tool of the Run; the tools of a loaded skill are listed in a source of their own, of kind other, so their results are never declarations. An agent start may name one skill: its load is the same recorded tool call, made before the first model call. Instructions are never cut; RC-69 may cut skill files, not the SKILL.md body. A skill grants no authority, including through allowed-tools frontmatter; tools still pass engine checks. Scripts are stored and read but never executed in v1. RC-61's package manifest names each skill with its version and tools; the pinned recipe fixes skill versions.",
+      "acceptance": "Malformed folder or SKILL.md frontmatter refused at package checking, including name and description limits; unknown skill; a skill whose declared tool is not permitted for the principal (the instructions load, the tool is refused at use); a skill file over the bound of RC-69 is cut to a reference but the SKILL.md body is never cut; a load that would pass 64 tools is refused whole with the named refusal of RC-56 and changes neither instructions nor tools; the declared tools of a loaded skill are listed in the next model request and not before; a declared tool with no descriptor is refused at the start; an agent start that names a skill loads it before the first model call; an instruction-overbound load adds no instruction and repeat load adds nothing; allowed-tools grants no authority; scripts are stored and read, never executed; a changed skill version does not change a running Run; with the harness of RC-66, a load survives a restart and is not done again.",
       "reuse": "Public Agent Skills specification, https://agentskills.io/specification, accessed 2026-11-12 (no spec version); state/artifact for files; RC-52, RC-54 and RC-56; the package manifest of RC-61; the cut rule of RC-69; the pin of RC-65; the harness of RC-66.",
       "paths": [
         "pieces/workflow/skill/"
       ],
       "blockers": [
-        "RC-67 is published as ELZ-182. Coordinator decisions, 2026-11-14: the YAML frontmatter is read with the adopted library (ELZ-176) behind a scan that refuses aliases, merge keys, document markers, duplicate top-level keys and tabs; a load lists no tool, so the acceptance case of a load that would pass 64 tools is not met by this task and needs a change of workflow/agent-loop; the Piece stores nothing, the caller holds the bytes of the files."
+        "RC-67 is published as ELZ-182. Coordinator decisions, 2026-11-14: the YAML frontmatter is read with the adopted library (ELZ-176) behind a scan that refuses aliases, merge keys, document markers, duplicate top-level keys and tabs; ELZ-182 listed no tool. Coordinator decisions, 2026-11-15 (the owner asked to close the gap in the code, not in the plan text): ELZ-235 lists the declared tools of a loaded skill from descriptors that the host gives, with no change of workflow/agent-loop, whose declare step already refuses a load whole when its listing is refused; ELZ-236 lets an agent start name one skill; ELZ-237 shows both with the harness of RC-66, the restart included; the Piece stores nothing, the caller holds the bytes of the files."
       ],
       "owner_role": "one claimed task worker after admission",
       "product_aims": [
@@ -6767,6 +6767,74 @@
       "issue": 516,
       "url": "https://github.com/balungpisah/elzoo/issues/516",
       "issue_body_sha256": "19ed8439c2780104c4ccbec5794955013aa6c8fc7680fceb781b7cacf8216ebe"
+    },
+    {
+      "id": "ELZ-225",
+      "title": "ELZ-225 — The number of VM launches of one full `mix check` and their share of the time are recorded, and `AGENTS.md` names the one-launch way to repeat a test",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033"],
+      "status": "published 2026-11-15",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-225-check-launch-count.md"],
+      "outputs": [],
+      "acceptance": "A measurement and one sentence, documents only: one full mix check counted by launches of the VM, the count by group, the two medians, the share and the decision line in the CI guide; AGENTS.md section 4 names the one-launch way to repeat a test; roadmap checks and the docs-only hosted check.",
+      "product_aims": ["P13"],
+      "issue": 523,
+      "url": "https://github.com/balungpisah/elzoo/issues/523",
+      "issue_body_sha256": "e18f2a8820eba96a6287804080ae085a19794c655029b48ddfb0e3c77187ea1e"
+    },
+    {
+      "id": "ELZ-235",
+      "title": "ELZ-235 — A loaded skill lists the tools that its pinned package declares, with descriptors that the host gives",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-182", "ELZ-194", "ELZ-136", "ELZ-142", "ELZ-164"],
+      "status": "published 2026-11-15",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-235-skill-lists-its-tools.md"],
+      "outputs": [],
+      "acceptance": "Piece workflow/skill in place: a load lists the declared tools of its skill from descriptors that the host gives, in a source of their own; a declared tool with no descriptor is refused at the start and at the load; a load that would pass 64 tools is refused whole; small gate.",
+      "product_aims": ["P13"],
+      "issue": 528,
+      "url": "https://github.com/balungpisah/elzoo/issues/528",
+      "issue_body_sha256": "c2d2ce7abd576fec10be734e9c73eea077c1106dcdb2ee1b34356345e024c12a"
+    },
+    {
+      "id": "ELZ-236",
+      "title": "ELZ-236 — An agent start may name one skill, and its load is the first request, before the first model call",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-142", "ELZ-150", "ELZ-208", "ELZ-136", "ELZ-182"],
+      "status": "published 2026-11-15",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-236-agent-start-loads-a-skill.md"],
+      "outputs": [],
+      "acceptance": "Piece workflow/agent-loop in place: an agent start may name one skill; its load is one recorded tool action before the first model call and goes through the same declaration checks; no spec key is added; small gate.",
+      "product_aims": ["P13"],
+      "issue": 529,
+      "url": "https://github.com/balungpisah/elzoo/issues/529",
+      "issue_body_sha256": "ac84245b8013cde978dbe800cdc950826afd68132731b3169bfb22973f7ab07a"
+    },
+    {
+      "id": "ELZ-237",
+      "title": "ELZ-237 — The recipe harness answers skill calls with the real skill Piece, and a graph node can start an agent with a skill loaded",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-181", "ELZ-183", "ELZ-199", "ELZ-182", "ELZ-168", "ELZ-235", "ELZ-236"],
+      "status": "published 2026-11-15",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-237-harness-answers-skill-calls.md"],
+      "outputs": [],
+      "acceptance": "Piece runtime/recipe-test in place: the harness answers skill calls with the real skill Piece, a load survives a restart and is not done again, and a decision node or a tool node result starts an agent with a skill loaded; small gate.",
+      "product_aims": ["P13"],
+      "issue": 530,
+      "url": "https://github.com/balungpisah/elzoo/issues/530",
+      "issue_body_sha256": "4fede653c16efbdb480cd2a5b636eead5112e5114961639f0e5c99e3589f8da5"
     }
   ],
   "entries": [

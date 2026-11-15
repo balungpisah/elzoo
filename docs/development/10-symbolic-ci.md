@@ -689,6 +689,18 @@ These lines are monitored behavior from a monotonic clock. They prove nothing ab
 They add no stage, test or assertion. Queue time is not part of any line. Compare runs only on the
 same SHA and the same runner.
 
+One full `mix check` on a developer host (2026-11-15, main at `4306a0c`, exit 0) started 117
+Erlang VMs: the `mix check` VM 1, the Ash spike 2, the copied-consumer harness 64 (32 inner Mix test
+starts, 31 runtime VMs and 1 install-configuration start), helper VMs of tests inside consumers 11,
+helper VMs of root tests 12, scratch-copy tests 24, one provider consumer 3. Of these, 38 start Mix
+and 79 a bare VM. The median start was 0.617 s for Mix (`mix run --no-start --no-compile
+--no-deps-check -e ''` in the root project) and 0.234 s for a bare VM (`elixir -e ''`), 20 runs each. The estimated share is (38 x 0.617 s + 79 x 0.234 s) / 2615.6 s, the time of the last
+`ELZOO STAGE end` line, which is 1.6 percent. This is an estimate: it counts the start of a VM and not
+the work that a consumer VM does to load and check its project, and the medians were taken on an idle
+host after the run. Decision: under 3 percent, closed with the number; no task. The launches were
+counted at `erlexec` in a copy of the toolchain, because the VM puts its own `erts/bin` before `PATH`
+and an `erl` script on `PATH` sees only the first launch.
+
 ## Concurrent database-free consumers (ELZ-049)
 
 The copied-consumer tests share one harness, `Elzoo.CureConsumerCase` in

@@ -283,6 +283,10 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-222](https://github.com/balungpisah/elzoo/issues/479) | V1B / pieces | ELZ-033, ELZ-223 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-231](https://github.com/balungpisah/elzoo/issues/489) | V1B / pieces | ELZ-122, ELZ-189 | published 2026-11-14 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-233](https://github.com/balungpisah/elzoo/issues/515) | V1B / pieces | ELZ-009, ELZ-033, ELZ-143 | published 2026-11-15 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-225](https://github.com/balungpisah/elzoo/issues/523) | V1B / pieces | ELZ-033 | published 2026-11-15 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-235](https://github.com/balungpisah/elzoo/issues/528) | V1B / pieces | ELZ-033, ELZ-182, ELZ-194, ELZ-136, ELZ-142, ELZ-164 | published 2026-11-15 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-236](https://github.com/balungpisah/elzoo/issues/529) | V1B / pieces | ELZ-033, ELZ-142, ELZ-150, ELZ-208, ELZ-136, ELZ-182 | published 2026-11-15 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-237](https://github.com/balungpisah/elzoo/issues/530) | V1B / pieces | ELZ-033, ELZ-181, ELZ-183, ELZ-199, ELZ-182, ELZ-168, ELZ-235, ELZ-236 | published 2026-11-15 | one claimed task worker; coordinator owns independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -453,7 +457,7 @@ Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, EL
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189, ELZ-190, ELZ-191, ELZ-192, ELZ-193, ELZ-194, ELZ-195, ELZ-196, ELZ-197, ELZ-198, ELZ-199, ELZ-200, ELZ-201, ELZ-202, ELZ-203, ELZ-204, ELZ-205, ELZ-206, ELZ-207, ELZ-208, ELZ-210, ELZ-211, ELZ-212, ELZ-213, ELZ-214, ELZ-215, ELZ-216, ELZ-217, ELZ-218, ELZ-219, ELZ-220, ELZ-221, ELZ-223, ELZ-224, ELZ-227, ELZ-229, ELZ-230, ELZ-222, ELZ-231, ELZ-232, ELZ-233, ELZ-234.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189, ELZ-190, ELZ-191, ELZ-192, ELZ-193, ELZ-194, ELZ-195, ELZ-196, ELZ-197, ELZ-198, ELZ-199, ELZ-200, ELZ-201, ELZ-202, ELZ-203, ELZ-204, ELZ-205, ELZ-206, ELZ-207, ELZ-208, ELZ-210, ELZ-211, ELZ-212, ELZ-213, ELZ-214, ELZ-215, ELZ-216, ELZ-217, ELZ-218, ELZ-219, ELZ-220, ELZ-221, ELZ-223, ELZ-224, ELZ-227, ELZ-229, ELZ-230, ELZ-222, ELZ-231, ELZ-232, ELZ-233, ELZ-234, ELZ-225, ELZ-235, ELZ-236, ELZ-237.
 
 ### V2-ACCEPT
 
@@ -2344,15 +2348,15 @@ Skill: instructions and files loaded on demand
 
 **Product aims:** P13. Bot platform track; see docs/plans/bot-platform.md.
 
-**Contract:** A skill follows the public Agent Skills format (https://agentskills.io/specification, accessed 2026-11-12; no spec version): a folder with SKILL.md, YAML frontmatter and Markdown instructions. Required name is 1–64 lowercase alphanumeric or hyphen characters, has no leading, trailing or consecutive hyphens, and matches the folder; required description is 1–1024 characters. Malformed skills are refused at package checking, not load. V1 skills come only from the recipe package; MCP io.modelcontextprotocol/skills is out of scope, and future use requires person approval of the exact digest. A model sees only descriptions until it asks for one. A skill is a registry tool source (RC-52); asking is a recorded tool call whose result holds instructions and the tools declared by the pinned package manifest, using RC-56's declaration shape. Trust comes from the pinned package manifest source, never the path or result shape. Named instructions rank with recipe role instructions, RC-54 builds them as instructions and never drops them, and RC-51 does not mark them; other tool results remain marked content. RC-56 accepts them only for the resolved pinned-package skill source kind, owns the 64-tool and total loaded-instruction byte bounds and named refusals, refuses an instruction-overbound load without adding instructions, and adds nothing for a repeat loaded skill. A load exceeding 64 tools gives the instructions and named tool refusal if the instruction bound permits. Instructions are never cut; RC-69 may cut skill files, not the SKILL.md body. A skill grants no authority, including through allowed-tools frontmatter; tools still pass engine checks. Scripts are stored and read but never executed in v1. RC-61's package manifest names each skill with its version and tools; the pinned recipe fixes skill versions.
+**Contract:** A skill follows the public Agent Skills format (https://agentskills.io/specification, accessed 2026-11-12; no spec version): a folder with SKILL.md, YAML frontmatter and Markdown instructions. Required name is 1–64 lowercase alphanumeric or hyphen characters, has no leading, trailing or consecutive hyphens, and matches the folder; required description is 1–1024 characters. Malformed skills are refused at package checking, not load. V1 skills come only from the recipe package; MCP io.modelcontextprotocol/skills is out of scope, and future use requires person approval of the exact digest. A model sees only descriptions until it asks for one. A skill is a registry tool source (RC-52); asking is a recorded tool call whose result holds instructions and the tools declared by the pinned package manifest, using RC-56's declaration shape. Trust comes from the pinned package manifest source, never the path or result shape. Named instructions rank with recipe role instructions, RC-54 builds them as instructions and never drops them, and RC-51 does not mark them; other tool results remain marked content. RC-56 accepts them only for the resolved pinned-package skill source kind, owns the 64-tool and total loaded-instruction byte bounds and named refusals, refuses an instruction-overbound load without adding instructions, and adds nothing for a repeat loaded skill. A load whose tools would pass 64 is refused whole with RC-56's named refusal: it adds neither instructions nor tools. The package manifest names which tools a skill brings; the host gives their descriptors as a fact, as for every other tool of the Run; the tools of a loaded skill are listed in a source of their own, of kind other, so their results are never declarations. An agent start may name one skill: its load is the same recorded tool call, made before the first model call. Instructions are never cut; RC-69 may cut skill files, not the SKILL.md body. A skill grants no authority, including through allowed-tools frontmatter; tools still pass engine checks. Scripts are stored and read but never executed in v1. RC-61's package manifest names each skill with its version and tools; the pinned recipe fixes skill versions.
 
-**Acceptance:** Malformed folder or SKILL.md frontmatter refused at package checking, including name and description limits; unknown skill; a skill whose declared tool is not permitted for the principal (the instructions load, the tool is refused at use); a skill file over the bound of RC-69 is cut to a reference but the SKILL.md body is never cut; a load that would pass 64 tools gives the instructions and the named refusal of RC-56 when within the instruction bound; an instruction-overbound load adds no instruction and repeat load adds nothing; allowed-tools grants no authority; scripts are stored and read, never executed; a changed skill version does not change a running Run; with the harness of RC-66, a load survives a restart and is not done again.
+**Acceptance:** Malformed folder or SKILL.md frontmatter refused at package checking, including name and description limits; unknown skill; a skill whose declared tool is not permitted for the principal (the instructions load, the tool is refused at use); a skill file over the bound of RC-69 is cut to a reference but the SKILL.md body is never cut; a load that would pass 64 tools is refused whole with the named refusal of RC-56 and changes neither instructions nor tools; the declared tools of a loaded skill are listed in the next model request and not before; a declared tool with no descriptor is refused at the start; an agent start that names a skill loads it before the first model call; an instruction-overbound load adds no instruction and repeat load adds nothing; allowed-tools grants no authority; scripts are stored and read, never executed; a changed skill version does not change a running Run; with the harness of RC-66, a load survives a restart and is not done again.
 
 **Reuse:** Public Agent Skills specification, https://agentskills.io/specification, accessed 2026-11-12 (no spec version); state/artifact for files; RC-52, RC-54 and RC-56; the package manifest of RC-61; the cut rule of RC-69; the pin of RC-65; the harness of RC-66.
 
 **Blockers:**
 
-- RC-67 is published as ELZ-182. Coordinator decisions, 2026-11-14: the YAML frontmatter is read with the adopted library (ELZ-176) behind a scan that refuses aliases, merge keys, document markers, duplicate top-level keys and tabs; a load lists no tool, so the acceptance case of a load that would pass 64 tools is not met by this task and needs a change of workflow/agent-loop; the Piece stores nothing, the caller holds the bytes of the files.
+- RC-67 is published as ELZ-182. Coordinator decisions, 2026-11-14: the YAML frontmatter is read with the adopted library (ELZ-176) behind a scan that refuses aliases, merge keys, document markers, duplicate top-level keys and tabs; ELZ-182 listed no tool. Coordinator decisions, 2026-11-15 (the owner asked to close the gap in the code, not in the plan text): ELZ-235 lists the declared tools of a loaded skill from descriptors that the host gives, with no change of workflow/agent-loop, whose declare step already refuses a load whole when its listing is refused; ELZ-236 lets an agent start name one skill; ELZ-237 shows both with the harness of RC-66, the restart included; the Piece stores nothing, the caller holds the bytes of the files.
 
 ### RC-68
 
@@ -3563,3 +3567,43 @@ Publication copy: [tasks/ELZ-234-input-without-slot-needs-room.md](../../tasks/E
 **Product aims:** P13.
 
 **Acceptance:** Piece assembly/run-engine in place: an input that settles no slot is given to a pattern only when control has room for its invocation entry; else record_size and nothing kept; small gate.
+
+### ELZ-225
+
+ELZ-225 — The number of VM launches of one full `mix check` and their share of the time are recorded, and `AGENTS.md` names the one-launch way to repeat a test
+
+Publication copy: [tasks/ELZ-225-check-launch-count.md](../../tasks/ELZ-225-check-launch-count.md).
+
+**Product aims:** P13.
+
+**Acceptance:** A measurement and one sentence, documents only: one full mix check counted by launches of the VM, the count by group, the two medians, the share and the decision line in the CI guide; AGENTS.md section 4 names the one-launch way to repeat a test; roadmap checks and the docs-only hosted check.
+
+### ELZ-235
+
+ELZ-235 — A loaded skill lists the tools that its pinned package declares, with descriptors that the host gives
+
+Publication copy: [tasks/ELZ-235-skill-lists-its-tools.md](../../tasks/ELZ-235-skill-lists-its-tools.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Piece workflow/skill in place: a load lists the declared tools of its skill from descriptors that the host gives, in a source of their own; a declared tool with no descriptor is refused at the start and at the load; a load that would pass 64 tools is refused whole; small gate.
+
+### ELZ-236
+
+ELZ-236 — An agent start may name one skill, and its load is the first request, before the first model call
+
+Publication copy: [tasks/ELZ-236-agent-start-loads-a-skill.md](../../tasks/ELZ-236-agent-start-loads-a-skill.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Piece workflow/agent-loop in place: an agent start may name one skill; its load is one recorded tool action before the first model call and goes through the same declaration checks; no spec key is added; small gate.
+
+### ELZ-237
+
+ELZ-237 — The recipe harness answers skill calls with the real skill Piece, and a graph node can start an agent with a skill loaded
+
+Publication copy: [tasks/ELZ-237-harness-answers-skill-calls.md](../../tasks/ELZ-237-harness-answers-skill-calls.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Piece runtime/recipe-test in place: the harness answers skill calls with the real skill Piece, a load survives a restart and is not done again, and a decision node or a tool node result starts an agent with a skill loaded; small gate.
