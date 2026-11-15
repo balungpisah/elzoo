@@ -2823,6 +2823,130 @@ defmodule Elzoo.RunEngineTest do
                match?({:dispatch, _}, e.command_id) and match?({:unknown, _}, e.receipt)
              end)
     end
+
+    # ELZ-240: a restart never resends the action command of a running Resource slot.
+    # Group 1 and 2 use the state of expired_intent_does_not_halt.
+    test "restart_keeps_a_sent_action_open" do
+      t = expired_intent()
+      %{c: c, owner: owner, bindings: bindings, engine: engine} = t
+      reservation = unit_state(c).slots[{2, 1}].reservation
+      assert budget_status(c, "root", 10_001) == %{committed: 0, reserved: 3}
+
+      engine = restart(c, engine, resources: %{"document" => owner}, bindings: bindings)
+      assert view(engine).reconciliation == nil
+
+      v = view(engine)
+      assert %{phase: :running} = v.slots[{2, 1}]
+      refute Map.has_key?(v.slots[{2, 1}], :outcome)
+      assert unit_state(c).slots[{2, 1}].reservation == reservation
+      assert budget_status(c, "root", 10_001) == %{committed: 0, reserved: 3}
+
+      refute Enum.any?(journal(c), fn
+               {:protocol, "action_outcome", "queued", "refused", _, 0, _, _} -> true
+               _ -> false
+             end)
+
+      send(t.opening, {:result, %{}})
+      send(t.using, {:result, %{}})
+    end
+
+    test "cursor_settles_after_restart" do
+      t = expired_intent()
+      %{c: c, owner: owner, bindings: bindings, engine: engine} = t
+      reservation = unit_state(c).slots[{2, 1}].reservation
+
+      engine = restart(c, engine, resources: %{"document" => owner}, bindings: bindings)
+
+      observe_use(
+        owner,
+        "queued",
+        10_000,
+        {:failed, :not_dispatched, %{"reason" => "not_dispatched"}}
+      )
+
+      assert {:ok, :applied} = RunEngine.input(engine, "consume-failed", wake(), verified())
+      v = view(engine)
+      assert v.reconciliation == nil
+      assert %{phase: :settled, outcome: "failed"} = v.slots[{2, 1}]
+
+      assert [%{"outcome" => "failed", "payload" => %{"reason" => "failed"}}] =
+               outcome_records(c, "queued")
+
+      slot = unit_state(c).slots[{2, 1}]
+      assert slot.actual == nil
+      assert slot.reservation == reservation
+      assert budget_status(c, "root", 10_001) == %{committed: 0, reserved: 3}
+      send(t.opening, {:result, %{}})
+      send(t.using, {:result, %{}})
+    end
+
+    # ELZ-240 group 3: a Resource slot whose intent was never dispatched before the
+    # restart takes the first-dispatch decision: the action command is not sent again,
+    # the slot stays open, and the Resource cursor later dispatches and settles it.
+    test "restart_with_untried_intent_takes_first_dispatch_decision" do
+      t = expired_intent()
+      %{c: c, owner: owner, bindings: bindings, engine: engine} = t
+
+      # "queued" waits in the Resource with attempts == 0: its action command was
+      # accepted but its {:dispatch, ...} was refused as not dispatchable.
+      engine = restart(c, engine, resources: %{"document" => owner}, bindings: bindings)
+      assert %{phase: :running} = view(engine).slots[{2, 1}]
+      refute Map.has_key?(view(engine).slots[{2, 1}], :outcome)
+
+      # The restart's first-dispatch decision sent only {:dispatch, ...} under its
+      # deterministic ID; the Resource refused it as not dispatchable and nothing
+      # else was sent: the action command of "queued" appears exactly once.
+      assert {:ok, %{entries: entries}} = Elzoo.RunResource.read(owner, 0)
+
+      assert Enum.count(entries, &match?({:action, "queued"}, &1.command_id)) == 1
+
+      # When "using" completes the Resource dequeues "queued"; the cursor carries
+      # its descriptor, the engine dispatches the intent once and the observation
+      # settles the slot through the cursor.
+      observe_use(owner, "queued", 10_001, {:completed, %{}})
+      assert {:ok, :applied} = RunEngine.input(engine, "consume-queued", wake(), verified())
+      assert %{phase: :settled, outcome: "completed"} = view(engine).slots[{2, 1}]
+      send(t.opening, {:result, %{}})
+      send(t.using, {:result, %{}})
+    end
+
+    # ELZ-240 group 4: a paused Run keeps the sent Resource slot open across a
+    # restart; recovery sends no action command and the cursor still settles it.
+    test "paused_restart_keeps_sent_action_open" do
+      t = expired_intent()
+      %{c: c, owner: owner, bindings: bindings, engine: engine} = t
+
+      assert {:ok, :applied} =
+               RunEngine.control(
+                 engine,
+                 "pause",
+                 %{kind: :pause, pause_deadline: 50_000},
+                 verified()
+               )
+
+      assert view(engine).phase == :paused
+      engine = restart(c, engine, resources: %{"document" => owner}, bindings: bindings)
+      v = view(engine)
+      assert v.phase == :paused
+      assert v.reconciliation == nil
+      assert %{phase: :running} = v.slots[{2, 1}]
+      refute Map.has_key?(v.slots[{2, 1}], :outcome)
+
+      assert {:ok, :applied} =
+               RunEngine.control(
+                 engine,
+                 "resume",
+                 %{kind: :continue, person_id: "person", run_deadline: 60_000},
+                 verified(%{verified_person: "person"})
+               )
+
+      # The cursor settles the slot that stayed open through the restart.
+      observe_use(owner, "queued", 10_001, {:completed, %{}})
+      assert {:ok, :applied} = RunEngine.input(engine, "consume-queued", wake(), verified())
+      assert %{phase: :settled, outcome: "completed"} = view(engine).slots[{2, 1}]
+      send(t.opening, {:result, %{}})
+      send(t.using, {:result, %{}})
+    end
   end
 
   describe "Sizing and sanitized evidence" do

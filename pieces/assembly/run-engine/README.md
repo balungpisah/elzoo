@@ -361,6 +361,16 @@ cleanup; unknown/read-only is not closed. Completed Run evidence is an actual
 Writer-appended canonical map correlating Run, operation, Attempt and completed
 action, never DU's tuple or an invented sequence.
 
+At recovery a running or reconcile `resource_open` or `resource_use` slot with
+no request key keeps the decision of the first dispatch and never moves to
+ready: a durable running slot proves the Resource accepted the action command,
+which is never sent again. The intent owner alone decides — an intent with
+attempts stays untouched and open for its cursor; an untried active intent
+gets only the `{:dispatch, ...}` under its deterministic ID, with the same
+harmless refusals; an inactive one moves to reconcile with `read_only`. The
+slot keeps a phase the drain does not select, so the outcome comes through the
+Resource cursor as for a slot that was never restarted.
+
 ## Failure, size and audit limits
 
 Definitive pre-input rejection closes intake and calls DynamicUnits.stop;

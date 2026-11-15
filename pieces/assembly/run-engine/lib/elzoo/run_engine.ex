@@ -2608,30 +2608,39 @@ defmodule Elzoo.RunEngine do
           if slot.phase == :settled do
             {:ok, acc}
           else
-            if slot[:request_key] do
-              release_waiting(acc, "replacement", %{})
-            else
-              state = acc_state
-              {context, acc} = action_context(acc, occurrence, %{})
-              {act, acc} = read_action(acc, state, occurrence)
+            with {:ok, acc, owner} <- intent(acc, occurrence, slot) do
+              if EffectIntent.status(owner).attempts > 0 do
+                # The action command was already sent to the Resource: recovery
+                # never resends it and never re-authorizes it. The slot stays
+                # open for its cursor, which settles it from the Resource log.
+                {:ok, acc}
+              else
+                if slot[:request_key] do
+                  release_waiting(acc, "replacement", %{})
+                else
+                  state = acc_state
+                  {context, acc} = action_context(acc, occurrence, %{})
+                  {act, acc} = read_action(acc, state, occurrence)
 
-              cond do
-                state.control.lifecycle.phase == :paused ->
-                  {:ok, acc}
+                  cond do
+                    state.control.lifecycle.phase == :paused ->
+                      {:ok, acc}
 
-                permitted?(state, slot, acc.opts.clock.()) and
-                  check_payload(acc, act) == :ok and
-                    match?(
-                      {:ok, %{verdict: :allow}},
-                      Authorization.decide(context.policy, context.proposal, context.authority)
-                    ) ->
-                  dispatch_resource(acc, occurrence, slot)
+                    permitted?(state, slot, acc.opts.clock.()) and
+                      check_payload(acc, act) == :ok and
+                        match?(
+                          {:ok, %{verdict: :allow}},
+                          Authorization.decide(context.policy, context.proposal, context.authority)
+                        ) ->
+                      dispatch_resource(acc, occurrence, slot)
 
-                true ->
-                  internal_outcome(acc, occurrence, "refused", "resource_authority", %{
-                    actual: 0,
-                    dispatch: "not_dispatched"
-                  })
+                    true ->
+                      internal_outcome(acc, occurrence, "refused", "resource_authority", %{
+                        actual: 0,
+                        dispatch: "not_dispatched"
+                      })
+                  end
+                end
               end
             end
           end
@@ -2911,7 +2920,18 @@ defmodule Elzoo.RunEngine do
               not view.active ->
                 continuation(acc, key, :reconcile, %{reconciliation: :read_only})
 
-              view.attempts > 0 and slot.kind in ["model_call", "tool_call"] ->
+              slot.kind in ["resource_open", "resource_use"] ->
+                # A durable running or reconcile Resource slot proves the
+                # Resource accepted the action command, which is never sent
+                # again. dispatch_resource/3 takes the first-dispatch decision
+                # on the intent alone: an intent with attempts stays untouched
+                # and open for its cursor; an untried active intent gets only
+                # the {:dispatch, ...} under its deterministic ID; an inactive
+                # one moves to :reconcile with read_only. The slot keeps its
+                # phase so drain/1 does not select it and resend the action.
+                dispatch_resource(acc, key, slot)
+
+              view.attempts > 0 ->
                 internal_outcome(acc, key, "unknown", "lost_outcome", %{dispatch: "unknown"})
 
               true ->
@@ -2920,9 +2940,11 @@ defmodule Elzoo.RunEngine do
                 with {:ok, acc} <- continuation(acc, key, :ready, facts) do
                   {acc_state, acc} = read_state(acc)
 
-                  if acc_state.control.lifecycle.phase == :paused,
-                    do: {:ok, acc},
-                    else: progress(acc, key, Map.merge(slot, Map.put(facts, :phase, :ready)))
+                  if acc_state.control.lifecycle.phase == :paused do
+                    {:ok, acc}
+                  else
+                    progress(acc, key, Map.merge(slot, Map.put(facts, :phase, :ready)))
+                  end
                 end
             end
 
