@@ -912,8 +912,9 @@ defmodule Elzoo.RunEngine do
 
             state = install_lifecycle(state, life, decision)
 
+            # A settled parent keeps its first settlement (first settlement wins).
             state =
-              if node.parent do
+              if node.parent && state.slots[node.parent].phase != :settled do
                 deny(state, node.parent, "out_of_budget")
               else
                 state
