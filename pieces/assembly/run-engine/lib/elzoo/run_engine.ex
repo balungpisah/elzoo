@@ -3210,8 +3210,16 @@ defmodule Elzoo.RunEngine do
 
   defp read_state(s) do
     if Process.alive?(s.unit) do
-      state = DurableUnit.snapshot(s.unit)
-      {state, if(is_nil(s.halted), do: %{s | state: state}, else: s)}
+      try do
+        state = DurableUnit.snapshot(s.unit)
+        {state, if(is_nil(s.halted), do: %{s | state: state}, else: s)}
+      catch
+        # The Unit died between the liveness check and the call (for example
+        # DynamicUnits.stop): answer the last committed durable state, the same
+        # read a restarted Unit replays. A read never halts the engine; only an
+        # uncertain write does (commit/3, current/1). Never cache the fallback.
+        :exit, _ -> {recover_snapshot(s), %{s | state: nil}}
+      end
     else
       {recover_snapshot(s), %{s | state: nil}}
     end
