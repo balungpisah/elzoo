@@ -6920,6 +6920,23 @@
       "issue": 544,
       "url": "https://github.com/balungpisah/elzoo/issues/544",
       "issue_body_sha256": "9ee9623a5974322ce0fb9d64db2b0c00f119756d0383a509a718c238754fdedf"
+    },
+    {
+      "id": "ELZ-243",
+      "title": "ELZ-243 — The engine survives a Unit that dies between the liveness check and the state read",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-192"],
+      "status": "published 2026-11-15",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-243-run-engine-unit-stop-race.md"],
+      "outputs": [],
+      "acceptance": "Piece assembly/run-engine in place, no Contract change: a state read of a Unit that died after the liveness check falls back to the durable recovery read instead of exiting the engine; small gate.",
+      "product_aims": ["P13"],
+      "issue": 550,
+      "url": "https://github.com/balungpisah/elzoo/issues/550",
+      "issue_body_sha256": "3bc14a39db0940299d19efe9ab034cc30e1109d0eea87b3c0d6cd4b758c823c7"
     }
   ],
   "entries": [

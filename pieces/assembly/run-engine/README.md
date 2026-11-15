@@ -367,7 +367,13 @@ Definitive pre-input rejection closes intake and calls DynamicUnits.stop;
 only confirmed `:ok` establishes termination/spec removal. Result rejection
 leaves unresolved input and a stopped Unit. Corrected, explicit host startup
 scans/drains before external intake; no incoming result, wake or outbox silently
-reopens a halted engine. Repeated rejection stops again. Unknown append/timeout,
+reopens a halted engine. Repeated rejection stops again. A state read never
+halts the engine for a dead Unit: when the Unit is gone — already stopped, or
+stopped between the liveness check and the read — the engine answers the last
+committed durable state, the same recovery read a restarted Unit replays, and
+the next `current/1` performs the replacement recovery; only an uncertain
+write ends in the `delivery_unknown`, `ownership_unknown` or storage halts.
+Unknown append/timeout,
 uncertain stop/start or ownership conflict require write confirmation and
 fencing, never blind append/resampling. Transition defect/oversize needs repair,
 not a skip or a storage-only retry. A live caller timeout keeps the same ID.

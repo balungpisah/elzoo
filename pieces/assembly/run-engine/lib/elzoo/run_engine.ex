@@ -2996,17 +2996,29 @@ defmodule Elzoo.RunEngine do
 
   defp snapshot(s) do
     if Process.alive?(s.unit) do
-      DurableUnit.snapshot(s.unit)
+      try do
+        DurableUnit.snapshot(s.unit)
+      catch
+        # The Unit died between the liveness check and the call (for example
+        # DynamicUnits.stop): answer the last committed durable state, the same
+        # read a restarted Unit replays. A read never halts the engine; only an
+        # uncertain write does (commit/3, current/1).
+        :exit, _ -> recover_snapshot(s)
+      end
     else
-      {_, %{fold: fold}} = s.opts.store
-
-      recovered =
-        Elzoo.Checkpoint.recover(s.opts.store, s.opts.identity, fold, 1, fn bytes ->
-          {:ok, :erlang.binary_to_term(bytes, [:safe])}
-        end)
-
-      recovered.model.state
+      recover_snapshot(s)
     end
+  end
+
+  defp recover_snapshot(s) do
+    {_, %{fold: fold}} = s.opts.store
+
+    recovered =
+      Elzoo.Checkpoint.recover(s.opts.store, s.opts.identity, fold, 1, fn bytes ->
+        {:ok, :erlang.binary_to_term(bytes, [:safe])}
+      end)
+
+    recovered.model.state
   end
 
   defp snapshot_value(control), do: %{control: control}
