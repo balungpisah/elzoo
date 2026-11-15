@@ -736,8 +736,9 @@ defmodule Elzoo.RunEngine do
 
   # The end of a Run settles every open slot that the request-cap stop does not
   # retain (in any other ending: all of them), in the same fold step, at the time
-  # of the record: the terminal view, and each later accepted protocol input.
-  # Running local work is closed by the same selector.
+  # of the record: the terminal view, and each later protocol input of the
+  # current Attempt that is not a duplicate (also one whose own effect is late
+  # or incompatible). Running local work is closed by the same selector.
   defp close_run(state, at) do
     select = &(not retains?(state.control, &1, at))
 
