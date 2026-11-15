@@ -3280,6 +3280,207 @@ defmodule Elzoo.RunEngineTest do
       assert slots[{1, 2}].outcome == "completed"
       for provider <- providers, do: send(provider, {:result, %{}})
     end
+
+    # Groups retry_after_settlement_is_a_duplicate, retry_after_a_restart_is_a_duplicate,
+    # changed_bytes_are_still_a_conflict (request gone) and valid_retry_is_unchanged.
+    test "a retried outcome is a duplicate after settlement and after a restart" do
+      Process.register(self(), :run_engine_observer)
+
+      c =
+        fixture(
+          pattern:
+            scripted_root([
+              act("a1", "tool_call", "a.call"),
+              act("b1", "tool_call", "b.call"),
+              act("b2", "tool_call", "b.call")
+            ])
+        )
+
+      a = variant(c, "tool_call", id: "bind-a", version: 3)
+      b = variant(c, "tool_call", id: "bind-b", version: 5, result: {"b.result", 1})
+      bindings = Map.put(c.opts[:bindings], "tool_call", %{"a.call" => a, "b.call" => b})
+      schemas = add_schemas(c, ["a.call", "b.call"], ["b.result"])
+      engine = start(c, bindings: bindings, schemas: schemas)
+      assert {:ok, :applied} = send_input(engine)
+
+      providers =
+        for _ <- 1..3,
+            do:
+              (
+                assert_receive {:effect_started, p, _}, 5_000
+                p
+              )
+
+      send_outcome = fn engine, id, key, input ->
+        RunEngine.input(
+          engine,
+          id,
+          input,
+          verified(%{occurrence: key, actual: 1, dispatch: "dispatched"})
+        )
+      end
+
+      assert {:ok, :applied} =
+               send_outcome.(engine, "outcome-b1-result", {1, 1}, provider_input("b1", "result"))
+
+      assert %{"outcome" => "unknown", "payload" => %{"reason" => "invalid_outcome"}} =
+               outcome_for("b1")
+
+      assert {:ok, :applied} =
+               send_outcome.(
+                 engine,
+                 "outcome-b2-b.result",
+                 {1, 2},
+                 provider_input("b2", "b.result")
+               )
+
+      assert %{"outcome" => "completed", "schema_id" => "b.result"} = outcome_for("b2")
+
+      assert {:ok, :applied} =
+               send_outcome.(engine, "outcome-a1-result", {1, 0}, provider_input("a1", "result"))
+
+      assert %{"outcome" => "completed"} = outcome_for("a1")
+
+      retries = fn engine ->
+        # Every occurrence settled: the request has left the state.
+        assert requests(c) == %{}
+        before = journal(c)
+        slot = view(engine).slots[{1, 1}]
+        assert slot.outcome == "unknown"
+
+        # retry_after_settlement_is_a_duplicate / retry_after_a_restart_is_a_duplicate
+        assert {:ok, :duplicate} =
+                 send_outcome.(
+                   engine,
+                   "outcome-b1-result",
+                   {1, 1},
+                   provider_input("b1", "result")
+                 )
+
+        assert journal(c) == before
+        assert view(engine).slots[{1, 1}] == slot
+
+        # changed_bytes_are_still_a_conflict: the schema that the binding expects.
+        assert {:error, :input_id_conflict} =
+                 send_outcome.(
+                   engine,
+                   "outcome-b1-result",
+                   {1, 1},
+                   provider_input("b1", "b.result")
+                 )
+
+        assert journal(c) == before
+        assert view(engine).slots[{1, 1}] == slot
+
+        # valid_retry_is_unchanged: same bytes a duplicate, another payload a conflict.
+        assert {:ok, :duplicate} =
+                 send_outcome.(
+                   engine,
+                   "outcome-b2-b.result",
+                   {1, 2},
+                   provider_input("b2", "b.result")
+                 )
+
+        other = %{provider_input("b2", "b.result") | "payload" => %{"accepted" => false}}
+
+        assert {:error, :input_id_conflict} =
+                 send_outcome.(engine, "outcome-b2-b.result", {1, 2}, other)
+
+        assert journal(c) == before
+        assert view(engine).slots[{1, 1}] == slot
+      end
+
+      retries.(engine)
+
+      engine = restart(c, engine, bindings: bindings, schemas: schemas)
+      assert view(engine).slots[{1, 1}].outcome == "unknown"
+      retries.(engine)
+
+      for provider <- providers, do: send(provider, {:result, %{}})
+    end
+
+    # changed_bytes_are_still_a_conflict and retry_after_settlement_is_a_duplicate, request
+    # still in the state (a sibling is held in approval) and then gone (the sibling released).
+    test "a retried outcome is the same before and after the request leaves the state" do
+      Process.register(self(), :run_engine_observer)
+
+      c =
+        fixture(
+          pattern: scripted_root([act("b1", "tool_call", "b.call"), action("held", "local_work")])
+        )
+
+      require_approval(c)
+
+      b =
+        variant(c, "tool_call",
+          id: "bind-b",
+          version: 5,
+          effect_class: "compute",
+          result: {"b.result", 1}
+        )
+
+      bindings =
+        c.opts[:bindings]
+        |> Map.put("tool_call", %{"b.call" => b})
+        |> Map.update!("local_work", &%{&1 | effect_class: "publish"})
+
+      schemas = add_schemas(c, ["b.call"], ["b.result"])
+      engine = start(c, bindings: bindings, schemas: schemas)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, provider, _}, 5_000
+      {:ok, run} = Run.status(c.run, "run")
+      [%{request_key: key}] = run.approvals
+
+      send_outcome = fn input ->
+        RunEngine.input(
+          engine,
+          "outcome-b1-result",
+          input,
+          verified(%{occurrence: {1, 0}, actual: 1, dispatch: "dispatched"})
+        )
+      end
+
+      assert {:ok, :applied} = send_outcome.(provider_input("b1", "result"))
+
+      assert %{"outcome" => "unknown", "payload" => %{"reason" => "invalid_outcome"}} =
+               outcome_for("b1")
+
+      retries = fn ->
+        before = journal(c)
+        slot = view(engine).slots[{1, 0}]
+        assert slot.outcome == "unknown"
+        assert {:ok, :duplicate} = send_outcome.(provider_input("b1", "result"))
+        assert {:error, :input_id_conflict} = send_outcome.(provider_input("b1", "b.result"))
+        assert journal(c) == before
+        assert view(engine).slots[{1, 0}] == slot
+      end
+
+      # The held sibling keeps the request in the state.
+      assert Map.has_key?(requests(c), 1)
+      assert view(engine).slots[{1, 1}].phase == :approval
+      retries.()
+
+      assert {:ok, :applied} =
+               RunEngine.control(
+                 engine,
+                 "consent",
+                 %{kind: :approval_evidence, request_key: key, evidence: consent(key)},
+                 verified()
+               )
+
+      # The request leaves the state while the released action still runs: wait for both.
+      wait_for(
+        engine,
+        fn view ->
+          not Map.has_key?(requests(c), 1) and view.slots[{1, 1}].phase == :settled
+        end,
+        2_000
+      )
+
+      assert view(engine).slots[{1, 1}].outcome == "completed"
+      retries.()
+      send(provider, {:result, %{}})
+    end
   end
 
   describe "unbound_schema_refused" do
@@ -6564,6 +6765,219 @@ defmodule Elzoo.RunEngineTest do
 
       assert length(rows(c)) == count
       assert view(engine).phase == :paused
+    end
+  end
+
+  # ELZ-213: a seam between the engine and the Run owner. It forwards every call
+  # to the Run, except the approval request, which `mode` decides. The engine
+  # also drains for every record of its outbox, so `{:drop, reply}` answers each
+  # approval request until the test calls `:resume`; the other modes act once.
+  defmodule ApprovalReplyForwarder do
+    use GenServer
+
+    def init(arg), do: {:ok, arg}
+
+    def handle_call({:command, %{kind: :approval_request}} = msg, {caller, _}, {run, mode})
+        when mode != :spent do
+      case mode do
+        {:pass_then, reply} ->
+          GenServer.call(run, msg, 60_000)
+          {:reply, reply, {run, :spent}}
+
+        {:drop, reply} ->
+          {:reply, reply, {run, mode}}
+
+        :pass_then_kill ->
+          GenServer.call(run, msg, 60_000)
+          Process.exit(caller, :kill)
+          {:noreply, {run, :spent}}
+      end
+    end
+
+    def handle_call(:resume, _from, {run, _}), do: {:reply, :ok, {run, :spent}}
+
+    def handle_call(msg, _from, {run, _} = state),
+      do: {:reply, GenServer.call(run, msg, 60_000), state}
+  end
+
+  defp forwarder(c, mode),
+    do:
+      start_supervised!(%{
+        id: make_ref(),
+        start: {GenServer, :start_link, [ApprovalReplyForwarder, {c.run, mode}]}
+      })
+
+  defp ask_fixture do
+    c =
+      fixture(
+        pattern: {TestPattern, :step, %{requests: [request([action("publish", "tool_call")])]}}
+      )
+
+    require_approval(c)
+    c
+  end
+
+  defp action_outcomes(c),
+    do: Enum.filter(journal(c), &match?({:protocol, "action_outcome", _, _, _, _, {1, 0}, _}, &1))
+
+  defp run_requests(c) do
+    {:ok, run} = Run.status(c.run, "run")
+    run.approvals
+  end
+
+  # The engine dies in the call that sends the request, after the Run wrote it.
+  defp killed_after_request(c) do
+    engine = start(c, run_owner: forwarder(c, :pass_then_kill))
+    ref = Process.monitor(engine)
+    catch_exit(send_input(engine))
+    assert_receive {:DOWN, ^ref, :process, ^engine, _}, 5_000
+    assert [%{request_key: key}] = run_requests(c)
+    key
+  end
+
+  describe "request_survives_a_death" do
+    test "the Run's request is held after the restart, and genuine consent dispatches once" do
+      c = ask_fixture()
+      key = killed_after_request(c)
+      engine = start(c)
+
+      assert view(engine).slots[{1, 0}].phase == :approval
+      assert Map.get(view(engine).slots[{1, 0}], :outcome) == nil
+      assert unit_state(c).slots[{1, 0}].request_key == key
+      assert action_outcomes(c) == []
+      assert [%{request_key: ^key}] = run_requests(c)
+      refute_receive {:effect_started, _, _}, 300
+
+      assert {:ok, :applied} =
+               RunEngine.control(
+                 engine,
+                 "consent",
+                 %{kind: :approval_evidence, request_key: key, evidence: consent(key)},
+                 verified()
+               )
+
+      assert_receive {:effect_started, task, _}, 5_000
+      send(task, {:result, %{"published" => true}})
+
+      assert {:ok, :applied} =
+               RunEngine.input(
+                 engine,
+                 "sink",
+                 result("publish", %{"published" => true}),
+                 verified(%{occurrence: {1, 0}, actual: 1, dispatch: "dispatched"})
+               )
+
+      assert view(engine).slots[{1, 0}].outcome == "completed"
+      assert view(engine).joins[1].outcome == :all
+      refute_receive {:effect_started, _, _}, 300
+    end
+  end
+
+  describe "lost_reply_is_recovered" do
+    test "a request that the Run wrote and whose reply was lost is held in the same input" do
+      c = ask_fixture()
+      engine = start(c, run_owner: forwarder(c, {:pass_then, {:error, :unavailable}}))
+      assert {:ok, :applied} = send_input(engine)
+      assert [%{request_key: key}] = run_requests(c)
+      assert view(engine).slots[{1, 0}].phase == :approval
+      assert unit_state(c).slots[{1, 0}].request_key == key
+      assert action_outcomes(c) == []
+    end
+  end
+
+  describe "uncertain_reply_is_no_refusal" do
+    for reply <- [{:refused, :conflict}, {:error, :unavailable}] do
+      test "#{inspect(reply)} that the Run never wrote leaves the slot waiting, and the next input asks again" do
+        c = ask_fixture()
+        fwd = forwarder(c, {:drop, unquote(Macro.escape(reply))})
+        engine = start(c, run_owner: fwd)
+        assert {:ok, :applied} = send_input(engine)
+
+        assert view(engine).slots[{1, 0}].phase == :approval
+        assert Map.get(view(engine).slots[{1, 0}], :outcome) == nil
+        assert Map.get(unit_state(c).slots[{1, 0}], :request_key) == nil
+        assert action_outcomes(c) == []
+        assert budget_status(c, "root") == %{committed: 0, reserved: 1}
+        assert run_requests(c) == []
+
+        assert :ok = GenServer.call(fwd, :resume, 60_000)
+        assert {:ok, :applied} = RunEngine.input(engine, "wake", wake(), verified())
+        assert [%{request_key: key}] = run_requests(c)
+        assert unit_state(c).slots[{1, 0}].request_key == key
+        assert view(engine).slots[{1, 0}].phase == :approval
+        assert action_outcomes(c) == []
+        assert budget_status(c, "root") == %{committed: 0, reserved: 1}
+      end
+    end
+  end
+
+  describe "definite_refusal_still_refuses" do
+    test "intent_mismatch settles the slot refused with approval_refused and releases its reservation" do
+      c = ask_fixture()
+      engine = start(c, run_owner: forwarder(c, {:drop, {:refused, :intent_mismatch}}))
+      assert {:ok, :applied} = send_input(engine)
+
+      assert view(engine).slots[{1, 0}].outcome == "refused"
+      assert unit_state(c).slots[{1, 0}].actual == 0
+      assert budget_status(c, "root") == %{committed: 0, reserved: 0}
+      assert run_requests(c) == []
+
+      assert [{:protocol, "action_outcome", "publish", "refused", _, 0, {1, 0}, "approval_refused"}] =
+               action_outcomes(c)
+    end
+  end
+
+  describe "replay_is_equal (approval request)" do
+    test "a restart after the death leaves the view, the records and the Run's one request equal" do
+      c = ask_fixture()
+      key = killed_after_request(c)
+      engine = start(c)
+      assert unit_state(c).slots[{1, 0}].request_key == key
+
+      # A restart records the Run's newer view once, in an uninterrupted Run too;
+      # after it, a restart writes nothing.
+      state_view = view(engine)
+      state_rows = rows(c)
+
+      engine = restart(c, engine, [])
+      assert view(engine) == state_view
+      added = Enum.drop(rows(c), length(state_rows))
+      assert Enum.map(added, & &1.kind) == ["input", "result"]
+
+      assert [{1, {_id, %{kind: :run_view}}}] =
+               for(
+                 %{kind: "input"} = row <- added,
+                 do: :erlang.binary_to_term(row.payload, [:safe])
+               )
+
+      before_view = view(engine)
+      before_rows = length(rows(c))
+
+      engine = restart(c, engine, [])
+      assert view(engine) == before_view
+      assert length(rows(c)) == before_rows
+      assert [%{request_key: ^key}] = run_requests(c)
+      refute_receive {:effect_started, _, _}, 300
+    end
+
+    test "a restart after the second ask leaves the view, the records and the Run's one request equal" do
+      c = ask_fixture()
+      fwd = forwarder(c, {:drop, {:refused, :conflict}})
+      engine = start(c, run_owner: fwd)
+      assert {:ok, :applied} = send_input(engine)
+      assert run_requests(c) == []
+      assert :ok = GenServer.call(fwd, :resume, 60_000)
+      assert {:ok, :applied} = RunEngine.input(engine, "wake", wake(), verified())
+      assert [%{request_key: key}] = run_requests(c)
+      before_view = view(engine)
+      before_rows = length(rows(c))
+
+      engine = restart(c, engine, [])
+      assert view(engine) == before_view
+      assert length(rows(c)) == before_rows
+      assert [%{request_key: ^key}] = run_requests(c)
+      assert unit_state(c).slots[{1, 0}].request_key == key
+      refute_receive {:effect_started, _, _}, 300
     end
   end
 end
