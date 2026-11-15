@@ -366,6 +366,11 @@ defmodule Elzoo.RunEngine.TestHelper do
 
     host_mode = ExUnit.Callbacks.start_supervised!({Agent, fn -> :fresh end}, id: make_ref())
 
+    # Not under the test supervisor: it outlives it, so the teardown can still read
+    # the intents that the engine started and unlinked.
+    {:ok, intent_pids} = Agent.start_link(fn -> MapSet.new() end)
+    Process.unlink(intent_pids)
+
     startup = fn module, adapter_context ->
       [
         binding: module,
@@ -381,6 +386,10 @@ defmodule Elzoo.RunEngine.TestHelper do
            %{
              store: host_store,
              authorize: fn _, generation ->
+               # Runs inside the intent process, in its init.
+               intent = self()
+               Agent.update(intent_pids, &MapSet.put(&1, intent))
+
                case Agent.get(host_mode, & &1) do
                  :fresh -> :fresh
                  :recover -> {:recovered, generation}
@@ -600,6 +609,18 @@ defmodule Elzoo.RunEngine.TestHelper do
 
     ExUnit.Callbacks.on_exit(fn ->
       for pid <- [run, evidence], Process.alive?(pid), do: GenServer.stop(pid)
+
+      # The engine unlinks its intents and has no terminate, so they outlive the test
+      # supervisor and can still append. Stop them before the schema goes.
+      for pid <- Agent.get(intent_pids, &MapSet.to_list/1), Process.alive?(pid) do
+        try do
+          GenServer.stop(pid)
+        catch
+          :exit, _ -> :ok
+        end
+      end
+
+      Agent.stop(intent_pids)
 
       Ecto.Adapters.SQL.query!(
         TestRepo,

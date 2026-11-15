@@ -1410,6 +1410,46 @@ defmodule Elzoo.RunEngineTest do
       end
     end
 
+    test "the teardown of the fixture stops the intents of the engine before it drops the schema" do
+      # Registered before fixture/1, so it runs after the teardown of the fixture.
+      {:ok, holder} = Agent.start_link(fn -> %{} end)
+      Process.unlink(holder)
+
+      on_exit(fn ->
+        %{intent: intent, prefix: prefix} = Agent.get(holder, & &1)
+        refute Process.alive?(intent)
+
+        assert %{rows: [[0]]} =
+                 Ecto.Adapters.SQL.query!(
+                   Elzoo.RunEngine.TestRepo,
+                   "SELECT count(*) FROM information_schema.schemata WHERE schema_name = $1",
+                   [prefix],
+                   log: false
+                 )
+
+        Agent.stop(holder)
+      end)
+
+      c =
+        fixture(
+          pattern: {TestPattern, :step, %{requests: [request([action("publish", "tool_call")])]}}
+        )
+
+      engine = start(c)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, provider, _}
+
+      assert [intent] = Map.values(:sys.get_state(engine).intents)
+      assert Process.alive?(intent)
+      Agent.update(holder, &Map.merge(&1, %{intent: intent, prefix: c.prefix}))
+
+      task = Process.monitor(provider)
+      send(provider, {:result, %{}})
+      assert_receive {:DOWN, ^task, :process, ^provider, _}
+      # One read: the intent has taken the reply of its task and is idle.
+      assert %{} = :sys.get_state(intent)
+    end
+
     test "changed provider binding refuses recovery without replacing recorded arguments or identity" do
       c =
         fixture(
