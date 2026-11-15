@@ -209,6 +209,7 @@ defmodule Elzoo.RunEngine do
           {deny(state, key, "record_size"), :none}
 
         true ->
+          before_budget = state
           budget_id = slot.callable
           budget = c.budgets[budget_id]
 
@@ -236,7 +237,15 @@ defmodule Elzoo.RunEngine do
                 if slot[:intent], do: Map.put(slot, :intent_digest, digest(slot.intent)), else: slot
 
               slot = Map.merge(slot, %{phase: :authorizing, reservation: reservation})
-              {put_in(state.slots[key], slot), :none}
+              admitted = put_in(state.slots[key], slot)
+
+              # A first finish of a non-root child is kept in control until its parent
+              # settles. The admitted state counts it as pending, so it is admitted only
+              # when control with that finish in it fits; otherwise the Budget step is
+              # dropped with the refusal and the child callable stays open.
+              if keeps_first_finish?(c, slot) and not fits?(admitted),
+                do: {deny(before_budget, key, "record_size"), :none},
+                else: {admitted, :none}
 
             {:rejected, _} ->
               {deny(state, key, "out_of_budget"), :none}
@@ -1571,7 +1580,7 @@ defmodule Elzoo.RunEngine do
     cond do
       state.control.stop_pending != nil ->
         with {:ok, s} <- finish_run(s, state.control.stop_pending, state.control.completion),
-             do: drain(s)
+             do: again(s, state)
 
       pending != nil and state.control.lifecycle.phase not in [:paused, :terminal] and
           not state.control.generation_closed ->
@@ -1583,7 +1592,7 @@ defmodule Elzoo.RunEngine do
                  kind: :resume_input,
                  occurrence: key
                }),
-             do: drain(s)
+             do: again(s, state)
 
       finished_child != nil ->
         {child, class, status} = finished_child
@@ -1607,24 +1616,27 @@ defmodule Elzoo.RunEngine do
           end
 
         with {:ok, s} <- result,
-             do: drain(s)
+             do: again(s, state)
 
       next == nil ->
         {:ok, s}
 
       true ->
         {key, slot} = next
-        before = state
 
-        with {:ok, s} <- progress(s, key, slot) do
-          if snapshot(s) == before, do: {:ok, s}, else: drain(s)
-        end
+        with {:ok, s} <- progress(s, key, slot),
+             do: again(s, state)
     end
   end
 
+  # A round that changed no durable state ends the drain.
+  defp again(s, before), do: if(snapshot(s) == before, do: {:ok, s}, else: drain(s))
+
   # A closed child whose every slot cost is known or final unknown gives its parent
   # an outcome, once. Unknown is not zero: the parent gets no actual and the
-  # reservations stay held. A parent that cannot take the outcome is skipped.
+  # reservations stay held. A parent that cannot take the outcome is skipped: in a
+  # terminal Run that is any parent the request-cap stop does not retain, and a
+  # retained one at or after its deadline (the fold would classify the record late).
   defp due_child(s, state, id, child) do
     parent = child.parent
     class = parent && child_cost(state, id)
@@ -1634,7 +1646,9 @@ defmodule Elzoo.RunEngine do
 
       running? =
         slot.phase == :running and slot.attempt_id == state.control.attempt_id and
-          (state.control.lifecycle.phase != :terminal or retained?(state.control))
+          (state.control.lifecycle.phase != :terminal or
+             (retained?(state.control) and
+                (slot[:deadline_ms] == nil or s.opts.clock.() < slot.deadline_ms)))
 
       cond do
         not running? and not (slot.phase == :settled and is_nil(slot[:actual]) and class == :known) ->
@@ -1974,14 +1988,11 @@ defmodule Elzoo.RunEngine do
     else
       action = action(snapshot(s), key)
 
-      finish = %{
-        schema_id: action["schema_id"],
-        schema_version: action["schema_version"],
-        payload: action["payload"]
-      }
-
       with {:ok, s} <-
-             continuation(s, key, :running, %{finish_callable: slot.callable, finish: finish}),
+             continuation(s, key, :running, %{
+               finish_callable: slot.callable,
+               finish: kept_finish(action)
+             }),
            do: internal_outcome(s, key, "completed", "finished", %{actual: 0})
     end
   end
@@ -2894,9 +2905,42 @@ defmodule Elzoo.RunEngine do
 
   defp slot_fits?(slot), do: bytes(slot) <= @slot_bytes
 
+  # What the continuation keeps in control for a child finish; dispatch and the
+  # reserve below build it with this one function.
+  defp kept_finish(action) do
+    %{
+      schema_id: action["schema_id"],
+      schema_version: action["schema_version"],
+      payload: action["payload"]
+    }
+  end
+
+  # A non-root finish whose callable has kept no finish: the continuation will keep it.
+  defp keeps_first_finish?(c, slot) do
+    node = c.callables[slot.callable]
+
+    slot.kind == "finish" and slot.callable != "root" and node.closed == false and
+      is_nil(node[:finish])
+  end
+
+  # Admitted and not yet continued: its kept bytes are held in the reserve until
+  # the continuation moves them into control (the growth of the callable map).
+  defp pending_finish_bytes(state) do
+    c = state.control
+
+    Enum.reduce(state.slots, 0, fn {_, slot}, sum ->
+      if slot.phase in [:authorizing, :approval, :ready] and keeps_first_finish?(c, slot),
+        do: sum + bytes(%{finish: kept_finish(slot.action)}) - bytes(%{}),
+        else: sum
+    end)
+  end
+
   defp fits?(state) do
     c = state.control
-    reserved = (c.cap + 1 - map_size(c.receipts)) * 1_024 + active_count(state) * 4_096
+
+    reserved =
+      (c.cap + 1 - map_size(c.receipts)) * 1_024 + active_count(state) * 4_096 +
+        pending_finish_bytes(state)
 
     plain?(state) and bytes(c) + reserved <= @control_bytes and
       Enum.all?(state.slots, fn {_, slot} -> slot_fits?(slot) end) and

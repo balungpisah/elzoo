@@ -6519,7 +6519,7 @@
       "kind": "published",
       "release": "V1B",
       "stage": "pieces",
-      "dependencies": ["ELZ-033", "ELZ-192", "ELZ-216"],
+      "dependencies": ["ELZ-033", "ELZ-192", "ELZ-216", "ELZ-232"],
       "status": "published 2026-11-14",
       "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
       "paths": ["tasks/ELZ-217-run-engine-step-cost.md"],
@@ -6528,7 +6528,7 @@
       "product_aims": ["P13"],
       "issue": 470,
       "url": "https://github.com/balungpisah/elzoo/issues/470",
-      "issue_body_sha256": "a261e2fcfc3400e86eb932a0f9e11145dfca77b314cd04d74ccd30fc64a8a5bb"
+      "issue_body_sha256": "cb7b7c85d5a17d1504e87d18d07603e8b1a248281fb7af9014278a98ab76e19a"
     },
     {
       "id": "ELZ-218",
@@ -6716,6 +6716,23 @@
       "issue": 489,
       "url": "https://github.com/balungpisah/elzoo/issues/489",
       "issue_body_sha256": "09e2b3d35a8949dd662bcb3454c270eef2972d17d4aacac6e0ed943046285fb0"
+    },
+    {
+      "id": "ELZ-232",
+      "title": "ELZ-232 — Each callable has a state bound that control reserves while the callable is open, and a nested start is kept only when there is room for it",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-192", "ELZ-216"],
+      "status": "published 2026-11-15",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-232-callable-state-bound.md"],
+      "outputs": [],
+      "acceptance": "Piece assembly/run-engine in place: each callable has a state bound that control reserves while it is open; a nested start without room is refused with record_size; the state of a closed callable leaves control; a state that grows after the start never fails a step; replay is equal; small gate.",
+      "product_aims": ["P13"],
+      "issue": 503,
+      "url": "https://github.com/balungpisah/elzoo/issues/503",
+      "issue_body_sha256": "82da000eb02f71dfe36dabbf392b9e4791f082ffbeec68f1c83b4bf010b2f1e1"
     }
   ],
   "entries": [
@@ -7795,7 +7812,7 @@
       "baseline_status": "not in baseline (new row, RC-50)",
       "disposition": "ready-contract",
       "manifest": "pieces/assembly/run-engine/piece.json",
-      "manifest_sha256": "84a8f1506e3ba23d78fc4bb0d7ebf8a4c92d8f4179662594dc99f4c46c6d2fea",
+      "manifest_sha256": "94b23bca22e061558b023387e10b3d34a7e9b92026c659a37774f16c1f1e0793",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
