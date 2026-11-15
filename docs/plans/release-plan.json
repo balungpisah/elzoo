@@ -6903,6 +6903,23 @@
       "issue": 543,
       "url": "https://github.com/balungpisah/elzoo/issues/543",
       "issue_body_sha256": "988e936cb65e071fa177b8687b5afe294d611081c171c767752db8050b90969c"
+    },
+    {
+      "id": "ELZ-242",
+      "title": "ELZ-242 — The README states the rule for an Effect intent process that outlives the engine",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-192"],
+      "status": "published 2026-11-15",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-242-run-engine-intent-owner-outlives-engine.md"],
+      "outputs": [],
+      "acceptance": "Piece assembly/run-engine in place, no behaviour change: one observation test shows a new start sees a second intent owner for the same identity while the old one is alive, and the README states the host fence rule; small gate.",
+      "product_aims": ["P13"],
+      "issue": 544,
+      "url": "https://github.com/balungpisah/elzoo/issues/544",
+      "issue_body_sha256": "9ee9623a5974322ce0fb9d64db2b0c00f119756d0383a509a718c238754fdedf"
     }
   ],
   "entries": [
