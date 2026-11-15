@@ -302,6 +302,63 @@ defmodule Elzoo.AgentLoopTest do
     last(trace([start(), model(1, "", "tool_calls", [call("c1", name)]), outcome], extra))
   end
 
+  ## Fixtures of the start load
+
+  @skill_schema %{
+    "type" => "object",
+    "properties" => %{"name" => %{"type" => "string", "enum" => ["guide", "review"]}},
+    "required" => ["name"]
+  }
+
+  defp skill_source,
+    do: source("sk", "pinned_skill", "adapter", [descriptor("load_skill", @skill_schema)])
+
+  defp skill_spec, do: %{sources: sources() ++ [skill_source()]}
+
+  # The tools of a start that has the skill source, sorted by alias.
+  defp skill_tools,
+    do: Enum.sort_by([tool("sk_load_skill", "load_skill", @skill_schema) | tools()], & &1["name"])
+
+  defp skill_trace(inputs), do: trace(inputs, skill_spec())
+
+  defp skill_version do
+    {:ok, snapshot} = ToolRegistry.snapshot(sources() ++ [skill_source()])
+    {:resolved, tool} = ToolRegistry.resolve(snapshot, "sk_load_skill")
+    tool.version
+  end
+
+  defp skill_payload(text, skill),
+    do: %{"text" => text, "skill" => skill}
+
+  defp payload_input(kind, payload),
+    do:
+      input(kind, %{
+        "schema_id" => "elzoo.agent-loop.message",
+        "schema_version" => 1,
+        "payload" => payload
+      })
+
+  defp skill_start(tool_alias \\ "sk_load_skill", name \\ "guide", text \\ "go"),
+    do: payload_input("start", skill_payload(text, %{"tool" => tool_alias, "name" => name}))
+
+  defp load_request(name \\ "guide"),
+    do:
+      request([
+        action("run:t:0:1", "tool_call", "elzoo.agent-loop.tool-call", %{
+          "alias" => "sk_load_skill",
+          "source" => "sk",
+          "tool" => "load_skill",
+          "version" => skill_version(),
+          "arguments" => %{"name" => name}
+        })
+      ])
+
+  defp guide, do: %{"name" => "guide", "instructions" => "Always cite the file."}
+  defp user(text), do: %{"role" => "user", "text" => text}
+
+  # The history of a state as {kind, id}.
+  defp history(state), do: Enum.map(state.history, &{&1.kind, &1.id})
+
   ## Named acceptance groups
 
   test "final_answer" do
@@ -1193,5 +1250,256 @@ defmodule Elzoo.AgentLoopTest do
              action_id: "demo:m:2",
              turns: 2
            }
+  end
+
+  test "start_loads_skill" do
+    listing = %{
+      "source" => "sk",
+      "tools" => [descriptor("load_skill", @skill_schema), descriptor("lookup")]
+    }
+
+    {open, [first]} = skill_trace([skill_start()])
+    assert first == {:some, load_request()}
+    assert open.phase == :tools
+    assert open.turns == 0
+    assert history(open) == [{:user, "run:u:1"}]
+
+    {state, [_, second]} = skill_trace([skill_start(), declared("run:t:0:1", guide(), listing)])
+
+    listed = Enum.sort_by([tool("sk_lookup", "lookup") | skill_tools()], & &1["name"])
+
+    assert second ==
+             {:some,
+              model_call(
+                1,
+                [
+                  %{"role" => "system", "text" => @role <> "\n\n" <> "Always cite the file."},
+                  user("go"),
+                  user(notice("[declaration accepted]"))
+                ],
+                listed
+              )}
+
+    # The load is no turn and no model call: no assistant and no tool_result entry.
+    assert history(state) == [{:user, "run:u:1"}, {:content, "run:n:0"}]
+    assert state.turns == 1
+    assert state.skills == [{"guide", "Always cite the file."}]
+
+    assert Enum.at(state.history, 1) ==
+             %{
+               kind: :content,
+               id: "run:n:0",
+               content: marked(["agent-loop"], "[declaration accepted]"),
+               ref_media_type: nil
+             }
+
+    # A message that arrives while the load is open follows the notice.
+    inputs = [skill_start(), message("also this"), declared("run:t:0:1", guide(), listing)]
+    {state, [_, waiting, third]} = skill_trace(inputs)
+    assert waiting == :none
+
+    assert third ==
+             {:some,
+              model_call(
+                1,
+                [
+                  %{"role" => "system", "text" => @role <> "\n\n" <> "Always cite the file."},
+                  user("go"),
+                  user(notice("[declaration accepted]")),
+                  user("also this")
+                ],
+                listed
+              )}
+
+    assert history(state) == [{:user, "run:u:1"}, {:content, "run:n:0"}, {:user, "run:u:2"}]
+    assert state.waiting == []
+  end
+
+  test "start_load_refused" do
+    over = %{"name" => "big", "instructions" => String.duplicate("a", 16_385)}
+    many = [descriptor("list") | for(i <- 1..58, do: descriptor("n#{i}"))]
+
+    reason = %{
+      "reason" => "over_budget",
+      "gate_id" => "g",
+      "gate_version" => 1,
+      "request" => 0,
+      "index" => 0
+    }
+
+    cases = [
+      {declared("run:t:0:1", over, nil), "[declaration refused: instructions_over_bound]"},
+      {declared("run:t:0:1", nil, %{"source" => "hub", "tools" => many}),
+       "[declaration refused: too_many_tools]"},
+      {declared("run:t:0:1", nil, nil), "[declaration refused: invalid_declaration]"},
+      {outcome("run:t:0:1", "refused", "elzoo.run-engine.refusal", reason),
+       "[tool call not completed: refused: over_budget]"},
+      {result("run:t:0:1", "Skill file text."), "[skill not loaded: not_a_declaration]"}
+    ]
+
+    assert length(cases) == 5
+
+    for {answer, line} <- cases do
+      {state, [_, output]} = skill_trace([skill_start(), answer])
+
+      assert output ==
+               {:some, model_call(1, [@system, user("go"), user(notice(line))], skill_tools())}
+
+      assert history(state) == [{:user, "run:u:1"}, {:content, "run:n:0"}]
+      assert Enum.at(state.history, 1).content == marked(["agent-loop"], line)
+      assert state.skills == []
+      assert state.turns == 1
+    end
+  end
+
+  test "start_load_not_pinned_skill" do
+    for name <- ["files_read", "hub_list"] do
+      {state, outputs} = skill_trace([skill_start(name)])
+      line = "[skill not loaded: not_permitted]"
+
+      assert outputs ==
+               [{:some, model_call(1, [@system, user("go"), user(notice(line))], skill_tools())}]
+
+      assert history(state) == [{:user, "run:u:1"}, {:content, "run:n:0"}]
+    end
+
+    # An other-kind tool whose schema accepts {"name"} is not permitted either: the kind comes first.
+    open = source("open", "other", "adapter", [descriptor("load_skill", @skill_schema)])
+
+    listed =
+      Enum.sort_by(
+        [tool("open_load_skill", "load_skill", @skill_schema) | skill_tools()],
+        & &1["name"]
+      )
+
+    {_, outputs} =
+      trace([skill_start("open_load_skill")], %{sources: sources() ++ [skill_source(), open]})
+
+    line = "[skill not loaded: not_permitted]"
+    assert outputs == [{:some, model_call(1, [@system, user("go"), user(notice(line))], listed)}]
+  end
+
+  test "start_load_not_run" do
+    for {name_alias, name, line} <- [
+          {"nowhere", "guide", "[skill not loaded: not_resolved]"},
+          {"sk_load_skill", "other", "[skill not loaded: validator_disagreement]"}
+        ] do
+      {state, outputs} = skill_trace([skill_start(name_alias, name)])
+
+      assert outputs ==
+               [{:some, model_call(1, [@system, user("go"), user(notice(line))], skill_tools())}]
+
+      assert history(state) == [{:user, "run:u:1"}, {:content, "run:n:0"}]
+      assert state.skills == []
+    end
+
+    # A form that is not exactly the start form is not a start: no change and no request.
+    state = new!(skill_spec())
+    named = %{"tool" => "sk_load_skill", "name" => "guide"}
+
+    for payload <- [
+          skill_payload("go", Map.put(named, "extra", "x")),
+          skill_payload("go", %{named | "name" => 5}),
+          skill_payload("go", %{named | "tool" => nil}),
+          skill_payload("go", %{"tool" => "sk_load_skill"}),
+          skill_payload("go", "guide"),
+          skill_payload("", named),
+          skill_payload(5, named),
+          Map.put(skill_payload("go", named), "more", "x")
+        ] do
+      refused = payload_input("start", payload)
+      assert {:ok, _} = PatternStep.decode(refused)
+      assert AgentLoop.step(state, refused, &estimate/1) == {:Transition, state, :none}
+    end
+  end
+
+  test "start_load_survives_refold" do
+    listing = %{"source" => "sk", "tools" => [descriptor("load_skill", @skill_schema)]}
+
+    inputs = [
+      skill_start(),
+      declared("run:t:0:1", guide(), listing),
+      model(1, "", "tool_calls", [call("c1", "files_read")]),
+      result("run:t:1:1", "r1"),
+      model(2, "Done.", "stop", [])
+    ]
+
+    {_, outputs} = skill_trace(inputs)
+    assert length(outputs) == 5
+    assert List.last(outputs) == {:some, finish("answered", nil, "run:m:2", 2)}
+
+    # Each cut, run again from the new state, gives the same state and the same outputs.
+    states =
+      Enum.scan(inputs, new!(skill_spec()), fn input, state ->
+        {:Transition, next, _} = AgentLoop.step(state, input, &estimate/1)
+        next
+      end)
+
+    for k <- 1..length(inputs) do
+      {state, cut} = skill_trace(Enum.take(inputs, k))
+      assert cut == Enum.take(outputs, k)
+      assert state == Enum.at(states, k - 1)
+    end
+
+    ids = for {:some, %{"actions" => actions}} <- outputs, a <- actions, do: a["id"]
+    assert Enum.count(ids, &(&1 == "run:t:0:1")) == 1
+    assert Enum.count(ids, &(&1 == "run:t:1:1")) == 1
+  end
+
+  test "model_repeat_after_start_load" do
+    inputs = [
+      skill_start(),
+      declared("run:t:0:1", guide(), nil),
+      model(1, "", "tool_calls", [proposal("c1", "sk_load_skill", %{"name" => "guide"})]),
+      declared("run:t:1:1", guide(), nil)
+    ]
+
+    {state, outputs} = skill_trace(inputs)
+    second = List.last(outputs)
+    system = %{"role" => "system", "text" => @role <> "\n\n" <> "Always cite the file."}
+
+    assert messages(second) == [
+             system,
+             user("go"),
+             user(notice("[declaration accepted]")),
+             %{
+               "role" => "assistant",
+               "text" => "",
+               "tool_calls" => [
+                 %{"id" => "c1", "name" => "sk_load_skill", "arguments" => %{"name" => "guide"}}
+               ]
+             },
+             tool_result("c1", notice("[declaration refused: already_loaded]"))
+           ]
+
+    assert payload(second)["tools"] == skill_tools()
+    assert state.skills == [{"guide", "Always cite the file."}]
+    assert length(String.split(Request.canonical(payload(second)), "Always cite the file.")) == 2
+  end
+
+  test "existing_behaviour" do
+    # A plain start: model call 1 holds the start text only; no load, no note.
+    {state, [first]} = skill_trace([start()])
+    assert first == {:some, model_call(1, [@system, user("go")], skill_tools())}
+    assert history(state) == [{:user, "run:u:1"}]
+    assert state.turns == 1
+
+    # A message with a skill member is no message, in an open loop and in an open load.
+    carrying =
+      payload_input(
+        "message",
+        skill_payload("again", %{"tool" => "sk_load_skill", "name" => "guide"})
+      )
+
+    assert {:ok, _} = PatternStep.decode(carrying)
+    assert AgentLoop.step(state, carrying, &estimate/1) == {:Transition, state, :none}
+    {loading, [_]} = skill_trace([skill_start()])
+    assert AgentLoop.step(loading, carrying, &estimate/1) == {:Transition, loading, :none}
+
+    # A start after the start gives no change and no request, in the skill form too.
+    for later <- [skill_start(), start("again")] do
+      assert AgentLoop.step(state, later, &estimate/1) == {:Transition, state, :none}
+      assert AgentLoop.step(loading, later, &estimate/1) == {:Transition, loading, :none}
+    end
   end
 end
