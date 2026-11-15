@@ -120,9 +120,9 @@ No call gets a default. The scripted calls cost nothing.
 
 A tool value reaches its caller in this form:
 
-- an agent tool (but for the two tools that `skills` answers, see "Skills"): the tool result `{"content": marked text, "media_type": "text/plain",
-  "encoding": "utf8"}`, where the text is the value if it is text, else its canonical
-  JSON (compact, object keys in byte order);
+- an agent tool (but for the two tools that `skills` answers, see "Skills"): the tool result
+  `{"content": marked text, "media_type": "text/plain", "encoding": "utf8"}`, where the text is
+  the value if it is text, else its canonical JSON (compact, object keys in byte order);
 - a graph tool node: `{"gives": value}`, so `value` must be an object that holds each
   give name of the node, else the node is `failed`;
 - a module call of a Lua tool: `{"result": value}`; another class gets `{"reason": reason}`.
@@ -171,7 +171,8 @@ not asked again. The group `skill_load_after_restart` shows it with `restart_aft
 the restart falls while the call of a declared skill tool is held: one load action and one load
 outcome, `asked` holds the load once, the dropped call of the skill tool is `unknown`, and the
 model call after the restart holds the instructions in its system message and the skill tool in
-its tools. A refusal of a declared tool at use is only scripted here (`declared_tool_refused_at_use`).
+its tools. A refusal of a declared tool at use is only scripted here
+(`declared_tool_refused_at_use`).
 
 ## Start errors
 
@@ -265,12 +266,13 @@ answers `start` with one request of the finish `id <> ":finish"` (schema `s`, ve
 payload `p`) and becomes `closed`; every other input, and every input of `closed`, is no change
 and no request.
 
-Start forms that the harness chooses: an agent child of a node with a skill, as in "Skills"; a Lua child starts with `elzoo.lua-tool.input`
-`{"input": arguments}`; a refused child with `elzoo.graph-run.input` `{"input": arguments}`; an
-accepted graph child with `elzoo.graph-run.input` `{"input": object}`. A `:graph` tool that a
-graph node reaches gets the refused child with `{"failed": "graph_tool_in_graph"}`. A graph
-that is not accepted, or arguments in another form, gets the refused child with the text of
-`RuntimeGraph.render/1`, or `[graph not run: REASON]`.
+Start forms that the harness chooses: an agent child of a node with a skill, as in "Skills"; a
+Lua child starts with `elzoo.lua-tool.input` `{"input": arguments}`; a refused child with
+`elzoo.graph-run.input` `{"input": arguments}`; an accepted graph child with
+`elzoo.graph-run.input` `{"input": object}`. A `:graph` tool that a graph node reaches gets the
+refused child with `{"failed": "graph_tool_in_graph"}`. A graph that is not accepted, or
+arguments in another form, gets the refused child with the text of `RuntimeGraph.render/1`, or
+`[graph not run: REASON]`.
 
 `lua_request/1` gives the sandbox request of a run payload (atom keys, five atom `limits`,
 `calls` with `mode`, `names` and `recorded` entries of `name`, `arguments` and `result`).
