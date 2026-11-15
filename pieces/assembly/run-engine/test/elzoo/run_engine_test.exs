@@ -5993,7 +5993,7 @@ defmodule Elzoo.RunEngineTest do
         engine
 
       other ->
-        flunk("the start did not return in 60,000 ms: #{inspect(other)}")
+        flunk("the start did not give an engine within 60,000 ms: #{inspect(other)}")
     end
   end
 
@@ -6513,6 +6513,22 @@ defmodule Elzoo.RunEngineTest do
 
       assert {:ok, _} = child_result(engine, before, "tool-nested", 5)
       assert unit_state(c).slots == slots
+      assert outcome_records(c, "nested") == []
+    end
+  end
+
+  describe "retained_slot_closes_after_its_deadline (one step)" do
+    test "the result of a retained child and the close of its parent fold in one step: the parent has the exact amount and no later record is needed" do
+      {c, _bindings, engine, before} = retained_run(%{"nested" => 10_000})
+      parent = key_of(before, "nested")
+      Agent.update(c.clock, fn _ -> 15_000 end)
+
+      assert {:ok, :applied} = child_result(engine, before, "tool-nested", 5)
+      assert slot_by(view(engine), "nested").outcome == "unknown"
+      assert unit_state(c).slots[parent].actual == 5
+      assert budget_status(c, "1:0", 15_000) == %{committed: 5, reserved: 0}
+      # The close came after the effect of the input: no `nested_actual` record is written.
+      refute Enum.any?(journal(c), &match?({:nested_actual, _, _, _, _}, &1))
       assert outcome_records(c, "nested") == []
     end
   end
