@@ -93,6 +93,11 @@ defmodule Elzoo.RunEngine do
         state = expire_waits(state, input["at_ms"])
         {state, accepted, callable} = protocol(state, record)
 
+        state =
+          if state.control.lifecycle.phase == :terminal,
+            do: close_run(state, input["at_ms"]),
+            else: state
+
         if accepted and not state.control.generation_closed and
              is_nil(state.control.stop_pending) and state.control.lifecycle.phase != :paused and
              not state.control.callables[callable].closed do
@@ -398,12 +403,11 @@ defmodule Elzoo.RunEngine do
 
     state =
       if view.outcome do
-        state = if c.charge_stopped, do: state, else: close_local(state, view.at_ms)
-
         state
         |> put_in([:control, :lifecycle, :phase], :terminal)
         |> put_in([:control, :lifecycle, :outcome], view.outcome)
         |> put_in([:control, :stop_pending], nil)
+        |> close_run(view.at_ms)
       else
         state
       end
@@ -583,9 +587,7 @@ defmodule Elzoo.RunEngine do
         {:ok, checked} = PatternStep.decode(input)
         # Charge closure changes generation permission, not the original tracker.
         # Deadline/cancel/stale/restart rules still classify the same occurrence.
-        retained =
-          c.generation_closed and c.charge_stopped and
-            (slot[:deadline_ms] == nil or at < slot.deadline_ms) and is_nil(c.cancelled_attempt)
+        retained = retains?(c, slot, at)
 
         {state, acceptance} =
           cond do
@@ -704,9 +706,9 @@ defmodule Elzoo.RunEngine do
       else: state
   end
 
-  defp close_local(state, at) do
+  defp close_local(state, at, select \\ fn _ -> true end) do
     Enum.reduce(state.slots, state, fn {key, slot}, acc ->
-      if slot.kind == "local_work" and slot.phase == :running do
+      if slot.kind == "local_work" and slot.phase == :running and select.(slot) do
         input =
           outcome(slot.action_id, "failed", @refusal_schema, refusal(acc, key, "local_closed"), at)
 
@@ -732,12 +734,30 @@ defmodule Elzoo.RunEngine do
     end)
   end
 
-  # A change of Attempt settles every open slot of an older Attempt, in the same
-  # fold step, at the time of the view. Nothing is read from a clock or a process.
+  # The end of a Run settles every open slot that the request-cap stop does not
+  # retain (in any other ending: all of them), in the same fold step, at the time
+  # of the record: the terminal view, and each later protocol input of the
+  # current Attempt that is not a duplicate (also one whose own effect is late
+  # or incompatible). Running local work is closed by the same selector.
+  defp close_run(state, at) do
+    select = &(not retains?(state.control, &1, at))
+
+    state
+    |> close_local(at, select)
+    |> close_open(select, "run_closed", at)
+  end
+
+  defp close_attempt(state, current, at),
+    do: close_open(state, &(&1.attempt_id != current), "attempt_closed", at)
+
+  # One closer for two uses: a change of Attempt settles every open slot of an older
+  # Attempt (reason `attempt_closed`), and the end of a Run settles every open slot
+  # that is not retained (reason `run_closed`), in the same fold step, at the time of
+  # the record. Nothing is read from a clock or a process.
   # A slot that nothing can have left is refused (its reservation is released);
   # a slot that may have been sent gets the outcome unknown and keeps its entry.
   # Callables go deepest first, so a nested parent reads its closed child.
-  defp close_attempt(state, current, at) do
+  defp close_open(state, select, reason, at) do
     state =
       update_in(state.control.callables, fn callables ->
         Map.new(callables, fn
@@ -747,17 +767,17 @@ defmodule Elzoo.RunEngine do
       end)
 
     state.slots
-    |> Enum.reject(fn {_, slot} -> slot.phase == :settled or slot.attempt_id == current end)
+    |> Enum.filter(fn {_, slot} -> slot.phase != :settled and select.(slot) end)
     |> Enum.sort_by(fn {key, slot} -> {-state.control.callables[slot.callable].depth, key} end)
-    |> Enum.reduce(state, fn {key, _}, acc -> close_slot(acc, key, at) end)
+    |> Enum.reduce(state, fn {key, _}, acc -> close_slot(acc, key, reason, at) end)
   end
 
-  defp close_slot(acc, key, at) do
+  defp close_slot(acc, key, reason, at) do
     slot = acc.slots[key]
     sent? = may_have_sent?(acc, key, slot)
     parent? = slot.kind == "nested_callable" and sent?
     class = if sent?, do: "unknown", else: "refused"
-    input = outcome(slot.action_id, class, @refusal_schema, refusal(acc, key, "attempt_closed"), at)
+    input = outcome(slot.action_id, class, @refusal_schema, refusal(acc, key, reason), at)
     {:ok, checked} = PatternStep.decode(input)
 
     case PatternStep.accept(acc.control.trackers[elem(key, 0)].tracker, checked) do
@@ -1703,6 +1723,11 @@ defmodule Elzoo.RunEngine do
 
   defp retained?(c),
     do: c.generation_closed and c.charge_stopped and is_nil(c.cancelled_attempt)
+
+  # The request-cap stop keeps a slot open until its deadline (a slot with no
+  # deadline yet stays until it has one).
+  defp retains?(c, slot, at),
+    do: retained?(c) and (slot[:deadline_ms] == nil or at < slot.deadline_ms)
 
   # The cost of a child, from the durable state only.
   defp child_cost(state, id) do

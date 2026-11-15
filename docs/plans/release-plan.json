@@ -7910,11 +7910,11 @@
     {
       "id": "assembly/run-engine",
       "job": "ELZ-127",
-      "note": "One recorded pure pattern cycle and ordinary dispatcher per host Unit/Run: shared sealed request charge, the binding of each action chosen by its action kind and, for a schema map, its schema ID, schema/identity/committed host gate/Budget/authority/Approval checks, occurrence-first settlement, a nested callable's first admitted finish given to its parent once each child cost is known or final unknown (the committed child amount when all are known, no actual when one is final unknown), a change of Attempt settling every open slot of the older Attempt in the same fold step (refused with actual 0 when nothing can have been sent, `unknown` with the reservation held when something may have been sent, running local work `local_closed`), so no older-Attempt slot stays open, durable owner composition and explicit fail-stop recovery; charge exhaustion stops generation while retaining prior within-cap obligations, without new work or resend permission; `input/4`, `control/4` and `status/1` each wait for the engine at most 60,000 ms.",
+      "note": "One recorded pure pattern cycle and ordinary dispatcher per host Unit/Run: shared sealed request charge, the binding of each action chosen by its action kind and, for a schema map, its schema ID, schema/identity/committed host gate/Budget/authority/Approval checks, occurrence-first settlement, a nested callable's first admitted finish given to its parent once each child cost is known or final unknown (the committed child amount when all are known, no actual when one is final unknown), a change of Attempt settling every open slot of the older Attempt in the same fold step (refused with actual 0 when nothing can have been sent, `unknown` with the reservation held when something may have been sent, running local work `local_closed`), so no older-Attempt slot stays open, the end of a Run settling, by the same closer with reason `run_closed`, every open slot that the request-cap stop does not retain before its deadline, at the terminal view and at each later protocol input, so a terminal Run keeps no other slot open, durable owner composition and explicit fail-stop recovery; charge exhaustion stops generation while retaining prior within-cap obligations, without new work or resend permission; `input/4`, `control/4` and `status/1` each wait for the engine at most 60,000 ms.",
       "baseline_status": "not in baseline (new row, RC-50)",
       "disposition": "ready-contract",
       "manifest": "pieces/assembly/run-engine/piece.json",
-      "manifest_sha256": "94b7dd3271103a3c59d99ae7c48d4b49abbcb79b5c520abafba2f69c5f9422d6",
+      "manifest_sha256": "b1d74db0917c0674bb94f4545fb579434d4311be385e271217c845f02e87d823",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
@@ -8000,11 +8000,11 @@
     {
       "id": "workflow/agent-loop",
       "job": "ELZ-142",
-      "note": "Pure agent loop step in the core/operator shape over PatternStep v1 neutral maps: each model request built by PromptAssembly.build/2 from the history and the tool list of a ToolRegistry snapshot in the state; each proposal of a model turn kept or left out with a named tag; all actions of one turn (tool_call, nested_callable or ask_person) in one request; each result bounded by ToolResultLimit with store actions in a second request; declarations of a skill or a listing permitted only by the source kind of the called tool; refusals and failed calls as marked notices; one finish answered or stopped with a named reason. State within 65,536 bytes, loaded instructions within 16,384 bytes. No model call, tool call, clock, storage or process; no budget or authority check.",
+      "note": "Pure agent loop step in the core/operator shape over PatternStep v1 neutral maps: each model request built by PromptAssembly.build/2 from the history and the tool list of a ToolRegistry snapshot in the state; each proposal of a model turn kept or left out with a named tag; all actions of one turn (tool_call, nested_callable or ask_person) in one request; each result bounded by ToolResultLimit with store actions in a second request; declarations of a skill or a listing permitted only by the source kind of the called tool; refusals and failed calls as marked notices; a start may name one skill, whose load is one tool action of a pinned_skill tool before model call 1, applied by the same declaration rule; one finish answered or stopped with a named reason. State within 65,536 bytes, loaded instructions within 16,384 bytes. No model call, tool call, clock, storage or process; no budget or authority check.",
       "baseline_status": "not in baseline (new row, RC-56)",
       "disposition": "ready-contract",
       "manifest": "pieces/workflow/agent-loop/piece.json",
-      "manifest_sha256": "c9d0ce02aa2b0546169f36ea7bb1cf5213e2353708a1f3ca8bca5f7fd06b6cbf",
+      "manifest_sha256": "3d04bab2450c15b9ba4d43e89a7be1f0ddf688d7d7743b3963eca878c993e15e",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
