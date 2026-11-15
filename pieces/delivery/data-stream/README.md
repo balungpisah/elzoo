@@ -153,8 +153,9 @@ The Piece ignores what it does not read (ELZ-155, a decision of the owner):
   when that member is absent or null. The two members that the Piece reads keep
   their type rule.
 
-A stream with an ignored member or event gives exactly the frames, usage, finish
-reason, provenance and terminal of the same stream without it. Three things
+Apart from the `cache_creation` exception above, a stream with an ignored
+member or event gives exactly the frames, usage, finish reason, provenance and
+terminal of the same stream without it. Three things
 differ and no more: received_body_bytes counts its bytes; the two byte bounds
 count them too (65,536 for one raw block and 4,194,304 for the body); an ignored
 event counts as one event (the bound of 65,536 blocks, raw_blocks and the event

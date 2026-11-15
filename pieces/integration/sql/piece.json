@@ -65,7 +65,7 @@
     {
       "kind": "upstream",
       "provider": "postgrex",
-      "reference": "https://www.postgresql.org/docs/14/transaction-iso.html",
+      "reference": "https://www.postgresql.org/docs/16/transaction-iso.html",
       "claim": "PostgreSQL transaction atomicity, uniqueness, row locking, WAL/fsync and crash semantics are upstream server contracts reached through Postgrex, not local proofs."
     },
     {
