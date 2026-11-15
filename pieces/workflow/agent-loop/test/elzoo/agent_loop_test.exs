@@ -1280,6 +1280,11 @@ defmodule Elzoo.AgentLoopTest do
                 listed
               )}
 
+    # Both ready providers translate the request that follows the notice.
+    {:ok, decoded, _} = Request.decode(Request.canonical(payload(second)), 65_536)
+    assert {:ok, _} = Anthropic.translate(%{decoded | model: "claude-sonnet-4-5"}, nil)
+    assert {:ok, _} = OpenAI.translate(%{decoded | model: "gpt-6.1-terra"}, nil)
+
     # The load is no turn and no model call: no assistant and no tool_result entry.
     assert history(state) == [{:user, "run:u:1"}, {:content, "run:n:0"}]
     assert state.turns == 1
@@ -1495,6 +1500,15 @@ defmodule Elzoo.AgentLoopTest do
     assert AgentLoop.step(state, carrying, &estimate/1) == {:Transition, state, :none}
     {loading, [_]} = skill_trace([skill_start()])
     assert AgentLoop.step(loading, carrying, &estimate/1) == {:Transition, loading, :none}
+
+    # cancel and run_ended close an open load as in any phase; the load is no turn.
+    for ended <- [
+          input("cancel", %{"attempt_id" => "attempt-1"}),
+          input("run_ended", %{"schema_id" => "test/any", "schema_version" => 1, "payload" => nil})
+        ] do
+      {closed, [:none]} = run(loading, [ended])
+      assert closed == %{phase: :closed, id: "run", turns: 0}
+    end
 
     # A start after the start gives no change and no request, in the skill form too.
     for later <- [skill_start(), start("again")] do
