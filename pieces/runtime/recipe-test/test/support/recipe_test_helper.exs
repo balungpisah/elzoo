@@ -42,7 +42,7 @@ defmodule Elzoo.RecipeTest do
   alias Elzoo.RunEngine.TestHelper
 
   @keys Enum.sort(
-          ~w(package facts sources agents decisions script effects adapters input tools executable restart_after skills)a
+          ~w(package facts sources agents decisions script effects adapters input tools executable restart_after skills gate)a
         )
   @skills_keys Enum.sort(~w(id files descriptors)a)
   @lua_keys Enum.sort(~w(kind source limits declaration manifests source_id max_calls)a)
@@ -89,7 +89,7 @@ defmodule Elzoo.RecipeTest do
         is_atom(effects.model) and is_atom(effects.tool) and is_list(spec.adapters) and
         Enum.all?(spec.adapters, &is_atom/1) and tools?(spec.tools) and
         executable?(spec.executable, spec.tools) and restart_after?(spec.restart_after) and
-        skills?(spec.skills)
+        skills?(spec.skills) and gate?(spec.gate)
 
     if valid?, do: :ok, else: {:error, :invalid_spec}
   end
@@ -127,6 +127,10 @@ defmodule Elzoo.RecipeTest do
         is_map(skills.files) and not is_struct(skills.files) and is_list(skills.descriptors)
 
   defp skills?(_), do: false
+
+  # `nil` (the gate of the fixture allows every action), or a function of arity 2 for the engine.
+  defp gate?(nil), do: true
+  defp gate?(gate), do: is_function(gate, 2)
 
   defp maps_of_maps?(map), do: is_map(map) and Enum.all?(map, fn {_, v} -> is_map(v) end)
 
@@ -471,6 +475,8 @@ defmodule Elzoo.RecipeTest do
       }
     ]
 
+    overrides = overrides ++ gate_override(spec.gate)
+
     engine = TestHelper.start(c, overrides)
 
     start = %{
@@ -500,6 +506,10 @@ defmodule Elzoo.RecipeTest do
       reply -> {:error, {:input_refused, reply, record(st)}}
     end
   end
+
+  # The gate of the spec goes to the engine as it is; `nil` keeps the gate of the fixture.
+  defp gate_override(nil), do: []
+  defp gate_override(call), do: [gate: %{id: "recipe-test", version: 1, call: call}]
 
   # `check_recipe/2` passed, and `RecipeCheck.check/2` refuses a package that `decode/1` refuses.
   defp skills_state(%{skills: nil}), do: nil
