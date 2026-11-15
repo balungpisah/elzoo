@@ -182,10 +182,13 @@ the Budget no longer counts it in `reserved` (each Budget step first sweeps
 open entries whose expiry has passed to expired), and nothing is ever committed
 for it. The same holds for each entry of the child Budget. Unknown is not zero
 at every level: nothing releases it as zero. A parent that can no longer take
-an outcome is not handed one: any parent once the Run is terminal (unless the
-request-cap stop retains it). A parent of an older Attempt is settled at the
-change of Attempt (below), not handed an outcome. No record is written for it,
-and `drain` goes on. This also covers a child whose
+an outcome is not handed one: a parent of a terminal Run is handed an outcome
+only when the request-cap stop retains it and its deadline has not passed (the
+engine clock is read, as the fold reads the time of the record); after its deadline
+it is not selected and stays open (`running`). A parent of an older Attempt is
+settled at the change of Attempt (below), not handed an outcome. No record is
+written for it, and `drain` goes on. A round of `drain` that changes no durable
+state ends the drain. This also covers a child whose
 costs are all known; before, the engine could repeat that hand-over without
 end. Only a nested callable's first admitted `finish` is kept in
 its closing continuation record and given to the parent when the child settles:
@@ -332,7 +335,20 @@ local work is final unknown, and a late or expired parent gets no record and
 entry swept to expired still counts as unknown at two clock values) and
 `no_loop_for_a_parent_that_cannot_settle` (a parent of a terminal Run is not
 handed an outcome and the call returns; a parent of an older Attempt is settled at
-the change), and the eight change-of-Attempt groups
+the change), the five groups of the retained parent past its deadline in a Run
+that the request-cap stop made terminal,
+`start_returns_with_an_expired_retained_parent` (a restart after the deadline
+returns inside a bounded wait; the parent stays `running` and the lost tool call is
+`unknown` with no actual),
+`input_returns_with_an_expired_retained_parent` (the real result of the child tool
+call after the deadline returns `{:ok, :applied}` inside a bounded wait; the parent
+stays `running`), `nothing_more_is_written` (after each of those two states one more
+input and one more restart leave the journal records of the parent as they were
+and the view equal apart from `classification`, which names the last input), `retained_parent_before_its_deadline_settles` (the same Run with the
+clock before the deadline: the parent settles `completed` with the committed child
+amount) and `other_work_goes_on` (two parents in one request, the first past its
+deadline: the second settles `completed` with its actual and the first stays
+`running`), and the eight change-of-Attempt groups
 `sent_slot_becomes_unknown` (a dispatched tool call, a slot in reconcile, a
 waiting person ask and an approved slot with a request key become `unknown` with
 no actual, the Budget keeps its reservation and the committed amount does not
@@ -374,7 +390,13 @@ fails by the stall), an unknown cost handed to the parent as actual 0
 (`unknown_is_not_zero` fails), a count of open entries only
 (`expired_reservation_is_still_unknown` fails) and the selector without the
 Attempt and terminal condition (`no_loop_for_a_parent_that_cannot_settle`
-fails: the call does not return); so is the default
+fails: the call does not return); so are the drain without the unchanged-state
+end and the selector without the deadline term, both reverted
+(`start_returns_with_an_expired_retained_parent` and
+`input_returns_with_an_expired_retained_parent` fail: the start and the call do not
+return in their bounded wait), and the drain with the unchanged-state end but the
+selector without the deadline term (`other_work_goes_on` fails: the second parent
+is not settled); so is the default
 5,000 ms limit of the three calls (`call_waits_past_the_default` ends with the
 time-out exit). For the change of Attempt, the release of the reservation of a
 sent slot as zero (`sent_slot_becomes_unknown` fails) and the old
