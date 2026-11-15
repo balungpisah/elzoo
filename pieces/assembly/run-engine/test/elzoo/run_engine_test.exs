@@ -2460,7 +2460,7 @@ defmodule Elzoo.RunEngineTest do
     # ELZ-216: a Resource that refuses a dispatch as closing or closed leaves the action with
     # the Resource; the engine goes on. Use B is queued behind use A. B's intent deadline
     # (`intent_ms`) and slot deadline (`slot_ms`) are set by the caller.
-    defp queued_use(intent_ms, slot_ms, resource_owner \\ nil) do
+    defp queued_use(intent_ms, slot_ms, engine_opts \\ fn _ -> [] end) do
       payload = %{"run_id" => "run", "resource_name" => "document", "data" => %{}}
 
       c =
@@ -2479,8 +2479,6 @@ defmodule Elzoo.RunEngineTest do
         )
 
       {owner, bindings} = resource(c)
-      owner = resource_owner || owner
-
       use_binding = bindings["resource_use"]
 
       bindings =
@@ -2499,7 +2497,12 @@ defmodule Elzoo.RunEngineTest do
             end
         })
 
-      engine = start(c, resources: %{"document" => owner}, bindings: bindings)
+      engine =
+        start(
+          c,
+          Keyword.merge([resources: %{"document" => owner}, bindings: bindings], engine_opts.(c))
+        )
+
       assert {:ok, :applied} = send_input(engine)
       assert_receive {:effect_started, opening, _}, 5_000
 
@@ -2701,6 +2704,38 @@ defmodule Elzoo.RunEngineTest do
       v = view(engine)
       assert v.reconciliation == nil
       assert %{phase: :settled, outcome: "failed"} = v.slots[{1, 0}]
+    end
+
+    test "unknown_dispatch_still_halts" do
+      skew = start_supervised!({Agent, fn -> 0 end}, id: make_ref())
+
+      # The clock of the Effect intents runs ahead of the engine once the skew is set.
+      engine_opts = fn c ->
+        clock = fn -> Agent.get(c.clock, & &1) + Agent.get(skew, & &1) end
+
+        [
+          effect_intent:
+            Map.update!(c.opts[:effect_intent], "effect", &Keyword.put(&1, :clock, clock))
+        ]
+      end
+
+      %{c: c, owner: owner, engine: engine} = queued_use(10_000, 40_000, engine_opts)
+      Agent.update(c.clock, fn _ -> 5_000 end)
+      Agent.update(skew, fn _ -> 100_000 end)
+      observe_use(owner, "using", 5_000, {:completed, %{}})
+
+      assert {:error, :resource_dispatch_unknown} =
+               RunEngine.input(engine, "consume-use", wake(), verified())
+
+      assert view(engine).reconciliation == :resource_dispatch_unknown
+
+      # The Resource accepted and reserved the dispatch, and its receipt is unknown: the send
+      # may have run, so the engine halts.
+      assert {:ok, %{entries: entries}} = Elzoo.RunResource.read(owner, 0)
+
+      assert Enum.any?(entries, fn e ->
+               match?({:dispatch, _}, e.command_id) and match?({:unknown, _}, e.receipt)
+             end)
     end
   end
 
