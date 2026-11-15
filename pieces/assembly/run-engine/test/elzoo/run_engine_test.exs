@@ -2661,10 +2661,10 @@ defmodule Elzoo.RunEngineTest do
       receive do
         {:"$gen_call", from, {:command, %{body: {:dispatch, _, _}}} = call} ->
           before_dispatch.()
-          GenServer.reply(from, GenServer.call(owner, call))
+          GenServer.reply(from, GenServer.call(owner, call, 60_000))
 
         {:"$gen_call", from, call} ->
-          GenServer.reply(from, GenServer.call(owner, call))
+          GenServer.reply(from, GenServer.call(owner, call, 60_000))
       end
 
       proxy_loop(owner, before_dispatch)

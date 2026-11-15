@@ -314,11 +314,14 @@ request from the decision, so a second ask makes no second request.
 AsyncWork wraps exact `{:durable_unit_input, stable_id, record}` messages to the
 registered dispatcher. Startup/replacement records ordinary local loss before
 queued results; late completion cannot settle again. Resources retain their
-own grants, FIFO, pause/deadline, usage and immutable cleanup. Resource cursor
-advance follows destination input/Budget commit (or stable-ID dedup). All five
-Run endings drive that cleanup; unknown/read-only is not closed. Completed Run
-evidence is an actual Writer-appended canonical map correlating Run, operation,
-Attempt and completed action, never DU's tuple or an invented sequence.
+own grants, FIFO, pause/deadline, usage and immutable cleanup. A Resource that
+refuses a dispatch as not open, paused, closing or closed leaves the action
+with the Resource; every other reply of the dispatch halts the engine with
+`resource_dispatch_unknown`. Resource cursor advance follows destination
+input/Budget commit (or stable-ID dedup). All five Run endings drive that
+cleanup; unknown/read-only is not closed. Completed Run evidence is an actual
+Writer-appended canonical map correlating Run, operation, Attempt and completed
+action, never DU's tuple or an invented sequence.
 
 ## Failure, size and audit limits
 
