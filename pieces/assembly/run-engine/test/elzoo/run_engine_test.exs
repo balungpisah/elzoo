@@ -2737,6 +2737,53 @@ defmodule Elzoo.RunEngineTest do
                match?({:dispatch, _}, e.command_id) and match?({:unknown, _}, e.receipt)
              end)
     end
+
+    # ELZ-216: an approved Resource action that is released by approval evidence takes the same
+    # halt as one that is dispatched by an input: an unknown reply is not a crash.
+    test "approved_unknown_dispatch_still_halts" do
+      skew = start_supervised!({Agent, fn -> 0 end}, id: make_ref())
+
+      a =
+        action("open", "resource_open", %{
+          "run_id" => "run",
+          "resource_name" => "document",
+          "data" => %{}
+        })
+
+      c = fixture(pattern: {TestPattern, :step, %{requests: [request([a])]}})
+      require_approval(c)
+      {owner, bindings} = resource(c)
+
+      clock = fn -> Agent.get(c.clock, & &1) + Agent.get(skew, & &1) end
+
+      effect_intent =
+        Map.update!(c.opts[:effect_intent], "effect", &Keyword.put(&1, :clock, clock))
+
+      engine =
+        start(c,
+          resources: %{"document" => owner},
+          bindings: bindings,
+          effect_intent: effect_intent
+        )
+
+      assert {:ok, :applied} = send_input(engine)
+      refute_receive {:effect_started, _, _}, 300
+      {:ok, run} = Run.status(c.run, "run")
+      [%{request_key: key}] = run.approvals
+      assert slot_by(view(engine), "open").phase == :approval
+
+      # The clock of the Effect intents runs ahead of the engine once the skew is set.
+      Agent.update(skew, fn _ -> 100_000 end)
+      assert {:error, :resource_dispatch_unknown} = consent_control(engine, key)
+      assert Process.alive?(engine)
+      assert view(engine).reconciliation == :resource_dispatch_unknown
+
+      assert {:ok, %{entries: entries}} = Elzoo.RunResource.read(owner, 0)
+
+      assert Enum.any?(entries, fn e ->
+               match?({:dispatch, _}, e.command_id) and match?({:unknown, _}, e.receipt)
+             end)
+    end
   end
 
   describe "Sizing and sanitized evidence" do
