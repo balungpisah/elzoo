@@ -5707,8 +5707,10 @@ defmodule Elzoo.RunEngineTest do
       assert budgets(c) == before
       send(provider, {:result, %{}})
     end
+  end
 
-    test "a settled parent turned back to refusing by an over-cap child is settled again at the change, first outcome kept" do
+  describe "recorded_defect_is_closed_at_a_change" do
+    test "after the over-cap record the settled parent stays settled; a recorded refusing parent is settled again by step/2 at a change, first outcome kept" do
       {c, bindings} =
         lost_setup(
           [request([action("slow", "tool_call")]), request([action("excess")])],
@@ -5763,8 +5765,49 @@ defmodule Elzoo.RunEngineTest do
       end)
 
       assert_receive {:trapped, _}, 5_000
-      wait_unit(c, &(&1.slots[{1, 0}].phase == :refusing and &1.control.stop_pending != nil))
-      assert unit_state(c).slots[{1, 0}].outcome == "expired"
+      wait_unit(c, &(&1.slots[{1, 0}].phase == :settled and &1.control.stop_pending != nil))
+      assert unit_state(c).slots[{1, 0}] == expired
+
+      # The state that the unrepaired engine recorded: the settled parent turned back to
+      # refusing. A change of Attempt settles it again, with its first settlement.
+      state = unit_state(c)
+
+      recorded =
+        update_in(
+          state.slots[{1, 0}],
+          &Map.merge(&1, %{phase: :refusing, refusal: "out_of_budget"})
+        )
+
+      change = %{
+        version: 1,
+        kind: :run_view,
+        view: %{
+          id: state.control.run_id,
+          operation_id: state.control.operation_id,
+          current_attempt: "second",
+          revision: state.control.run_revision + 1,
+          outcome: nil,
+          at_ms: Agent.get(c.clock, & &1)
+        }
+      }
+
+      {:Transition, closed, :none} = RunEngine.step(recorded, change)
+      assert closed.slots[{1, 0}].phase == :settled
+
+      assert Map.take(closed.slots[{1, 0}], [:outcome, :actual, :reservation]) ==
+               Map.take(expired, [:outcome, :actual, :reservation])
+
+      # The Budgets are read as budget_status/3 reads them, from the closed state.
+      closed_budgets =
+        for {id, budget} <- closed.control.budgets, into: %{} do
+          {:Transition, _, {:some, {:status, status}}} =
+            Elzoo.Budget.step(budget.state, {2_000, :status})
+
+          {id, Map.take(status, [:committed, :reserved])}
+        end
+
+      assert closed_budgets == before
+
       halt_engine(c, engine)
       :sys.resume(c.run)
       change_attempt_down(c)
@@ -5781,6 +5824,180 @@ defmodule Elzoo.RunEngineTest do
       engine = restart(c, engine, bindings: bindings)
       assert view(engine).slots[{1, 0}].phase == :settled
       assert budgets(c) == before
+      send(provider, {:result, %{}})
+    end
+  end
+
+  # ELZ-211 helpers. The nested parent expires at 10,000 ms while its child goes on: the
+  # parent is settled `expired` with no actual, and the child has not asked again yet. The
+  # request cap is 2, so the next request of the child is over the shared cap.
+  defp expired_parent_run(script) do
+    {c, bindings} = lost_setup(script, [], request_cap: 2)
+
+    bindings =
+      Map.update!(bindings, "nested_callable", fn binding ->
+        %{binding | facts: fn a -> %{binding.facts.(a) | deadline_ms: 10_000} end}
+      end)
+
+    engine = start(c, bindings: bindings)
+    assert {:ok, :applied} = send_input(engine)
+    assert_receive {:effect_started, provider, _}, 5_000
+    Agent.update(c.clock, fn _ -> 10_000 end)
+    # Not a wake: a wake would close the generation at the cap.
+    assert {:ok, :applied} = RunEngine.input(engine, "expire", start_input(), verified())
+    assert view(engine).slots[{1, 0}].outcome == "expired"
+    expired = unit_state(c).slots[{1, 0}]
+    assert expired[:actual] == nil
+
+    %{
+      c: c,
+      engine: engine,
+      bindings: bindings,
+      provider: provider,
+      expired: expired,
+      before: budgets(c)
+    }
+  end
+
+  # The child of the expired parent ends its tool action as unknown, asks over the cap and
+  # the engine stops the Run.
+  defp over_cap_run do
+    run =
+      expired_parent_run([request([action("slow", "tool_call")]), request([action("excess")])])
+
+    assert {:ok, _} =
+             RunEngine.input(
+               run.engine,
+               "child-result",
+               Map.put(result("slow"), "outcome", "unknown"),
+               verified(%{occurrence: {2, 0}, dispatch: "dispatched"})
+             )
+
+    stopped = wait_for(run.engine, &(&1.phase == :terminal and &1.request_count == 3), 2_000)
+    Map.put(run, :stopped, stopped)
+  end
+
+  describe "settled_parent_stays_settled" do
+    test "an over-cap request of the child leaves the expired parent as it was, with no outcome record" do
+      %{c: c, engine: engine, provider: provider, expired: expired, before: before} =
+        over_cap_run()
+
+      assert unit_state(c).slots[{1, 0}] == expired
+      assert unit_state(c).slots[{1, 0}].phase == :settled
+      assert outcome_records(c, "nested") == []
+      assert budgets(c) == before
+      assert view(engine).request_count == 3
+      assert view(engine).phase == :terminal
+      send(provider, {:result, %{}})
+    end
+  end
+
+  describe "unit_configures_after_the_stop" do
+    test "the stop ends the Run with no open slot and a new Run with another id configures on the unit" do
+      %{c: c, engine: engine, provider: provider} = over_cap_run()
+      assert view(engine).phase == :terminal
+      assert Enum.all?(unit_state(c).slots, fn {_, slot} -> slot.phase == :settled end)
+      GenServer.stop(engine)
+      {:ok, ended} = Run.status(c.run, "run")
+
+      assert {:ok, revision, _} =
+               Run.command(c.run, %{
+                 kind: :create,
+                 run_id: "period-two",
+                 operation_id: "operation-two",
+                 provider_refs: %{},
+                 expected_revision: ended.revision
+               })
+
+      assert {:ok, _, _} =
+               Run.command(c.run, %{
+                 kind: :begin_attempt,
+                 run_id: "period-two",
+                 attempt_id: "third",
+                 expected_revision: revision
+               })
+
+      next = {TestPattern, :step, %{requests: [request([action("again")])]}}
+      engine = start(c, run_id: "period-two", pattern: next)
+      assert view(engine).run_id == "period-two"
+      assert view(engine).slots == %{}
+      context = verified(%{run_id: "period-two", attempt_id: "third"})
+      assert {:ok, :applied} = RunEngine.input(engine, "period-two-input", start_input(), context)
+      assert wait_for(engine, &settled?(&1, "again"), 1_000).phase == :active
+      send(provider, {:result, %{}})
+    end
+  end
+
+  # running_parent_is_still_refused: no new test. The tests "charge-stopped child
+  # propagates later actual without changing its settled parent outcome" and "nested
+  # denial chain uses shared charge and settles its previously admitted parent" pass
+  # unchanged: a parent that is still running is refused out_of_budget.
+
+  describe "later_actual_reaches_the_settled_parent" do
+    test "a child cost that is still open at the stop reaches the parent once, its outcome kept" do
+      %{c: c, engine: engine, provider: provider, expired: expired} =
+        expired_parent_run([
+          request([action("slow", "tool_call"), action("person", "ask_person")]),
+          request([action("excess")])
+        ])
+
+      answer = %{
+        "type" => "input",
+        "version" => 1,
+        "kind" => "person_answer",
+        "action_id" => "person",
+        "person_id" => "person",
+        "schema_id" => "message",
+        "schema_version" => 1,
+        "payload" => %{}
+      }
+
+      assert {:ok, :applied} =
+               RunEngine.input(
+                 engine,
+                 "person-answer",
+                 answer,
+                 verified(%{occurrence: {2, 1}, verified_person: "person", actual: 0})
+               )
+
+      wait_for(engine, &(&1.request_count == 3), 2_000)
+      assert unit_state(c).slots[{1, 0}] == expired
+      assert unit_state(c).slots[{2, 0}].phase != :settled
+
+      assert {:ok, _} =
+               RunEngine.input(
+                 engine,
+                 "child-actual",
+                 result("slow"),
+                 verified(%{occurrence: {2, 0}, actual: 7, dispatch: "dispatched"})
+               )
+
+      wait_for(engine, &(&1.phase == :terminal), 2_000)
+      assert view(engine).slots[{1, 0}].outcome == "expired"
+      assert unit_state(c).slots[{1, 0}].outcome == "expired"
+      assert unit_state(c).slots[{1, 0}][:actual] == 7
+
+      assert [_] =
+               Enum.filter(
+                 journal(c),
+                 &match?({:nested_actual, {1, 0}, _, _, _}, &1)
+               )
+
+      assert outcome_records(c, "nested") == []
+      assert budget_status(c, "root") == %{committed: 7, reserved: 0}
+      send(provider, {:result, %{}})
+    end
+  end
+
+  describe "replay_is_equal (settled parent over the cap)" do
+    test "a restart after the stop gives an equal view, slots, Budgets and record count, twice" do
+      %{engine: engine, c: c, bindings: bindings, provider: provider} = over_cap_run()
+      first = footprint(c, engine)
+      engine = restart(c, engine, bindings: bindings)
+      assert footprint(c, engine) == first
+      engine = restart(c, engine, bindings: bindings)
+      assert footprint(c, engine) == first
+      refute_receive {:effect_started, _, _}, 300
       send(provider, {:result, %{}})
     end
   end
