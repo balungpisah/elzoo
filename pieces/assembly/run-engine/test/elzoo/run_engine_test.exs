@@ -4701,7 +4701,9 @@ defmodule Elzoo.RunEngineTest do
       engine = start(c, bindings: bindings)
       assert {:ok, :applied} = bounded(fn -> send_input(engine) end)
       view = bounded(fn -> wait_for(engine, &(&1.outcome == :completed)) end, 5_000)
-      assert slot_by(view, "nested").phase == :running
+      assert slot_by(view, "nested").phase == :settled
+      assert slot_by(view, "nested").outcome == "unknown"
+      assert unit_state(c).slots[key_of(view, "nested")].actual == 0
       assert outcome_records(c, "nested") == []
 
       assert {:ok, :applied} =
@@ -4864,7 +4866,7 @@ defmodule Elzoo.RunEngineTest do
   end
 
   describe "start_returns_with_an_expired_retained_parent" do
-    test "a restart after the deadline of a retained parent returns; the parent stays running and the lost tool call is unknown" do
+    test "a restart after the deadline of a retained parent returns; the parent is closed as unknown and the lost tool call is unknown" do
       {c, bindings, engine, before} = retained_run(%{"nested" => 10_000})
       parent = key_of(before, "nested")
       tool = key_of(before, "tool-nested")
@@ -4873,17 +4875,20 @@ defmodule Elzoo.RunEngineTest do
       engine = bounded_restart(c, engine, bindings: bindings)
       view = view(engine)
       assert view.outcome == :out_of_budget
-      assert slot_by(view, "nested").phase == :running
+      assert slot_by(view, "nested").phase == :settled
+      assert slot_by(view, "nested").outcome == "unknown"
       assert slot_by(view, "tool-nested").phase == :settled
       assert slot_by(view, "tool-nested").outcome == "unknown"
       assert unit_state(c).slots[tool][:actual] == nil
-      assert unit_state(c).slots[parent].phase == :running
+      assert unit_state(c).slots[parent].phase == :settled
+      assert unit_state(c).slots[parent].outcome == "unknown"
+      assert unit_state(c).slots[parent][:actual] == nil
       assert outcome_records(c, "nested") == []
     end
   end
 
   describe "input_returns_with_an_expired_retained_parent" do
-    test "the real result of a child tool call after the deadline of its parent returns applied; the parent stays running" do
+    test "the real result of a child tool call after the deadline of its parent returns applied; the parent is closed as unknown with the child amount" do
       {c, _bindings, engine, before} = retained_run(%{"nested" => 10_000})
       parent = key_of(before, "nested")
       tool = key_of(before, "tool-nested")
@@ -4894,9 +4899,11 @@ defmodule Elzoo.RunEngineTest do
       assert slot_by(view, "tool-nested").phase == :settled
       assert unit_state(c).slots[tool].actual == 5
       assert budget_status(c, "1:0", 15_000) == %{committed: 5, reserved: 0}
-      assert slot_by(view, "nested").phase == :running
-      assert unit_state(c).slots[parent].phase == :running
-      assert unit_state(c).slots[parent][:actual] == nil
+      assert slot_by(view, "nested").phase == :settled
+      assert slot_by(view, "nested").outcome == "unknown"
+      assert unit_state(c).slots[parent].phase == :settled
+      assert unit_state(c).slots[parent].outcome == "unknown"
+      assert unit_state(c).slots[parent][:actual] == 5
       assert outcome_records(c, "nested") == []
     end
   end
@@ -4907,7 +4914,8 @@ defmodule Elzoo.RunEngineTest do
       parent = key_of(before, "nested")
       Agent.update(c.clock, fn _ -> 15_000 end)
       engine = bounded_restart(c, engine, bindings: bindings)
-      assert slot_by(view(engine), "nested").phase == :running
+      assert slot_by(view(engine), "nested").phase == :settled
+      assert slot_by(view(engine), "nested").outcome == "unknown"
       view = view(engine)
       records = records_of(c, "nested", parent)
       assert {[], [_ | _]} = records
@@ -4919,7 +4927,7 @@ defmodule Elzoo.RunEngineTest do
       engine = bounded_restart(c, engine, bindings: bindings)
       assert stable(view(engine)) == stable(view)
       assert records_of(c, "nested", parent) == records
-      assert slot_by(view(engine), "nested").phase == :running
+      assert slot_by(view(engine), "nested").phase == :settled
     end
 
     test "after the result: one more input and one more restart leave the records of the parent and the view as they were" do
@@ -4930,7 +4938,9 @@ defmodule Elzoo.RunEngineTest do
       view = view(engine)
       records = records_of(c, "nested", parent)
       assert {[], [_ | _]} = records
-      assert slot_by(view, "nested").phase == :running
+      assert slot_by(view, "nested").phase == :settled
+      assert slot_by(view, "nested").outcome == "unknown"
+      assert unit_state(c).slots[parent][:actual] == 5
 
       wake_once(engine)
       assert stable(view(engine)) == stable(view)
@@ -4939,7 +4949,7 @@ defmodule Elzoo.RunEngineTest do
       engine = bounded_restart(c, engine, bindings: bindings)
       assert stable(view(engine)) == stable(view)
       assert records_of(c, "nested", parent) == records
-      assert slot_by(view(engine), "nested").phase == :running
+      assert slot_by(view(engine), "nested").phase == :settled
     end
   end
 
@@ -4960,7 +4970,7 @@ defmodule Elzoo.RunEngineTest do
   end
 
   describe "other_work_goes_on" do
-    test "a retained parent past its deadline does not hold back a later parent: the second settles, the first stays running" do
+    test "a retained parent past its deadline does not hold back a later parent: the second settles, the first is closed as unknown" do
       {c, _bindings, engine, before} = retained_run(%{"nested1" => 10_000, "nested2" => 40_000})
       first = key_of(before, "nested1")
       second = key_of(before, "nested2")
@@ -4974,8 +4984,9 @@ defmodule Elzoo.RunEngineTest do
       assert slot_by(view, "nested2").outcome == "completed"
       assert unit_state(c).slots[second].actual == 4
       assert [_] = outcome_records(c, "nested2")
-      assert slot_by(view, "nested1").phase == :running
-      assert unit_state(c).slots[first][:actual] == nil
+      assert slot_by(view, "nested1").phase == :settled
+      assert slot_by(view, "nested1").outcome == "unknown"
+      assert unit_state(c).slots[first][:actual] == 3
       assert outcome_records(c, "nested1") == []
     end
   end
