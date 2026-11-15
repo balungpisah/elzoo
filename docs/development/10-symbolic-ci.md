@@ -259,7 +259,9 @@ and test partitioning remain separate work.
 
 Run `python3 scripts/merge-queue.py <PR>...` from a checkout of this repository
 with `origin` pointing at `balungpisah/elzoo`. It uses the coordinator's own
-`gh` authentication, not CI credentials. Obtain independent review first.
+`gh` authentication, not CI credentials. That `gh` must list `--allow-escape-sequences` and `--slurp` in
+`gh api --help`, because the queue calls `gh api` with both; checked with 2.103.3 and 2.104.0 (ELZ-224). Obtain
+independent review first.
 No workflow, job, runner, label or token is added; CI keeps `contents: read`.
 The queue only handles same-repository, open, non-draft, mergeable PRs targeting
 `main` with an exact `task/ELZ-###` branch. Unknown mergeability is polled for
@@ -530,7 +532,10 @@ gets the short check, not the small gate.
 `BASE` (commits, working tree and untracked files) and refuses with a non-zero exit, before any stage, when a path is
 outside the class, when the list is empty, when the working tree has a symlink or a directory at a changed path, or
 when `BASE` is not a commit. It never falls back to a narrower or a wider run. It runs `format`, `compile`,
-`ledger` and the registry load with the consumer-inventory validation, as the full check does. Then one `mix test`
+`ledger` and the registry load with the consumer-inventory validation, as the full check does. Then it runs the
+classifier guard `python3 scripts/test-ci-change-class.py` as the stage `classifier_guard` (ELZ-224), which prints its
+output and fails the gate before the test stage when the guard exits non-zero or `python3` is missing; the full check,
+`--affected` and `--part` do not run it, because the plan job runs the same guard for every pull request. Then one `mix test`
 run with these paths: the `test` directory of each changed Piece; the `test` directory of each ready Piece that
 depends on a changed ready ID (transitive, as in affected mode); the root tests of
 `Elzoo.CheckSelection.piece_root_tests/0`, which read the index and generated files or each Piece directory

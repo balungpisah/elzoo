@@ -64,6 +64,7 @@ S3_BINARY = "/opt/elzoo-minio"
 PG_READY_SECONDS = 180
 PG_CONNECT_SECONDS = 30
 LOCK_ATTEMPTS = 3
+LOCK_DIR = "locks"                  # below cache_dir(): one lock file for each worktree identity
 PG_MESSAGE_LIMIT = 1 << 20          # bytes of one message from the server
 SCRAM_ITERATION_LIMIT = 100_000     # PostgreSQL uses 4096
 SECRETS_DIR = "/run/elzoo-secrets"
@@ -504,6 +505,8 @@ class Services:
         self.sleep, self.clock = sleep, clock
         self.state = self.root / STATE_DIR
         self.env_path = self.state / ENV_FILE
+        # One lock file for each worktree identity, outside the state directory, so that `down` never removes it.
+        self.lock_path = cache_dir(self.env) / LOCK_DIR / f"{self.ident}.lock"
         self.wait_s3 = wait_s3 or (lambda base: ci_minio.wait_health(base, sleep, clock))
         self.check_s3 = check_s3 or ci_minio.check_bucket
         self.obtain = obtain or (lambda arch: obtain_minio(arch, cache_dir(self.env), sleep=sleep, clock=clock))
@@ -557,27 +560,34 @@ class Services:
         return found
 
     def _still_same(self, before, handle):
-        """True when the state directory and its lock file are still the ones that were locked."""
+        """True when the state directory (or its absence) and the lock file are still what they were when the
+        lock was asked for."""
         try:
-            now, lock_now = os.lstat(self.state), os.lstat(self.state / "lock")
+            now = os.lstat(self.state)
+        except FileNotFoundError:
+            now = None
+        if before is None or now is None:
+            same_directory = before is None and now is None
+        else:
+            same_directory = (now.st_dev, now.st_ino) == (before.st_dev, before.st_ino) and stat.S_ISDIR(now.st_mode)
+        try:
+            lock_now = os.lstat(self.lock_path)
         except FileNotFoundError:
             return False
         held = os.fstat(handle.fileno())
-        return ((now.st_dev, now.st_ino) == (before.st_dev, before.st_ino) and stat.S_ISDIR(now.st_mode)
-                and (lock_now.st_dev, lock_now.st_ino) == (held.st_dev, held.st_ino))
+        return same_directory and (lock_now.st_dev, lock_now.st_ino) == (held.st_dev, held.st_ino)
 
     @contextlib.contextmanager
     def _locked(self, create):
-        """Hold the lock of the state directory. A `down` in parallel can remove the directory while this waits;
-        then the lock is taken again on the new directory. Yields False when there is no directory (down only)."""
+        """Hold the lock of this worktree identity. The lock file is outside the state directory and `down` never
+        removes it, so `up` and `down` of one worktree never overlap, also when the state directory is absent. A
+        `down` that ran while this waited can still have removed or created the state directory; then the lock is
+        taken again. Yields False when there is no state directory (down only)."""
         for _attempt in range(LOCK_ATTEMPTS):
             before = self._state_stat(create)
-            if before is None:
-                yield False
-                return
-            with lock(self.state / "lock") as handle:
+            with lock(self.lock_path) as handle:
                 if self._still_same(before, handle):
-                    yield True
+                    yield before is not None
                     return
         raise Stop(f"{STATE_DIR} was removed or replaced while this command waited for its lock "
                    "(a parallel down?); run the command again")
@@ -773,6 +783,7 @@ class Services:
 
 @contextlib.contextmanager
 def lock(path):
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
     with os.fdopen(fd, "a") as handle:
         fcntl.flock(handle, fcntl.LOCK_EX)

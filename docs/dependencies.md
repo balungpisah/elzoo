@@ -49,11 +49,51 @@ in the package's `LICENSE` as distributed by Hex) for `runtime/os-isolation`:
 its port program spawns the command, creates its process group, enforces the
 deadline and the SIGTERM→SIGKILL escalation, and stops the group when the
 linked owner or the VM exits; Elzoo owns admission, deadline conversion, the
-observation and the result schema. OpenTelemetry remains a
-candidate. Telemetry is transitive, with no
-adopted business-event contract. Cure's transitive dependency graph remains
-in `mix.lock`; “not adopted” means Elzoo does not rely on that package's API
-or behavior as a contract.
+observation and the result schema. OpenTelemetry is not a dependency; it
+remains a candidate. Telemetry 1.4.2 is a direct, pinned dependency, the
+provider of `runtime/telemetry`; Prometheus 6.1.3 is the provider of
+`integration/observability`. See the table. Cure's transitive dependency graph
+remains in `mix.lock`; “not adopted” means Elzoo does not rely on that
+package's API or behavior as a contract.
+
+## Direct dependencies of `mix.exs`
+
+One row for each entry of the `deps` list of `mix.exs`, in its order.
+"Requirement in `mix.exs`" is the text that `mix.exs` writes; a Git source gives
+its full ref (for `cure` the value of `@cure_revision`). License is the one of
+`registry/providers.json`. "Used by" lists the Pieces whose `piece.json` names
+the dependency in `providers`, and a root test only where a comment in `mix.exs`
+names it. "Use" is a short phrase taken from the `mix.exs` comment or the
+`piece.json` of the Piece. A transitive dependency has no row.
+
+| Dependency | Requirement in `mix.exs` | License | Used by | Use |
+| --- | --- | --- | --- | --- |
+| `cure` | `git`, ref `208248063d64e621782cd26dd30698ee42850a89` | MIT | `assembly/http-job`, `assembly/ingest-dedup-accumulate`, `assembly/ingest-json-unit`, `assembly/request-route-retry`, `core/assembly`, `core/edge`, `core/effect`, `core/envelope`, `core/operator`, `core/port`, `core/selection`, `core/wiring`, `delivery/aggregation`, `delivery/backpressure`, `delivery/circuit-breaker`, `delivery/dead-letter`, `delivery/effect-intent`, `delivery/idempotency`, `delivery/request-reply`, `delivery/retry-timeout`, `delivery/routing`, `delivery/trigger`, `delivery/windowed-idempotency`, `domain/authorization`, `domain/money`, `integration/ai-batch`, `integration/ai-embedding`, `integration/ai-text`, `integration/cure-json`, `integration/mcp-client`, `integration/notification`, `state/artifact`, `state/event-log`, `state/lease`, `state/recipe-store`, `workflow/agent-loop`, `workflow/approval`, `workflow/bot-run-lifecycle`, `workflow/budget`, `workflow/context-selection`, `workflow/dependency-graph`, `workflow/graph-run`, `workflow/mid-run-input`, `workflow/node-outcome`, `workflow/output-repair`, `workflow/pattern-step`, `workflow/state-machine`, `workflow/tool-registry`, `workflow/tool-result-limit`, `workflow/untrusted-content`, `workflow/version-pin`, `workflow/wait-for-person` | Cure compiler and runtime, pinned to one release commit of a maintained fork (see [forks/cure.md](dependencies/forks/cure.md)) |
+| `lua_source` | `git`, ref `312b9efaa1061c2c4cad08554dbc1351c3270eef` | MIT | `runtime/lua-sandbox`, `runtime/recipe-test` | Outside-VM Lua provider, source only (`compile: false`, `app: false`) |
+| `jason` | `~> 1.4` (locked 1.4.5 in `mix.lock`) | Apache-2.0 | `assembly/durable-job`, `assembly/http-job`, `assembly/ingest-json-unit`, `assembly/run-engine`, `core/payload-schema`, `delivery/data-stream`, `delivery/provider-stream`, `domain/recipe-config`, `domain/recipe-graph`, `domain/recipe-package`, `integration/ai-batch-anthropic`, `integration/ai-batch`, `integration/ai-embedding-openai`, `integration/ai-embedding`, `integration/ai-text-anthropic`, `integration/ai-text-openai`, `integration/ai-text`, `integration/ai-token-count`, `integration/json`, `integration/mcp-client`, `integration/notification`, `runtime/lua-binding`, `runtime/lua-sandbox`, `runtime/recipe-test`, `state/artifact`, `state/audit-log`, `state/lease`, `state/recipe-store`, `state/scheduler`, `workflow/output-repair`, `workflow/prompt-assembly`, `workflow/run-resource`, `workflow/runtime-graph`, `workflow/tool-registry`, `workflow/tool-result-limit`, `workflow/untrusted-content` | External JSON implementation at the adapter edge |
+| `req` | `== 0.7.5` | Apache-2.0 | `assembly/http-job`, `delivery/data-stream`, `delivery/provider-stream`, `integration/ai-batch-anthropic`, `integration/ai-embedding-openai`, `integration/ai-text-anthropic`, `integration/ai-text-openai`, `integration/http`, `integration/object-store`, `state/artifact`, `state/recipe-store` | HTTP client requests (`integration/http`: Req is used directly) |
+| `req_s3` | `== 0.2.5` | Apache-2.0 | `integration/object-store`, `state/artifact`, `state/recipe-store` | S3 URL handling and SigV4 presign on the pinned Req |
+| `ecto_sql` | `== 3.14.0` | Apache-2.0 | `assembly/durable-job`, `integration/jobs`, `integration/search-data`, `integration/sql`, `state/artifact`, `state/audit-log`, `state/lease`, `state/recipe-store`, `state/scheduler` | PostgreSQL Store translation (`integration/sql`) |
+| `postgrex` | `== 0.22.4` | Apache-2.0 | `assembly/durable-job`, `integration/jobs`, `integration/search-data`, `integration/sql`, `state/artifact`, `state/audit-log`, `state/lease`, `state/recipe-store`, `state/scheduler` | PostgreSQL Store translation (`integration/sql`) |
+| `oban` | `== 2.24.2` | Apache-2.0 | `assembly/durable-job`, `assembly/http-job`, `integration/jobs`, `state/scheduler` | Jobs (`integration/jobs`); also used by the `test/elz010_*` probes |
+| `decimal` | `== 3.2.0` | Apache-2.0 | `domain/money` | Exact currency amounts (`domain/money`) |
+| `erlexec` | `== 2.6.0` | BSD-2-Clause | `runtime/os-isolation` | OS-process spawn, group, deadline and reaping through its port program; `runtime: false` |
+| `swoosh` | `== 1.29.3` | MIT | `integration/notification` | Email through its SMTP adapter; `runtime: false` |
+| `gen_smtp` | `== 1.3.0` | BSD-2-Clause | `integration/notification` | SMTP transport that Swoosh's SMTP adapter requires |
+| `telemetry` | `== 1.4.2` | Apache-2.0 | `assembly/durable-job`, `assembly/http-job`, `core/payload-schema`, `delivery/circuit-breaker`, `domain/recipe-config`, `domain/recipe-graph`, `domain/recipe-package`, `integration/observability`, `integration/search-data`, `runtime/telemetry`, `state/artifact`, `state/recipe-store`, `state/scheduler` | Direct and pinned; the provider of `runtime/telemetry` |
+| `prometheus` | `== 6.1.3` | MIT | `integration/observability` | Public Prometheus counters and formatter; the provider of `integration/observability` |
+| `carbonite` | `== 0.17.0` | Apache-2.0 | `state/audit-log` | Trigger-based change capture for the audit log |
+| `req_llm` | `~> 1.30` (locked 1.30.0 in `mix.lock`) | Apache-2.0 | `integration/ai-batch-anthropic`, `integration/ai-embedding-openai`, `integration/ai-text-anthropic`, `integration/ai-text-openai` | Used through its documented provider-callback API |
+| `plug` | `== 1.20.3` | Apache-2.0 | `integration/ai-batch-anthropic`, `integration/ai-embedding-openai`, `integration/ai-text-anthropic`, `integration/ai-text-openai`, `integration/ai-token-count`, `integration/mcp-client` | `Req.Test` stubs for the provider tests of the Anthropic Pieces; the `ex_mcp` closure needs it at runtime |
+| `text_chunker` | `== 1.0.1` | MIT | `integration/text-chunking` | Recursive splitter and its byte ranges |
+| `ex_mcp` | `== 1.8.1` | MIT | `integration/mcp-client`, `integration/mcp-multi` | MCP protocol, era negotiation and Streamable HTTP client transport |
+| `pgvector` | `== 0.4.2` | MIT | `integration/search-data` | Vector encoding and consumer Postgrex/Ecto types |
+| `fuse` | `== 2.5.0` | MIT | `delivery/circuit-breaker` | Trip and reset only; the provider of `delivery/circuit-breaker` |
+| `server_sent_events` | `== 1.1.0` | MIT | `delivery/data-stream`, `delivery/provider-stream`, `integration/ai-batch-anthropic`, `integration/ai-embedding-openai`, `integration/ai-text-anthropic`, `integration/ai-text-openai` | Server-sent-events parser, declared directly; no transport or streaming policy |
+| `crontab` | `== 1.2.1` | MIT | `state/scheduler` | Public five-field cron evaluator |
+| `tz` | `== 0.28.4` | Apache-2.0 | `state/scheduler` | IANA timezone database Need for non-UTC schedules |
+| `yaml_elixir` | `== 2.12.2` | MIT | `workflow/skill` | YAML call surface of the skill frontmatter reader |
+| `yamerl` | `== 0.10.0` | BSD-2-Clause | `workflow/skill` | YAML parser behind `yaml_elixir`; its version decides what a document means |
 
 ## Source distribution and authoritative pins
 
@@ -204,6 +244,13 @@ with `erl_eval`.
 documents. It is not a claim that the reader is safe for hostile input of any
 size, and it adopts no YAML writer. Telemetry, Config and Control do not
 apply: there is no Piece and no running Elzoo service.
+
+Test only (ELZ-182, group `scan_agrees_with_the_reader`):
+`yamerl_parser:string/2` with the option `{token_fun, Fun}` (exported and on
+hexdocs of yamerl 0.10.0; the option is defined in the internal header
+`include/internal/yamerl_parser.hrl` and not expanded by the docs) gives the
+parser tokens as the oracle of the frontmatter scan. No product file calls it,
+and a pin change must run the positive control of the oracle again.
 
 ## OTP API reuse candidates
 
