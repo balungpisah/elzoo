@@ -9,7 +9,7 @@ folder = %{
   "references/rules.txt" => "Amounts match to the cent.\n"
 }
 
-{:ok, %{entry: entry, files: files}} = Skill.read("invoice-check", "1", [], folder)
+{:ok, %{entry: entry, files: files}} = Skill.read("invoice-check", "1", ["compare-lines"], folder)
 
 typed = fn direction ->
   %{
@@ -84,10 +84,26 @@ identity =
 # The host pins the package and keeps the files of the same version by skill name.
 by_skill = %{"invoice-check" => files}
 
-{:ok, %{"id" => "skills", "kind" => "pinned_skill", "tools" => [_load, _read]}} =
-  Skill.source("skills", checked)
+# The package says which tool the skill brings; the host says what the tool is.
+descriptors = [
+  %{
+    "name" => "compare-lines",
+    "description" => "Compare one invoice line with its order line.",
+    "annotations" => nil,
+    "trust" => "untrusted",
+    "input_schema" => %{"type" => "object", "properties" => %{}, "additionalProperties" => false}
+  }
+]
 
-# A load gives the body as an instruction, and lists no tool.
+# One pinned_skill source, and one empty source of kind other for the skill with a tool.
+{:ok,
+ [
+   %{"id" => "skills", "kind" => "pinned_skill", "tools" => [_load, _read]},
+   %{"id" => "skills-1", "kind" => "other", "callable" => "adapter", "tools" => []}
+ ]} = Skill.sources("skills", checked, descriptors)
+
+# A load gives the body as an instruction, and lists the descriptor of the tool for
+# the source of the skill.
 {:ok,
  %{
    "declaration" => %{
@@ -95,9 +111,9 @@ by_skill = %{"invoice-check" => files}
        "name" => "invoice-check",
        "instructions" => "Compare each line of the invoice with the order.\n"
      },
-     "listing" => nil
+     "listing" => %{"source" => "skills-1", "tools" => ^descriptors}
    }
- }} = Skill.load(checked, %{"name" => "invoice-check"})
+ }} = Skill.load("skills", checked, descriptors, %{"name" => "invoice-check"})
 
 # A file read gives marked content; the bytes are the file, unchanged.
 {:ok,

@@ -95,8 +95,9 @@ defmodule Elzoo.AgentLoop do
     do: {:Transition, closed(state), :none}
 
   defp transition(%{phase: :new} = state, %{"kind" => "start"} = input, _, estimate) do
-    case message(input) do
-      {:ok, text} -> state |> arrive(text) |> flush() |> model_call(estimate)
+    case start_form(input) do
+      {:ok, text, nil} -> state |> arrive(text) |> flush() |> model_call(estimate)
+      {:ok, text, skill} -> state |> arrive(text) |> flush() |> start_load(skill, estimate)
       :error -> unchanged(state)
     end
   end
@@ -127,7 +128,12 @@ defmodule Elzoo.AgentLoop do
   defp applied(%{phase: :tools} = state, input, estimate) do
     index = state.open.actions[input["action_id"]]
     state = put_result(state, index, reduce(state, index, input))
-    if settled?(state), do: stores(state, estimate), else: {:Transition, state, :none}
+
+    cond do
+      state.open.turn.n == 0 -> close_load(state, estimate)
+      settled?(state) -> stores(state, estimate)
+      true -> {:Transition, state, :none}
+    end
   end
 
   defp applied(%{phase: :stores} = state, input, estimate) do
@@ -143,6 +149,61 @@ defmodule Elzoo.AgentLoop do
 
     state = put_result(state, index, result)
     if settled?(state), do: close_turn(state, estimate), else: {:Transition, state, :none}
+  end
+
+  ## The start load
+
+  # The start names one skill: its load is one tool action before model call 1.
+  defp start_load(state, %{"tool" => tool_alias, "name" => name}, estimate) do
+    args = %{"name" => name}
+
+    case ToolRegistry.resolve(state.snapshot, tool_alias) do
+      {:resolved, %{source_kind: "pinned_skill"} = tool} ->
+        if ToolRegistry.check(tool, args) == :ok,
+          do: open_load(state, tool, args),
+          else: not_loaded(state, "validator_disagreement", estimate)
+
+      {:resolved, _} ->
+        not_loaded(state, "not_permitted", estimate)
+
+      _ ->
+        not_loaded(state, "not_resolved", estimate)
+    end
+  end
+
+  defp open_load(state, tool, args) do
+    base = %{index: 1, echo: nil, action: nil, source_kind: nil, result: nil}
+    slot = tool_action(base, "#{state.spec.id}:t:0:1", tool, args)
+    turn = %{n: 0, content: "", slots: [slot]}
+    state = %{state | phase: :tools, open: %{turn: turn, tracker: nil, actions: %{}}}
+    open_request(state, :tools, [slot.action], %{slot.action["id"] => 1})
+  end
+
+  defp not_loaded(state, reason, estimate) do
+    state
+    |> load_note(mark("agent-loop", "[skill not loaded: #{reason}]"))
+    |> flush()
+    |> model_call(estimate)
+  end
+
+  defp close_load(state, estimate) do
+    {:result, marked, nil} = slot(state, 1).result
+
+    %{state | open: nil}
+    |> load_note(marked)
+    |> flush()
+    |> model_call(estimate)
+  end
+
+  defp load_note(state, marked) do
+    note = %{
+      kind: :content,
+      id: "#{state.spec.id}:n:0",
+      content: marked,
+      ref_media_type: nil
+    }
+
+    %{state | history: state.history ++ [note]}
   end
 
   ## One model result
@@ -361,6 +422,9 @@ defmodule Elzoo.AgentLoop do
 
       declaration?(input["payload"]) ->
         {:declaration, input["payload"]["declaration"]}
+
+      state.open.turn.n == 0 ->
+        notice("[skill not loaded: not_a_declaration]")
 
       true ->
         limit(state, input["payload"], action_id)
@@ -675,6 +739,27 @@ defmodule Elzoo.AgentLoop do
   end
 
   defp message(_), do: :error
+
+  # A start: a message, or a message with one skill, exactly {"tool": alias, "name": name}.
+  defp start_form(%{
+         "schema_id" => @message_key,
+         "schema_version" => 1,
+         "payload" =>
+           %{"text" => text, "skill" => %{"tool" => tool_alias, "name" => name} = skill} = p
+       })
+       when map_size(p) == 2 and map_size(skill) == 2 and not is_struct(p) and
+              not is_struct(skill) do
+    if text?(text) and text != "" and text?(tool_alias) and text?(name),
+      do: {:ok, text, %{"tool" => tool_alias, "name" => name}},
+      else: :error
+  end
+
+  defp start_form(input) do
+    case message(input) do
+      {:ok, text} -> {:ok, text, nil}
+      :error -> :error
+    end
+  end
 
   defp arrive(state, text) do
     k = state.users + 1

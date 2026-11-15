@@ -40,7 +40,8 @@ All keys are strings; each schema version is 1.
 | --- | --- | --- | --- |
 | model call | `model_call` | `elzoo/ai-text-request` | the `request` of `build/2` |
 | model result (completed) | | `elzoo.ai-text.result` | JSON view of ai-text; only `content`, `finish` and `tool_proposals` (each with `id`, `name`, `arguments`, `malformed`) are read |
-| start, message | | `elzoo.agent-loop.message` | exactly `{"text": text}`, not empty |
+| message, start | | `elzoo.agent-loop.message` | exactly `{"text": text}`, not empty |
+| start that names a skill | | `elzoo.agent-loop.message` | exactly `{"text": text, "skill": {"tool": alias, "name": name}}`: `text` not empty, `skill` exactly these two members, all three texts; a `message` with a `skill` member is refused |
 | tool action | `tool_call` (callable `{:adapter, _, _}`) or `nested_callable` (`{:nested, _, _}`) | `elzoo.agent-loop.tool-call` | exactly `alias`, `source`, `tool`, `version`, `arguments` |
 | ask action | `ask_person` | `elzoo.agent-loop.ask` | exactly `{"person_id": 1..256 bytes, "question": not empty}` from the validated arguments |
 | answer | (`person_answer`) | `elzoo.agent-loop.answer` | exactly `{"text": text}` |
@@ -65,19 +66,23 @@ is not copied), or `stopped` with `action_id` `null` and the reason `turn_limit`
 
 Identities derive from `id`: model call `N` (from 1) is `id:m:N`; call `I` of turn
 `N` (the position of the proposal, from 1, also for a proposal that makes no action)
-is `id:t:N:I`, its store action `id:s:N:I`; the finish is `id:finish`. History
+is `id:t:N:I`, its store action `id:s:N:I`; the start load (see "Start load") is the
+action `id:t:0:1`; the finish is `id:finish`. History
 entries (ELZ-140) use the same: the `:assistant` entry of turn `N` is `id:m:N`, the
 `:tool_result` entry of proposal `I` is `id:t:N:I`, the note of turn `N` is
-`id:n:N`, and `:user` entry `K` (in order of arrival over the Run, the start is 1)
-is `id:u:K`. An entry that changes its kind keeps its `id`.
+`id:n:N`, the note of the start load is `id:n:0`, and `:user` entry `K` (in order of
+arrival over the Run, the start is 1) is `id:u:K`. An entry that changes its kind keeps
+its `id`.
 
 ## Step table
 
 | Phase | Input | Result |
 | --- | --- | --- |
 | new | `start` | one `:user` entry; model call 1 |
+| new | `start` that names a skill | one `:user` entry; "Start load": one tool action `id:t:0:1`, or a notice and model call 1 |
 | model | outcome of the open model call | "One model result" |
 | tools | outcome of an open tool or ask action; `person_answer` of an open ask | "One turn", step 3 |
+| tools | outcome of the open start load `id:t:0:1` | "Start load" |
 | stores | outcome of an open store action | "One turn", step 4 |
 | model, tools, stores | `message` | the text waits; no request |
 | new, model, tools, stores | `cancel`, `run_ended` | closed; no request |
@@ -157,6 +162,35 @@ with no mark and no cut, and the snapshot is replaced. A refusal changes nothing
 The result of the call is `[declaration accepted]` or `[declaration refused:
 REASON]`. A declaration never goes to `ToolResultLimit`.
 
+## Start load
+
+A start that names a skill makes its `:user` entry `id:u:1`, then reads the alias
+in the snapshot of the state, in this order: `ToolRegistry.resolve(snapshot,
+alias)`; the source kind of the tool must be `pinned_skill`; `check(tool,
+{"name": name})` must be `:ok`. Then the request is one action, the tool action of
+that tool with the arguments `{"name": name}` and the id `id:t:0:1`; no model call
+yet. No other kind can make it. With no action, the notice is one of `[skill not
+loaded: not_resolved]` (any resolution but a resolved tool), `[skill not loaded:
+not_permitted]` (a resolved tool of another kind; this is read before the check, so
+it does not depend on the schema of that tool) or `[skill not loaded:
+validator_disagreement]` (a `pinned_skill` tool whose check is not `:ok`), and the
+loop goes straight to model call 1.
+
+The applied outcome of `id:t:0:1` is reduced as in "One turn", step 3: a declaration
+goes to "Declarations" unchanged and gives `[declaration accepted]` or
+`[declaration refused: REASON]`; an outcome that is not `completed` gives its
+notice; another key gives `[tool result not readable]`; any other completed result
+gives `[skill not loaded: not_a_declaration]` and goes to no `ToolResultLimit` and
+makes no store action. A skill is loaded only by that declaration rule, so the
+trust rule is the same as for a turn: the source kind of the tool and nothing else.
+
+The history of the start load is the `:user` entry `id:u:1`, one `:content` entry
+`id:n:0` that holds the notice, then each message that waited, then model call 1.
+No `:assistant` entry and no `:tool_result` entry is written, and `turns` counts
+model calls only, so the load is not a turn. A `message` that arrives during the
+load waits as in any open phase; `cancel` and `run_ended` close the loop as in any
+phase.
+
 ## Bounds
 
 Two fixed numbers, not Config. State: 65,536 bytes of
@@ -176,6 +210,7 @@ open action ids to the turn number or proposal position) and, in a turn, `turn: 
 content:, slots:}`, one slot per proposal: `%{index:, left_out: line}`, or `%{index:,
 echo:, action:, source_kind:, result:}` where `result` is `nil`, `{:result,
 marked_map, ref_media_type}`, `{:store, pending, payload}` or `{:stored, pending}`.
+The start load is an open turn with `n: 0` and one slot whose `echo` is `nil`.
 Closed: `%{phase: :closed, id: id, turns: n}`. Values that `new/1` and `step/3` did
 not make are outside the Contract.
 
@@ -191,26 +226,32 @@ not make are outside the Contract.
   classifications only.
 - Type: the pinned Cure compiler checks that source; the source audit finds no
   axioms, holes or unproved-total definitions.
-- Test: `mix test pieces/workflow/agent-loop/test` runs the twenty-one named groups
+- Test: `mix test pieces/workflow/agent-loop/test` runs the twenty-eight named groups
   `final_answer`, `one_turn_one_request`, `unknown_tool`, `malformed_proposals`,
   `listing_changes_snapshot`, `outside_set_listing`, `declarations_by_source_kind`,
   `instruction_bound`, `proposal_without_id`, `engine_refusal_as_content`,
   `result_after_cancel`, `turn_limit`, `done_is_not_evidence`, `ask_and_answer`,
   `declaration_over_state_bound`, `repeated_id`, `over_call_bound`,
   `validator_disagreement`, `not_resolved`, `request_not_built`, `run_ended`,
-  plus `new_refusals` and `laws_and_example` (law check, source audit and the checked
+  `start_loads_skill`, `start_load_refused`, `start_load_not_pinned_skill`,
+  `start_load_not_run`, `start_load_survives_refold`, `model_repeat_after_start_load`,
+  `existing_behaviour`, plus `new_refusals` and `laws_and_example` (law check, source audit and the checked
   example `examples/agent_loop.exs`: a start, one tool turn, the answer). Each
   request passes `PatternStep.decode/1`, each model call payload `Request.decode/2`
   with 65,536 bytes, and each state is plain data within the state bound. The step
   table, history, notices, bounds and calls into the composed Pieces have tests
   only. Negative controls: `permit` that permits `Other` fails the law check; a next
-  model call at the first tool outcome fails `one_turn_one_request`. Finite
+  model call at the first tool outcome fails `one_turn_one_request`; a start load
+  that skips the source-kind check fails `start_load_not_pinned_skill`; a start load
+  that puts the skill into the state without the declaration rule fails
+  `start_load_refused`; a notice of the start load written as a `:tool_result` entry
+  instead of `:content` fails `start_loads_skill`. Finite
   scenarios, not a universal proof.
 - Upstream: the Contracts of `workflow/tool-registry`, `workflow/tool-result-limit`,
   `workflow/prompt-assembly`, `workflow/pattern-step`, `workflow/untrusted-content`
   and `integration/ai-text`; the pure `translate/2` of `integration/ai-text-anthropic`
-  and `integration/ai-text-openai` (used by `engine_refusal_as_content` only, which
-  is why they are dependencies); OTP `term_to_binary`.
+  and `integration/ai-text-openai` (used by `engine_refusal_as_content` and
+  `start_loads_skill` only, which is why they are dependencies); OTP `term_to_binary`.
 
 ## Needs and limits
 
@@ -231,7 +272,8 @@ its direction truthfully; a Run-wide unique `id`; `max_request_bytes`,
 engine.
 
 Limits: no provider is called; each test input is a literal neutral map, and that the
-providers accept the refusal rule is shown on `Request.decode/2` and the pure
+providers accept the refusal rule, and the notice of a start load as a `user`
+message after the start message, is shown on `Request.decode/2` and the pure
 `translate/2` only. The step verifies no person and gives an answer no authority. No
 memory, compaction or member message. A call that did not complete is never tried
 again; no rule for a second Attempt. `answered` is not evidence that the work is
