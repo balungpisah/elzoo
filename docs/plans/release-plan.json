@@ -7440,7 +7440,7 @@
       "disposition": "retained-ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/sql/piece.json",
-      "manifest_sha256": "15d52f118e8f90816d40c7c7d4355b6eb6f02e7b468c6bcde331bcc2efeb2184"
+      "manifest_sha256": "bd997a6801153e8d4f2b65775146373d967a8dce6c611e3b901c05d9c4f48fd4"
     },
     {
       "id": "integration/text-chunking",
@@ -7548,7 +7548,7 @@
       "disposition": "implementation prepared; acceptance requires merged PR",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/state/audit-log/piece.json",
-      "manifest_sha256": "69c125cb1f749fc0c9a1517698699cc8bef360996e59e9a4fc2aa5fb6645b955"
+      "manifest_sha256": "839c402b1eac01713466bf83512dda59b58e63127ec33c6b30949bfe8b0dc179"
     },
     {
       "id": "state/checkpoint",
@@ -7885,7 +7885,7 @@
       "baseline_status": "not in baseline (new row, RC-56)",
       "disposition": "ready-contract",
       "manifest": "pieces/workflow/agent-loop/piece.json",
-      "manifest_sha256": "b6424b7be8739ecbfbbaa85c6105ba82c7f010732235a08fbe568f33f444c92d",
+      "manifest_sha256": "c9d0ce02aa2b0546169f36ea7bb1cf5213e2353708a1f3ca8bca5f7fd06b6cbf",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
@@ -7895,7 +7895,7 @@
       "baseline_status": "not in baseline (new row, RC-57)",
       "disposition": "ready-contract",
       "manifest": "pieces/delivery/provider-stream/piece.json",
-      "manifest_sha256": "4bddebd9d18ad7774de2401e4b43c9d95abc51a51404295a137997d1237c67f7",
+      "manifest_sha256": "3c5c1c90b2168969b5d1a33f1cc73a8771168cda1248081d98c153b946881433",
       "catalogue_reference": "registry/catalogue.json"
     },
     {

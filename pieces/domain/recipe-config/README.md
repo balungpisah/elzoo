@@ -89,8 +89,10 @@ Choices where the issue left the reason open:
   `:unsupported_version`, checked before the other fields.
 - A struct (such as `Elzoo.Secrets.Credential`) or an atom-keyed map in a secret
   setting fails the plain-data check first, so it is `:invalid_settings`.
-- `check/2` with a value not returned by `build/1` is `:validation_failed`,
-  without raising.
+- `check/2` with a value that has not the form of a `build/1` result (for
+  example `nil`, a checked payload schema or a tuple of another size) is
+  `:validation_failed`, without raising. A forged value of that form is outside
+  the Contract and can raise.
 
 ## Needs and limits
 

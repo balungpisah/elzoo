@@ -59,6 +59,11 @@ through `PatternStep.open/1` and `PatternStep.accept/2`.
   summarized entry in order, in the reference form of
   `workflow/context-selection`. `entries` can take the place of the range.
 
+Only `{:late, state}` gives the state back. After each other result of
+`accept/2` the state is spent: the caller does not give it to `accept/2` again.
+The Piece does not refuse a second completed outcome for a spent state; the
+engine settles an action once and sends none.
+
 ## `check(entries, compacted)`
 
 `:ok`, or `{:error, {:keep_items_lost, ids}}` with the IDs of the `:record`
