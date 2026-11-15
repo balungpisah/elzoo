@@ -109,7 +109,7 @@ too. Confirm each fact when you start, and if one differs, stop and ask.
 - `control_headroom/1` of the test support file
   (`test/support/run_engine_test_helper.exs`, about 826) copies the
   formula of `fits?/1`. The group `finish_without_room_is_refused`
-  asserts with it (test file, about 5635 and 5678).
+  asserts with it (test file, about 5889, 5895 and 5908).
 - The base nested binding of the test support file gives the facts of a
   child (about 536 to 546). `nested_setup/2` changes them with the map
   update syntax (about 638 to 662), so a key of the base stays.
@@ -138,7 +138,9 @@ too. Confirm each fact when you start, and if one differs, stop and ask.
 **The stored state.** `invoke/3` stores a new state only when it is
 within the bound of its callable, at the three places (about 863, 885
 and 924). Today the limit there is 65,536 for every callable. A larger
-state gets the existing answer `invalid_pattern_state`, as today.
+state is not stored, and each place keeps the answer that it gives
+today: `invalid_pattern_state` at about 865 and 925, and the answer of
+the over-cap path at about 885.
 
 **The reserve.** `fits?/1` adds one term to its reserve: for each
 callable that is not closed, the bound of the callable minus the bytes

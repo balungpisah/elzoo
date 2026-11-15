@@ -6528,7 +6528,7 @@
       "product_aims": ["P13"],
       "issue": 470,
       "url": "https://github.com/balungpisah/elzoo/issues/470",
-      "issue_body_sha256": "8c91077292dc78c77270636d29894f0a7ea44da93c467c742faa579c1e4d1e3d"
+      "issue_body_sha256": "cb7b7c85d5a17d1504e87d18d07603e8b1a248281fb7af9014278a98ab76e19a"
     },
     {
       "id": "ELZ-218",
@@ -6732,7 +6732,7 @@
       "product_aims": ["P13"],
       "issue": 503,
       "url": "https://github.com/balungpisah/elzoo/issues/503",
-      "issue_body_sha256": "b47dfd05d815afd908894135dd7b3215216a4d3acca171e5a4036c04d09934e6"
+      "issue_body_sha256": "82da000eb02f71dfe36dabbf392b9e4791f082ffbeec68f1c83b4bf010b2f1e1"
     }
   ],
   "entries": [

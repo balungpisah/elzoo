@@ -106,8 +106,12 @@ Four changes. None changes a record, a reply, a view or a bound.
    callable that is not closed is encoded once, apart from the rest
    of the control state: the control state is encoded without those
    states, and its size comes by addition of the size of each such
-   state and of its key. The reserve term of ELZ-232 uses the same
-   sizes. The size of the slot map
+   state and of its key. The reserve term of ELZ-232 keeps its own
+   measure, the bound minus `bytes/1` of the state, as in the oracle:
+   `bytes/1` counts a version byte that is not inside the encoding of
+   the control state, so the two sizes of one state differ by a
+   constant, and the answer must be equal at the exact byte (group
+   4). The state is still encoded once. The size of the slot map
    and of the whole record come by addition of those sizes, the key
    sizes and the fixed frame. The answer is equal to the answer of
    the old function for every state, at the exact byte of each
