@@ -165,8 +165,8 @@ at merge time is invisible to a skipped push run; the next full run of `main` ca
 merge commit is therefore either its own green full run or this logged skip (see `AGENTS.md`).
 
 Trust model: `check-plan` gets `permissions: actions: read`, `contents: read` and, since ELZ-222, `pull-requests: read` at job level (to read the exact-head
-run, its jobs and its log, and the pull request of the run with its timeline); the other four jobs get `contents: read` only, and the top level keeps `contents: read`. The
-decision step and the S3 test server start step of each work job are the only steps that receive `GITHUB_TOKEN`, and the
+run, its jobs and its log, and the pull request of the run with its timeline); every other job gets `contents: read` only, and the top level keeps `contents: read`. The
+decision step of the plan job and the S3 test server start step of each job that starts the S3 test server (the five work jobs and `check-piece`) are the only steps that receive `GITHUB_TOKEN`, and the
 script refuses everything but a push to `main` before any request. The token is never sent to
 the log storage redirect, which is accepted only for `github.com`, `*.github.com`, `*.githubusercontent.com` and
 `productionresultssa<N>.blob.core.windows.net/actions-results/...`. `scripts/check-ci-runners.py` pins the
@@ -174,9 +174,11 @@ the log storage redirect, which is accepted only for `github.com`, `*.github.com
 step with `persist-credentials: false` (the default would leave the job token in `.git/config`, readable by every later
 step, including dependency code, and the token of the plan job carries `actions: read`), the exact decision step and its
 position after `scripts/test-ci-skip.py`, the token on that line and on the S3 start steps only, and the complete list of
-step-level `if:` conditions. The three work jobs run or are skipped as a whole (`if: needs.check-plan.outputs.run ==
-'true'`); inside them only the cache saves of the root job (`steps.minio.outputs.source != 'cache'` and `cache-hit !=
-'true'`) and the resource report (`always()`) carry a condition. In the plan job only the roadmap step and the docs-only
+step-level `if:` conditions. The five work jobs run or are skipped as a whole (`if: needs.check-plan.outputs.run ==
+'true'`); `check-piece` and `check-spike` run on their own plan outputs (`piece` and `spike`). Inside the work jobs and `check-piece`
+only the resource report (`always()`) carries a step condition, and in `check-root` also the cache saves
+(`steps.minio.outputs.source != 'cache'` and `cache-hit != 'true'`). In `check-spike` only the Ash spike step carries one
+(`needs.check-plan.outputs.ash == 'true'`). In the plan job only the roadmap step and the docs-only
 step carry one. A different `if:` on `Run mix check`, or on any other step, fails the guard. Like the other guard rules
 this is a source-convention check, not proof against every YAML form.
 
