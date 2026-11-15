@@ -250,13 +250,32 @@ a skill is an Adapter call, and a nested callable (a Lua tool, a graph) as a
 skill tool is not part of this Piece. `allowed-tools` grants nothing, and a
 listed tool still passes the engine checks at use. A declared identity outside
 the registry name grammar can be described, but its load is refused by the
-registry. Four sentences of RC-67 are met in part: the refusal of a tool that is
-not permitted is at use, in the engine and the registry, and the test shows only a
-recorded `refused` outcome of a listed tool; scripts are read and never executed,
-but storing them is a host Need; a changed version does not change a running Run
-through `workflow/version-pin` and the host's pin, shown here only by pure
-functions over the given package; and the restart case is shown by folding the
-agent loop again over a cut trace, not with the harness of RC-66. A file read is
+registry. Four sentences of RC-67 rest on other Pieces or on the host. The refusal of a
+declared tool that the principal may not use is at use, in the engine. Here a load
+takes no principal: the instructions load and the declared tools are listed
+whatever they are (`agent_loop_accepts`), and a recorded `refused` outcome of a
+declared tool is a notice while the instructions stay (`declared_tool_refused_at_use`).
+The group `declared_tool_denied_by_gate` of `runtime/recipe-test` shows the engine
+refusing the declared tool with a gate that the test gives, which denies it for the
+principal of the engine helper and not for another: the call does not reach the
+scripted Adapter, and the instructions and the tool stay. Which principals a real
+gate refuses is the host's, not shown here. Scripts are read and never executed
+here: `scripts_never_run` gives the bytes of a shell script and of an Elixir script
+unchanged from `read/4` and `read_file/3`, and no sentinel file and no
+`persistent_term` is written. This Piece stores nothing; storing the files is a
+host Need. A changed version does not change a running Run because the host pins the
+package of the Run: that is the rule of `workflow/version-pin` (its law
+`publish_keeps_version` and its group `publish_changes_no_running_run`). Here
+`pinned_version_answers` shows only that `load/4` and `read_file/3`, given one
+package and its files, answer from it after a package of another version exists. No
+test runs a Run through a change of the version, and no other Piece calls
+`Elzoo.VersionPin`: the pin of a Run is a host Need. With the harness of RC-66, a
+load survives a restart and is not asked again: the group
+`skill_load_after_restart` of `runtime/recipe-test`, with one restart that falls
+while a call of a declared skill tool is held, shows one load action and one load
+outcome, the load asked once, the dropped call `unknown`, and the model call after
+the restart holding the instructions and the skill tool. `agent_loop_accepts` also
+folds the agent loop again over a trace cut after each input. A file read is
 not tied to a loaded skill. The media type is never guessed from the path. No
 Markdown is parsed and no script is read as code, compiled, evaluated or run. The
 test `scan_agrees_with_the_reader` calls the parser of the pinned `yamerl`
