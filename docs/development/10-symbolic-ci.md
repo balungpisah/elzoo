@@ -654,6 +654,13 @@ in the full check on `main`. Two things about the export stay unseen before the 
 that was ready at the base and has no per-ID consumer is not exported on its own: a test of it that fails only in a
 copied consumer is seen on `main`. In the consumer of an added Piece the tests of its dependencies do not run; their
 sources are copied and compiled. The aggregate consumer of the full check covers both.
+Measured for ELZ-219 on 2026-11-15 at commit `25d7c8edcb36` (`origin/main`): one launch of
+`mix test test/export_test.exs --only new_piece_consumer` on a developer host that ran other Mix workers at the same
+time (a developer-host time, not a hosted time). It selected the 80 tests that the count predicts (108 ready entries,
+28 per-ID consumers). 79 passed and 1 failed: `assembly/run-engine`, a `deadlock_detected` error of the PostgreSQL
+database inside its inner run (issue #505); the same ID passed alone on the same commit (141.1 s), and the tests of
+its Piece pass in the root project. The largest total was 125.3 s (`runtime/lua-sandbox`); no ID is above the limit of
+300 s, which is unchanged. The launch took 2088.6 s. One run on one host is not a proof of the copy.
 **Residual risk:** the freeze rule ignores a first attempt of a push run in progress, so
 small-gate merges can land before the first full run of `main` after them reports, within the window above. Counting
 every first-parent commit is conservative and can pause earlier than counting only Piece merges. A red full run then
@@ -1184,6 +1191,15 @@ the 120 s default); `assembly/durable-job` consumer test 79.0 s (66 percent; inn
 suite 1307.8 s (the two failures of that run are the two expected on the branch). The decision rule needs both tests under 72 s
 (60 percent of 120 s) to close the task without a change: the durable-job test is above it, so the two limits are raised
 to 300 s as approved.
+
+Measured for ELZ-221 on 2026-11-15 at commit `25d7c8edcb36`, on a developer host that ran other Mix workers at the
+same time. The root suite, `mix test --warnings-as-errors --seed <n> --exclude consumer_id --exclude aggregate_consumer`,
+exited 0 with each of the seeds 101, 2024 and 31337 (2545 passed, 109 excluded each time); three seeds are a sample,
+not a proof that no order dependency exists. The total of the consumer of `integration/ai-text` in the job
+`check-consumers-db` of nine green push runs of `main` that ran that job (six read on 2026-11-14, and the three newest
+at the time of the read on 2026-11-15): 87.8, 65.3, 71.5, 87.2, 86.7, 58.8 s (runs 43631684316, 43627504841, 43621456382, 43610606256,
+43608386530, 43605594917) and 89.8, 88.9, 87.4 s (runs 43653763850, 43658838078, 43657783841). The largest is 89.8 s,
+74.8 percent of the 120 s limit. Decision: no change proposed.
 
 ## History
 

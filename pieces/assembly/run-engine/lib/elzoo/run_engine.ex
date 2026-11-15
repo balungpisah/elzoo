@@ -1455,7 +1455,8 @@ defmodule Elzoo.RunEngine do
       nil ->
         {:ok, candidate}
 
-      %{kind: :protocol} = original ->
+      # A candidate of another kind is a conflict: it falls to the last clause.
+      %{kind: :protocol} = original when candidate.kind == :protocol ->
         comparable = fn r -> r |> put_in([:input, "at_ms"], 0) end
 
         if comparable.(original) == comparable.(candidate),
@@ -2446,8 +2447,14 @@ defmodule Elzoo.RunEngine do
   defp apply_control(s, id, %{kind: kind} = command, context)
        when kind in [:begin_attempt, :approval_evidence] do
     case run_command(s, kind, Map.delete(command, :kind)) do
-      {:ok, _, _} -> with {:ok, s} <- sync_run(s), do: release_waiting(s, id, context)
-      other -> {:error, {:run_control, other}, s}
+      # An accepted control ends like an input, at the end of a drain, and replies after it.
+      {:ok, _, _} ->
+        with {:ok, s} <- sync_run(s),
+             {:ok, s} <- release_waiting(s, id, context),
+             do: drain(s)
+
+      other ->
+        {:error, {:run_control, other}, s}
     end
   end
 
