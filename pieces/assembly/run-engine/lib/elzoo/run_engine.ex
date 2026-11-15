@@ -1330,12 +1330,12 @@ defmodule Elzoo.RunEngine do
          at when is_integer(at) and at > 0 <- s.opts.clock.(),
          input = Map.put(neutral, "at_ms", at),
          {:ok, _} <- PatternStep.decode(input),
-         {:ok, input, correlation} <- checked_ingress(s, input, context),
+         {:ok, checked, correlation} <- checked_ingress(s, input, context),
          record = %{
            version: 1,
            kind: :protocol,
            id: id,
-           input: input,
+           input: checked,
            run_id: context.run_id,
            attempt_id: context.attempt_id,
            correlation: correlation,
@@ -1344,7 +1344,8 @@ defmodule Elzoo.RunEngine do
          true <- plain?(record),
          :ok <-
            if(bytes({1, {id, record}}) <= @ingress_bytes, do: :ok, else: {:error, :input_too_large}),
-         {:ok, record} <- original_record(s, id, record),
+         {:ok, record} <-
+           original_record(s, id, record, &recheck_settled(s, input, context, record, &1)),
          :ok <- pause_operand(s, record.context, record.input["at_ms"]),
          result = DurableUnit.step(s.unit, id, record) do
       case result do
@@ -1367,7 +1368,8 @@ defmodule Elzoo.RunEngine do
     :exit, _ -> {{:indeterminate, :delivery}, %{s | halted: :delivery_unknown}}
   end
 
-  defp checked_ingress(s, input, context) do
+  # `admitted` gives the action of an occurrence whose slot no longer holds it.
+  defp checked_ingress(s, input, context, admitted \\ fn -> nil end) do
     correlation = Map.take(context, [:occurrence, :actual, :dispatch, :loss, :resource])
     key = context[:occurrence]
     state = snapshot(s)
@@ -1382,7 +1384,8 @@ defmodule Elzoo.RunEngine do
         slot ->
           choose(s, slot.kind, fn ->
             if slot[:action] || Map.has_key?(state.requests, elem(key, 0)),
-              do: action(state, key)
+              do: action(state, key),
+              else: admitted.()
           end)[:result]
 
         true ->
@@ -1450,7 +1453,8 @@ defmodule Elzoo.RunEngine do
 
   # Find the original committed or unresolved input without asking the pattern.
   # The host retains full history; a changed same-ID retry is not a fresh call.
-  defp original_record(s, id, candidate) do
+  # `again` may give a second candidate for a recorded protocol input that differs.
+  defp original_record(s, id, candidate, again \\ fn _ -> nil end) do
     case find_input(s.opts.store, s.opts.identity, id, 1) do
       nil ->
         {:ok, candidate}
@@ -1459,9 +1463,10 @@ defmodule Elzoo.RunEngine do
       %{kind: :protocol} = original when candidate.kind == :protocol ->
         comparable = fn r -> r |> put_in([:input, "at_ms"], 0) end
 
-        if comparable.(original) == comparable.(candidate),
-          do: {:ok, original},
-          else: {:error, :input_id_conflict}
+        if comparable.(original) == comparable.(candidate) or
+             ((second = again.(original)) && comparable.(original) == comparable.(second)),
+           do: {:ok, original},
+           else: {:error, :input_id_conflict}
 
       %{kind: :lifecycle} = original when candidate.kind == :lifecycle ->
         comparable = fn r -> put_in(r.command.at_ms, 0) end
@@ -1472,6 +1477,34 @@ defmodule Elzoo.RunEngine do
 
       _ ->
         {:error, :input_id_conflict}
+    end
+  end
+
+  # The slot of a settled occurrence keeps no action, so a retry of a recorded refusal is
+  # checked again with the action of its admission, as at the first time. Nothing is written.
+  defp recheck_settled(s, input, context, record, %{input: %{"kind" => "action_outcome"}}) do
+    key = context[:occurrence]
+    state = snapshot(s)
+
+    with %{phase: :settled} = slot <- state.slots[key],
+         nil <- slot[:action],
+         false <- Map.has_key?(state.requests, elem(key, 0)),
+         {:ok, checked, correlation} <-
+           checked_ingress(s, input, context, fn -> admitted_action(s, key) end) do
+      %{record | input: checked, correlation: correlation}
+    else
+      _ -> nil
+    end
+  end
+
+  defp recheck_settled(_, _, _, _, _), do: nil
+
+  defp admitted_action(s, key) do
+    id = stable_id("admit:", {s.opts.run_id, key})
+
+    case find_input(s.opts.store, s.opts.identity, id, 1) do
+      %{kind: :admission, facts: facts} -> facts[:action]
+      _ -> nil
     end
   end
 
