@@ -1,6 +1,6 @@
 # ELZ-217 — The engine reads the unit state once per commit and encodes each part of the state once per size check
 
-- Dependencies: ELZ-033, ELZ-192, ELZ-216
+- Dependencies: ELZ-033, ELZ-192, ELZ-216, ELZ-232
 - Output: none. A cost repair of the ready Piece `assembly/run-engine`. The Contract, every record, every reply and every bound stay as they are. The Piece ID stays.
 - Change class: Piece-only implementation, in place on a ready Piece; small local gate and hosted `check-piece`.
 - Allowed implementation path: `pieces/assembly/run-engine/lib/**` and `pieces/assembly/run-engine/test/**` only. No `README.md`, no `piece.json`, no index file.

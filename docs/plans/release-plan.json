@@ -6519,7 +6519,7 @@
       "kind": "published",
       "release": "V1B",
       "stage": "pieces",
-      "dependencies": ["ELZ-033", "ELZ-192", "ELZ-216"],
+      "dependencies": ["ELZ-033", "ELZ-192", "ELZ-216", "ELZ-232"],
       "status": "published 2026-11-14",
       "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
       "paths": ["tasks/ELZ-217-run-engine-step-cost.md"],
@@ -6528,7 +6528,7 @@
       "product_aims": ["P13"],
       "issue": 470,
       "url": "https://github.com/balungpisah/elzoo/issues/470",
-      "issue_body_sha256": "a261e2fcfc3400e86eb932a0f9e11145dfca77b314cd04d74ccd30fc64a8a5bb"
+      "issue_body_sha256": "abfd640059beafab2a3a70f577fc6816f11c7a63c25f3b71be38af50dc13861d"
     },
     {
       "id": "ELZ-218",
@@ -6716,6 +6716,23 @@
       "issue": 489,
       "url": "https://github.com/balungpisah/elzoo/issues/489",
       "issue_body_sha256": "09e2b3d35a8949dd662bcb3454c270eef2972d17d4aacac6e0ed943046285fb0"
+    },
+    {
+      "id": "ELZ-232",
+      "title": "ELZ-232 — A nested start is kept only when the control state has room for the child",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033", "ELZ-192", "ELZ-216"],
+      "status": "published 2026-11-15",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-232-nested-start-room.md"],
+      "outputs": [],
+      "acceptance": "Piece assembly/run-engine in place: a nested start without room in the control state is refused with record_size and leaves no trace of the child; replay is equal; small gate.",
+      "product_aims": ["P13"],
+      "issue": 503,
+      "url": "https://github.com/balungpisah/elzoo/issues/503",
+      "issue_body_sha256": "9ecf7eff5f76879636fc5cc45cb0eba4e575211eb6ef1b4969d6481b2573df90"
     }
   ],
   "entries": [
