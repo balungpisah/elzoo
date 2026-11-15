@@ -8228,7 +8228,7 @@
       "baseline_status": "not in baseline (new row, RC-67)",
       "disposition": "ready-contract",
       "manifest": "pieces/workflow/skill/piece.json",
-      "manifest_sha256": "85768c2b32bbd3dea99c308a770f84a99b387f90a123e10e717420dc86a6346c",
+      "manifest_sha256": "d6df0640abb580ef906d6e579a0245fb2f0fab1cf0f88ccf752f84faafa02e09",
       "catalogue_reference": "registry/catalogue.json"
     }
   ],
