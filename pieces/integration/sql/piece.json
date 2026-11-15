@@ -65,8 +65,20 @@
     {
       "kind": "upstream",
       "provider": "postgrex",
+      "reference": "https://www.postgresql.org/docs/16/tutorial-transactions.html",
+      "claim": "PostgreSQL transaction atomicity, all-or-nothing commit, is an upstream server contract reached through Postgrex, not a local proof."
+    },
+    {
+      "kind": "upstream",
+      "provider": "postgrex",
       "reference": "https://www.postgresql.org/docs/16/transaction-iso.html",
-      "claim": "PostgreSQL transaction atomicity, uniqueness, row locking, WAL/fsync and crash semantics are upstream server contracts reached through Postgrex, not local proofs."
+      "claim": "PostgreSQL transaction isolation, uniqueness and row locking are upstream server contracts reached through Postgrex, not local proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "postgrex",
+      "reference": "https://www.postgresql.org/docs/16/wal.html",
+      "claim": "PostgreSQL commit durability through the write-ahead log, fsync and crash recovery are upstream server contracts reached through Postgrex, not local proofs."
     },
     {
       "kind": "upstream",

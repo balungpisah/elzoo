@@ -108,7 +108,7 @@ the tree of its second parent (the pull request head that the queue merged with 
 the latest run of `symbolic-check.yml` on that second parent (any branch, including non-task plan-only and publication branches, found by `head_sha`; since ELZ-059 the
 same-repository `pull_request` run, or the queue's `workflow_dispatch` fallback; a fork pull request run is never evidence;
 a `pull_request` run counts only when the second parent holds the whole first parent, because that run tests the merge of
-the head with its base and only then has the tree of the head; a `workflow_dispatch` run tests the head itself; the run with the highest ID decides, so a run of a sibling pull request
+the head with its base and only then has the tree of the head, and, since ELZ-222, only when GitHub says that the one pull request of that head targets `main` and never changed its base (see "Base of the pull request (ELZ-222)" below); a `workflow_dispatch` run tests the head itself; the run with the highest ID decides, so a run of a sibling pull request
 from the same branch that is newer than the queue's evidence run could decide in its place. The queue closes this on
 both paths: it refuses to adopt a run when a sibling exists, and right before the merge it lists the runs of the head
 the same way (by `head_sha`, without an event filter) and refuses to merge when a same-repository `pull_request` run
@@ -135,6 +135,27 @@ cannot decide. A later run is not hidden by an older success: the run with the h
 `workflow_dispatch` runs (the queue's), pull requests and anything that
 is not a push to `main` are never skipped.
 
+**Base of the pull request (ELZ-222).** A pull request of this repository into another branch makes a run on the same
+head, and that run can have the highest ID. It tested the merge with another base: another tree. The run listing gives
+no base after the merge (`pull_requests` is `[]`), so the script reads it from the API, never from a job log or a file
+of the checkout, which the head of a pull request can write. For evidence of the event `pull_request`, after the rule on
+the first parent, it reads `pulls?head=<owner>:<head branch of the run>&state=all&per_page=100` and continues only when
+exactly one entry has `head.sha` equal to the second parent, that entry has `base.ref` `main`, its base and head
+repository are this repository and its number is a positive integer. Then it reads
+`issues/<number>/timeline?per_page=100&page=<n>`, page by page, and refuses a pull request whose timeline holds
+`base_ref_changed`, `automatic_base_change_succeeded` or `automatic_base_change_failed` at any time. It does not compare
+the time of the event with the time of the run: a run can have tested the old base. These are the three names of
+`scripts/merge-queue.py`, and a test compares them. Every other answer runs the full check: another status than 200,
+invalid JSON, a member that is missing or has another type, an empty listing, no match, more than one match, another
+base or repository, a base change. There is no retry and no second way to find the pull request. A `workflow_dispatch`
+run has no base and makes no such read; a run from a fork is never evidence. The short check of a documentation-only
+merge goes through the same rule.
+
+Limits of this rule: a pull request whose base ever changed, a pull request with 1,000 or more timeline events (more
+than ten pages of 100) and a head branch with 100 or more pull requests (the listing is full) each cost one full run
+after the merge. The two reads with the job token were not observed before ELZ-222 merged; if the first push run
+after it names a lookup status in its decision line, that is a defect with its own task.
+
 Branch names neither authorize reuse nor filter out a newer failed run on the same head. This changes only the push-skip branch restriction, not merge admission: the task queue still requires `task/ELZ-###`, and the coordinator's publication path and main-green guards are unchanged. A docs-only short check still requires local docs-only classification and a completed green push run on the first parent; selected Piece evidence still requires the full main check.
 
 Why it is the same evidence: an identical tree is identical content, and the full check of that content passed on
@@ -143,19 +164,21 @@ no longer observes the merge commit itself (its path, runner, cache or toolchain
 at merge time is invisible to a skipped push run; the next full run of `main` catches it. Acceptance on the
 merge commit is therefore either its own green full run or this logged skip (see `AGENTS.md`).
 
-Trust model: `check-plan` gets `permissions: actions: read` and `contents: read` at job level (to read the exact-head
-run, its jobs and its log); the other four jobs get `contents: read` only, and the top level keeps `contents: read`. The
-decision step and the S3 test server start step of each work job are the only steps that receive `GITHUB_TOKEN`, and the
+Trust model: `check-plan` gets `permissions: actions: read`, `contents: read` and, since ELZ-222, `pull-requests: read` at job level (to read the exact-head
+run, its jobs and its log, and the pull request of the run with its timeline); every other job gets `contents: read` only, and the top level keeps `contents: read`. The
+decision step of the plan job and the S3 test server start step of each job that starts the S3 test server (the five work jobs and `check-piece`) are the only steps that receive `GITHUB_TOKEN`, and the
 script refuses everything but a push to `main` before any request. The token is never sent to
 the log storage redirect, which is accepted only for `github.com`, `*.github.com`, `*.githubusercontent.com` and
 `productionresultssa<N>.blob.core.windows.net/actions-results/...`. `scripts/check-ci-runners.py` pins the
-`permissions` lines per job role (and rejects any `write` scope, and `actions: read` outside the plan job), the checkout
+`permissions` lines per job role (and rejects any `write` scope, and `actions: read` or `pull-requests: read` outside the plan job), the checkout
 step with `persist-credentials: false` (the default would leave the job token in `.git/config`, readable by every later
 step, including dependency code, and the token of the plan job carries `actions: read`), the exact decision step and its
 position after `scripts/test-ci-skip.py`, the token on that line and on the S3 start steps only, and the complete list of
-step-level `if:` conditions. The three work jobs run or are skipped as a whole (`if: needs.check-plan.outputs.run ==
-'true'`); inside them only the cache saves of the root job (`steps.minio.outputs.source != 'cache'` and `cache-hit !=
-'true'`) and the resource report (`always()`) carry a condition. In the plan job only the roadmap step and the docs-only
+step-level `if:` conditions. The five work jobs run or are skipped as a whole (`if: needs.check-plan.outputs.run ==
+'true'`); `check-piece` and `check-spike` run on their own plan outputs (`piece` and `spike`). Inside the work jobs and `check-piece`
+only the resource report (`always()`) carries a step condition, and in `check-root` also the cache saves
+(`steps.minio.outputs.source != 'cache'` and `cache-hit != 'true'`). In `check-spike` only the Ash spike step carries one
+(`needs.check-plan.outputs.ash == 'true'`). In the plan job only the roadmap step and the docs-only
 step carry one. A different `if:` on `Run mix check`, or on any other step, fails the guard. Like the other guard rules
 this is a source-convention check, not proof against every YAML form.
 
