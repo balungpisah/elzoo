@@ -109,6 +109,21 @@ defmodule Elzoo.RunEngine.TestPattern do
      {:some, %{"type" => "request", "version" => 1, "actions" => [action]}}}
   end
 
+  # {:grow, size}: takes one input and returns a state of exactly `size` encoded bytes (a :pad).
+  def waiting(%{script: [{:grow, size} | rest]} = state, input) do
+    if observer = Process.whereis(:run_engine_observer),
+      do: send(observer, {:pattern_input, state.name, input})
+
+    state2 = %{state | script: rest}
+
+    base =
+      byte_size(
+        :erlang.term_to_binary(Map.put(state2, :pad, ""), [:deterministic, {:minor_version, 2}])
+      )
+
+    {:Transition, Map.put(state2, :pad, :binary.copy("p", size - base)), :none}
+  end
+
   def waiting(state, input), do: scripted(state, input)
 
   # A finish whose payload is 65,536 bytes of JSON and names `tag`.

@@ -7683,6 +7683,473 @@ defmodule Elzoo.RunEngineTest do
     end
   end
 
+  # ELZ-232. Each callable has a state bound (`state_bytes` of its nested binding, 65,536
+  # bytes when the key is absent). While the callable is open, control reserves the whole
+  # bound, and a nested start is kept only when the state after it fits. The groups below
+  # start parents whose children wait, so every child stays open.
+  #
+  # `ids` are the nested actions of the one request of the root (the callable of the
+  # action at index i is "1:i"). Options: `scripts` (id => script of the child, default
+  # [:wait]), `bytes` (id => `state_bytes`; the key is absent for an id that is not in it),
+  # `initials` (id => initial state of the child) and `tail` (more script items of the
+  # root, after its request). The parents expire at 20,000 ms and the clock stays at
+  # 2,000, so they stay open; each holds an estimate of 10 of the root Budget.
+  @bound_k 32
+
+  defp bound_ids(count), do: for(i <- 1..count, do: "s#{i}")
+
+  defp bound_run(ids, opts \\ []) do
+    scripts = Keyword.get(opts, :scripts, %{})
+    bytes = Keyword.get(opts, :bytes, %{})
+    initials = Keyword.get(opts, :initials, %{})
+    children = Map.new(ids, fn id -> {id, Map.get(scripts, id, [:wait])} end)
+
+    root =
+      [request(Enum.map(ids, &action(&1, "nested_callable")))] ++ Keyword.get(opts, :tail, [])
+
+    {c, bindings} =
+      nested_setup(children,
+        pattern: {TestPattern, :waiting, %{name: "root", script: root}},
+        request_cap: 100,
+        budget: %{cap: 10_000, unit: "credits", id: "budget", incarnation: "sealed"}
+      )
+
+    bindings =
+      Map.update!(bindings, "nested_callable", fn binding ->
+        %{
+          binding
+          | facts: fn a -> %{binding.facts.(a) | deadline_ms: 20_000} end,
+            nested: fn a ->
+              facts = %{binding.nested.(a) | mfa: {TestPattern, :waiting}}
+
+              facts =
+                case Map.fetch(bytes, a["id"]) do
+                  {:ok, value} -> Map.put(facts, :state_bytes, value)
+                  :error -> facts
+                end
+
+              case Map.fetch(initials, a["id"]) do
+                {:ok, initial} -> %{facts | initial_state: initial}
+                :error -> facts
+              end
+            end
+        }
+      end)
+
+    engine = start(c, bindings: bindings)
+    assert {:ok, :applied} = bounded(fn -> send_input(engine) end, 30_000)
+    {c, engine, bindings}
+  end
+
+  defp encoded(term), do: :erlang.term_to_binary(term, [:deterministic, {:minor_version, 2}])
+
+  # A state of the pattern `waiting` whose encoding has exactly `size` bytes.
+  defp padded_state(name, size) do
+    base = byte_size(encoded(%{name: name, script: [:wait], pad: ""}))
+    %{name: name, script: [:wait], pad: :binary.copy("p", size - base)}
+  end
+
+  defp callable_of(c, action_id) do
+    {request, index} = slot_key(c, action_id)
+    "#{request}:#{index}"
+  end
+
+  defp kept_ids(c, ids),
+    do: Enum.filter(ids, &Map.has_key?(unit_state(c).control.callables, callable_of(c, &1)))
+
+  # The records of the protocol input of one action: its outcome and its correlation.
+  defp outcome_correlations(c, action_id) do
+    for row <- rows(c),
+        row.kind == "input",
+        {1, {_id, %{kind: :protocol, input: %{"action_id" => ^action_id}} = rec}} <-
+          [:erlang.binary_to_term(row.payload, [:safe])],
+        do: rec
+  end
+
+  defp refused_to_root(id, reason) do
+    assert_receive {:pattern_input, "root",
+                    %{
+                      "action_id" => ^id,
+                      "outcome" => "refused",
+                      "payload" => %{"reason" => ^reason}
+                    }},
+                   5_000
+  end
+
+  describe "nested_start_without_room_is_refused" do
+    @tag timeout: 240_000
+    test "the start that would pass the bound is refused with record_size, the earlier children are kept exactly" do
+      ids = bound_ids(@bound_k)
+      {c, engine, _} = bound_run(ids)
+      state = unit_state(c)
+      kept = kept_ids(c, ids)
+      n = length(kept)
+      refused = ids -- kept
+
+      IO.puts("ELZ-232: #{n} of #{@bound_k} nested starts fit")
+      IO.puts("ELZ-232: headroom after the run #{control_headroom(state)}")
+      assert n >= 1
+      assert refused != []
+      # No start of the default bound fits now: a refusal was a lack of room.
+      assert control_headroom(state) < 65_536
+      # The starts are applied in the order of the request: the kept ones come first.
+      assert kept == Enum.take(ids, n)
+      assert refused == Enum.drop(ids, n)
+
+      # Every kept child is in control with its exact state (its wait taken at the
+      # start) and the default bound of 65,536; it has its Budget.
+      for id <- kept do
+        node = state.control.callables[callable_of(c, id)]
+        assert node.state == %{name: id, script: []}
+        assert node.state_bytes == 65_536
+        assert node.closed == false
+        assert Map.has_key?(state.control.budgets, callable_of(c, id))
+      end
+
+      # Nothing else is in control: the root and the kept children only.
+      assert map_size(state.control.callables) == n + 1
+      assert map_size(state.control.budgets) == n + 1
+
+      # Every refused parent action got the ordinary refusal, with actual 0 and nothing
+      # dispatched, and has no callable and no Budget.
+      for id <- refused do
+        refused_to_root(id, "record_size")
+        cid = callable_of(c, id)
+        refute Map.has_key?(state.control.callables, cid)
+        refute Map.has_key?(state.control.budgets, cid)
+        slot = state.slots[slot_key(c, id)]
+        assert slot.phase == :settled
+        assert slot.outcome == "refused"
+
+        assert [rec] = outcome_correlations(c, id)
+        assert rec.input["outcome"] == "refused"
+        assert rec.input["payload"]["reason"] == "record_size"
+        assert rec.correlation[:actual] == 0
+        assert rec.correlation[:dispatch] == "not_dispatched"
+      end
+
+      # The refused starts hold no estimate: only the kept parents do; nothing is
+      # committed.
+      assert budget_status(c, "root") == %{committed: 0, reserved: 10 * n}
+
+      # The bound holds, the engine answers the next input, and the bound holds again.
+      bound_holds!(c)
+
+      assert {:ok, :applied} =
+               bounded(fn -> RunEngine.input(engine, "next", wake(), verified()) end)
+
+      bound_holds!(c)
+      assert kept_ids(c, ids) == kept
+    end
+  end
+
+  # The journal as {kind, term}: an "input" row holds the record, a "result" row the
+  # state after the input before it.
+  defp journal_terms(c) do
+    for row <- rows(c) do
+      {1, {_, term}} = :erlang.binary_to_term(row.payload, [:safe])
+      {row.kind, term}
+    end
+  end
+
+  describe "declared_bound_decides" do
+    @tag timeout: 240_000
+    test "a child with no state_bytes is refused at the same place as one that declares 65,536, and a smaller bound lets every child in" do
+      ids = bound_ids(@bound_k)
+      {a, engine_a, _} = bound_run(ids)
+      kept_a = kept_ids(a, ids)
+      GenServer.stop(engine_a)
+      Process.unregister(:run_engine_observer)
+
+      {b, engine_b, _} = bound_run(ids, bytes: Map.new(ids, &{&1, 65_536}))
+      kept_b = kept_ids(b, ids)
+      GenServer.stop(engine_b)
+      Process.unregister(:run_engine_observer)
+
+      {s, _, _} = bound_run(ids, bytes: Map.new(ids, &{&1, 1_024}))
+      kept_s = kept_ids(s, ids)
+
+      IO.puts(
+        "ELZ-232: no key #{length(kept_a)}, 65,536 declared #{length(kept_b)}, 1,024 declared #{length(kept_s)} of #{@bound_k}"
+      )
+
+      assert kept_a != []
+      assert length(kept_a) < @bound_k
+      assert kept_b == kept_a
+      assert hd(ids -- kept_a) == hd(ids -- kept_b)
+
+      for id <- kept_b,
+          do: assert(unit_state(b).control.callables[callable_of(b, id)].state_bytes == 65_536)
+
+      # The declared bound is what decides: with 1,024 every start fits beside the rest.
+      assert kept_s == ids
+
+      for id <- ids,
+          do: assert(unit_state(s).control.callables[callable_of(s, id)].state_bytes == 1_024)
+
+      bound_holds!(a)
+      bound_holds!(b)
+      bound_holds!(s)
+    end
+
+    @tag timeout: 240_000
+    test "beside children of the default bound that are refused, a child with state_bytes 1,024 is kept and runs" do
+      defaults = bound_ids(@bound_k)
+
+      {c, engine, _} =
+        bound_run(defaults ++ ["d"],
+          bytes: %{"d" => 1_024},
+          scripts: %{"d" => [request([action("d-work")])]}
+        )
+
+      state = unit_state(c)
+      kept = kept_ids(c, defaults)
+      n = length(kept)
+      IO.puts("ELZ-232: #{n} of #{@bound_k} default children fit beside a child of 1,024")
+      assert n >= 1
+      assert n < @bound_k
+
+      # The children of 65,536 after the first refusal are all refused; "d" comes last and
+      # is kept.
+      assert kept == Enum.take(defaults, n)
+      d = state.control.callables[callable_of(c, "d")]
+      assert d.state_bytes == 1_024
+      assert d.closed == false
+
+      for id <- Enum.drop(defaults, n) do
+        refused_to_root(id, "record_size")
+        refute Map.has_key?(state.control.callables, callable_of(c, id))
+      end
+
+      # It started, asked its one action and got the outcome of it.
+      assert_receive {:pattern_input, "d", %{"kind" => "start"}}, 5_000
+
+      assert_receive {:pattern_input, "d", %{"action_id" => "d-work", "outcome" => "completed"}},
+                     5_000
+
+      bound_holds!(c)
+
+      assert {:ok, :applied} =
+               bounded(fn -> RunEngine.input(engine, "next", wake(), verified()) end)
+
+      bound_holds!(c)
+    end
+  end
+
+  describe "root_state_can_grow" do
+    @tag timeout: 240_000
+    test "with control near the bound the root returns a state of exactly 65,536 bytes: it is stored and the step passes" do
+      ids = bound_ids(@bound_k)
+      {c, engine, _} = bound_run(ids, tail: [{:grow, 65_536}])
+      state = unit_state(c)
+      kept = kept_ids(c, ids)
+      n = length(kept)
+      assert n >= 1
+      assert n < @bound_k
+      assert kept == Enum.take(ids, n)
+
+      root = state.control.callables["root"]
+      assert byte_size(encoded(root.state)) == 65_536
+      assert root.state.script == []
+      assert root.state_bytes == 65_536
+
+      # Control was near the bound when the root grew: the first state of the Run that
+      # holds the grown root has less than two states of room, and the bound holds in
+      # it and in the state before it, the same way.
+      states = for {"result", %{control: _} = st} <- journal_terms(c), do: st
+      grown = Enum.find_index(states, &Map.has_key?(&1.control.callables["root"].state, :pad))
+      assert is_integer(grown) and grown > 0
+
+      IO.puts(
+        "ELZ-232: headroom #{control_headroom(Enum.at(states, grown - 1))} before the root grows, #{control_headroom(Enum.at(states, grown))} after"
+      )
+
+      assert control_headroom(Enum.at(states, grown)) < 131_072
+      assert control_headroom(Enum.at(states, grown - 1)) >= 0
+      assert control_headroom(Enum.at(states, grown)) >= 0
+      refute Map.has_key?(Enum.at(states, grown - 1).control.callables["root"].state, :pad)
+      refused = ids -- kept
+      for id <- refused, do: refused_to_root(id, "record_size")
+
+      bound_holds!(c)
+
+      assert {:ok, :applied} =
+               bounded(fn -> RunEngine.input(engine, "next", wake(), verified()) end)
+
+      bound_holds!(c)
+      assert byte_size(encoded(unit_state(c).control.callables["root"].state)) == 65_536
+      assert kept_ids(c, ids) == kept
+    end
+  end
+
+  describe "state_over_its_bound_is_not_stored" do
+    @tag timeout: 240_000
+    test "a state of 1,025 bytes of a child with state_bytes 1,024 is not stored, one of 1,024 bytes is" do
+      scripts = %{
+        "g1" => [request([action("hold-1", "tool_call")]), {:grow, 1_025}],
+        "g2" => [request([action("hold-2", "tool_call")]), {:grow, 1_024}]
+      }
+
+      {c, engine, _} =
+        bound_run(["g1", "g2"], scripts: scripts, bytes: %{"g1" => 1_024, "g2" => 1_024})
+
+      # Both children hold a tool call that the provider has not answered.
+      assert_receive {:effect_started, p1, _}, 5_000
+      assert_receive {:effect_started, p2, _}, 5_000
+
+      for tool <- ["hold-1", "hold-2"] do
+        wait_unit(
+          c,
+          fn s ->
+            Enum.any?(s.slots, fn {_, sl} -> sl.action_id == tool and sl.phase == :running end)
+          end,
+          2_000
+        )
+      end
+
+      old1 = unit_state(c).control.callables["1:0"].state
+      old2 = unit_state(c).control.callables["1:1"].state
+      assert old1 == %{name: "g1", script: [{:grow, 1_025}]}
+      assert old2 == %{name: "g2", script: [{:grow, 1_024}]}
+
+      # The first child grows to 1,025 bytes: its state is not stored.
+      assert {:ok, :applied} = bounded(fn -> cost_known(c, engine, "hold-1") end)
+
+      assert_receive {:pattern_input, "g1", %{"action_id" => "hold-1", "outcome" => "completed"}},
+                     5_000
+
+      invalid =
+        for {"result", %{control: _} = st} <- journal_terms(c),
+            st.control.classification == :invalid_pattern_state,
+            do: st
+
+      assert [rejected] = invalid
+      assert rejected.control.callables["1:0"].state == old1
+      assert unit_state(c).control.callables["1:0"].state == old1
+      assert unit_state(c).control.callables["1:0"].state_bytes == 1_024
+      bound_holds!(c)
+
+      # The second child grows to exactly its bound: the state is stored.
+      assert {:ok, :applied} = bounded(fn -> cost_known(c, engine, "hold-2") end)
+
+      assert_receive {:pattern_input, "g2", %{"action_id" => "hold-2", "outcome" => "completed"}},
+                     5_000
+
+      stored = unit_state(c).control.callables["1:1"].state
+      assert stored != old2
+      assert stored.script == []
+      assert byte_size(encoded(stored)) == 1_024
+      assert unit_state(c).control.callables["1:0"].state == old1
+      bound_holds!(c)
+
+      for provider <- [p1, p2], do: send(provider, {:result, %{}})
+    end
+  end
+
+  describe "bound_is_validated" do
+    @tag timeout: 240_000
+    test "a bound outside 1 to 65,536, a bound that is no integer and an initial state over its bound are refused with nested_input" do
+      ids = ["z0", "z1", "z2", "z3", "ok"]
+      over = padded_state("z3", 1_025)
+      exact = padded_state("ok", 1_024)
+      assert byte_size(encoded(over)) == 1_025
+      assert byte_size(encoded(exact)) == 1_024
+
+      {c, engine, _} =
+        bound_run(ids,
+          bytes: %{"z0" => 0, "z1" => 65_537, "z2" => "1024", "z3" => 1_024, "ok" => 1_024},
+          initials: %{"z3" => over, "ok" => exact}
+        )
+
+      state = unit_state(c)
+      refused = ["z0", "z1", "z2", "z3"]
+
+      for id <- refused do
+        refused_to_root(id, "nested_input")
+        cid = callable_of(c, id)
+        refute Map.has_key?(state.control.callables, cid)
+        refute Map.has_key?(state.control.budgets, cid)
+        assert state.slots[slot_key(c, id)].outcome == "refused"
+        assert [rec] = outcome_correlations(c, id)
+        assert rec.input["payload"]["reason"] == "nested_input"
+        assert rec.correlation == %{actual: 0, occurrence: slot_key(c, id)}
+      end
+
+      # No :nested record of a refused action is in the journal: only the kept one.
+      assert [{:nested, occurrence, _, _, _}] =
+               Enum.filter(journal(c), &match?({:nested, _, _, _, _}, &1))
+
+      assert occurrence == slot_key(c, "ok")
+
+      # An initial state of exactly the bound is kept, with that bound.
+      node = state.control.callables[callable_of(c, "ok")]
+      assert node.state_bytes == 1_024
+      assert node.state == %{exact | script: []}
+      assert map_size(state.control.callables) == 2
+      assert map_size(state.control.budgets) == 2
+      bound_holds!(c)
+
+      assert {:ok, :applied} =
+               bounded(fn -> RunEngine.input(engine, "next", wake(), verified()) end)
+    end
+  end
+
+  describe "refusal_leaves_no_trace_of_the_child" do
+    @tag timeout: 240_000
+    test "the state after the :nested record of a refused start equals the state before it, but for the release of the parent's reservation" do
+      ids = bound_ids(@bound_k)
+      {c, _, _} = bound_run(ids)
+      kept = kept_ids(c, ids)
+      refused = ids -- kept
+      assert refused != []
+      name = hd(refused)
+      key = slot_key(c, name)
+
+      terms = journal_terms(c)
+      position = Enum.find_index(terms, &match?({"input", %{kind: :nested, occurrence: ^key}}, &1))
+      assert is_integer(position) and position > 0
+      assert {"result", before_step} = Enum.at(terms, position - 1)
+      assert {"result", after_step} = Enum.at(terms, position + 1)
+
+      IO.puts(
+        "ELZ-232: #{length(terms)} journal rows, the refused :nested record is row #{position}"
+      )
+
+      # The child left nothing: counts, receipts, invocations, callables, Budgets (but
+      # the one of the parent callable), requests and the other slots are equal.
+      assert after_step.control.count == before_step.control.count
+      assert after_step.control.receipts == before_step.control.receipts
+      assert after_step.control.invocations == before_step.control.invocations
+      assert after_step.control.callables == before_step.control.callables
+      assert after_step.requests == before_step.requests
+      assert Map.delete(after_step.slots, key) == Map.delete(before_step.slots, key)
+
+      assert Map.delete(after_step.control.budgets, "root") ==
+               Map.delete(before_step.control.budgets, "root")
+
+      # The parent's Budget changes by the release of its reservation of 10.
+      status = fn state ->
+        {:Transition, _, {:some, {:status, status}}} =
+          Elzoo.Budget.step(state.control.budgets["root"].state, {2_000, :status})
+
+        Map.take(status, [:committed, :reserved])
+      end
+
+      assert status.(before_step).reserved - status.(after_step).reserved == 10
+      assert status.(before_step).committed == status.(after_step).committed
+
+      # The slot of the parent is refused for the lack of room, and nothing more.
+      assert before_step.slots[key].phase == :ready
+      assert after_step.slots[key].phase == :refusing
+      assert after_step.slots[key].refusal == "record_size"
+      bound_holds!(c)
+
+      # The pattern may have seen the dropped start; no later input reaches the child.
+      assert_receive {:pattern_input, ^name, %{"kind" => "start"}}, 5_000
+      refute_receive {:pattern_input, ^name, _}, 500
+    end
+  end
+
   # ELZ-212. A control that applies its Run command drains before it replies.
   defp finish_under_ask(c) do
     require_approval(c)
