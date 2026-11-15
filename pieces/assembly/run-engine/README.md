@@ -237,6 +237,18 @@ child is dropped and charges nothing; the reservation of the parent is released;
 engine goes on. The state of a callable leaves control when the callable closes: when
 its finish is kept, at a change of Attempt, and when a terminal Run closes it. Its
 room comes back then. The Budget, the join and the receipts of a closed child stay.
+
+An input that settles no slot (a `wake`, a Resource event, and each other kind that
+is neither an action outcome nor a person answer) is given to the root pattern only
+when control, with the invocation entry of that input placed in it, still satisfies
+the bound. With no room, what the expiry of waits, the protocol step and the close
+of a terminal Run did stays, while no invocation entry, no pattern call, no charge,
+no receipt and no request is kept. Its classification in `status/1` is `record_size`,
+`input/4` answers as for every committed input, and the engine goes on. An input
+that settles a slot is given to its pattern as before. An invocation entry stays in
+control until a new Run is configured on the unit, so room comes back only when
+other state leaves control. `cancel` needs no entry.
+
 Paused accepted results retain their pattern input until
 continue, without dispatch while paused; monetary exhaustion still takes
 lifecycle precedence below the request-count cap.
@@ -361,7 +373,10 @@ Payload/outcome JSON <=65536 bytes and depth <=32; ingress <=262144 bytes;
 DU record/output <=16777216 bytes; complete active slot <=131072 bytes;
 64 active/256 lifetime actions; control <=2097152 bytes (including 4096 bytes
 reserved per active action and cap+1 receipt reservations); complete compact
-request map <=4456448 bytes; slot map <=8 MiB; callable state within its state bound (<=65536 bytes), reserved in control while the callable is open.
+request map <=4456448 bytes; slot map <=8 MiB; callable state within its state bound (<=65536 bytes), reserved in control while the callable is open;
+an input that settles no slot needs room in control for its invocation entry (its ID
+and 42 bytes: 43 bytes for a 1-byte ID and 202 bytes for a 160-byte ID), else it is
+classified `record_size` and not given to a pattern.
 Whole encoded candidates remain authoritative, including JSON-to-ETF expansion
 and framing. Oversized outcomes become bounded failure/loss, never truncation,
 payload logging or resend. Future settlement capacity cannot fund new requests.
@@ -557,7 +572,28 @@ and `replay_is_equal (approval request)` (after a death the first restart adds o
 the Run view record and the result row that a restart of an uninterrupted Run adds,
 with an equal view, and the next restart adds nothing; a restart after the second ask
 gives an equal view and an equal count of journal records; the Run still holds one
-request); every earlier test of the Piece passes unchanged, except the tests whose
+request), and the eight groups of the room for invocation entries:
+`wake_without_room_is_not_given` (a `wake` with a 160-byte ID at 64 bytes of
+headroom, less than its 202-byte entry: `step/2` returns `:none` with classification
+`record_size`, keeps `control.invocations`, callables, request count, receipts,
+trackers, slots and requests equal, and the bound holds), `the_switch_is_one_place`
+(sweeping headroom from 64 to 266 bytes one byte at a time: below S = 207 every step
+is refused as above, from S on the pattern is called, the entry is added, and the
+bound holds), `each_kind_without_a_slot` (the same refusal at 64 bytes and single
+switch S for a granted `resource_event` from a Run that opened a Resource, S = 201,
+and for `start` and `message`, S = 207), `settling_input_is_given_as_today` (an
+active slot at 64 bytes of headroom takes its `action_outcome`, settles, calls the
+pattern, keeps the entry, and the 4,096-byte slot reserve covers it),
+`request_after_the_check` (at S a `wake` whose pattern answers with a request
+classifies `record_size` in `admit_request/5`, and with room admits it, with the
+bound holding in both), `engine_goes_on` (after a refusal, a second `wake` refuses
+identically in the fields that group 1 lists, a `cancel` updates the lifecycle, and
+the first `wake` with padding removed reaches the pattern rather than classifying
+`duplicate`), `decision_is_pure` (for groups 1, 2 and 4 two calls of `step/2` on
+equal state and record return equal results) and `unit_stays_alive` (a durable unit
+started on its journal at 64 bytes of headroom applies a 160-byte `wake` with
+`{:ok, :applied}`, classification `record_size`, no pattern call, stays alive and
+restarts with an equal state); every earlier test of the Piece passes unchanged, except the tests whose
 assertion that a parent of a terminal Run stays `running` is now that it is closed `unknown`
 (`no_loop_for_a_parent_that_cannot_settle`, one test; `start_returns_with_an_expired_retained_parent`;
 `input_returns_with_an_expired_retained_parent`; `nothing_more_is_written`, both tests; and
@@ -633,7 +669,13 @@ with an exit and the engine process is gone). For the replies to an approval req
 the old clause that refuses every reply other than `ok` is a negative control
 (`request_survives_a_death`, `lost_reply_is_recovered` and
 `uncertain_reply_is_no_refusal` fail: the slot is settled where it should wait;
-`definite_refusal_still_refuses` passes). These finite scenarios are not a universal proof, production monitor,
+`definite_refusal_still_refuses` passes). For the room of invocation entries, the
+fold without the check (`wake_without_room_is_not_given` fails at `step/2`'s size
+assertion) and the check on the state without the entry placed
+(`wake_without_room_is_not_given` and `the_switch_is_one_place` fail at the same
+assertion) are negative controls; making the check on `action_outcome` still passes
+`settling_input_is_given_as_today` because settling the active slot frees its
+4,096-byte reserve before the check, so that point is covered by reading. These finite scenarios are not a universal proof, production monitor,
 physical no-send guarantee or proof of arbitrary callbacks/providers. Reused
 Cure laws retain their dependency-local scope; no new Cure proof is claimed.
 
@@ -708,3 +750,9 @@ pass the bound only when control is within 2 bytes of it. A Run recorded before 
 repair can fold to another state: a larger reserve can refuse a nested start or a
 request that fitted, and the state of a closed callable is gone (Elzoo is not
 released).
+
+Limits of the invocation entries. The entries of one Run are never removed. The
+entry of an input that settles a slot is taken to be covered by the 4,096 bytes of
+that slot. A state at the exact byte of the control bound can still fail a step by
+a change of a few bytes. A Run recorded before this repair can fold to another state
+(Elzoo is not released).

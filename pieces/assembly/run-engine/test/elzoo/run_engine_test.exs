@@ -8914,4 +8914,360 @@ defmodule Elzoo.RunEngineTest do
       refute_receive {:effect_started, _, _}, 300
     end
   end
+
+  defp assert_non_settling_refused(next, before) do
+    assert next.control.classification == :record_size
+    assert next.control.invocations == before.control.invocations
+    assert next.control.callables == before.control.callables
+    assert next.control.count == before.control.count
+    assert next.control.receipts == before.control.receipts
+    assert next.control.trackers == before.control.trackers
+    assert next.slots == before.slots
+    assert next.requests == before.requests
+    assert control_headroom(next) >= 0
+  end
+
+  defp non_settling_switch(state, record, expected_script, expected_classification) do
+    base = pad_invocations(state, 500)
+    started = System.monotonic_time(:millisecond)
+
+    results =
+      for h <- 64..266 do
+        padded = pad_invocations(base, h)
+        {:Transition, next, :none} = RunEngine.step(padded, record)
+        assert control_headroom(next) >= 0
+        called? = Map.has_key?(next.control.invocations, record.id)
+
+        if called? do
+          assert next.control.callables["root"].state.script == expected_script
+          assert next.control.classification == expected_classification
+        else
+          assert_non_settling_refused(next, padded)
+        end
+
+        {h, called?}
+      end
+
+    elapsed_ms = System.monotonic_time(:millisecond) - started
+    {refused, accepted} = Enum.split_while(results, fn {_, called?} -> not called? end)
+    assert refused != []
+    assert accepted != []
+    assert Enum.all?(accepted, fn {_, called?} -> called? end)
+    [{switch_h, true} | _] = accepted
+    {switch_h, elapsed_ms}
+  end
+
+  describe "wake_without_room_is_not_given" do
+    test "a wake with a 160-byte ID and 64 bytes of headroom is refused as record_size and keeps control unchanged" do
+      c = fixture(pattern: {TestPattern, :waiting, %{name: "root", script: [:wait]}})
+      _engine = start(c)
+      state = unit_state(c)
+      padded = pad_invocations(state, 64)
+      id = String.duplicate("w", 160)
+      record = protocol_record(id, wake())
+      entry_bytes = 42 + byte_size(id)
+      assert entry_bytes == 202
+
+      assert {:Transition, next, :none} = RunEngine.step(padded, record)
+      assert_non_settling_refused(next, padded)
+    end
+  end
+
+  describe "the_switch_is_one_place" do
+    test "sweeping headroom from 64 to 266 bytes switches from refusal to pattern call at one headroom S" do
+      c = fixture(pattern: {TestPattern, :waiting, %{name: "root", script: [:wait]}})
+      _engine = start(c)
+      state = unit_state(c)
+      id = String.duplicate("w", 160)
+      record = protocol_record(id, wake())
+      entry_bytes = 42 + byte_size(id)
+      {switch_h, elapsed_ms} = non_settling_switch(state, record, [], :permit_new_work)
+
+      IO.puts("ELZ-234: switch S=#{switch_h}, entry_bytes=#{entry_bytes}, sweep_ms=#{elapsed_ms}")
+    end
+  end
+
+  describe "each_kind_without_a_slot" do
+    test "granted resource_event, start and message each refuse at 64 bytes and switch at one S" do
+      # Granted resource_event from a Run that opened a Resource ("document").
+      open_action =
+        action("open", "resource_open", %{
+          "run_id" => "run",
+          "resource_name" => "document",
+          "data" => %{}
+        })
+
+      c_res =
+        fixture(
+          pattern: {TestPattern, :waiting, %{name: "root", script: [request([open_action]), :wait]}}
+        )
+
+      {owner, bindings} = resource(c_res)
+      engine_res = start(c_res, resources: %{"document" => owner}, bindings: bindings)
+      assert {:ok, :applied} = send_input(engine_res)
+      assert_receive {:effect_started, opening, _req}
+      identity = ["tenant", "account", "effect", "publish", "open"]
+
+      assert {:ok, _} =
+               Elzoo.RunResource.command(owner, %{
+                 id: "open-evidence",
+                 at_ms: 2_000,
+                 body: {:observed, identity, {:completed, %{opened_at_ms: 2_000}}}
+               })
+
+      send(opening, {:result, %{}})
+      assert {:ok, :applied} = RunEngine.input(engine_res, "consume", wake(), verified())
+      assert view(engine_res).slots[{1, 0}].outcome == "completed"
+      res_state = unit_state(c_res)
+      assert Map.has_key?(res_state.control.cursors, "document")
+
+      res_input = %{
+        "type" => "input",
+        "version" => 1,
+        "kind" => "resource_event",
+        "schema_id" => "message",
+        "schema_version" => 1,
+        "payload" => %{"event" => "change"}
+      }
+
+      res_record =
+        protocol_record(String.duplicate("r", 160), res_input, correlation: %{resource: "document"})
+
+      res_padded = pad_invocations(res_state, 64)
+      assert {:Transition, res_next, :none} = RunEngine.step(res_padded, res_record)
+      assert_non_settling_refused(res_next, res_padded)
+      {s_res, ms_res} = non_settling_switch(res_state, res_record, [], :resource_event)
+
+      # Other non-settling kinds permitted by BotRunLifecycle on a started Run: start and message.
+      for {kind, prefix} <- [{"start", "s"}, {"message", "m"}] do
+        c = fixture(pattern: {TestPattern, :waiting, %{name: "root", script: [:wait]}})
+        _engine = start(c)
+        state = unit_state(c)
+
+        input = %{
+          "type" => "input",
+          "version" => 1,
+          "kind" => kind,
+          "schema_id" => "message",
+          "schema_version" => 1,
+          "payload" => %{}
+        }
+
+        record = protocol_record(String.duplicate(prefix, 160), input)
+        padded = pad_invocations(state, 64)
+        assert {:Transition, next, :none} = RunEngine.step(padded, record)
+        assert_non_settling_refused(next, padded)
+        {s_kind, ms_kind} = non_settling_switch(state, record, [], :permit_new_work)
+        IO.puts("ELZ-234: kind=#{kind} S=#{s_kind} sweep_ms=#{ms_kind}")
+      end
+
+      IO.puts("ELZ-234: kind=resource_event S=#{s_res} sweep_ms=#{ms_res}")
+    end
+  end
+
+  describe "settling_input_is_given_as_today" do
+    test "an action_outcome for an active slot at 64 bytes of headroom settles the slot, calls the pattern and preserves the bound" do
+      c =
+        fixture(
+          pattern:
+            {TestPattern, :waiting,
+             %{name: "root", script: [request([action("act", "tool_call")]), :wait]}}
+        )
+
+      engine = start(c)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, provider, _req}, 5_000
+      wait_for(engine, &(&1.slots[{1, 0}].phase == :running))
+      state = unit_state(c)
+      padded = pad_invocations(state, 64)
+      id = String.duplicate("o", 160)
+
+      record =
+        protocol_record(id, result("act", %{}),
+          correlation: %{occurrence: {1, 0}, actual: 0, dispatch: "dispatched"}
+        )
+
+      assert {:Transition, next, :none} = RunEngine.step(padded, record)
+      assert next.slots[{1, 0}].phase == :settled
+      assert next.slots[{1, 0}].outcome == "completed"
+      assert next.control.callables["root"].state.script == []
+      assert Map.has_key?(next.control.invocations, id)
+      assert control_headroom(next) >= 0
+      send(provider, {:result, %{}})
+    end
+  end
+
+  describe "request_after_the_check" do
+    test "at S a pattern request is classified record_size by admit_request/5, and with room it is admitted; the bound holds in both" do
+      c =
+        fixture(
+          pattern: {TestPattern, :waiting, %{name: "root", script: [request([action("req")])]}}
+        )
+
+      _engine = start(c)
+      state = unit_state(c)
+      id = String.duplicate("q", 160)
+      record = protocol_record(id, wake())
+
+      # Find S for this state (where the 202-byte entry + :permit_new_work just fits).
+      base = pad_invocations(state, 500)
+
+      {switch_h, _} =
+        Enum.find(
+          for(h <- 64..266, do: {h, elem(RunEngine.step(pad_invocations(base, h), record), 1)}),
+          fn {_, next} -> Map.has_key?(next.control.invocations, id) end
+        )
+
+      at_s = pad_invocations(base, switch_h)
+      assert {:Transition, refused_req, :none} = RunEngine.step(at_s, record)
+      assert refused_req.control.classification == :record_size
+      assert refused_req.control.count == 1
+      assert Map.has_key?(refused_req.control.invocations, id)
+      assert refused_req.control.callables["root"].state.script == []
+      assert refused_req.slots == %{}
+      assert refused_req.requests == %{}
+      assert control_headroom(refused_req) >= 0
+
+      with_room = pad_invocations(state, switch_h + 16_384)
+      assert {:Transition, admitted, {:some, {:request, 1}}} = RunEngine.step(with_room, record)
+      assert admitted.control.classification == {:request, 1}
+      assert map_size(admitted.slots) == 1
+      assert control_headroom(admitted) >= 0
+    end
+  end
+
+  describe "engine_goes_on" do
+    test "after a refusal, a second wake refuses identically, cancel updates lifecycle, and the first wake runs when padding is removed" do
+      c = fixture(pattern: {TestPattern, :waiting, %{name: "root", script: [:wait]}})
+      _engine = start(c)
+      state = unit_state(c)
+      padded = pad_invocations(state, 64)
+      id1 = String.duplicate("a", 160)
+      record1 = protocol_record(id1, wake())
+      assert {:Transition, refused1, :none} = RunEngine.step(padded, record1)
+      assert_non_settling_refused(refused1, padded)
+
+      id2 = String.duplicate("b", 160)
+      record2 = protocol_record(id2, wake())
+      assert {:Transition, refused2, :none} = RunEngine.step(refused1, record2)
+      assert_non_settling_refused(refused2, refused1)
+
+      cancel_input = %{
+        "type" => "input",
+        "version" => 1,
+        "kind" => "cancel",
+        "attempt_id" => "attempt",
+        "at_ms" => 2_100
+      }
+
+      cancel_record = protocol_record(String.duplicate("c", 160), cancel_input)
+      assert {:Transition, cancelled, :none} = RunEngine.step(refused1, cancel_record)
+      assert cancelled.control.stop_pending == :cancelled
+      assert cancelled.control.cancelled_attempt == "attempt"
+      assert cancelled.control.classification == {:request_outcome, :cancelled}
+      assert control_headroom(cancelled) >= 0
+
+      unpadded = put_in(refused1.control.invocations, state.control.invocations)
+      assert {:Transition, accepted, :none} = RunEngine.step(unpadded, record1)
+      assert accepted.control.classification == :permit_new_work
+      assert Map.has_key?(accepted.control.invocations, id1)
+      assert accepted.control.callables["root"].state.script == []
+      assert control_headroom(accepted) >= 0
+    end
+  end
+
+  describe "decision_is_pure" do
+    test "two calls of step/2 with equal states and records return equal results for groups 1, 2 and 4" do
+      # Group 1 (h = 64) and Group 2 (h = S - 1 and h = S)
+      c1 = fixture(pattern: {TestPattern, :waiting, %{name: "root", script: [:wait]}})
+      _engine1 = start(c1)
+      state1 = unit_state(c1)
+      base1 = pad_invocations(state1, 500)
+      id1 = String.duplicate("p", 160)
+      rec1 = protocol_record(id1, wake())
+      {switch_h, _} = non_settling_switch(state1, rec1, [], :permit_new_work)
+
+      for h <- [64, switch_h - 1, switch_h] do
+        s = pad_invocations(base1, h)
+        assert RunEngine.step(s, rec1) == RunEngine.step(s, rec1)
+      end
+
+      # Group 4 (active slot at h = 64)
+      c4 =
+        fixture(
+          pattern:
+            {TestPattern, :waiting,
+             %{name: "root", script: [request([action("act", "tool_call")]), :wait]}}
+        )
+
+      engine4 = start(c4)
+      assert {:ok, :applied} = send_input(engine4)
+      assert_receive {:effect_started, provider, _req}, 5_000
+      wait_for(engine4, &(&1.slots[{1, 0}].phase == :running))
+      padded4 = pad_invocations(unit_state(c4), 64)
+
+      rec4 =
+        protocol_record(String.duplicate("q", 160), result("act", %{}),
+          correlation: %{occurrence: {1, 0}, actual: 0, dispatch: "dispatched"}
+        )
+
+      assert RunEngine.step(padded4, rec4) == RunEngine.step(padded4, rec4)
+      send(provider, {:result, %{}})
+    end
+  end
+
+  describe "unit_stays_alive" do
+    test "a unit started on a journal with 64 bytes of headroom applies a wake without calling the pattern, stays alive and restarts equal" do
+      c = fixture(pattern: {TestPattern, :waiting, %{name: "root", script: [:wait]}})
+      engine = start(c)
+      padded = pad_invocations(unit_state(c), 64)
+      GenServer.stop(engine)
+      assert :ok = DynamicUnits.stop(c.directory, c.prefix)
+
+      {:ok, writer} =
+        Elzoo.DurableLog.Writer.start_link(
+          store: c.store,
+          stream: c.prefix,
+          fold: DurableUnit.fold(c.unit_opts),
+          limits: DurableUnit.limits(c.unit_opts)
+        )
+
+      assert {:committed, _} =
+               Elzoo.DurableLog.Writer.append(writer, [
+                 {"input", 1,
+                  :erlang.term_to_binary({1, {"pad-init", %{version: 1, kind: :pad}}}, [
+                    :deterministic,
+                    {:minor_version, 2}
+                  ])}
+               ])
+
+      assert {:committed, _} =
+               Elzoo.DurableLog.Writer.append(writer, [
+                 {"result", 1,
+                  :erlang.term_to_binary({1, {"pad-init", padded}}, [
+                    :deterministic,
+                    {:minor_version, 2}
+                  ])}
+               ])
+
+      GenServer.stop(writer)
+
+      engine = start(c)
+      assert unit_state(c) == padded
+
+      id = String.duplicate("u", 160)
+      assert {:ok, :applied} = RunEngine.input(engine, id, wake(), verified())
+      assert Process.alive?(engine)
+      {:ok, unit} = DynamicUnits.find(c.directory, c.prefix)
+      assert Process.alive?(unit)
+      assert view(engine).classification == :record_size
+
+      after_state = unit_state(c)
+      assert_non_settling_refused(after_state, padded)
+
+      engine = restart(c, engine, [])
+      assert Process.alive?(engine)
+      assert unit_state(c) == after_state
+    end
+  end
 end
