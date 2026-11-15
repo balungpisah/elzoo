@@ -2159,7 +2159,7 @@ defmodule Elzoo.RunEngine do
 
             case result do
               {:ok, _} -> {:ok, s}
-              {:refused, reason} when reason in [:not_open, :paused] -> {:ok, s}
+              {:refused, reason} when reason in [:not_open, :paused, :closing, :closed] -> {:ok, s}
               _ -> {:error, :resource_dispatch_unknown, %{s | halted: :resource_dispatch_unknown}}
             end
         end
@@ -2619,8 +2619,10 @@ defmodule Elzoo.RunEngine do
                        do: dispatch(acc, key, %{slot | phase: :ready})
                      )
 
-              with {:ok, acc} <- result,
-                   do: {:cont, {:ok, acc}}
+              case result do
+                {:ok, acc} -> {:cont, {:ok, acc}}
+                other -> {:halt, other}
+              end
 
             {:ok, _, %{approval: :waiting}} ->
               {:cont, {:ok, acc}}
