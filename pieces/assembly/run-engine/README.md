@@ -494,7 +494,7 @@ candidate (`control_id_of_a_protocol_input_is_a_conflict` fails: the control cal
 with an exit and the engine process is gone). For the replies to an approval request,
 the old clause that refuses every reply other than `ok` is a negative control
 (`request_survives_a_death`, `lost_reply_is_recovered` and
-`uncertain_reply_is_no_refusal` fail: the slot is settled after the input;
+`uncertain_reply_is_no_refusal` fail: the slot is settled where it should wait;
 `definite_refusal_still_refuses` passes). These finite scenarios are not a universal proof, production monitor,
 physical no-send guarantee or proof of arbitrary callbacks/providers. Reused
 Cure laws retain their dependency-local scope; no new Cure proof is claimed.
