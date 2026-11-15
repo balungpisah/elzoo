@@ -1629,8 +1629,7 @@ defmodule Elzoo.RunEngine do
     end
   end
 
-  # A round that changed no durable state ends the drain: the next round would
-  # choose the same work again.
+  # A round that changed no durable state ends the drain.
   defp again(s, before), do: if(snapshot(s) == before, do: {:ok, s}, else: drain(s))
 
   # A closed child whose every slot cost is known or final unknown gives its parent

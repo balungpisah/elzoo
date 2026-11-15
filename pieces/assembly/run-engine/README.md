@@ -188,7 +188,7 @@ engine clock is read, as the fold reads the time of the record); after its deadl
 it is not selected and stays open (`running`). A parent of an older Attempt is
 settled at the change of Attempt (below), not handed an outcome. No record is
 written for it, and `drain` goes on. A round of `drain` that changes no durable
-state ends the drain: the next round would choose the same work again. This also covers a child whose
+state ends the drain. This also covers a child whose
 costs are all known; before, the engine could repeat that hand-over without
 end. Only a nested callable's first admitted `finish` is kept in
 its closing continuation record and given to the parent when the child settles:
@@ -343,8 +343,8 @@ returns inside a bounded wait; the parent stays `running` and the lost tool call
 `input_returns_with_an_expired_retained_parent` (the real result of the child tool
 call after the deadline returns `{:ok, :applied}` inside a bounded wait; the parent
 stays `running`), `nothing_more_is_written` (after each of those two states one more
-input and one more restart leave the journal records of the parent and the view
-as they were), `retained_parent_before_its_deadline_settles` (the same Run with the
+input and one more restart leave the journal records of the parent as they were
+and the view equal apart from `classification`, which names the last input), `retained_parent_before_its_deadline_settles` (the same Run with the
 clock before the deadline: the parent settles `completed` with the committed child
 amount) and `other_work_goes_on` (two parents in one request, the first past its
 deadline: the second settles `completed` with its actual and the first stays
