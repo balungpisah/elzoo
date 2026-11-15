@@ -1337,17 +1337,27 @@ defmodule Elzoo.RunEngine do
 
   @impl true
   def handle_info({:durable_unit_input, id, %{version: 1, kind: :protocol} = record}, s) do
-    result =
-      with {:ok, s} <- current(s),
-           {:ok, input, correlation, s} <-
-             checked_ingress(s, record.input, Map.merge(record.context, record.correlation)),
-           record = %{record | input: input, correlation: correlation},
-           {:ok, _, s} <- commit(s, id, record),
-           do: drain(s)
+    case current(s) do
+      {:ok, s} ->
+        case checked_ingress(s, record.input, Map.merge(record.context, record.correlation)) do
+          {:ok, input, correlation, s} ->
+            record = %{record | input: input, correlation: correlation}
 
-    case result do
-      {:ok, s} -> {:noreply, s}
-      {:error, _, s} -> {:noreply, s}
+            result =
+              with {:ok, _, s} <- commit(s, id, record),
+                   do: drain(s)
+
+            case result do
+              {:ok, s} -> {:noreply, s}
+              {:error, _, s} -> {:noreply, s}
+            end
+
+          {:error, _} ->
+            {:noreply, s}
+        end
+
+      {:error, _, s} ->
+        {:noreply, s}
     end
   end
 
@@ -1375,23 +1385,49 @@ defmodule Elzoo.RunEngine do
   defp ingest(s, id, neutral, context) do
     with true <- text?(id, 160) and is_map(neutral) and is_map(context),
          true <- text?(context[:run_id], 200) and text?(context[:attempt_id], 200),
-         false <- Map.has_key?(neutral, "at_ms"),
-         {:ok, s} <- current(s),
-         at when is_integer(at) and at > 0 <- s.opts.clock.(),
+         false <- Map.has_key?(neutral, "at_ms") do
+      case current(s) do
+        {:ok, s} -> ingest_current(s, id, neutral, context)
+        {:error, reason, s} -> {{:error, reason}, s}
+      end
+    else
+      _ -> {{:error, :invalid_input}, s}
+    end
+  catch
+    :exit, _ ->
+      {{:indeterminate, :delivery}, %{s | halted: :delivery_unknown, state: nil, decoded: %{}}}
+  end
+
+  defp ingest_current(s, id, neutral, context) do
+    with at when is_integer(at) and at > 0 <- s.opts.clock.(),
          input = Map.put(neutral, "at_ms", at),
-         {:ok, _} <- PatternStep.decode(input),
-         {:ok, checked, correlation, s} <- checked_ingress(s, input, context),
-         record = %{
-           version: 1,
-           kind: :protocol,
-           id: id,
-           input: checked,
-           run_id: context.run_id,
-           attempt_id: context.attempt_id,
-           correlation: correlation,
-           context: Map.take(context, [:verified_person, :pause_deadline])
-         },
-         true <- plain?(record),
+         {:ok, _} <- PatternStep.decode(input) do
+      case checked_ingress(s, input, context) do
+        {:ok, checked, correlation, s} ->
+          submit_ingress(s, id, input, checked, correlation, context)
+
+        {:error, reason} ->
+          {{:error, reason}, s}
+      end
+    else
+      {:error, reason} -> {{:error, reason}, s}
+      _ -> {{:error, :invalid_input}, s}
+    end
+  end
+
+  defp submit_ingress(s, id, input, checked, correlation, context) do
+    record = %{
+      version: 1,
+      kind: :protocol,
+      id: id,
+      input: checked,
+      run_id: context.run_id,
+      attempt_id: context.attempt_id,
+      correlation: correlation,
+      context: Map.take(context, [:verified_person, :pause_deadline])
+    }
+
+    with true <- plain?(record),
          :ok <-
            if(bytes({1, {id, record}}) <= @ingress_bytes, do: :ok, else: {:error, :input_too_large}),
          {:ok, record} <-
@@ -1412,13 +1448,9 @@ defmodule Elzoo.RunEngine do
           {{:error, reason}, s}
       end
     else
-      {:error, reason, s} -> {{:error, reason}, s}
       {:error, reason} -> {{:error, reason}, s}
       _ -> {{:error, :invalid_input}, s}
     end
-  catch
-    :exit, _ ->
-      {{:indeterminate, :delivery}, %{s | halted: :delivery_unknown, state: nil, decoded: %{}}}
   end
 
   # `admitted` gives the action of an occurrence whose slot no longer holds it.

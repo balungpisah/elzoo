@@ -3353,6 +3353,17 @@ defmodule Elzoo.RunEngineTest do
       assert nested_counts.du_applied > 0
       assert nested_counts.snapshot <= nested_counts.du_applied + 2
       send(provider, {:result, %{}})
+
+      # 4. Ingest failure after current(s) synced a Run change must not leave stale cached state.
+      c3 = fixture(pattern: {TestPattern, :step, %{requests: []}})
+      e3 = start(c3)
+      assert view(e3).phase == :active
+      end_run(c3)
+
+      assert {:error, :invalid_shape} =
+               RunEngine.input(e3, "bad-after-sync", %{"bad" => true}, verified())
+
+      assert view(e3).phase == :terminal
     end
 
     test "one_decode_per_round: Jason.decode!/1 calls in engine stay within 1 per request in a round" do
@@ -3867,6 +3878,19 @@ defmodule Elzoo.RunEngineTest do
 
         assert elz217_oracle_bytes({1, {String.duplicate("i", 160), combined}}) <= 16_777_216
         elz217_assert_boundary(combined, expected)
+      end
+
+      # Also compare oracle and step/2 at 16_777_215 / 16_777_216 / 16_777_217 record bytes
+      # (where the request map bound is exceeded simultaneously).
+      for target <- [16_777_215, 16_777_216, 16_777_217] do
+        at_record_bound =
+          elz217_pad_exact(
+            target,
+            fn s -> elz217_oracle_bytes({1, {String.duplicate("i", 160), s}}) end,
+            fn pad -> %{max_slots_base | requests: %{2 => String.duplicate("r", pad)}} end
+          )
+
+        elz217_assert_boundary(at_record_bound, false)
       end
     end
 
