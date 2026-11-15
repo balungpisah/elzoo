@@ -1173,8 +1173,8 @@ Measured for ELZ-221 on 2026-11-15 at commit `25d7c8edcb36`, on a developer host
 same time. The root suite, `mix test --warnings-as-errors --seed <n> --exclude consumer_id --exclude aggregate_consumer`,
 exited 0 with each of the seeds 101, 2024 and 31337 (2545 passed, 109 excluded each time); three seeds are a sample,
 not a proof that no order dependency exists. The total of the consumer of `integration/ai-text` in the job
-`check-consumers-db` of the nine newest green push runs of `main` that ran that job (read on 2026-11-14 and
-2026-11-15): 87.8, 65.3, 71.5, 87.2, 86.7, 58.8 s (runs 43631684316, 43627504841, 43621456382, 43610606256,
+`check-consumers-db` of nine green push runs of `main` that ran that job (six read on 2026-11-14, and the three newest
+at the time of the read on 2026-11-15): 87.8, 65.3, 71.5, 87.2, 86.7, 58.8 s (runs 43631684316, 43627504841, 43621456382, 43610606256,
 43608386530, 43605594917) and 89.8, 88.9, 87.4 s (runs 43653763850, 43658838078, 43657783841). The largest is 89.8 s,
 74.8 percent of the 120 s limit. Decision: no change proposed.
 
