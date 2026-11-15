@@ -3468,7 +3468,16 @@ defmodule Elzoo.RunEngineTest do
                  verified()
                )
 
-      wait_for(engine, fn _ -> not Map.has_key?(requests(c), 1) end, 2_000)
+      # The request leaves the state while the released action still runs: wait for both.
+      wait_for(
+        engine,
+        fn view ->
+          not Map.has_key?(requests(c), 1) and view.slots[{1, 1}].phase == :settled
+        end,
+        2_000
+      )
+
+      assert view(engine).slots[{1, 1}].outcome == "completed"
       retries.()
       send(provider, {:result, %{}})
     end
