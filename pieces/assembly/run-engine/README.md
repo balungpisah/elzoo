@@ -82,7 +82,11 @@ because Resource owns its original cleanup. Local work supplies `work.(action)`
 returning a bounded non-Effect MFA. Person asks supply `person.(action)`.
 Nested bindings supply `nested.(action)` with typed payload/schema, pure MFA,
 initial state and distinct Budget identity/incarnation; their cap is exactly
-the parent's reserved share and their authority is narrowed. Payload cannot
+the parent's reserved share and their authority is narrowed. A nested binding
+may give `state_bytes`, the state bound of the child: an integer from 1 to
+65,536. With no `state_bytes` the bound is 65,536. The bound of the root is
+65,536. A nested action whose `state_bytes` is outside 1 to 65,536, or whose
+initial state is larger than its bound, is refused with `nested_input`. Payload cannot
 select arbitrary modules, tenants, provider accounts or grants.
 
 The host owns checked provisioning, authentication, schema/binding compatibility,
@@ -220,6 +224,19 @@ two can take that room. With no room, the finish is refused with the reason
 `record_size`: the child pattern gets an ordinary refusal, the parent action is not
 completed by it, and the child callable stays open. A root finish and every other
 action kind are admitted as before.
+
+Each callable has a state bound. A pattern state over the bound of its callable is
+not stored (`invalid_pattern_state`; for an output over the request cap the answer
+stays `over_cap`). While a callable is open, control reserves its whole state bound,
+so an open callable can store any state within its bound at any later input: no
+input fails for the size of a pattern state. A nested start is kept only when the
+state after it satisfies the bound, with the state bound of the child, its Budget and
+its authority counted. With no room, the parent action is refused with `record_size`,
+actual 0, nothing dispatched; no child and no Budget exist; the evaluation of the
+child is dropped and charges nothing; the reservation of the parent is released; the
+engine goes on. The state of a callable leaves control when the callable closes: when
+its finish is kept, at a change of Attempt, and when a terminal Run closes it. Its
+room comes back then. The Budget, the join and the receipts of a closed child stay.
 Paused accepted results retain their pattern input until
 continue, without dispatch while paused; monetary exhaustion still takes
 lifecycle precedence below the request-count cap.
@@ -344,7 +361,7 @@ Payload/outcome JSON <=65536 bytes and depth <=32; ingress <=262144 bytes;
 DU record/output <=16777216 bytes; complete active slot <=131072 bytes;
 64 active/256 lifetime actions; control <=2097152 bytes (including 4096 bytes
 reserved per active action and cap+1 receipt reservations); complete compact
-request map <=4456448 bytes; slot map <=8 MiB; callable state <=65536 bytes.
+request map <=4456448 bytes; slot map <=8 MiB; callable state within its state bound (<=65536 bytes), reserved in control while the callable is open.
 Whole encoded candidates remain authoritative, including JSON-to-ETF expansion
 and framing. Oversized outcomes become bounded failure/loss, never truncation,
 payload logging or resend. Future settlement capacity cannot fund new requests.
@@ -471,7 +488,7 @@ and a request-cap stop closed at its deadlines, two restarts give an equal view 
 start no Effect), and the four groups of the
 room of a child finish: `finish_without_room_is_refused` (28 parents are open
 together, each with a child that holds an open tool cost and finishes with a payload of
-65,536 JSON bytes: 26 of the finishes are kept and the other 2 are refused with
+65,536 JSON bytes: 25 of the finishes are kept and the other 3 are refused with
 `record_size`, each child gets the refusal, its parent stays open and its callable
 stays open, the engine answers the next input, the bound is recomputed from the unit
 state and holds after each input, and an input at the deadline of the parents settles
@@ -480,7 +497,38 @@ of the size that was refused is admitted and kept whole), `smaller_finish_fits`
 (after the refusal a small finish of the same child is admitted and reaches the parent
 once the child cost is known) and `replay_is_equal (finish without room)` (a restart
 gives an equal view and an equal count of journal records, and the refused finish is
-not asked again), and the four groups of the control path:
+not asked again), the nine groups of the state bound:
+`nested_start_without_room_is_refused` (32 nested starts of the default bound in one
+request of the root, children that wait, request cap 100: 27 are kept with their exact
+state and the bound 65,536, the 5 after them are refused `record_size` with actual 0
+and `not_dispatched`, the root gets each refusal, no callable or Budget exists for
+them, the root Budget holds 10 for each kept parent and commits nothing, and the bound
+holds before and after the next input), `declared_bound_decides` (with no `state_bytes`
+and with 65,536 declared the same 27 starts are kept and the first refusal is at the
+same place; with 1,024 declared all 32 are kept; beside refused children of 65,536 a
+child with 1,024 is kept and runs its action), `root_state_can_grow` (with less than
+131,072 bytes of room the root stores a state of exactly 65,536 bytes and the step
+passes), `state_over_its_bound_is_not_stored` (a child with `state_bytes` 1,024 that
+returns 1,025 bytes keeps its old state and the step is classified
+`invalid_pattern_state`; a state of exactly 1,024 bytes is stored), `bound_is_validated`
+(`state_bytes` 0, 65,537, a string, and an initial state one byte over its bound are
+each refused `nested_input` with no child, no Budget and no `:nested` record; an
+initial state of exactly the bound is kept), `refusal_leaves_no_trace_of_the_child`
+(the states just before and just after the `:nested` record of a refused start have
+equal counts, receipts, invocations, callables, requests and other slots, the parent
+Budget changes only by the release of its 10, and no later input reaches the dropped
+child), `state_grows_after_start` (31 children of the default bound that each ask a
+tool call: 26 are kept, 25 hold their call and grow to exactly 65,536 bytes on its
+outcome, in ascending and in descending order; the bound holds after every input, no
+step fails and the unit answers the next input), `room_comes_back_at_close` (a child
+that grew to its bound finishes: its node is closed with no state, its room comes
+back, and a nested start of the bound that was refused, asked by another open child,
+is kept; after a change of Attempt and after the end of the Run no node but the root
+holds a state) and `replay_is_equal (state bound)` (after the refusals a change of
+Attempt and two restarts give an equal view, slots, Budgets and count of journal
+records; after the growth the unit started alone on its journal gives an equal state
+and record count; after the room came back a second restart changes nothing; the
+refused starts are not asked again), and the four groups of the control path:
 `approved_root_finish_ends_the_run` (an approved root `finish` with a completed source:
 the consent control replies `{:ok, :applied}`, and with no further input the view is
 `:terminal` with outcome `:completed` and no pending stop, and the Run has the outcome
@@ -513,8 +561,10 @@ request); every earlier test of the Piece passes unchanged, except the tests who
 assertion that a parent of a terminal Run stays `running` is now that it is closed `unknown`
 (`no_loop_for_a_parent_that_cannot_settle`, one test; `start_returns_with_an_expired_retained_parent`;
 `input_returns_with_an_expired_retained_parent`; `nothing_more_is_written`, both tests; and
-`other_work_goes_on`), and the test helper `resource_cursor`, which takes the Attempt as an
-optional argument. The tests run
+`other_work_goes_on`), the test helper `resource_cursor`, which takes the Attempt as an
+optional argument, the six tests of the room of a child finish, whose children declare
+`state_bytes` 1,024 in the binding override of their Run (one line; every assertion
+unchanged), and the test helper `control_headroom/1`, which counts the new reserve. The tests run
 with disposable PostgreSQL, existing ready owners,
 ordinary OTP barriers and counting fake providers. Actual temporary engine
 mutations bypassing the committed gate boundary and first settlement, giving a
@@ -563,7 +613,17 @@ is written; no other group notices the order). For the room of a
 child finish, the admission without the room check (`finish_without_room_is_refused`
 fails: the step of the kept finish raises, the durable unit stops, and the wait for the
 28 finishes ends in the test time-out) and the reserve without the bytes of the
-pending finishes (`finish_without_room_is_refused` fails in the same way) are negative controls. For the control path, the control without the drain after the
+pending finishes (`finish_without_room_is_refused` fails in the same way) are negative controls.
+For the state bound, the reserve without its term for open callables
+(`state_grows_after_start` fails: the bound recomputed from the unit state is broken
+after the first growth; with that check only printed, the step of a later growth fails,
+the unit stops with `durable_unit_transition_failed` and a new start of the unit
+fails), the `:nested` fold without its check (`nested_start_without_room_is_refused`
+fails: the reply is `{:error, :durable_unit_transition_failed}` and a new start of the
+unit fails), the close that keeps the state (`room_comes_back_at_close` fails: the
+closed node holds its state, and the later start is refused) and the checks of
+`invoke/3` at 65,536 in place of the bound (`state_over_its_bound_is_not_stored` fails:
+no step is classified `invalid_pattern_state`) are negative controls. For the control path, the control without the drain after the
 release is a negative control (`approved_root_finish_ends_the_run` fails: the view has
 no outcome after the reply; `approved_child_finish_reaches_its_parent` fails: the parent
 slot is still running; the three tests of `replay_is_equal` pass), and so is the
@@ -631,3 +691,20 @@ not `ok`; a key read from the view is used only through `release_approved` and
 When the Run owner stops after an indeterminate write, the read of the view exits, as
 each other call of the engine to a gone owner does. A Run recorded before this repair
 that already holds the false refusal keeps it (Elzoo is not released).
+
+Limits of the state bound. With every child at the bound of 65,536, 27 children can
+be open at once in the scenario of `nested_start_without_room_is_refused`; a binding
+that gives a smaller `state_bytes` allows more, up to the 64 active actions. A child
+whose parent action settled while the child was open stays open and keeps its reserve
+until the Attempt changes or the Run ends. A child holds its reserve until its finish
+is kept, so a finish needs its own room beside the reserve of its child. The last bytes
+of the bound are not reserved for small growth: every refusal adds its reason to its
+slot, so a slot within a few bytes of its own bound of 131,072 can pass it; and the
+refusal of a nested start releases the reservation of the parent, which turns its
+Budget entry from the open form (13 bytes encoded for an expiry up to 255, 16 bytes
+above it) into the released form (15 bytes), so control becomes 2 bytes larger only
+when the expiry of the parent is below 256 ms, and smaller otherwise; such a refusal can
+pass the bound only when control is within 2 bytes of it. A Run recorded before this
+repair can fold to another state: a larger reserve can refuse a nested start or a
+request that fitted, and the state of a closed callable is gone (Elzoo is not
+released).
