@@ -2691,7 +2691,9 @@ defmodule Elzoo.RunEngineTest do
 
     # A stand-in for the Resource that the engine calls: it passes every call on and, before the
     # first dispatch command, runs `before_dispatch`. It gives the host a deterministic turn
-    # between the action command and its dispatch.
+    # between the action command and its dispatch. When `before_dispatch` returns
+    # `{:reply, term}` the proxy answers the dispatch with that term and does not forward it,
+    # so the Resource never sees the command; any other return forwards as usual.
     defp resource_proxy(owner, before_dispatch) do
       spawn_link(fn -> proxy_loop(owner, before_dispatch) end)
     end
@@ -2699,8 +2701,10 @@ defmodule Elzoo.RunEngineTest do
     defp proxy_loop(owner, before_dispatch) do
       receive do
         {:"$gen_call", from, {:command, %{body: {:dispatch, _, _}}} = call} ->
-          before_dispatch.()
-          GenServer.reply(from, GenServer.call(owner, call, 60_000))
+          case before_dispatch.() do
+            {:reply, reply} -> GenServer.reply(from, reply)
+            _ -> GenServer.reply(from, GenServer.call(owner, call, 60_000))
+          end
 
         {:"$gen_call", from, call} ->
           GenServer.reply(from, GenServer.call(owner, call, 60_000))
@@ -2822,6 +2826,227 @@ defmodule Elzoo.RunEngineTest do
       assert Enum.any?(entries, fn e ->
                match?({:dispatch, _}, e.command_id) and match?({:unknown, _}, e.receipt)
              end)
+    end
+
+    # ELZ-240: a restart never resends the action command of a running Resource slot.
+    # Groups 1 and 2 use the state of expired_intent_does_not_halt plus one further input.
+    test "restart_keeps_a_sent_action_open" do
+      t = expired_intent()
+      %{c: c, owner: owner, bindings: bindings, engine: engine} = t
+      reservation = unit_state(c).slots[{2, 1}].reservation
+      assert budget_status(c, "root", 10_001) == %{committed: 0, reserved: 3}
+
+      # One further input, as in expired_intent_does_not_halt.
+      assert {:ok, :applied} = RunEngine.input(engine, "again", wake(), verified())
+      refute_receive {:effect_started, _, _}, 300
+
+      engine = restart(c, engine, resources: %{"document" => owner}, bindings: bindings)
+      assert view(engine).reconciliation == nil
+
+      v = view(engine)
+      assert %{phase: :running} = v.slots[{2, 1}]
+      refute Map.has_key?(v.slots[{2, 1}], :outcome)
+      assert unit_state(c).slots[{2, 1}].reservation == reservation
+      assert budget_status(c, "root", 10_001) == %{committed: 0, reserved: 3}
+
+      refute Enum.any?(journal(c), fn
+               {:protocol, "action_outcome", "queued", "refused", _, 0, _, _} -> true
+               _ -> false
+             end)
+
+      send(t.opening, {:result, %{}})
+      send(t.using, {:result, %{}})
+    end
+
+    test "cursor_settles_after_restart" do
+      t = expired_intent()
+      %{c: c, owner: owner, bindings: bindings, engine: engine} = t
+      reservation = unit_state(c).slots[{2, 1}].reservation
+
+      # The state of group 1: one further input, then the restart.
+      assert {:ok, :applied} = RunEngine.input(engine, "again", wake(), verified())
+      engine = restart(c, engine, resources: %{"document" => owner}, bindings: bindings)
+
+      observe_use(
+        owner,
+        "queued",
+        10_000,
+        {:failed, :not_dispatched, %{"reason" => "not_dispatched"}}
+      )
+
+      assert {:ok, :applied} = RunEngine.input(engine, "consume-failed", wake(), verified())
+      v = view(engine)
+      assert v.reconciliation == nil
+      assert %{phase: :settled, outcome: "failed"} = v.slots[{2, 1}]
+
+      assert [%{"outcome" => "failed", "payload" => %{"reason" => "failed"}}] =
+               outcome_records(c, "queued")
+
+      slot = unit_state(c).slots[{2, 1}]
+      assert slot.actual == nil
+      assert slot.reservation == reservation
+      assert budget_status(c, "root", 10_001) == %{committed: 0, reserved: 3}
+      send(t.opening, {:result, %{}})
+      send(t.using, {:result, %{}})
+    end
+
+    # ELZ-240 group 3: the engine stopped after the action command of a Resource use
+    # and before its {:dispatch, ...} command. The intent was never tried; the first
+    # restart sends the dispatch once under its deterministic ID, the Resource's
+    # receipt shows one dispatch, and a second restart sends nothing more.
+    test "restart_with_untried_intent_dispatches_once" do
+      payload = %{"run_id" => "run", "resource_name" => "document", "data" => %{}}
+
+      c =
+        fixture(
+          pattern:
+            {TestPattern, :step,
+             %{
+               requests: [
+                 request([action("open", "resource_open", payload)]),
+                 request([action("using", "resource_use", payload)])
+               ]
+             }}
+        )
+
+      {owner, bindings} = resource(c)
+
+      # The proxy forwards the first {:dispatch, ...} (the open) and answers the
+      # second (the use) with a harmless refusal without forwarding it, so the
+      # engine records the use slot :running while the Resource never sees its
+      # dispatch: the intent stays untried (attempts == 0).
+      dispatches = start_supervised!({Agent, fn -> 0 end}, id: make_ref())
+
+      proxy =
+        resource_proxy(owner, fn ->
+          case Agent.get_and_update(dispatches, fn n -> {n, n + 1} end) do
+            0 -> :forward
+            _ -> {:reply, {:refused, :not_open}}
+          end
+        end)
+
+      engine = start(c, resources: %{"document" => proxy}, bindings: bindings)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, opening, _}, 5_000
+
+      assert {:ok, _} =
+               Elzoo.RunResource.command(owner, %{
+                 id: "opened",
+                 at_ms: 2_000,
+                 body:
+                   {:observed, ["tenant", "account", "effect", "publish", "open"],
+                    {:completed, %{opened_at_ms: 2_000}}}
+               })
+
+      assert {:ok, :applied} = RunEngine.input(engine, "opened", wake(), verified())
+      refute_receive {:effect_started, _, _}, 300
+      assert %{phase: :running} = view(engine).slots[{2, 0}]
+
+      # The dispatch the proxy refused never reached the Resource: only the open's
+      # dispatch is in the log; the use intent has no attempt.
+      assert {:ok, %{entries: before}} = Elzoo.RunResource.read(owner, 0)
+
+      # Only the open's dispatch pair is in the log; the refused use dispatch never
+      # reached the Resource, so the use intent has no attempt.
+      assert Enum.count(before, &match?({:dispatch, _}, &1.command_id)) == 2
+
+      engine = restart(c, engine, resources: %{"document" => owner}, bindings: bindings)
+      assert %{phase: :running} = view(engine).slots[{2, 0}]
+      refute Map.has_key?(view(engine).slots[{2, 0}], :outcome)
+
+      # The first restart sent {:dispatch, ...} once under its deterministic ID; the
+      # Resource accepted it, recorded the dispatch pair, and the intent has an
+      # attempt now.
+      assert {:ok, %{entries: after_first}} = Elzoo.RunResource.read(owner, 0)
+      assert length(after_first) == length(before) + 2
+
+      assert Enum.any?(after_first, fn e ->
+               match?({:dispatch, _}, e.command_id) and match?({:ok, _}, e.receipt)
+             end)
+
+      # A second restart sends nothing more: the intent now has an attempt.
+      engine = restart(c, engine, resources: %{"document" => owner}, bindings: bindings)
+      assert %{phase: :running} = view(engine).slots[{2, 0}]
+      assert {:ok, %{entries: after_second}} = Elzoo.RunResource.read(owner, 0)
+      assert length(after_second) == length(after_first)
+
+      send(opening, {:result, %{}})
+    end
+
+    # ELZ-240 group 4: a request-cap stop retains the sent Resource slot before its
+    # deadline; after a restart the slot is not refused run_or_authority with actual
+    # 0 while it is retained, and the end-of-Run closer settles it at its deadline.
+    test "retained_slot_survives_restart" do
+      payload = %{"run_id" => "run", "resource_name" => "document", "data" => %{}}
+
+      c =
+        fixture(
+          pattern:
+            {TestPattern, :step,
+             %{
+               requests: [
+                 request([action("open", "resource_open", payload)]),
+                 request([action("using", "resource_use", payload)])
+               ]
+             }},
+          request_cap: 2
+        )
+
+      {owner, bindings} = resource(c)
+      engine = start(c, resources: %{"document" => owner}, bindings: bindings)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, opening, _}, 5_000
+
+      assert {:ok, _} =
+               Elzoo.RunResource.command(owner, %{
+                 id: "opened",
+                 at_ms: 2_000,
+                 body:
+                   {:observed, ["tenant", "account", "effect", "publish", "open"],
+                    {:completed, %{opened_at_ms: 2_000}}}
+               })
+
+      # A message input is not a wake: it reads the cursor (settling the open and
+      # emitting the use request, count now at the cap of 2) and drains the use to
+      # :running without a cap check, so the sent slot is running before the stop.
+      message = %{
+        "type" => "input",
+        "version" => 1,
+        "kind" => "message",
+        "schema_id" => "message",
+        "schema_version" => 1,
+        "payload" => %{}
+      }
+
+      assert {:ok, :applied} = RunEngine.input(engine, "settle-open", message, verified())
+      assert_receive {:effect_started, using, _}, 5_000
+      assert %{phase: :running} = view(engine).slots[{2, 0}]
+
+      # The wake sees count == cap: the Run ends out_of_budget while the sent use
+      # slot is still running and retained before its deadline.
+      assert {:ok, :applied} = RunEngine.input(engine, "cap", wake(), verified())
+      v = wait_for(engine, &(&1.outcome == :out_of_budget))
+      assert v.generation_closed
+      assert %{phase: :running} = v.slots[{2, 0}]
+      refute Map.has_key?(v.slots[{2, 0}], :outcome)
+
+      engine = restart(c, engine, resources: %{"document" => owner}, bindings: bindings)
+      v = view(engine)
+
+      assert v.reconciliation == nil
+      assert %{phase: :running} = v.slots[{2, 0}]
+      refute Map.has_key?(v.slots[{2, 0}], :outcome)
+
+      # At the slot deadline the end-of-Run closer settles the retained slot: it was
+      # sent, so the outcome is unknown with no actual, never refused run_or_authority.
+      Agent.update(c.clock, fn _ -> 45_000 end)
+      assert {:ok, :applied} = RunEngine.input(engine, "after-deadline", wake(), verified())
+      v = view(engine)
+      assert %{phase: :settled, outcome: "unknown"} = v.slots[{2, 0}]
+      refute Map.has_key?(v.slots[{2, 0}], :actual)
+
+      send(opening, {:result, %{}})
+      send(using, {:result, %{}})
     end
   end
 
