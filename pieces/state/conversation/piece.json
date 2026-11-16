@@ -26,7 +26,7 @@
       "kind": "type",
       "file": "cure/elzoo/conversation.cure",
       "symbol": "decide",
-      "claim": "Pinned Cure checks the mode-specific refusal ordering over bounded host-computed duplicate, input, association, completion and answer classifications."
+      "claim": "Pinned Cure type-checks the decision function and checks its declared totality over bounded host-computed classifications. Intended refusal precedence is covered by scenario tests."
     },
     {
       "kind": "test",
