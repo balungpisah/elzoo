@@ -2,13 +2,18 @@
 
 ## Status and scope
 
-This publication registers Wave 4's first level only: ELZ-245, ELZ-246 and ELZ-247. ELZ-245 is an executable spike with no Piece output; delivery/debounce and domain/trigger-binding are planned Pieces, not runtime implementations. Later levels remain proposals. Implementation readiness requires the publication to merge and each issue to carry the task label; no implementation begins from this plan alone.
+This plan records Level 1 (ELZ-245, ELZ-246 and ELZ-247): ELZ-245 is an executable spike with no Piece output; ELZ-246 proposes delivery/debounce and ELZ-247 proposes domain/trigger-binding as planned Pieces. It proposes a Level 2 registration for ELZ-249 (assembly/checked-command) and ELZ-250 (state/conversation). Levels 3 and 4 remain unadmitted. Implementation readiness requires the applicable publication to merge and each issue to carry the task label; no implementation begins from this plan alone.
 
 The first-level task Contracts and issues are:
 
 - [ELZ-245 task](../../tasks/ELZ-245-command-store-fit.md) · [issue #556](https://github.com/balungpisah/elzoo/issues/556)
 - [ELZ-246 task](../../tasks/ELZ-246-debounce.md) · [issue #557](https://github.com/balungpisah/elzoo/issues/557)
 - [ELZ-247 task](../../tasks/ELZ-247-trigger-binding.md) · [issue #558](https://github.com/balungpisah/elzoo/issues/558)
+
+The proposed Level 2 task Contracts are:
+
+- [ELZ-249 task](../../tasks/ELZ-249-checked-command.md) · [issue #565](https://github.com/balungpisah/elzoo/issues/565)
+- [ELZ-250 task](../../tasks/ELZ-250-conversation.md) · [issue #566](https://github.com/balungpisah/elzoo/issues/566)
 
 The first-level registration does not claim Wave 4 runtime implementation.
 
@@ -48,8 +53,8 @@ The five supplied research reports informed these dispositions, but they are evi
 | delivery/event-emit | Reuse Envelope and the selected Store/outbox command path; no separate event-emission façade now. | Level 2 or 3 after event identity, authorization and commit result semantics are defined. Remote effects remain outside the transaction. |
 | delivery/event-subscription | Reuse/composition of outbox and relay until an independent bounded subscription policy is demonstrated. | Level 3. Durable waits still need explicit activation barrier, replay, retention and gap behavior; relay reuse alone does not supply it. |
 | domain/principal | No principal-authentication wrapper or delivered principal Piece. A host-vouched authenticated context is a bounded Wave 4 caller assumption/Need. | Level 2 Need, not a Level 1 Piece. RC-06 identity-provider work remains deferred to Wave 5; Wave 4 does not claim provider authentication. |
-| assembly/checked-command | Later new candidate for the no-Run authorized declarative write boundary, after ELZ-245 and the authorization/approval integration gaps are resolved. | Level 2. Requires exact authorized write set, retained command identity/result, revision fencing and an explicit unknown outcome. |
-| state/conversation | New candidate for bounded tenant-scoped conversation/message state across Runs. | Level 2 after ELZ-245 selects a durable boundary and the checked-command interface is defined; no second event log or profile store. |
+| assembly/checked-command | ELZ-249 proposes a no-Run Assembly for checked, authorized declarative writes through the existing Store. | Level 2 after ELZ-245 evidence and its listed prerequisites; requires exact authorized writes, retained identity/result, revision fencing and an explicit unknown outcome. |
+| state/conversation | ELZ-250 proposes pure bounded conversation DTO/codec/policy for immutable messages and input/Run associations. | Level 2 depends only on ELZ-024 and can be implemented in parallel with ELZ-249; shared DTO shapes are defined by both Contracts, with no unfinished-module import or persistence claim. |
 | domain/end-user | Reuse the host-vouched principal attribution in the first caller; no independent identity/profile service. | Level 2 Need with the first-party web conversation caller; identity resolution remains the host/provider boundary. |
 | integration/channel | Non-Piece consumer composition for the bounded first-party web channel, which is the first conversation caller. | Level 3 after conversation and host-vouched context contracts; do not generalize to Slack, WhatsApp, Telegram or email adapters. |
 | domain/channel-identity | Keep transport identity linkage in the host-vouched context/channel contract; no separate account-link database absent a distinct lifecycle. | Level 2 Need with principal and first-party channel decisions. |
@@ -63,7 +68,7 @@ The five supplied research reports informed these dispositions, but they are evi
 
 **Level 1 — first publication candidates:** ELZ-245, ELZ-246 and ELZ-247. Their owned paths are disjoint. ELZ-245 is a bounded spike with no output Piece; ELZ-246 and ELZ-247 are pure Pieces. No one of these candidates depends on another.
 
-**Level 2 — only after Level 1 evidence:** decide the durable-command API and principal Need; then admit checked-command and conversation state only with exact transaction, retention, authorization, approval and response-access Contracts. Event-trigger and event-emit remain host compositions over those selected boundaries. Host-vouched authenticated context is a bounded first-party caller assumption/Need, not a delivered principal Piece; RC-06 identity-provider work remains deferred to Wave 5.
+**Level 2 — only after Level 1 evidence:** ELZ-249 proposes the durable-command API over the existing Store and depends on ELZ-245, ELZ-247, ELZ-024, ELZ-009, ELZ-032, ELZ-114, ELZ-115 and ELZ-127. ELZ-250 defines the pure conversation DTO/codec/policy over ELZ-024 only and can be implemented in parallel; both Contracts fix their shared data shapes without importing an unfinished module or claiming persistence. Its immutable association allows multiple inputs to share one host-allocated stable Run ID, not proof of process start or completion. The next consumer acceptance, depending on both ELZ-249 and ELZ-250, is mandatory for real Memory/PostgreSQL composition including retained denial/replay, CAS and duplicate-message behavior; durable conversation or Wave 4 completion cannot be claimed before it passes. Publication remains gated on ELZ-245 acceptance and a green current main. Event-trigger and event-emit remain host compositions over these selected boundaries. Host-vouched authenticated context is a bounded first-party caller assumption/Need, not a delivered principal Piece; RC-06 identity-provider work remains deferred to Wave 5.
 
 **Level 3 — concrete adapters and channel composition:** select an actual event source before webhook-in or polling work. Compose the bounded first-party web channel on the conversation/host-context boundary. Add live client streaming or upload only for a demonstrated first-channel need. The Store/outbox and consumer-owned relay are the initial durable transport option; no general broker adoption or subscriber-cursor claim is implied.
 

@@ -7039,6 +7039,40 @@
       "issue": 561,
       "url": "https://github.com/balungpisah/elzoo/issues/561",
       "issue_body_sha256": "5ecbbbef47b9850db9992d1074712f1a025cbf089460d024c3fd0b70ea6525f2"
+    },
+    {
+      "id": "ELZ-249",
+      "title": "ELZ-249 — Commit checked commands without a Run",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-245", "ELZ-247", "ELZ-024", "ELZ-009", "ELZ-032", "ELZ-114", "ELZ-115", "ELZ-127"],
+      "status": "published 2026-11-16",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-249-checked-command.md"],
+      "outputs": ["assembly/checked-command"],
+      "acceptance": "Checked no-Run Assembly over the existing Store for real TriggerBinding and bounded conversation-message callers; exact schema, gate, authorization and approval outcomes; retained ALLOW/DENY/ASK results and equal replay; revision, identity and result-access fences; atomic resource/result/outbox behavior; rollback, races and unknown recovery. Root acceptance invokes the actual RunEngine, with disposable PostgreSQL integration, finite limits and trust/retention boundaries. No Store wrapper or production-behavior claim.",
+      "product_aims": ["P13"],
+      "issue": 565,
+      "url": "https://github.com/balungpisah/elzoo/issues/565",
+      "issue_body_sha256": "534547eb77bb58e4eabf204d15f81ed810ef6399e240b7e10dc8e40672e7423f"
+    },
+    {
+      "id": "ELZ-250",
+      "title": "ELZ-250 — Prepare bounded conversation state across Runs",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-024"],
+      "status": "published 2026-11-16",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-250-conversation.md"],
+      "outputs": ["state/conversation"],
+      "acceptance": "Pure version-1 conversation DTO, codec, preparation and bounded projection over one field; immutable messages and input/Run associations allow multiple inputs per host-allocated stable Run ID. No I/O or persistence claim. The next consumer acceptance depending on both ELZ-249 and ELZ-250 must prove real Memory/PostgreSQL composition, retained denial/replay, CAS and duplicate-message behavior before durable-conversation or Wave 4 completion claims.",
+      "product_aims": ["P13"],
+      "issue": 566,
+      "url": "https://github.com/balungpisah/elzoo/issues/566",
+      "issue_body_sha256": "2e1dda946134cc34b544f59a7e0092f894bf718d982610554e52d57483fe6b03"
     }
   ],
   "entries": [
@@ -7048,6 +7082,14 @@
       "note": "C6/C7 compose work/run/dependencies, approval, budget, context and provider adapters. Not a privileged runtime; library/provider evaluation precedes new orchestration.",
       "baseline_status": "deferred",
       "disposition": "deferred-example",
+      "catalogue_reference": "registry/catalogue.json"
+    },
+    {
+      "id": "assembly/checked-command",
+      "job": "ELZ-249",
+      "note": "Validated no-Run command execution over the existing Store: checked schema/gate/authorization, exact authorized writes, revision fencing, retained identity outcomes and command-scoped approval, with mutation/result and optional outbox committed together. No low-level command-store wrapper or remote effect.",
+      "baseline_status": "planned",
+      "disposition": "published-planned-contract",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
@@ -7902,6 +7944,14 @@
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/state/checkpoint/piece.json",
       "manifest_sha256": "56ef1ba1ccc61f403269110b9270980e93a15ef4ba9b47ef33b8b929796a3c9e"
+    },
+    {
+      "id": "state/conversation",
+      "job": "ELZ-250",
+      "note": "Pure version-1 conversation DTO/codec/preparation and bounded projection over one conversation field, with immutable message IDs and host-vouched input/Run associations; multiple inputs may map to one host-allocated stable Run ID. Depends only on ELZ-024, imports no unfinished ELZ-249 implementation, and claims no persistence. The next consumer acceptance depending on both ELZ-249 and ELZ-250 owns real Memory/PostgreSQL composition.",
+      "baseline_status": "planned",
+      "disposition": "published-planned-contract",
+      "catalogue_reference": "registry/catalogue.json"
     },
     {
       "id": "state/crdt",
