@@ -2156,8 +2156,12 @@ defmodule Elzoo.RunEngineTest do
       assert {:Transition, _, {:some, {:status, %{committed: 1, reserved: 0}}}} =
                Elzoo.Budget.step(budgets["1:0"].state, {40_000, :status})
 
-      assert {:Transition, _, {:some, {:status, %{committed: 0, reserved: 5}}}} =
-               Elzoo.Budget.step(budgets["root"].state, {39_999, :status})
+      # ELZ-241: the parent settled at its deadline and its child callable closed, so
+      # the child cost is counted from its slots and reaches the parent as
+      # :nested_actual: the share settles with the committed child amount, it is not
+      # held forever.
+      assert {:Transition, _, {:some, {:status, %{committed: 1, reserved: 0}}}} =
+               Elzoo.Budget.step(budgets["root"].state, {40_000, :status})
 
       GenServer.stop(engine)
       engine = start(c, resources: %{"document" => owner}, bindings: bindings)
@@ -5825,6 +5829,260 @@ defmodule Elzoo.RunEngineTest do
     end
   end
 
+  describe "parent_settled_closes_child" do
+    test "expired_parent_closes_its_child" do
+      {c, bindings} =
+        nested_setup(%{"nested" => [request([action("work", "tool_call")])]})
+
+      # The parent's deadline is before the child's open slot's deadline, so only
+      # the parent expires at the clock below while the child slot stays open.
+      bindings =
+        Map.update!(bindings, "nested_callable", fn binding ->
+          %{
+            binding
+            | facts: fn a ->
+                facts = binding.facts.(a)
+                if a["id"] == "nested", do: %{facts | deadline_ms: 20_000}, else: facts
+              end
+          }
+        end)
+
+      engine = start(c, bindings: bindings)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, provider, _}
+      assert_receive {:pattern_input, "nested", %{"kind" => "start"}}
+      assert %{phase: :running} = view(engine).slots[{1, 0}]
+      assert %{phase: :running} = view(engine).slots[{2, 0}]
+      refute unit_state(c).control.callables["1:0"].closed
+
+      # The parent passes its deadline: the first input at or after it settles the
+      # parent expired, and the child callable closes in the same step.
+      Agent.update(c.clock, fn _ -> 25_000 end)
+      assert {:ok, :applied} = RunEngine.input(engine, "expire", wake(), verified())
+
+      assert %{phase: :settled, outcome: "expired"} = view(engine).slots[{1, 0}]
+      callables = unit_state(c).control.callables
+      assert callables["1:0"].closed == true
+      refute Map.has_key?(callables["1:0"], :state)
+      assert callables["root"].closed == false
+
+      # The child's open slot is still open and settles by its own rules; the
+      # child's pattern gets no more inputs.
+      assert %{phase: :running} = view(engine).slots[{2, 0}]
+      refute_receive {:pattern_input, "nested", _}, 100
+
+      send(provider, {:result, %{}})
+    end
+
+    test "child_cost_still_reaches_the_parent" do
+      {c, bindings} =
+        nested_setup(%{"nested" => [request([action("work", "tool_call")])]})
+
+      bindings =
+        Map.update!(bindings, "nested_callable", fn binding ->
+          %{
+            binding
+            | facts: fn a ->
+                facts = binding.facts.(a)
+                if a["id"] == "nested", do: %{facts | deadline_ms: 20_000}, else: facts
+              end
+          }
+        end)
+
+      engine = start(c, bindings: bindings)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, provider, _}
+      Agent.update(c.clock, fn _ -> 25_000 end)
+      assert {:ok, :applied} = RunEngine.input(engine, "expire", wake(), verified())
+      assert %{phase: :settled, outcome: "expired"} = view(engine).slots[{1, 0}]
+      assert unit_state(c).control.callables["1:0"].closed == true
+
+      # The child's open slot settles by its own outcome with a known actual; the
+      # closed child cost is then known and the parent gets its actual once.
+      assert {:ok, :applied} =
+               RunEngine.input(
+                 engine,
+                 "child-done",
+                 result("work"),
+                 verified(%{occurrence: {2, 0}, actual: 3, dispatch: "dispatched"})
+               )
+
+      assert %{phase: :settled} = view(engine).slots[{2, 0}]
+      assert Enum.any?(journal(c), &match?({:nested_actual, {1, 0}, _, _, _}, &1))
+      assert unit_state(c).slots[{1, 0}].actual == 3
+
+      send(provider, {:result, %{}})
+    end
+
+    test "child_cost_final_unknown_gives_the_parent_no_actual" do
+      {c, bindings} =
+        nested_setup(%{"nested" => [request([action("work", "tool_call")])]})
+
+      bindings =
+        Map.update!(bindings, "nested_callable", fn binding ->
+          %{
+            binding
+            | facts: fn a ->
+                facts = binding.facts.(a)
+                if a["id"] == "nested", do: %{facts | deadline_ms: 20_000}, else: facts
+              end
+          }
+        end)
+
+      engine = start(c, bindings: bindings)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, provider, _}
+      Agent.update(c.clock, fn _ -> 25_000 end)
+      assert {:ok, :applied} = RunEngine.input(engine, "expire", wake(), verified())
+      assert unit_state(c).control.callables["1:0"].closed == true
+
+      # The child's open slot ends unknown (a lost outcome): the closed child cost is
+      # final unknown, so the parent keeps no actual and no nested_actual is written.
+      assert {:ok, :applied} =
+               RunEngine.input(
+                 engine,
+                 "child-lost",
+                 Map.put(result("work"), "outcome", "unknown"),
+                 verified(%{occurrence: {2, 0}, dispatch: "unknown"})
+               )
+
+      assert %{phase: :settled} = view(engine).slots[{2, 0}]
+      assert unit_state(c).slots[{1, 0}][:actual] == nil
+      refute Enum.any?(journal(c), &match?({:nested_actual, {1, 0}, _, _, _}, &1))
+
+      send(provider, {:result, %{}})
+    end
+
+    test "two_levels_close" do
+      {c, bindings} =
+        nested_setup(%{
+          "nested" => [request([action("inner", "nested_callable")])],
+          "inner" => [request([action("work", "tool_call")])]
+        })
+
+      bindings =
+        Map.update!(bindings, "nested_callable", fn binding ->
+          %{
+            binding
+            | facts: fn a ->
+                facts = binding.facts.(a)
+                if a["id"] == "nested", do: %{facts | deadline_ms: 20_000}, else: facts
+              end
+          }
+        end)
+
+      engine = start(c, bindings: bindings)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, provider, _}
+      assert %{phase: :running} = view(engine).slots[{1, 0}]
+      assert %{phase: :running} = view(engine).slots[{2, 0}]
+      assert %{phase: :running} = view(engine).slots[{3, 0}]
+
+      Agent.update(c.clock, fn _ -> 25_000 end)
+      assert {:ok, :applied} = RunEngine.input(engine, "expire", wake(), verified())
+
+      assert %{phase: :settled, outcome: "expired"} = view(engine).slots[{1, 0}]
+      callables = unit_state(c).control.callables
+      # The child callable and the grandchild callable close in the same step.
+      assert callables["1:0"].closed == true
+      assert callables["2:0"].closed == true
+      refute Map.has_key?(callables["2:0"], :state)
+      assert callables["root"].closed == false
+
+      # The grandchild's open slot settles by its own rules.
+      assert %{phase: :running} = view(engine).slots[{3, 0}]
+
+      send(provider, {:result, %{}})
+    end
+
+    test "over_cap_parent_closes_its_child" do
+      {c, bindings} =
+        nested_setup(
+          %{
+            "nested" => [
+              request([action("a", "local_work")]),
+              request([action("b", "local_work")])
+            ]
+          },
+          request_cap: 2
+        )
+
+      engine = start(c, bindings: bindings)
+      assert {:ok, :applied} = send_input(engine)
+
+      # The child's second request is over the cap: the running parent is refused
+      # out_of_budget and its child callable closes with it.
+      v = wait_for(engine, &(&1.slots[{1, 0}].phase == :settled))
+      assert v.slots[{1, 0}].outcome == "out_of_budget"
+      callables = unit_state(c).control.callables
+      assert callables["1:0"].closed == true
+      refute Map.has_key?(callables["1:0"], :state)
+      assert callables["root"].closed == false
+    end
+
+    test "room_comes_back" do
+      # Enough open children at the state bound that one more nested start does not
+      # fit; expiring one parent closes its child and the freed reserve admits it.
+      # One request starts every parent in parallel; each holds the default state
+      # bound while open. Child "a" asks for the spare start after its held call
+      # completes; child "victim" expires first and frees its reserve.
+      ids = bound_ids(31)
+      all_ids = ["a", "victim" | ids]
+
+      {c, engine, _bindings} =
+        bound_run(all_ids,
+          scripts: %{
+            "a" => [
+              request([action("hold-a", "tool_call")]),
+              request([action("late", "nested_callable")])
+            ],
+            "late" => [:wait]
+          },
+          extra: ["late"],
+          estimates: %{"a" => 100},
+          deadlines: %{"victim" => 10_000}
+        )
+
+      # Every kept child holds the state bound; control has no room for one more.
+      state = unit_state(c)
+      kept = kept_ids(c, all_ids)
+      assert length(kept) >= 1
+      assert control_headroom(state) < 65_536
+
+      # Expire the victim: its child callable closes in the same step and the
+      # reserve of its state bound leaves control.
+      Agent.update(c.clock, fn _ -> 15_000 end)
+      assert {:ok, :applied} = RunEngine.input(engine, "expire", wake(), verified())
+
+      victim_callable = callable_of(c, "victim")
+      assert unit_state(c).control.callables[victim_callable].closed == true
+      refute Map.has_key?(unit_state(c).control.callables[victim_callable], :state)
+
+      headroom_after = control_headroom(unit_state(c))
+      assert headroom_after >= 65_536
+
+      # Child "a" completes its held call and asks for the spare start: the room
+      # of the victim has come back and it is kept.
+      assert {:ok, :applied} = bounded(fn -> cost_known(c, engine, "hold-a") end, 60_000)
+
+      wait_unit(
+        c,
+        fn s -> Enum.any?(s.slots, fn {_, sl} -> sl.action_id == "late" end) end,
+        2_000
+      )
+
+      late = callable_of(c, "late")
+      wait_unit(c, fn s -> Map.has_key?(s.control.callables, late) end, 2_000)
+
+      state = unit_state(c)
+      assert state.control.callables[late].state_bytes == 65_536
+      assert state.control.callables[late].closed == false
+      assert state.slots[slot_key(c, "late")].phase == :running
+
+      bound_holds!(c)
+    end
+  end
+
   describe "still_waits_for_a_cost_that_can_come" do
     test "a child with a slot still open does not settle its parent; the result then gives the exact amount" do
       {c, bindings} =
@@ -6036,9 +6294,9 @@ defmodule Elzoo.RunEngineTest do
     end
 
     test "an expired parent whose child later closes with a lost cost stays as settled and the Run goes on" do
-      payload = %{"choice" => "late"}
-
-      script = [request([action("lost", "tool_call")]), request([finish_action("done", payload)])]
+      # ELZ-241: the child callable closes when the parent settles, so its pattern
+      # asks for no finish; its open slot still settles by its own rule.
+      script = [request([action("lost", "tool_call")])]
 
       {c, bindings} = lost_setup(script, [request([action("after", "local_work")])])
 
@@ -6058,12 +6316,13 @@ defmodule Elzoo.RunEngineTest do
 
       engine = restart(c, engine, bindings: bindings)
       wait_for(engine, &(&1.slots[{2, 0}].phase == :settled))
-      wait_for(engine, &settled?(&1, "done"))
       assert unit_state(c).control.callables["1:0"].closed
       assert view(engine).slots[{1, 0}].outcome == "expired"
       assert unit_state(c).slots[{1, 0}] == expired
       assert outcome_records(c, "nested") == []
       refute Enum.any?(journal(c), &match?({:nested_actual, _, _, _, _}, &1))
+      # No finish was ever asked: the child pattern got no more inputs after the close.
+      refute settled?(view(engine), "done")
       # The next work of the Run goes on: the root asks for it and it settles.
       assert {:ok, :applied} = RunEngine.input(engine, "wake-after", wake(), verified())
       wait_for(engine, &settled?(&1, "after"))
@@ -8183,10 +8442,13 @@ defmodule Elzoo.RunEngineTest do
 
   describe "recorded_defect_is_closed_at_a_change" do
     test "after the over-cap record the settled parent stays settled; a recorded refusing parent is settled again by step/2 at a change, first outcome kept" do
+      # ELZ-241: the over-cap stop now comes from the root's own request after the
+      # expired parent's child callable closed; the settled parent stays settled. The
+      # engine is suspended with stop_pending durable, before the Run ends.
       {c, bindings} =
         lost_setup(
-          [request([action("slow", "tool_call")]), request([action("excess")])],
-          [],
+          [request([action("slow", "tool_call")])],
+          [request([action("excess")])],
           request_cap: 2
         )
 
@@ -8195,13 +8457,12 @@ defmodule Elzoo.RunEngineTest do
           %{binding | facts: fn a -> %{binding.facts.(a) | deadline_ms: 10_000} end}
         end)
 
-      # The engine stops where it stands after the over-cap record, before the Run ends:
-      # the clock function suspends the Run owner once, when armed.
       armed = start_supervised!({Agent, fn -> false end}, id: make_ref())
       parent = self()
 
       clock = fn ->
-        if Agent.get_and_update(armed, &{&1, false}) do
+        if Agent.get(armed, & &1) do
+          Agent.update(armed, fn _ -> false end)
           :sys.suspend(c.run)
           send(parent, {:trapped, self()})
         end
@@ -8218,18 +8479,29 @@ defmodule Elzoo.RunEngineTest do
       assert view(engine).slots[{1, 0}].outcome == "expired"
       expired = unit_state(c).slots[{1, 0}]
       assert expired[:actual] == nil
-      before = budgets(c)
 
-      # The child goes on: its next request is over the shared cap and denies its parent.
+      # The child's open slot settles by its own rule; its cost is final unknown, so
+      # the settled parent gets no actual.
+      assert {:ok, :applied} =
+               RunEngine.input(
+                 engine,
+                 "child-result",
+                 Map.put(result("slow"), "outcome", "unknown"),
+                 verified(%{occurrence: {2, 0}, dispatch: "dispatched"})
+               )
+
+      # With no slot active, the next message input invokes the root; its next request
+      # is over the shared cap and the generation closes. The settled parent is not
+      # its parent, so it keeps its settlement.
       Agent.update(armed, fn _ -> true end)
 
       spawn(fn ->
         try do
           RunEngine.input(
             engine,
-            "child-result",
-            Map.put(result("slow"), "outcome", "unknown"),
-            verified(%{occurrence: {2, 0}, dispatch: "dispatched"})
+            "over-cap",
+            Map.put(start_input(), "kind", "message"),
+            verified()
           )
         catch
           :exit, _ -> :ok
@@ -8239,6 +8511,7 @@ defmodule Elzoo.RunEngineTest do
       assert_receive {:trapped, _}, 5_000
       wait_unit(c, &(&1.slots[{1, 0}].phase == :settled and &1.control.stop_pending != nil))
       assert unit_state(c).slots[{1, 0}] == expired
+      before = budgets(c)
 
       # The state that the unrepaired engine recorded: the settled parent turned back to
       # refusing. A change of Attempt settles it again, with its first settlement.
@@ -8301,10 +8574,12 @@ defmodule Elzoo.RunEngineTest do
   end
 
   # ELZ-211 helpers. The nested parent expires at 10,000 ms while its child goes on: the
-  # parent is settled `expired` with no actual, and the child has not asked again yet. The
-  # request cap is 2, so the next request of the child is over the shared cap.
+  # parent is settled `expired` with no actual, and the child callable closes with it
+  # (ELZ-241), so the child pattern asks nothing more. The request cap is 2, so the
+  # next request of the root is over the shared cap: the stop no longer depends on a
+  # closed child's pattern.
   defp expired_parent_run(script) do
-    {c, bindings} = lost_setup(script, [], request_cap: 2)
+    {c, bindings} = lost_setup(script, [request([action("excess")])], request_cap: 2)
 
     bindings =
       Map.update!(bindings, "nested_callable", fn binding ->
@@ -8331,8 +8606,9 @@ defmodule Elzoo.RunEngineTest do
     }
   end
 
-  # The child of the expired parent ends its tool action as unknown, asks over the cap and
-  # the engine stops the Run.
+  # The child of the expired parent ends its tool action as unknown; with no slot
+  # active, the next message input invokes the root, whose next request is over the
+  # cap and stops the Run (ELZ-241: the closed child's pattern asks nothing more).
   defp over_cap_run do
     run =
       expired_parent_run([request([action("slow", "tool_call")]), request([action("excess")])])
@@ -8345,12 +8621,20 @@ defmodule Elzoo.RunEngineTest do
                verified(%{occurrence: {2, 0}, dispatch: "dispatched"})
              )
 
+    assert {:ok, _} =
+             RunEngine.input(
+               run.engine,
+               "over-cap",
+               Map.put(start_input(), "kind", "message"),
+               verified()
+             )
+
     stopped = wait_for(run.engine, &(&1.phase == :terminal and &1.request_count == 3), 2_000)
     Map.put(run, :stopped, stopped)
   end
 
   describe "settled_parent_stays_settled" do
-    test "an over-cap request of the child leaves the expired parent as it was, with no outcome record" do
+    test "an over-cap request after the parent expired leaves it as it was, with no outcome record" do
       %{c: c, engine: engine, provider: provider, expired: expired, before: before} =
         over_cap_run()
 
@@ -8407,11 +8691,63 @@ defmodule Elzoo.RunEngineTest do
 
   describe "later_actual_reaches_the_settled_parent" do
     test "a child cost that is still open at the stop reaches the parent once, its outcome kept" do
-      %{c: c, engine: engine, provider: provider, expired: expired} =
-        expired_parent_run([
-          request([action("slow", "tool_call"), action("person", "ask_person")]),
-          request([action("excess")])
-        ])
+      # ELZ-241: the expired parent's child callable is closed, so the over-cap stop
+      # comes from a second nested child whose parent is still running.
+      {c, bindings} =
+        nested_setup(
+          %{
+            "nested" => [request([action("slow", "tool_call"), action("person", "ask_person")])],
+            "nested2" => [
+              request([action("x2", "tool_call")]),
+              request([action("excess")])
+            ]
+          },
+          request_cap: 3,
+          pattern:
+            {TestPattern, :scripted,
+             %{
+               name: "root",
+               script: [
+                 request([
+                   action("nested", "nested_callable"),
+                   action("nested2", "nested_callable")
+                 ])
+               ]
+             }}
+        )
+
+      bindings =
+        Map.update!(bindings, "nested_callable", fn binding ->
+          %{
+            binding
+            | facts: fn a ->
+                facts = binding.facts.(a)
+                if a["id"] == "nested", do: %{facts | deadline_ms: 10_000}, else: facts
+              end
+          }
+        end)
+
+      engine = start(c, bindings: bindings)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, provider, _}, 5_000
+      assert_receive {:effect_started, provider2, _}, 5_000
+      Agent.update(c.clock, fn _ -> 10_000 end)
+      assert {:ok, :applied} = RunEngine.input(engine, "expire", start_input(), verified())
+      assert view(engine).slots[{1, 0}].outcome == "expired"
+      expired = unit_state(c).slots[{1, 0}]
+      assert expired[:actual] == nil
+
+      # The second nested child's tool call ends; its next request is over the cap and
+      # stops the Run while the first child's slots are still open.
+      assert {:ok, _} =
+               RunEngine.input(
+                 engine,
+                 "x2-result",
+                 result("x2"),
+                 verified(%{occurrence: {3, 0}, actual: 1, dispatch: "dispatched"})
+               )
+
+      wait_for(engine, &(&1.request_count == 4), 2_000)
 
       answer = %{
         "type" => "input",
@@ -8432,7 +8768,6 @@ defmodule Elzoo.RunEngineTest do
                  verified(%{occurrence: {2, 1}, verified_person: "person", actual: 0})
                )
 
-      wait_for(engine, &(&1.request_count == 3), 2_000)
       assert unit_state(c).slots[{1, 0}] == expired
       assert unit_state(c).slots[{2, 0}].phase != :settled
 
@@ -8456,8 +8791,9 @@ defmodule Elzoo.RunEngineTest do
                )
 
       assert outcome_records(c, "nested") == []
-      assert budget_status(c, "root") == %{committed: 7, reserved: 0}
+      assert budget_status(c, "root") == %{committed: 8, reserved: 0}
       send(provider, {:result, %{}})
+      send(provider2, {:result, %{}})
     end
   end
 
@@ -8854,6 +9190,7 @@ defmodule Elzoo.RunEngineTest do
     bytes = Keyword.get(opts, :bytes, %{})
     initials = Keyword.get(opts, :initials, %{})
     estimates = Keyword.get(opts, :estimates, %{})
+    deadlines = Keyword.get(opts, :deadlines, %{})
     # `extra`: ids of children that a child starts (not in the request of the root).
     children =
       Map.new(ids ++ Keyword.get(opts, :extra, []), fn id ->
@@ -8875,7 +9212,7 @@ defmodule Elzoo.RunEngineTest do
         %{
           binding
           | facts: fn a ->
-              facts = %{binding.facts.(a) | deadline_ms: 20_000}
+              facts = %{binding.facts.(a) | deadline_ms: Map.get(deadlines, a["id"], 20_000)}
               %{facts | estimate: Map.get(estimates, a["id"], facts.estimate)}
             end,
             nested: fn a ->
