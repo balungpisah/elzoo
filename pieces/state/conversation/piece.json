@@ -7,7 +7,7 @@
   "kind": "owned",
   "providers": ["cure", "elixir", "otp"],
   "dependencies": ["domain/authorization"],
-  "contract": "Pure version-1 preparation and bounded projection over one conversation resource field. Exact host facts select immutable input messages, input-to-Run associations and completed assistant answers; global message IDs are unique and several inputs may share one Run. The checked portable state has exact sorted record/list shapes, at most 64 messages and associations, and at most 65,536 bytes by pinned OTP term_to_binary/1. view/2 requires the host-vouched tenant/actor/resource read scope. No I/O, authentication, authorization, Run creation, persistence or CheckedCommand integration claim.",
+  "contract": "Pure version-1 preparation and bounded projection over one conversation resource field. Exact host facts select immutable input messages, input-to-Run associations and completed assistant answers; message IDs are unique within one conversation across all roles and several inputs may share one Run. The checked portable state has exact sorted record/list shapes, at most 64 messages and associations, and at most 65,536 bytes by pinned OTP term_to_binary/1. view/2 requires the host-vouched tenant/actor/resource read scope. No I/O, authentication, authorization, Run creation, persistence or CheckedCommand integration claim.",
   "limits": [
     "IDs are 1..128 valid UTF-8 bytes without NUL; message text is 1..4,096 valid UTF-8 bytes and is preserved byte-for-byte, including NUL.",
     "Stored state contains only exact version-1 messages and input/Run associations. Unknown, noncanonical, over-bound or inconsistent state is refused, not repaired or treated as empty.",
