@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: Apache-2.0
+mod Elzoo.TriggerBinding
+  type TriggerBindingDecision = TriggerBindingNoMatch | TriggerBindingSelected(String, Int) | TriggerBindingAmbiguous
+
+  rec TriggerBindingCandidate
+    id: String
+    revision: Int
+    tenant: String
+    source: String
+    schema_id: String
+    schema_version: Int
+    enabled: Bool
+
+  local fn same(left: a, right: a) -> Bool = Std.Builtin.struct_eq(a, left, right)
+
+  @total true
+  @reducible
+  local fn matches(candidate: TriggerBindingCandidate, tenant: String, source: String, schema_id: String, schema_version: Int) -> Bool =
+    candidate.enabled and same(candidate.tenant, tenant) and same(candidate.source, source) and same(candidate.schema_id, schema_id) and same(candidate.schema_version, schema_version)
+
+  @total true
+  @reducible
+  local fn add_match(decision: TriggerBindingDecision, candidate: TriggerBindingCandidate) -> TriggerBindingDecision =
+    match decision
+      TriggerBindingNoMatch() -> TriggerBindingSelected(candidate.id, candidate.revision)
+      TriggerBindingSelected(_, _) -> TriggerBindingAmbiguous()
+      TriggerBindingAmbiguous() -> TriggerBindingAmbiguous()
+
+  @total true
+  @reducible
+  local fn select_rows(candidates: List(TriggerBindingCandidate), tenant: String, source: String, schema_id: String, schema_version: Int, decision: TriggerBindingDecision) -> TriggerBindingDecision =
+    match candidates
+      [] -> decision
+      [candidate | rest] ->
+        match matches(candidate, tenant, source, schema_id, schema_version)
+          True() -> select_rows(rest, tenant, source, schema_id, schema_version, add_match(decision, candidate))
+          False() -> select_rows(rest, tenant, source, schema_id, schema_version, decision)
+
+  @total true
+  @reducible
+  fn select(candidates: List(TriggerBindingCandidate), tenant: String, source: String, schema_id: String, schema_version: Int) -> TriggerBindingDecision =
+    select_rows(candidates, tenant, source, schema_id, schema_version, TriggerBindingNoMatch())
+end
