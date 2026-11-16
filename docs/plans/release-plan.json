@@ -7075,6 +7075,23 @@
       "issue_body_sha256": "fe1b5446ff58bd8be587c09bfd0e8e6febdc5ef40cb968a01e992bfc40f14371"
     },
     {
+      "id": "ELZ-251",
+      "title": "ELZ-251 — Make local validation proportional to risk and isolation",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-248"],
+      "status": "published 2026-11-16",
+      "owner_role": "coordinator; one-PR path for a non-Piece change; independent review and merge queue",
+      "paths": ["tasks/ELZ-251-risk-based-validation.md"],
+      "outputs": [],
+      "acceptance": "Risk- and isolation-based local validation distinguishes relevant local evidence from hosted job selection. Isolated spikes may use exact own/task checks only after root-loading isolation is established, while shared executable impact and uncertainty retain the full/affected gate. Strict planned-only publication has a separate exact-diff exception with roadmap/live/claims/diff and the existing Registry test. Preserve classifier, workflow, task, review, current-base, new-head and merge requirements; no executable behavior changes.",
+      "product_aims": ["P13"],
+      "issue": 567,
+      "url": "https://github.com/balungpisah/elzoo/issues/567",
+      "issue_body_sha256": "2e6052c38b76cdef5399e7b34bb3e35a1d777341d13dee007079561cf2985233"
+    },
+    {
       "id": "ELZ-252",
       "title": "ELZ-252 — Exercise checked conversation commits and native Run parity",
       "kind": "published",
