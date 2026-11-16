@@ -753,8 +753,8 @@
       "summary": "Bounded immutable tenant-scoped conversation messages and Run/input associations",
       "disposition": "own",
       "phase": "P13",
-      "status": "planned",
-      "reason": "ELZ-250 proposes a pure DTO, codec and conversation policy with data shapes and resource read scope agreed alongside ELZ-249; it depends only on ELZ-024 and does not claim persistence. Its Authorization values use the existing portable domain: {:text, binary}, bare integers and bare booleans. Later root acceptance ELZ-252 owns real Memory/PostgreSQL composition and native RunEngine parity."
+      "status": "ready",
+      "manifest": "pieces/state/conversation/piece.json"
     },
     {
       "id": "state/crdt",
