@@ -3,9 +3,9 @@
 defmodule Elzoo.DebounceTimerExample do
   alias Elzoo.Debounce
 
-  def run(value) when is_binary(value) do
+  def run(epoch, value) when is_binary(epoch) and is_binary(value) do
     origin = System.monotonic_time(:millisecond)
-    {:ok, state} = Debounce.new("example-epoch", 250)
+    {:ok, state} = Debounce.new(epoch, 250)
     now = elapsed_ms(origin)
     {:ok, pending, {:schedule, token, due_at}} = Debounce.transition(state, {:put, now, value})
 

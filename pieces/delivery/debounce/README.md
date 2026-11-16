@@ -62,7 +62,9 @@ of eventual emission. Continual puts can defer emission forever.
 
 [`examples/elzoo/debounce_timer.exs`](examples/elzoo/debounce_timer.exs)
 shows a host scheduling a tagged timer message and matching its token. It does
-not demonstrate cancellation or stand-alone pure transitions.
+not demonstrate cancellation or stand-alone pure transitions. `run(epoch,
+value)` takes its epoch from the caller, which can supply a new epoch after a
+reset.
 
 ## Dependencies and providers
 

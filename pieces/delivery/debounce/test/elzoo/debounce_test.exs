@@ -51,6 +51,7 @@ defmodule Elzoo.DebounceTest do
 
     assert {:ok, later, :ignored} = Debounce.transition(observed, {:timeout, 8, {"partition-a", 1}})
     assert fields(later) == {~c"partition-a", 10, 0, :none, {:some, 8}}
+    assert_refusal(later, {:put, 7, "regression"}, :time_regression)
   end
 
   test "latest puts replace values and stale or wrong-epoch tokens never emit" do
@@ -262,6 +263,11 @@ defmodule Elzoo.DebounceTest do
     assert fields(at_max) ==
              {~c"epoch", 1, @maximum, {:some, {:DebouncePending, ~c"last generation", @maximum, 5}},
               {:some, 4}}
+
+    assert {:ok, emitted, {:emit, "last generation"}} =
+             Debounce.transition(at_max, {:timeout, 5, {"epoch", @maximum}})
+
+    assert fields(emitted) == {~c"epoch", 1, @maximum, :none, {:some, 5}}
 
     assert {:ok, cleared, {:cancel, {"epoch", @maximum}}} = Debounce.transition(at_max, :clear)
     assert fields(cleared) == {~c"epoch", 1, @maximum, :none, {:some, 4}}

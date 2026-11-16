@@ -107,16 +107,7 @@ mod Elzoo.Debounce
 
   @total true
   @reducible
-  fn with_pending(state: DebounceState, pending: DebouncePending) -> DebounceState =
-    DebounceState{epoch: state.epoch, quiet_ms: state.quiet_ms, generation: pending.generation, pending: Some(pending), last_observed_now: state.last_observed_now}
-
-  @total true
-  @reducible
   fn next_state(result: Transition(DebounceState, DebounceOutcome)) -> DebounceState = result.state
-
-  @total true
-  @reducible
-  fn next_generation(generation: Int) -> Int = generation + 1
 
   @total true
   @reducible
