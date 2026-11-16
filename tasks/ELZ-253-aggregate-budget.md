@@ -18,7 +18,7 @@ Keep the copied consumer's 300,000 ms per-test default, explicit individual test
 ## Acceptance and validation
 
 1. The aggregate outer tag and its existing guard agree on exactly 1,500,000 ms. The inner default remains exactly 300,000 ms and all other limits/selections/assertions remain unchanged.
-2. Run the existing partition/timeout guard and exercise the complete aggregate wrapper with disposable services, either through `MIX_ENV=test mix test test/export_test.exs:160 --include aggregate_consumer` or its actual execution in the required full/affected gate; do not repeat an unchanged passing wrapper solely for ceremony. Record actual total-wrapper and child-stage durations and the final result. A child finishing after the old outer timeout, a partial log or an independently failing child is not a passing wrapper.
+2. Run the existing partition/timeout guard and exercise the complete aggregate wrapper with disposable services, either through `MIX_ENV=test mix test test/export_test.exs --only aggregate_consumer` or its actual execution in the required full/affected gate; do not repeat an unchanged passing wrapper solely for ceremony. Record actual total-wrapper and child-stage durations and the final result. A child finishing after the old outer timeout, a partial log or an independently failing child is not a passing wrapper.
 3. Run `mix check --affected origin/main`, live roadmap/claims and diff checks. Keep any separately observed failure visible; do not claim a green gate from the budget change alone. Independent exact-diff review, exact-head hosted checks, ready-before-merge and the coordinator queue remain required.
 
 ## Owned paths
