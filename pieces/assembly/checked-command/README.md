@@ -155,6 +155,9 @@ reviewer provenance before passing it, and MUST keep command verifier IDs
 separate from Run verifier IDs. Run-purpose, wrong-tenant and non-once
 evidence are refused even when textual owner fields happen to match. The
 versioned opaque command owner is not proof that all Run IDs are disjoint.
+The host must provide evidence only after authenticated provenance is checked
+by a command-dedicated verifier; this verifier and its trust material are host
+Needs, not supplied or simulated by this Piece.
 
 The host supplies fresh revocation keys on each release. This Piece has no
 revocation service and cannot make a stale host feed fresh. Pending Approval
@@ -274,19 +277,28 @@ mix run pieces/assembly/checked-command/examples/elzoo/postgres_trigger_binding.
 ```
 
 The example creates a temporary schema, invokes the existing SQL migration
-helper through the consumer-owned Repo, installs one TriggerBinding under the
-resource revision CAS, reads it back, and calls the real
-`TriggerBinding.validate_declaration/1` and `select/3`. A deliberately different
-payload tenant/source does not replace the trusted tenant/source facts. The
-example drops its temporary schema on completion and never dispatches the
-pending outbox notification. It creates no Run or budget.
+helper through the consumer-owned Repo, installs and CAS-updates a
+TriggerBinding, reads it back, and calls the real
+`TriggerBinding.validate_declaration/1` and `select/3`. It checks declaration
+ID/tenant/source/revision mismatches and a stale expected revision without
+changing the resource or outbox. A deliberately different payload tenant/source
+does not replace the trusted tenant/source facts. Its local Approval evidence
+is a purpose/key-bound demonstration fixture, not authenticated evidence; a
+production host must supply a command-verifier-authenticated receipt. The
+example drops its temporary schema on completion, never dispatches the pending
+outbox notification, and creates no Run or budget.
 
 ## Evidence
 
-`mix test pieces/assembly/checked-command/test` runs finite Memory and real
-PostgreSQL scenarios, including Store response-loss/paused-transaction
-boundaries and checkpoint-independent full-history replay. The selected Piece
-gate is still a selected check, not the full repository check. Tests and local
+With the SQL test helper available, `mix test
+pieces/assembly/checked-command/test` runs 40 finite Piece tests, including 16
+against real PostgreSQL for message duplicate refusal, distinct-identity
+revision races, ASK self-approval refusal, Store response-loss/paused-transaction
+boundaries and checkpoint-independent full-history replay. In a copied
+consumer the SQL helper is outside the export closure, so those 16 tagged
+PostgreSQL cases are skipped and the other 24 copied tests run; that copied
+suite does not replace the real PostgreSQL run. The selected Piece gate is
+still a selected check, not the full repository check. Tests and local
 PostgreSQL observations are finite evidence, not proofs of production
 durability, host identity, external effects or universally exactly-once
 behavior.

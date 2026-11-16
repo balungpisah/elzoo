@@ -201,6 +201,106 @@ defmodule Elzoo.CheckedCommandTest do
 
   defp insert_message(_, _), do: {:error, :invalid}
 
+  defp prepare_immutable_message(snapshot, request, _facts) do
+    message = %{id: request.payload["id"], body: request.payload["body"]}
+
+    with {:ok, messages} <- decode_messages(Map.get(snapshot.fields, "messages", {:list, []})),
+         {:ok, messages} <- insert_message(messages, message) do
+      writes = [
+        %{
+          target: request.resource,
+          field: "messages",
+          value: {:list, Enum.map(messages, &portable_message/1)}
+        }
+      ]
+
+      {:ok, writes, {:record, [{"message_id", {:text, request.payload["id"]}}]}}
+    else
+      {:error, :duplicate} -> {:refused, "duplicate_message_id"}
+      _ -> {:refused, "invalid_message"}
+    end
+  end
+
+  defp decode_messages({:list, values}) do
+    Enum.reduce_while(values, {:ok, []}, fn
+      {:record, pairs}, {:ok, messages} ->
+        fields = Map.new(pairs, fn {key, value} -> {key, portable_text(value)} end)
+
+        if map_size(fields) == 2 and is_binary(fields["id"]) and is_binary(fields["body"]) do
+          {:cont, {:ok, messages ++ [%{id: fields["id"], body: fields["body"]}]}}
+        else
+          {:halt, {:error, :invalid}}
+        end
+
+      _, _ ->
+        {:halt, {:error, :invalid}}
+    end)
+  end
+
+  defp decode_messages(_), do: {:error, :invalid}
+
+  defp portable_message(%{id: id, body: body}),
+    do: {:record, [{"body", {:text, body}}, {"id", {:text, id}}]}
+
+  defp portable_text({:text, value}), do: value
+  defp portable_text(_), do: nil
+
+  defp exercise_immutable_message(store) do
+    first_message = %{id: "message-1", body: "first"}
+
+    command_context =
+      context(
+        own: [
+          %{
+            target: "resource-1",
+            field: "messages",
+            value: {:list, [portable_message(first_message)]}
+          }
+        ]
+      )
+
+    {handle, _} = new_handle(store, prepare: &prepare_immutable_message/3)
+    scope = %{tenant: "tenant-1", actor: "actor-1", resources: ["resource-1"]}
+
+    first =
+      request(operation_id: "message-first", payload: %{"id" => "message-1", "body" => "first"})
+
+    assert {:completed, %{revision: 1}} = CheckedCommand.execute(handle, command_context, first)
+
+    duplicate =
+      request(
+        operation_id: "message-duplicate",
+        expected_revision: 1,
+        payload: %{"id" => "message-1", "body" => "changed"}
+      )
+
+    refusal = {:conflict, {:domain, "duplicate_message_id"}}
+    assert refusal == CheckedCommand.execute(handle, command_context, duplicate)
+    assert {:ok, before} = CheckedCommand.resource(handle, scope, "resource-1")
+    assert before.revision == 1
+    assert before.fields["messages"] == {:list, [portable_message(first_message)]}
+
+    assert {:ok, before_items} =
+             Elzoo.Outbox.pending(store, CheckedCommand.Codec.stream("tenant-1"), 64)
+
+    assert length(before_items) == 1
+
+    reopened = new_handle(store, prepare: &prepare_immutable_message/3) |> elem(0)
+    assert refusal == CheckedCommand.execute(reopened, command_context, duplicate)
+
+    assert refusal ==
+             CheckedCommand.result(
+               reopened,
+               %{tenant: "tenant-1", actor: "actor-1"},
+               {"tenant-1", "actor-1", "message-duplicate"}
+             )
+
+    assert {:ok, ^before} = CheckedCommand.resource(reopened, scope, "resource-1")
+
+    assert {:ok, ^before_items} =
+             Elzoo.Outbox.pending(store, CheckedCommand.Codec.stream("tenant-1"), 64)
+  end
+
   defp gate_denial_row(tenant, actor, operation_id, sequence, nonce) do
     resource = "resource-1"
     payload = %{"value" => "ready"}
@@ -379,6 +479,80 @@ defmodule Elzoo.CheckedCommandTest do
     assert Enum.all?(arrivals, fn {operation_id, _pid} -> operation_id == first.operation_id end)
     Enum.each(arrivals, fn {_operation_id, pid} -> send(pid, :continue) end)
     Enum.map(tasks, &Task.await(&1, 15_000))
+  end
+
+  defp exercise_distinct_revision_race(store) do
+    parent = self()
+
+    prepare = fn snapshot, request, _facts ->
+      send(parent, {:distinct_prepared, request.operation_id, snapshot.revision, self()})
+
+      receive do
+        :continue ->
+          value = request.payload["value"]
+
+          {:ok, [%{target: request.resource, field: "state", value: {:text, value}}],
+           {:record, [{"accepted", true}]}}
+      after
+        5_000 -> {:refused, "barrier_timeout"}
+      end
+    end
+
+    {handle, _} = new_handle(store, prepare: prepare)
+    first = request(operation_id: "revision-race-a", payload: %{"value" => "left"})
+    second = request(operation_id: "revision-race-b", payload: %{"value" => "right"})
+    first_context = context(own: [%{target: "resource-1", field: "state", value: {:text, "left"}}])
+
+    second_context =
+      context(own: [%{target: "resource-1", field: "state", value: {:text, "right"}}])
+
+    tasks =
+      [{first, first_context}, {second, second_context}]
+      |> Enum.map(fn {command, command_context} ->
+        Task.async(fn -> CheckedCommand.execute(handle, command_context, command) end)
+      end)
+
+    arrivals =
+      Enum.map(1..2, fn _ ->
+        assert_receive {:distinct_prepared, operation_id, revision, pid}, 5_000
+        {operation_id, revision, pid}
+      end)
+
+    assert MapSet.new(Enum.map(arrivals, &elem(&1, 0))) ==
+             MapSet.new([first.operation_id, second.operation_id])
+
+    assert Enum.all?(arrivals, fn {_operation_id, revision, _pid} -> revision == 0 end)
+
+    Enum.each(arrivals, fn {_operation_id, _revision, pid} -> send(pid, :continue) end)
+    pairs = Enum.zip([first, second], Enum.map(tasks, &Task.await(&1, 15_000)))
+
+    assert Enum.count(pairs, fn {_command, result} ->
+             match?({:completed, %{revision: 1}}, result)
+           end) == 1
+
+    assert Enum.count(pairs, fn {_command, result} -> result == {:conflict, :stale_revision} end) ==
+             1
+
+    Enum.each(pairs, fn {command, outcome} ->
+      identity = {"tenant-1", "actor-1", command.operation_id}
+
+      assert outcome ==
+               CheckedCommand.result(handle, %{tenant: "tenant-1", actor: "actor-1"}, identity)
+    end)
+
+    {winning_request, _} =
+      Enum.find(pairs, fn {_command, result} -> match?({:completed, _}, result) end)
+
+    assert {:ok, %{revision: 1, fields: %{"state" => {:text, value}}}} =
+             CheckedCommand.resource(
+               handle,
+               %{tenant: "tenant-1", actor: "actor-1", resources: ["resource-1"]},
+               "resource-1"
+             )
+
+    assert value == winning_request.payload["value"]
+    assert {:ok, items} = Elzoo.Outbox.pending(store, CheckedCommand.Codec.stream("tenant-1"), 64)
+    assert length(items) == 1
   end
 
   if @postgres_available do
@@ -664,6 +838,18 @@ defmodule Elzoo.CheckedCommandTest do
     {store, pid} = memory_store()
     on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
     exercise_identity_races(store)
+  end
+
+  test "Memory distinct commands racing at one resource revision retain winner and stale receipt" do
+    {store, pid} = memory_store()
+    on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+    exercise_distinct_revision_race(store)
+  end
+
+  test "Memory command preparation retains immutable message duplicate refusal" do
+    {store, pid} = memory_store()
+    on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+    exercise_immutable_message(store)
   end
 
   test "unknown record versions fail closed" do
@@ -1314,6 +1500,28 @@ defmodule Elzoo.CheckedCommandTest do
 
     identity = {"tenant-1", "actor-1", "operation-1"}
 
+    self_evidence = %{envelope.evidence | reviewer: "actor-1"}
+    self_context = Map.put(release_ctx, :approver, %{identity: "actor-1", authority: ctx.own})
+    stream = CheckedCommand.Codec.stream("tenant-1")
+    {:ok, history_before, _} = Elzoo.DurableLog.Store.read(store, :read, [stream, 1, 64])
+    {:ok, outbox_before} = Elzoo.Outbox.pending(store, stream, 64)
+
+    assert match?(
+             {:release_refused, _},
+             CheckedCommand.release(
+               handle,
+               self_context,
+               identity,
+               %{purpose: :command, tenant: "tenant-1", evidence: self_evidence}
+             )
+           )
+
+    assert {:ok, ^history_before, _} = Elzoo.DurableLog.Store.read(store, :read, [stream, 1, 64])
+    assert {:ok, ^outbox_before} = Elzoo.Outbox.pending(store, stream, 64)
+
+    assert {:approval_pending, _} =
+             CheckedCommand.result(handle, %{tenant: "tenant-1", actor: "actor-1"}, identity)
+
     for revision <- [0, 2_147_483_648] do
       invalid_evidence = %{evidence | request: put_elem(key, 4, revision)}
 
@@ -1553,6 +1761,19 @@ defmodule Elzoo.CheckedCommandTest do
 
   @tag :postgres
   @tag skip: @postgres_skip
+  test "PostgreSQL distinct commands racing at one resource revision retain winner and stale receipt",
+       %{store: store} do
+    exercise_distinct_revision_race(store)
+  end
+
+  @tag :postgres
+  @tag skip: @postgres_skip
+  test "PostgreSQL command preparation retains immutable message duplicate refusal", %{store: store} do
+    exercise_immutable_message(store)
+  end
+
+  @tag :postgres
+  @tag skip: @postgres_skip
   test "PostgreSQL retains DENY and checks both identity scope dimensions", %{store: store} do
     {handle, _} = new_handle(store, descriptor: %{outbox: nil})
     identity = {"tenant-1", "actor-1", "postgres-denied"}
@@ -1639,6 +1860,31 @@ defmodule Elzoo.CheckedCommandTest do
         now: 150,
         revoked: []
       })
+
+    self_evidence = %{envelope.evidence | reviewer: "actor-1"}
+
+    self_context =
+      Map.put(release_context, :approver, %{identity: "actor-1", authority: ask_context.own})
+
+    stream = CheckedCommand.Codec.stream("tenant-1")
+    {:ok, history_before, _} = Elzoo.DurableLog.Store.read(store, :read, [stream, 1, 64])
+    {:ok, outbox_before} = Elzoo.Outbox.pending(store, stream, 64)
+
+    assert match?(
+             {:release_refused, _},
+             CheckedCommand.release(
+               handle,
+               self_context,
+               identity,
+               %{purpose: :command, tenant: "tenant-1", evidence: self_evidence}
+             )
+           )
+
+    assert {:ok, ^history_before, _} = Elzoo.DurableLog.Store.read(store, :read, [stream, 1, 64])
+    assert {:ok, ^outbox_before} = Elzoo.Outbox.pending(store, stream, 64)
+
+    assert {:approval_pending, _} =
+             CheckedCommand.result(handle, %{tenant: "tenant-1", actor: "actor-1"}, identity)
 
     write_drift = fn _snapshot, request, _facts ->
       {:ok, [%{target: request.resource, field: "state", value: {:text, "changed"}}],
@@ -2017,17 +2263,81 @@ defmodule Elzoo.CheckedCommandTest do
   test "PostgreSQL response loss confirms one atomic record and outbox item", %{store: store} do
     {handle, _} = new_handle(store)
     PostgresHarness.hook(store, :inject, [:append, :reply_loss])
-    assert {:completed, %{revision: 1}} = CheckedCommand.execute(handle, context(), request())
+    command_result = CheckedCommand.execute(handle, context(), request())
+
+    receipt_result =
+      CheckedCommand.result(
+        handle,
+        %{tenant: "tenant-1", actor: "actor-1"},
+        {"tenant-1", "actor-1", "operation-1"}
+      )
+
+    projection =
+      CheckedCommand.resource(
+        handle,
+        %{tenant: "tenant-1", actor: "actor-1", resources: ["resource-1"]},
+        "resource-1"
+      )
+
     snapshot = PostgresHarness.hook(store, :snapshot, [])
     stream = Elzoo.CheckedCommand.Codec.stream("tenant-1")
 
-    assert Enum.count(snapshot.elzoo_log_records, fn [s, sequence | _] ->
-             s == stream and sequence == 1
-           end) == 1
+    record_count =
+      Enum.count(snapshot.elzoo_log_records, fn [s, sequence | _] ->
+        s == stream and sequence == 1
+      end)
 
-    assert Enum.count(snapshot.elzoo_outbox, fn [s, sequence | _] ->
-             s == stream and sequence == 1
-           end) == 1
+    outbox_count =
+      Enum.count(snapshot.elzoo_outbox, fn [s, sequence | _] ->
+        s == stream and sequence == 1
+      end)
+
+    assert {:ok, items} = Postgres.pending(store, stream, 16)
+
+    observed =
+      {command_result, receipt_result, projection, length(items), record_count, outbox_count}
+
+    expected =
+      {{:completed, %{revision: 1, response: {:record, [{"accepted", true}]}}},
+       {:completed, %{revision: 1, response: {:record, [{"accepted", true}]}}},
+       {:ok,
+        %{
+          tenant: "tenant-1",
+          resource: "resource-1",
+          revision: 1,
+          fields: %{"state" => {:text, "ready"}}
+        }}, 1, 1, 1}
+
+    unless observed == expected do
+      decoded_rows =
+        Enum.map(snapshot.elzoo_log_records, fn [
+                                                  stream,
+                                                  sequence,
+                                                  kind,
+                                                  version,
+                                                  payload,
+                                                  nonce,
+                                                  digest
+                                                ] ->
+          {:ok, record} = CheckedCommand.Codec.decode_record(payload)
+
+          %{
+            stream: stream,
+            sequence: sequence,
+            kind: kind,
+            version: version,
+            identity: record.identity,
+            outcome: record.outcome,
+            delta: record.delta,
+            nonce: nonce,
+            digest: digest
+          }
+        end)
+
+      IO.inspect(decoded_rows, label: "decoded durable PostgreSQL rows", limit: :infinity)
+      IO.inspect(snapshot.elzoo_log_records, label: "raw durable PostgreSQL rows", limit: :infinity)
+      flunk("mutation, result, resource projection and outbox diverged: #{inspect(observed)}")
+    end
   end
 
   @tag :postgres

@@ -143,12 +143,174 @@ defmodule Elzoo.CheckedCommandExample do
 
       true = selected.id == resource and selected.revision == 1
 
+      updated_declaration = Map.put(declaration, "revision", 2)
+
+      update_context = %{
+        context
+        | own: [
+            %{target: resource, field: "declaration", value: portable_json(updated_declaration)}
+          ]
+      }
+
+      update_request = %{
+        operation_id: "update-trigger-example",
+        resource: resource,
+        expected_revision: 1,
+        payload: Map.put(request.payload, "declaration", updated_declaration)
+      }
+
+      {:completed, %{revision: 2}} = CheckedCommand.execute(handle, update_context, update_request)
+
+      {:ok, %{revision: 2, fields: updated_fields}} =
+        CheckedCommand.resource(handle, scope, resource)
+
+      {:ok, updated_checked} =
+        updated_fields["declaration"]
+        |> decode_portable()
+        |> TriggerBinding.validate_declaration()
+
+      {:ok, updated_selected} =
+        TriggerBinding.select([updated_checked], %{tenant: tenant, source: source}, @event_schema)
+
+      true = updated_selected.id == resource and updated_selected.revision == 2
+
+      {:ok, resource_before_refusals} = CheckedCommand.resource(handle, scope, resource)
+
       stream =
         "cc1:" <>
           Base.url_encode64(
             :erlang.term_to_binary({:cc, 1, tenant}, [:deterministic]),
             padding: false
           )
+
+      {:ok, outbox_before_refusals} = Postgres.pending(store, stream, 16)
+
+      valid_next_declaration = Map.put(updated_declaration, "revision", 3)
+
+      declaration_mismatches = [
+        {"binding-id-mismatch", Map.put(valid_next_declaration, "id", "other-trigger")},
+        {"binding-tenant-mismatch", Map.put(valid_next_declaration, "tenant", "other-tenant")},
+        {"binding-source-mismatch", Map.put(valid_next_declaration, "source", "other-source")},
+        {"binding-revision-mismatch", Map.put(valid_next_declaration, "revision", 2)}
+      ]
+
+      Enum.each(declaration_mismatches, fn {operation_id, invalid_declaration} ->
+        invalid_request = %{
+          update_request
+          | operation_id: operation_id,
+            expected_revision: 2,
+            payload: Map.put(request.payload, "declaration", invalid_declaration)
+        }
+
+        attempt_context = %{
+          update_context
+          | own: [
+              %{
+                target: resource,
+                field: "declaration",
+                value: portable_json(invalid_declaration)
+              }
+            ]
+        }
+
+        {:conflict, {:domain, "binding_mismatch"}} =
+          CheckedCommand.execute(handle, attempt_context, invalid_request)
+      end)
+
+      stale_request = %{
+        update_request
+        | operation_id: "binding-stale-revision",
+          expected_revision: 1,
+          payload: Map.put(request.payload, "declaration", updated_declaration)
+      }
+
+      {:conflict, :stale_revision} = CheckedCommand.execute(handle, update_context, stale_request)
+      {:ok, ^resource_before_refusals} = CheckedCommand.resource(handle, scope, resource)
+      {:ok, ^outbox_before_refusals} = Postgres.pending(store, stream, 16)
+
+      approval_declaration = Map.put(updated_declaration, "revision", 3)
+
+      ask_policy = %{
+        context.policy
+        | rules: [
+            %{
+              id: "review-trigger",
+              effect_class: "publish",
+              verdict: :ask,
+              requirement: %{name: "human", version: 1, scope: :once}
+            }
+          ]
+      }
+
+      ask_context = %{
+        context
+        | policy: ask_policy,
+          own: [
+            %{target: resource, field: "declaration", value: portable_json(approval_declaration)}
+          ]
+      }
+
+      ask_request = %{
+        operation_id: "approve-trigger-example",
+        resource: resource,
+        expected_revision: 2,
+        payload: Map.put(request.payload, "declaration", approval_declaration)
+      }
+
+      {:approval_pending, %{key: key}} = CheckedCommand.execute(handle, ask_context, ask_request)
+
+      # Host Need: a dedicated command verifier must authenticate this provenance.
+      evidence = %{
+        verifier: "command-reviewer",
+        evidence_id: "example-command-evidence",
+        reviewer: "reviewer-example",
+        request: key,
+        decision: :approve,
+        scope: :once,
+        issued_at: 1_000,
+        expiry: 61_000
+      }
+
+      identity = {tenant, actor, ask_request.operation_id}
+      command_envelope = %{purpose: :command, tenant: tenant, evidence: evidence}
+      run_envelope = %{purpose: :run, tenant: tenant, evidence: evidence}
+
+      {:release_refused, :invalid_request} =
+        CheckedCommand.release(
+          handle,
+          Map.merge(ask_context, %{
+            approver: %{identity: "reviewer-example", authority: ask_context.own},
+            now: 1_001,
+            revoked: []
+          }),
+          identity,
+          run_envelope
+        )
+
+      {:completed, %{revision: 3}} =
+        CheckedCommand.release(
+          handle,
+          Map.merge(ask_context, %{
+            approver: %{identity: "reviewer-example", authority: ask_context.own},
+            now: 1_001,
+            revoked: []
+          }),
+          identity,
+          command_envelope
+        )
+
+      {:ok, %{revision: 3, fields: released_fields}} =
+        CheckedCommand.resource(handle, scope, resource)
+
+      {:ok, released_checked} =
+        released_fields["declaration"]
+        |> decode_portable()
+        |> TriggerBinding.validate_declaration()
+
+      {:ok, released_selected} =
+        TriggerBinding.select([released_checked], %{tenant: tenant, source: source}, @event_schema)
+
+      true = released_selected.id == resource and released_selected.revision == 3
 
       {:ok, pending} = Postgres.pending(store, stream, 16)
 
@@ -159,7 +321,8 @@ defmodule Elzoo.CheckedCommandExample do
         )
 
       IO.puts(
-        "Installed and selected #{selected.id} at revision #{selected.revision}; " <>
+        "Installed and CAS-updated #{updated_selected.id} at revision #{updated_selected.revision}; " <>
+          "command-approved revision #{released_selected.revision}; " <>
           "#{length(pending)} notification(s) pending"
       )
     after
