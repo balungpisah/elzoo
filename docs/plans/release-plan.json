@@ -7142,7 +7142,7 @@
       "baseline_status": "planned",
       "disposition": "ready-contract",
       "manifest": "pieces/assembly/checked-command/piece.json",
-      "manifest_sha256": "ccc0737eb2e7252d60a170a11da8c582e09bc3228dab7723864e6c1247ff8a6f",
+      "manifest_sha256": "6c8f5dd71f2c476134ed54c341d3499e33f2f9b912ee1d1129a689ac6cad4fb2",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
