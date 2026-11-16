@@ -246,6 +246,14 @@ Existing Authorization and Approval bounds also apply. Values are refused,
 never truncated or evicted. These finite byte/count limits do not prove
 allocation safety against a hostile host callback or production scalability.
 
+The 4,096-record ceiling is an independent guard, not a reachable target under
+the smaller operation bound: each retained operation contributes one initial
+record and an ASK operation can contribute at most one terminal release record,
+so a usable stream is limited to 2,048 records. A resource revision is likewise
+bounded by the 1,024 retained operations. The wider integer bounds are defensive
+input and replay checks; this Piece has no import or checkpoint path that can
+bypass the append-only operation history.
+
 Copied-source/provider closure includes `integration/sql` (consumer-owned Repo
 and migrations; `ecto_sql`/`postgrex`), `state/event-log`, `state/outbox`,
 `core/payload-schema`, `workflow/pattern-step`, `domain/authorization`,

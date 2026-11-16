@@ -5,7 +5,28 @@ sql_helper =
     __DIR__
   )
 
-Code.require_file(sql_helper)
+postgres_available? = File.regular?(sql_helper)
+
+if postgres_available? do
+  Code.require_file(sql_helper)
+else
+  ExUnit.configure(exclude: [:postgres])
+
+  defmodule Elzoo.DurableLog.TestRepo do
+    def start_link(_), do: {:error, :postgres_test_support_unavailable}
+  end
+
+  defmodule Elzoo.DurableLog.PostgresHarness do
+    def database_url!, do: nil
+    def reachable!(_), do: :ok
+    def start_link(_), do: {:error, :postgres_test_support_unavailable}
+    def attach(_, _, _, _, _), do: {:error, :postgres_test_support_unavailable}
+    def hook(_, _, _), do: {:error, :postgres_test_support_unavailable}
+    def history(_), do: []
+    def paused(_, _), do: nil
+    def cleanup(_), do: :ok
+  end
+end
 
 defmodule Elzoo.CheckedCommandTest do
   use ExUnit.Case, async: false
@@ -23,7 +44,12 @@ defmodule Elzoo.CheckedCommandTest do
     "schema_version" => 1
   }
   @limits %{max_record_bytes: 1_048_576, max_batch_size: 1, max_checkpoint_bytes: 1_048_576}
-  @database_url PostgresHarness.database_url!()
+  @postgres_helper Path.expand(
+                     "../../../../integration/sql/test/support/durable_log_postgres_test_helper.exs",
+                     __DIR__
+                   )
+  @postgres_available File.regular?(@postgres_helper)
+  @database_url if(@postgres_available, do: PostgresHarness.database_url!(), else: nil)
 
   defp fold do
     %{
@@ -200,6 +226,7 @@ defmodule Elzoo.CheckedCommandTest do
       identity: {tenant, actor, operation_id},
       descriptor: descriptor,
       canonical: canonical,
+      canonical_digest: :crypto.hash(:sha256, canonical),
       resource: resource,
       expected_revision: 0,
       payload: payload,
@@ -271,6 +298,7 @@ defmodule Elzoo.CheckedCommandTest do
       identity: {tenant, actor, operation_id},
       descriptor: descriptor,
       canonical: canonical,
+      canonical_digest: :crypto.hash(:sha256, canonical),
       resource: resource,
       expected_revision: 0,
       payload: payload,
@@ -355,33 +383,46 @@ defmodule Elzoo.CheckedCommandTest do
     Enum.map(tasks, &Task.await(&1, 15_000))
   end
 
-  setup_all do
-    {:ok, repo} = TestRepo.start_link(url: @database_url, pool_size: 20, log: false)
-    Process.unlink(repo)
-    :ok = PostgresHarness.reachable!(TestRepo)
+  if @postgres_available do
+    setup_all do
+      {:ok, repo} = TestRepo.start_link(url: @database_url, pool_size: 20, log: false)
+      Process.unlink(repo)
+      :ok = PostgresHarness.reachable!(TestRepo)
 
-    on_exit(fn ->
-      if Process.alive?(repo), do: Supervisor.stop(repo)
-    end)
+      on_exit(fn ->
+        if Process.alive?(repo), do: Supervisor.stop(repo)
+      end)
 
-    :ok
-  end
+      :ok
+    end
 
-  setup do
-    {:ok, controller} = PostgresHarness.start_link([])
-    Process.unlink(controller)
-    prefix = "cc_" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
-    _ = SQL.query!(TestRepo, "CREATE SCHEMA #{Postgres.identifier(prefix)}", [], log: false)
-    :ok = Ecto.Migrator.up(TestRepo, 1, TestMigration, prefix: prefix, log: false)
-    store = PostgresHarness.attach(TestRepo, prefix, fold(), @limits, controller)
+    setup do
+      {:ok, controller} = PostgresHarness.start_link([])
+      Process.unlink(controller)
+      prefix = "cc_" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
+      _ = SQL.query!(TestRepo, "CREATE SCHEMA #{Postgres.identifier(prefix)}", [], log: false)
+      :ok = Ecto.Migrator.up(TestRepo, 1, TestMigration, prefix: prefix, log: false)
+      store = PostgresHarness.attach(TestRepo, prefix, fold(), @limits, controller)
 
-    on_exit(fn ->
-      PostgresHarness.cleanup(controller)
-      _ = SQL.query!(TestRepo, "DROP SCHEMA #{Postgres.identifier(prefix)} CASCADE", [], log: false)
-      Agent.stop(controller)
-    end)
+      on_exit(fn ->
+        PostgresHarness.cleanup(controller)
 
-    %{store: store, controller: controller, prefix: prefix}
+        _ =
+          SQL.query!(TestRepo, "DROP SCHEMA #{Postgres.identifier(prefix)} CASCADE", [], log: false)
+
+        Agent.stop(controller)
+      end)
+
+      %{store: store, controller: controller, prefix: prefix}
+    end
+  else
+    setup_all do
+      :ok
+    end
+
+    setup do
+      %{}
+    end
   end
 
   test "Memory commits mutation and receipt; retained replay skips gate and prepare" do
@@ -581,6 +622,41 @@ defmodule Elzoo.CheckedCommandTest do
     refute_receive {:prepared, _}
   end
 
+  test "expected-revision maximum is valid while above-bound values are rejected" do
+    {store, pid} = memory_store()
+    on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+    {handle, _} = new_handle(store)
+    maximum = 9_223_372_036_854_775_806
+
+    assert {:conflict, :stale_revision} =
+             CheckedCommand.execute(
+               handle,
+               context(),
+               request(operation_id: "revision-maximum", expected_revision: maximum)
+             )
+
+    assert {:conflict, :stale_revision} =
+             CheckedCommand.result(
+               handle,
+               %{tenant: "tenant-1", actor: "actor-1"},
+               {"tenant-1", "actor-1", "revision-maximum"}
+             )
+
+    assert {:refused, :invalid_request} =
+             CheckedCommand.execute(
+               handle,
+               context(),
+               request(operation_id: "revision-over-bound", expected_revision: maximum + 1)
+             )
+
+    assert {:unknown, :not_observed} =
+             CheckedCommand.result(
+               handle,
+               %{tenant: "tenant-1", actor: "actor-1"},
+               {"tenant-1", "actor-1", "revision-over-bound"}
+             )
+  end
+
   test "Memory barriers preserve equal identity and different-request races" do
     {store, pid} = memory_store()
     on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
@@ -714,6 +790,118 @@ defmodule Elzoo.CheckedCommandTest do
                %{tenant: "tenant-1", actor: "actor-1"},
                {"tenant-1", "actor-1", "corrupt-reason"}
              )
+  end
+
+  test "canonical request digest is retained and checked during replay" do
+    {store, pid} = memory_store()
+    on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+
+    row =
+      gate_denial_row(
+        "tenant-1",
+        "actor-1",
+        "bad-canonical-digest",
+        1,
+        :crypto.strong_rand_bytes(16)
+      )
+
+    {:ok, record} = CheckedCommand.Codec.decode_record(row.payload)
+    {:ok, payload} = CheckedCommand.Codec.encode_record(%{record | canonical_digest: <<0::256>>})
+    row = %{row | payload: payload}
+    row = %{row | digest: Elzoo.DurableLog.digest(row)}
+
+    assert {:committed, 1} =
+             Memory.append(store, CheckedCommand.Codec.stream("tenant-1"), 0, [row], [])
+
+    {handle, _} = new_handle(store)
+
+    assert {:unknown, :unresolved} =
+             CheckedCommand.result(
+               handle,
+               %{tenant: "tenant-1", actor: "actor-1"},
+               {"tenant-1", "actor-1", "bad-canonical-digest"}
+             )
+  end
+
+  test "initial ASK cannot be replayed as a completed mutation without release evidence" do
+    {source, source_pid} = memory_store()
+    on_exit(fn -> if Process.alive?(source_pid), do: GenServer.stop(source_pid) end)
+    {source_handle, _} = new_handle(source)
+
+    assert {:approval_pending, _} =
+             CheckedCommand.execute(source_handle, context(policy: policy(:ask)), request())
+
+    stream = CheckedCommand.Codec.stream("tenant-1")
+    assert {:ok, [row], _head} = Elzoo.DurableLog.Store.read(source, :read, [stream, 1, 1])
+    {:ok, record} = CheckedCommand.Codec.decode_record(row.payload)
+    {writes, response} = record.prepared
+
+    forged = %{
+      record
+      | outcome: {:completed, %{revision: 1, response: response}},
+        delta: {record.resource, 0, 1, writes},
+        approval_events: []
+    }
+
+    {:ok, payload} = CheckedCommand.Codec.encode_record(forged)
+    forged_row = %{row | payload: payload}
+    forged_row = %{forged_row | digest: Elzoo.DurableLog.digest(forged_row)}
+
+    {store, pid} = memory_store()
+    on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+    assert {:committed, 1} = Memory.append(store, stream, 0, [forged_row], [])
+    {handle, _} = new_handle(store)
+    scope = %{tenant: "tenant-1", actor: "actor-1", resources: ["resource-1"]}
+
+    assert {:unknown, :unresolved} =
+             CheckedCommand.result(handle, %{tenant: "tenant-1", actor: "actor-1"}, {
+               "tenant-1",
+               "actor-1",
+               "operation-1"
+             })
+
+    assert {:unknown, :unresolved} = CheckedCommand.resource(handle, scope, "resource-1")
+  end
+
+  test "DENY replay rejects permitted, escrowed, and requirement fields" do
+    for {key, value} <- [
+          {:permitted, [%{target: "resource-1", field: "state", value: {:text, "ready"}}]},
+          {:escrowed, [%{target: "resource-1", field: "state", value: {:text, "ready"}}]},
+          {:requirement, %{name: "human", version: 1, scope: :once}}
+        ] do
+      {store, pid} = memory_store()
+
+      row =
+        authorization_denial_row(
+          "tenant-1",
+          "actor-1",
+          "bad-deny-#{key}",
+          1,
+          :crypto.strong_rand_bytes(16),
+          :authority_exceeded
+        )
+
+      {:ok, record} = CheckedCommand.Codec.decode_record(row.payload)
+      decision = Map.put(record.decision, key, value)
+      outcome = {:denied, {:authorization, record.decision.reason}}
+
+      {:ok, payload} =
+        CheckedCommand.Codec.encode_record(%{record | decision: decision, outcome: outcome})
+
+      row = %{row | payload: payload}
+      row = %{row | digest: Elzoo.DurableLog.digest(row)}
+      assert {:committed, 1} = Memory.append(store, row.stream, 0, [row], [])
+      {handle, _} = new_handle(store)
+
+      assert {:unknown, :unresolved} =
+               CheckedCommand.result(
+                 handle,
+                 %{tenant: "tenant-1", actor: "actor-1"},
+                 {"tenant-1", "actor-1", "bad-deny-#{key}"}
+               )
+
+      GenServer.stop(pid)
+    end
   end
 
   test "facts, prepared writes and responses require Authorization portable values" do
@@ -1093,6 +1281,7 @@ defmodule Elzoo.CheckedCommandTest do
     assert {:ok, [row], _head} = Elzoo.DurableLog.Store.read(store, :read, [stream, 1, 1])
     assert {:ok, record} = CheckedCommand.Codec.decode_record(row.payload)
     assert record.decision.verdict == :ask
+    assert record.canonical_digest == :crypto.hash(:sha256, record.canonical)
     assert record.decision.reason == {:ask, record.decision.requirement}
     assert record.decision.policy == %{id: "policy", version: 1, content_hash: @hash}
     [{:requested, approval_request}] = record.approval_events
@@ -1171,6 +1360,33 @@ defmodule Elzoo.CheckedCommandTest do
              CheckedCommand.release(handle, release_ctx, identity, envelope)
   end
 
+  test "resource write-field bounds are enforced before ASK is retained" do
+    {store, pid} = memory_store()
+    on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+    field = String.duplicate("f", 129)
+
+    prepare = fn _snapshot, request, _facts ->
+      {:ok, [%{target: request.resource, field: field, value: {:text, "ready"}}],
+       {:record, [{"accepted", true}]}}
+    end
+
+    {handle, _} = new_handle(store, prepare: prepare)
+    identity = {"tenant-1", "actor-1", "operation-1"}
+
+    assert {:refused, :domain_failure} =
+             CheckedCommand.execute(handle, context(policy: policy(:ask)), request())
+
+    assert {:refused, :domain_failure} =
+             CheckedCommand.result(handle, %{tenant: "tenant-1", actor: "actor-1"}, identity)
+
+    assert {:ok, %{revision: 0, fields: %{}}} =
+             CheckedCommand.resource(
+               handle,
+               %{tenant: "tenant-1", actor: "actor-1", resources: ["resource-1"]},
+               "resource-1"
+             )
+  end
+
   test "ASK release refusals preserve pending state and do not persist fresh revocations" do
     {store, pid} = memory_store()
     on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
@@ -1226,6 +1442,56 @@ defmodule Elzoo.CheckedCommandTest do
 
       assert {:approval_pending, _} =
                CheckedCommand.result(variant, %{tenant: "tenant-1", actor: "actor-1"}, identity)
+
+      assert {:ok, %{revision: 0, fields: %{}}} =
+               CheckedCommand.resource(
+                 variant,
+                 %{tenant: "tenant-1", actor: "actor-1", resources: ["resource-1"]},
+                 "resource-1"
+               )
+    end)
+
+    write_drift = fn _snapshot, request, _facts ->
+      {:ok, [%{target: request.resource, field: "state", value: {:text, "changed"}}],
+       {:record, [{"accepted", true}]}}
+    end
+
+    invalid_evidence = [
+      %{evidence | verifier: "unlisted-reviewer"},
+      %{evidence | reviewer: "actor-1"},
+      %{evidence | request: put_elem(key, 1, "other-operation")},
+      %{evidence | issued_at: 151},
+      %{evidence | expiry: 149}
+    ]
+
+    attempts =
+      Enum.map(invalid_evidence, fn bad_evidence ->
+        {handle, release_ctx, identity, %{envelope | evidence: bad_evidence}}
+      end) ++
+        [
+          {handle, Map.put(release_ctx, :actor, "other-actor"), identity, envelope},
+          {handle, Map.put(release_ctx, :now, 201), identity, envelope},
+          {handle, Map.put(release_ctx, :approver, %{identity: "human", authority: []}), identity,
+           envelope},
+          {handle, Map.put(release_ctx, :policy, policy(:deny)), identity, envelope},
+          {new_handle_variant(store, %{prepare: write_drift}), release_ctx, identity, envelope}
+        ]
+
+    Enum.each(attempts, fn {variant, current_context, current_identity, current_envelope} ->
+      assert match?(
+               {:release_refused, _},
+               CheckedCommand.release(variant, current_context, current_identity, current_envelope)
+             )
+
+      assert {:approval_pending, _} =
+               CheckedCommand.result(handle, %{tenant: "tenant-1", actor: "actor-1"}, identity)
+
+      assert {:ok, %{revision: 0, fields: %{}}} =
+               CheckedCommand.resource(
+                 handle,
+                 %{tenant: "tenant-1", actor: "actor-1", resources: ["resource-1"]},
+                 "resource-1"
+               )
     end)
 
     assert {:completed, %{revision: 1}} =
@@ -1276,14 +1542,52 @@ defmodule Elzoo.CheckedCommandTest do
              )
   end
 
+  @tag :postgres
   test "PostgreSQL barriers preserve equal identity and different-request races", %{store: store} do
     exercise_identity_races(store)
   end
 
+  @tag :postgres
+  test "PostgreSQL retains DENY and checks both identity scope dimensions", %{store: store} do
+    {handle, _} = new_handle(store, descriptor: %{outbox: nil})
+    identity = {"tenant-1", "actor-1", "postgres-denied"}
+
+    assert {:denied, {:authorization, _}} =
+             CheckedCommand.execute(
+               handle,
+               context(policy: policy(:deny)),
+               request(operation_id: "postgres-denied")
+             )
+
+    assert :not_found =
+             CheckedCommand.result(
+               handle,
+               %{tenant: "other-tenant", actor: "actor-1"},
+               identity
+             )
+
+    assert :not_found =
+             CheckedCommand.result(
+               handle,
+               %{tenant: "tenant-1", actor: "other-actor"},
+               identity
+             )
+
+    assert {:denied, {:authorization, _}} =
+             CheckedCommand.result(
+               handle,
+               %{tenant: "tenant-1", actor: "actor-1"},
+               identity
+             )
+  end
+
+  @tag :postgres
   test "PostgreSQL rejects a gap in otherwise unpruned history", %{store: store, prefix: prefix} do
     {handle, _} = new_handle(store, descriptor: %{outbox: nil})
     assert {:completed, %{revision: 1}} = CheckedCommand.execute(handle, context(), request())
     stream = CheckedCommand.Codec.stream("tenant-1")
+    checkpoint = checkpoint_fixture(store, stream)
+    assert {:committed, 1} = Postgres.put_checkpoint(store, checkpoint)
 
     SQL.query!(
       TestRepo,
@@ -1300,6 +1604,81 @@ defmodule Elzoo.CheckedCommandTest do
              )
   end
 
+  @tag :postgres
+  test "PostgreSQL ASK refusal matrix preserves pending state and evidence", %{store: store} do
+    {handle, _} = new_handle(store, descriptor: %{outbox: nil})
+    ask_context = context(policy: policy(:ask))
+    identity = {"tenant-1", "actor-1", "operation-1"}
+
+    assert {:approval_pending, %{key: key}} =
+             CheckedCommand.execute(handle, ask_context, request())
+
+    evidence = %{
+      verifier: "command-reviewer",
+      evidence_id: "postgres-refusal-matrix",
+      reviewer: "human",
+      request: key,
+      decision: :approve,
+      scope: :once,
+      issued_at: 100,
+      expiry: 200
+    }
+
+    envelope = %{purpose: :command, tenant: "tenant-1", evidence: evidence}
+
+    release_context =
+      Map.merge(ask_context, %{
+        approver: %{identity: "human", authority: ask_context.own},
+        now: 150,
+        revoked: []
+      })
+
+    write_drift = fn _snapshot, request, _facts ->
+      {:ok, [%{target: request.resource, field: "state", value: {:text, "changed"}}],
+       {:record, [{"accepted", true}]}}
+    end
+
+    attempts = [
+      {handle, release_context,
+       %{envelope | evidence: %{evidence | verifier: "unlisted-reviewer"}}},
+      {handle, release_context, %{envelope | evidence: %{evidence | reviewer: "actor-1"}}},
+      {handle, release_context,
+       %{envelope | evidence: %{evidence | request: put_elem(key, 1, "other-operation")}}},
+      {handle, release_context, %{envelope | evidence: %{evidence | issued_at: 151}}},
+      {handle, release_context, %{envelope | evidence: %{evidence | expiry: 149}}},
+      {handle, Map.put(release_context, :actor, "other-actor"), envelope},
+      {handle, Map.put(release_context, :now, 201), envelope},
+      {handle, Map.put(release_context, :approver, %{identity: "human", authority: []}), envelope},
+      {handle, Map.put(release_context, :policy, policy(:deny)), envelope},
+      {new_handle_variant(store, %{prepare: write_drift}), release_context, envelope}
+    ]
+
+    Enum.each(attempts, fn {variant, current_context, current_envelope} ->
+      assert match?(
+               {:release_refused, _},
+               CheckedCommand.release(variant, current_context, identity, current_envelope)
+             )
+
+      assert {:approval_pending, _} =
+               CheckedCommand.result(
+                 handle,
+                 %{tenant: "tenant-1", actor: "actor-1"},
+                 identity
+               )
+
+      assert {:ok, %{revision: 0, fields: %{}}} =
+               CheckedCommand.resource(
+                 handle,
+                 %{tenant: "tenant-1", actor: "actor-1", resources: ["resource-1"]},
+                 "resource-1"
+               )
+    end)
+
+    assert {:completed, %{revision: 1}} =
+             CheckedCommand.release(handle, release_context, identity, envelope)
+  end
+
+  @tag :postgres
   test "PostgreSQL rejects an Approval request binding detached from its receipt", %{
     store: store,
     prefix: prefix
@@ -1379,6 +1758,7 @@ defmodule Elzoo.CheckedCommandTest do
              )
   end
 
+  @tag :postgres
   test "PostgreSQL ASK consumption survives reopen and rejects cross-command evidence reuse", %{
     store: store
   } do
@@ -1438,6 +1818,7 @@ defmodule Elzoo.CheckedCommandTest do
              CheckedCommand.result(handle, %{tenant: "tenant-1", actor: "actor-1"}, second_identity)
   end
 
+  @tag :postgres
   test "PostgreSQL replay rejects a released event detached from its retained request", %{
     store: store,
     prefix: prefix
@@ -1501,6 +1882,7 @@ defmodule Elzoo.CheckedCommandTest do
              )
   end
 
+  @tag :postgres
   test "PostgreSQL replay rejects a consumed evidence key reused by another command", %{
     store: store
   } do
@@ -1619,6 +2001,7 @@ defmodule Elzoo.CheckedCommandTest do
              )
   end
 
+  @tag :postgres
   test "PostgreSQL response loss confirms one atomic record and outbox item", %{store: store} do
     {handle, _} = new_handle(store)
     PostgresHarness.hook(store, :inject, [:append, :reply_loss])
@@ -1635,6 +2018,7 @@ defmodule Elzoo.CheckedCommandTest do
            end) == 1
   end
 
+  @tag :postgres
   test "PostgreSQL ignores unused checkpoint metadata but refuses pruned replay", %{store: store} do
     {handle, _} = new_handle(store, descriptor: %{outbox: nil})
 
@@ -1660,6 +2044,7 @@ defmodule Elzoo.CheckedCommandTest do
              )
   end
 
+  @tag :postgres
   test "PostgreSQL paused append remains unknown without automatic reappend", %{
     store: store,
     controller: controller
@@ -1681,6 +2066,7 @@ defmodule Elzoo.CheckedCommandTest do
     assert snapshot.elzoo_outbox == []
   end
 
+  @tag :postgres
   test "PostgreSQL paused append commit is visible as one record and outbox item", %{
     store: store,
     controller: controller
@@ -1719,6 +2105,7 @@ defmodule Elzoo.CheckedCommandTest do
     assert {:completed, %{revision: 1}} = CheckedCommand.execute(handle, context(), request())
   end
 
+  @tag :postgres
   test "resource capacity is enforced before the 65th resource is appended", %{store: store} do
     own =
       for index <- 1..65 do

@@ -501,6 +501,7 @@ defmodule Elzoo.CheckedCommand do
       identity: identity,
       descriptor: descriptor,
       canonical: canonical,
+      canonical_digest: :crypto.hash(:sha256, canonical),
       resource: request.resource,
       expected_revision: request.expected_revision,
       payload: request.payload,
@@ -799,6 +800,7 @@ defmodule Elzoo.CheckedCommand do
       identity: receipt.identity,
       descriptor: receipt.descriptor,
       canonical: receipt.canonical,
+      canonical_digest: receipt.canonical_digest,
       resource: receipt.resource,
       expected_revision: receipt.expected_revision,
       payload: receipt.payload,
@@ -945,6 +947,7 @@ defmodule Elzoo.CheckedCommand do
              facts
            ),
          true <- canonical == record.canonical,
+         true <- record.canonical_digest == :crypto.hash(:sha256, record.canonical),
          :ok <- valid_prepared(record.prepared, record.mutation_binding, canonical, resource),
          :ok <-
            valid_decision(
@@ -1055,6 +1058,7 @@ defmodule Elzoo.CheckedCommand do
   end
 
   defp valid_initial_events(%{outcome: {:approval_pending, _}}, _), do: {:error, :malformed}
+  defp valid_initial_events(%{decision: %{verdict: :ask}}, []), do: {:error, :malformed}
   defp valid_initial_events(_record, []), do: :ok
   defp valid_initial_events(_, _), do: {:error, :malformed}
 
@@ -1131,6 +1135,7 @@ defmodule Elzoo.CheckedCommand do
       identity: record.identity,
       descriptor: record.descriptor,
       canonical: record.canonical,
+      canonical_digest: record.canonical_digest,
       resource: record.resource,
       expected_revision: record.expected_revision,
       payload: record.payload,
@@ -1243,6 +1248,8 @@ defmodule Elzoo.CheckedCommand do
 
   defp valid_decision_shape(%{verdict: :deny} = decision) do
     with :ok <- valid_authorization_reason(decision.reason),
+         true <-
+           decision.permitted == [] and decision.escrowed == [] and decision.requirement == nil,
          true <- decision.action != nil or match?({:control_field, _}, decision.reason) do
       :ok
     else
@@ -1835,6 +1842,7 @@ defmodule Elzoo.CheckedCommand do
          true <- length(normalized) in 1..@max_writes,
          {:ok, canonical} <- Authorization.validate_writes(normalized),
          true <- canonical == normalized,
+         true <- Enum.all?(canonical, &match?({:ok, _}, field_name(&1.field))),
          true <- Enum.all?(canonical, &(&1.target == resource)) do
       {:ok, normalized}
     else

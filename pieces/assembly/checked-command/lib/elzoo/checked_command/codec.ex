@@ -37,10 +37,10 @@ defmodule Elzoo.CheckedCommand.Codec do
 
   def encode_record(record) when is_map(record) do
     tuple =
-      {@record_tag, 1, record.identity, record.descriptor, record.canonical, record.resource,
-       record.expected_revision, record.payload, record.portable_payload, record.facts,
-       record.prepared, record.mutation_binding, record.decision, record.outcome, record.delta,
-       record.approval_events}
+      {@record_tag, 1, record.identity, record.descriptor, record.canonical,
+       record.canonical_digest, record.resource, record.expected_revision, record.payload,
+       record.portable_payload, record.facts, record.prepared, record.mutation_binding,
+       record.decision, record.outcome, record.delta, record.approval_events}
 
     bytes = :erlang.term_to_binary(tuple, [:deterministic])
     if byte_size(bytes) <= @max_record_bytes, do: {:ok, bytes}, else: {:error, :too_large}
@@ -63,15 +63,16 @@ defmodule Elzoo.CheckedCommand.Codec do
 
   defp decode_record_term(bytes) do
     case :erlang.binary_to_term(bytes, [:safe]) do
-      {@record_tag, 1, identity, descriptor, canonical, resource, expected_revision, payload,
-       portable_payload, facts, prepared, binding, decision, outcome, delta, approval_events} =
-          term ->
+      {@record_tag, 1, identity, descriptor, canonical, canonical_digest, resource,
+       expected_revision, payload, portable_payload, facts, prepared, binding, decision, outcome,
+       delta, approval_events} = term ->
         if :erlang.term_to_binary(term, [:deterministic]) == bytes do
           {:ok,
            %{
              identity: identity,
              descriptor: descriptor,
              canonical: canonical,
+             canonical_digest: canonical_digest,
              resource: resource,
              expected_revision: expected_revision,
              payload: payload,
