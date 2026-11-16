@@ -1,0 +1,64 @@
+# SPDX-License-Identifier: Apache-2.0
+mod Elzoo.Conversation
+  type ConversationMode = AppendInput | AssociateRun | AppendAnswer
+
+  rec ConversationChecks
+    duplicate_message_id: Bool
+    input_exists: Bool
+    input_is_input: Bool
+    already_associated: Bool
+    association_exists: Bool
+    association_matches: Bool
+    already_answered: Bool
+    completed: Bool
+
+  type ConversationDecision =
+    ConversationProceed
+    | ConversationDuplicateMessageId
+    | ConversationMissingInput
+    | ConversationAlreadyAssociated
+    | ConversationRunNotCompleted
+    | ConversationAssociationMismatch
+    | ConversationAlreadyAnswered
+
+  @total true
+  @reducible
+  fn decide(mode: ConversationMode, checks: ConversationChecks) -> ConversationDecision =
+    match mode
+      AppendInput() ->
+        match checks.duplicate_message_id
+          True() -> ConversationDuplicateMessageId()
+          False() -> ConversationProceed()
+      AssociateRun() ->
+        match checks.input_exists
+          False() -> ConversationMissingInput()
+          True() ->
+            match checks.input_is_input
+              False() -> ConversationMissingInput()
+              True() ->
+                match checks.already_associated
+                  True() -> ConversationAlreadyAssociated()
+                  False() -> ConversationProceed()
+      AppendAnswer() ->
+        match checks.duplicate_message_id
+          True() -> ConversationDuplicateMessageId()
+          False() ->
+            match checks.completed
+              False() -> ConversationRunNotCompleted()
+              True() ->
+                match checks.input_exists
+                  False() -> ConversationMissingInput()
+                  True() ->
+                    match checks.input_is_input
+                      False() -> ConversationMissingInput()
+                      True() ->
+                        match checks.association_exists
+                          False() -> ConversationAssociationMismatch()
+                          True() ->
+                            match checks.association_matches
+                              False() -> ConversationAssociationMismatch()
+                              True() ->
+                                match checks.already_answered
+                                  True() -> ConversationAlreadyAnswered()
+                                  False() -> ConversationProceed()
+end

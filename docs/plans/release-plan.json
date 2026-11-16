@@ -7107,6 +7107,23 @@
       "issue": 570,
       "url": "https://github.com/balungpisah/elzoo/issues/570",
       "issue_body_sha256": "53a6655110fb48ed1c3dc301bf35099d62bc78f9c96bf35005a4e6828d79473a"
+    },
+    {
+      "id": "ELZ-253",
+      "title": "ELZ-253 — Give the complete aggregate consumer a measured 25-minute budget",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-251"],
+      "status": "published 2026-11-16",
+      "owner_role": "coordinator; one-PR path for a non-Piece change; independent review and merge queue",
+      "paths": ["tasks/ELZ-253-aggregate-budget.md"],
+      "outputs": [],
+      "acceptance": "The aggregate outer tag and existing guard agree on exactly 1,500,000 ms. The 300,000 ms inner default and all other limits, selections and assertions remain unchanged; the complete successful wrapper must run in the required full/affected gate.",
+      "product_aims": ["P13"],
+      "issue": 573,
+      "url": "https://github.com/balungpisah/elzoo/issues/573",
+      "issue_body_sha256": "c77c0f0fca5eea986072f6dcf1489afed52292515b82f9efa38a04ad4b227d17"
     }
   ],
   "entries": [
@@ -7984,10 +8001,12 @@
     {
       "id": "state/conversation",
       "job": "ELZ-250",
-      "note": "Pure version-1 conversation DTO/codec/preparation and bounded projection over one conversation field, with immutable message IDs and host-vouched input/Run associations; multiple inputs may map to one host-allocated stable Run ID. view/2 uses the shared host-vouched %{tenant:, actor:, resources:} scope and existing Authorization values ({:text, binary}, bare integers and booleans). Depends only on ELZ-024, imports no unfinished ELZ-249 implementation, and claims no persistence. Mandatory ELZ-252 owns root Memory/PostgreSQL composition and actual native RunEngine parity after ELZ-249, ELZ-250 and ELZ-127 merge.",
+      "note": "Pure version-1 preparation and bounded projection over one conversation resource field. Exact host facts select immutable input messages, input-to-Run associations and completed assistant answers; message IDs are unique within one conversation across all roles and several inputs may share one Run. The checked portable state has exact sorted record/list shapes, at most 64 messages and associations, and at most 65,536 bytes by pinned OTP term_to_binary/1. view/2 requires the host-vouched tenant/actor/resource read scope. No I/O, authentication, authorization, Run creation, persistence or CheckedCommand integration claim.",
       "baseline_status": "planned",
-      "disposition": "published-planned-contract",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/state/conversation/piece.json",
+      "manifest_sha256": "363f0bcb1587d10de1ad7c87b46991b2910cdb7129f1ec2e4e6f0bd3839470ab"
     },
     {
       "id": "state/crdt",
