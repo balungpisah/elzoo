@@ -210,6 +210,14 @@
       "manifest": "pieces/delivery/dead-letter/piece.json"
     },
     {
+      "id": "delivery/debounce",
+      "summary": "Pure trailing-edge latest-value debounce policy for one caller-owned partition.",
+      "disposition": "own",
+      "phase": "P13",
+      "status": "planned",
+      "reason": "Caller supplies monotonic samples and schedules tokenized timers; this Piece decides only bounded trailing-edge state transitions and emits no effects."
+    },
+    {
       "id": "delivery/idempotency",
       "summary": "Idempotent Receiver/Consumer; duplicate delivery handling",
       "disposition": "own",
@@ -408,6 +416,14 @@
       "phase": "P4",
       "status": "deferred",
       "reason": "Assembly family for domain/membership, domain/authorization, domain/entitlement and domain/quota; no universal SaaS engine or duplicate implementation."
+    },
+    {
+      "id": "domain/trigger-binding",
+      "summary": "Pure validation and bounded selection of one scoped trigger binding.",
+      "disposition": "own",
+      "phase": "P13",
+      "status": "planned",
+      "reason": "One immutable source selector maps to one fixed bot target; persistence, revision-fenced mutation, authorization and Run creation remain outside the Piece."
     },
     {
       "id": "domain/value-types",
