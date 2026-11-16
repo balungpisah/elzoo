@@ -30,7 +30,7 @@ defmodule Elzoo.CheckedCommandTest do
   use ExUnit.Case, async: false
 
   alias Ecto.Adapters.SQL
-  alias Elzoo.{CheckedCommand, PayloadSchema}
+  alias Elzoo.{Authorization, CheckedCommand, PayloadSchema}
   alias Elzoo.DurableLog.{Memory, Postgres, PostgresHarness, TestRepo}
   alias Elzoo.DurableLog.Codec, as: LogCodec
 
@@ -76,6 +76,23 @@ defmodule Elzoo.CheckedCommandTest do
 
     %{id: "policy", version: 1, content_hash: @hash, effect_classes: ["publish"], rules: [rule]}
   end
+
+  defp ask_policy(name, scope \\ :once) do
+    %{
+      policy(:ask)
+      | rules: [
+          %{
+            id: "review",
+            effect_class: "publish",
+            verdict: :ask,
+            requirement: %{name: name, version: 1, scope: scope}
+          }
+        ]
+    }
+  end
+
+  defp nested_value(0, value), do: value
+  defp nested_value(depth, value), do: nested_value(depth - 1, {:list, [value]})
 
   defp context(opts \\ []) do
     Map.merge(
@@ -555,6 +572,89 @@ defmodule Elzoo.CheckedCommandTest do
     assert length(items) == 1
   end
 
+  defp exercise_approval_key_boundaries(store) do
+    {handle, _} = new_handle(store, descriptor: %{outbox: nil})
+
+    assert {:completed, %{revision: 1}} =
+             CheckedCommand.execute(
+               handle,
+               context(),
+               request(operation_id: "prior-command")
+             )
+
+    name128 = String.duplicate("n", 128)
+    ask_context = context(policy: ask_policy(name128))
+    ask_request = request(operation_id: "ask-name-128", expected_revision: 1)
+
+    assert {:approval_pending, %{key: key}} =
+             CheckedCommand.execute(handle, ask_context, ask_request)
+
+    assert elem(key, 2) == name128
+    assert elem(key, 3) == 1
+    assert elem(key, 4) == 1
+
+    assert {:approval_pending, %{key: ^key}} =
+             CheckedCommand.execute(handle, ask_context, ask_request)
+
+    assert {:approval_pending, %{key: ^key}} =
+             CheckedCommand.result(
+               handle,
+               %{tenant: "tenant-1", actor: "actor-1"},
+               {"tenant-1", "actor-1", ask_request.operation_id}
+             )
+
+    stream = CheckedCommand.Codec.stream("tenant-1")
+    {:ok, before_head} = Elzoo.DurableLog.Store.read(store, :head, [stream])
+    name129 = String.duplicate("n", 129)
+    invalid_context = context(policy: ask_policy(name129))
+    invalid_request = request(operation_id: "ask-name-129", expected_revision: 1)
+
+    assert {:ok, _} = Authorization.validate_policy(invalid_context.policy)
+
+    assert {:unavailable, :context} =
+             CheckedCommand.execute(handle, invalid_context, invalid_request)
+
+    assert {:ok, ^before_head} = Elzoo.DurableLog.Store.read(store, :head, [stream])
+
+    assert {:unknown, :not_observed} =
+             CheckedCommand.result(
+               handle,
+               %{tenant: "tenant-1", actor: "actor-1"},
+               {"tenant-1", "actor-1", invalid_request.operation_id}
+             )
+
+    for scope <- [:run, :root] do
+      unsupported_context = context(policy: ask_policy(name129, scope))
+      unsupported_request = request(operation_id: "ask-name-#{scope}", expected_revision: 1)
+
+      assert {:refused, :unsupported_approval_scope} =
+               CheckedCommand.execute(handle, unsupported_context, unsupported_request)
+
+      assert {:unknown, :not_observed} =
+               CheckedCommand.result(
+                 handle,
+                 %{tenant: "tenant-1", actor: "actor-1"},
+                 {"tenant-1", "actor-1", unsupported_request.operation_id}
+               )
+    end
+
+    assert {:ok, ^before_head} = Elzoo.DurableLog.Store.read(store, :head, [stream])
+
+    assert {:completed, %{revision: 1}} =
+             CheckedCommand.result(
+               handle,
+               %{tenant: "tenant-1", actor: "actor-1"},
+               {"tenant-1", "actor-1", "prior-command"}
+             )
+
+    assert {:ok, %{revision: 1, fields: %{"state" => {:text, "ready"}}}} =
+             CheckedCommand.resource(
+               handle,
+               %{tenant: "tenant-1", actor: "actor-1", resources: ["resource-1"]},
+               "resource-1"
+             )
+  end
+
   if @postgres_available do
     setup_all do
       {:ok, repo} =
@@ -850,6 +950,12 @@ defmodule Elzoo.CheckedCommandTest do
     {store, pid} = memory_store()
     on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
     exercise_immutable_message(store)
+  end
+
+  test "Memory rejects incompatible once approval keys before append" do
+    {store, pid} = memory_store()
+    on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+    exercise_approval_key_boundaries(store)
   end
 
   test "unknown record versions fail closed" do
@@ -1437,6 +1543,17 @@ defmodule Elzoo.CheckedCommandTest do
                "r"
              )
 
+    assert {:ok, %{revision: 0, fields: %{}}} =
+             CheckedCommand.resource(
+               handle,
+               %{
+                 tenant: "tenant-1",
+                 actor: "actor-1",
+                 resources: List.duplicate("resource-1", 64)
+               },
+               "resource-1"
+             )
+
     resources = Enum.map(1..63, &"resource-#{&1}") ++ ["last"]
 
     assert {:ok, _} =
@@ -1457,6 +1574,79 @@ defmodule Elzoo.CheckedCommandTest do
                  payload: %{"" => "empty", long_key => "long"}
                )
              )
+  end
+
+  test "portable value depth and node bounds match Authorization" do
+    {store, pid} = memory_store()
+    on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+    {handle, _} = new_handle(store)
+
+    facts_2048 = {:list, List.duplicate({:text, ""}, 2_048)}
+    facts_4095 = {:list, List.duplicate({:text, ""}, 4_095)}
+    facts_4097 = {:list, List.duplicate({:text, ""}, 4_096)}
+    facts_depth16 = nested_value(15, {:text, ""})
+    facts_depth17 = nested_value(16, {:text, ""})
+
+    for facts <- [facts_2048, facts_4095, facts_depth16] do
+      assert {:ok, ^facts} = Authorization.validate_value(facts)
+    end
+
+    for facts <- [facts_4097, facts_depth17] do
+      assert {:error, _} = Authorization.validate_value(facts)
+    end
+
+    accepted = [
+      {facts_2048, "facts-2048", 0},
+      {facts_4095, "facts-4095", 1},
+      {facts_depth16, "facts-depth-16", 2}
+    ]
+
+    portable_payload = {:record, [{"value", {:text, "ready"}}]}
+
+    Enum.each(accepted, fn {facts, operation_id, revision} ->
+      {:ok, normalized_facts} = Authorization.validate_value(facts)
+
+      {:ok, canonical} =
+        CheckedCommand.Codec.canonical_request(
+          "tenant-1",
+          "actor-1",
+          operation_id,
+          {"checked/write", 1, @hash},
+          "resource-1",
+          revision,
+          portable_payload,
+          normalized_facts
+        )
+
+      assert byte_size(canonical) < 65_536
+
+      assert {:completed, %{revision: next_revision}} =
+               CheckedCommand.execute(
+                 handle,
+                 context(facts: facts),
+                 request(operation_id: operation_id, expected_revision: revision)
+               )
+
+      assert next_revision == revision + 1
+    end)
+
+    {:ok, stream_head} =
+      Elzoo.DurableLog.Store.read(store, :head, [CheckedCommand.Codec.stream("tenant-1")])
+
+    for {facts, operation_id} <- [
+          {facts_4097, "facts-4097"},
+          {facts_depth17, "facts-depth-17"}
+        ] do
+      assert {:unavailable, :context} =
+               CheckedCommand.execute(
+                 handle,
+                 context(facts: facts),
+                 request(operation_id: operation_id, expected_revision: 3)
+               )
+    end
+
+    assert {:ok, ^stream_head} =
+             Elzoo.DurableLog.Store.read(store, :head, [CheckedCommand.Codec.stream("tenant-1")])
   end
 
   test "ASK release accepts only fresh command-purpose once evidence" do
@@ -1626,6 +1816,21 @@ defmodule Elzoo.CheckedCommandTest do
         revoked: []
       })
 
+    stream = CheckedCommand.Codec.stream("tenant-1")
+    {:ok, history_before, _} = Elzoo.DurableLog.Store.read(store, :read, [stream, 1, 64])
+    {:ok, outbox_before} = Elzoo.Outbox.pending(store, stream, 64)
+
+    Enum.each([:approver, :now, :revoked], fn field ->
+      assert {:unavailable, :context} =
+               CheckedCommand.release(handle, Map.delete(release_ctx, field), identity, envelope)
+    end)
+
+    assert {:ok, ^history_before, _} = Elzoo.DurableLog.Store.read(store, :read, [stream, 1, 64])
+    assert {:ok, ^outbox_before} = Elzoo.Outbox.pending(store, stream, 64)
+
+    assert {:approval_pending, _} =
+             CheckedCommand.result(handle, %{tenant: "tenant-1", actor: "actor-1"}, identity)
+
     changed_policy = Map.put(policy(:ask), :id, "changed-policy")
 
     drift_prepare = fn _snapshot, request, _facts ->
@@ -1774,6 +1979,12 @@ defmodule Elzoo.CheckedCommandTest do
 
   @tag :postgres
   @tag skip: @postgres_skip
+  test "PostgreSQL rejects incompatible once approval keys before append", %{store: store} do
+    exercise_approval_key_boundaries(store)
+  end
+
+  @tag :postgres
+  @tag skip: @postgres_skip
   test "PostgreSQL retains DENY and checks both identity scope dimensions", %{store: store} do
     {handle, _} = new_handle(store, descriptor: %{outbox: nil})
     identity = {"tenant-1", "actor-1", "postgres-denied"}
@@ -1869,6 +2080,22 @@ defmodule Elzoo.CheckedCommandTest do
     stream = CheckedCommand.Codec.stream("tenant-1")
     {:ok, history_before, _} = Elzoo.DurableLog.Store.read(store, :read, [stream, 1, 64])
     {:ok, outbox_before} = Elzoo.Outbox.pending(store, stream, 64)
+
+    Enum.each([:approver, :now, :revoked], fn field ->
+      assert {:unavailable, :context} =
+               CheckedCommand.release(
+                 handle,
+                 Map.delete(release_context, field),
+                 identity,
+                 envelope
+               )
+    end)
+
+    assert {:ok, ^history_before, _} = Elzoo.DurableLog.Store.read(store, :read, [stream, 1, 64])
+    assert {:ok, ^outbox_before} = Elzoo.Outbox.pending(store, stream, 64)
+
+    assert {:approval_pending, _} =
+             CheckedCommand.result(handle, %{tenant: "tenant-1", actor: "actor-1"}, identity)
 
     assert match?(
              {:release_refused, _},

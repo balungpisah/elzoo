@@ -45,9 +45,11 @@ changes. `schema` must be a compiled token returned by the actual
 `PayloadSchema.build/2` boundary; serialized schemas and functions are not
 accepted. `gate` has exactly a `call/2` function. `approval` has exactly
 `verifiers` (1..64) and positive `max_age`; Approval keys use revisions
-1..2^31-1. The Store's declared outbox destinations
-must include a configured destination. The Piece retains neither functions
-nor the Store/provider configuration in command records.
+1..2^31-1. A `:once` requirement name must also fit the command key's
+1..128-byte/no-NUL identity bound; `:run` and `:root` remain unsupported.
+The Store's declared outbox destinations must include a configured
+destination. The Piece retains neither functions nor the Store/provider
+configuration in command records.
 
 The host supplies a current exact execute context:
 
@@ -291,12 +293,12 @@ outbox notification, and creates no Run or budget.
 ## Evidence
 
 With the SQL test helper available, `mix test
-pieces/assembly/checked-command/test` runs 40 finite Piece tests, including 16
+pieces/assembly/checked-command/test` runs 43 finite Piece tests, including 17
 against real PostgreSQL for message duplicate refusal, distinct-identity
-revision races, ASK self-approval refusal, Store response-loss/paused-transaction
-boundaries and checkpoint-independent full-history replay. In a copied
-consumer the SQL helper is outside the export closure, so those 16 tagged
-PostgreSQL cases are skipped and the other 24 copied tests run; that copied
+revision races, ASK key bounds and self-approval refusal, Store response-loss/
+paused-transaction boundaries and checkpoint-independent full-history replay.
+In a copied consumer the SQL helper is outside the export closure, so those 17
+tagged PostgreSQL cases are skipped and the other 26 copied tests run; that copied
 suite does not replace the real PostgreSQL run. The selected Piece gate is
 still a selected check, not the full repository check. Tests and local
 PostgreSQL observations are finite evidence, not proofs of production

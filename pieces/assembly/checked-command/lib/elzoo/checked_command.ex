@@ -25,6 +25,8 @@ defmodule Elzoo.CheckedCommand do
   @max_records 4_096
   @max_identity_bytes 128
   @max_field_bytes 128
+  @max_value_depth 16
+  @max_value_nodes 4_096
   @max_resource_bytes 65_536
   @max_response_bytes 8_192
   @max_record_bytes 1_048_576
@@ -363,22 +365,31 @@ defmodule Elzoo.CheckedCommand do
 
             case Approval.request(history.approval, owner, decision) do
               {:ok, _state, %{key: key}, event} when not is_nil(event) ->
-                result = {:approval_pending, %{key: key, requirement: requirement}}
+                expected_key =
+                  {owner, request.operation_id, requirement.name, requirement.version, 1}
 
-                retained(
-                  handle,
-                  context,
-                  request,
-                  portable_payload,
-                  canonical,
-                  history,
-                  {writes, response},
-                  result,
-                  :none,
-                  [event],
-                  reloads,
-                  decision
-                )
+                case approval_key(key) do
+                  {:ok, ^expected_key} ->
+                    result = {:approval_pending, %{key: key, requirement: requirement}}
+
+                    retained(
+                      handle,
+                      context,
+                      request,
+                      portable_payload,
+                      canonical,
+                      history,
+                      {writes, response},
+                      result,
+                      :none,
+                      [event],
+                      reloads,
+                      decision
+                    )
+
+                  _ ->
+                    {:unavailable, :context}
+                end
 
               _ ->
                 {:refused, :unsupported_approval_scope}
@@ -1472,14 +1483,16 @@ defmodule Elzoo.CheckedCommand do
 
   defp validate_context(context, descriptor, mode)
        when is_map(context) and not is_struct(context) do
-    required = [:tenant, :actor, :policy, :own, :parent, :facts]
-    optional = if mode == :release, do: [:approver, :now, :revoked], else: []
+    required =
+      [:tenant, :actor, :policy, :own, :parent, :facts] ++
+        if(mode == :release, do: [:approver, :now, :revoked], else: [])
 
-    with true <- exact_keys?(context, required, optional),
+    with true <- exact_keys?(context, required, []),
          {:ok, tenant} <- identity(context.tenant),
          {:ok, actor} <- identity(context.actor),
          {:ok, facts} <- portable_value(context.facts),
          {:ok, policy} <- Authorization.validate_policy(context.policy),
+         :ok <- command_approval_requirements(policy),
          {:ok, authority} <-
            Authorization.validate_context(
              %{
@@ -1505,6 +1518,20 @@ defmodule Elzoo.CheckedCommand do
   end
 
   defp validate_context(_, _, _), do: {:error, :context}
+
+  defp command_approval_requirements(%{rules: rules}) do
+    if Enum.all?(rules, fn
+         %{verdict: :ask, requirement: %{scope: :once, name: name, version: version}} ->
+           match?({:ok, _}, identity(name)) and uint?(version, 1, 2_147_483_647)
+
+         _ ->
+           true
+       end) do
+      :ok
+    else
+      {:error, :context}
+    end
+  end
 
   defp release_context(_context, :execute), do: :ok
 
@@ -1675,7 +1702,7 @@ defmodule Elzoo.CheckedCommand do
          true <- is_list(scope.resources),
          {:ok, count} <- bounded_list_length(scope.resources, @max_resources),
          {:ok, resources} <- normalize_id_list(scope.resources),
-         true <- count == length(resources) and length(resources) == length(Enum.uniq(resources)) do
+         true <- count == length(resources) do
       {:ok, %{tenant: tenant, actor: actor, resources: resources}}
     else
       _ -> {:error, :scope}
@@ -1853,7 +1880,7 @@ defmodule Elzoo.CheckedCommand do
   defp normalize_writes(_, _), do: {:error, :writes}
 
   defp portable_value(value) do
-    with {:ok, _nodes} <- bounded_value(value, 0, 0),
+    with {:ok, _nodes} <- bounded_value(value, 1, 0),
          {:ok, normalized} <- Authorization.validate_value(value) do
       {:ok, normalized}
     else
@@ -1866,8 +1893,8 @@ defmodule Elzoo.CheckedCommand do
   end
 
   defp json_payload(value) do
-    with {:ok, _nodes} <- bounded_value(value, 0, 0),
-         {:ok, portable} <- json_value(value, 0),
+    with {:ok, _nodes} <- bounded_value(value, 1, 0),
+         {:ok, portable} <- json_value(value, 1),
          {:ok, normalized} <- Authorization.validate_value(portable) do
       {:ok, normalized}
     else
@@ -1879,13 +1906,16 @@ defmodule Elzoo.CheckedCommand do
     _, _ -> {:error, :portable}
   end
 
+  defp json_value(_value, depth) when depth > @max_value_depth, do: {:error, :portable}
+
   defp json_value(value, _depth) when is_nil(value) or is_boolean(value) or is_integer(value),
     do: {:ok, value}
 
   defp json_value(value, _depth) when is_binary(value),
     do: if(String.valid?(value), do: {:ok, {:text, value}}, else: {:error, :portable})
 
-  defp json_value(value, depth) when is_map(value) and not is_struct(value) and depth < 32 do
+  defp json_value(value, depth)
+       when is_map(value) and not is_struct(value) and depth < @max_value_depth do
     pairs = Map.to_list(value)
 
     if Enum.all?(pairs, fn {key, _} -> is_binary(key) and String.valid?(key) end) do
@@ -1905,7 +1935,7 @@ defmodule Elzoo.CheckedCommand do
     end
   end
 
-  defp json_value(value, depth) when is_list(value) and depth < 32 do
+  defp json_value(value, depth) when is_list(value) and depth < @max_value_depth do
     if proper_list?(value) do
       Enum.reduce_while(value, {:ok, []}, fn child, {:ok, acc} ->
         case json_value(child, depth + 1) do
@@ -1924,34 +1954,35 @@ defmodule Elzoo.CheckedCommand do
 
   defp json_value(_, _), do: {:error, :portable}
 
-  defp bounded_value(_value, depth, _nodes) when depth > 32, do: {:error, :portable}
-  defp bounded_value(_value, _depth, nodes) when nodes >= 4_096, do: {:error, :portable}
+  defp bounded_value(_value, depth, _nodes) when depth > @max_value_depth,
+    do: {:error, :portable}
+
+  defp bounded_value(_value, _depth, nodes) when nodes >= @max_value_nodes,
+    do: {:error, :portable}
 
   defp bounded_value(value, _depth, nodes)
        when is_nil(value) or is_boolean(value) or is_integer(value) or is_binary(value),
        do: {:ok, nodes + 1}
 
   defp bounded_value(value, depth, nodes) when is_map(value) and not is_struct(value) do
-    if map_size(value) + nodes >= 4_096 do
+    if map_size(value) > @max_value_nodes - nodes - 1 do
       {:error, :portable}
     else
-      Enum.reduce_while(Map.values(value), {:ok, nodes + 1}, fn child, {:ok, count} ->
-        case bounded_value(child, depth + 1, count) do
-          {:ok, next} -> {:cont, {:ok, next}}
-          error -> {:halt, error}
-        end
-      end)
+      bounded_pairs(Map.to_list(value), depth, nodes + 1)
     end
   end
 
   defp bounded_value(value, depth, nodes) when is_list(value),
     do: bounded_list(value, depth + 1, nodes + 1)
 
-  defp bounded_value({tag, value}, depth, nodes) when tag in [:text, :bytes, :list],
-    do: bounded_value(value, depth + 1, nodes + 1)
+  defp bounded_value({tag, _value}, _depth, nodes) when tag in [:text, :bytes],
+    do: {:ok, nodes + 1}
+
+  defp bounded_value({:list, values}, depth, nodes) when is_list(values),
+    do: bounded_list(values, depth + 1, nodes + 1)
 
   defp bounded_value({:record, pairs}, depth, nodes) when is_list(pairs),
-    do: bounded_pairs(pairs, depth + 1, nodes + 1)
+    do: bounded_pairs(pairs, depth, nodes + 1)
 
   defp bounded_value(_, _, _), do: {:error, :portable}
 
@@ -1965,8 +1996,10 @@ defmodule Elzoo.CheckedCommand do
 
   defp bounded_pairs([], _depth, nodes), do: {:ok, nodes}
 
-  defp bounded_pairs([{_key, value} | rest], depth, nodes) do
-    with {:ok, next} <- bounded_value(value, depth, nodes), do: bounded_pairs(rest, depth, next)
+  defp bounded_pairs([{key, value} | rest], depth, nodes) do
+    with {:ok, next} <- bounded_value(key, depth, nodes),
+         {:ok, next} <- bounded_value(value, depth + 1, next),
+         do: bounded_pairs(rest, depth, next)
   end
 
   defp bounded_pairs(_, _, _), do: {:error, :portable}
