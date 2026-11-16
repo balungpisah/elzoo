@@ -16,7 +16,7 @@ defmodule Elzoo.CommandStoreFit do
   @max_identity_bytes 64
   @max_value_bytes 256
   @max_message_bytes 1024
-  @max_revision 9_223_372_036_854_775_807
+  @max_expected_revision 9_223_372_036_854_775_806
   @destination "command-effects"
   @limits %{max_record_bytes: 8_192, max_batch_size: 4, max_checkpoint_bytes: 8_192}
   @contexts [
@@ -188,6 +188,18 @@ defmodule Elzoo.CommandStoreFit do
         {:ok, %{rows: [[_digest, result]]}} when is_binary(result) -> decode_term(result)
         {:ok, %{rows: []}} -> :not_found
         _ -> {:unknown, :readback}
+      end
+    else
+      :not_found
+    end
+  end
+
+  def resolve_b(repo, prefix, context, {tenant, actor, operation_id} = identity) do
+    if valid_context?(context) and context.tenant == tenant and context.actor == actor and
+         operation_id in @operation_ids do
+      case lookup_b(repo, prefix, context, identity) do
+        :not_found -> {:unknown, :unresolved}
+        result -> result
       end
     else
       :not_found
@@ -493,10 +505,16 @@ defmodule Elzoo.CommandStoreFit do
           current =
             Map.get(model.resources, resource_key(command.tenant, command.request), %{revision: 0})
 
-          if current.revision == command.request.expected_revision do
-            {:applied, command.kind, current.revision + 1}
-          else
-            {:conflict, :stale_revision}
+          cond do
+            current.revision != command.request.expected_revision ->
+              {:conflict, :stale_revision}
+
+            command.kind == :conversation_message and
+                Map.has_key?(Map.get(current, :messages, %{}), command.request.message_id) ->
+              {:conflict, :message_exists}
+
+            true ->
+              {:applied, command.kind, current.revision + 1}
           end
         else
           {:rejected, :unauthorized_write_set}
@@ -636,7 +654,7 @@ defmodule Elzoo.CommandStoreFit do
         not String.contains?(value, <<0>>)
 
   defp bounded_revision?(value),
-    do: is_integer(value) and value >= 0 and value <= @max_revision
+    do: is_integer(value) and value >= 0 and value <= @max_expected_revision
 
   defp valid_context?(context) do
     exact_keys?(context, @identity_keys) and
@@ -793,6 +811,9 @@ defmodule Elzoo.CommandStoreFit do
             :stale ->
               {:conflict, :stale_revision}
 
+            :message_exists ->
+              {:conflict, :message_exists}
+
             :updated ->
               SQL.query!(
                 repo,
@@ -847,26 +868,61 @@ defmodule Elzoo.CommandStoreFit do
 
     case SQL.query!(
            repo,
-           "UPDATE #{prefix}.conversations SET revision=$3 " <>
-             "WHERE tenant=$1 AND conversation_id=$2 AND revision=$4",
-           [
-             command.tenant,
-             request.conversation_id,
-             request.expected_revision + 1,
-             request.expected_revision
-           ],
+           "SELECT revision FROM #{prefix}.conversations " <>
+             "WHERE tenant=$1 AND conversation_id=$2 FOR UPDATE",
+           [command.tenant, request.conversation_id],
            log: false
-         ).num_rows do
-      1 ->
-        SQL.query!(
-          repo,
-          "INSERT INTO #{prefix}.conversation_messages " <>
-            "(tenant,conversation_id,message_id,message_bytes) VALUES ($1,$2,$3,$4)",
-          [command.tenant, request.conversation_id, request.message_id, request.message_bytes],
-          log: false
-        )
+         ).rows do
+      [[revision]] when revision != request.expected_revision ->
+        :stale
 
-        :updated
+      [[_revision]] ->
+        case SQL.query!(
+               repo,
+               "SELECT 1 FROM #{prefix}.conversation_messages " <>
+                 "WHERE tenant=$1 AND conversation_id=$2 AND message_id=$3",
+               [command.tenant, request.conversation_id, request.message_id],
+               log: false
+             ).rows do
+          [[1]] ->
+            :message_exists
+
+          [] ->
+            case SQL.query!(
+                   repo,
+                   "UPDATE #{prefix}.conversations SET revision=$3 " <>
+                     "WHERE tenant=$1 AND conversation_id=$2 AND revision=$4",
+                   [
+                     command.tenant,
+                     request.conversation_id,
+                     request.expected_revision + 1,
+                     request.expected_revision
+                   ],
+                   log: false
+                 ).num_rows do
+              1 ->
+                SQL.query!(
+                  repo,
+                  "INSERT INTO #{prefix}.conversation_messages " <>
+                    "(tenant,conversation_id,message_id,message_bytes) VALUES ($1,$2,$3,$4)",
+                  [
+                    command.tenant,
+                    request.conversation_id,
+                    request.message_id,
+                    request.message_bytes
+                  ],
+                  log: false
+                )
+
+                :updated
+
+              _ ->
+                :stale
+            end
+
+          _ ->
+            :stale
+        end
 
       _ ->
         :stale
@@ -1052,6 +1108,44 @@ defmodule Elzoo.CommandStoreFitTest do
     end
   end
 
+  test "revision headroom rejects signed BIGINT max and beyond before either write", ctx do
+    [context | _] = @contexts
+    bigint_max = 9_223_372_036_854_775_807
+
+    for kind <- [:trigger_binding, :conversation_message] do
+      request = Fit.fixture_request(context, kind, 0)
+
+      assert {:ok, _tuple, _bytes, _digest} =
+               Fit.canonical(context, Map.put(request, :expected_revision, bigint_max - 1))
+
+      for revision <- [bigint_max, bigint_max + 1] do
+        invalid = Map.put(request, :expected_revision, revision)
+        assert {:error, :invalid_request} = Fit.canonical(context, invalid)
+
+        for scheme <- [:store, :sql] do
+          result =
+            if scheme == :store,
+              do: Fit.execute_a(ctx.store, context, invalid, :allow),
+              else: Fit.execute_b(TestRepo, ctx.prefix, context, invalid, :allow)
+
+          assert result == {:rejected, :invalid_request}
+
+          assert {:ok, %{revision: 0}, _head} =
+                   Fit.resource_a(ctx.store, context, request)
+
+          assert Fit.receipt_count_a(ctx.store, context.tenant) == 0
+          assert {:ok, []} = Outbox.pending(ctx.store, Fit.stream(context.tenant), 10)
+
+          counts = Fit.counts_b(TestRepo, ctx.prefix, context)
+          assert counts.receipts == 0
+          assert counts.outbox == 0
+          assert counts.bindings == 0
+          assert counts.messages == 0
+        end
+      end
+    end
+  end
+
   for {scheme, kind, verdict} <-
         for(
           scheme <- [:store, :sql],
@@ -1092,6 +1186,29 @@ defmodule Elzoo.CommandStoreFitTest do
 
       assert resource_revision == if(unquote(verdict) == :allow, do: 1, else: 0)
       assert result == expected_result(unquote(verdict), unquote(kind))
+
+      retained =
+        if unquote(scheme) == :store,
+          do: Fit.lookup_a(ctx.store, context, Fit.identity(context)),
+          else: Fit.lookup_b(TestRepo, ctx.prefix, context, Fit.identity(context))
+
+      assert retained == expected_result(unquote(verdict), unquote(kind))
+      changed_verdict = if unquote(verdict) == :deny, do: :allow, else: :deny
+
+      replayed =
+        if unquote(scheme) == :store,
+          do: Fit.execute_a(ctx.store, context, request, changed_verdict),
+          else: Fit.execute_b(TestRepo, ctx.prefix, context, request, changed_verdict)
+
+      assert replayed == expected_result(unquote(verdict), unquote(kind))
+
+      assert retained_after_replay =
+               if(unquote(scheme) == :store,
+                 do: Fit.lookup_a(ctx.store, context, Fit.identity(context)),
+                 else: Fit.lookup_b(TestRepo, ctx.prefix, context, Fit.identity(context))
+               )
+
+      assert retained_after_replay == expected_result(unquote(verdict), unquote(kind))
 
       assert_write_participants(
         unquote(scheme),
@@ -1252,6 +1369,261 @@ defmodule Elzoo.CommandStoreFitTest do
 
       assert first == {:applied, :conversation_message, 1}
       assert second == {:conflict, :identity}
+    end
+  end
+
+  test "successive conversation appends retain distinct message IDs and bytes", ctx do
+    [context | _] = @contexts
+    next_context = %{context | operation_id: "operation-two"}
+    first = Fit.fixture_request(context, :conversation_message, 0)
+
+    second =
+      next_context
+      |> Fit.fixture_request(:conversation_message, 1)
+      |> Map.put(:conversation_id, first.conversation_id)
+      |> Map.put(:expected_revision, 1)
+
+    for scheme <- [:store, :sql] do
+      apply = fn request_context, request, verdict ->
+        if scheme == :store,
+          do: Fit.execute_a(ctx.store, request_context, request, verdict),
+          else: Fit.execute_b(TestRepo, ctx.prefix, request_context, request, verdict)
+      end
+
+      assert {:applied, :conversation_message, 1} = apply.(context, first, :allow)
+      assert {:applied, :conversation_message, 2} = apply.(next_context, second, :allow)
+
+      case scheme do
+        :store ->
+          assert Fit.lookup_a(ctx.store, context, Fit.identity(context)) ==
+                   {:applied, :conversation_message, 1}
+
+          assert Fit.lookup_a(ctx.store, next_context, Fit.identity(next_context)) ==
+                   {:applied, :conversation_message, 2}
+
+          {:ok, state, head} = Fit.resource_a(ctx.store, context, first)
+
+          assert state ==
+                   %{
+                     revision: 2,
+                     messages: %{
+                       first.message_id => first.message_bytes,
+                       second.message_id => second.message_bytes
+                     }
+                   }
+
+          assert head.revision == 4
+          assert Fit.receipt_count_a(ctx.store, context.tenant) == 2
+          assert {:ok, outbox} = Outbox.pending(ctx.store, Fit.stream(context.tenant), 10)
+          assert length(outbox) == 2
+
+        :sql ->
+          assert Fit.lookup_b(TestRepo, ctx.prefix, context, Fit.identity(context)) ==
+                   {:applied, :conversation_message, 1}
+
+          assert Fit.lookup_b(TestRepo, ctx.prefix, next_context, Fit.identity(next_context)) ==
+                   {:applied, :conversation_message, 2}
+
+          assert Fit.resource_b(TestRepo, ctx.prefix, context, second) == [[2]]
+
+          assert Fit.message_rows_b(TestRepo, ctx.prefix, context, first) ==
+                   [{first.message_id, first.message_bytes}]
+
+          assert Fit.message_rows_b(TestRepo, ctx.prefix, context, second) ==
+                   [{second.message_id, second.message_bytes}]
+
+          counts = Fit.counts_b(TestRepo, ctx.prefix, context)
+          assert counts.receipts == 2
+          assert counts.outbox == 2
+          assert counts.messages == 2
+      end
+    end
+  end
+
+  test "a duplicate message ID under a new operation retains message_exists without mutation",
+       ctx do
+    [context | _] = @contexts
+    next_context = %{context | operation_id: "operation-two"}
+    first = Fit.fixture_request(context, :conversation_message, 0)
+
+    duplicate =
+      first
+      |> Map.put(:expected_revision, 1)
+      |> Map.put(:message_bytes, "changed duplicate bytes")
+
+    for scheme <- [:store, :sql] do
+      apply = fn request_context, request, verdict ->
+        if scheme == :store,
+          do: Fit.execute_a(ctx.store, request_context, request, verdict),
+          else: Fit.execute_b(TestRepo, ctx.prefix, request_context, request, verdict)
+      end
+
+      assert {:applied, :conversation_message, 1} = apply.(context, first, :allow)
+      assert {:applied, :conversation_message, 1} = apply.(context, first, :deny)
+
+      assert {:conflict, :message_exists} = apply.(next_context, duplicate, :allow)
+      assert {:conflict, :message_exists} = apply.(next_context, duplicate, :deny)
+
+      case scheme do
+        :store ->
+          assert {:applied, :conversation_message, 1} ==
+                   Fit.lookup_a(ctx.store, context, Fit.identity(context))
+
+          assert {:conflict, :message_exists} ==
+                   Fit.lookup_a(ctx.store, next_context, Fit.identity(next_context))
+
+          assert {:ok, state, _head} = Fit.resource_a(ctx.store, context, first)
+          assert state == %{revision: 1, messages: %{first.message_id => first.message_bytes}}
+          assert Fit.receipt_count_a(ctx.store, context.tenant) == 2
+          assert {:ok, outbox} = Outbox.pending(ctx.store, Fit.stream(context.tenant), 10)
+          assert length(outbox) == 1
+
+        :sql ->
+          assert {:applied, :conversation_message, 1} ==
+                   Fit.lookup_b(TestRepo, ctx.prefix, context, Fit.identity(context))
+
+          assert {:conflict, :message_exists} ==
+                   Fit.lookup_b(TestRepo, ctx.prefix, next_context, Fit.identity(next_context))
+
+          assert Fit.resource_b(TestRepo, ctx.prefix, context, first) == [[1]]
+
+          assert Fit.message_rows_b(TestRepo, ctx.prefix, context, first) ==
+                   [{first.message_id, first.message_bytes}]
+
+          counts = Fit.counts_b(TestRepo, ctx.prefix, context)
+          assert counts.receipts == 2
+          assert counts.outbox == 1
+          assert counts.messages == 1
+      end
+    end
+  end
+
+  for {scenario, operation_id, first_kind, first_index, second_kind, second_index} <- [
+        {"distinct trigger resources", "operation-one", :trigger_binding, 0, :trigger_binding, 1},
+        {"distinct conversation resources", "operation-two", :conversation_message, 0,
+         :conversation_message, 1},
+        {"trigger to conversation", "operation-one", :trigger_binding, 0, :conversation_message, 0},
+        {"conversation to trigger", "operation-two", :conversation_message, 0, :trigger_binding, 1}
+      ] do
+    test "concurrent same-identity different-byte race across #{scenario}", ctx do
+      [base_context | _] = @contexts
+      context = %{base_context | operation_id: unquote(operation_id)}
+      first = Fit.fixture_request(context, unquote(first_kind), unquote(first_index))
+      second = Fit.fixture_request(context, unquote(second_kind), unquote(second_index))
+
+      for scheme <- [:store, :sql] do
+        results = run_identity_race(scheme, ctx, context, [first, second])
+        assert Enum.count(results, &match?({:applied, _, 1}, &1)) == 1
+        assert Enum.count(results, &(&1 == {:conflict, :identity})) == 1
+
+        for {request, result} <- Enum.zip([first, second], results) do
+          expected_revision = if match?({:applied, _, 1}, result), do: 1, else: 0
+
+          assert resource_revision(scheme, ctx, context, request) == expected_revision
+
+          if request.kind == "conversation_message" do
+            case scheme do
+              :store ->
+                {:ok, state, _head} = Fit.resource_a(ctx.store, context, request)
+                expected_messages = if expected_revision == 1, do: 1, else: 0
+                assert map_size(Map.get(state, :messages, %{})) == expected_messages
+
+              :sql ->
+                expected_rows =
+                  if expected_revision == 1,
+                    do: [{request.message_id, request.message_bytes}],
+                    else: []
+
+                assert Fit.message_rows_b(TestRepo, ctx.prefix, context, request) ==
+                         expected_rows
+            end
+          end
+        end
+
+        case scheme do
+          :store ->
+            assert Fit.receipt_count_a(ctx.store, context.tenant) == 1
+            assert {:ok, outbox} = Outbox.pending(ctx.store, Fit.stream(context.tenant), 10)
+            assert length(outbox) == 1
+            {:ok, _model, head} = Fit.state_a(ctx.store, context.tenant)
+            assert head.revision == 2
+
+          :sql ->
+            counts = Fit.counts_b(TestRepo, ctx.prefix, context)
+            assert counts.receipts == 1
+            assert counts.outbox == 1
+            assert counts.bindings + counts.messages == 1
+        end
+      end
+    end
+  end
+
+  test "authorization and resource revision precede duplicate message checks", ctx do
+    [first_context, second_context] = @contexts
+    denied_context = %{first_context | operation_id: "operation-two"}
+    stale_context = %{second_context | operation_id: "operation-one"}
+    first = Fit.fixture_request(first_context, :conversation_message, 0)
+    second = Fit.fixture_request(second_context, :conversation_message, 0)
+    denied_duplicate = Map.put(first, :expected_revision, 0)
+    stale_duplicate = Map.put(second, :expected_revision, 0)
+
+    for scheme <- [:store, :sql] do
+      apply = fn request_context, request, verdict ->
+        if scheme == :store,
+          do: Fit.execute_a(ctx.store, request_context, request, verdict),
+          else: Fit.execute_b(TestRepo, ctx.prefix, request_context, request, verdict)
+      end
+
+      assert {:applied, :conversation_message, 1} = apply.(first_context, first, :allow)
+      assert {:applied, :conversation_message, 1} = apply.(second_context, second, :allow)
+
+      assert {:denied, {:rule, "fit-rule"}} =
+               apply.(denied_context, denied_duplicate, :deny)
+
+      assert {:conflict, :stale_revision} =
+               apply.(stale_context, stale_duplicate, :allow)
+
+      case scheme do
+        :store ->
+          assert Fit.lookup_a(ctx.store, denied_context, Fit.identity(denied_context)) ==
+                   {:denied, {:rule, "fit-rule"}}
+
+          assert Fit.lookup_a(ctx.store, stale_context, Fit.identity(stale_context)) ==
+                   {:conflict, :stale_revision}
+
+          for {request_context, request} <-
+                [{first_context, first}, {second_context, second}] do
+            assert {:ok, state, _head} = Fit.resource_a(ctx.store, request_context, request)
+            assert state.revision == 1
+            assert state.messages == %{request.message_id => request.message_bytes}
+            assert Fit.receipt_count_a(ctx.store, request_context.tenant) == 2
+
+            assert {:ok, outbox} =
+                     Outbox.pending(ctx.store, Fit.stream(request_context.tenant), 10)
+
+            assert length(outbox) == 1
+          end
+
+        :sql ->
+          assert Fit.lookup_b(TestRepo, ctx.prefix, denied_context, Fit.identity(denied_context)) ==
+                   {:denied, {:rule, "fit-rule"}}
+
+          assert Fit.lookup_b(TestRepo, ctx.prefix, stale_context, Fit.identity(stale_context)) ==
+                   {:conflict, :stale_revision}
+
+          for {request_context, request} <-
+                [{first_context, first}, {second_context, second}] do
+            assert Fit.resource_b(TestRepo, ctx.prefix, request_context, request) == [[1]]
+
+            assert Fit.message_rows_b(TestRepo, ctx.prefix, request_context, request) ==
+                     [{request.message_id, request.message_bytes}]
+
+            counts = Fit.counts_b(TestRepo, ctx.prefix, request_context)
+            assert counts.receipts == 2
+            assert counts.outbox == 1
+            assert counts.messages == 1
+          end
+      end
     end
   end
 
@@ -1424,7 +1796,7 @@ defmodule Elzoo.CommandStoreFitTest do
     Process.delete({Fit, :drop_b_reply})
 
     assert {:applied, :trigger_binding, 1} =
-             Fit.lookup_b(TestRepo, ctx.prefix, context, Fit.identity(context))
+             Fit.resolve_b(TestRepo, ctx.prefix, context, Fit.identity(context))
 
     unresolved_context = %{context | operation_id: "operation-two"}
     unresolved_request = Fit.fixture_request(unresolved_context, :conversation_message, 1)
@@ -1442,8 +1814,6 @@ defmodule Elzoo.CommandStoreFitTest do
     assert worker_pid == task.pid
 
     try do
-      assert Process.alive?(task.pid)
-
       assert :not_found ==
                Fit.lookup_b(
                  TestRepo,
@@ -1452,7 +1822,13 @@ defmodule Elzoo.CommandStoreFitTest do
                  Fit.identity(unresolved_context)
                )
 
-      assert {:unknown, :unresolved} == unresolved_readback(:not_found, Process.alive?(task.pid))
+      assert {:unknown, :unresolved} ==
+               Fit.resolve_b(
+                 TestRepo,
+                 ctx.prefix,
+                 unresolved_context,
+                 Fit.identity(unresolved_context)
+               )
     after
       send(task.pid, {:b_continue, ref})
     end
@@ -1466,6 +1842,136 @@ defmodule Elzoo.CommandStoreFitTest do
                unresolved_context,
                Fit.identity(unresolved_context)
              )
+  end
+
+  test "A lost responses recover retained results for both caller kinds", ctx do
+    for {context, kind} <- Enum.zip(@contexts, [:trigger_binding, :conversation_message]) do
+      request = Fit.fixture_request(context, kind, 0)
+      PostgresHarness.hook(ctx.store, :inject, [:append, :reply_loss])
+
+      assert Fit.execute_a(ctx.store, context, request, :allow) ==
+               {:applied, kind, 1}
+
+      assert Fit.lookup_a(ctx.store, context, Fit.identity(context)) == {:applied, kind, 1}
+      assert resource_revision(:store, ctx, context, request) == 1
+      assert Fit.receipt_count_a(ctx.store, context.tenant) == 1
+      assert {:ok, outbox} = Outbox.pending(ctx.store, Fit.stream(context.tenant), 10)
+      assert length(outbox) == 1
+    end
+  end
+
+  test "A paused precommit readback remains unresolved for both caller kinds", ctx do
+    for {context, kind} <- Enum.zip(@contexts, [:trigger_binding, :conversation_message]) do
+      request = Fit.fixture_request(context, kind, 0)
+      token = make_ref()
+      PostgresHarness.hook(ctx.store, :inject, [:append, {:pause, token, :before_commit}])
+
+      assert {:unknown, :unresolved} = Fit.execute_a(ctx.store, context, request, :allow)
+      %{backend: backend} = PostgresHarness.paused(ctx.controller, token)
+
+      assert [["idle in transaction"]] ==
+               SQL.query!(TestRepo, "SELECT state FROM pg_stat_activity WHERE pid=$1", [backend],
+                 log: false
+               ).rows
+
+      assert Fit.lookup_a(ctx.store, context, Fit.identity(context)) == :not_found
+      assert {:committed, _} = PostgresHarness.hook(ctx.store, :release, [token])
+      assert Fit.lookup_a(ctx.store, context, Fit.identity(context)) == {:applied, kind, 1}
+      assert resource_revision(:store, ctx, context, request) == 1
+      assert Fit.receipt_count_a(ctx.store, context.tenant) == 1
+      assert {:ok, outbox} = Outbox.pending(ctx.store, Fit.stream(context.tenant), 10)
+      assert length(outbox) == 1
+    end
+  end
+
+  test "B lost responses resolve from retained receipt readback for both caller kinds", ctx do
+    for {context, kind} <- Enum.zip(@contexts, [:trigger_binding, :conversation_message]) do
+      request = Fit.fixture_request(context, kind, 0)
+      Process.put({Fit, :drop_b_reply}, true)
+
+      assert {:unknown, :lost_response} =
+               Fit.execute_b(TestRepo, ctx.prefix, context, request, :allow)
+
+      Process.delete({Fit, :drop_b_reply})
+
+      assert Fit.resolve_b(TestRepo, ctx.prefix, context, Fit.identity(context)) ==
+               {:applied, kind, 1}
+
+      assert resource_revision(:sql, ctx, context, request) == 1
+      counts = Fit.counts_b(TestRepo, ctx.prefix, context)
+      assert counts.receipts == 1
+      assert counts.outbox == 1
+      assert counts.bindings + counts.messages == 1
+    end
+  end
+
+  test "B paused readback stays unknown until commit for both caller kinds", ctx do
+    owner = self()
+
+    for {context, kind} <- Enum.zip(@contexts, [:trigger_binding, :conversation_message]) do
+      request = Fit.fixture_request(context, kind, 0)
+      ref = make_ref()
+
+      task =
+        Task.async(fn ->
+          Process.put({Fit, :b_pause}, {owner, ref})
+          Fit.execute_b(TestRepo, ctx.prefix, context, request, :allow)
+        end)
+
+      assert_receive {:b_paused, ^ref, _backend_pid, worker_pid}, 10_000
+      assert worker_pid == task.pid
+      assert Fit.lookup_b(TestRepo, ctx.prefix, context, Fit.identity(context)) == :not_found
+
+      assert Fit.resolve_b(TestRepo, ctx.prefix, context, Fit.identity(context)) ==
+               {:unknown, :unresolved}
+
+      send(task.pid, {:b_continue, ref})
+      assert Task.await(task, 15_000) == {:applied, kind, 1}
+
+      assert Fit.resolve_b(TestRepo, ctx.prefix, context, Fit.identity(context)) ==
+               {:applied, kind, 1}
+
+      assert resource_revision(:sql, ctx, context, request) == 1
+      counts = Fit.counts_b(TestRepo, ctx.prefix, context)
+      assert counts.receipts == 1
+      assert counts.outbox == 1
+      assert counts.bindings + counts.messages == 1
+    end
+  end
+
+  test "B absent readback after caller death stays unknown for both caller kinds", ctx do
+    owner = self()
+
+    for {context, kind} <- Enum.zip(@contexts, [:trigger_binding, :conversation_message]) do
+      request = Fit.fixture_request(context, kind, 0)
+      ref = make_ref()
+
+      task =
+        Task.async(fn ->
+          Process.put({Fit, :b_pause}, {owner, ref})
+          Fit.execute_b(TestRepo, ctx.prefix, context, request, :allow)
+        end)
+
+      assert_receive {:b_paused, ^ref, _backend_pid, worker_pid}, 10_000
+      assert worker_pid == task.pid
+
+      assert Fit.resolve_b(TestRepo, ctx.prefix, context, Fit.identity(context)) ==
+               {:unknown, :unresolved}
+
+      Task.shutdown(task, :brutal_kill)
+      refute Process.alive?(task.pid)
+
+      assert Fit.lookup_b(TestRepo, ctx.prefix, context, Fit.identity(context)) == :not_found
+
+      assert Fit.resolve_b(TestRepo, ctx.prefix, context, Fit.identity(context)) ==
+               {:unknown, :unresolved}
+
+      assert resource_revision(:sql, ctx, context, request) == 0
+      counts = Fit.counts_b(TestRepo, ctx.prefix, context)
+      assert counts.receipts == 0
+      assert counts.outbox == 0
+      assert counts.bindings + counts.messages == 0
+    end
   end
 
   test "rollback leaves neither mutation nor result for both atomic participants", ctx do
@@ -1490,6 +1996,30 @@ defmodule Elzoo.CommandStoreFitTest do
     assert counts.receipts == 0
     assert counts.messages == 0
     assert counts.outbox == 0
+  end
+
+  test "rollback leaves no participants for either caller kind or scheme", ctx do
+    for {context, kind} <- Enum.zip(@contexts, [:trigger_binding, :conversation_message]) do
+      request = Fit.fixture_request(context, kind, 0)
+      PostgresHarness.hook(ctx.store, :inject, [:append, :rollback])
+
+      assert Fit.execute_a(ctx.store, context, request, :allow) == {:unknown, :unresolved}
+      assert resource_revision(:store, ctx, context, request) == 0
+      assert Fit.lookup_a(ctx.store, context, Fit.identity(context)) == :not_found
+      assert Fit.receipt_count_a(ctx.store, context.tenant) == 0
+      assert {:ok, []} = Outbox.pending(ctx.store, Fit.stream(context.tenant), 10)
+
+      assert Fit.execute_b(TestRepo, ctx.prefix, context, request, :allow,
+               rollback_after_mutation: true
+             ) == {:unknown, :transaction}
+
+      assert resource_revision(:sql, ctx, context, request) == 0
+      assert Fit.lookup_b(TestRepo, ctx.prefix, context, Fit.identity(context)) == :not_found
+      counts = Fit.counts_b(TestRepo, ctx.prefix, context)
+      assert counts.receipts == 0
+      assert counts.outbox == 0
+      assert counts.bindings + counts.messages == 0
+    end
   end
 
   test "participant observations are all absent or atomically retained after failure", ctx do
@@ -1520,6 +2050,38 @@ defmodule Elzoo.CommandStoreFitTest do
                 b_receipt == {:applied, :conversation_message, 1} and
                 b_counts.messages == 1 and b_counts.outbox == 1 and b_counts.receipts == 1),
            "B exposed an orphan mutation, result or outbox item"
+  end
+
+  test "failure readback observes all atomic participants for both caller kinds", ctx do
+    for {context, kind} <- Enum.zip(@contexts, [:trigger_binding, :conversation_message]) do
+      request = Fit.fixture_request(context, kind, 0)
+
+      PostgresHarness.hook(ctx.store, :inject, [:append, :reply_loss])
+      _a_reply = Fit.execute_a(ctx.store, context, request, :allow)
+      a_revision = resource_revision(:store, ctx, context, request)
+      a_receipt = Fit.lookup_a(ctx.store, context, Fit.identity(context))
+      {:ok, a_outbox} = Outbox.pending(ctx.store, Fit.stream(context.tenant), 10)
+
+      assert (a_revision == 0 and a_receipt == :not_found and a_outbox == []) or
+               (a_revision == 1 and a_receipt == {:applied, kind, 1} and length(a_outbox) == 1),
+             "A exposed an orphan mutation, result or outbox item"
+
+      Process.put({Fit, :drop_b_reply}, true)
+
+      assert {:unknown, :lost_response} =
+               Fit.execute_b(TestRepo, ctx.prefix, context, request, :allow)
+
+      Process.delete({Fit, :drop_b_reply})
+      b_revision = resource_revision(:sql, ctx, context, request)
+      b_receipt = Fit.resolve_b(TestRepo, ctx.prefix, context, Fit.identity(context))
+      b_counts = Fit.counts_b(TestRepo, ctx.prefix, context)
+
+      assert b_revision == 1
+      assert b_receipt == {:applied, kind, 1}
+      assert b_counts.receipts == 1
+      assert b_counts.outbox == 1
+      assert b_counts.bindings + b_counts.messages == 1
+    end
   end
 
   test "actor and tenant mismatch cannot infer receipts and refusals are bounded and redacted",
@@ -1581,6 +2143,100 @@ defmodule Elzoo.CommandStoreFitTest do
 
     assert {:rejected, :invalid_request} ==
              Fit.execute_b(TestRepo, ctx.prefix, context, oversized_message, :allow)
+  end
+
+  test "actor-only and tenant-only access mismatches redact retained results independently", ctx do
+    for {context, other_context, kind} <-
+          Enum.zip([@contexts, Enum.reverse(@contexts), [:trigger_binding, :conversation_message]]) do
+      request = Fit.fixture_request(context, kind, 0)
+      actor_mismatch = %{context | actor: other_context.actor}
+      tenant_mismatch = %{context | tenant: other_context.tenant}
+
+      for scheme <- [:store, :sql] do
+        assert execute(scheme, ctx, context, request, :allow) == {:applied, kind, 1}
+        assert lookup(scheme, ctx, context) == {:applied, kind, 1}
+        assert resource_revision(scheme, ctx, context, request) == 1
+
+        case scheme do
+          :store ->
+            assert Fit.lookup_a(ctx.store, actor_mismatch, Fit.identity(context)) == :not_found
+            assert Fit.lookup_a(ctx.store, tenant_mismatch, Fit.identity(context)) == :not_found
+            assert Fit.receipt_count_a(ctx.store, context.tenant) == 1
+            assert {:ok, outbox} = Outbox.pending(ctx.store, Fit.stream(context.tenant), 10)
+            assert length(outbox) == 1
+
+          :sql ->
+            assert Fit.lookup_b(TestRepo, ctx.prefix, actor_mismatch, Fit.identity(context)) ==
+                     :not_found
+
+            assert Fit.lookup_b(TestRepo, ctx.prefix, tenant_mismatch, Fit.identity(context)) ==
+                     :not_found
+
+            assert Fit.resolve_b(TestRepo, ctx.prefix, actor_mismatch, Fit.identity(context)) ==
+                     :not_found
+
+            assert Fit.resolve_b(TestRepo, ctx.prefix, tenant_mismatch, Fit.identity(context)) ==
+                     :not_found
+
+            counts = Fit.counts_b(TestRepo, ctx.prefix, context)
+            assert counts.receipts == 1
+            assert counts.outbox == 1
+            assert counts.bindings + counts.messages == 1
+        end
+      end
+    end
+
+    [context | _] = @contexts
+    request = Fit.fixture_request(context, :trigger_binding, 0)
+    sentinel = String.duplicate("private-input", 20)
+
+    for scheme <- [:store, :sql] do
+      refused = execute(scheme, ctx, %{context | tenant: sentinel}, request, :allow)
+      assert refused == {:rejected, :invalid_request}
+      assert byte_size(inspect(refused)) < 64
+      refute String.contains?(inspect(refused), sentinel)
+    end
+
+    oversized =
+      Fit.fixture_request(context, :conversation_message, 0)
+      |> Map.put(:message_bytes, :binary.copy(<<65>>, 1_025))
+
+    assert execute(:store, ctx, context, oversized, :allow) == {:rejected, :invalid_request}
+    assert execute(:sql, ctx, context, oversized, :allow) == {:rejected, :invalid_request}
+  end
+
+  test "receipts remain retained and effects stay pending for both caller kinds", ctx do
+    for {context, kind} <- Enum.zip(@contexts, [:trigger_binding, :conversation_message]) do
+      request = Fit.fixture_request(context, kind, 0)
+
+      assert execute(:store, ctx, context, request, :allow) == {:applied, kind, 1}
+      assert execute(:sql, ctx, context, request, :allow) == {:applied, kind, 1}
+      assert lookup(:store, ctx, context) == {:applied, kind, 1}
+      assert lookup(:sql, ctx, context) == {:applied, kind, 1}
+
+      assert {:ok, [item]} = Outbox.pending(ctx.store, Fit.stream(context.tenant), 10)
+      assert item.state == :pending
+
+      assert resource_revision(:store, ctx, context, request) == 1
+      assert resource_revision(:sql, ctx, context, request) == 1
+      assert Fit.receipt_count_a(ctx.store, context.tenant) == 1
+
+      counts = Fit.counts_b(TestRepo, ctx.prefix, context)
+      assert counts.receipts == 1
+      assert counts.outbox == 1
+      assert counts.bindings + counts.messages == 1
+    end
+
+    [[columns]] =
+      SQL.query!(
+        TestRepo,
+        "SELECT count(*) FROM information_schema.columns WHERE table_schema=$1 " <>
+          "AND table_name='command_receipts' AND column_name='expires_at'",
+        [String.trim(prefix_name(ctx.prefix), "\"")],
+        log: false
+      ).rows
+
+    assert columns == 0
   end
 
   test "no receipt GC is modeled and effects remain pending outbox intents", ctx do
@@ -1724,6 +2380,89 @@ defmodule Elzoo.CommandStoreFitTest do
   defp expected_result(:ask, _kind),
     do: {:approval_pending, %{name: "human", version: 1, scope: :once}}
 
+  defp execute(scheme, ctx, context, request, verdict, opts \\ [])
+
+  defp execute(:store, ctx, context, request, verdict, _opts),
+    do: Fit.execute_a(ctx.store, context, request, verdict)
+
+  defp execute(:sql, ctx, context, request, verdict, opts),
+    do: Fit.execute_b(TestRepo, ctx.prefix, context, request, verdict, opts)
+
+  defp lookup(:store, ctx, context),
+    do: Fit.lookup_a(ctx.store, context, Fit.identity(context))
+
+  defp lookup(:sql, ctx, context),
+    do: Fit.lookup_b(TestRepo, ctx.prefix, context, Fit.identity(context))
+
+  defp resource_revision(:store, ctx, context, request) do
+    {:ok, state, _head} = Fit.resource_a(ctx.store, context, request)
+    state.revision
+  end
+
+  defp resource_revision(:sql, ctx, context, request) do
+    case Fit.resource_b(TestRepo, ctx.prefix, context, request) do
+      [[revision]] -> revision
+      [[revision, _bot_ref, _digest, _callable]] -> revision
+    end
+  end
+
+  defp run_identity_race(:store, ctx, context, [first, second]) do
+    owner = self()
+    refs = [make_ref(), make_ref()]
+
+    tasks =
+      Enum.zip([first, second], refs)
+      |> Enum.map(fn {request, ref} ->
+        Task.async(fn ->
+          Process.put({Fit, :a_gate}, {owner, ref})
+          Fit.execute_a(ctx.store, context, request, :allow)
+        end)
+      end)
+
+    ready = Enum.map(refs, &receive_ready(:a_ready, &1))
+    Enum.each(ready, fn {ref, pid} -> send(pid, {:a_go, ref}) end)
+    Enum.map(tasks, &Task.await(&1, 15_000))
+  end
+
+  defp run_identity_race(:sql, ctx, context, [first, second]) do
+    owner = self()
+    [first_ref, second_ref] = [make_ref(), make_ref()]
+
+    tasks =
+      [{first, first_ref}, {second, second_ref}]
+      |> Enum.map(fn {request, ref} ->
+        Task.async(fn ->
+          Process.put({Fit, :b_gate}, {owner, ref})
+
+          if ref == first_ref,
+            do: Process.put({Fit, :b_pause}, {owner, ref}),
+            else: Process.put({Fit, :b_reserving}, {owner, ref})
+
+          Fit.execute_b(TestRepo, ctx.prefix, context, request, :allow)
+        end)
+      end)
+
+    [{^first_ref, first_pid}, {^second_ref, second_pid}] =
+      Enum.map([first_ref, second_ref], &receive_ready(:b_ready, &1))
+
+    send(first_pid, {:b_go, first_ref})
+    assert_receive {:b_paused, ^first_ref, _backend_pid, first_task_pid}, 10_000
+    send(second_pid, {:b_go, second_ref})
+    assert_receive {:b_reserving, ^second_ref, second_backend_pid}, 10_000
+
+    try do
+      Fit.wait_for_db_lock(
+        TestRepo,
+        second_backend_pid,
+        System.monotonic_time(:millisecond) + 5_000
+      )
+    after
+      send(first_task_pid, {:b_continue, first_ref})
+    end
+
+    Enum.map(tasks, &Task.await(&1, 15_000))
+  end
+
   defp receive_ready(tag, ref) do
     receive do
       {^tag, ^ref, pid} -> {ref, pid}
@@ -1731,9 +2470,6 @@ defmodule Elzoo.CommandStoreFitTest do
       10_000 -> flunk("concurrent command did not reach its database barrier")
     end
   end
-
-  defp unresolved_readback(:not_found, true), do: {:unknown, :unresolved}
-  defp unresolved_readback(:not_found, false), do: :not_found
 
   defp prefix_name(prefix), do: String.trim(prefix, "\"")
 end
