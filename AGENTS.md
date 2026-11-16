@@ -143,8 +143,13 @@ a personal or production database. At most three workers run Mix on one host
 at the same time, and only one full check runs on one database server at a
 time (the limit is database connections).
 
-**Git.** Do not force-push. Do not rewrite history. Do not commit on `main`.
-When `main` moves and you have a conflict, merge it:
+**Git.** Do not force-push. Do not rewrite published or shared history,
+including commits pushed, supplied for review, or used by another worker as a
+dependency. The sole owner may amend or reorganize their own unpublished local
+commits before sharing without separate permission, while preserving all
+intended work and respecting uncommitted changes. Do not change Git identity,
+discard another worker's work, or bypass a protection or refusal. Do not commit
+on `main`. When `main` moves and you have a conflict, merge it:
 `git fetch origin && git merge --no-ff origin/main`.
 
 **Subagents.** A worker can use subagents to read and to review. Only one
@@ -179,9 +184,13 @@ agent writes in a worktree at a time.
   Contract keeps the ID.
 - The toolchain pins are in `.tool-versions` and `mix.exs`. Do not change them
   in a Piece task.
-- The repository is public. Write no hostname, address, local path, database
-  name, credential, session identifier or person's name in a file, a commit,
-  an issue or a pull request. Use roles.
+- The repository is public. Standard Git author, committer and co-author
+  metadata, and platform authorship attribution, are allowed; automatic
+  authorship metadata alone needs no rewrite or approval. Authored repository
+  content, examples, commit-message prose, and issue/PR prose remain roles-only:
+  include no person's name or private environment details. Do not include
+  session links or publish hostnames, addresses, local paths, database names,
+  credentials or session identifiers.
 - Write a file under `docs/work/` only when the task body names that file as a
   deliverable. The pull request body is the record of the task.
 - Test named Contract boundaries adversarially; a first green run alone is not
