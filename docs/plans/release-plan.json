@@ -6983,11 +6983,11 @@
       "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
       "paths": ["tasks/ELZ-245-command-store-fit.md"],
       "outputs": [],
-      "acceptance": "One bounded disposable-PostgreSQL spike runs through MIX_ENV=test mix run spikes/command-store-fit/run.exs under root Mix against actual Store/Postgres sources, comparing Store revision/fold fencing with direct pinned Ecto/PostgreSQL transactions for two fixed callers. It tests version-tagged fixed-tuple canonical bytes, map-order equivalence, identity/write-set byte changes, authorization, CAS, rollback, concurrency, uncertainty, retention and outbox limits. Split-commit negative controls expose orphan participants; Store replay bypass fails recorded-result equality without requiring duplicate mutation; SQL receipt-fence removal fails command-identity conflict across distinct CAS-protected rows. No production API is implemented.",
+      "acceptance": "One bounded disposable-PostgreSQL spike runs through MIX_ENV=test mix run spikes/command-store-fit/run.exs under root Mix against actual Store/Postgres sources. The fixed fixture set is bounded to two trusted tenants, two actors and two operation IDs, with two resources of each caller type per tenant. A uses one shared real Store stream per tenant across both callers/resources, keeps per-resource revisions in folded state and fences fold-and-append with the current stream revision. B uses one receipt uniqueness key of (tenant, actor, operation_id) across caller types/resources. Both exclude target kind/resource ID from identity but include them in the canonical request digest; test map-order equivalence, equal repeats and same-identity conflicting bytes across distinct resources and caller types with valid independent CAS. Include authorization, rollback, concurrency, uncertainty, retention and outbox limits. Split-commit controls expose orphan participants; A replay bypass fails recorded-result and cross-target/type conflict assertions; removing B's identity fence fails those conflicts despite CAS. Prefer A only if all required cases pass for both callers; otherwise recommend B only if all B cases pass. If neither passes all cases, including complementary partial fits, report inconclusive and make no production recommendation. Report single-stream contention/replay limits. No production API is implemented.",
       "product_aims": ["P13"],
       "issue": 556,
       "url": "https://github.com/balungpisah/elzoo/issues/556",
-      "issue_body_sha256": "50ff556b061d7fa302d4d4f0b1f95e0c78f3ac67b0a80aa766db88217bd039d0"
+      "issue_body_sha256": "28b4c1099c9a9ed77ccc08f7665f2fe5b3f1ddb22a09cda93308b7a2db9eeed4"
     },
     {
       "id": "ELZ-246",
@@ -7000,11 +7000,11 @@
       "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
       "paths": ["tasks/ELZ-246-debounce.md"],
       "outputs": ["delivery/debounce"],
-      "acceptance": "A pure, bounded trailing-edge latest-binary-value policy accepts nonnegative-origin host time and bounded epoch/generation tokens, records accepted put and timeout samples including ignored well-formed tokens, preserves last time and generation on clear, reaches and uses maximum generation, and leaves state unchanged on rejection; named Cure laws are distinguished from finite test evidence.",
+      "acceptance": "A pure, bounded trailing-edge latest-binary-value policy accepts nonnegative-origin host time and bounded epoch/generation tokens, records accepted put and timeout samples including ignored well-formed tokens, preserves last time and generation on clear, reaches and uses maximum generation, and leaves state unchanged on rejection. Accepted empty-state and post-emission duplicate well-formed timeouts emit and schedule nothing while still recording their time sample; named Cure laws are distinguished from finite test evidence.",
       "product_aims": ["P13"],
       "issue": 557,
       "url": "https://github.com/balungpisah/elzoo/issues/557",
-      "issue_body_sha256": "258ee6761f827fce0ec95f823c198a92ccd64007c4150589e99ffce9696f61b1"
+      "issue_body_sha256": "7a3993fac1255a43346ca0f6ab3776e0611cfdd3d3c720a67bcdfe8e1c218e3b"
     },
     {
       "id": "ELZ-247",
@@ -7017,11 +7017,11 @@
       "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
       "paths": ["tasks/ELZ-247-trigger-binding.md"],
       "outputs": ["domain/trigger-binding"],
-      "acceptance": "A pure Piece validates exact bounded immutable version-1 trigger declarations, including exact version: 1, and a whole snapshot of at most 256 rows; fixed refusal precedence validates host scope, event schema, list/count, every row, duplicate IDs, then selects by exact scope/schema. Errors do not echo values and claim no confidentiality for caller maps. It returns no_match, one checked binding or ambiguity and never loads, authenticates, authorizes, stores or starts a Run.",
+      "acceptance": "A pure Piece validates exact bounded immutable version-1 trigger declarations, including exact version: 1, and a whole snapshot of at most 256 rows; fixed refusal precedence validates host scope, event schema, list/count, every row, duplicate IDs, then selects by exact scope/schema. Errors do not echo values and claim no confidentiality for caller maps. It returns no_match, one checked binding or ambiguity and never loads, authenticates, authorizes, stores or starts a Run. The copied source closure declares existing cure and elixir providers, with no new provider or pin changes.",
       "product_aims": ["P13"],
       "issue": 558,
       "url": "https://github.com/balungpisah/elzoo/issues/558",
-      "issue_body_sha256": "572c9594602fbe999a737475f65d4d2fff31f74ed4b9c4e85af1fe56f2497963"
+      "issue_body_sha256": "f9e55c0b0a50ae70ed5de9b716cb64e751bcd33204f18f3408197b55cfbe0162"
     }
   ],
   "entries": [
@@ -7272,7 +7272,7 @@
     {
       "id": "delivery/debounce",
       "job": "ELZ-246",
-      "note": "Pure, bounded trailing-edge latest-binary-value policy for one caller-owned partition: host supplies a UTF-8 epoch, quiet interval, nondecreasing samples in a nonnegative monotonic origin and timer delivery. State starts with no last sample; accepted puts and timeouts, including ignored well-formed nonmatching tokens, record now. Clear preserves last time and generation. Generation maximum is reachable and usable; malformed tokens reject unchanged and well-formed nonmatching tokens are ignored. Matching due timeout emits the latest value once; early matching timeout reschedules at the same deadline. No timer, registry, persistence, leading edge or maximum wait.",
+      "note": "Pure, bounded trailing-edge latest-binary-value policy for one caller-owned partition: host supplies a UTF-8 epoch, quiet interval, nondecreasing samples in a nonnegative monotonic origin and timer delivery. State starts with no last sample; accepted puts and timeouts, including ignored well-formed nonmatching tokens, record now. Clear preserves last time and generation. Generation maximum is reachable and usable; malformed tokens reject unchanged and well-formed nonmatching tokens are ignored. Matching due timeout emits the latest value once; early matching timeout reschedules at the same deadline. Accepted empty-state and post-emission duplicate timeouts emit and schedule nothing but still record now. No timer, registry, persistence, leading edge or maximum wait.",
       "baseline_status": "not in baseline (new row, ELZ-246)",
       "disposition": "published-scoped-work",
       "catalogue_reference": "registry/catalogue.json"
@@ -7504,7 +7504,7 @@
     {
       "id": "domain/trigger-binding",
       "job": "ELZ-247",
-      "note": "Pure validation of exact immutable version-1 trigger declarations, including exact version: 1, plus order-independent selection from a whole bounded snapshot with fixed refusal precedence: host scope, event schema, list/count, every declaration, duplicate IDs, then selection. Separate host-supplied tenant/source and declared event schema id/version select zero, one checked immutable target/revision, or ambiguity. Bounded errors do not echo values and make no confidentiality claim about caller-owned maps. No payload-derived tenant/source trust, authentication, authorization, lookup, loading, persistence or Run creation; revision-fenced mutation is a later checked command.",
+      "note": "Pure validation of exact immutable version-1 trigger declarations, including exact version: 1, plus order-independent selection from a whole bounded snapshot with fixed refusal precedence: host scope, event schema, list/count, every declaration, duplicate IDs, then selection. Separate host-supplied tenant/source and declared event schema id/version select zero, one checked immutable target/revision, or ambiguity. Bounded errors do not echo values and make no confidentiality claim about caller-owned maps. The copied source closure declares existing cure and elixir providers, with no new provider or pin changes. No payload-derived tenant/source trust, authentication, authorization, lookup, loading, persistence or Run creation; revision-fenced mutation is a later checked command.",
       "baseline_status": "not in baseline (new row, ELZ-247)",
       "disposition": "published-scoped-work",
       "catalogue_reference": "registry/catalogue.json"
