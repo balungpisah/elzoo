@@ -43,44 +43,44 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-007](https://github.com/balungpisah/elzoo/issues/7) | V1 / pieces | ELZ-002, ELZ-003 | historical-closed; not independently reaccepted here | one claimed task worker after admission |
 | [ELZ-008](https://github.com/balungpisah/elzoo/issues/8) | V1 / pieces | ELZ-004, ELZ-005, ELZ-006, ELZ-007 | historical-closed; not independently reaccepted here | one claimed task worker after admission |
 | [ELZ-009](https://github.com/balungpisah/elzoo/issues/9) | V1 / pieces | ELZ-008 | historical-closed; not independently reaccepted here | one claimed task worker after admission |
-| [ELZ-010](https://github.com/balungpisah/elzoo/issues/10) | V1 / pieces | ELZ-008, ELZ-009 | merged on main; coordinator retains acceptance | existing ELZ-010 coordinator |
-| [ELZ-023](https://github.com/balungpisah/elzoo/issues/37) | V1 / pieces | ELZ-006, ELZ-009 | implementation prepared on task/ELZ-023; coordinator retains review and merge acceptance | one claimed task worker after admission |
+| [ELZ-010](https://github.com/balungpisah/elzoo/issues/10) | V1 / pieces | ELZ-008, ELZ-009 | published 2026-11-05 | existing ELZ-010 coordinator |
+| [ELZ-023](https://github.com/balungpisah/elzoo/issues/37) | V1 / pieces | ELZ-006, ELZ-009 | published 2026-11-05 | one claimed task worker after admission |
 | [ELZ-011](https://github.com/balungpisah/elzoo/issues/11) | V1 / pieces | ELZ-004, ELZ-006, ELZ-010, ELZ-013, ELZ-023 | published; dispatch gates required | one claimed task worker after admission |
 | [ELZ-012](https://github.com/balungpisah/elzoo/issues/12) | V1 / pieces | ELZ-011 | published; dispatch gates required | one claimed task worker after admission |
 | [ELZ-019](https://github.com/balungpisah/elzoo/issues/26) | V1 / pieces | ELZ-018 | historical-closed; not independently reaccepted here | one claimed task worker after admission |
 | [ELZ-020](https://github.com/balungpisah/elzoo/issues/28) | V1 / pieces | ELZ-019 | historical-closed; not independently reaccepted here | one claimed task worker after admission |
 | [ELZ-021](https://github.com/balungpisah/elzoo/issues/33) | V1 / pieces | ELZ-014, ELZ-015, ELZ-018 | historical-closed; not independently reaccepted here | one claimed task worker after admission |
-| [ELZ-022](https://github.com/balungpisah/elzoo/issues/36) | V1 / pieces | ELZ-003, ELZ-004 | implemented in PR #57; ready on main only once PR #57 merges; coordinator retains merge acceptance | one claimed task worker after admission |
-| [ELZ-024](https://github.com/balungpisah/elzoo/issues/38) | V1 / pieces | ELZ-003, ELZ-015 | implemented in PR #59; ready on main only once PR #59 merges; coordinator retains merge acceptance | one claimed task worker after admission |
+| [ELZ-022](https://github.com/balungpisah/elzoo/issues/36) | V1 / pieces | ELZ-003, ELZ-004 | published 2026-11-05 | one claimed task worker after admission |
+| [ELZ-024](https://github.com/balungpisah/elzoo/issues/38) | V1 / pieces | ELZ-003, ELZ-015 | published 2026-11-05 | one claimed task worker after admission |
 | [ELZ-025](https://github.com/balungpisah/elzoo/issues/40) | V1 / pieces | ELZ-021 | historical-closed; not independently reaccepted here | one claimed task worker after admission |
-| [ELZ-026](https://github.com/balungpisah/elzoo/issues/43) | V1 / pieces | ELZ-003 | merged on main via PR #58 (e630d3a); accepted on #43 | one claimed task worker after admission |
+| [ELZ-026](https://github.com/balungpisah/elzoo/issues/43) | V1 / pieces | ELZ-003 | published 2026-11-06 | one claimed task worker after admission |
 | [ELZ-027](https://github.com/balungpisah/elzoo/issues/44) | V1 / pieces | ELZ-003 | published; dispatch gates required | one claimed task worker after admission |
 | [ELZ-028](https://github.com/balungpisah/elzoo/issues/45) | V1 / pieces | ELZ-009, ELZ-010 | blocked: accepted ELZ-010 and provider-fit decision required | one claimed task worker after admission |
 | [ELZ-029](https://github.com/balungpisah/elzoo/issues/46) | V1 / pieces | ELZ-006 | published; dispatch gates required | one claimed task worker after admission |
-| [ELZ-030](https://github.com/balungpisah/elzoo/issues/47) | V1 / pieces | ELZ-003, ELZ-024 | implementation prepared on task/ELZ-030; coordinator retains review and merge acceptance | one claimed task worker after admission |
+| [ELZ-030](https://github.com/balungpisah/elzoo/issues/47) | V1 / pieces | ELZ-003, ELZ-024 | published 2026-11-06 | one claimed task worker after admission |
 | [ELZ-031](https://github.com/balungpisah/elzoo/issues/48) | V2 / pieces | ELZ-003 | published; dispatch gates required | one claimed task worker after admission |
 | [ELZ-032](https://github.com/balungpisah/elzoo/issues/52) | V1 / pieces | ELZ-009 | historical-closed; not independently reaccepted here | one claimed task worker after admission |
-| [ELZ-033](https://github.com/balungpisah/elzoo/issues/55) | V1 / pieces | none | adoption implementation prepared; parent review and merge pending | roadmap coordinator |
-| [ELZ-050](https://github.com/balungpisah/elzoo/issues/103) | V1 / pieces | ELZ-033 | published 2026-11-08; claimed task/ELZ-050; PR pending | pieces coordinator (one claimed task worker) |
-| [ELZ-052](https://github.com/balungpisah/elzoo/issues/108) | V1 / pieces | ELZ-010, ELZ-011 | published 2026-11-09; claimed task/ELZ-052; PR pending | one claimed task worker after admission |
+| [ELZ-033](https://github.com/balungpisah/elzoo/issues/55) | V1 / pieces | none | published 2026-11-07 | roadmap coordinator |
+| [ELZ-050](https://github.com/balungpisah/elzoo/issues/103) | V1 / pieces | ELZ-033 | published 2026-11-08 | pieces coordinator (one claimed task worker) |
+| [ELZ-052](https://github.com/balungpisah/elzoo/issues/108) | V1 / pieces | ELZ-010, ELZ-011 | published 2026-11-09 | one claimed task worker after admission |
 | [ELZ-053](https://github.com/balungpisah/elzoo/issues/109) | V1 / pieces | ELZ-011, ELZ-023 | published; dispatch gates required | one claimed task worker after admission |
-| [ELZ-054](https://github.com/balungpisah/elzoo/issues/110) | V1 / pieces | ELZ-011, ELZ-023 | published 2026-11-09; claimed task/ELZ-054; PR pending | one claimed task worker after admission |
+| [ELZ-054](https://github.com/balungpisah/elzoo/issues/110) | V1 / pieces | ELZ-011, ELZ-023 | published 2026-11-09 | one claimed task worker after admission |
 | [ELZ-055](https://github.com/balungpisah/elzoo/issues/111) | V1 / pieces | ELZ-009, ELZ-023 | published; dispatch gates required | one claimed task worker after admission |
-| [ELZ-083](https://github.com/balungpisah/elzoo/issues/155) | V1 / pieces | ELZ-011, ELZ-023 | published 2026-11-09; claimed task/ELZ-083; PR pending | one claimed task worker after admission |
-| [ELZ-081](https://github.com/balungpisah/elzoo/issues/154) | V1 / pieces | none | published 2026-11-09; claimed task/ELZ-081; PR pending | one claimed task worker after admission |
-| [ELZ-084](https://github.com/balungpisah/elzoo/issues/156) | V1 / pieces | none | published 2026-11-09; claimed task/ELZ-084; PR pending | one claimed task worker after admission |
-| [ELZ-079](https://github.com/balungpisah/elzoo/issues/153) | V1 / pieces | ELZ-006, ELZ-011, ELZ-023 | published 2026-11-09; claimed task/ELZ-079; PR pending | one claimed task worker after admission |
-| [ELZ-087](https://github.com/balungpisah/elzoo/issues/157) | V1 / pieces | ELZ-079 | published 2026-11-09; claimed task/ELZ-087; PR pending | one claimed task worker after admission |
-| [ELZ-080](https://github.com/balungpisah/elzoo/issues/159) | V1 / pieces | ELZ-006, ELZ-011, ELZ-023, ELZ-079 | published 2026-11-09; claimed task/ELZ-080; PR pending | one claimed task worker after admission |
-| [ELZ-085](https://github.com/balungpisah/elzoo/issues/158) | V1 / pieces | ELZ-006, ELZ-011, ELZ-023, ELZ-079 | published 2026-11-09; claimed task/ELZ-085; PR pending | one claimed task worker after admission |
-| [ELZ-091](https://github.com/balungpisah/elzoo/issues/165) | V1 / pieces | ELZ-079 | published 2026-11-09; claimed task/ELZ-091; PR pending | one claimed task worker after admission |
-| [ELZ-092](https://github.com/balungpisah/elzoo/issues/170) | V1 / pieces | ELZ-011 | published 2026-11-09; claimed task/ELZ-092; PR pending | one claimed task worker after admission |
-| [ELZ-097](https://github.com/balungpisah/elzoo/issues/180) | V1 / pieces | ELZ-006, ELZ-009, ELZ-010, ELZ-027, ELZ-033 | published 2026-11-10; claimed task/ELZ-097; PR pending | one claimed task worker after admission |
+| [ELZ-083](https://github.com/balungpisah/elzoo/issues/155) | V1 / pieces | ELZ-011, ELZ-023 | published 2026-11-09 | one claimed task worker after admission |
+| [ELZ-081](https://github.com/balungpisah/elzoo/issues/154) | V1 / pieces | none | published 2026-11-09 | one claimed task worker after admission |
+| [ELZ-084](https://github.com/balungpisah/elzoo/issues/156) | V1 / pieces | none | published 2026-11-09 | one claimed task worker after admission |
+| [ELZ-079](https://github.com/balungpisah/elzoo/issues/153) | V1 / pieces | ELZ-006, ELZ-011, ELZ-023 | published 2026-11-09 | one claimed task worker after admission |
+| [ELZ-087](https://github.com/balungpisah/elzoo/issues/157) | V1 / pieces | ELZ-079 | published 2026-11-09 | one claimed task worker after admission |
+| [ELZ-080](https://github.com/balungpisah/elzoo/issues/159) | V1 / pieces | ELZ-006, ELZ-011, ELZ-023, ELZ-079 | published 2026-11-09 | one claimed task worker after admission |
+| [ELZ-085](https://github.com/balungpisah/elzoo/issues/158) | V1 / pieces | ELZ-006, ELZ-011, ELZ-023, ELZ-079 | published 2026-11-09 | one claimed task worker after admission |
+| [ELZ-091](https://github.com/balungpisah/elzoo/issues/165) | V1 / pieces | ELZ-079 | published 2026-11-09 | one claimed task worker after admission |
+| [ELZ-092](https://github.com/balungpisah/elzoo/issues/170) | V1 / pieces | ELZ-011 | published 2026-11-09 | one claimed task worker after admission |
+| [ELZ-097](https://github.com/balungpisah/elzoo/issues/180) | V1 / pieces | ELZ-006, ELZ-009, ELZ-010, ELZ-027, ELZ-033 | published 2026-11-10 | one claimed task worker after admission |
 | RC-01 | V1 / pieces | ELZ-033, ELZ-010 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-02 | V1 / pieces | ELZ-033, ELZ-010, ELZ-027 | superseded for state/scheduler by published ELZ-097 (output moved); no remaining output | one claimed task worker after admission |
-| RC-03 | V1 / pieces | ELZ-033, ELZ-004 | superseded for integration/observability by published ELZ-106; provider prerequisite ELZ-107; output moved, readiness pending | one claimed task worker after admission |
+| RC-03 | V1 / pieces | ELZ-033, ELZ-004 | superseded for integration/observability by published ELZ-106; provider prerequisite ELZ-107; output moved | one claimed task worker after admission |
 | RC-04 | V1 / pieces | ELZ-033, ELZ-016, ELZ-024, RC-03 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| RC-05 | V1 / pieces | ELZ-033, ELZ-011 | superseded for integration/secrets by published ELZ-105; output moved, readiness pending | one claimed task worker after admission |
+| RC-05 | V1 / pieces | ELZ-033, ELZ-011 | superseded for integration/secrets by published ELZ-105; output moved | one claimed task worker after admission |
 | RC-06 | V1 / pieces | ELZ-033, RC-05, ELZ-024 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-10 | V1 / pieces | ELZ-033, ELZ-009, ELZ-024 | superseded for state/audit-log by published ELZ-055 (output moved); no remaining output | one claimed task worker after admission |
 | RC-07 | V1 / pieces | ELZ-033, RC-06, ELZ-024, RC-10 | blocked: unpublished admission proposal | one claimed task worker after admission |
@@ -102,8 +102,8 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | RC-22 | V2 / pieces | ELZ-033, ELZ-031, RC-10, ELZ-009 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-23 | V2 / pieces | ELZ-033, ELZ-031, RC-21 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-24 | V2 / pieces | ELZ-033, ELZ-023, ELZ-031, RC-05, RC-22, ELZ-024 | blocked: unpublished admission proposal | one claimed task worker after admission |
-| [ELZ-099](https://github.com/balungpisah/elzoo/issues/185) | V1 / pieces | ELZ-033, ELZ-006 | published; claimed task/ELZ-099; PR pending | one claimed provider-prerequisite worker; coordinator owns review and merge |
-| [ELZ-100](https://github.com/balungpisah/elzoo/issues/186) | V1 / pieces | ELZ-006, ELZ-033, ELZ-099 | published; claimed task/ELZ-100; implementation prepared; independent review and acceptance pending | one claimed implementation worker; main coordinator owns review and merge |
+| [ELZ-099](https://github.com/balungpisah/elzoo/issues/185) | V1 / pieces | ELZ-033, ELZ-006 | published 2026-11-11 | one claimed provider-prerequisite worker; coordinator owns review and merge |
+| [ELZ-100](https://github.com/balungpisah/elzoo/issues/186) | V1 / pieces | ELZ-006, ELZ-033, ELZ-099 | published 2026-11-11 | one claimed implementation worker; main coordinator owns review and merge |
 | RC-25 | V2 / pieces | ELZ-033, RC-16, RC-21, RC-23, RC-08, ELZ-100 | blocked: unpublished admission proposal | one claimed task worker after admission |
 | RC-26 | V1 / pieces | ELZ-033, ELZ-006 | resolved planning index: circuit output and acceptance carried by ELZ-100; no separate bulkhead/pool task admitted | one claimed task worker after admission |
 | RC-27 | V2 / pieces | ELZ-033, ELZ-003, ELZ-006, RC-05 | blocked: unpublished admission proposal | one claimed task worker after admission |
@@ -122,21 +122,21 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | RC-39 | V1 / examples-later | ELZ-033, ELZ-116, RC-13, RC-14, RC-42 | deferred: examples later | one claimed task worker after admission |
 | RC-40 | V1 / examples-later | ELZ-033, RC-07, RC-08, RC-09, RC-19, RC-42 | deferred: examples later | one claimed task worker after admission |
 | RC-41 | V2 / examples-later | ELZ-033, RC-22, RC-23, RC-24, RC-42, RC-43 | deferred: examples later | one claimed task worker after admission |
-| [ELZ-094](https://github.com/balungpisah/elzoo/issues/172) | V1 / pieces | ELZ-091 | published 2026-11-10; claimed task/ELZ-094; PR pending | one claimed task worker after admission |
-| [ELZ-093](https://github.com/balungpisah/elzoo/issues/171) | V1 / pieces | ELZ-079 | published; claimed task/ELZ-093; PR pending | one claimed task worker after admission |
-| [ELZ-095](https://github.com/balungpisah/elzoo/issues/177) | V1 / pieces | ELZ-028 | published; claimed task/ELZ-095; PR pending | one claimed task worker after admission |
-| [ELZ-082](https://github.com/balungpisah/elzoo/issues/160) | V1 / pieces | ELZ-030, ELZ-080, ELZ-081 | published; claimed task/ELZ-082; implementation prepared | one claimed task worker after admission |
-| [ELZ-096](https://github.com/balungpisah/elzoo/issues/179) | V1 / pieces | ELZ-009, ELZ-013, ELZ-033, ELZ-053 | published 2026-11-10; claimed task/ELZ-096; PR pending | one claimed task worker after admission |
-| [ELZ-098](https://github.com/balungpisah/elzoo/issues/181) | V1 / pieces | ELZ-003, ELZ-006, ELZ-026, ELZ-033 | published 2026-11-10; claimed task/ELZ-098; PR pending | one claimed task worker after admission |
-| [ELZ-101](https://github.com/balungpisah/elzoo/issues/187) | V1 / pieces | ELZ-033, ELZ-006, ELZ-011, ELZ-023, ELZ-079, ELZ-091, ELZ-093, ELZ-099 | published; claimed task/ELZ-101; acceptance pending | one claimed task worker; coordinator owns independent review and merge |
-| [ELZ-104](https://github.com/balungpisah/elzoo/issues/194) | V1 / pieces | ELZ-033, ELZ-009, ELZ-010, ELZ-023, ELZ-011 | published evidence assessment; independent review and integration required; residual RC-43 gap remains open | coordinator owns assessment and shared metadata; independent reviewer |
-| [ELZ-103](https://github.com/balungpisah/elzoo/issues/195) | V1 / pieces | ELZ-009, ELZ-010 | published reliability evidence repair; independent review and integration required | one investigation worker; coordinator owns shared metadata and integration; independent reviewer |
-| [ELZ-105](https://github.com/balungpisah/elzoo/issues/197) | V1 / pieces | ELZ-033, ELZ-011, ELZ-079 | implementation prepared locally; final-tree checks, review and coordinated acceptance pending | one claimed task worker; coordinator owns integration |
-| [ELZ-107](https://github.com/balungpisah/elzoo/issues/198) | V1 / pieces | ELZ-033, ELZ-052 | published; claimed task/ELZ-107; provider verification and acceptance pending | one claimed provider worker; coordinator owns integration |
-| [ELZ-106](https://github.com/balungpisah/elzoo/issues/199) | V1 / pieces | ELZ-033, ELZ-004, ELZ-052, ELZ-107 | implementation reviewed; claimed task/ELZ-106 after ELZ-107 acceptance; publication held until ELZ-105 acceptance; corrected final checks and task acceptance pending | one claimed task worker; coordinator owns integration |
-| [ELZ-108](https://github.com/balungpisah/elzoo/issues/201) | V1 / pieces | ELZ-101 | published test-only ordering repair; claimed task/ELZ-108; independent review and acceptance pending | one test-repair worker; coordinator owns independent review and merge queue |
-| [ELZ-109](https://github.com/balungpisah/elzoo/issues/202) | V1 / pieces | ELZ-101, ELZ-108 | published setup repair; claimed task/ELZ-109; final review and acceptance pending | one setup-repair worker; coordinator owns independent review and merge queue |
-| [ELZ-110](https://github.com/balungpisah/elzoo/issues/204) | V1 / pieces | none | published class-S CI repair; claimed task/ELZ-110; independent review and integration required | one claimed task worker; coordinator owns independent review, queue and merge |
+| [ELZ-094](https://github.com/balungpisah/elzoo/issues/172) | V1 / pieces | ELZ-091 | published 2026-11-10 | one claimed task worker after admission |
+| [ELZ-093](https://github.com/balungpisah/elzoo/issues/171) | V1 / pieces | ELZ-079 | published 2026-11-10 | one claimed task worker after admission |
+| [ELZ-095](https://github.com/balungpisah/elzoo/issues/177) | V1 / pieces | ELZ-028 | published 2026-11-10 | one claimed task worker after admission |
+| [ELZ-082](https://github.com/balungpisah/elzoo/issues/160) | V1 / pieces | ELZ-030, ELZ-080, ELZ-081 | published 2026-11-09 | one claimed task worker after admission |
+| [ELZ-096](https://github.com/balungpisah/elzoo/issues/179) | V1 / pieces | ELZ-009, ELZ-013, ELZ-033, ELZ-053 | published 2026-11-10 | one claimed task worker after admission |
+| [ELZ-098](https://github.com/balungpisah/elzoo/issues/181) | V1 / pieces | ELZ-003, ELZ-006, ELZ-026, ELZ-033 | published 2026-11-10 | one claimed task worker after admission |
+| [ELZ-101](https://github.com/balungpisah/elzoo/issues/187) | V1 / pieces | ELZ-033, ELZ-006, ELZ-011, ELZ-023, ELZ-079, ELZ-091, ELZ-093, ELZ-099 | published 2026-11-11 | one claimed task worker; coordinator owns independent review and merge |
+| [ELZ-104](https://github.com/balungpisah/elzoo/issues/194) | V1 / pieces | ELZ-033, ELZ-009, ELZ-010, ELZ-023, ELZ-011 | published 2026-11-11 | coordinator owns assessment and shared metadata; independent reviewer |
+| [ELZ-103](https://github.com/balungpisah/elzoo/issues/195) | V1 / pieces | ELZ-009, ELZ-010 | published 2026-11-11 | one investigation worker; coordinator owns shared metadata and integration; independent reviewer |
+| [ELZ-105](https://github.com/balungpisah/elzoo/issues/197) | V1 / pieces | ELZ-033, ELZ-011, ELZ-079 | published 2026-11-11 | one claimed task worker; coordinator owns integration |
+| [ELZ-107](https://github.com/balungpisah/elzoo/issues/198) | V1 / pieces | ELZ-033, ELZ-052 | published 2026-11-11 | one claimed provider worker; coordinator owns integration |
+| [ELZ-106](https://github.com/balungpisah/elzoo/issues/199) | V1 / pieces | ELZ-033, ELZ-004, ELZ-052, ELZ-107 | published 2026-11-11 | one claimed task worker; coordinator owns integration |
+| [ELZ-108](https://github.com/balungpisah/elzoo/issues/201) | V1 / pieces | ELZ-101 | published 2026-11-11 | one test-repair worker; coordinator owns independent review and merge queue |
+| [ELZ-109](https://github.com/balungpisah/elzoo/issues/202) | V1 / pieces | ELZ-101, ELZ-108 | published 2026-11-11 | one setup-repair worker; coordinator owns independent review and merge queue |
+| [ELZ-110](https://github.com/balungpisah/elzoo/issues/204) | V1 / pieces | none | published 2026-11-11 | one claimed task worker; coordinator owns independent review, queue and merge |
 | [ELZ-111](https://github.com/balungpisah/elzoo/issues/211) | V1 / pieces | none | published 2026-11-12 | one claimed task worker; coordinator owns review and merge queue |
 | [ELZ-112](https://github.com/balungpisah/elzoo/issues/212) | V1 / pieces | none | published 2026-11-12 | one claimed task worker; coordinator owns review and merge queue |
 | [ELZ-113](https://github.com/balungpisah/elzoo/issues/213) | V1 / pieces | none | published 2026-11-12 | one claimed task worker; coordinator owns review and merge queue |
@@ -293,6 +293,7 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-241](https://github.com/balungpisah/elzoo/issues/543) | V1B / pieces | ELZ-033, ELZ-192, ELZ-217 | published 2026-11-15 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-242](https://github.com/balungpisah/elzoo/issues/544) | V1B / pieces | ELZ-033, ELZ-192 | published 2026-11-15 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-243](https://github.com/balungpisah/elzoo/issues/550) | V1B / pieces | ELZ-033, ELZ-192 | published 2026-11-15 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-244](https://github.com/balungpisah/elzoo/issues/554) | V1 / pieces | ELZ-033 | published 2026-11-16 | one claimed task worker; coordinator owns independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -457,7 +458,7 @@ Derived from selectors in the manifest; changing the selected scope changes the 
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; integrated pinned mix check, source-copy/namespace/schema/provider compatibility and claim-level evidence. No future release acceptance follows from ELZ-012.
 
-Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, ELZ-008, ELZ-009, ELZ-010, ELZ-011, ELZ-012, ELZ-013, ELZ-014, ELZ-015, ELZ-016, ELZ-017, ELZ-018, ELZ-019, ELZ-020, ELZ-021, ELZ-022, ELZ-023, ELZ-024, ELZ-025, ELZ-026, ELZ-027, ELZ-028, ELZ-029, ELZ-030, ELZ-032, ELZ-033, ELZ-050, ELZ-052, ELZ-053, ELZ-054, ELZ-055, ELZ-083, ELZ-081, ELZ-084, ELZ-087, ELZ-079, ELZ-080, ELZ-085, ELZ-091, ELZ-092, ELZ-097, RC-01, RC-02, RC-03, RC-04, RC-05, RC-06, RC-07, RC-08, RC-09, RC-10, RC-11, RC-12, RC-13, RC-14, RC-15, RC-16, RC-17, RC-18, RC-19, RC-26, RC-32, RC-42, RC-43, ELZ-094, ELZ-093, ELZ-095, ELZ-082, ELZ-096, ELZ-098, ELZ-099, ELZ-100, ELZ-101, ELZ-104, ELZ-103, ELZ-105, ELZ-107, ELZ-106, ELZ-108, ELZ-109, ELZ-110, ELZ-111, ELZ-112, ELZ-113, ELZ-116, ELZ-119, ELZ-120, ELZ-121, ELZ-128, ELZ-129, ELZ-130, ELZ-131, ELZ-132, ELZ-133, ELZ-134, ELZ-135, ELZ-149, ELZ-151, ELZ-152, ELZ-153, ELZ-154, ELZ-155, ELZ-157, ELZ-158, ELZ-184, ELZ-185.
+Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, ELZ-008, ELZ-009, ELZ-010, ELZ-011, ELZ-012, ELZ-013, ELZ-014, ELZ-015, ELZ-016, ELZ-017, ELZ-018, ELZ-019, ELZ-020, ELZ-021, ELZ-022, ELZ-023, ELZ-024, ELZ-025, ELZ-026, ELZ-027, ELZ-028, ELZ-029, ELZ-030, ELZ-032, ELZ-033, ELZ-050, ELZ-052, ELZ-053, ELZ-054, ELZ-055, ELZ-083, ELZ-081, ELZ-084, ELZ-087, ELZ-079, ELZ-080, ELZ-085, ELZ-091, ELZ-092, ELZ-097, RC-01, RC-02, RC-03, RC-04, RC-05, RC-06, RC-07, RC-08, RC-09, RC-10, RC-11, RC-12, RC-13, RC-14, RC-15, RC-16, RC-17, RC-18, RC-19, RC-26, RC-32, RC-42, RC-43, ELZ-094, ELZ-093, ELZ-095, ELZ-082, ELZ-096, ELZ-098, ELZ-099, ELZ-100, ELZ-101, ELZ-104, ELZ-103, ELZ-105, ELZ-107, ELZ-106, ELZ-108, ELZ-109, ELZ-110, ELZ-111, ELZ-112, ELZ-113, ELZ-116, ELZ-119, ELZ-120, ELZ-121, ELZ-128, ELZ-129, ELZ-130, ELZ-131, ELZ-132, ELZ-133, ELZ-134, ELZ-135, ELZ-149, ELZ-151, ELZ-152, ELZ-153, ELZ-154, ELZ-155, ELZ-157, ELZ-158, ELZ-184, ELZ-185, ELZ-244.
 
 ### V1B-ACCEPT
 
@@ -3673,3 +3674,13 @@ Publication copy: [tasks/ELZ-243-run-engine-unit-stop-race.md](../../tasks/ELZ-2
 **Product aims:** P13.
 
 **Acceptance:** Piece assembly/run-engine in place, no Contract change: a state read of a Unit that died after the liveness check falls back to the durable recovery read instead of exiting the engine; small gate.
+
+### ELZ-244
+
+ELZ-244 — Remove stale live-state text from release-plan.json job statuses
+
+Publication copy: [tasks/ELZ-244-release-plan-live-state-cleanup.md](../../tasks/ELZ-244-release-plan-live-state-cleanup.md).
+
+**Product aims:** P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12.
+
+**Acceptance:** Documents only: docs/plans/release-plan.json job statuses carry no live-state text; generated views regenerated; roadmap check passes.
