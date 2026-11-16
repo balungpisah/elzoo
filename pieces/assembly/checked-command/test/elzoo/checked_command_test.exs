@@ -10,8 +10,6 @@ postgres_available? = File.regular?(sql_helper)
 if postgres_available? do
   Code.require_file(sql_helper)
 else
-  ExUnit.configure(exclude: [:postgres])
-
   defmodule Elzoo.DurableLog.TestRepo do
     def start_link(_), do: {:error, :postgres_test_support_unavailable}
   end
@@ -33,7 +31,7 @@ defmodule Elzoo.CheckedCommandTest do
 
   alias Ecto.Adapters.SQL
   alias Elzoo.{CheckedCommand, PayloadSchema}
-  alias Elzoo.DurableLog.{Memory, Postgres, PostgresHarness, TestMigration, TestRepo}
+  alias Elzoo.DurableLog.{Memory, Postgres, PostgresHarness, TestRepo}
   alias Elzoo.DurableLog.Codec, as: LogCodec
 
   @hash :binary.copy(<<7>>, 32)
@@ -49,7 +47,7 @@ defmodule Elzoo.CheckedCommandTest do
                      __DIR__
                    )
   @postgres_available File.regular?(@postgres_helper)
-  @database_url if(@postgres_available, do: PostgresHarness.database_url!(), else: nil)
+  @postgres_skip if(@postgres_available, do: false, else: "PostgreSQL test support is unavailable")
 
   defp fold do
     %{
@@ -385,7 +383,9 @@ defmodule Elzoo.CheckedCommandTest do
 
   if @postgres_available do
     setup_all do
-      {:ok, repo} = TestRepo.start_link(url: @database_url, pool_size: 20, log: false)
+      {:ok, repo} =
+        TestRepo.start_link(url: PostgresHarness.database_url!(), pool_size: 20, log: false)
+
       Process.unlink(repo)
       :ok = PostgresHarness.reachable!(TestRepo)
 
@@ -401,7 +401,10 @@ defmodule Elzoo.CheckedCommandTest do
       Process.unlink(controller)
       prefix = "cc_" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
       _ = SQL.query!(TestRepo, "CREATE SCHEMA #{Postgres.identifier(prefix)}", [], log: false)
-      :ok = Ecto.Migrator.up(TestRepo, 1, TestMigration, prefix: prefix, log: false)
+
+      :ok =
+        Ecto.Migrator.up(TestRepo, 1, Elzoo.DurableLog.TestMigration, prefix: prefix, log: false)
+
       store = PostgresHarness.attach(TestRepo, prefix, fold(), @limits, controller)
 
       on_exit(fn ->
@@ -1543,11 +1546,13 @@ defmodule Elzoo.CheckedCommandTest do
   end
 
   @tag :postgres
+  @tag skip: @postgres_skip
   test "PostgreSQL barriers preserve equal identity and different-request races", %{store: store} do
     exercise_identity_races(store)
   end
 
   @tag :postgres
+  @tag skip: @postgres_skip
   test "PostgreSQL retains DENY and checks both identity scope dimensions", %{store: store} do
     {handle, _} = new_handle(store, descriptor: %{outbox: nil})
     identity = {"tenant-1", "actor-1", "postgres-denied"}
@@ -1582,6 +1587,7 @@ defmodule Elzoo.CheckedCommandTest do
   end
 
   @tag :postgres
+  @tag skip: @postgres_skip
   test "PostgreSQL rejects a gap in otherwise unpruned history", %{store: store, prefix: prefix} do
     {handle, _} = new_handle(store, descriptor: %{outbox: nil})
     assert {:completed, %{revision: 1}} = CheckedCommand.execute(handle, context(), request())
@@ -1605,6 +1611,7 @@ defmodule Elzoo.CheckedCommandTest do
   end
 
   @tag :postgres
+  @tag skip: @postgres_skip
   test "PostgreSQL ASK refusal matrix preserves pending state and evidence", %{store: store} do
     {handle, _} = new_handle(store, descriptor: %{outbox: nil})
     ask_context = context(policy: policy(:ask))
@@ -1679,6 +1686,7 @@ defmodule Elzoo.CheckedCommandTest do
   end
 
   @tag :postgres
+  @tag skip: @postgres_skip
   test "PostgreSQL rejects an Approval request binding detached from its receipt", %{
     store: store,
     prefix: prefix
@@ -1759,6 +1767,7 @@ defmodule Elzoo.CheckedCommandTest do
   end
 
   @tag :postgres
+  @tag skip: @postgres_skip
   test "PostgreSQL ASK consumption survives reopen and rejects cross-command evidence reuse", %{
     store: store
   } do
@@ -1819,6 +1828,7 @@ defmodule Elzoo.CheckedCommandTest do
   end
 
   @tag :postgres
+  @tag skip: @postgres_skip
   test "PostgreSQL replay rejects a released event detached from its retained request", %{
     store: store,
     prefix: prefix
@@ -1883,6 +1893,7 @@ defmodule Elzoo.CheckedCommandTest do
   end
 
   @tag :postgres
+  @tag skip: @postgres_skip
   test "PostgreSQL replay rejects a consumed evidence key reused by another command", %{
     store: store
   } do
@@ -2002,6 +2013,7 @@ defmodule Elzoo.CheckedCommandTest do
   end
 
   @tag :postgres
+  @tag skip: @postgres_skip
   test "PostgreSQL response loss confirms one atomic record and outbox item", %{store: store} do
     {handle, _} = new_handle(store)
     PostgresHarness.hook(store, :inject, [:append, :reply_loss])
@@ -2019,6 +2031,7 @@ defmodule Elzoo.CheckedCommandTest do
   end
 
   @tag :postgres
+  @tag skip: @postgres_skip
   test "PostgreSQL ignores unused checkpoint metadata but refuses pruned replay", %{store: store} do
     {handle, _} = new_handle(store, descriptor: %{outbox: nil})
 
@@ -2045,6 +2058,7 @@ defmodule Elzoo.CheckedCommandTest do
   end
 
   @tag :postgres
+  @tag skip: @postgres_skip
   test "PostgreSQL paused append remains unknown without automatic reappend", %{
     store: store,
     controller: controller
@@ -2067,6 +2081,7 @@ defmodule Elzoo.CheckedCommandTest do
   end
 
   @tag :postgres
+  @tag skip: @postgres_skip
   test "PostgreSQL paused append commit is visible as one record and outbox item", %{
     store: store,
     controller: controller
@@ -2106,6 +2121,7 @@ defmodule Elzoo.CheckedCommandTest do
   end
 
   @tag :postgres
+  @tag skip: @postgres_skip
   test "resource capacity is enforced before the 65th resource is appended", %{store: store} do
     own =
       for index <- 1..65 do
@@ -2151,6 +2167,8 @@ defmodule Elzoo.CheckedCommandTest do
              )
   end
 
+  @tag :postgres
+  @tag skip: @postgres_skip
   test "the 128-byte field and 8,192-byte response limits include their boundaries", %{
     store: store
   } do
