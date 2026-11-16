@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "id": "delivery/debounce",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": [
+    "cure",
+    "elixir",
+    "otp"
+  ],
+  "dependencies": [
+    "core/operator"
+  ],
+  "contract": "Pure, bounded trailing-edge latest-binary-value policy for one caller-owned partition: host supplies a UTF-8 epoch, quiet interval, nondecreasing samples in a nonnegative monotonic origin and timer delivery. State starts with no last sample; accepted puts and timeouts, including ignored well-formed nonmatching tokens, record now. Clear preserves last time and generation. Generation maximum is reachable and usable; malformed tokens reject unchanged and well-formed nonmatching tokens are ignored. Matching due timeout emits the latest value once; early matching timeout reschedules at the same deadline. Accepted empty-state and post-emission duplicate timeouts emit and schedule nothing but still record now. No timer, registry, persistence, leading edge or maximum wait.",
+  "limits": [
+    "Timer delivery is not exact and best-effort cancellation is not a correctness guarantee.",
+    "State is volatile and caller-owned; no timer, process, registry or store is supplied.",
+    "Continuous puts may defer emission indefinitely; there is no leading edge or maximum wait."
+  ],
+  "files": [
+    "cure/elzoo/debounce.cure",
+    "lib/elzoo/debounce.ex",
+    "test/elzoo/debounce_test.exs",
+    "examples/elzoo/debounce_timer.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/debounce.cure",
+      "symbol": "stale_timeout_has_no_emission",
+      "claim": "The shared ignored-timeout decision returns no emission; token-branch selection is covered by finite tests."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/debounce.cure",
+      "symbol": "latest_pending_value_is_emitted",
+      "claim": "The completion helper emits its pending value; the latest-put sequence is covered by finite tests."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/debounce.cure",
+      "symbol": "emitted_generation_cannot_emit_twice",
+      "claim": "The selected transition after completion ignores the cleared generation; finite tests exercise duplicate delivery."
+    },
+    {
+      "kind": "proof",
+      "file": "cure/elzoo/debounce.cure",
+      "symbol": "regression_rejection_keeps_state",
+      "claim": "The refusal helper retains its exact state; public refusal mapping is covered by finite tests."
+    },
+    {
+      "kind": "type",
+      "file": "cure/elzoo/debounce.cure",
+      "claim": "The pinned Cure compiler checks the typed production transition and selected law signatures."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/debounce_test.exs",
+      "claim": "Named scenarios cover normal/empty states, serialized order, clear, stale and duplicate delivery, bounded inputs, overflow, generation exhaustion and unchanged-state refusals."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/debounce_test.exs",
+      "claim": "A temporary stale-token boundary bypass is rejected by the stale-generation scenario; the mutation is restored before delivery."
+    },
+    {
+      "kind": "upstream",
+      "provider": "cure",
+      "reference": "https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89",
+      "claim": "Relies on the pinned Cure compiler and runtime representation."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Relies on pinned Elixir binary, UTF-8 validation and public Process API behavior."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/",
+      "claim": "The example relies on OTP timer message delivery and monotonic-time behavior."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The caller serializes commands per partition, supplies nondecreasing samples in a nonnegative monotonic origin, owns timer delivery and changes epochs across resets."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "Pure callable without a running lifecycle; the invoking Unit or Assembly owns instrumentation."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Epoch and quiet_ms are validated construction-time inputs; state has no hot reconfiguration API.",
+      "evidence": [
+        "test/elzoo/debounce_test.exs"
+      ]
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No runtime lifecycle to pause, drain or resume."
+    }
+  }
+}

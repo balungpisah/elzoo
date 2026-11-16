@@ -214,8 +214,8 @@
       "summary": "Pure trailing-edge latest-value debounce policy for one caller-owned partition.",
       "disposition": "own",
       "phase": "P13",
-      "status": "planned",
-      "reason": "Caller supplies monotonic samples and schedules tokenized timers; this Piece decides only bounded trailing-edge state transitions and emits no effects."
+      "status": "ready",
+      "manifest": "pieces/delivery/debounce/piece.json"
     },
     {
       "id": "delivery/idempotency",

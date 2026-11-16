@@ -7274,8 +7274,10 @@
       "job": "ELZ-246",
       "note": "Pure, bounded trailing-edge latest-binary-value policy for one caller-owned partition: host supplies a UTF-8 epoch, quiet interval, nondecreasing samples in a nonnegative monotonic origin and timer delivery. State starts with no last sample; accepted puts and timeouts, including ignored well-formed nonmatching tokens, record now. Clear preserves last time and generation. Generation maximum is reachable and usable; malformed tokens reject unchanged and well-formed nonmatching tokens are ignored. Matching due timeout emits the latest value once; early matching timeout reschedules at the same deadline. Accepted empty-state and post-emission duplicate timeouts emit and schedule nothing but still record now. No timer, registry, persistence, leading edge or maximum wait.",
       "baseline_status": "not in baseline (new row, ELZ-246)",
-      "disposition": "published-scoped-work",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/delivery/debounce/piece.json",
+      "manifest_sha256": "7a63e94eda0d9c28ddbdcec2aebb06c5d5ffaa698a0a2b7d8e92997dd25a9ce6"
     },
     {
       "id": "delivery/idempotency",
