@@ -291,8 +291,12 @@ and holds no record for the 37 new rows. Until a record exists, the reuse text
 of each brief is the draft disposition, and the coordinator records the
 disposition at admission.
 
-Only waves 1 to 3 are registered. Waves 4 to 9 are named in
-[bot-platform.md](bot-platform.md) and get rows and proposals when the wave
-before is accepted. This keeps the rule above: inventory is not a build queue
-and no row is a placeholder. A proposal is still not permission to implement;
-the coordinator admits each job under the usual rules.
+This publication registers Wave 4's first-level task Contracts ELZ-245
+through ELZ-247, and no later Wave 4 level. The planned Pieces are not runtime
+implemented; implementation readiness requires the publication to merge and
+the corresponding issue to carry the task label. Waves 5 to 9 retain the
+serial rule that each is registered when the preceding wave is accepted.
+See [bot-platform.md](bot-platform.md) and its
+[Wave 4 dispositions and dependency levels](bot-platform-wave4.md). Inventory
+is not a build queue, and a proposal is not permission to implement; each job
+is admitted under the coordinator rules.

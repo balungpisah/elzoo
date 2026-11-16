@@ -233,7 +233,7 @@ this way:
 | --- | --- | --- |
 | `workflow/run` | RC-12 | Needed in wave 1. This adoption changes the row to `planned`: the track is its concrete caller. |
 | `integration/secrets` | ELZ-105 | Needed in waves 2 and 3. It is ready on `main` through the published task ELZ-105, which replaced RC-05. |
-| `domain/principal`, `integration/identity` | RC-06 | Not needed in waves 1 to 3: the engine takes the acting principal as trusted text from the host, as `domain/authorization` does. The principal is needed in wave 4 and the identity provider in wave 5. The disposition record puts the principal after the identity provider; settle that order when wave 4 is registered. |
+| `domain/principal`, `integration/identity` | RC-06 | Not needed in waves 1 to 3: the engine takes the acting principal as trusted text from the host, as `domain/authorization` does. Wave 4's bounded first-party caller has a host-vouched authenticated-context Need/assumption; this does not deliver a principal Piece or provider authentication. RC-06 identity-provider work remains deferred to wave 5. |
 | `domain/membership`, `domain/entitlement`, `integration/auth-policy`, `domain/policy-rules` | RC-07, RC-09, RC-20 | Wave 5. The status changes when that wave is registered. |
 | `domain/metering`, `domain/pricing`, `domain/quota`, `domain/journal`, `assembly/tenant-edge`, `ui/component` | RC-21, RC-23, RC-08, RC-22, RC-40, RC-31 | Wave 6. The same rule. |
 | `assembly/data-pipeline` | RC-39 | Wave 7. The same rule. |
@@ -246,14 +246,18 @@ RC-01 (stored state across a format change, wave 4), RC-42 (durable dedup for
 events in, wave 4), RC-06 (waves 4 and 5), RC-03 and RC-04 (wave 6). They are
 unchanged here.
 
-## Waves 4 to 9: named, not registered
+## Waves 4 to 9: Wave 4 first level registered; later levels proposed
 
-Most of these handles are not in the catalogue and have no job. They are
-listed so that a wave-1 Contract does not close a door that a later wave
-needs. A wave is registered when the wave before it is accepted. A handle
-with a job in brackets is an existing catalogue row that the job owns; the
-one exception is `delivery/durable-idempotency` (RC-42), which is a candidate
-gap and not a catalogue row.
+These handles are listed so that an earlier Contract does not close a door
+that a later wave needs. This publication registers only Wave 4's first-level
+task Contracts ELZ-245, ELZ-246 and ELZ-247; it does not claim runtime
+implementation. Later Wave 4 levels remain proposals. Waves 5 to 9 retain the
+existing serial rule: a wave is registered when the preceding wave is
+accepted. See [bot-platform-wave4.md](bot-platform-wave4.md) for all 24
+dispositions and dependency levels. A handle with a job in brackets is an
+existing catalogue row that the job owns; the one exception is
+`delivery/durable-idempotency` (RC-42), which is a candidate gap and not a
+catalogue row.
 
 | Wave | It runs | Piece handles |
 | --- | --- | --- |
