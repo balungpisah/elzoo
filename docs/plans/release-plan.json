@@ -7107,6 +7107,23 @@
       "issue": 570,
       "url": "https://github.com/balungpisah/elzoo/issues/570",
       "issue_body_sha256": "53a6655110fb48ed1c3dc301bf35099d62bc78f9c96bf35005a4e6828d79473a"
+    },
+    {
+      "id": "ELZ-253",
+      "title": "ELZ-253 — Give the complete aggregate consumer a measured 25-minute budget",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-251"],
+      "status": "published 2026-11-16",
+      "owner_role": "coordinator; one-PR path for a non-Piece change; independent review and merge queue",
+      "paths": ["tasks/ELZ-253-aggregate-budget.md"],
+      "outputs": [],
+      "acceptance": "The aggregate outer tag and existing guard agree on exactly 1,500,000 ms. The 300,000 ms inner default and all other limits, selections and assertions remain unchanged; the complete successful wrapper must run in the required full/affected gate.",
+      "product_aims": ["P13"],
+      "issue": 573,
+      "url": "https://github.com/balungpisah/elzoo/issues/573",
+      "issue_body_sha256": "c77c0f0fca5eea986072f6dcf1489afed52292515b82f9efa38a04ad4b227d17"
     }
   ],
   "entries": [
