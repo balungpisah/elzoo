@@ -244,8 +244,10 @@ its authority counted. With no room, the parent action is refused with `record_s
 actual 0, nothing dispatched; no child and no Budget exist; the evaluation of the
 child is dropped and charges nothing; the reservation of the parent is released; the
 engine goes on. The state of a callable leaves control when the callable closes: when
-its finish is kept, at a change of Attempt, and when a terminal Run closes it. Its
-room comes back then. The Budget, the join and the receipts of a closed child stay.
+its finish is kept, when the slot of its nested parent settles (the child callable
+and every callable below it close in the same fold step), at a change of Attempt,
+and when a terminal Run closes it. Its room comes back then. The Budget, the join
+and the receipts of a closed child stay.
 
 An input that settles no slot (a `wake`, a Resource event, and each other kind that
 is neither an action outcome nor a person answer) is given to the root pattern only
@@ -444,7 +446,19 @@ entry swept to expired still counts as unknown at two clock values) and
 `no_loop_for_a_parent_that_cannot_settle` (a parent of a terminal Run is not
 handed an outcome and the call returns; the end of the Run closes it `unknown` with
 actual 0 for a child of known cost 0; a parent of an older Attempt is settled at the
-change), the five groups of the retained parent past its deadline in a Run
+change), the five groups of the close of a child callable when its nested parent
+settles: `expired_parent_closes_its_child` (a parent past its deadline settles
+`expired` and its child callable and every callable below it close in the same
+step; the child's open slot stays open and its pattern gets no more inputs),
+`child_cost_still_reaches_the_parent` (the child's open slot then settles by its
+own outcome and the parent gets its actual once as `nested_actual`, or none when a
+cost is final unknown), `two_levels_close` (a grandchild callable closes with its
+parent and the top parent in the same step, deepest first),
+`over_cap_parent_closes_its_child` (a running parent refused `out_of_budget` while
+its child is open closes the child callable with it) and `room_comes_back` (the
+state bounds of the closed callables leave control, so a later nested start that
+needed the room is admitted and a restart replays an equal state), the five groups
+of the retained parent past its deadline in a Run
 that the request-cap stop made terminal,
 `start_returns_with_an_expired_retained_parent` (a restart after the deadline
 returns inside a bounded wait; the parent is closed `unknown` with no actual and the
@@ -761,10 +775,12 @@ that already holds the false refusal keeps it (Elzoo is not released).
 
 Limits of the state bound. With every child at the bound of 65,536, 27 children can
 be open at once in the scenario of `nested_start_without_room_is_refused`; a binding
-that gives a smaller `state_bytes` allows more, up to the 64 active actions. A child
-whose parent action settled while the child was open stays open and keeps its reserve
-until the Attempt changes or the Run ends. A child holds its reserve until its finish
-is kept, so a finish needs its own room beside the reserve of its child. The last bytes
+that gives a smaller `state_bytes` allows more, up to the 64 active actions. When the
+slot of a `nested_callable` settles, its child callable and every callable below it
+close in the same fold step — `closed`, without state, so their state bounds leave
+control and their room comes back. The open slots of a closed child settle by their
+own rules and their costs still reach the parent Budget; nothing of the child is
+handed to the parent twice. The last bytes
 of the bound are not reserved for small growth: every refusal adds its reason to its
 slot, so a slot within a few bytes of its own bound of 131,072 can pass it; and the
 refusal of a nested start releases the reservation of the parent, which turns its

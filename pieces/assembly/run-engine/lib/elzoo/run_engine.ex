@@ -678,6 +678,11 @@ defmodule Elzoo.RunEngine do
             state = update_in(state.control.lifecycle.waits, &Map.delete(&1, input["action_id"]))
 
             state =
+              if slot.kind == "nested_callable",
+                do: close_child_callables(state, occurrence_id(key)),
+                else: state
+
+            state =
               if active_count(state) == 0 and state.control.lifecycle.phase == :waiting,
                 do: put_in(state.control.lifecycle.phase, :active),
                 else: state
@@ -767,6 +772,37 @@ defmodule Elzoo.RunEngine do
 
   defp close_attempt(state, current, at),
     do: close_open(state, &(&1.attempt_id != current), "attempt_closed", at)
+
+  # When a nested_callable slot settles, its child callable and every callable
+  # below it close in the same fold step, the way close_open/4 closes callables:
+  # closed and without state, so the reserve of each state bound leaves the
+  # control state. Open slots of the closed callables are not settled here; they
+  # settle by their own rules, and child_cost/2 still counts them for the parent
+  # Budget. A callable below is one whose parent chain reaches the child
+  # callable: each callable's parent is the slot key of the action that spawned
+  # it, and that slot's callable is its parent callable.
+  defp close_child_callables(state, cid) do
+    update_in(state.control.callables, fn callables ->
+      Map.new(callables, fn
+        {"root", node} ->
+          {"root", node}
+
+        {id, node} ->
+          if id == cid or descendant?(state, cid, id),
+            do: {id, node |> Map.put(:closed, true) |> Map.delete(:state)},
+            else: {id, node}
+      end)
+    end)
+  end
+
+  defp descendant?(state, cid, id) do
+    with %{parent: parent_key} when is_tuple(parent_key) <- state.control.callables[id],
+         %{callable: parent_id} when is_binary(parent_id) <- state.slots[parent_key] do
+      parent_id == cid or descendant?(state, cid, parent_id)
+    else
+      _ -> false
+    end
+  end
 
   # One closer for two uses: a change of Attempt settles every open slot of an older
   # Attempt (reason `attempt_closed`), and the end of a Run settles every open slot
