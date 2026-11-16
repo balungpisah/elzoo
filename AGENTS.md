@@ -206,8 +206,10 @@ While you build, run the tests of your Piece:
 
     mix test pieces/<family>/<name>/test
 
-Before you open the pull request, and before each later push to it, run the
-local gate. For a Piece task, the local gate is the small gate:
+Before you open the pull request, run the local gate. Before a later push,
+repeat a passing check only when its checked diff or relevant inputs changed;
+do not repeat it solely for ceremony. Exact-head hosted checks, current-base
+and merge requirements still apply. For a Piece task, the local gate is the small gate:
 
     mix check --piece "$(git merge-base origin/main HEAD)"
     git diff --check
@@ -228,12 +230,12 @@ its own before the merge. The tests of the dependencies do not run in the
 consumer of the new Piece. It is a selected check, not the full check. It
 refuses a change with any other path.
 
-For a change of shared paths, the local gate is:
+For a change of shared executable paths, the local gate is:
 
     mix check --affected origin/main
     git diff --check
 
-For shared paths, `--affected` selects everything. Then it runs each test of
+For shared executable paths, `--affected` selects everything. Then it runs each test of
 the full check, but its marker still says `AFFECTED`: take the one slot of the
 database server (section 3). After a change of `mix.exs`, `mix.lock`,
 `config/` or a toolchain pin, run `mix check` with no flag. On a new checkout,
@@ -243,11 +245,40 @@ If a required local command cannot run on the host (for example PostgreSQL 16
 with pgvector or MinIO is unavailable), record the command and exact reason
 in `Local gate:`. The hosted check is the evidence for that command.
 
-For spike-only changes, run the changed spike's own checks (Ash:
-`MIX_ENV=test mix deps.get`, `mix format --check-formatted` and
-`mix test --warnings-as-errors` with `MIX_ENV=test`, from its directory;
-Gleam: its setup/check scripts), roadmap checks and `git diff --check`.
-This exception does not change the root `--affected` fallback for spike paths.
+Choose local evidence from the exact diff and its root compilation, test and
+runtime-loading paths, independently of hosted job selection. Ordinary
+documentation and bounded pure policy use their existing focused gates.
+Durability, authorization, identity, concurrency, unknown outcomes and
+external-effect boundaries need relevant adversarial cases and real-service
+evidence where applicable. Higher risk adds relevant scenarios and review,
+not unrelated root tests by default. Shared executable paths, root
+dependencies or pins, scripts or workflows, exports, transitive root
+consumption, or uncertain impact keep the existing full/affected gate. This
+does not waive checks required by a task Contract or excuse a known failure.
+
+For an isolated spike plus non-executable reports, task or plan documents,
+first establish isolation from the exact diff and root compilation, test and
+runtime-loading paths. Run the spike's exact checks (Ash: `MIX_ENV=test mix
+deps.get`, `mix format --check-formatted` and `mix test --warnings-as-errors`
+with `MIX_ENV=test` from its directory; Gleam: its setup/check scripts), the
+task's boundary/fault cases and relevant real-service checks, plus roadmap,
+claims and diff checks. The hosted classifier is independent: an unregistered
+spike path may select the full hosted check, but that alone does not require
+an unrelated local root full run. `mix check --affected origin/main` keeps
+its existing root fallback when actual shared impact requires it; it is not
+a selective spike command. Root/Piece executable paths, root dependencies or
+pins, scripts/workflows, exports, transitive root consumption or uncertainty
+require the full/affected gate. A full hosted suite that did not execute the
+spike is not spike evidence.
+
+A strictly planned-only publication may use roadmap, live-roadmap, claims,
+diff and the existing Registry test locally only when the exact diff preserves
+every existing catalogue row and adds only planned entries without manifests;
+changes no Piece, ready entry, manifest, provider, executable input, or
+generated-ledger input beyond those planned additions; and has no uncertain
+impact. Check those conditions against the exact diff. This is not docs-only
+when the classifier says otherwise. Hosted classification, full hosted checks
+when selected, and publication main-green/freeze rules remain unchanged.
 
 Each push to a pull request starts the hosted check on the new head:
 
