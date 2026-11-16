@@ -5914,6 +5914,45 @@ defmodule Elzoo.RunEngineTest do
       send(provider, {:result, %{}})
     end
 
+    test "child_cost_final_unknown_gives_the_parent_no_actual" do
+      {c, bindings} =
+        nested_setup(%{"nested" => [request([action("work", "tool_call")])]})
+
+      bindings =
+        Map.update!(bindings, "nested_callable", fn binding ->
+          %{
+            binding
+            | facts: fn a ->
+                facts = binding.facts.(a)
+                if a["id"] == "nested", do: %{facts | deadline_ms: 20_000}, else: facts
+              end
+          }
+        end)
+
+      engine = start(c, bindings: bindings)
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:effect_started, provider, _}
+      Agent.update(c.clock, fn _ -> 25_000 end)
+      assert {:ok, :applied} = RunEngine.input(engine, "expire", wake(), verified())
+      assert unit_state(c).control.callables["1:0"].closed == true
+
+      # The child's open slot ends unknown (a lost outcome): the closed child cost is
+      # final unknown, so the parent keeps no actual and no nested_actual is written.
+      assert {:ok, :applied} =
+               RunEngine.input(
+                 engine,
+                 "child-lost",
+                 Map.put(result("work"), "outcome", "unknown"),
+                 verified(%{occurrence: {2, 0}, dispatch: "unknown"})
+               )
+
+      assert %{phase: :settled} = view(engine).slots[{2, 0}]
+      assert unit_state(c).slots[{1, 0}][:actual] == nil
+      refute Enum.any?(journal(c), &match?({:nested_actual, {1, 0}, _, _, _}, &1))
+
+      send(provider, {:result, %{}})
+    end
+
     test "two_levels_close" do
       {c, bindings} =
         nested_setup(%{
@@ -5982,47 +6021,65 @@ defmodule Elzoo.RunEngineTest do
     end
 
     test "room_comes_back" do
-      {c, bindings} =
-        nested_setup(%{"nested" => [request([action("work", "tool_call")])]})
+      # Enough open children at the state bound that one more nested start does not
+      # fit; expiring one parent closes its child and the freed reserve admits it.
+      # One request starts every parent in parallel; each holds the default state
+      # bound while open. Child "a" asks for the spare start after its held call
+      # completes; child "victim" expires first and frees its reserve.
+      ids = bound_ids(31)
+      all_ids = ["a", "victim" | ids]
 
-      bindings =
-        Map.update!(bindings, "nested_callable", fn binding ->
-          %{
-            binding
-            | facts: fn a ->
-                facts = binding.facts.(a)
-                if a["id"] == "nested", do: %{facts | deadline_ms: 20_000}, else: facts
-              end
-          }
-        end)
+      {c, engine, _bindings} =
+        bound_run(all_ids,
+          scripts: %{
+            "a" => [
+              request([action("hold-a", "tool_call")]),
+              request([action("late", "nested_callable")])
+            ],
+            "late" => [:wait]
+          },
+          extra: ["late"],
+          estimates: %{"a" => 100},
+          deadlines: %{"victim" => 10_000}
+        )
 
-      engine = start(c, bindings: bindings)
-      assert {:ok, :applied} = send_input(engine)
-      assert_receive {:effect_started, provider, _}
+      # Every kept child holds the state bound; control has no room for one more.
+      state = unit_state(c)
+      kept = kept_ids(c, all_ids)
+      assert length(kept) >= 1
+      assert control_headroom(state) < 65_536
 
-      before = control_headroom(unit_state(c))
-
-      Agent.update(c.clock, fn _ -> 25_000 end)
+      # Expire the victim: its child callable closes in the same step and the
+      # reserve of its state bound leaves control.
+      Agent.update(c.clock, fn _ -> 15_000 end)
       assert {:ok, :applied} = RunEngine.input(engine, "expire", wake(), verified())
-      assert unit_state(c).control.callables["1:0"].closed == true
 
-      # The closed callable's state-bound reserve leaves the control state, so the
-      # headroom grows by exactly that reserve.
+      victim_callable = callable_of(c, "victim")
+      assert unit_state(c).control.callables[victim_callable].closed == true
+      refute Map.has_key?(unit_state(c).control.callables[victim_callable], :state)
+
       headroom_after = control_headroom(unit_state(c))
-      assert headroom_after > before
+      assert headroom_after >= 65_536
 
-      # A restart replays the close: the callable stays closed without state, and a
-      # second restart reaches the same headroom (the reserve does not come back).
-      engine = restart(c, engine, bindings: bindings)
-      assert unit_state(c).control.callables["1:0"].closed == true
-      refute Map.has_key?(unit_state(c).control.callables["1:0"], :state)
-      headroom_restarted = control_headroom(unit_state(c))
+      # Child "a" completes its held call and asks for the spare start: the room
+      # of the victim has come back and it is kept.
+      assert {:ok, :applied} = bounded(fn -> cost_known(c, engine, "hold-a") end, 60_000)
 
-      _engine = restart(c, engine, bindings: bindings)
-      assert control_headroom(unit_state(c)) == headroom_restarted
-      assert unit_state(c).control.callables["1:0"].closed == true
+      wait_unit(
+        c,
+        fn s -> Enum.any?(s.slots, fn {_, sl} -> sl.action_id == "late" end) end,
+        2_000
+      )
 
-      send(provider, {:result, %{}})
+      late = callable_of(c, "late")
+      wait_unit(c, fn s -> Map.has_key?(s.control.callables, late) end, 2_000)
+
+      state = unit_state(c)
+      assert state.control.callables[late].state_bytes == 65_536
+      assert state.control.callables[late].closed == false
+      assert state.slots[slot_key(c, "late")].phase == :running
+
+      bound_holds!(c)
     end
   end
 
@@ -9133,6 +9190,7 @@ defmodule Elzoo.RunEngineTest do
     bytes = Keyword.get(opts, :bytes, %{})
     initials = Keyword.get(opts, :initials, %{})
     estimates = Keyword.get(opts, :estimates, %{})
+    deadlines = Keyword.get(opts, :deadlines, %{})
     # `extra`: ids of children that a child starts (not in the request of the root).
     children =
       Map.new(ids ++ Keyword.get(opts, :extra, []), fn id ->
@@ -9154,7 +9212,7 @@ defmodule Elzoo.RunEngineTest do
         %{
           binding
           | facts: fn a ->
-              facts = %{binding.facts.(a) | deadline_ms: 20_000}
+              facts = %{binding.facts.(a) | deadline_ms: Map.get(deadlines, a["id"], 20_000)}
               %{facts | estimate: Map.get(estimates, a["id"], facts.estimate)}
             end,
             nested: fn a ->
