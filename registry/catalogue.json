@@ -14,8 +14,8 @@
       "summary": "Atomic checked-command execution outside a Run with retained outcomes",
       "disposition": "own",
       "phase": "P13",
-      "status": "planned",
-      "reason": "ELZ-249 proposes an Assembly over the existing Store for a validated, authorized and revision-fenced command boundary, with resource reads limited by the host-vouched %{tenant:, actor:, resources:} scope; admission waits for ELZ-245 evidence and its listed prerequisites."
+      "status": "ready",
+      "manifest": "pieces/assembly/checked-command/piece.json"
     },
     {
       "id": "assembly/consent-records",

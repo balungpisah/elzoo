@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "id": "assembly/checked-command",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": [
+    "elixir",
+    "otp",
+    "jason",
+    "ecto_sql",
+    "postgrex"
+  ],
+  "dependencies": [
+    "core/payload-schema",
+    "domain/authorization",
+    "domain/trigger-binding",
+    "workflow/approval",
+    "workflow/pattern-step",
+    "state/event-log",
+    "state/outbox",
+    "integration/sql"
+  ],
+  "applications": [
+    "crypto"
+  ],
+  "contract": "Caller-held CheckedCommand Assembly that preflights a host-provided command, checks its exact PatternStep gate frame, delegates decisions to Authorization/Approval, and appends one retained outcome and optional resource mutation/outbox notification to an atomic DurableLog Store without creating a Run.",
+  "limits": [
+    "The host owns authenticated tenant/actor and read scopes, trusted current authority and revocations, duplicate-JSON-key rejection, compatible descriptor/preparer identity, pure preparation callbacks, authenticated command-verifier provenance, Repo/schema deployment, database permissions/settings, backup, and reconciliation of unknown attempts.",
+    "Recovery requires low_water == 0 and the complete contiguous history from sequence 1 through the observed head. The Assembly does not create or load checkpoints; unused checkpoint metadata cannot authorize skipped/missing/pruned history, identity reset or receipt eviction. No TTL, compaction, deletion or reset API is provided.",
+    "Bounds: identities and fields 1..128 UTF-8 bytes without NUL; descriptor version 1..2^31-1; expected resource revision 0..2^63-2; at most 64 resources and fields per resource; canonical request and encoded resource 65,536 bytes; response 8,192 encoded bytes; record 1,048,576 bytes; 1,024 retained operations and 4,096 stream records. Existing Authorization/Approval bounds also apply. Inputs are refused, never truncated or evicted.",
+    "Only once-scoped command Approval is supported. Evidence envelopes are host-vouched maps, not authentication. Hosts must verify command purpose/owner/key/tenant and separate command verifier IDs from Run verifiers.",
+    "Outbox notifications are committed pending data only. This Piece does not dispatch remote effects, claim exactly-once delivery or create a Run; native RunEngine parity is a separate root-consumer task.",
+    "Finite Memory and disposable PostgreSQL scenarios do not prove production durability, hostile callback allocation safety, universal scalability or provider behavior beyond cited upstream contracts."
+  ],
+  "files": [
+    "lib/elzoo/checked_command.ex",
+    "lib/elzoo/checked_command/codec.ex",
+    "examples/elzoo/postgres_trigger_binding.exs",
+    "test/elzoo/checked_command_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/checked_command_test.exs",
+      "claim": "Finite Memory and real disposable PostgreSQL cases cover successful mutation/replay, changed-verdict replay, gate denial, global identity conflicts, public bounds/scopes, command-purpose Approval, atomic response-loss confirmation, unresolved paused append without automatic retry, and complete-history recovery with unused checkpoint/pruning fixtures. These scenarios are not proofs of production behavior."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Elixir map/list validation, deterministic-term serialization and exception boundaries rely on the pinned runtime contract; input bounds are local checks, not a sandbox."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/",
+      "claim": "OTP 29.1.2 term encoding, safe decoding, crypto and process behavior are upstream contracts; the Piece's local codec is not a cross-version format guarantee."
+    },
+    {
+      "kind": "upstream",
+      "provider": "jason",
+      "reference": "https://hexdocs.pm/jason/1.4.5/Jason.html",
+      "claim": "The bounded notification payload uses the pinned JSON encoder; host payload duplicate-key rejection remains a Need."
+    },
+    {
+      "kind": "upstream",
+      "provider": "ecto_sql",
+      "reference": "https://hexdocs.pm/ecto_sql/3.14.0/Ecto.Adapters.SQL.html",
+      "claim": "The consumer-owned Repo and SQL transaction integration rely on Ecto SQL; the local tests cover named Store boundary scenarios only."
+    },
+    {
+      "kind": "upstream",
+      "provider": "postgrex",
+      "reference": "https://hexdocs.pm/postgrex/0.22.4/Postgrex.html",
+      "claim": "The SQL adapter's PostgreSQL driver behavior relies on the pinned Postgrex implementation and its public contract."
+    },
+    {
+      "kind": "upstream",
+      "provider": "postgrex",
+      "reference": "https://www.postgresql.org/docs/16/tutorial-transactions.html",
+      "claim": "Record/outbox atomicity relies on PostgreSQL transaction semantics reached through the existing SQL Store; local tests do not establish production durability."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The host supplies authenticated principals, current policy/authority/revocations, compatible immutable descriptors and pure preparers, rejects duplicate JSON keys, owns PostgreSQL configuration and fences/reconciles unknown outcomes. Local scenarios do not establish those host properties or external effects."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "No custom telemetry or payload exporter is emitted."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Caller supplies one validated handle, atomic Store, immutable descriptor, checked schema/gate/preparer and command verifier allowlist; no hot replacement or global configuration is supplied.",
+      "evidence": [
+        "test/elzoo/checked_command_test.exs"
+      ]
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No Assembly process lifecycle, dispatcher or control API is supplied."
+    }
+  }
+}

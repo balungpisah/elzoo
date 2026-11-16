@@ -7155,9 +7155,11 @@
     {
       "id": "assembly/checked-command",
       "job": "ELZ-249",
-      "note": "Validated no-Run command execution over the existing Store: checked schema/gate/authorization, exact authorized writes, revision fencing, retained identity outcomes and command-scoped approval, with mutation/result and optional outbox committed together. Result scope is %{tenant:, actor:}; resource reads require the shared host-vouched %{tenant:, actor:, resources:} scope. No low-level command-store wrapper or remote effect.",
+      "note": "Caller-held CheckedCommand Assembly that preflights a host-provided command, checks its exact PatternStep gate frame, delegates decisions to Authorization/Approval, and appends one retained outcome and optional resource mutation/outbox notification to an atomic DurableLog Store without creating a Run.",
       "baseline_status": "planned",
-      "disposition": "published-planned-contract",
+      "disposition": "ready-contract",
+      "manifest": "pieces/assembly/checked-command/piece.json",
+      "manifest_sha256": "6c8f5dd71f2c476134ed54c341d3499e33f2f9b912ee1d1129a689ac6cad4fb2",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
