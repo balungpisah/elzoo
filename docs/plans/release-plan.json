@@ -7051,11 +7051,11 @@
       "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
       "paths": ["tasks/ELZ-249-checked-command.md"],
       "outputs": ["assembly/checked-command"],
-      "acceptance": "Piece-only CheckedCommand Assembly over the existing Store for real TriggerBinding and bounded conversation-message callers; exact schema, gate, authorization and approval outcomes; retained replay; revision, identity and result-access fences; atomic resource/result/outbox behavior. Its Memory and disposable PostgreSQL tests, including fault cases, and concrete PostgreSQL binding example with declared SQL dependency/provider closure stay inside the Piece. The separately owned follow-on root consumer acceptance, depending on ELZ-249, ELZ-250 and RunEngine, must invoke actual public RunEngine and pass real Memory/PostgreSQL composition including native parity before any parity or Wave 4 completion claim. No Store wrapper or production-scale/exactly-once claim.",
+      "acceptance": "Piece-only CheckedCommand Assembly over the existing Store for real TriggerBinding and bounded conversation-message callers; exact schema, gate, authorization and approval outcomes; retained replay; revision and identity fences; result scope exactly %{tenant:, actor:} and resource read scope exactly %{tenant:, actor:, resources:}; atomic resource/result/outbox behavior. Its Memory and disposable PostgreSQL tests, including fault cases, and concrete PostgreSQL binding example with declared SQL dependency/provider closure stay inside the Piece. Mandatory later root acceptance ELZ-252 depends on ELZ-249, ELZ-250 and ELZ-127 and must invoke actual public RunEngine and pass real Memory/PostgreSQL composition including native parity before durable conversation, native parity or Wave 4 completion claims. No Store wrapper or production-scale/exactly-once claim.",
       "product_aims": ["P13"],
       "issue": 565,
       "url": "https://github.com/balungpisah/elzoo/issues/565",
-      "issue_body_sha256": "fad62560a6b290ad316ccea80727406d02a17639163a6a60ea447b0955705d05"
+      "issue_body_sha256": "48833fa4676ae81c3a12bb22ca0e2940d788131c78478fb68f037f2b88dbcf00"
     },
     {
       "id": "ELZ-250",
@@ -7068,11 +7068,28 @@
       "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
       "paths": ["tasks/ELZ-250-conversation.md"],
       "outputs": ["state/conversation"],
-      "acceptance": "Pure version-1 conversation DTO, codec, preparation and bounded projection over one field; immutable messages and input/Run associations allow multiple inputs per host-allocated stable Run ID. No I/O or persistence claim. The separate follow-on root consumer acceptance depending on ELZ-249, ELZ-250 and RunEngine must prove real Memory/PostgreSQL composition, retained denial/replay, CAS, duplicate-message behavior and actual native RunEngine parity before durable-conversation, native-parity or Wave 4 completion claims.",
+      "acceptance": "Pure version-1 conversation DTO, codec, preparation and bounded projection over one field; immutable messages and input/Run associations allow multiple inputs per host-allocated stable Run ID. view/2 uses the shared resource read scope exactly %{tenant:, actor:, resources:}. Use the existing Authorization portable domain: {:text, binary} for text, bare integers, and bare true/false booleans. No I/O or persistence claim. Mandatory later root consumer acceptance ELZ-252 depends on ELZ-249, ELZ-250 and ELZ-127 and must prove real Memory/PostgreSQL composition, retained denial/replay, CAS, duplicate-message behavior and actual native RunEngine parity before durable-conversation, native-parity or Wave 4 completion claims.",
       "product_aims": ["P13"],
       "issue": 566,
       "url": "https://github.com/balungpisah/elzoo/issues/566",
-      "issue_body_sha256": "2e1dda946134cc34b544f59a7e0092f894bf718d982610554e52d57483fe6b03"
+      "issue_body_sha256": "fe1b5446ff58bd8be587c09bfd0e8e6febdc5ef40cb968a01e992bfc40f14371"
+    },
+    {
+      "id": "ELZ-252",
+      "title": "ELZ-252 — Exercise checked conversation commits and native Run parity",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-249", "ELZ-250", "ELZ-127"],
+      "status": "published 2026-11-16",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-252-command-conversation-acceptance.md"],
+      "outputs": [],
+      "acceptance": "Later-level root consumer acceptance with no Piece output: compose Conversation.prepare/3 through actual CheckedCommand on Memory and disposable PostgreSQL, covering retained denial/replay, CAS, duplicate behavior, uncertainty/restart and once-only approval. Compare matched command outcomes with actual public RunEngine parity and include harness negative controls. Must pass before durable conversation, native parity or Wave 4 completion is claimed; not ready until ELZ-249 and ELZ-250 merge.",
+      "product_aims": ["P13"],
+      "issue": 570,
+      "url": "https://github.com/balungpisah/elzoo/issues/570",
+      "issue_body_sha256": "53a6655110fb48ed1c3dc301bf35099d62bc78f9c96bf35005a4e6828d79473a"
     }
   ],
   "entries": [
@@ -7087,7 +7104,7 @@
     {
       "id": "assembly/checked-command",
       "job": "ELZ-249",
-      "note": "Validated no-Run command execution over the existing Store: checked schema/gate/authorization, exact authorized writes, revision fencing, retained identity outcomes and command-scoped approval, with mutation/result and optional outbox committed together. No low-level command-store wrapper or remote effect.",
+      "note": "Validated no-Run command execution over the existing Store: checked schema/gate/authorization, exact authorized writes, revision fencing, retained identity outcomes and command-scoped approval, with mutation/result and optional outbox committed together. Result scope is %{tenant:, actor:}; resource reads require the shared host-vouched %{tenant:, actor:, resources:} scope. No low-level command-store wrapper or remote effect.",
       "baseline_status": "planned",
       "disposition": "published-planned-contract",
       "catalogue_reference": "registry/catalogue.json"
@@ -7948,7 +7965,7 @@
     {
       "id": "state/conversation",
       "job": "ELZ-250",
-      "note": "Pure version-1 conversation DTO/codec/preparation and bounded projection over one conversation field, with immutable message IDs and host-vouched input/Run associations; multiple inputs may map to one host-allocated stable Run ID. Depends only on ELZ-024, imports no unfinished ELZ-249 implementation, and claims no persistence. The next consumer acceptance depending on both ELZ-249 and ELZ-250 owns real Memory/PostgreSQL composition.",
+      "note": "Pure version-1 conversation DTO/codec/preparation and bounded projection over one conversation field, with immutable message IDs and host-vouched input/Run associations; multiple inputs may map to one host-allocated stable Run ID. view/2 uses the shared host-vouched %{tenant:, actor:, resources:} scope and existing Authorization values ({:text, binary}, bare integers and booleans). Depends only on ELZ-024, imports no unfinished ELZ-249 implementation, and claims no persistence. Mandatory ELZ-252 owns root Memory/PostgreSQL composition and actual native RunEngine parity after ELZ-249, ELZ-250 and ELZ-127 merge.",
       "baseline_status": "planned",
       "disposition": "published-planned-contract",
       "catalogue_reference": "registry/catalogue.json"
