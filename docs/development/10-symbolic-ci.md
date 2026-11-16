@@ -93,6 +93,38 @@ selection test (`test/check_selection_test.exs`). The root `--affected`
 fallback for spike paths stays unchanged. This isolation is why the spike-only
 PR may omit root tests, not a claim that selected evidence is the full check.
 
+## Local evidence and hosted job selection (ELZ-251)
+
+The hosted classifier remains the fixed workflow/queue classifier above. A
+new isolated spike directory outside its allowlist can select the full hosted
+check even when the local change is only that spike and non-executable
+reports, task or plan documents. Hosted selection alone does not require an
+unrelated local root full run. For a local spike-only selection, inspect the
+exact diff and establish isolation from root compilation, test and
+runtime-loading paths; run the spike's exact checks, its task's boundary and
+fault cases, relevant real-service checks, and roadmap/claims/diff checks.
+
+Durability, authorization, identity, concurrency, unknown outcomes and
+external-effect boundaries need relevant adversarial and real-service
+evidence where applicable. This strengthens relevant scenarios and review,
+not unrelated tests by default. Shared executable paths, root dependencies or
+pins, scripts/workflows, exports, transitive consumption or uncertain impact
+use the full/affected local gate. The existing `mix check --affected` root
+fallback is unchanged and is not a selective spike command. Record isolation,
+actual classifier result, checks and limitations in the existing PR evidence
+fields. A green root suite that did not execute the spike is not spike
+evidence. Do not add a checklist, approval loop or marker. Existing exact-head
+hosted, current-base, freeze, main-green and queue requirements remain.
+
+A strictly planned-only publication may use roadmap, live-roadmap, claims,
+diff and the existing Registry test locally only when the exact diff preserves
+every existing catalogue row and adds only planned entries without manifests;
+changes no Piece, ready entry, manifest, provider, executable input, or
+generated-ledger input beyond those planned additions; and has no uncertain
+impact. Check these conditions against the exact diff. Do not call it docs-only
+when the classifier says otherwise; hosted classification and publication
+main-green/freeze guards remain unchanged.
+
 ## Redundant push runs and duplicate pull request checks (ELZ-058, ELZ-059)
 
 A merge cost several full checks of the same content: the queue's exact-head run, then the push run on
