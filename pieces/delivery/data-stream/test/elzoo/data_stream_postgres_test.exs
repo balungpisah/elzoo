@@ -341,10 +341,21 @@ defmodule Elzoo.DataStream.PostgresTest do
         end
 
       left > 0 ->
-        hold(moment)
+        # Bias only the fixture's final <=5 ms spin window.
+        previous_priority = Process.flag(:priority, :high)
+
+        try do
+          spin_until(moment)
+        after
+          Process.flag(:priority, previous_priority)
+        end
 
       true ->
         :ok
     end
+  end
+
+  defp spin_until(moment) do
+    if moment > System.monotonic_time(:microsecond), do: spin_until(moment), else: :ok
   end
 end
