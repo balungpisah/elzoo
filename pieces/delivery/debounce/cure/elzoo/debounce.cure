@@ -1,0 +1,135 @@
+# SPDX-License-Identifier: Apache-2.0
+mod Elzoo.Debounce
+  use Std.Option
+  use Elzoo.Composition
+
+  rec DebouncePending
+    value: List(Int)
+    generation: Int
+    due_at: Int
+
+  rec DebounceState
+    epoch: List(Int)
+    quiet_ms: Int
+    generation: Int
+    pending: Option(DebouncePending)
+    last_observed_now: Option(Int)
+
+  type DebounceCommand = DebouncePut(Int, List(Int)) | DebounceTimeout(Int, List(Int), Int) | DebounceClear
+  type DebounceRefusal = DebounceTimeRegression | DebounceDeadlineOverflow | DebounceGenerationExhausted
+  type DebounceOutcome = DebounceScheduled(Int, Int) | DebounceEmitted(List(Int)) | DebounceCancelled(Int) | DebounceIgnored | DebounceUnchanged | DebounceRejected(DebounceRefusal)
+
+  local fn equal(left: a, right: a) -> Bool = Std.Builtin.struct_eq(a, left, right)
+
+  fn maximum() -> Int = 9223372036854775807
+
+  fn initial(epoch: List(Int), quiet_ms: Int) -> DebounceState =
+    DebounceState{epoch: epoch, quiet_ms: quiet_ms, generation: 0, pending: None(), last_observed_now: None()}
+
+  @total true
+  @reducible
+  fn observed(state: DebounceState, now: Int) -> DebounceState =
+    DebounceState{epoch: state.epoch, quiet_ms: state.quiet_ms, generation: state.generation, pending: state.pending, last_observed_now: Some(now)}
+
+  @total true
+  @reducible
+  fn refused(state: DebounceState, reason: DebounceRefusal) -> Transition(DebounceState, DebounceOutcome) =
+    Transition{state: state, output: Some(DebounceRejected(reason))}
+
+  fn time_regresses(last_observed_now: Option(Int), now: Int) -> Bool =
+    match last_observed_now
+      None() -> False()
+      Some(previous) -> now < previous
+
+  @total true
+  @reducible
+  fn ignored_timeout(state: DebounceState, now: Int) -> Transition(DebounceState, DebounceOutcome) =
+    Transition{state: observed(state, now), output: Some(DebounceIgnored())}
+
+  @total true
+  @reducible
+  fn complete_pending(state: DebounceState, pending: DebouncePending, now: Int) -> Transition(DebounceState, DebounceOutcome) =
+    Transition{
+      state: DebounceState{epoch: state.epoch, quiet_ms: state.quiet_ms, generation: state.generation, pending: None(), last_observed_now: Some(now)},
+      output: Some(DebounceEmitted(pending.value))
+    }
+
+  @total true
+  @reducible
+  fn timeout_accepted(state: DebounceState, now: Int, token_epoch: List(Int), token_generation: Int) -> Transition(DebounceState, DebounceOutcome) =
+    match state.pending
+      None() -> ignored_timeout(state, now)
+      Some(pending) ->
+        match equal(token_epoch, state.epoch)
+          False() -> ignored_timeout(state, now)
+          True() ->
+            pickup
+              token_generation != pending.generation -> ignored_timeout(state, now)
+              now < pending.due_at -> Transition{state: observed(state, now), output: Some(DebounceScheduled(token_generation, pending.due_at))}
+              else -> complete_pending(state, pending, now)
+
+  fn put_accepted(state: DebounceState, now: Int, value: List(Int)) -> Transition(DebounceState, DebounceOutcome) =
+    pickup
+      now > maximum() - state.quiet_ms -> refused(state, DebounceDeadlineOverflow())
+      state.generation == maximum() -> refused(state, DebounceGenerationExhausted())
+      else ->
+        let generation = state.generation + 1
+        let due_at = now + state.quiet_ms
+        let pending = DebouncePending{value: value, generation: generation, due_at: due_at}
+        Transition{
+          state: DebounceState{epoch: state.epoch, quiet_ms: state.quiet_ms, generation: generation, pending: Some(pending), last_observed_now: Some(now)},
+          output: Some(DebounceScheduled(generation, due_at))
+        }
+
+  fn put_transition(state: DebounceState, now: Int, value: List(Int)) -> Transition(DebounceState, DebounceOutcome) =
+    pickup
+      time_regresses(state.last_observed_now, now) -> refused(state, DebounceTimeRegression())
+      else -> put_accepted(state, now, value)
+
+  fn timeout_transition(state: DebounceState, now: Int, token_epoch: List(Int), token_generation: Int) -> Transition(DebounceState, DebounceOutcome) =
+    pickup
+      time_regresses(state.last_observed_now, now) -> refused(state, DebounceTimeRegression())
+      else -> timeout_accepted(state, now, token_epoch, token_generation)
+
+  fn clear_transition(state: DebounceState) -> Transition(DebounceState, DebounceOutcome) =
+    match state.pending
+      None() -> Transition{state: state, output: Some(DebounceUnchanged())}
+      Some(pending) -> Transition{
+        state: DebounceState{epoch: state.epoch, quiet_ms: state.quiet_ms, generation: state.generation, pending: None(), last_observed_now: state.last_observed_now},
+        output: Some(DebounceCancelled(pending.generation))
+      }
+
+  fn transition(state: DebounceState, command: DebounceCommand) -> Transition(DebounceState, DebounceOutcome) =
+    match command
+      DebouncePut(now, value) -> put_transition(state, now, value)
+      DebounceTimeout(now, token_epoch, token_generation) -> timeout_transition(state, now, token_epoch, token_generation)
+      DebounceClear() -> clear_transition(state)
+
+  @total true
+  @reducible
+  fn next_state(result: Transition(DebounceState, DebounceOutcome)) -> DebounceState = result.state
+
+  @total true
+  @reducible
+  fn debounce_epoch(state: DebounceState) -> List(Int) = state.epoch
+
+  @total true
+  @reducible
+  fn pending_generation(pending: DebouncePending) -> Int = pending.generation
+
+  @total true
+  @reducible
+  fn pending_value(pending: DebouncePending) -> List(Int) = pending.value
+
+  fn regression_rejection_keeps_state(state: DebounceState) -> Equivalent(DebounceState, next_state(refused(state, DebounceTimeRegression())), state) =
+    reflexive(state)
+
+  fn stale_timeout_has_no_emission(state: DebounceState, now: Int) -> Equivalent(Option(DebounceOutcome), output(ignored_timeout(state, now)), Some(DebounceIgnored())) =
+    reflexive(Some(DebounceIgnored()))
+
+  fn latest_pending_value_is_emitted(state: DebounceState, pending: DebouncePending, now: Int) -> Equivalent(Option(DebounceOutcome), output(complete_pending(state, pending, now)), Some(DebounceEmitted(pending_value(pending)))) =
+    reflexive(Some(DebounceEmitted(pending_value(pending))))
+
+  fn emitted_generation_cannot_emit_twice(state: DebounceState, pending: DebouncePending, now: Int) -> Equivalent(Option(DebounceOutcome), output(timeout_accepted(next_state(complete_pending(state, pending, now)), now, debounce_epoch(state), pending_generation(pending))), Some(DebounceIgnored())) =
+    reflexive(Some(DebounceIgnored()))
+end

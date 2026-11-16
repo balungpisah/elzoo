@@ -7022,6 +7022,23 @@
       "issue": 558,
       "url": "https://github.com/balungpisah/elzoo/issues/558",
       "issue_body_sha256": "f9e55c0b0a50ae70ed5de9b716cb64e751bcd33204f18f3408197b55cfbe0162"
+    },
+    {
+      "id": "ELZ-248",
+      "title": "ELZ-248 — Distinguish private Git cleanup from published history",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033"],
+      "status": "published 2026-11-16",
+      "owner_role": "coordinator; one-PR path for a non-Piece change; independent review and merge queue",
+      "paths": ["tasks/ELZ-248-git-history-and-attribution.md"],
+      "outputs": [],
+      "acceptance": "The Git/privacy policy prohibits force-push, direct commits to main and rewriting published or shared history, including commits supplied for review or used by another worker. The sole owner may amend or reorganize their own unpublished local commits before sharing without separate permission while preserving intended and uncommitted work and Git identity. Standard Git author, committer and co-author metadata plus platform authorship attribution are allowed. Authored content, examples, commit-message prose and issue/PR prose remain roles-only; private environment details and session links remain forbidden. Protection/refusal rules, code-delta review, exact-head/local/hosted gates and queue rules are unchanged.",
+      "product_aims": ["P13"],
+      "issue": 561,
+      "url": "https://github.com/balungpisah/elzoo/issues/561",
+      "issue_body_sha256": "5ecbbbef47b9850db9992d1074712f1a025cbf089460d024c3fd0b70ea6525f2"
     }
   ],
   "entries": [
@@ -7274,8 +7291,10 @@
       "job": "ELZ-246",
       "note": "Pure, bounded trailing-edge latest-binary-value policy for one caller-owned partition: host supplies a UTF-8 epoch, quiet interval, nondecreasing samples in a nonnegative monotonic origin and timer delivery. State starts with no last sample; accepted puts and timeouts, including ignored well-formed nonmatching tokens, record now. Clear preserves last time and generation. Generation maximum is reachable and usable; malformed tokens reject unchanged and well-formed nonmatching tokens are ignored. Matching due timeout emits the latest value once; early matching timeout reschedules at the same deadline. Accepted empty-state and post-emission duplicate timeouts emit and schedule nothing but still record now. No timer, registry, persistence, leading edge or maximum wait.",
       "baseline_status": "not in baseline (new row, ELZ-246)",
-      "disposition": "published-scoped-work",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/delivery/debounce/piece.json",
+      "manifest_sha256": "7a63e94eda0d9c28ddbdcec2aebb06c5d5ffaa698a0a2b7d8e92997dd25a9ce6"
     },
     {
       "id": "delivery/idempotency",
@@ -7506,8 +7525,10 @@
       "job": "ELZ-247",
       "note": "Pure validation of exact immutable version-1 trigger declarations, including exact version: 1, plus order-independent selection from a whole bounded snapshot with fixed refusal precedence: host scope, event schema, list/count, every declaration, duplicate IDs, then selection. Separate host-supplied tenant/source and declared event schema id/version select zero, one checked immutable target/revision, or ambiguity. Bounded errors do not echo values and make no confidentiality claim about caller-owned maps. The copied source closure declares existing cure and elixir providers, with no new provider or pin changes. No payload-derived tenant/source trust, authentication, authorization, lookup, loading, persistence or Run creation; revision-fenced mutation is a later checked command.",
       "baseline_status": "not in baseline (new row, ELZ-247)",
-      "disposition": "published-scoped-work",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/domain/trigger-binding/piece.json",
+      "manifest_sha256": "43aae395c28a1bd68df6b07942ecec8376be1e669b38b7b7525356463d5e76a9"
     },
     {
       "id": "domain/value-types",
