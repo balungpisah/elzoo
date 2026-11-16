@@ -7525,8 +7525,10 @@
       "job": "ELZ-247",
       "note": "Pure validation of exact immutable version-1 trigger declarations, including exact version: 1, plus order-independent selection from a whole bounded snapshot with fixed refusal precedence: host scope, event schema, list/count, every declaration, duplicate IDs, then selection. Separate host-supplied tenant/source and declared event schema id/version select zero, one checked immutable target/revision, or ambiguity. Bounded errors do not echo values and make no confidentiality claim about caller-owned maps. The copied source closure declares existing cure and elixir providers, with no new provider or pin changes. No payload-derived tenant/source trust, authentication, authorization, lookup, loading, persistence or Run creation; revision-fenced mutation is a later checked command.",
       "baseline_status": "not in baseline (new row, ELZ-247)",
-      "disposition": "published-scoped-work",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/domain/trigger-binding/piece.json",
+      "manifest_sha256": "43aae395c28a1bd68df6b07942ecec8376be1e669b38b7b7525356463d5e76a9"
     },
     {
       "id": "domain/value-types",

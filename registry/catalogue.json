@@ -422,7 +422,8 @@
       "summary": "Pure validation and bounded selection of one scoped trigger binding.",
       "disposition": "own",
       "phase": "P13",
-      "status": "planned",
+      "status": "ready",
+      "manifest": "pieces/domain/trigger-binding/piece.json",
       "reason": "One immutable source selector maps to one fixed bot target; persistence, revision-fenced mutation, authorization and Run creation remain outside the Piece."
     },
     {

@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "id": "domain/trigger-binding",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["cure", "elixir"],
+  "dependencies": [],
+  "contract": "Pure validation of exact immutable version-1 trigger declarations, including exact version: 1, plus order-independent selection from a whole bounded snapshot with fixed refusal precedence: host scope, event schema, list/count, every declaration, duplicate IDs, then selection. Separate host-supplied tenant/source and declared event schema id/version select zero, one checked immutable target/revision, or ambiguity. Bounded errors do not echo values and make no confidentiality claim about caller-owned maps. The copied source closure declares existing cure and elixir providers, with no new provider or pin changes. No payload-derived tenant/source trust, authentication, authorization, lookup, loading, persistence or Run creation; revision-fenced mutation is a later checked command.",
+  "limits": [
+    "At most 256 declarations; validation rejects all malformed rows before duplicate-ID detection and selection.",
+    "Event schema fields are declared untrusted metadata, not identity or authentication evidence; host scope must be supplied separately.",
+    "No database, lookup, package loading, authentication, authorization, principal mapping, payload predicate, priority, fanout, persistence, revision mutation or Run creation."
+  ],
+  "files": [
+    "cure/elzoo/trigger_binding.cure",
+    "lib/elzoo/trigger_binding.ex",
+    "test/elzoo/trigger_binding_test.exs",
+    "examples/trigger_binding.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "type",
+      "file": "cure/elzoo/trigger_binding.cure",
+      "claim": "The pinned Cure compiler checks the pure exact-match selector and its total recursive decision over the validated bounded candidate list."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/trigger_binding_test.exs",
+      "claim": "Named scenarios cover exact declaration validation, empty/zero/one/multiple matches, text and numeric boundaries, target shape, duplicate-ID and malformed-row precedence, scope isolation, 256/257 bounds, redacted refusals and permutation invariance; tenant-comparison and ambiguity-refusal negative controls fail under their corresponding temporary mutations. Finite scenarios, not a universal proof."
+    },
+    {
+      "kind": "upstream",
+      "provider": "cure",
+      "reference": "https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89",
+      "claim": "Pinned Cure nominal String and structural equality implement the pure selection decision; compiler soundness is not locally proved."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Pinned Elixir maps, binaries and proper-list pattern matching support exact plain-map, UTF-8, byte-bound and bounded-list validation."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The caller supplies host scope from trusted host context separately from event metadata and validates the envelope before extracting the declared event schema. This Piece grants no authority and does not authenticate supplied values."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "Pure validation and selection emit no logs or observations."
+    },
+    "config": {
+      "status": "not_applicable",
+      "contract": "Operands and fixed v1 bounds; no ambient settings."
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No process or independent lifecycle."
+    }
+  }
+}
