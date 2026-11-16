@@ -754,7 +754,7 @@
       "disposition": "own",
       "phase": "P13",
       "status": "planned",
-      "reason": "ELZ-250 proposes a pure DTO, codec and conversation policy with data shapes agreed alongside ELZ-249; it depends only on ELZ-024 and does not claim persistence. A later consumer acceptance over both Contracts owns real Memory/PostgreSQL composition."
+      "reason": "ELZ-250 proposes a pure DTO, codec and conversation policy with data shapes agreed alongside ELZ-249; it depends only on ELZ-024 and does not claim persistence. A later root consumer acceptance depending on both Contracts and RunEngine owns real Memory/PostgreSQL composition and native RunEngine parity."
     },
     {
       "id": "state/crdt",

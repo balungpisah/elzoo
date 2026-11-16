@@ -3743,7 +3743,7 @@ Publication copy: [tasks/ELZ-249-checked-command.md](../../tasks/ELZ-249-checked
 
 **Product aims:** P13.
 
-**Acceptance:** Checked no-Run Assembly over the existing Store for real TriggerBinding and bounded conversation-message callers; exact schema, gate, authorization and approval outcomes; retained ALLOW/DENY/ASK results and equal replay; revision, identity and result-access fences; atomic resource/result/outbox behavior; rollback, races and unknown recovery. Root acceptance invokes the actual RunEngine, with disposable PostgreSQL integration, finite limits and trust/retention boundaries. No Store wrapper or production-behavior claim.
+**Acceptance:** Piece-only CheckedCommand Assembly over the existing Store for real TriggerBinding and bounded conversation-message callers; exact schema, gate, authorization and approval outcomes; retained replay; revision, identity and result-access fences; atomic resource/result/outbox behavior. Its Memory and disposable PostgreSQL tests, including fault cases, and concrete PostgreSQL binding example with declared SQL dependency/provider closure stay inside the Piece. The separately owned follow-on root consumer acceptance, depending on ELZ-249, ELZ-250 and RunEngine, must invoke actual public RunEngine and pass real Memory/PostgreSQL composition including native parity before any parity or Wave 4 completion claim. No Store wrapper or production-scale/exactly-once claim.
 
 ### ELZ-250
 
@@ -3753,4 +3753,4 @@ Publication copy: [tasks/ELZ-250-conversation.md](../../tasks/ELZ-250-conversati
 
 **Product aims:** P13.
 
-**Acceptance:** Pure version-1 conversation DTO, codec, preparation and bounded projection over one field; immutable messages and input/Run associations allow multiple inputs per host-allocated stable Run ID. No I/O or persistence claim. The next consumer acceptance depending on both ELZ-249 and ELZ-250 must prove real Memory/PostgreSQL composition, retained denial/replay, CAS and duplicate-message behavior before durable-conversation or Wave 4 completion claims.
+**Acceptance:** Pure version-1 conversation DTO, codec, preparation and bounded projection over one field; immutable messages and input/Run associations allow multiple inputs per host-allocated stable Run ID. No I/O or persistence claim. The separate follow-on root consumer acceptance depending on ELZ-249, ELZ-250 and RunEngine must prove real Memory/PostgreSQL composition, retained denial/replay, CAS, duplicate-message behavior and actual native RunEngine parity before durable-conversation, native-parity or Wave 4 completion claims.
