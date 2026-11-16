@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "id": "state/conversation",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "owned",
+  "providers": ["cure", "elixir", "otp"],
+  "dependencies": ["domain/authorization"],
+  "contract": "Pure version-1 preparation and bounded projection over one conversation resource field. Exact host facts select immutable input messages, input-to-Run associations and completed assistant answers; global message IDs are unique and several inputs may share one Run. The checked portable state has exact sorted record/list shapes, at most 64 messages and associations, and at most 65,536 bytes by pinned OTP term_to_binary/1. view/2 requires the host-vouched tenant/actor/resource read scope. No I/O, authentication, authorization, Run creation, persistence or CheckedCommand integration claim.",
+  "limits": [
+    "IDs are 1..128 valid UTF-8 bytes without NUL; message text is 1..4,096 valid UTF-8 bytes and is preserved byte-for-byte, including NUL.",
+    "Stored state contains only exact version-1 messages and input/Run associations. Unknown, noncanonical, over-bound or inconsistent state is refused, not repaired or treated as empty.",
+    "At most 64 messages and 64 associations; every prospective write can refuse at encoded capacity. No eviction or truncation.",
+    "The caller owns CAS, authority, approval, receipts and atomic persistence. A pure proposal is not a committed success."
+  ],
+  "files": [
+    "cure/elzoo/conversation.cure",
+    "lib/elzoo/conversation.ex",
+    "test/elzoo/conversation_test.exs",
+    "examples/conversation.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "type",
+      "file": "cure/elzoo/conversation.cure",
+      "symbol": "decide",
+      "claim": "Pinned Cure checks the mode-specific refusal ordering over bounded host-computed duplicate, input, association, completion and answer classifications."
+    },
+    {
+      "kind": "test",
+      "file": "test/elzoo/conversation_test.exs",
+      "claim": "Named finite scenarios cover exact DTOs and portable shapes, round trips, bounded scope, immutable multi-Run progression, malformed references, precedence, every published bound and duplicate-ID/Run-association mutation controls; they are not universal storage or security proofs."
+    },
+    {
+      "kind": "upstream",
+      "provider": "cure",
+      "reference": "https://github.com/balungpisah/cure-lang/tree/208248063d64e621782cd26dd30698ee42850a89",
+      "claim": "The pinned Cure compiler checks types and totality of the pure conversation mode decision; compiler soundness is not locally proved."
+    },
+    {
+      "kind": "upstream",
+      "provider": "elixir",
+      "reference": "https://hexdocs.pm/elixir/1.20.4/",
+      "claim": "Pinned Elixir maps, binaries and collection operations implement DTO validation and bounded immutable list updates."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/apps/erts/erlang.html#term_to_binary/1",
+      "claim": "The encoded-state limit is byte_size(:erlang.term_to_binary(normalized_portable_state)) under pinned OTP 29.1.2."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The host authenticates facts and read grants, allocates stable Run IDs, attests completed outcomes and commits the returned single-field proposal with its own authority, CAS, receipt, approval and atomicity rules."
+    }
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "Pure preparation and projection emit no observations."
+    },
+    "config": {
+      "status": "not_applicable",
+      "contract": "Exact operands and fixed Contract bounds; no ambient settings."
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "No process or independent lifecycle."
+    }
+  }
+}
