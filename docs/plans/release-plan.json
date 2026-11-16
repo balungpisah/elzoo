@@ -7022,6 +7022,23 @@
       "issue": 558,
       "url": "https://github.com/balungpisah/elzoo/issues/558",
       "issue_body_sha256": "f9e55c0b0a50ae70ed5de9b716cb64e751bcd33204f18f3408197b55cfbe0162"
+    },
+    {
+      "id": "ELZ-248",
+      "title": "ELZ-248 — Distinguish private Git cleanup from published history",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-033"],
+      "status": "published 2026-11-16",
+      "owner_role": "coordinator; one-PR path for a non-Piece change; independent review and merge queue",
+      "paths": ["tasks/ELZ-248-git-history-and-attribution.md"],
+      "outputs": [],
+      "acceptance": "The Git/privacy policy prohibits force-push, direct commits to main and rewriting published or shared history, including commits supplied for review or used by another worker. The sole owner may amend or reorganize their own unpublished local commits before sharing without separate permission while preserving intended and uncommitted work and Git identity. Standard Git author, committer and co-author metadata plus platform authorship attribution are allowed. Authored content, examples, commit-message prose and issue/PR prose remain roles-only; private environment details and session links remain forbidden. Protection/refusal rules, code-delta review, exact-head/local/hosted gates and queue rules are unchanged.",
+      "product_aims": ["P13"],
+      "issue": 561,
+      "url": "https://github.com/balungpisah/elzoo/issues/561",
+      "issue_body_sha256": "5ecbbbef47b9850db9992d1074712f1a025cbf089460d024c3fd0b70ea6525f2"
     }
   ],
   "entries": [
