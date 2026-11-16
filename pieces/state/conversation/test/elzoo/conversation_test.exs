@@ -162,6 +162,22 @@ defmodule Elzoo.ConversationTest do
     assert {:refused, "invalid_facts"} =
              prepare_with_data(initial, input_request, [{"mode", text("append_input")}])
 
+    malformed_fact_data = [
+      {:list, []},
+      {:record, [{"mode", text("append_input")}, {"input_role", text("user")} | :improper]},
+      {:record, [{"mode", text("unknown")}, {"input_role", text("user")}]}
+    ]
+
+    for data <- malformed_fact_data do
+      assert {:refused, "invalid_facts"} =
+               Conversation.prepare(initial, input_request, %{
+                 tenant: @tenant,
+                 actor: "host",
+                 data: data
+               }),
+             inspect(data)
+    end
+
     assert {:refused, "invalid_facts"} =
              prepare_with_data(initial, input_request, [
                {"mode", "append_input"},
@@ -366,6 +382,24 @@ defmodule Elzoo.ConversationTest do
                valid_facts
              )
 
+    control_fields = [
+      {"tenant", "tenant-b"},
+      {"principal", "principal-1"},
+      {"actor", "actor-1"},
+      {"authorization", "allow"},
+      {"mode", "append_answer"},
+      {"run_id", "run-1"},
+      {"completed", true}
+    ]
+
+    for {key, value} <- control_fields do
+      payload = Map.put(valid_request.payload, key, value)
+
+      assert {:refused, "invalid_request"} =
+               Conversation.prepare(initial, %{valid_request | payload: payload}, valid_facts),
+             key
+    end
+
     assert {:refused, "invalid_request"} =
              Conversation.prepare(
                initial,
@@ -373,15 +407,15 @@ defmodule Elzoo.ConversationTest do
                facts("associate_run", run_id: "run-1")
              )
 
-    assert {:refused, "invalid_request"} =
-             Conversation.prepare(initial, %{valid_request | expected_revision: -1}, valid_facts)
-
-    assert {:refused, "invalid_request"} =
-             Conversation.prepare(
-               initial,
-               %{valid_request | expected_revision: @max_revision},
-               valid_facts
-             )
+    for expected_revision <- [-1, 0.0, nil, @max_revision] do
+      assert {:refused, "invalid_request"} =
+               Conversation.prepare(
+                 initial,
+                 %{valid_request | expected_revision: expected_revision},
+                 valid_facts
+               ),
+             inspect(expected_revision)
+    end
 
     at_max = snapshot_with_state([input("old", "old")], [], @max_expected_revision)
 
@@ -398,12 +432,11 @@ defmodule Elzoo.ConversationTest do
                expected_revision: @max_expected_revision
              )
 
-    assert {:error, :invalid_snapshot} =
-             Conversation.view(%{at_max | revision: @max_revision + 1}, %{
-               tenant: @tenant,
-               actor: "reader",
-               resources: [@resource]
-             })
+    for revision <- [-1, 0.0, @max_revision + 1] do
+      assert {:error, :invalid_snapshot} =
+               Conversation.view(%{initial | revision: revision}, read_scope()),
+             inspect(revision)
+    end
 
     assert {:refused, "stale_revision"} =
              append_input(snapshot_with_state([input("old", "old")], [], 10), "new", "text",
@@ -522,6 +555,17 @@ defmodule Elzoo.ConversationTest do
     valid_input = input("input-1", "question")
     valid_assoc = association("input-1", "run-1")
     valid_answer = answer("answer-1", "input-1", "run-1", "answer")
+
+    for version <- [1.0, nil] do
+      invalid_version =
+        record([
+          {"associations", list([])},
+          {"messages", list([valid_input])},
+          {"version", version}
+        ])
+
+      assert {:error, :invalid_snapshot} = view_state(invalid_version), inspect(version)
+    end
 
     invalid_states = [
       record([{"associations", list([])}, {"messages", list([valid_input])}, {"version", 2}]),
@@ -728,8 +772,40 @@ defmodule Elzoo.ConversationTest do
     assert {:refused, "capacity"} = append_input(full_messages, "input-65", "new")
     assert :erlang.term_to_binary(full_messages) == before
 
+    answer_snapshot = snapshot_with_state(messages, [association("input-1", "run-1")], 11)
+    answer_before = :erlang.term_to_binary(answer_snapshot)
+
+    assert {:refused, "capacity"} =
+             append_answer(answer_snapshot, "answer-1", "input-1", "run-1", "answer")
+
+    assert :erlang.term_to_binary(answer_snapshot) == answer_before
+
     assert {:error, :invalid_snapshot} =
              view_state(state_value(messages ++ [input("input-65", "extra")], []))
+
+    messages63 = Enum.map(1..63, &input("input-#{&1}", "question"))
+
+    associations63 =
+      Enum.map(1..63, &association("input-#{&1}", "run-shared"))
+
+    snapshot63 = snapshot_with_state(messages63, associations63, 12)
+
+    assert {:ok, [input_write], input_response} =
+             append_input(snapshot63, "input-64", "question")
+
+    snapshot64 = apply_write(snapshot63, input_write, input_response)
+    assert {:ok, input_view} = Conversation.view(snapshot64, read_scope())
+    assert length(input_view.messages) == 64
+    assert length(input_view.associations) == 63
+
+    assert {:ok, [association_write], association_response} =
+             associate(snapshot64, "input-64", "run-shared")
+
+    fully_associated = apply_write(snapshot64, association_write, association_response)
+    assert {:ok, association_view} = Conversation.view(fully_associated, read_scope())
+    assert length(association_view.messages) == 64
+    assert length(association_view.associations) == 64
+    assert Enum.map(association_view.associations, & &1.run_id) == List.duplicate("run-shared", 64)
 
     associations = Enum.map(1..64, &association("input-#{&1}", "run-shared"))
     full_associations = snapshot_with_state(messages, associations, 11)
@@ -777,6 +853,35 @@ defmodule Elzoo.ConversationTest do
     assert byte_size(:erlang.term_to_binary(oversized)) == 65_537
     assert {:error, :invalid_snapshot} = view_state(oversized)
     assert exact_snapshot == snapshot_with_state(existing_messages, [], 21)
+  end
+
+  test "refuses an association that crosses encoded capacity without changing prior state" do
+    existing_messages = Enum.map(1..15, &input("input-#{&1}", String.duplicate("x", 4096)))
+    candidate = input("input-final", "")
+    empty_association_state = state_value(existing_messages ++ [candidate], [])
+
+    associated_state =
+      state_value(existing_messages ++ [candidate], [association("input-final", "run-1")])
+
+    empty_size = byte_size(:erlang.term_to_binary(empty_association_state))
+    association_delta = byte_size(:erlang.term_to_binary(associated_state)) - empty_size
+    text_size = 65_537 - association_delta - empty_size
+
+    assert association_delta > 0
+    assert text_size in 1..4096
+
+    messages = existing_messages ++ [input("input-final", String.duplicate("x", text_size))]
+    state = state_value(messages, [])
+    before_size = 65_537 - association_delta
+
+    assert byte_size(:erlang.term_to_binary(state)) == before_size
+    assert before_size <= 65_536
+
+    stored = snapshot_with_state(messages, [], 23)
+    before = :erlang.term_to_binary(stored.fields["conversation"])
+    assert {:ok, _view} = Conversation.view(stored, read_scope())
+    assert {:refused, "capacity"} = associate(stored, "input-final", "run-1")
+    assert :erlang.term_to_binary(stored.fields["conversation"]) == before
   end
 
   defp append_input(snapshot, message_id, message_text, opts \\ []) do

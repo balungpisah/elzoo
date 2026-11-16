@@ -12,7 +12,8 @@
     "IDs are 1..128 valid UTF-8 bytes without NUL; message text is 1..4,096 valid UTF-8 bytes and is preserved byte-for-byte, including NUL.",
     "Stored state contains only exact version-1 messages and input/Run associations. Unknown, noncanonical, over-bound or inconsistent state is refused, not repaired or treated as empty.",
     "At most 64 messages and 64 associations; every prospective write can refuse at encoded capacity. No eviction or truncation.",
-    "The caller owns CAS, authority, approval, receipts and atomic persistence. A pure proposal is not a committed success."
+    "The caller owns CAS, authority, approval, receipts and atomic persistence. A pure proposal is not a committed success.",
+    "Mandatory ELZ-252 acceptance of actual Memory/PostgreSQL CheckedCommand composition and RunEngine parity must pass before a durable Conversation or Wave4 completion claim."
   ],
   "files": [
     "cure/elzoo/conversation.cure",

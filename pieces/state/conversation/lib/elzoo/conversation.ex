@@ -462,7 +462,6 @@ defmodule Elzoo.Conversation do
     }
 
     prospective(
-      state,
       %{state | messages: state.messages ++ [message]},
       fn revision ->
         response([{"message_id", {:text, message.message_id}}, {"revision", revision}])
@@ -475,7 +474,6 @@ defmodule Elzoo.Conversation do
     association = %{input_message_id: request.payload.message_id, run_id: facts.run_id}
 
     prospective(
-      state,
       %{state | associations: state.associations ++ [association]},
       fn revision ->
         response([
@@ -499,7 +497,6 @@ defmodule Elzoo.Conversation do
     }
 
     prospective(
-      state,
       %{state | messages: state.messages ++ [message]},
       fn revision ->
         response([
@@ -513,7 +510,7 @@ defmodule Elzoo.Conversation do
     )
   end
 
-  defp prospective(_state, next_state, response_builder, expected_revision) do
+  defp prospective(next_state, response_builder, expected_revision) do
     value = encode_state(next_state)
 
     with true <- length(next_state.messages) <= @max_messages,

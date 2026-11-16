@@ -112,6 +112,15 @@ at most 4,096 bytes per text or record field name. No eviction or truncation
 occurs. Oversized stored state is `:invalid_snapshot`; an over-capacity
 proposal is refused with `"capacity"`.
 
+The 64-message and 64-association caps are separate structural limits; the
+65,536-byte encoded-state cap and Authorization depth, node and per-value
+limits apply independently. Many 4,096-byte message texts can exhaust the
+encoded-state cap before 64 messages. A completed answer adds a message and
+can be refused for capacity even when its completion and association checks
+pass. Because each association belongs to a distinct input and a valid state
+has at most 64 messages, more than 64 associations cannot occur in valid
+state; an over-bound stored list is rejected, not truncated.
+
 ## Projection and refusal order
 
 `view(snapshot, scope)` requires the exact plain map
@@ -152,3 +161,8 @@ authority, receipts, approval and atomic persistence. An association is a
 host-allocated stable Run identity, not proof that a process started or
 completed. This Piece makes no authentication, authorization, persistence,
 delivery or production-safety claim.
+
+The mandatory ELZ-252 follow-on acceptance must pass actual
+Memory/PostgreSQL CheckedCommand composition and RunEngine parity before a
+durable Conversation or Wave4 completion claim. This pure Piece and its tests
+do not establish that integration acceptance.
