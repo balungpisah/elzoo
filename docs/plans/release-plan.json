@@ -7124,6 +7124,23 @@
       "issue": 573,
       "url": "https://github.com/balungpisah/elzoo/issues/573",
       "issue_body_sha256": "c77c0f0fca5eea986072f6dcf1489afed52292515b82f9efa38a04ad4b227d17"
+    },
+    {
+      "id": "ELZ-254",
+      "title": "ELZ-254 — Keep the admission deadline sweep inside its release window",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-253"],
+      "status": "published 2026-11-16",
+      "owner_role": "coordinator; one-PR path for a non-Piece change; independent review and merge queue",
+      "paths": ["tasks/ELZ-254-admission-sweep.md"],
+      "outputs": [],
+      "acceptance": "The actual-worktree PostgreSQL sweep passes ten repeats over all seventeen offsets with each sweep under ten seconds; the full module passes. A temporary unconditional :intent_unavailable reason control fails the existing timeout-reason assertion with explicit nonzero exit, then the restored source passes focused test. Only the final <=5,000 microsecond test-helper spin is priority-bracketed; production code, sample grid, lifetime, retries and assertions remain unchanged.",
+      "product_aims": ["P13"],
+      "issue": 577,
+      "url": "https://github.com/balungpisah/elzoo/issues/577",
+      "issue_body_sha256": "2a83090fca855269a7805af189284376d0bb18ac84b60435b953583acb327f29"
     }
   ],
   "entries": [
