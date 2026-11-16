@@ -53,7 +53,7 @@ git diff --check
 
 ## Owned paths and deliverables
 
-Own only pieces/domain/trigger-binding/**. Include piece.json with the full copied source closure and no provider dependencies, Cure source, Elixir validation/source, tests, README and one bounded example. Keep declaration selection and validation in the same Piece.
+Own only pieces/domain/trigger-binding/**. Include piece.json with the full copied source closure and its required existing cure and elixir providers; add no new providers or pin changes. Include Cure source, Elixir validation/source, tests, README and one bounded example. Keep declaration selection and validation in the same Piece.
 
 ## Not in scope
 
