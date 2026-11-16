@@ -1576,10 +1576,16 @@ defmodule Elzoo.CheckedCommandTest do
              )
   end
 
-  test "portable value depth and node bounds match Authorization" do
+  test "JSON and portable value depth and node bounds match Authorization" do
     {store, pid} = memory_store()
     on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
-    {handle, _} = new_handle(store)
+
+    prepare = fn _snapshot, _request, _facts ->
+      {:ok, [%{target: "resource-1", field: "state", value: {:text, "ready"}}],
+       {:record, [{"accepted", true}]}}
+    end
+
+    {handle, _} = new_handle(store, prepare: prepare, gate: fn _frame, _context -> :allow end)
 
     facts_2048 = {:list, List.duplicate({:text, ""}, 2_048)}
     facts_4095 = {:list, List.duplicate({:text, ""}, 4_095)}
@@ -1587,18 +1593,31 @@ defmodule Elzoo.CheckedCommandTest do
     facts_depth16 = nested_value(15, {:text, ""})
     facts_depth17 = nested_value(16, {:text, ""})
 
+    record_pairs_4096 =
+      Enum.map(1..2_046, fn index -> {"f" <> Integer.to_string(index, 36), {:text, ""}} end) ++
+        [{"z", {:list, [{:text, ""}]}}]
+
+    facts_record4096 = {:record, record_pairs_4096}
+
+    facts_record4097 =
+      {:record,
+       Enum.map(1..2_048, fn index -> {"f" <> Integer.to_string(index, 36), {:text, ""}} end)}
+
     for facts <- [facts_2048, facts_4095, facts_depth16] do
       assert {:ok, ^facts} = Authorization.validate_value(facts)
     end
 
-    for facts <- [facts_4097, facts_depth17] do
+    assert {:ok, _} = Authorization.validate_value(facts_record4096)
+
+    for facts <- [facts_4097, facts_depth17, facts_record4097] do
       assert {:error, _} = Authorization.validate_value(facts)
     end
 
     accepted = [
       {facts_2048, "facts-2048", 0},
       {facts_4095, "facts-4095", 1},
-      {facts_depth16, "facts-depth-16", 2}
+      {facts_depth16, "facts-depth-16", 2},
+      {facts_record4096, "facts-record-4096", 3}
     ]
 
     portable_payload = {:record, [{"value", {:text, "ready"}}]}
@@ -1630,20 +1649,96 @@ defmodule Elzoo.CheckedCommandTest do
       assert next_revision == revision + 1
     end)
 
+    json_list = Enum.reduce(1..14, [], fn _, nested -> [nested] end)
+    json_object = Enum.reduce(1..14, %{}, fn _, nested -> [nested] end)
+    json_too_deep = Enum.reduce(1..15, [], fn _, nested -> [nested] end)
+
+    portable_list = Enum.reduce(1..14, {:list, []}, fn _, nested -> {:list, [nested]} end)
+    portable_object = Enum.reduce(1..14, {:record, []}, fn _, nested -> {:list, [nested]} end)
+
+    portable_too_deep =
+      Enum.reduce(1..15, {:list, []}, fn _, nested -> {:list, [nested]} end)
+
+    base_payload = %{"value" => "ready"}
+
+    json_cases = [
+      {Map.put(base_payload, "nested", json_list),
+       {:record, [{"nested", portable_list}, {"value", {:text, "ready"}}]}, "json-depth-16-list",
+       4},
+      {Map.put(base_payload, "nested", json_object),
+       {:record, [{"nested", portable_object}, {"value", {:text, "ready"}}]},
+       "json-depth-16-object", 5}
+    ]
+
+    {:ok, canonical_facts} = Authorization.validate_value(context().facts)
+
+    Enum.each(json_cases, fn {payload, expected_payload, operation_id, revision} ->
+      assert {:ok, ^expected_payload} = Authorization.validate_value(expected_payload)
+
+      {:ok, canonical} =
+        CheckedCommand.Codec.canonical_request(
+          "tenant-1",
+          "actor-1",
+          operation_id,
+          {"checked/write", 1, @hash},
+          "resource-1",
+          revision,
+          expected_payload,
+          canonical_facts
+        )
+
+      assert byte_size(canonical) < 65_536
+
+      assert {:completed, %{revision: next_revision}} =
+               CheckedCommand.execute(
+                 handle,
+                 context(),
+                 request(
+                   operation_id: operation_id,
+                   expected_revision: revision,
+                   payload: payload
+                 )
+               )
+
+      assert next_revision == revision + 1
+      sequence = revision + 1
+      stream = CheckedCommand.Codec.stream("tenant-1")
+      {:ok, [row], _} = Elzoo.DurableLog.Store.read(store, :read, [stream, sequence, sequence])
+      {:ok, record} = CheckedCommand.Codec.decode_record(row.payload)
+      assert record.canonical == canonical
+    end)
+
+    assert {:error, _} =
+             Authorization.validate_value(
+               {:record, [{"nested", portable_too_deep}, {"value", {:text, "ready"}}]}
+             )
+
     {:ok, stream_head} =
       Elzoo.DurableLog.Store.read(store, :head, [CheckedCommand.Codec.stream("tenant-1")])
 
     for {facts, operation_id} <- [
           {facts_4097, "facts-4097"},
-          {facts_depth17, "facts-depth-17"}
+          {facts_depth17, "facts-depth-17"},
+          {facts_record4097, "facts-record-4097"}
         ] do
       assert {:unavailable, :context} =
                CheckedCommand.execute(
                  handle,
                  context(facts: facts),
-                 request(operation_id: operation_id, expected_revision: 3)
+                 request(operation_id: operation_id, expected_revision: 6)
                )
     end
+
+    assert {:refused, :invalid_request} =
+             CheckedCommand.execute(
+               handle,
+               context(),
+               request(
+                 operation_id: "json-depth-17",
+                 expected_revision: 6,
+                 payload: Map.put(base_payload, "nested", json_too_deep)
+               )
+             )
 
     assert {:ok, ^stream_head} =
              Elzoo.DurableLog.Store.read(store, :head, [CheckedCommand.Codec.stream("tenant-1")])

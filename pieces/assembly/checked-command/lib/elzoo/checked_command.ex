@@ -1915,7 +1915,7 @@ defmodule Elzoo.CheckedCommand do
     do: if(String.valid?(value), do: {:ok, {:text, value}}, else: {:error, :portable})
 
   defp json_value(value, depth)
-       when is_map(value) and not is_struct(value) and depth < @max_value_depth do
+       when is_map(value) and not is_struct(value) do
     pairs = Map.to_list(value)
 
     if Enum.all?(pairs, fn {key, _} -> is_binary(key) and String.valid?(key) end) do
@@ -1935,7 +1935,7 @@ defmodule Elzoo.CheckedCommand do
     end
   end
 
-  defp json_value(value, depth) when is_list(value) and depth < @max_value_depth do
+  defp json_value(value, depth) when is_list(value) do
     if proper_list?(value) do
       Enum.reduce_while(value, {:ok, []}, fn child, {:ok, acc} ->
         case json_value(child, depth + 1) do
