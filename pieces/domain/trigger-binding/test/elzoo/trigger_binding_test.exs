@@ -85,6 +85,16 @@ defmodule Elzoo.TriggerBindingTest do
              )
   end
 
+  test "whitespace mismatches remain byte-exact" do
+    rows = [
+      declaration(%{"id" => "tenant-space", "tenant" => "tenant-a "}),
+      declaration(%{"id" => "source-space", "source" => "webhook "}),
+      declaration(%{"id" => "schema-space", "schema_id" => "order.created "})
+    ]
+
+    assert {:ok, :no_match} = TriggerBinding.select(rows, @scope, @event_schema)
+  end
+
   test "counts UTF-8 text bounds in bytes" do
     exact_limits =
       @declaration
@@ -148,7 +158,9 @@ defmodule Elzoo.TriggerBindingTest do
       Map.put(@target, "package_digest", String.duplicate("g", 64)),
       Map.put(@target, "package_digest", String.duplicate("a", 63)),
       Map.put(@target, "package_digest", 123),
-      %{bot_ref: "bot", package_digest: @target["package_digest"], callable: "call"}
+      %{bot_ref: "bot", package_digest: @target["package_digest"], callable: "call"},
+      :not_a_map,
+      struct(Elzoo.TriggerBindingTest.StructValue, tenant: "bot", source: "call")
     ]
 
     for target <- invalid_targets do
@@ -205,6 +217,18 @@ defmodule Elzoo.TriggerBindingTest do
     end
   end
 
+  test "no-match is permutation invariant" do
+    rows = [
+      declaration(%{"id" => "other-tenant", "tenant" => "tenant-b"}),
+      declaration(%{"id" => "other-source", "source" => "queue"}),
+      declaration(%{"id" => "disabled", "enabled" => false})
+    ]
+
+    for permutation <- permutations(rows) do
+      assert TriggerBinding.select(permutation, @scope, @event_schema) == {:ok, :no_match}
+    end
+  end
+
   test "a selected target always comes from the exact scope and event match" do
     rows = [
       declaration(%{"id" => "tenant", "tenant" => "tenant-b", "target" => target("tenant")}),
@@ -223,8 +247,9 @@ defmodule Elzoo.TriggerBindingTest do
     second = declaration(%{"id" => "binding-2", "revision" => 8})
     assert second["target"] == @declaration["target"]
 
-    assert {:error, :ambiguous} =
-             TriggerBinding.select([second, @declaration], @scope, @event_schema)
+    for permutation <- permutations([second, @declaration]) do
+      assert TriggerBinding.select(permutation, @scope, @event_schema) == {:error, :ambiguous}
+    end
   end
 
   test "validates every row and rejects duplicate IDs before selection" do
@@ -242,8 +267,10 @@ defmodule Elzoo.TriggerBindingTest do
     disabled = declaration(%{"enabled" => false})
     nonmatching = declaration(%{"tenant" => "other", "source" => "queue"})
 
-    assert {:error, :duplicate_binding_id} =
-             TriggerBinding.select([disabled, nonmatching], @scope, @event_schema)
+    for permutation <- permutations([disabled, nonmatching]) do
+      assert TriggerBinding.select(permutation, @scope, @event_schema) ==
+               {:error, :duplicate_binding_id}
+    end
   end
 
   test "accepts 256 valid declarations and refuses 257 without truncation" do
@@ -323,8 +350,10 @@ defmodule Elzoo.TriggerBindingTest do
     assert {:error, :invalid_event_schema} = TriggerBinding.select(:bad, @scope, :bad)
     assert {:error, :invalid_snapshot} = TriggerBinding.select(:bad, @scope, @event_schema)
 
-    assert {:error, :invalid_snapshot} =
-             TriggerBinding.select([@declaration, duplicate, malformed], @scope, @event_schema)
+    for permutation <- permutations([@declaration, duplicate, malformed]) do
+      assert TriggerBinding.select(permutation, @scope, @event_schema) ==
+               {:error, :invalid_snapshot}
+    end
 
     assert {:error, :duplicate_binding_id} =
              TriggerBinding.select([@declaration, duplicate], @scope, @event_schema)

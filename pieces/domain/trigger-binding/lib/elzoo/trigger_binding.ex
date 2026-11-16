@@ -140,7 +140,7 @@ defmodule Elzoo.TriggerBinding do
   end
 
   defp bounded_text?(value, max_bytes) do
-    is_binary(value) and String.valid?(value) and byte_size(value) in 1..max_bytes and
+    is_binary(value) and byte_size(value) in 1..max_bytes and String.valid?(value) and
       :binary.match(value, <<0>>) == :nomatch
   end
 
