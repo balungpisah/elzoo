@@ -10,6 +10,14 @@
       "reason": "C6/C7 compose work/run/dependencies, approval, budget, context and provider adapters. Not a privileged runtime; library/provider evaluation precedes new orchestration."
     },
     {
+      "id": "assembly/checked-command",
+      "summary": "Atomic checked-command execution outside a Run with retained outcomes",
+      "disposition": "own",
+      "phase": "P13",
+      "status": "planned",
+      "reason": "ELZ-249 proposes an Assembly over the existing Store for a validated, authorized and revision-fenced command boundary, with resource reads limited by the host-vouched %{tenant:, actor:, resources:} scope; admission waits for ELZ-245 evidence and its listed prerequisites."
+    },
+    {
       "id": "assembly/consent-records",
       "summary": "Consent, classified records, FHIR",
       "disposition": "defer",
@@ -739,6 +747,14 @@
       "phase": "P2",
       "status": "ready",
       "manifest": "pieces/state/checkpoint/piece.json"
+    },
+    {
+      "id": "state/conversation",
+      "summary": "Bounded immutable tenant-scoped conversation messages and Run/input associations",
+      "disposition": "own",
+      "phase": "P13",
+      "status": "planned",
+      "reason": "ELZ-250 proposes a pure DTO, codec and conversation policy with data shapes and resource read scope agreed alongside ELZ-249; it depends only on ELZ-024 and does not claim persistence. Its Authorization values use the existing portable domain: {:text, binary}, bare integers and bare booleans. Later root acceptance ELZ-252 owns real Memory/PostgreSQL composition and native RunEngine parity."
     },
     {
       "id": "state/crdt",
