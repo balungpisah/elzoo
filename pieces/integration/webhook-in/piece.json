@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "id": "integration/webhook-in",
+  "status": "ready",
+  "coverage": "subset",
+  "license": "Apache-2.0",
+  "kind": "adapter",
+  "providers": [
+    "elixir",
+    "otp",
+    "plug",
+    "plug_crypto",
+    "telemetry",
+    "jason"
+  ],
+  "dependencies": [],
+  "contract": "One Plug adapter for signed plain-text POST /elzoo/v1/messages: fixed source and route, raw-body HMAC-SHA-256 and ±300-second freshness; bounded 65,536-byte body and 15,000-ms returned-read budget; strict six-field JSON event, host-vouched principal with conversation resource grant, and exactly one admission Need call; fixed halted JSON outcomes, with malformed or exceptional admission outcomes unknown and no Run or delivery claim.",
+  "limits": [
+    "The host supplies truthful key, clock, principal and admission Needs, places the Plug before every parser/body reader and enforces the listener's total lifetime.",
+    "Plug.Conn has no public universal prior-read flag; parsed/unavailable bodies are refused, but detection of every prior partial read is not claimed.",
+    "The monotonic budget is observed only between returned body reads and does not interrupt a blocked adapter call; caller timeouts do not cancel it.",
+    "The adapter starts no server or process and does not claim durable admission, Run start/completion, or end-to-end delivery."
+  ],
+  "files": [
+    "examples/elzoo/webhook_in.exs",
+    "lib/elzoo/webhook_in.ex",
+    "test/elzoo/webhook_in_test.exs"
+  ],
+  "grounding": [
+    {
+      "kind": "test",
+      "file": "test/elzoo/webhook_in_test.exs",
+      "claim": "Finite Plug.Conn/Test and controlled-adapter scenarios cover configuration, request framing, body limits and budget, authentication, ordered JSON, scope, once-only admission, normalized outcomes, response bounds and the required negative controls; fixtures are not production authentication or durability evidence."
+    },
+    {
+      "kind": "upstream",
+      "provider": "plug",
+      "reference": "https://hexdocs.pm/plug/1.20.3/Plug.Conn.html",
+      "claim": "Pinned Plug.Conn read_body/2 options, one-shot body semantics, returned-connection threading and test adapter behavior."
+    },
+    {
+      "kind": "upstream",
+      "provider": "plug_crypto",
+      "reference": "https://hexdocs.pm/plug_crypto/2.2.1/Plug.Crypto.html#secure_compare/2",
+      "claim": "Pinned constant-time comparison API for equal-length signature binaries."
+    },
+    {
+      "kind": "upstream",
+      "provider": "jason",
+      "reference": "https://hexdocs.pm/jason/1.4.5/Jason.html#decode/2",
+      "claim": "Pinned ordered-object decoding preserves object pairs for recursive duplicate-key checks."
+    },
+    {
+      "kind": "upstream",
+      "provider": "otp",
+      "reference": "https://www.erlang.org/doc/apps/crypto/crypto.html#mac/4",
+      "claim": "OTP crypto HMAC-SHA-256 API; a separately computed fixed framing vector is exercised by the Piece test."
+    },
+    {
+      "kind": "assumption",
+      "claim": "The host's key, clock, principal and admission Needs are truthful; the listener supplies the stated route and body lifecycle. A successful admission response is not evidence of Run execution or durable delivery."
+    }
+  ],
+  "applications": [
+    "crypto"
+  ],
+  "operations": {
+    "telemetry": {
+      "status": "not_applicable",
+      "contract": "The Plug emits no logs or telemetry; the host owns request instrumentation."
+    },
+    "config": {
+      "status": "supported",
+      "contract": "Construction-time options are exactly source_id, key, clock, principal and admit; there is no hot update or persistent configuration state.",
+      "evidence": [
+        "test/elzoo/webhook_in_test.exs"
+      ]
+    },
+    "control": {
+      "status": "not_applicable",
+      "contract": "The adapter owns no process or lifecycle to pause, drain, resume or stop."
+    }
+  }
+}

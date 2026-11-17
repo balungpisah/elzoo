@@ -665,8 +665,8 @@
       "summary": "Signed first-party plain-text webhook ingress",
       "disposition": "own",
       "phase": "P4",
-      "status": "planned",
-      "reason": "ELZ-257 selects one bounded source profile; host-vouched identity and request lifecycle remain host Needs, with no generic wrapper or new provider."
+      "status": "ready",
+      "manifest": "pieces/integration/webhook-in/piece.json"
     },
     {
       "id": "runtime/adapter",
