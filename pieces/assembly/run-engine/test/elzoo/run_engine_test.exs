@@ -11754,6 +11754,7 @@ defmodule Elzoo.RunEngineTest do
                )
 
       send(reader, :native_ack_continue)
+      assert_receive {:native_ack_confirmation_continued, ^reader}, 1_000
       view = wait_for(engine, &(&1.reconciliation == :ack_unknown))
       assert is_nil(view.outcome)
       assert Process.alive?(engine)
@@ -11803,6 +11804,7 @@ defmodule Elzoo.RunEngineTest do
       refute winner_nonce == nonce
       assert {:committed, _} = Elzoo.Outbox.ack(c.store, key, winner_nonce)
       send(reader, :native_ack_continue)
+      assert_receive {:native_ack_confirmation_continued, ^reader}, 1_000
 
       view = wait_for(engine, &(&1.reconciliation == :ack_unknown))
       assert is_nil(view.outcome)
@@ -11884,9 +11886,11 @@ defmodule Elzoo.RunEngineTest do
              send(parent, {:native_ack_confirmation_wait, self()})
 
              receive do
-               :native_ack_continue -> :ok
+               :native_ack_continue ->
+                 send(parent, {:native_ack_confirmation_continued, self()})
+                 :ok
              after
-               5_000 -> {:error, :unavailable}
+               5_000 -> raise "native ack confirmation barrier timed out"
              end
            end
 
