@@ -223,7 +223,6 @@ defmodule Elzoo.Wave4.CommandConversationTest do
       assert Fixture.view(handle) == before
       assert Fixture.pending_outbox(store) == {:ok, outbox_before}
       if kind == :postgres, do: assert(Fixture.counts(pg) == %{records: 1, outbox: 0})
-      if kind == :postgres, do: assert(Fixture.counts(pg) == %{records: 1, outbox: 0})
 
       assert CheckedCommand.result(
                handle,
@@ -232,6 +231,7 @@ defmodule Elzoo.Wave4.CommandConversationTest do
              ) == denied
 
       changed = Fixture.handle(store, gate: fn _, _ -> :allow end)
+      assert Fixture.policy(:deny).content_hash != Fixture.policy(:allow).content_hash
 
       assert CheckedCommand.execute(
                changed,
@@ -379,13 +379,14 @@ defmodule Elzoo.Wave4.CommandConversationTest do
       pure_preparation = Conversation.prepare(mismatch_snapshot, mismatch_request, host_facts)
       assert {:refused, "association_mismatch"} = pure_preparation
 
-      assert Fixture.descriptor().prepare.(mismatch_snapshot, mismatch_request, host_facts) ==
-               pure_preparation
-
       mismatch_context = Fixture.context(mismatch_request, mismatch_facts, mismatch_snapshot)
       mismatch = CheckedCommand.execute(changed, mismatch_context, mismatch_request)
 
       assert mismatch == {:conflict, {:domain, "association_mismatch"}}
+
+      assert Fixture.descriptor().prepare.(mismatch_snapshot, mismatch_request, host_facts) ==
+               pure_preparation
+
       assert Fixture.view(changed) == associated_view
       assert Fixture.pending_outbox(store) == {:ok, associated_outbox}
 
@@ -824,16 +825,248 @@ defmodule Elzoo.Wave4.CommandConversationTest do
               )} == refusal_state
     end)
 
-    reopened = Fixture.handle(PostgresHarness.hook(pg.store, :reopen, []))
+    reopened_store = PostgresHarness.hook(pg.store, :reopen, [])
+    reopened = Fixture.handle(reopened_store)
 
-    assert {:completed, %{revision: 3}} =
-             CheckedCommand.release(reopened, release_context, identity, envelope)
+    released_response =
+      {:record,
+       [
+         {"input_message_id", {:text, "approval-input"}},
+         {"message_id", {:text, "approval-answer"}},
+         {"revision", 3},
+         {"run_id", {:text, run_id}}
+       ]}
 
-    assert {:completed, %{revision: 3}} =
-             CheckedCommand.release(reopened, release_context, identity, envelope)
+    released_result = {:completed, %{revision: 3, response: released_response}}
+    assert ^released_result = CheckedCommand.release(reopened, release_context, identity, envelope)
 
-    assert Fixture.view(reopened).revision == 3
+    assert ^released_result =
+             CheckedCommand.result(
+               reopened,
+               %{tenant: Fixture.tenant(), actor: Fixture.actor()},
+               identity
+             )
+
+    assert Fixture.view(reopened) == %{
+             tenant: Fixture.tenant(),
+             resource: Fixture.resource(),
+             revision: 3,
+             messages: [
+               %{
+                 actor: Fixture.actor(),
+                 message_id: "approval-input",
+                 role: "user",
+                 text: "question"
+               },
+               %{
+                 actor: Fixture.actor(),
+                 input_message_id: "approval-input",
+                 message_id: "approval-answer",
+                 role: "assistant",
+                 run_id: run_id,
+                 text: "answer"
+               }
+             ],
+             associations: [%{input_message_id: "approval-input", run_id: run_id}]
+           }
+
+    assert {:ok, released_outbox} = Fixture.pending_outbox(reopened_store)
+    assert length(released_outbox) == 3
+    assert [release_item] = Enum.filter(released_outbox, &(&1.sequence == 4))
+    assert release_item.destination == "conversation-notify"
+
+    assert Jason.decode!(release_item.payload) == %{
+             "type" => "checked_command",
+             "version" => 1,
+             "tenant" => Fixture.tenant(),
+             "actor" => Fixture.actor(),
+             "operation_id" => "approval-answer",
+             "resource" => Fixture.resource(),
+             "revision" => 3
+           }
+
+    assert ^released_result = CheckedCommand.release(reopened, release_context, identity, envelope)
+    assert {:ok, ^released_outbox} = Fixture.pending_outbox(reopened_store)
     assert Fixture.counts(pg) == %{records: 4, outbox: 3}
+
+    {second_input, _, _} =
+      Fixture.append_input(
+        reopened,
+        3,
+        "approval-input-two",
+        "approval-input-two",
+        "second question"
+      )
+
+    assert {:completed, %{revision: 4}} = second_input
+
+    {second_association, _, _} =
+      Fixture.associate(
+        reopened,
+        4,
+        "approval-association-two",
+        "approval-input-two",
+        run_id
+      )
+
+    assert {:completed, %{revision: 5}} = second_association
+
+    {second_pending, second_request, second_facts} =
+      Fixture.answer(
+        reopened,
+        5,
+        "approval-answer-two",
+        "approval-answer-two",
+        "approval-input-two",
+        run_id,
+        "second answer",
+        true,
+        verdict: :ask
+      )
+
+    assert {:approval_pending, %{key: second_key}} = second_pending
+    second_identity = {Fixture.tenant(), Fixture.actor(), "approval-answer-two"}
+    second_reopened_store = PostgresHarness.hook(pg.store, :reopen, [])
+    reopened = Fixture.handle(second_reopened_store)
+
+    second_release_base =
+      Fixture.context(second_request, second_facts, Fixture.read(reopened), verdict: :ask)
+
+    second_release_context =
+      Map.merge(second_release_base, %{
+        approver: %{identity: "human-reviewer", authority: second_release_base.own},
+        now: 150,
+        revoked: []
+      })
+
+    consumed_evidence = %{evidence | request: second_key}
+    consumed_envelope = %{envelope | evidence: consumed_evidence}
+
+    assert {consumed_evidence.verifier, consumed_evidence.evidence_id} ==
+             {evidence.verifier, evidence.evidence_id}
+
+    assert consumed_evidence.request == second_key
+    assert consumed_envelope.purpose == :command
+
+    before_reuse = Fixture.snapshot(pg)
+    before_reuse_view = Fixture.view(reopened)
+    {:ok, before_reuse_outbox} = Fixture.pending_outbox(second_reopened_store)
+
+    assert {:approval_pending, %{key: ^second_key}} =
+             CheckedCommand.result(
+               reopened,
+               %{tenant: Fixture.tenant(), actor: Fixture.actor()},
+               second_identity
+             )
+
+    assert {:release_refused, :evidence} =
+             CheckedCommand.release(
+               reopened,
+               second_release_context,
+               second_identity,
+               consumed_envelope
+             )
+
+    after_reuse = Fixture.snapshot(pg)
+    assert after_reuse.elzoo_log_records == before_reuse.elzoo_log_records
+    assert after_reuse.elzoo_outbox == before_reuse.elzoo_outbox
+    assert Fixture.view(reopened) == before_reuse_view
+    assert Fixture.pending_outbox(second_reopened_store) == {:ok, before_reuse_outbox}
+
+    assert {:approval_pending, %{key: ^second_key}} =
+             CheckedCommand.result(
+               reopened,
+               %{tenant: Fixture.tenant(), actor: Fixture.actor()},
+               second_identity
+             )
+
+    assert Fixture.counts(pg) == %{records: 7, outbox: 5}
+
+    fresh_evidence = %{consumed_evidence | evidence_id: "conversation-approval-fresh"}
+    fresh_envelope = %{consumed_envelope | evidence: fresh_evidence}
+
+    second_released_response =
+      {:record,
+       [
+         {"input_message_id", {:text, "approval-input-two"}},
+         {"message_id", {:text, "approval-answer-two"}},
+         {"revision", 6},
+         {"run_id", {:text, run_id}}
+       ]}
+
+    second_released_result = {:completed, %{revision: 6, response: second_released_response}}
+
+    assert ^second_released_result =
+             CheckedCommand.release(
+               reopened,
+               second_release_context,
+               second_identity,
+               fresh_envelope
+             )
+
+    assert ^second_released_result =
+             CheckedCommand.result(
+               reopened,
+               %{tenant: Fixture.tenant(), actor: Fixture.actor()},
+               second_identity
+             )
+
+    assert Fixture.view(reopened) == %{
+             tenant: Fixture.tenant(),
+             resource: Fixture.resource(),
+             revision: 6,
+             messages: [
+               %{
+                 actor: Fixture.actor(),
+                 message_id: "approval-input",
+                 role: "user",
+                 text: "question"
+               },
+               %{
+                 actor: Fixture.actor(),
+                 input_message_id: "approval-input",
+                 message_id: "approval-answer",
+                 role: "assistant",
+                 run_id: run_id,
+                 text: "answer"
+               },
+               %{
+                 actor: Fixture.actor(),
+                 message_id: "approval-input-two",
+                 role: "user",
+                 text: "second question"
+               },
+               %{
+                 actor: Fixture.actor(),
+                 input_message_id: "approval-input-two",
+                 message_id: "approval-answer-two",
+                 role: "assistant",
+                 run_id: run_id,
+                 text: "second answer"
+               }
+             ],
+             associations: [
+               %{input_message_id: "approval-input", run_id: run_id},
+               %{input_message_id: "approval-input-two", run_id: run_id}
+             ]
+           }
+
+    assert {:ok, final_outbox} = Fixture.pending_outbox(second_reopened_store)
+    assert length(final_outbox) == 6
+    assert [second_release_item] = Enum.filter(final_outbox, &(&1.sequence == 8))
+    assert second_release_item.destination == "conversation-notify"
+
+    assert Jason.decode!(second_release_item.payload) == %{
+             "type" => "checked_command",
+             "version" => 1,
+             "tenant" => Fixture.tenant(),
+             "actor" => Fixture.actor(),
+             "operation_id" => "approval-answer-two",
+             "resource" => Fixture.resource(),
+             "revision" => 6
+           }
+
+    assert Fixture.counts(pg) == %{records: 8, outbox: 6}
   end
 
   @tag :postgres
@@ -1103,6 +1336,13 @@ defmodule Elzoo.Wave4.CommandConversationTest do
   end
 
   test "DENY, ASK and gate failures retain their decisions without local dispatch" do
+    policy_identities =
+      Enum.map([:allow, :deny, :ask], fn verdict ->
+        Fixture.policy(verdict) |> Map.take([:id, :version, :content_hash])
+      end)
+
+    assert length(Enum.uniq(policy_identities)) == 3
+
     cases = [
       {"native-denied", :deny, :allow},
       {"native-ask", :ask, :allow},
@@ -1183,6 +1423,86 @@ defmodule Elzoo.Wave4.CommandConversationTest do
       assert engine_frame == command_frame
       assert engine_gate_context == command_gate_context
 
+      expected_proposal = %{
+        tenant: Fixture.tenant(),
+        resource: Fixture.resource(),
+        action_id: operation,
+        payload: portable_payload(request.payload),
+        writes: command_context.own
+      }
+
+      expected_policy = command_context.policy
+
+      expected_policy_identity = %{
+        id: expected_policy.id,
+        version: expected_policy.version,
+        content_hash: expected_policy.content_hash
+      }
+
+      expected_action = %{
+        proposer: Fixture.actor(),
+        tenant: Fixture.tenant(),
+        resource: Fixture.resource(),
+        action_id: operation,
+        effect_class: "conversation.write",
+        payload: portable_payload(request.payload),
+        writes: command_context.own
+      }
+
+      if gate_result == :allow do
+        assert_receive {:engine_authorization_inputs, ^operation, engine_proposal, engine_policy,
+                        engine_authority},
+                       5_000
+
+        assert engine_proposal == expected_proposal
+        assert engine_policy == expected_policy
+        assert engine_authority == command_context.own
+
+        if policy_verdict == :ask do
+          assert_receive {:engine_authorization_inputs, ^operation, ^engine_proposal,
+                          ^engine_policy, ^engine_authority},
+                         5_000
+        end
+
+        refute_receive {:engine_authorization_inputs, _, _, _, _}
+      else
+        refute_receive {:engine_authorization_inputs, _, _, _, _}
+      end
+
+      authorization_events =
+        TestHelper.rows(c)
+        |> Enum.map(fn row ->
+          {1, {_id, event}} = :erlang.binary_to_term(row.payload, [:safe])
+          event
+        end)
+        |> Enum.filter(&(Map.get(&1, :kind) == :authorization))
+
+      case {policy_verdict, gate_result} do
+        {:deny, :allow} ->
+          assert [%{decision: decision}] = authorization_events
+          assert decision.verdict == :deny
+          assert decision.reason == {:rule, "conversation-policy"}
+          assert decision.policy == expected_policy_identity
+          assert decision.action == expected_action
+          assert decision.permitted == []
+          assert decision.escrowed == []
+          assert decision.requirement == nil
+
+        {:ask, :allow} ->
+          requirement = %{name: "command-review", version: 1, scope: :once}
+          assert [%{decision: decision}] = authorization_events
+          assert decision.verdict == :ask
+          assert decision.reason == {:ask, requirement}
+          assert decision.policy == expected_policy_identity
+          assert decision.action == expected_action
+          assert decision.permitted == []
+          assert decision.escrowed == command_context.own
+          assert decision.requirement == requirement
+
+        {:allow, gate} when gate in [:deny, :invalid, :raise] ->
+          assert authorization_events == []
+      end
+
       assert {:ok, status} = RunEngine.status(engine)
       slot = status.slots[{1, 0}]
 
@@ -1209,6 +1529,13 @@ defmodule Elzoo.Wave4.CommandConversationTest do
         {:ok, run_before} = Elzoo.RunApprovalRelease.status(c.opts[:run_owner], "run")
         [%{request_key: key}] = run_before.approvals
         engine_evidence = TestHelper.consent(key)
+        engine_context_before_refusal = Agent.get(c.context, & &1)
+
+        assert engine_evidence.verifier == "verifier"
+        assert engine_evidence.reviewer == "reviewer"
+        assert engine_evidence.request == key
+        assert engine_evidence.issued_at == 1_000
+        assert engine_evidence.expiry == 20_000
 
         command_refusal_context =
           Map.merge(command_context, %{
@@ -1231,7 +1558,16 @@ defmodule Elzoo.Wave4.CommandConversationTest do
           evidence: command_evidence
         }
 
-        assert {:release_refused, _} =
+        assert command_refusal_context.policy == command_context.policy
+        assert command_refusal_context.facts == command_context.facts
+        assert command_refusal_context.parent == :none
+        assert command_evidence.verifier == "command-reviewer"
+        assert command_evidence.reviewer == engine_evidence.reviewer
+        assert command_evidence.request == command_key
+        assert command_evidence.issued_at == engine_evidence.issued_at
+        assert command_evidence.expiry == engine_evidence.expiry
+
+        assert {:release_refused, :evidence} =
                  CheckedCommand.release(
                    command,
                    command_refusal_context,
@@ -1252,12 +1588,14 @@ defmodule Elzoo.Wave4.CommandConversationTest do
         assert Fixture.view(command) == command_view_before
         assert Fixture.pending_outbox(memory.store) == {:ok, command_outbox_before}
 
-        assert command_evidence.issued_at == engine_evidence.issued_at
-        assert command_evidence.expiry == engine_evidence.expiry
-
         Agent.update(c.context, fn context ->
           %{context | authority: [], approver: %{identity: "reviewer", authority: []}}
         end)
+
+        engine_context_without_authority = Agent.get(c.context, & &1)
+
+        assert Map.drop(engine_context_without_authority, [:authority, :approver]) ==
+                 Map.drop(engine_context_before_refusal, [:authority, :approver])
 
         assert {:ok, :applied} =
                  RunEngine.control(
@@ -1271,12 +1609,173 @@ defmodule Elzoo.Wave4.CommandConversationTest do
                    TestHelper.verified()
                  )
 
+        assert_receive {:engine_authorization_inputs, ^operation, refused_proposal, refused_policy,
+                        refused_authority},
+                       5_000
+
+        assert refused_proposal == expected_proposal
+        assert refused_policy == expected_policy
+        assert refused_authority == []
+        refute_receive {:engine_authorization_inputs, _, _, _, _}
+
         assert {:ok, status} = RunEngine.status(engine)
         assert status.slots[{1, 0}].phase == :approval
         {:ok, run_after} = Elzoo.RunApprovalRelease.status(c.opts[:run_owner], "run")
         assert [%{request_key: ^key}] = run_after.approvals
         assert run_after.approvals == run_before.approvals
         assert run_after.effects == run_before.effects
+
+        refute_receive {:local_work, _, _}
+
+        command_retry_context = %{
+          command_refusal_context
+          | own: command_context.own,
+            approver: %{identity: "reviewer", authority: command_context.own}
+        }
+
+        assert Map.drop(command_retry_context, [:own, :approver]) ==
+                 Map.drop(command_refusal_context, [:own, :approver])
+
+        command_release_result =
+          CheckedCommand.release(
+            command,
+            command_retry_context,
+            command_identity,
+            command_envelope
+          )
+
+        assert {:completed, %{revision: 1}} = command_release_result
+
+        assert CheckedCommand.result(
+                 command,
+                 %{tenant: Fixture.tenant(), actor: Fixture.actor()},
+                 command_identity
+               ) == command_release_result
+
+        assert [%{target: target, field: "conversation", value: authorized_value}] =
+                 command_context.own
+
+        assert target == Fixture.resource()
+        assert Fixture.read(command).fields["conversation"] == authorized_value
+
+        assert Fixture.view(command) == %{
+                 tenant: Fixture.tenant(),
+                 resource: Fixture.resource(),
+                 revision: 1,
+                 messages: [
+                   %{
+                     actor: Fixture.actor(),
+                     message_id: operation <> "-message",
+                     role: "user",
+                     text: "payload"
+                   }
+                 ],
+                 associations: []
+               }
+
+        assert_receive {:command_gate, {:PatternStep, retry_frame}, retry_gate_context}
+        assert retry_frame == command_frame
+        assert retry_gate_context == command_gate_context
+
+        Agent.update(c.context, fn context ->
+          %{
+            context
+            | authority: command_context.own,
+              approver: %{identity: "reviewer", authority: command_context.own}
+          }
+        end)
+
+        restored_engine_context = Agent.get(c.context, & &1)
+
+        assert Map.drop(restored_engine_context, [:authority, :approver]) ==
+                 Map.drop(engine_context_before_refusal, [:authority, :approver])
+
+        assert restored_engine_context.authority == command_context.own
+
+        assert restored_engine_context.approver == %{
+                 identity: "reviewer",
+                 authority: command_context.own
+               }
+
+        duplicate_reply =
+          RunEngine.control(
+            engine,
+            "restored-consent",
+            %{
+              kind: :approval_evidence,
+              request_key: key,
+              evidence: engine_evidence
+            },
+            TestHelper.verified()
+          )
+
+        assert duplicate_reply == {:error, {:run_control, {:unchanged, :duplicate, 5}}}
+
+        assert {:ok, duplicate_status} = RunEngine.status(engine)
+        assert duplicate_status == status
+        assert duplicate_status.run_id == status.run_id
+        assert duplicate_status.attempt_id == status.attempt_id
+        assert duplicate_status.slots[{1, 0}].phase == :approval
+
+        {:ok, duplicate_run_status} =
+          Elzoo.RunApprovalRelease.status(c.opts[:run_owner], "run")
+
+        assert duplicate_run_status == run_after
+        assert duplicate_run_status.current_attempt == duplicate_status.attempt_id
+        assert [%{request_key: ^key}] = duplicate_run_status.approvals
+        refute_receive {:engine_authorization_inputs, _, _, _, _}
+        refute_receive {:local_work, _, _}
+
+        run_owner = c.opts[:run_owner]
+        unit_store = c.opts[:store]
+        assert Process.alive?(run_owner)
+        assert :ok = GenServer.stop(engine)
+
+        {restarted_engine, _action} =
+          start_native_engine(c, self(), request, command_context.own, expected_policy, :allow)
+
+        assert c.opts[:run_owner] == run_owner
+        assert c.opts[:store] == unit_store
+        assert Process.alive?(run_owner)
+
+        assert_receive {:engine_authorization_inputs, ^operation, restored_proposal,
+                        restored_policy, restored_authority},
+                       5_000
+
+        assert restored_proposal == expected_proposal
+        assert restored_policy == expected_policy
+        assert restored_authority == command_context.own
+        refute_receive {:engine_authorization_inputs, _, _, _, _}
+
+        assert {:ok, restored_status} = RunEngine.status(restarted_engine)
+        assert restored_status.run_id == duplicate_status.run_id
+        assert restored_status.attempt_id == duplicate_status.attempt_id
+        assert restored_status.slots[{1, 0}].phase == :running
+
+        {:ok, restored_run_status} = Elzoo.RunApprovalRelease.status(run_owner, "run")
+        assert restored_run_status.id == duplicate_run_status.id
+        assert restored_run_status.operation_id == duplicate_run_status.operation_id
+        assert restored_run_status.current_attempt == duplicate_run_status.current_attempt
+        assert Enum.any?(restored_run_status.approvals, &(&1.request_key == key))
+
+        assert_receive {:local_work, worker, payload}, 5_000
+        assert payload == request.payload
+
+        assert {:ok, :applied} =
+                 RunEngine.control(
+                   restarted_engine,
+                   "pause",
+                   %{kind: :pause, pause_deadline: 50_000},
+                   TestHelper.verified()
+                 )
+
+        send(worker, :finish_work)
+
+        completed =
+          TestHelper.wait_for(restarted_engine, &(&1.slots[{1, 0}].phase == :settled))
+
+        assert completed.slots[{1, 0}].outcome == "completed"
+        refute_receive {:local_work, _, _}
       else
         assert slot.phase == :settled
         assert slot.outcome == "refused"

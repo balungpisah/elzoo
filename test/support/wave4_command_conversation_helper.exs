@@ -207,13 +207,18 @@ defmodule Elzoo.Wave4.CommandConversationHelper do
         %{id: "conversation-policy", effect_class: @effect, verdict: verdict}
       end
 
-    %{
+    artifact = %{
       id: "wave4-policy",
       version: 1,
-      content_hash: :crypto.hash(:sha256, "wave4-policy-v1"),
       effect_classes: [@effect],
       rules: [rule]
     }
+
+    Map.put(
+      artifact,
+      :content_hash,
+      :crypto.hash(:sha256, :erlang.term_to_binary(artifact, [:deterministic]))
+    )
   end
 
   def read(handle) do
