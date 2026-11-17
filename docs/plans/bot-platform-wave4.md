@@ -2,7 +2,7 @@
 
 ## Status and scope
 
-This plan records Level 1: ELZ-245 is an executable fit spike with no Piece output; ELZ-246's delivery/debounce and ELZ-247's domain/trigger-binding Pieces are ready on main. It proposes Level 2 Pieces ELZ-249 (assembly/checked-command) and ELZ-250 (state/conversation), plus the later-level root consumer acceptance ELZ-252. ELZ-252 may be published early with these prerequisites, but remains unready until ELZ-249 and ELZ-250 are merged; it also depends on ELZ-127. The first-party signed plain-text webhook is selected as the Level 3 source, with ELZ-256/#585 and ELZ-257/#586 as prerequisite Contracts. Channel composition and Level 4 remain unpublished. No implementation begins until its own task issue is labeled and its dependencies are merged; ELZ-252 cannot begin before its dependencies merge.
+ELZ-245 is an executable fit spike with no Piece output; ELZ-246's delivery/debounce and ELZ-247's domain/trigger-binding Pieces are ready on main. Level 2 Pieces ELZ-249 (assembly/checked-command) and ELZ-250 (state/conversation), and ELZ-252's root consumer acceptance, are merged. The linked [ELZ-252 report](../research/wave4-command-conversation.md) records finite Memory/PostgreSQL composition and native RunEngine parity evidence. The first-party signed plain-text webhook is the selected Level 3 source, with ELZ-256/#585 and ELZ-257/#586 as prerequisites. Channel composition and Level 4 remain unpublished. No Level 3 implementation or Wave 4 completion is claimed.
 
 The first-level task Contracts and issues are:
 

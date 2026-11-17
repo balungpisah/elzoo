@@ -7187,11 +7187,11 @@
       "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
       "paths": ["tasks/ELZ-257-webhook-in.md"],
       "outputs": ["integration/webhook-in"],
-      "acceptance": "One first-party signed plain-text Plug ingress profile using existing providers only. Authenticate exact raw bytes before JSON parsing or host Needs; enforce bounded fields, timestamp and body limits, trusted scope and once-only admission per request. Do not generate IDs or claim host authentication, durability, listener lifecycle or channel composition.",
+      "acceptance": "One first-party signed plain-text Plug ingress profile using existing providers only. Authenticate exact raw bytes before JSON parsing or principal/admission Needs; enforce bounded fields, timestamp and body limits, trusted scope and once-only admission per request. Do not generate IDs or claim host authentication, durability, listener lifecycle or channel composition.",
       "product_aims": ["P13"],
       "issue": 586,
       "url": "https://github.com/balungpisah/elzoo/issues/586",
-      "issue_body_sha256": "c68cb7aedca8aac144f5e7f363b7bf4a5d2cf3f63e69368f24e2731d63d2c213"
+      "issue_body_sha256": "03cdbff6f0cdd9bfac55d8d3cb436d64256978ff72c8b89696316533b4e7bb39"
     }
   ],
   "entries": [
@@ -7831,7 +7831,7 @@
       "id": "integration/webhook-in",
       "job": "ELZ-257",
       "note": "Planned first-party signed plain-text webhook ingress; host-vouched identity and listener/request lifetime remain host Needs.",
-      "baseline_status": "planned",
+      "baseline_status": "not in baseline (new row, ELZ-257)",
       "disposition": "planned-contract",
       "catalogue_reference": "registry/catalogue.json"
     },
