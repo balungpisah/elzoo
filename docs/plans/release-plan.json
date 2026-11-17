@@ -7158,6 +7158,40 @@
       "issue": 580,
       "url": "https://github.com/balungpisah/elzoo/issues/580",
       "issue_body_sha256": "74fdcbc671b7ce09cb671e5bab31a5a5ea5eea623f74838012d0e358783ebd73"
+    },
+    {
+      "id": "ELZ-256",
+      "title": "ELZ-256 — Read an authoritative completed Run result",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-127", "ELZ-172", "ELZ-252"],
+      "status": "published 2026-11-17",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-256-run-engine-result.md"],
+      "outputs": [],
+      "acceptance": "Bounded, read-only RunEngine result API returns payload only for the authoritative completed Run and its exact first accepted paired settlement. Incrementally validate the public DurableLog rows/fold and canonical bytes; fail closed on corrupt, gapped, pruned, staged, unpaired or mismatched evidence. No Unit start, driving, callback, write or control side effect; output none.",
+      "product_aims": ["P13"],
+      "issue": 585,
+      "url": "https://github.com/balungpisah/elzoo/issues/585",
+      "issue_body_sha256": "c852cdbbbcfd9940b8a730cecc6df8b11823ca6c7249c702ddc3a232caf3f136"
+    },
+    {
+      "id": "ELZ-257",
+      "title": "ELZ-257 — Signed first-party webhook ingress",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-083", "ELZ-115", "ELZ-127", "ELZ-252"],
+      "status": "published 2026-11-17",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-257-webhook-in.md"],
+      "outputs": ["integration/webhook-in"],
+      "acceptance": "One first-party signed plain-text Plug ingress profile using existing providers only. Authenticate exact raw bytes before JSON parsing or principal/admission Needs; enforce bounded fields, timestamp and body limits, trusted scope and once-only admission per request. Do not generate IDs or claim host authentication, durability, listener lifecycle or channel composition.",
+      "product_aims": ["P13"],
+      "issue": 586,
+      "url": "https://github.com/balungpisah/elzoo/issues/586",
+      "issue_body_sha256": "03cdbff6f0cdd9bfac55d8d3cb436d64256978ff72c8b89696316533b4e7bb39"
     }
   ],
   "entries": [
@@ -7792,6 +7826,14 @@
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/http/piece.json",
       "manifest_sha256": "0672cd28ee15b79bfff2682111a5f8ca6fae3440afed226d3e26b23ee24ff0a0"
+    },
+    {
+      "id": "integration/webhook-in",
+      "job": "ELZ-257",
+      "note": "Planned first-party signed plain-text webhook ingress; host-vouched identity and listener/request lifetime remain host Needs.",
+      "baseline_status": "not in baseline (new row, ELZ-257)",
+      "disposition": "planned-contract",
+      "catalogue_reference": "registry/catalogue.json"
     },
     {
       "id": "integration/identity",
