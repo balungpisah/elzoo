@@ -24,14 +24,591 @@ defmodule Elzoo.Wave4ChannelTest do
     {:ok, fixture: Elzoo.Wave4ChannelTestHelper.fixture()}
   end
 
+  test "startup requires a unique compatible binding and the fixed ASCII profile", %{
+    fixture: fixture
+  } do
+    Process.flag(:trap_exit, true)
+    options = fixture.host_options
+    [binding] = options[:bindings]
+
+    assert {:error, :invalid_options} =
+             Wave4ChannelExample.start_link(Keyword.put(options, :bindings, []))
+
+    ambiguous = Map.put(binding, "id", "second-channel-binding")
+
+    assert {:error, :invalid_options} =
+             Wave4ChannelExample.start_link(Keyword.put(options, :bindings, [binding, ambiguous]))
+
+    wrong_target = put_in(binding["target"]["callable"], "other")
+
+    assert {:error, :invalid_options} =
+             Wave4ChannelExample.start_link(Keyword.put(options, :bindings, [wrong_target]))
+
+    arbitrary =
+      Map.put(
+        options[:profile],
+        :native_target,
+        Map.put(options[:profile].native_target, "callable", "other")
+      )
+
+    arbitrary_binding = put_in(binding["target"]["callable"], "other")
+
+    assert {:error, :invalid_options} =
+             Wave4ChannelExample.start_link(
+               options
+               |> Keyword.put(:profile, arbitrary)
+               |> Keyword.put(:bindings, [arbitrary_binding])
+             )
+
+    non_ascii = Map.put(options[:profile], :conversation_id, "channel-café")
+
+    assert {:error, :invalid_options} =
+             Wave4ChannelExample.start_link(Keyword.put(options, :profile, non_ascii))
+
+    assert {:error, :not_found} = RunApprovalRelease.status(fixture.owner, "no-run-created")
+
+    assert %{state: :redacted, message: :redacted} =
+             Wave4ChannelExample.format_status(%{
+               state: "sensitive-event",
+               message: "sensitive-credential"
+             })
+
+    refute inspect(:sys.get_status(fixture.host)) =~ fixture.profile.source_id
+  end
+
+  test "HTTP and read guards return fixed statuses without mutation", %{fixture: fixture} do
+    event = Elzoo.Wave4ChannelTestHelper.event()
+    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
+
+    bad_mac = "v1=" <> String.duplicate("0", 64)
+
+    assert {:ok, {{_, 401, _}, _, _}} =
+             Elzoo.Wave4ChannelTestHelper.post(listener, event, signature: bad_mac)
+
+    assert {:ok, {{_, 400, _}, _, _}} =
+             Elzoo.Wave4ChannelTestHelper.post(listener, event,
+               headers: [{"x-elzoo-signature", "bad"}]
+             )
+
+    assert {:ok, {{_, 405, _}, _, _}} =
+             Elzoo.Wave4ChannelTestHelper.request(listener, :get, "/elzoo/v1/messages")
+
+    assert {:ok, {{_, 405, _}, _, _}} =
+             Elzoo.Wave4ChannelTestHelper.request(
+               listener,
+               :post,
+               "/elzoo/v1/conversations/channel-conversation"
+             )
+
+    assert {:ok, {{_, 404, _}, _, _}} =
+             Elzoo.Wave4ChannelTestHelper.request(listener, :get, "/not-a-route")
+
+    assert {:ok, {{_, 404, _}, _, _}} =
+             Elzoo.Wave4ChannelTestHelper.get(listener, fixture.profile.conversation_id,
+               query: "x=1"
+             )
+
+    unauthorized = fn _ ->
+      {:ok,
+       %{
+         tenant: "other",
+         actor: fixture.profile.actor,
+         resources: [fixture.profile.conversation_id]
+       }}
+    end
+
+    unauthorized_listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture, principal: unauthorized)
+    trace_read_apis(fixture.host)
+
+    assert {:ok, {{_, 403, _}, _, _}} =
+             Elzoo.Wave4ChannelTestHelper.get(
+               unauthorized_listener,
+               fixture.profile.conversation_id
+             )
+
+    refute_receive {:trace, _, :call, {CheckedCommand, :resource, _}}, 100
+    refute_receive {:trace, _, :call, {RunApprovalRelease, :status, _}}, 100
+
+    principals = [
+      {fn _ ->
+         {:ok,
+          %{
+            tenant: "other",
+            actor: fixture.profile.actor,
+            resources: [fixture.profile.conversation_id]
+          }}
+       end, 403},
+      {fn _ ->
+         {:ok,
+          %{tenant: fixture.profile.tenant, actor: fixture.profile.actor, resources: :malformed}}
+       end, 503},
+      {fn _ -> raise "sensitive principal failure" end, 503},
+      {fn _ -> exit({:sensitive, :principal}) end, 503}
+    ]
+
+    for {principal, expected} <- principals do
+      authorized = Elzoo.Wave4ChannelTestHelper.listener!(fixture, principal: principal)
+      response = Elzoo.Wave4ChannelTestHelper.get(authorized, fixture.profile.conversation_id)
+      assert {:ok, {{_, status, _}, _, body}} = response
+      assert status == expected
+      assert Jason.decode!(body) in [%{"status" => "forbidden"}, %{"status" => "unavailable"}]
+    end
+
+    repeated = fn _ ->
+      {:ok,
+       %{
+         tenant: fixture.profile.tenant,
+         actor: fixture.profile.actor,
+         resources: [fixture.profile.conversation_id, fixture.profile.conversation_id]
+       }}
+    end
+
+    repeated_listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture, principal: repeated)
+
+    assert {:ok, {{_, 200, _}, _, _}} =
+             Elzoo.Wave4ChannelTestHelper.get(repeated_listener, fixture.profile.conversation_id)
+
+    assert {:ok, %{revision: 0}} = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
+    assert {:ok, []} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+  end
+
+  test "retained identities reach CheckedCommand conflicts while deadline survives reopen", %{
+    fixture: fixture
+  } do
+    event = Elzoo.Wave4ChannelTestHelper.event()
+    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
+    trace_native_hash(fixture.native.task_supervisor)
+
+    assert {:ok, %{run_id: run_id}} = process_event(fixture, listener, event, 3, 1, 4)
+    assert take_hash_calls() == []
+
+    duplicate =
+      Elzoo.Wave4ChannelTestHelper.event(%{
+        "event_id" => "domain-invalid",
+        "input_id" => event["input_id"],
+        "expected_revision" => 3
+      })
+
+    assert {:ok, {{_, 400, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, duplicate)
+
+    duplicate_operation =
+      Elzoo.Wave4ChannelTestHelper.input_operation(fixture.profile, duplicate["event_id"])
+
+    assert {:conflict, {:domain, _}} =
+             CheckedCommand.result(
+               fixture.handles.input,
+               %{tenant: fixture.profile.tenant, actor: fixture.profile.actor},
+               {fixture.profile.tenant, fixture.profile.actor, duplicate_operation}
+             )
+
+    before = public_state(fixture, [event], [run_id])
+    changed_bytes = Map.put(event, "text", event["text"] <> " changed")
+    changed_revision = Map.put(event, "expected_revision", 1)
+
+    grants = fn _ ->
+      {:ok,
+       %{
+         tenant: fixture.profile.tenant,
+         actor: fixture.profile.actor,
+         resources: [fixture.profile.conversation_id, "other-conversation"]
+       }}
+    end
+
+    wide_listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture, webhook_principal: grants)
+    changed_resource = Map.put(event, "conversation_id", "other-conversation")
+    changed_events = [changed_bytes, changed_revision, changed_resource]
+    trace_checked_execute(fixture.host)
+
+    for changed <- changed_events do
+      assert {:ok, {{_, 409, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(wide_listener, changed)
+    end
+
+    executed_requests = take_checked_execute_requests()
+    :erlang.trace(fixture.host, false, [:call])
+    :erlang.trace_pattern({CheckedCommand, :execute, 3}, false, [:local])
+
+    assert Enum.map(executed_requests, &{&1.resource, &1.expected_revision, &1.payload}) ==
+             Enum.map(changed_events, fn changed ->
+               {
+                 changed["conversation_id"],
+                 changed["expected_revision"],
+                 %{"message_id" => changed["input_id"], "text" => changed["text"]}
+               }
+             end)
+
+    assert public_state(fixture, [event], [run_id]) == before
+
+    Elzoo.Wave4ChannelTestHelper.stop_listener!(listener)
+    Elzoo.Wave4ChannelTestHelper.stop_listener!(wide_listener)
+    GenServer.stop(fixture.host, :normal)
+    expired_clock = fn -> fixture.profile.deadline_ms + 1 end
+    host = Elzoo.Wave4ChannelTestHelper.start_host!(fixture, clock: expired_clock)
+    reopened = %{fixture | host: host}
+    reopened_listener = Elzoo.Wave4ChannelTestHelper.listener!(reopened)
+
+    assert {:ok, {{_, 202, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(reopened_listener, event)
+
+    new_event =
+      Elzoo.Wave4ChannelTestHelper.event(%{
+        "event_id" => "after-deadline",
+        "input_id" => "after-deadline-input",
+        "expected_revision" => 3
+      })
+
+    assert {:ok, {{_, 409, _}, _, _}} =
+             Elzoo.Wave4ChannelTestHelper.post(reopened_listener, new_event)
+
+    assert {:ok, %{revision: 4}} = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
+    assert {:ok, []} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+
+    after_deadline_operation =
+      Elzoo.Wave4ChannelTestHelper.input_operation(fixture.profile, new_event["event_id"])
+
+    assert {:unknown, :not_observed} =
+             CheckedCommand.result(
+               fixture.handles.input,
+               %{tenant: fixture.profile.tenant, actor: fixture.profile.actor},
+               {fixture.profile.tenant, fixture.profile.actor, after_deadline_operation}
+             )
+
+    assert take_hash_calls() == []
+  end
+
+  test "admission callback exceptions and exits return fixed errors without writes", %{
+    fixture: fixture
+  } do
+    for {event_id, failure} <- [{"policy-raised", :raise}, {"policy-exited", :exit}] do
+      parent = self()
+
+      policy = fn _mode, event, _now ->
+        send(parent, {:policy_callback, event.event_id})
+
+        case failure do
+          :raise -> raise "sensitive policy failure for #{event.event_id}"
+          :exit -> exit({:sensitive, event.event_id})
+        end
+      end
+
+      host = Elzoo.Wave4ChannelTestHelper.start_host!(fixture, policy: policy)
+      scoped_fixture = %{fixture | host: host}
+      listener = Elzoo.Wave4ChannelTestHelper.listener!(scoped_fixture)
+
+      event =
+        Elzoo.Wave4ChannelTestHelper.event(%{
+          "event_id" => event_id,
+          "input_id" => "#{event_id}-input"
+        })
+
+      assert {:ok, head_before} = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
+
+      assert {:ok, resource_before} =
+               CheckedCommand.resource(
+                 fixture.handles.input,
+                 Elzoo.Wave4ChannelTestHelper.scope(fixture.profile),
+                 fixture.profile.conversation_id
+               )
+
+      assert {:ok, {{_, 503, _}, _, body}} = Elzoo.Wave4ChannelTestHelper.post(listener, event)
+      assert Jason.decode!(body) == %{"event_id" => event_id, "status" => "unavailable"}
+      refute body =~ "sensitive"
+      assert_receive {:policy_callback, ^event_id}
+      assert Process.alive?(host)
+      assert {:idle, :no_input} = Wave4ChannelExample.advance(host)
+      assert {:ok, ^head_before} = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
+      assert {:ok, []} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+
+      assert {:ok, ^resource_before} =
+               CheckedCommand.resource(
+                 fixture.handles.input,
+                 Elzoo.Wave4ChannelTestHelper.scope(fixture.profile),
+                 fixture.profile.conversation_id
+               )
+    end
+  end
+
+  test "input gate and policy denials retain refusal without resource, outbox, or native work", %{
+    fixture: fixture
+  } do
+    denied_gate = %{
+      input: fn _frame, _context -> :deny end,
+      association: fn _frame, _context -> :allow end,
+      answer: fn _frame, _context -> :allow end
+    }
+
+    {:ok, handles} =
+      Elzoo.Wave4ChannelExample.CommandBindings.build(fixture.command_store, denied_gate)
+
+    gate_host = Elzoo.Wave4ChannelTestHelper.start_host!(fixture, handles: handles)
+    gate_listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture, host: gate_host)
+    gate_event = Elzoo.Wave4ChannelTestHelper.event(%{"event_id" => "gate-denied"})
+
+    assert {:ok, {{_, 403, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(gate_listener, gate_event)
+
+    gate_operation =
+      Elzoo.Wave4ChannelTestHelper.input_operation(fixture.profile, gate_event["event_id"])
+
+    assert {:denied, _} =
+             CheckedCommand.result(
+               fixture.handles.input,
+               %{tenant: fixture.profile.tenant, actor: fixture.profile.actor},
+               {fixture.profile.tenant, fixture.profile.actor, gate_operation}
+             )
+
+    artifact = Elzoo.Wave4ChannelTestHelper.policy()
+    denied_rule = %{hd(artifact.rules) | verdict: :deny}
+    unsigned = %{artifact | rules: [denied_rule]}
+
+    denied_policy =
+      Map.put(
+        unsigned,
+        :content_hash,
+        :crypto.hash(
+          :sha256,
+          :erlang.term_to_binary(Map.delete(unsigned, :content_hash), [:deterministic])
+        )
+      )
+
+    policy = fn _mode, _event, _now -> denied_policy end
+    policy_host = Elzoo.Wave4ChannelTestHelper.start_host!(fixture, policy: policy)
+    policy_listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture, host: policy_host)
+    policy_event = Elzoo.Wave4ChannelTestHelper.event(%{"event_id" => "policy-denied"})
+
+    assert {:ok, {{_, 403, _}, _, _}} =
+             Elzoo.Wave4ChannelTestHelper.post(policy_listener, policy_event)
+
+    assert {:ok, []} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+
+    assert {:ok, resource} =
+             CheckedCommand.resource(
+               fixture.handles.input,
+               %{
+                 tenant: fixture.profile.tenant,
+                 actor: fixture.profile.actor,
+                 resources: [fixture.profile.conversation_id]
+               },
+               fixture.profile.conversation_id
+             )
+
+    assert resource.revision == 0
+
+    assert :not_found =
+             DynamicUnits.find(
+               fixture.directory,
+               Elzoo.Wave4ChannelTestHelper.unit_id("never-created")
+             )
+  end
+
+  test "GET fails closed when the already-open run owner is unavailable", %{fixture: fixture} do
+    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
+    event = Elzoo.Wave4ChannelTestHelper.event()
+    assert {:ok, {{_, 202, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, event)
+    assert {:observed, _} = Wave4ChannelExample.advance(fixture.host)
+
+    run_id =
+      Elzoo.Wave4ChannelTestHelper.run_id(fixture.profile, event["event_id"], event["input_id"])
+
+    assert {:associated, ^run_id} = Wave4ChannelExample.advance(fixture.host)
+    before_head = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
+    before_outbox = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+
+    Process.exit(fixture.owner, :kill)
+
+    assert {:ok, {{_, 503, _}, _, body}} =
+             Elzoo.Wave4ChannelTestHelper.get(listener, fixture.profile.conversation_id)
+
+    assert Jason.decode!(body) == %{"status" => "unavailable"}
+
+    assert Elzoo.Wave4ChannelTestHelper.command_head(fixture) == before_head
+    assert Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture) == before_outbox
+
+    assert :not_found =
+             DynamicUnits.find(fixture.directory, Elzoo.Wave4ChannelTestHelper.unit_id(run_id))
+
+    assert Registry.lookup(fixture.native.registry, Elzoo.Wave4ChannelTestHelper.unit_id(run_id)) ==
+             []
+  end
+
+  test "GET reports not_recorded only for the known pre-creation phase", %{fixture: fixture} do
+    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
+    event = Elzoo.Wave4ChannelTestHelper.event()
+    assert {:ok, {{_, 202, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, event)
+    assert {:observed, _} = Wave4ChannelExample.advance(fixture.host)
+
+    run_id =
+      Elzoo.Wave4ChannelTestHelper.run_id(fixture.profile, event["event_id"], event["input_id"])
+
+    assert {:associated, ^run_id} = Wave4ChannelExample.advance(fixture.host)
+    assert {:error, :not_found} = RunApprovalRelease.status(fixture.owner, run_id)
+
+    assert {:ok, resource_before} =
+             CheckedCommand.resource(
+               fixture.handles.input,
+               Elzoo.Wave4ChannelTestHelper.scope(fixture.profile),
+               fixture.profile.conversation_id
+             )
+
+    assert {:ok, head_before} = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
+    assert {:ok, outbox_before} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+
+    assert {:ok, {{_, 200, _}, _, body}} =
+             Elzoo.Wave4ChannelTestHelper.get(listener, fixture.profile.conversation_id)
+
+    assert %{
+             "status" => "ok",
+             "view" => %{"runs" => [%{"outcome" => "not_recorded", "run_id" => ^run_id}]}
+           } = Jason.decode!(body)
+
+    assert {:error, :not_found} = RunApprovalRelease.status(fixture.owner, run_id)
+
+    assert {:ok, ^resource_before} =
+             CheckedCommand.resource(
+               fixture.handles.input,
+               Elzoo.Wave4ChannelTestHelper.scope(fixture.profile),
+               fixture.profile.conversation_id
+             )
+
+    assert {:ok, ^head_before} = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
+    assert {:ok, ^outbox_before} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+
+    assert :not_found =
+             DynamicUnits.find(fixture.directory, Elzoo.Wave4ChannelTestHelper.unit_id(run_id))
+
+    assert Registry.lookup(fixture.native.registry, Elzoo.Wave4ChannelTestHelper.unit_id(run_id)) ==
+             []
+  end
+
+  test "GET fails closed when a retained run has a mismatched native operation", %{fixture: fixture} do
+    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
+    event = Elzoo.Wave4ChannelTestHelper.event()
+    assert {:ok, {{_, 202, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, event)
+    assert {:observed, _} = Wave4ChannelExample.advance(fixture.host)
+
+    run_id =
+      Elzoo.Wave4ChannelTestHelper.run_id(fixture.profile, event["event_id"], event["input_id"])
+
+    assert {:associated, ^run_id} = Wave4ChannelExample.advance(fixture.host)
+
+    assert {:ok, _, _} =
+             RunApprovalRelease.command(fixture.owner, %{
+               kind: :create,
+               run_id: run_id,
+               operation_id: "wrong-native-operation",
+               provider_refs: %{},
+               expected_revision: fixture.held.live.revision
+             })
+
+    before_head = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
+    before_outbox = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+
+    assert {:ok, {{_, 503, _}, _, body}} =
+             Elzoo.Wave4ChannelTestHelper.get(listener, fixture.profile.conversation_id)
+
+    assert Jason.decode!(body) == %{"status" => "unavailable"}
+    assert Elzoo.Wave4ChannelTestHelper.command_head(fixture) == before_head
+    assert Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture) == before_outbox
+  end
+
+  test "future capacity accounts for the association and answer before input admission", %{
+    fixture: fixture
+  } do
+    for index <- 1..15 do
+      assert {:completed, %{revision: ^index}} =
+               seed_message!(fixture, index, String.duplicate("x", 4_096))
+    end
+
+    resource_scope = Elzoo.Wave4ChannelTestHelper.scope(fixture.profile)
+
+    assert {:ok, snapshot} =
+             CheckedCommand.resource(
+               fixture.handles.input,
+               resource_scope,
+               fixture.profile.conversation_id
+             )
+
+    candidate =
+      Enum.find_value(4_096..1//-16, fn size ->
+        event =
+          Elzoo.Wave4ChannelTestHelper.event(%{
+            "event_id" => "capacity-event",
+            "input_id" => "capacity-input",
+            "expected_revision" => snapshot.revision,
+            "text" => String.duplicate("y", size)
+          })
+
+        case hypothetical_capacity(snapshot, fixture.profile, event) do
+          {:future_refusal, stage} -> {event, stage}
+          _ -> nil
+        end
+      end)
+
+    assert {event, stage} = candidate
+    assert stage in [:association, :answer]
+    assert {:ok, head_before} = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
+    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
+
+    assert {:ok, {{_, 503, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, event)
+
+    assert {:ok, ^snapshot} =
+             CheckedCommand.resource(
+               fixture.handles.input,
+               resource_scope,
+               fixture.profile.conversation_id
+             )
+
+    assert {:ok, ^head_before} = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
+    assert {:ok, []} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+
+    operation = Elzoo.Wave4ChannelTestHelper.input_operation(fixture.profile, event["event_id"])
+
+    assert {:unknown, :not_observed} =
+             CheckedCommand.result(
+               fixture.handles.input,
+               %{tenant: fixture.profile.tenant, actor: fixture.profile.actor},
+               {fixture.profile.tenant, fixture.profile.actor, operation}
+             )
+
+    assert {:error, :not_found} =
+             RunApprovalRelease.status(
+               fixture.owner,
+               Elzoo.Wave4ChannelTestHelper.run_id(
+                 fixture.profile,
+                 event["event_id"],
+                 event["input_id"]
+               )
+             )
+  end
+
   test "signed loopback processes two distinct inputs and replays the first", %{fixture: fixture} do
     listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
     first = Elzoo.Wave4ChannelTestHelper.event()
 
+    stale =
+      Elzoo.Wave4ChannelTestHelper.event(%{
+        "event_id" => "stale-event",
+        "input_id" => "stale-input",
+        "expected_revision" => 1
+      })
+
+    assert {:ok, {{_, 409, _}, _headers, _body}} =
+             Elzoo.Wave4ChannelTestHelper.post(listener, stale)
+
+    stale_operation =
+      Elzoo.Wave4ChannelTestHelper.input_operation(fixture.profile, stale["event_id"])
+
+    assert {:conflict, :stale_revision} =
+             CheckedCommand.result(
+               fixture.handles.input,
+               %{tenant: fixture.profile.tenant, actor: fixture.profile.actor},
+               {fixture.profile.tenant, fixture.profile.actor, stale_operation}
+             )
+
+    assert {:ok, []} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    assert {:ok, %{revision: 1}} = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
+
     assert {:ok, {{_, 202, _}, _headers, _body}} =
              Elzoo.Wave4ChannelTestHelper.post(listener, first)
 
-    first_outbox = assert_input_outbox(fixture, first, 1)
+    first_outbox = assert_input_outbox(fixture, first, 2)
 
     second =
       Elzoo.Wave4ChannelTestHelper.event(%{
@@ -44,13 +621,31 @@ defmodule Elzoo.Wave4ChannelTest do
     assert {:ok, {{_, 503, _}, _headers, _body}} =
              Elzoo.Wave4ChannelTestHelper.post(listener, second)
 
-    assert ^first_outbox = assert_input_outbox(fixture, first, 1)
+    assert ^first_outbox = assert_input_outbox(fixture, first, 2)
+
+    Elzoo.Wave4ChannelTestHelper.stop_listener!(listener)
+    GenServer.stop(fixture.host, :normal)
+    reopened = Elzoo.Wave4ChannelTestHelper.start_host!(fixture)
+    fixture = %{fixture | host: reopened}
+    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
+
+    assert {:ok, {{_, 503, _}, _headers, _body}} =
+             Elzoo.Wave4ChannelTestHelper.post(listener, second)
+
+    assert {:ok, {{_, 202, _}, _headers, body}} =
+             Elzoo.Wave4ChannelTestHelper.post(listener, first)
+
+    assert %{"status" => "committed", "revision" => 1} = Jason.decode!(body)
+    assert ^first_outbox = assert_input_outbox(fixture, first, 2)
+    trace_native_hash(fixture.native.task_supervisor)
 
     assert {:ok, %{run_id: first_run, unit_id: first_unit, status: first_status}} =
-             process_event(fixture, listener, first, 3, 1, 4)
+             process_event(fixture, listener, first, 3, 2, 4)
 
     assert {:ok, %{run_id: second_run, unit_id: second_unit, status: second_status}} =
-             process_event(fixture, listener, second, 6, 4, 7)
+             process_event(fixture, listener, second, 6, 5, 7)
+
+    assert {:ok, %{revision: 7}} = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
 
     assert first_run != second_run
     assert first_unit != second_unit
@@ -61,6 +656,7 @@ defmodule Elzoo.Wave4ChannelTest do
     assert {:ok, current_second_status} = RunApprovalRelease.status(fixture.owner, second_run)
     assert stable_run_status(current_first_status) == stable_run_status(first_status)
     assert stable_run_status(current_second_status) == stable_run_status(second_status)
+    before_reads = public_state(fixture, [first, second], [first_run, second_run])
 
     assert {:ok, replay} = Elzoo.Wave4ChannelTestHelper.post(listener, first)
     assert {{_, 202, _}, _headers, body} = replay
@@ -76,6 +672,8 @@ defmodule Elzoo.Wave4ChannelTest do
              Elzoo.Wave4ChannelTestHelper.get(listener, fixture.profile.conversation_id)
 
     assert before_view == after_view
+    assert public_state(fixture, [first, second], [first_run, second_run]) == before_reads
+    assert take_hash_calls() == []
 
     assert %{
              "status" => "ok",
@@ -207,6 +805,9 @@ defmodule Elzoo.Wave4ChannelTest do
       assert {:result, :completed} =
                wait_for_result(fixture.host, System.monotonic_time(:millisecond) + 10_000)
 
+      native_calls = take_hash_calls()
+      assert native_calls == [event["text"]]
+
       assert {:answered, ^answer_revision} = Wave4ChannelExample.advance(fixture.host)
 
       assert [{engine, _}] = Registry.lookup(fixture.native.registry, unit_id)
@@ -258,6 +859,7 @@ defmodule Elzoo.Wave4ChannelTest do
       assert status.outcome == :completed
       assert status.completion_revision == completion_revision
       assert_command_receipts(fixture, event, run_id, answer_revision)
+      assert take_hash_calls() == []
 
       {:ok,
        %{
@@ -266,9 +868,282 @@ defmodule Elzoo.Wave4ChannelTest do
          status: status,
          engine_status: engine_status,
          work_count: work_count,
+         native_calls: native_calls,
          budget_count: budget_count
        }}
     end
+  end
+
+  defp seed_message!(fixture, index, text) do
+    profile = fixture.profile
+    scope = Elzoo.Wave4ChannelTestHelper.scope(profile)
+
+    assert {:ok, snapshot} =
+             CheckedCommand.resource(fixture.handles.input, scope, profile.conversation_id)
+
+    event_id = "seed-event-#{index}"
+    message_id = "seed-message-#{index}"
+
+    request = %{
+      operation_id: Elzoo.Wave4ChannelTestHelper.input_operation(profile, event_id),
+      resource: profile.conversation_id,
+      expected_revision: snapshot.revision,
+      payload: %{"message_id" => message_id, "text" => text}
+    }
+
+    facts = {:record, [{"input_role", {:text, "source"}}, {"mode", {:text, "append_input"}}]}
+    prepared_facts = %{tenant: profile.tenant, actor: profile.actor, data: facts}
+    assert {:ok, writes, _} = Conversation.prepare(snapshot, request, prepared_facts)
+
+    context = %{
+      tenant: profile.tenant,
+      actor: profile.actor,
+      policy: Elzoo.Wave4ChannelTestHelper.policy(),
+      own: writes,
+      parent: :none,
+      facts: facts
+    }
+
+    result = CheckedCommand.execute(fixture.handles.input, context, request)
+    assert {:completed, _} = result
+    assert {:ok, [item]} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+
+    assert {:committed, _} =
+             Outbox.ack(fixture.command_store, item.idempotency_key, item.nonce)
+
+    result
+  end
+
+  defp hypothetical_capacity(snapshot, profile, event) do
+    operation = Elzoo.Wave4ChannelTestHelper.input_operation(profile, event["event_id"])
+    run_id = Elzoo.Wave4ChannelTestHelper.run_id(profile, event["event_id"], event["input_id"])
+    base = %{tenant: profile.tenant, actor: profile.actor}
+
+    input_request = %{
+      operation_id: operation,
+      resource: event["conversation_id"],
+      expected_revision: snapshot.revision,
+      payload: %{"message_id" => event["input_id"], "text" => event["text"]}
+    }
+
+    input_facts =
+      Map.put(
+        base,
+        :data,
+        {:record, [{"input_role", {:text, "source"}}, {"mode", {:text, "append_input"}}]}
+      )
+
+    with {:ok, input_writes, _} <- Conversation.prepare(snapshot, input_request, input_facts),
+         input_snapshot <- apply_test_writes(snapshot, input_writes),
+         association_request <- %{
+           operation_id:
+             Elzoo.Wave4ChannelTestHelper.association_operation(
+               profile,
+               event["event_id"],
+               event["input_id"]
+             ),
+           resource: event["conversation_id"],
+           expected_revision: snapshot.revision + 1,
+           payload: %{"message_id" => event["input_id"]}
+         },
+         association_facts <-
+           Map.put(
+             base,
+             :data,
+             {:record, [{"mode", {:text, "associate_run"}}, {"run_id", {:text, run_id}}]}
+           ) do
+      case Conversation.prepare(input_snapshot, association_request, association_facts) do
+        {:refused, _} ->
+          {:future_refusal, :association}
+
+        {:ok, association_writes, _} ->
+          associated_snapshot = apply_test_writes(input_snapshot, association_writes)
+
+          answer_request = %{
+            operation_id:
+              Elzoo.Wave4ChannelTestHelper.answer_operation(
+                profile,
+                event["event_id"],
+                event["input_id"]
+              ),
+            resource: event["conversation_id"],
+            expected_revision: snapshot.revision + 2,
+            payload: %{
+              "message_id" => Elzoo.Wave4ChannelTestHelper.answer_id(event["input_id"]),
+              "text" => String.duplicate("x", 71)
+            }
+          }
+
+          answer_facts =
+            Map.put(
+              base,
+              :data,
+              {:record,
+               [
+                 {"completed", true},
+                 {"input_message_id", {:text, event["input_id"]}},
+                 {"mode", {:text, "append_answer"}},
+                 {"run_id", {:text, run_id}}
+               ]}
+            )
+
+          case Conversation.prepare(associated_snapshot, answer_request, answer_facts) do
+            {:refused, _} -> {:future_refusal, :answer}
+            {:ok, _, _} -> :fits
+          end
+      end
+    else
+      _ -> :input_does_not_fit
+    end
+  end
+
+  defp apply_test_writes(snapshot, writes) do
+    fields = Enum.reduce(writes, snapshot.fields, &Map.put(&2, &1.field, &1.value))
+    %{snapshot | revision: snapshot.revision + 1, fields: fields}
+  end
+
+  defp trace_native_hash(task_supervisor) do
+    module = Elzoo.Wave4ChannelExample.NativeWork
+    :erlang.trace_pattern({module, :hash, 1}, true, [:local])
+    :erlang.trace(task_supervisor, true, [:call, :set_on_spawn])
+
+    ExUnit.Callbacks.on_exit(fn ->
+      if Process.alive?(task_supervisor), do: :erlang.trace(task_supervisor, false, [:all])
+      :erlang.trace_pattern({module, :hash, 1}, false, [:local])
+      take_hash_calls()
+    end)
+  end
+
+  defp trace_read_apis(host) do
+    :erlang.trace_pattern({CheckedCommand, :resource, 3}, true, [:local])
+    :erlang.trace_pattern({RunApprovalRelease, :status, 2}, true, [:local])
+    :erlang.trace(host, true, [:call])
+
+    ExUnit.Callbacks.on_exit(fn ->
+      if Process.alive?(host), do: :erlang.trace(host, false, [:all])
+      :erlang.trace_pattern({CheckedCommand, :resource, 3}, false, [:local])
+      :erlang.trace_pattern({RunApprovalRelease, :status, 2}, false, [:local])
+      flush_trace_calls()
+    end)
+  end
+
+  defp trace_checked_execute(host) do
+    :erlang.trace_pattern({CheckedCommand, :execute, 3}, true, [:local])
+    :erlang.trace(host, true, [:call])
+
+    ExUnit.Callbacks.on_exit(fn ->
+      if Process.alive?(host), do: :erlang.trace(host, false, [:call])
+      :erlang.trace_pattern({CheckedCommand, :execute, 3}, false, [:local])
+      take_checked_execute_requests()
+    end)
+  end
+
+  defp take_checked_execute_requests(acc \\ []) do
+    receive do
+      {:trace, _pid, :call, {CheckedCommand, :execute, [_handle, _context, request]}} ->
+        take_checked_execute_requests([request | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
+
+  defp flush_trace_calls do
+    receive do
+      {:trace, _pid, :call, _} -> flush_trace_calls()
+    after
+      0 -> :ok
+    end
+  end
+
+  defp take_hash_calls, do: take_hash_calls([])
+
+  defp take_hash_calls(acc) do
+    receive do
+      {:trace, _pid, :call, {Elzoo.Wave4ChannelExample.NativeWork, :hash, [text]}} ->
+        take_hash_calls([text | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
+
+  defp public_state(fixture, events, run_ids) do
+    profile = fixture.profile
+    scope = %{tenant: profile.tenant, actor: profile.actor}
+    resource_scope = Map.put(scope, :resources, [profile.conversation_id])
+
+    {:ok, resource} =
+      CheckedCommand.resource(fixture.handles.input, resource_scope, profile.conversation_id)
+
+    {:ok, head} = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
+    {:ok, outbox} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+
+    receipts =
+      Enum.map(events, fn event ->
+        input_id = event["input_id"]
+        input_op = Elzoo.Wave4ChannelTestHelper.input_operation(profile, event["event_id"])
+
+        association_op =
+          Elzoo.Wave4ChannelTestHelper.association_operation(profile, event["event_id"], input_id)
+
+        answer_op =
+          Elzoo.Wave4ChannelTestHelper.answer_operation(profile, event["event_id"], input_id)
+
+        {
+          CheckedCommand.result(
+            fixture.handles.input,
+            scope,
+            {profile.tenant, profile.actor, input_op}
+          ),
+          CheckedCommand.result(
+            fixture.handles.association,
+            scope,
+            {profile.tenant, profile.actor, association_op}
+          ),
+          CheckedCommand.result(
+            fixture.handles.answer,
+            scope,
+            {profile.tenant, profile.actor, answer_op}
+          )
+        }
+      end)
+
+    units =
+      Enum.map(
+        run_ids,
+        &DynamicUnits.find(fixture.directory, Elzoo.Wave4ChannelTestHelper.unit_id(&1))
+      )
+
+    unit_states =
+      Enum.map(units, fn
+        {:ok, unit} -> DurableUnit.snapshot(unit)
+        other -> other
+      end)
+
+    engines =
+      Enum.map(
+        run_ids,
+        &Registry.lookup(fixture.native.registry, Elzoo.Wave4ChannelTestHelper.unit_id(&1))
+      )
+
+    engine_states =
+      Enum.map(engines, fn
+        [{engine, _}] -> RunEngine.status(engine)
+        other -> other
+      end)
+
+    runs = Enum.map(run_ids, &RunApprovalRelease.status(fixture.owner, &1))
+
+    %{
+      resource: resource,
+      head: head,
+      outbox: outbox,
+      receipts: receipts,
+      runs: runs,
+      units: units,
+      unit_states: unit_states,
+      engines: engines,
+      engine_states: engine_states
+    }
   end
 
   defp wait_for_result(host, deadline) do

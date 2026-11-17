@@ -95,6 +95,9 @@ defmodule Elzoo.Wave4ChannelExample do
     :ok
   end
 
+  @impl true
+  def format_status(status), do: Map.merge(status, %{state: :redacted, message: :redacted})
+
   defp admit_event(%{poison: poison} = state, _, _) when not is_nil(poison),
     do: {{:error, :unavailable}, state}
 
@@ -110,13 +113,14 @@ defmodule Elzoo.Wave4ChannelExample do
       {:error, :expired} -> {{:rejected, :conflict}, state}
       {:error, :busy} -> {{:error, :unavailable}, state}
       {:error, :scope} -> {{:rejected, :forbidden}, state}
-      {:error, :unknown} -> {{:unknown, :unavailable}, state}
+      {:error, :unknown} -> {{:error, :unavailable}, state}
       _ -> {{:rejected, :invalid}, state}
     end
   rescue
-    _ -> {{:unknown, :unavailable}, state}
+    _ -> {{:error, :unavailable}, state}
   catch
-    :exit, _ -> {{:unknown, :unavailable}, state}
+    :exit, _ -> {{:error, :unavailable}, state}
+    :throw, _ -> {{:error, :unavailable}, state}
   end
 
   defp existing_or_capacity(state, event, operation_id, {:unknown, :not_observed}) do
@@ -236,6 +240,9 @@ defmodule Elzoo.Wave4ChannelExample do
         {{:pending, :approval}, %{state | approval: approval}}
 
       {:denied, {:authorization, _}} ->
+        {{:rejected, :forbidden}, state}
+
+      {:denied, _} ->
         {{:rejected, :forbidden}, state}
 
       {:conflict, :identity} ->
@@ -981,25 +988,18 @@ defmodule Elzoo.Wave4ChannelExample do
       run_id = association.run_id
 
       case RunApprovalRelease.status(state.native.run_owner, run_id) do
-        {:ok, %{id: ^run_id, operation_id: operation_id, outcome: outcome, revision: revision}} ->
-          if operation_id == native_operation(run_id, state) do
-            summary = %{
-              run_id: run_id,
-              operation_id: operation_id,
-              outcome: public_outcome(outcome),
-              revision: revision
-            }
+        {:ok, status} ->
+          case run_summary(state, run_id, status) do
+            {:ok, summary} -> {:cont, {:ok, [summary | acc]}}
+            :error -> {:halt, {:error, :unavailable}}
+          end
 
-            {:cont, {:ok, [summary | acc]}}
+        {:error, :not_found} ->
+          if known_not_created?(state, run_id) do
+            {:cont, {:ok, [%{run_id: run_id, outcome: :not_recorded} | acc]}}
           else
             {:halt, {:error, :unavailable}}
           end
-
-        {:ok, nil} ->
-          {:cont, {:ok, [%{run_id: run_id, outcome: :not_recorded} | acc]}}
-
-        {:error, :not_found} ->
-          {:cont, {:ok, [%{run_id: run_id, outcome: :not_recorded} | acc]}}
 
         _ ->
           {:halt, {:error, :unavailable}}
@@ -1011,14 +1011,43 @@ defmodule Elzoo.Wave4ChannelExample do
     end
   end
 
+  defp run_summary(state, run_id, status) when is_map(status) and not is_struct(status) do
+    operation_id = Map.get(status, :operation_id)
+    outcome = Map.get(status, :outcome)
+    revision = Map.get(status, :revision)
+
+    if Enum.all?([:id, :operation_id, :outcome, :revision], &Map.has_key?(status, &1)) and
+         Map.get(status, :id) == run_id and operation_id == native_operation(run_id, state) and
+         (is_nil(outcome) or RunApprovalRelease.outcome?(outcome)) and is_integer(revision) and
+         revision in 0..9_223_372_036_854_775_807 do
+      {:ok,
+       %{
+         run_id: run_id,
+         operation_id: operation_id,
+         outcome: public_outcome(outcome),
+         revision: revision
+       }}
+    else
+      :error
+    end
+  rescue
+    _ -> :error
+  end
+
+  defp run_summary(_, _, _), do: :error
+
+  defp known_not_created?(state, run_id),
+    do:
+      is_nil(state.poison) and state.phase == :create_run and is_map(state.current) and
+        state.current.run_id == run_id
+
   defp profile(profile) when is_map(profile) and not is_struct(profile) do
     required = [:tenant, :actor, :conversation_id, :source_id, :deadline_ms, :native_target]
 
     if Enum.sort(Map.keys(profile)) == Enum.sort(required) and
-         Enum.all?(
-           [profile.tenant, profile.actor, profile.conversation_id, profile.source_id],
-           &bounded_text?/1
-         ) and
+         Enum.all?([profile.tenant, profile.actor, profile.source_id], &bounded_text?/1) and
+         bounded_ascii?(profile.conversation_id) and
+         profile.native_target == Elzoo.Wave4ChannelExample.NativeBindings.target() and
          is_integer(profile.deadline_ms) and profile.deadline_ms > 0 and
          is_map(profile.native_target) do
       {:ok, profile}
@@ -1032,10 +1061,11 @@ defmodule Elzoo.Wave4ChannelExample do
   defp select_target(profile, bindings) do
     scope = %{tenant: profile.tenant, source: profile.source_id}
     schema = %{"schema_id" => "elzoo.message/v1", "schema_version" => 1}
+    expected_target = Elzoo.Wave4ChannelExample.NativeBindings.target()
 
     case TriggerBinding.select(bindings, scope, schema) do
-      {:ok, %{target: target} = selected} when target == profile.native_target ->
-        {:ok, Map.put(selected, :target, target)}
+      {:ok, %{target: ^expected_target} = selected} when profile.native_target == expected_target ->
+        {:ok, selected}
 
       _ ->
         {:error, :binding}
@@ -1411,7 +1441,7 @@ defmodule Elzoo.Wave4ChannelExample do
       opts = conn.private[:wave4_channel]
 
       if conn.query_string == "" and conversation_id == opts.conversation_id do
-        case opts.principal.(conn) do
+        case read_principal(opts.principal, conn) do
           {:ok, scope} ->
             case Elzoo.Wave4ChannelExample.view(opts.host, scope) do
               {:ok, view} ->
@@ -1446,6 +1476,20 @@ defmodule Elzoo.Wave4ChannelExample do
     match _ do
       Plug.Conn.resp(conn, 404, Jason.encode!(%{status: "not_found"}))
     end
+
+    defp read_principal(callback, conn) when is_function(callback, 1) do
+      case callback.(conn) do
+        {:ok, scope} -> {:ok, scope}
+        {:error, :forbidden} -> {:error, :forbidden}
+        _ -> {:error, :unavailable}
+      end
+    rescue
+      _ -> {:error, :unavailable}
+    catch
+      _, _ -> {:error, :unavailable}
+    end
+
+    defp read_principal(_, _), do: {:error, :unavailable}
   end
 
   defmodule Pattern do
@@ -1490,8 +1534,16 @@ defmodule Elzoo.Wave4ChannelExample do
   defmodule NativeBindings do
     alias Elzoo.PayloadSchema
 
+    @target %{
+      "bot_ref" => "channel-bot",
+      "package_digest" => String.duplicate("a", 64),
+      "callable" => "hash"
+    }
+
     @work_resource "local-work"
     @work_writes [%{target: @work_resource, field: "result", value: true}]
+
+    def target, do: @target
 
     def build(profile) do
       policy = policy()

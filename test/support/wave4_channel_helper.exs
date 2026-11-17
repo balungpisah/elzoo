@@ -15,15 +15,10 @@ defmodule Elzoo.Wave4ChannelTestHelper do
   @source "channel-source"
   @conversation "channel-conversation"
   @signing_key String.duplicate("k", 32)
-  @target %{
-    "bot_ref" => "channel-bot",
-    "package_digest" => String.duplicate("a", 64),
-    "callable" => "hash"
-  }
 
   def start_database!, do: Elzoo.RunEngine.TestHelper.database()
 
-  def fixture do
+  def fixture(options \\ []) do
     ensure_registry!(Elzoo.RunEngine.TestRegistry)
     ensure_registry!(Elzoo.RunEngine.UnitRegistry)
 
@@ -51,12 +46,14 @@ defmodule Elzoo.Wave4ChannelTestHelper do
     command_store =
       PostgresHarness.attach(TestRepo, prefix, command_fold, command_limits, controller)
 
-    {:ok, handles} =
-      Elzoo.Wave4ChannelExample.CommandBindings.build(command_store, %{
+    gates =
+      Keyword.get(options, :gates, %{
         input: fn _frame, _context -> :allow end,
         association: fn _frame, _context -> :allow end,
         answer: fn _frame, _context -> :allow end
       })
+
+    {:ok, handles} = Elzoo.Wave4ChannelExample.CommandBindings.build(command_store, gates)
 
     run_store =
       Postgres.store(TestRepo,
@@ -80,7 +77,7 @@ defmodule Elzoo.Wave4ChannelTestHelper do
       )
 
     task_supervisor = ExUnit.Callbacks.start_supervised!({Task.Supervisor, []}, id: make_ref())
-    now = fn -> System.system_time(:millisecond) end
+    now = Keyword.get(options, :clock, fn -> System.system_time(:millisecond) end)
 
     unit_opts = [
       operator: {Elzoo.RunEngine, :step, %{version: 1, control: nil, slots: %{}, requests: %{}}},
@@ -136,14 +133,18 @@ defmodule Elzoo.Wave4ChannelTestHelper do
     evidence_store =
       Postgres.store(TestRepo, prefix: prefix, fold: evidence_fold, limits: evidence_limits)
 
-    profile = %{
-      tenant: @tenant,
-      actor: @actor,
-      conversation_id: @conversation,
-      source_id: @source,
-      deadline_ms: now.() + 120_000,
-      native_target: @target
-    }
+    profile =
+      Map.merge(
+        %{
+          tenant: @tenant,
+          actor: @actor,
+          conversation_id: @conversation,
+          source_id: @source,
+          deadline_ms: Keyword.get(options, :deadline_ms, now.() + 120_000),
+          native_target: Elzoo.Wave4ChannelExample.NativeBindings.target()
+        },
+        Keyword.get(options, :profile_overrides, %{})
+      )
 
     native = %{
       run_owner: owner,
@@ -160,25 +161,27 @@ defmodule Elzoo.Wave4ChannelTestHelper do
       engine: Elzoo.Wave4ChannelExample.NativeBindings.build(profile)
     }
 
-    policy = fn _mode, _event, _now -> policy() end
+    policy = Keyword.get(options, :policy, fn _mode, _event, _now -> policy() end)
 
-    authority = fn mode, _event, _request, _facts ->
-      if mode == :release,
-        do: %{approver: %{identity: "reviewer", authority: []}, now: now.(), revoked: false},
-        else: %{}
-    end
+    authority =
+      Keyword.get(options, :authority, fn mode, _event, _request, _facts ->
+        if mode == :release,
+          do: %{approver: %{identity: "reviewer", authority: []}, now: now.(), revoked: false},
+          else: %{}
+      end)
 
-    {:ok, host} =
-      Elzoo.Wave4ChannelExample.start_link(
-        profile: profile,
-        bindings: [trigger_binding(profile)],
-        command_store: command_store,
-        handles: handles,
-        native: native,
-        authority: authority,
-        policy: policy,
-        clock: now
-      )
+    host_options = [
+      profile: profile,
+      bindings: Keyword.get(options, :bindings, [trigger_binding(profile)]),
+      command_store: command_store,
+      handles: handles,
+      native: native,
+      authority: authority,
+      policy: policy,
+      clock: now
+    ]
+
+    {:ok, host} = Elzoo.Wave4ChannelExample.start_link(host_options)
 
     Process.unlink(host)
 
@@ -194,6 +197,7 @@ defmodule Elzoo.Wave4ChannelTestHelper do
       profile: profile,
       native: native,
       host: host,
+      host_options: host_options,
       clock: now
     }
 
@@ -201,23 +205,30 @@ defmodule Elzoo.Wave4ChannelTestHelper do
     fixture
   end
 
-  def listener!(fixture) do
-    ref = Elzoo.Wave4ChannelTest.Listener
+  def listener!(fixture, options \\ []) do
+    ref = make_ref()
     profile = fixture.profile
+    host = Keyword.get(options, :host, fixture.host)
+
+    webhook_principal =
+      Keyword.get(options, :webhook_principal, fn _conn -> {:ok, scope(profile)} end)
+
+    router_principal =
+      Keyword.get(options, :principal, fn _conn -> {:ok, scope(profile)} end)
 
     webhook = [
       source_id: profile.source_id,
-      key: fn -> {:ok, @signing_key} end,
+      key: Keyword.get(options, :key, fn -> {:ok, @signing_key} end),
       clock: fn -> System.system_time(:second) end,
-      principal: fn _conn -> {:ok, scope(profile)} end,
-      admit: fn event, trusted -> Elzoo.Wave4ChannelExample.admit(fixture.host, event, trusted) end
+      principal: webhook_principal,
+      admit: fn event, trusted -> Elzoo.Wave4ChannelExample.admit(host, event, trusted) end
     ]
 
     router_options = [
-      host: fixture.host,
+      host: host,
       conversation_id: profile.conversation_id,
       webhook: webhook,
-      principal: fn _conn -> {:ok, scope(profile)} end
+      principal: router_principal
     ]
 
     {:ok, pid} =
@@ -233,36 +244,73 @@ defmodule Elzoo.Wave4ChannelTestHelper do
     %{port: port, url: "http://127.0.0.1:#{port}", ref: ref}
   end
 
-  def post(listener, event) do
-    body = Jason.encode!(event)
-    timestamp = Integer.to_string(System.system_time(:second))
+  def post(listener, event, options \\ []) do
+    body = Keyword.get(options, :body, Jason.encode!(event))
+    timestamp = Keyword.get(options, :timestamp, Integer.to_string(System.system_time(:second)))
+    path = Keyword.get(options, :path, "/elzoo/v1/messages")
+    method = Keyword.get(options, :method, :post)
     frame = "elzoo-webhook-v1\n#{@source}\nPOST\n/elzoo/v1/messages\n#{timestamp}\n#{body}"
 
     signature =
-      "v1=" <> Base.encode16(:crypto.mac(:hmac, :sha256, @signing_key, frame), case: :lower)
+      Keyword.get(
+        options,
+        :signature,
+        "v1=" <> Base.encode16(:crypto.mac(:hmac, :sha256, @signing_key, frame), case: :lower)
+      )
+
+    headers = [
+      {"content-type", "application/json"},
+      {"x-elzoo-timestamp", timestamp},
+      {"x-elzoo-signature", signature}
+    ]
+
+    extra_headers = Keyword.get(options, :headers, [])
+    extra_names = Enum.map(extra_headers, &elem(&1, 0))
+    headers = Enum.reject(headers, fn {name, _} -> name in extra_names end) ++ extra_headers
 
     {:ok, _} = Application.ensure_all_started(:inets)
 
-    :httpc.request(
-      :post,
-      {String.to_charlist(listener.url <> "/elzoo/v1/messages"),
-       [
-         {~c"content-type", ~c"application/json"},
-         {~c"x-elzoo-timestamp", String.to_charlist(timestamp)},
-         {~c"x-elzoo-signature", String.to_charlist(signature)}
-       ], ~c"application/json", body},
-      [connect_timeout: 2_000, timeout: 10_000],
-      body_format: :binary
-    )
+    http_request(listener, method, path, headers, body)
   end
 
-  def get(listener, conversation) do
-    :httpc.request(
-      :get,
-      {String.to_charlist(listener.url <> "/elzoo/v1/conversations/" <> conversation), []},
-      [connect_timeout: 2_000, timeout: 10_000],
-      body_format: :binary
-    )
+  def get(listener, conversation, options \\ []) do
+    query = Keyword.get(options, :query, "")
+    path = "/elzoo/v1/conversations/#{conversation}" <> if(query == "", do: "", else: "?#{query}")
+    http_request(listener, :get, path, Keyword.get(options, :headers, []), "")
+  end
+
+  def request(listener, method, path, headers \\ [], body \\ "") do
+    http_request(listener, method, path, headers, body)
+  end
+
+  def start_host!(fixture, overrides \\ []) do
+    {:ok, host} =
+      Elzoo.Wave4ChannelExample.start_link(Keyword.merge(fixture.host_options, overrides))
+
+    Process.unlink(host)
+
+    ExUnit.Callbacks.on_exit(fn ->
+      if Process.alive?(host), do: GenServer.stop(host, :normal, 5_000)
+    end)
+
+    host
+  end
+
+  def stop_listener!(listener), do: Plug.Cowboy.shutdown(listener.ref)
+
+  def command_stream(tenant) do
+    "cc1:" <>
+      Base.url_encode64(:erlang.term_to_binary({:cc, 1, tenant}, [:deterministic]), padding: false)
+  end
+
+  def command_head(fixture) do
+    Elzoo.DurableLog.Store.read(fixture.command_store, :head, [
+      command_stream(fixture.profile.tenant)
+    ])
+  end
+
+  def pending_outbox(fixture) do
+    Elzoo.Outbox.pending(fixture.command_store, command_stream(fixture.profile.tenant), 64)
   end
 
   def event(overrides \\ %{}) do
@@ -299,7 +347,14 @@ defmodule Elzoo.Wave4ChannelTestHelper do
 
   def run_id(profile, event_id, input_id) do
     operation = input_operation(profile, event_id)
-    stable_id("run", [profile.tenant, profile.actor, operation, input_id, @target])
+
+    stable_id("run", [
+      profile.tenant,
+      profile.actor,
+      operation,
+      input_id,
+      Elzoo.Wave4ChannelExample.NativeBindings.target()
+    ])
   end
 
   def input_operation(profile, event_id), do: stable_id("input", [profile.source_id, event_id])
@@ -349,7 +404,7 @@ defmodule Elzoo.Wave4ChannelTestHelper do
       "schema_id" => "elzoo.message/v1",
       "schema_version" => 1,
       "enabled" => true,
-      "target" => @target
+      "target" => Elzoo.Wave4ChannelExample.NativeBindings.target()
     }
   end
 
@@ -367,5 +422,23 @@ defmodule Elzoo.Wave4ChannelTestHelper do
       )
 
     domain <> ":" <> Base.url_encode64(digest, padding: false)
+  end
+
+  defp http_request(listener, method, path, headers, body) do
+    url = String.to_charlist(listener.url <> path)
+
+    headers =
+      Enum.map(headers, fn {name, value} ->
+        {String.to_charlist(name), String.to_charlist(value)}
+      end)
+
+    request =
+      case method do
+        :get -> {url, headers}
+        :head -> {url, headers}
+        _ -> {url, headers, ~c"application/json", body}
+      end
+
+    :httpc.request(method, request, [connect_timeout: 2_000, timeout: 10_000], body_format: :binary)
   end
 end
