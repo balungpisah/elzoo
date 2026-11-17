@@ -1,29 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
-sql_helper =
+sql_helper_candidates = [
   Path.expand(
     "../../../../integration/sql/test/support/durable_log_postgres_test_helper.exs",
     __DIR__
-  )
+  ),
+  Path.expand("../support/durable_log_postgres_test_helper.exs", __DIR__)
+]
 
-postgres_available? = File.regular?(sql_helper)
+sql_helper = Enum.find(sql_helper_candidates, &File.regular?/1)
 
-if postgres_available? do
+if sql_helper do
   Code.require_file(sql_helper)
-else
-  defmodule Elzoo.DurableLog.TestRepo do
-    def start_link(_), do: {:error, :postgres_test_support_unavailable}
-  end
-
-  defmodule Elzoo.DurableLog.PostgresHarness do
-    def database_url!, do: nil
-    def reachable!(_), do: :ok
-    def start_link(_), do: {:error, :postgres_test_support_unavailable}
-    def attach(_, _, _, _, _), do: {:error, :postgres_test_support_unavailable}
-    def hook(_, _, _), do: {:error, :postgres_test_support_unavailable}
-    def history(_), do: []
-    def paused(_, _), do: nil
-    def cleanup(_), do: :ok
-  end
 end
 
 defmodule Elzoo.CheckedCommandTest do
@@ -42,12 +29,22 @@ defmodule Elzoo.CheckedCommandTest do
     "schema_version" => 1
   }
   @limits %{max_record_bytes: 1_048_576, max_batch_size: 1, max_checkpoint_bytes: 1_048_576}
-  @postgres_helper Path.expand(
-                     "../../../../integration/sql/test/support/durable_log_postgres_test_helper.exs",
-                     __DIR__
-                   )
-  @postgres_available File.regular?(@postgres_helper)
-  @postgres_skip if(@postgres_available, do: false, else: "PostgreSQL test support is unavailable")
+  @postgres_helper_candidates [
+    Path.expand(
+      "../../../../integration/sql/test/support/durable_log_postgres_test_helper.exs",
+      __DIR__
+    ),
+    Path.expand("../support/durable_log_postgres_test_helper.exs", __DIR__)
+  ]
+  @postgres_helper Enum.find(@postgres_helper_candidates, &File.regular?/1)
+  @postgres_available is_binary(@postgres_helper)
+
+  unless @postgres_available do
+    raise "CheckedCommand PostgreSQL test support is unavailable; expected one of: " <>
+            Enum.join(@postgres_helper_candidates, ", ")
+  end
+
+  @postgres_skip false
 
   defp fold do
     %{

@@ -297,10 +297,12 @@ pieces/assembly/checked-command/test` runs 43 finite Piece tests, including 17
 against real PostgreSQL for message duplicate refusal, distinct-identity
 revision races, ASK key bounds and self-approval refusal, Store response-loss/
 paused-transaction boundaries and checkpoint-independent full-history replay.
-In a copied consumer the SQL helper is outside the export closure, so those 17
-tagged PostgreSQL cases are skipped and the other 26 copied tests run; that copied
-suite does not replace the real PostgreSQL run. The selected Piece gate is
-still a selected check, not the full repository check. Tests and local
+The copied dependency closure includes `integration/sql` and its helper at
+`test/support/durable_log_postgres_test_helper.exs`; the CheckedCommand tests
+load that helper and run all 17 tagged PostgreSQL cases against the disposable
+consumer database. The per-ID consumer runs the CheckedCommand tests, not the
+dependency Piece's own tests. The selected Piece gate is still a selected
+check, not the full repository check. Tests and local
 PostgreSQL observations are finite evidence, not proofs of production
 durability, host identity, external effects or universally exactly-once
 behavior.
