@@ -70,7 +70,17 @@ defmodule Elzoo.CheckedCommandCopySupportTest do
   end
 
   defp run_child!(destination, script) do
-    paths = Path.wildcard(Path.join([@root, "_build", "test", "lib", "*", "ebin"]))
+    compiled_libs = Path.join([@root, "_build", "test", "lib"])
+
+    paths =
+      :code.get_path()
+      |> Enum.map(&List.to_string/1)
+      |> Enum.map(&Path.expand(&1, @root))
+      |> Enum.filter(fn path ->
+        Path.basename(path) == "ebin" and Path.dirname(Path.dirname(path)) == compiled_libs
+      end)
+      |> Enum.sort()
+
     args = Enum.flat_map(paths, &["-pa", &1]) ++ ["-e", script]
 
     {output, status} =
