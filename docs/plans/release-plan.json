@@ -7830,10 +7830,12 @@
     {
       "id": "integration/webhook-in",
       "job": "ELZ-257",
-      "note": "Planned first-party signed plain-text webhook ingress; host-vouched identity and listener/request lifetime remain host Needs.",
+      "note": "One Plug adapter for signed plain-text POST /elzoo/v1/messages: fixed source and route, raw-body HMAC-SHA-256 and ±300-second freshness; bounded 65,536-byte body and 15,000-ms returned-read budget; strict six-field JSON event, host-vouched principal with conversation resource grant, and exactly one admission Need call; fixed halted JSON outcomes, with malformed or exceptional admission outcomes unknown and no Run or delivery claim.",
       "baseline_status": "not in baseline (new row, ELZ-257)",
-      "disposition": "planned-contract",
-      "catalogue_reference": "registry/catalogue.json"
+      "disposition": "ready-contract",
+      "catalogue_reference": "registry/catalogue.json",
+      "manifest": "pieces/integration/webhook-in/piece.json",
+      "manifest_sha256": "44541c299f5679d119e12936728eae83138e65c13dd38050b3a087e5f26c9435"
     },
     {
       "id": "integration/identity",
