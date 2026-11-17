@@ -11,13 +11,22 @@ defmodule Elzoo.RunEngineTest.Work do
   end
 end
 
+defmodule Elzoo.RunEngineTest.ResultReadProbe do
+  def step(state, input) do
+    if parent = Process.whereis(:run_engine_result_read_probe),
+      do: send(parent, {:result_read_callback, :pattern})
+
+    Elzoo.RunEngine.TestPattern.step(state, input)
+  end
+end
+
 defmodule Elzoo.RunEngineTest do
   use ExUnit.Case, async: false
   import Elzoo.RunEngine.TestHelper
   alias Elzoo.{DurableUnit, DynamicUnits, PayloadSchema, RunEngine}
   alias Elzoo.EffectIntent.Binding
   alias Elzoo.RunEngine.{ChangedAccountBinding, TestBinding, TestPattern}
-  alias Elzoo.RunEngineTest.Work
+  alias Elzoo.RunEngineTest.{ResultReadProbe, Work}
   alias Elzoo.RunEngine.DocumentPublication
   alias Elzoo.RunApprovalRelease, as: Run
   alias Elzoo.DurableLog.PostgresHarness
@@ -10755,6 +10764,925 @@ defmodule Elzoo.RunEngineTest do
       engine = restart(c, engine, [])
       assert Process.alive?(engine)
       assert unit_state(c) == after_state
+    end
+  end
+
+  describe "read-only completed result" do
+    test "returns the first local-work settlement and remains unchanged across reads and restart" do
+      c = local_result_fixture()
+      parent = self()
+
+      bindings =
+        Map.update!(c.opts[:bindings], "local_work", fn binding ->
+          Map.put(binding, :work, fn action ->
+            {Work, :run, [parent, "result", action["payload"]]}
+          end)
+        end)
+
+      reader = reader_config(c)
+      true = Process.register(self(), :run_engine_result_read_probe)
+      pattern = {ResultReadProbe, :step, elem(c.opts[:pattern], 2)}
+
+      gate = %{
+        c.opts[:gate]
+        | call: fn _, _ ->
+            send(parent, {:result_read_callback, :gate})
+            :allow
+          end
+      }
+
+      clock = fn ->
+        send(parent, {:result_read_callback, :clock})
+        Agent.get(c.clock, & &1)
+      end
+
+      engine =
+        start(c,
+          bindings: bindings,
+          result_reader: reader,
+          pattern: pattern,
+          gate: gate,
+          clock: clock
+        )
+
+      assert {:ok, :applied} = send_input(engine)
+      assert wait_for(engine, &(&1.outcome == :completed)).outcome == :completed
+      assert_receive {:work_ran, "result", %{"value" => 7}}
+      assert_receive {:result_read_callback, :pattern}
+      assert_receive {:result_read_callback, :gate}
+      assert_receive {:result_read_callback, :clock}
+      clear_result_read_callbacks()
+
+      wait_for(engine, fn _ ->
+        match?({:ok, []}, Elzoo.Outbox.pending(c.store, c.prefix, 64)) and
+          match?({:ok, []}, Elzoo.Outbox.pending(c.evidence_store, "evidence", 64))
+      end)
+
+      {:ok, owner} = Run.status(c.run, "run")
+      before_rows = rows(c)
+      before_state = unit_state(c)
+      before_outbox = outbox_snapshot(c)
+      before_outbox_count = before_outbox.count
+      assert before_outbox_count > 0
+
+      expected = %{
+        run_id: "run",
+        attempt_id: "attempt",
+        operation_id: "operation",
+        action_id: "work",
+        schema_id: "result",
+        schema_version: 1,
+        payload: %{"value" => 7},
+        evidence_ref: owner.evidence_ref
+      }
+
+      with_result_callback_trace(engine, fn ->
+        assert {:ok, ^expected} = RunEngine.result(engine, result_scope(), result_limits())
+        assert {:ok, ^expected} = RunEngine.result(engine, result_scope(), result_limits())
+      end)
+
+      {:ok, status} = RunEngine.status(engine)
+      refute Map.has_key?(status, :payload)
+      assert rows(c) == before_rows
+      assert unit_state(c) == before_state
+      after_reads_outbox = outbox_snapshot(c)
+      assert after_reads_outbox.count == before_outbox_count
+      assert after_reads_outbox == before_outbox
+      refute_receive {:work_ran, _, _}
+
+      engine =
+        restart(c, engine,
+          bindings: bindings,
+          result_reader: reader,
+          pattern: pattern,
+          gate: gate,
+          clock: clock
+        )
+
+      clear_result_read_callbacks()
+
+      with_result_callback_trace(engine, fn ->
+        assert {:ok, ^expected} = RunEngine.result(engine, result_scope(), result_limits())
+      end)
+
+      wait_for(engine, fn _ ->
+        match?({:ok, []}, Elzoo.Outbox.pending(c.store, c.prefix, 64)) and
+          match?({:ok, []}, Elzoo.Outbox.pending(c.evidence_store, "evidence", 64))
+      end)
+
+      assert rows(c) == before_rows
+      assert unit_state(c) == before_state
+      after_restart_outbox = outbox_snapshot(c)
+      assert after_restart_outbox.count == before_outbox_count
+      assert after_restart_outbox == before_outbox
+      refute_receive {:work_ran, _, _}
+
+      {:ok, [evidence], _} =
+        Elzoo.DurableLog.read(c.evidence_store, "evidence", owner.evidence_ref.sequence, 1)
+
+      assert %{run_id: "run", attempt_id: "attempt", operation_id: "operation", action_id: "work"} =
+               :erlang.binary_to_term(evidence.payload, [:safe])
+    end
+
+    test "returns the accepted authenticated person answer after a finish references it" do
+      pattern =
+        {TestPattern, :step,
+         %{
+           requests: [
+             request([action("ask", "ask_person")]),
+             request([finish_action("finish", %{"action_id" => "ask"})])
+           ]
+         }}
+
+      c = fixture(pattern: pattern)
+
+      bindings =
+        Map.update!(c.opts[:bindings], "ask_person", &Map.put(&1, :result, {"message", 1}))
+
+      reader = reader_config(c)
+      engine = start(c, bindings: bindings, result_reader: reader)
+      assert {:ok, :applied} = send_input(engine)
+      assert wait_for(engine, &(&1.slots[{1, 0}].phase == :waiting)).slots[{1, 0}].phase == :waiting
+
+      answer = %{
+        "type" => "input",
+        "version" => 1,
+        "kind" => "person_answer",
+        "action_id" => "ask",
+        "person_id" => "person",
+        "schema_id" => "message",
+        "schema_version" => 1,
+        "payload" => %{"message" => "accepted answer"}
+      }
+
+      wrong_person = %{answer | "person_id" => "other"}
+
+      assert {:ok, :applied} =
+               RunEngine.input(
+                 engine,
+                 "wrong-person-answer",
+                 wrong_person,
+                 verified(%{occurrence: {1, 0}, verified_person: "other", actual: 0})
+               )
+
+      assert view(engine).slots[{1, 0}].phase == :waiting
+
+      assert {:ok, :applied} =
+               RunEngine.input(
+                 engine,
+                 "accepted-person-answer",
+                 answer,
+                 verified(%{occurrence: {1, 0}, verified_person: "person", actual: 0})
+               )
+
+      assert wait_for(engine, &(&1.outcome == :completed)).outcome == :completed
+      {:ok, owner} = Run.status(c.run, "run")
+
+      expected = %{
+        run_id: "run",
+        attempt_id: "attempt",
+        operation_id: "operation",
+        action_id: "ask",
+        schema_id: "message",
+        schema_version: 1,
+        payload: %{"message" => "accepted answer"},
+        evidence_ref: owner.evidence_ref
+      }
+
+      assert {:ok, ^expected} = RunEngine.result(engine, result_scope(), result_limits())
+      assert {:ok, ^expected} = RunEngine.result(engine, result_scope(), result_limits())
+
+      engine = restart(c, engine, bindings: bindings, pattern: pattern, result_reader: reader)
+      assert {:ok, ^expected} = RunEngine.result(engine, result_scope(), result_limits())
+
+      assert {:ok, :duplicate} =
+               RunEngine.input(
+                 engine,
+                 "accepted-person-answer",
+                 answer,
+                 verified(%{occurrence: {1, 0}, verified_person: "person", actual: 0})
+               )
+
+      late_answer = %{answer | "payload" => %{"message" => "late answer"}}
+
+      assert {:ok, :applied} =
+               RunEngine.input(
+                 engine,
+                 "late-person-answer",
+                 late_answer,
+                 verified(%{occurrence: {1, 0}, verified_person: "person", actual: 0})
+               )
+
+      assert {:ok, ^expected} = RunEngine.result(engine, result_scope(), result_limits())
+
+      {:ok, [evidence], _} =
+        Elzoo.DurableLog.read(c.evidence_store, "evidence", owner.evidence_ref.sequence, 1)
+
+      assert :erlang.binary_to_term(evidence.payload, [:safe]) == %{
+               run_id: "run",
+               attempt_id: "attempt",
+               operation_id: "operation",
+               action_id: "ask"
+             }
+    end
+
+    test "uses the accepted nested parent outcome with a real Memory Unit and PostgreSQL Run evidence" do
+      memory = memory_unit_store()
+
+      {c, bindings} =
+        nested_setup(
+          %{
+            "nested" => [
+              request([action("child-work")]),
+              request([finish_action("child-finish", %{"origin" => "first-child-finish"})])
+            ]
+          },
+          unit_store: memory,
+          pattern:
+            {TestPattern, :scripted,
+             %{
+               name: "root",
+               script: [
+                 request([action("nested", "nested_callable")]),
+                 request([finish_action("root-finish", %{"action_id" => "nested"})])
+               ]
+             }}
+        )
+
+      reader = reader_config(c)
+      engine = start(c, bindings: bindings, result_reader: reader)
+      assert {:ok, :applied} = send_input(engine)
+      assert wait_for(engine, &(&1.outcome == :completed)).outcome == :completed
+
+      wait_for(engine, fn _ ->
+        c.store
+        |> Elzoo.DurableLog.Memory.inspect_state()
+        |> Map.fetch!(:items)
+        |> Enum.all?(fn {_id, item} -> item.state == :acked end)
+      end)
+
+      before = Elzoo.DurableLog.Memory.inspect_state(c.store)
+
+      assert {:ok,
+              %{
+                run_id: "run",
+                attempt_id: "attempt",
+                operation_id: "operation",
+                action_id: "nested",
+                schema_id: "result",
+                schema_version: 1,
+                payload: %{"origin" => "first-child-finish"},
+                evidence_ref: %{stream: "evidence", sequence: sequence}
+              }} = RunEngine.result(engine, result_scope(), result_limits())
+
+      assert is_integer(sequence) and sequence > 0
+      assert Elzoo.DurableLog.Memory.inspect_state(c.store) == before
+    end
+
+    test "selects a second Run's candidate from the same Unit history" do
+      c = local_result_fixture(unit_store: memory_unit_store())
+      engine = run_local_to_completion(c, result_reader: reader_config(c))
+      GenServer.stop(engine, :normal, 60_000)
+      {:ok, ended} = Run.status(c.run, "run")
+
+      assert {:ok, revision, _} =
+               Run.command(c.run, %{
+                 kind: :create,
+                 run_id: "period-two",
+                 operation_id: "operation-two",
+                 provider_refs: %{},
+                 expected_revision: ended.revision
+               })
+
+      assert {:ok, _, _} =
+               Run.command(c.run, %{
+                 kind: :begin_attempt,
+                 run_id: "period-two",
+                 attempt_id: "third",
+                 expected_revision: revision
+               })
+
+      pattern =
+        {TestPattern, :step,
+         %{
+           requests: [
+             request([action("work", "local_work", %{"value" => 9})]),
+             request([finish_action("finish", %{"action_id" => "work"})])
+           ]
+         }}
+
+      engine =
+        start(c,
+          run_id: "period-two",
+          pattern: pattern,
+          result_reader: reader_config(c)
+        )
+
+      context = verified(%{run_id: "period-two", attempt_id: "third"})
+      assert {:ok, :applied} = RunEngine.input(engine, "period-two-input", start_input(), context)
+      assert wait_for(engine, &(&1.outcome == :completed)).outcome == :completed
+
+      assert {:ok,
+              %{
+                run_id: "period-two",
+                attempt_id: "third",
+                operation_id: "operation-two",
+                payload: %{"value" => 9}
+              }} = RunEngine.result(engine, result_scope("period-two"), result_limits())
+    end
+
+    test "accepts a referenced completion before later rows in the shared evidence stream" do
+      c = local_result_fixture(unit_store: memory_unit_store())
+
+      engine = run_local_to_completion(c, result_reader: reader_config(c))
+
+      event = %{
+        run_id: "later-run",
+        attempt_id: "later-attempt",
+        operation_id: "later-operation",
+        action_id: "later-action"
+      }
+
+      assert {:committed, 2} =
+               Elzoo.DurableLog.Writer.append(c.evidence, [
+                 {"completion", 1,
+                  :erlang.term_to_binary(event, [:deterministic, {:minor_version, 2}])}
+               ])
+
+      {:ok, [referenced], _} = Elzoo.DurableLog.read(c.evidence_store, "evidence", 1, 1)
+      unit_rows = rows(c)
+
+      limits = %{
+        max_records: length(unit_rows) + 1,
+        max_bytes:
+          Enum.reduce(unit_rows ++ [referenced], 0, fn row, bytes ->
+            bytes + :erlang.iolist_size(Elzoo.DurableLog.canonical_bytes(row))
+          end)
+      }
+
+      assert {:ok, %{payload: %{"value" => 7}, evidence_ref: %{sequence: 1}}} =
+               RunEngine.result(engine, result_scope(), limits)
+    end
+
+    test "refuses a selected completion whose recorded schema differs from its action binding" do
+      c = local_result_fixture(unit_store: memory_unit_store())
+      engine = run_local_to_completion(c, result_reader: reader_config(c))
+
+      row =
+        Enum.find(rows(c), fn row ->
+          case :erlang.binary_to_term(row.payload, [:safe]) do
+            {1,
+             {_id, %{kind: :protocol, input: %{"kind" => "action_outcome", "action_id" => "work"}}}} ->
+              true
+
+            _ ->
+              false
+          end
+        end)
+
+      {1, {id, record}} = :erlang.binary_to_term(row.payload, [:safe])
+      input = Map.merge(record.input, %{"schema_id" => "other-result", "schema_version" => 2})
+      record = %{record | input: input}
+      payload = :erlang.term_to_binary({1, {id, record}}, [:deterministic, {:minor_version, 2}])
+      mutated = %{row | payload: payload}
+      mutated = %{mutated | digest: Elzoo.DurableLog.digest(mutated)}
+
+      assert :ok =
+               Elzoo.DurableLog.Memory.corrupt(
+                 c.store,
+                 :records,
+                 {row.stream, row.sequence},
+                 %{payload: mutated.payload, digest: mutated.digest}
+               )
+
+      assert {:error, :completion_mismatch} =
+               RunEngine.result(engine, result_scope(), result_limits())
+    end
+
+    test "rejects a negative evidence low-water head" do
+      c = local_result_fixture(unit_store: memory_unit_store())
+      evidence_store = memory_evidence_store()
+
+      engine =
+        run_local_to_completion(c,
+          result_reader: %{evidence_store: evidence_store, retention_count: 1_024}
+        )
+
+      {:ok, owner} = Run.status(c.run, "run")
+
+      {:ok, [row], _} =
+        Elzoo.DurableLog.read(c.evidence_store, "evidence", owner.evidence_ref.sequence, 1)
+
+      assert {:committed, 1} =
+               Elzoo.DurableLog.Memory.append(evidence_store, "evidence", 0, [row], [])
+
+      assert {:ok, _} = RunEngine.result(engine, result_scope(), result_limits())
+
+      assert :ok =
+               Elzoo.DurableLog.Memory.corrupt(evidence_store, :heads, "evidence", %{
+                 low_water: -1
+               })
+
+      assert {:error, reason} = RunEngine.result(engine, result_scope(), result_limits())
+      assert reason in [:history, :unavailable]
+    end
+
+    test "rejects a mismatched scope before Run-owner and Store reads" do
+      c = local_result_fixture()
+      engine = run_local_to_completion(c, result_reader: reader_config(c))
+
+      :erlang.trace_pattern({Run, :status, 2}, true, [:global])
+      :erlang.trace_pattern({Elzoo.DurableLog, :read, 4}, true, [:global])
+      :erlang.trace(engine, true, [:call])
+
+      try do
+        for scope <- [
+              Map.put(result_scope(), :tenant, "other-tenant"),
+              Map.put(result_scope(), :principal, "other-principal"),
+              Map.put(result_scope(), :run_id, "other-run"),
+              Map.put(result_scope(), :extra, true)
+            ] do
+          assert {:error, :scope} = RunEngine.result(engine, scope, result_limits())
+          delivered = :erlang.trace_delivered(engine)
+          assert_receive {:trace_delivered, ^engine, ^delivered}, 5_000
+          refute_received {:trace, ^engine, :call, {Run, :status, _}}
+          refute_received {:trace, ^engine, :call, {Elzoo.DurableLog, :read, _}}
+        end
+      after
+        :erlang.trace(engine, false, [:call])
+        :erlang.trace_pattern({Run, :status, 2}, false, [:global])
+        :erlang.trace_pattern({Elzoo.DurableLog, :read, 4}, false, [:global])
+      end
+    end
+
+    test "enforces exact scope, limit, reader configuration, and shared exact budgets" do
+      c = local_result_fixture()
+      reader = reader_config(c)
+      engine = run_local_to_completion(c, result_reader: reader)
+      scope = result_scope()
+      limits = result_limits()
+
+      assert {:error, :scope} = RunEngine.result(engine, Map.put(scope, :extra, true), limits)
+
+      assert {:error, :invalid_limits} =
+               RunEngine.result(engine, scope, Map.put(limits, :extra, 1))
+
+      assert {:error, :invalid_limits} =
+               RunEngine.result(engine, scope, %{max_records: 0, max_bytes: 1})
+
+      for invalid <- [
+            %{max_records: 65_537, max_bytes: 1},
+            %{max_records: 1, max_bytes: 536_870_913},
+            %{max_records: "1", max_bytes: 1},
+            %{max_records: 1, max_bytes: 1.5}
+          ] do
+        assert {:error, :invalid_limits} = RunEngine.result(engine, scope, invalid)
+      end
+
+      assert {:ok, owner} = Run.status(c.run, "run")
+
+      {:ok, [evidence], _} =
+        Elzoo.DurableLog.read(
+          c.evidence_store,
+          "evidence",
+          owner.evidence_ref.sequence,
+          1
+        )
+
+      all_rows = rows(c) ++ [evidence]
+      record_count = length(all_rows)
+      byte_count = Enum.reduce(all_rows, 0, &(byte_size(Elzoo.DurableLog.canonical_bytes(&1)) + &2))
+
+      assert {:ok, _} =
+               RunEngine.result(engine, scope, %{max_records: record_count, max_bytes: byte_count})
+
+      assert {:error, :read_limit} =
+               RunEngine.result(engine, scope, %{
+                 max_records: record_count - 1,
+                 max_bytes: byte_count
+               })
+
+      assert {:error, :read_limit} =
+               RunEngine.result(engine, scope, %{
+                 max_records: record_count,
+                 max_bytes: byte_count - 1
+               })
+
+      assert {:ok, _} =
+               RunEngine.result(engine, scope, %{max_records: 65_536, max_bytes: 536_870_912})
+    end
+
+    test "preserves no-reader compatibility and rejects malformed reader options before Unit start" do
+      c = local_result_fixture()
+      engine = start(c)
+
+      assert {:error, :reader_unconfigured} =
+               RunEngine.result(engine, result_scope(), result_limits())
+
+      invalid_options = local_result_fixture()
+
+      for invalid <- [
+            %{evidence_store: invalid_options.evidence_store, retention_count: 0},
+            %{evidence_store: invalid_options.evidence_store},
+            %{evidence_store: nil, retention_count: 1},
+            %{evidence_store: invalid_options.evidence_store, retention_count: 1, extra: true}
+          ] do
+        assert {:error, :invalid_options_or_recovery} =
+                 RunEngine.start_link(Keyword.put(invalid_options.opts, :result_reader, invalid))
+
+        assert :not_found = DynamicUnits.find(invalid_options.directory, invalid_options.prefix)
+      end
+    end
+
+    test "returns payload-free pending, paused, ASK, and each noncompleted terminal status" do
+      c = fixture()
+      engine = start(c, result_reader: reader_config(c))
+
+      assert {:pending, :not_completed} =
+               RunEngine.result(engine, result_scope(), result_limits())
+
+      assert {:ok, :applied} =
+               RunEngine.control(
+                 engine,
+                 "pause-result",
+                 %{kind: :pause, pause_deadline: 50_000},
+                 verified()
+               )
+
+      assert {:pending, :not_completed} =
+               RunEngine.result(engine, result_scope(), result_limits())
+
+      ask =
+        fixture(
+          pattern: {TestPattern, :step, %{requests: [request([action("ask", "ask_person")])]}}
+        )
+
+      ask_engine = start(ask, result_reader: reader_config(ask))
+      assert {:ok, :applied} = send_input(ask_engine)
+      wait_for(ask_engine, &(&1.slots[{1, 0}].phase == :waiting))
+
+      assert {:pending, :not_completed} =
+               RunEngine.result(ask_engine, result_scope(), result_limits())
+
+      approval = local_result_fixture()
+      require_approval(approval)
+
+      bindings =
+        Map.update!(approval.opts[:bindings], "local_work", &%{&1 | effect_class: "publish"})
+
+      approval_engine =
+        start(approval, bindings: bindings, result_reader: reader_config(approval))
+
+      assert {:ok, :applied} = send_input(approval_engine)
+      wait_for(approval_engine, &(&1.slots[{1, 0}].phase == :approval))
+
+      assert {:pending, :not_completed} =
+               RunEngine.result(approval_engine, result_scope(), result_limits())
+
+      for outcome <- [:failed, :cancelled, :out_of_budget, :out_of_time] do
+        terminal = fixture()
+        terminal_engine = start(terminal, result_reader: reader_config(terminal))
+        {:ok, owner} = Run.status(terminal.run, "run")
+
+        assert {:ok, _, _} =
+                 Run.command(terminal.run, %{
+                   kind: :complete,
+                   run_id: "run",
+                   attempt_id: "attempt",
+                   outcome: outcome,
+                   reason: "engine",
+                   evidence_ref: nil,
+                   expected_revision: owner.revision
+                 })
+
+        assert {:terminal, ^outcome} =
+                 RunEngine.result(terminal_engine, result_scope(), result_limits())
+      end
+    end
+
+    test "later wrong-scope, wrong-schema, duplicate and late records cannot replace the first settlement" do
+      c = local_result_fixture()
+      engine = run_local_to_completion(c, result_reader: reader_config(c))
+      {:ok, unit} = DynamicUnits.find(c.directory, c.prefix)
+      key = unit_state(c).control.completion
+
+      for {id, run_id, schema_id, version, payload} <- [
+            {"later-scope", "other-run", "result", 1, %{"value" => "wrong-scope"}},
+            {"later-schema", "run", "wrong-schema", 2, %{"value" => "wrong-schema"}},
+            {"later-duplicate", "run", "result", 1, %{"value" => "duplicate"}},
+            {"later-late", "run", "result", 1, %{"value" => "late"}}
+          ] do
+        record = %{
+          version: 1,
+          kind: :protocol,
+          id: id,
+          run_id: run_id,
+          attempt_id: "attempt",
+          input: %{
+            "type" => "input",
+            "version" => 1,
+            "kind" => "action_outcome",
+            "action_id" => "work",
+            "outcome" => "completed",
+            "schema_id" => schema_id,
+            "schema_version" => version,
+            "payload" => payload,
+            "at_ms" => 2_000
+          },
+          correlation: %{occurrence: key},
+          context: %{}
+        }
+
+        assert {:ok, :applied} = DurableUnit.step(unit, id, record)
+      end
+
+      assert {:ok,
+              %{
+                action_id: "work",
+                schema_id: "result",
+                schema_version: 1,
+                payload: %{"value" => 7}
+              }} = RunEngine.result(engine, result_scope(), result_limits())
+    end
+
+    test "fails closed on pruned, gapped, wrong-stream, corrupt, version-invalid and over-record history" do
+      c = local_result_fixture(unit_store: memory_unit_store())
+      engine = run_local_to_completion(c, result_reader: reader_config(c))
+      row = hd(rows(c))
+      key = {c.prefix, row.sequence}
+      memory = Elzoo.DurableLog.Memory
+
+      assert :ok = memory.corrupt(c.store, :records, key, %{digest: <<0::256>>})
+      assert {:error, :history} = RunEngine.result(engine, result_scope(), result_limits())
+      assert :ok = memory.corrupt(c.store, :records, key, %{digest: row.digest})
+
+      assert :ok = memory.corrupt(c.store, :records, key, %{stream: "wrong-stream"})
+      assert {:error, :history} = RunEngine.result(engine, result_scope(), result_limits())
+      assert :ok = memory.corrupt(c.store, :records, key, %{stream: row.stream})
+
+      versioned = %{row | schema_version: 2}
+      versioned = %{versioned | digest: Elzoo.DurableLog.digest(versioned)}
+
+      assert :ok =
+               memory.corrupt(c.store, :records, key, %{
+                 schema_version: versioned.schema_version,
+                 digest: versioned.digest
+               })
+
+      assert {:error, :history} = RunEngine.result(engine, result_scope(), result_limits())
+
+      assert :ok =
+               memory.corrupt(c.store, :records, key, %{
+                 schema_version: row.schema_version,
+                 digest: row.digest
+               })
+
+      gapped = %{row | sequence: row.sequence + 1}
+      gapped = %{gapped | digest: Elzoo.DurableLog.digest(gapped)}
+
+      assert :ok =
+               memory.corrupt(c.store, :records, key, %{
+                 sequence: gapped.sequence,
+                 digest: gapped.digest
+               })
+
+      assert {:error, :history} = RunEngine.result(engine, result_scope(), result_limits())
+
+      assert :ok =
+               memory.corrupt(c.store, :records, key, %{
+                 sequence: row.sequence,
+                 digest: row.digest
+               })
+
+      heads = memory.inspect_state(c.store).heads
+      low_water = heads[c.prefix].low_water
+      assert :ok = memory.corrupt(c.store, :heads, c.prefix, %{low_water: 1})
+      assert {:error, :history} = RunEngine.result(engine, result_scope(), result_limits())
+      assert :ok = memory.corrupt(c.store, :heads, c.prefix, %{low_water: low_water})
+
+      oversized = %{row | payload: :binary.copy(<<0>>, 16_777_217)}
+      oversized = %{oversized | digest: Elzoo.DurableLog.digest(oversized)}
+
+      assert :ok =
+               memory.corrupt(c.store, :records, key, %{
+                 payload: oversized.payload,
+                 digest: oversized.digest
+               })
+
+      assert {:error, :history} = RunEngine.result(engine, result_scope(), result_limits())
+    end
+
+    test "maps unavailable and malformed Store reads to bounded errors" do
+      c = local_result_fixture(unit_store: memory_unit_store())
+      engine = run_local_to_completion(c, result_reader: reader_config(c))
+
+      :ok = Elzoo.DurableLog.Memory.fault(c.store, :read, :unavailable)
+      assert {:error, :unavailable} = RunEngine.result(engine, result_scope(), result_limits())
+
+      :ok = Elzoo.DurableLog.Memory.fault(c.store, :read, :malformed)
+      assert {:error, :unavailable} = RunEngine.result(engine, result_scope(), result_limits())
+
+      :ok = Elzoo.DurableLog.Memory.fault(c.store, :read, :reply_loss)
+      assert {:error, :unavailable} = RunEngine.result(engine, result_scope(), result_limits())
+    end
+
+    test "refuses an unpaired committed tail" do
+      c = local_result_fixture(unit_store: memory_unit_store())
+      engine = run_local_to_completion(c, result_reader: reader_config(c))
+
+      writer_opts = [
+        store: c.store,
+        stream: c.prefix,
+        fold: DurableUnit.fold(c.unit_opts),
+        limits: DurableUnit.limits(c.unit_opts)
+      ]
+
+      {:ok, writer} = Elzoo.DurableLog.Writer.start_link(writer_opts)
+
+      payload =
+        :erlang.term_to_binary(
+          {1, {"unpaired-tail", %{version: 1, kind: :unknown_history}}},
+          [:deterministic, {:minor_version, 2}]
+        )
+
+      assert {:committed, _} =
+               Elzoo.DurableLog.Writer.append(writer, [{"input", 1, payload}])
+
+      GenServer.stop(writer)
+      assert {:error, :history} = RunEngine.result(engine, result_scope(), result_limits())
+    end
+
+    test "refuses an exposed staged row without using it as a result" do
+      c = local_result_fixture(unit_store: memory_unit_store())
+      engine = run_local_to_completion(c, result_reader: reader_config(c))
+      last = List.last(rows(c))
+
+      staged = %{
+        last
+        | sequence: last.sequence + 1,
+          nonce: :crypto.strong_rand_bytes(16),
+          payload: "staged-result-must-not-be-read"
+      }
+
+      staged = %{staged | digest: Elzoo.DurableLog.digest(staged)}
+      :ok = Elzoo.DurableLog.Memory.fault(c.store, :append, :stage)
+
+      assert {:indeterminate, _} =
+               Elzoo.DurableLog.Memory.append(c.store, c.prefix, last.sequence, [staged], [])
+
+      assert {:error, :history} = RunEngine.result(engine, result_scope(), result_limits())
+    end
+
+    test "does not return a result when the referenced completion evidence disagrees" do
+      evidence_store = memory_evidence_store()
+      c = local_result_fixture()
+      engine = start(c, result_reader: %{evidence_store: evidence_store, retention_count: 1_024})
+      assert {:ok, :applied} = send_input(engine)
+      assert wait_for(engine, &(&1.outcome == :completed)).outcome == :completed
+
+      {:ok, owner} = Run.status(c.run, "run")
+
+      {:ok, [row], _} =
+        Elzoo.DurableLog.read(
+          c.evidence_store,
+          "evidence",
+          owner.evidence_ref.sequence,
+          1
+        )
+
+      event = :erlang.binary_to_term(row.payload, [:safe])
+      bad_event = %{event | action_id: "different-action"}
+
+      bad_row = %{
+        row
+        | payload: :erlang.term_to_binary(bad_event, [:deterministic, {:minor_version, 2}])
+      }
+
+      bad_row = %{bad_row | digest: Elzoo.DurableLog.digest(bad_row)}
+
+      assert {:committed, _} =
+               Elzoo.DurableLog.Memory.append(evidence_store, "evidence", 0, [bad_row], [])
+
+      assert {:error, :completion_mismatch} =
+               RunEngine.result(engine, result_scope(), result_limits())
+    end
+  end
+
+  defp outbox_snapshot(c) do
+    schema = Elzoo.DurableLog.Postgres.identifier(c.prefix)
+
+    result =
+      Ecto.Adapters.SQL.query!(
+        Elzoo.RunEngine.TestRepo,
+        "SELECT stream, sequence, position, destination, payload, nonce, digest, state, ack_nonce, ack_digest FROM #{schema}.elzoo_outbox ORDER BY stream, sequence, position",
+        [],
+        log: false
+      )
+
+    %{count: result.num_rows, rows: result.rows}
+  end
+
+  defp local_result_fixture(overrides \\ []) do
+    pattern =
+      {TestPattern, :step,
+       %{
+         requests: [
+           request([action("work")]),
+           request([finish_action("finish", %{"action_id" => "work"})])
+         ]
+       }}
+
+    fixture(Keyword.put(overrides, :pattern, pattern))
+  end
+
+  defp run_local_to_completion(c, overrides) do
+    engine = start(c, overrides)
+    assert {:ok, :applied} = send_input(engine)
+    assert wait_for(engine, &(&1.outcome == :completed)).outcome == :completed
+    engine
+  end
+
+  defp reader_config(c), do: %{evidence_store: c.evidence_store, retention_count: 1_024}
+
+  defp result_scope(run_id \\ "run"),
+    do: %{tenant: "tenant", principal: "principal", run_id: run_id}
+
+  defp result_limits,
+    do: %{max_records: 65_536, max_bytes: 536_870_912}
+
+  defp memory_unit_store do
+    unit_opts = [
+      operator: {RunEngine, :step, %{version: 1, control: nil, slots: %{}, requests: %{}}},
+      retention_count: 1_024,
+      max_record_bytes: 16_777_216,
+      max_checkpoint_bytes: 33_554_432
+    ]
+
+    pid =
+      start_supervised!(%{
+        id: make_ref(),
+        start:
+          {Elzoo.DurableLog.Memory, :start_link,
+           [[fold: DurableUnit.fold(unit_opts), limits: DurableUnit.limits(unit_opts)]]}
+      })
+
+    Elzoo.DurableLog.Memory.store(pid)
+  end
+
+  defp memory_evidence_store do
+    fold = %{
+      initial: nil,
+      kinds: %{"completion" => :state_bearing},
+      versions: [1],
+      destinations: [],
+      reduce: fn _, _, _, bytes -> bytes end
+    }
+
+    limits = %{
+      max_record_bytes: 131_072,
+      max_batch_size: 1,
+      max_checkpoint_bytes: 1_048_576
+    }
+
+    pid =
+      start_supervised!(%{
+        id: make_ref(),
+        start: {Elzoo.DurableLog.Memory, :start_link, [[fold: fold, limits: limits]]}
+      })
+
+    Elzoo.DurableLog.Memory.store(pid)
+  end
+
+  defp clear_result_read_callbacks do
+    receive do
+      {:result_read_callback, _} -> clear_result_read_callbacks()
+    after
+      0 -> :ok
+    end
+  end
+
+  defp with_result_callback_trace(engine, fun) do
+    traced = [
+      {PayloadSchema, :check, 3},
+      {ResultReadProbe, :step, 2},
+      {TestPattern, :step, 2}
+    ]
+
+    Enum.each(traced, &:erlang.trace_pattern(&1, true, [:global]))
+    :erlang.trace(engine, true, [:call])
+
+    try do
+      fun.()
+
+      ref = :erlang.trace_delivered(engine)
+      assert_receive {:trace_delivered, ^engine, ^ref}, 1_000
+      refute_receive {:trace, ^engine, :call, {PayloadSchema, :check, _}}, 0
+      refute_receive {:trace, ^engine, :call, {ResultReadProbe, :step, _}}, 0
+      refute_receive {:trace, ^engine, :call, {TestPattern, :step, _}}, 0
+      refute_receive {:result_read_callback, _}, 0
+    after
+      :erlang.trace(engine, false, [:call])
+      Enum.each(traced, &:erlang.trace_pattern(&1, false, [:global]))
     end
   end
 end
