@@ -11568,6 +11568,271 @@ defmodule Elzoo.RunEngineTest do
     end
   end
 
+  describe "native outbox acknowledgement reconciliation" do
+    test "confirms the original canonical identity after committed reply loss and reopens a completed result" do
+      c = local_result_fixture()
+      parent = self()
+      bindings = counted_local_work(c.opts[:bindings], parent, "native-ack")
+      store = ack_observer_store(c, parent)
+      reader = reader_config(c)
+      overrides = [store: store, bindings: bindings, result_reader: reader]
+      engine = start(c, overrides)
+      clear_ack_trace()
+
+      PostgresHarness.hook(c.store, :inject, [:ack, :reply_loss])
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:work_ran, "native-ack", %{"value" => 7}}, 1_000
+      assert_receive {:native_ack_request, %{extra: key, nonce: nonce} = request}, 1_000
+      assert_receive :native_ack_confirmation, 1_000
+      assert Elzoo.DurableLog.Codec.receipt_valid?(request)
+      assert {:committed, _} = Elzoo.DurableLog.confirm_ack(c.store, request)
+
+      view =
+        wait_for(engine, fn view ->
+          view.outcome == :completed and is_nil(view.reconciliation) and
+            match?({:ok, []}, Elzoo.Outbox.pending(c.store, c.prefix, 64))
+        end)
+
+      assert view.phase == :terminal
+      assert Process.alive?(engine)
+
+      assert {:ok, %{state: :acked, ack_nonce: ^nonce}} =
+               Elzoo.DurableLog.Store.read(c.store, :read_ack, [key])
+
+      {:ok, owner} = Run.status(c.run, "run")
+
+      expected = %{
+        run_id: "run",
+        attempt_id: "attempt",
+        operation_id: "operation",
+        action_id: "work",
+        schema_id: "result",
+        schema_version: 1,
+        payload: %{"value" => 7},
+        evidence_ref: owner.evidence_ref
+      }
+
+      assert {:ok, ^expected} = RunEngine.result(engine, result_scope(), result_limits())
+      normal = local_result_fixture()
+      run_local_to_completion(normal, [])
+      assert budgets(c) == budgets(normal)
+      assert length(rows(c)) == length(rows(normal))
+
+      before_rows = rows(c)
+      before_unit = unit_state(c)
+      before_budgets = budgets(c)
+      before_outbox = outbox_snapshot(c)
+      assert {:ok, []} = Elzoo.Outbox.pending(c.store, c.prefix, 64)
+      assert Task.Supervisor.children(c.task_supervisor) == []
+
+      GenServer.stop(engine)
+      assert :ok = DynamicUnits.stop(c.directory, c.prefix)
+      GenServer.stop(c.run)
+      PostgresHarness.hook(c.store, :reopen, [])
+
+      {:held, held} = Elzoo.Lease.hold(c.lease, c.held.live.key, c.held.owner)
+
+      {:ok, run} =
+        Run.start_link(
+          store: c.run_store,
+          lease: c.lease,
+          held: held,
+          effect_intent: c.opts[:effect_intent]
+        )
+
+      Process.unlink(run)
+      ExUnit.Callbacks.on_exit(fn -> if Process.alive?(run), do: GenServer.stop(run) end)
+      c = %{c | run: run, held: held, opts: Keyword.put(c.opts, :run_owner, run)}
+      Agent.update(c.host_mode, fn _ -> :recover end)
+      engine = start(c, overrides)
+
+      assert {:ok, ^expected} = RunEngine.result(engine, result_scope(), result_limits())
+      {:ok, reopened_owner} = Run.status(run, "run")
+      assert reopened_owner.id == owner.id
+      assert reopened_owner.revision == owner.revision
+      assert reopened_owner.current_attempt == owner.current_attempt
+      assert reopened_owner.evidence_ref == owner.evidence_ref
+      assert rows(c) == before_rows
+      assert unit_state(c) == before_unit
+      assert budgets(c) == before_budgets
+      assert outbox_snapshot(c) == before_outbox
+      assert {:ok, []} = Elzoo.Outbox.pending(c.store, c.prefix, 64)
+      refute_receive {:work_ran, _, _}, 0
+    end
+
+    test "keeps noncommitted and unreadable acknowledgements halted without another offer or charge" do
+      for {ack_mode, read_mode, state} <- [
+            {:rollback, nil, :pending},
+            {:reply_loss, :unavailable, :acked}
+          ] do
+        c = local_result_fixture()
+        parent = self()
+        bindings = counted_local_work(c.opts[:bindings], parent, "unknown-ack")
+        store = ack_observer_store(c, parent)
+        engine = start(c, store: store, bindings: bindings)
+        clear_ack_trace()
+
+        PostgresHarness.hook(c.store, :inject, [:ack, ack_mode])
+        if read_mode, do: PostgresHarness.hook(c.store, :inject, [:read_ack, read_mode])
+
+        assert {:ok, :applied} = send_input(engine)
+        assert_receive {:work_ran, "unknown-ack", %{"value" => 7}}, 1_000
+        assert_receive {:native_ack_request, %{extra: key, nonce: nonce}}, 1_000
+        assert_receive :native_ack_confirmation, 1_000
+
+        view = wait_for(engine, &(&1.reconciliation == :ack_unknown))
+        assert is_nil(view.outcome)
+        assert Process.alive?(engine)
+
+        assert {:ok, %{state: ^state, ack_nonce: ack_nonce}} =
+                 Elzoo.DurableLog.Store.read(c.store, :read_ack, [key])
+
+        if state == :acked do
+          assert ack_nonce == nonce
+          {:ok, pending} = Elzoo.Outbox.pending(c.store, c.prefix, 64)
+          refute Enum.any?(pending, &(&1.idempotency_key == key))
+        else
+          assert is_nil(ack_nonce)
+        end
+
+        before_rows = rows(c)
+        before_unit = unit_state(c)
+        before_budgets = budgets(c)
+        before_outbox = outbox_snapshot(c)
+
+        if state == :pending do
+          {:ok, pending} = Elzoo.Outbox.pending(c.store, c.prefix, 64)
+          item = Enum.find(pending, &(&1.idempotency_key == key))
+          assert item
+          item = struct(Elzoo.Outbox.Item, item)
+          send(engine, item)
+        end
+
+        assert {:error, :ack_unknown} =
+                 RunEngine.input(engine, "after-unknown", wake(), verified())
+
+        :sys.get_state(engine)
+        refute_receive {:native_ack_request, _}, 0
+        assert rows(c) == before_rows
+        assert unit_state(c) == before_unit
+        assert budgets(c) == before_budgets
+        assert outbox_snapshot(c) == before_outbox
+        refute_receive {:work_ran, _, _}, 0
+      end
+    end
+
+    test "keeps malformed confirmation evidence unknown after a committed acknowledgement" do
+      c = local_result_fixture()
+      parent = self()
+      gate = start_supervised!({Agent, fn -> true end}, id: make_ref())
+      bindings = counted_local_work(c.opts[:bindings], parent, "malformed-ack")
+      store = gated_ack_read_store(c, parent, gate)
+      engine = start(c, store: store, bindings: bindings)
+      clear_ack_trace()
+
+      PostgresHarness.hook(c.store, :inject, [:ack, :reply_loss])
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:work_ran, "malformed-ack", %{"value" => 7}}, 1_000
+      assert_receive {:native_ack_request, %{extra: key, nonce: nonce} = request}, 1_000
+      assert Elzoo.DurableLog.Codec.receipt_valid?(request)
+      assert_receive {:native_ack_confirmation_wait, reader}, 1_000
+
+      assert {:ok, %{state: :acked, ack_nonce: ^nonce}} =
+               Elzoo.DurableLog.Store.read(c.store, :read_ack, [key])
+
+      assert {:ok, {stream, sequence, position}} = Elzoo.Outbox.parse_id(key)
+      schema = Elzoo.DurableLog.Postgres.identifier(c.prefix)
+      bad_digest = :binary.copy(<<0>>, 32)
+      refute bad_digest == request.digest
+
+      assert %{num_rows: 1} =
+               Ecto.Adapters.SQL.query!(
+                 Elzoo.RunEngine.TestRepo,
+                 "UPDATE #{schema}.elzoo_outbox SET ack_digest = $1 WHERE stream = $2 AND sequence = $3 AND position = $4",
+                 [bad_digest, stream, sequence, position],
+                 log: false
+               )
+
+      send(reader, :native_ack_continue)
+      assert_receive {:native_ack_confirmation_continued, ^reader}, 1_000
+      view = wait_for(engine, &(&1.reconciliation == :ack_unknown))
+      assert is_nil(view.outcome)
+      assert Process.alive?(engine)
+      assert {:unknown, :malformed} = Elzoo.DurableLog.confirm_ack(c.store, request)
+      assert {:ok, []} = Elzoo.Outbox.pending(c.store, c.prefix, 64)
+
+      before_rows = rows(c)
+      before_unit = unit_state(c)
+      before_budgets = budgets(c)
+      before_outbox = outbox_snapshot(c)
+
+      assert {:error, :ack_unknown} =
+               RunEngine.input(engine, "after-malformed", wake(), verified())
+
+      :sys.get_state(engine)
+      refute_receive {:native_ack_request, _}, 0
+      assert rows(c) == before_rows
+      assert unit_state(c) == before_unit
+      assert budgets(c) == before_budgets
+      assert outbox_snapshot(c) == before_outbox
+      refute_receive {:work_ran, _, _}, 0
+    end
+
+    test "does not treat a different winning nonce as confirmation of the original ack" do
+      c = local_result_fixture()
+      parent = self()
+      gate = start_supervised!({Agent, fn -> false end}, id: make_ref())
+      bindings = counted_local_work(c.opts[:bindings], parent, "superseded-ack")
+      store = gated_ack_read_store(c, parent, gate)
+      engine = start(c, store: store, bindings: bindings)
+      clear_ack_trace()
+      PostgresHarness.hook(c.store, :inject, [:ack, {:pause, :superseded_ack}])
+      Agent.update(gate, fn _ -> true end)
+
+      assert {:ok, :applied} = send_input(engine)
+      assert_receive {:work_ran, "superseded-ack", %{"value" => 7}}, 1_000
+      assert_receive {:native_ack_request, %{extra: key, nonce: nonce} = request}, 1_000
+      assert_receive {:native_ack_confirmation_wait, reader}, 1_000
+
+      {:ok, pending} = Elzoo.Outbox.pending(c.store, c.prefix, 64)
+      item = Enum.find(pending, &(&1.idempotency_key == key))
+      assert item
+      item = struct(Elzoo.Outbox.Item, item)
+
+      PostgresHarness.hook(c.store, :rollback, [:superseded_ack])
+      winner_nonce = :crypto.strong_rand_bytes(16)
+      refute winner_nonce == nonce
+      assert {:committed, _} = Elzoo.Outbox.ack(c.store, key, winner_nonce)
+      send(reader, :native_ack_continue)
+      assert_receive {:native_ack_confirmation_continued, ^reader}, 1_000
+
+      view = wait_for(engine, &(&1.reconciliation == :ack_unknown))
+      assert is_nil(view.outcome)
+      assert Process.alive?(engine)
+      assert :superseded = Elzoo.DurableLog.confirm_ack(c.store, request)
+
+      assert {:ok, %{state: :acked, ack_nonce: ^winner_nonce}} =
+               Elzoo.DurableLog.Store.read(c.store, :read_ack, [key])
+
+      before_rows = rows(c)
+      before_unit = unit_state(c)
+      before_budgets = budgets(c)
+      before_outbox = outbox_snapshot(c)
+      send(engine, item)
+
+      assert {:error, :ack_unknown} =
+               RunEngine.input(engine, "after-superseded", wake(), verified())
+
+      :sys.get_state(engine)
+      refute_receive {:native_ack_request, _}, 0
+      assert rows(c) == before_rows
+      assert unit_state(c) == before_unit
+      assert budgets(c) == before_budgets
+      assert outbox_snapshot(c) == before_outbox
+      refute_receive {:work_ran, _, _}, 0
+    end
+  end
+
   defp outbox_snapshot(c) do
     schema = Elzoo.DurableLog.Postgres.identifier(c.prefix)
 
@@ -11580,6 +11845,68 @@ defmodule Elzoo.RunEngineTest do
       )
 
     %{count: result.num_rows, rows: result.rows}
+  end
+
+  defp counted_local_work(bindings, parent, label) do
+    Map.update!(bindings, "local_work", fn binding ->
+      Map.put(binding, :work, fn action -> {Work, :run, [parent, label, action["payload"]]} end)
+    end)
+  end
+
+  defp ack_observer_store(c, parent) do
+    {module, config} = c.store
+
+    {module,
+     %{
+       config
+       | test_dispatch: fn op, request, run ->
+           if op == :ack, do: send(parent, {:native_ack_request, request})
+           config.test_dispatch.(op, request, run)
+         end,
+         test_read: fn op ->
+           if op == :read_ack, do: send(parent, :native_ack_confirmation)
+           config.test_read.(op)
+         end
+     }}
+  end
+
+  defp gated_ack_read_store(c, parent, gate) do
+    {module, config} = c.store
+
+    {module,
+     %{
+       config
+       | test_dispatch: fn op, request, run ->
+           if op == :ack, do: send(parent, {:native_ack_request, request})
+           config.test_dispatch.(op, request, run)
+         end,
+         test_read: fn op ->
+           if op == :read_ack and Agent.get(gate, & &1) do
+             Agent.update(gate, fn _ -> false end)
+             send(parent, {:native_ack_confirmation_wait, self()})
+
+             receive do
+               :native_ack_continue ->
+                 send(parent, {:native_ack_confirmation_continued, self()})
+                 :ok
+             after
+               5_000 -> raise "native ack confirmation barrier timed out"
+             end
+           end
+
+           config.test_read.(op)
+         end
+     }}
+  end
+
+  defp clear_ack_trace do
+    receive do
+      {:native_ack_request, _} -> clear_ack_trace()
+      :native_ack_confirmation -> clear_ack_trace()
+      {:native_ack_confirmation_wait, _} -> clear_ack_trace()
+    after
+      0 -> :ok
+    end
   end
 
   defp local_result_fixture(overrides \\ []) do
