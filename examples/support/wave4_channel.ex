@@ -34,6 +34,8 @@ defmodule Elzoo.Wave4ChannelExample do
 
   @impl true
   def init(opts) do
+    Process.flag(:trap_exit, true)
+
     with {:ok, profile} <- profile(Keyword.fetch!(opts, :profile)),
          {:ok, target} <- select_target(profile, Keyword.fetch!(opts, :bindings)),
          handles when is_map(handles) <- Keyword.fetch!(opts, :handles),
@@ -57,8 +59,11 @@ defmodule Elzoo.Wave4ChannelExample do
          current: nil,
          approval: nil,
          engine: nil,
+         engine_ref: nil,
          async_work: nil,
+         async_work_ref: nil,
          writer: nil,
+         writer_ref: nil,
          poison: nil,
          completed: %{}
        }}
@@ -88,6 +93,17 @@ defmodule Elzoo.Wave4ChannelExample do
   def handle_call({:view, trusted_scope}, _from, state) do
     {:reply, read_view(state, trusted_scope), state}
   end
+
+  @impl true
+  def handle_info({:DOWN, reference, :process, pid, reason}, state) do
+    contain_native_exit(state, pid, reference, reason)
+  end
+
+  def handle_info({:EXIT, pid, reason}, state) do
+    contain_native_exit(state, pid, nil, reason)
+  end
+
+  def handle_info(_, state), do: {:noreply, state}
 
   @impl true
   def terminate(_reason, state) do
@@ -443,22 +459,33 @@ defmodule Elzoo.Wave4ChannelExample do
           item ->
             with {:ok, event, operation_id, resource_revision} <-
                    recover_input(state, item),
-                 {:ok, input, text} <- input_from_resource(state, event, resource_revision) do
-              current = %{
-                event: event,
-                input_id: input,
-                text: text,
-                operation_id: operation_id,
-                run_id: run_id(event, operation_id, state),
-                resource_revision: resource_revision,
-                item: %{key: item.idempotency_key, nonce: item.nonce, sequence: item.sequence},
-                association_operation: association_operation(operation_id, input, state.profile),
-                answer_operation: answer_operation(operation_id, input, state.profile),
-                answer: nil,
-                terminal: nil
-              }
-
-              {{:observed, input}, %{state | current: current, phase: :association}}
+                 {:ok, input, text, snapshot, conversation} <-
+                   input_from_resource(state, event, resource_revision),
+                 {:ok, phase, current} <-
+                   retained_phase(
+                     state,
+                     %{
+                       event: event,
+                       input_id: input,
+                       text: text,
+                       operation_id: operation_id,
+                       run_id: run_id(event, operation_id, state),
+                       resource_revision: resource_revision,
+                       item: %{
+                         key: item.idempotency_key,
+                         nonce: item.nonce,
+                         sequence: item.sequence
+                       },
+                       association_operation:
+                         association_operation(operation_id, input, state.profile),
+                       answer_operation: answer_operation(operation_id, input, state.profile),
+                       answer: nil,
+                       terminal: nil
+                     },
+                     snapshot,
+                     conversation
+                   ) do
+              {{:observed, input}, %{state | current: current, phase: phase}}
             else
               _ ->
                 {{:unknown, :input_observation}, %{state | poison: {:input_observation, :unknown}}}
@@ -525,10 +552,85 @@ defmodule Elzoo.Wave4ChannelExample do
          %{message_id: id, role: "source", text: text} <-
            Enum.find(view.messages, &(&1.message_id == event.input_id)),
          true <- snapshot.revision >= revision do
-      {:ok, id, text}
+      {:ok, id, text, snapshot, view}
     else
       _ -> {:error, :unavailable}
     end
+  end
+
+  defp retained_phase(state, current, snapshot, conversation) do
+    identity = {state.profile.tenant, state.profile.actor, current.association_operation}
+
+    case CheckedCommand.result(state.handles.association, result_scope(state.profile), identity) do
+      {:unknown, :not_observed} ->
+        {:ok, :association, current}
+
+      {:completed, %{revision: revision, response: response}}
+      when revision == current.resource_revision + 1 ->
+        associated? =
+          Enum.any?(conversation.associations, fn association ->
+            Map.get(association, :input_message_id) == current.input_id and
+              Map.get(association, :run_id) == current.run_id
+          end)
+
+        if association_receipt?(response, current.input_id, current.run_id) and associated? do
+          retained_answer_phase(state, current, snapshot, conversation)
+        else
+          {:error, :association}
+        end
+
+      _ ->
+        {:error, :association}
+    end
+  rescue
+    _ -> {:error, :association}
+  catch
+    _, _ -> {:error, :association}
+  end
+
+  defp retained_answer_phase(state, current, snapshot, conversation) do
+    identity = {state.profile.tenant, state.profile.actor, current.answer_operation}
+
+    case CheckedCommand.result(state.handles.answer, result_scope(state.profile), identity) do
+      {:unknown, :not_observed} ->
+        {:ok, :create_run, current}
+
+      {:completed, %{revision: revision, response: response}}
+      when revision == current.resource_revision + 2 and
+             snapshot.revision >= current.resource_revision + 2 ->
+        message_id = answer_id(current.input_id)
+        expected_operation = native_operation(current.run_id, state)
+
+        valid_run? =
+          case RunApprovalRelease.status(state.native.run_owner, current.run_id) do
+            {:ok,
+             %{operation_id: ^expected_operation, current_attempt: attempt, outcome: :completed}} ->
+              attempt == attempt_id(current.run_id, state)
+
+            _ ->
+              false
+          end
+
+        case Enum.find(conversation.messages, &(&1.message_id == message_id)) do
+          %{role: "assistant", text: text} when valid_run? ->
+            if answer_receipt?(response, current.input_id, current.run_id, message_id) and
+                 valid_answer_payload?(%{"answer" => text}) do
+              {:ok, :ack, %{current | answer: text}}
+            else
+              {:error, :answer}
+            end
+
+          _ ->
+            {:error, :answer}
+        end
+
+      _ ->
+        {:error, :answer}
+    end
+  rescue
+    _ -> {:error, :answer}
+  catch
+    _, _ -> {:error, :answer}
   end
 
   defp associate(state) do
@@ -593,19 +695,58 @@ defmodule Elzoo.Wave4ChannelExample do
 
   defp create_run(state) do
     c = state.current
+    expected_operation = native_operation(c.run_id, state)
 
+    case RunApprovalRelease.status(state.native.run_owner, c.run_id) do
+      {:ok, %{operation_id: ^expected_operation, current_attempt: nil}} ->
+        with {:held, held} <-
+               Lease.hold(state.native.lease, state.native.lease_stream, state.native.lease_owner) do
+          {{:run_recovered, c.run_id},
+           %{state | native: %{state.native | held: held}, phase: :begin_attempt}}
+        else
+          other -> {{:unknown, :run_create}, %{state | poison: {:run_create, other}}}
+        end
+
+      {:ok, %{operation_id: ^expected_operation, current_attempt: attempt}}
+      when is_binary(attempt) ->
+        if attempt == attempt_id(c.run_id, state) do
+          with {:held, held} <-
+                 Lease.hold(state.native.lease, state.native.lease_stream, state.native.lease_owner) do
+            {{:run_recovered, c.run_id},
+             %{state | native: %{state.native | held: held}, phase: :start_engine}}
+          else
+            other -> {{:unknown, :run_create}, %{state | poison: {:run_create, other}}}
+          end
+        else
+          {{:unknown, :run_identity}, %{state | poison: {:run_create, :attempt_identity}}}
+        end
+
+      {:error, :not_found} ->
+        create_run_command(state, c, expected_operation)
+
+      other ->
+        {{:unknown, :run_identity}, %{state | poison: {:run_create, other}}}
+    end
+  rescue
+    _ -> {{:unknown, :run_create}, %{state | poison: {:run_create, :exception}}}
+  catch
+    :exit, _ -> {{:unknown, :run_create}, %{state | poison: {:run_create, :exit}}}
+    _, _ -> {{:unknown, :run_create}, %{state | poison: {:run_create, :exception}}}
+  end
+
+  defp create_run_command(state, c, operation) do
     with {:held, held} <-
            Lease.hold(state.native.lease, state.native.lease_stream, state.native.lease_owner) do
       case RunApprovalRelease.command(state.native.run_owner, %{
              kind: :create,
              run_id: c.run_id,
-             operation_id: native_operation(c.run_id, state),
+             operation_id: operation,
              provider_refs: %{},
              expected_revision: held.live.revision
            }) do
         {:ok, revision, _} ->
-          native = %{state.native | held: held}
-          {{:run_created, revision}, %{state | native: native, phase: :begin_attempt}}
+          {{:run_created, revision},
+           %{state | native: %{state.native | held: held}, phase: :begin_attempt}}
 
         {:indeterminate, _} = unknown ->
           {{:unknown, :run_create}, %{state | poison: {:run_create, unknown}}}
@@ -619,10 +760,6 @@ defmodule Elzoo.Wave4ChannelExample do
     else
       other -> {{:unknown, :run_create}, %{state | poison: {:run_create, other}}}
     end
-  rescue
-    _ -> {{:unknown, :run_create}, %{state | poison: {:run_create, :exception}}}
-  catch
-    :exit, _ -> {{:unknown, :run_create}, %{state | poison: {:run_create, :exit}}}
   end
 
   defp begin_attempt(state) do
@@ -664,6 +801,8 @@ defmodule Elzoo.Wave4ChannelExample do
     end
   rescue
     _ -> {{:unknown, :attempt}, %{state | poison: {:attempt, :exception}}}
+  catch
+    _, _ -> {{:unknown, :attempt}, %{state | poison: {:attempt, :exception}}}
   end
 
   defp start_engine(state) do
@@ -672,25 +811,88 @@ defmodule Elzoo.Wave4ChannelExample do
     unit_id = unit_id(c.run_id, state)
     engine_name = {:via, Registry, {state.native.registry, unit_id}}
 
-    with {:ok, writer} <- start_evidence_writer(state, c.run_id),
-         {:ok, async} <-
-           AsyncWork.start_link(
-             owner: engine_name,
-             task_supervisor: state.native.task_supervisor,
-             max_concurrency: 1
-           ),
-         {:ok, engine} <-
-           RunEngine.start_link(
-             engine_options(state, c, attempt_id, unit_id, engine_name, async, writer)
-           ) do
-      {{:engine_started, unit_id},
-       %{state | engine: engine, async_work: async, writer: writer, phase: :start_input}}
-    else
-      {:error, reason} -> {{:unknown, :engine_start}, %{state | poison: {:engine_start, reason}}}
-      other -> {{:unknown, :engine_start}, %{state | poison: {:engine_start, other}}}
+    case start_evidence_writer(state, c.run_id) do
+      {:ok, writer} ->
+        Process.unlink(writer)
+        writer_ref = Process.monitor(writer)
+
+        case safe_async_start(engine_name, state.native.task_supervisor) do
+          {:ok, async} ->
+            Process.unlink(async)
+            async_ref = Process.monitor(async)
+
+            case safe_engine_start(
+                   engine_options(state, c, attempt_id, unit_id, engine_name, async, writer)
+                 ) do
+              {:ok, engine} ->
+                Process.unlink(engine)
+                engine_ref = Process.monitor(engine)
+
+                {{:engine_started, unit_id},
+                 %{
+                   state
+                   | engine: engine,
+                     engine_ref: engine_ref,
+                     async_work: async,
+                     async_work_ref: async_ref,
+                     writer: writer,
+                     writer_ref: writer_ref,
+                     phase: :start_input
+                 }}
+
+              other ->
+                engine_start_failed(state, unit_id, nil, async, writer, other)
+            end
+
+          other ->
+            engine_start_failed(state, unit_id, nil, nil, writer, other)
+        end
+
+      other ->
+        {{:unknown, :engine_start}, %{state | poison: {:engine_start, other}}}
     end
   rescue
     _ -> {{:unknown, :engine_start}, %{state | poison: {:engine_start, :exception}}}
+  end
+
+  defp safe_async_start(owner, task_supervisor) do
+    AsyncWork.start_link(owner: owner, task_supervisor: task_supervisor, max_concurrency: 1)
+  rescue
+    _ -> {:error, :exception}
+  catch
+    _, _ -> {:error, :exception}
+  end
+
+  defp safe_engine_start(options) do
+    RunEngine.start_link(options)
+  rescue
+    _ -> {:error, :exception}
+  catch
+    _, _ -> {:error, :exception}
+  end
+
+  defp engine_start_failed(state, unit_id, engine, async, writer, reason) do
+    registry_engine =
+      case Registry.lookup(state.native.registry, unit_id) do
+        [{pid, _}] -> pid
+        [] -> engine
+      end
+
+    cleanup_state = %{
+      state
+      | engine: registry_engine,
+        async_work: async,
+        writer: writer
+    }
+
+    case fence_native(cleanup_state) do
+      :ok ->
+        {{:unknown, :engine_start}, %{state | poison: {:engine_start, reason}}}
+
+      {:error, cleanup_reason} ->
+        {{:unknown, :engine_start},
+         %{cleanup_state | poison: {:engine_start, {reason, cleanup_reason}}}}
+    end
   end
 
   defp start_input(state) do
@@ -701,23 +903,47 @@ defmodule Elzoo.Wave4ChannelExample do
 
     context = %{run_id: c.run_id, attempt_id: attempt_id(c.run_id, state)}
 
-    case RunEngine.input(state.engine, id, input, context) do
-      {:ok, result} when result in [:applied, :duplicate] ->
+    case safe_native_input(state.engine, id, input, context) do
+      {:ok, {:ok, result}} when result in [:applied, :duplicate] ->
         {{:native_input, result}, %{state | phase: :result}}
 
-      {:error, :input_id_conflict} ->
-        {{:unknown, :native_input}, %{state | poison: {:native_input, :identity}}}
+      {:ok, {:error, reason}} ->
+        native_input_unknown(state, reason)
 
       {:error, reason} ->
-        {{:unknown, :native_input}, %{state | poison: {:native_input, reason}}}
+        native_input_unknown(state, reason)
 
       other ->
-        {{:unknown, :native_input}, %{state | poison: {:native_input, other}}}
+        native_input_unknown(state, other)
     end
+  end
+
+  defp safe_native_input(engine, id, input, context) do
+    {:ok, RunEngine.input(engine, id, input, context)}
   rescue
-    _ -> {{:unknown, :native_input}, %{state | poison: {:native_input, :exception}}}
+    _ -> {:error, :native_exit}
   catch
-    :exit, _ -> {{:unknown, :native_input}, %{state | poison: {:native_input, :exit}}}
+    _, _ -> {:error, :native_exit}
+  end
+
+  defp native_input_unknown(state, reason) do
+    case fence_native(state) do
+      :ok ->
+        {{:unknown, :native_input},
+         %{
+           state
+           | poison: {:native_input, reason},
+             engine: nil,
+             engine_ref: nil,
+             async_work: nil,
+             async_work_ref: nil,
+             writer: nil,
+             writer_ref: nil
+         }}
+
+      {:error, _} ->
+        {{:unknown, :native_input}, %{state | poison: {:native_input, :fencing}}}
+    end
   end
 
   defp observe_result(state) do
@@ -755,6 +981,7 @@ defmodule Elzoo.Wave4ChannelExample do
     _ -> {{:pending, :result_unavailable}, state}
   catch
     :exit, _ -> {{:pending, :result_unavailable}, state}
+    _, _ -> {{:pending, :result_unavailable}, state}
   end
 
   defp append_answer(state) do
@@ -833,7 +1060,13 @@ defmodule Elzoo.Wave4ChannelExample do
       end
     end
   rescue
-    _ -> {{:unknown, :ack}, %{state | poison: {:ack, :exception}}}
+    _ ->
+      c = state.current
+      {{:unknown, :ack}, %{state | poison: {:ack, c.item.key, c.item.nonce, :no_receipt}}}
+  catch
+    _, _ ->
+      c = state.current
+      {{:unknown, :ack}, %{state | poison: {:ack, c.item.key, c.item.nonce, :no_receipt}}}
   end
 
   defp confirm_ack(state, receipt, key, nonce), do: reconcile_ack(state, key, nonce, receipt)
@@ -851,6 +1084,8 @@ defmodule Elzoo.Wave4ChannelExample do
     end
   rescue
     _ -> {{:unknown, :ack}, %{state | poison: {:ack, key, nonce, receipt}}}
+  catch
+    _, _ -> {{:unknown, :ack}, %{state | poison: {:ack, key, nonce, receipt}}}
   end
 
   defp ack_evidence_matches?(:no_receipt, _request), do: true
@@ -865,22 +1100,31 @@ defmodule Elzoo.Wave4ChannelExample do
 
   defp finish_input(state) do
     c = state.current
-    fence_native(state)
 
-    completed =
-      Map.put(state.completed, c.input_id, %{run_id: c.run_id, outcome: c.terminal || :completed})
+    case fence_native(state) do
+      :ok ->
+        completed =
+          Map.put(state.completed, c.input_id, %{
+            run_id: c.run_id,
+            outcome: c.terminal || :completed
+          })
 
-    {{:acknowledged, c.input_id},
-     %{
-       state
-       | current: nil,
-         phase: :idle,
-         completed: completed,
-         poison: nil,
-         engine: nil,
-         async_work: nil,
-         writer: nil
-     }}
+        {{:acknowledged, c.input_id},
+         %{
+           state
+           | current: nil,
+             phase: :idle,
+             completed: completed,
+             poison: nil,
+             engine: nil,
+             async_work: nil,
+             writer: nil
+         }}
+
+      {:error, reason} ->
+        _ = reason
+        {{:unknown, :ack}, %{state | poison: {:ack, c.item.key, c.item.nonce, :no_receipt}}}
+    end
   end
 
   defp reconcile_input(state, operation) do
@@ -962,6 +1206,8 @@ defmodule Elzoo.Wave4ChannelExample do
     end
   rescue
     _ -> {{:unknown, :association}, state}
+  catch
+    _, _ -> {{:unknown, :association}, state}
   end
 
   defp reconcile_run_create(state) do
@@ -978,6 +1224,8 @@ defmodule Elzoo.Wave4ChannelExample do
     end
   rescue
     _ -> {{:unknown, :run_create}, state}
+  catch
+    _, _ -> {{:unknown, :run_create}, state}
   end
 
   defp reconcile_attempt(state) do
@@ -994,6 +1242,8 @@ defmodule Elzoo.Wave4ChannelExample do
     end
   rescue
     _ -> {{:unknown, :attempt}, state}
+  catch
+    _, _ -> {{:unknown, :attempt}, state}
   end
 
   defp reconcile_answer(state) do
@@ -1015,6 +1265,8 @@ defmodule Elzoo.Wave4ChannelExample do
     end
   rescue
     _ -> {{:unknown, :answer}, state}
+  catch
+    _, _ -> {{:unknown, :answer}, state}
   end
 
   defp execute_checked(state, mode, event, request, facts) do
@@ -1295,25 +1547,108 @@ defmodule Elzoo.Wave4ChannelExample do
   end
 
   defp fence_native(state) do
-    for pid <- [state.engine, state.async_work, state.writer],
-        is_pid(pid) and Process.alive?(pid) do
+    with :ok <- stop_native_process(state.engine),
+         :ok <- stop_native_process(state.async_work),
+         :ok <- stop_native_process(state.writer),
+         :ok <- stop_native_unit(state),
+         :ok <- no_live_native_processes([state.engine, state.async_work, state.writer]),
+         :ok <- no_live_native_unit(state) do
+      demonitor_native(state)
+      :ok
+    else
+      {:error, _} = error -> error
+      other -> {:error, other}
+    end
+  rescue
+    _ -> {:error, :exception}
+  catch
+    _, _ -> {:error, :exit}
+  end
+
+  defp stop_native_unit(%{current: current, native: %{directory: directory}} = state)
+       when not is_nil(current) do
+    if Process.alive?(directory),
+      do: DynamicUnits.stop(directory, unit_id(current.run_id, state)),
+      else: {:error, :directory_unavailable}
+  end
+
+  defp stop_native_unit(_state), do: :ok
+
+  defp demonitor_native(state) do
+    Enum.each([state.engine_ref, state.async_work_ref, state.writer_ref], fn
+      reference when is_reference(reference) -> Process.demonitor(reference, [:flush])
+      _ -> :ok
+    end)
+  end
+
+  defp contain_native_exit(state, pid, reference, _reason) do
+    case native_child_kind(state, pid, reference) do
+      nil ->
+        {:noreply, state}
+
+      child ->
+        case fence_native(state) do
+          :ok ->
+            {:noreply,
+             %{
+               state
+               | poison: {:native_child_exit, child},
+                 engine: nil,
+                 engine_ref: nil,
+                 async_work: nil,
+                 async_work_ref: nil,
+                 writer: nil,
+                 writer_ref: nil
+             }}
+
+          {:error, _} ->
+            {:noreply, %{state | poison: {:native_child_exit, child, :fencing}}}
+        end
+    end
+  end
+
+  defp native_child_kind(state, pid, reference) do
+    Enum.find_value([:engine, :async_work, :writer], fn child ->
+      ref = Map.get(state, String.to_existing_atom("#{child}_ref"))
+
+      if Map.get(state, child) == pid or (is_reference(reference) and ref == reference),
+        do: child
+    end)
+  end
+
+  defp stop_native_process(pid) when is_pid(pid) do
+    if Process.alive?(pid) do
       try do
         GenServer.stop(pid, :normal, 5_000)
+        if Process.alive?(pid), do: {:error, :still_alive}, else: :ok
+      rescue
+        _ -> if(Process.alive?(pid), do: {:error, :stop_failed}, else: :ok)
       catch
-        :exit, _ -> :ok
+        _, _ -> if(Process.alive?(pid), do: {:error, :stop_failed}, else: :ok)
       end
+    else
+      :ok
     end
-
-    if state.current && Process.alive?(state.native.directory) do
-      try do
-        DynamicUnits.stop(state.native.directory, unit_id(state.current.run_id, state))
-      catch
-        :exit, _ -> :ok
-      end
-    end
-
-    :ok
   end
+
+  defp stop_native_process(_), do: :ok
+
+  defp no_live_native_processes(pids) do
+    if Enum.any?(pids, &(is_pid(&1) and Process.alive?(&1))),
+      do: {:error, :process_alive},
+      else: :ok
+  end
+
+  defp no_live_native_unit(%{current: %{run_id: run_id}} = state) do
+    id = unit_id(run_id, state)
+
+    case {Registry.lookup(state.native.registry, id), DynamicUnits.find(state.native.directory, id)} do
+      {[], :not_found} -> :ok
+      _ -> {:error, :unit_alive}
+    end
+  end
+
+  defp no_live_native_unit(_), do: :ok
 
   defp valid_event(event) when is_map(event) and not is_struct(event) do
     required = [:version, :event_id, :conversation_id, :input_id, :expected_revision, :text]

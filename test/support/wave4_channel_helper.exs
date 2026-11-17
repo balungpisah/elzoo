@@ -56,10 +56,12 @@ defmodule Elzoo.Wave4ChannelTestHelper do
     {:ok, handles} = Elzoo.Wave4ChannelExample.CommandBindings.build(command_store, gates)
 
     run_store =
-      Postgres.store(TestRepo,
-        prefix: prefix,
-        fold: RunApprovalRelease.fold(),
-        limits: RunApprovalRelease.limits()
+      PostgresHarness.attach(
+        TestRepo,
+        prefix,
+        RunApprovalRelease.fold(),
+        RunApprovalRelease.limits(),
+        controller
       )
 
     {:ok, lease} = Lease.new(store: run_store, clock: :store)
@@ -70,13 +72,19 @@ defmodule Elzoo.Wave4ChannelTestHelper do
 
     Process.unlink(owner)
 
+    unit_supervisor_id = make_ref()
+
     unit_supervisor =
       ExUnit.Callbacks.start_supervised!(
         {DynamicSupervisor, strategy: :one_for_one, max_children: 4},
-        id: make_ref()
+        id: unit_supervisor_id
       )
 
-    task_supervisor = ExUnit.Callbacks.start_supervised!({Task.Supervisor, []}, id: make_ref())
+    task_supervisor_id = make_ref()
+
+    task_supervisor =
+      ExUnit.Callbacks.start_supervised!({Task.Supervisor, []}, id: task_supervisor_id)
+
     now = Keyword.get(options, :clock, fn -> System.system_time(:millisecond) end)
 
     unit_opts = [
@@ -94,6 +102,8 @@ defmodule Elzoo.Wave4ChannelTestHelper do
         DurableUnit.limits(unit_opts),
         controller
       )
+
+    directory_id = make_ref()
 
     directory =
       ExUnit.Callbacks.start_supervised!(
@@ -113,7 +123,7 @@ defmodule Elzoo.Wave4ChannelTestHelper do
 
            Keyword.merge(unit_opts, store: unit_store, offer: offer)
          end},
-        id: make_ref()
+        id: directory_id
       )
 
     evidence_fold = %{
@@ -131,7 +141,7 @@ defmodule Elzoo.Wave4ChannelTestHelper do
     }
 
     evidence_store =
-      Postgres.store(TestRepo, prefix: prefix, fold: evidence_fold, limits: evidence_limits)
+      PostgresHarness.attach(TestRepo, prefix, evidence_fold, evidence_limits, controller)
 
     profile =
       Map.merge(
@@ -198,6 +208,16 @@ defmodule Elzoo.Wave4ChannelTestHelper do
       native: native,
       host: host,
       host_options: host_options,
+      gates: gates,
+      run_store: run_store,
+      unit_supervisor: unit_supervisor,
+      unit_supervisor_id: unit_supervisor_id,
+      task_supervisor: task_supervisor,
+      task_supervisor_id: task_supervisor_id,
+      directory_id: directory_id,
+      unit_store: unit_store,
+      unit_opts: unit_opts,
+      evidence_store: evidence_store,
       clock: now
     }
 
@@ -296,6 +316,129 @@ defmodule Elzoo.Wave4ChannelTestHelper do
     host
   end
 
+  def fence_and_reopen!(fixture, listener \\ nil) do
+    if listener, do: stop_listener!(listener)
+
+    host_state = :sys.get_state(fixture.host)
+    native_pids = [host_state.engine, host_state.async_work, host_state.writer]
+
+    :ok = GenServer.stop(fixture.host, :normal, 5_000)
+    true = not Process.alive?(fixture.host)
+    true = Enum.all?(native_pids, &(not (is_pid(&1) and Process.alive?(&1))))
+
+    if host_state.current do
+      unit_id = unit_id(host_state.current.run_id)
+      :not_found = Elzoo.DynamicUnits.find(fixture.directory, unit_id)
+
+      :ok =
+        await_engine_unregistered(
+          fixture.native.registry,
+          unit_id,
+          System.monotonic_time(:millisecond) + 5_000
+        )
+    end
+
+    [] = Task.Supervisor.children(fixture.native.task_supervisor)
+
+    if Process.alive?(fixture.owner) do
+      :ok = GenServer.stop(fixture.owner, :normal, 5_000)
+    end
+
+    true = not Process.alive?(fixture.owner)
+    :ok = ExUnit.Callbacks.stop_supervised!(fixture.directory_id)
+    :ok = ExUnit.Callbacks.stop_supervised!(fixture.unit_supervisor_id)
+    :ok = ExUnit.Callbacks.stop_supervised!(fixture.task_supervisor_id)
+    true = not Process.alive?(fixture.directory)
+    true = not Process.alive?(fixture.unit_supervisor)
+    true = not Process.alive?(fixture.task_supervisor)
+
+    command_store = Elzoo.DurableLog.PostgresHarness.hook(fixture.command_store, :reopen, [])
+    run_store = Elzoo.DurableLog.PostgresHarness.hook(fixture.run_store, :reopen, [])
+    unit_store = Elzoo.DurableLog.PostgresHarness.hook(fixture.native.unit_store, :reopen, [])
+    evidence_store = Elzoo.DurableLog.PostgresHarness.hook(fixture.evidence_store, :reopen, [])
+    {:ok, lease} = Lease.new(store: run_store, clock: :store)
+    {:held, held} = Lease.hold(lease, fixture.native.lease_stream, fixture.native.lease_owner)
+
+    {:ok, owner} =
+      RunApprovalRelease.start_link(
+        store: run_store,
+        lease: lease,
+        held: held,
+        effect_intent: %{}
+      )
+
+    Process.unlink(owner)
+    ExUnit.Callbacks.on_exit(fn -> if Process.alive?(owner), do: GenServer.stop(owner) end)
+
+    unit_supervisor_id = make_ref()
+
+    unit_supervisor =
+      ExUnit.Callbacks.start_supervised!(
+        {DynamicSupervisor, strategy: :one_for_one, max_children: 4},
+        id: unit_supervisor_id
+      )
+
+    task_supervisor_id = make_ref()
+
+    task_supervisor =
+      ExUnit.Callbacks.start_supervised!({Task.Supervisor, []}, id: task_supervisor_id)
+
+    directory_id = make_ref()
+
+    directory =
+      ExUnit.Callbacks.start_supervised!(
+        {DynamicUnits,
+         registry: Elzoo.RunEngine.UnitRegistry,
+         supervisor: unit_supervisor,
+         idle_ms: 60_000,
+         unit_options: fn identity -> unit_options(fixture.unit_opts, unit_store, identity) end},
+        id: directory_id
+      )
+
+    {:ok, handles} = Elzoo.Wave4ChannelExample.CommandBindings.build(command_store, fixture.gates)
+
+    native = %{
+      fixture.native
+      | run_owner: owner,
+        held: held,
+        lease: lease,
+        directory: directory,
+        supervisor: unit_supervisor,
+        task_supervisor: task_supervisor,
+        unit_store: unit_store,
+        evidence_store: evidence_store
+    }
+
+    fixture = %{
+      fixture
+      | owner: owner,
+        lease: lease,
+        directory: directory,
+        command_store: command_store,
+        run_store: run_store,
+        handles: handles,
+        native: native,
+        unit_supervisor: unit_supervisor,
+        unit_supervisor_id: unit_supervisor_id,
+        task_supervisor: task_supervisor,
+        task_supervisor_id: task_supervisor_id,
+        directory_id: directory_id,
+        unit_store: unit_store,
+        evidence_store: evidence_store
+    }
+
+    host_options =
+      Keyword.merge(fixture.host_options,
+        command_store: command_store,
+        handles: handles,
+        native: native
+      )
+
+    fixture = %{fixture | host_options: host_options}
+    host = start_host!(fixture)
+    {:ok, %{fixture | host: host}}
+  end
+
   def stop_listener!(listener), do: Plug.Cowboy.shutdown(listener.ref)
 
   def command_stream(tenant) do
@@ -388,6 +531,7 @@ defmodule Elzoo.Wave4ChannelTestHelper do
     do: stable_id("native-operation", [run_id, profile.native_target])
 
   def unit_id(run_id), do: stable_id("unit", [run_id])
+  def native_input_id(run_id), do: stable_id("native-input", [run_id])
 
   def cleanup(fixture) do
     for pid <- [fixture.host, fixture.owner], is_pid(pid) and Process.alive?(pid) do
@@ -418,6 +562,36 @@ defmodule Elzoo.Wave4ChannelTestHelper do
       "enabled" => true,
       "target" => Elzoo.Wave4ChannelExample.NativeBindings.target()
     }
+  end
+
+  defp unit_options(unit_opts, unit_store, identity) do
+    offer = fn item ->
+      case Registry.lookup(Elzoo.RunEngine.TestRegistry, identity) do
+        [{pid, _}] -> send(pid, item)
+        [] -> :ok
+      end
+
+      :ok
+    end
+
+    Keyword.merge(unit_opts, store: unit_store, offer: offer)
+  end
+
+  defp await_engine_unregistered(registry, identity, deadline) do
+    case Registry.lookup(registry, identity) do
+      [] ->
+        :ok
+
+      [{pid, _}] ->
+        true = not Process.alive?(pid)
+
+        if System.monotonic_time(:millisecond) < deadline do
+          Process.sleep(1)
+          await_engine_unregistered(registry, identity, deadline)
+        else
+          {:error, :engine_still_registered}
+        end
+    end
   end
 
   defp ensure_registry!(name) do
