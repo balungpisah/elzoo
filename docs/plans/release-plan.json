@@ -7141,6 +7141,23 @@
       "issue": 577,
       "url": "https://github.com/balungpisah/elzoo/issues/577",
       "issue_body_sha256": "2a83090fca855269a7805af189284376d0bb18ac84b60435b953583acb327f29"
+    },
+    {
+      "id": "ELZ-255",
+      "title": "ELZ-255 — Preserve shared PostgreSQL test support in copied consumers",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-249", "ELZ-254"],
+      "status": "published 2026-11-16",
+      "owner_role": "coordinator; one-PR path for a non-Piece change; independent review and merge queue",
+      "paths": ["tasks/ELZ-255-shared-sql-test-support.md"],
+      "outputs": [],
+      "acceptance": "The actual Export regression verifies real shared SQL support and enabled PostgreSQL cases in both load orders, and fails closed without copied support. All 43 direct and copied CheckedCommand tests use disposable PostgreSQL with all 17 SQL cases active; the old-bootstrap negative control fails. The full affected gate retains existing limits and completes with top-level summary and wrapper postchecks.",
+      "product_aims": ["P13"],
+      "issue": 580,
+      "url": "https://github.com/balungpisah/elzoo/issues/580",
+      "issue_body_sha256": "74fdcbc671b7ce09cb671e5bab31a5a5ea5eea623f74838012d0e358783ebd73"
     }
   ],
   "entries": [
