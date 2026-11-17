@@ -310,6 +310,7 @@ defmodule Elzoo.RunEngine.TestHelper do
 
   def fixture(overrides \\ []) do
     {effect_bindings, overrides} = Keyword.pop(overrides, :effect_bindings, %{})
+    {unit_store, overrides} = Keyword.pop(overrides, :unit_store)
     prefix = "engine_" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
 
     Ecto.Adapters.SQL.query!(TestRepo, "CREATE SCHEMA #{Postgres.identifier(prefix)}", [],
@@ -351,7 +352,7 @@ defmodule Elzoo.RunEngine.TestHelper do
       end
     ]
 
-    store =
+    postgres_unit_store =
       PostgresHarness.attach(
         TestRepo,
         prefix,
@@ -359,6 +360,8 @@ defmodule Elzoo.RunEngine.TestHelper do
         DurableUnit.limits(unit_opts),
         controller
       )
+
+    store = unit_store || postgres_unit_store
 
     unit_opts = Keyword.put(unit_opts, :store, store)
 
@@ -618,6 +621,8 @@ defmodule Elzoo.RunEngine.TestHelper do
       store: store,
       run: run,
       evidence: evidence,
+      evidence_store: evidence_store,
+      postgres_unit_store: postgres_unit_store,
       host_mode: host_mode,
       supervisor: supervisor
     }

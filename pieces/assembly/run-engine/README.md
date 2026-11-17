@@ -149,6 +149,52 @@ and the engine goes on with it. The existing rule above is the only guidance:
 send the same ID again, never another; `{:ok, :applied}` or `{:ok, :duplicate}`
 means the result committed, and changed bytes are `{:error, :input_id_conflict}`.
 
+### Read-only Run result
+
+`result(engine, scope, limits)` uses the same 60,000 ms caller limit. A caller
+timeout stops waiting; it does not cancel the queued result request or its Store
+reads, which may continue after the caller has returned. The exact
+scope map is `%{tenant: trusted_tenant, principal: trusted_principal,
+run_id: allocated_run_id}`; each value is bounded UTF-8 text and must match the
+host's fixed configuration. Limits are exactly
+`%{max_records: positive_integer, max_bytes: positive_integer}`, capped at
+65,536 inspected rows and 536,870,912 canonical bytes. Scope and limit
+validation happens before any Run-owner or Store read. A host may omit the
+optional `result_reader: %{evidence_store: store, retention_count: positive_integer}`;
+existing callers then keep starting normally and a valid result request returns
+`{:error, :reader_unconfigured}`. Malformed reader configuration is rejected
+before DynamicUnits starts a Unit. The host supplies the configured canonical
+evidence Store and the same retention count used by the Unit.
+
+The authoritative Run owner is read first. A nonterminal Run, including paused
+or waiting-for-person ASK, returns `{:pending, :not_completed}`; a terminal
+noncompleted Run returns `{:terminal, outcome}`. Only an authoritative
+`completed` Run causes history reads. The reader scans committed Unit rows
+from sequence 1 one row per Store page, folds recorded input/result pairs with
+`DurableUnit.fold/1`, and cross-checks the first accepted settlement of the
+exact completion source occurrence, Run, Attempt, operation, action, slot and
+canonical completion-evidence row referenced by the Run owner. It returns
+`{:ok, %{run_id, attempt_id, operation_id, action_id, schema_id,
+schema_version, payload, evidence_ref}}` with the original outcome payload and
+schema identity. The evidence row and every inspected Unit row share the same
+record and canonical-byte budgets; the 16,777,216-byte per-record limit still
+applies.
+
+This is a read-only audit path: it does not call the Operator, pattern, gate,
+schema-validation, clock, binding, work or resource callbacks, use checkpoints
+or state-read shortcuts, or start, drain, repair, append, acknowledge or mutate
+the Unit. It refuses unavailable,
+unknown, pruned, gapped, staged, unpaired, over-budget or invalid history and
+rechecks owner revision and stream heads before returning. Later duplicate,
+late or otherwise non-settling records do not replace or invalidate the first
+accepted outcome. The existing `status/1` remains payload-free. The host must
+provide full retained history and a Store that truthfully reports committed
+append visibility; this API does not repair history or create a cancellation
+runtime. Bounded error results are `{:error, :scope}`,
+`{:error, :invalid_limits}`, `{:error, :reader_unconfigured}`,
+`{:error, :read_limit}`, `{:error, :history}`,
+`{:error, :completion_mismatch}` and `{:error, :unavailable}`.
+
 The pure `step/2` is exported only for the directory's fixed Operator binding.
 Its tagged version-1 plain records distinguish protocol, configuration, gate,
 admission, authorization, continuation, Run/lifecycle and Resource-cursor facts.

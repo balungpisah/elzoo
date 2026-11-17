@@ -26,6 +26,9 @@ defmodule Elzoo.RunEngine do
 
   def status(engine), do: GenServer.call(engine, :status, @call_limit)
 
+  def result(engine, scope, limits),
+    do: GenServer.call(engine, {:result, scope, limits}, @call_limit)
+
   @impl true
   def format_status(status), do: Map.merge(status, %{state: :redacted, message: :redacted})
 
@@ -1206,6 +1209,7 @@ defmodule Elzoo.RunEngine do
   @impl true
   def init(opts) do
     with true <- Keyword.keyword?(opts),
+         true <- valid_result_reader_options?(opts),
          true <- text?(opts[:identity], 160) and text?(opts[:run_id], 200),
          cap when is_integer(cap) and cap in 1..256 <- opts[:request_cap],
          {module, function, initial} <- opts[:pattern],
@@ -1355,6 +1359,10 @@ defmodule Elzoo.RunEngine do
         joins: joins,
         reconciliation: s.halted
       }}, s}
+  end
+
+  def handle_call({:result, scope, limits}, _, s) do
+    {:reply, read_result(s, scope, limits), s}
   end
 
   def handle_call({:input, id, input, context}, _, s) do
@@ -3469,4 +3477,603 @@ defmodule Elzoo.RunEngine do
       "request" => request,
       "index" => index
     }
+
+  defp valid_result_reader_options?(opts) do
+    case Keyword.get_values(opts, :result_reader) do
+      [] ->
+        true
+
+      [%{evidence_store: store, retention_count: retention} = reader] ->
+        not is_struct(reader) and map_size(reader) == 2 and
+          is_tuple(store) and tuple_size(store) == 2 and is_atom(elem(store, 0)) and
+          is_integer(retention) and retention > 0
+
+      _ ->
+        false
+    end
+  end
+
+  defp read_result(s, scope, limits) do
+    cond do
+      not valid_result_scope?(s, scope) ->
+        {:error, :scope}
+
+      not valid_result_limits?(limits) ->
+        {:error, :invalid_limits}
+
+      not Map.has_key?(s.opts, :result_reader) ->
+        {:error, :reader_unconfigured}
+
+      true ->
+        case result_owner(s) do
+          {:ok, %{outcome: nil}} ->
+            {:pending, :not_completed}
+
+          {:ok, %{outcome: outcome}}
+          when outcome in [:failed, :cancelled, :out_of_budget, :out_of_time] ->
+            {:terminal, outcome}
+
+          {:ok, %{outcome: :completed} = owner} ->
+            completed_result(s, owner, limits)
+
+          {:ok, _} ->
+            {:error, :completion_mismatch}
+
+          error ->
+            error
+        end
+    end
+  rescue
+    _ -> {:error, :unavailable}
+  catch
+    :exit, _ -> {:error, :unavailable}
+    _, _ -> {:error, :unavailable}
+  end
+
+  defp valid_result_scope?(s, scope) when is_map(scope) and not is_struct(scope) do
+    Map.keys(scope) |> Enum.sort() == [:principal, :run_id, :tenant] and
+      text?(scope.tenant, 200) and text?(scope.principal, 200) and
+      text?(scope.run_id, 200) and scope.tenant == s.opts.tenant and
+      scope.principal == s.opts.principal and scope.run_id == s.opts.run_id
+  end
+
+  defp valid_result_scope?(_, _), do: false
+
+  defp valid_result_limits?(limits) when is_map(limits) and not is_struct(limits) do
+    Map.keys(limits) |> Enum.sort() == [:max_bytes, :max_records] and
+      is_integer(limits.max_records) and limits.max_records in 1..65_536 and
+      is_integer(limits.max_bytes) and limits.max_bytes in 1..536_870_912
+  end
+
+  defp valid_result_limits?(_), do: false
+
+  defp result_owner(s) do
+    case Run.status(s.opts.run_owner, s.opts.run_id) do
+      {:ok, owner} when is_map(owner) -> {:ok, owner}
+      _ -> {:error, :unavailable}
+    end
+  rescue
+    _ -> {:error, :unavailable}
+  catch
+    :exit, _ -> {:error, :unavailable}
+    _, _ -> {:error, :unavailable}
+  end
+
+  defp completed_result(s, owner, limits) do
+    reader = s.opts.result_reader
+    evidence = Map.get(s.opts, :evidence)
+
+    with true <- valid_completion_owner?(owner, s.opts.run_id, evidence),
+         {:ok, selected} <-
+           Elzoo.RunEngine.ResultReader.read(
+             s.opts.store,
+             s.opts.identity,
+             reader.evidence_store,
+             evidence.stream,
+             owner,
+             reader.retention_count,
+             limits,
+             s.opts.bindings,
+             {__MODULE__, :step, @empty}
+           ),
+         {:ok, current} <- result_owner(s),
+         true <- owner_snapshot(owner) == owner_snapshot(current) do
+      {:ok,
+       %{
+         run_id: owner.id,
+         attempt_id: owner.current_attempt,
+         operation_id: owner.operation_id,
+         action_id: selected.action_id,
+         schema_id: selected.schema_id,
+         schema_version: selected.schema_version,
+         payload: selected.payload,
+         evidence_ref: owner.evidence_ref
+       }}
+    else
+      false -> {:error, :completion_mismatch}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp valid_completion_owner?(owner, run_id, evidence) when is_map(evidence) do
+    ref = Map.get(owner, :evidence_ref)
+
+    is_binary(owner.id) and owner.id == run_id and text?(owner.operation_id, 200) and
+      text?(owner.current_attempt, 200) and is_integer(owner.revision) and owner.revision > 0 and
+      is_integer(owner.completion_revision) and owner.completion_revision > 0 and
+      owner.completion_revision <= owner.revision and
+      is_binary(evidence.stream) and is_map(ref) and not is_struct(ref) and map_size(ref) == 2 and
+      Map.keys(ref) |> Enum.sort() == [:sequence, :stream] and
+      ref.stream == evidence.stream and is_integer(ref.sequence) and ref.sequence > 0
+  end
+
+  defp valid_completion_owner?(_, _, _), do: false
+
+  defp owner_snapshot(owner) do
+    Map.take(owner, [
+      :id,
+      :outcome,
+      :operation_id,
+      :current_attempt,
+      :revision,
+      :completion_revision,
+      :evidence_ref
+    ])
+  end
+end
+
+defmodule Elzoo.RunEngine.ResultReader do
+  alias Elzoo.{DurableLog, DurableUnit}
+
+  @record_bytes 16_777_216
+  @completion_keys [:action_id, :attempt_id, :operation_id, :run_id]
+  @initial_state %{version: 1, control: nil, slots: %{}, requests: %{}}
+
+  def read(
+        unit_store,
+        unit_stream,
+        evidence_store,
+        evidence_stream,
+        owner,
+        retention,
+        limits,
+        bindings,
+        operator
+      ) do
+    fold = DurableUnit.fold(operator: operator, retention_count: retention)
+    counters = %{records: 0, bytes: 0}
+
+    with {:ok, model, candidates, counters, unit_head} <-
+           read_unit_history(
+             unit_store,
+             unit_stream,
+             1,
+             nil,
+             fold,
+             limits,
+             counters,
+             fold.initial,
+             %{}
+           ),
+         :ok <- if(is_nil(model.pending), do: :ok, else: {:error, :history}),
+         :ok <- if(valid_state?(model.state), do: :ok, else: {:error, :history}),
+         {:ok, source} <- completed_source(model.state, candidates, owner, bindings),
+         {:ok, completion, counters, evidence_head} <-
+           read_completion(
+             evidence_store,
+             evidence_stream,
+             owner.evidence_ref.sequence,
+             owner,
+             source,
+             limits,
+             counters
+           ),
+         {:ok, counters} <-
+           recheck_head(
+             unit_store,
+             unit_stream,
+             unit_head.revision + 1,
+             unit_head,
+             limits,
+             counters
+           ),
+         {:ok, _counters} <-
+           recheck_head(
+             evidence_store,
+             evidence_stream,
+             evidence_head.revision + 1,
+             evidence_head,
+             limits,
+             counters
+           ),
+         true <- completion.action_id == source.action_id do
+      {:ok, source}
+    else
+      false -> {:error, :completion_mismatch}
+      {:error, _} = error -> error
+      _ -> {:error, :history}
+    end
+  rescue
+    _ -> {:error, :history}
+  catch
+    :exit, _ -> {:error, :unavailable}
+    _, _ -> {:error, :history}
+  end
+
+  defp read_unit_history(store, stream, sequence, head, fold, limits, counters, model, candidates) do
+    with {:ok, rows, current_head} <- read_page(store, stream, sequence),
+         :ok <- unit_head(current_head),
+         :ok <- stable_head(head, current_head) do
+      head = head || current_head
+
+      cond do
+        sequence > head.revision ->
+          if rows == [],
+            do: {:ok, model, candidates, counters, head},
+            else: {:error, :history}
+
+        length(rows) != 1 ->
+          {:error, :history}
+
+        true ->
+          [row] = rows
+
+          with {:ok, counters} <- charge(row, counters, limits),
+               :ok <- valid_row(row, stream, sequence, fold),
+               {:ok, model, candidates} <- reduce_row(row, model, candidates, fold) do
+            read_unit_history(
+              store,
+              stream,
+              sequence + 1,
+              head,
+              fold,
+              limits,
+              counters,
+              model,
+              candidates
+            )
+          end
+      end
+    end
+  end
+
+  defp reduce_row(%{kind: "input"} = row, model, candidates, fold) do
+    next = fold.reduce.(model, row.kind, row.schema_version, row.payload)
+    if valid_model?(next), do: {:ok, next, candidates}, else: {:error, :history}
+  rescue
+    _ -> {:error, :history}
+  catch
+    _, _ -> {:error, :history}
+  end
+
+  defp reduce_row(%{kind: "result"} = row, model, candidates, fold) do
+    before = model
+    next = fold.reduce.(model, row.kind, row.schema_version, row.payload)
+
+    if valid_model?(next) do
+      candidates =
+        case accepted_settlement(before, next) do
+          {:ok, key, candidate} ->
+            Map.put_new(candidates, {candidate.run_id, candidate.attempt_id, key}, candidate)
+
+          :none ->
+            candidates
+        end
+
+      {:ok, next, candidates}
+    else
+      {:error, :history}
+    end
+  rescue
+    _ -> {:error, :history}
+  catch
+    _, _ -> {:error, :history}
+  end
+
+  defp reduce_row(_, _, _, _), do: {:error, :history}
+
+  defp accepted_settlement(
+         %{pending: {_id, record}, state: before},
+         %{state: after_state}
+       )
+       when is_map(record) and is_map(before) and is_map(after_state) do
+    with {:ok, effective, key} <- effective_protocol(record, before),
+         {:ok, input} <- decode_input(effective.input),
+         before_control when is_map(before_control) <- Map.get(before, :control),
+         after_control when is_map(after_control) <- Map.get(after_state, :control),
+         before_slot when is_map(before_slot) <- Map.get(before.slots, key),
+         after_slot when is_map(after_slot) <- Map.get(after_state.slots, key),
+         {:ok, before_action} <- recorded_action(before, key),
+         true <- before_control.run_id == effective.run_id,
+         true <- after_control.run_id == effective.run_id,
+         true <- before_control.attempt_id == effective.attempt_id,
+         true <- after_control.attempt_id == effective.attempt_id,
+         true <- is_binary(before_control.operation_id),
+         true <- before_control.operation_id == after_control.operation_id,
+         true <- before_slot.phase != :settled and after_slot.phase == :settled,
+         true <- after_slot.outcome == "completed",
+         true <- input["kind"] in ["action_outcome", "person_answer"],
+         true <- input["outcome"] == "completed",
+         true <- input["action_id"] == before_slot.action_id,
+         true <- input["action_id"] == after_slot.action_id,
+         true <- before_slot.action_id == after_slot.action_id,
+         true <- before_slot.kind == after_slot.kind,
+         true <- before_slot.attempt_id == effective.attempt_id,
+         true <- after_slot.attempt_id == effective.attempt_id,
+         true <- before_action["id"] == before_slot.action_id,
+         true <- before_action["kind"] == before_slot.kind do
+      {:ok, key,
+       %{
+         run_id: effective.run_id,
+         attempt_id: effective.attempt_id,
+         operation_id: before_control.operation_id,
+         action_id: after_slot.action_id,
+         action_kind: before_action["kind"],
+         action_schema_id: before_action["schema_id"],
+         schema_id: input["schema_id"],
+         schema_version: input["schema_version"],
+         payload: input["payload"]
+       }}
+    else
+      _ -> :none
+    end
+  rescue
+    _ -> :none
+  end
+
+  defp accepted_settlement(_, _), do: :none
+
+  defp effective_protocol(%{kind: :protocol, correlation: correlation} = record, _state)
+       when is_map(correlation),
+       do:
+         if(is_tuple(correlation[:occurrence]),
+           do: {:ok, record, correlation.occurrence},
+           else: :none
+         )
+
+  defp effective_protocol(%{kind: :resume_input, occurrence: key}, state) when is_tuple(key) do
+    case get_in(state, [:slots, key, :pending_input, :record]) do
+      %{kind: :protocol, correlation: %{occurrence: ^key}} = record -> {:ok, record, key}
+      _ -> :none
+    end
+  end
+
+  defp effective_protocol(_, _), do: :none
+
+  defp decode_input(input) when is_map(input), do: {:ok, input}
+
+  defp decode_input(input) when is_binary(input) do
+    case Jason.decode(input) do
+      {:ok, decoded} when is_map(decoded) -> {:ok, decoded}
+      _ -> :error
+    end
+  end
+
+  defp decode_input(_), do: :error
+
+  defp recorded_action(state, {request, index} = key) do
+    case get_in(state, [:slots, key, :action]) do
+      %{"id" => _} = action ->
+        {:ok, action}
+
+      nil ->
+        with encoded when is_binary(encoded) <- Map.get(state.requests, request),
+             {:ok, request} <- Jason.decode(encoded),
+             actions when is_list(actions) <- Map.get(request, "actions"),
+             action when is_map(action) <- Enum.at(actions, index) do
+          {:ok, action}
+        else
+          _ -> {:error, :completion_mismatch}
+        end
+
+      _ ->
+        {:error, :completion_mismatch}
+    end
+  rescue
+    _ -> {:error, :completion_mismatch}
+  end
+
+  defp result_schema(bindings, kind, action) do
+    case Map.get(bindings, kind) do
+      %{result: {schema_id, version}} when is_binary(schema_id) and is_integer(version) ->
+        {:ok, {schema_id, version}}
+
+      by_schema when is_map(by_schema) and not is_struct(by_schema) ->
+        case Map.get(by_schema, action["schema_id"]) do
+          %{result: {schema_id, version}} when is_binary(schema_id) and is_integer(version) ->
+            {:ok, {schema_id, version}}
+
+          _ ->
+            {:error, :completion_mismatch}
+        end
+
+      _ ->
+        {:error, :completion_mismatch}
+    end
+  rescue
+    _ -> {:error, :completion_mismatch}
+  end
+
+  defp completed_source(state, candidates, owner, bindings) do
+    control = state.control
+    key = control.completion
+
+    with true <- control.run_id == owner.id and control.attempt_id == owner.current_attempt,
+         true <- control.operation_id == owner.operation_id,
+         true <- control.lifecycle.phase == :terminal and control.lifecycle.outcome == :completed,
+         true <- is_nil(control.stop_pending) and is_tuple(key),
+         {:ok, source} <- Map.fetch(candidates, {owner.id, owner.current_attempt, key}),
+         slot when is_map(slot) <- Map.get(state.slots, key),
+         true <-
+           source.run_id == owner.id and source.attempt_id == owner.current_attempt and
+             source.operation_id == owner.operation_id,
+         true <-
+           source.action_id == slot.action_id and slot.outcome == "completed" and
+             slot.phase == :settled and slot.attempt_id == owner.current_attempt and
+             slot.attempt_id == source.attempt_id and slot.kind == source.action_kind,
+         {:ok, {schema_id, schema_version}} <-
+           result_schema(bindings, source.action_kind, %{"schema_id" => source.action_schema_id}),
+         true <- {source.schema_id, source.schema_version} == {schema_id, schema_version},
+         true <-
+           is_binary(source.schema_id) and is_integer(source.schema_version) and
+             source.schema_version > 0 and Map.has_key?(source, :payload) do
+      {:ok, source}
+    else
+      _ -> {:error, :completion_mismatch}
+    end
+  rescue
+    _ -> {:error, :completion_mismatch}
+  end
+
+  defp read_completion(store, stream, sequence, owner, source, limits, counters) do
+    fold = %{
+      kinds: %{"completion" => :state_bearing},
+      versions: [1]
+    }
+
+    with {:ok, [row], head} <- read_page(store, stream, sequence),
+         :ok <- evidence_head(head, sequence),
+         {:ok, counters} <- charge(row, counters, limits),
+         :ok <- valid_row(row, stream, sequence, fold),
+         {:ok, event} <- decode_completion(row.payload),
+         true <- row.kind == "completion" and row.schema_version == 1,
+         true <- event.run_id == owner.id and event.attempt_id == owner.current_attempt,
+         true <- event.operation_id == owner.operation_id and event.action_id == source.action_id do
+      {:ok, event, counters, head}
+    else
+      {:error, _} = error -> error
+      _ -> {:error, :completion_mismatch}
+    end
+  end
+
+  defp decode_completion(bytes) do
+    case :erlang.binary_to_term(bytes, [:safe]) do
+      event when is_map(event) and not is_struct(event) and map_size(event) == 4 ->
+        if Enum.sort(Map.keys(event)) == @completion_keys and
+             Enum.all?(@completion_keys, &is_binary(Map.get(event, &1))),
+           do: {:ok, event},
+           else: {:error, :completion_mismatch}
+
+      _ ->
+        {:error, :completion_mismatch}
+    end
+  rescue
+    _ -> {:error, :completion_mismatch}
+  end
+
+  defp read_page(store, stream, sequence) do
+    case DurableLog.read(store, stream, sequence, 1) do
+      {:ok, rows, head} when is_list(rows) and is_map(head) ->
+        {:ok, rows, head}
+
+      {:error, {:pruned, _}} ->
+        {:error, :history}
+
+      _ ->
+        {:error, :unavailable}
+    end
+  rescue
+    _ -> {:error, :unavailable}
+  catch
+    _, _ -> {:error, :unavailable}
+  end
+
+  defp unit_head(head) do
+    cond do
+      not is_integer(Map.get(head, :revision)) or head.revision < 1 -> {:error, :history}
+      Map.get(head, :low_water) != 0 -> {:error, :history}
+      not valid_capability?(head) -> {:error, :unavailable}
+      not is_nil(Map.get(head, :staged_tail)) -> {:error, :history}
+      true -> :ok
+    end
+  end
+
+  defp evidence_head(head, sequence) do
+    cond do
+      not is_integer(Map.get(head, :revision)) or head.revision < sequence ->
+        {:error, :history}
+
+      not is_integer(Map.get(head, :low_water)) or head.low_water < 0 or
+          head.low_water >= sequence ->
+        {:error, :history}
+
+      not valid_capability?(head) ->
+        {:error, :unavailable}
+
+      not is_nil(Map.get(head, :staged_tail)) ->
+        {:error, :history}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp valid_capability?(head) do
+    get_in(head, [:capabilities, :append_visibility]) in [:atomic, :staged_uncommitted_tail]
+  end
+
+  defp stable_head(nil, _), do: :ok
+
+  defp stable_head(first, current) do
+    if head_identity(first) == head_identity(current), do: :ok, else: {:error, :history}
+  end
+
+  defp head_identity(head),
+    do: Map.take(head, [:revision, :low_water, :capabilities, :staged_tail])
+
+  defp recheck_head(store, stream, sequence, expected, limits, counters) do
+    with {:ok, rows, current} <- read_page(store, stream, sequence),
+         {:ok, counters} <- charge_rows(rows, counters, limits),
+         :ok <- if(rows == [], do: :ok, else: {:error, :history}),
+         :ok <- stable_head(expected, current),
+         :ok <- if(is_nil(Map.get(current, :staged_tail)), do: :ok, else: {:error, :history}) do
+      {:ok, counters}
+    else
+      {:error, _} = error -> error
+    end
+  end
+
+  defp charge_rows(rows, counters, limits) do
+    Enum.reduce_while(rows, {:ok, counters}, fn row, {:ok, current} ->
+      case charge(row, current, limits) do
+        {:ok, next} -> {:cont, {:ok, next}}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp valid_row(row, stream, sequence, fold) do
+    if Map.get(row, :stream) == stream and Map.get(row, :sequence) == sequence and
+         DurableLog.validate_row(row, fold, %{max_record_bytes: @record_bytes}) == :ok,
+       do: :ok,
+       else: {:error, :history}
+  rescue
+    _ -> {:error, :history}
+  end
+
+  defp charge(row, counters, limits) do
+    size = :erlang.iolist_size(DurableLog.canonical_bytes(row))
+
+    if size > 0 and counters.records < limits.max_records and
+         counters.bytes + size <= limits.max_bytes do
+      {:ok, %{records: counters.records + 1, bytes: counters.bytes + size}}
+    else
+      {:error, :read_limit}
+    end
+  rescue
+    _ -> {:error, :history}
+  end
+
+  defp valid_model?(%{state: state, pending: pending, completed: completed})
+       when is_list(completed) and (is_nil(pending) or is_tuple(pending)),
+       do: (state == @initial_state and completed == []) or valid_state?(state)
+
+  defp valid_model?(_), do: false
+
+  defp valid_state?(%{version: 1, control: control, slots: slots, requests: requests} = state) do
+    map_size(state) == 4 and is_map(control) and not is_struct(control) and
+      is_map(slots) and not is_struct(slots) and is_map(requests) and not is_struct(requests)
+  end
+
+  defp valid_state?(_), do: false
 end
