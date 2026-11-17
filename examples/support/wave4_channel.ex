@@ -96,7 +96,11 @@ defmodule Elzoo.Wave4ChannelExample do
   end
 
   @impl true
-  def format_status(status), do: Map.merge(status, %{state: :redacted, message: :redacted})
+  def format_status(status) do
+    Enum.reduce([:state, :message, :reason, :log], status, fn key, acc ->
+      if Map.has_key?(acc, key), do: Map.put(acc, key, :redacted), else: acc
+    end)
+  end
 
   defp admit_event(%{poison: poison} = state, _, _) when not is_nil(poison),
     do: {{:error, :unavailable}, state}
@@ -225,7 +229,16 @@ defmodule Elzoo.Wave4ChannelExample do
   end
 
   defp execute_input_command(state, event, operation_id, context, request, _decision) do
-    case CheckedCommand.execute(state.handles.input, context, request) do
+    result =
+      try do
+        CheckedCommand.execute(state.handles.input, context, request)
+      rescue
+        _ -> {:unknown, :exception}
+      catch
+        _, _ -> {:unknown, :exception}
+      end
+
+    case result do
       {:completed, %{revision: revision}} when revision == event.expected_revision + 1 ->
         {{:committed, revision}, state}
 
@@ -267,56 +280,96 @@ defmodule Elzoo.Wave4ChannelExample do
         {{:error, :unavailable}, state}
 
       _ ->
-        {{:unknown, :unavailable}, %{state | poison: {:input, operation_id, :unknown}}}
+        {{:unknown, :unavailable},
+         %{
+           state
+           | approval: %{event: event, operation_id: operation_id},
+             poison: {:input, operation_id, :unknown}
+         }}
     end
-  rescue
-    _ -> {{:unknown, :unavailable}, %{state | poison: {:input, operation_id, :exception}}}
   end
 
   defp release_event(%{poison: poison} = state, _, _, _) when not is_nil(poison),
     do: {{:error, :unavailable}, state}
 
   defp release_event(state, event, trusted_scope, evidence) do
-    with %{event: pending, operation_id: operation_id} <- state.approval,
-         true <- event == pending,
-         true <- is_nil(state.current) and state.phase == :idle,
-         :ok <- valid_admission_scope(state.profile, event, trusted_scope),
-         {:ok, facts, request, context} <- release_context(state, event, operation_id, evidence),
-         result <-
-           CheckedCommand.release(
-             state.handles.input,
-             context,
-             {state.profile.tenant, state.profile.actor, operation_id},
-             evidence
-           ) do
-      case result do
-        {:completed, %{revision: revision}} when revision == event.expected_revision + 1 ->
-          {{:committed, revision}, %{state | approval: nil}}
+    case release_plan(state, event, trusted_scope, evidence) do
+      {:ready, operation_id, facts, request, context} ->
+        execute_release(state, event, operation_id, facts, request, context, evidence)
 
-        {:approval_pending, _} ->
-          {{:pending, :approval}, state}
+      {:reply, reply} ->
+        {reply, state}
+    end
+  end
 
-        {:release_refused, reason} ->
-          {{:rejected, if(reason == :invalid_request, do: :invalid, else: :forbidden)}, state}
-
-        {:unknown, _} = unknown ->
-          {{:unknown, :unavailable},
-           %{state | poison: {:release, operation_id, facts, request, unknown}}}
-
-        {:unavailable, _} ->
-          {{:error, :unavailable}, state}
-
-        _ ->
-          {{:unknown, :unavailable},
-           %{state | poison: {:release, operation_id, facts, request, :unknown}}}
+  defp release_plan(state, event, trusted_scope, evidence) do
+    if is_map(evidence) and Map.get(evidence, :purpose) == :command do
+      with %{event: pending, operation_id: operation_id} <- state.approval,
+           true <- event == pending,
+           true <- is_nil(state.current) and state.phase == :idle,
+           :ok <- valid_admission_scope(state.profile, event, trusted_scope),
+           {:ok, facts, request, context} <-
+             release_context(state, event, operation_id, evidence) do
+        {:ready, operation_id, facts, request, context}
+      else
+        false -> {:reply, {:rejected, :conflict}}
+        nil -> {:reply, {:rejected, :conflict}}
+        {:error, :evidence} -> {:reply, {:error, :unavailable}}
+        _ -> {:reply, {:rejected, :invalid}}
       end
     else
-      false -> {{:rejected, :conflict}, state}
-      nil -> {{:rejected, :conflict}, state}
-      _ -> {{:rejected, :invalid}, state}
+      {:reply, {:rejected, :invalid}}
     end
   rescue
-    _ -> {{:unknown, :unavailable}, %{state | poison: {:release, :exception}}}
+    _ -> {:reply, {:error, :unavailable}}
+  catch
+    _, _ -> {:reply, {:error, :unavailable}}
+  end
+
+  defp execute_release(state, event, operation_id, facts, request, context, evidence) do
+    result =
+      try do
+        CheckedCommand.release(
+          state.handles.input,
+          context,
+          {state.profile.tenant, state.profile.actor, operation_id},
+          evidence
+        )
+      rescue
+        _ -> {:unknown, :exception}
+      catch
+        _, _ -> {:unknown, :exception}
+      end
+
+    case result do
+      {:completed, %{revision: revision}} when revision == event.expected_revision + 1 ->
+        {{:committed, revision}, %{state | approval: nil}}
+
+      {:approval_pending, _} ->
+        {{:pending, :approval}, state}
+
+      {:release_refused, reason} ->
+        {{:rejected, if(reason == :invalid_request, do: :invalid, else: :forbidden)}, state}
+
+      {:unknown, _} = unknown ->
+        {{:unknown, :unavailable},
+         %{state | poison: {:release, operation_id, facts, request, unknown}}}
+
+      {:unavailable, _} ->
+        {{:error, :unavailable}, state}
+
+      _ ->
+        {{:unknown, :unavailable},
+         %{state | poison: {:release, operation_id, facts, request, :unknown}}}
+    end
+  rescue
+    _ ->
+      {{:unknown, :unavailable},
+       %{state | poison: {:release, operation_id, facts, request, :exception}}}
+  catch
+    _, _ ->
+      {{:unknown, :unavailable},
+       %{state | poison: {:release, operation_id, facts, request, :exception}}}
   end
 
   defp release_context(state, event, operation_id, evidence) do
@@ -334,6 +387,10 @@ defmodule Elzoo.Wave4ChannelExample do
     else
       _ -> {:error, :evidence}
     end
+  rescue
+    _ -> {:error, :evidence}
+  catch
+    _, _ -> {:error, :evidence}
   end
 
   defp advance_once(%{poison: {:ack, key, nonce, receipt}} = state),
@@ -488,18 +545,31 @@ defmodule Elzoo.Wave4ChannelExample do
 
     facts = association_facts(c.run_id)
 
-    case execute_checked(state, :association, c.event, request, facts) do
+    result = execute_checked(state, :association, c.event, request, facts)
+    classify_association(state, c, result)
+  rescue
+    _ -> {{:error, :unavailable}, state}
+  catch
+    _, _ -> {{:error, :unavailable}, state}
+  end
+
+  defp classify_association(state, c, result) do
+    case result do
       {:completed, %{revision: revision, response: response}}
       when revision == c.resource_revision + 1 ->
         if association_receipt?(response, c.input_id, c.run_id) do
           {{:associated, c.run_id}, %{state | phase: :create_run}}
         else
-          {{:unknown, :association}, %{state | poison: {:association, :receipt}}}
+          {{:unknown, :association},
+           %{state | poison: {:association, c.association_operation, :receipt}}}
         end
 
       {:unknown, _} = unknown ->
         {{:unknown, :association},
          %{state | poison: {:association, c.association_operation, unknown}}}
+
+      {:unavailable, _} ->
+        {{:error, :unavailable}, state}
 
       {:denied, _} ->
         {{:blocked, :association_denied},
@@ -512,7 +582,13 @@ defmodule Elzoo.Wave4ChannelExample do
         {{:blocked, :association}, %{state | poison: {:association, other}}}
     end
   rescue
-    _ -> {{:unknown, :association}, %{state | poison: {:association, :exception}}}
+    _ ->
+      {{:unknown, :association},
+       %{state | poison: {:association, c.association_operation, :exception}}}
+  catch
+    _, _ ->
+      {{:unknown, :association},
+       %{state | poison: {:association, c.association_operation, :exception}}}
   end
 
   defp create_run(state) do
@@ -695,7 +771,16 @@ defmodule Elzoo.Wave4ChannelExample do
 
     facts = answer_facts(c.run_id, c.input_id, true)
 
-    case execute_checked(state, :answer, c.event, request, facts) do
+    result = execute_checked(state, :answer, c.event, request, facts)
+    classify_answer(state, c, result)
+  rescue
+    _ -> {{:error, :unavailable}, state}
+  catch
+    _, _ -> {{:error, :unavailable}, state}
+  end
+
+  defp classify_answer(state, c, result) do
+    case result do
       {:completed, %{revision: revision, response: response}}
       when revision == c.resource_revision + 2 ->
         if answer_receipt?(response, c.input_id, c.run_id, answer_id(c.input_id)) do
@@ -707,11 +792,18 @@ defmodule Elzoo.Wave4ChannelExample do
       {:unknown, _} = unknown ->
         {{:unknown, :answer}, %{state | poison: {:answer, c.answer_operation, unknown}}}
 
+      {:unavailable, _} ->
+        {{:error, :unavailable}, state}
+
       other ->
         {{:blocked, :answer}, %{state | poison: {:answer, other}}}
     end
   rescue
-    _ -> {{:unknown, :answer}, %{state | poison: {:answer, :exception}}}
+    _ ->
+      {{:unknown, :answer}, %{state | poison: {:answer, c.answer_operation, :exception}}}
+  catch
+    _, _ ->
+      {{:unknown, :answer}, %{state | poison: {:answer, c.answer_operation, :exception}}}
   end
 
   defp acknowledge(state) do
@@ -795,8 +887,15 @@ defmodule Elzoo.Wave4ChannelExample do
     identity = {state.profile.tenant, state.profile.actor, operation}
 
     case CheckedCommand.result(state.handles.input, result_scope(state.profile), identity) do
-      {:completed, _} ->
-        {{:reconciled, :input}, %{state | poison: nil}}
+      {:completed, %{revision: revision}} ->
+        case state.approval do
+          %{event: event, operation_id: ^operation}
+          when revision == event.expected_revision + 1 ->
+            {{:reconciled, :input}, %{state | poison: nil, approval: nil}}
+
+          _ ->
+            {{:unknown, :input}, state}
+        end
 
       {:approval_pending, pending} ->
         case state.approval do
@@ -827,8 +926,18 @@ defmodule Elzoo.Wave4ChannelExample do
            result_scope(state.profile),
            {state.profile.tenant, state.profile.actor, operation}
          ) do
-      {:completed, _} -> {{:reconciled, :release}, %{state | poison: nil, approval: nil}}
-      _ -> {{:unknown, :release}, state}
+      {:completed, %{revision: revision}} ->
+        case state.approval do
+          %{event: event, operation_id: ^operation}
+          when revision == event.expected_revision + 1 ->
+            {{:reconciled, :release}, %{state | poison: nil, approval: nil}}
+
+          _ ->
+            {{:unknown, :release}, state}
+        end
+
+      _ ->
+        {{:unknown, :release}, state}
     end
   rescue
     _ -> {{:unknown, :release}, state}
@@ -912,9 +1021,22 @@ defmodule Elzoo.Wave4ChannelExample do
     handle = state.handles[mode]
 
     case command_context(state, mode, event, request, facts) do
-      {:ok, context} -> CheckedCommand.execute(handle, context, request)
-      {:error, reason} -> {:unavailable, reason}
+      {:ok, context} ->
+        try do
+          CheckedCommand.execute(handle, context, request)
+        rescue
+          _ -> {:unknown, :exception}
+        catch
+          _, _ -> {:unknown, :exception}
+        end
+
+      {:error, reason} ->
+        {:unavailable, reason}
     end
+  rescue
+    _ -> {:unavailable, :context}
+  catch
+    _, _ -> {:unavailable, :context}
   end
 
   defp command_context(state, mode, event, request, facts) do
@@ -1443,7 +1565,7 @@ defmodule Elzoo.Wave4ChannelExample do
       if conn.query_string == "" and conversation_id == opts.conversation_id do
         case read_principal(opts.principal, conn) do
           {:ok, scope} ->
-            case Elzoo.Wave4ChannelExample.view(opts.host, scope) do
+            case safe_view(opts.host, scope) do
               {:ok, view} ->
                 Plug.Conn.resp(conn, 200, Jason.encode!(%{status: "ok", view: view}))
 
@@ -1490,6 +1612,14 @@ defmodule Elzoo.Wave4ChannelExample do
     end
 
     defp read_principal(_, _), do: {:error, :unavailable}
+
+    defp safe_view(host, scope) do
+      Elzoo.Wave4ChannelExample.view(host, scope)
+    rescue
+      _ -> {:error, :unavailable}
+    catch
+      _, _ -> {:error, :unavailable}
+    end
   end
 
   defmodule Pattern do

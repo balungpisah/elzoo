@@ -330,12 +330,24 @@ defmodule Elzoo.Wave4ChannelTestHelper do
   def scope(profile),
     do: %{tenant: profile.tenant, actor: profile.actor, resources: [profile.conversation_id]}
 
-  def policy do
+  def policy(verdict \\ :allow) do
+    rule =
+      if verdict == :ask do
+        %{
+          id: "channel-review",
+          effect_class: "conversation.write",
+          verdict: :ask,
+          requirement: %{name: "channel-review", version: 1, scope: :once}
+        }
+      else
+        %{id: "channel-policy-rule", effect_class: "conversation.write", verdict: verdict}
+      end
+
     artifact = %{
       id: "channel-policy",
       version: 1,
       effect_classes: ["conversation.write"],
-      rules: [%{id: "allow-channel", effect_class: "conversation.write", verdict: :allow}]
+      rules: [rule]
     }
 
     Map.put(
