@@ -307,6 +307,7 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-255](https://github.com/balungpisah/elzoo/issues/580) | V1B / pieces | ELZ-249, ELZ-254 | published 2026-11-16 | coordinator; one-PR path for a non-Piece change; independent review and merge queue |
 | [ELZ-256](https://github.com/balungpisah/elzoo/issues/585) | V1B / pieces | ELZ-127, ELZ-172, ELZ-252 | published 2026-11-17 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-257](https://github.com/balungpisah/elzoo/issues/586) | V1B / pieces | ELZ-083, ELZ-115, ELZ-127, ELZ-252 | published 2026-11-17 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-259](https://github.com/balungpisah/elzoo/issues/591) | V1B / pieces | ELZ-127, ELZ-256 | published 2026-11-17 | one claimed task worker; coordinator owns independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -482,7 +483,7 @@ Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, EL
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189, ELZ-190, ELZ-191, ELZ-192, ELZ-193, ELZ-194, ELZ-195, ELZ-196, ELZ-197, ELZ-198, ELZ-199, ELZ-200, ELZ-201, ELZ-202, ELZ-203, ELZ-204, ELZ-205, ELZ-206, ELZ-207, ELZ-208, ELZ-210, ELZ-211, ELZ-212, ELZ-213, ELZ-214, ELZ-215, ELZ-216, ELZ-217, ELZ-218, ELZ-219, ELZ-220, ELZ-221, ELZ-223, ELZ-224, ELZ-227, ELZ-229, ELZ-230, ELZ-222, ELZ-231, ELZ-232, ELZ-233, ELZ-234, ELZ-225, ELZ-235, ELZ-236, ELZ-237, ELZ-238, ELZ-239, ELZ-240, ELZ-241, ELZ-242, ELZ-243, ELZ-245, ELZ-246, ELZ-247, ELZ-248, ELZ-249, ELZ-250, ELZ-251, ELZ-252, ELZ-253, ELZ-254, ELZ-255, ELZ-256, ELZ-257.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189, ELZ-190, ELZ-191, ELZ-192, ELZ-193, ELZ-194, ELZ-195, ELZ-196, ELZ-197, ELZ-198, ELZ-199, ELZ-200, ELZ-201, ELZ-202, ELZ-203, ELZ-204, ELZ-205, ELZ-206, ELZ-207, ELZ-208, ELZ-210, ELZ-211, ELZ-212, ELZ-213, ELZ-214, ELZ-215, ELZ-216, ELZ-217, ELZ-218, ELZ-219, ELZ-220, ELZ-221, ELZ-223, ELZ-224, ELZ-227, ELZ-229, ELZ-230, ELZ-222, ELZ-231, ELZ-232, ELZ-233, ELZ-234, ELZ-225, ELZ-235, ELZ-236, ELZ-237, ELZ-238, ELZ-239, ELZ-240, ELZ-241, ELZ-242, ELZ-243, ELZ-245, ELZ-246, ELZ-247, ELZ-248, ELZ-249, ELZ-250, ELZ-251, ELZ-252, ELZ-253, ELZ-254, ELZ-255, ELZ-256, ELZ-257, ELZ-259.
 
 ### V2-ACCEPT
 
@@ -3832,3 +3833,13 @@ Publication copy: [tasks/ELZ-257-webhook-in.md](../../tasks/ELZ-257-webhook-in.m
 **Product aims:** P13.
 
 **Acceptance:** One first-party signed plain-text Plug ingress profile using existing providers only. Authenticate exact raw bytes before JSON parsing or principal/admission Needs; enforce bounded fields, timestamp and body limits, trusted scope and once-only admission per request. Do not generate IDs or claim host authentication, durability, listener lifecycle or channel composition.
+
+### ELZ-259
+
+ELZ-259 — Reconcile uncertain native outbox acknowledgements
+
+Publication copy: [tasks/ELZ-259-run-engine-ack-confirmation.md](../../tasks/ELZ-259-run-engine-ack-confirmation.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Use the original key and nonce to reconcile uncertain native acknowledgements; confirmed commits preserve progress, while missing, pending, unavailable, malformed, mismatched or superseded confirmation remains explicit and fenced. PostgreSQL acceptance covers reply loss, noncommit/read faults, restart identities, exact outbox/work counts, and the defective-call negative control. No new delivery or universal cancellation guarantee is added.
