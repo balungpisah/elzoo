@@ -7,7 +7,7 @@ defmodule Elzoo.CheckedCommandCopySupportTest do
   @checked_test "test/elzoo/checked_command_test.exs"
   @sql_helper "test/support/durable_log_postgres_test_helper.exs"
   @source_sql_helper "pieces/integration/sql/test/support/durable_log_postgres_test_helper.exs"
-  @probe_url "ecto://elzoo_test:probe@127.0.0.1:1/elzoo_test"
+  @probe_sentinel "sql-test-support-sentinel"
 
   test "the exported CheckedCommand test keeps real SQL support in either load order" do
     destination = consumer_destination!()
@@ -95,7 +95,7 @@ defmodule Elzoo.CheckedCommandCopySupportTest do
       end
 
     """
-    System.put_env("ELZOO_TEST_DATABASE_URL", #{@probe_url |> inspect()})
+    System.put_env("ELZOO_TEST_DATABASE_URL", #{@probe_sentinel |> inspect()})
     ExUnit.start(autorun: false, seed: 0)
     #{loads}
 
@@ -116,7 +116,7 @@ defmodule Elzoo.CheckedCommandCopySupportTest do
 
   defp missing_support_script(checked_test, source_sql_helper) do
     """
-    System.put_env("ELZOO_TEST_DATABASE_URL", #{@probe_url |> inspect()})
+    System.put_env("ELZOO_TEST_DATABASE_URL", #{@probe_sentinel |> inspect()})
     ExUnit.start(autorun: false, seed: 0)
     Code.require_file(#{inspect(source_sql_helper)})
 
