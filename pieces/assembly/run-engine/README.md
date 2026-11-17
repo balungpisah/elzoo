@@ -91,8 +91,15 @@ select arbitrary modules, tenants, provider accounts or grants.
 
 The host owns checked provisioning, authentication, schema/binding compatibility,
 full retained history, physical fencing and confirmation of outstanding writes
-before replacement. Pure pattern/gate callbacks must terminate promptly and
-avoid hostile allocation; byte bounds are not a sandbox. A receiver-only
+before replacement. An indeterminate native outbox acknowledgement is reconciled
+with the original item key and nonce through `Elzoo.DurableLog.confirm_ack/2`; only
+a matching committed receipt resumes progress. Missing, pending, unavailable,
+malformed, mismatched or superseded confirmation remains `ack_unknown`, and an
+empty pending list is not proof of the original acknowledgement. Before replacement,
+the host fences old tasks, owners, callers and connections; this ack reconciliation
+does not replace confirmation of other outstanding writes. Pure pattern/gate
+callbacks must terminate promptly and avoid hostile allocation; byte bounds are
+not a sandbox. A receiver-only
 restart keeps its AsyncWork controller; replacing that controller requires
 tearing down the predecessor task subtree first.
 
@@ -372,6 +379,9 @@ continuations; ack is not business completion. Logical IDs use deterministic
 ETF SHA-256: gate digests `{1, {host_identity, run_id}, request}` with `gate:`;
 refusal digests `{1, {host_identity, run_id}, request, index, :gate_refusal}`
 with `out:`. Answers, payloads and newly sampled time do not change these IDs.
+A lost acknowledgement reply is checked with the public confirmation API and its
+original item key/nonce; every result other than a matching commit stays explicitly
+unknown rather than retrying or inferring success from no pending item.
 
 ALLOW Effects use recorded descriptor bytes and existing EffectIntent activation.
 ASK Effects use Run's approval/dispatch protocol; non-Effect ASK actions use
@@ -467,6 +477,17 @@ damaged or incompatible history. Gate/refusal JSON schemas describe the JSON
 view of the version-1 plain data; runtime additionally enforces UTF-8 byte bounds.
 
 ## Grounding and limits
+
+The PostgreSQL-backed `native outbox acknowledgement reconciliation` tests exercise
+a real acknowledgement before its reply is hidden, confirmation with the original
+key and nonce, a rolled-back acknowledgement, an unavailable confirmation read,
+a different winning nonce, malformed confirmation evidence after a committed ack,
+and repeated offers while halted. Their completed-cut
+restart stops the engine, Unit and Run owner after confirming no task is active,
+reopens database connections, then compares Run, Attempt, Unit, result, work, Budget
+and outbox state.
+This finite fixture does not establish universal process/network cancellation or
+volatile-work recovery; local work retains the existing `local_restart` semantics.
 
 `mix test pieces/assembly/run-engine/test` exercises the published 13 named
 groups and the eight nested-result groups `nested_result_reaches_parent`,
