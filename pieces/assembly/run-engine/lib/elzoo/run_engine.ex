@@ -3138,12 +3138,16 @@ defmodule Elzoo.RunEngine do
     if pending do
       {:ok, s}
     else
-      case Outbox.ack(s.opts.store, item.idempotency_key, :crypto.strong_rand_bytes(16)) do
+      ack_nonce = :crypto.strong_rand_bytes(16)
+
+      case Outbox.ack(s.opts.store, item.idempotency_key, ack_nonce) do
         {:committed, _} ->
           {:ok, s}
 
-        {:indeterminate, receipt} ->
-          case Elzoo.DurableLog.confirm_ack(s.opts.store, receipt) do
+        {:indeterminate, _receipt} ->
+          request = Elzoo.DurableLog.Codec.ack_receipt(item.idempotency_key, ack_nonce)
+
+          case Elzoo.DurableLog.confirm_ack(s.opts.store, request) do
             {:committed, _} -> {:ok, s}
             _ -> {:ack_unknown, s}
           end

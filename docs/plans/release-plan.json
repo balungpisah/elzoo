@@ -7192,6 +7192,23 @@
       "issue": 586,
       "url": "https://github.com/balungpisah/elzoo/issues/586",
       "issue_body_sha256": "03cdbff6f0cdd9bfac55d8d3cb436d64256978ff72c8b89696316533b4e7bb39"
+    },
+    {
+      "id": "ELZ-259",
+      "title": "ELZ-259 — Reconcile uncertain native outbox acknowledgements",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-127", "ELZ-256"],
+      "status": "published 2026-11-17",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-259-run-engine-ack-confirmation.md"],
+      "outputs": [],
+      "acceptance": "Use the original key and nonce to reconcile uncertain native acknowledgements; confirmed commits preserve progress, while missing, pending, unavailable, malformed, mismatched or superseded confirmation remains explicit and fenced. PostgreSQL acceptance covers reply loss, noncommit/read faults, restart identities, exact outbox/work counts, and the defective-call negative control. No new delivery or universal cancellation guarantee is added.",
+      "product_aims": ["P13"],
+      "issue": 591,
+      "url": "https://github.com/balungpisah/elzoo/issues/591",
+      "issue_body_sha256": "de405eba2a420924c2e9f3793206532050f43dc339578378f01e5efa8bb1a325"
     }
   ],
   "entries": [
@@ -8321,7 +8338,7 @@
       "baseline_status": "not in baseline (new row, RC-50)",
       "disposition": "ready-contract",
       "manifest": "pieces/assembly/run-engine/piece.json",
-      "manifest_sha256": "f2efaa8ea2a3103d07fdeeaf63e22c04a6bbbbf2a7add395e107b4729fd02471",
+      "manifest_sha256": "ef67009bfef4e7bace3c86d83e9040f4efda002cb2e391d6b335e2594f28e9c0",
       "catalogue_reference": "registry/catalogue.json"
     },
     {
