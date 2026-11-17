@@ -2,7 +2,7 @@
 
 ## Status and scope
 
-This plan records Level 1: ELZ-245 is an executable fit spike with no Piece output; ELZ-246's delivery/debounce and ELZ-247's domain/trigger-binding Pieces are ready on main. It proposes Level 2 Pieces ELZ-249 (assembly/checked-command) and ELZ-250 (state/conversation), plus the later-level root consumer acceptance ELZ-252. ELZ-252 may be published early with these prerequisites, but remains unready until ELZ-249 and ELZ-250 are merged; it also depends on ELZ-127. Levels 3 and 4 otherwise remain unadmitted. No Level 2 implementation begins until publication has merged and the Piece issues carry the task label; ELZ-252 cannot begin before its dependencies merge.
+This plan records Level 1: ELZ-245 is an executable fit spike with no Piece output; ELZ-246's delivery/debounce and ELZ-247's domain/trigger-binding Pieces are ready on main. It proposes Level 2 Pieces ELZ-249 (assembly/checked-command) and ELZ-250 (state/conversation), plus the later-level root consumer acceptance ELZ-252. ELZ-252 may be published early with these prerequisites, but remains unready until ELZ-249 and ELZ-250 are merged; it also depends on ELZ-127. The first-party signed plain-text webhook is selected as the Level 3 source, with ELZ-256/#585 and ELZ-257/#586 as prerequisite Contracts. Channel composition and Level 4 remain unpublished. No implementation begins until its own task issue is labeled and its dependencies are merged; ELZ-252 cannot begin before its dependencies merge.
 
 The first-level task Contracts and issues are:
 
@@ -18,6 +18,11 @@ The proposed Level 2 task Contracts are:
 The mandatory later-level root consumer acceptance is:
 
 - [ELZ-252 task](../../tasks/ELZ-252-command-conversation-acceptance.md) · [issue #570](https://github.com/balungpisah/elzoo/issues/570)
+
+The selected Level 3 source prerequisite Contracts are:
+
+- [ELZ-256 task](../../tasks/ELZ-256-run-engine-result.md) · [issue #585](https://github.com/balungpisah/elzoo/issues/585) — in-place RunEngine result API, no output Piece
+- [ELZ-257 task](../../tasks/ELZ-257-webhook-in.md) · [issue #586](https://github.com/balungpisah/elzoo/issues/586) — new signed first-party webhook ingress Piece
 
 The Level 1 registration does not claim Wave 4 runtime implementation. ELZ-252 has no Piece output and must pass before durable-conversation, native RunEngine parity or Wave 4 completion is claimed.
 
@@ -44,7 +49,7 @@ The five supplied research reports informed these dispositions, but they are evi
 | integration/http-server | Reuse upstream HTTP server primitives inside one bounded webhook adapter; no server façade Piece. | Level 3, after one source and admission boundary are selected. Listener lifecycle, TLS termination, proxy policy and supervision stay with the host. |
 | integration/signature | Reuse OTP MAC/hash comparison primitives inside the webhook adapter; no generic signature wrapper. | Level 3, coupled to the chosen raw-byte webhook profile and credential Need. A valid body MAC is not human authentication or replay prevention. |
 | integration/event-source | Keep provider-specific normalization with the concrete source adapter; no generic source registry yet. | Conditional Level 3: choose a source and its stable identity, cursor, rate-limit and retry contract first. |
-| integration/webhook-in | New bounded adapter candidate, not three separate HTTP-server/signature/source façades. | Level 3, after the source profile and durable-command receipt boundary are chosen; preserve original bytes, bound reads and fail closed before admission. |
+| integration/webhook-in | Selected bounded adapter for the first-party signed plain-text source; no separate HTTP-server/signature/source façades. | Level 3: ELZ-257 defines this Piece using existing providers and host-vouched identity; no listener or other channel is added. |
 | delivery/debounce | New pure trailing-edge policy, ELZ-246. | Level 1. One caller-owned partition; host owns monotonic samples, serialization and tokenized timer scheduling. |
 | delivery/event-trigger | Reuse/composition over a verified source, trigger binding and checked-command host path. | Level 2 or 3 after source identity, binding revision and command result semantics are settled; do not add a new Piece without a demonstrated independent policy. |
 | domain/trigger-binding | New pure declaration validation and bounded selector, ELZ-247. | Level 1. No authentication, persistence, package loading, priority or Run creation. |
@@ -74,13 +79,13 @@ The five supplied research reports informed these dispositions, but they are evi
 
 **Level 2 — only after Level 1 evidence:** ELZ-249 is a Piece-only slow-lane Assembly over the existing Store and depends on ELZ-245, ELZ-247, ELZ-024, ELZ-009, ELZ-032, ELZ-114, ELZ-115 and ELZ-127. Its result scope is `%{tenant:, actor:}` and resource read scope is `%{tenant:, actor:, resources:}`. Its real PostgreSQL tests, including controlled fault cases, stay inside the Piece; its concrete PostgreSQL binding example declares the SQL dependency/provider closure. It does not add a root test or import RunEngine. ELZ-250 defines the pure conversation DTO/codec/policy over ELZ-024 only and can be implemented in parallel; both Contracts fix their shared resource-read scope without importing an unfinished module or claiming persistence. Conversation text uses `{:text, binary}` and integers/booleans use bare values in the existing Authorization portable domain. Its immutable association allows multiple inputs to share one host-allocated stable Run ID, not proof of process start or completion. ELZ-252 is the mandatory later-level root consumer acceptance, depending on ELZ-249, ELZ-250 and ELZ-127, with no Piece output. Its early publication does not make it ready: ELZ-249 and ELZ-250 must merge first. ELZ-252 must invoke the actual public RunEngine and pass real Memory/PostgreSQL composition including retained denial/replay, CAS, duplicate-message behavior and native parity. It must pass before durable conversation, native parity or Wave 4 completion is claimed. Publication remains gated on ELZ-245 acceptance and a green current main. Event-trigger and event-emit remain host compositions over these selected boundaries. Host-vouched authenticated context is a bounded first-party caller assumption/Need, not a delivered principal Piece; RC-06 identity-provider work remains deferred to Wave 5.
 
-**Level 3 — concrete adapters and channel composition:** select an actual event source before webhook-in or polling work. Compose the bounded first-party web channel on the conversation/host-context boundary. Add live client streaming or upload only for a demonstrated first-channel need. The Store/outbox and consumer-owned relay are the initial durable transport option; no general broker adoption or subscriber-cursor claim is implied.
+**Level 3 — concrete adapters and channel composition:** the selected source is the signed first-party plain-text webhook. ELZ-256 adds the in-place authoritative Run-result prerequisite; ELZ-257 defines `integration/webhook-in`. These prerequisite Contracts do not publish channel composition, which waits for settled host interfaces. Level 4 remains unpublished until the event-subscription activation/replay/retention/gap boundary is settled. Add live client streaming or upload only for a demonstrated first-channel need. The Store/outbox and consumer-owned relay remain the initial durable transport option; no general broker adoption or subscriber-cursor claim is implied.
 
 **Level 4 — outside-event wait, in place:** first settle the event-subscription activation/replay/retention/gap boundary, then extend the existing PatternStep protocol, BotRunLifecycle and RunEngine in separate Piece-owned tasks. A timer, process-local Registry or relay poll is not by itself a durable wait.
 
 **Conditional, not a level prerequisite:** state/schema-evolution follows an actual persisted-format change. The identity provider stays in Wave 5. Reuse-only handles stay visible above and are not separate task rows unless a later caller exposes an independently bounded policy gap.
 
-The first-level task Contracts and planned Piece rows are registered by this publication. Levels 2 and later remain dependency proposals; none of those proposals is a runtime implementation or permission to start work before its own task is published and labeled.
+The registered task Contracts and planned Piece rows are planning records, not runtime implementation. ELZ-256 and ELZ-257 are the selected Level 3 prerequisites; channel composition and Level 4 remain unpublished. Work must wait until its own task issue is labeled and its dependencies are merged.
 
 ## Provider prerequisites and open decisions
 

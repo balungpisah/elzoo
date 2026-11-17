@@ -661,6 +661,14 @@
       "manifest": "pieces/integration/text-chunking/piece.json"
     },
     {
+      "id": "integration/webhook-in",
+      "summary": "Signed first-party plain-text webhook ingress",
+      "disposition": "own",
+      "phase": "P4",
+      "status": "planned",
+      "reason": "ELZ-257 selects one bounded source profile; host-vouched identity and request lifecycle remain host Needs, with no generic wrapper or new provider."
+    },
+    {
       "id": "runtime/adapter",
       "summary": "Service/channel/process adapter boundary and result translation",
       "disposition": "own",

@@ -305,6 +305,8 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-253](https://github.com/balungpisah/elzoo/issues/573) | V1B / pieces | ELZ-251 | published 2026-11-16 | coordinator; one-PR path for a non-Piece change; independent review and merge queue |
 | [ELZ-254](https://github.com/balungpisah/elzoo/issues/577) | V1B / pieces | ELZ-253 | published 2026-11-16 | coordinator; one-PR path for a non-Piece change; independent review and merge queue |
 | [ELZ-255](https://github.com/balungpisah/elzoo/issues/580) | V1B / pieces | ELZ-249, ELZ-254 | published 2026-11-16 | coordinator; one-PR path for a non-Piece change; independent review and merge queue |
+| [ELZ-256](https://github.com/balungpisah/elzoo/issues/585) | V1B / pieces | ELZ-127, ELZ-172, ELZ-252 | published 2026-11-17 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-257](https://github.com/balungpisah/elzoo/issues/586) | V1B / pieces | ELZ-083, ELZ-115, ELZ-127, ELZ-252 | published 2026-11-17 | one claimed task worker; coordinator owns independent review and merge queue |
 
 ## Catalogue accounting
 
@@ -380,6 +382,7 @@ Baseline status is immutable inventory history, not a current planning status. R
 | [integration/crypto](../../pieces/integration/crypto/piece.json) | ready | V1 / pieces | ELZ-013 / P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12 | retained-ready-contract: Use OTP SHA-256 directly; a published abc vector grounds this usage. |
 | [integration/cure-json](../../pieces/integration/cure-json/piece.json) | ready | V1 / pieces | ELZ-013 / P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12 | retained-ready-contract: Optional typed Cure-to-Jason string encoder with an Elixir input/error boundary. |
 | [integration/http](../../pieces/integration/http/piece.json) | ready | V1 / pieces | ELZ-013 / P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12 | retained-ready-contract: Use Req directly for an HTTP client request with explicit retry, redirect, body and timeout choices. |
+| integration/webhook-in | planned | V1B / pieces | ELZ-257 / P13 | planned-contract: Planned first-party signed plain-text webhook ingress; host-vouched identity and listener/request lifetime remain host Needs. |
 | integration/identity | deferred | V1 / pieces | RC-06 / P04, P05, P09, P12 | blocked-admission-proposal: Authentication/provider boundary for domain/principal; sessions, revocation and account linking need explicit tests. AshAuthentication is one candidate when Ash fits; no provider adopted. |
 | [integration/jobs](../../pieces/integration/jobs/piece.json) | planned | V1 / pieces | ELZ-010 / P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12 | merged-ready-contract; task acceptance separate: Oban 2.24.2 translation: unique job per (queue, job_key), enqueue that reports only persisted job ids (conflict without id is {:retry, :unique_lock_held}), a per-queue runner registration and an Oban worker that traps exits, maps an escaping exit to a snooze and refuses unknown args versions, and a Relay over one ELZ-009 outbox stream that acks :done items, keeps skipped items pending and continues within the page. |
 | [integration/json](../../pieces/integration/json/piece.json) | ready | V1 / pieces | ELZ-004 / P01, P02, P03, P04, P05, P06, P07, P08, P09, P10, P11, P12 | retained-ready-contract: Use Jason directly for JSON values and explicit encode/decode errors. |
@@ -479,7 +482,7 @@ Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, EL
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189, ELZ-190, ELZ-191, ELZ-192, ELZ-193, ELZ-194, ELZ-195, ELZ-196, ELZ-197, ELZ-198, ELZ-199, ELZ-200, ELZ-201, ELZ-202, ELZ-203, ELZ-204, ELZ-205, ELZ-206, ELZ-207, ELZ-208, ELZ-210, ELZ-211, ELZ-212, ELZ-213, ELZ-214, ELZ-215, ELZ-216, ELZ-217, ELZ-218, ELZ-219, ELZ-220, ELZ-221, ELZ-223, ELZ-224, ELZ-227, ELZ-229, ELZ-230, ELZ-222, ELZ-231, ELZ-232, ELZ-233, ELZ-234, ELZ-225, ELZ-235, ELZ-236, ELZ-237, ELZ-238, ELZ-239, ELZ-240, ELZ-241, ELZ-242, ELZ-243, ELZ-245, ELZ-246, ELZ-247, ELZ-248, ELZ-249, ELZ-250, ELZ-251, ELZ-252, ELZ-253, ELZ-254, ELZ-255.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189, ELZ-190, ELZ-191, ELZ-192, ELZ-193, ELZ-194, ELZ-195, ELZ-196, ELZ-197, ELZ-198, ELZ-199, ELZ-200, ELZ-201, ELZ-202, ELZ-203, ELZ-204, ELZ-205, ELZ-206, ELZ-207, ELZ-208, ELZ-210, ELZ-211, ELZ-212, ELZ-213, ELZ-214, ELZ-215, ELZ-216, ELZ-217, ELZ-218, ELZ-219, ELZ-220, ELZ-221, ELZ-223, ELZ-224, ELZ-227, ELZ-229, ELZ-230, ELZ-222, ELZ-231, ELZ-232, ELZ-233, ELZ-234, ELZ-225, ELZ-235, ELZ-236, ELZ-237, ELZ-238, ELZ-239, ELZ-240, ELZ-241, ELZ-242, ELZ-243, ELZ-245, ELZ-246, ELZ-247, ELZ-248, ELZ-249, ELZ-250, ELZ-251, ELZ-252, ELZ-253, ELZ-254, ELZ-255, ELZ-256, ELZ-257.
 
 ### V2-ACCEPT
 
@@ -3809,3 +3812,23 @@ Publication copy: [tasks/ELZ-255-shared-sql-test-support.md](../../tasks/ELZ-255
 **Product aims:** P13.
 
 **Acceptance:** The actual Export regression verifies real shared SQL support and enabled PostgreSQL cases in both load orders, and fails closed without copied support. All 43 direct and copied CheckedCommand tests use disposable PostgreSQL with all 17 SQL cases active; the old-bootstrap negative control fails. The full affected gate retains existing limits and completes with top-level summary and wrapper postchecks.
+
+### ELZ-256
+
+ELZ-256 — Read an authoritative completed Run result
+
+Publication copy: [tasks/ELZ-256-run-engine-result.md](../../tasks/ELZ-256-run-engine-result.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Bounded, read-only RunEngine result API returns payload only for the authoritative completed Run and its exact first accepted paired settlement. Incrementally validate the public DurableLog rows/fold and canonical bytes; fail closed on corrupt, gapped, pruned, staged, unpaired or mismatched evidence. No Unit start, driving, callback, write or control side effect; output none.
+
+### ELZ-257
+
+ELZ-257 — Signed first-party webhook ingress
+
+Publication copy: [tasks/ELZ-257-webhook-in.md](../../tasks/ELZ-257-webhook-in.md).
+
+**Product aims:** P13.
+
+**Acceptance:** One first-party signed plain-text Plug ingress profile using existing providers only. Authenticate exact raw bytes before JSON parsing or host Needs; enforce bounded fields, timestamp and body limits, trusted scope and once-only admission per request. Do not generate IDs or claim host authentication, durability, listener lifecycle or channel composition.
