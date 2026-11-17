@@ -143,11 +143,18 @@ ROADMAP CHECK PASSED: 147 catalogue IDs; 2 separate candidates; 277 jobs; 13 pro
 No tracked claim metadata
 ```
 
-after its single run.
 The earlier affected gate reported 2,809 passed and 84 excluded on
 `74aca22c2ae7d5a8e62ee10c8141e2dd7aa7518e`; it predates these review
 corrections and is superseded. The final `mix check --affected origin/main`
-remains pending until its single run on this correction commit.
+completed on `7bd0b65e8d0243e60a721aff6c02fc391be6653e`:
+
+```text
+Finished in 2779.1 seconds (191.1s async, 2587.9s sync)
+Result: 2809 passed, 84 excluded
+ELZOO STAGE root_suite end utc=2026-11-17T07:33:35.834585Z elapsed=2791.9
+ELZOO AFFECTED CHECK PASSED (not full consumer acceptance; see selected consumer scope)
+Exit code: 0
+```
 
 ## Harness negative controls
 
