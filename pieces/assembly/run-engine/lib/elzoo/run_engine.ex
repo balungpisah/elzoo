@@ -3793,7 +3793,7 @@ defmodule Elzoo.RunEngine.ResultReader do
          true <- before_slot.phase != :settled and after_slot.phase == :settled,
          true <- after_slot.outcome == "completed",
          true <- input["kind"] in ["action_outcome", "person_answer"],
-         true <- input["outcome"] == "completed",
+         true <- accepted_completion?(input),
          true <- input["action_id"] == before_slot.action_id,
          true <- input["action_id"] == after_slot.action_id,
          true <- before_slot.action_id == after_slot.action_id,
@@ -3822,6 +3822,13 @@ defmodule Elzoo.RunEngine.ResultReader do
   end
 
   defp accepted_settlement(_, _), do: :none
+
+  defp accepted_completion?(%{"kind" => "action_outcome", "outcome" => "completed"}), do: true
+
+  defp accepted_completion?(%{"kind" => "person_answer"} = input),
+    do: not Map.has_key?(input, "outcome")
+
+  defp accepted_completion?(_), do: false
 
   defp effective_protocol(%{kind: :protocol, correlation: correlation} = record, _state)
        when is_map(correlation),

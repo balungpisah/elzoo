@@ -10813,9 +10813,17 @@ defmodule Elzoo.RunEngineTest do
       assert_receive {:result_read_callback, :clock}
       clear_result_read_callbacks()
 
+      wait_for(engine, fn _ ->
+        match?({:ok, []}, Elzoo.Outbox.pending(c.store, c.prefix, 64)) and
+          match?({:ok, []}, Elzoo.Outbox.pending(c.evidence_store, "evidence", 64))
+      end)
+
       {:ok, owner} = Run.status(c.run, "run")
       before_rows = rows(c)
       before_state = unit_state(c)
+      before_outbox = outbox_snapshot(c)
+      before_outbox_count = before_outbox.count
+      assert before_outbox_count > 0
 
       expected = %{
         run_id: "run",
@@ -10837,6 +10845,9 @@ defmodule Elzoo.RunEngineTest do
       refute Map.has_key?(status, :payload)
       assert rows(c) == before_rows
       assert unit_state(c) == before_state
+      after_reads_outbox = outbox_snapshot(c)
+      assert after_reads_outbox.count == before_outbox_count
+      assert after_reads_outbox == before_outbox
       refute_receive {:work_ran, _, _}
 
       engine =
@@ -10854,8 +10865,16 @@ defmodule Elzoo.RunEngineTest do
         assert {:ok, ^expected} = RunEngine.result(engine, result_scope(), result_limits())
       end)
 
+      wait_for(engine, fn _ ->
+        match?({:ok, []}, Elzoo.Outbox.pending(c.store, c.prefix, 64)) and
+          match?({:ok, []}, Elzoo.Outbox.pending(c.evidence_store, "evidence", 64))
+      end)
+
       assert rows(c) == before_rows
       assert unit_state(c) == before_state
+      after_restart_outbox = outbox_snapshot(c)
+      assert after_restart_outbox.count == before_outbox_count
+      assert after_restart_outbox == before_outbox
       refute_receive {:work_ran, _, _}
 
       {:ok, [evidence], _} =
@@ -10863,6 +10882,108 @@ defmodule Elzoo.RunEngineTest do
 
       assert %{run_id: "run", attempt_id: "attempt", operation_id: "operation", action_id: "work"} =
                :erlang.binary_to_term(evidence.payload, [:safe])
+    end
+
+    test "returns the accepted authenticated person answer after a finish references it" do
+      pattern =
+        {TestPattern, :step,
+         %{
+           requests: [
+             request([action("ask", "ask_person")]),
+             request([finish_action("finish", %{"action_id" => "ask"})])
+           ]
+         }}
+
+      c = fixture(pattern: pattern)
+
+      bindings =
+        Map.update!(c.opts[:bindings], "ask_person", &Map.put(&1, :result, {"message", 1}))
+
+      reader = reader_config(c)
+      engine = start(c, bindings: bindings, result_reader: reader)
+      assert {:ok, :applied} = send_input(engine)
+      assert wait_for(engine, &(&1.slots[{1, 0}].phase == :waiting)).slots[{1, 0}].phase == :waiting
+
+      answer = %{
+        "type" => "input",
+        "version" => 1,
+        "kind" => "person_answer",
+        "action_id" => "ask",
+        "person_id" => "person",
+        "schema_id" => "message",
+        "schema_version" => 1,
+        "payload" => %{"message" => "accepted answer"}
+      }
+
+      wrong_person = %{answer | "person_id" => "other"}
+
+      assert {:ok, :applied} =
+               RunEngine.input(
+                 engine,
+                 "wrong-person-answer",
+                 wrong_person,
+                 verified(%{occurrence: {1, 0}, verified_person: "other", actual: 0})
+               )
+
+      assert view(engine).slots[{1, 0}].phase == :waiting
+
+      assert {:ok, :applied} =
+               RunEngine.input(
+                 engine,
+                 "accepted-person-answer",
+                 answer,
+                 verified(%{occurrence: {1, 0}, verified_person: "person", actual: 0})
+               )
+
+      assert wait_for(engine, &(&1.outcome == :completed)).outcome == :completed
+      {:ok, owner} = Run.status(c.run, "run")
+
+      expected = %{
+        run_id: "run",
+        attempt_id: "attempt",
+        operation_id: "operation",
+        action_id: "ask",
+        schema_id: "message",
+        schema_version: 1,
+        payload: %{"message" => "accepted answer"},
+        evidence_ref: owner.evidence_ref
+      }
+
+      assert {:ok, ^expected} = RunEngine.result(engine, result_scope(), result_limits())
+      assert {:ok, ^expected} = RunEngine.result(engine, result_scope(), result_limits())
+
+      engine = restart(c, engine, bindings: bindings, pattern: pattern, result_reader: reader)
+      assert {:ok, ^expected} = RunEngine.result(engine, result_scope(), result_limits())
+
+      assert {:ok, :duplicate} =
+               RunEngine.input(
+                 engine,
+                 "accepted-person-answer",
+                 answer,
+                 verified(%{occurrence: {1, 0}, verified_person: "person", actual: 0})
+               )
+
+      late_answer = %{answer | "payload" => %{"message" => "late answer"}}
+
+      assert {:ok, :applied} =
+               RunEngine.input(
+                 engine,
+                 "late-person-answer",
+                 late_answer,
+                 verified(%{occurrence: {1, 0}, verified_person: "person", actual: 0})
+               )
+
+      assert {:ok, ^expected} = RunEngine.result(engine, result_scope(), result_limits())
+
+      {:ok, [evidence], _} =
+        Elzoo.DurableLog.read(c.evidence_store, "evidence", owner.evidence_ref.sequence, 1)
+
+      assert :erlang.binary_to_term(evidence.payload, [:safe]) == %{
+               run_id: "run",
+               attempt_id: "attempt",
+               operation_id: "operation",
+               action_id: "ask"
+             }
     end
 
     test "uses the accepted nested parent outcome with a real Memory Unit and PostgreSQL Run evidence" do
@@ -11445,6 +11566,20 @@ defmodule Elzoo.RunEngineTest do
       assert {:error, :completion_mismatch} =
                RunEngine.result(engine, result_scope(), result_limits())
     end
+  end
+
+  defp outbox_snapshot(c) do
+    schema = Elzoo.DurableLog.Postgres.identifier(c.prefix)
+
+    result =
+      Ecto.Adapters.SQL.query!(
+        Elzoo.RunEngine.TestRepo,
+        "SELECT stream, sequence, position, destination, payload, nonce, digest, state, ack_nonce, ack_digest FROM #{schema}.elzoo_outbox ORDER BY stream, sequence, position",
+        [],
+        log: false
+      )
+
+    %{count: result.num_rows, rows: result.rows}
   end
 
   defp local_result_fixture(overrides \\ []) do
