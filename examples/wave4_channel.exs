@@ -27,7 +27,6 @@ defmodule Elzoo.Wave4ChannelDemo do
   @lease_owner "wave4-demo-owner"
   @lease_ttl_ms 3_600_000
   @deadline_ms 120_000
-  @advance_limit 64
 
   def run! do
     url = database_url!()
@@ -535,13 +534,10 @@ defmodule Elzoo.Wave4ChannelDemo do
   end
 
   defp drive_until_ack!(host, input_id, deadline) do
-    drive_until_ack!(host, input_id, deadline, [], 0)
+    drive_until_ack!(host, input_id, deadline, [])
   end
 
-  defp drive_until_ack!(_host, _input_id, _deadline, _steps, count) when count >= @advance_limit,
-    do: raise("demo exceeded its bounded advance count")
-
-  defp drive_until_ack!(host, input_id, deadline, steps, count) do
+  defp drive_until_ack!(host, input_id, deadline, steps) do
     if System.monotonic_time(:millisecond) >= deadline,
       do: raise("demo exceeded the fixed Run deadline")
 
@@ -554,7 +550,7 @@ defmodule Elzoo.Wave4ChannelDemo do
 
       {:pending, _reason} ->
         Process.sleep(2)
-        drive_until_ack!(host, input_id, deadline, steps, count + 1)
+        drive_until_ack!(host, input_id, deadline, steps)
 
       {:unknown, _reason} ->
         raise "demo entered an unknown host phase"
@@ -565,8 +561,32 @@ defmodule Elzoo.Wave4ChannelDemo do
       {:blocked, _reason} ->
         raise "demo host phase was blocked"
 
-      step ->
-        drive_until_ack!(host, input_id, deadline, [step | steps], count + 1)
+      {:observed, _} = step ->
+        drive_until_ack!(host, input_id, deadline, [step | steps])
+
+      {:associated, _} = step ->
+        drive_until_ack!(host, input_id, deadline, [step | steps])
+
+      {:run_created, _} = step ->
+        drive_until_ack!(host, input_id, deadline, [step | steps])
+
+      {:attempt_started, _} = step ->
+        drive_until_ack!(host, input_id, deadline, [step | steps])
+
+      {:engine_started, _} = step ->
+        drive_until_ack!(host, input_id, deadline, [step | steps])
+
+      {:native_input, result} = step when result in [:applied, :duplicate] ->
+        drive_until_ack!(host, input_id, deadline, [step | steps])
+
+      {:result, :completed} = step ->
+        drive_until_ack!(host, input_id, deadline, [step | steps])
+
+      {:answered, _} = step ->
+        drive_until_ack!(host, input_id, deadline, [step | steps])
+
+      _unexpected ->
+        raise "demo received an unexpected host phase"
     end
   end
 
@@ -577,11 +597,7 @@ defmodule Elzoo.Wave4ChannelDemo do
 
   defp trace(steps) do
     steps
-    |> Enum.map(fn
-      {phase, _} -> Atom.to_string(phase)
-      {phase, _, _} -> Atom.to_string(phase)
-      {phase, _, _, _} -> Atom.to_string(phase)
-    end)
+    |> Enum.map(fn {phase, _} -> Atom.to_string(phase) end)
     |> Enum.join(" -> ")
   end
 

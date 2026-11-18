@@ -1390,7 +1390,7 @@ defmodule Elzoo.Wave4ChannelTest do
     assert Enum.count(recovered_messages, &(&1["role"] == "assistant")) == 1
   end
 
-  test "a different nonce winning the original ack key never clears the host poison", %{
+  test "a different nonce winning the original ack key reports conflict and retains host poison", %{
     fixture: fixture
   } do
     listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
@@ -1430,10 +1430,14 @@ defmodule Elzoo.Wave4ChannelTest do
     assert {:committed, _sequence} =
              Elzoo.Outbox.ack(fixture.command_store, original_key, other_nonce)
 
-    assert {:unknown, :ack} = Wave4ChannelExample.advance(fixture.host)
+    assert {:ok, head_before_conflict} = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
+    assert {:blocked, :ack_superseded} = Wave4ChannelExample.advance(fixture.host)
     assert {:ack, ^original_key, ^original_nonce, _receipt} = :sys.get_state(fixture.host).poison
 
     assert {:ok, []} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+
+    assert {:ok, %{state: :acked, idempotency_key: ^original_key, ack_nonce: ^other_nonce}} =
+             Elzoo.DurableLog.Store.read(fixture.command_store, :read_ack, [original_key])
 
     assert :superseded =
              Elzoo.DurableLog.confirm_ack(
@@ -1444,12 +1448,21 @@ defmodule Elzoo.Wave4ChannelTest do
     assert {:ok, {{_, 200, _}, _, body}} =
              Elzoo.Wave4ChannelTestHelper.get(listener, fixture.profile.conversation_id)
 
-    assert %{"status" => "ok", "view" => %{"revision" => 3, "messages" => messages}} =
+    assert %{"status" => "ok", "view" => %{"revision" => 3, "messages" => messages} = view} =
              Jason.decode!(body)
 
     assert Enum.count(messages, &(&1["role"] == "assistant")) == 1
-    assert {:unknown, :ack} = Wave4ChannelExample.advance(fixture.host)
+
+    poison = :sys.get_state(fixture.host).poison
+    assert {:ack, ^original_key, ^original_nonce, _receipt} = poison
+    assert {:blocked, :ack_superseded} = Wave4ChannelExample.advance(fixture.host)
     assert {:ack, ^original_key, ^original_nonce, _receipt} = :sys.get_state(fixture.host).poison
+    assert {:ok, ^head_before_conflict} = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
+
+    assert {:ok, {{_, 200, _}, _, body_after}} =
+             Elzoo.Wave4ChannelTestHelper.get(listener, fixture.profile.conversation_id)
+
+    assert %{"status" => "ok", "view" => ^view} = Jason.decode!(body_after)
     assert take_hash_calls() == [event["text"]]
   end
 

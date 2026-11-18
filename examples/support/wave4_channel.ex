@@ -1076,8 +1076,14 @@ defmodule Elzoo.Wave4ChannelExample do
 
     if ack_evidence_matches?(receipt, request) do
       case DurableLog.confirm_ack(state.command_store, request) do
-        {:committed, _} -> finish_input(state)
-        _other -> {{:unknown, :ack}, %{state | poison: {:ack, key, nonce, receipt}}}
+        {:committed, _} ->
+          finish_input(state)
+
+        :superseded ->
+          {{:blocked, :ack_superseded}, %{state | poison: {:ack, key, nonce, receipt}}}
+
+        _other ->
+          {{:unknown, :ack}, %{state | poison: {:ack, key, nonce, receipt}}}
       end
     else
       {{:unknown, :ack}, %{state | poison: {:ack, key, nonce, receipt}}}
