@@ -868,6 +868,258 @@ defmodule Elzoo.Wave4ChannelTest do
     assert take_hash_calls() == []
   end
 
+  test "retained input denial reconciles after reply loss without admitting through read outage", %{
+    fixture: fixture
+  } do
+    gate_control = start_supervised!({Agent, fn -> :deny end}, id: make_ref())
+
+    input_gate = fn _frame, _context ->
+      verdict =
+        Agent.get_and_update(gate_control, fn
+          :deny -> {:deny, :allow}
+          :allow -> {:allow, :allow}
+        end)
+
+      case verdict do
+        :deny ->
+          Elzoo.DurableLog.PostgresHarness.hook(
+            fixture.command_store,
+            :inject,
+            [:read_at, :unavailable]
+          )
+
+          Elzoo.DurableLog.PostgresHarness.hook(
+            fixture.command_store,
+            :inject,
+            [:append, :reply_loss]
+          )
+
+          :deny
+
+        :allow ->
+          :allow
+      end
+    end
+
+    gates = %{
+      input: input_gate,
+      association: fn _, _ -> :allow end,
+      answer: fn _, _ -> :allow end
+    }
+
+    fixture = host_with_gates(fixture, gates)
+    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
+    trace_native_hash(fixture.native.task_supervisor)
+    event = Elzoo.Wave4ChannelTestHelper.event(%{"event_id" => "reply-lost-denial"})
+    operation = Elzoo.Wave4ChannelTestHelper.input_operation(fixture.profile, event["event_id"])
+    identity = {fixture.profile.tenant, fixture.profile.actor, operation}
+
+    assert {:ok, {{_, 503, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, event)
+
+    assert {:denied, {:gate, _}} =
+             CheckedCommand.result(
+               fixture.handles.input,
+               %{tenant: fixture.profile.tenant, actor: fixture.profile.actor},
+               identity
+             )
+
+    Elzoo.DurableLog.PostgresHarness.hook(fixture.command_store, :inject, [:read, :unavailable])
+    assert {:unknown, :input} = Wave4ChannelExample.advance(fixture.host)
+
+    blocked = Elzoo.Wave4ChannelTestHelper.event(%{"event_id" => "denial-still-fenced"})
+    assert {:ok, {{_, 503, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, blocked)
+
+    assert {:denied, {:gate, _}} =
+             CheckedCommand.result(
+               fixture.handles.input,
+               %{tenant: fixture.profile.tenant, actor: fixture.profile.actor},
+               identity
+             )
+
+    assert {:reconciled, :input_terminal} = Wave4ChannelExample.advance(fixture.host)
+    assert {:ok, %{revision: 1}} = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
+
+    assert {:ok, %{revision: 0}} =
+             CheckedCommand.resource(
+               fixture.handles.input,
+               Elzoo.Wave4ChannelTestHelper.scope(fixture.profile),
+               fixture.profile.conversation_id
+             )
+
+    assert {:ok, []} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+
+    assert {:unknown, :not_observed} =
+             CheckedCommand.result(
+               fixture.handles.input,
+               %{tenant: fixture.profile.tenant, actor: fixture.profile.actor},
+               {fixture.profile.tenant, fixture.profile.actor,
+                Elzoo.Wave4ChannelTestHelper.input_operation(fixture.profile, blocked["event_id"])}
+             )
+
+    run_id =
+      Elzoo.Wave4ChannelTestHelper.run_id(
+        fixture.profile,
+        event["event_id"],
+        event["input_id"]
+      )
+
+    assert {:error, :not_found} = RunApprovalRelease.status(fixture.owner, run_id)
+
+    assert :not_found =
+             DynamicUnits.find(fixture.directory, Elzoo.Wave4ChannelTestHelper.unit_id(run_id))
+
+    assert take_hash_calls() == []
+    drain_read_at_fault!(fixture, fixture.profile)
+
+    next =
+      Elzoo.Wave4ChannelTestHelper.event(%{
+        "event_id" => "after-denial-reconciliation",
+        "input_id" => "after-denial-input",
+        "expected_revision" => 0
+      })
+
+    next_operation = Elzoo.Wave4ChannelTestHelper.input_operation(fixture.profile, next["event_id"])
+
+    assert {:ok, {{_, 202, _}, _, next_body}} =
+             Elzoo.Wave4ChannelTestHelper.post(listener, next)
+
+    assert %{"revision" => 1, "status" => "committed"} = Jason.decode!(next_body)
+
+    assert {:completed, %{revision: 1}} =
+             CheckedCommand.result(
+               fixture.handles.input,
+               %{tenant: fixture.profile.tenant, actor: fixture.profile.actor},
+               {fixture.profile.tenant, fixture.profile.actor, next_operation}
+             )
+
+    assert_input_outbox(fixture, next, 2)
+
+    assert {:ok, %{revision: 1}} =
+             CheckedCommand.resource(
+               fixture.handles.input,
+               Elzoo.Wave4ChannelTestHelper.scope(fixture.profile),
+               fixture.profile.conversation_id
+             )
+
+    assert take_hash_calls() == []
+  end
+
+  test "retained stale release conflict reconciles after read outage", %{fixture: fixture} do
+    trace_native_hash(fixture.native.task_supervisor)
+    race = stale_release_race!(fixture, :reply_loss)
+    fixture = race.fixture
+    listener = race.listener
+    profile = fixture.profile
+
+    assert race.release_result == {:unknown, :unavailable}
+    assert race.retained_result == {:conflict, :stale_revision}
+
+    Elzoo.DurableLog.PostgresHarness.hook(fixture.command_store, :inject, [:read, :unavailable])
+    assert {:unknown, :release} = Wave4ChannelExample.advance(fixture.host)
+
+    blocked =
+      Elzoo.Wave4ChannelTestHelper.event(%{
+        "event_id" => "stale-release-still-fenced",
+        "input_id" => "stale-release-blocked-input",
+        "expected_revision" => 1
+      })
+
+    assert {:ok, {{_, 503, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, blocked)
+
+    assert {:unknown, :not_observed} =
+             CheckedCommand.result(
+               fixture.handles.input,
+               %{tenant: profile.tenant, actor: profile.actor},
+               {profile.tenant, profile.actor,
+                Elzoo.Wave4ChannelTestHelper.input_operation(profile, blocked["event_id"])}
+             )
+
+    assert {:conflict, :stale_revision} =
+             CheckedCommand.result(fixture.handles.input, race.scope, race.identity)
+
+    assert {:reconciled, :release_conflict} = Wave4ChannelExample.advance(fixture.host)
+
+    assert {:ok, %{revision: 1}} =
+             CheckedCommand.resource(
+               fixture.handles.input,
+               Elzoo.Wave4ChannelTestHelper.scope(profile),
+               profile.conversation_id
+             )
+
+    run_id =
+      Elzoo.Wave4ChannelTestHelper.run_id(
+        profile,
+        race.event["event_id"],
+        race.event["input_id"]
+      )
+
+    assert {:error, :not_found} = RunApprovalRelease.status(fixture.owner, run_id)
+
+    assert :not_found =
+             DynamicUnits.find(fixture.directory, Elzoo.Wave4ChannelTestHelper.unit_id(run_id))
+
+    drain_read_at_fault!(fixture, profile)
+
+    next =
+      Elzoo.Wave4ChannelTestHelper.event(%{
+        "event_id" => "after-release-conflict-reconciliation",
+        "input_id" => "after-release-conflict-input",
+        "expected_revision" => 1
+      })
+
+    next_operation = Elzoo.Wave4ChannelTestHelper.input_operation(profile, next["event_id"])
+
+    assert {:ok, {{_, 202, _}, _, next_body}} =
+             Elzoo.Wave4ChannelTestHelper.post(listener, next)
+
+    assert %{"revision" => 2, "status" => "committed"} = Jason.decode!(next_body)
+
+    assert {:completed, %{revision: 2}} =
+             CheckedCommand.result(
+               fixture.handles.input,
+               %{tenant: profile.tenant, actor: profile.actor},
+               {profile.tenant, profile.actor, next_operation}
+             )
+
+    assert_input_outbox(fixture, next, 4)
+    assert take_hash_calls() == []
+  end
+
+  test "direct stale release conflict does not poison future admission", %{fixture: fixture} do
+    trace_native_hash(fixture.native.task_supervisor)
+    race = stale_release_race!(fixture, :direct)
+    fixture = race.fixture
+    profile = fixture.profile
+
+    assert race.release_result == {:rejected, :conflict}
+    assert race.retained_result == {:conflict, :stale_revision}
+    assert {:idle, :no_input} = Wave4ChannelExample.advance(fixture.host)
+
+    next =
+      Elzoo.Wave4ChannelTestHelper.event(%{
+        "event_id" => "after-direct-release-conflict",
+        "input_id" => "after-direct-release-input",
+        "expected_revision" => 1
+      })
+
+    next_operation = Elzoo.Wave4ChannelTestHelper.input_operation(profile, next["event_id"])
+
+    assert {:ok, {{_, 202, _}, _, next_body}} =
+             Elzoo.Wave4ChannelTestHelper.post(race.listener, next)
+
+    assert %{"revision" => 2, "status" => "committed"} = Jason.decode!(next_body)
+
+    assert {:completed, %{revision: 2}} =
+             CheckedCommand.result(
+               fixture.handles.input,
+               %{tenant: profile.tenant, actor: profile.actor},
+               {profile.tenant, profile.actor, next_operation}
+             )
+
+    assert_input_outbox(fixture, next, 4)
+    assert take_hash_calls() == []
+  end
+
   test "paused input writer is not treated as non-commit and stays fenced until it exits", %{
     fixture: fixture
   } do
@@ -3235,6 +3487,154 @@ defmodule Elzoo.Wave4ChannelTest do
       input_id: event["input_id"],
       expected_revision: event["expected_revision"],
       text: event["text"]
+    }
+  end
+
+  defp drain_read_at_fault!(fixture, profile) do
+    case Elzoo.DurableLog.Store.read(
+           fixture.command_store,
+           :read_at,
+           [checked_stream(profile.tenant), 1]
+         ) do
+      {:error, :unavailable} -> :ok
+      {:ok, _row, _head} -> :ok
+      other -> flunk("unexpected read_at result: #{inspect(other)}")
+    end
+  end
+
+  defp stale_release_race!(fixture, mode) when mode in [:reply_loss, :direct] do
+    gate_control = start_supervised!({Agent, fn -> %{fault: nil, store: nil} end}, id: make_ref())
+    policy_control = start_supervised!({Agent, fn -> :ask end}, id: make_ref())
+    authority_control = start_supervised!({Agent, fn -> %{} end}, id: make_ref())
+    authority_calls = start_supervised!({Agent, fn -> 0 end}, id: make_ref())
+    parent = self()
+    barrier = make_ref()
+    suffix = Atom.to_string(mode)
+
+    gates = %{
+      input: controlled_gate(gate_control),
+      association: fn _, _ -> :allow end,
+      answer: fn _, _ -> :allow end
+    }
+
+    policy = fn _mode, _event, _now ->
+      Elzoo.Wave4ChannelTestHelper.policy(Agent.get(policy_control, & &1))
+    end
+
+    authority = fn mode, _event, _request, _facts ->
+      if mode == :release do
+        call = Agent.get_and_update(authority_calls, fn count -> {count + 1, count + 1} end)
+
+        if call == 2 do
+          send(parent, {:release_authority_barrier, self(), barrier})
+
+          receive do
+            {:continue_release_authority, ^barrier} -> :ok
+          after
+            10_000 -> exit(:authority_barrier_timeout)
+          end
+        end
+
+        Agent.get(authority_control, & &1)
+      else
+        %{}
+      end
+    end
+
+    fixture = host_with_gates(fixture, gates, policy: policy, authority: authority)
+    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
+
+    event =
+      Elzoo.Wave4ChannelTestHelper.event(%{
+        "event_id" => "stale-release-#{suffix}",
+        "input_id" => "stale-release-input-#{suffix}"
+      })
+
+    normalized = normalized_event(event)
+    operation = Elzoo.Wave4ChannelTestHelper.input_operation(fixture.profile, event["event_id"])
+    identity = {fixture.profile.tenant, fixture.profile.actor, operation}
+    scope = %{tenant: fixture.profile.tenant, actor: fixture.profile.actor}
+
+    assert {:ok, {{_, 202, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, event)
+
+    assert {:approval_pending, %{key: key}} =
+             CheckedCommand.result(fixture.handles.input, scope, identity)
+
+    now = System.system_time(:millisecond)
+
+    evidence = %{
+      verifier: "wave4-command-approver",
+      evidence_id: "stale-release-#{suffix}",
+      reviewer: "human-reviewer",
+      request: key,
+      decision: :approve,
+      scope: :once,
+      issued_at: now - 1_000,
+      expiry: now + 60_000
+    }
+
+    envelope = %{purpose: :command, tenant: fixture.profile.tenant, evidence: evidence}
+
+    request = %{
+      operation_id: operation,
+      resource: normalized.conversation_id,
+      expected_revision: normalized.expected_revision,
+      payload: %{"message_id" => normalized.input_id, "text" => normalized.text}
+    }
+
+    facts = {:record, [{"input_role", {:text, "source"}}, {"mode", {:text, "append_input"}}]}
+    prepared_facts = %{tenant: fixture.profile.tenant, actor: fixture.profile.actor, data: facts}
+
+    assert {:ok, snapshot} =
+             CheckedCommand.resource(
+               fixture.handles.input,
+               Elzoo.Wave4ChannelTestHelper.scope(fixture.profile),
+               normalized.conversation_id
+             )
+
+    assert {:ok, writes, _} = Conversation.prepare(snapshot, request, prepared_facts)
+
+    Agent.update(authority_control, fn _ ->
+      %{approver: %{identity: "human-reviewer", authority: writes}, now: now, revoked: []}
+    end)
+
+    Agent.update(policy_control, fn _ -> :allow end)
+
+    caller =
+      Task.async(fn ->
+        Wave4ChannelExample.release(
+          fixture.host,
+          normalized,
+          Elzoo.Wave4ChannelTestHelper.scope(fixture.profile),
+          envelope
+        )
+      end)
+
+    assert_receive {:release_authority_barrier, release_host, ^barrier}, 5_000
+    assert {:completed, %{revision: 1}} = seed_message!(fixture, 1, "intervening public write")
+
+    if mode == :reply_loss do
+      set_gate_fault(gate_control, fixture.command_store, :reply_loss)
+    end
+
+    send(release_host, {:continue_release_authority, barrier})
+    release_result = Task.await(caller, 10_000)
+
+    if mode == :reply_loss do
+      assert Map.get(Agent.get(fixture.controller, & &1.faults), :append) == nil
+    end
+
+    retained_result = CheckedCommand.result(fixture.handles.input, scope, identity)
+    assert {:conflict, :stale_revision} = retained_result
+
+    %{
+      fixture: fixture,
+      listener: listener,
+      event: event,
+      identity: identity,
+      scope: scope,
+      release_result: release_result,
+      retained_result: retained_result
     }
   end
 

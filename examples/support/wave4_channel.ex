@@ -381,6 +381,9 @@ defmodule Elzoo.Wave4ChannelExample do
       {:release_refused, reason} ->
         {{:rejected, if(reason == :invalid_request, do: :invalid, else: :forbidden)}, state}
 
+      {:conflict, :stale_revision} ->
+        {{:rejected, :conflict}, %{state | approval: nil}}
+
       {:unknown, _} = unknown ->
         {{:unknown, :unavailable},
          %{state | poison: {:release, operation_id, facts, request, unknown}}}
@@ -1165,7 +1168,7 @@ defmodule Elzoo.Wave4ChannelExample do
 
       {:approval_pending, pending} ->
         case state.approval do
-          %{event: event} ->
+          %{event: event, operation_id: ^operation} ->
             approval = %{
               event: event,
               operation_id: operation,
@@ -1179,11 +1182,33 @@ defmodule Elzoo.Wave4ChannelExample do
             {{:unknown, :input}, state}
         end
 
+      {:denied, {reason, _}} when reason in [:gate, :authorization] ->
+        reconcile_input_terminal(state, operation)
+
+      {:conflict, :stale_revision} ->
+        reconcile_input_terminal(state, operation)
+
+      {:conflict, {:domain, _}} ->
+        reconcile_input_terminal(state, operation)
+
+      {:refused, :domain_failure} ->
+        reconcile_input_terminal(state, operation)
+
       _ ->
         {{:unknown, :input}, state}
     end
   rescue
     _ -> {{:unknown, :input}, state}
+  end
+
+  defp reconcile_input_terminal(state, operation) do
+    case state.approval do
+      %{event: _event, operation_id: ^operation} ->
+        {{:reconciled, :input_terminal}, %{state | poison: nil, approval: nil}}
+
+      _ ->
+        {{:unknown, :input}, state}
+    end
   end
 
   defp reconcile_release(state, operation) do
@@ -1197,6 +1222,15 @@ defmodule Elzoo.Wave4ChannelExample do
           %{event: event, operation_id: ^operation}
           when revision == event.expected_revision + 1 ->
             {{:reconciled, :release}, %{state | poison: nil, approval: nil}}
+
+          _ ->
+            {{:unknown, :release}, state}
+        end
+
+      {:conflict, :stale_revision} ->
+        case state.approval do
+          %{event: _event, operation_id: ^operation} ->
+            {{:reconciled, :release_conflict}, %{state | poison: nil, approval: nil}}
 
           _ ->
             {{:unknown, :release}, state}
