@@ -263,6 +263,7 @@ defmodule Elzoo.Wave4ChannelDemo do
       lease_stream: @lease_stream,
       directory: directory,
       registry: @engine_registry,
+      unit_registry: @unit_registry,
       supervisor: @unit_supervisor,
       task_supervisor: @task_supervisor,
       unit_store: resources.unit_store,

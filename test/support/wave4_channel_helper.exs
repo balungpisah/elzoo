@@ -164,6 +164,7 @@ defmodule Elzoo.Wave4ChannelTestHelper do
       lease_stream: "runs",
       directory: directory,
       registry: Elzoo.RunEngine.TestRegistry,
+      unit_registry: Elzoo.RunEngine.UnitRegistry,
       supervisor: unit_supervisor,
       task_supervisor: task_supervisor,
       unit_store: unit_store,

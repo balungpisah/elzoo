@@ -1469,6 +1469,7 @@ defmodule Elzoo.Wave4ChannelExample do
       :lease_stream,
       :directory,
       :registry,
+      :unit_registry,
       :supervisor,
       :task_supervisor,
       :unit_store,
@@ -1478,7 +1479,8 @@ defmodule Elzoo.Wave4ChannelExample do
 
     if Enum.all?(required, &Map.has_key?(native, &1)) and
          is_pid(native.run_owner) and is_pid(native.directory) and is_atom(native.registry) and
-         not is_nil(Process.whereis(native.registry)) and engine_configuration?(native.engine) do
+         not is_nil(Process.whereis(native.registry)) and is_atom(native.unit_registry) and
+         not is_nil(Process.whereis(native.unit_registry)) and engine_configuration?(native.engine) do
       {:ok, Map.merge(native, %{target: target.target, profile: profile})}
     else
       {:error, :native}
@@ -1648,13 +1650,65 @@ defmodule Elzoo.Wave4ChannelExample do
   defp no_live_native_unit(%{current: %{run_id: run_id}} = state) do
     id = unit_id(run_id, state)
 
-    case {Registry.lookup(state.native.registry, id), DynamicUnits.find(state.native.directory, id)} do
-      {[], :not_found} -> :ok
-      _ -> {:error, :unit_alive}
+    with :ok <- no_live_native_registrations(state, id) do
+      case DynamicUnits.find(state.native.directory, id) do
+        :not_found ->
+          no_live_native_registrations(state, id)
+
+        {:ok, pid} when is_pid(pid) ->
+          if Process.alive?(pid),
+            do: {:error, :unit_alive},
+            else: no_live_native_registrations(state, id)
+
+        {:error, :busy} ->
+          stale_native_unit_registration(state, id)
+
+        {:error, :unavailable} ->
+          {:error, :unit_unavailable}
+
+        _other ->
+          {:error, :unit_alive}
+      end
     end
   end
 
   defp no_live_native_unit(_), do: :ok
+
+  defp no_live_native_registrations(state, id) do
+    case {native_registration_status(state.native.registry, id),
+          native_registration_status(state.native.unit_registry, id)} do
+      {engine, unit} when engine in [:missing, :stale] and unit in [:missing, :stale] ->
+        :ok
+
+      {engine, unit} when engine == :unavailable or unit == :unavailable ->
+        {:error, :unit_unavailable}
+
+      _ ->
+        {:error, :unit_alive}
+    end
+  end
+
+  defp stale_native_unit_registration(state, id) do
+    case {native_registration_status(state.native.registry, id),
+          native_registration_status(state.native.unit_registry, id)} do
+      {engine, :stale} when engine in [:missing, :stale] ->
+        :ok
+
+      {engine, unit} when engine == :unavailable or unit == :unavailable ->
+        {:error, :unit_unavailable}
+
+      _ ->
+        {:error, :unit_alive}
+    end
+  end
+
+  defp native_registration_status(registry, id) do
+    case Registry.lookup(registry, id) do
+      [] -> :missing
+      [{pid, _}] when is_pid(pid) -> if(Process.alive?(pid), do: :live, else: :stale)
+      _ -> :unavailable
+    end
+  end
 
   defp valid_event(event) when is_map(event) and not is_struct(event) do
     required = [:version, :event_id, :conversation_id, :input_id, :expected_revision, :text]

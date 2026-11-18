@@ -1130,6 +1130,68 @@ defmodule Elzoo.Wave4ChannelTest do
     assert take_hash_calls() == []
   end
 
+  test "dead registry registrations do not block a committed answer acknowledgement", %{
+    fixture: fixture
+  } do
+    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
+    event = Elzoo.Wave4ChannelTestHelper.event()
+    input_id = event["input_id"]
+    run_id = Elzoo.Wave4ChannelTestHelper.run_id(fixture.profile, event["event_id"], input_id)
+    unit_id = Elzoo.Wave4ChannelTestHelper.unit_id(run_id)
+    trace_native_hash(fixture.native.task_supervisor)
+
+    assert {:ok, {{_, 202, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, event)
+    assert {:observed, ^input_id} = Wave4ChannelExample.advance(fixture.host)
+    assert {:associated, ^run_id} = Wave4ChannelExample.advance(fixture.host)
+    assert {:run_created, _} = Wave4ChannelExample.advance(fixture.host)
+    assert {:attempt_started, _} = Wave4ChannelExample.advance(fixture.host)
+    assert {:engine_started, ^unit_id} = Wave4ChannelExample.advance(fixture.host)
+    assert {:native_input, :applied} = Wave4ChannelExample.advance(fixture.host)
+
+    assert {:result, :completed} =
+             wait_for_result(fixture.host, System.monotonic_time(:millisecond) + 10_000)
+
+    assert take_hash_calls() == [event["text"]]
+    assert {:answered, 3} = Wave4ChannelExample.advance(fixture.host)
+    assert {:ok, [item]} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    [{engine_pid, _}] = Registry.lookup(fixture.native.registry, unit_id)
+    [{unit_pid, nil}] = Registry.lookup(Elzoo.RunEngine.UnitRegistry, unit_id)
+    assert Process.alive?(engine_pid)
+    assert Process.alive?(unit_pid)
+
+    partitions =
+      registry_partition_pids!(fixture.native.registry) ++
+        registry_partition_pids!(Elzoo.RunEngine.UnitRegistry)
+
+    ack_result =
+      with_suspended_registry_partitions(partitions, fn ->
+        result = Wave4ChannelExample.advance(fixture.host)
+        refute Process.alive?(engine_pid)
+        refute Process.alive?(unit_pid)
+        assert [{^engine_pid, _}] = Registry.lookup(fixture.native.registry, unit_id)
+        assert [{^unit_pid, nil}] = Registry.lookup(Elzoo.RunEngine.UnitRegistry, unit_id)
+
+        assert {:ok, ack} =
+                 Elzoo.DurableLog.Store.read(fixture.command_store, :read_ack, [
+                   item.idempotency_key
+                 ])
+
+        assert ack.state == :acked
+        assert ack.idempotency_key == item.idempotency_key
+        assert ack.ack_nonce == item.nonce
+
+        assert {:ok, []} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+        result
+      end)
+
+    assert {:acknowledged, ^input_id} = ack_result
+    assert take_hash_calls() == []
+
+    deadline = System.monotonic_time(:millisecond) + 5_000
+    wait_for_registry_cleanup!(fixture.native.registry, unit_id, deadline)
+    wait_for_registry_cleanup!(Elzoo.RunEngine.UnitRegistry, unit_id, deadline)
+  end
+
   test "fenced reopen recovers association, native result, and answer without replacement work", %{
     fixture: fixture
   } do
@@ -3391,6 +3453,45 @@ defmodule Elzoo.Wave4ChannelTest do
 
   defp set_gate_fault(control, store, fault) do
     Agent.update(control, fn state -> %{state | store: store, fault: fault} end)
+  end
+
+  defp registry_partition_pids!(registry) do
+    supervisor = Process.whereis(registry)
+    assert is_pid(supervisor)
+
+    partitions =
+      supervisor
+      |> Supervisor.which_children()
+      |> Enum.map(&elem(&1, 1))
+      |> Enum.filter(&is_pid/1)
+
+    assert partitions != []
+    partitions
+  end
+
+  defp with_suspended_registry_partitions([], fun), do: fun.()
+
+  defp with_suspended_registry_partitions([pid | rest], fun) do
+    assert :ok = :sys.suspend(pid)
+
+    try do
+      with_suspended_registry_partitions(rest, fun)
+    after
+      assert :ok = :sys.resume(pid)
+    end
+  end
+
+  defp wait_for_registry_cleanup!(registry, id, deadline) do
+    if Registry.lookup(registry, id) == [] do
+      :ok
+    else
+      if System.monotonic_time(:millisecond) >= deadline do
+        flunk("Registry retained a stopped native process")
+      else
+        Process.sleep(1)
+        wait_for_registry_cleanup!(registry, id, deadline)
+      end
+    end
   end
 
   defp expected_answer(event),
