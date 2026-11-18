@@ -99,6 +99,41 @@ defmodule Elzoo.DynamicUnitsTest do
     spawn(fn -> send(observer, {tag, fun.()}) end)
   end
 
+  defp held_call(tag, fun) do
+    observer = self()
+
+    requester =
+      spawn(fn ->
+        send(observer, {tag, :held, self()})
+
+        receive do
+          {^tag, :submit} -> send(observer, {tag, fun.()})
+        end
+      end)
+
+    on_exit(fn ->
+      try do
+        Process.exit(requester, :kill)
+      rescue
+        ArgumentError -> :ok
+      end
+    end)
+
+    requester
+  end
+
+  defp untrace(pid, flags) do
+    :erlang.trace(pid, false, flags)
+  rescue
+    ArgumentError -> :ok
+  end
+
+  defp resume_suspended(pid) do
+    :erlang.resume_process(pid)
+  rescue
+    ArgumentError -> :ok
+  end
+
   defp eventually(fun, remaining \\ 200) do
     case fun.() do
       false when remaining > 0 ->
@@ -293,14 +328,58 @@ defmodule Elzoo.DynamicUnitsTest do
     assert rows(ctx.store, "three") == []
     assert {:ok, ^first} = DynamicUnits.start(d, "one")
     assert :erlang.suspend_process(second)
-    async_call(:stopping, fn -> DynamicUnits.stop(d, "two") end)
-    eventually(fn -> match?({:status, :waiting}, Process.info(p.supervisor, :status)) end)
-    async_call(:third, fn -> DynamicUnits.start(d, "three") end)
-    refute_receive {:stopping, _}, 30
-    refute_receive {:third, _}, 30
-    assert Process.alive?(second)
-    :erlang.resume_process(second)
-    assert_receive {:stopping, :ok}
+
+    stopping = held_call(:stopping, fn -> DynamicUnits.stop(d, "two") end)
+    supervisor = p.supervisor
+
+    try do
+      assert_receive {:stopping, :held, ^stopping}
+      :erlang.trace(d, true, [:receive, {:tracer, self()}])
+      :erlang.trace(supervisor, true, [:receive, {:tracer, self()}])
+      send(stopping, {:stopping, :submit})
+
+      assert_receive {:trace, ^d, :receive, {:"$gen_call", {^stopping, _tag}, {:stop, "two"}}}
+
+      assert_receive {
+        :trace,
+        ^supervisor,
+        :receive,
+        {:"$gen_call", {^d, _tag}, {:terminate_child, ^second}}
+      }
+
+      third_requester = held_call(:third, fn -> DynamicUnits.start(d, "three") end)
+
+      try do
+        assert_receive {:third, :held, ^third_requester}
+        :erlang.trace(third_requester, true, [:send, {:tracer, self()}])
+        send(third_requester, {:third, :submit})
+
+        assert_receive {
+          :trace,
+          ^third_requester,
+          :send,
+          {:"$gen_call", {^third_requester, _tag}, {:start, "three"}},
+          ^d
+        }
+
+        :erlang.trace(third_requester, false, [:send])
+
+        refute_receive {:stopping, _}, 30
+        refute_receive {:third, _}, 30
+        assert Process.alive?(second)
+        assert {:status, :suspended} = Process.info(second, :status)
+      after
+        untrace(third_requester, [:send])
+      end
+
+      :erlang.resume_process(second)
+      assert_receive {:stopping, :ok}
+    after
+      resume_suspended(second)
+      untrace(d, [:receive])
+      untrace(supervisor, [:receive])
+    end
+
     assert_receive {:third, {:ok, third}}
     refute Process.alive?(second)
     assert DynamicSupervisor.count_children(p.supervisor).active == 2
