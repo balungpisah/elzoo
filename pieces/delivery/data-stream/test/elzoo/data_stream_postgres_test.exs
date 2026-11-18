@@ -278,10 +278,10 @@ defmodule Elzoo.DataStream.PostgresTest do
     assert for({step, _, true} <- samples, do: step) == steps
   end
 
-  # Samples of one step until one is held to its moment, three at most.
+  # Samples of one step until one is held to its moment, ten at most.
   defp held_samples(settings, step, n) do
     {reason, held} = held_sample(settings, step, "sweep-#{step + 300}-#{n}")
-    rest = if held or n == 3, do: [], else: held_samples(settings, step, n + 1)
+    rest = if held or n == 10, do: [], else: held_samples(settings, step, n + 1)
     [{step, reason, held} | rest]
   end
 

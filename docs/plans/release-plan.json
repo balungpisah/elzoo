@@ -7226,6 +7226,57 @@
       "issue": 591,
       "url": "https://github.com/balungpisah/elzoo/issues/591",
       "issue_body_sha256": "de405eba2a420924c2e9f3793206532050f43dc339578378f01e5efa8bb1a325"
+    },
+    {
+      "id": "ELZ-260",
+      "title": "ELZ-260 — Increase the admission timing-sample acquisition budget",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-254"],
+      "status": "published 2026-11-18",
+      "owner_role": "coordinator; one-PR path for a non-Piece change; independent review and merge queue",
+      "paths": ["tasks/ELZ-260-admission-sampling.md"],
+      "outputs": [],
+      "acceptance": "One final uninstrumented --repeat-until-failure 10 sweep launch and the full PostgreSQL test module pass. Every attempt remains in the timeout-reason assertion, every offset still needs a qualifying sample under the existing <100 microsecond release bound, and each passing sweep completes under ten seconds. The unconditional :intent_unavailable and 200-microsecond late-release controls fail their respective reason and held-sample assertions. Only the acquisition cap in held_samples/3 and its comment change; :high priority, offsets, lifetime, release criterion, cleanup classification, and product semantics remain unchanged.",
+      "product_aims": ["P13"],
+      "issue": 595,
+      "url": "https://github.com/balungpisah/elzoo/issues/595",
+      "issue_body_sha256": "6f1dfaba4adedab24fcec23518f9a4a52fd499187d7d1b40b1fb5f450f03a5be"
+    },
+    {
+      "id": "ELZ-261",
+      "title": "ELZ-261 — Synchronize the DynamicUnits stopping-capacity test",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-231"],
+      "status": "published 2026-11-18",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-261-dynamic-units-stop-barrier.md"],
+      "outputs": [],
+      "acceptance": "Test-only synchronization of DY3's stop barrier; the public Contract and production implementation remain unchanged. Acceptance includes a focused repeat, the full DynamicUnits module in direct and copied consumers, the paired old-predicate capacity control, and the Piece gate; the full main check follows merge.",
+      "product_aims": ["P13"],
+      "issue": 597,
+      "url": "https://github.com/balungpisah/elzoo/issues/597",
+      "issue_body_sha256": "2b5e1a2355e0f07c199f46314f1ee5f609a1fa921efbb28b154bb5f94eafd036"
+    },
+    {
+      "id": "ELZ-262",
+      "title": "ELZ-262 — Validate SQL snapshot rows after the Store transaction",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-193", "ELZ-232"],
+      "status": "published 2026-11-18",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-262-sql-snapshot-validation.md"],
+      "outputs": [],
+      "acceptance": "Fetch SQL snapshot head and raw rows inside the existing read-only repeatable-read transaction, then validate captured rows after its completion inside the existing error boundary. Preserve results, malformed-row maps, query sequence, caller transaction behavior, timeout and write/digest contracts. Prove phases and snapshot consistency with real PostgreSQL; exercise SQL and unchanged RunEngine consumers, negative control, and Piece gate. No end-to-end speed guarantee.",
+      "product_aims": ["P13"],
+      "issue": 601,
+      "url": "https://github.com/balungpisah/elzoo/issues/601",
+      "issue_body_sha256": "fe8bd08defc0df3fe9575c12dcf394333b226cfa06fa61bab559dcd1fd07b127"
     }
   ],
   "entries": [
@@ -7990,7 +8041,7 @@
       "disposition": "retained-ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/sql/piece.json",
-      "manifest_sha256": "7b3e7e9880afc23ab93c814aa84fb276d3b7e945bc493084652d9eccb9bf821a"
+      "manifest_sha256": "03b15dd1d10ba95a986a5497e05ad40ca267eb3924150d6289ec20d1248c1195"
     },
     {
       "id": "integration/text-chunking",
