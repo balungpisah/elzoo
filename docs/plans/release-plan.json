@@ -7194,6 +7194,23 @@
       "issue_body_sha256": "03cdbff6f0cdd9bfac55d8d3cb436d64256978ff72c8b89696316533b4e7bb39"
     },
     {
+      "id": "ELZ-258",
+      "title": "ELZ-258 — Bounded signed event-to-answer acceptance",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-247", "ELZ-249", "ELZ-250", "ELZ-252", "ELZ-256", "ELZ-257", "ELZ-259"],
+      "status": "published 2026-11-17",
+      "owner_role": "coordinator-owned non-Piece task; independent review and merge queue",
+      "paths": ["tasks/ELZ-258-signed-channel-acceptance.md"],
+      "outputs": [],
+      "acceptance": "Bounded Level 3 consumer acceptance and report: two real signed loopback HTTP inputs pass through durable CheckedCommand/Conversation association, actual native RunEngine work/result, durable answers, and scoped read-only GET with identity-preserving replay. Controlled ASK, release, uncertainty and terminal cases cover the named boundaries; synthetic principal and operating-period assumptions remain explicit. No Piece output or Level 4, provider-authentication, streaming, broker or subscriber guarantee.",
+      "product_aims": ["P13"],
+      "issue": 590,
+      "url": "https://github.com/balungpisah/elzoo/issues/590",
+      "issue_body_sha256": "30d743a94bdf5aae27f7521153caf7fb03f3a676548667dbbe7352e45c70308d"
+    },
+    {
       "id": "ELZ-259",
       "title": "ELZ-259 — Reconcile uncertain native outbox acknowledgements",
       "kind": "published",
