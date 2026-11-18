@@ -70,6 +70,21 @@ stopping the Repo.
 | Ack uncertainty, stale Registry entries and reopen | `advance/1`; original-key confirmation; fixture teardown | A committed canonical ack is acknowledged after native PIDs are dead even while real Registry workers retain stale dead-PID entries; reopen keeps original Run/Attempt identities | Real Registry partition workers are suspended at a quiescent post-answer boundary and resumed in `try/after`; live owners/unavailable reads remain failures; bounded cleanup waits are outside `advance/1` |
 | Controlled terminal commands | `RunApprovalRelease.command/2`; `advance/1` | `cancelled real native work produces no answer and is fenced before ack`, `out-of-budget real native work produces no answer and is fenced before ack`, and `out-of-time real native work produces no answer and is fenced before ack`: the original-key ack is retained; no assistant answer, second Run/Attempt or additional hash is produced, and the task is dead after fencing | A delegated real-hash barrier holds work after invocation; authoritative terminal commands are issued at quiescent boundaries |
 
+## Findings 0001–0003 mapping
+
+| Finding | Implementation boundary | Regression coverage |
+| --- | --- | --- |
+| 0001: preflight full projected capacity | `capacity_after_input/…` checks the complete projected resource, retained fields and revision before admission mutation or native work | `future capacity accounts for the association and answer before input admission` and `full CheckedCommand resource snapshots reserve capacity before input admission` use the real fixture and assert refusal leaves the resource, command head, Outbox and native work unchanged |
+| 0002: authoritative terminal reconciliation | `reconcile_input/2`, `reconcile_release/2` and the direct stale-release branch of `execute_release/…` | `retained input denial reconciles after reply loss without admitting through read outage`, `retained stale release conflict reconciles after read outage`, and `direct stale release conflict does not poison future admission` preserve uncertainty until public retained results confirm the exact original operation, then permit later valid admission |
+| 0003: startup child ownership | `start_engine/1`, `start_async_work/5`, `start_native_engine/5` and the single `own_native_child/3` helper | `Engine Registry outage retains acquired children and recovers the same Attempt` verifies the acquired PIDs are owned or physically stopped, cleanup succeeds, and recovery reuses the original Run/Attempt without extra work; `accepted-but-misconfigured nil task supervisor cleans the acquired evidence Writer` exercises the distinct AsyncWork acquisition failure using a host option accepted by validation but misconfigured as `nil` |
+
+The fixture also uses separate command-store and native-store fault controllers.
+A diagnostic confirmed that the former shared controller allowed an injected
+`:read_ack` fault to be consumed by a native Unit read on its different key
+before the host read the original source key. The previous
+`{:acknowledged, "input-1"}` result was not reproduced; its exact cause remains
+unproven.
+
 These terminal cases verify controlled authoritative commands, **not actual
 budget exhaustion or deadline expiration**. The injected unavailable native
 read exercises the real RunEngine lost-owner crash path; the host contains it
@@ -107,31 +122,35 @@ cleanup: listener, host/native processes, owners, supervisors, and registries st
 
 ## Executed evidence and limits
 
-The focused acceptance command was
-`mix test test/wave4_channel_test.exs test/wave4_command_conversation_test.exs`:
-**34 channel + 8 companion tests = 42 passed**, with no excluded or skipped
-tests (`Result: 42 passed`). The first combined run had one immediate
-`Registry.lookup/2` teardown assertion failure after the native Engine was
-already dead. The test now proves Engine and Unit PIDs are dead, then waits
-boundedly outside `advance/1` for both registrations, directory bookkeeping
-and unit-supervisor children; the targeted `out-of-time` case and the complete
-focused set then passed. This adds no host polling. The demo trace above was
-executed before this blocker-fix diff; the demo was not rerun for this change.
+Historical evidence at reviewed source head
+`eae355a775e6e2308d2419596ed5cb08cf95ef8d` predates findings 0001–0003 and is
+not evidence for the current change set. Its focused pair reported 42 passed;
+the recorded affected gate reported 2,892 passed and 85 excluded. These counts
+are historical only. The demo trace above was also executed before the later
+blocker-fix diff and was not rerun for this change.
 
-The existing source-read allowlist guard
-`python3 scripts/test-ci-change-class.py AllowlistGuard.test_no_source_reads_a_documentation_file_unreviewed`
-also exited 0:
+For the current F3 change set, the focused command
+`MIX_ENV=test mix test test/wave4_channel_test.exs test/wave4_command_conversation_test.exs`
+reported `Result: 48 passed`. The ack rollback case was run once as a single
+`--repeat-until-failure 5` launch; each repetition reported
+`Result: 1 passed, 39 excluded`.
+
+The final cheap checks reported:
+
+- `mix format --check-formatted` — exit 0, no diagnostics.
+- `MIX_ENV=test mix compile --test` — exit 0; `Cure sources unchanged
+  (fingerprint 0f5a8b4edff6); skipping 54 modules`.
+- `python3 scripts/test-ci-change-class.py AllowlistGuard.test_no_source_reads_a_documentation_file_unreviewed` — exit 0:
 
 ```text
-Ran 1 test in 1.338s
+Ran 1 test in 1.071s
 
 OK
 ```
 
-Final cheap checks after the source changes: `mix format --check-formatted`
-exited 0 with no diagnostics; `MIX_ENV=test mix compile --test` exited 0 and
-printed `Cure sources unchanged (fingerprint 0f5a8b4edff6); skipping 54
-modules`; `git diff --check` exited 0 with no diagnostics.
+`git diff --check` is run after the final report edit. No new full/affected
+gate was run for F3; the final new gate remains pending. No current hosted
+check or merge is claimed.
 
 Historical controls from the earlier source revision used the then-current
 selectors `test/wave4_channel_test.exs:927` and `:1822`; those test locations
@@ -174,6 +193,5 @@ are not universal guarantees.
 This report covers the bounded ELZ-258 acceptance only. Level 4
 activation/replay/retention/gap Contract work remains unpublished. No streaming,
 provider-authentication, broker, subscriber-cursor or overall Wave 4 completion
-claim is made. A previous affected-gate attempt was interrupted before the
-final root/aggregate summaries and marker; no full/affected pass or hosted
-result is claimed here.
+claim is made. The prior affected-gate result is historical; the final new
+affected gate is pending and was not run in this step.

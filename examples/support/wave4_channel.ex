@@ -830,48 +830,74 @@ defmodule Elzoo.Wave4ChannelExample do
     unit_id = unit_id(c.run_id, state)
     engine_name = {:via, Registry, {state.native.registry, unit_id}}
 
-    case start_evidence_writer(state, c.run_id) do
+    case safe_evidence_writer_start(state, c.run_id) do
       {:ok, writer} ->
-        Process.unlink(writer)
-        writer_ref = Process.monitor(writer)
+        case own_native_child(state, :writer, writer) do
+          {:ok, owned_state} ->
+            start_async_work(owned_state, c, attempt_id, unit_id, engine_name)
 
-        case safe_async_start(engine_name, state.native.task_supervisor) do
-          {:ok, async} ->
-            Process.unlink(async)
-            async_ref = Process.monitor(async)
-
-            case safe_engine_start(
-                   engine_options(state, c, attempt_id, unit_id, engine_name, async, writer)
-                 ) do
-              {:ok, engine} ->
-                Process.unlink(engine)
-                engine_ref = Process.monitor(engine)
-
-                {{:engine_started, unit_id},
-                 %{
-                   state
-                   | engine: engine,
-                     engine_ref: engine_ref,
-                     async_work: async,
-                     async_work_ref: async_ref,
-                     writer: writer,
-                     writer_ref: writer_ref,
-                     phase: :start_input
-                 }}
-
-              other ->
-                engine_start_failed(state, unit_id, nil, async, writer, other)
-            end
-
-          other ->
-            engine_start_failed(state, unit_id, nil, nil, writer, other)
+          {:error, owned_state, reason} ->
+            engine_start_failed(owned_state, unit_id, reason)
         end
 
       other ->
         {{:unknown, :engine_start}, %{state | poison: {:engine_start, other}}}
     end
+  end
+
+  defp start_async_work(state, c, attempt_id, unit_id, engine_name) do
+    case safe_async_start(engine_name, state.native.task_supervisor) do
+      {:ok, async} ->
+        case own_native_child(state, :async_work, async) do
+          {:ok, owned_state} ->
+            start_native_engine(owned_state, c, attempt_id, unit_id, engine_name)
+
+          {:error, owned_state, reason} ->
+            engine_start_failed(owned_state, unit_id, reason)
+        end
+
+      other ->
+        engine_start_failed(state, unit_id, other)
+    end
+  end
+
+  defp start_native_engine(state, c, attempt_id, unit_id, engine_name) do
+    case safe_engine_options(state, c, attempt_id, unit_id, engine_name) do
+      {:ok, options} ->
+        case safe_engine_start(options) do
+          {:ok, engine} ->
+            case own_native_child(state, :engine, engine) do
+              {:ok, owned_state} ->
+                {{:engine_started, unit_id}, %{owned_state | phase: :start_input}}
+
+              {:error, owned_state, reason} ->
+                engine_start_failed(owned_state, unit_id, reason)
+            end
+
+          other ->
+            engine_start_failed(state, unit_id, other)
+        end
+
+      {:error, reason} ->
+        engine_start_failed(state, unit_id, reason)
+    end
+  end
+
+  defp safe_engine_options(state, c, attempt_id, unit_id, engine_name) do
+    {:ok,
+     engine_options(
+       state,
+       c,
+       attempt_id,
+       unit_id,
+       engine_name,
+       state.async_work,
+       state.writer
+     )}
   rescue
-    _ -> {{:unknown, :engine_start}, %{state | poison: {:engine_start, :exception}}}
+    _ -> {:error, :exception}
+  catch
+    _, _ -> {:error, :exception}
   end
 
   defp safe_async_start(owner, task_supervisor) do
@@ -890,28 +916,146 @@ defmodule Elzoo.Wave4ChannelExample do
     _, _ -> {:error, :exception}
   end
 
-  defp engine_start_failed(state, unit_id, engine, async, writer, reason) do
-    registry_engine =
-      case Registry.lookup(state.native.registry, unit_id) do
-        [{pid, _}] -> pid
-        [] -> engine
+  defp safe_evidence_writer_start(state, run_id) do
+    start_evidence_writer(state, run_id)
+  rescue
+    _ -> {:error, :exception}
+  catch
+    _, _ -> {:error, :exception}
+  end
+
+  defp own_native_child(state, child_key, pid) do
+    owned_state = Map.put(state, child_key, pid)
+
+    reference_key =
+      case child_key do
+        :writer -> :writer_ref
+        :async_work -> :async_work_ref
+        :engine -> :engine_ref
       end
 
-    cleanup_state = %{
-      state
-      | engine: registry_engine,
-        async_work: async,
-        writer: writer
-    }
+    monitor_result =
+      try do
+        {:ok, Process.monitor(pid)}
+      rescue
+        _ -> {:error, :monitor}
+      catch
+        _, _ -> {:error, :monitor}
+      end
 
-    case fence_native(cleanup_state) do
-      :ok ->
+    case monitor_result do
+      {:ok, reference} ->
+        monitored_state = Map.put(owned_state, reference_key, reference)
+
+        unlink_result =
+          try do
+            Process.unlink(pid)
+            :ok
+          rescue
+            _ -> {:error, :unlink}
+          catch
+            _, _ -> {:error, :unlink}
+          end
+
+        case unlink_result do
+          :ok -> {:ok, monitored_state}
+          {:error, reason} -> {:error, monitored_state, reason}
+        end
+
+      {:error, reason} ->
+        {:error, owned_state, reason}
+    end
+  end
+
+  defp engine_start_failed(state, unit_id, reason) do
+    case engine_registry_lookup(state.native.registry, unit_id) do
+      {:ok, registry_engine} ->
+        cleanup_state =
+          case registry_engine do
+            nil ->
+              state
+
+            pid when pid == state.engine ->
+              state
+
+            pid ->
+              case own_native_child(state, :engine, pid) do
+                {:ok, owned_state} -> owned_state
+                {:error, owned_state, _} -> owned_state
+              end
+          end
+
+        case fence_native(cleanup_state) do
+          :ok ->
+            clean_state = clear_native_children(cleanup_state)
+            {{:unknown, :engine_start}, %{clean_state | poison: {:engine_start, reason}}}
+
+          {:error, cleanup_reason} ->
+            {{:unknown, :engine_start},
+             %{cleanup_state | poison: {:engine_start, {reason, cleanup_reason}}}}
+        end
+
+      {:error, _} ->
+        keep_engine_start_fenced(state, {reason, :registry_unavailable})
+    end
+  end
+
+  defp engine_registry_lookup(registry, unit_id) do
+    case Registry.lookup(registry, unit_id) do
+      [] -> {:ok, nil}
+      [{pid, _}] when is_pid(pid) -> {:ok, pid}
+      _ -> {:error, :unavailable}
+    end
+  rescue
+    _ -> {:error, :unavailable}
+  catch
+    _, _ -> {:error, :unavailable}
+  end
+
+  defp keep_engine_start_fenced(state, reason) do
+    case stop_known_native_children(state) do
+      {:ok, state} ->
         {{:unknown, :engine_start}, %{state | poison: {:engine_start, reason}}}
 
-      {:error, cleanup_reason} ->
+      {:error, state, cleanup_reason} ->
         {{:unknown, :engine_start},
-         %{cleanup_state | poison: {:engine_start, {reason, cleanup_reason}}}}
+         %{state | poison: {:engine_start, {reason, cleanup_reason}}}}
     end
+  end
+
+  defp stop_known_native_children(state) do
+    with :ok <- stop_native_process(state.engine),
+         :ok <- stop_native_process(state.async_work),
+         :ok <- stop_native_process(state.writer),
+         :ok <- no_live_native_processes([state.engine, state.async_work, state.writer]) do
+      demonitor_native(state)
+
+      {:ok,
+       %{
+         state
+         | engine_ref: nil,
+           async_work_ref: nil,
+           writer_ref: nil
+       }}
+    else
+      {:error, reason} -> {:error, state, reason}
+    end
+  rescue
+    _ -> {:error, state, :exception}
+  catch
+    _, _ -> {:error, state, :exit}
+  end
+
+  defp clear_native_children(state) do
+    %{
+      state
+      | engine: nil,
+        engine_ref: nil,
+        async_work: nil,
+        async_work_ref: nil,
+        writer: nil,
+        writer_ref: nil
+    }
   end
 
   defp start_input(state) do

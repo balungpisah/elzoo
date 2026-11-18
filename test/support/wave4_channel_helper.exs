@@ -28,6 +28,8 @@ defmodule Elzoo.Wave4ChannelTestHelper do
     :ok = Ecto.Migrator.up(TestRepo, 1, TestMigration, prefix: prefix, log: false)
     {:ok, controller} = PostgresHarness.start_link([])
     Process.unlink(controller)
+    {:ok, native_controller} = PostgresHarness.start_link([])
+    Process.unlink(native_controller)
 
     command_fold = %{
       initial: %{},
@@ -61,7 +63,7 @@ defmodule Elzoo.Wave4ChannelTestHelper do
         prefix,
         RunApprovalRelease.fold(),
         RunApprovalRelease.limits(),
-        controller
+        native_controller
       )
 
     {:ok, lease} = Lease.new(store: run_store, clock: :store)
@@ -100,7 +102,7 @@ defmodule Elzoo.Wave4ChannelTestHelper do
         prefix,
         DurableUnit.fold(unit_opts),
         DurableUnit.limits(unit_opts),
-        controller
+        native_controller
       )
 
     directory_id = make_ref()
@@ -141,7 +143,7 @@ defmodule Elzoo.Wave4ChannelTestHelper do
     }
 
     evidence_store =
-      PostgresHarness.attach(TestRepo, prefix, evidence_fold, evidence_limits, controller)
+      PostgresHarness.attach(TestRepo, prefix, evidence_fold, evidence_limits, native_controller)
 
     profile =
       Map.merge(
@@ -199,6 +201,7 @@ defmodule Elzoo.Wave4ChannelTestHelper do
     fixture = %{
       prefix: prefix,
       controller: controller,
+      native_controller: native_controller,
       owner: owner,
       held: held,
       lease: lease,
@@ -538,6 +541,8 @@ defmodule Elzoo.Wave4ChannelTestHelper do
 
     PostgresHarness.cleanup(fixture.controller)
     if Process.alive?(fixture.controller), do: GenServer.stop(fixture.controller)
+    PostgresHarness.cleanup(fixture.native_controller)
+    if Process.alive?(fixture.native_controller), do: GenServer.stop(fixture.native_controller)
 
     SQL.query!(TestRepo, "DROP SCHEMA IF EXISTS #{Postgres.identifier(fixture.prefix)} CASCADE", [],
       log: false
