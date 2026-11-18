@@ -7211,6 +7211,23 @@
       "issue_body_sha256": "de405eba2a420924c2e9f3793206532050f43dc339578378f01e5efa8bb1a325"
     },
     {
+      "id": "ELZ-260",
+      "title": "ELZ-260 — Increase the admission timing-sample acquisition budget",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-254"],
+      "status": "published 2026-11-18",
+      "owner_role": "coordinator; one-PR path for a non-Piece change; independent review and merge queue",
+      "paths": ["tasks/ELZ-260-admission-sampling.md"],
+      "outputs": [],
+      "acceptance": "One final uninstrumented --repeat-until-failure 10 sweep launch and the full PostgreSQL test module pass. Every attempt remains in the timeout-reason assertion, every offset still needs a qualifying sample under the existing <100 microsecond release bound, and each passing sweep completes under ten seconds. The unconditional :intent_unavailable and 200-microsecond late-release controls fail their respective reason and held-sample assertions. Only the acquisition cap in held_samples/3 and its comment change; :high priority, offsets, lifetime, release criterion, cleanup classification, and product semantics remain unchanged.",
+      "product_aims": ["P13"],
+      "issue": 595,
+      "url": "https://github.com/balungpisah/elzoo/issues/595",
+      "issue_body_sha256": "6f1dfaba4adedab24fcec23518f9a4a52fd499187d7d1b40b1fb5f450f03a5be"
+    },
+    {
       "id": "ELZ-261",
       "title": "ELZ-261 — Synchronize the DynamicUnits stopping-capacity test",
       "kind": "published",
