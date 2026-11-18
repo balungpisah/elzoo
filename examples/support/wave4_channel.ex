@@ -184,7 +184,10 @@ defmodule Elzoo.Wave4ChannelExample do
 
         {:ok, input_writes, _} ->
           input_snapshot = apply_writes(snapshot, input_writes)
-          capacity_after_input(state, event, operation_id, snapshot, input_snapshot)
+
+          if resource_snapshot_fits?(input_snapshot),
+            do: capacity_after_input(state, event, operation_id, snapshot, input_snapshot),
+            else: {:ok, :capacity}
       end
     else
       _ -> {:error, :unknown}
@@ -208,6 +211,7 @@ defmodule Elzoo.Wave4ChannelExample do
              prepare_facts(state.profile, association_facts)
            ),
          associated_snapshot <- apply_writes(input_snapshot, association_writes),
+         true <- resource_snapshot_fits?(associated_snapshot),
          answer_request <-
            command_request(
              state.profile,
@@ -217,14 +221,17 @@ defmodule Elzoo.Wave4ChannelExample do
              %{"message_id" => answer_id(event.input_id), "text" => String.duplicate("x", 71)}
            ),
          answer_facts <- answer_facts(run_id(event, operation_id, state), event.input_id, true),
-         {:ok, _answer_writes, _} <-
+         {:ok, answer_writes, _} <-
            Conversation.prepare(
              associated_snapshot,
              answer_request,
              prepare_facts(state.profile, answer_facts)
-           ) do
+           ),
+         answer_snapshot <- apply_writes(associated_snapshot, answer_writes),
+         true <- resource_snapshot_fits?(answer_snapshot) do
       {:ok, :new}
     else
+      false -> {:ok, :capacity}
       {:refused, _} -> {:ok, :capacity}
     end
   end
@@ -1835,6 +1842,13 @@ defmodule Elzoo.Wave4ChannelExample do
       end)
 
     %{snapshot | revision: snapshot.revision + 1, fields: fields}
+  end
+
+  defp resource_snapshot_fits?(%{revision: revision, fields: fields}) do
+    bytes = :erlang.term_to_binary(%{revision: revision, fields: fields}, [:deterministic])
+    map_size(fields) <= 64 and byte_size(bytes) <= 65_536
+  rescue
+    _ -> false
   end
 
   defp result_scope(profile), do: %{tenant: profile.tenant, actor: profile.actor}

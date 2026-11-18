@@ -2532,6 +2532,84 @@ defmodule Elzoo.Wave4ChannelTest do
              )
   end
 
+  test "full CheckedCommand resource snapshots reserve capacity before input admission", %{
+    fixture: fixture
+  } do
+    for index <- 1..15 do
+      assert {:completed, %{revision: ^index}} =
+               seed_message!(fixture, index, String.duplicate("x", 4_096))
+    end
+
+    scope = Elzoo.Wave4ChannelTestHelper.scope(fixture.profile)
+
+    assert {:ok, snapshot} =
+             CheckedCommand.resource(
+               fixture.handles.input,
+               scope,
+               fixture.profile.conversation_id
+             )
+
+    {event, [input_size, association_size, answer_size]} =
+      Enum.find_value(4_096..1//-1, fn size ->
+        event =
+          Elzoo.Wave4ChannelTestHelper.event(%{
+            "event_id" => "capacity-wrapper-event",
+            "input_id" => "capacity-wrapper-input",
+            "expected_revision" => snapshot.revision,
+            "text" => String.duplicate("y", size)
+          })
+
+        with :fits <- hypothetical_capacity(snapshot, fixture.profile, event),
+             {:ok, [input_size, association_size, answer_size]} <-
+               hypothetical_checked_resource_sizes(snapshot, fixture.profile, event),
+             true <- input_size <= 65_536,
+             true <- association_size <= 65_536,
+             true <- answer_size > 65_536 do
+          {event, [input_size, association_size, answer_size]}
+        else
+          _ -> nil
+        end
+      end)
+
+    assert input_size <= 65_536
+    assert association_size <= 65_536
+    assert answer_size > 65_536
+
+    assert {:ok, head_before} = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
+
+    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
+    trace_native_hash(fixture.native.task_supervisor)
+    assert {:ok, {{_, 503, _}, _, _}} = Elzoo.Wave4ChannelTestHelper.post(listener, event)
+
+    run_id =
+      Elzoo.Wave4ChannelTestHelper.run_id(fixture.profile, event["event_id"], event["input_id"])
+
+    assert {:ok, ^snapshot} =
+             CheckedCommand.resource(
+               fixture.handles.input,
+               scope,
+               fixture.profile.conversation_id
+             )
+
+    assert {:ok, ^head_before} = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
+    assert {:ok, []} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+
+    assert {:unknown, :not_observed} =
+             CheckedCommand.result(
+               fixture.handles.input,
+               %{tenant: fixture.profile.tenant, actor: fixture.profile.actor},
+               {fixture.profile.tenant, fixture.profile.actor,
+                Elzoo.Wave4ChannelTestHelper.input_operation(fixture.profile, event["event_id"])}
+             )
+
+    assert {:error, :not_found} = RunApprovalRelease.status(fixture.owner, run_id)
+    unit_id = Elzoo.Wave4ChannelTestHelper.unit_id(run_id)
+    assert :not_found = DynamicUnits.find(fixture.directory, unit_id)
+    assert Registry.lookup(fixture.native.registry, unit_id) == []
+    assert Task.Supervisor.children(fixture.native.task_supervisor) == []
+    assert take_hash_calls() == []
+  end
+
   test "signed loopback processes two distinct inputs and replays the first", %{fixture: fixture} do
     listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
     first = Elzoo.Wave4ChannelTestHelper.event()
@@ -3320,6 +3398,91 @@ defmodule Elzoo.Wave4ChannelTest do
       end
     else
       _ -> :input_does_not_fit
+    end
+  end
+
+  defp hypothetical_checked_resource_sizes(snapshot, profile, event) do
+    operation = Elzoo.Wave4ChannelTestHelper.input_operation(profile, event["event_id"])
+    run_id = Elzoo.Wave4ChannelTestHelper.run_id(profile, event["event_id"], event["input_id"])
+    base = %{tenant: profile.tenant, actor: profile.actor}
+
+    input_request = %{
+      operation_id: operation,
+      resource: event["conversation_id"],
+      expected_revision: snapshot.revision,
+      payload: %{"message_id" => event["input_id"], "text" => event["text"]}
+    }
+
+    input_facts =
+      Map.put(
+        base,
+        :data,
+        {:record, [{"input_role", {:text, "source"}}, {"mode", {:text, "append_input"}}]}
+      )
+
+    with {:ok, input_writes, _} <-
+           Conversation.prepare(snapshot, input_request, input_facts),
+         input_snapshot <- apply_test_writes(snapshot, input_writes),
+         association_request <- %{
+           operation_id:
+             Elzoo.Wave4ChannelTestHelper.association_operation(
+               profile,
+               event["event_id"],
+               event["input_id"]
+             ),
+           resource: event["conversation_id"],
+           expected_revision: input_snapshot.revision,
+           payload: %{"message_id" => event["input_id"]}
+         },
+         association_facts <-
+           Map.put(
+             base,
+             :data,
+             {:record, [{"mode", {:text, "associate_run"}}, {"run_id", {:text, run_id}}]}
+           ),
+         {:ok, association_writes, _} <-
+           Conversation.prepare(input_snapshot, association_request, association_facts),
+         association_snapshot <- apply_test_writes(input_snapshot, association_writes),
+         answer_request <- %{
+           operation_id:
+             Elzoo.Wave4ChannelTestHelper.answer_operation(
+               profile,
+               event["event_id"],
+               event["input_id"]
+             ),
+           resource: event["conversation_id"],
+           expected_revision: association_snapshot.revision,
+           payload: %{
+             "message_id" => Elzoo.Wave4ChannelTestHelper.answer_id(event["input_id"]),
+             "text" => String.duplicate("x", 71)
+           }
+         },
+         answer_facts <-
+           Map.put(
+             base,
+             :data,
+             {:record,
+              [
+                {"completed", true},
+                {"input_message_id", {:text, event["input_id"]}},
+                {"mode", {:text, "append_answer"}},
+                {"run_id", {:text, run_id}}
+              ]}
+           ),
+         {:ok, answer_writes, _} <-
+           Conversation.prepare(association_snapshot, answer_request, answer_facts),
+         answer_snapshot <- apply_test_writes(association_snapshot, answer_writes) do
+      {:ok,
+       Enum.map([input_snapshot, association_snapshot, answer_snapshot], fn projected ->
+         byte_size(
+           :erlang.term_to_binary(
+             %{revision: projected.revision, fields: projected.fields},
+             [:deterministic]
+           )
+         )
+       end)}
+    else
+      _ -> :refused
     end
   end
 
