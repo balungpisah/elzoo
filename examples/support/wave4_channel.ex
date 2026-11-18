@@ -323,13 +323,20 @@ defmodule Elzoo.Wave4ChannelExample do
       with %{event: pending, operation_id: operation_id} <- state.approval,
            true <- event == pending,
            true <- is_nil(state.current) and state.phase == :idle,
+           :ok <-
+             if(event.conversation_id == state.profile.conversation_id,
+               do: :ok,
+               else: {:error, :profile_scope}
+             ),
            :ok <- valid_admission_scope(state.profile, event, trusted_scope),
+           true <- before_deadline?(state),
            {:ok, facts, request, context} <-
              release_context(state, event, operation_id, evidence) do
         {:ready, operation_id, facts, request, context}
       else
         false -> {:reply, {:rejected, :conflict}}
         nil -> {:reply, {:rejected, :conflict}}
+        {:error, :profile_scope} -> {:reply, {:rejected, :forbidden}}
         {:error, :evidence} -> {:reply, {:error, :unavailable}}
         _ -> {:reply, {:rejected, :invalid}}
       end
@@ -516,6 +523,7 @@ defmodule Elzoo.Wave4ChannelExample do
          true <- notice["type"] == "checked_command" and notice["version"] == 1,
          true <- notice["tenant"] == state.profile.tenant and notice["actor"] == state.profile.actor,
          true <- is_binary(notice["operation_id"]) and is_binary(notice["resource"]),
+         true <- notice["resource"] == state.profile.conversation_id,
          true <-
            is_integer(notice["revision"]) and notice["revision"] in 1..9_223_372_036_854_775_807,
          revision <- notice["revision"],
@@ -544,10 +552,11 @@ defmodule Elzoo.Wave4ChannelExample do
   end
 
   defp input_from_resource(state, event, revision) do
-    scope = resource_scope(state.profile, [event.conversation_id])
+    scope = resource_scope(state.profile)
 
-    with {:ok, snapshot} <-
-           CheckedCommand.resource(state.handles.input, scope, event.conversation_id),
+    with true <- event.conversation_id == state.profile.conversation_id,
+         {:ok, snapshot} <-
+           CheckedCommand.resource(state.handles.input, scope, state.profile.conversation_id),
          {:ok, view} <- Conversation.view(snapshot, scope),
          %{message_id: id, role: "source", text: text} <-
            Enum.find(view.messages, &(&1.message_id == event.input_id)),
@@ -1303,8 +1312,8 @@ defmodule Elzoo.Wave4ChannelExample do
     with {:ok, snapshot} <-
            CheckedCommand.resource(
              handle,
-             resource_scope(state.profile, [request.resource]),
-             request.resource
+             resource_scope(state.profile),
+             state.profile.conversation_id
            ) do
       writes =
         case Conversation.prepare(snapshot, request, prepare_facts(state.profile, facts)) do

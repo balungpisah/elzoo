@@ -57,11 +57,13 @@ stopping the Repo.
 | Scenario | Public API boundary | Assertion | Controlled fault/evidence |
 | --- | --- | --- | --- |
 | Startup binding/profile rejection | `Wave4ChannelExample.start_link/1` | `startup requires a unique compatible binding and the fixed ASCII profile`: missing, ambiguous or incompatible binding/target and a non-ASCII conversation profile return `{:error, :invalid_options}` before Run creation | Real startup validation; status redaction and no source identity in process status |
-| Signed ingress, scope/header checks, identity/revision conflicts and happy path | `WebhookIn.call/2`; `admit/3`, `advance/1`, `view/2`; `CheckedCommand.result/3` | `HTTP and read guards return fixed statuses without mutation`, `retained identities reach CheckedCommand conflicts while deadline survives reopen`, and `signed loopback processes two distinct inputs and replays the first`: fixed refusals; changed bytes/resource/revision conflict; original IDs survive; two completed Runs/four messages and replay preserves view/head | Real signed requests, duplicate/malformed header and scope controls, retained identity conflicts; no fake owner, answer or dispatcher |
+| Signed ingress, scope/header checks, identity/revision conflicts and happy path | `WebhookIn.call/2`; `admit/3`, `advance/1`, `view/2`; `CheckedCommand.result/3` | `HTTP and read guards return fixed statuses without mutation`, `retained identities reach CheckedCommand conflicts while deadline survives reopen`, and `signed loopback processes two distinct inputs and replays the first`: fixed refusals; changed bytes/resource/revision conflict; changed-resource reuse still reaches the real `CheckedCommand` identity conflict despite the host's fixed resource scope; original IDs survive; two completed Runs/four messages and replay preserves view/head | Real signed requests, duplicate/malformed header and scope controls, retained identity conflicts; no fake owner, answer or dispatcher |
 | Denial, busy/capacity refusal and read-only GET failures | `admit/3`; `view/2`; `CheckedCommand.resource/3`; `Conversation.view/2` | `input gate and policy denials retain refusal without resource, outbox, or native work`, `admission callback exceptions and exits return fixed errors without writes`, `committed input reply loss stays fenced through read outage until identity confirmation`, `future capacity accounts for the association and answer before input admission`, `GET reports not_recorded only for the known pre-creation phase`, and both `GET fails closed` cases: refusals leave state unchanged; unavailable/mismatched owners return fixed unavailable; only the known pre-creation phase is `not_recorded` | Gate/policy/callback denials, an unfinished-input busy refusal, capacity boundary, unavailable Run owner and mismatched native operation; GET changes no command head or Outbox |
 | Unknown association | `advance/1`; `RunApprovalRelease.status/2`; retained `CheckedCommand.result/3` | `association reply loss stays fenced with zero native allocation until confirmation`: no Run/Unit/hash before matching association confirmation; original input remains retained | Real association reply loss plus command-store read outage; pending confirmation is not treated as commit |
 | ASK, stale/revoked approval evidence and release | `admit/3`, `release/4`, `advance/1`; retained `CheckedCommand.result/3` | `ASK survives reopen and releases only once with fresh command evidence` and `initial ASK reply loss recovers the same pending requirement after a read outage`: wrong request, changed policy, revoked/self/stale/expired evidence does not release; original requirement/key stays pending; valid command-purpose evidence releases once | ASK append reply loss/read outage; paused SQL RELEASE cannot be reconciled from the earlier ASK receipt, and new intake/re-release stays fenced until the writer is finished |
+| Immutable release deadline and post-expiry reconciliation | `release/4`; `advance/1`; `CheckedCommand.result/3` | `release refuses an ASK at and after the immutable deadline`: exact-deadline and after-deadline refusals preserve the pending key/requirement, resource revision, command head and Outbox with no Run/Unit/task/hash; `a paused release writer cannot reconcile from the earlier ASK receipt`: a release made uncertain before expiry is confirmed after the SQL writer is released and monitored beyond expiry | Host clock control with the real ASK fixture; a real PostgreSQL RELEASE writer pause; reconciliation remains read-only and is not deadline-blocked |
 | Uncertain input/answer and live-writer fencing | `advance/1`; original input/answer identity confirmation | `committed input reply loss stays fenced through read outage until identity confirmation`, `paused input writer is not treated as non-commit and stays fenced until it exits`, `committed answer reply loss reconciles without rerunning native work or replacing the answer`, and `native input append remains live and unresolved until its PostgreSQL writer is released`: unknown remains fenced until original identity confirmation; no replacement work or duplicate answer | Real append reply loss, unavailable reads and PostgreSQL writer barriers; a paused writer is positively released/observed before reopen |
+| Fixed resource boundary for notification recovery and retained ASK release | `advance/1`, `admit/3`, `release/4`; public `CheckedCommand.execute/3`, `result/3`, `resource/3` | `foreign completed input notification is rejected before checked-command reads`: a same-tenant/actor/destination foreign input is fenced before any result/resource read, with both resources, command head, Outbox item and native state unchanged; `a retained foreign ASK cannot be released through a broad scope`: retained replay is reachable through public `admit/3`, but `release/4` refuses before authority or append. Same-conversation recovery remains covered by the existing cases | Real SQL fixture; foreign completion and ASK are seeded through `CheckedCommand.execute/3`; broad trusted scope contains both configured and foreign resources; a direct old-behavior control committed revision 1 |
 | Run/Attempt/input/startup, reopen cuts and local restart | `advance/1`; `RunApprovalRelease.status/2`; `RunEngine.result/3` | `Run creation and Attempt reply loss retain identities without early native allocation`, `partial Engine startup is fenced and cleaned before reopening the same Attempt`, `fenced reopen recovers association, native result, and answer without replacement work`, `uncertain native input stays fenced until safe reopen and original-ID confirmation`, and `volatile local work is recorded as terminal loss after fenced reopen`: same identities survive the three cuts; no second Run/Attempt/hash; local work is `local_restart` with no answer | Real Run/Attempt append loss, native read loss and partial start; predecessor task/native trees are fenced before same-identity reopen |
 | Authoritative result unavailable | `advance/1`; `RunEngine.result/3`; `view/2`; `CheckedCommand.resource/3` | `unavailable authoritative result reader cannot append an answer or acknowledge`: advance is pending, resource and Outbox remain unchanged, and GET contains no assistant message until the original result is readable | Injected evidence-store read unavailability after actual native completion |
 | Original-nonce ack unknown, malformed and superseded outcomes | `advance/1`; `Outbox.ack/3`; `DurableLog.confirm_ack/2` | `ack reply loss is positively confirmed by the original canonical key and nonce`, `ack rollback remains fenced and reopens directly from the retained answer`, and `a different nonce winning the original ack key reports conflict and retains host poison`: same key/nonce confirms; rollback/read-unavailable/malformed stays `{:unknown, :ack}`; a winning different nonce returns `{:blocked, :ack_superseded}` and preserves poison/state | Real ack reply loss/rollback, `read_ack` unavailable/malformed results and a competing committed nonce |
@@ -107,43 +109,71 @@ cleanup: listener, host/native processes, owners, supervisors, and registries st
 
 The focused acceptance command was
 `mix test test/wave4_channel_test.exs test/wave4_command_conversation_test.exs`:
-**31 channel + 8 companion tests = 39 passed**, with no excluded or skipped
-tests in that run. The changed-file format check, `MIX_ENV=test mix compile
---test` and `git diff --check` exited 0; compile reported that Cure sources
-were unchanged and skipped 54 modules. The finite demo exited 0 with the
-cleanup trace above.
+**34 channel + 8 companion tests = 42 passed**, with no excluded or skipped
+tests (`Result: 42 passed`). The first combined run had one immediate
+`Registry.lookup/2` teardown assertion failure after the native Engine was
+already dead. The test now proves Engine and Unit PIDs are dead, then waits
+boundedly outside `advance/1` for both registrations, directory bookkeeping
+and unit-supervisor children; the targeted `out-of-time` case and the complete
+focused set then passed. This adds no host polling. The demo trace above was
+executed before this blocker-fix diff; the demo was not rerun for this change.
 
 The existing source-read allowlist guard
 `python3 scripts/test-ci-change-class.py AllowlistGuard.test_no_source_reads_a_documentation_file_unreviewed`
 also exited 0:
 
 ```text
-Ran 1 test in 1.050s
+Ran 1 test in 1.338s
 
 OK
 ```
 
-Both intended temporary negative controls ran in the real worktree and failed
-at their existing assertions, not at setup or compilation:
+Final cheap checks after the source changes: `mix format --check-formatted`
+exited 0 with no diagnostics; `MIX_ENV=test mix compile --test` exited 0 and
+printed `Cure sources unchanged (fingerprint 0f5a8b4edff6); skipping 54
+modules`; `git diff --check` exited 0 with no diagnostics.
+
+Historical controls from the earlier source revision used the then-current
+selectors `test/wave4_channel_test.exs:927` and `:1822`; those test locations
+have since moved to `:942` and `:1837`. The historical original-source hash
+`edab2347d551601df48a953d73f82400b296a2d1bfda7bccdb754dd6e7e203a5` below
+belongs only to that earlier revision and is not the current source hash.
 
 1. The association control made the unknown-association branch allocate a real
-   Run. `mix test test/wave4_channel_test.exs:927` exited 2 (`0/1 passed,
-   30 excluded`): the zero-Run assertion received `{:ok, ...}` from
-   `RunApprovalRelease.status/2` instead of `{:error, :not_found}`.
+   Run. It failed the zero-Run assertion: `RunApprovalRelease.status/2`
+   returned `{:ok, ...}` instead of `{:error, :not_found}`.
 2. The result control substituted a correctly shaped `{:ok, dto}` completed
    result with matching Run/operation/Attempt/action/schema identity and an
-   answer equal to the expected hash. `mix test
-   test/wave4_channel_test.exs:1822` exited 2 (`0/1 passed, 30 excluded`): the
-   existing `assert {:pending, _reason} = advance(host)` received
-   `{:result, :completed}`.
+   answer equal to the expected hash. The existing pending assertion received
+   `{:result, :completed}` instead of `{:pending, _reason}`.
 
-Each temporary source mutation was restored byte-for-byte (`cmp` succeeded).
-The original host source hash before and after restoration was
-`edab2347d551601df48a953d73f82400b296a2d1bfda7bccdb754dd6e7e203a5`; neither
-mutation was committed. These controls show the named assertions detect those
-specific failures; they are not universal guarantees.
+Three additional temporary controls ran against the blocker regressions in the
+real worktree and failed at their intended assertions, not setup or compilation:
+
+1. Removing the new release-deadline guard made `mix test
+   test/wave4_channel_test.exs:2717` exit 2 (`0/1 passed, 33 excluded`): the
+   exact-deadline release returned `{:committed, 1}` instead of
+   `{:rejected, :conflict}`.
+2. Removing notification resource equality made `mix test
+   test/wave4_channel_test.exs:2849` exit 2 (`0/1 passed, 33 excluded`): the
+   pre-read assertion observed `[:result]` instead of no CheckedCommand reads.
+3. Removing the fixed release-resource guard and restoring the old
+   request-derived scope made `mix test test/wave4_channel_test.exs:2919` exit
+   2 (`0/1 passed, 33 excluded`): the public foreign-ASK route returned
+   `{:committed, 1}` instead of `{:rejected, :forbidden}`. This demonstrates
+   that the retained foreign ASK route is reachable with a broad trusted scope.
+
+Each temporary mutation was backed up and restored byte-for-byte (`cmp`
+succeeded), and the original targeted regressions passed after restoration.
+For these newer controls the host source SHA-256 before and after restoration
+was `47ac4bf57d659acee827206a48aae8068bd861812cc69d025da4d8979520ff90`; this
+is distinct from the historical hash above. No control mutation was committed.
+These controls show the named assertions detect the specific failures; they
+are not universal guarantees.
 
 This report covers the bounded ELZ-258 acceptance only. Level 4
 activation/replay/retention/gap Contract work remains unpublished. No streaming,
 provider-authentication, broker, subscriber-cursor or overall Wave 4 completion
-claim is made. The full/affected gate and hosted results are not recorded here.
+claim is made. A previous affected-gate attempt was interrupted before the
+final root/aggregate summaries and marker; no full/affected pass or hosted
+result is claimed here.

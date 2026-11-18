@@ -584,6 +584,11 @@ defmodule Elzoo.Wave4ChannelTest do
     policy_control = start_supervised!({Agent, fn -> :ask end}, id: make_ref())
     authority_control = start_supervised!({Agent, fn -> %{} end}, id: make_ref())
 
+    clock_control =
+      start_supervised!({Agent, fn -> fixture.profile.deadline_ms - 1_000 end}, id: make_ref())
+
+    clock = fn -> Agent.get(clock_control, & &1) end
+
     gates = %{
       input: controlled_gate(gate_control),
       association: fn _, _ -> :allow end,
@@ -598,7 +603,13 @@ defmodule Elzoo.Wave4ChannelTest do
       if mode == :release, do: Agent.get(authority_control, & &1), else: %{}
     end
 
-    fixture = host_with_gates(fixture, gates, policy: policy, authority: authority)
+    fixture =
+      host_with_gates(fixture, gates,
+        policy: policy,
+        authority: authority,
+        clock: clock
+      )
+
     listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
     event = Elzoo.Wave4ChannelTestHelper.event()
     event_id = event["event_id"]
@@ -628,7 +639,8 @@ defmodule Elzoo.Wave4ChannelTest do
                identity
              )
 
-    now = System.system_time(:millisecond)
+    now = clock.()
+    assert now < fixture.profile.deadline_ms
 
     evidence = %{
       verifier: "wave4-command-approver",
@@ -733,6 +745,9 @@ defmodule Elzoo.Wave4ChannelTest do
 
     assert Elzoo.DurableLog.PostgresHarness.hook(fixture.command_store, :snapshot, []) ==
              before_release
+
+    Agent.update(clock_control, fn _ -> fixture.profile.deadline_ms + 1 end)
+    assert clock.() > fixture.profile.deadline_ms
 
     writer_ref = Process.monitor(writer.pid)
 
@@ -2699,6 +2714,327 @@ defmodule Elzoo.Wave4ChannelTest do
     assert Registry.lookup(fixture.native.registry, second_unit) == []
   end
 
+  test "release refuses an ASK at and after the immutable deadline", %{fixture: fixture} do
+    deadline = fixture.profile.deadline_ms
+
+    clock_control =
+      start_supervised!({Agent, fn -> deadline - 1_000 end}, id: make_ref())
+
+    authority_control = start_supervised!({Agent, fn -> %{} end}, id: make_ref())
+    clock = fn -> Agent.get(clock_control, & &1) end
+    policy = fn _mode, _event, _now -> Elzoo.Wave4ChannelTestHelper.policy(:ask) end
+
+    authority = fn mode, _event, _request, _facts ->
+      if mode == :release do
+        Agent.get(authority_control, fn authority ->
+          Map.merge(authority, %{now: clock.(), revoked: []})
+        end)
+      else
+        %{}
+      end
+    end
+
+    fixture =
+      host_with_gates(fixture, fixture.gates,
+        clock: clock,
+        policy: policy,
+        authority: authority
+      )
+
+    assert clock.() < deadline
+
+    listener = Elzoo.Wave4ChannelTestHelper.listener!(fixture)
+    event = Elzoo.Wave4ChannelTestHelper.event()
+    normalized = normalized_event(event)
+    operation = Elzoo.Wave4ChannelTestHelper.input_operation(fixture.profile, event["event_id"])
+    identity = {fixture.profile.tenant, fixture.profile.actor, operation}
+    scope = Elzoo.Wave4ChannelTestHelper.scope(fixture.profile)
+
+    run_id =
+      Elzoo.Wave4ChannelTestHelper.run_id(fixture.profile, event["event_id"], event["input_id"])
+
+    unit_id = Elzoo.Wave4ChannelTestHelper.unit_id(run_id)
+    trace_native_hash(fixture.native.task_supervisor)
+
+    assert {:ok, {{_, 202, _}, _, body}} = Elzoo.Wave4ChannelTestHelper.post(listener, event)
+    assert %{"status" => "pending_approval"} = Jason.decode!(body)
+
+    assert {:approval_pending, %{key: key, requirement: requirement}} =
+             CheckedCommand.result(
+               fixture.handles.input,
+               %{tenant: fixture.profile.tenant, actor: fixture.profile.actor},
+               identity
+             )
+
+    request = %{
+      operation_id: operation,
+      resource: normalized.conversation_id,
+      expected_revision: normalized.expected_revision,
+      payload: %{"message_id" => normalized.input_id, "text" => normalized.text}
+    }
+
+    facts = {:record, [{"input_role", {:text, "source"}}, {"mode", {:text, "append_input"}}]}
+    prepared_facts = %{tenant: fixture.profile.tenant, actor: fixture.profile.actor, data: facts}
+
+    assert {:ok, snapshot} =
+             CheckedCommand.resource(fixture.handles.input, scope, normalized.conversation_id)
+
+    assert {:ok, writes, _response} = Conversation.prepare(snapshot, request, prepared_facts)
+
+    Agent.update(authority_control, fn _ ->
+      %{approver: %{identity: "human-reviewer", authority: writes}}
+    end)
+
+    evidence = %{
+      verifier: "wave4-command-approver",
+      evidence_id: "deadline-release",
+      reviewer: "human-reviewer",
+      request: key,
+      decision: :approve,
+      scope: :once,
+      issued_at: deadline - 100,
+      expiry: deadline + 60_000
+    }
+
+    envelope = %{purpose: :command, tenant: fixture.profile.tenant, evidence: evidence}
+    before_command = Elzoo.DurableLog.PostgresHarness.hook(fixture.command_store, :snapshot, [])
+    before_unit = Elzoo.DurableLog.PostgresHarness.hook(fixture.native.unit_store, :snapshot, [])
+
+    assert {:ok, before_resource} =
+             CheckedCommand.resource(fixture.handles.input, scope, fixture.profile.conversation_id)
+
+    assert before_resource.revision == 0
+
+    assert {:ok, before_head} = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
+    assert {:ok, []} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+
+    for current_time <- [deadline, deadline + 1] do
+      Agent.update(clock_control, fn _ -> current_time end)
+
+      assert {:rejected, :conflict} =
+               Wave4ChannelExample.release(fixture.host, normalized, scope, envelope)
+
+      assert {:approval_pending, %{key: ^key, requirement: ^requirement}} =
+               CheckedCommand.result(
+                 fixture.handles.input,
+                 %{tenant: fixture.profile.tenant, actor: fixture.profile.actor},
+                 identity
+               )
+
+      assert %{key: ^key, requirement: ^requirement} = :sys.get_state(fixture.host).approval
+
+      assert Elzoo.DurableLog.PostgresHarness.hook(fixture.command_store, :snapshot, []) ==
+               before_command
+
+      assert Elzoo.DurableLog.PostgresHarness.hook(fixture.native.unit_store, :snapshot, []) ==
+               before_unit
+
+      assert {:ok, ^before_resource} =
+               CheckedCommand.resource(
+                 fixture.handles.input,
+                 scope,
+                 fixture.profile.conversation_id
+               )
+
+      assert {:ok, ^before_head} = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
+      assert {:ok, []} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+      assert {:error, :not_found} = RunApprovalRelease.status(fixture.owner, run_id)
+      assert :not_found = DynamicUnits.find(fixture.directory, unit_id)
+      assert Registry.lookup(fixture.native.registry, unit_id) == []
+      assert Task.Supervisor.children(fixture.native.task_supervisor) == []
+      assert take_hash_calls() == []
+    end
+  end
+
+  test "foreign completed input notification is rejected before checked-command reads", %{
+    fixture: fixture
+  } do
+    event =
+      Elzoo.Wave4ChannelTestHelper.event(%{
+        "event_id" => "foreign-completed",
+        "input_id" => "foreign-completed-input",
+        "conversation_id" => "other-conversation"
+      })
+
+    assert {{:completed, %{revision: 1}}, _writes} = seed_input_command!(fixture, event, :allow)
+    {:ok, [item]} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    assert Jason.decode!(item.payload)["resource"] == event["conversation_id"]
+    profile_scope = Elzoo.Wave4ChannelTestHelper.scope(fixture.profile)
+
+    broad_scope =
+      Map.put(profile_scope, :resources, [fixture.profile.conversation_id, event["conversation_id"]])
+
+    assert {:ok, profile_before} =
+             CheckedCommand.resource(
+               fixture.handles.input,
+               broad_scope,
+               fixture.profile.conversation_id
+             )
+
+    assert {:ok, foreign_before} =
+             CheckedCommand.resource(fixture.handles.input, broad_scope, event["conversation_id"])
+
+    assert {:ok, before_head} = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
+    before_command = Elzoo.DurableLog.PostgresHarness.hook(fixture.command_store, :snapshot, [])
+    before_unit = Elzoo.DurableLog.PostgresHarness.hook(fixture.native.unit_store, :snapshot, [])
+
+    run_id =
+      Elzoo.Wave4ChannelTestHelper.run_id(fixture.profile, event["event_id"], event["input_id"])
+
+    unit_id = Elzoo.Wave4ChannelTestHelper.unit_id(run_id)
+
+    trace_native_hash(fixture.native.task_supervisor)
+    trace_checked_reads(fixture.host)
+
+    assert {:unknown, :input_observation} = Wave4ChannelExample.advance(fixture.host)
+    assert take_checked_read_calls() == []
+
+    assert {:ok, ^profile_before} =
+             CheckedCommand.resource(
+               fixture.handles.input,
+               broad_scope,
+               fixture.profile.conversation_id
+             )
+
+    assert {:ok, ^foreign_before} =
+             CheckedCommand.resource(fixture.handles.input, broad_scope, event["conversation_id"])
+
+    assert {:ok, ^before_head} = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
+
+    assert Elzoo.DurableLog.PostgresHarness.hook(fixture.command_store, :snapshot, []) ==
+             before_command
+
+    assert Elzoo.DurableLog.PostgresHarness.hook(fixture.native.unit_store, :snapshot, []) ==
+             before_unit
+
+    assert {:ok, [^item]} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+    assert {:error, :not_found} = RunApprovalRelease.status(fixture.owner, run_id)
+    assert :not_found = DynamicUnits.find(fixture.directory, unit_id)
+    assert Registry.lookup(fixture.native.registry, unit_id) == []
+    assert Task.Supervisor.children(fixture.native.task_supervisor) == []
+    assert %{poison: {:input_observation, :unknown}} = :sys.get_state(fixture.host)
+    assert take_hash_calls() == []
+  end
+
+  test "a retained foreign ASK cannot be released through a broad scope", %{fixture: fixture} do
+    event =
+      Elzoo.Wave4ChannelTestHelper.event(%{
+        "event_id" => "foreign-ask",
+        "input_id" => "foreign-ask-input",
+        "conversation_id" => "other-conversation"
+      })
+
+    assert {{:approval_pending, %{key: key, requirement: requirement}}, writes} =
+             seed_input_command!(fixture, event, :ask)
+
+    broad_scope =
+      Map.put(Elzoo.Wave4ChannelTestHelper.scope(fixture.profile), :resources, [
+        fixture.profile.conversation_id,
+        event["conversation_id"]
+      ])
+
+    assert {:ok, foreign_before} =
+             CheckedCommand.resource(fixture.handles.input, broad_scope, event["conversation_id"])
+
+    assert {:ok, profile_before} =
+             CheckedCommand.resource(
+               fixture.handles.input,
+               broad_scope,
+               fixture.profile.conversation_id
+             )
+
+    assert {:ok, before_head} = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
+    before_command = Elzoo.DurableLog.PostgresHarness.hook(fixture.command_store, :snapshot, [])
+    parent = self()
+
+    policy = fn _mode, _event, _now -> Elzoo.Wave4ChannelTestHelper.policy(:ask) end
+
+    authority = fn mode, _event, _request, _facts ->
+      if mode == :release do
+        send(parent, :foreign_release_authority_called)
+
+        %{
+          approver: %{identity: "human-reviewer", authority: writes},
+          now: fixture.clock.(),
+          revoked: []
+        }
+      else
+        %{}
+      end
+    end
+
+    fixture = host_with_gates(fixture, fixture.gates, policy: policy, authority: authority)
+    normalized = normalized_event(event)
+    trace_native_hash(fixture.native.task_supervisor)
+
+    assert {:pending, :approval} = Wave4ChannelExample.admit(fixture.host, normalized, broad_scope)
+
+    assert %{event: ^normalized, key: ^key, requirement: ^requirement} =
+             :sys.get_state(fixture.host).approval
+
+    assert {:ok, ^before_head} = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
+
+    assert Elzoo.DurableLog.PostgresHarness.hook(fixture.command_store, :snapshot, []) ==
+             before_command
+
+    assert {:ok, []} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+
+    now = fixture.clock.()
+
+    evidence = %{
+      verifier: "wave4-command-approver",
+      evidence_id: "foreign-ask-release",
+      reviewer: "human-reviewer",
+      request: key,
+      decision: :approve,
+      scope: :once,
+      issued_at: now - 1_000,
+      expiry: now + 60_000
+    }
+
+    envelope = %{purpose: :command, tenant: fixture.profile.tenant, evidence: evidence}
+
+    assert {:rejected, :forbidden} =
+             Wave4ChannelExample.release(fixture.host, normalized, broad_scope, envelope)
+
+    refute_receive :foreign_release_authority_called
+
+    assert {:approval_pending, %{key: ^key, requirement: ^requirement}} =
+             CheckedCommand.result(
+               fixture.handles.input,
+               %{tenant: fixture.profile.tenant, actor: fixture.profile.actor},
+               {fixture.profile.tenant, fixture.profile.actor,
+                Elzoo.Wave4ChannelTestHelper.input_operation(fixture.profile, event["event_id"])}
+             )
+
+    assert {:ok, ^foreign_before} =
+             CheckedCommand.resource(fixture.handles.input, broad_scope, event["conversation_id"])
+
+    assert {:ok, ^profile_before} =
+             CheckedCommand.resource(
+               fixture.handles.input,
+               broad_scope,
+               fixture.profile.conversation_id
+             )
+
+    assert {:ok, ^before_head} = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
+
+    assert Elzoo.DurableLog.PostgresHarness.hook(fixture.command_store, :snapshot, []) ==
+             before_command
+
+    assert {:ok, []} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
+
+    run_id =
+      Elzoo.Wave4ChannelTestHelper.run_id(fixture.profile, event["event_id"], event["input_id"])
+
+    unit_id = Elzoo.Wave4ChannelTestHelper.unit_id(run_id)
+    assert {:error, :not_found} = RunApprovalRelease.status(fixture.owner, run_id)
+    assert :not_found = DynamicUnits.find(fixture.directory, unit_id)
+    assert Registry.lookup(fixture.native.registry, unit_id) == []
+    assert Task.Supervisor.children(fixture.native.task_supervisor) == []
+    assert take_hash_calls() == []
+  end
+
   defp process_event(
          fixture,
          listener,
@@ -2811,6 +3147,57 @@ defmodule Elzoo.Wave4ChannelTest do
          budget_count: budget_count
        }}
     end
+  end
+
+  defp normalized_event(event) do
+    %{
+      version: event["version"],
+      event_id: event["event_id"],
+      conversation_id: event["conversation_id"],
+      input_id: event["input_id"],
+      expected_revision: event["expected_revision"],
+      text: event["text"]
+    }
+  end
+
+  defp seed_input_command!(fixture, event, verdict) do
+    profile = fixture.profile
+    resource = event["conversation_id"]
+
+    scope =
+      Map.put(
+        Elzoo.Wave4ChannelTestHelper.scope(profile),
+        :resources,
+        [
+          profile.conversation_id,
+          resource
+        ]
+        |> Enum.uniq()
+      )
+
+    assert {:ok, snapshot} = CheckedCommand.resource(fixture.handles.input, scope, resource)
+
+    request = %{
+      operation_id: Elzoo.Wave4ChannelTestHelper.input_operation(profile, event["event_id"]),
+      resource: resource,
+      expected_revision: event["expected_revision"],
+      payload: %{"message_id" => event["input_id"], "text" => event["text"]}
+    }
+
+    facts = {:record, [{"input_role", {:text, "source"}}, {"mode", {:text, "append_input"}}]}
+    prepared_facts = %{tenant: profile.tenant, actor: profile.actor, data: facts}
+    assert {:ok, writes, _response} = Conversation.prepare(snapshot, request, prepared_facts)
+
+    context = %{
+      tenant: profile.tenant,
+      actor: profile.actor,
+      policy: Elzoo.Wave4ChannelTestHelper.policy(verdict),
+      own: writes,
+      parent: :none,
+      facts: facts
+    }
+
+    {CheckedCommand.execute(fixture.handles.input, context, request), writes}
   end
 
   defp seed_message!(fixture, index, text) do
@@ -2989,6 +3376,32 @@ defmodule Elzoo.Wave4ChannelTest do
       :erlang.trace_pattern({RunApprovalRelease, :status, 2}, false, [:local])
       flush_trace_calls()
     end)
+  end
+
+  defp trace_checked_reads(host) do
+    Process.put(:wave4_channel_read_trace_target, host)
+    :erlang.trace_pattern({CheckedCommand, :result, 3}, true, [:local])
+    :erlang.trace_pattern({CheckedCommand, :resource, 3}, true, [:local])
+    :erlang.trace(host, true, [:call])
+
+    ExUnit.Callbacks.on_exit(fn ->
+      if Process.alive?(host), do: :erlang.trace(host, false, [:call])
+      :erlang.trace_pattern({CheckedCommand, :result, 3}, false, [:local])
+      :erlang.trace_pattern({CheckedCommand, :resource, 3}, false, [:local])
+      flush_trace_calls()
+    end)
+  end
+
+  defp take_checked_read_calls(acc \\ []) do
+    await_trace_delivery(Process.get(:wave4_channel_read_trace_target))
+
+    receive do
+      {:trace, _pid, :call, {CheckedCommand, function, _args}}
+      when function in [:result, :resource] ->
+        take_checked_read_calls([function | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
   end
 
   defp trace_checked_execute(host) do
@@ -3381,8 +3794,10 @@ defmodule Elzoo.Wave4ChannelTest do
     engine_pid = host_state.engine
     async_pid = host_state.async_work
     writer_pid = host_state.writer
+    [{unit_pid, nil}] = Registry.lookup(Elzoo.RunEngine.UnitRegistry, unit_id)
     assert is_pid(engine_pid) and Process.alive?(engine_pid)
     assert is_pid(async_pid) and Process.alive?(async_pid)
+    assert Process.alive?(unit_pid)
     assert take_hash_calls() == [event["text"]]
 
     assert {:ok, run_before} = RunApprovalRelease.status(fixture.owner, run_id)
@@ -3427,10 +3842,19 @@ defmodule Elzoo.Wave4ChannelTest do
     refute Process.alive?(task_pid)
     refute Process.alive?(engine_pid)
     refute Process.alive?(async_pid)
+    refute Process.alive?(unit_pid)
     if is_pid(writer_pid), do: refute(Process.alive?(writer_pid))
     assert Task.Supervisor.children(fixture.native.task_supervisor) == []
+
+    cleanup_deadline = System.monotonic_time(:millisecond) + 5_000
+    wait_for_registry_cleanup!(fixture.native.registry, unit_id, cleanup_deadline)
+    wait_for_registry_cleanup!(Elzoo.RunEngine.UnitRegistry, unit_id, cleanup_deadline)
+    wait_for_directory_cleanup!(fixture.directory, unit_id, cleanup_deadline)
+    wait_for_unit_supervisor_cleanup!(fixture.unit_supervisor, cleanup_deadline)
+
     assert :not_found = DynamicUnits.find(fixture.directory, unit_id)
-    assert Registry.lookup(fixture.native.registry, unit_id) == []
+    assert DynamicSupervisor.which_children(fixture.unit_supervisor) == []
+
     assert {:ok, []} = Elzoo.Wave4ChannelTestHelper.pending_outbox(fixture)
     assert {:ok, %{revision: 2}} = Elzoo.Wave4ChannelTestHelper.command_head(fixture)
 
@@ -3482,15 +3906,64 @@ defmodule Elzoo.Wave4ChannelTest do
   end
 
   defp wait_for_registry_cleanup!(registry, id, deadline) do
-    if Registry.lookup(registry, id) == [] do
-      :ok
-    else
-      if System.monotonic_time(:millisecond) >= deadline do
+    registrations = Registry.lookup(registry, id)
+
+    cond do
+      registrations == [] ->
+        :ok
+
+      Enum.any?(registrations, fn {pid, _value} -> Process.alive?(pid) end) ->
+        flunk("Registry retained a live native process")
+
+      System.monotonic_time(:millisecond) >= deadline ->
         flunk("Registry retained a stopped native process")
-      else
+
+      true ->
         Process.sleep(1)
         wait_for_registry_cleanup!(registry, id, deadline)
-      end
+    end
+  end
+
+  defp wait_for_directory_cleanup!(directory, id, deadline) do
+    case DynamicUnits.find(directory, id) do
+      :not_found ->
+        :ok
+
+      {:ok, pid} when is_pid(pid) ->
+        if Process.alive?(pid) do
+          flunk("DynamicUnits retained a live native process")
+        else
+          if System.monotonic_time(:millisecond) >= deadline do
+            flunk("DynamicUnits retained a stopped native process")
+          else
+            Process.sleep(1)
+            wait_for_directory_cleanup!(directory, id, deadline)
+          end
+        end
+
+      {:error, :unavailable} ->
+        flunk("DynamicUnits became unavailable during native cleanup")
+    end
+  end
+
+  defp wait_for_unit_supervisor_cleanup!(supervisor, deadline) do
+    children = DynamicSupervisor.which_children(supervisor)
+
+    cond do
+      Enum.any?(children, fn {_id, pid, _type, _modules} ->
+        is_pid(pid) and Process.alive?(pid)
+      end) ->
+        flunk("unit supervisor retained a live native child")
+
+      children == [] ->
+        :ok
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        flunk("unit supervisor retained a stopped native child")
+
+      true ->
+        Process.sleep(1)
+        wait_for_unit_supervisor_cleanup!(supervisor, deadline)
     end
   end
 
