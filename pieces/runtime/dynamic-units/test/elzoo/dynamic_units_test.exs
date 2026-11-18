@@ -102,13 +102,36 @@ defmodule Elzoo.DynamicUnitsTest do
   defp held_call(tag, fun) do
     observer = self()
 
-    spawn_link(fn ->
-      send(observer, {tag, :held, self()})
+    requester =
+      spawn(fn ->
+        send(observer, {tag, :held, self()})
 
-      receive do
-        {^tag, :submit} -> send(observer, {tag, fun.()})
+        receive do
+          {^tag, :submit} -> send(observer, {tag, fun.()})
+        end
+      end)
+
+    on_exit(fn ->
+      try do
+        Process.exit(requester, :kill)
+      rescue
+        ArgumentError -> :ok
       end
     end)
+
+    requester
+  end
+
+  defp untrace(pid, flags) do
+    :erlang.trace(pid, false, flags)
+  rescue
+    ArgumentError -> :ok
+  end
+
+  defp resume_suspended(pid) do
+    :erlang.resume_process(pid)
+  rescue
+    ArgumentError -> :ok
   end
 
   defp eventually(fun, remaining \\ 200) do
@@ -315,7 +338,7 @@ defmodule Elzoo.DynamicUnitsTest do
       :erlang.trace(supervisor, true, [:receive, {:tracer, self()}])
       send(stopping, {:stopping, :submit})
 
-      assert_receive {:trace, ^d, :receive, {:"$gen_call", {_from, _tag}, {:stop, "two"}}}
+      assert_receive {:trace, ^d, :receive, {:"$gen_call", {^stopping, _tag}, {:stop, "two"}}}
 
       assert_receive {
         :trace,
@@ -346,15 +369,15 @@ defmodule Elzoo.DynamicUnitsTest do
         assert Process.alive?(second)
         assert {:status, :suspended} = Process.info(second, :status)
       after
-        if Process.alive?(third_requester), do: :erlang.trace(third_requester, false, [:send])
+        untrace(third_requester, [:send])
       end
 
       :erlang.resume_process(second)
       assert_receive {:stopping, :ok}
     after
-      if Process.alive?(second), do: :erlang.resume_process(second)
-      if Process.alive?(d), do: :erlang.trace(d, false, [:receive])
-      if Process.alive?(supervisor), do: :erlang.trace(supervisor, false, [:receive])
+      resume_suspended(second)
+      untrace(d, [:receive])
+      untrace(supervisor, [:receive])
     end
 
     assert_receive {:third, {:ok, third}}
