@@ -43,7 +43,7 @@
     {
       "kind": "test",
       "file": "test/elzoo/durable_log_postgres_test.exs",
-      "claim": "K1–K11 plus D11/D15/D17/D19 on a disposable PostgreSQL database: restart, late commits, backend termination, unavailable service, corruption, FK and lock ordering; ELZ-032 caller-transaction refusal for every write callback and every read callback except the static capabilities, with outer COMMIT and ROLLBACK, the outer transaction still usable, and the shell results through Outbox/Checkpoint/confirm. Missing/unreachable URL fails closed. ELZ-193 groups: one_statement_reads_are_one_query, multi_statement_reads_keep_one_snapshot, refusals_are_unchanged, held_connection_keeps_the_wrapper."
+      "claim": "K1–K11 plus D11/D15/D17/D19 on a disposable PostgreSQL database: restart, late commits, backend termination, unavailable service, corruption, FK and lock ordering; ELZ-032 caller-transaction refusal for every write callback and every read callback except the static capabilities, with outer COMMIT and ROLLBACK, the outer transaction still usable, and the shell results through Outbox/Checkpoint/confirm. Missing/unreachable URL fails closed. ELZ-193 groups: one_statement_reads_are_one_query, multi_statement_reads_keep_one_snapshot, refusals_are_unchanged, held_connection_keeps_the_wrapper. ELZ-262 tests: multi_statement_reads_keep_one_snapshot checks post-transaction mapping and checkout ownership; snapshot reads keep the captured rows across append and retention checks a single captured snapshot; snapshot reads preserve empty, absent, and pruned results; invalid read rows remain plain maps; unexpected mapping exceptions are normalized without a partial result."
     },
     {
       "kind": "monitor",
