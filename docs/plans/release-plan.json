@@ -8007,7 +8007,7 @@
       "disposition": "retained-ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/sql/piece.json",
-      "manifest_sha256": "7b3e7e9880afc23ab93c814aa84fb276d3b7e945bc493084652d9eccb9bf821a"
+      "manifest_sha256": "03b15dd1d10ba95a986a5497e05ad40ca267eb3924150d6289ec20d1248c1195"
     },
     {
       "id": "integration/text-chunking",
