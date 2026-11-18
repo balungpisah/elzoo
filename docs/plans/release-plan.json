@@ -7243,6 +7243,23 @@
       "issue": 597,
       "url": "https://github.com/balungpisah/elzoo/issues/597",
       "issue_body_sha256": "2b5e1a2355e0f07c199f46314f1ee5f609a1fa921efbb28b154bb5f94eafd036"
+    },
+    {
+      "id": "ELZ-262",
+      "title": "ELZ-262 — Validate SQL snapshot rows after the Store transaction",
+      "kind": "published",
+      "release": "V1B",
+      "stage": "pieces",
+      "dependencies": ["ELZ-193", "ELZ-232"],
+      "status": "published 2026-11-18",
+      "owner_role": "one claimed task worker; coordinator owns independent review and merge queue",
+      "paths": ["tasks/ELZ-262-sql-snapshot-validation.md"],
+      "outputs": [],
+      "acceptance": "Fetch SQL snapshot head and raw rows inside the existing read-only repeatable-read transaction, then validate captured rows after its completion inside the existing error boundary. Preserve results, malformed-row maps, query sequence, caller transaction behavior, timeout and write/digest contracts. Prove phases and snapshot consistency with real PostgreSQL; exercise SQL and unchanged RunEngine consumers, negative control, and Piece gate. No end-to-end speed guarantee.",
+      "product_aims": ["P13"],
+      "issue": 601,
+      "url": "https://github.com/balungpisah/elzoo/issues/601",
+      "issue_body_sha256": "fe8bd08defc0df3fe9575c12dcf394333b226cfa06fa61bab559dcd1fd07b127"
     }
   ],
   "entries": [
@@ -8007,7 +8024,7 @@
       "disposition": "retained-ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/integration/sql/piece.json",
-      "manifest_sha256": "7b3e7e9880afc23ab93c814aa84fb276d3b7e945bc493084652d9eccb9bf821a"
+      "manifest_sha256": "03b15dd1d10ba95a986a5497e05ad40ca267eb3924150d6289ec20d1248c1195"
     },
     {
       "id": "integration/text-chunking",

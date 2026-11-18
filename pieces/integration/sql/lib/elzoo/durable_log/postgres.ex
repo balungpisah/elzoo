@@ -145,7 +145,7 @@ defmodule Elzoo.DurableLog.Postgres do
             [stream, from, limit]
           ).rows
 
-        {:ok, Enum.map(rows, &record(opts, &1)), h}
+        {:read_snapshot, rows, h}
       end
     end)
   end
@@ -165,11 +165,7 @@ defmodule Elzoo.DurableLog.Postgres do
             [stream, sequence]
           ).rows
 
-        {:ok,
-         case rows do
-           [] -> :absent
-           [row] -> record(opts, row)
-         end, h}
+        {:read_at_snapshot, rows, h}
       end
     end)
   end
@@ -515,8 +511,17 @@ defmodule Elzoo.DurableLog.Postgres do
                end,
                timeout: Map.get(opts, :timeout, 5_000)
              ) do
-          {:ok, result} -> result
-          _ -> {:error, :unavailable}
+          {:ok, {:read_snapshot, rows, head}} when operation == :read ->
+            finish_read(opts, rows, head)
+
+          {:ok, {:read_at_snapshot, rows, head}} when operation == :read_at ->
+            finish_read_at(opts, rows, head)
+
+          {:ok, result} ->
+            result
+
+          _ ->
+            {:error, :unavailable}
         end
       end
     rescue
@@ -526,6 +531,23 @@ defmodule Elzoo.DurableLog.Postgres do
       :throw, :caller_transaction -> {:error, :caller_transaction}
       _, _ -> {:error, :unavailable}
     end
+  end
+
+  defp finish_read(opts, rows, head) do
+    barrier(opts, :read, :after_snapshot_before_validation)
+    {:ok, Enum.map(rows, &record(opts, &1)), head}
+  end
+
+  defp finish_read_at(opts, rows, head) do
+    barrier(opts, :read_at, :after_snapshot_before_validation)
+
+    record =
+      case rows do
+        [] -> :absent
+        [row] -> record(opts, row)
+      end
+
+    {:ok, record, head}
   end
 
   # Process-local check (Ecto SQL 3.14.0 reads the conn from the process dictionary);

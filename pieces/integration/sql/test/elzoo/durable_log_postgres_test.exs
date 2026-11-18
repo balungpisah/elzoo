@@ -59,6 +59,15 @@ defmodule Elzoo.DurableLog.PostgresTest do
     Map.put(c, :digest, Codec.hash(Codec.checkpoint_bytes(c)))
   end
 
+  defp read_store(prefix, hook) do
+    Postgres.store(TestRepo,
+      prefix: String.trim(prefix, "\""),
+      fold: fold(),
+      limits: @limits,
+      test_hook: hook
+    )
+  end
+
   defp start_writer(store) do
     result = Writer.start_link(store: store, stream: "pg", fold: fold(), limits: @limits)
 
@@ -561,6 +570,87 @@ defmodule Elzoo.DurableLog.PostgresTest do
     end
   end
 
+  defp assert_read_queries(events) do
+    assert [
+             "begin",
+             @set_snapshot,
+             "SELECT revision" <> _,
+             "SELECT stream, sequence" <> _,
+             "commit"
+           ] = events
+  end
+
+  defp assert_pruned_read_queries(events) do
+    assert ["begin", @set_snapshot, "SELECT revision" <> _, "commit"] = events
+  end
+
+  defp paused_read(prefix, operation, stream, during_pause) do
+    parent = self()
+    token = make_ref()
+
+    hook = fn hook_operation, phase, repo ->
+      if hook_operation == operation and phase == :after_snapshot_before_validation do
+        send(
+          parent,
+          {token, :phase, hook_operation, phase, repo.in_transaction?(), repo.checked_out?()}
+        )
+
+        receive do
+          {^token, :continue} -> :ok
+        after
+          10_000 -> raise "post-snapshot validation pause timed out"
+        end
+      else
+        :ok
+      end
+    end
+
+    store = read_store(prefix, hook)
+
+    call =
+      case operation do
+        :read -> fn -> Postgres.read(store, stream, 1, 2) end
+        :read_at -> fn -> Postgres.read_at(store, stream, 1) end
+      end
+
+    task = Task.async(fn -> queries(call) end)
+
+    assertion =
+      try do
+        assert_receive {^token, :phase, ^operation, :after_snapshot_before_validation, false,
+                        false},
+                       10_000
+
+        during_pause.()
+        :ok
+      rescue
+        error -> {:error, error, __STACKTRACE__}
+      after
+        send(task.pid, {token, :continue})
+      end
+
+    result =
+      case Task.yield(task, 30_000) do
+        {:ok, result} ->
+          result
+
+        {:exit, reason} ->
+          flunk("paused read exited: #{inspect(reason)}")
+
+        nil ->
+          Task.shutdown(task, :brutal_kill)
+          flunk("paused read did not finish")
+      end
+
+    case assertion do
+      :ok -> :ok
+      {:error, error, stacktrace} -> reraise error, stacktrace
+    end
+
+    refute_receive {^token, :phase, _, :after_snapshot_before_validation, _, _}, 0
+    result
+  end
+
   defp seed_reads(s) do
     %{items: items} = seeded = seed_caller_transaction(s)
     assert {:committed, 1} = Postgres.retain(s, "pg", 0, 1, <<8::128>>)
@@ -627,25 +717,240 @@ defmodule Elzoo.DurableLog.PostgresTest do
     assert {:ok, [_]} = Postgres.pending(odd, "pg", 10)
   end
 
-  test "multi_statement_reads_keep_one_snapshot: read and read_at stay in one repeatable-read transaction",
-       %{store: s} do
+  test "multi_statement_reads_keep_one_snapshot: validation follows the transaction and preserves caller checkout",
+       %{store: s, prefix: prefix} do
     seed_caller_transaction(s)
 
-    for call <- [
-          fn -> Postgres.read(s, "pg", 1, 10) end,
-          fn -> Postgres.read_at(s, "pg", 2) end
+    parent = self()
+
+    hook = fn operation, phase, repo ->
+      send(parent, {operation, phase, repo.in_transaction?(), repo.checked_out?()})
+    end
+
+    reader = read_store(prefix, hook)
+
+    for {operation, call} <- [
+          {:read, fn -> Postgres.read(reader, "pg", 1, 10) end},
+          {:read_at, fn -> Postgres.read_at(reader, "pg", 2) end}
         ] do
       {result, events} = queries(call)
       assert {:ok, _, %{revision: 2}} = result
+      assert_read_queries(events)
+      assert_receive {^operation, :after_snapshot_before_validation, false, false}
 
-      assert [
-               "begin",
-               @set_snapshot,
-               "SELECT revision" <> _,
-               "SELECT stream, sequence" <> _,
-               "commit"
-             ] = events
+      {held, held_events} = queries(fn -> TestRepo.checkout(fn -> call.() end) end)
+      assert held == result
+      assert_read_queries(held_events)
+      assert_receive {^operation, :after_snapshot_before_validation, false, true}
     end
+
+    refute_receive {_, :after_snapshot_before_validation, _, _}, 0
+  end
+
+  test "snapshot reads keep the captured rows across append and retention", %{
+    store: s,
+    prefix: prefix
+  } do
+    for operation <- [:read, :read_at] do
+      stream = "snapshot-#{operation}-#{System.unique_integer([:positive])}"
+      rows = [row(1, <<10::128>>, stream), row(2, <<10::128>>, stream)]
+
+      assert {:committed, 2} = Postgres.append(s, stream, 0, rows, [])
+      assert {:committed, 1} = Postgres.put_checkpoint(s, checkpoint([hd(rows)]))
+
+      {result, events} =
+        paused_read(prefix, operation, stream, fn ->
+          assert {:committed, 3} = Postgres.append(s, stream, 2, [row(3, <<12::128>>, stream)], [])
+          assert {:committed, 1} = Postgres.retain(s, stream, 0, 1, <<13::128>>)
+        end)
+
+      assert_read_queries(events)
+
+      case operation do
+        :read ->
+          assert {:ok, ^rows, %{revision: 2, low_water: 0}} = result
+
+        :read_at ->
+          assert {:ok, first, %{revision: 2, low_water: 0}} = result
+          assert first == hd(rows)
+      end
+
+      assert {:ok, %{revision: 3, low_water: 1}} = Postgres.head(s, stream)
+
+      table = "#{Postgres.identifier(String.trim(prefix, "\""))}.elzoo_log_records"
+
+      assert [[0]] =
+               SQL.query!(
+                 TestRepo,
+                 "SELECT count(*) FROM #{table} WHERE stream=$1 AND sequence=1",
+                 [stream],
+                 log: false
+               ).rows
+    end
+  end
+
+  test "snapshot reads preserve empty, absent, and pruned results", %{
+    store: s,
+    prefix: prefix
+  } do
+    parent = self()
+
+    hook = fn operation, phase, repo ->
+      send(parent, {:phase, operation, phase, repo.in_transaction?(), repo.checked_out?()})
+    end
+
+    reader = read_store(prefix, hook)
+
+    {empty, events} = queries(fn -> Postgres.read(reader, "empty", 1, 10) end)
+    assert {:ok, [], %{revision: 0, low_water: 0}} = empty
+    assert_read_queries(events)
+    assert_receive {:phase, :read, :after_snapshot_before_validation, false, false}
+
+    {absent, events} = queries(fn -> Postgres.read_at(reader, "empty", 1) end)
+    assert {:ok, :absent, %{revision: 0, low_water: 0}} = absent
+    assert_read_queries(events)
+    assert_receive {:phase, :read_at, :after_snapshot_before_validation, false, false}
+
+    stream = "pruned"
+    rows = [row(1, <<20::128>>, stream), row(2, <<20::128>>, stream)]
+    assert {:committed, 2} = Postgres.append(s, stream, 0, rows, [])
+    assert {:committed, 1} = Postgres.put_checkpoint(s, checkpoint([hd(rows)]))
+    assert {:committed, 1} = Postgres.retain(s, stream, 0, 1, <<22::128>>)
+
+    {pruned, events} = queries(fn -> Postgres.read(reader, stream, 1, 10) end)
+    assert {:error, {:pruned, 1}} = pruned
+    assert_pruned_read_queries(events)
+
+    {pruned, events} = queries(fn -> Postgres.read_at(reader, stream, 1) end)
+    assert {:error, {:pruned, 1}} = pruned
+    assert_pruned_read_queries(events)
+
+    refute_receive {:phase, _, :after_snapshot_before_validation, _, _}, 0
+  end
+
+  test "invalid read rows remain plain maps", %{store: s, prefix: prefix} do
+    rows = [row(1, <<30::128>>), row(2, <<30::128>>), row(3, <<30::128>>)]
+    assert {:committed, 3} = Postgres.append(s, "pg", 0, rows, [])
+
+    bad_digest = :crypto.hash(:sha256, "not the record digest")
+
+    assert %{num_rows: 1} =
+             SQL.query!(
+               TestRepo,
+               "UPDATE #{prefix}.elzoo_log_records SET digest=$1 WHERE stream=$2 AND sequence=$3",
+               [bad_digest, "pg", 1],
+               log: false
+             )
+
+    malformed = %{Enum.at(rows, 1) | nonce: <<1::8>>}
+    malformed = %{malformed | digest: Log.digest(malformed)}
+    assert malformed.digest == Log.digest(malformed)
+    assert {:error, :malformed_row} = Log.validate_row(malformed, fold(), @limits)
+
+    oversized = %{Enum.at(rows, 2) | payload: String.duplicate("x", @limits.max_record_bytes + 1)}
+    oversized = %{oversized | digest: Log.digest(oversized)}
+
+    assert %{num_rows: 1} =
+             SQL.query!(
+               TestRepo,
+               "UPDATE #{prefix}.elzoo_log_records SET payload=$1, digest=$2 WHERE stream=$3 AND sequence=$4",
+               [oversized.payload, oversized.digest, "pg", 3],
+               log: false
+             )
+
+    SQL.query!(
+      TestRepo,
+      "ALTER TABLE #{prefix}.elzoo_log_records DROP CONSTRAINT elzoo_record_bounds",
+      [],
+      log: false
+    )
+
+    try do
+      assert %{num_rows: 1} =
+               SQL.query!(
+                 TestRepo,
+                 "UPDATE #{prefix}.elzoo_log_records SET nonce=$1, digest=$2 WHERE stream=$3 AND sequence=$4",
+                 [malformed.nonce, malformed.digest, "pg", 2],
+                 log: false
+               )
+
+      assert {:ok, [corrupt, malformed_map, oversized_map], %{revision: 3}} =
+               Postgres.read(s, "pg", 1, 10)
+
+      assert Enum.all?([corrupt, malformed_map, oversized_map], fn record ->
+               is_map(record) and not Map.has_key?(record, :__struct__)
+             end)
+
+      assert corrupt.digest == bad_digest
+      assert malformed_map.nonce == <<1::8>>
+      assert byte_size(oversized_map.payload) == @limits.max_record_bytes + 1
+
+      for {expected, sequence} <- Enum.with_index([corrupt, malformed_map, oversized_map], 1) do
+        assert {:ok, read_at_map, %{revision: 3}} = Postgres.read_at(s, "pg", sequence)
+        assert read_at_map == expected
+        refute Map.has_key?(read_at_map, :__struct__)
+      end
+    after
+      SQL.query!(
+        TestRepo,
+        "UPDATE #{prefix}.elzoo_log_records SET nonce=$1, digest=$2 WHERE stream=$3 AND sequence=$4",
+        [Enum.at(rows, 1).nonce, Enum.at(rows, 1).digest, "pg", 2],
+        log: false
+      )
+
+      SQL.query!(
+        TestRepo,
+        "ALTER TABLE #{prefix}.elzoo_log_records ADD CONSTRAINT elzoo_record_bounds CHECK (sequence > 0 AND schema_version > 0 AND octet_length(nonce) = 16 AND octet_length(digest) = 32)",
+        [],
+        log: false
+      )
+    end
+  end
+
+  test "unexpected mapping exceptions are normalized without a partial result", %{
+    store: s,
+    prefix: prefix
+  } do
+    assert {:committed, 2} = Postgres.append(s, "pg", 0, [row(1), row(2)], [])
+    unknown = %{row(1) | kind: "unknown"}
+    unknown = %{unknown | digest: Log.digest(unknown)}
+
+    assert %{num_rows: 1} =
+             SQL.query!(
+               TestRepo,
+               "UPDATE #{prefix}.elzoo_log_records SET kind=$1, digest=$2 WHERE stream=$3 AND sequence=$4",
+               [unknown.kind, unknown.digest, "pg", 1],
+               log: false
+             )
+
+    parent = self()
+
+    hook = fn operation, phase, repo ->
+      send(parent, {:mapping_phase, operation, phase, repo.in_transaction?(), repo.checked_out?()})
+    end
+
+    {Postgres, opts} = read_store(prefix, hook)
+    broken_fold = Map.delete(opts.fold, :versions)
+    broken_store = {Postgres, Map.put(opts, :fold, broken_fold)}
+
+    {result, events} = queries(fn -> Postgres.read_at(broken_store, "pg", 1) end)
+    assert {:ok, first_map, %{revision: 2}} = result
+    assert first_map.kind == "unknown"
+    refute Map.has_key?(first_map, :__struct__)
+    assert_read_queries(events)
+    assert_receive {:mapping_phase, :read_at, :after_snapshot_before_validation, false, false}
+
+    {result, events} = queries(fn -> Postgres.read(broken_store, "pg", 1, 10) end)
+    assert {:error, :unavailable} = result
+    assert_read_queries(events)
+    assert_receive {:mapping_phase, :read, :after_snapshot_before_validation, false, false}
+
+    {result, events} = queries(fn -> Postgres.read_at(broken_store, "pg", 2) end)
+    assert {:error, :unavailable} = result
+    assert_read_queries(events)
+    assert_receive {:mapping_phase, :read_at, :after_snapshot_before_validation, false, false}
+
+    refute_receive {:mapping_phase, _, :after_snapshot_before_validation, _, _}, 0
   end
 
   @tag capture_log: true
