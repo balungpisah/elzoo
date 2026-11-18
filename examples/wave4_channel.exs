@@ -289,7 +289,7 @@ defmodule Elzoo.Wave4ChannelDemo do
         try do
           run_with_listener(host, resources)
         after
-          stop_host!(host, infrastructure)
+          stop_host!(host, infrastructure, directory)
         end
 
       {:error, _} ->
@@ -434,6 +434,9 @@ defmodule Elzoo.Wave4ChannelDemo do
 
     {202, _second_receipt} = post_signed!(listener.url, second_request)
     second_steps = drive_until_ack!(host, second["input_id"], driver_deadline(resources.profile))
+    unit_ids = for {:engine_started, unit_id} <- first_steps ++ second_steps, do: unit_id
+    Process.put({__MODULE__, :unit_ids}, unit_ids)
+
     IO.puts("input 2: #{trace(second_steps)}")
 
     before = get_view!(listener.url, resources.profile.conversation_id)
@@ -618,7 +621,7 @@ defmodule Elzoo.Wave4ChannelDemo do
     end
   end
 
-  defp stop_host!(host, infrastructure) do
+  defp stop_host!(host, infrastructure, directory) do
     native_pids =
       if Process.alive?(host) do
         state = :sys.get_state(host)
@@ -642,12 +645,64 @@ defmodule Elzoo.Wave4ChannelDemo do
     if Process.alive?(host), do: :ok = GenServer.stop(host, :normal, 15_000)
     true = not Process.alive?(host)
     true = Enum.all?(native_pids ++ unit_pids ++ task_pids, &(not Process.alive?(&1)))
-    [] = DynamicSupervisor.which_children(unit_supervisor)
     [] = Task.Supervisor.children(task_supervisor)
-    0 = Registry.count(@engine_registry)
-    0 = Registry.count(@unit_registry)
+
+    :ok =
+      await_demo_native_cleanup!(
+        directory,
+        unit_supervisor,
+        Process.get({__MODULE__, :unit_ids}, []),
+        System.monotonic_time(:millisecond) + 5_000
+      )
+
     true = Process.alive?(infrastructure)
     :ok
+  end
+
+  defp await_demo_native_cleanup!(directory, unit_supervisor, unit_ids, deadline) do
+    registrations =
+      for registry <- [@engine_registry, @unit_registry], unit_id <- unit_ids do
+        Registry.lookup(registry, unit_id)
+      end
+
+    live_registration =
+      Enum.any?(registrations, fn
+        [{pid, _}] -> Process.alive?(pid)
+        _ -> false
+      end)
+
+    live_children =
+      DynamicSupervisor.which_children(unit_supervisor)
+      |> Enum.any?(fn {_, pid, _, _} -> is_pid(pid) and Process.alive?(pid) end)
+
+    directory_states = Enum.map(unit_ids, &DynamicUnits.find(directory, &1))
+
+    live_directory_owner =
+      Enum.any?(directory_states, fn
+        {:ok, pid} when is_pid(pid) -> Process.alive?(pid)
+        _ -> false
+      end)
+
+    directory_unavailable = Enum.any?(directory_states, &match?({:error, :unavailable}, &1))
+
+    true = not live_registration
+    true = not live_children
+    true = not live_directory_owner
+    true = not directory_unavailable
+
+    cond do
+      Registry.count(@engine_registry) == 0 and Registry.count(@unit_registry) == 0 and
+        directory_states == List.duplicate(:not_found, length(unit_ids)) and
+          DynamicSupervisor.which_children(unit_supervisor) == [] ->
+        :ok
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        {:error, :native_cleanup_timeout}
+
+      true ->
+        Process.sleep(1)
+        await_demo_native_cleanup!(directory, unit_supervisor, unit_ids, deadline)
+    end
   end
 
   defp stop_genserver!(pid) do

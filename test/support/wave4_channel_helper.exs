@@ -329,14 +329,7 @@ defmodule Elzoo.Wave4ChannelTestHelper do
 
     if host_state.current do
       unit_id = unit_id(host_state.current.run_id)
-      :not_found = Elzoo.DynamicUnits.find(fixture.directory, unit_id)
-
-      :ok =
-        await_engine_unregistered(
-          fixture.native.registry,
-          unit_id,
-          System.monotonic_time(:millisecond) + 5_000
-        )
+      :ok = await_native_cleanup!(fixture, unit_id, System.monotonic_time(:millisecond) + 5_000)
     end
 
     [] = Task.Supervisor.children(fixture.native.task_supervisor)
@@ -578,20 +571,51 @@ defmodule Elzoo.Wave4ChannelTestHelper do
     Keyword.merge(unit_opts, store: unit_store, offer: offer)
   end
 
-  defp await_engine_unregistered(registry, identity, deadline) do
-    case Registry.lookup(registry, identity) do
-      [] ->
+  defp await_native_cleanup!(fixture, identity, deadline) do
+    engine = registration_state(fixture.native.registry, identity)
+    unit = registration_state(Elzoo.RunEngine.UnitRegistry, identity)
+    directory = Elzoo.DynamicUnits.find(fixture.directory, identity)
+    children = DynamicSupervisor.which_children(fixture.unit_supervisor)
+
+    live_directory_owner =
+      case directory do
+        {:ok, pid} when is_pid(pid) -> Process.alive?(pid)
+        _ -> false
+      end
+
+    cond do
+      engine == :live or unit == :live ->
+        {:error, :live_native_registration}
+
+      Enum.any?(children, fn {_, pid, _, _} -> is_pid(pid) and Process.alive?(pid) end) ->
+        {:error, :live_native_child}
+
+      live_directory_owner ->
+        {:error, :live_directory_owner}
+
+      match?({:error, :unavailable}, directory) ->
+        {:error, :directory_unavailable}
+
+      engine == :unavailable or unit == :unavailable ->
+        {:error, :registry_unavailable}
+
+      engine == :missing and unit == :missing and directory == :not_found and children == [] ->
         :ok
 
-      [{pid, _}] ->
-        true = not Process.alive?(pid)
+      System.monotonic_time(:millisecond) >= deadline ->
+        {:error, :native_cleanup_timeout}
 
-        if System.monotonic_time(:millisecond) < deadline do
-          Process.sleep(1)
-          await_engine_unregistered(registry, identity, deadline)
-        else
-          {:error, :engine_still_registered}
-        end
+      true ->
+        Process.sleep(1)
+        await_native_cleanup!(fixture, identity, deadline)
+    end
+  end
+
+  defp registration_state(registry, identity) do
+    case Registry.lookup(registry, identity) do
+      [] -> :missing
+      [{pid, _}] when is_pid(pid) -> if(Process.alive?(pid), do: :live, else: :stale)
+      _ -> :unavailable
     end
   end
 
