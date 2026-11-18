@@ -29,10 +29,14 @@ Keep v2 empty state exactly
 
 Thread selected version through every decoder, generated input, request/gate
 frame, action cache, nested callable, lifecycle, and result reader; do not change
-only ingress. Preserve the explicit RunResource-v1 boundary: validate authentic
-versionless v1 RunResource inputs there, then construct/validate the equivalent
-v2 native envelope preserving other fields. Do not edit RunResource, relabel an
-unknown version, or globally replace its decoder. Test the round trip.
+only ingress. Preserve the explicit RunResource-v1 boundary: public
+`RunResource.read/2` returns neutral PatternStep input maps with explicit
+`"version" => 1`. Validate each input through the unchanged strict v1 PatternStep
+decoder before constructing and validating the equivalent v2 native envelope,
+preserving all other fields.
+Reject missing or unknown versions. Keep RunResource unchanged; do not infer or
+relabel another version or globally replace its decoder. Test the resource
+round trip.
 
 V2 requires one fixed `event_source` descriptor exactly
 `%{id: id, version: version, head: head_fun, read: read_fun}`. ID is nonempty
