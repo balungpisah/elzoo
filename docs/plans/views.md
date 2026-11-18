@@ -308,6 +308,7 @@ Reconciled main `32aef4e7dba40231257e2a91095910377c5c4ab9`. Original baseline st
 | [ELZ-256](https://github.com/balungpisah/elzoo/issues/585) | V1B / pieces | ELZ-127, ELZ-172, ELZ-252 | published 2026-11-17 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-257](https://github.com/balungpisah/elzoo/issues/586) | V1B / pieces | ELZ-083, ELZ-115, ELZ-127, ELZ-252 | published 2026-11-17 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-259](https://github.com/balungpisah/elzoo/issues/591) | V1B / pieces | ELZ-127, ELZ-256 | published 2026-11-17 | one claimed task worker; coordinator owns independent review and merge queue |
+| [ELZ-258](https://github.com/balungpisah/elzoo/issues/590) | V1B / pieces | ELZ-247, ELZ-249, ELZ-250, ELZ-252, ELZ-256, ELZ-257, ELZ-259 | published 2026-11-17 | coordinator-owned non-Piece task; independent review and merge queue |
 | [ELZ-260](https://github.com/balungpisah/elzoo/issues/595) | V1B / pieces | ELZ-254 | published 2026-11-18 | coordinator; one-PR path for a non-Piece change; independent review and merge queue |
 | [ELZ-261](https://github.com/balungpisah/elzoo/issues/597) | V1B / pieces | ELZ-231 | published 2026-11-18 | one claimed task worker; coordinator owns independent review and merge queue |
 | [ELZ-262](https://github.com/balungpisah/elzoo/issues/601) | V1B / pieces | ELZ-193, ELZ-232 | published 2026-11-18 | one claimed task worker; coordinator owns independent review and merge queue |
@@ -486,7 +487,7 @@ Prerequisites: ELZ-001, ELZ-002, ELZ-003, ELZ-004, ELZ-005, ELZ-006, ELZ-007, EL
 
 not published; frozen selected set and independent integrated acceptance required. All selected jobs accepted or exact tested upstream/index resolution reviewed; one recipe runs end to end through the engine, the agent and graph patterns and the Lua layer with scripted Adapters, under the pinned mix check. This gate does not wait for V1-ACCEPT and gives no acceptance of V1 work; the V1 proposals that this track needs (RC-05, RC-12) keep their own release.
 
-Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189, ELZ-190, ELZ-191, ELZ-192, ELZ-193, ELZ-194, ELZ-195, ELZ-196, ELZ-197, ELZ-198, ELZ-199, ELZ-200, ELZ-201, ELZ-202, ELZ-203, ELZ-204, ELZ-205, ELZ-206, ELZ-207, ELZ-208, ELZ-210, ELZ-211, ELZ-212, ELZ-213, ELZ-214, ELZ-215, ELZ-216, ELZ-217, ELZ-218, ELZ-219, ELZ-220, ELZ-221, ELZ-223, ELZ-224, ELZ-227, ELZ-229, ELZ-230, ELZ-222, ELZ-231, ELZ-232, ELZ-233, ELZ-234, ELZ-225, ELZ-235, ELZ-236, ELZ-237, ELZ-238, ELZ-239, ELZ-240, ELZ-241, ELZ-242, ELZ-243, ELZ-245, ELZ-246, ELZ-247, ELZ-248, ELZ-249, ELZ-250, ELZ-251, ELZ-252, ELZ-253, ELZ-254, ELZ-255, ELZ-256, ELZ-257, ELZ-259, ELZ-260, ELZ-261, ELZ-262.
+Prerequisites: ELZ-114, RC-44, RC-45, RC-46, RC-47, RC-48, RC-49, RC-50, RC-51, RC-52, RC-53, RC-54, RC-55, RC-56, RC-57, RC-58, RC-59, RC-60, RC-61, RC-62, RC-63, RC-64, RC-65, RC-66, RC-67, RC-68, RC-69, RC-70, ELZ-115, ELZ-117, ELZ-118, ELZ-122, ELZ-123, ELZ-125, ELZ-124, ELZ-126, ELZ-127, ELZ-136, ELZ-141, ELZ-144, ELZ-145, ELZ-146, ELZ-137, ELZ-139, ELZ-140, ELZ-142, ELZ-138, ELZ-143, ELZ-147, ELZ-148, ELZ-150, ELZ-156, ELZ-159, ELZ-160, ELZ-165, ELZ-161, ELZ-162, ELZ-163, ELZ-164, ELZ-166, ELZ-167, ELZ-168, ELZ-169, ELZ-172, ELZ-170, ELZ-171, ELZ-174, ELZ-173, ELZ-175, ELZ-176, ELZ-177, ELZ-178, ELZ-179, ELZ-180, ELZ-181, ELZ-182, ELZ-183, ELZ-186, ELZ-187, ELZ-188, ELZ-189, ELZ-190, ELZ-191, ELZ-192, ELZ-193, ELZ-194, ELZ-195, ELZ-196, ELZ-197, ELZ-198, ELZ-199, ELZ-200, ELZ-201, ELZ-202, ELZ-203, ELZ-204, ELZ-205, ELZ-206, ELZ-207, ELZ-208, ELZ-210, ELZ-211, ELZ-212, ELZ-213, ELZ-214, ELZ-215, ELZ-216, ELZ-217, ELZ-218, ELZ-219, ELZ-220, ELZ-221, ELZ-223, ELZ-224, ELZ-227, ELZ-229, ELZ-230, ELZ-222, ELZ-231, ELZ-232, ELZ-233, ELZ-234, ELZ-225, ELZ-235, ELZ-236, ELZ-237, ELZ-238, ELZ-239, ELZ-240, ELZ-241, ELZ-242, ELZ-243, ELZ-245, ELZ-246, ELZ-247, ELZ-248, ELZ-249, ELZ-250, ELZ-251, ELZ-252, ELZ-253, ELZ-254, ELZ-255, ELZ-256, ELZ-257, ELZ-258, ELZ-259, ELZ-260, ELZ-261, ELZ-262.
 
 ### V2-ACCEPT
 
@@ -3836,6 +3837,16 @@ Publication copy: [tasks/ELZ-257-webhook-in.md](../../tasks/ELZ-257-webhook-in.m
 **Product aims:** P13.
 
 **Acceptance:** One first-party signed plain-text Plug ingress profile using existing providers only. Authenticate exact raw bytes before JSON parsing or principal/admission Needs; enforce bounded fields, timestamp and body limits, trusted scope and once-only admission per request. Do not generate IDs or claim host authentication, durability, listener lifecycle or channel composition.
+
+### ELZ-258
+
+ELZ-258 — Bounded signed event-to-answer acceptance
+
+Publication copy: [tasks/ELZ-258-signed-channel-acceptance.md](../../tasks/ELZ-258-signed-channel-acceptance.md).
+
+**Product aims:** P13.
+
+**Acceptance:** Bounded Level 3 consumer acceptance and report: two real signed loopback HTTP inputs pass through durable CheckedCommand/Conversation association, actual native RunEngine work/result, durable answers, and scoped read-only GET with identity-preserving replay. Controlled ASK, release, uncertainty and terminal cases cover the named boundaries; synthetic principal and operating-period assumptions remain explicit. No Piece output or Level 4, provider-authentication, streaming, broker or subscriber guarantee.
 
 ### ELZ-259
 
