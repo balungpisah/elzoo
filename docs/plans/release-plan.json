@@ -8390,12 +8390,12 @@
     {
       "id": "workflow/pattern-step",
       "job": "ELZ-114",
-      "note": "Exact v1 pattern-step maps and pure per-request action settlement; no runtime or payload-schema validation.",
+      "note": "Exact v1/v2 pattern-step maps and pure per-request action settlement; no runtime or payload-schema validation.",
       "baseline_status": "not in baseline (new row, RC-68)",
       "disposition": "ready-contract",
       "catalogue_reference": "registry/catalogue.json",
       "manifest": "pieces/workflow/pattern-step/piece.json",
-      "manifest_sha256": "d0b92258eb5cb64c30a5be78baacd16dff0882c990ca691f3f2ea9cf5b110bd1"
+      "manifest_sha256": "8e0f5d8ffc864a696f8e31e20f18be45f6ef403e090d60672c9d6c4a9605554b"
     },
     {
       "id": "core/payload-schema",
